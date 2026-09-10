@@ -381,7 +381,12 @@ public sealed class BatchTranscriptionPipeline : IDisposable
         audioContent.Headers.ContentType = new MediaTypeHeaderValue(GuessAudioContentType(fileName));
         form.Add(audioContent, "file", string.IsNullOrEmpty(fileName) ? "audio.webm" : fileName);
         form.Add(new StringContent(routing.Model), "model");
-        form.Add(new StringContent("json"), "response_format");
+        // verbose_json, not json: it returns each sentence with the span it claims to occupy, which
+        // is what the evidence gate needs to check the words against the sound. This changes only
+        // what OUR proxy hands back - the proxy's own request to the speech model carries no format -
+        // so the transcript itself cannot change. A provider that ignores it simply returns no
+        // segments, and the gate then fails open (pipeline v2.0).
+        form.Add(new StringContent("verbose_json"), "response_format");
         // Spoken-language hint, when the caller knows it. Only sent when set, so the provider keeps
         // auto-detecting for every existing caller. Detection is what fails hardest on the cases this
         // matters for - a short clip, an accent, or a language that shares vocabulary with English -
@@ -410,7 +415,36 @@ public sealed class BatchTranscriptionPipeline : IDisposable
         using var doc = JsonDocument.Parse(body);
         if (!doc.RootElement.TryGetProperty("text", out var textProp))
             throw new InvalidOperationException("Transcription response missing 'text' field");
-        return (textProp.GetString() ?? "").Trim();
+        var text = (textProp.GetString() ?? "").Trim();
+
+        // THE EVIDENCE GATE (pipeline v2.0). Run it HERE, per part, because a long recording is
+        // split and each part's segment times start at zero - gating after the parts are joined
+        // would point every time at the wrong audio. Fails open on anything it cannot measure.
+        var gated = TranscriptEvidenceGate.Apply(audio, ReadSegments(doc.RootElement), text);
+        if (gated.Applied)
+            FileLog.Write($"[BatchTranscriptionPipeline] evidence gate {TranscriptEvidenceGate.Version}: {gated.Reason}");
+        return gated.Text;
+    }
+
+    /// <summary>
+    /// The per-sentence spans from a verbose_json body, or an empty list when the provider did not
+    /// return any. An empty list makes the gate fail open, which is the intended behaviour for a
+    /// provider or format that carries no times.
+    /// </summary>
+    private static IReadOnlyList<TranscriptEvidenceGate.Segment> ReadSegments(JsonElement root)
+    {
+        if (!root.TryGetProperty("segments", out var segs) || segs.ValueKind != JsonValueKind.Array)
+            return Array.Empty<TranscriptEvidenceGate.Segment>();
+
+        var list = new List<TranscriptEvidenceGate.Segment>();
+        foreach (var s in segs.EnumerateArray())
+        {
+            if (!s.TryGetProperty("start", out var a) || !s.TryGetProperty("end", out var b)) continue;
+            if (!s.TryGetProperty("text", out var t)) continue;
+            if (a.ValueKind != JsonValueKind.Number || b.ValueKind != JsonValueKind.Number) continue;
+            list.Add(new TranscriptEvidenceGate.Segment(a.GetDouble(), b.GetDouble(), t.GetString() ?? ""));
+        }
+        return list;
     }
 
     /// <summary>

@@ -63,4 +63,12 @@
     <Delete Files="$(OutDir)hosted-gateway.image" />
   </Target>
 
+
+  <ItemGroup>
+    <!-- Conformance fixture for the transcript evidence gate: the peak levels of the real corpus
+         and the verdict the Python spec gives for each, so the C# is proven to agree with the
+         spec rather than merely resembling it. Carries no audio and no transcript text. -->
+    <None Include="Fixtures/transcript-gate-conformance.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
