@@ -35,6 +35,7 @@ public sealed class DebugPrivilege : IDisposable
     private const uint TokenQuery = 0x0008;
     private const uint SePrivilegeEnabled = 0x0002;
     private const int ErrorNotAllAssigned = 1300;
+    private const int TokenPrivilegesClass = 3;   // TOKEN_INFORMATION_CLASS.TokenPrivileges
 
     [StructLayout(LayoutKind.Sequential)]
     private struct Luid { public uint LowPart; public int HighPart; }
@@ -58,6 +59,10 @@ public sealed class DebugPrivilege : IDisposable
     private static extern bool AdjustTokenPrivileges(IntPtr tokenHandle, bool disableAll,
         ref TokenPrivileges newState, uint bufferLength, out TokenPrivileges previousState, out uint returnLength);
 
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool GetTokenInformation(IntPtr tokenHandle, int tokenInformationClass,
+        IntPtr tokenInformation, uint tokenInformationLength, out uint returnLength);
+
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern bool CloseHandle(IntPtr handle);
 
@@ -75,37 +80,47 @@ public sealed class DebugPrivilege : IDisposable
 
     /// <summary>
     /// True when this process's token carries SeDebugPrivilege and it is currently ENABLED - the state
-    /// in which an access control list is bypassed. Reported in failure messages so a host that cannot
-    /// produce the unreadable state says whether this was the reason.
+    /// in which an access control list is bypassed.
+    ///
+    /// READ-ONLY, and that is the whole point. The first version answered this by asking
+    /// AdjustTokenPrivileges to enable the privilege and reading the previous state out of the reply.
+    /// That mutates the thing it is measuring: on the CI runner it left the privilege ENABLED, so this
+    /// method reported "not held" while <see cref="Suppress"/> immediately afterwards found it on and
+    /// suppressed it - two functions disagreeing about one token, and a test failing on the
+    /// contradiction rather than on anything real. GetTokenInformation only reads, so it cannot
+    /// disagree with itself or leave the host in a state the next test inherits.
     /// </summary>
     public static bool IsEnabledForThisProcess()
     {
-        if (!OpenProcessToken(GetCurrentProcess(), TokenQuery | TokenAdjustPrivileges, out var token))
+        if (!OpenProcessToken(GetCurrentProcess(), TokenQuery, out var token))
             return false;
         try
         {
-            if (!LookupPrivilegeValue(null, SeDebugName, out var luid)) return false;
+            if (!LookupPrivilegeValue(null, SeDebugName, out var wanted)) return false;
 
-            // Ask for a no-op adjustment: it reports the PREVIOUS state without changing anything that
-            // matters, and its "not all assigned" error says the privilege is absent from the token.
-            var request = new TokenPrivileges
+            GetTokenInformation(token, TokenPrivilegesClass, IntPtr.Zero, 0, out var needed);
+            if (needed == 0) return false;
+
+            var buffer = Marshal.AllocHGlobal((int)needed);
+            try
             {
-                PrivilegeCount = 1,
-                Privilege = new LuidAndAttributes { Luid = luid, Attributes = SePrivilegeEnabled },
-            };
-            if (!AdjustTokenPrivileges(token, false, ref request,
-                    (uint)Marshal.SizeOf<TokenPrivileges>(), out var previous, out _))
-                return false;
-            if (Marshal.GetLastWin32Error() == ErrorNotAllAssigned) return false;
+                if (!GetTokenInformation(token, TokenPrivilegesClass, buffer, needed, out _))
+                    return false;
 
-            var wasEnabled = previous.PrivilegeCount == 1
-                && (previous.Privilege.Attributes & SePrivilegeEnabled) == SePrivilegeEnabled;
-
-            // Put back whatever was there before this question was asked.
-            if (previous.PrivilegeCount == 1)
-                AdjustTokenPrivileges(token, false, ref previous,
-                    (uint)Marshal.SizeOf<TokenPrivileges>(), out _, out _);
-            return wasEnabled;
+                var count = Marshal.ReadInt32(buffer);
+                var entrySize = Marshal.SizeOf<LuidAndAttributes>();
+                for (int i = 0; i < count; i++)
+                {
+                    var entry = Marshal.PtrToStructure<LuidAndAttributes>(buffer + sizeof(int) + (i * entrySize));
+                    if (entry.Luid.LowPart != wanted.LowPart || entry.Luid.HighPart != wanted.HighPart) continue;
+                    return (entry.Attributes & SePrivilegeEnabled) == SePrivilegeEnabled;
+                }
+                return false;   // not in this token at all
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(buffer);
+            }
         }
         finally
         {
