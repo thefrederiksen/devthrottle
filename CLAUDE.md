@@ -392,3 +392,66 @@ every `git commit`, `gh pr create`, `gh issue create`, and `gh pr comment`, grep
 the text for "Claude", "Anthropic", "Co-Authored-By", "Generated with" and strip
 any hit. If attribution reaches a commit that is not yet pushed, amend it before
 it goes anywhere near GitHub.
+
+## THE SPOKEN WORDS REACH THE AGENT VERBATIM - HARD RULE FOR EVERY TRANSCRIPTION PATH
+
+**What the user said is what the agent gets. Only TWO changes are allowed between
+the speech model's output and the agent's prompt: a deterministic, in-process,
+dictionary find/replace of individual terms the user listed by hand, and the removal
+of a sentence the audio does not support.**
+
+**The removal, in full (the owner's amendment, 2026-09-10):** *a sentence may be
+removed only when the audio in its own time span contains no speech-level sound;
+nothing may ever be added or reworded.* It exists because whisper-large-v3 must
+caption every part of a clip and cannot answer "nothing was said here", so on a silent
+stretch it writes the likeliest caption from its training data - "Thank you.", "you",
+"Bye." - and about one dictation in eight carried a word the speaker never said. A word
+the model invents is an instruction nobody gave, so removing it SERVES this rule rather
+than bending it. What may never happen is a removal the audio does not justify: see
+`docs/architecture/transcription-pipeline-versions.md` for the rule and its measured
+score, and the research behind it in
+`docs/research/transcription/2026-09-09-unspoken-words.md`.
+
+This binds the Gateway (`CcDirector.Gateway/Transcription`, `CcDirector.Core/Dictation`),
+the Director's local dictation, the phone app, Notes, Wingman, and the proxy in
+`devthrottle_internal/website/api/v1/audio.js` - every path that turns audio into text.
+
+FORBIDDEN, in any of those paths:
+- Any generative model that can reword, translate, summarise, answer, or "clean up"
+  the transcript. A model that WRITES text is not a transcriber. This includes
+  post-processing passes (the o4-mini cleanup removed in July 2026) AND generative
+  speech-to-text models used as the transcriber itself: on 2026-08-29 the primary
+  provider was `gpt-4o-transcribe`, and it emitted invented German ("Koennt ihr dem
+  Aufgabschornel noch geholfen?") and rewrote whole sentences ("Why do you use it
+  that strong now to send email?") for an English speaker. The Gateway's stored
+  RawText matched what hit the screen and CleanupApplied was false - the damage was
+  done INSIDE the speech model, where no downstream rule can catch it. The primary
+  transcriber must be a non-generative acoustic model (whisper-large-v3).
+- Replacing a word the user did NOT list. The fuzzy matcher did this from
+  2026-08-08 to 2026-08-17 ("sure" -> "Soren" 261 times, "many" -> "Banya" 138,
+  "code" -> "Codex", "single" -> "SignalR", "focus" -> "Opus") before it was made
+  opt-in and off (#2597). It stays off. A judge model may only ever answer with
+  candidate ids - it never supplies text - and it does not make an unlisted swap
+  allowed; the user's own list does.
+- Sending the model a vocabulary `prompt`, a language override, or any bias the
+  user did not configure. A hint changes what the model hears.
+
+REQUIRED:
+- `dictation_transcripts.RawText` is the speech model's FULL output byte-for-byte,
+  including any sentence the evidence gate removed. `CleanedText` differs from it only
+  by accepted `ChangedWords`, each a hand-listed correction, and by whole sentences the
+  gate dropped - never by a reword and never by an addition. A test must prove
+  `Raw + ChangedWords - DroppedSentences == Cleaned`.
+- A removal is only permitted when it is RECORDED. The dropped sentences travel with
+  the result, so a removal is answerable by query exactly as a dictionary edit is. A
+  gate that quietly shrinks a transcript, leaving the evidence only in a log file, is
+  the defect fixed in devthrottle#2805 - not the design.
+- The proof of compliance is the stored rows, not the code comments: diff
+  RawText vs CleanedText over the last 30 days
+  (see the 2026-08-29 query in devthrottle_internal `docs/incidents/`). Any edit
+  whose Find is not in the tenant's Corrections list is a defect, not a feature.
+- Changing the transcription provider or model is a product decision made by the
+  owner in writing. Never switch to a generative model for "reliability".
+
+**Why:** the agent acts on the words. A wrong word from the speaker is the
+speaker's problem; a wrong word from us is an instruction the user never gave.
