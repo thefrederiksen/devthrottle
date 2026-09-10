@@ -1,0 +1,1758 @@
+{
+ "spec": "devthrottle_internal tools/transcription-lab/corpus/gate.py",
+ "version": "v2.0",
+ "generated": "2026-09-09",
+ "note": "Per-segment peak levels from the real 44-clip corpus and the verdict the Python spec gives for each. Filenames and transcript text are deliberately absent: this fixture proves the C# arithmetic and the median-reference choice match the spec, and carries none of the owner's speech.",
+ "cases": [
+  {
+   "clip": "clip00",
+   "segments": [
+    {
+     "start": 0.96,
+     "end": 5.1,
+     "peakDb": -31.7,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip01",
+   "segments": [
+    {
+     "start": 0.81,
+     "end": 3.19,
+     "peakDb": -32.7,
+     "drop": false
+    },
+    {
+     "start": 4.2,
+     "end": 7.54,
+     "peakDb": -30.7,
+     "drop": false
+    },
+    {
+     "start": 8.13,
+     "end": 9.07,
+     "peakDb": -34.2,
+     "drop": false
+    },
+    {
+     "start": 9.9,
+     "end": 14.28,
+     "peakDb": -27.5,
+     "drop": false
+    },
+    {
+     "start": 15.12,
+     "end": 18.74,
+     "peakDb": -17.7,
+     "drop": false
+    },
+    {
+     "start": 19.08,
+     "end": 22.62,
+     "peakDb": -18.8,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip02",
+   "segments": [
+    {
+     "start": 0.69,
+     "end": 3.33,
+     "peakDb": -24.9,
+     "drop": false
+    },
+    {
+     "start": 6.72,
+     "end": 7.32,
+     "peakDb": -33.3,
+     "drop": false
+    },
+    {
+     "start": 7.35,
+     "end": 10.11,
+     "peakDb": -25.0,
+     "drop": false
+    },
+    {
+     "start": 10.92,
+     "end": 13.86,
+     "peakDb": -25.6,
+     "drop": false
+    },
+    {
+     "start": 14.28,
+     "end": 16.54,
+     "peakDb": -26.4,
+     "drop": false
+    },
+    {
+     "start": 17.64,
+     "end": 17.96,
+     "peakDb": -32.0,
+     "drop": false
+    },
+    {
+     "start": 19.11,
+     "end": 23.41,
+     "peakDb": -27.8,
+     "drop": false
+    },
+    {
+     "start": 24.12,
+     "end": 26.04,
+     "peakDb": -29.2,
+     "drop": false
+    },
+    {
+     "start": 26.46,
+     "end": 27.46,
+     "peakDb": -30.6,
+     "drop": false
+    },
+    {
+     "start": 30.48,
+     "end": 33.78,
+     "peakDb": -26.7,
+     "drop": false
+    },
+    {
+     "start": 34.32,
+     "end": 36.16,
+     "peakDb": -27.5,
+     "drop": false
+    },
+    {
+     "start": 36.48,
+     "end": 39.16,
+     "peakDb": -28.4,
+     "drop": false
+    },
+    {
+     "start": 39.72,
+     "end": 40.78,
+     "peakDb": -32.6,
+     "drop": false
+    },
+    {
+     "start": 41.4,
+     "end": 42.28,
+     "peakDb": -29.8,
+     "drop": false
+    },
+    {
+     "start": 44.16,
+     "end": 45.66,
+     "peakDb": -27.0,
+     "drop": false
+    },
+    {
+     "start": 46.68,
+     "end": 49.84,
+     "peakDb": -27.0,
+     "drop": false
+    },
+    {
+     "start": 50.13,
+     "end": 51.57,
+     "peakDb": -25.2,
+     "drop": false
+    },
+    {
+     "start": 52.95,
+     "end": 55.99,
+     "peakDb": -25.0,
+     "drop": false
+    },
+    {
+     "start": 56.58,
+     "end": 60.0,
+     "peakDb": -28.7,
+     "drop": false
+    },
+    {
+     "start": 60.18,
+     "end": 61.86,
+     "peakDb": -28.4,
+     "drop": false
+    },
+    {
+     "start": 62.01,
+     "end": 63.21,
+     "peakDb": -28.5,
+     "drop": false
+    },
+    {
+     "start": 63.24,
+     "end": 67.36,
+     "peakDb": -28.2,
+     "drop": false
+    },
+    {
+     "start": 67.68,
+     "end": 69.98,
+     "peakDb": -26.0,
+     "drop": false
+    },
+    {
+     "start": 70.5,
+     "end": 72.58,
+     "peakDb": -27.8,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip03",
+   "segments": [
+    {
+     "start": 0.06,
+     "end": 0.52,
+     "peakDb": -18.4,
+     "drop": false
+    },
+    {
+     "start": 0.81,
+     "end": 3.67,
+     "peakDb": -18.5,
+     "drop": false
+    },
+    {
+     "start": 4.95,
+     "end": 8.71,
+     "peakDb": -18.6,
+     "drop": false
+    },
+    {
+     "start": 9.66,
+     "end": 12.38,
+     "peakDb": -16.6,
+     "drop": false
+    },
+    {
+     "start": 14.34,
+     "end": 26.64,
+     "peakDb": -16.3,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip04",
+   "segments": [
+    {
+     "start": 0.03,
+     "end": 0.45,
+     "peakDb": -23.0,
+     "drop": false
+    },
+    {
+     "start": 0.78,
+     "end": 2.84,
+     "peakDb": -14.8,
+     "drop": false
+    },
+    {
+     "start": 4.23,
+     "end": 5.67,
+     "peakDb": -17.6,
+     "drop": false
+    },
+    {
+     "start": 13.17,
+     "end": 14.03,
+     "peakDb": -17.1,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip05",
+   "segments": [
+    {
+     "start": 0.03,
+     "end": 0.55,
+     "peakDb": -23.0,
+     "drop": false
+    },
+    {
+     "start": 1.29,
+     "end": 2.89,
+     "peakDb": -15.1,
+     "drop": false
+    },
+    {
+     "start": 3.24,
+     "end": 7.72,
+     "peakDb": -16.8,
+     "drop": false
+    },
+    {
+     "start": 8.07,
+     "end": 10.83,
+     "peakDb": -15.9,
+     "drop": false
+    },
+    {
+     "start": 11.85,
+     "end": 16.95,
+     "peakDb": -14.9,
+     "drop": false
+    },
+    {
+     "start": 17.52,
+     "end": 22.3,
+     "peakDb": -17.0,
+     "drop": false
+    },
+    {
+     "start": 23.58,
+     "end": 28.14,
+     "peakDb": -17.2,
+     "drop": false
+    },
+    {
+     "start": 28.71,
+     "end": 34.63,
+     "peakDb": -17.0,
+     "drop": false
+    },
+    {
+     "start": 35.22,
+     "end": 35.72,
+     "peakDb": -38.2,
+     "drop": true
+    }
+   ]
+  },
+  {
+   "clip": "clip06",
+   "segments": [
+    {
+     "start": 0.45,
+     "end": 0.93,
+     "peakDb": -61.1,
+     "drop": true
+    },
+    {
+     "start": 0.99,
+     "end": 7.33,
+     "peakDb": -13.2,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip07",
+   "segments": [
+    {
+     "start": 0.06,
+     "end": 0.7,
+     "peakDb": -45.9,
+     "drop": true
+    },
+    {
+     "start": 1.32,
+     "end": 4.74,
+     "peakDb": -11.9,
+     "drop": false
+    },
+    {
+     "start": 5.25,
+     "end": 11.47,
+     "peakDb": -14.7,
+     "drop": false
+    },
+    {
+     "start": 13.41,
+     "end": 16.23,
+     "peakDb": -6.4,
+     "drop": false
+    },
+    {
+     "start": 16.86,
+     "end": 20.52,
+     "peakDb": -14.4,
+     "drop": false
+    },
+    {
+     "start": 21.18,
+     "end": 23.58,
+     "peakDb": -15.4,
+     "drop": false
+    },
+    {
+     "start": 24.09,
+     "end": 25.63,
+     "peakDb": -16.3,
+     "drop": false
+    },
+    {
+     "start": 26.55,
+     "end": 29.97,
+     "peakDb": -12.6,
+     "drop": false
+    },
+    {
+     "start": 31.11,
+     "end": 35.35,
+     "peakDb": -11.7,
+     "drop": false
+    },
+    {
+     "start": 35.7,
+     "end": 37.7,
+     "peakDb": -26.9,
+     "drop": true
+    },
+    {
+     "start": 37.23,
+     "end": 37.71,
+     "peakDb": -26.9,
+     "drop": true
+    },
+    {
+     "start": 39.06,
+     "end": 47.74,
+     "peakDb": -10.2,
+     "drop": false
+    },
+    {
+     "start": 48.45,
+     "end": 58.99,
+     "peakDb": -11.5,
+     "drop": false
+    },
+    {
+     "start": 59.58,
+     "end": 61.18,
+     "peakDb": -10.7,
+     "drop": false
+    },
+    {
+     "start": 61.35,
+     "end": 70.69,
+     "peakDb": -12.2,
+     "drop": false
+    },
+    {
+     "start": 71.19,
+     "end": 76.81,
+     "peakDb": -9.1,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip08",
+   "segments": [
+    {
+     "start": 2.97,
+     "end": 5.53,
+     "peakDb": -5.2,
+     "drop": false
+    },
+    {
+     "start": 9.24,
+     "end": 19.46,
+     "peakDb": -6.4,
+     "drop": false
+    },
+    {
+     "start": 20.64,
+     "end": 22.26,
+     "peakDb": -5.8,
+     "drop": false
+    },
+    {
+     "start": 25.44,
+     "end": 28.2,
+     "peakDb": -7.8,
+     "drop": false
+    },
+    {
+     "start": 30.87,
+     "end": 32.19,
+     "peakDb": -10.1,
+     "drop": false
+    },
+    {
+     "start": 32.4,
+     "end": 35.12,
+     "peakDb": -5.9,
+     "drop": false
+    },
+    {
+     "start": 36.75,
+     "end": 40.35,
+     "peakDb": -7.9,
+     "drop": false
+    },
+    {
+     "start": 41.46,
+     "end": 43.68,
+     "peakDb": -10.8,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip09",
+   "segments": [
+    {
+     "start": 1.95,
+     "end": 8.89,
+     "peakDb": -5.3,
+     "drop": false
+    },
+    {
+     "start": 9.72,
+     "end": 11.96,
+     "peakDb": -10.2,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip10",
+   "segments": [
+    {
+     "start": 1.77,
+     "end": 8.01,
+     "peakDb": -8.7,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip11",
+   "segments": [
+    {
+     "start": 1.44,
+     "end": 6.22,
+     "peakDb": -6.7,
+     "drop": false
+    },
+    {
+     "start": 6.57,
+     "end": 12.09,
+     "peakDb": -11.4,
+     "drop": false
+    },
+    {
+     "start": 14.01,
+     "end": 15.09,
+     "peakDb": -11.0,
+     "drop": false
+    },
+    {
+     "start": 15.6,
+     "end": 19.66,
+     "peakDb": -11.8,
+     "drop": false
+    },
+    {
+     "start": 21.3,
+     "end": 22.96,
+     "peakDb": -11.5,
+     "drop": false
+    },
+    {
+     "start": 23.19,
+     "end": 25.43,
+     "peakDb": -11.6,
+     "drop": false
+    },
+    {
+     "start": 26.07,
+     "end": 31.93,
+     "peakDb": -9.0,
+     "drop": false
+    },
+    {
+     "start": 32.64,
+     "end": 40.4,
+     "peakDb": -5.6,
+     "drop": false
+    },
+    {
+     "start": 40.53,
+     "end": 44.61,
+     "peakDb": -6.5,
+     "drop": false
+    },
+    {
+     "start": 45.0,
+     "end": 49.28,
+     "peakDb": -6.7,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip12",
+   "segments": [
+    {
+     "start": 2.31,
+     "end": 7.67,
+     "peakDb": -9.4,
+     "drop": false
+    },
+    {
+     "start": 8.22,
+     "end": 10.74,
+     "peakDb": -8.1,
+     "drop": false
+    },
+    {
+     "start": 12.0,
+     "end": 16.6,
+     "peakDb": -5.5,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip13",
+   "segments": [
+    {
+     "start": 0.0,
+     "end": 0.6,
+     "peakDb": -7.5,
+     "drop": false
+    },
+    {
+     "start": 0.84,
+     "end": 4.62,
+     "peakDb": -0.2,
+     "drop": false
+    },
+    {
+     "start": 6.45,
+     "end": 12.41,
+     "peakDb": -2.4,
+     "drop": false
+    },
+    {
+     "start": 13.08,
+     "end": 17.96,
+     "peakDb": -3.3,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip14",
+   "segments": [
+    {
+     "start": 1.95,
+     "end": 2.55,
+     "peakDb": -34.0,
+     "drop": true
+    },
+    {
+     "start": 3.66,
+     "end": 5.56,
+     "peakDb": -9.4,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip15",
+   "segments": [
+    {
+     "start": 2.28,
+     "end": 8.84,
+     "peakDb": -7.2,
+     "drop": false
+    },
+    {
+     "start": 10.26,
+     "end": 14.02,
+     "peakDb": -8.7,
+     "drop": false
+    },
+    {
+     "start": 14.28,
+     "end": 16.12,
+     "peakDb": -11.5,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip16",
+   "segments": [
+    {
+     "start": 1.35,
+     "end": 5.41,
+     "peakDb": -8.2,
+     "drop": false
+    },
+    {
+     "start": 7.2,
+     "end": 8.48,
+     "peakDb": -12.1,
+     "drop": false
+    },
+    {
+     "start": 8.58,
+     "end": 11.3,
+     "peakDb": -8.0,
+     "drop": false
+    },
+    {
+     "start": 12.15,
+     "end": 17.43,
+     "peakDb": -7.9,
+     "drop": false
+    },
+    {
+     "start": 18.12,
+     "end": 20.7,
+     "peakDb": -7.4,
+     "drop": false
+    },
+    {
+     "start": 21.87,
+     "end": 35.13,
+     "peakDb": -8.1,
+     "drop": false
+    },
+    {
+     "start": 35.43,
+     "end": 35.77,
+     "peakDb": -52.8,
+     "drop": true
+    }
+   ]
+  },
+  {
+   "clip": "clip17",
+   "segments": [
+    {
+     "start": 1.02,
+     "end": 6.22,
+     "peakDb": -19.2,
+     "drop": false
+    },
+    {
+     "start": 8.19,
+     "end": 19.83,
+     "peakDb": -21.6,
+     "drop": false
+    },
+    {
+     "start": 20.91,
+     "end": 25.39,
+     "peakDb": -20.3,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip18",
+   "segments": [
+    {
+     "start": 0.75,
+     "end": 4.33,
+     "peakDb": -23.3,
+     "drop": false
+    },
+    {
+     "start": 4.95,
+     "end": 9.99,
+     "peakDb": -24.5,
+     "drop": false
+    },
+    {
+     "start": 10.2,
+     "end": 10.62,
+     "peakDb": -63.9,
+     "drop": true
+    },
+    {
+     "start": 11.79,
+     "end": 13.33,
+     "peakDb": -27.0,
+     "drop": false
+    },
+    {
+     "start": 14.01,
+     "end": 16.05,
+     "peakDb": -25.3,
+     "drop": false
+    },
+    {
+     "start": 16.38,
+     "end": 19.02,
+     "peakDb": -24.1,
+     "drop": false
+    },
+    {
+     "start": 20.01,
+     "end": 22.21,
+     "peakDb": -25.1,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip19",
+   "segments": [
+    {
+     "start": 0.0,
+     "end": 0.42,
+     "peakDb": -25.7,
+     "drop": false
+    },
+    {
+     "start": 0.69,
+     "end": 5.75,
+     "peakDb": -16.0,
+     "drop": false
+    },
+    {
+     "start": 6.54,
+     "end": 10.0,
+     "peakDb": -18.1,
+     "drop": false
+    },
+    {
+     "start": 10.35,
+     "end": 12.35,
+     "peakDb": -19.8,
+     "drop": false
+    },
+    {
+     "start": 12.54,
+     "end": 15.9,
+     "peakDb": -19.3,
+     "drop": false
+    },
+    {
+     "start": 16.44,
+     "end": 23.3,
+     "peakDb": -21.0,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip20",
+   "segments": [
+    {
+     "start": 0.9,
+     "end": 4.12,
+     "peakDb": -18.2,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip21",
+   "segments": [
+    {
+     "start": 0.0,
+     "end": 0.46,
+     "peakDb": -26.8,
+     "drop": false
+    },
+    {
+     "start": 1.02,
+     "end": 6.6,
+     "peakDb": -14.1,
+     "drop": false
+    },
+    {
+     "start": 6.72,
+     "end": 8.88,
+     "peakDb": -26.8,
+     "drop": false
+    },
+    {
+     "start": 10.62,
+     "end": 13.54,
+     "peakDb": -21.5,
+     "drop": false
+    },
+    {
+     "start": 14.31,
+     "end": 15.93,
+     "peakDb": -20.9,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip22",
+   "segments": [
+    {
+     "start": 0.06,
+     "end": 8.06,
+     "peakDb": -12.7,
+     "drop": false
+    },
+    {
+     "start": 7.23,
+     "end": 10.27,
+     "peakDb": -22.6,
+     "drop": false
+    },
+    {
+     "start": 13.2,
+     "end": 22.08,
+     "peakDb": -17.8,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip23",
+   "segments": [
+    {
+     "start": 0.06,
+     "end": 0.6,
+     "peakDb": -24.2,
+     "drop": false
+    },
+    {
+     "start": 0.78,
+     "end": 4.78,
+     "peakDb": -15.6,
+     "drop": false
+    },
+    {
+     "start": 4.89,
+     "end": 6.65,
+     "peakDb": -21.5,
+     "drop": false
+    },
+    {
+     "start": 7.32,
+     "end": 14.54,
+     "peakDb": -16.2,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip24",
+   "segments": [
+    {
+     "start": 1.59,
+     "end": 10.63,
+     "peakDb": -18.5,
+     "drop": false
+    },
+    {
+     "start": 10.8,
+     "end": 11.92,
+     "peakDb": -19.2,
+     "drop": false
+    },
+    {
+     "start": 12.27,
+     "end": 13.07,
+     "peakDb": -19.8,
+     "drop": false
+    },
+    {
+     "start": 13.86,
+     "end": 17.44,
+     "peakDb": -16.8,
+     "drop": false
+    },
+    {
+     "start": 17.46,
+     "end": 19.06,
+     "peakDb": -18.6,
+     "drop": false
+    },
+    {
+     "start": 19.44,
+     "end": 24.9,
+     "peakDb": -18.1,
+     "drop": false
+    },
+    {
+     "start": 26.07,
+     "end": 30.17,
+     "peakDb": -18.0,
+     "drop": false
+    },
+    {
+     "start": 31.89,
+     "end": 34.33,
+     "peakDb": -18.9,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip25",
+   "segments": [
+    {
+     "start": 1.65,
+     "end": 5.85,
+     "peakDb": -19.6,
+     "drop": false
+    },
+    {
+     "start": 6.27,
+     "end": 8.27,
+     "peakDb": -24.5,
+     "drop": false
+    },
+    {
+     "start": 9.21,
+     "end": 21.07,
+     "peakDb": -23.0,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip26",
+   "segments": [
+    {
+     "start": 0.06,
+     "end": 0.3,
+     "peakDb": -26.6,
+     "drop": false
+    },
+    {
+     "start": 0.99,
+     "end": 3.67,
+     "peakDb": -14.4,
+     "drop": false
+    },
+    {
+     "start": 5.67,
+     "end": 11.91,
+     "peakDb": -19.5,
+     "drop": false
+    },
+    {
+     "start": 12.66,
+     "end": 22.26,
+     "peakDb": -17.7,
+     "drop": false
+    },
+    {
+     "start": 22.68,
+     "end": 23.18,
+     "peakDb": -49.7,
+     "drop": true
+    }
+   ]
+  },
+  {
+   "clip": "clip27",
+   "segments": [
+    {
+     "start": 0.0,
+     "end": 0.24,
+     "peakDb": -29.2,
+     "drop": false
+    },
+    {
+     "start": 0.54,
+     "end": 1.02,
+     "peakDb": -42.6,
+     "drop": true
+    },
+    {
+     "start": 1.92,
+     "end": 2.76,
+     "peakDb": -17.7,
+     "drop": false
+    },
+    {
+     "start": 2.85,
+     "end": 8.69,
+     "peakDb": -19.2,
+     "drop": false
+    },
+    {
+     "start": 8.88,
+     "end": 13.56,
+     "peakDb": -17.8,
+     "drop": false
+    },
+    {
+     "start": 13.65,
+     "end": 18.21,
+     "peakDb": -20.9,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip28",
+   "segments": [
+    {
+     "start": 0.06,
+     "end": 4.08,
+     "peakDb": -13.2,
+     "drop": false
+    },
+    {
+     "start": 5.31,
+     "end": 11.77,
+     "peakDb": -16.8,
+     "drop": false
+    },
+    {
+     "start": 11.85,
+     "end": 15.79,
+     "peakDb": -18.4,
+     "drop": false
+    },
+    {
+     "start": 15.87,
+     "end": 17.17,
+     "peakDb": -24.8,
+     "drop": false
+    },
+    {
+     "start": 17.25,
+     "end": 20.77,
+     "peakDb": -22.3,
+     "drop": false
+    },
+    {
+     "start": 21.12,
+     "end": 41.76,
+     "peakDb": -14.9,
+     "drop": false
+    },
+    {
+     "start": 43.12,
+     "end": 46.16,
+     "peakDb": -15.1,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip29",
+   "segments": [
+    {
+     "start": 0.84,
+     "end": 3.52,
+     "peakDb": -20.5,
+     "drop": false
+    },
+    {
+     "start": 3.6,
+     "end": 4.9,
+     "peakDb": -23.4,
+     "drop": false
+    },
+    {
+     "start": 5.55,
+     "end": 17.33,
+     "peakDb": -20.4,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip30",
+   "segments": [
+    {
+     "start": 0.03,
+     "end": 0.35,
+     "peakDb": -30.1,
+     "drop": false
+    },
+    {
+     "start": 0.63,
+     "end": 4.17,
+     "peakDb": -17.7,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip31",
+   "segments": [
+    {
+     "start": 0.69,
+     "end": 2.25,
+     "peakDb": -22.1,
+     "drop": false
+    },
+    {
+     "start": 3.33,
+     "end": 5.47,
+     "peakDb": -24.5,
+     "drop": false
+    },
+    {
+     "start": 6.0,
+     "end": 6.48,
+     "peakDb": -56.7,
+     "drop": true
+    },
+    {
+     "start": 6.54,
+     "end": 8.8,
+     "peakDb": -23.9,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip32",
+   "segments": [
+    {
+     "start": 0.03,
+     "end": 0.51,
+     "peakDb": -19.3,
+     "drop": false
+    },
+    {
+     "start": 0.72,
+     "end": 7.42,
+     "peakDb": -18.5,
+     "drop": false
+    },
+    {
+     "start": 7.92,
+     "end": 13.14,
+     "peakDb": -18.5,
+     "drop": false
+    },
+    {
+     "start": 14.19,
+     "end": 17.99,
+     "peakDb": -18.1,
+     "drop": false
+    },
+    {
+     "start": 18.54,
+     "end": 21.16,
+     "peakDb": -18.5,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip33",
+   "segments": [
+    {
+     "start": 0.03,
+     "end": 0.53,
+     "peakDb": -18.2,
+     "drop": false
+    },
+    {
+     "start": 0.78,
+     "end": 5.82,
+     "peakDb": -10.1,
+     "drop": false
+    },
+    {
+     "start": 7.59,
+     "end": 8.89,
+     "peakDb": -19.2,
+     "drop": false
+    },
+    {
+     "start": 9.18,
+     "end": 10.86,
+     "peakDb": -17.7,
+     "drop": false
+    },
+    {
+     "start": 11.01,
+     "end": 15.61,
+     "peakDb": -13.2,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip34",
+   "segments": [
+    {
+     "start": 0.03,
+     "end": 0.53,
+     "peakDb": -19.6,
+     "drop": false
+    },
+    {
+     "start": 0.78,
+     "end": 2.04,
+     "peakDb": -14.5,
+     "drop": false
+    },
+    {
+     "start": 2.28,
+     "end": 4.52,
+     "peakDb": -18.0,
+     "drop": false
+    },
+    {
+     "start": 5.37,
+     "end": 9.93,
+     "peakDb": -14.4,
+     "drop": false
+    },
+    {
+     "start": 11.19,
+     "end": 12.87,
+     "peakDb": -14.6,
+     "drop": false
+    },
+    {
+     "start": 15.15,
+     "end": 17.03,
+     "peakDb": -14.6,
+     "drop": false
+    },
+    {
+     "start": 17.46,
+     "end": 26.34,
+     "peakDb": -12.5,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip35",
+   "segments": [
+    {
+     "start": 0.03,
+     "end": 0.45,
+     "peakDb": -19.3,
+     "drop": false
+    },
+    {
+     "start": 0.84,
+     "end": 3.18,
+     "peakDb": -16.4,
+     "drop": false
+    },
+    {
+     "start": 3.42,
+     "end": 5.42,
+     "peakDb": -15.0,
+     "drop": false
+    },
+    {
+     "start": 5.4,
+     "end": 6.96,
+     "peakDb": -14.5,
+     "drop": false
+    },
+    {
+     "start": 8.07,
+     "end": 13.27,
+     "peakDb": -13.2,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip36",
+   "segments": [
+    {
+     "start": 0.03,
+     "end": 3.21,
+     "peakDb": -14.2,
+     "drop": false
+    },
+    {
+     "start": 3.81,
+     "end": 6.51,
+     "peakDb": -15.9,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip37",
+   "segments": [
+    {
+     "start": 0.03,
+     "end": 3.03,
+     "peakDb": -21.3,
+     "drop": false
+    },
+    {
+     "start": 4.44,
+     "end": 9.42,
+     "peakDb": -25.7,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip38",
+   "segments": [
+    {
+     "start": 0.66,
+     "end": 1.8,
+     "peakDb": -14.8,
+     "drop": false
+    },
+    {
+     "start": 3.42,
+     "end": 10.88,
+     "peakDb": -16.6,
+     "drop": false
+    },
+    {
+     "start": 11.46,
+     "end": 12.12,
+     "peakDb": -17.0,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip39",
+   "segments": [
+    {
+     "start": 1.08,
+     "end": 5.92,
+     "peakDb": -20.2,
+     "drop": false
+    },
+    {
+     "start": 6.18,
+     "end": 9.6,
+     "peakDb": -18.0,
+     "drop": false
+    },
+    {
+     "start": 10.23,
+     "end": 13.01,
+     "peakDb": -25.4,
+     "drop": false
+    },
+    {
+     "start": 13.44,
+     "end": 13.92,
+     "peakDb": -34.9,
+     "drop": false
+    },
+    {
+     "start": 13.98,
+     "end": 16.62,
+     "peakDb": -25.4,
+     "drop": false
+    },
+    {
+     "start": 17.04,
+     "end": 22.72,
+     "peakDb": -24.2,
+     "drop": false
+    },
+    {
+     "start": 22.95,
+     "end": 23.35,
+     "peakDb": -51.5,
+     "drop": true
+    },
+    {
+     "start": 23.64,
+     "end": 26.1,
+     "peakDb": -22.5,
+     "drop": false
+    },
+    {
+     "start": 27.36,
+     "end": 30.56,
+     "peakDb": -25.4,
+     "drop": false
+    },
+    {
+     "start": 30.75,
+     "end": 32.35,
+     "peakDb": -28.0,
+     "drop": false
+    },
+    {
+     "start": 33.36,
+     "end": 34.64,
+     "peakDb": -24.6,
+     "drop": false
+    },
+    {
+     "start": 34.98,
+     "end": 38.42,
+     "peakDb": -26.8,
+     "drop": false
+    },
+    {
+     "start": 39.21,
+     "end": 42.03,
+     "peakDb": -28.0,
+     "drop": false
+    },
+    {
+     "start": 42.42,
+     "end": 45.78,
+     "peakDb": -29.2,
+     "drop": false
+    },
+    {
+     "start": 45.84,
+     "end": 48.24,
+     "peakDb": -25.7,
+     "drop": false
+    },
+    {
+     "start": 48.57,
+     "end": 51.63,
+     "peakDb": -29.8,
+     "drop": false
+    },
+    {
+     "start": 51.96,
+     "end": 55.44,
+     "peakDb": -27.2,
+     "drop": false
+    },
+    {
+     "start": 55.65,
+     "end": 59.29,
+     "peakDb": -25.2,
+     "drop": false
+    },
+    {
+     "start": 59.64,
+     "end": 63.4,
+     "peakDb": -28.1,
+     "drop": false
+    },
+    {
+     "start": 63.51,
+     "end": 65.17,
+     "peakDb": -28.3,
+     "drop": false
+    },
+    {
+     "start": 66.06,
+     "end": 70.14,
+     "peakDb": -25.6,
+     "drop": false
+    },
+    {
+     "start": 71.55,
+     "end": 76.31,
+     "peakDb": -26.0,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip40",
+   "segments": [
+    {
+     "start": 0.03,
+     "end": 4.75,
+     "peakDb": -24.6,
+     "drop": false
+    },
+    {
+     "start": 4.8,
+     "end": 8.64,
+     "peakDb": -28.2,
+     "drop": false
+    },
+    {
+     "start": 8.7,
+     "end": 10.96,
+     "peakDb": -31.0,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip41",
+   "segments": [
+    {
+     "start": 2.07,
+     "end": 8.83,
+     "peakDb": -19.0,
+     "drop": false
+    },
+    {
+     "start": 9.12,
+     "end": 11.6,
+     "peakDb": -25.0,
+     "drop": false
+    },
+    {
+     "start": 12.66,
+     "end": 20.66,
+     "peakDb": -20.7,
+     "drop": false
+    },
+    {
+     "start": 20.91,
+     "end": 25.49,
+     "peakDb": -16.2,
+     "drop": false
+    },
+    {
+     "start": 25.98,
+     "end": 27.88,
+     "peakDb": -21.5,
+     "drop": false
+    },
+    {
+     "start": 27.99,
+     "end": 29.55,
+     "peakDb": -24.4,
+     "drop": false
+    },
+    {
+     "start": 30.03,
+     "end": 33.35,
+     "peakDb": -18.7,
+     "drop": false
+    },
+    {
+     "start": 33.66,
+     "end": 37.52,
+     "peakDb": -21.3,
+     "drop": false
+    },
+    {
+     "start": 38.91,
+     "end": 40.17,
+     "peakDb": -22.2,
+     "drop": false
+    },
+    {
+     "start": 40.98,
+     "end": 42.3,
+     "peakDb": -18.4,
+     "drop": false
+    },
+    {
+     "start": 42.66,
+     "end": 44.38,
+     "peakDb": -26.8,
+     "drop": false
+    },
+    {
+     "start": 44.49,
+     "end": 47.23,
+     "peakDb": -19.3,
+     "drop": false
+    },
+    {
+     "start": 47.46,
+     "end": 48.66,
+     "peakDb": -22.2,
+     "drop": false
+    },
+    {
+     "start": 48.78,
+     "end": 53.46,
+     "peakDb": -18.9,
+     "drop": false
+    },
+    {
+     "start": 56.25,
+     "end": 60.69,
+     "peakDb": -19.8,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip42",
+   "segments": [
+    {
+     "start": 0.03,
+     "end": 0.27,
+     "peakDb": -28.5,
+     "drop": false
+    },
+    {
+     "start": 0.48,
+     "end": 2.86,
+     "peakDb": -18.0,
+     "drop": false
+    }
+   ]
+  },
+  {
+   "clip": "clip43",
+   "segments": [
+    {
+     "start": 2.37,
+     "end": 4.53,
+     "peakDb": -24.7,
+     "drop": false
+    },
+    {
+     "start": 4.59,
+     "end": 8.35,
+     "peakDb": -26.5,
+     "drop": false
+    },
+    {
+     "start": 9.45,
+     "end": 12.01,
+     "peakDb": -23.9,
+     "drop": false
+    },
+    {
+     "start": 12.99,
+     "end": 14.83,
+     "peakDb": -30.4,
+     "drop": false
+    },
+    {
+     "start": 15.18,
+     "end": 17.78,
+     "peakDb": -24.5,
+     "drop": false
+    },
+    {
+     "start": 18.12,
+     "end": 18.84,
+     "peakDb": -25.6,
+     "drop": false
+    },
+    {
+     "start": 19.47,
+     "end": 22.23,
+     "peakDb": -27.4,
+     "drop": false
+    },
+    {
+     "start": 24.6,
+     "end": 30.12,
+     "peakDb": -24.5,
+     "drop": false
+    },
+    {
+     "start": 30.75,
+     "end": 31.71,
+     "peakDb": -31.9,
+     "drop": false
+    },
+    {
+     "start": 32.1,
+     "end": 34.3,
+     "peakDb": -28.2,
+     "drop": false
+    }
+   ]
+  }
+ ]
+}
