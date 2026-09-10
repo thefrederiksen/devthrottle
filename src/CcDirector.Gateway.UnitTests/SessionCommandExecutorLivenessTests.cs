@@ -199,8 +199,15 @@ public sealed class SessionCommandExecutorLivenessTests
     /// If the state cannot be produced this FAILS the test with the reason. It never skips.
     /// </summary>
     [SupportedOSPlatform("windows")]
-    private static Process StartAChildThisMachineCannotRead()
+    private static (Process Child, DebugPrivilege? Suppressed) StartAChildThisMachineCannotRead()
     {
+        // SeDebugPrivilege bypasses an access control list outright, so on a host that holds it - an
+        // elevated CI runner, for one - a deny-everyone list is written and the open succeeds anyway,
+        // and the state this fixture exists to build cannot be built. Turn it off for the duration and
+        // the deny is honoured, so the REAL assertion runs instead of the precondition failing. This is
+        // why the test failed on every CI run from at least 2026-09-08 while passing on a developer
+        // machine, where the account is a standard user and never had the privilege.
+        var suppressed = DebugPrivilege.Suppress();
         var child = StartAChildProcess();
 
         var securityDescriptor = new RawSecurityDescriptor("D:P(D;;GA;;;WD)");
@@ -211,6 +218,7 @@ public sealed class SessionCommandExecutorLivenessTests
         {
             var error = Marshal.GetLastWin32Error();
             EndTheChild(child);
+            suppressed?.Dispose();
             Assert.Fail($"This host would not let the test close a process off from itself "
                 + $"(SetKernelObjectSecurity failed with Windows error {error}), so the state where a LIVE "
                 + "process cannot be read could not be produced. This test protects the production liveness "
@@ -228,14 +236,21 @@ public sealed class SessionCommandExecutorLivenessTests
         {
             CloseHandle(reopened);
             EndTheChild(child);
+            var debugStillOn = DebugPrivilege.IsEnabledForThisProcess();
+            suppressed?.Dispose();
             Assert.Fail("This host still granted the test PROCESS_QUERY_LIMITED_INFORMATION on a process "
                 + "whose access control list denies everyone, so a live-but-unreadable process could not be "
                 + "produced here. This test protects the production liveness check against exactly that "
-                + "state and must not be skipped.");
+                + "state and must not be skipped. "
+                + $"SeDebugPrivilege enabled after suppression: {debugStillOn}; suppression "
+                + $"{(suppressed is null ? "was not needed or not possible" : "was applied")}. "
+                + "If the privilege is still on, that is the cause and the suppression failed; if it is "
+                + "off, this host bypasses the list some other way and the reason is not yet known.");
         }
         if (openError != ErrorAccessDenied)
         {
             EndTheChild(child);
+            suppressed?.Dispose();
             Assert.Fail($"Opening the child process failed with Windows error {openError} rather than "
                 + $"{ErrorAccessDenied} (access denied), which means it was not closed off - most likely it "
                 + "had already exited. The live-but-unreadable state was not produced, and this test must "
@@ -247,6 +262,7 @@ public sealed class SessionCommandExecutorLivenessTests
             using var reader = Process.GetProcessById(child.Id);
             var exited = reader.HasExited;
             EndTheChild(child);
+            suppressed?.Dispose();
             Assert.Fail($"Reading HasExited on the closed-off child answered {exited} instead of throwing, "
                 + "so this host does not produce the live-but-unreadable state at all. The production "
                 + "liveness check's Unreadable answer is UNPROVEN here and this test must not pass.");
@@ -258,12 +274,13 @@ public sealed class SessionCommandExecutorLivenessTests
         catch (ArgumentException)
         {
             child.Dispose();
+            suppressed?.Dispose();
             Assert.Fail("The child process had exited before the unreadable state could be built, so this "
                 + "test would have been asserting against a process that really was gone. This is a fault "
                 + "in the test fixture, not a verdict on the production liveness check.");
         }
 
-        return child;
+        return (child, suppressed);
     }
 
     // ------------------------------------------------------------------------ the three answers ----
@@ -358,7 +375,7 @@ public sealed class SessionCommandExecutorLivenessTests
             return;
         }
 
-        var child = StartAChildThisMachineCannotRead();
+        var (child, suppressed) = StartAChildThisMachineCannotRead();
         var askedToShutDown = false;
         var (sm, session, worktree) = NewSessionOn(
             new RealProcessBackend(child.Id, onShutdown: () => askedToShutDown = true));
@@ -399,7 +416,45 @@ public sealed class SessionCommandExecutorLivenessTests
         {
             EndTheChild(child);
             sm.Dispose();
+            // Put SeDebugPrivilege back. It belongs to the process token, so leaving it off would change
+            // what every later test on this host can open.
+            suppressed?.Dispose();
         }
+    }
+
+    /// <summary>
+    /// THE FIXTURE ITSELF, on a host that holds SeDebugPrivilege. The test above depends on being able to
+    /// build a live process it cannot open, and that is impossible while the privilege is enabled - the
+    /// privilege exists to bypass exactly the access control list the fixture writes. This states the
+    /// dependency out loud so the next person meets it as a named condition rather than as a CI failure
+    /// nobody can reproduce on their own machine.
+    ///
+    /// It asserts the SHAPE of the suppression, not the host's configuration: an elevated host must be
+    /// able to give the privilege up, and a standard-user host must report that there was nothing to give
+    /// up. Both are correct; the two together are what let one test run everywhere.
+    /// </summary>
+    [Fact]
+    public void TheUnreadableFixtureSuppressesTheDebugPrivilegeThatWouldDefeatIt()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        var heldBefore = DebugPrivilege.IsEnabledForThisProcess();
+        using (var suppression = DebugPrivilege.Suppress())
+        {
+            if (heldBefore)
+            {
+                Assert.NotNull(suppression);
+                Assert.False(DebugPrivilege.IsEnabledForThisProcess(),
+                    "SeDebugPrivilege was held and Suppress() returned a suppression, but the privilege is "
+                    + "still enabled - the fixture's deny-everyone list would still be bypassed.");
+            }
+            else
+            {
+                Assert.Null(suppression);   // nothing to suppress, and nothing to restore
+            }
+        }
+
+        Assert.Equal(heldBefore, DebugPrivilege.IsEnabledForThisProcess());
     }
 
     // ---------------------------------------------------- a session with no process identifier ----
