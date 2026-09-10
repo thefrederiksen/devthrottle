@@ -209,4 +209,47 @@ public sealed class BackgroundDictationSendTests : IDisposable
             Assert.Equal(expectedSpoken, spoken);
         }
     }
+
+    [Fact]
+    public async Task CorpusOn_DeliveredDictationKeepsTheClipAndItsTranscript()
+    {
+        // The seam: the safety-net file is still deleted on delivery, and the corpus pair is written
+        // somewhere else. Keeping the clip must not resurrect the safety net's "something went wrong"
+        // meaning, so the two directories are checked separately.
+        var corpusDir = Path.Combine(_dir, "corpus");
+        var recorder = await NewRecordingRecorderAsync(new byte[] { 1, 2, 3, 4 });
+
+        await BackgroundDictationSend.RunAsync(
+            recorder, prefix: "", NewSession(),
+            new FakeTranscriber { Text = "the words" },
+            submit: (_, _, _) => Task.CompletedTask,
+            onFailed: (_, _) => throw new InvalidOperationException("delivery must not report failure"),
+            recordingsDirectory: _dir,
+            corpusConfig: new DictationCorpusConfig(Enabled: true, MaxClips: 100, MaxAgeDays: 90),
+            corpusDirectory: corpusDir);
+
+        Assert.Empty(SavedRecordings());   // the safety net still cleans up after itself
+        Assert.Single(Directory.GetFiles(corpusDir, "*.wav"));
+        Assert.Single(Directory.GetFiles(corpusDir, "*.json"));
+        Assert.Contains("the words", File.ReadAllText(Directory.GetFiles(corpusDir, "*.json")[0]));
+    }
+
+    [Fact]
+    public async Task CorpusOff_DeliveredDictationKeepsNothing()
+    {
+        var corpusDir = Path.Combine(_dir, "corpus");
+        var recorder = await NewRecordingRecorderAsync(new byte[] { 1, 2, 3, 4 });
+
+        await BackgroundDictationSend.RunAsync(
+            recorder, prefix: "", NewSession(),
+            new FakeTranscriber { Text = "the words" },
+            submit: (_, _, _) => Task.CompletedTask,
+            onFailed: (_, _) => throw new InvalidOperationException("delivery must not report failure"),
+            recordingsDirectory: _dir,
+            corpusConfig: new DictationCorpusConfig(Enabled: false, MaxClips: 100, MaxAgeDays: 90),
+            corpusDirectory: corpusDir);
+
+        Assert.Empty(SavedRecordings());
+        Assert.False(Directory.Exists(corpusDir), "the corpus must write nothing while it is off");
+    }
 }
