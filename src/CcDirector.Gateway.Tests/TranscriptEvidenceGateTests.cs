@@ -202,4 +202,31 @@ public sealed class TranscriptEvidenceGateTests
         Assert.True(r.PeakDbBetween(1.0, 2.0) < -30.0);     // the quiet half
         Assert.Equal(-120.0, r.PeakDbBetween(5.0, 6.0));    // past the end: no sound there
     }
+
+    // ---- the record must show what was removed ----
+
+    [Fact]
+    public void TheRawTranscriptKeepsTheModelsFullOutput_SoARemovalIsVisibleInTheRecord()
+    {
+        // The defect this pins down: gating the text where the RAW transcript is read made the
+        // stored raw equal the delivered text, so a removal left no trace anywhere except the
+        // Gateway's log file. Diffing the record against what was delivered is how the repo
+        // proves nothing was silently altered, and that only works if the raw is untouched.
+        var audio = Wav((3.0, 0.50), (1.0, 0.0004), (3.0, 0.50));
+        var segments = new[]
+        {
+            Seg(0.0, 3.0, "the first real sentence"),
+            Seg(3.0, 4.0, "Thank you."),
+            Seg(4.0, 7.0, "the second real sentence"),
+        };
+        const string modelWrote = "the first real sentence Thank you. the second real sentence";
+
+        var r = TranscriptEvidenceGate.Apply(audio, segments, modelWrote);
+
+        Assert.True(r.Applied);
+        Assert.DoesNotContain("Thank you.", r.Text);            // not delivered
+        Assert.Single(r.DroppedSegments);                        // and named in the record
+        Assert.Equal("Thank you.", r.DroppedSegments[0].Text);
+        Assert.Contains("Thank you.", modelWrote);               // the model's own words are intact
+    }
 }

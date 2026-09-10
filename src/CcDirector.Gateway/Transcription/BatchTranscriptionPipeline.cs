@@ -145,17 +145,21 @@ public sealed class BatchTranscriptionPipeline : IDisposable
 
         FileLog.Write($"[BatchTranscriptionPipeline] TranscribeAsync: bytes={audio.Length}, mode={routing.Mode.ToConfigString()}, model={routing.Model}");
 
-        var raw = await TranscribeBatchAsync(audio, fileName, routing, ct, progress);
-        FileLog.Write($"[BatchTranscriptionPipeline] raw transcript len={raw.Length}");
+        var part = await TranscribeBatchAsync(audio, fileName, routing, ct, progress);
+        FileLog.Write($"[BatchTranscriptionPipeline] raw transcript len={part.Raw.Length}, delivered len={part.Delivered.Length}, dropped={part.Dropped.Count}");
 
-        var corrected = await ApplyDictionaryAsync(raw, routing, dictionary, profileName, ct);
+        // The dictionary runs on what will be DELIVERED, not on the raw text: correcting words
+        // inside a sentence that is not going out would be work nobody sees, and would make the
+        // change list describe edits the user never receives.
+        var corrected = await ApplyDictionaryAsync(part.Delivered, routing, dictionary, profileName, ct);
 
         return new BatchTranscriptionResult(
-            RawTranscript: raw,
+            RawTranscript: part.Raw,
             CorrectedTranscript: corrected.Text,
             DictionaryApplied: corrected.Applied,
             ChangedWords: corrected.ChangedWords,
-            Reason: corrected.Reason);
+            Reason: corrected.Reason,
+            DroppedSegments: part.Dropped);
     }
 
     /// <summary>
@@ -182,7 +186,7 @@ public sealed class BatchTranscriptionPipeline : IDisposable
             throw new ArgumentException("audio blob is empty; the Audio Completeness Gate must run before transcription", nameof(audio));
 
         FileLog.Write($"[BatchTranscriptionPipeline] TranscribeRawAsync: bytes={audio.Length}, mode={routing.Mode.ToConfigString()}, model={routing.Model}");
-        return await TranscribeBatchAsync(audio, fileName, routing, ct, progress);
+        return (await TranscribeBatchAsync(audio, fileName, routing, ct, progress)).Delivered;
     }
 
     /// <summary>
@@ -198,7 +202,7 @@ public sealed class BatchTranscriptionPipeline : IDisposable
     /// than posting an oversized body, because a silent 413 is exactly the failure this removes (the
     /// no-fallback rule). Every capture surface sends PCM WAV, so the long-recording paths are covered.
     /// </summary>
-    private async Task<string> TranscribeBatchAsync(
+    private async Task<PartTranscript> TranscribeBatchAsync(
         byte[] audio, string fileName, ResolvedTranscription routing, CancellationToken ct,
         IProgress<TranscriptionProgress>? progress = null)
     {
@@ -270,11 +274,11 @@ public sealed class BatchTranscriptionPipeline : IDisposable
     /// whole job throws the original typed exception - no silent partial transcripts. The split is
     /// non-overlapping, so a single space joins the parts with no de-duplication.
     /// </summary>
-    private async Task<string> TranscribeChunksInParallelAsync(
+    private async Task<PartTranscript> TranscribeChunksInParallelAsync(
         IReadOnlyList<byte[]> parts, string fileName, ResolvedTranscription routing, CancellationToken ct,
         IProgress<TranscriptionProgress>? progress)
     {
-        var texts = new string[parts.Count];
+        var texts = new PartTranscript[parts.Count];
         int completed = 0;
         progress?.Report(new TranscriptionProgress(0, parts.Count));
 
@@ -288,7 +292,7 @@ public sealed class BatchTranscriptionPipeline : IDisposable
                 var text = await PostOneWithRetryAsync(parts[idx], PartFileName(fileName, idx), routing, idx, ct);
                 texts[idx] = text;
                 int done = Interlocked.Increment(ref completed);
-                FileLog.Write($"[BatchTranscriptionPipeline] chunk {idx + 1}/{parts.Count} done: bytes={parts[idx].Length}, chars={text.Length}");
+                FileLog.Write($"[BatchTranscriptionPipeline] chunk {idx + 1}/{parts.Count} done: bytes={parts[idx].Length}, chars={text.Delivered.Length}");
                 progress?.Report(new TranscriptionProgress(done, parts.Count));
             }
             finally
@@ -301,7 +305,7 @@ public sealed class BatchTranscriptionPipeline : IDisposable
         for (int i = 0; i < parts.Count; i++) tasks[i] = ProcessAsync(i);
         await Task.WhenAll(tasks);   // throws the first chunk failure -> job fails clean
 
-        return string.Join(" ", texts.Where(t => !string.IsNullOrEmpty(t)));
+        return PartTranscript.Join(texts);
     }
 
     /// <summary>
@@ -311,7 +315,7 @@ public sealed class BatchTranscriptionPipeline : IDisposable
     /// (out of credits) is NOT retried and propagates its original typed exception so the caller's
     /// credit/retry handling still works. The chunk index is logged on failure.
     /// </summary>
-    private async Task<string> PostOneWithRetryAsync(
+    private async Task<PartTranscript> PostOneWithRetryAsync(
         byte[] audio, string fileName, ResolvedTranscription routing, int chunkIndex, CancellationToken ct)
     {
         for (int attempt = 0; ; attempt++)
@@ -365,7 +369,7 @@ public sealed class BatchTranscriptionPipeline : IDisposable
     /// transport for the shared pipeline - there is no streaming/partial path here. Callers over the
     /// per-request size limit are split into several of these by <see cref="TranscribeBatchAsync"/>.
     /// </summary>
-    private async Task<string> PostOneAsync(
+    private async Task<PartTranscript> PostOneAsync(
         byte[] audio, string fileName, ResolvedTranscription routing, CancellationToken ct)
     {
         var endpoint = routing.BaseUrl.TrimEnd('/') + "/audio/transcriptions";
@@ -420,10 +424,15 @@ public sealed class BatchTranscriptionPipeline : IDisposable
         // THE EVIDENCE GATE (pipeline v2.0). Run it HERE, per part, because a long recording is
         // split and each part's segment times start at zero - gating after the parts are joined
         // would point every time at the wrong audio. Fails open on anything it cannot measure.
+        //
+        // BOTH texts come back. The model's FULL output stays the raw transcript, so a removal is
+        // visible by diffing what was stored against what was delivered - the same way a dictionary
+        // edit is. Returning only the gated text would make the removal invisible in the record and
+        // leave the Gateway's log file as the only evidence, which is not an audit trail.
         var gated = TranscriptEvidenceGate.Apply(audio, ReadSegments(doc.RootElement), text);
         if (gated.Applied)
             FileLog.Write($"[BatchTranscriptionPipeline] evidence gate {TranscriptEvidenceGate.Version}: {gated.Reason}");
-        return gated.Text;
+        return new PartTranscript(text, gated.Text, gated.DroppedSegments);
     }
 
     /// <summary>
@@ -511,7 +520,33 @@ public sealed record BatchTranscriptionResult(
     string CorrectedTranscript,
     bool DictionaryApplied,
     IReadOnlyList<TranscriptEdit> ChangedWords,
-    string? Reason);
+    string? Reason,
+    IReadOnlyList<TranscriptEvidenceGate.Dropped>? DroppedSegments = null);
+
+/// <summary>
+/// One transcribed part: what the model actually wrote, what survived the evidence gate, and the
+/// sentences the gate removed.
+///
+/// Both texts are carried on purpose. RAW is the model's full output and is what gets stored, so a
+/// removal stays visible by comparing the record against what was delivered - the same way a
+/// dictionary edit is visible. Returning only the gated text made the removal invisible everywhere
+/// except the Gateway's own log file, which is not an audit trail.
+/// </summary>
+public sealed record PartTranscript(
+    string Raw,
+    string Delivered,
+    IReadOnlyList<TranscriptEvidenceGate.Dropped> Dropped)
+{
+    /// <summary>Join parts in ORIGINAL order, raw with raw and delivered with delivered, so the two
+    /// stay aligned across a split recording.</summary>
+    public static PartTranscript Join(IReadOnlyList<PartTranscript> parts)
+    {
+        var raw = string.Join(" ", parts.Where(p => p is not null && p.Raw.Length > 0).Select(p => p.Raw));
+        var delivered = string.Join(" ", parts.Where(p => p is not null && p.Delivered.Length > 0).Select(p => p.Delivered));
+        var dropped = parts.Where(p => p is not null).SelectMany(p => p.Dropped).ToList();
+        return new PartTranscript(raw, delivered, dropped);
+    }
+}
 
 /// <summary>
 /// Progress of a batch transcription while it runs: how many bounded parts have finished out of the
