@@ -113,7 +113,7 @@ describe("the phone stop sheet asks one question and asks it plainly", () => {
 
   it("moves focus INTO the dialog when it opens, on the safe control", () => {
     // The reason box used to be the sheet's one focus target; deleting it left keyboard focus on the
-    // page body, free to tab behind a dialog that declares aria-modal (review of PR #2816).
+    // page body, free to tab behind a dialog that declares aria-modal (review of pull request #2816).
     render(<SessionAppBar title="throwaway" manage={manage()} />);
     openStopSheet();
 

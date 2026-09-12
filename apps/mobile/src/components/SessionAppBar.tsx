@@ -274,7 +274,7 @@ export function SessionAppBar({ title, manage, showSnooze = false, showSwitchToV
                   target, and deleting it left keyboard focus on the page body - free to tab behind a
                   dialog that declares aria-modal. The CANCEL is the deliberate landing spot: it is the
                   safe control, so an accidental Enter cannot confirm a destructive stop (review of
-                  PR #2816). */}
+                  pull request #2816). */}
               <button
                 type="button"
                 className="confirm-btn confirm-cancel"
