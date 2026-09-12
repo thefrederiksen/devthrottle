@@ -5126,6 +5126,11 @@ internal static class GatewayEndpoints
         {
             var effectiveColor = SessionOrdering.EffectiveColor(s);
             s.EffectiveColor = effectiveColor;
+            // Which coding tool is running this session. Agent is the Director's raw identity token;
+            // AgentToolDisplay is the finished label browser clients render. Stamp it independently from
+            // CurrentModel so a Pi session running gpt-5.6-sol can never be presented as the model instead
+            // of the tool.
+            s.AgentToolDisplay = AgentToolDisplayFold.For(s.Agent);
             // The "Dumb Clients" palette slice: resolve the colour NAME to its pixel HEX through the ONE
             // canonical map, right here beside the name, so the /sessions consumers (the web phone and the
             // Cockpit) paint that hex verbatim and carry no name->hex table that can drift. The DESKTOP does

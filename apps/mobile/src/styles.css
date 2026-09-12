@@ -540,8 +540,8 @@ a.banner-btn {
   white-space: nowrap;
 }
 
-/* The bottom "facts" row on a card: small chips for the machine and repo. It wraps if a phone is too
-   narrow to hold both. Kept a touch tighter to the status line above it than the name gap. */
+/* The bottom "facts" row on a card: small chips for the agent tool, machine and repo. It wraps if a
+   phone is too narrow to hold them. Kept a touch tighter to the status line above it than the name gap. */
 .row-chips {
   display: flex;
   flex-wrap: wrap;
@@ -570,6 +570,19 @@ a.banner-btn {
   flex: 0 0 auto;
   width: 7px;
   height: 7px;
+}
+
+.row-chip-agent {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+/* A compact round tool mark distinguishes the running agent tool from the two location facts. */
+.row-chip-agent::before {
+  background: currentColor;
+  border-radius: 50%;
+  opacity: 0.72;
 }
 
 .row-chip-machine {
