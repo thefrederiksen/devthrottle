@@ -791,15 +791,26 @@ internal static class GatewayWingmanVoiceEndpoint
             // fact is cleared - the model and speech states clear where they were set.
             voice.ClearReadFailed(reqTenant.Value, sid);
 
-            var lastReply = History.StoredConversationWidgets.LastAgentText(widgets);
-            // Recent conversation so the wingman can give context to a short/terse reply.
-            var recentContext = WingmanTranslator.BuildRecentContext(widgets);
-
-            if (string.IsNullOrWhiteSpace(lastReply))
+            // An older agent reply is not an answer to a later user message. In that shape, read the live
+            // terminal and let a positively classified failure become the narration source. The session is
+            // otherwise still an ordinary wait, and the older reply stays silent.
+            ScreenGridResponse? screenGrid = null;
+            if (route is not null && WingmanNarrationSource.NeedsLiveScreen(widgets))
             {
-                // No text reply to read aloud (waiting on a prompt / menu). Record the honest "nothing to
-                // narrate" fact so the Voice screen shows it via VoiceDisplayFold instead of a dead-end
-                // Generate button, then return the truthful canned line - no brain call.
+                try { screenGrid = await route.GetScreenGridAsync(sid, CancellationToken.None); }
+                catch (Exception ex) { FileLog.Write($"[GatewayWingmanVoice] explain sid={sid}: terminal screen read failed: {ex.Message}"); }
+            }
+            var source = WingmanNarrationSource.Select(
+                widgets,
+                screenGrid is { HasGrid: true } ? screenGrid.Rows : null);
+            var recentContext = source?.Kind == WingmanNarrationSourceKind.AgentReply
+                ? WingmanTranslator.BuildRecentContext(widgets)
+                : "";
+
+            if (source is null)
+            {
+                // No current reply and no recognized terminal failure. Record the honest wait and return a
+                // truthful canned line without calling the model.
                 voice.SetNothingToNarrate(reqTenant.Value, sid, true);
                 return Results.Json(new
                 {
@@ -819,10 +830,16 @@ internal static class GatewayWingmanVoiceEndpoint
             voice.BeginGenerating(reqTenant.Value, sid);
             try
             {
-                var t = await translator.TranslateAsync(reqTenant.Value, recentContext, lastReply, SessionTitle(reqTenant.Value, sid), ct: CancellationToken.None);
-                await voice.StoreSpokenAsync(reqTenant.Value, sid, t.Spoken, lastReply, CancellationToken.None);   // cache spoken + audio, ready to play
-                FileLog.Write($"[GatewayWingmanVoice] explain sid={sid}: replyLen={lastReply.Length}, spokenLen={t.Spoken.Length}");
-                return Results.Json(new { reply = lastReply, spoken = t.Spoken, replySeconds = t.ReplySeconds });
+                var t = source.Kind == WingmanNarrationSourceKind.TerminalFailure
+                    ? await translator.TranslateTerminalFailureAsync(
+                        reqTenant.Value, source.Content, SessionTitle(reqTenant.Value, sid), CancellationToken.None)
+                    : await translator.TranslateAsync(
+                        reqTenant.Value, recentContext, source.Content, SessionTitle(reqTenant.Value, sid), ct: CancellationToken.None);
+                await voice.StoreSpokenAsync(
+                    reqTenant.Value, sid, t.Spoken, source.Content, CancellationToken.None,
+                    sourceIdentity: source.Identity);   // cache spoken + audio, ready to play
+                FileLog.Write($"[GatewayWingmanVoice] explain sid={sid}: source={source.Kind}, sourceLen={source.Content.Length}, spokenLen={t.Spoken.Length}");
+                return Results.Json(new { reply = source.Content, spoken = t.Spoken, replySeconds = t.ReplySeconds });
             }
             catch (Exception ex) when (ex is TimeoutException or HttpRequestException)
             {
