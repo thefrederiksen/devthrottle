@@ -2392,9 +2392,11 @@ a.banner-btn {
 }
 
 /* ===== Add-session flow + session management (issue #812) =====
-   The "+ New session" roster entry, the machine/repo pickers on the add screen, and the large
-   Hold/Resume + Remove buttons (plus the Remove confirmation) on the session screen. All colors
-   come from the theme tokens or reuse the Android-tab palette already defined above. */
+   The "+ New session" roster entry, the machine/repo pickers on the add screen, and the confirmation
+   sheet for the session screen's rare destructive verb (Stop today; Remove when this section was
+   written, and the large Hold/Resume + Remove buttons it described with it are gone with the old
+   manage row). All colors come from the theme tokens or reuse the Android-tab palette already
+   defined above. */
 
 /* "+ New session" entry on the Home roster: a prominent accent-bordered tap target. */
 .new-session-entry {
@@ -3131,7 +3133,7 @@ a.banner-btn {
 }
 
 /* Red appears ONLY here and in the confirmation - so it still means "danger" rather than "the third
-   button". Remove is two taps away and is never in the thumb zone. */
+   button". Stop is two taps away and is never in the thumb zone. */
 .menu-item-danger {
   color: var(--attention);
 }
@@ -3147,7 +3149,7 @@ a.banner-btn {
   font-weight: 700;
 }
 
-/* Remove confirmation: a phone-sized modal over the session screen. */
+/* Stop confirmation: a phone-sized modal over the session screen. */
 .confirm-overlay {
   position: fixed;
   inset: 0;
@@ -3181,8 +3183,6 @@ a.banner-btn {
   color: var(--text-dim);
 }
 
-/* The label above the stop sheet reason box. It is a sentence, not a word - it has to say that the
-   reason is required and what it is for - so it wraps like body text rather than sitting on one line. */
 /* A FAILED stop, in the Gateway's own words, inside the sheet that asked the question. It sits between
    the sentence and the buttons, so it is read on the way to the retry it explains. Same colours as
    .banner-error, which is where this sentence used to render - under the modal overlay, unreadable. */
