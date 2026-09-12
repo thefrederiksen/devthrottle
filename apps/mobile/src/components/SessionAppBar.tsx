@@ -270,11 +270,17 @@ export function SessionAppBar({ title, manage, showSnooze = false, showSwitchToV
               <div className="confirm-error" role="alert">{manage.error}</div>
             )}
             <div className="confirm-actions">
+              {/* Focus lands here when the sheet opens. The reason box used to be the modal's one focus
+                  target, and deleting it left keyboard focus on the page body - free to tab behind a
+                  dialog that declares aria-modal. The CANCEL is the deliberate landing spot: it is the
+                  safe control, so an accidental Enter cannot confirm a destructive stop (review of
+                  PR #2816). */}
               <button
                 type="button"
                 className="confirm-btn confirm-cancel"
                 onClick={onCancelStop}
                 disabled={manage.busy}
+                autoFocus
               >
                 Cancel
               </button>

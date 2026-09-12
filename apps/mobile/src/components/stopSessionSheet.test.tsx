@@ -110,6 +110,20 @@ describe("the phone stop sheet asks one question and asks it plainly", () => {
     openStopSheet();
     expect((stopButton() as HTMLButtonElement).disabled).toBe(false);
   });
+
+  it("moves focus INTO the dialog when it opens, on the safe control", () => {
+    // The reason box used to be the sheet's one focus target; deleting it left keyboard focus on the
+    // page body, free to tab behind a dialog that declares aria-modal (review of PR #2816).
+    render(<SessionAppBar title="throwaway" manage={manage()} />);
+    openStopSheet();
+
+    const dialog = screen.getByRole("dialog");
+    const focused = document.activeElement;
+    expect(dialog.contains(focused)).toBe(true);
+    // And it is the CANCEL: focus lands on the safe control, so an accidental Enter cannot stop a
+    // session the operator was only looking at.
+    expect(focused).toBe(screen.getByRole("button", { name: "Cancel" }));
+  });
 });
 
 describe("a successful stop is silent: it happens, and the app returns to the roster", () => {

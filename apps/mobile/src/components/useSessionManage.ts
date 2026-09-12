@@ -99,7 +99,7 @@ export function useSessionManage(sessionId: string | undefined): SessionManage {
   const [error, setError] = useState<string | null>(null);
   // While a toggle is in flight the optimistic state must not be clobbered by a slower poll.
   const pendingRef = useRef(false);
-  // Whether a STOP request is outstanding. A ref and not the `busy` flag: two Enter presses land in the
+  // Whether a STOP request is outstanding. A ref and not the `busy` flag: two rapid taps land in the
   // same tick and both read the same stale busy, so a state check lets the second one straight through.
   const stopInFlightRef = useRef(false);
 
