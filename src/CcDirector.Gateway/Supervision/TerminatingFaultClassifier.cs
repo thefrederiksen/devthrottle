@@ -180,7 +180,7 @@ public static class TerminatingFaultClassifier
     private static readonly string[] NonRecoverableSignatures =
     {
         "credit balance is too low", "out of credits", "insufficient credits", "usage limit reached",
-        "invalid api key", "invalid x-api-key", "authentication_error", "authentication failed",
+        "invalid api key", "invalid x-api-key", "api key auth failed", "authentication_error", "authentication failed",
         "oauth token has expired", "please run /login", "permission_error", "403 forbidden",
     };
 

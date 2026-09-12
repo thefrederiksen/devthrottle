@@ -13,6 +13,16 @@ namespace CcDirector.Gateway.Tests;
 // ============================================================================
 public sealed class TerminatingFaultClassifierTests
 {
+    [Fact]
+    public void PiApiKeyAuthFailure_IsNonRecoverable()
+    {
+        var fault = TerminatingFaultClassifier.Classify(
+            Screen("Error: API key auth failed for provider openai-mindzie"));
+
+        Assert.Equal(SessionFaultClass.NonRecoverable, fault.Class);
+        Assert.Equal("api key auth failed", fault.Signature);
+    }
+
     /// <summary>The composer box and mode footer Claude Code draws at the bottom of every screen.</summary>
     private static readonly string[] Composer =
     {

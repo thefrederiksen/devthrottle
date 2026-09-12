@@ -48,6 +48,12 @@ public static class SpokenPaths
                 language, WingmanTranslator.FidelityPrompt, "recent context", "an agent reply", "a session")),
 
         new SpokenPath(
+            "terminal failure narration (WingmanTranslator.TranslateTerminalFailureAsync)",
+            "WingmanTranslator.BuildTerminalFailurePrompt",
+            language => WingmanTranslator.BuildTerminalFailurePrompt(
+                language, "Error: the provider rejected the session credential", "a session")),
+
+        new SpokenPath(
             "direct reply (WingmanTranslator.AskDirectAsync)",
             "WingmanTranslator.BuildDirectPrompt",
             language => WingmanTranslator.BuildDirectPrompt(language, "hey wingman, what is going on?")),

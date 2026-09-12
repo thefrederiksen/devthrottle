@@ -1,6 +1,7 @@
 ﻿using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Text.Json;
 using CcDirector.AgentBrain;
 using CcDirector.Core;
 using CcDirector.Core.Configuration;
@@ -345,9 +346,17 @@ public sealed class WingmanVoiceServiceTests : IDisposable
         private int _hits;
         public int Hits => _hits;
 
-        public CcDirector.Gateway.Api.DirectorCommandRouter.SendDirectorCommandAsync SendCommand => (_, _, _) =>
+        public CcDirector.Gateway.Contracts.ScreenGridResponse? ScreenGrid { get; init; }
+
+        public CcDirector.Gateway.Api.DirectorCommandRouter.SendDirectorCommandAsync SendCommand => (_, command, _) =>
         {
             Interlocked.Increment(ref _hits);
+            if (command.Verb == "screen-grid" && ScreenGrid is not null)
+            {
+                var body = JsonSerializer.Serialize(ScreenGrid, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+                return Task.FromResult<CcDirector.Gateway.Contracts.DirectorCommandResult?>(
+                    CcDirector.Gateway.Contracts.DirectorCommandResult.Success(body));
+            }
             return Task.FromResult<CcDirector.Gateway.Contracts.DirectorCommandResult?>(
                 CcDirector.Gateway.Contracts.DirectorCommandResult.Success());
         };
@@ -459,6 +468,60 @@ public sealed class WingmanVoiceServiceTests : IDisposable
             Assert.Equal(0, brain.AskCount);                 // nothing to translate, so the model was never called
         }
         finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
+    }
+
+    [Fact]
+    public async Task GenerateAsync_WhenPiFailsAfterTheLatestUserMessage_NarratesTheTerminalFailure()
+    {
+        // Production shape from testing pi: an old successful reply remains in stored history, the person's
+        // later message has no reply, and the only current answer is the failure drawn on the live terminal.
+        var director = new TunnelStub
+        {
+            ScreenGrid = new CcDirector.Gateway.Contracts.ScreenGridResponse
+            {
+                SessionId = "sid-1",
+                HasGrid = true,
+                Rows = new List<string>
+                {
+                    "continue with the work",
+                    "Error: API key auth failed for provider openai-mindzie",
+                    ">",
+                },
+            },
+        };
+        var conversation = StoredConversationStub.Of(
+            ("Text", "The older successful answer."),
+            ("UserMessage", "continue with the work"));
+        var dir = Path.Combine(Path.GetTempPath(), "wmvs-pi-terminal-" + Guid.NewGuid().ToString("N"));
+        var persistPath = Path.Combine(dir, "voice-sessions.json");
+        try
+        {
+            var brain = new RecordingBrain();
+            var svc = ServiceWithBrainAndTts(brain, new byte[] { 4, 2 }, persistPath, conversation.Reader);
+
+            await svc.GenerateAsync(
+                TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
+
+            Assert.Equal(1, brain.AskCount);
+            var ready = Assert.IsType<WingmanVoiceService.VoiceReady>(svc.Get(TenantId.Local, "sid-1"));
+            Assert.Contains("API key auth failed", ready.Reply);
+            Assert.DoesNotContain("older successful", ready.Reply, StringComparison.OrdinalIgnoreCase);
+            Assert.NotNull(ready.SourceIdentity);
+            Assert.NotEqual(ready.Reply, ready.SourceIdentity);
+            Assert.False(svc.NothingToNarrateFor(TenantId.Local, "sid-1"));
+
+            // A Gateway restart retains the source identity, so it does not forget what the clip describes.
+            var reloaded = ServiceAt(persistPath);
+            var reloadedReady = Assert.IsType<WingmanVoiceService.VoiceReady>(
+                reloaded.Get(TenantId.Local, "sid-1"));
+            Assert.Equal(ready.SourceIdentity, reloadedReady.SourceIdentity);
+
+            // The stable source identity suppresses a duplicate narration of the same unchanged failure.
+            await svc.GenerateAsync(
+                TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
+            Assert.Equal(1, brain.AskCount);
+        }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort cleanup */ } }
     }
 
     [Fact]
