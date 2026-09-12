@@ -10,7 +10,11 @@ import {
   type SessionsEnvelope,
 } from "@devthrottle/client-core/fleet/fleetClient";
 import { emptyRetentionCache, mergeRosterRetention } from "@devthrottle/client-core/fleet/rosterRetention";
-import { SessionRow } from "./Home";
+import { Home, SessionRow } from "./Home";
+
+vi.mock("@devthrottle/client-core/restart/RestartRequestsPanel", () => ({
+  RestartRequestsPanel: () => null,
+}));
 
 afterEach(() => {
   cleanup();
@@ -60,6 +64,36 @@ function renderRow(value: SessionDto) {
 }
 
 describe("mobile roster card agent tool", () => {
+  it("polls, groups, and renders the tool label through the assembled Home roster", async () => {
+    localStorage.clear();
+    const fetch = mockFetch({
+      sessions: [session({
+        agent: "ClaudeCode",
+        agentToolDisplay: "Claude Code",
+        currentModel: "gpt-5.6-sol",
+      })],
+      machineErrors: [],
+      directors: [{ directorId: "director-one", state: REACHABILITY_ONLINE }],
+      unreachableBanner: null,
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    render(
+      <MemoryRouter>
+        <Home />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Other sessions" })).toBeTruthy();
+    expect(screen.getByText("testing pi")).toBeTruthy();
+    expect(screen.getByTitle("Agent tool").textContent).toBe("Claude Code");
+    expect(screen.queryByText("gpt-5.6-sol")).toBeNull();
+    expect(fetch).toHaveBeenCalledWith(
+      "/sessions?envelope=true",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
   it("carries the Gateway tool label through the roster read, retained state, and card", async () => {
     vi.stubGlobal("fetch", mockFetch({
       sessions: [session()],

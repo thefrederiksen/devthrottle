@@ -316,6 +316,31 @@ describe("roster keep-and-mark retention merge", () => {
     expect(online.roster.marks.size).toBe(0);
   });
 
+  it("replaces an older retained agent-tool label with the newer live label", () => {
+    const older = session("s1", "d1");
+    older.agentToolDisplay = "Pi";
+    const first = mergeRosterRetention(
+      emptyRetentionCache(),
+      envelope([older], [director("d1", REACHABILITY_ONLINE)]),
+    );
+    const offline = mergeRosterRetention(
+      first.cache,
+      envelope([], [director("d1", REACHABILITY_OFFLINE)]),
+    );
+    expect(offline.roster.sessions[0].agentToolDisplay).toBe("Pi");
+
+    const newer = session("s1", "d1");
+    newer.agentToolDisplay = "Codex";
+    const online = mergeRosterRetention(
+      offline.cache,
+      envelope([newer], [director("d1", REACHABILITY_ONLINE)]),
+    );
+
+    expect(online.roster.sessions[0]).toBe(newer);
+    expect(online.roster.sessions[0].agentToolDisplay).toBe("Codex");
+    expect(online.cache.byDirector.get("d1")?.[0]).toBe(newer);
+  });
+
   it("never retains a session with no owning Director id (live-only)", () => {
     const first = mergeRosterRetention(emptyRetentionCache(), envelope([session("s1", "")], []));
     expect(first.roster.sessions.map((s) => s.sessionId)).toEqual(["s1"]);

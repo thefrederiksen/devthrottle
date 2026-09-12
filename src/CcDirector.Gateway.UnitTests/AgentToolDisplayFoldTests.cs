@@ -6,9 +6,9 @@ using Xunit;
 namespace CcDirector.Gateway.Tests;
 
 /// <summary>
-/// The agent tool and model are independent session facts. These tests drive both the pure display fold
-/// and the shared roster enrichment used by every served session path, so a correct label that never
-/// reaches the wire cannot satisfy the proof.
+/// The agent tool and model are independent session facts. These unit tests drive the pure display fold
+/// and the shared in-memory roster enrichment helper. They do not invoke a mapped route; the host-bound
+/// route and response proof lives in <c>AgentToolDisplayRouteTests</c>.
 /// </summary>
 public sealed class AgentToolDisplayFoldTests
 {
@@ -59,7 +59,7 @@ public sealed class AgentToolDisplayFoldTests
     }
 
     [Fact]
-    public void StampFleetRolesAndFold_MissingAgent_StampsLoudFallbackOnServedJson()
+    public void StampFleetRolesAndFold_MissingAgent_StampsLoudFallbackOnWebJsonSerialization()
     {
         var session = Fold(new SessionDto
         {
