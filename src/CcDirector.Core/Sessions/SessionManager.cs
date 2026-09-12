@@ -181,6 +181,26 @@ public sealed class SessionManager : IDisposable
     /// </summary>
     public bool PlacesSkillsOnLaunch { get; init; }
 
+    /// <summary>
+    /// Installs the Claude session-start hook and returns the settings path to pass via
+    /// <c>--settings</c>, or null when it could not be installed. Defaults to the real installer.
+    ///
+    /// A seam, because the alternative is untestable in both directions. The refusal below cannot be
+    /// exercised without making a hook install fail, and the real installer writes into the running
+    /// user's own home directory - so proving the refusal would mean breaking the developer's Claude
+    /// configuration, and every other test that creates a session would silently depend on that
+    /// directory being writable. This is the boundary the previous coverage stopped at: the
+    /// installers' own failure branches were tested because they are cheap, and what the CALLER does
+    /// with a failure was not, because it is expensive.
+    /// </summary>
+    public Func<string?> InstallClaudeHooks { get; set; } = Claude.ClaudeHookInstaller.EnsureInstalled;
+
+    /// <summary>
+    /// Installs the Codex fleet-preamble hook, returning false when it could not be. Defaults to the
+    /// real installer. A seam for the same reason as <see cref="InstallClaudeHooks"/>.
+    /// </summary>
+    public Func<bool> InstallCodexHooks { get; set; } = Codex.CodexHookInstaller.EnsureInstalled;
+
     /// <summary>Invoke OnSessionCreated. Public so external endpoint mappers (web Control API)
     /// can announce sessions they created without going through CreateSession overloads.</summary>
     public void RaiseSessionCreated(Session session)
@@ -704,6 +724,18 @@ public sealed class SessionManager : IDisposable
             // Only the two agent families that have a SessionStart hook get these. Pi has its own
             // launch-time system-prompt file, and an agent with no hook would be handed a path nothing
             // reads.
+            // WHETHER THE RULES REACHED THIS SESSION, as a three-valued answer rather than a flag.
+            //
+            // Started at NotApplicable because most agent families have no SessionStart hook and were
+            // never going to receive one - that is not a failure and must not be counted as a delivery
+            // either. The two families that DO get the preamble move it to Delivered or Failed below.
+            // Holding the distinction in the VALUE is what lets the refusal ask one question; a
+            // nullable "reason" would have folded Delivered and NotApplicable together and forced the
+            // refusal to re-derive the difference from the agent kind, which is a second place to get
+            // it wrong.
+            var delivery = PreambleDelivery.NotApplicable;
+            var preambleFailures = new List<string>();
+
             if (agent.Kind is AgentKind.ClaudeCode or AgentKind.Codex)
             {
                 try
@@ -714,11 +746,13 @@ public sealed class SessionManager : IDisposable
                 }
                 catch (Exception ex)
                 {
-                    // A preamble that cannot be written must never stop a session starting. The
-                    // variable is then not stamped at all, so the hook prints nothing rather than
-                    // reading a path that does not resolve.
-                    _log?.Invoke($"The fleet preamble file could not be written for this session: {ex.Message}");
-                    FileLog.Write($"[SessionManager] preamble file write FAILED (session still launching): {ex}");
+                    // A preamble that cannot be WRITTEN is a session that will not be told the rules,
+                    // exactly like a hook that cannot be INSTALLED. It used to be logged and launched
+                    // anyway; the log is a file nobody reads at launch, so the session ran ruleless and
+                    // silent. Recorded here and refused below, with the other two.
+                    delivery = PreambleDelivery.Failed;
+                    preambleFailures.Add($"the preamble file could not be written ({ex.Message})");
+                    FileLog.Write($"[SessionManager] preamble file write FAILED: {ex}");
                 }
             }
 
@@ -753,11 +787,24 @@ public sealed class SessionManager : IDisposable
             // file paths stamped above from the environment.
             if (agent.Kind == AgentKind.ClaudeCode)
             {
-                var hookSettings = CcDirector.Core.Claude.ClaudeHookInstaller.EnsureInstalled();
+                var hookSettings = InstallClaudeHooks();
                 if (!string.IsNullOrEmpty(hookSettings))
                 {
                     args = $"{args} --settings \"{hookSettings}\"".Trim();
                     _log?.Invoke("Installed Claude session-pointer hooks (--settings).");
+                    // Promote ONLY from NotApplicable. An earlier failure - the preamble file itself -
+                    // must not be erased by a later success, because the hook has nothing to read.
+                    if (delivery == PreambleDelivery.NotApplicable) delivery = PreambleDelivery.Delivered;
+                }
+                else
+                {
+                    delivery = PreambleDelivery.Failed;
+                    // This hook is BOTH the session-pointer tracking and the channel that surfaces the
+                    // fleet preamble into the session's context. Without it the session is untracked
+                    // across /clear AND never told the rules, and the only previous sign of either was
+                    // a line in a file log.
+                    preambleFailures.Add("the Claude session-start hook could not be written to "
+                                         + Claude.ClaudeHookInstaller.HookDirectory());
                 }
             }
 
@@ -767,11 +814,48 @@ public sealed class SessionManager : IDisposable
             // the hook reads the preamble file path stamped above from the environment.
             if (agent.Kind == AgentKind.Codex)
             {
-                if (CcDirector.Core.Codex.CodexHookInstaller.EnsureInstalled())
+                if (InstallCodexHooks())
                 {
                     args = $"{args} {CcDirector.Core.Codex.CodexHookInstaller.BypassTrustFlag}".Trim();
                     _log?.Invoke("Installed Codex fleet-preamble SessionStart hook (--dangerously-bypass-hook-trust).");
+                    // Promote ONLY from NotApplicable. An earlier failure - the preamble file itself -
+                    // must not be erased by a later success, because the hook has nothing to read.
+                    if (delivery == PreambleDelivery.NotApplicable) delivery = PreambleDelivery.Delivered;
                 }
+                else
+                {
+                    delivery = PreambleDelivery.Failed;
+                    preambleFailures.Add("the Codex fleet-preamble hook could not be merged into "
+                                         + Codex.CodexHookInstaller.HooksJsonPath()
+                                         + " (it must be a writable file containing valid JSON)");
+                }
+            }
+
+            // THE REFUSAL. Everything above that can stop the rules reaching this session lands here.
+            //
+            // This is a decision, not a report about the world, so folding the unknown into "decline"
+            // is the safe direction and is taken deliberately. It asks ONE question, because only the
+            // two families that are SUPPOSED to receive the preamble can reach Failed - Pi carries its
+            // rules on its launch system prompt and other agents have no such channel, so they stay at
+            // NotApplicable and refusing them would be refusing over a state that is not a failure.
+            if (delivery == PreambleDelivery.Failed)
+            {
+                var display = ToolDetectionService.DisplayName(agent.Kind);
+                var whatFailed = string.Join("; ", preambleFailures);
+                FileLog.Write($"[SessionManager] CreateSession REFUSED for {agent.Kind}: {whatFailed}");
+                throw new InvalidOperationException(
+                    $"{display} was not started, because this session would have run WITHOUT the fleet "
+                    + "preamble - the text that tells a session the rules it operates under, including "
+                    + "the rule that keeps an assistant's name out of your repositories and your "
+                    + $"clients' deliverables.{Environment.NewLine}{Environment.NewLine}"
+                    + $"What failed: {whatFailed}.{Environment.NewLine}{Environment.NewLine}"
+                    + $"What to do: check that the path above exists, is writable by you, and - if it is "
+                    + "a .json file - contains valid JSON. The commonest cause is a hand-edited "
+                    + "hooks.json with a syntax error, which this Director will not overwrite because it "
+                    + "is yours. Correct or move that file and start the session again."
+                    + $"{Environment.NewLine}{Environment.NewLine}"
+                    + "This used to start the session anyway and write one line to the Director log, so "
+                    + "a session that did not know the rules looked exactly like one that did.");
             }
 
             // For Pi, write the fleet preamble to a per-session file and pass it via
