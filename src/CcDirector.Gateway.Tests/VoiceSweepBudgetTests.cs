@@ -94,7 +94,23 @@ public sealed class VoiceSweepBudgetTests : IAsyncLifetime
         _dirNoOp = await FakeTunnelDirector.StartAsync(_gateway, deviceNoOp.DeviceKey, "dir-noop", "MN",
             dispatch: _ => FakeTunnelDirector.Ok(new { ok = true }));
         _dirNarratable = await FakeTunnelDirector.StartAsync(_gateway, deviceNarratable.DeviceKey, "dir-real", "MR",
-            dispatch: cmd => { _seenByNarratable.Enqueue(cmd); return FakeTunnelDirector.Ok(new { ok = true }); });
+            dispatch: cmd =>
+            {
+                _seenByNarratable.Enqueue(cmd);
+                return cmd.Verb == "screen-grid"
+                    ? FakeTunnelDirector.Ok(new ScreenGridResponse
+                    {
+                        SessionId = cmd.SessionId,
+                        HasGrid = true,
+                        Rows = new List<string>
+                        {
+                            "continue with the work",
+                            "Error: API key auth failed for the configured provider",
+                            ">",
+                        },
+                    })
+                    : FakeTunnelDirector.Ok(new { ok = true });
+            });
 
         // Neither fake Director's Hello claims it sends conversations, which is exactly the state of the
         // real computer in the incident - so a session with nothing in the store takes the
@@ -170,6 +186,47 @@ public sealed class VoiceSweepBudgetTests : IAsyncLifetime
         // skipped them entirely (found in review). A check a stale value satisfies is not a check. The claim
         // that every one of them is visited in a single cycle is made, as a presence, by
         // One_accounts_no_op_sessions_cannot_starve_another_accounts_session_out_of_the_same_cycle.
+    }
+
+    [Fact]
+    public async Task Cached_audio_cannot_hide_a_terminal_failure_after_a_later_user_message()
+    {
+        // Exact production shape from the failed inspection: the old clip survived because the sampled
+        // Working transition was missed, while the stored conversation now ends with a later user message
+        // whose only answer is the failure on the live terminal.
+        _gateway.SeedStoredConversationForTest(TenantNarratable, "dir-real", NarratableSession,
+            ("Assistant", "The older successful answer."),
+            ("User", "continue with the work"));
+        _gateway.VoiceService!.StoreReadyAudioForTest(TenantNarratable, NarratableSession,
+            "old spoken answer", "The older successful answer.", new byte[] { 1, 2, 3 });
+        _gateway.VoiceService.SetNothingToNarrate(TenantNarratable, NarratableSession, true);
+        Assert.True(_gateway.VoiceService.HasVoice(TenantNarratable, NarratableSession));
+        Assert.True(_gateway.VoiceService.NothingToNarrateFor(TenantNarratable, NarratableSession));
+
+        // One invocation of the real timer callback, including its cached-audio guard and provider budget.
+        await _gateway.SweepVoiceSessionsAsync();
+
+        // The sweep itself awaits only the live-screen preparation, so the command must already be present
+        // when it returns. This positive presence proves the callback path reached the owning Director.
+        Assert.Contains(_seenByNarratable,
+            command => command.Verb == "screen-grid" && command.SessionId == NarratableSession);
+
+        // Selecting the terminal source clears the deliberately planted opposite verdict. If the callback
+        // path skipped the live screen, it would leave this true after finding no current reply.
+        Assert.False(_gateway.VoiceService.NothingToNarrateFor(TenantNarratable, NarratableSession));
+
+        // The old clip cannot remain playable. A fast provider may already have replaced it; otherwise the
+        // positively selected newer source leaves the card with no audio until its own clip arrives.
+        var ready = _gateway.VoiceService.Get(TenantNarratable, NarratableSession);
+        if (ready is null)
+        {
+            Assert.False(_gateway.VoiceService.HasVoice(TenantNarratable, NarratableSession));
+        }
+        else
+        {
+            Assert.Contains("API key auth failed", ready.Reply);
+            Assert.NotEqual("The older successful answer.", ready.Reply);
+        }
     }
 
     /// <summary>Poll for a verb+session rather than sleeping a fixed time: the sweep fires generation onto
