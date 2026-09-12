@@ -918,6 +918,7 @@ public sealed class GatewayHost : IAsyncDisposable
     // Constructed in the constructor body once the EF database is built (it persists to the data layer).
     private readonly Wingman.WingmanInstructionsStore _instructionsStore;
     private System.Threading.Timer? _voiceSweepTimer;
+    private int _voiceSweepRunning;
     // Durable dictation upload staging (issue #1006): the phone streams recorded audio here in chunks;
     // the Gateway assembles, transcribes, and injects the turn itself. Each upload id carries a durable
     // delivery record (issue #1183): PENDING chunks are retained until delivered/abandoned, and the
@@ -2294,20 +2295,24 @@ public sealed class GatewayHost : IAsyncDisposable
     private const int MaxVoiceAttemptsPerTenantPerSweep = 60;
 
     /// <summary>
-    /// Pre-build voice for voice sessions that are idle and missing it, so the session list shows
-    /// them "voice ready" BEFORE the person enters - including after a gateway restart (the voice-
-    /// session set is persisted). Gentle: at most a few per cycle, idle sessions only (a working
-    /// session regenerates on its turn-end). Best-effort; never throws into the timer.
+    /// Pre-build or revalidate voice for idle voice sessions, so the session list shows the current
+    /// narration BEFORE the person enters - including after a gateway restart or a missed Working
+    /// transition. Gentle: at most a few per cycle, idle sessions only (a working session regenerates
+    /// on its turn-end). Best-effort; never overlaps and never throws into the timer.
     /// </summary>
-    internal Task SweepVoiceSessionsAsync()
+    internal async Task SweepVoiceSessionsAsync()
     {
         var vs = _voiceService;
-        if (vs is null) return Task.CompletedTask;
+        if (vs is null) return;
+        // The source-preparation read makes this sweep genuinely asynchronous. Timer callbacks can overlap,
+        // so admit one pass at a time or two cycles would each believe they owned the full global provider
+        // budget and could generate the same session concurrently.
+        if (Interlocked.Exchange(ref _voiceSweepRunning, 1) != 0) return;
         try
         {
-            if (Registry.ListDirectors(_system).Count == 0) return Task.CompletedTask;
+            if (Registry.ListDirectors(_system).Count == 0) return;
             // Hosted Multi-Tenancy voice-serving: run ONE pass per tenant, each inside that tenant's own scope
-            // (_tenantPass.ForEachTenant). Within a pass, locate each of THAT tenant's voice sessions in ITS
+            // (_tenantPass.ForEachTenantAsync). Within a pass, locate each of THAT tenant's voice sessions in ITS
             // OWN partition (push-store TryLocate - no HTTP dial) and generate into that tenant's voice state,
             // with the tenant passed to GenerateAsync explicitly so the write lands in the right partition even
             // after this synchronous pass (and its scope) returns. Self-host runs exactly one Local pass,
@@ -2335,7 +2340,7 @@ public sealed class GatewayHost : IAsyncDisposable
             // every 45 seconds would be a new cost introduced by fixing this one. That second budget is
             // charged PER ACCOUNT, so it cannot become a smaller copy of the starvation it bounds.
             var generated = 0;
-            _tenantPass.ForEachTenant(() =>
+            await _tenantPass.ForEachTenantAsync(async () =>
             {
                 if (_tenantPass.Current is not { } tenant) return;   // deny: no scope in effect -> sweep nothing
                 var attempted = 0;                                   // this account's own, never shared
@@ -2343,7 +2348,6 @@ public sealed class GatewayHost : IAsyncDisposable
                 {
                     if (generated >= MaxVoiceGenerationsPerSweep) break;              // gentle on the serialized brain (global cap)
                     if (attempted >= MaxVoiceAttemptsPerTenantPerSweep) break;        // and this account's pass stays bounded
-                    if (vs.HasVoice(tenant, sid)) continue;          // already cached, nothing to do
                     // A session whose agent exposes NO conversation history will not become readable by being
                     // asked again immediately, and asking is not free: this pass generates at most three per
                     // cycle across ALL tenants, so a handful of such sessions can hold those slots and starve
@@ -2370,18 +2374,37 @@ public sealed class GatewayHost : IAsyncDisposable
                         // may be listening to is never flipped yellow mid-play (issue #1322). Fire-and-forget.
                         var route = new Api.SessionVerbClient(director, sendCommand);
                         attempted++;
+                        // Source preparation is the only asynchronous work the loop itself awaits. A later
+                        // user message needs the live terminal before source selection can decide whether the
+                        // old cached clip is stale. GenerateAsync then consumes this captured input without an
+                        // await before its provider commit point, preserving the callback's synchronous budget
+                        // contract for the next session in this loop.
+                        Wingman.WingmanVoiceService.SweepGenerationInput sweepInput;
+                        try
+                        {
+                            sweepInput = await vs.PrepareSweepGenerationAsync(
+                                tenant, sid, route, CancellationToken.None);
+                        }
+                        catch (Exception ex)
+                        {
+                            // One corrupt or unavailable conversation read must not end this tenant's pass.
+                            // GenerateAsync already isolates its own failures per session; preparation has the
+                            // same boundary now that it is awaited by the sweep rather than by generation.
+                            FileLog.Write($"[GatewayHost] voice sweep source preparation failed for sid={sid}: {ex.Message}");
+                            continue;
+                        }
                         // The slot is spent by the CALLBACK, not by this line. It fires synchronously, before
                         // the returned task is handed back, at the point the attempt commits to the model and
                         // speech legs - so an attempt that returns having produced nothing and spent nothing
                         // leaves the budget where it was, and the next session in the loop still gets it.
                         _ = vs.GenerateAsync(tenant, sid, route, CancellationToken.None, showReadingWindow: false,
-                            onProviderReached: () => generated++);
+                            onProviderReached: () => generated++, sweepInput: sweepInput);
                     }
                 }
             });
         }
         catch (Exception ex) { FileLog.Write($"[GatewayHost] voice sweep error: {ex.Message}"); }
-        return Task.CompletedTask;
+        finally { Volatile.Write(ref _voiceSweepRunning, 0); }
     }
 
     /// <summary>

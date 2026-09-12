@@ -1045,6 +1045,18 @@ public sealed class WingmanVoiceService
     public byte[]? GetAudio(TenantId tenant, string sid) => StateFor(tenant).Ready.TryGetValue(sid, out var v) ? v.Audio : null;
     public string? GetAudioContentType(TenantId tenant, string sid) => StateFor(tenant).Ready.TryGetValue(sid, out var v) ? v.ContentType : null;
 
+    /// <summary>
+    /// Remove a ready clip after the stored conversation proves that a later user message superseded it.
+    /// This is the missed-Working-transition repair: the source read is a second independent observation
+    /// that the old clip is stale, so neither memory nor the durable cache may keep serving it.
+    /// </summary>
+    private void DropReadyForSupersedingUserMessage(TenantId tenant, TenantVoiceState state, string sid)
+    {
+        if (!state.Ready.TryRemove(sid, out _)) return;
+        DeleteReadyAudio(tenant, sid);
+        FileLog.Write($"[WingmanVoiceService] stale voice + text cache cleared (later user message): tenant={tenant.ToLogString()} sid={sid}");
+    }
+
     /// <summary>Mark the session as a voice session (persisted, so the gateway keeps its voice fresh
     /// across restarts via the background sweep + turn-end).</summary>
     public void Mark(TenantId tenant, string sid) { if (StateFor(tenant).VoiceSessions.TryAdd(sid, 1)) SaveVoiceSessions(tenant); }
@@ -1175,6 +1187,44 @@ public sealed class WingmanVoiceService
         => StoreReady(tenant, sid, spoken, reply, audio, contentType, servedViaFallback);
 
     /// <summary>
+    /// The periodic sweep's source inputs, captured before generation starts. Capturing the asynchronous
+    /// terminal read here lets <see cref="GenerateAsync"/> retain its synchronous provider-budget callback:
+    /// once generation is invoked, every no-cost arm and the provider commit point run before its first await.
+    /// </summary>
+    internal sealed record SweepGenerationInput(
+        History.StoredConversation? Conversation,
+        ScreenGridResponse? ScreenGrid);
+
+    /// <summary>
+    /// Read the source inputs needed by one periodic-sweep attempt. The Gateway conversation store is
+    /// synchronous and local. Only the later-user-message shape reaches the asynchronous live-terminal read.
+    /// After that read, refresh the conversation once so an agent reply that arrived during the tunnel trip
+    /// wins over the captured terminal, just as it would on the next sweep.
+    /// </summary>
+    internal async Task<SweepGenerationInput> PrepareSweepGenerationAsync(
+        TenantId tenant,
+        string sid,
+        SessionVerbClient route,
+        CancellationToken ct = default)
+    {
+        var stored = _conversationReader?.Invoke(tenant, sid);
+        ScreenGridResponse? screenGrid = null;
+        if (stored is { IsSupported: true } current
+            && WingmanNarrationSource.NeedsLiveScreen(current.Widgets))
+        {
+            try { screenGrid = await route.GetScreenGridAsync(sid, ct); }
+            catch (Exception ex) { FileLog.Write($"[WingmanVoiceService] sweep terminal screen read failed for sid={sid}: {ex.Message}"); }
+
+            var refreshed = _conversationReader?.Invoke(tenant, sid);
+            if (refreshed is not null) stored = refreshed;
+            if (stored is not { IsSupported: true } latest
+                || !WingmanNarrationSource.NeedsLiveScreen(latest.Widgets))
+                screenGrid = null;
+        }
+        return new SweepGenerationInput(stored, screenGrid);
+    }
+
+    /// <summary>
     /// Regenerate the voice for a session from its latest turn: read the last reply, translate it,
     /// synthesize audio, store. Called on every turn-end for voice sessions (background, best-effort
     /// - it swallows its own failures so a turn is never blocked on voice).
@@ -1202,6 +1252,11 @@ public sealed class WingmanVoiceService
     /// answer in time to decide about the NEXT session, and it is a contract on this method - a new await
     /// added ahead of the commit point would break it.
     /// </param>
+    /// <param name="sweepInput">
+    /// The background sweep's captured conversation and, when needed, live terminal. Required whenever
+    /// <paramref name="onProviderReached"/> is supplied: the asynchronous terminal read happens before this
+    /// method is entered, leaving the provider callback synchronous exactly as its contract requires.
+    /// </param>
     /// <param name="markAsVoiceSession">
     /// Make this a voice session as a side effect of narrating it - true for every caller that is acting on
     /// a person's intent (entering voice, a turn ending on a session already in voice mode, the sweep, which
@@ -1213,8 +1268,10 @@ public sealed class WingmanVoiceService
     /// than the silence the retry exists to prevent. The retry checks <see cref="IsVoiceSession"/> for
     /// itself and does nothing when the answer is no.
     /// </param>
-    internal async Task GenerateAsync(TenantId tenant, string sid, SessionVerbClient route, CancellationToken ct = default, bool showReadingWindow = true, Action? onProviderReached = null, bool markAsVoiceSession = true)
+    internal async Task GenerateAsync(TenantId tenant, string sid, SessionVerbClient route, CancellationToken ct = default, bool showReadingWindow = true, Action? onProviderReached = null, bool markAsVoiceSession = true, SweepGenerationInput? sweepInput = null)
     {
+        if (onProviderReached is not null && sweepInput is null)
+            throw new ArgumentException("A provider-budget callback requires the sweep's prepared input.", nameof(sweepInput));
         if (markAsVoiceSession) Mark(tenant, sid);
 
         // The "already narrated" skip is now IDENTITY-AWARE and lives in GenerateOnceAsync, after the
@@ -1227,8 +1284,8 @@ public sealed class WingmanVoiceService
         // suppressed narration of the final answer forever (the phone replayed the stale interim clip).
         // Comparing the reply TEXT instead removes the dependency on catching that edge: a changed reply
         // always regenerates, the same reply still stays quiet so a client mid-play is never disturbed.
-        // The idle sweep still guards on HasVoice at its own call site, so it never reaches here for a
-        // cached session; only the turn-end path does, and it pays one cheap /turns read to compare.
+        // The idle sweep also reaches this identity comparison. A bare HasVoice guard cannot distinguish a
+        // current clip from one left behind when the sampled Working transition was missed.
 
         // NO fleet-wide gate. Every session calls the hosted relay on its own and discovers an outage
         // for itself (see the field comment above). There used to be two shared cooldown gates here that
@@ -1243,7 +1300,7 @@ public sealed class WingmanVoiceService
             return;
         try
         {
-            await GenerateOnceAsync(tenant, sid, route, ct, showReadingWindow, onProviderReached);
+            await GenerateOnceAsync(tenant, sid, route, ct, showReadingWindow, onProviderReached, sweepInput);
         }
         catch (WingmanModelRateLimitedException rl)
         {
@@ -1284,7 +1341,7 @@ public sealed class WingmanVoiceService
     /// no longer needs the distinction now that the shared rate-limit gate is gone, but it is kept because
     /// it honestly reports whether the provider was reached.
     /// </summary>
-    private async Task<bool> GenerateOnceAsync(TenantId tenant, string sid, SessionVerbClient route, CancellationToken ct, bool showReadingWindow, Action? onProviderReached = null)
+    private async Task<bool> GenerateOnceAsync(TenantId tenant, string sid, SessionVerbClient route, CancellationToken ct, bool showReadingWindow, Action? onProviderReached = null, SweepGenerationInput? sweepInput = null)
     {
         var state = StateFor(tenant);
 
@@ -1308,7 +1365,9 @@ public sealed class WingmanVoiceService
         // NOTHING STORED IS NOT A FAILURE AND NOT AN ATTEMPT. The words have not reached the Gateway yet;
         // the Director will push them, and the Chat screen already says so in its own words. Recording a
         // failure here would burn this turn's retry budget on a wait that has nothing to do with voice.
-        var stored = _conversationReader?.Invoke(tenant, sid);
+        var stored = sweepInput is null
+            ? _conversationReader?.Invoke(tenant, sid)
+            : sweepInput.Conversation;
         if (stored is null)
         {
             // Clear any standing "nothing to read aloud" first. That sentence means the session is parked on
@@ -1380,13 +1439,12 @@ public sealed class WingmanVoiceService
         // new turn). An earlier version of this line cleared any Retrying in the shared Unavailable map and
         // therefore erased model-leg and speech-leg states it had not established.
         ClearReadFailed(tenant, sid);
-        // A later user message makes an older agent reply stale. On turn-end and direct generation paths,
-        // read the live screen and use a positively classified terminal failure when the missing reply died
-        // there. The idle sweep passes the synchronous budget callback; it deliberately does not perform
-        // this pre-commit tunnel read, preserving that callback's synchronous contract. The on-demand
-        // explain path performs the same selection independently, so an already-ended session is covered.
-        ScreenGridResponse? screenGrid = null;
-        if (WingmanNarrationSource.NeedsLiveScreen(widgets) && onProviderReached is null)
+        // A later user message makes an older agent reply stale. Direct callers read the live screen here.
+        // The periodic sweep supplies the same read through sweepInput, prepared before GenerateAsync so its
+        // provider-budget callback still fires synchronously before this method's first await.
+        var needsLiveScreen = WingmanNarrationSource.NeedsLiveScreen(widgets);
+        ScreenGridResponse? screenGrid = sweepInput?.ScreenGrid;
+        if (needsLiveScreen && sweepInput is null)
         {
             try { screenGrid = await route.GetScreenGridAsync(sid, ct); }
             catch (Exception ex) { FileLog.Write($"[WingmanVoiceService] terminal screen read failed for sid={sid}: {ex.Message}"); }
@@ -1396,6 +1454,10 @@ public sealed class WingmanVoiceService
             screenGrid is { HasGrid: true } ? screenGrid.Rows : null);
         if (source is null)
         {
+            // Even without a recognized failure, the later user message positively proves the cached answer
+            // is obsolete. The screen may be a prompt or may have been unreadable; neither permits replaying
+            // an answer to the previous request.
+            if (needsLiveScreen) DropReadyForSupersedingUserMessage(tenant, state, sid);
             // The stored conversation has no current agent reply and the live screen supplied no positive
             // failure evidence. This is an ordinary wait on a prompt or menu, not an error to invent.
             state.NothingToNarrate[sid] = 1;
@@ -1418,6 +1480,10 @@ public sealed class WingmanVoiceService
             FileLog.Write($"[WingmanVoiceService] GenerateOnce skip (same source already narrated): sid={sid}");
             return false;   // nothing to do - the provider was not called, so we know nothing new about it
         }
+        // A positively selected new terminal source supersedes the cached answer immediately. Keeping the
+        // old clip until the provider finishes would still replay the wrong turn when that provider is slow
+        // or unavailable. A matching terminal identity returned above and keeps its already-current clip.
+        if (needsLiveScreen) DropReadyForSupersedingUserMessage(tenant, state, sid);
         // THE PROVIDER'S OWN DEADLINE, HONOURED. When a 429 named a wait longer than this service will hold
         // a promise across, the re-attempt was refused rather than booked - and refusing to promise does not
         // entitle us to keep calling. Without this the idle sweep would come past every 45 seconds and call
