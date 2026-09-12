@@ -1,3 +1,4 @@
+using CcDirector.Core.Agents;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Wingman;
@@ -92,5 +93,37 @@ public sealed class TerminalStateDetectorTests : System.IDisposable
 
         session.SuppressActivityFor(System.TimeSpan.FromMilliseconds(50));
         Assert.Equal(afterLong, session.SuppressActivityUntilUtc);
+    }
+
+    [Fact]
+    public async Task Start_PiFirstTurnErrorFinishesBeforeWorking_SettlesAfterSilence()
+    {
+        var backend = new BufferOnlyBackend();
+        var session = _manager.CreateEmbeddedSession(System.IO.Path.GetTempPath(), null, backend);
+        session.AgentKind = AgentKind.Pi;
+
+        using var detector = new TerminalStateDetector(
+            _manager, driveState: true, System.TimeSpan.FromMilliseconds(100));
+        detector.Start();
+        await Task.Delay(200);
+
+        Assert.True(session.IsBrandNew);
+        backend.Write(System.Text.Encoding.UTF8.GetBytes("Error: requested model was not found\r\n"));
+        Assert.Equal(ActivityState.WaitingForInput, session.ActivityState);
+
+        var settled = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        session.OnActivityStateChanged += (oldState, newState) =>
+        {
+            if (oldState == ActivityState.Working && newState == ActivityState.WaitingForInput)
+                settled.TrySetResult(true);
+        };
+
+        // A verified submission clears this flag and marks the session Working. In the reported
+        // ordering, the complete error was already in the buffer before those two writes occurred.
+        session.IsBrandNew = false;
+        session.ApplyTerminalActivityState(ActivityState.Working);
+
+        Assert.True(await settled.Task.WaitAsync(System.TimeSpan.FromSeconds(1)));
+        Assert.Equal(ActivityState.WaitingForInput, session.ActivityState);
     }
 }
