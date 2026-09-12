@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { holdPillLabel } from "@devthrottle/client-core/sessions/snoozeAction";
-import type { SessionStopOutcome } from "@devthrottle/client-core/api/client";
 import type { SessionManage } from "./useSessionManage";
 
 // The ONE app bar shared by every per-session screen: Chat, Terminal and Voice mode (owner design
@@ -31,22 +30,28 @@ import type { SessionManage } from "./useSessionManage";
 //   row 1:  [<- Sessions] ................... [...]     navigation left, menu right
 //   row 2:  102 devthrottle / f9e7 .....................  the name gets the whole row
 //
-// THE STOP SHEET IS THE COCKPIT'S STOP DIALOG, LAID OUT FOR A PHONE (mission "Stop a session"). Same
-// words, same behaviour, different layout: it asks for the reason the Gateway requires before it acts
-// and will not submit an empty one, and when the answer comes back it SHOWS it - the Gateway's headline
-// and then each of its detail lines, verbatim - and waits to be dismissed. Leaving for the roster is
-// what dismissing it does, so the answer is never destroyed by a navigation the user did not ask for.
-// The phone may show less of a card than the desktop; it may not say something different, offer
-// something different, or leave anything out (the reasoning behind CLAUDE.md rule 8).
+// THE STOP SHEET IS A PLAIN CONFIRMATION (issue internal#1992). It was built as the Cockpit's stop
+// dialog on a phone, reason box and answer card included, but the reason requirement is Ruling 4's:
+// it exists because an AGENT key may stop any other session, and the trail must say why. A human
+// confirming a stop in his own UI is not that caller - his tap is the authorisation - so the phone
+// asks only that he mean it: Stop this session? Cancel or Stop. The hook sends a derived reason
+// ("Stopped by the owner from the mobile app"), so the Gateway's contract is untouched and the audit
+// row still says what happened. The Cockpit keeps its reason box for now - a desktop has a keyboard
+// under the operator's hands - and that divergence is recorded in internal#1992, not silent.
+//
+// A SUCCESSFUL STOP IS SILENT. The sheet does not turn into a report of the action the owner just
+// asked for and watched happen: the session goes, the app returns to the roster, and the row he was
+// looking at is gone. The Gateway's answer still exists on every verdict - stopped, already stopped,
+// not on this fleet - and is what the hook resolved; the phone needs none of it read back to it.
 //
 // A FAILED STOP IS SHOWN INSIDE THE SHEET (inspection finding I8). It used to render on this bar's
 // sibling error banner, which sits UNDER the full-screen overlay of a dialog that declares
-// aria-modal="true" - so the sheet stayed open with a reason box, a retry button and no explanation
-// anywhere the operator could see. Worse, backing out with Cancel cleared that banner as well, so the
-// one copy of the explanation was deleted by the gesture used to go and read it. Now the Gateway's
-// sentence renders in the card the operator is looking at, and backing out leaves it on the banner
-// behind rather than throwing it away. The bar's banner is suppressed while the sheet is open, so the
-// failure is described once, in one place, exactly as the Cockpit describes it.
+// aria-modal="true" - so the sheet stayed open with a retry button and no explanation anywhere the
+// operator could see. Worse, backing out with Cancel cleared that banner as well, so the one copy of
+// the explanation was deleted by the gesture used to go and read it. Now the Gateway's sentence renders
+// in the card the operator is looking at, and backing out leaves it on the banner behind rather than
+// throwing it away. The bar's banner is suppressed while the sheet is open, so the failure is described
+// once, in one place. The sheet stays open on failure so the stop can be retried.
 //
 // Nothing here composes a sentence about a stop and nothing branches on the verdict word.
 
@@ -72,10 +77,6 @@ export function SessionAppBar({ title, manage, showSnooze = false, showSwitchToV
   const { sessionId } = useParams<{ sessionId: string }>();
   const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  // The reason the Gateway requires with a stop, and the answer it gave back. A non-null outcome turns
-  // the sheet from a question into an answer, and it is what the dismiss control then leaves on.
-  const [stopReason, setStopReason] = useState("");
-  const [stopOutcome, setStopOutcome] = useState<SessionStopOutcome | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   // Close the menu on an outside tap or Escape, the way a menu is expected to behave.
@@ -95,26 +96,22 @@ export function SessionAppBar({ title, manage, showSnooze = false, showSwitchToV
     };
   }, [open]);
 
-  // Send the stop and KEEP the answer. The sheet stays open either way: on success so the answer can be
-  // read, and on failure so the typed reason is not lost and the banner behind it is readable.
+  // Send the stop. A SUCCESS leaves for the roster straight away - the session is gone, which is the
+  // whole of what the owner asked to see (internal#1992). It leaves the SAME way the back button
+  // leaves, through backState's replace, so browser Back cannot reopen the session that was just
+  // stopped. A FAILURE keeps the sheet open: the hook has already surfaced the Gateway's sentence
+  // inside it, and the stop can be retried from where it stands.
   const onConfirmStop = useCallback(async () => {
-    const reason = stopReason.trim();
-    if (reason.length === 0) return;
     try {
-      setStopOutcome(await manage.stopSession(reason));
+      await manage.stopSession();
+      // Leave the SAME way the back button leaves: through backState's replace when a screen supplied
+      // one, so browser Back cannot reopen the session that was just stopped; plainly otherwise.
+      if (backState !== undefined) navigate("/", { state: backState, replace: true });
+      else navigate("/");
     } catch {
-      /* the hook has already surfaced the message on manage.error */
+      /* the hook has already surfaced the message inside the sheet */
     }
-  }, [manage, stopReason]);
-
-  // Dismissing the answer is what leaves for the roster - never the stop returning. The session is gone
-  // under every verdict the Gateway can send, so this looks at no verdict word.
-  const onDismissStopOutcome = useCallback(() => {
-    setConfirming(false);
-    setStopReason("");
-    setStopOutcome(null);
-    navigate("/");
-  }, [navigate]);
+  }, [manage, navigate, backState]);
 
   // Backing out of the question. It does NOT clear manage.error: the operator may be backing out of a
   // stop that FAILED, and the failure is the one explanation of why the session is still here. Clearing
@@ -122,7 +119,6 @@ export function SessionAppBar({ title, manage, showSnooze = false, showSwitchToV
   // a fresh question, so there is nothing yet to explain.
   const onCancelStop = useCallback(() => {
     setConfirming(false);
-    setStopReason("");
   }, []);
 
   return (
@@ -205,8 +201,6 @@ export function SessionAppBar({ title, manage, showSnooze = false, showSwitchToV
                 role="menuitem"
                 onClick={() => {
                   setOpen(false);
-                  setStopReason("");
-                  setStopOutcome(null);
                   manage.setError(null);
                   setConfirming(true);
                 }}
@@ -259,8 +253,10 @@ export function SessionAppBar({ title, manage, showSnooze = false, showSwitchToV
         return pill !== null ? <span className="manage-held-pill">{pill}</span> : null;
       })()}
 
-      {/* One sheet in two states: the QUESTION until the Gateway has answered, then the ANSWER. */}
-      {confirming && stopOutcome === null && (
+      {/* The stop sheet: ONE question, asked plainly (internal#1992) - no reason box, because the owner's
+          confirm is the authorisation and the hook sends the derived reason; no answer card on success,
+          because a stop the owner asked for and watched happen needs no report. Only a failure speaks. */}
+      {confirming && (
         <div className="confirm-overlay" role="dialog" aria-modal="true" aria-label="Stop session">
           <div className="confirm-card">
             <h2 className="confirm-title">Stop this session?</h2>
@@ -268,67 +264,33 @@ export function SessionAppBar({ title, manage, showSnooze = false, showSwitchToV
               This ends the session on its machine and removes it from the roster. Files in its worktree
               are left exactly as they are.
             </p>
-            <label className="confirm-label" htmlFor="session-stop-reason">
-              Why are you stopping it? A reason is required, and it is recorded with the stop so anyone
-              reading the trail later knows what happened.
-            </label>
-            <input
-              id="session-stop-reason"
-              className="confirm-input"
-              value={stopReason}
-              onChange={(e) => setStopReason(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void onConfirmStop();
-              }}
-              placeholder="Spawned into the wrong mode"
-              autoFocus
-            />
             {/* The failure, in the Gateway's own words, INSIDE the dialog the operator is looking at -
-                the same place the Cockpit puts it, and above the retry button it explains. */}
+                above the retry button it explains. */}
             {manage.error !== null && (
               <div className="confirm-error" role="alert">{manage.error}</div>
             )}
             <div className="confirm-actions">
+              {/* Focus lands here when the sheet opens. The reason box used to be the modal's one focus
+                  target, and deleting it left keyboard focus on the page body - free to tab behind a
+                  dialog that declares aria-modal. The CANCEL is the deliberate landing spot: it is the
+                  safe control, so an accidental Enter cannot confirm a destructive stop (review of
+                  pull request #2816). */}
               <button
                 type="button"
                 className="confirm-btn confirm-cancel"
                 onClick={onCancelStop}
                 disabled={manage.busy}
+                autoFocus
               >
                 Cancel
               </button>
-              {/* Disabled on an empty or whitespace-only reason: the Gateway would refuse that stop, and
-                  a control must not offer a tap that can only come back refused. */}
               <button
                 type="button"
                 className="confirm-btn confirm-remove"
                 onClick={onConfirmStop}
-                disabled={manage.busy || stopReason.trim().length === 0}
+                disabled={manage.busy}
               >
                 {manage.busy ? "Stopping..." : "Stop"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* The answer, rendered VERBATIM: the Gateway's headline, then each of its detail lines in the
-          order it sent them. The same strings the Cockpit shows, on a phone-sized card. */}
-      {confirming && stopOutcome !== null && (
-        <div className="confirm-overlay" role="dialog" aria-modal="true" aria-label="Stop session">
-          <div className="confirm-card">
-            <h2 className="confirm-title">Stop session</h2>
-            <p className="confirm-headline">{stopOutcome.headline}</p>
-            {stopOutcome.details.length > 0 && (
-              <ul className="confirm-details">
-                {stopOutcome.details.map((line, i) => (
-                  <li key={i}>{line}</li>
-                ))}
-              </ul>
-            )}
-            <div className="confirm-actions">
-              <button type="button" className="confirm-btn confirm-cancel" onClick={onDismissStopOutcome}>
-                Done
               </button>
             </div>
           </div>

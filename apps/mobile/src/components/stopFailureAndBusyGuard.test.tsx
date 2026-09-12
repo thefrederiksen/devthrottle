@@ -7,9 +7,9 @@ import { render, screen, cleanup, fireEvent, waitFor, within } from "@testing-li
 // Both defects live in the seam between the sheet and the hook, so a hand-rolled stand-in for the hook
 // cannot see either of them:
 //
-//   * I7 - Enter can send repeated stops while the controls say Stopping. The Stop button disables while
-//     a request is outstanding, but the reason box stays live and Enter is not a button: a disabled
-//     attribute does not block a key press. The guard belongs on the ACTION, which is the hook's stop
+//   * I7 - repeated taps can send repeated stops while the controls say Stopping. The Stop button
+//     disables while a request is outstanding, but a disabled attribute is not a lock: a rapid second
+//     tap can land before any re-render, and the guard belongs on the ACTION, which is the hook's stop
 //     verb, and only the real hook has it.
 //   * I8 - a failed stop used to render on the app bar's sibling banner, UNDER the full-screen overlay
 //     of a dialog declaring aria-modal="true", so there was no failure text inside the dialog at all -
@@ -63,7 +63,7 @@ function answer() {
     rowRemoved: true,
     worktreePath: null,
     worktreeHadUncommittedChanges: null,
-    reason: "spawned into the wrong mode",
+    reason: "Stopped by the owner from the mobile app",
     stoppedBy: "device 4f10",
     killed: true,
     removed: true,
@@ -75,12 +75,12 @@ function openStopSheet() {
   fireEvent.click(screen.getByRole("menuitem", { name: "Stop session" }));
 }
 
-function reasonBox() {
-  return screen.getByPlaceholderText("Spawned into the wrong mode") as HTMLInputElement;
-}
-
 function stopButton() {
   return screen.getByRole("button", { name: /^Stop$/ }) as HTMLButtonElement;
+}
+
+function stoppingButton() {
+  return screen.getByRole("button", { name: "Stopping..." }) as HTMLButtonElement;
 }
 
 beforeEach(() => {
@@ -92,47 +92,48 @@ afterEach(() => {
   cleanup();
 });
 
-describe("the phone sends ONE stop, however many times Enter is pressed", () => {
+describe("the phone sends ONE stop, however many times it is tapped", () => {
   it("does not send a second stop while the first is still outstanding", async () => {
     let release: (value: unknown) => void = () => {};
     stopSessionMock.mockReturnValue(new Promise((resolve) => { release = resolve; }));
 
     render(<Harness />);
     openStopSheet();
-    fireEvent.change(reasonBox(), { target: { value: "spawned into the wrong mode" } });
-    fireEvent.keyDown(reasonBox(), { key: "Enter" });
+    fireEvent.click(stopButton());
     await waitFor(() => expect(stopSessionMock).toHaveBeenCalledTimes(1));
 
-    // The controls now say Stopping... and the button is disabled - and the reason box is not.
-    expect(screen.getByRole("button", { name: "Stopping..." })).toBeTruthy();
-    expect(reasonBox().disabled).toBe(false);
+    // The controls now say Stopping... and the button is disabled - but a disabled attribute is not a
+    // lock, so the second tap is driven straight onto the disabled control (finding I7).
+    expect(stoppingButton().disabled).toBe(true);
 
-    fireEvent.keyDown(reasonBox(), { key: "Enter" });
-    fireEvent.keyDown(reasonBox(), { key: "Enter" });
+    fireEvent.click(stoppingButton());
+    fireEvent.click(stoppingButton());
 
-    // Asserted WITHOUT awaiting the second press. A test that awaits it deadlocks under its own
+    // Asserted WITHOUT awaiting the second tap. A test that awaits it deadlocks under its own
     // mutation - with the guard gone, the second call waits on the same outstanding answer the first is
     // waiting on - and a test that hangs is a test that cannot go red. (Phase B recorded exactly that.)
     expect(stopSessionMock).toHaveBeenCalledTimes(1);
 
     release(answer());
-    expect(await screen.findByText(HEADLINE)).toBeTruthy();
+    // A successful stop is silent (internal#1992): nothing from the answer renders, and the app leaves
+    // for the roster.
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/"));
     expect(stopSessionMock).toHaveBeenCalledTimes(1);
   });
 
-  it("sends one stop for two presses landing together, before anything has re-rendered", async () => {
+  it("sends one stop for two taps landing together, before anything has re-rendered", async () => {
     let release: (value: unknown) => void = () => {};
     stopSessionMock.mockReturnValue(new Promise((resolve) => { release = resolve; }));
 
     render(<Harness />);
     openStopSheet();
-    fireEvent.change(reasonBox(), { target: { value: "spawned into the wrong mode" } });
-    fireEvent.keyDown(reasonBox(), { key: "Enter" });
-    fireEvent.keyDown(reasonBox(), { key: "Enter" });
+    const button = stopButton();
+    fireEvent.click(button);
+    fireEvent.click(button);
 
     expect(stopSessionMock).toHaveBeenCalledTimes(1);
     release(answer());
-    await screen.findByText(HEADLINE);
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/"));
   });
 
   it("does not send a second stop when the button is clicked while one is outstanding", async () => {
@@ -141,15 +142,14 @@ describe("the phone sends ONE stop, however many times Enter is pressed", () => 
 
     render(<Harness />);
     openStopSheet();
-    fireEvent.change(reasonBox(), { target: { value: "spawned into the wrong mode" } });
     fireEvent.click(stopButton());
     await waitFor(() => expect(stopSessionMock).toHaveBeenCalledTimes(1));
 
-    fireEvent.click(screen.getByRole("button", { name: "Stopping..." }));
+    fireEvent.click(stoppingButton());
     expect(stopSessionMock).toHaveBeenCalledTimes(1);
 
     release(answer());
-    await screen.findByText(HEADLINE);
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/"));
   });
 });
 
@@ -158,7 +158,6 @@ describe("a failed stop is explained INSIDE the sheet the operator is looking at
     stopSessionMock.mockRejectedValue(new Error(FAILURE));
     render(<Harness />);
     openStopSheet();
-    fireEvent.change(reasonBox(), { target: { value: "doing the wrong work" } });
     fireEvent.click(stopButton());
     await waitFor(() => expect(stopSessionMock).toHaveBeenCalledTimes(1));
   }
@@ -174,18 +173,17 @@ describe("a failed stop is explained INSIDE the sheet the operator is looking at
     expect(screen.getAllByText(FAILURE).length).toBe(1);
   });
 
-  it("keeps the sheet open with the typed reason, and retries with it", async () => {
+  it("keeps the sheet open, and retries from where it stands", async () => {
     await failTheStop();
 
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText(FAILURE)).toBeTruthy();
-    expect(reasonBox().value).toBe("doing the wrong work");
     expect(navigateMock).not.toHaveBeenCalled();
 
     stopSessionMock.mockResolvedValue(answer());
     fireEvent.click(stopButton());
     await waitFor(() => expect(stopSessionMock).toHaveBeenCalledTimes(2));
-    expect(stopSessionMock.mock.calls[1][1]).toBe("doing the wrong work");
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/"));
   });
 
   it("does not delete the explanation when the operator backs out to the screen behind", async () => {
