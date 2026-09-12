@@ -1,0 +1,10 @@
+﻿{
+  "Passed": true,
+  "FailureClass": null,
+  "Message": "Terminal content fragments observed.",
+  "TokenObserved": true,
+  "ContentFragmentsObserved": true,
+  "TranscriptUserMessageObserved": true,
+  "TranscriptAssistantTokenObserved": false,
+  "TurnStarted": true
+}

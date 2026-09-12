@@ -1,0 +1,21 @@
+﻿<!doctype html>
+<html><head><meta charset="utf-8"><title>Terminal inject harness report</title>
+<style>body{font-family:Segoe UI,Arial,sans-serif;margin:32px;color:#1f2937}table{border-collapse:collapse;width:100%}td,th{border:1px solid #d1d5db;padding:6px 8px;text-align:left;vertical-align:top}.pass{color:#166534}.fail{color:#991b1b}.skip{color:#6b7280}code{font-family:Consolas,monospace}</style>
+</head><body>
+<h1>Terminal inject harness report</h1>
+<p>Machine: <code>SOREN_NORTH</code><br>Started: <code>2026-09-12 14:11:02Z</code><br>Finished: <code>2026-09-12 14:11:26Z</code><br>Control API: <code></code></p>
+<h2>Agent probes</h2><table><tr><th>Agent</th><th>Installed</th><th>Path</th><th>Version</th><th>Skip reason</th></tr>
+<tr><td>Codex</td><td>True</td><td><code>C:\Users\soren\AppData\Local\Programs\OpenAI\Codex\bin\codex.EXE</code></td><td>codex-cli 0.153.4</td><td></td></tr>
+</table>
+<h2>Strategy summary</h2><table><tr><th>Agent</th><th>Case</th><th>Strategy</th><th>Pass</th><th>Fail</th><th>Skip</th><th>Applicable</th><th>Success rate</th></tr>
+<tr><td>Codex</td><td>large-line</td><td>current</td><td>1</td><td>0</td><td>0</td><td>1</td><td>100%</td></tr>
+<tr><td>Codex</td><td>multiline</td><td>current</td><td>1</td><td>0</td><td>0</td><td>1</td><td>100%</td></tr>
+</table>
+<h2>Flake-rate matrix</h2><table><tr><th>Agent</th><th>Case</th><th>Route</th><th>Strategy</th><th>Runs</th><th>Pass</th><th>Fail</th><th>Skip</th><th>Success rate</th><th>Gate</th><th>Failure classes</th></tr>
+<tr><td>Codex</td><td>large-line</td><td>direct</td><td>current</td><td>1</td><td>1</td><td>0</td><td>0</td><td>100%</td><td class="pass">pass</td><td></td></tr>
+<tr><td>Codex</td><td>multiline</td><td>direct</td><td>current</td><td>1</td><td>1</td><td>0</td><td>0</td><td>100%</td><td class="pass">pass</td><td></td></tr>
+</table>
+<h2>Results</h2><table><tr><th>Status</th><th>Agent</th><th>Case</th><th>Route</th><th>Strategy</th><th>Run</th><th>Failure class</th><th>Evidence</th><th>Artifacts</th></tr>
+<tr><td class="pass">Pass</td><td>Codex</td><td>large-line</td><td>direct</td><td>current</td><td>1</td><td></td><td>token=True; fragments=True; pasteMode=True; userTranscript=True; assistantTranscript=True; parked=False; Transcript proof observed.</td><td><code>D:\ReposFred\proof\codex-input-routing-fallback-20260912-1015\runs\20260912-141102-Codex-large-line-Direct-current-run1</code></td></tr>
+<tr><td class="pass">Pass</td><td>Codex</td><td>multiline</td><td>direct</td><td>current</td><td>1</td><td></td><td>token=True; fragments=True; pasteMode=True; userTranscript=True; assistantTranscript=True; parked=False; Transcript proof observed.</td><td><code>D:\ReposFred\proof\codex-input-routing-fallback-20260912-1015\runs\20260912-141114-Codex-multiline-Direct-current-run1</code></td></tr>
+</table></body></html>

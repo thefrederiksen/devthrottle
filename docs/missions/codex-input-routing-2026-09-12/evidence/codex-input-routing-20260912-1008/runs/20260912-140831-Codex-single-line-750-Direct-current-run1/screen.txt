@@ -1,0 +1,39 @@
+﻿│ >_ OpenAI Codex (v0.153.4)                               │
+│                                                          │
+│ model:       gpt-5.6-sol xhigh   /model to change        │
+│ directory:   D:\ReposFred\proof\…\repositories\codex\…n1 │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: Try the Desktop app. Run 'codex app' or visit https://chatgpt.com/codex?app-landing-page=true
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+• You have 2 usage limit resets available. Run /usage to use one.
+
+
+› Reply with TOKEN, MIDDLE_MARKER, and END_MARKER only. PAYLOAD_START
+  xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  MIDDLE_MARKER=SINGLELINE750MIDDDFEF1CB024C END_MARKER=SINGLELINE750ENDCE2169C4E377 PAYLOAD_END TOKEN=OKCODEXSINGLE-
+  LINE-750DIRECT11D4
+
+
+• Working (1s • esc to interrupt)
+
+
+› Ask Codex to do anything
+
+  gpt-5.6-sol xhigh · D:\ReposFred\proof\codex-input-routing-20260912-1008\repositories\codex\20260912-140831-Codex-sin…
+
+
+
+
+
+
+
+
+

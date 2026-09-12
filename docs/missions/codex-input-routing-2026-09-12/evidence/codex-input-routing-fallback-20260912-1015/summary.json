@@ -1,0 +1,134 @@
+﻿{
+  "StartedAtUtc": "2026-09-12T14:11:02.5949022+00:00",
+  "FinishedAtUtc": "2026-09-12T14:11:26.4987703+00:00",
+  "MachineName": "SOREN_NORTH",
+  "RepositoryRoot": "D:\\ReposFred\\worktrees\\devthrottle-codex-input-routing",
+  "OutputDirectory": "D:\\ReposFred\\proof\\codex-input-routing-fallback-20260912-1015",
+  "ControlApiBaseUrl": "",
+  "RunsRequested": 1,
+  "AgentProbes": [
+    {
+      "AgentKind": "Codex",
+      "Installed": true,
+      "ResolvedPath": "C:\\Users\\soren\\AppData\\Local\\Programs\\OpenAI\\Codex\\bin\\codex.EXE",
+      "Version": "codex-cli 0.153.4",
+      "SkipReason": null
+    }
+  ],
+  "Results": [
+    {
+      "Agent": "Codex",
+      "Case": "large-line",
+      "Route": "direct",
+      "Strategy": "current",
+      "Run": 1,
+      "Status": "Pass",
+      "FailureClass": null,
+      "Message": "Transcript proof observed.",
+      "SentText": "Do not modify files. Read the payload and reply with the token, the MIDDLE_MARKER value, and the END_MARKER value only. PAYLOAD_START alpha beta gamma delta alpha beta gamma delta alpha beta gamma delta alpha beta gamma delta alpha beta gamma delta alpha beta gamma delta alpha beta gamma delta alpha beta gamma delta alpha beta gamma delta alpha beta gamma delta alpha beta gamma delta alpha beta gamma delta alpha beta gamma delta alpha beta gamma delta alpha beta gamma delta alpha beta gamma delta alpha beta gamma delta alpha beta gamma delta alpha beta gamma delta alpha beta gamma delta alpha beta gamma delta alpha beta gamma delta MIDDLE_MARKER=LARGELINEMID31235A9708834774 theta lambda sigma omega theta lambda sigma omega theta lambda sigma omega theta lambda sigma omega theta lambda sigma omega theta lambda sigma omega theta lambda sigma omega theta lambda sigma omega theta lambda sigma omega theta lambda sigma omega theta lambda sigma omega theta lambda sigma omega theta lambda sigma omega theta lambda sigma omega theta lambda sigma omega theta lambda sigma omega theta lambda sigma omega theta lambda sigma omega theta lambda sigma omega theta lambda sigma omega theta lambda sigma omega theta lambda sigma omega theta lambda sigma omega END_MARKER=LARGELINEENDAFEC84F177EE4077 PAYLOAD_END TOKEN=OKCODEXLARGE-LINEDIRECT1B38A9EC3",
+      "ExpectedToken": "OKCODEXLARGE-LINEDIRECT1B38A9EC3",
+      "ExpectedFragments": [
+        "OKCODEXLARGE-LINEDIRECT1B38A9EC3",
+        "LARGELINEMID31235A9708834774",
+        "LARGELINEENDAFEC84F177EE4077"
+      ],
+      "TokenObserved": true,
+      "ContentFragmentsObserved": true,
+      "TranscriptUserMessageObserved": true,
+      "TranscriptAssistantTokenObserved": true,
+      "TurnStarted": true,
+      "ParkedComposer": false,
+      "BracketedPasteModeObserved": true,
+      "BufferCursor": 13906,
+      "SessionId": "76aff81d-8cba-4044-8020-a025bcb43102",
+      "RepositoryPath": "D:\\ReposFred\\proof\\codex-input-routing-fallback-20260912-1015\\repositories\\codex\\20260912-141102-Codex-large-line-Direct-current-run1",
+      "AgentExecutablePath": "C:\\Users\\soren\\AppData\\Local\\Programs\\OpenAI\\Codex\\bin\\codex.EXE",
+      "AgentVersion": "codex-cli 0.153.4",
+      "StartedAtUtc": "2026-09-12T14:11:06.0914458+00:00",
+      "FinishedAtUtc": "2026-09-12T14:11:14.0752883+00:00",
+      "ArtifactDirectory": "D:\\ReposFred\\proof\\codex-input-routing-fallback-20260912-1015\\runs\\20260912-141102-Codex-large-line-Direct-current-run1"
+    },
+    {
+      "Agent": "Codex",
+      "Case": "multiline",
+      "Route": "direct",
+      "Strategy": "current",
+      "Run": 1,
+      "Status": "Pass",
+      "FailureClass": null,
+      "Message": "Transcript proof observed.",
+      "SentText": "Do not modify files. Read the payload and reply with the token, the MIDDLE_MARKER value, and the END_MARKER value only.\nPAYLOAD_START\nline one carries ordinary words for the paste path\nline two has MIDDLE_MARKER=MULTILINEMID6A1EFD1111684110\nline three keeps the payload multi-line and nontrivial\nline four has END_MARKER=MULTILINEENDB4EFB8240CF44D54\nPAYLOAD_END TOKEN=OKCODEXMULTILINEDIRECT161CAC866E",
+      "ExpectedToken": "OKCODEXMULTILINEDIRECT161CAC866E",
+      "ExpectedFragments": [
+        "OKCODEXMULTILINEDIRECT161CAC866E",
+        "MULTILINEMID6A1EFD1111684110",
+        "MULTILINEENDB4EFB8240CF44D54"
+      ],
+      "TokenObserved": true,
+      "ContentFragmentsObserved": true,
+      "TranscriptUserMessageObserved": true,
+      "TranscriptAssistantTokenObserved": true,
+      "TurnStarted": true,
+      "ParkedComposer": false,
+      "BracketedPasteModeObserved": true,
+      "BufferCursor": 13053,
+      "SessionId": "863f6b40-0e51-4c5b-af14-23638a15d640",
+      "RepositoryPath": "D:\\ReposFred\\proof\\codex-input-routing-fallback-20260912-1015\\repositories\\codex\\20260912-141114-Codex-multiline-Direct-current-run1",
+      "AgentExecutablePath": "C:\\Users\\soren\\AppData\\Local\\Programs\\OpenAI\\Codex\\bin\\codex.EXE",
+      "AgentVersion": "codex-cli 0.153.4",
+      "StartedAtUtc": "2026-09-12T14:11:17.23707+00:00",
+      "FinishedAtUtc": "2026-09-12T14:11:25.8725912+00:00",
+      "ArtifactDirectory": "D:\\ReposFred\\proof\\codex-input-routing-fallback-20260912-1015\\runs\\20260912-141114-Codex-multiline-Direct-current-run1"
+    }
+  ],
+  "StrategySummaries": [
+    {
+      "Agent": "Codex",
+      "Case": "large-line",
+      "Strategy": "current",
+      "PassCount": 1,
+      "FailCount": 0,
+      "SkipCount": 0,
+      "ApplicableCount": 1,
+      "SuccessRate": 1
+    },
+    {
+      "Agent": "Codex",
+      "Case": "multiline",
+      "Strategy": "current",
+      "PassCount": 1,
+      "FailCount": 0,
+      "SkipCount": 0,
+      "ApplicableCount": 1,
+      "SuccessRate": 1
+    }
+  ],
+  "CombinationSummaries": [
+    {
+      "Agent": "Codex",
+      "Case": "large-line",
+      "Route": "direct",
+      "Strategy": "current",
+      "TotalRuns": 1,
+      "PassCount": 1,
+      "FailCount": 0,
+      "SkipCount": 0,
+      "SuccessRate": 1,
+      "GatePassed": true,
+      "FailureClasses": []
+    },
+    {
+      "Agent": "Codex",
+      "Case": "multiline",
+      "Route": "direct",
+      "Strategy": "current",
+      "TotalRuns": 1,
+      "PassCount": 1,
+      "FailCount": 0,
+      "SkipCount": 0,
+      "SuccessRate": 1,
+      "GatePassed": true,
+      "FailureClasses": []
+    }
+  ]
+}

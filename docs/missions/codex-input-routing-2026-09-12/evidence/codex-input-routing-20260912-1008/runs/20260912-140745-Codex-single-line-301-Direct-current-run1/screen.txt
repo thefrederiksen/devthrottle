@@ -1,0 +1,39 @@
+﻿
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+╭──────────────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.153.4)                               │
+│                                                          │
+│ model:       gpt-5.6-sol xhigh   /model to change        │
+│ directory:   D:\ReposFred\proof\…\repositories\codex\…n1 │
+│ permissions: YOLO mode                                   │
+╰──────────────────────────────────────────────────────────╯
+
+  Tip: Try the Desktop app. Run 'codex app' or visit https://chatgpt.com/codex?app-landing-page=true
+
+⚠ `--dangerously-bypass-hook-trust` is enabled. Enabled hooks may run without review for this invocation.
+
+• You have 2 usage limit resets available. Run /usage to use one.
+
+
+› Reply with TOKEN, MIDDLE_MARKER, and END_MARKER only. PAYLOAD_START
+  xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  MIDDLE_MARKER=SINGLELINE301MID0D05074E2CC5 END_MARKER=SINGLELINE301ENDA8E64CF96C39 PAYLOAD_END TOKEN=OKCODEXSINGLE-
+  LINE-301DIRECT1092
+
+
+• Working (1s • esc to interrupt)
+
+                                                                                                                        › Ask Codex to do anything
+                                                                                                                                            · D:\ReposFred\proof\codex-input-routing-20260912-1008\repositories\codex\202609
+
+  gpt-5.6-sol xhigh · D:\ReposFred\proof\codex-input-routing-20260912-1008\repositories\codex\20260912-140745-Codex-sin…
+
+
+
+
+
+
+
+
+

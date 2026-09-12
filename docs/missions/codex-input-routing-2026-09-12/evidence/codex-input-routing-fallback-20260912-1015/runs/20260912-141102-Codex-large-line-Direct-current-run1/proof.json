@@ -1,0 +1,10 @@
+﻿{
+  "Passed": true,
+  "FailureClass": null,
+  "Message": "Transcript proof observed.",
+  "TokenObserved": true,
+  "ContentFragmentsObserved": true,
+  "TranscriptUserMessageObserved": true,
+  "TranscriptAssistantTokenObserved": true,
+  "TurnStarted": true
+}

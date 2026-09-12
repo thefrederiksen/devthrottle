@@ -1,0 +1,7 @@
+Do not modify files. Read the payload and reply with the token, the MIDDLE_MARKER value, and the END_MARKER value only.
+PAYLOAD_START
+line one carries ordinary words for the paste path
+line two has MIDDLE_MARKER=MULTILINEMID6A1EFD1111684110
+line three keeps the payload multi-line and nontrivial
+line four has END_MARKER=MULTILINEENDB4EFB8240CF44D54
+PAYLOAD_END TOKEN=OKCODEXMULTILINEDIRECT161CAC866E
