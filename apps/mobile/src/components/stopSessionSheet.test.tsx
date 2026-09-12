@@ -4,14 +4,18 @@ import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/re
 import type { SessionStopOutcome } from "@devthrottle/client-core/api/client";
 import type { SessionManage } from "./useSessionManage";
 
-// Rendered proof of the PHONE's stop control (mission "Stop a session", Rulings 4 and 5).
+// Rendered proof of the PHONE's stop control (mission "Stop a session", internal#1992).
 //
-// It is the Cockpit's stop dialog laid out for a phone, and these tests are deliberately the same
-// assertions as the Cockpit's: the reason is asked for before anything happens and an empty one cannot be
-// submitted; the answer is rendered FROM the Gateway's headline and details; every verdict goes through
-// the same path; and leaving for the roster happens when the user dismisses the answer, never when the
-// call returns. Two surfaces that end a session two different ways is exactly what CLAUDE.md rule 8's
-// reasoning forbids, and two test files that check different things is how that drift starts.
+// The owner's ruling of 12 September 2026: Ruling 4's reason requirement binds to AGENT keys calling
+// the REST API - it is not the owner's to type. On the phone, stopping a session is ONE confirmation
+// and then it happens: no reason box, and no report of an action the owner just asked for and
+// watched happen. What is pinned HERE is exactly that - the sheet asks the question plainly, Stop is
+// armed the moment the sheet opens, the stop carries the DERIVED reason the hook sends, and a
+// successful stop under EVERY verdict leaves for the roster with nothing rendered from the answer.
+//
+// The Cockpit keeps its reason box for now (a desktop has a keyboard under the operator's hands) -
+// that divergence is recorded in internal#1992, and the phone's stop test is no longer the Cockpit's
+// stop test copied onto a phone.
 
 const navigateMock = vi.fn();
 vi.mock("react-router-dom", () => ({
@@ -39,12 +43,13 @@ function manage(over: Partial<SessionManage> = {}): SessionManage {
     setError: setErrorMock,
     toggleHold: () => Promise.resolve(true),
     holdFor: () => Promise.resolve(true),
-    stopSession: (reason: string) => stopSessionMock(reason) as Promise<SessionStopOutcome>,
+    stopSession: () => stopSessionMock() as Promise<SessionStopOutcome>,
     ...over,
   };
 }
 
-// A Gateway answer. The headline is deliberately a sentence no client would ever compose.
+// A Gateway answer. The headline is deliberately a sentence no client would ever compose - and on the
+// phone a SUCCESS renders none of it.
 function answer(over: Partial<SessionStopOutcome> = {}): SessionStopOutcome {
   return {
     verdict: "stopped",
@@ -57,7 +62,7 @@ function answer(over: Partial<SessionStopOutcome> = {}): SessionStopOutcome {
     rowRemoved: true,
     worktreePath: null,
     worktreeHadUncommittedChanges: null,
-    reason: "spawned into the wrong mode",
+    reason: "Stopped by the owner from the mobile app",
     stoppedBy: "device 4f10",
     killed: true,
     removed: true,
@@ -68,10 +73,6 @@ function answer(over: Partial<SessionStopOutcome> = {}): SessionStopOutcome {
 function openStopSheet() {
   fireEvent.click(screen.getByLabelText("Session menu"));
   fireEvent.click(screen.getByRole("menuitem", { name: "Stop session" }));
-}
-
-function reasonBox() {
-  return screen.getByPlaceholderText("Spawned into the wrong mode");
 }
 
 function stopButton() {
@@ -88,118 +89,75 @@ afterEach(() => {
   cleanup();
 });
 
-describe("the phone stop sheet asks for the reason before it acts", () => {
-  it("offers Stop session, not Remove session - the same word the Cockpit uses", () => {
+describe("the phone stop sheet asks one question and asks it plainly", () => {
+  it("offers Stop session, not Remove session - the one word for the one verb", () => {
     render(<SessionAppBar title="throwaway" manage={manage()} />);
     fireEvent.click(screen.getByLabelText("Session menu"));
     expect(screen.getByRole("menuitem", { name: "Stop session" })).toBeTruthy();
     expect(screen.queryByRole("menuitem", { name: "Remove session" })).toBeNull();
   });
 
-  it("says a reason is required and what it is for", () => {
+  it("asks the question with NO reason box - the owner does not justify himself to himself", () => {
     render(<SessionAppBar title="throwaway" manage={manage()} />);
     openStopSheet();
-    expect(screen.getByText(/A reason is required/)).toBeTruthy();
-    expect(screen.getByText(/recorded with the stop/)).toBeTruthy();
+    expect(screen.getByText("Stop this session?")).toBeTruthy();
+    expect(screen.queryByPlaceholderText("Spawned into the wrong mode")).toBeNull();
+    expect(screen.queryByText(/A reason is required/)).toBeNull();
   });
 
-  it("will not submit an EMPTY reason", () => {
+  it("arms Stop the moment the sheet opens - nothing has to be typed first", () => {
     render(<SessionAppBar title="throwaway" manage={manage()} />);
     openStopSheet();
-    expect((stopButton() as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(stopButton());
-    expect(stopSessionMock).not.toHaveBeenCalled();
-  });
-
-  it("will not submit a WHITESPACE-ONLY reason", () => {
-    render(<SessionAppBar title="throwaway" manage={manage()} />);
-    openStopSheet();
-    fireEvent.change(reasonBox(), { target: { value: "   \t  " } });
-    expect((stopButton() as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(stopButton());
-    expect(stopSessionMock).not.toHaveBeenCalled();
-  });
-
-  it("sends the trimmed reason once there is one", async () => {
-    stopSessionMock.mockResolvedValue(answer());
-    render(<SessionAppBar title="throwaway" manage={manage()} />);
-    openStopSheet();
-    fireEvent.change(reasonBox(), { target: { value: "  spawned into the wrong mode  " } });
-    fireEvent.click(stopButton());
-
-    await waitFor(() => expect(stopSessionMock).toHaveBeenCalledTimes(1));
-    expect(stopSessionMock).toHaveBeenCalledWith("spawned into the wrong mode");
+    expect((stopButton() as HTMLButtonElement).disabled).toBe(false);
   });
 });
 
-describe("the phone stop sheet renders the Gateway's answer, verbatim", () => {
+describe("a successful stop is silent: it happens, and the app returns to the roster", () => {
   async function stopWith(outcome: SessionStopOutcome) {
     stopSessionMock.mockResolvedValue(outcome);
     render(<SessionAppBar title="throwaway" manage={manage()} />);
     openStopSheet();
-    fireEvent.change(reasonBox(), { target: { value: "spawned into the wrong mode" } });
     fireEvent.click(stopButton());
-    await waitFor(() => expect(stopSessionMock).toHaveBeenCalled());
+    await waitFor(() => expect(stopSessionMock).toHaveBeenCalledTimes(1));
   }
 
-  it("shows a headline no client could have invented", async () => {
-    const headline = "the Gateway wrote this exact sentence and the phone did not";
-    await stopWith(answer({ headline }));
-    expect(await screen.findByText(headline)).toBeTruthy();
+  it("sends the stop and leaves for the roster straight away", async () => {
+    await stopWith(answer());
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/"));
   });
 
-  it("shows every detail line, in the order the Gateway sent them", async () => {
+  it("renders NOTHING from the Gateway's answer - no headline, no detail lines, no Done", async () => {
+    const headline = "stopped 9c41e7a2 - process 51884 ended, row removed";
     await stopWith(
-      answer({
-        details: [
-          "the worktree D:\\Repos\\scratch was left untouched - it has uncommitted changes in it",
-          "reason: spawned into the wrong mode",
-        ],
-      }),
+      answer({ details: ["the worktree D:\\Repos\\scratch was left untouched - it has uncommitted changes in it"] }),
     );
-    const items = await screen.findAllByRole("listitem");
-    expect(items.map((li) => li.textContent)).toEqual([
-      "the worktree D:\\Repos\\scratch was left untouched - it has uncommitted changes in it",
-      "reason: spawned into the wrong mode",
-    ]);
+
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/"));
+    // The answer card is gone under every verdict: the session the owner asked to stop is simply gone.
+    // The detail-line string below exists only in the Gateway's answer, never in the sheet's own words.
+    expect(screen.queryByText(headline)).toBeNull();
+    expect(screen.queryByText(/D:.Repos.scratch/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Done" })).toBeNull();
   });
 
-  // Four verdict words today, and a fifth that does not exist - the view must not know how many there are.
-  const verdicts = ["stopped", "alreadyStopped", "notOnFleet", "stoppedNotDescribed", "someVerdictInvented2027"];
-  for (const verdict of verdicts) {
-    it(`renders "${verdict}" through the same path, with no special case`, async () => {
-      const headline = `the Gateway's own words for ${verdict}`;
-      await stopWith(answer({ verdict, headline }));
-      expect(await screen.findByText(headline)).toBeTruthy();
+  // Every verdict that is a SUCCESS takes the same path out - the view does not know the verdict words.
+  const successes: Array<[string, SessionStopOutcome]> = [
+    ["stopped", answer()],
+    ["alreadyStopped", answer({ verdict: "alreadyStopped", headline: "was already stopped - the leftover row has been removed" })],
+    ["notOnFleet", answer({ verdict: "notOnFleet", headline: "not on this fleet - nothing in this account carries the id 9c41e7a2", processId: null, processEnded: false })],
+    ["someVerdictInvented2027", answer({ verdict: "someVerdictInvented2027", headline: "a verdict nobody has written yet" })],
+  ];
+  for (const [verdict, outcome] of successes) {
+    it(`treats "${verdict}" as the success it is and leaves the same way`, async () => {
+      await stopWith(outcome);
+      await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/"));
+      expect(screen.queryByText(outcome.headline)).toBeNull();
     });
   }
-
-  it("stays on the session until the answer is dismissed, then leaves for the roster", async () => {
-    await stopWith(answer());
-
-    expect(await screen.findByText(answer().headline)).toBeTruthy();
-    // The old hook navigated the instant the call returned, which threw the answer away unread.
-    expect(navigateMock).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole("button", { name: "Done" }));
-    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/"));
-  });
-
-  it("treats not-on-this-fleet as the success it is", async () => {
-    const headline =
-      "not on this fleet - nothing in this account carries the id 9c41e7a2, so no machine was asked "
-      + "and no machine's processes were searched";
-    await stopWith(answer({ verdict: "notOnFleet", headline, processId: null, processEnded: false }));
-
-    expect(await screen.findByText(headline)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Done" }));
-    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith("/"));
-  });
 });
 
 // THE FAILURE PATH LIVES IN stopFailureAndBusyGuard.test.tsx, not here.
 //
-// It used to live here, and it could not catch inspection finding I8: it seeded an error on the manage
-// STUB before the action and then searched the whole document, so it passed just as happily when the
-// only copy of the sentence was on the app bar's banner, outside the modal and underneath its overlay.
-// The replacement drives the REAL management hook and queries WITHIN the dialog element.
+// A failed stop keeps the sheet open with the Gateway's sentence inside it, and it is driven through
+// the REAL hook there - a stub seeded with an error before the action cannot prove where the sentence
+// renders (inspection finding I8), and the single-in-flight guard (I7) belongs to the real verb.

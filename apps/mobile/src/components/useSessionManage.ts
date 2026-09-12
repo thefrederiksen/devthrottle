@@ -16,6 +16,12 @@ import {
   type HoldUiState,
 } from "@devthrottle/client-core/sessions/snoozeAction";
 
+// The reason the phone records with every stop it sends (issue internal#1992). The Gateway requires
+// one under Ruling 4 and writes it into the audit trail; the phone satisfies it with what it knows -
+// WHERE the stop came from - instead of asking the owner to justify his own tap. The CLI and the
+// Cockpit collect a reason from their callers and are not this hook's concern.
+const STOP_REASON_FROM_THE_PHONE = "Stopped by the owner from the mobile app";
+
 // The session management verbs (Snooze/Unsnooze + Stop) for ONE session, hoisted out of the old
 // SessionManageBar so two places can drive them from one copy of the state: the app bar's overflow
 // menu (Stop, and Snooze on the screens with no room for it) and the Voice mode bottom bar (Snooze
@@ -63,18 +69,23 @@ export interface SessionManage {
   holdFor: (minutes: number) => Promise<boolean>;
   /** Stop the session: end the agent process on its machine and take it off the roster.
    *
-   *  The reason is REQUIRED - the Gateway will not carry a stop without one and records it with the stop
-   *  (mission "Stop a session", Ruling 4) - and it is the caller's job to have collected one.
+   *  THE REASON IS COLLECTED HERE, NOT BY THE CALLER (issue internal#1992). Ruling 4 of mission "Stop
+   *  a session" requires a reason with every stop because an AGENT key may stop any other session and
+   *  the trail must say why - that requirement binds to the REST API, not to the owner's own hand. A
+   *  human confirming a stop in the phone's UI is already the strongest authorisation there is, so the
+   *  phone does not make him justify himself: it sends a DERIVED reason that tells the trail what the
+   *  Gateway cannot otherwise see - where the stop came from. The Gateway's contract is untouched and
+   *  the audit row is still complete.
    *
    *  IT SENDS ONE STOP AT A TIME. A second call made while the first is still outstanding is REFUSED -
    *  it throws without reaching the Gateway - so a caller cannot get two stops in flight and then let
    *  their two independently completing handlers overwrite each other's answer.
    *
-   *  IT RESOLVES WITH THE GATEWAY'S ANSWER AND NAVIGATES NOWHERE. The old removeSession went straight to
-   *  the roster the instant the call returned, which threw the answer away before anyone could read it -
-   *  the same silent success the Cockpit had. Leaving here is the caller's decision, taken once the user
-   *  has read what happened. It throws on a failure, with the error already surfaced on `error`. */
-  stopSession: (reason: string) => Promise<SessionStopOutcome>;
+   *  IT RESOLVES WITH THE GATEWAY'S ANSWER AND NAVIGATES NOWHERE. On success the caller leaves for the
+   *  roster (a successful stop is silent - the session is simply gone); on failure the caller keeps the
+   *  sheet open, because the error is already surfaced here on `error` and the operator is looking at
+   *  the sheet. It throws on a failure. */
+  stopSession: () => Promise<SessionStopOutcome>;
 }
 
 export function useSessionManage(sessionId: string | undefined): SessionManage {
@@ -195,32 +206,31 @@ export function useSessionManage(sessionId: string | undefined): SessionManage {
 
   // The stop. It hands the answer back and goes nowhere - see the note on the interface for why.
   //
-  // An empty reason never reaches the Gateway: it would be refused, and the sheet already refuses to
-  // submit one. This guard is the same rule stated where the call is made, so a future caller cannot
-  // send a stop the Gateway can only turn down.
+  // THE REASON IS DERIVED, NOT ASKED FOR. The Gateway still requires one and records it (Ruling 4), and
+  // the phone satisfies it with a sentence that says what happened - the owner confirmed the stop in the
+  // mobile app - rather than interrogating the very person the action belongs to. This is the whole of
+  // internal#1992: the requirement was written for agent keys and must not be made the owner's to type.
   //
   // THE BUSY GUARD IS ON THE ACTION, NOT ONLY ON THE BUTTON (inspection finding I7). The sheet disables
-  // its Stop button while a request is outstanding, but the reason box stays active and Enter is not a
-  // button - a disabled attribute does not block a key press. Two Enter presses used to send two stops,
-  // and the second answer could land on top of the first or clear busy while a request was still
-  // outstanding. The guard belongs HERE, at the one action every caller goes through, rather than on
-  // each surface that can trigger it.
+  // its Stop button while a request is outstanding, but a disabled attribute is not a lock - two rapid
+  // taps can send two stops, and the second answer could land on top of the first or clear busy while a
+  // request was still outstanding. The guard belongs HERE, at the one action every caller goes through,
+  // rather than on each surface that can trigger it.
   //
   // A refused second call throws and surfaces NOTHING: it says nothing on `error`, because there is no
   // event to describe - the Gateway was never asked - and every word an operator reads about a stop is
   // the Gateway's (Ruling 5). The caller's own catch is what swallows it.
-  const doStopSession = useCallback(async (reason: string): Promise<SessionStopOutcome> => {
+  const doStopSession = useCallback(async (): Promise<SessionStopOutcome> => {
     if (!sessionId) throw new Error("There is no session on this screen to stop.");
-    if (reason.trim().length === 0) throw new Error("A stop needs a reason.");
     if (stopInFlightRef.current) throw new Error("A stop for this session is already on its way.");
     stopInFlightRef.current = true;
     setBusy(true);
     setError(null);
     try {
-      return await stopSession(sessionId, reason.trim());
+      return await stopSession(sessionId, STOP_REASON_FROM_THE_PHONE);
     } catch (err) {
-      // The Gateway's own sentence - the refusal for a missing reason, or an ordinary failure - carried
-      // to the banner rather than replaced with a word of ours.
+      // The Gateway's own sentence - an ordinary failure, the Director that could not be reached - carried
+      // to the caller rather than replaced with a word of ours.
       setError(err instanceof Error ? err.message : "Stop failed");
       throw err;
     } finally {
