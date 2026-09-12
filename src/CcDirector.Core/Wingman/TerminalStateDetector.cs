@@ -50,6 +50,7 @@ public sealed class TerminalStateDetector : IDisposable
 
     private readonly SessionManager _sessionManager;
     private readonly bool _driveState;
+    private readonly TimeSpan _quietThreshold;
     private readonly Activity.ActivityEventProducer? _activityProducer;
     private readonly ConcurrentDictionary<Guid, Watcher> _watchers = new();
     private bool _started;
@@ -68,9 +69,22 @@ public sealed class TerminalStateDetector : IDisposable
     /// </param>
     public TerminalStateDetector(SessionManager sessionManager, bool driveState,
         Activity.ActivityEventProducer? activityProducer = null)
+        : this(sessionManager, driveState, QuietThreshold, activityProducer)
     {
+    }
+
+    /// <summary>
+    /// Test seam for exercising the silence rule without waiting for the production interval.
+    /// </summary>
+    internal TerminalStateDetector(SessionManager sessionManager, bool driveState,
+        TimeSpan quietThreshold, Activity.ActivityEventProducer? activityProducer = null)
+    {
+        if (quietThreshold <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(quietThreshold));
+
         _sessionManager = sessionManager;
         _driveState = driveState;
+        _quietThreshold = quietThreshold;
         _activityProducer = activityProducer;
     }
 
@@ -78,7 +92,7 @@ public sealed class TerminalStateDetector : IDisposable
     {
         if (_started) return;
         _started = true;
-        FileLog.Write($"[TerminalStateDetector] Start (mode={(_driveState ? "authoritative" : "observe")}, rule=byte->working, quiet={QuietThreshold.TotalSeconds}s)");
+        FileLog.Write($"[TerminalStateDetector] Start (mode={(_driveState ? "authoritative" : "observe")}, rule=byte->working, quiet={_quietThreshold.TotalSeconds}s)");
 
         _sessionManager.OnSessionCreated += OnSessionCreated;
         _sessionManager.OnSessionRemoved += OnSessionRemoved;
@@ -107,7 +121,7 @@ public sealed class TerminalStateDetector : IDisposable
         // (a queued run emits no bytes yet is genuinely Working), so skip them entirely.
         if (session.BackendType == Backends.SessionBackendType.GitHubActions) return;
         if (_watchers.ContainsKey(session.Id)) return;
-        var w = new Watcher(session, _driveState, _activityProducer);
+        var w = new Watcher(session, _driveState, _quietThreshold, _activityProducer);
         if (_watchers.TryAdd(session.Id, w))
             w.Start();
         else
@@ -137,6 +151,7 @@ public sealed class TerminalStateDetector : IDisposable
         private readonly Session _session;
         private readonly CircularTerminalBuffer _buffer;
         private readonly bool _driveState;
+        private readonly TimeSpan _quietThreshold;
         private readonly Activity.ActivityEventProducer? _activityProducer;
         private readonly Action<byte[]> _onBytes;
         private readonly System.Threading.Timer _quietTimer;
@@ -162,11 +177,13 @@ public sealed class TerminalStateDetector : IDisposable
         private string? _lastBody;
         private long _lastBodyCheckTicks;
 
-        public Watcher(Session session, bool driveState, Activity.ActivityEventProducer? activityProducer)
+        public Watcher(Session session, bool driveState, TimeSpan quietThreshold,
+            Activity.ActivityEventProducer? activityProducer)
         {
             _session = session;
             _buffer = session.Buffer!;
             _driveState = driveState;
+            _quietThreshold = quietThreshold;
             _activityProducer = activityProducer;
             _continuousIdle = session.Driver.EmitsContinuousIdleOutput;
             _onBytes = OnBytes;
@@ -175,14 +192,48 @@ public sealed class TerminalStateDetector : IDisposable
 
         public void Start()
         {
+            _session.OnActivityStateChanged += OnActivityStateChanged;
             _buffer.OnBytesWritten += _onBytes;
+            if (_driveState && _session.ActivityState == ActivityState.Working)
+                MarkActiveFromWorkingState();
+            else
+                ArmQuietTimer();
+        }
+
+        /// <summary>
+        /// Keep the detector's active latch aligned with the state it is responsible for driving.
+        /// A fast first response can finish while <see cref="Session.IsBrandNew"/> still suppresses
+        /// its bytes, before verified submission marks the session Working. The Working transition
+        /// must therefore start the silence countdown even when no later terminal byte arrives.
+        /// </summary>
+        private void OnActivityStateChanged(ActivityState _, ActivityState newState)
+        {
+            if (!_driveState || Volatile.Read(ref _disposed) != 0)
+                return;
+
+            if (newState == ActivityState.Working)
+            {
+                MarkActiveFromWorkingState();
+                return;
+            }
+
+            _active = false;
+        }
+
+        private void MarkActiveFromWorkingState()
+        {
+            if (!_active)
+            {
+                _active = true;
+                FileLog.Write($"[TerminalStateDetector] {_session.Id} terminal=ACTIVE (working-state)");
+            }
             ArmQuietTimer();
         }
 
         private void ArmQuietTimer()
         {
             if (Volatile.Read(ref _disposed) != 0) return;
-            try { _quietTimer.Change(QuietThreshold, Timeout.InfiniteTimeSpan); }
+            try { _quietTimer.Change(_quietThreshold, Timeout.InfiniteTimeSpan); }
             catch (ObjectDisposedException) { /* race with Dispose */ }
         }
 
@@ -214,8 +265,8 @@ public sealed class TerminalStateDetector : IDisposable
             // bypass-permissions footer) emits a flood of bytes BEFORE the user has done anything.
             // The byte->Working rule would flip a fresh session blue for ~QuietThreshold seconds
             // even though it is sitting idle at the prompt. Suppress it. IsBrandNew clears the
-            // moment the user sends their first submission (Session.SendInput / SendTextAsync),
-            // and the normal byte->Working / silence->NeedsYou cycle kicks in from there.
+            // moment the user's first submission is verified. The resulting Working transition
+            // starts the silence countdown, including when the entire response arrived first.
             if (_session.IsBrandNew)
                 return;
 
@@ -348,7 +399,7 @@ public sealed class TerminalStateDetector : IDisposable
                 ? _session.LastBodyActivityAtUtc
                 : _buffer.LastWriteAtUtc;
             var idle = DateTime.UtcNow - lastChange;
-            if (idle + TimeSpan.FromMilliseconds(250) < QuietThreshold)
+            if (idle + TimeSpan.FromMilliseconds(250) < _quietThreshold)
             {
                 ArmQuietTimer();
                 return;
@@ -375,6 +426,7 @@ public sealed class TerminalStateDetector : IDisposable
         public void Dispose()
         {
             if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+            _session.OnActivityStateChanged -= OnActivityStateChanged;
             _buffer.OnBytesWritten -= _onBytes;
             _quietTimer.Dispose();
         }
