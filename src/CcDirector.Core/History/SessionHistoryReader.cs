@@ -96,7 +96,7 @@ public static class SessionHistoryReader
         // No blanket null-path check: Copilot and OpenCode read a store BY REPOSITORY and never needed the
         // path, so cutting them off above would have made them permanently empty here while ReadAll still
         // answered (found in review). Each file-backed arm tests the path itself.
-        return (session.AgentKind switch
+        var history = (session.AgentKind switch
         {
             AgentKind.Gemini => GeminiTerminalHistory.FromBuffer(session.Buffer),
             AgentKind.Copilot => CopilotHistoryReader.Read(session.RepoPath),
@@ -107,6 +107,7 @@ public static class SessionHistoryReader
             AgentKind.Grok when resolvedPath is not null => GrokTranscriptReader.Read(resolvedPath),
             _ => ConversationHistory.Empty,
         }).MainThread;
+        return StoredPromptPayloadResolver.Resolve(history, session.RepoPath, session.Id);
     }
 
     /// <summary>
@@ -121,13 +122,14 @@ public static class SessionHistoryReader
         // Its only readable source is the session's own terminal buffer, where the conversation
         // is present as plain text. Build the (single, unstructured) history straight from it.
         if (session.AgentKind == AgentKind.Gemini)
-            return GeminiTerminalHistory.FromBuffer(session.Buffer);
+            return StoredPromptPayloadResolver.Resolve(
+                GeminiTerminalHistory.FromBuffer(session.Buffer), session.RepoPath, session.Id);
 
         var path = ResolveTranscriptPath(session);
         if (path is null)
             return ConversationHistory.Empty;
 
-        return session.AgentKind switch
+        var history = session.AgentKind switch
         {
             AgentKind.ClaudeCode => ClaudeTranscriptReader.Read(path),
             AgentKind.Codex => CodexTranscriptReader.Read(path),
@@ -140,6 +142,7 @@ public static class SessionHistoryReader
             AgentKind.OpenCode => OpenCodeHistoryReader.Read(session.RepoPath),
             _ => ConversationHistory.Empty,
         };
+        return StoredPromptPayloadResolver.Resolve(history, session.RepoPath, session.Id);
     }
 
     private static string? ResolveClaude(Session session)

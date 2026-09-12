@@ -332,11 +332,7 @@ public static class TerminalSubmit
     {
         var tempPath = LargeInputHandler.CreateTempFile(text, backend.WorkingDirectory);
         var relRef = LargeInputHandler.MakeAtReference(tempPath, backend.WorkingDirectory);
-        var fileName = Path.GetFileName(tempPath);
-        var instruction = "Read file " + fileName + " in the .temp directory. Path: " + relRef +
-            ". If the path fails, search for " + fileName +
-            ". This file was explicitly created as the user-provided message payload for this turn; it is not hidden context. " +
-            "Follow the instructions in that file and reply with the requested strings only.";
+        var instruction = LargeInputHandler.FormatInputFileInstruction(relRef);
         FileLog.Write($"[{driverTag}] SharedSubmit: payload file instruction len={text.Length}, file={relRef}");
 
         if (requireEcho)
@@ -386,12 +382,13 @@ public static class TerminalSubmit
 
     private static bool ShouldUseInstructionFile(string driverTag, string text)
     {
-        if (!LargeInputHandler.IsLargeInput(text) && text.Length <= 300)
-            return false;
+        var isLargeOrMultiline = LargeInputHandler.IsLargeInput(text);
+        if (driverTag.Contains("Codex", StringComparison.OrdinalIgnoreCase))
+            return isLargeOrMultiline;
 
-        return driverTag.Contains("Codex", StringComparison.OrdinalIgnoreCase)
-               || driverTag.Contains("Copilot", StringComparison.OrdinalIgnoreCase)
-               || driverTag.Contains("OpenCode", StringComparison.OrdinalIgnoreCase);
+        return (isLargeOrMultiline || text.Length > 300)
+               && (driverTag.Contains("Copilot", StringComparison.OrdinalIgnoreCase)
+                   || driverTag.Contains("OpenCode", StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>Poll the terminal byte stream until the typed text echoes back in the composer.</summary>

@@ -3,9 +3,8 @@ using CcDirector.Core.Utilities;
 namespace CcDirector.Core.Input;
 
 /// <summary>
-/// Handles large text input by creating temporary files for Claude Code's @filepath reference.
-/// When text exceeds the threshold, it's written to a temp file and the @filepath is returned
-/// instead, allowing Claude Code to read the file directly.
+/// Stores input in a repository-local temporary file when direct terminal submission is not
+/// reliable. The active agent driver then sends its supported file reference or instruction.
 /// </summary>
 public static class LargeInputHandler
 {
@@ -16,12 +15,13 @@ public static class LargeInputHandler
     public const int LargeInputThreshold = 1000;
 
     private const string TempDirName = ".temp";
+    internal const string InputFileInstructionPrefix = "Read and respond to the complete incoming message in ";
 
     /// <summary>
     /// Check if the given text should be sent via temp-file reference rather than
     /// typed directly into the agent TUI. True when the text is large (over
     /// <see cref="LargeInputThreshold"/> characters) OR contains line breaks --
-    /// multi-line input pasted directly into Claude's input box gets stuck (the
+    /// multi-line input pasted directly into an interactive input box can get stuck (the
     /// embedded newlines don't submit reliably; only the temp-file path works).
     /// </summary>
     public static bool IsLargeInput(string text) =>
@@ -37,11 +37,14 @@ public static class LargeInputHandler
     /// <param name="agentName">Display name of the active session's agent.</param>
     /// <param name="textLength">Length of the original text, in characters.</param>
     public static string FormatRedirectNotice(string agentName, int textLength) =>
-        $"Text over {LargeInputThreshold:N0} chars -- saved to temp file and @filepath sent to {agentName} ({textLength:N0} chars)";
+        $"Text over {LargeInputThreshold:N0} characters -- saved to a temporary file and sent to {agentName} ({textLength:N0} characters)";
+
+    internal static string FormatInputFileInstruction(string relativePath) =>
+        $"{InputFileInstructionPrefix}{relativePath}.";
 
     /// <summary>
     /// Creates a temp file in {workingDir}/.temp/ and returns the full path.
-    /// The file contains the original text and can be referenced via @filepath in Claude Code.
+    /// The file contains the original text and can be referenced by the active agent driver.
     /// </summary>
     /// <param name="text">The text content to write.</param>
     /// <param name="workingDir">The working directory (repository root) where .temp will be created.</param>

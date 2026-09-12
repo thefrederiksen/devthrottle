@@ -160,7 +160,7 @@ public class LargeInputHandlerTests : IDisposable
 
         Assert.Contains("sent to Codex", notice);
         Assert.DoesNotContain("Claude Code", notice);
-        Assert.Contains("1,802 chars", notice);
+        Assert.Contains("1,802 characters", notice);
     }
 
     [Fact]

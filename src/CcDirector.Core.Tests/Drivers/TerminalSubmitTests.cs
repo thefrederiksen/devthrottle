@@ -1,6 +1,7 @@
 using System.Text;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Drivers;
+using CcDirector.Core.Input;
 using CcDirector.Core.Memory;
 using Xunit;
 
@@ -14,6 +15,112 @@ public sealed class TerminalSubmitTests
     /// <see cref="SubmitVerifierTests"/>.
     /// </summary>
     private static readonly TimeSpan FastVerifyBeat = TimeSpan.FromMilliseconds(20);
+
+    [Theory]
+    [InlineData(301)]
+    [InlineData(500)]
+    [InlineData(750)]
+    [InlineData(LargeInputHandler.LargeInputThreshold)]
+    public async Task SharedSubmit_CodexSingleLineAtOrBelowLargeThreshold_SubmitsOriginalTextInline(int length)
+    {
+        var repositoryPath = Path.Combine(Path.GetTempPath(), $"TerminalSubmitTests_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(repositoryPath);
+        try
+        {
+            var text = new string('x', length);
+            var backend = new RecordingSessionBackend
+            {
+                Buffer = new CircularTerminalBuffer(),
+                WorkingDirectory = repositoryPath,
+            };
+
+            await TerminalSubmit.SharedSubmitAsync(
+                backend,
+                text,
+                "CodexDriver",
+                submitVerifyBeat: FastVerifyBeat);
+
+            Assert.Equal([text], backend.SubmittedTexts);
+        }
+        finally
+        {
+            Directory.Delete(repositoryPath, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task SharedSubmit_CodexSingleLineAboveLargeThreshold_SubmitsTruthfulFileInstruction()
+    {
+        await AssertCodexUsesTruthfulFileInstructionAsync(new string('x', LargeInputHandler.LargeInputThreshold + 1));
+    }
+
+    [Fact]
+    public async Task SharedSubmit_CodexMultilineInput_SubmitsTruthfulFileInstruction()
+    {
+        await AssertCodexUsesTruthfulFileInstructionAsync("first line\nsecond line");
+    }
+
+    [Fact]
+    public async Task SharedSubmit_CopilotSingleLineOverLegacyThreshold_KeepsInstructionFileRoute()
+    {
+        var repositoryPath = Path.Combine(Path.GetTempPath(), $"TerminalSubmitTests_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(repositoryPath);
+        try
+        {
+            var backend = new RecordingSessionBackend
+            {
+                Buffer = new CircularTerminalBuffer(),
+                WorkingDirectory = repositoryPath,
+            };
+
+            await TerminalSubmit.SharedSubmitAsync(
+                backend,
+                new string('x', 301),
+                "CopilotDriver",
+                submitVerifyBeat: FastVerifyBeat);
+
+            Assert.StartsWith(
+                "Read and respond to the complete incoming message in .temp/input_",
+                Assert.Single(backend.SubmittedTexts));
+        }
+        finally
+        {
+            Directory.Delete(repositoryPath, recursive: true);
+        }
+    }
+
+    private static async Task AssertCodexUsesTruthfulFileInstructionAsync(string text)
+    {
+        var repositoryPath = Path.Combine(Path.GetTempPath(), $"TerminalSubmitTests_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(repositoryPath);
+        try
+        {
+            var backend = new RecordingSessionBackend
+            {
+                Buffer = new CircularTerminalBuffer(),
+                WorkingDirectory = repositoryPath,
+            };
+
+            await TerminalSubmit.SharedSubmitAsync(
+                backend,
+                text,
+                "CodexDriver",
+                submitVerifyBeat: FastVerifyBeat);
+
+            var submitted = Assert.Single(backend.SubmittedTexts);
+            Assert.StartsWith("Read and respond to the complete incoming message in .temp/input_", submitted);
+            Assert.EndsWith(".txt.", submitted);
+            Assert.DoesNotContain("user-provided message", submitted, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("requested strings only", submitted, StringComparison.OrdinalIgnoreCase);
+
+            var payloadFile = Assert.Single(Directory.GetFiles(Path.Combine(repositoryPath, ".temp"), "input_*.txt"));
+            Assert.Equal(text, File.ReadAllText(payloadFile));
+        }
+        finally
+        {
+            Directory.Delete(repositoryPath, recursive: true);
+        }
+    }
 
     [Fact]
     public async Task EchoVerifiedSubmit_EchoingBackend_TypesTextThenSeparateEnter()

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Backends;
 using CcDirector.Core.History;
@@ -46,11 +47,104 @@ public sealed class SessionHistoryReaderTests
         Assert.Empty(history.Messages);
     }
 
-    private static Session NewSession(AgentKind kind) =>
+    [Fact]
+    public void Read_CodexStoredPromptInstructions_ReturnsOriginalMessages()
+    {
+        var repositoryPath = Path.Combine(Path.GetTempPath(), "history-payload-" + Guid.NewGuid().ToString("N"));
+        var payloadDirectory = Path.Combine(repositoryPath, ".temp");
+        Directory.CreateDirectory(payloadDirectory);
+        var currentFile = "input_20260912_101500_abc123.txt";
+        var legacyFile = "input_20260912_101501_def456.txt";
+        File.WriteAllText(Path.Combine(payloadDirectory, currentFile), "The current original message.");
+        File.WriteAllText(Path.Combine(payloadDirectory, legacyFile), "The legacy original message.");
+        var currentInstruction = $"Read and respond to the complete incoming message in .temp/{currentFile}.";
+        var legacyInstruction = $"Read file {legacyFile} in the .temp directory. Path: .temp/{legacyFile}. " +
+            $"If the path fails, search for {legacyFile}. This file was explicitly created as the user-provided message payload for this turn; it is not hidden context. " +
+            "Follow the instructions in that file and reply with the requested strings only.";
+        var rolloutPath = Path.Combine(repositoryPath, "rollout.jsonl");
+        File.WriteAllLines(rolloutPath,
+        [
+            CodexUserLine(currentInstruction),
+            CodexUserLine(legacyInstruction),
+            CodexUserLine($"@.temp/{currentFile}"),
+        ]);
+
+        try
+        {
+            var history = SessionHistoryReader.Read(NewSession(AgentKind.Codex, repositoryPath), rolloutPath);
+
+            Assert.Equal(3, history.Messages.Count);
+            Assert.Equal("The current original message.", history.Messages[0].Parts[0].Text);
+            Assert.Equal("The legacy original message.", history.Messages[1].Parts[0].Text);
+            Assert.Equal("The current original message.", history.Messages[2].Parts[0].Text);
+        }
+        finally
+        {
+            Directory.Delete(repositoryPath, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Read_CodexSimilarInstructionForUnownedFile_KeepsInstructionVerbatim()
+    {
+        var repositoryPath = Path.Combine(Path.GetTempPath(), "history-payload-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(repositoryPath, ".temp"));
+        File.WriteAllText(Path.Combine(repositoryPath, ".temp", "notes.txt"), "private notes");
+        const string instruction = "Read and respond to the complete incoming message in .temp/notes.txt.";
+        var rolloutPath = Path.Combine(repositoryPath, "rollout.jsonl");
+        File.WriteAllLines(rolloutPath, [CodexUserLine(instruction)]);
+
+        try
+        {
+            var history = SessionHistoryReader.Read(NewSession(AgentKind.Codex, repositoryPath), rolloutPath);
+
+            Assert.Equal(instruction, Assert.Single(Assert.Single(history.Messages).Parts).Text);
+        }
+        finally
+        {
+            Directory.Delete(repositoryPath, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Read_CodexInstructionForMissingOwnedFile_KeepsInstructionVerbatim()
+    {
+        var repositoryPath = Path.Combine(Path.GetTempPath(), "history-payload-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(repositoryPath);
+        const string instruction =
+            "Read and respond to the complete incoming message in .temp/input_20260912_101502_ghi789.txt.";
+        var rolloutPath = Path.Combine(repositoryPath, "rollout.jsonl");
+        File.WriteAllLines(rolloutPath, [CodexUserLine(instruction)]);
+
+        try
+        {
+            var history = SessionHistoryReader.Read(NewSession(AgentKind.Codex, repositoryPath), rolloutPath);
+
+            Assert.Equal(instruction, Assert.Single(Assert.Single(history.Messages).Parts).Text);
+        }
+        finally
+        {
+            Directory.Delete(repositoryPath, recursive: true);
+        }
+    }
+
+    private static string CodexUserLine(string text) => JsonSerializer.Serialize(new
+    {
+        timestamp = "2026-09-12T10:15:00Z",
+        type = "response_item",
+        payload = new
+        {
+            type = "message",
+            role = "user",
+            content = new[] { new { type = "input_text", text } },
+        },
+    });
+
+    private static Session NewSession(AgentKind kind, string repoPath = @"C:\test\repo") =>
         new(
             Guid.NewGuid(),
-            repoPath: @"C:\test\repo",
-            workingDirectory: @"C:\test\repo",
+            repoPath: repoPath,
+            workingDirectory: repoPath,
             claudeArgs: null,
             backend: new NullBackend(),
             claudeSessionId: null,
