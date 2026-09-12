@@ -596,10 +596,14 @@ function unreachableNote(mark: RosterSessionMark): string {
   return mark.lastSeenLabel.length > 0 ? `${base} - ${mark.lastSeenLabel}` : base;
 }
 
-function SessionRow({ session, mark, fromTab = "all" }: { session: SessionDto; mark?: RosterSessionMark; fromTab?: RosterTab }) {
+export function SessionRow({ session, mark, fromTab = "all" }: { session: SessionDto; mark?: RosterSessionMark; fromTab?: RosterTab }) {
   const name = session.name && session.name.trim().length > 0 ? session.name : "(unnamed session)";
   const repo = repoLeaf(session);
   const machine = machineName(session);
+  // The Gateway folds the raw SessionDto.agent identity into finished display words. An absent stamp is
+  // kept loud for an older Gateway instead of producing an empty chip that looks like a complete card.
+  // Neither path reads currentModel/modelDisplay: a model is what the tool runs, never which tool runs it.
+  const agentTool = (session.agentToolDisplay ?? "").trim() || "Agent tool not reported";
   // TWO different questions, which this row used to answer with one flag - inspection 1, finding 2.
   //
   //  - DIMMED is display: "is this row's content last-known rather than current?" The retention mark is
@@ -678,16 +682,18 @@ function SessionRow({ session, mark, fromTab = "all" }: { session: SessionDto; m
               winding down
             </span>
           )}
-          {/* The facts you navigate and filter by - the machine the session runs on and its repo - are
-              a bottom row of small chips, so a fleet spread across several machines is legible at a
-              glance without crowding the status line. The machine chip is accent-tinted; the repo chip
-              is neutral. Either is omitted when the Gateway did not stamp it. */}
-          {(machine || repo) && (
-            <span className="row-chips">
-              {machine && <span className="row-chip row-chip-machine">{machine}</span>}
-              {repo && <span className="row-chip row-chip-repo">{repo}</span>}
+          {/* The running agent tool and the places you navigate and filter by are a bottom row of small
+              chips. The tool is the Gateway's finished SessionDto.agentToolDisplay string, rendered
+              verbatim; it never comes from the independently reported model. Machine and repo are omitted
+              when the Gateway did not stamp them, while an unstamped tool stays visibly unknown rather
+              than silently disappearing. */}
+          <span className="row-chips">
+            <span className="row-chip row-chip-agent" title="Agent tool">
+              {agentTool}
             </span>
-          )}
+            {machine && <span className="row-chip row-chip-machine">{machine}</span>}
+            {repo && <span className="row-chip row-chip-repo">{repo}</span>}
+          </span>
           {/* Mobile-resilience Phase 2: when the owning machine is unreachable, a short plain note says so
               and names the machine - the card is kept and grayed, never dropped, so the reader knows this
               is stale-but-preserved, not gone. */}

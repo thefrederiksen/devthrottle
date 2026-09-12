@@ -10879,6 +10879,7 @@ export interface components {
             sessionId?: string;
             directorId?: string;
             agent?: string;
+            agentToolDisplay?: string;
             groupId?: null | string;
             groupRole?: null | string;
             repoPath?: string;

@@ -12,8 +12,16 @@ public sealed class SessionDto
     /// <summary>Which Director owns this session. Empty in Director-local responses.</summary>
     public string DirectorId { get; set; } = "";
 
-    /// <summary>Agent CLI kind: ClaudeCode, Pi, Codex, Gemini, OpenCode, RawCli.</summary>
+    /// <summary>Agent tool kind: ClaudeCode, Pi, Codex, Gemini, OpenCode, Cursor, Grok, Copilot, RawCli.</summary>
     public string Agent { get; set; } = "";
+
+    /// <summary>
+    /// Gateway-folded display name for the running agent tool, such as <c>Claude Code</c>, <c>Pi</c>, or
+    /// <c>Codex</c>. Browser clients render this verbatim and never infer the tool from
+    /// <see cref="CurrentModel"/>. Empty in Director-local responses; the Gateway stamps every served
+    /// roster row through <see cref="AgentToolDisplayFold"/>.
+    /// </summary>
+    public string AgentToolDisplay { get; set; } = "";
 
     /// <summary>Group identity (issue #225) when this session belongs to a group; null for
     /// solo sessions. Lets a by-repo / fleet view keep group members adjacent.</summary>
