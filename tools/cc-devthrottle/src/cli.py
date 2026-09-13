@@ -1420,17 +1420,19 @@ def spawn(
     controlled_by: Optional[str] = typer.Option(
         None,
         "--controlled-by",
-        help="Controlling session for the new session (issue #815 / automatic roles). By DEFAULT a "
-        "session-initiated spawn (CC_SESSION_ID set) becomes a Worker controlled by the spawner, so it "
-        "stays quiet and reports to its manager. Pass an explicit session id to be controlled by a "
-        "different session, 'self' for this session, or 'none' (same as --standalone) to spawn a "
-        "human-facing PEER with no controller.",
+        help="WHO OWNS the new session. REQUIRED when you spawn from inside a session - there is no "
+        "default, because who a session answers to is too important to be decided by an environment "
+        "variable. Pass 'self' to own it yourself (it stays quiet and reports back to you), an explicit "
+        "session id to hand it to another session, or 'none' (same as --standalone) to spawn a peer that "
+        "answers to the USER. A person spawning from the desktop or the Cockpit needs none of this: a "
+        "session a person opens is the user's.",
     ),
     standalone: bool = typer.Option(
         False,
         "--standalone",
-        help="Spawn a human-facing PEER, not a subordinate Worker: force NO controller even when run "
-        "from inside a session. The opt-out for the automatic-worker default.",
+        help="Spawn a session that answers to the USER, not to you: no controller, even when run from "
+        "inside a session. The same declaration as --controlled-by none, spelled for the common case - "
+        "work you are starting on the user's behalf rather than work you will collect yourself.",
     ),
     role: Optional[str] = typer.Option(
         None,

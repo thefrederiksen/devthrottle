@@ -736,6 +736,30 @@ public sealed class SessionDto
     public string? ExplicitRole { get; set; }
 
     /// <summary>
+    /// FLEET-DERIVED FACT: IS THERE A SUPERVISOR ALIVE RIGHT NOW? This is the ONE input to the attention
+    /// rule (<see cref="SessionOrdering.IsSupervised"/>) - the single question a session asks when its turn
+    /// ends, and the only thing that decides whether it may reach the owner.
+    ///
+    /// True when this session is controlled, names its supervisor, and that supervisor is present and not
+    /// Exited in the fleet the roles were resolved from. Stamped by <c>FleetRoleResolver</c>, which is the
+    /// only code that sees the whole fleet; nothing else may write it.
+    ///
+    /// IT IS DERIVED EVERY PASS AND NEVER STAMPED AT BIRTH, and that is the whole point of the field. A
+    /// supervisor alive at spawn can be gone by three in the morning, so "someone will come for this" is a
+    /// claim about NOW. The rule this replaced asked about the session's TYPE - its seat and how it was
+    /// created, both fixed at birth - and so it went on quietening orphans on the strength of a supervisor
+    /// that had died hours earlier. Worse, an explicitly stamped seat skipped the liveness check entirely
+    /// (<c>FleetRoleResolver</c> short-circuits on <see cref="ExplicitRole"/>), so the documented
+    /// dead-supervisor escape hatch could not fire for the sessions that needed it most.
+    ///
+    /// DEFAULT FALSE, AND THAT IS THE SAFE DIRECTION. A fold path that forgets to resolve the fleet first
+    /// reads "no supervisor" and the session SURFACES to the owner. The failure mode of this field is a
+    /// session that asks for him when it did not need to - never one that goes quiet with nobody holding it.
+    /// The predicate that reads it says the same thing from the other side.
+    /// </summary>
+    public bool HasLiveSupervisor { get; set; }
+
+    /// <summary>
     /// A supervised session has its hand up: it is still WORKING and has hit something it cannot decide
     /// inside its mandate (issue #2662). Gateway-owned and Gateway-stamped, from the hand-raise registry.
     ///

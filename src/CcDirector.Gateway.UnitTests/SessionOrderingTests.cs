@@ -377,10 +377,15 @@ public sealed class SessionOrderingTests
     private static SessionDto Raw(string activityState, bool wingmanEnabled = false, bool brandNew = false,
         bool backgroundRunning = false, bool controlled = false, string? controllerId = null,
         bool transcribing = false, bool autoExplaining = false, string briefingState = "None",
-        string? sessionRole = null, string? originKind = null) => new()
+        string? sessionRole = null, string? originKind = null, bool hasLiveSupervisor = false) => new()
     {
         SessionId = "raw",
         ActivityState = activityState,
+        // DEFAULTS FALSE - nobody is holding this session - which is the raw shape of every case in this
+        // file except the few that say otherwise. It is the resolver's answer in production
+        // (FleetRoleResolver stamps it across the whole fleet); here it is stated per case, because what
+        // these tests are about is the FOLD, and the resolver has its own guard.
+        HasLiveSupervisor = hasLiveSupervisor,
         WingmanEnabled = wingmanEnabled,
         IsBrandNew = brandNew,
         IsBackgroundRunning = backgroundRunning,
@@ -655,11 +660,16 @@ public sealed class SessionOrderingTests
     [Fact]
     public void EffectiveColor_LiveWorker_SuppressesRed_RecedesToSupporting()
     {
-        // Automatic roles (Layer 1): a LIVE-controlled Worker's red is SUPPRESSED - it recedes to slate and
-        // never nags the human (its manager sees it via the rail). The aggregation stamps SessionRole=Worker
-        // only when the controller is alive, so red suppression is exactly "live worker".
+        // A LIVE-supervised session's red is SUPPRESSED - it recedes to slate and never nags the owner (its
+        // supervisor sees it via the rail).
+        //
+        // "LIVE" USED TO BE CARRIED BY THE SEAT and is now stated outright. The resolver stamped
+        // SessionRole=Worker only when the controller was alive, so the seat was read as a proxy for
+        // liveness - a proxy that broke the moment a seat was stamped by hand and outlived the supervisor it
+        // stood for. The fold now reads the liveness answer itself, so this test says it.
         Assert.Equal("supporting", SessionOrdering.EffectiveColor(
-            Raw("WaitingForInput", controlled: true, controllerId: Guid.NewGuid().ToString(), sessionRole: "Worker")));
+            Raw("WaitingForInput", controlled: true, controllerId: Guid.NewGuid().ToString(),
+                sessionRole: "Worker", hasLiveSupervisor: true)));
     }
 
     [Fact]
@@ -741,25 +751,27 @@ public sealed class SessionOrderingTests
     }
 
     [Fact]
-    public void Architect_StartedByASchedule_IsStillSupervised_TheOriginOutranksTheSeat()
+    public void Architect_StartedByASchedule_ReachesTheOwner_TheReversalOf13September2026()
     {
-        // THE ONE ARCHITECT THAT STAYS PARKED, PINNED BY NAME so the exception is deliberate rather than a
-        // side effect of two arms happening to sit in one predicate.
+        // THIS TEST USED TO ASSERT THE OPPOSITE, and the round trip is the point of the comment.
         //
-        // The schedule arm asks a DIFFERENT QUESTION from the role arm - not "which seat is this?" but "was
-        // anyone at a keyboard when it started?" - and it wins. An Architect a cron fired has nobody it can
-        // report to by construction, and the owner's standing rule for scheduled runs is that they escalate
-        // by email rather than sit red on his roster. So "the architect is always the session i talk to" is
-        // about the seat HE opens; it does not make a cron firing into a conversation.
+        // It stood as Architect_StartedByASchedule_IsStillSupervised_TheOriginOutranksTheSeat, pinning the
+        // schedule arm as a deliberate exception: "an Architect a cron fired has nobody it can report to by
+        // construction, and the owner's standing rule for scheduled runs is that they escalate by email
+        // rather than sit red on his roster."
         //
-        // Say "an Architect a person started is human-facing". The unqualified "an Architect is never
-        // supervised" is false, and this test is here so nobody writes it into the code again.
+        // The owner overturned it on 2026-09-13, having watched it run: "I think it is wrong that somebody
+        // without a parent can automatically be put on snooze because nobody knows they existed." Having
+        // nobody to report to is not a reason to go quiet - it is the reason to go RED. The email path was
+        // the justification for the silence, and nothing on the roster could attest that it had ever fired.
+        //
+        // So the origin does not outrank the seat any more, because neither of them decides this at all.
         var s = Raw("WaitingForInput", sessionRole: SessionRoles.Architect, originKind: "schedule");
 
-        Assert.True(SessionOrdering.IsSupervised(s));
-        Assert.Equal("supporting", SessionOrdering.EffectiveColor(s));
-        Assert.Equal("Snoozed", SessionOrdering.StateLabel(s));
-        Assert.Equal(SessionOrdering.TriageBucket.OnHold, SessionOrdering.Classify(s));
+        Assert.False(SessionOrdering.IsSupervised(s));
+        Assert.Equal("red", SessionOrdering.EffectiveColor(s));
+        Assert.Equal("Needs you", SessionOrdering.StateLabel(s));
+        Assert.Equal(SessionOrdering.TriageBucket.NeedsYou, SessionOrdering.Classify(s));
     }
 
     // ===================================================================================================
@@ -780,25 +792,30 @@ public sealed class SessionOrderingTests
     [Fact]
     public void Supervised_Worker_Stopped_IsSlate_Snoozed_AndParked()
     {
+        // The one case that was ever really supervised, and the only one left: somebody is alive holding it.
         var s = Raw("WaitingForInput", controlled: true, controllerId: Guid.NewGuid().ToString(),
-            sessionRole: SessionRoles.Worker);
+            sessionRole: SessionRoles.Worker, hasLiveSupervisor: true);
         Assert.Equal("supporting", SessionOrdering.EffectiveColor(s));
         Assert.Equal("Snoozed", SessionOrdering.StateLabel(s));
         Assert.Equal(SessionOrdering.TriageBucket.OnHold, SessionOrdering.Classify(s));
     }
 
     [Fact]
-    public void Supervised_ScheduledRun_Stopped_IsSlate_Snoozed_AndParked()
+    public void ScheduledRun_Stopped_ReachesTheOwner_TheReversalOf13September2026()
     {
-        // A cron firing has no supervisor to report to and nobody was at a keyboard, so it resolves to
-        // Standalone - which is exactly why the ROLE alone could never have covered this case and the
-        // origin has to be read. This is the largest single source of roster noise on a fleet with
-        // recurring jobs, and it matches the owner's standing rule that scheduled runs escalate by email
-        // rather than by sitting red on the roster.
+        // REVERSED ON 2026-09-13, AND THE OLD REASONING IS KEPT HERE BECAUSE IT WAS PERSUASIVE AND WRONG.
+        // It read: "a cron firing has no supervisor to report to and nobody was at a keyboard... this is the
+        // largest single source of roster noise on a fleet with recurring jobs, and it matches the owner's
+        // standing rule that scheduled runs escalate by email rather than by sitting red on the roster."
+        //
+        // Having nobody to report to is not a licence to go quiet - it is the whole reason to surface. The
+        // silence was sold against an email path, and nothing in the session state could attest that the
+        // email had ever been sent. Noise on the roster is a real cost; work nobody knows finished is a
+        // larger one, and it is the one the owner was actually paying.
         var s = Raw("WaitingForInput", sessionRole: SessionRoles.Standalone, originKind: "schedule");
-        Assert.Equal("supporting", SessionOrdering.EffectiveColor(s));
-        Assert.Equal("Snoozed", SessionOrdering.StateLabel(s));
-        Assert.Equal(SessionOrdering.TriageBucket.OnHold, SessionOrdering.Classify(s));
+        Assert.Equal("red", SessionOrdering.EffectiveColor(s));
+        Assert.Equal("Needs you", SessionOrdering.StateLabel(s));
+        Assert.Equal(SessionOrdering.TriageBucket.NeedsYou, SessionOrdering.Classify(s));
     }
 
     [Theory]
@@ -811,7 +828,7 @@ public sealed class SessionOrderingTests
         // exactly when the 2026-07-14 defect comes back - every rule that has ever sat above the working
         // check has been a defect, and each one cost the owner a day.
         var isWorker = role == SessionRoles.Worker;
-        var s = Raw("Working", sessionRole: role, originKind: origin,
+        var s = Raw("Working", sessionRole: role, originKind: origin, hasLiveSupervisor: true,
             controlled: isWorker, controllerId: isWorker ? Guid.NewGuid().ToString() : null);
         Assert.Equal("blue", SessionOrdering.EffectiveColor(s));
         Assert.Equal("Working", SessionOrdering.StateLabel(s));
@@ -825,7 +842,7 @@ public sealed class SessionOrderingTests
         // never hide behind a Snoozed label. The same reasoning binds a supervised one - otherwise a
         // worker that DIED would be indistinguishable from one that finished politely.
         var s = Raw("Exited", controlled: true, controllerId: Guid.NewGuid().ToString(),
-            sessionRole: SessionRoles.Worker);
+            sessionRole: SessionRoles.Worker, hasLiveSupervisor: true);
         Assert.Equal("grey", SessionOrdering.EffectiveColor(s));
         Assert.Equal("Exited", SessionOrdering.StateLabel(s));
     }
@@ -837,7 +854,7 @@ public sealed class SessionOrderingTests
         // widening the rule swallowed this, a worker that DIED would look like a worker that finished -
         // silently, on a roster the owner has just been told he can stop watching.
         var s = Raw("Exited", controlled: true, controllerId: Guid.NewGuid().ToString(),
-            sessionRole: SessionRoles.Worker);
+            sessionRole: SessionRoles.Worker, hasLiveSupervisor: true);
         s.Crashed = true;
         Assert.Equal("error", SessionOrdering.EffectiveColor(s));
         Assert.Equal("Crashed", SessionOrdering.StateLabel(s));
@@ -850,7 +867,7 @@ public sealed class SessionOrderingTests
         // it, so the row must say so - the same reasoning that lets his own words supersede his own
         // snooze. This is why the supervised arm sits BELOW dictation orange rather than above it.
         var s = Raw("WaitingForInput", controlled: true, controllerId: Guid.NewGuid().ToString(),
-            sessionRole: SessionRoles.Worker, transcribing: true);
+            sessionRole: SessionRoles.Worker, transcribing: true, hasLiveSupervisor: true);
         Assert.Equal("orange", SessionOrdering.EffectiveColor(s));
     }
 
@@ -862,7 +879,7 @@ public sealed class SessionOrderingTests
         // producer's good behaviour - that assumption is what left the desktop stuck on "Preparing voice"
         // for the whole of #1843.
         var s = Raw("WaitingForInput", controlled: true, controllerId: Guid.NewGuid().ToString(),
-            sessionRole: SessionRoles.Worker, briefingState: "Briefing");
+            sessionRole: SessionRoles.Worker, briefingState: "Briefing", hasLiveSupervisor: true);
         Assert.Equal("supporting", SessionOrdering.EffectiveColor(s));
         Assert.Equal("Snoozed", SessionOrdering.StateLabel(s));
     }
@@ -895,11 +912,13 @@ public sealed class SessionOrderingTests
     }
 
     [Fact]
-    public void Supervised_HumanOriginIsNotSwallowedByTheScheduleArm()
+    public void NoOriginQuietensASessionNobodyIsHolding()
     {
-        // The origin arm reads ONE token. A session a person started must never be quietened by it, and
-        // an over-broad match here would be invisible: it would simply make his own sessions stop asking.
-        foreach (var origin in new string?[] { "human", "agent", "unknown", null })
+        // THE ORIGIN HAS NO VOTE AT ALL SINCE 2026-09-13, and "schedule" is in this list to prove it rather
+        // than to be excluded from it. This test used to guard an over-broad match on the one token the rule
+        // read; there is no token now, and a regression that put one back would be invisible any other way -
+        // it would simply make sessions stop asking.
+        foreach (var origin in new string?[] { "human", "agent", "unknown", "schedule", null })
         {
             var s = Raw("WaitingForInput", sessionRole: SessionRoles.Standalone, originKind: origin);
             Assert.Equal("red", SessionOrdering.EffectiveColor(s));
@@ -1151,7 +1170,8 @@ public sealed class SessionOrderingTests
         // than what it was doing, and it was plainly wrong for the two kinds the rule now covers (an
         // Architect is not a sub-agent; neither is a cron firing). The slate dot still says "not yours".
         Assert.Equal("Snoozed", SessionOrdering.StateLabel(
-            Raw("WaitingForInput", controlled: true, controllerId: Guid.NewGuid().ToString(), sessionRole: "Worker")));
+            Raw("WaitingForInput", controlled: true, controllerId: Guid.NewGuid().ToString(),
+                sessionRole: "Worker", hasLiveSupervisor: true)));
     }
 
     [Fact]

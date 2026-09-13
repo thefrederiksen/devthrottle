@@ -55,8 +55,9 @@ internal sealed class FleetRoleExecutor : ISessionCommandArea
         if (session is null)
             return DirectorCommandResult.Fail(DirectorCommandStatus.NotFound, "session not found");
 
-        session.SetGatewayResolvedRole(request.Role);
-        FileLog.Write($"[FleetRoleExecutor] set-resolved-role: session={guid}, role={request.Role}");
+        session.SetGatewayResolvedRole(request.Role, request.HasLiveSupervisor);
+        FileLog.Write($"[FleetRoleExecutor] set-resolved-role: session={guid}, role={request.Role}, " +
+                      $"liveSupervisor={request.HasLiveSupervisor}");
         return DirectorCommandResult.Success();
     }
 }

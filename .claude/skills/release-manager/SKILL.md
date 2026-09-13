@@ -172,7 +172,7 @@ no release facts; it only expands and phrases what the public file states.
   path to your finished file:
 
 ```bash
-cc-devthrottle session spawn D:/ReposFred/devthrottle_internal
+cc-devthrottle session spawn D:/ReposFred/devthrottle_internal --controlled-by self
 cc-devthrottle message send <session-id> "<one-line message with the file path>"
 ```
 

@@ -86,6 +86,10 @@ public sealed class DesktopGatewayFoldAgreementTests
             IsControlled = true,
             ControllerSessionId = "manager",
             SessionRole = SessionRoles.Worker,
+            // The resolver's answer, set by hand here because this is a FOLD test. Since 2026-09-13 the seat
+            // does not imply this - a Worker whose supervisor has died is the owner's - so the fold has to be
+            // told the supervisor is alive, which is precisely the fact the roster row above represents.
+            HasLiveSupervisor = true,
         };
 
         Assert.Equal("supporting", SessionOrdering.EffectiveColor(codex));

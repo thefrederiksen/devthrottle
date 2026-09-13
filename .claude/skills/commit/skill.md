@@ -178,7 +178,7 @@ commit (Step 4), drive it home:
    defect, so the reviewer must not be the writer. Codex is the default reviewer, and it runs as
    a real tracked session - never backgrounded, never hidden:
 
-       cc-devthrottle session spawn <repo> --agent Codex --prompt "<what to review>" --name "review: <what it is>"
+       cc-devthrottle session spawn <repo> --controlled-by self --agent Codex --prompt "<what to review>" --name "review: <what it is>"
 
    This review replaces the wait, it does not sit alongside it. Waiting bought a slow re-run of
    mostly the same tests plus some coverage you are better off running deliberately; a reviewer

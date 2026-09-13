@@ -169,59 +169,54 @@ public static class SessionOrdering
     }
 
     /// <summary>
-    /// TRUE WHEN THIS SESSION ANSWERS TO SOMETHING OTHER THAN THE OWNER - the one question that decides
-    /// whether a stopped session is allowed to ask for him.
+    /// IS SOMETHING ALIVE HOLDING THIS SESSION? - the one question that decides whether a stopped session is
+    /// allowed to ask for the owner.
     ///
-    /// TWO kinds, and they are two because they are two different reasons, not one rule stretched:
-    ///  - <see cref="SessionRoles.Worker"/> - it has a LIVE supervisor. The role is resolved by
-    ///    <c>FleetRoleResolver</c> from the WHOLE fleet, so "Worker" already means "controlled AND the
-    ///    controller is still alive". A worker whose supervisor DIED resolves to Standalone/Manager and is
-    ///    therefore NOT supervised here - which is the escape hatch, unchanged and deliberate: an orphan
-    ///    reaches the owner, because a dead supervisor is an exception and an exception always involves him.
-    ///  - <c>OriginKind == "schedule"</c> - a cron firing or a work-list item. Nobody was at a keyboard and
-    ///    no session made the call, so there is nobody it can be reporting to. The owner's standing rule for
-    ///    scheduled runs is that they reap themselves and escalate BY EMAIL, never by sitting red on the
-    ///    roster; this makes the roster agree with that rule instead of contradicting it.
+    /// ONE INPUT: <see cref="SessionDto.HasLiveSupervisor"/>, resolved against the whole fleet by
+    /// <c>FleetRoleResolver</c> every pass. A session is quietened because a supervisor is BREATHING, and for
+    /// no other reason.
     ///
-    /// THE ROLE IS NO LONGER ONE OF THE KINDS, and that is the owner's ruling of 2026-09-06, which overturns
-    /// the one of 2026-07-09 that this list used to carry:
+    /// THE RULE THIS REPLACED ASKED ABOUT TYPE, AND THAT IS THE OWNER'S RULING OF 2026-09-13. It read:
     ///
-    ///   "parking the architect seat is wrong. the architect is always the session i talk to."
-    ///   "no the architect should push to me it is what i talk to."
+    ///     IsSupervised = SessionRole == Worker || OriginKind == "schedule"
     ///
-    /// The July ruling said an Architect never PUSHES and is only ever PULLED into a conversation. It reached
-    /// the design document, and then reached this predicate two months later - by which time the owner had
-    /// seen it running and disagreed with it. An Architect is the seat he addresses, so it surfaces, it
-    /// counts in the needs-you total, and the wingman reads it aloud, exactly like a Manager or a Standalone.
+    /// Both of those are stamped at BIRTH. So the fleet went quiet about a session because of the category it
+    /// was born into rather than because anyone was there, and on 13 September six sessions sat grey and
+    /// labelled "Snoozed" with nothing snoozed - five of the six had nobody who would ever come for them. The
+    /// owner's words: "I think it is wrong that somebody without a parent can automatically be put on
+    /// snooze because nobody knows they existed."
     ///
-    /// SO NO ROLE IS SUPERVISED ANY MORE EXCEPT WORKER. Manager, Standalone and Architect are the three
-    /// human-facing seats: a Manager surfaces on its own judgement (a decision OR an update), a Standalone is
-    /// the ordinary single session, and an Architect is the design seat the owner talks to. Everything the
-    /// fleet does reaches him through one of those three, consolidated - which is what makes the rest of the
-    /// roster safe to quieten.
+    /// The two old arms, and why neither survives as a special case:
+    ///  - <b>The Worker seat.</b> It was a PROXY for live supervision, and a leaky one. The role is derived
+    ///    as "controlled AND the controller is alive", so it carried the right answer - until a seat was
+    ///    stamped by hand, which short-circuits the derivation entirely. An explicitly stamped Worker kept
+    ///    the seat, and the quiet, after its supervisor had exited. Reading the liveness answer directly
+    ///    removes the proxy rather than patching it.
+    ///  - <b>The schedule origin.</b> A cron firing has no supervisor, so under this rule it SURFACES. That
+    ///    reverses the older ruling that scheduled runs escalate by email and never sit red on the roster.
+    ///    The owner settled it on 2026-09-13: let them go red. A session nobody is holding is the owner's,
+    ///    whatever started it, and an email path that nothing on the roster can attest to is not a supervisor.
     ///
-    /// THE SCHEDULE ARM IS ORTHOGONAL TO ALL OF THAT, AND IT STILL WINS. It asks a different question - not
-    /// "which seat is this?" but "was anyone at a keyboard when it started?" - so a session a cron fired is
-    /// supervised WHATEVER seat it occupies, an Architect included. That is not an oversight and it is not a
-    /// hole in the 2026-09-06 ruling: a scheduled run has nobody it can report to by construction, and the
-    /// owner's standing rule is that it escalates by email rather than by sitting red on his roster. Say "an
-    /// Architect that a person started is human-facing", never the unqualified "an Architect is never
-    /// supervised" - the supervision table in docs/new_architecture/session-roles-semantics.md spells out
-    /// all eight cases and is the statement this method is held to.
+    /// NO ROLE IS SUPERVISED ANY MORE. Worker, Manager, Architect and Standalone are all just seats: they
+    /// name what a session is for, they group the fleet, and they have no vote here. Neither does the origin.
+    /// A Worker whose supervisor is alive is held; the same Worker an hour after its supervisor died is the
+    /// owner's, and nothing has to notice or repair that - the answer is recomputed every pass.
     ///
-    /// Reads only facts already on the wire. It adds no state, arms no timer, and writes nothing: a session
-    /// stops being supervised the instant its role resolves differently, with no latch to get stuck.
+    /// FAILS TOWARD THE OWNER. <see cref="SessionDto.HasLiveSupervisor"/> defaults to false, so a path that
+    /// folds without resolving the fleet first answers "not supervised" and the session SURFACES. The wrong
+    /// answer this can give is a session asking for him when somebody had it; the wrong answer it cannot give
+    /// is silence over a session nobody had.
+    ///
+    /// Reads only a fact already on the wire. It adds no state, arms no timer and writes nothing.
     ///
     /// THE WRITTEN RULE AND THIS METHOD ARE MACHINE-CHECKED AGAINST EACH OTHER by
     /// <c>SupervisionRuleMatchesTheDesignDocumentTests</c>, which reads the attention table out of
     /// <c>docs/new_architecture/session-roles-semantics.md</c> and fails when the document and this method
-    /// disagree about any seat. That guard exists because the July amendment sat in the document,
+    /// disagree about any case. That guard exists because an earlier amendment sat in the document,
     /// unimplemented and uncontradicted, for two months: every test of the day asserted the SHIPPED
     /// behaviour in the present tense, so a document saying something else could not make anything go red.
     /// </summary>
-    public static bool IsSupervised(SessionDto s) =>
-        string.Equals(s.SessionRole, SessionRoles.Worker, StringComparison.OrdinalIgnoreCase)
-        || string.Equals(s.OriginKind, "schedule", StringComparison.OrdinalIgnoreCase);
+    public static bool IsSupervised(SessionDto s) => s.HasLiveSupervisor;
 
     /// <summary>
     /// True when a supervised session has STOPPED and must therefore present as snoozed (owner's ruling,

@@ -191,19 +191,95 @@ Two things changed, and both are in the code and in
    middle of the roster. The owner's ruling - *"supervised still show up in Director and Cockpit,
    session should go to onhold when not working"* - makes it sink into the parked bucket instead. It
    is still fully visible and readable on every screen; it just stops being in his queue.
-2. **The rule covers two kinds, not one.** It was Worker-only. It is now every SUPERVISED session: a
-   **Worker** (live supervisor) and a **scheduled run** (`OriginKind == "schedule"` - a cron firing
-   has no supervisor to report to, and the owner's standing rule is that scheduled runs escalate by
-   email rather than by sitting red on the roster).
+2. **The rule covers two kinds, not one.** It was Worker-only. It became every SUPERVISED session: a
+   **Worker** (live supervisor) and a **scheduled run** (`OriginKind == "schedule"`).
 
    It briefly covered THREE. The **Architect** was added on 2026-09-03, implementing the 2026-07-09
    amendment which had reached this document and never reached the code; the owner removed it again
-   on 2026-09-06 - "the architect is always the session i talk to". See the supervision table below,
-   which is the machine-checked statement of this rule and outranks any prose on either side of it.
+   on 2026-09-06 - "the architect is always the session i talk to".
 
-Unchanged, and load-bearing: **nothing outranks working**, an **exited or crashed** session never
-hides behind a snoozed label, and the **orphan escape hatch** still fires - a session whose
-supervisor died resolves to Standalone, so it is not supervised and its red reaches the owner.
+   **SUPERSEDED 2026-09-13 - see the next section. No ROLE is supervised any more, and neither is a
+   scheduled run.** Both of those inputs are stamped at birth, and asking about them is what let the
+   fleet quieten sessions nobody was holding. The rule now asks one question about the present.
+
+Unchanged, and load-bearing: **nothing outranks working**, and an **exited or crashed** session never
+hides behind a snoozed label.
+
+## AMENDED 2026-09-13 - the rule asks about the PRESENT, not about the session's type
+
+The owner's ruling: *"I think it is wrong that somebody without a parent can automatically be put on
+snooze because nobody knows they existed."*
+
+**When a turn finishes, a session asks exactly one question: is there a supervisor alive right now?**
+
+- **No** - it goes RED and asks the owner. Its seat and its origin have no vote.
+- **Yes** - it stays grey, and it tells the supervisor itself, because the supervisor asked it to do
+  something and getting back to them is part of doing it.
+
+What this replaced, and why neither old arm survives as a special case:
+
+- **The Worker seat** was a PROXY for live supervision, and a leaky one. The role is derived as
+  "controlled AND the controller is alive", so it carried the right answer - until a seat was stamped
+  by hand, which short-circuits the derivation entirely (`FleetRoleResolver` returns on
+  `ExplicitRole` before it reaches the liveness check). An explicitly stamped Worker kept the seat,
+  and the quiet, long after its supervisor had exited. The orphan escape hatch this document promised
+  could not fire for exactly the sessions that needed it. Reading the liveness answer directly removes
+  the proxy rather than patching it.
+- **The schedule origin** silenced every cron session on the grounds that it escalates by email
+  instead. A cron firing has no supervisor, so under the new rule it SURFACES. The owner settled the
+  reversal on 2026-09-13: let them go red. An email path that nothing on the roster can attest to is
+  not a supervisor.
+
+Measured on the live fleet the morning this was written: six sessions grey and labelled "Snoozed"
+with `snoozeUntil` empty and `onHold` false - nobody had snoozed any of them. Five of the six had
+nobody who would ever come for them.
+
+The answer is `SessionDto.HasLiveSupervisor`, resolved against the whole fleet by `FleetRoleResolver`
+on every pass and never stamped at birth: a supervisor alive at spawn can be gone by three in the
+morning. It defaults to false, so a fold path that forgets to resolve the fleet first surfaces the
+session to the owner. The failure mode is a session asking for him when somebody had it - never
+silence over a session nobody had.
+
+### The other half: ownership is DECLARED at spawn, never inferred
+
+The rule above reads an answer. This is where the answer comes from, and the two shipped together
+because half of this is not worth having.
+
+**Every session has exactly one owner, and it is either another SESSION or the USER.** There is no
+third answer and there is no unowned session: no owner means the user. That is the whole model.
+
+A session-initiated spawn must now SAY which (owner's ruling, 2026-09-13 - *"I think it is clear if
+you have to state ownership intent when you start a session"*):
+
+| Declaration | Owner | What happens when it stops |
+|---|---|---|
+| `--controlled-by self` | the spawning session | quiet on the roster; it reports back to its owner |
+| `--controlled-by <id>` | that session | the same, to that session |
+| `--standalone` (= `--controlled-by none`) | the USER | red, and in his queue |
+| nothing, from inside a session | REFUSED | the spawn does not happen |
+| nothing, from a person or a schedule | the USER | red, and in his queue |
+
+**Why the refusal.** `cc-devthrottle session spawn` used to read:
+
+```
+elif cc_session: controller_session_id = cc_session
+```
+
+so a session that spawned without saying anything took ownership of what it spawned, because
+`CC_SESSION_ID` happened to be set in its environment. Nobody chose it and nothing recorded that a
+choice had been made. That default was the ONLY way work could stop being the user's: a person
+spawning and a schedule firing both land on him already, so an agent spawning an agent is the single
+path by which something leaves his queue. It is now the single path that has to declare itself.
+
+**A human spawn declares nothing, and that is not an exemption.** There is nothing to state - a
+session a person opens from the desktop, the Cockpit or the phone is the user's, and there is no
+second candidate to tell it apart from. The requirement lands exactly where the ambiguity is.
+
+**Breaking free is the point of `--standalone`.** A session started by another session - or by a
+scheduled run - must be able to answer to the user instead of to whatever opened it. That flag has
+existed for a long time; what is new is that the attention rule finally honours it, because the rule
+now reads the live relationship rather than the seat, and a seat stamped at spawn could previously
+overrule a session that had deliberately broken free.
 
 3. **The wingman no longer enrols a supervised session into voice mode.** `VoiceModeAllSweep.Plan` resolves
    the roles itself and skips them - it has to resolve, because the push store nulls the role at ingest, so a
@@ -235,9 +311,15 @@ ask "am I this row's supervisor?". The manager-facing surface built for #2662 is
 
 This table is the written half of `SessionOrdering.IsSupervised`, and it is not decoration.
 `SupervisionRuleMatchesTheDesignDocumentTests` (in `CcDirector.Gateway.UnitTests`) parses the rows
-below and fails when the document and the code disagree about any seat, in either direction. It also
-fails when a row is missing: the table must name every combination of the four roles and the two
-origins, so it cannot pass by saying nothing.
+below and fails when the document and the code disagree about any case, in either direction. It also
+fails when a row is missing: the table must name every combination of the four roles, the two
+origins and the two supervisor states, so it cannot pass by saying nothing.
+
+**The seat and the origin columns are here precisely BECAUSE they no longer decide anything.** A
+two-row table would state the rule correctly and prove nothing about the thing that went wrong: for
+two years the answer turned on a category. Sixteen rows, with the verdict constant down each block,
+is the claim itself - *neither the seat nor the origin changes the answer* - written where the
+machine can check it. A guard has fired here the moment anyone makes a role matter again.
 
 **Why the guard exists.** The 2026-07-09 amendment sat in this document, unimplemented, for two
 months. Every test of the day asserted the SHIPPED behaviour in the present tense, so a document
@@ -245,22 +327,31 @@ saying the opposite could not make anything go red - the divergence was invisibl
 was only ever going to be found by a person reading both halves side by side. Writing the rule down
 twice, once here and once in code, with nothing tying the two together, is what cost the two months.
 
-The role is the one the Gateway RESOLVED across the whole fleet, not the one a Director pushed. So
-"Worker" already means "controlled AND the supervisor is still alive"; a worker whose supervisor
-died resolves to Standalone and reads off the Standalone row, which is the orphan escape hatch.
+The role is the one the Gateway RESOLVED across the whole fleet, not the one a Director pushed - and
+so is the live-supervisor answer. Both are recomputed on every pass by `FleetRoleResolver`; neither
+is a birth fact. "Live supervisor = yes" means this session is controlled, names its supervisor, and
+that supervisor is present and not Exited in the fleet the pass resolved from.
 
 <!-- SUPERVISION-TABLE-BEGIN -->
 
-| Resolved role | Origin kind | Verdict |
-|---|---|---|
-| Standalone | (none) | HUMAN-FACING |
-| Manager | (none) | HUMAN-FACING |
-| Architect | (none) | HUMAN-FACING |
-| Worker | (none) | SUPERVISED |
-| Standalone | schedule | SUPERVISED |
-| Manager | schedule | SUPERVISED |
-| Architect | schedule | SUPERVISED |
-| Worker | schedule | SUPERVISED |
+| Resolved role | Origin kind | Live supervisor | Verdict |
+|---|---|---|---|
+| Standalone | (none) | no | HUMAN-FACING |
+| Manager | (none) | no | HUMAN-FACING |
+| Architect | (none) | no | HUMAN-FACING |
+| Worker | (none) | no | HUMAN-FACING |
+| Standalone | schedule | no | HUMAN-FACING |
+| Manager | schedule | no | HUMAN-FACING |
+| Architect | schedule | no | HUMAN-FACING |
+| Worker | schedule | no | HUMAN-FACING |
+| Standalone | (none) | yes | SUPERVISED |
+| Manager | (none) | yes | SUPERVISED |
+| Architect | (none) | yes | SUPERVISED |
+| Worker | (none) | yes | SUPERVISED |
+| Standalone | schedule | yes | SUPERVISED |
+| Manager | schedule | yes | SUPERVISED |
+| Architect | schedule | yes | SUPERVISED |
+| Worker | schedule | yes | SUPERVISED |
 
 <!-- SUPERVISION-TABLE-END -->
 
@@ -270,21 +361,25 @@ still fully visible and readable on every screen, just out of his queue - and th
 alone. Nothing outranks WORKING: a supervised session mid-turn is still blue, and an exited or
 crashed one never hides behind a snoozed label.
 
-A scheduled run is supervised whatever seat it occupies, which is why the origin rows are exhaustive
-rather than "any". Nobody was at a keyboard when a cron fired, so there is nobody it can report to.
+The verdict is constant down each block: every row with no live supervisor is HUMAN-FACING and every
+row with one is SUPERVISED, whatever the seat and whatever started it. A scheduled run has no
+supervisor, so it reads off the "no" block and goes red like anything else nobody is holding.
 
 ## Attention routing table
 
-| Role | Signal | Layer | Who sees it |
+| Live supervisor | Signal | Layer | Who sees it |
 |---|---|---|---|
-| Manager | Waiting / needs-perm | global color (fold) | human, red allowed |
-| Standalone | Waiting / needs-perm | global color (fold) | human, red allowed |
-| Architect | Waiting / needs-perm | global color (fold) | human, red allowed (Soren, 2026-09-06: "the architect is always the session i talk to") |
-| Worker (manager alive) | any | global color (fold) | everyone: quiet/receded, red suppressed |
-| Worker (manager alive) | Waiting OR NeedsManager | manager-facing highlight (my rail) | ONLY its manager, never human |
-| Worker (manager DEAD) | Waiting / blocked | global color (fold) | human, red allowed (escape hatch) |
-| Worker | Working, no flag | - | nobody |
-| Scheduled run (any role) | any | global color (fold) | nobody: parked, escalates by email |
+| No (never had one) | Waiting / needs-perm | global color (fold) | human, red allowed |
+| No (supervisor died) | Waiting / needs-perm | global color (fold) | human, red allowed |
+| No (scheduled run) | Waiting / needs-perm | global color (fold) | human, red allowed (Soren, 2026-09-13: let them go red) |
+| Yes | Waiting / blocked | global color (fold) | everyone: quiet/receded, red suppressed |
+| Yes | Waiting OR NeedsManager | supervisor-facing highlight (my rail) | ONLY its supervisor, never human |
+| Any | Working | - | everyone: blue. Nothing outranks working. |
+| Any | Exited / Crashed | global color (fold) | human. Never hidden behind a snoozed label. |
+
+The seat does not appear in this table any more, and that is the change. A Worker whose supervisor is
+alive is held; the same Worker an hour after its supervisor died is the owner's, and nothing has to
+notice or repair that - the answer is recomputed every pass.
 
 ## Attention hard rules (settled 2026-07-09, Rule 1 amended 2026-09-06; the Mission doc is authoritative)
 

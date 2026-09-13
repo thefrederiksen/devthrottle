@@ -156,12 +156,18 @@ public sealed class FleetRoleObserver
             live.Add(s.SessionId);
 
             var role = s.SessionRole ?? SessionRoles.Standalone;
-            // THE GATE. Unchanged role -> no send -> the echo of our own stamp dies here rather than
+            // THE GATE. Unchanged answer -> no send -> the echo of our own stamp dies here rather than
             // becoming the next push. Removing this makes the observer spin.
-            if (gate.TryGetValue(s.SessionId, out var sent) && string.Equals(sent, role, StringComparison.Ordinal))
+            //
+            // THE KEY CARRIES BOTH FACTS, and that is not tidiness. A supervisor dying does not change the
+            // seat, so a role-only key would gate away the one delta that must always get through: the
+            // session whose supervisor has just gone. It would stay quiet on the desktop with nobody holding
+            // it - the exact failure this rule exists to close - and it would look like the observer working.
+            var answer = $"{role}/{(s.HasLiveSupervisor ? "held" : "alone")}";
+            if (gate.TryGetValue(s.SessionId, out var sent) && string.Equals(sent, answer, StringComparison.Ordinal))
                 continue;
 
-            _ = SendRoleAsync(directorId, s.SessionId, role, gate);
+            _ = SendRoleAsync(directorId, s.SessionId, role, s.HasLiveSupervisor, answer, gate);
         }
 
         // Keep the gate bounded: a session that has left THIS TENANT'S fleet keeps no entry. Prune only this
@@ -171,7 +177,8 @@ public sealed class FleetRoleObserver
                 gate.TryRemove(key, out _);
     }
 
-    private async Task SendRoleAsync(string directorId, string sessionId, string role, ConcurrentDictionary<string, string> gate)
+    private async Task SendRoleAsync(string directorId, string sessionId, string role, bool hasLiveSupervisor,
+        string answer, ConcurrentDictionary<string, string> gate)
     {
         try
         {
@@ -181,7 +188,7 @@ public sealed class FleetRoleObserver
                 Verb = "set-resolved-role",
                 SessionId = sessionId,
                 PayloadJson = System.Text.Json.JsonSerializer.Serialize(
-                    new SetResolvedRoleRequest { Role = role },
+                    new SetResolvedRoleRequest { Role = role, HasLiveSupervisor = hasLiveSupervisor },
                     new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)),
             };
 
@@ -201,7 +208,7 @@ public sealed class FleetRoleObserver
             }
 
             // Recorded ONLY on a confirmed delivery, so a dropped stamp is re-sent on the next push.
-            gate[sessionId] = role;
+            gate[sessionId] = answer;
             FileLog.Write($"[FleetRoleObserver] sid={sessionId}: role '{role}' stamped down to director={directorId}");
         }
         catch (Exception ex)

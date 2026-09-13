@@ -383,19 +383,30 @@ public sealed class SessionsAggregationTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Aggregator_explicit_role_wins_over_derivation_and_architect_is_human_facing()
+    public async Task Aggregator_explicit_role_wins_over_derivation_and_a_held_architect_reports_to_its_supervisor()
     {
         // A session that WOULD auto-derive Worker (controlled + live controller) but carries an EXPLICIT
         // Architect role resolves to Architect - explicit wins, sticky, and it is the only way to be an
         // Architect since it cannot be inferred from the spawn graph. THAT HALF HAS NEVER CHANGED and is
         // still what this test is mainly here to prove.
         //
-        // THE SECOND HALF HAS NOW BEEN WRITTEN BOTH WAYS. It asserted red + needsYou until 2026-09-03, when
-        // it became ..._and_architect_is_supervised asserting slate + "Snoozed" + onHold, implementing the
-        // owner's 2026-07-09 amendment ("the Architect does NOT push needs-you or status to the human...
-        // Like a Worker, the Architect never surfaces to the human"). He watched that ship and overturned it
-        // on 2026-09-06: "parking the architect seat is wrong. the architect is always the session i talk
-        // to." So it is back to red + needsYou, on his own instruction rather than by accident.
+        // THE SECOND HALF HAS NOW BEEN WRITTEN THREE WAYS, AND THIS ONE IS NOT A REVERSAL OF THE LAST.
+        // It asserted red + needsYou until 2026-09-03, became slate + "Snoozed" + onHold (the owner's
+        // 2026-07-09 amendment: "the Architect does NOT push needs-you or status to the human"), and went
+        // back to red + needsYou on 2026-09-06 when he overturned that: "parking the architect seat is
+        // wrong. the architect is always the session i talk to."
+        //
+        // WHAT CHANGED ON 2026-09-13 IS NOT THE ARCHITECT RULING - IT IS WHAT THE QUESTION IS. The seat no
+        // longer decides who a stopped session may ask; the only thing that decides is whether a supervisor
+        // is alive right now. "It should only go red if it doesn't have a parent. If it does have a parent,
+        // the parent should be notified."
+        //
+        // READ THIS SESSION'S SHAPE BEFORE READING A CONTRADICTION INTO IT. The Architect built below is
+        // CONTROLLED, by a manager that is alive on the same roster. It is not the seat the owner opens and
+        // talks to - that one has no supervisor, and it still goes red, which is what
+        // Architect_Stopped_IsRed_NeedsYou_AndNotParked asserts in the unit suite. This one was spawned by a
+        // live manager and answers to it, so its report goes there. Both of his rulings hold at once: the
+        // architect he talks to reaches him, and a session somebody alive is holding reports to them.
         //
         // THE HISTORY IS THE REASON THIS FILE SAYS SO MUCH. The July amendment sat in the design document,
         // unimplemented, for two months, because the tests of the day asserted the SHIPPED behaviour in the
@@ -403,7 +414,7 @@ public sealed class SessionsAggregationTests : IAsyncLifetime
         // disagreed. A behaviour test cannot close that whichever way it points; the guard that does is
         // SupervisionRuleMatchesTheDesignDocumentTests in CcDirector.Gateway.UnitTests, which reads the
         // attention table out of docs/new_architecture/session-roles-semantics.md and fails when the
-        // document and SessionOrdering.IsSupervised disagree about any seat.
+        // document and SessionOrdering.IsSupervised disagree about any case.
         var mgr = Sample("mgr", "ClaudeCode", "repo", "Working", "blue");
         var arch = Sample("arch", "ClaudeCode", "repo", "WaitingForInput", "red");
         arch.IsControlled = true;
@@ -415,13 +426,39 @@ public sealed class SessionsAggregationTests : IAsyncLifetime
         var sessions = await GetSessions();
 
         var a = Assert.Single(sessions, s => s.SessionId == "arch");
+        Assert.Equal("Architect", a.SessionRole);     // the explicit seat still wins, unchanged
+        Assert.True(a.HasLiveSupervisor);             // and its manager is alive on the same roster
+        Assert.Equal("supporting", a.EffectiveColor); // so it is held, and reports to the manager
+        Assert.Equal("Snoozed", a.StateLabel);
+        // THE BUCKET, OVER REAL HTTP, and this is the right place to prove it: the whole pass runs here
+        // (push, fleet assembly, role resolution, fold, serialisation), so an answer the wire dropped would
+        // show up. Note HasLiveSupervisor is asserted from the SERVED row - it is resolved fleet-wide and
+        // serialised, not something this test set.
+        Assert.Equal("onHold", a.TriageBucket);
+    }
+
+    [Fact]
+    public async Task Aggregator_an_architect_with_no_supervisor_still_reaches_the_owner()
+    {
+        // THE OTHER HALF, AND THE ONE THE OWNER'S 2026-09-06 RULING IS ACTUALLY ABOUT: the Architect he
+        // opens himself. Nobody is holding it, so it goes red and lands in his queue - exactly as it did
+        // before the attention rule changed.
+        //
+        // Without this beside the test above, that one reads as "the Architect was silenced again", which is
+        // the ruling reversed rather than the question replaced. Together they say what is actually true: the
+        // seat is not what decides, and the architect he talks to still reaches him.
+        var arch = Sample("arch", "ClaudeCode", "repo", "WaitingForInput", "red");
+        arch.ExplicitRole = "Architect";   // his own design seat - no controller, nobody above it
+        var fake = await StartFake("M", "u", new[] { arch });
+        await Register(fake);
+
+        var sessions = await GetSessions();
+
+        var a = Assert.Single(sessions, s => s.SessionId == "arch");
         Assert.Equal("Architect", a.SessionRole);
-        Assert.Equal("red", a.EffectiveColor);        // human-facing: the red is NOT suppressed
+        Assert.False(a.HasLiveSupervisor);
+        Assert.Equal("red", a.EffectiveColor);
         Assert.Equal("Needs you", a.StateLabel);
-        // THE BUCKET, OVER REAL HTTP. This is the half the owner actually asked for - the colour makes the
-        // row go red, this puts it in his list - and this is the right place to prove it: the whole pass
-        // runs here (push, fleet assembly, role resolution, fold, serialisation), so a bucket the wire
-        // dropped would show up.
         Assert.Equal("needsYou", a.TriageBucket);
     }
 

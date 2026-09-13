@@ -176,6 +176,11 @@ cc-devthrottle session spawn "<repoPath>" \
   --prompt "<seed - below>"
 ```
 
+`--standalone` above is not decoration and must not be dropped: it declares that the USER owns the
+moved session, which is the whole point of a move. A session you move on his behalf is not yours to
+collect - it goes red and asks HIM when it stops, exactly as it did before it moved. Owning it
+yourself would quietly take it out of his queue, and the move would have lost him the session.
+
 The target keeps the source's original name. That is what makes the move invisible afterwards. Keep
 the naming convention `<repo-dir> - <short description>`; if the source's name lacks the repo
 prefix, add it and say so.

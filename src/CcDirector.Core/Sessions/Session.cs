@@ -272,16 +272,35 @@ public sealed class Session : IDisposable
     public string? GatewayResolvedRole { get; private set; }
 
     /// <summary>
+    /// The Gateway's answer to "is a supervisor alive right now?" for this session, cached on the same terms
+    /// as <see cref="GatewayResolvedRole"/> and delivered by the same <c>set-resolved-role</c> verb; read
+    /// back out by <c>ControlEndpoints.Map</c> onto <c>SessionDto.HasLiveSupervisor</c>.
+    ///
+    /// A Director cannot compute this - the supervising session is routinely on another machine - so like
+    /// the role it is stored verbatim and never derived locally. Not persisted, for the same reason: a
+    /// restarted Director has no business remembering a fact it never owned, and false is the safe value to
+    /// come back with, because false means the session surfaces to the owner.
+    /// </summary>
+    public bool GatewayResolvedHasLiveSupervisor { get; private set; }
+
+    /// <summary>
     /// Store the role the Gateway resolved for this session (defect 5). A null/blank value clears the stamp
     /// back to "no answer". This ONLY stores - it does not validate, adjust, or derive: the Gateway is the
     /// authority and this is the cache.
     /// </summary>
-    public void SetGatewayResolvedRole(string? role)
+    public void SetGatewayResolvedRole(string? role, bool hasLiveSupervisor = false)
     {
         var normalized = string.IsNullOrWhiteSpace(role) ? null : role.Trim();
-        if (string.Equals(GatewayResolvedRole, normalized, StringComparison.Ordinal)) return;
-        FileLog.Write($"[Session] SetGatewayResolvedRole: session={Id}, role={normalized ?? "(cleared)"}");
+        var unchanged = string.Equals(GatewayResolvedRole, normalized, StringComparison.Ordinal)
+                        && GatewayResolvedHasLiveSupervisor == hasLiveSupervisor;
+        if (unchanged) return;
+        FileLog.Write($"[Session] SetGatewayResolvedRole: session={Id}, role={normalized ?? "(cleared)"}, " +
+                      $"liveSupervisor={hasLiveSupervisor}");
         GatewayResolvedRole = normalized;
+        // BOTH FACTS ARE GUARDED BY ONE EQUALITY CHECK ABOVE. A supervisor dying does not change the seat,
+        // so a role-only guard would swallow the change that matters most - the session would stay quiet on
+        // the desktop with nobody holding it, which is the defect this whole rule exists to close.
+        GatewayResolvedHasLiveSupervisor = hasLiveSupervisor;
         // Fires only on a real change (the equality guard above returns first otherwise), so the Gateway
         // re-stamping the same role every sweep does not churn the rail.
         try { OnGatewayResolvedRoleChanged?.Invoke(normalized); }

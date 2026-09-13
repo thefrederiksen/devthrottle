@@ -1,10 +1,13 @@
-"""Tests for `cc-devthrottle session spawn`: the automatic-worker default + its two guards + --type removal.
+"""Tests for `cc-devthrottle session spawn`: WHO OWNS the new session, and the refusal when nobody says.
 
-The auto-controller default (a session-initiated spawn becomes a Worker of the spawner), the --standalone /
---controlled-by none opt-out (guard 1), an explicit controller, and the human/desktop no-controller case are
-asserted by capturing the request body sent to the Director. The dead --type option is asserted gone via the
-CLI. (Guard 2 - handover/move-session never auto-sets a controller - holds by construction: that flow does
-not route through spawn_session at all; POST /handover creates its target with no controller.)
+Every session has exactly one owner and it is either another SESSION or the USER. A session-initiated
+spawn must declare which (owner's ruling, 2026-09-13) - there is no default between the two, because the
+default was the only way work could quietly stop being the user's. The declarations (--controlled-by self /
+<id> / none, --standalone) and the human/desktop case are asserted by capturing the request body sent to
+the Director; the refusal is asserted through the real CLI, because an exit code is the behaviour. The dead
+--type option is asserted gone via the CLI too. (The handover / move-session flow never auto-sets a
+controller and holds by construction: it does not route through spawn_session at all; POST /handover
+creates its target with no controller.)
 """
 
 import sys
@@ -82,14 +85,42 @@ def _spawn(
     )
 
 
-def test_session_initiated_spawn_defaults_to_worker(monkeypatch, captured):
-    # CC_SESSION_ID present + no explicit controller -> auto-controlled by the spawner (a Worker).
-    _spawn(monkeypatch, cc_session="sess-A")
-    assert captured.get("controllerSessionId") == "sess-A"
+def test_a_session_spawn_that_declares_no_owner_is_refused(monkeypatch, captured):
+    """THE SILENT DEFAULT IS GONE, and this is the test that was written the other way round.
+
+    It used to be test_session_initiated_spawn_defaults_to_worker, asserting that a spawn with no
+    declaration came out owned by the spawner. That default is what let an agent take ownership of work
+    because an environment variable happened to be set - no choice made, nothing recorded, and the result
+    is the only way a session stops being the user's. Now it refuses and names the two answers.
+
+    Driven through the real CLI rather than spawn_session, because the behaviour under test IS the exit
+    code and the message, and a caller that keeps spawning after a refusal would still pass a test that
+    only inspected a captured body.
+    """
+    monkeypatch.setenv("CC_SESSION_ID", "sess-A")
+    monkeypatch.setattr(session_ops.gateway, "get_fleet", lambda: ([], True, None, None))
+
+    result = runner.invoke(app, ["session", "spawn", "C:/repo", "--name", "n"])
+
+    assert result.exit_code != 0
+    assert "controlled-by self" in result.output
+    assert "--standalone" in result.output
+    # And nothing was sent: a refusal that still spawned would be the worst of both.
+    assert "controllerSessionId" not in captured
+    assert "_path" not in captured
+
+
+def test_a_human_spawn_declares_nothing_and_is_not_refused(monkeypatch, captured):
+    # The requirement lands only where the ambiguity is. A person opening a session owns it by being a
+    # person; there is no second candidate, so there is nothing to state and nothing to refuse.
+    _spawn(monkeypatch, cc_session=None)
+    assert "controllerSessionId" not in captured
+    assert captured.get("_path")
 
 
 def test_standalone_forces_no_controller_even_inside_a_session(monkeypatch, captured):
-    # Guard 1: --standalone opts out of the auto-worker default -> a human-facing peer, no controller.
+    # --standalone declares the USER as the owner: no controller, so it goes red and asks him when it
+    # stops. This is a session breaking free of whoever started it, which has to stay possible.
     _spawn(monkeypatch, cc_session="sess-A", standalone=True)
     assert "controllerSessionId" not in captured
 
@@ -111,7 +142,7 @@ def test_controlled_by_self_resolves_to_cc_session_id(monkeypatch, captured):
 
 
 def test_human_or_desktop_spawn_has_no_controller(monkeypatch, captured):
-    # No CC_SESSION_ID (a human/desktop create) -> no auto-controller, unchanged behavior.
+    # No CC_SESSION_ID (a human/desktop create) -> no controller, so the owner is the USER. Unchanged.
     _spawn(monkeypatch, cc_session=None)
     assert "controllerSessionId" not in captured
 
@@ -142,7 +173,10 @@ def test_type_option_is_removed(monkeypatch):
 
 
 def test_session_initiated_spawn_records_the_agent_origin_and_its_parent(monkeypatch, captured):
-    _spawn(monkeypatch, cc_session="sess-A")
+    # 'self' is stated now rather than defaulted, but the LINEAGE fact it records is unchanged: an agent
+    # started this, and that stays true however ownership was declared. Note the next test, which proves
+    # the two are genuinely separate - a session that hands ownership to the user is still agent-started.
+    _spawn(monkeypatch, cc_session="sess-A", controlled_by="self")
     assert captured.get("origin") == "agent"
     assert captured.get("parentSessionId") == "sess-A"
     assert captured.get("originSurface") == "cli"
@@ -280,7 +314,7 @@ MANAGER_ON_A_MISSION = {
 
 def test_spawn_inherits_the_controlling_sessions_mission(monkeypatch, captured):
     # The whole point: no --mission, but the controller is on one, so the child joins it.
-    _spawn(monkeypatch, cc_session="sess-A", roster=[MANAGER_ON_A_MISSION])
+    _spawn(monkeypatch, cc_session="sess-A", controlled_by="self", roster=[MANAGER_ON_A_MISSION])
     assert captured.get("missionId") == "aaaaaaaa-1111-2222-3333-444444444444"
 
 
@@ -289,6 +323,7 @@ def test_an_explicit_mission_wins_over_the_inherited_one(monkeypatch, captured):
     _spawn(
         monkeypatch,
         cc_session="sess-A",
+        controlled_by="self",
         mission="bbbbbbbb-9999-8888-7777-666666666666",
         roster=[MANAGER_ON_A_MISSION],
     )
@@ -298,7 +333,8 @@ def test_an_explicit_mission_wins_over_the_inherited_one(monkeypatch, captured):
 def test_mission_none_opts_out_of_inheritance(monkeypatch, captured):
     # The opt-out, spelled the same way --controlled-by none is: a deliberate child that is NOT
     # part of its controller's body of work.
-    _spawn(monkeypatch, cc_session="sess-A", mission="none", roster=[MANAGER_ON_A_MISSION])
+    _spawn(monkeypatch, cc_session="sess-A", controlled_by="self", mission="none",
+           roster=[MANAGER_ON_A_MISSION])
     assert "missionId" not in captured
 
 
@@ -307,6 +343,7 @@ def test_a_controller_on_no_mission_leaves_the_child_unattached(monkeypatch, cap
     _spawn(
         monkeypatch,
         cc_session="sess-A",
+        controlled_by="self",
         roster=[{"sessionId": "sess-A", "name": "Standalone seat"}],
     )
     assert "missionId" not in captured
@@ -351,7 +388,7 @@ def test_inheritance_is_reported_not_silent(monkeypatch, captured, capsys, plain
     # has to name the mission and say how to undo it, or a wrong inheritance is invisible.
     # Asserted against the TEXT, not the rendering: Rich threads style codes through a version
     # number, so a plain substring check would fail wherever colour is on (issue #1082).
-    _spawn(monkeypatch, cc_session="sess-A", roster=[MANAGER_ON_A_MISSION])
+    _spawn(monkeypatch, cc_session="sess-A", controlled_by="self", roster=[MANAGER_ON_A_MISSION])
     out = plain(capsys.readouterr().out)
     assert "Release 1.9.4" in out
     assert "mission detach" in out
@@ -377,7 +414,7 @@ def test_an_unreadable_roster_is_reported_and_the_spawn_still_opens(
         purpose=None,
         command=None,
         command_args=None,
-        controlled_by=None,
+        controlled_by="self",   # ownership is declared; the roster read is what fails here
         args=None,
         standalone=False,
         role=None,

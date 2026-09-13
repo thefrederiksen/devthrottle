@@ -130,11 +130,14 @@ public sealed class VoiceModeAllSweepPlanTests
     }
 
     [Fact]
-    public void Plan_neverSwitchesOnAScheduledRun()
+    public void Plan_switchesOnAScheduledRun_TheReversalOf13September2026()
     {
-        // Nobody is at a keyboard for a cron firing, so there is nobody for the wingman to read it to. This
-        // test named the Architect too until 2026-09-06 - see the test directly below, which now asserts the
-        // opposite for that seat.
+        // REVERSED, AND THE OLD REASONING IS KEPT because it was the whole case for the silence: "nobody is
+        // at a keyboard for a cron firing, so there is nobody for the wingman to read it to."
+        //
+        // That is backwards. Nobody at a keyboard means nobody but the OWNER, and being read aloud is one of
+        // the three things human-facing means. A cron run that has finished and needs him is exactly the row
+        // he is least likely to notice on a roster, so it is the one that most needs saying out loud.
         var cron = new SessionDto
         {
             SessionId = "cron", Name = "cron", Status = "WaitingForInput", ActivityState = "WaitingForInput",
@@ -144,7 +147,7 @@ public sealed class VoiceModeAllSweepPlanTests
 
         var plan = VoiceModeAllSweep.Plan(voiceModeOn: true, roster, On());
 
-        Assert.Equal(new[] { ("d1", "ordinary") }, plan);
+        Assert.Equal(new[] { ("d1", "cron"), ("d1", "ordinary") }, plan);
     }
 
     [Fact]
@@ -155,24 +158,29 @@ public sealed class VoiceModeAllSweepPlanTests
         // is the one that surfaced the defect: an Architect asked to make itself narratable could not,
         // because its own role was what the wingman was silencing.
         //
-        // The roster is deliberately MIXED so the assertion is not just "something came back": the cron
-        // firing beside it is still skipped, which proves this is the Architect changing side rather than
-        // the supervised check having stopped working altogether.
+        // The roster is deliberately MIXED so the assertion is not just "something came back": the worker
+        // beside it, whose supervisor is alive on the same roster, is still skipped - which proves this is
+        // the Architect changing side rather than the supervised check having stopped working altogether.
+        //
+        // That control used to be a scheduled run. It cannot be one any more: since 2026-09-13 a cron firing
+        // has no supervisor and is therefore human-facing like anything else nobody is holding, so it would
+        // come back in the plan and prove nothing. A negative control has to be something the rule still
+        // genuinely silences.
         var architect = new SessionDto
         {
             SessionId = "arch", Name = "arch", Status = "WaitingForInput", ActivityState = "WaitingForInput",
             ExplicitRole = SessionRoles.Architect,
         };
-        var cron = new SessionDto
+        var roster = new[]
         {
-            SessionId = "cron", Name = "cron", Status = "WaitingForInput", ActivityState = "WaitingForInput",
-            OriginKind = "schedule",
+            ("d1", architect),
+            LiveSupervisorRow("d1", "the-manager"),
+            SupervisedRow("d1", "the-worker", "the-manager"),
         };
-        var roster = new[] { ("d1", architect), ("d1", cron) };
 
         var plan = VoiceModeAllSweep.Plan(voiceModeOn: true, roster, On());
 
-        Assert.Equal(new[] { ("d1", "arch") }, plan);
+        Assert.Equal(new[] { ("d1", "arch"), ("d1", "the-manager") }, plan);
     }
 
     [Fact]
