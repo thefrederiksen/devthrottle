@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http;
 using CcDirector.Core.Configuration;
+using CcDirector.Core.Machine;
 using CcDirector.Core.Network;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
@@ -159,6 +160,10 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         // Gateway's stale window its sessions vanish from the roster and can no longer be located. A periodic
         // full re-push - comfortably under that window - keeps TryGetFresh/TryLocate fresh. Best-effort, only
         // while connected. Armed only here (inside the IsEnabled guard), so it is inert when stream mode off.
+        // Seed the lateness baseline at the moment the timer is ARMED, so the FIRST tick is measured
+        // too (issue #2818). Without this a Director that comes up on a machine already under pressure
+        // reports its first, worst tick as on time.
+        Interlocked.Exchange(ref _lastRePushTickUtcTicks, DateTime.UtcNow.Ticks);
         _rePushTimer = new Timer(_ => RePushTick(), null, _rePushInterval, _rePushInterval);
     }
 
@@ -174,6 +179,30 @@ public sealed class GatewayStreamClient : IAsyncDisposable
     private void RePushTick()
     {
         if (_disposed) return;
+
+        // HOW LATE WAS THIS CALLBACK (issue #2818). Measured FIRST, before any path below can return,
+        // and measured from the SCHEDULE rather than from the moment this method began running. Every
+        // other timing in this class starts counting after the callback is already executing, so the
+        // failure that takes a Director's sessions off the air is invisible to all of them: a tick
+        // queued for longer than the staleness window behind blocked session workers can start, find a
+        // healthy connection and an idle slot, push in eighty milliseconds, and log nothing but success
+        // - while the Gateway had already stopped believing in this Director's sessions.
+        var tickAt = DateTime.UtcNow;
+        var previousTicks = Interlocked.Exchange(ref _lastRePushTickUtcTicks, tickAt.Ticks);
+        var previousTick = previousTicks == 0 ? (DateTime?)null : new DateTime(previousTicks, DateTimeKind.Utc);
+        var lateness = TimerLateness.Of(_rePushInterval, previousTick, tickAt);
+
+        if (TimerLateness.Describe(
+                lateness, _rePushInterval, TimeSpan.FromSeconds(GatewayConfig.DefaultStreamStaleAfterSeconds))
+            is { } latenessLine)
+        {
+            var sinceAccepted = _lastAcceptedSnapshotUtc is null
+                ? "no snapshot has been accepted yet"
+                : $"{(tickAt - _lastAcceptedSnapshotUtc.Value).TotalSeconds:F1}s since the Gateway last accepted one";
+            FileLog.Write($"[GatewayStreamClient] re-push tick LATE: {latenessLine} {sinceAccepted}. " +
+                          $"Memory read after the delay: {MachineMemoryProbe.Shared.Read()}.");
+        }
+
         var conn = _connection;
         if (conn is null || conn.State != HubConnectionState.Connected)
         {
@@ -195,6 +224,27 @@ public sealed class GatewayStreamClient : IAsyncDisposable
     /// <summary>When the in-flight re-push started, so a skipped tick can report how long it has been
     ///  waiting. Written only by the single re-push allowed in flight at a time.</summary>
     private DateTime _rePushStartedUtc = DateTime.MinValue;
+
+    /// <summary>
+    /// When the previous re-push TICK ran, as UTC ticks, so this one can say how late it was to start
+    /// (issue #2818). Zero means "not set yet".
+    ///
+    /// SEEDED WHEN THE TIMER IS ARMED rather than left empty until the first callback, because a
+    /// Director whose very FIRST tick arrives thirty seconds late is precisely the case worth
+    /// reporting, and measuring only from the previous actual tick would score it as perfectly on time.
+    ///
+    /// Held as a long and exchanged atomically because <see cref="Timer"/> callbacks CAN overlap: when
+    /// one runs past its period the next fires on another pool thread while it is still going. An
+    /// earlier draft of this field asserted the runtime prevented that. It does not, and on a starved
+    /// machine - where a callback running long is the normal case - two threads reading and writing a
+    /// DateTime here would have produced a torn value and a nonsense lateness in the log.
+    /// </summary>
+    private long _lastRePushTickUtcTicks;
+
+    /// <summary>When the Gateway last ACCEPTED a snapshot - the moment its cache was last made fresh.
+    ///  This, not the tick cadence, is what the staleness cut is measured against, so a late tick can
+    ///  report how much of the window had already been spent when it finally ran.</summary>
+    private DateTime? _lastAcceptedSnapshotUtc;
 
     /// <summary>A re-push that takes longer than this is reported. The cadence is <c>_rePushInterval</c>, so
     ///  anything at or past one whole interval has already cost the next tick - and two lost ticks is what
@@ -626,6 +676,8 @@ public sealed class GatewayStreamClient : IAsyncDisposable
             awaitGateway += DateTime.UtcNow - sendStarted;
 
             completed = true;
+            // The moment the Gateway's cache was made fresh, which is what a late tick reports against.
+            _lastAcceptedSnapshotUtc = DateTime.UtcNow;
             FileLog.Write($"[GatewayStreamClient] reseeded full snapshot seq={seq} "
                 + $"(built in {build.TotalMilliseconds:F0}ms, Gateway accepted it in {awaitGateway.TotalMilliseconds:F0}ms)");
         }

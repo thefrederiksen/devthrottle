@@ -1,6 +1,7 @@
 using System.Text;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Input;
+using CcDirector.Core.Machine;
 using CcDirector.Core.Memory;
 using CcDirector.Core.Utilities;
 
@@ -196,11 +197,47 @@ public static class TerminalSubmit
             return;
         }
 
-        var to = echoTimeout ?? TimeSpan.FromSeconds(4);
+        // THE DEADLINE IS MEASURED, NOT ASSUMED (issue #2818). Four seconds is right on a machine that
+        // can run; on one that is paging, the agent's terminal interface genuinely cannot repaint in
+        // four seconds, and treating that as "not accepting input" is what deleted the owner's typed
+        // sentences. A caller that passed an explicit timeout still wins - tests and drivers that have
+        // chosen a value keep it - so nothing changes anywhere until a reading proves it should.
+        var pressure = MemoryPressure.Level(MemoryProbe.Read());
+        var to = echoTimeout ?? ScaledEchoTimeout(pressure);
         var poll = pollInterval ?? TimeSpan.FromMilliseconds(50);
         var settle = enterSettleDelay ?? TimeSpan.FromMilliseconds(40);
         var needle = NormalizeForEcho(text);
         var visibleTailNeedle = VisibleTailNeedle(needle);
+
+        if (echoTimeout is null && MemoryPressure.IsUnderPressure(pressure))
+            FileLog.Write($"[{driverTag}] EchoVerifiedSubmit: {MemoryPressure.Describe(pressure)}, so the composer " +
+                          $"echo deadline is {to.TotalSeconds:F0}s instead of {BaseEchoTimeout.TotalSeconds:F0}s. " +
+                          "A slow repaint is not a stuck interface.");
+
+        // A previous submit gave up without being able to prove it had cleared the composer, so its text
+        // may still be sitting there. Deal with it BEFORE typing, or the two run together as one prompt
+        // (pull request #1513) - but LOOK FIRST rather than pressing Escape blindly: if the owner has
+        // since sent the orphan themselves, the composer holds whatever they are typing now instead.
+        if (ComposerRetention.TakeRetainedText(backend) is { } retained)
+        {
+            var retainedNeedle = NormalizeForEcho(retained);
+            var orphan = await ObserveComposerAsync(
+                screenSnapshot, retainedNeedle, VisibleTailNeedle(retainedNeedle), pressure);
+
+            if (ComposerRetention.ShouldClearBeforeTyping(orphan))
+            {
+                FileLog.Write($"[{driverTag}] EchoVerifiedSubmit: the previous send may have left {retained.Length} " +
+                              $"characters in this composer (evidence: {orphan}) - clearing before typing so the two " +
+                              "cannot run together.");
+                backend.Write(EscapeByte);
+                await Task.Delay(TimeSpan.FromMilliseconds(300));
+            }
+            else
+            {
+                FileLog.Write($"[{driverTag}] EchoVerifiedSubmit: the previous send's text is provably gone from this " +
+                              "composer - not clearing, so nothing typed since is disturbed.");
+            }
+        }
 
         var cursor = buffer.TotalBytesWritten;
         for (var attempt = 1; attempt <= 2; attempt++)
@@ -211,6 +248,7 @@ public static class TerminalSubmit
             if (needle.Length == 0 || await WaitForEchoAsync(buffer, cursor, needle, visibleTailNeedle, to, poll))
             {
                 await PressEnterAndVerifyAsync(backend, text, driverTag, settle, submitVerifyBeat);
+                ComposerRetention.Clear(backend);
                 return;
             }
 
@@ -220,19 +258,73 @@ public static class TerminalSubmit
             // never appear in the bytes as one contiguous run even though it is sitting in the
             // composer. Ask the rendered screen - the final visual state, free of interleaving -
             // before treating the attempt as a failure and disturbing the composer with Escape.
-            if (ScreenShowsText(screenSnapshot, needle, visibleTailNeedle))
+            //
+            // The answer is THREE-VALUED (see ComposerEvidence). This used to be a bool whose false
+            // meant both "the screen does not show it" and "there is no screen to look at", and the
+            // Escape below fired on either. Only Absent - we looked, and it is genuinely not there -
+            // now licenses a destructive step.
+            var evidence = await ObserveComposerAsync(screenSnapshot, needle, visibleTailNeedle, pressure);
+            if (evidence == ComposerEvidence.Present)
             {
                 FileLog.Write($"[{driverTag}] EchoVerifiedSubmit: byte-stream echo missed on attempt {attempt} " +
                               $"but the rendered screen shows the typed text (len={text.Length}) - pressing Enter");
                 await PressEnterAndVerifyAsync(backend, text, driverTag, settle, submitVerifyBeat);
+                ComposerRetention.Clear(backend);
                 return;
+            }
+
+            // THE NEW BEHAVIOUR IS SCOPED TO A MEASURABLY STARVED MACHINE, AND THAT SCOPE IS DELIBERATE.
+            //
+            // An earlier draft took the preserve-and-watch path on ANY unknown evidence. That silently
+            // removed the clear-and-retype recovery from every driver call site that passes no screen
+            // snapshot - which is most of them (ClaudeDriver, CodexDriver, the backends) - on healthy
+            // machines as well as starved ones. Three long-standing tests caught it. That recovery is
+            // proven and valuable: on a machine with room, a composer that has not echoed in four
+            // seconds usually really did lose the text, and retyping gets it back.
+            //
+            // So on a healthy machine, or one whose memory could not be read, this falls through to
+            // exactly the code that ran before issue #2818. Only a machine measured to be short of
+            // memory - where a late repaint is the likely explanation and Escape is the thing that
+            // deletes the owner's sentence - takes the new path.
+            if (evidence == ComposerEvidence.Unknown && MemoryPressure.IsUnderPressure(pressure))
+            {
+                // WE CANNOT SEE, SO WE DO NOT CUT. Watch the byte stream for a further, finite budget
+                // without typing again and without clearing. This is the path a starved machine takes:
+                // the text IS in the composer and the repaint simply has not happened yet.
+                var extra = UnknownEvidenceBudget(to);
+                FileLog.Write($"[{driverTag}] EchoVerifiedSubmit: composer echo not seen on attempt {attempt} " +
+                              $"(len={text.Length}) and the rendered screen cannot say whether the text is there. " +
+                              $"NOT clearing it. Watching for a further {extra.TotalSeconds:F0}s. " +
+                              $"{MemoryPressure.Describe(pressure)}.");
+
+                if (await WaitForEchoAsync(buffer, cursor, needle, visibleTailNeedle, extra, poll)
+                    || await ObserveComposerAsync(screenSnapshot, needle, visibleTailNeedle, pressure) == ComposerEvidence.Present)
+                {
+                    FileLog.Write($"[{driverTag}] EchoVerifiedSubmit: the text arrived while waiting - pressing Enter. " +
+                                  "Clearing the composer here would have deleted it.");
+                    await PressEnterAndVerifyAsync(backend, text, driverTag, settle, submitVerifyBeat);
+                    ComposerRetention.Clear(backend);
+                    return;
+                }
+
+                // Still unknown after the budget. Give up WITHOUT clearing: the words may be on the
+                // owner's screen, where they can press Enter themselves, and the next send clears first.
+                PromptDeliveryFailures.RecordComposerEchoMiss(sessionId, driverTag, attempt, text.Length);
+                ComposerRetention.MarkMayHoldText(backend, driverTag, text);
+                throw new ComposerNotAcceptingInputException(
+                    $"[{driverTag}] EchoVerifiedSubmit: the composer never echoed the typed text, and the rendered " +
+                    $"screen could not say whether it is there. {MemoryPressure.Describe(pressure)}. The text was " +
+                    "NOT cleared - it may still be sitting in the composer on screen. " +
+                    $"{EchoMissDiagnostics(buffer, cursor, screenSnapshot, needle, visibleTailNeedle)} " +
+                    $"Readable buffer tail: {TailOf(buffer)}");
             }
 
             if (attempt == 2 && driverTag.Contains("OpenCode", StringComparison.OrdinalIgnoreCase))
                 break;
 
             FileLog.Write($"[{driverTag}] EchoVerifiedSubmit: composer echo not seen on attempt {attempt} " +
-                          $"(len={text.Length}) - clearing the composer and retyping. " +
+                          $"(len={text.Length}, evidence={evidence}, {MemoryPressure.Describe(pressure)}) - " +
+                          "clearing the composer and retyping. " +
                           EchoMissDiagnostics(buffer, cursor, screenSnapshot, needle, visibleTailNeedle));
             // Count it as well as log it (issue internal#811). A miss that recovers on the retype costs
             // the user nothing, so it raises no alarm - but it is the leading indicator of the failures
@@ -246,12 +338,17 @@ public static class TerminalSubmit
         {
             FileLog.Write($"[{driverTag}] EchoVerifiedSubmit: OpenCode echo was torn; pressing Enter instead of failing route");
             await PressEnterAndVerifyAsync(backend, text, driverTag, settle, submitVerifyBeat);
+            ComposerRetention.Clear(backend);
             return;
         }
 
+        // Reached after two cleared-and-retyped attempts on a machine that was not measurably short of
+        // memory - so a late repaint is not the explanation, and the composer was cleared each time on
+        // that basis rather than on a guess about a starved machine.
         throw new ComposerNotAcceptingInputException(
             $"[{driverTag}] EchoVerifiedSubmit: the composer never echoed the typed text after 2 attempts - " +
             "the TUI is not accepting input (a modal, a picker, or a composer still initializing). " +
+            $"{MemoryPressure.Describe(pressure)}. " +
             $"{EchoMissDiagnostics(buffer, cursor, screenSnapshot, needle, visibleTailNeedle)} " +
             $"Readable buffer tail: {TailOf(buffer)}");
     }
@@ -358,6 +455,105 @@ public static class TerminalSubmit
         }
     }
 
+    /// <summary>The composer echo deadline on a machine that is not short of memory. Unchanged at four seconds.</summary>
+    internal static readonly TimeSpan BaseEchoTimeout = TimeSpan.FromSeconds(4);
+
+    /// <summary>
+    /// The memory probe every submit consults. Settable so a test can present a starved machine without
+    /// needing one; the Director never replaces it.
+    /// </summary>
+    internal static IMachineMemoryProbe MemoryProbe { get; set; } = MachineMemoryProbe.Shared;
+
+    /// <summary>
+    /// The composer echo deadline for a measured pressure level. Exactly
+    /// <see cref="BaseEchoTimeout"/> on a healthy machine and on one whose memory could not be read -
+    /// this must never change a deadline off an absent measurement.
+    /// </summary>
+    internal static TimeSpan ScaledEchoTimeout(MemoryPressureLevel pressure) =>
+        BaseEchoTimeout * MemoryPressure.DeadlineMultiplier(pressure);
+
+    /// <summary>
+    /// How long to keep WATCHING a composer we cannot see into, after the echo deadline has passed,
+    /// before giving up without clearing it.
+    ///
+    /// Finite by design. The old code had no such state - it cleared and retyped immediately - and an
+    /// unbounded wait would simply move the harm from "your words were deleted" to "your send never
+    /// returns". One further deadline's worth is enough for a repaint that is late rather than absent.
+    /// </summary>
+    internal static TimeSpan UnknownEvidenceBudget(TimeSpan echoTimeout) => echoTimeout;
+
+    /// <summary>
+    /// How long to leave between the two screen samples that <see cref="ObserveComposerAsync"/> takes.
+    /// </summary>
+    private static readonly TimeSpan BetweenScreenSamples = TimeSpan.FromMilliseconds(120);
+
+    /// <summary>
+    /// LOOK AT THE COMPOSER AND SAY WHAT IS KNOWN - the three-valued replacement for the boolean
+    /// <see cref="ScreenShowsText"/> (issue #2818).
+    ///
+    /// Two samples, not one. A single negative reading is not proof of absence, because the rows can be
+    /// captured mid-repaint: the existing code already records that disease for the byte stream and for
+    /// the screen (issue #1592). Two consecutive readings that both render something and neither shows
+    /// the text is the evidence a destructive Escape needs; anything less is <see cref="ComposerEvidence.Unknown"/>.
+    ///
+    /// A screen that renders NOTHING is Unknown, never Absent. An empty capture is a broken instrument,
+    /// not a clean reading, and treating it as proof the composer is empty is exactly the mistake that
+    /// deleted the owner's words.
+    /// </summary>
+    private static async Task<ComposerEvidence> ObserveComposerAsync(
+        Func<string[]>? screenSnapshot, string needle, string? visibleTailNeedle, MemoryPressureLevel pressure)
+    {
+        if (screenSnapshot is null || needle.Length == 0) return ComposerEvidence.Unknown;
+
+        var first = ReadScreen(screenSnapshot);
+        if (first is null) return ComposerEvidence.Unknown;
+        if (ScreenRowsShowText(first, needle, visibleTailNeedle)) return ComposerEvidence.Present;
+
+        await Task.Delay(BetweenScreenSamples);
+
+        var second = ReadScreen(screenSnapshot);
+        if (second is null) return ComposerEvidence.Unknown;
+        if (ScreenRowsShowText(second, needle, visibleTailNeedle)) return ComposerEvidence.Present;
+
+        // TWO NEGATIVE SAMPLES ARE NOT PROOF OF ABSENCE ON A STARVED MACHINE, and this is the sharpest
+        // point the design review made. The samples are 120 milliseconds apart; a machine that is paging
+        // can leave the renderer stalled for far longer than that, so both captures can be the SAME
+        // stale frame taken from a screen that has not repainted since before the text was typed.
+        // Concluding "absent" from that and pressing Escape would be the original defect wearing the
+        // disguise of evidence.
+        //
+        // So the destructive verdict is refused outright whenever memory pressure is measurable. On a
+        // healthy machine a stalled renderer is not the explanation and two negatives mean what they
+        // say; on a starved one we say Unknown and keep the text. The cost is that a genuinely stuck
+        // interface on a starved machine is not recovered by retyping - it is reported instead, with the
+        // owner's words left on screen, which is the right way round.
+        if (MemoryPressure.IsUnderPressure(pressure)) return ComposerEvidence.Unknown;
+
+        return ComposerEvidence.Absent;
+    }
+
+    /// <summary>
+    /// One screen capture, or null when there is nothing to read. A snapshot that throws, returns no
+    /// rows, or renders only blank space is null: the instrument did not answer, and an unanswered
+    /// question must not be recorded as a "no".
+    /// </summary>
+    private static string[]? ReadScreen(Func<string[]> screenSnapshot)
+    {
+        string[] rows;
+        try
+        {
+            rows = screenSnapshot();
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[TerminalSubmit] ReadScreen FAILED, treating the composer as unreadable: {ex.Message}");
+            return null;
+        }
+
+        if (rows is null || rows.Length == 0) return null;
+        return rows.All(string.IsNullOrWhiteSpace) ? null : rows;
+    }
+
     /// <summary>
     /// Second-opinion echo check against the RENDERED screen instead of the raw byte stream. Wrapped
     /// composer rows reconstruct into the original text when the rows are concatenated and normalized
@@ -371,7 +567,15 @@ public static class TerminalSubmit
         if (screenSnapshot is null || needle.Length == 0)
             return false;
 
-        var hay = NormalizeForEcho(string.Concat(screenSnapshot()));
+        return ScreenRowsShowText(screenSnapshot(), needle, visibleTailNeedle);
+    }
+
+    /// <summary>The row-level half of <see cref="ScreenShowsText"/>, so a capture can be taken once and asked twice.</summary>
+    private static bool ScreenRowsShowText(string[] rows, string needle, string? visibleTailNeedle)
+    {
+        if (needle.Length == 0) return false;
+
+        var hay = NormalizeForEcho(string.Concat(rows));
         if (hay.Contains(needle, StringComparison.Ordinal))
             return true;
 
@@ -494,13 +698,19 @@ public static class TerminalSubmit
         var byteHasTail = visibleTailNeedle is not null && byteHay.Contains(visibleTailNeedle, StringComparison.Ordinal);
 
         string screenInfo;
-        if (screenSnapshot is null)
+        // A snapshot that throws must not escape from here. This is DIAGNOSTICS - it runs on the way to
+        // reporting a failure, and letting it replace that failure with an unrelated exception loses the
+        // report entirely. Found by the evidence tests for issue #2818: a renderer that threw turned a
+        // ComposerNotAcceptingInputException into an InvalidOperationException from inside the log line.
+        var rows = screenSnapshot is null ? null : ReadScreen(screenSnapshot);
+        if (rows is null)
         {
-            screenInfo = "screen=<no snapshot supplied by driver>";
+            screenInfo = screenSnapshot is null
+                ? "screen=<no snapshot supplied by driver>"
+                : "screen=<the snapshot could not be read>";
         }
         else
         {
-            var rows = screenSnapshot();
             var screenHay = NormalizeForEcho(string.Concat(rows));
             var screenHasNeedle = screenHay.Contains(needle, StringComparison.Ordinal);
             var screenHasTail = visibleTailNeedle is not null && screenHay.Contains(visibleTailNeedle, StringComparison.Ordinal);

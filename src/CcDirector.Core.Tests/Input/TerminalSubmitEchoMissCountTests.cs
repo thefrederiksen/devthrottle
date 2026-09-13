@@ -24,6 +24,15 @@ public sealed class TerminalSubmitEchoMissCountTests
     [Fact]
     public async Task ComposerThatNeverEchoes_CountsAMissPerAttemptAgainstTheNamedSession()
     {
+        // UNCHANGED BY ISSUE #2818, and pinned so it stays that way. On a machine with memory to spare
+        // the submit path behaves exactly as it always has: miss, clear the composer, retype, miss
+        // again, throw - two attempts, two misses. Only a machine measured to be SHORT of memory takes
+        // the path that keeps the text instead, which is covered in TerminalSubmitComposerEvidenceTests.
+        //
+        // The pin is what makes that true rather than merely intended: without it this test reads the
+        // real machine, and on a laptop sitting near the threshold it flips behaviour mid-run.
+        using var machine = PinnedMachineMemory.Healthy();
+
         var sessionId = Guid.NewGuid();
         var backend = new RecordingSessionBackend { Buffer = new CircularTerminalBuffer() };
         backend.EchoScript.UseDefault(RecordingEchoStep.Withheld());
@@ -40,7 +49,6 @@ public sealed class TerminalSubmitEchoMissCountTests
                 sessionId: sessionId));
 
         var tally = PromptDeliveryFailures.Tally(sessionId);
-        // Two attempts, both missed, before the submit gives up and throws.
         Assert.Equal(2, tally.ComposerEchoMisses);
         // The THROW is what the session boundary counts as the lost delivery; this layer only counts
         // misses, so nothing here claims a failed delivery on its own.
@@ -52,6 +60,7 @@ public sealed class TerminalSubmitEchoMissCountTests
     public async Task ComposerThatEchoesFirstTime_CountsNothing()
     {
         var sessionId = Guid.NewGuid();
+        using var machine = PinnedMachineMemory.Healthy();
         var backend = new RecordingSessionBackend { Buffer = new CircularTerminalBuffer() };
 
         await TerminalSubmit.SharedSubmitAsync(
@@ -65,6 +74,7 @@ public sealed class TerminalSubmitEchoMissCountTests
     {
         // The driver and backend call sites have no session to name. Their misses must not pile up under
         // one empty id and render as a "session" nobody can open.
+        using var machine = PinnedMachineMemory.Healthy();
         var backend = new RecordingSessionBackend { Buffer = new CircularTerminalBuffer() };
         backend.EchoScript.UseDefault(RecordingEchoStep.Withheld());
 
