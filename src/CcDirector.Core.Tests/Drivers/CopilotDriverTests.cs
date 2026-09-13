@@ -10,8 +10,20 @@ namespace CcDirector.Core.Tests.Drivers;
 /// capability honesty (AC14), the launch-spec session-id preassignment (AC2/AC11), session-id
 /// capture and the --output-format json JSONL transcript parse against a committed fixture (AC12).
 /// </summary>
-public sealed class CopilotDriverTests
+public sealed class CopilotDriverTests : IDisposable
 {
+    /// <summary>
+    /// This suite asserts submit behaviour ON A MACHINE WITH MEMORY TO SPARE, which is what it has
+    /// always asserted - issue #2818 left that path untouched. Pinning it is not a formality: the submit
+    /// path reads the machine now, and an unpinned suite passes or fails according to how much memory
+    /// the build agent happens to have free. This exact gap was found when a HostedAgent test failed on
+    /// a laptop that had drifted into Tight while passing on the same code minutes earlier.
+    /// </summary>
+    private readonly PinnedMachineMemory _machine = PinnedMachineMemory.Healthy();
+
+    public void Dispose() => _machine.Dispose();
+
+
     // ---------------------------------------------------------------- AC4 (registry)
 
     [Fact]

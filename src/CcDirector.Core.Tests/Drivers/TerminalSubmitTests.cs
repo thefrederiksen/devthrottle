@@ -6,7 +6,7 @@ using Xunit;
 
 namespace CcDirector.Core.Tests.Drivers;
 
-public sealed class TerminalSubmitTests
+public sealed class TerminalSubmitTests : IDisposable
 {
     /// <summary>
     /// Fast beat for the post-Enter submit watchdog so the suite does not wait out real-time beats.
@@ -14,6 +14,17 @@ public sealed class TerminalSubmitTests
     /// <see cref="SubmitVerifierTests"/>.
     /// </summary>
     private static readonly TimeSpan FastVerifyBeat = TimeSpan.FromMilliseconds(20);
+
+    /// <summary>
+    /// These tests assert the submit path's behaviour ON A MACHINE WITH MEMORY TO SPARE, which is what
+    /// they have always asserted - issue #2818 left that path untouched. Pinning it is not a formality:
+    /// the submit path now reads the machine, and on the laptop this was written on (2.53 gigabytes
+    /// available of 15.7, right on the threshold) three of these failed intermittently as the suite's
+    /// own allocations pushed the reading across it. See PinnedMachineMemory.
+    /// </summary>
+    private readonly PinnedMachineMemory _machine = PinnedMachineMemory.Healthy();
+
+    public void Dispose() => _machine.Dispose();
 
     [Fact]
     public async Task EchoVerifiedSubmit_EchoingBackend_TypesTextThenSeparateEnter()

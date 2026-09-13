@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using Avalonia;
 using CcDirector.ControlApi;
 using CcDirector.Core.Instances;
+using CcDirector.Core.Machine;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Update;
 using CcDirector.Core.Utilities;
@@ -41,6 +42,13 @@ internal static class Program
 
         FileLog.Write($"[Program] Instance: slug={InstanceContext.Slug}, isDefault={InstanceContext.IsDefault}, " +
                       $"explicit={InstanceContext.WasExplicitlySelected}, home={InstanceContext.InstanceHome}");
+
+        // Raise the thread-pool floor before anything opens a session or dials the Gateway (issue
+        // #2818). Every session blocks two pool workers for its whole life, so on a Director carrying
+        // sessions the keep-alive ping that holds the tunnel open - a timer callback on this same pool -
+        // queues behind them at an injection rate of one or two threads a second, against a thirty
+        // second silence tolerance. Apply logs what it changed, and says so if the runtime refuses.
+        ThreadPoolFloor.Apply();
 
         // Catch anything that escapes a background thread so a crash is at least
         // recorded to a findable file rather than vanishing silently (issue #242).

@@ -17,6 +17,14 @@
 
   <ItemGroup>
     <ProjectReference Include="..\CcDirector.HostedAgent\CcDirector.HostedAgent.csproj" />
+    <ProjectReference Include="..\CcDirector.Core\CcDirector.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The machine-memory pin, linked from one source rather than copied (issue #2818). Any suite that
+         drives a submit reads the machine unless it pins one, so this file has to be reachable from every
+         such assembly. Linking keeps one definition; a copy would drift. -->
+    <Compile Include="..\CcDirector.Core.Tests\Drivers\PinnedMachineMemory.cs" Link="PinnedMachineMemory.cs" />
   </ItemGroup>
 
 </Project>

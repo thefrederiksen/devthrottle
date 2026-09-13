@@ -1,6 +1,7 @@
 using CcDirector.Core.Agents;
 using CcDirector.Core.Drivers;
 using Xunit;
+using CcDirector.Core.Tests.Drivers;
 
 namespace CcDirector.HostedAgent.Tests;
 
@@ -8,8 +9,20 @@ namespace CcDirector.HostedAgent.Tests;
 /// The driver registry and the per-CLI keystroke contracts the Director relies on
 /// (docs/plans/director-drivers.md). Byte-level assertions: these ARE the protocol.
 /// </summary>
-public class DriverRegistryTests
+public class DriverRegistryTests : IDisposable
 {
+    /// <summary>
+    /// This suite asserts submit behaviour ON A MACHINE WITH MEMORY TO SPARE, which is what it has
+    /// always asserted - issue #2818 left that path untouched. Pinning it is not a formality: the submit
+    /// path reads the machine now, and an unpinned suite passes or fails according to how much memory
+    /// the build agent happens to have free. This exact gap was found when a HostedAgent test failed on
+    /// a laptop that had drifted into Tight while passing on the same code minutes earlier.
+    /// </summary>
+    private readonly PinnedMachineMemory _machine = PinnedMachineMemory.Healthy();
+
+    public void Dispose() => _machine.Dispose();
+
+
     [Fact]
     public void For_ResolvesTheVerifiedDrivers()
     {

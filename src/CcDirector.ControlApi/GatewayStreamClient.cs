@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http;
 using CcDirector.Core.Configuration;
+using CcDirector.Core.Machine;
 using CcDirector.Core.Network;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
@@ -159,6 +160,10 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         // Gateway's stale window its sessions vanish from the roster and can no longer be located. A periodic
         // full re-push - comfortably under that window - keeps TryGetFresh/TryLocate fresh. Best-effort, only
         // while connected. Armed only here (inside the IsEnabled guard), so it is inert when stream mode off.
+        // Seed the lateness baseline at the moment the timer is ARMED, so the FIRST tick is measured
+        // too (issue #2818). Without this a Director that comes up on a machine already under pressure
+        // reports its first, worst tick as on time.
+        Interlocked.Exchange(ref _lastRePushTickUtcTicks, DateTime.UtcNow.Ticks);
         _rePushTimer = new Timer(_ => RePushTick(), null, _rePushInterval, _rePushInterval);
     }
 
@@ -174,11 +179,42 @@ public sealed class GatewayStreamClient : IAsyncDisposable
     private void RePushTick()
     {
         if (_disposed) return;
+
+        // HOW LATE WAS THIS CALLBACK (issue #2818). Measured FIRST, before any path below can return,
+        // and measured from the SCHEDULE rather than from the moment this method began running. Every
+        // other timing in this class starts counting after the callback is already executing, so the
+        // failure that takes a Director's sessions off the air is invisible to all of them: a tick
+        // queued for longer than the staleness window behind blocked session workers can start, find a
+        // healthy connection and an idle slot, push in eighty milliseconds, and log nothing but success
+        // - while the Gateway had already stopped believing in this Director's sessions.
+        var tickAt = DateTime.UtcNow;
+        var previousTicks = Interlocked.Exchange(ref _lastRePushTickUtcTicks, tickAt.Ticks);
+        var previousTick = previousTicks == 0 ? (DateTime?)null : new DateTime(previousTicks, DateTimeKind.Utc);
+        var lateness = TimerLateness.Of(_rePushInterval, previousTick, tickAt);
+
+        // Elapsed since the last FULL snapshot. Deliberately NOT called the Gateway's cache age: an
+        // accepted delta refreshes that cache too and is not counted here, so this is an upper bound,
+        // and TimerLateness.Describe reports it as one rather than drawing a verdict from it.
+        var sinceFullSnapshot = _lastAcceptedSnapshotUtc is null
+            ? (TimeSpan?)null
+            : tickAt - _lastAcceptedSnapshotUtc.Value;
+
+        if (TimerLateness.Describe(
+                lateness,
+                _rePushInterval,
+                TimeSpan.FromSeconds(GatewayConfig.DefaultStreamStaleAfterSeconds),
+                sinceFullSnapshot)
+            is { } latenessLine)
+        {
+            FileLog.Write($"[GatewayStreamClient] re-push tick LATE: {latenessLine} {MemoryNow()}");
+        }
+
         var conn = _connection;
         if (conn is null || conn.State != HubConnectionState.Connected)
         {
             // Expected while the tunnel is re-dialing; logged because it is also how a long silence begins.
-            FileLog.Write($"[GatewayStreamClient] re-push tick SKIPPED: connection state={conn?.State.ToString() ?? "none"}");
+            FileLog.Write($"[GatewayStreamClient] re-push tick SKIPPED: connection state={conn?.State.ToString() ?? "none"} " +
+                          MemoryNow());
             return;
         }
         if (Interlocked.Exchange(ref _rePushInFlight, 1) == 1)
@@ -186,15 +222,62 @@ public sealed class GatewayStreamClient : IAsyncDisposable
             var running = _rePushStartedUtc == DateTime.MinValue
                 ? "unknown"
                 : $"{(DateTime.UtcNow - _rePushStartedUtc).TotalSeconds:F1}s";
-            FileLog.Write($"[GatewayStreamClient] re-push tick SKIPPED: previous push still in flight after {running}");
+            // An ON-TIME callback can still skip here because the PREVIOUS build is stalled, and that is
+            // one of the ways memory pressure takes a Director's sessions off the air without producing
+            // a late-tick line at all. The reading belongs on this message too (issue #2818).
+            FileLog.Write($"[GatewayStreamClient] re-push tick SKIPPED: previous push still in flight after {running} " +
+                          MemoryNow());
             return;
         }
         _ = RePushAsync();
     }
 
+    /// <summary>
+    /// The machine's memory right now, as a clause for a log line, stating plainly that it is a reading
+    /// taken at the moment of logging (issue #2818).
+    ///
+    /// It says WHAT WAS MEASURED and deliberately does not say that memory CAUSED the outcome it is
+    /// attached to. A skipped tick on a machine that happens to be short of memory is a correlation;
+    /// writing it as a cause would put a conclusion in the log that nobody verified.
+    /// </summary>
+    private static string MemoryNow()
+    {
+        var reading = MachineMemoryProbe.Shared.Read();
+        return $"[memory at this moment: {reading}, {MemoryPressure.Describe(MemoryPressure.Level(reading))}]";
+    }
+
     /// <summary>When the in-flight re-push started, so a skipped tick can report how long it has been
     ///  waiting. Written only by the single re-push allowed in flight at a time.</summary>
     private DateTime _rePushStartedUtc = DateTime.MinValue;
+
+    /// <summary>
+    /// When the previous re-push TICK ran, as UTC ticks, so this one can say how late it was to start
+    /// (issue #2818). Zero means "not set yet".
+    ///
+    /// SEEDED WHEN THE TIMER IS ARMED rather than left empty until the first callback, because a
+    /// Director whose very FIRST tick arrives thirty seconds late is precisely the case worth
+    /// reporting, and measuring only from the previous actual tick would score it as perfectly on time.
+    ///
+    /// Held as a long and exchanged atomically because <see cref="Timer"/> callbacks CAN overlap: when
+    /// one runs past its period the next fires on another pool thread while it is still going. An
+    /// earlier draft of this field asserted the runtime prevented that. It does not, and on a starved
+    /// machine - where a callback running long is the normal case - two threads reading and writing a
+    /// DateTime here would have produced a torn value and a nonsense lateness in the log.
+    /// </summary>
+    private long _lastRePushTickUtcTicks;
+
+    /// <summary>
+    /// When the Gateway last accepted a FULL snapshot from this Director.
+    ///
+    /// THIS IS NOT THE GATEWAY'S FRESHNESS CLOCK, and the distinction cost a false alarm before it was
+    /// written down. <c>PushedSessionStore.ApplyDelta</c> and <c>ApplyRemove</c> stamp
+    /// <c>ReceivedAtUtc</c> exactly as <c>ApplySnapshot</c> does, so an accepted delta refreshes the
+    /// Gateway's cache without ever touching this field. It is stamped after <c>InvokeAsync</c> returns,
+    /// too, which is later than the Gateway's own stamp. Elapsed time measured from here is therefore
+    /// not a bound on that cache's age in either direction - it is simply time since this Director's
+    /// last full-snapshot acknowledgement, which is all <see cref="TimerLateness.Describe"/> claims.
+    /// </summary>
+    private DateTime? _lastAcceptedSnapshotUtc;
 
     /// <summary>A re-push that takes longer than this is reported. The cadence is <c>_rePushInterval</c>, so
     ///  anything at or past one whole interval has already cost the next tick - and two lost ticks is what
@@ -231,14 +314,15 @@ public sealed class GatewayStreamClient : IAsyncDisposable
                 // finish - all that is known is how long we waited before it was abandoned.
                 FileLog.Write($"[GatewayStreamClient] re-push DID NOT COMPLETE after {elapsed.TotalSeconds:F1}s: "
                     + $"{report.Failure ?? "no reason recorded"} - this is how long the WAIT lasted, "
-                    + "NOT how long the Gateway took");
+                    + "NOT how long the Gateway took. " + MemoryNow());
             }
             else if (elapsed >= SlowRePushThreshold)
             {
                 FileLog.Write($"[GatewayStreamClient] re-push SLOW: took {elapsed.TotalSeconds:F1}s "
                     + $"(cadence {SlowRePushThreshold.TotalSeconds:F0}s) - the next tick was likely skipped. "
                     + $"Of that, building the snapshot here took {report.BuildSnapshot.TotalSeconds:F1}s and "
-                    + $"waiting for the Gateway to accept it took {report.AwaitGateway.TotalSeconds:F1}s");
+                    + $"waiting for the Gateway to accept it took {report.AwaitGateway.TotalSeconds:F1}s. "
+                    + MemoryNow());
             }
             _rePushStartedUtc = DateTime.MinValue;
             Interlocked.Exchange(ref _rePushInFlight, 0);
@@ -626,6 +710,8 @@ public sealed class GatewayStreamClient : IAsyncDisposable
             awaitGateway += DateTime.UtcNow - sendStarted;
 
             completed = true;
+            // The moment the Gateway's cache was made fresh, which is what a late tick reports against.
+            _lastAcceptedSnapshotUtc = DateTime.UtcNow;
             FileLog.Write($"[GatewayStreamClient] reseeded full snapshot seq={seq} "
                 + $"(built in {build.TotalMilliseconds:F0}ms, Gateway accepted it in {awaitGateway.TotalMilliseconds:F0}ms)");
         }
