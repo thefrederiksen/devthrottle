@@ -797,6 +797,13 @@ internal static class GatewayDictationEndpoint
         {
             // Issue #1181, Task 4: the transcription run is over (delivered, failed, or threw), so drop the
             // "Transcribing" mark. The durable PENDING/DELIVERED marker now owns the session's state.
+            //
+            // DELIBERATELY UNCONDITIONAL, even though the reachability gate above can now return before the
+            // mark is ever set. The actively-transcribing map has NO idle backstop - it is bounded by the run
+            // and nothing else - and DictationPhase.For paints "Transcribing" from it whatever the durable
+            // record says, so an entry leaked by an earlier crashed run for this session would paint until
+            // the Gateway restarted. This clear is that net, and guarding it on "did THIS run mark it" would
+            // remove the net to answer a question the clear's idempotence already answers.
             transcribingSessions.ClearActivelyTranscribing(tenant, sid);
         }
     }
