@@ -1191,9 +1191,16 @@ public sealed class VoiceUploadStore
     /// small marker. Idempotent: re-marking an already-delivered id rewrites the same tombstone. The
     /// tombstone is retired only by <see cref="Acknowledge"/>.
     /// </summary>
-    public void MarkDelivered(string uploadId, bool submitted, bool movedOn, string transcript)
+    /// <param name="reason">
+    /// Why this turn was resolved WITHOUT being submitted, when the bare flags do not say it. Null for an
+    /// ordinary delivery and for the plain moved-on drop, which the flags already describe fully. It exists
+    /// because a session that EXITED and a session that MOVED ON both resolve as not-submitted and moved-on
+    /// on the wire, and only the record can tell the two apart afterwards - so the cause is written down
+    /// rather than inferred. Read back on <see cref="DictationDeliveryRecord.Reason"/>.
+    /// </param>
+    public void MarkDelivered(string uploadId, bool submitted, bool movedOn, string transcript, string? reason = null)
         => WriteTombstone(uploadId, uid => new DictationDeliveryRecord(
-            DictationDeliveryState.Delivered, submitted, movedOn, transcript ?? "", null, ExistingSessionId(uid)));
+            DictationDeliveryState.Delivered, submitted, movedOn, transcript ?? "", reason, ExistingSessionId(uid)));
 
     /// <summary>
     /// Transition this upload id to the durable ABANDONED tombstone: persist the reason and discard the
