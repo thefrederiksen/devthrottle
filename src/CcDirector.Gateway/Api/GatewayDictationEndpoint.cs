@@ -555,7 +555,7 @@ internal static class GatewayDictationEndpoint
             ? Results.Json(new { upload_id = uploadId, terminal = true, submitted = false, movedOn = false, dropped = true, reason = record.Reason ?? "", transcript = "" })
             : Results.Json(new { upload_id = uploadId, terminal = true, submitted = record.Submitted, movedOn = record.MovedOn, dropped = false, transcript = record.Transcript });
 
-    private static async Task<DictationOutcome> RunCompleteCoreAsync(
+    internal static async Task<DictationOutcome> RunCompleteCoreAsync(
         string uploadId, TenantId tenant, DictationCompleteRequest req, VoiceUploadStore store, DirectorRegistry registry,
         SessionOwnerCache? owners, GatewayTranscriptionService transcription,
         TranscribingSessions transcribingSessions, string? deliverySurface, string deliveryIdentityKind,
@@ -563,12 +563,37 @@ internal static class GatewayDictationEndpoint
         TimeSpan streamStale)
     {
         var sid = req.SessionId!;
-        // Issue #1181, Task 4: this run assembles + transcribes + delivers, so mark the session ACTIVELY
-        // transcribing for its duration. The aggregator reads this to show "Transcribing" (vs the durable
-        // PENDING marker's "Uploading from phone"). Cleared in the finally so it never outlives the run.
-        transcribingSessions.MarkActivelyTranscribing(tenant, sid);
         try
         {
+            // REACHABILITY IS THE FIRST QUESTION, BEFORE ANY COST AND BEFORE ANY MARK.
+            //
+            // This locate used to sit AFTER the transcribe, and the exited arm below used to return a bare
+            // 410 that resolved nothing. Both were wrong, and together they were an unbounded loop: the
+            // durable record stayed PENDING, the phone's background driver re-completed every few seconds
+            // (two-second exponential backoff capped at fifteen for the first hour, then every five minutes,
+            // forever - see the client's backgroundSend driver), and each lap paid for a full transcript that
+            // was then thrown away while the dead session was repainted orange. Observed 13 September 2026:
+            // one session cycled between "Transcribing" and nothing for hours and could only be stopped by
+            // deleting the session.
+            //
+            // The gate needs the SESSION and nothing else - no key, no chunks, no audio - so it is asked
+            // first. A dictation aimed at a session that cannot receive it now costs one in-memory lookup.
+            var (director, session) = await GatewayEndpoints.LocateSessionAsync(
+                registry, sid, pushedSessions, streamStale, tenant, owners);
+            if (director is null || session is null)
+                return DictationOutcome.Error(StatusCodes.Status404NotFound, "session not found");
+            if (IsExited(session))
+                return ResolveAsUndeliverable(store, uploadId, sid, session.Status ?? "", transcript: "");
+
+            // Only now is there real work to do, so only now is the session marked ACTIVELY transcribing
+            // (issue #1181, Task 4). The aggregator reads this to show "Transcribing" (vs the durable PENDING
+            // marker's "Uploading from phone"), and it used to be the first line of this method - so a
+            // session that the very next gate was about to refuse outright was painted as though the server
+            // were busy turning audio into text for it. A mark that precedes the gate that can refuse the
+            // delivery is a claim about work that is not going to happen. Cleared in the finally below, so it
+            // never outlives the run.
+            transcribingSessions.MarkActivelyTranscribing(tenant, sid);
+
             // The configured mode's key must be present before we pay the reassembly + transcribe cost.
             var routing = transcription.Resolve();
             if (routing.Key is null)
@@ -630,6 +655,12 @@ internal static class GatewayDictationEndpoint
                 return DictationOutcome.Submitted(false, false, transcript);
             }
 
+            // THE DELIVERY GATE, asked a SECOND time and deliberately so. The gate at the top of this method
+            // is the COST gate: it refuses before we pay for a transcript. This one is asked at the moment of
+            // delivery, because the transcribe above takes seconds and a session can exit inside them - and
+            // the snapshot the moved-on guard just below judges against must be as late as it has always
+            // been, not one transcribe older. Two in-memory lookups, two different questions.
+            //
             // Gateway Cleanup mission, Phase 2: resolve the owner push-store-first (no HTTP fan-out) and gate
             // on an exited session, exactly as the old LocateAsync did, then reach it through the tunnel.
             //
@@ -639,12 +670,12 @@ internal static class GatewayDictationEndpoint
             // account's. On self-host the tenant is Local and this is byte-identical to before. A caller whose
             // tenant did not resolve never reached this leg - the gate refused it up front - so there is no
             // path here that falls back to a shared/Local locate on hosted.
-            var (director, session) = await GatewayEndpoints.LocateSessionAsync(
+            (director, session) = await GatewayEndpoints.LocateSessionAsync(
                 registry, sid, pushedSessions, streamStale, tenant, owners);
             if (director is null || session is null)
                 return DictationOutcome.Error(StatusCodes.Status404NotFound, "session not found");
             if (IsExited(session))
-                return DictationOutcome.Error(StatusCodes.Status410Gone, "session has exited");
+                return ResolveAsUndeliverable(store, uploadId, sid, session.Status ?? "", transcript);
             var route = new SessionVerbClient(director, sendCommand);
 
             // Moved-on guard (issue #1006): for a RESUMED clip, if the session's terminal output grew
@@ -766,8 +797,62 @@ internal static class GatewayDictationEndpoint
         {
             // Issue #1181, Task 4: the transcription run is over (delivered, failed, or threw), so drop the
             // "Transcribing" mark. The durable PENDING/DELIVERED marker now owns the session's state.
+            //
+            // DELIBERATELY UNCONDITIONAL, even though the reachability gate above can now return before the
+            // mark is ever set. The actively-transcribing map has NO idle backstop - it is bounded by the run
+            // and nothing else - and DictationPhase.For paints "Transcribing" from it whatever the durable
+            // record says, so an entry leaked by an earlier crashed run for this session would paint until
+            // the Gateway restarted. This clear is that net, and guarding it on "did THIS run mark it" would
+            // remove the net to answer a question the clear's idempotence already answers.
             transcribingSessions.ClearActivelyTranscribing(tenant, sid);
         }
+    }
+
+    /// <summary>
+    /// The reason stamped on the durable record when a dictation is resolved because its session has exited.
+    /// It is ITS OWN reason, not the moved-on one, because the two causes are different facts and the record
+    /// is the only place either is answerable afterwards: "the session moved on" says other turns happened
+    /// while the clip was in flight, and "the session exited" says there is no process left to type into
+    /// ever again. Folding one into the other would make every count of stale drops silently include dead
+    /// sessions, and the query the owner runs over these records ("what happened to my words?") would answer
+    /// the wrong thing.
+    /// </summary>
+    internal const string ExitedSessionReason = "session-exited";
+
+    /// <summary>
+    /// RESOLVE a dictation whose session can never receive it, instead of merely refusing it.
+    ///
+    /// This is the fix for the unbounded retry loop. Every other terminal outcome in
+    /// <see cref="RunCompleteCoreAsync"/> writes a durable tombstone through
+    /// <see cref="VoiceUploadStore.MarkDelivered"/>, so a re-complete short-circuits on the record and the
+    /// client's driver stops. The exited arm was the ONE early return that wrote nothing: the record stayed
+    /// PENDING, so the session stayed locked, the phone re-completed forever, and nothing in the system could
+    /// ever end it. The owner's only remedy was to delete the session.
+    ///
+    /// WHY <c>movedOn</c> AND NOT <c>abandoned</c>. The flag is the WIRE contract, and the client already has
+    /// exactly one arm that means "the server will never deliver this upload id; the words were NOT sent;
+    /// keep the audio and tell the user" - that is the movedOn arm, which publishes a sticky, non-clearing
+    /// notice and offers the words back. The alternatives are both worse and both silent in their own way:
+    /// an ABANDONED tombstone lands on the client's abandoned arm, which is deliberately SILENT because a
+    /// user who cancelled already knows - so a recording nobody cancelled would vanish without a word; and a
+    /// plain delivered-nothing tombstone lands on the unheard arm, which DELETES the audio and tells the user
+    /// nothing was heard, which is false twice over. So the flag stays movedOn and the RECORD carries the
+    /// true cause in <see cref="ExitedSessionReason"/>.
+    ///
+    /// THE TRANSCRIPT IS HANDED BACK WHENEVER THERE IS ONE. From the cost gate there is none by design -
+    /// that is the whole point of asking reachability before paying - and the recording is untouched on the
+    /// device, so the client offers a fresh retry instead. From the DELIVERY gate the clip has already been
+    /// transcribed, and those words are the user's: carrying them into the tombstone and the outcome is what
+    /// lets the client show them and offer "Send anyway" into a live session, rather than throwing away
+    /// speech we already have because the target died while we were listening to it.
+    /// </summary>
+    private static DictationOutcome ResolveAsUndeliverable(
+        VoiceUploadStore store, string uploadId, string sid, string status, string transcript)
+    {
+        store.MarkDelivered(uploadId, submitted: false, movedOn: true, transcript, reason: ExitedSessionReason);
+        FileLog.Write($"[GatewayDictation] complete sid={sid} uploadId={uploadId}: the session has exited " +
+            $"(status={status}); resolved as {ExitedSessionReason} with chars={transcript.Length}, nothing injected");
+        return DictationOutcome.Submitted(submitted: false, movedOn: true, transcript);
     }
 
     private static void EndTranscribing(TranscribingSessions t, TenantId tenant, string sid)
