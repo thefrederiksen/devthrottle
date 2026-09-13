@@ -3,7 +3,8 @@ namespace CcDirector.Core.Drivers;
 /// <summary>
 /// What is known about whether the composer is holding the text we typed (issue #2818).
 ///
-/// WHY THIS IS THREE VALUES AND NOT A BOOLEAN. <c>ScreenShowsText</c> answered this question with a
+/// WHY THIS IS THREE VALUES AND NOT A BOOLEAN. The screen check this replaced (a method named
+/// ScreenShowsText, deleted with this change) answered the question with a
 /// <c>bool</c>, and returned <c>false</c> in two situations that are not the same fact: when the
 /// rendered screen was available and did NOT contain the text, and when there was no screen to look
 /// at. The submit path then treated both as licence to press Escape over the composer. On a machine
