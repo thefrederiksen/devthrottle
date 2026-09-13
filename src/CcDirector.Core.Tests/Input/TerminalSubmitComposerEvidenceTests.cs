@@ -395,6 +395,87 @@ public sealed class TerminalSubmitComposerEvidenceTests : IDisposable
     }
 
     // ---------------------------------------------------------------------------------------------
+    // Every route is covered, not just the inline one
+    // ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task ARetainedComposerIsClearedEvenWhenTheNextSendTakesTheBracketedPasteRoute()
+    {
+        // THE CODE REVIEW'S FIRST FINDING, kept as a permanent guard.
+        //
+        // The retained-composer guard originally lived inside the inline echo route. A multiline send
+        // with bracketed paste enabled - which Session.SendTextAsync reaches using the session's own
+        // setting - leaves SharedSubmitAsync for BracketedPasteSubmitAsync and never passed that guard,
+        // so it typed and pressed Enter over a composer still holding an earlier unsent prompt and
+        // submitted BOTH as one instruction. That is the pull request #1513 corruption arriving through
+        // a route the guard did not cover.
+        OnAStarvedMachine();
+        var backend = SilentComposer();
+
+        await Assert.ThrowsAsync<ComposerNotAcceptingInputException>(() => Submit(backend, "first prompt"));
+        Assert.False(Wrote(backend, Escape));
+        Assert.Equal("first prompt", backend.EchoScript.ComposerText);
+
+        backend.WrittenBytes.Clear();
+        backend.EchoScript.UseDefault(RecordingEchoStep.Immediate());
+
+        await TerminalSubmit.SharedSubmitAsync(
+            backend,
+            "second message\nwith a second line",
+            "ClaudeDriver",
+            bracketedPasteEnabled: true,
+            enterSettleDelay: ShortSettle,
+            submitVerifyBeat: FastVerifyBeat);
+
+        Assert.True(Wrote(backend, Escape),
+            "the paste route wrote new text without clearing the retained composer");
+        Assert.DoesNotContain(backend.SubmittedTexts,
+            t => t.Contains("first prompt", StringComparison.Ordinal));
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Pressure that ARRIVES during the wait
+    // ---------------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task PressureThatBeginsDuringTheEchoWait_StillPreservesThePrompt()
+    {
+        // THE CODE REVIEW'S SECOND FINDING, kept as a permanent guard.
+        //
+        // The probe was read ONCE before typing, and that one reading governed the destructive decision
+        // taken four seconds later. A machine with room when the send began and short of memory by the
+        // time the deadline passed therefore used the stale "Normal" verdict, pressed Escape twice,
+        // deleted the prompt, and reported that the machine had memory to spare. The transition INTO
+        // pressure is the ordinary case on a loading Director, not an exotic one.
+        var probe = new ShiftingProbe(MachineMemoryReading.Read(
+            16UL * 1024 * 1024 * 1024, 12UL * 1024 * 1024 * 1024, DateTime.UtcNow));
+        TerminalSubmit.MemoryProbe = probe;
+
+        var backend = SilentComposer();
+        backend.OnFirstWrite = () => probe.Now = MachineMemoryReading.Read(
+            16UL * 1024 * 1024 * 1024, 300UL * 1024 * 1024, DateTime.UtcNow);
+
+        await Assert.ThrowsAsync<ComposerNotAcceptingInputException>(
+            () => Submit(backend, "typed just as the machine ran out"));
+
+        Assert.False(Wrote(backend, Escape), "the stale reading licensed an Escape");
+        Assert.Equal("typed just as the machine ran out", backend.EchoScript.ComposerText);
+        Assert.True(probe.Reads >= 2, "the machine was read only once, before typing");
+    }
+
+    private sealed class ShiftingProbe(MachineMemoryReading first) : IMachineMemoryProbe
+    {
+        public MachineMemoryReading Now { get; set; } = first;
+        public int Reads { get; private set; }
+
+        public MachineMemoryReading Read()
+        {
+            Reads++;
+            return Now with { TakenAtUtc = DateTime.UtcNow };
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------
     // The deadline itself
     // ---------------------------------------------------------------------------------------------
 

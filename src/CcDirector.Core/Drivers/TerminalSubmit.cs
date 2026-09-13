@@ -93,6 +93,19 @@ public static class TerminalSubmit
     {
         ArgumentNullException.ThrowIfNull(backend);
 
+        // RESOLVE A RETAINED COMPOSER BEFORE CHOOSING A ROUTE, NOT INSIDE ONE OF THEM (issue #2818).
+        //
+        // This guard first lived inside EchoVerifiedInlineSubmitAsync, which the code review proved was
+        // the wrong place: a multiline send with bracketed paste enabled - reachable from the production
+        // path, because Session.SendTextAsync passes the session's own BracketedPasteEnabled setting -
+        // leaves here for BracketedPasteSubmitAsync and never passes the guard at all. It then typed and
+        // pressed Enter over a composer still holding an earlier unsent prompt, submitting BOTH as one
+        // instruction. That is exactly the corruption from pull request #1513 that this change exists to
+        // prevent, reintroduced through a route the guard did not cover.
+        //
+        // Every route that writes new text is downstream of this line.
+        await ResolveRetainedComposerAsync(backend, driverTag, screenSnapshot);
+
         var textForCheck = text.TrimEnd('\r', '\n');
         if (ShouldUseInstructionFile(driverTag, textForCheck)
             && !string.IsNullOrWhiteSpace(backend.WorkingDirectory))
@@ -109,6 +122,7 @@ public static class TerminalSubmit
                 screenSnapshot,
                 submitVerifyBeat,
                 sessionId);
+            ComposerRetention.Clear(backend);
             return;
         }
 
@@ -117,12 +131,14 @@ public static class TerminalSubmit
             if (bracketedPasteEnabled)
             {
                 await BracketedPasteSubmitAsync(backend, textForCheck, driverTag, enterSettleDelay, submitVerifyBeat);
+                ComposerRetention.Clear(backend);
                 return;
             }
 
             if (!string.IsNullOrWhiteSpace(backend.WorkingDirectory))
             {
                 await SubmitViaAtReferenceAsync(backend, textForCheck, driverTag, echoTimeout, pollInterval, enterSettleDelay, screenSnapshot, submitVerifyBeat, sessionId);
+                ComposerRetention.Clear(backend);
                 return;
             }
         }
@@ -144,6 +160,11 @@ public static class TerminalSubmit
         {
             await TypeSettleEnterSubmitAsync(backend, textForCheck, driverTag, enterSettleDelay, submitVerifyBeat);
         }
+
+        // Every route that RETURNS has submitted; only a throw leaves a mark standing. Clearing here as
+        // well as on each early return means no route can quietly keep a stale mark alive and make the
+        // NEXT send press Escape over text that belongs to the owner.
+        ComposerRetention.Clear(backend);
     }
 
     /// <summary>
@@ -214,31 +235,6 @@ public static class TerminalSubmit
                           $"echo deadline is {to.TotalSeconds:F0}s instead of {BaseEchoTimeout.TotalSeconds:F0}s. " +
                           "A slow repaint is not a stuck interface.");
 
-        // A previous submit gave up without being able to prove it had cleared the composer, so its text
-        // may still be sitting there. Deal with it BEFORE typing, or the two run together as one prompt
-        // (pull request #1513) - but LOOK FIRST rather than pressing Escape blindly: if the owner has
-        // since sent the orphan themselves, the composer holds whatever they are typing now instead.
-        if (ComposerRetention.TakeRetainedText(backend) is { } retained)
-        {
-            var retainedNeedle = NormalizeForEcho(retained);
-            var orphan = await ObserveComposerAsync(
-                screenSnapshot, retainedNeedle, VisibleTailNeedle(retainedNeedle), pressure);
-
-            if (ComposerRetention.ShouldClearBeforeTyping(orphan))
-            {
-                FileLog.Write($"[{driverTag}] EchoVerifiedSubmit: the previous send may have left {retained.Length} " +
-                              $"characters in this composer (evidence: {orphan}) - clearing before typing so the two " +
-                              "cannot run together.");
-                backend.Write(EscapeByte);
-                await Task.Delay(TimeSpan.FromMilliseconds(300));
-            }
-            else
-            {
-                FileLog.Write($"[{driverTag}] EchoVerifiedSubmit: the previous send's text is provably gone from this " +
-                              "composer - not clearing, so nothing typed since is disturbed.");
-            }
-        }
-
         var cursor = buffer.TotalBytesWritten;
         for (var attempt = 1; attempt <= 2; attempt++)
         {
@@ -263,6 +259,17 @@ public static class TerminalSubmit
             // meant both "the screen does not show it" and "there is no screen to look at", and the
             // Escape below fired on either. Only Absent - we looked, and it is genuinely not there -
             // now licenses a destructive step.
+            // RE-READ THE MACHINE AT THE MOMENT THE DEADLINE EXPIRES, NOT ONCE BEFORE TYPING.
+            //
+            // The reading taken before the write describes the machine as it was up to four seconds
+            // ago, and the code review proved what that costs: a machine with room when the send began
+            // and short of memory by the time the deadline passed used the STALE "Normal" reading,
+            // pressed Escape twice, deleted the prompt, and reported that the machine had memory to
+            // spare. The transition INTO pressure is the common case, not an edge one - it is what a
+            // session starting up on a loaded Director looks like - so the destructive decision below
+            // must be taken on what is true now.
+            pressure = MemoryPressure.Level(MemoryProbe.Read());
+
             var evidence = await ObserveComposerAsync(screenSnapshot, needle, visibleTailNeedle, pressure);
             if (evidence == ComposerEvidence.Present)
             {
@@ -452,6 +459,44 @@ public static class TerminalSubmit
         else
         {
             await TypeSettleEnterSubmitAsync(backend, instruction, driverTag, enterSettleDelay, submitVerifyBeat);
+        }
+    }
+
+    /// <summary>
+    /// Deal with text an earlier submit may have left in this composer, BEFORE any route writes new
+    /// text over it (issue #2818).
+    ///
+    /// Looks first rather than pressing Escape blindly: if the owner has since sent the orphan
+    /// themselves, the composer now holds whatever they are typing instead, and an Escape would fall on
+    /// that. Only <see cref="ComposerEvidence.Absent"/> - proof it is gone - leaves the composer alone;
+    /// the reasoning for the other two branches is written on
+    /// <see cref="ComposerRetention.ShouldClearBeforeTyping"/>.
+    ///
+    /// The pressure reading is taken HERE rather than passed in, because this runs before the route is
+    /// chosen and each route reads its own.
+    /// </summary>
+    private static async Task ResolveRetainedComposerAsync(
+        ISessionBackend backend, string driverTag, Func<string[]>? screenSnapshot)
+    {
+        if (ComposerRetention.TakeRetainedText(backend) is not { } retained) return;
+
+        var pressure = MemoryPressure.Level(MemoryProbe.Read());
+        var retainedNeedle = NormalizeForEcho(retained);
+        var orphan = await ObserveComposerAsync(
+            screenSnapshot, retainedNeedle, VisibleTailNeedle(retainedNeedle), pressure);
+
+        if (ComposerRetention.ShouldClearBeforeTyping(orphan))
+        {
+            FileLog.Write($"[{driverTag}] ResolveRetainedComposer: the previous send may have left {retained.Length} " +
+                          $"characters in this composer (evidence: {orphan}) - clearing before typing so the two " +
+                          "cannot run together.");
+            backend.Write(EscapeByte);
+            await Task.Delay(TimeSpan.FromMilliseconds(300));
+        }
+        else
+        {
+            FileLog.Write($"[{driverTag}] ResolveRetainedComposer: the previous send's text is provably gone from " +
+                          "this composer - not clearing, so nothing typed since is disturbed.");
         }
     }
 

@@ -192,22 +192,26 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         var previousTick = previousTicks == 0 ? (DateTime?)null : new DateTime(previousTicks, DateTimeKind.Utc);
         var lateness = TimerLateness.Of(_rePushInterval, previousTick, tickAt);
 
+        var sinceAccepted = _lastAcceptedSnapshotUtc is null
+            ? (TimeSpan?)null
+            : tickAt - _lastAcceptedSnapshotUtc.Value;
+
         if (TimerLateness.Describe(
-                lateness, _rePushInterval, TimeSpan.FromSeconds(GatewayConfig.DefaultStreamStaleAfterSeconds))
+                lateness,
+                _rePushInterval,
+                TimeSpan.FromSeconds(GatewayConfig.DefaultStreamStaleAfterSeconds),
+                sinceAccepted)
             is { } latenessLine)
         {
-            var sinceAccepted = _lastAcceptedSnapshotUtc is null
-                ? "no snapshot has been accepted yet"
-                : $"{(tickAt - _lastAcceptedSnapshotUtc.Value).TotalSeconds:F1}s since the Gateway last accepted one";
-            FileLog.Write($"[GatewayStreamClient] re-push tick LATE: {latenessLine} {sinceAccepted}. " +
-                          $"Memory read after the delay: {MachineMemoryProbe.Shared.Read()}.");
+            FileLog.Write($"[GatewayStreamClient] re-push tick LATE: {latenessLine} {MemoryNow()}");
         }
 
         var conn = _connection;
         if (conn is null || conn.State != HubConnectionState.Connected)
         {
             // Expected while the tunnel is re-dialing; logged because it is also how a long silence begins.
-            FileLog.Write($"[GatewayStreamClient] re-push tick SKIPPED: connection state={conn?.State.ToString() ?? "none"}");
+            FileLog.Write($"[GatewayStreamClient] re-push tick SKIPPED: connection state={conn?.State.ToString() ?? "none"} " +
+                          MemoryNow());
             return;
         }
         if (Interlocked.Exchange(ref _rePushInFlight, 1) == 1)
@@ -215,10 +219,28 @@ public sealed class GatewayStreamClient : IAsyncDisposable
             var running = _rePushStartedUtc == DateTime.MinValue
                 ? "unknown"
                 : $"{(DateTime.UtcNow - _rePushStartedUtc).TotalSeconds:F1}s";
-            FileLog.Write($"[GatewayStreamClient] re-push tick SKIPPED: previous push still in flight after {running}");
+            // An ON-TIME callback can still skip here because the PREVIOUS build is stalled, and that is
+            // one of the ways memory pressure takes a Director's sessions off the air without producing
+            // a late-tick line at all. The reading belongs on this message too (issue #2818).
+            FileLog.Write($"[GatewayStreamClient] re-push tick SKIPPED: previous push still in flight after {running} " +
+                          MemoryNow());
             return;
         }
         _ = RePushAsync();
+    }
+
+    /// <summary>
+    /// The machine's memory right now, as a clause for a log line, stating plainly that it is a reading
+    /// taken at the moment of logging (issue #2818).
+    ///
+    /// It says WHAT WAS MEASURED and deliberately does not say that memory CAUSED the outcome it is
+    /// attached to. A skipped tick on a machine that happens to be short of memory is a correlation;
+    /// writing it as a cause would put a conclusion in the log that nobody verified.
+    /// </summary>
+    private static string MemoryNow()
+    {
+        var reading = MachineMemoryProbe.Shared.Read();
+        return $"[memory at this moment: {reading}, {MemoryPressure.Describe(MemoryPressure.Level(reading))}]";
     }
 
     /// <summary>When the in-flight re-push started, so a skipped tick can report how long it has been
@@ -281,14 +303,15 @@ public sealed class GatewayStreamClient : IAsyncDisposable
                 // finish - all that is known is how long we waited before it was abandoned.
                 FileLog.Write($"[GatewayStreamClient] re-push DID NOT COMPLETE after {elapsed.TotalSeconds:F1}s: "
                     + $"{report.Failure ?? "no reason recorded"} - this is how long the WAIT lasted, "
-                    + "NOT how long the Gateway took");
+                    + "NOT how long the Gateway took. " + MemoryNow());
             }
             else if (elapsed >= SlowRePushThreshold)
             {
                 FileLog.Write($"[GatewayStreamClient] re-push SLOW: took {elapsed.TotalSeconds:F1}s "
                     + $"(cadence {SlowRePushThreshold.TotalSeconds:F0}s) - the next tick was likely skipped. "
                     + $"Of that, building the snapshot here took {report.BuildSnapshot.TotalSeconds:F1}s and "
-                    + $"waiting for the Gateway to accept it took {report.AwaitGateway.TotalSeconds:F1}s");
+                    + $"waiting for the Gateway to accept it took {report.AwaitGateway.TotalSeconds:F1}s. "
+                    + MemoryNow());
             }
             _rePushStartedUtc = DateTime.MinValue;
             Interlocked.Exchange(ref _rePushInFlight, 0);

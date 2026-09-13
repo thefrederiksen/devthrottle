@@ -41,46 +41,76 @@ public class TimerLatenessTests
         Assert.Equal(TimeSpan.FromSeconds(15), lateness);
     }
 
+    // -------------------------------------------------------------------------------------------
+    // Staleness is judged on the SNAPSHOT'S AGE, not on lateness
+    // -------------------------------------------------------------------------------------------
+
     [Fact]
-    public void MattersToTheReader_OneCadenceLate_DoesNot()
+    public void CacheHadAgedOut_SnapshotOlderThanTheWindow_IsTrue()
     {
-        // Being one cadence late costs nobody anything: the staleness window is twice the cadence, so
-        // the Gateway's cache is still fresh. Reporting this as an outage would be noise.
-        Assert.False(TimerLateness.MattersToTheReader(Cadence, StalenessWindow));
+        Assert.True(TimerLateness.CacheHadAgedOut(TimeSpan.FromSeconds(25), StalenessWindow));
+        Assert.True(TimerLateness.CacheHadAgedOut(StalenessWindow, StalenessWindow));
     }
 
     [Fact]
-    public void MattersToTheReader_AWholeWindowLate_Does()
+    public void CacheHadAgedOut_SnapshotInsideTheWindow_IsFalse()
     {
-        Assert.True(TimerLateness.MattersToTheReader(StalenessWindow, StalenessWindow));
-        Assert.True(TimerLateness.MattersToTheReader(TimeSpan.FromSeconds(45), StalenessWindow));
+        Assert.False(TimerLateness.CacheHadAgedOut(TimeSpan.FromSeconds(12), StalenessWindow));
+    }
+
+    [Fact]
+    public void CacheHadAgedOut_NoSnapshotEverAccepted_IsNull_NotFalse()
+    {
+        // An absence is not a clean bill of health. Reporting "fresh" here would assert something
+        // nothing has measured.
+        Assert.Null(TimerLateness.CacheHadAgedOut(null, StalenessWindow));
+    }
+
+    [Fact]
+    public void Describe_TwentyFiveSecondGap_SaysActionsWereRefused()
+    {
+        // THE CODE REVIEW'S COUNTEREXAMPLE, kept as a permanent guard.
+        //
+        // A snapshot accepted at the previous callback, the next callback 25 seconds later, a 10 second
+        // cadence and a 20 second window. The old code subtracted the cadence to get a lateness of 15
+        // seconds, compared THAT with the 20 second window, and printed "no action was refused" - about
+        // a snapshot that was 25 seconds old and long stale. The Gateway measures the age of what it
+        // received; it knows nothing of our cadence.
+        var lateness = TimerLateness.Of(Cadence, At, At + TimeSpan.FromSeconds(25));
+        Assert.Equal(TimeSpan.FromSeconds(15), lateness);
+
+        var text = TimerLateness.Describe(lateness, Cadence, StalenessWindow, TimeSpan.FromSeconds(25));
+
+        Assert.NotNull(text);
+        Assert.Contains("REFUSED", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Describe_LateButTheSnapshotIsStillFresh_DoesNotClaimAnythingWasRefused()
+    {
+        // A delta push can have refreshed the Gateway between ticks, so a late callback does not by
+        // itself mean anything was refused.
+        var text = TimerLateness.Describe(
+            TimeSpan.FromSeconds(15), Cadence, StalenessWindow, TimeSpan.FromSeconds(3));
+
+        Assert.NotNull(text);
+        Assert.DoesNotContain("REFUSED", text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Describe_NoSnapshotYet_SaysSoRatherThanGuessing()
+    {
+        var text = TimerLateness.Describe(TimeSpan.FromSeconds(15), Cadence, StalenessWindow, null);
+
+        Assert.NotNull(text);
+        Assert.DoesNotContain("REFUSED", text, StringComparison.Ordinal);
+        Assert.Contains("cannot be said", text, StringComparison.Ordinal);
     }
 
     [Fact]
     public void Describe_OnTime_SaysNothing()
     {
-        Assert.Null(TimerLateness.Describe(TimeSpan.Zero, Cadence, StalenessWindow));
-    }
-
-    [Fact]
-    public void Describe_LateBeyondTheWindow_SaysActionsWereBeingRefused()
-    {
-        // THE CASE THE WHOLE MEASUREMENT EXISTS FOR. A tick 25 seconds late, which then pushes quickly,
-        // produced no message at all before this: not a skip, not a slow push. It has to say plainly
-        // that the Director's sessions were off the air.
-        var text = TimerLateness.Describe(TimeSpan.FromSeconds(25), Cadence, StalenessWindow);
-
-        Assert.NotNull(text);
-        Assert.Contains("refused", text, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void Describe_LateWithinTheWindow_DoesNotClaimAnythingWasRefused()
-    {
-        var text = TimerLateness.Describe(TimeSpan.FromSeconds(5), Cadence, StalenessWindow);
-
-        Assert.NotNull(text);
-        Assert.DoesNotContain("were being refused", text, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(TimerLateness.Describe(TimeSpan.Zero, Cadence, StalenessWindow, TimeSpan.FromSeconds(99)));
     }
 
     [Fact]
@@ -88,7 +118,8 @@ public class TimerLatenessTests
     {
         // A probe read at the END of a stall describes the machine now, not during the stall. The line
         // has to disclaim that rather than let a reader take it as proof of conditions throughout.
-        var text = TimerLateness.Describe(TimeSpan.FromSeconds(25), Cadence, StalenessWindow);
+        var text = TimerLateness.Describe(
+            TimeSpan.FromSeconds(25), Cadence, StalenessWindow, TimeSpan.FromSeconds(25));
 
         Assert.Contains("after the delay", text!, StringComparison.OrdinalIgnoreCase);
     }

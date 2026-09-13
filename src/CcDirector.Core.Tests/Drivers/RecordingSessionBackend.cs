@@ -49,8 +49,23 @@ internal sealed class RecordingSessionBackend : ISessionBackend
         StatusChanged?.Invoke(Status);
     }
 
+    /// <summary>
+    /// Called once, the first time this backend is written to. A seam for issue #2818's test of memory
+    /// pressure ARRIVING during the echo wait: it lets a test change the machine's reading at exactly
+    /// the moment the prompt has been typed and the submit begins waiting for an echo.
+    /// </summary>
+    public Action? OnFirstWrite { get; set; }
+
+    private bool _firstWriteDone;
+
     public void Write(byte[] data)
     {
+        if (!_firstWriteDone)
+        {
+            _firstWriteDone = true;
+            OnFirstWrite?.Invoke();
+        }
+
         WrittenBytes.Add(data.ToArray());
         if (IsEnter(data))
         {
