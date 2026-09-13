@@ -165,7 +165,14 @@ public sealed class DictationExitedSessionTests : IDisposable
         Assert.Empty(prompts);           // ...and nothing was pushed at a Director that had gone
         Assert.True(outcome.Terminal);
         Assert.False(_store.IsPending(uploadId));
-        Assert.Equal(GatewayDictationEndpoint.ExitedSessionReason, _store.ReadRecord(uploadId)!.Reason);
+
+        // AND THE WORDS COME BACK. This is the one exited case where a transcript exists, because it was
+        // paid for before the session died, and those words are the user's: the tombstone keeps them and the
+        // outcome carries them, so the client can show them and offer "Send anyway" into a live session
+        // rather than losing speech we already have.
+        var record = _store.ReadRecord(uploadId)!;
+        Assert.Equal(GatewayDictationEndpoint.ExitedSessionReason, record.Reason);
+        Assert.Equal(SpokenWords, record.Transcript);
     }
 
     [Theory]

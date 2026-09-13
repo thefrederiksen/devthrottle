@@ -583,7 +583,7 @@ internal static class GatewayDictationEndpoint
             if (director is null || session is null)
                 return DictationOutcome.Error(StatusCodes.Status404NotFound, "session not found");
             if (IsExited(session))
-                return ResolveAsUndeliverable(store, uploadId, sid, session.Status ?? "");
+                return ResolveAsUndeliverable(store, uploadId, sid, session.Status ?? "", transcript: "");
 
             // Only now is there real work to do, so only now is the session marked ACTIVELY transcribing
             // (issue #1181, Task 4). The aggregator reads this to show "Transcribing" (vs the durable PENDING
@@ -675,7 +675,7 @@ internal static class GatewayDictationEndpoint
             if (director is null || session is null)
                 return DictationOutcome.Error(StatusCodes.Status404NotFound, "session not found");
             if (IsExited(session))
-                return ResolveAsUndeliverable(store, uploadId, sid, session.Status ?? "");
+                return ResolveAsUndeliverable(store, uploadId, sid, session.Status ?? "", transcript);
             var route = new SessionVerbClient(director, sendCommand);
 
             // Moved-on guard (issue #1006): for a RESUMED clip, if the session's terminal output grew
@@ -839,15 +839,20 @@ internal static class GatewayDictationEndpoint
     /// nothing was heard, which is false twice over. So the flag stays movedOn and the RECORD carries the
     /// true cause in <see cref="ExitedSessionReason"/>.
     ///
-    /// The transcript is empty on purpose: the cost gate refuses this before any audio is transcribed, which
-    /// is the whole point of asking reachability first. The user's recording is untouched on the device.
+    /// THE TRANSCRIPT IS HANDED BACK WHENEVER THERE IS ONE. From the cost gate there is none by design -
+    /// that is the whole point of asking reachability before paying - and the recording is untouched on the
+    /// device, so the client offers a fresh retry instead. From the DELIVERY gate the clip has already been
+    /// transcribed, and those words are the user's: carrying them into the tombstone and the outcome is what
+    /// lets the client show them and offer "Send anyway" into a live session, rather than throwing away
+    /// speech we already have because the target died while we were listening to it.
     /// </summary>
-    private static DictationOutcome ResolveAsUndeliverable(VoiceUploadStore store, string uploadId, string sid, string status)
+    private static DictationOutcome ResolveAsUndeliverable(
+        VoiceUploadStore store, string uploadId, string sid, string status, string transcript)
     {
-        store.MarkDelivered(uploadId, submitted: false, movedOn: true, transcript: "", reason: ExitedSessionReason);
+        store.MarkDelivered(uploadId, submitted: false, movedOn: true, transcript, reason: ExitedSessionReason);
         FileLog.Write($"[GatewayDictation] complete sid={sid} uploadId={uploadId}: the session has exited " +
-            $"(status={status}); resolved as {ExitedSessionReason}, nothing transcribed and nothing injected");
-        return DictationOutcome.Submitted(submitted: false, movedOn: true, transcript: "");
+            $"(status={status}); resolved as {ExitedSessionReason} with chars={transcript.Length}, nothing injected");
+        return DictationOutcome.Submitted(submitted: false, movedOn: true, transcript);
     }
 
     private static void EndTranscribing(TranscribingSessions t, TenantId tenant, string sid)
