@@ -65,20 +65,27 @@ internal static class FleetRoleResolver
 
         StampUniverse(roleUniverse);
 
-        var byId = new Dictionary<string, string?>(StringComparer.Ordinal);
+        // BOTH RESOLVED FACTS TRAVEL TOGETHER. The supervisor-liveness answer is carried across with the role
+        // for the same reason the role is carried at all (defect 13): it is a question about sessions the
+        // caller may have filtered out. Copying the role alone would hand the fold a filtered session whose
+        // HasLiveSupervisor is still its default false - which surfaces a held worker to the owner. That is
+        // the safe direction of this field, but it is not the right ANSWER, and a fold that is merely
+        // safely wrong is still wrong.
+        var byId = new Dictionary<string, (string? Role, bool HasLiveSupervisor)>(StringComparer.Ordinal);
         foreach (var s in roleUniverse)
             if (!string.IsNullOrEmpty(s.SessionId))
-                byId[s.SessionId] = s.SessionRole;
+                byId[s.SessionId] = (s.SessionRole, s.HasLiveSupervisor);
 
         foreach (var s in toStamp)
         {
             if (string.IsNullOrEmpty(s.SessionId)) continue;
-            if (!byId.TryGetValue(s.SessionId, out var role))
+            if (!byId.TryGetValue(s.SessionId, out var resolved))
                 throw new InvalidOperationException(
                     $"Session '{s.SessionId}' was passed to be stamped but is not in the role universe. The role " +
                     "MUST be resolved from the unfiltered fleet (defect 13); stamping a session the universe " +
                     "does not contain would silently fold it with a null role.");
-            s.SessionRole = role;
+            s.SessionRole = resolved.Role;
+            s.HasLiveSupervisor = resolved.HasLiveSupervisor;
         }
     }
 
@@ -99,6 +106,20 @@ internal static class FleetRoleResolver
 
         foreach (var s in all)
         {
+            // IS SOMEONE ALIVE HOLDING THIS SESSION? The one input to the attention rule, and it is answered
+            // HERE because this is the only place that sees the whole fleet.
+            //
+            // IT IS DELIBERATELY OUTSIDE THE ROLE LADDER BELOW, not merely above it. The seat is a label a
+            // spawn can stamp by hand; whether a supervisor is still breathing is not, and the two must never
+            // be answered by one branch again. That conflation is the defect: an ExplicitRole short-circuits
+            // every derivation below, so a worker stamped "Worker" at spawn kept that seat - and therefore
+            // kept being quietened - long after its supervisor had exited the fleet. Reading the liveness set
+            // directly cannot be short-circuited by a stamp.
+            s.HasLiveSupervisor =
+                s.IsControlled
+                && !string.IsNullOrEmpty(s.ControllerSessionId)
+                && liveIds.Contains(s.ControllerSessionId);
+
             var explicitRole = SessionRoles.Normalize(s.ExplicitRole);
             if (explicitRole is not null)
                 s.SessionRole = explicitRole;

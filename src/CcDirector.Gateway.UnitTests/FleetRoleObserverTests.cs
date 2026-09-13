@@ -45,12 +45,18 @@ public sealed class FleetRoleObserverTests
 
         var echoed = Session("s1");
         echoed.SessionRole = SessionRoles.Worker; // what a Director sends back up after we stamped it
+        echoed.HasLiveSupervisor = true;          // and the other half of the same stamp, echoed with it
 
         Assert.True(store.ApplyDelta(TenantId.Local, "dir-A", "conn-1", 1, echoed));
 
         var fresh = store.TryGetFresh(TenantId.Local, "dir-A", _staleAfter);
         Assert.NotNull(fresh);
-        Assert.Null(Assert.Single(fresh!).SessionRole);
+        var one = Assert.Single(fresh!);
+        Assert.Null(one.SessionRole);
+        // The supervision answer is echoed back the same way and must die at the same boundary. An inbound
+        // true says "somebody was holding this at some point", and this field only ever means NOW - a stale
+        // one is a grey, quiet row whose supervisor exited hours ago, which is the whole defect.
+        Assert.False(one.HasLiveSupervisor);
     }
 
     /// <summary>The same on the reconnect path - a snapshot is where a whole roster of stale echoes arrives
@@ -77,13 +83,13 @@ public sealed class FleetRoleObserverTests
 
     private sealed class RecordingSender
     {
-        public readonly List<(string DirectorId, string SessionId, string Role)> Sent = new();
+        public readonly List<(string DirectorId, string SessionId, string Role, bool HasLiveSupervisor)> Sent = new();
 
         public Task<DirectorCommandResult?> SendAsync(string directorId, DirectorCommand command, CancellationToken ct)
         {
             var payload = System.Text.Json.JsonSerializer.Deserialize<SetResolvedRoleRequest>(
                 command.PayloadJson, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
-            lock (Sent) Sent.Add((directorId, command.SessionId, payload!.Role));
+            lock (Sent) Sent.Add((directorId, command.SessionId, payload!.Role, payload.HasLiveSupervisor));
             return Task.FromResult<DirectorCommandResult?>(DirectorCommandResult.Success());
         }
     }
@@ -136,6 +142,41 @@ public sealed class FleetRoleObserverTests
         var workerSends = sender.Sent.Where(x => x.SessionId == "wrk").ToList();
         Assert.Equal(2, workerSends.Count);
         Assert.Equal(SessionRoles.Standalone, workerSends[^1].Role);
+    }
+
+    /// <summary>
+    /// THE CHANGE THE GATE MUST NEVER SWALLOW, and the one a role-only key would.
+    ///
+    /// A supervisor dying does not always change the seat. Here the worker's seat was stamped by hand, so it
+    /// stays "Worker" whatever happens to the session above it - and the ONLY thing that changes when that
+    /// session exits is the supervision answer. Key the gate on the role alone and this second sweep sends
+    /// nothing: the desktop goes on showing a held, quiet session that nobody is holding, which is exactly
+    /// the failure the whole rule exists to close, wearing the costume of an observer working correctly.
+    /// </summary>
+    [Fact]
+    public void WhenOnlyTheSupervisorDies_TheChangeStillReachesTheDesktop()
+    {
+        var sender = new RecordingSender();
+        var controller = Session("ctl", "Working");
+        var worker = Session("wrk");
+        worker.IsControlled = true;
+        worker.ControllerSessionId = "ctl";
+        worker.ExplicitRole = SessionRoles.Worker;   // the seat is pinned, so it cannot move
+        var fleet = new List<(string, SessionDto)> { ("dir-A", controller), ("dir-A", worker) };
+        var observer = new FleetRoleObserver(() => fleet, sender.SendAsync);
+
+        observer.Sweep();
+        var first = sender.Sent.Single(x => x.SessionId == "wrk");
+        Assert.Equal(SessionRoles.Worker, first.Role);
+        Assert.True(first.HasLiveSupervisor);
+
+        controller.ActivityState = "Exited";
+        observer.Sweep();
+
+        var workerSends = sender.Sent.Where(x => x.SessionId == "wrk").ToList();
+        Assert.Equal(2, workerSends.Count);
+        Assert.Equal(SessionRoles.Worker, workerSends[^1].Role);        // unchanged - the seat was pinned
+        Assert.False(workerSends[^1].HasLiveSupervisor);                // and this is what had to get through
     }
 
     /// <summary>

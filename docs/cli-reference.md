@@ -758,10 +758,25 @@ OPTIONS:
   --director TEXT       Start it on ONE named Director, by Director id or display name
   --command TEXT        For --agent RawCli: the executable to run (e.g. cmd, pwsh)
   --command-args TEXT   For --agent RawCli: arguments for the command
+  --controlled-by TEXT  WHO OWNS IT: 'self', a session id, or 'none'. Required from a session
+  --standalone          The USER owns it: no controller (same as --controlled-by none)
 ```
 
 Prints the new session's short id and full GUID; the session then appears in
 `cc-devthrottle session list`. A non-existent repository path exits non-zero with a clear error.
+
+**A session-initiated spawn must say who OWNS the new session.** Every session has exactly one
+owner and it is either another session or the user; no owner means the user. From inside a session
+both are possible, so there is no default between them and the spawn is refused until you say:
+`--controlled-by self` (you own it - it stays quiet and reports back to you), `--standalone` (the
+user owns it - it goes red and asks him, and you will not hear from it), or `--controlled-by <id>`
+(another session owns it). It is what the attention rule reads afterwards, so it decides whether
+that session's finished turn ever reaches the user.
+
+This used to default to `self` whenever `CC_SESSION_ID` was set. It no longer does. The default was
+the only way work could stop being the user's without anyone choosing it - an environment variable
+deciding that a session answers to a machine. A person spawning from the desktop, the Cockpit or
+the phone declares nothing: there is no second candidate, so there is nothing to state.
 
 **`--machine` picks a computer; `--director` picks a Director.** They are not the same question. One
 computer runs several named Director instances, so `--machine SOREN_NORTH` resolves to whichever

@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using CcDirector.Gateway.Contracts;
+using CcDirector.Gateway.Fleet;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests;
@@ -8,8 +9,14 @@ namespace CcDirector.Gateway.Tests;
 /// THE WRITTEN RULE AND THE CODE, CHECKED AGAINST EACH OTHER.
 ///
 /// Reads the supervision table out of <c>docs/new_architecture/session-roles-semantics.md</c> and asserts
-/// that <see cref="SessionOrdering.IsSupervised"/> answers what the table says, for every seat, in both
-/// directions.
+/// that the shipped attention rule answers what the table says, for every case, in both directions.
+///
+/// IT DRIVES THE REAL PATH, NOT THE FIELD. <see cref="SessionOrdering.IsSupervised"/> now reads a single
+/// stamped fact, so a test that set that fact and then asserted it came back would be a tautology dressed
+/// as a guard - it would pass with the whole resolver deleted. Each row therefore BUILDS A FLEET, hands it
+/// to <see cref="FleetRoleResolver"/> exactly as the Gateway does, and asks the question afterwards. What
+/// is under test is the chain the product actually runs: a supervisor that is alive or is not, resolved
+/// across the fleet, folded into an answer.
 ///
 /// WHY THIS EXISTS, AND WHY A BEHAVIOUR TEST WAS NOT ENOUGH. The owner amended the attention rule on
 /// 2026-07-09 - the Architect stops surfacing to him - and that amendment sat in the design document,
@@ -20,15 +27,15 @@ namespace CcDirector.Gateway.Tests;
 /// months nobody did.
 ///
 /// So the answer is not "write the behaviour assertion the other way round" - that has now been done
-/// twice, in two directions, and it would not have caught either drift. The answer is a test whose INPUTS
-/// come from the DOCUMENT and whose EXPECTED ANSWERS come from the CODE, so that changing one without the
-/// other is itself the failure.
+/// three times, in three directions, and it would not have caught any of the drifts. The answer is a test
+/// whose INPUTS come from the DOCUMENT and whose EXPECTED ANSWERS come from the CODE, so that changing one
+/// without the other is itself the failure.
 ///
 /// IT CANNOT PASS BY FINDING NOTHING. The table must be present, fenced by its markers, and it must name
-/// EVERY combination of the four roles in <see cref="SessionRoles.All"/> and the two origin kinds that
-/// matter. A missing marker, an empty table, or a table that quietly stopped covering a seat fails with a
-/// message naming what is missing - never a silent pass. That is deliberate: a check whose pass condition
-/// is an ABSENCE certifies a run that never happened.
+/// EVERY combination of the four roles in <see cref="SessionRoles.All"/>, the two origin kinds, and the
+/// two supervisor states. A missing marker, an empty table, or a table that quietly stopped covering a
+/// case fails with a message naming what is missing - never a silent pass. That is deliberate: a check
+/// whose pass condition is an ABSENCE certifies a run that never happened.
 /// </summary>
 public sealed class SupervisionRuleMatchesTheDesignDocumentTests
 {
@@ -36,41 +43,95 @@ public sealed class SupervisionRuleMatchesTheDesignDocumentTests
     private const string Begin = "<!-- SUPERVISION-TABLE-BEGIN -->";
     private const string End = "<!-- SUPERVISION-TABLE-END -->";
 
-    /// <summary>The two origin kinds the rule distinguishes. "(none)" is how the table spells an ordinary
-    /// session that nothing scheduled; "schedule" is a cron firing or a work-list item.</summary>
+    /// <summary>The two origin kinds the table distinguishes. "(none)" is how it spells an ordinary session
+    /// that nothing scheduled; "schedule" is a cron firing or a work-list item. Neither decides anything any
+    /// more - they are in the table precisely so that stays provable.</summary>
     private static readonly string[] OriginKinds = { "(none)", "schedule" };
 
-    private sealed record Row(string Role, string Origin, bool Supervised);
+    /// <summary>The two answers to the only question the rule asks.</summary>
+    private static readonly string[] SupervisorStates = { "no", "yes" };
+
+    private sealed record Row(string Role, string Origin, bool LiveSupervisor, bool Supervised);
+
+    /// <summary>
+    /// How a row with no live supervisor can come about. BOTH are built and both must answer the same, because
+    /// they are two different failures wearing one verdict: a session nothing ever supervised, and a session
+    /// whose supervisor has died underneath it. The second is the one that was broken - an explicitly stamped
+    /// seat skipped the liveness check, so the orphan went on being quietened by a supervisor that had exited
+    /// hours earlier.
+    /// </summary>
+    private enum NoSupervisor { NeverHadOne, ItDied }
 
     [Fact]
-    public void EverySeatInTheDesignDocument_GetsTheAnswerTheDocumentStates()
+    public void EveryCaseInTheDesignDocument_GetsTheAnswerTheDocumentStates()
     {
         var rows = ReadTable();
 
         foreach (var row in rows)
         {
-            var s = new SessionDto
+            if (row.LiveSupervisor)
             {
-                SessionId = "s",
-                Name = "s",
-                ActivityState = "WaitingForInput",
-                SessionRole = row.Role,
-                OriginKind = row.Origin == "(none)" ? null : row.Origin,
-            };
-
-            var actual = SessionOrdering.IsSupervised(s);
-
-            Assert.True(row.Supervised == actual,
-                $"{DocRelativePath} says a {row.Role} with origin {row.Origin} is " +
-                $"{(row.Supervised ? "SUPERVISED" : "HUMAN-FACING")}, and SessionOrdering.IsSupervised says " +
-                $"{(actual ? "SUPERVISED" : "HUMAN-FACING")}. One of the two is wrong and BOTH have to " +
-                "change in the same pull request. This exact divergence - a rule written down in one half " +
-                "and not the other - went unnoticed for two months in 2026.");
+                AssertRow(row, BuildFleet(row, null));
+            }
+            else
+            {
+                // Both shapes of "nobody is there", so neither can regress behind the other.
+                AssertRow(row, BuildFleet(row, NoSupervisor.NeverHadOne));
+                AssertRow(row, BuildFleet(row, NoSupervisor.ItDied));
+            }
         }
     }
 
+    private static void AssertRow(Row row, SessionDto subject)
+    {
+        var actual = SessionOrdering.IsSupervised(subject);
+
+        Assert.True(row.Supervised == actual,
+            $"{DocRelativePath} says a {row.Role} with origin {row.Origin} and live supervisor " +
+            $"\"{(row.LiveSupervisor ? "yes" : "no")}\" is {(row.Supervised ? "SUPERVISED" : "HUMAN-FACING")}, " +
+            $"and the shipped rule says {(actual ? "SUPERVISED" : "HUMAN-FACING")}. One of the two is wrong " +
+            "and BOTH have to change in the same pull request. This exact divergence - a rule written down " +
+            "in one half and not the other - went unnoticed for two months in 2026.");
+    }
+
+    /// <summary>
+    /// The subject session plus whatever supervisor its row calls for, resolved by the production resolver.
+    /// The seat is set EXPLICITLY, which is not a shortcut to reach the role - it is the shape that was
+    /// broken. An explicit stamp short-circuits role derivation, so if supervision were still read off the
+    /// seat this fleet is exactly where it would give the wrong answer.
+    /// </summary>
+    private static SessionDto BuildFleet(Row row, NoSupervisor? absence)
+    {
+        var subject = new SessionDto
+        {
+            SessionId = "subject",
+            Name = "subject",
+            ActivityState = "WaitingForInput",
+            ExplicitRole = row.Role,
+            OriginKind = row.Origin == "(none)" ? null : row.Origin,
+            IsControlled = absence != NoSupervisor.NeverHadOne,
+            ControllerSessionId = absence == NoSupervisor.NeverHadOne ? null : "supervisor",
+        };
+
+        var fleet = new List<SessionDto> { subject };
+
+        if (absence != NoSupervisor.NeverHadOne)
+        {
+            fleet.Add(new SessionDto
+            {
+                SessionId = "supervisor",
+                Name = "supervisor",
+                // Exited is the ONE state that takes a session out of the liveness set.
+                ActivityState = absence == NoSupervisor.ItDied ? "Exited" : "Working",
+            });
+        }
+
+        FleetRoleResolver.Stamp(fleet);
+        return subject;
+    }
+
     [Fact]
-    public void TheTableCoversEverySeat_soItCannotPassBySayingNothing()
+    public void TheTableCoversEveryCase_soItCannotPassBySayingNothing()
     {
         var rows = ReadTable();
 
@@ -78,67 +139,127 @@ public sealed class SupervisionRuleMatchesTheDesignDocumentTests
         // product a fifth role makes this fail with the missing row named, rather than passing over a table
         // that has silently stopped describing the fleet.
         var expected = SessionRoles.All
-            .SelectMany(role => OriginKinds.Select(origin => (role, origin)))
+            .SelectMany(role => OriginKinds.SelectMany(origin =>
+                SupervisorStates.Select(sup => (role, origin, sup))))
             .ToList();
 
-        var have = rows.Select(r => (r.Role, r.Origin)).ToHashSet();
+        var have = rows.Select(r => (r.Role, r.Origin, r.LiveSupervisor ? "yes" : "no")).ToHashSet();
 
         var missing = expected.Where(e => !have.Contains(e)).ToList();
         Assert.True(missing.Count == 0,
             $"The supervision table in {DocRelativePath} does not name: " +
-            string.Join(", ", missing.Select(m => $"{m.role}/{m.origin}")) +
-            ". Every role in SessionRoles.All crossed with every origin kind must appear, so the document " +
-            "cannot describe a smaller fleet than the code has.");
+            string.Join(", ", missing.Select(m => $"{m.role}/{m.origin}/supervisor={m.sup}")) +
+            ". Every role in SessionRoles.All crossed with every origin kind and both supervisor states must " +
+            "appear, so the document cannot describe a smaller fleet than the code has.");
 
         Assert.Equal(expected.Count, rows.Count);
 
-        // And the verdicts are not all one word - a table of eight identical answers would satisfy the count
-        // and prove nothing about the rule it claims to state.
+        // And the verdicts are not all one word - a table of sixteen identical answers would satisfy the
+        // count and prove nothing about the rule it claims to state.
         Assert.Contains(rows, r => r.Supervised);
         Assert.Contains(rows, r => !r.Supervised);
     }
 
     [Fact]
-    public void TheScheduledArchitectRow_SaysSupervised_becauseTheOriginOutranksTheSeat()
+    public void TheVerdictTurnsOnTheLiveSupervisorAlone_TheOwnersRulingOf13September2026()
     {
-        // THE EXCEPTION TO THE ROW BELOW, NAMED so it is deliberate rather than a side effect of two arms
-        // sharing one predicate. The schedule arm asks "was anyone at a keyboard when this started?", which
-        // is a different question from "which seat is this?", and it wins: an Architect a cron fired has
-        // nobody it can report to, and the owner's standing rule is that scheduled runs escalate by email
-        // rather than sit red on his roster.
+        // THE CLAIM THE SIXTEEN ROWS EXIST TO MAKE, asserted by name so that making a seat matter again is a
+        // deliberate act with the ruling in front of you: "I think it is wrong that somebody without a parent
+        // can automatically be put on snooze because nobody knows they existed."
         //
-        // This is why the code and this document must both say "an Architect A PERSON STARTED is
-        // human-facing", and never the unqualified "an Architect is never supervised".
+        // A two-row table would have stated the rule correctly and proved nothing about what went wrong. For
+        // two years the answer turned on a category stamped at birth. This says it turns on one live fact,
+        // and it says it over the whole cross-product rather than over the one row somebody remembered.
         var rows = ReadTable();
 
-        var scheduled = Assert.Single(rows, r => r.Role == SessionRoles.Architect && r.Origin == "schedule");
-        Assert.True(scheduled.Supervised);
+        foreach (var group in rows.GroupBy(r => r.LiveSupervisor))
+        {
+            var verdicts = group.Select(r => r.Supervised).Distinct().ToList();
+            Assert.True(verdicts.Count == 1,
+                $"The supervision table in {DocRelativePath} gives more than one verdict for live " +
+                $"supervisor = \"{(group.Key ? "yes" : "no")}\". The seat and the origin have no vote: every " +
+                "row with a live supervisor is SUPERVISED and every row without one is HUMAN-FACING. A table " +
+                "that splits within a block has put a category back in charge of who may reach the owner.");
+        }
+
+        Assert.True(rows.Where(r => r.LiveSupervisor).All(r => r.Supervised),
+            "A session with a live supervisor must be SUPERVISED in every seat.");
+        Assert.True(rows.Where(r => !r.LiveSupervisor).All(r => !r.Supervised),
+            "A session with nobody holding it must be HUMAN-FACING in every seat - including a scheduled run.");
     }
 
     [Fact]
-    public void TheArchitectRow_SaysHumanFacing_TheOwnersRulingOf6September2026()
+    public void AnOrphanedWorker_ReachesTheOwner_EvenWhenItsSeatWasStampedByHand()
     {
-        // The one row this change is about, asserted BY NAME rather than only through the sweep above. The
-        // sweep proves the document and the code agree; it would go on passing if somebody moved both of
-        // them back together. This says what the owner decided, so changing it is a deliberate act with his
-        // ruling in front of you: "parking the architect seat is wrong. the architect is always the session
-        // i talk to."
-        var rows = ReadTable();
-
-        var architect = Assert.Single(rows, r => r.Role == SessionRoles.Architect && r.Origin == "(none)");
-        Assert.False(architect.Supervised);
-
-        // And through the real predicate, on the shape that actually reaches it: an Architect resolved from
-        // an explicit role, carrying the controller of whoever spawned it.
-        Assert.False(SessionOrdering.IsSupervised(new SessionDto
+        // THE DEFECT THIS CHANGE CLOSES, PINNED SO IT CANNOT COME BACK QUIETLY.
+        //
+        // Observed on the live fleet on 2026-09-13: sessions carrying an explicit "Worker" stamp whose
+        // supervisor was not in the fleet at all, sitting grey and labelled "Snoozed" with nothing snoozed.
+        // The document promised an orphan escape hatch; it could not fire, because an explicit role returns
+        // from FleetRoleResolver before the liveness check is ever reached, so the seat outlived the
+        // relationship it was shorthand for.
+        var orphan = new SessionDto
         {
-            SessionId = "arch",
-            Name = "arch",
+            SessionId = "orphan",
+            Name = "orphan",
             ActivityState = "WaitingForInput",
-            SessionRole = SessionRoles.Architect,
+            ExplicitRole = SessionRoles.Worker,
             IsControlled = true,
-            ControllerSessionId = "whoever-opened-it",
-        }));
+            ControllerSessionId = "supervisor-that-is-gone",
+        };
+
+        // The supervisor is absent from the fleet entirely - not exited, simply not there.
+        FleetRoleResolver.Stamp(new List<SessionDto> { orphan });
+
+        Assert.Equal(SessionRoles.Worker, orphan.SessionRole);   // the stamp still wins for the SEAT
+        Assert.False(orphan.HasLiveSupervisor);                  // but it cannot buy the session quiet
+        Assert.False(SessionOrdering.IsSupervised(orphan));
+        Assert.Equal("red", SessionOrdering.EffectiveColor(orphan));
+        Assert.Equal(SessionOrdering.TriageBucket.NeedsYou, SessionOrdering.Classify(orphan));
+    }
+
+    [Fact]
+    public void AScheduledRun_ReachesTheOwner_TheReversalOf13September2026()
+    {
+        // The schedule arm used to silence this row on the grounds that a cron run escalates by email. The
+        // owner reversed it: a session nobody is holding is his, whatever started it. An email path that
+        // nothing on the roster can attest to is not a supervisor.
+        var cron = new SessionDto
+        {
+            SessionId = "cron",
+            Name = "cron",
+            ActivityState = "WaitingForInput",
+            OriginKind = "schedule",
+        };
+
+        FleetRoleResolver.Stamp(new List<SessionDto> { cron });
+
+        Assert.False(SessionOrdering.IsSupervised(cron));
+        Assert.Equal("red", SessionOrdering.EffectiveColor(cron));
+        Assert.Equal("Needs you", SessionOrdering.StateLabel(cron));
+    }
+
+    [Fact]
+    public void AWorkerWithALiveSupervisor_IsStillHeld()
+    {
+        // The negative control. If everything surfaced, every assertion above would pass and the rule would
+        // be doing no work at all - the roster would simply have stopped quietening anything.
+        var worker = new SessionDto
+        {
+            SessionId = "worker",
+            Name = "worker",
+            ActivityState = "WaitingForInput",
+            IsControlled = true,
+            ControllerSessionId = "supervisor",
+        };
+        var supervisor = new SessionDto { SessionId = "supervisor", Name = "supervisor", ActivityState = "Working" };
+
+        FleetRoleResolver.Stamp(new List<SessionDto> { worker, supervisor });
+
+        Assert.True(worker.HasLiveSupervisor);
+        Assert.True(SessionOrdering.IsSupervised(worker));
+        Assert.Equal("Snoozed", SessionOrdering.StateLabel(worker));
+        Assert.Equal(SessionOrdering.TriageBucket.OnHold, SessionOrdering.Classify(worker));
     }
 
     /// <summary>
@@ -164,19 +285,19 @@ public sealed class SupervisionRuleMatchesTheDesignDocumentTests
 
         var body = text[(begin + Begin.Length)..end];
 
-        // THE FENCE IS NOT ENOUGH ON ITS OWN - IT MUST BE A REAL MARKDOWN TABLE. Eight pipe-prefixed lines
-        // inside a fenced code block would parse here perfectly and render as a code sample: the document a
-        // person opens would state NO RULE at all while this test went on passing. So a code fence between
-        // the markers is refused outright, and the header and separator rows are REQUIRED, in that order,
-        // with nothing above the header counted as a row.
+        // THE FENCE IS NOT ENOUGH ON ITS OWN - IT MUST BE A REAL MARKDOWN TABLE. Pipe-prefixed lines inside a
+        // fenced code block would parse here perfectly and render as a code sample: the document a person
+        // opens would state NO RULE at all while this test went on passing. So a code fence between the
+        // markers is refused outright, and the header and separator rows are REQUIRED, in that order, with
+        // nothing above the header counted as a row.
         Assert.DoesNotContain("```", body, StringComparison.Ordinal);
 
         var lines = body.Split('\n').Select(l => l.Trim()).ToList();
         var headerAt = lines.FindIndex(l => l.StartsWith("| Resolved role", StringComparison.Ordinal));
         Assert.True(headerAt >= 0,
-            $"The supervision table in {DocRelativePath} has no \"| Resolved role | Origin kind | Verdict |\" " +
-            "header row between its markers. Without a header the rows are not a table, so the document " +
-            "would render as nothing while this test carried on reading the raw lines.");
+            $"The supervision table in {DocRelativePath} has no \"| Resolved role | Origin kind | Live " +
+            "supervisor | Verdict |\" header row between its markers. Without a header the rows are not a " +
+            "table, so the document would render as nothing while this test carried on reading the raw lines.");
         Assert.True(headerAt + 1 < lines.Count && lines[headerAt + 1].StartsWith("|---", StringComparison.Ordinal),
             $"The supervision table in {DocRelativePath} has a header with no separator row beneath it, so " +
             "markdown will not render it as a table.");
@@ -187,24 +308,30 @@ public sealed class SupervisionRuleMatchesTheDesignDocumentTests
             if (trimmed.Length == 0 || trimmed[0] != '|') continue;
 
             var cells = trimmed.Trim('|').Split('|').Select(c => c.Trim()).ToArray();
-            Assert.True(cells.Length == 3,
-                $"A row of the supervision table in {DocRelativePath} has {cells.Length} cells, not 3: " +
-                $"\"{trimmed}\". A malformed row FAILS rather than being skipped - skipping is how a seat " +
+            Assert.True(cells.Length == 4,
+                $"A row of the supervision table in {DocRelativePath} has {cells.Length} cells, not 4: " +
+                $"\"{trimmed}\". A malformed row FAILS rather than being skipped - skipping is how a case " +
                 "silently stops being covered while everything stays green.");
 
-            var verdict = cells[2];
+            var supervisor = cells[2];
+            Assert.True(supervisor is "yes" or "no",
+                $"The supervision table in {DocRelativePath} has the live-supervisor value \"{supervisor}\" " +
+                $"for {cells[0]}/{cells[1]}. The only two answers are yes and no - there is no third state, " +
+                "and inventing one here would be the document claiming a rule the code cannot express.");
+
+            var verdict = cells[3];
             Assert.True(verdict is "SUPERVISED" or "HUMAN-FACING",
                 $"The supervision table in {DocRelativePath} has the verdict \"{verdict}\" for " +
-                $"{cells[0]}/{cells[1]}. The only two answers are SUPERVISED and HUMAN-FACING - a third " +
-                "word means the document is saying something this rule cannot express.");
+                $"{cells[0]}/{cells[1]}/{supervisor}. The only two answers are SUPERVISED and HUMAN-FACING - " +
+                "a third word means the document is saying something this rule cannot express.");
 
-            rows.Add(new Row(cells[0], cells[1], verdict == "SUPERVISED"));
+            rows.Add(new Row(cells[0], cells[1], supervisor == "yes", verdict == "SUPERVISED"));
         }
 
         Assert.NotEmpty(rows);
-        // A seat named twice, with two different verdicts, would let the coverage check pass while the
-        // document contradicted itself. One row per seat.
-        Assert.Equal(rows.Count, rows.Select(r => (r.Role, r.Origin)).Distinct().Count());
+        // A case named twice, with two different verdicts, would let the coverage check pass while the
+        // document contradicted itself. One row per case.
+        Assert.Equal(rows.Count, rows.Select(r => (r.Role, r.Origin, r.LiveSupervisor)).Distinct().Count());
         return rows;
     }
 

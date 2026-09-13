@@ -238,7 +238,7 @@ answer you already have locally was the single largest source of dead time in th
    defect, so the reviewer must not be the writer. Codex is the default reviewer, and it runs as
    a real tracked session, never backgrounded and never hidden:
 
-       cc-devthrottle session spawn <repo> --agent Codex --prompt "<what to review>" --name "review: <what it is>"
+       cc-devthrottle session spawn <repo> --controlled-by self --agent Codex --prompt "<what to review>" --name "review: <what it is>"
 
 3. **Merge.** `gh pr merge <number> --squash --delete-branch`, then park the checkout back on main.
 

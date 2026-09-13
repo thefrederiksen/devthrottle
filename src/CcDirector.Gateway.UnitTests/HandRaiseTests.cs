@@ -134,6 +134,7 @@ public sealed class HandRaiseTests
             IsControlled = true,
             ControllerSessionId = "mgr",
             SessionRole = SessionRoles.Worker,
+            HasLiveSupervisor = true,
             NeedsManager = true,
             NeedsManagerReason = "still blocked",
         };

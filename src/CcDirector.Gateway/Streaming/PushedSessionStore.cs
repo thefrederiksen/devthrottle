@@ -367,8 +367,21 @@ public sealed class PushedSessionStore
     ///
     /// Note the read paths that skip the fleet pass (the Exes page, GET /sessions/{sid}) now correctly
     /// report null rather than a stale echo - null means "nobody has resolved this", which is the truth.
+    ///
+    /// THE SUPERVISION ANSWER DIES HERE TOO, and the argument is the same one only sharper.
+    /// <see cref="SessionDto.HasLiveSupervisor"/> is stamped down to Directors on the same command as the
+    /// role and echoed back up the same way, so an inbound true means "the Gateway believed somebody was
+    /// holding this, at some point" - which is not a fact about now, and now is the only thing this field
+    /// means. Left alive, the stale echo says a session is held by a supervisor that may have exited hours
+    /// ago: a quiet, grey row with nobody behind it, which is the exact defect the live-supervisor rule was
+    /// written to close. Resetting to FALSE is also the safe direction - false surfaces the session to the
+    /// owner - so a pass that has not resolved the fleet errs toward asking him.
     /// </summary>
-    private static void DiscardInboundRole(SessionDto session) => session.SessionRole = null;
+    private static void DiscardInboundRole(SessionDto session)
+    {
+        session.SessionRole = null;
+        session.HasLiveSupervisor = false;
+    }
 
     /// <summary>Apply a remove/tombstone: drop one session from the Director's set.</summary>
     /// <returns>true if applied; false if rejected.</returns>

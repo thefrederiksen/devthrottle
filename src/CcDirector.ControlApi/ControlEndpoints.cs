@@ -342,6 +342,9 @@ internal static class ControlEndpoints
             // where PushedSessionStore DISCARDS it at ingest so this echo can never be mistaken for an
             // authority. (docs/new_architecture/session-state.html, defect 5.)
             SessionRole = s.GatewayResolvedRole,
+            // The other half of the Gateway's answer. Without it the desktop folds every session as
+            // unsupervised and every held worker goes red on one screen while the phone shows it held.
+            HasLiveSupervisor = s.GatewayResolvedHasLiveSupervisor,
             // The Gateway's folded DISPLAY STATE, stamped back down onto this Director (Session.Gateway*,
             // written only by the set-display-state verb) and echoed here for the loopback reader that
             // cannot ask upstream: the desktop rail. The rail renders these VERBATIM instead of re-folding

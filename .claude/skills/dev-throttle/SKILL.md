@@ -106,9 +106,14 @@ prompts, or on the wrong model.
 # Create a properly-named, autonomous-ready session
 cc-devthrottle session spawn D:\Repos\myrepo \
   --name "myrepo - fix auth bug #123" \
+  --controlled-by self \
   --args "--dangerously-skip-permissions --model opus[1m]" \
   --prompt "Fix the bug in auth.js"
 ```
+
+`--controlled-by self` says YOU own it, so it reports back to you and stays out of the user's
+queue. Say `--standalone` instead when the USER owns it. From inside a session one of the two is
+REQUIRED - there is no default. See **Who owns the session you open** at the end of this skill.
 
 The Director names the session at birth and returns the final id and name. See the **fleet-comms**
 skill for the full flag set (`--agent`, `--role`, `--mission`, `--machine`, `--controlled-by`, and the
@@ -123,6 +128,7 @@ whichever the Gateway lists first. When you were told to use a specific Director
 cc-devthrottle director list          # names, machines, and the Director id to use
 cc-devthrottle session spawn D:\Repos\myrepo \
   --director 6f0a2b41-1c33-4f9e-9a10-2b7d5e8c1234 \
+  --controlled-by self \
   --name "myrepo - fix auth bug #123"
 ```
 
@@ -213,3 +219,25 @@ belongs to. The 5.2 route-probing diagnostic is obsolete - there are no routes t
 
 **Changes in 5.2 (SUPERSEDED by 6.0 - do not act on it):** it described a diagnostic that depended on the Director's loopback floor, which no longer exists. The recipe is deliberately not restated here: prose that repeats an instruction is what the next agent acts on, whatever the sentence around it says. Kept only so a reader who has seen the old text knows it was withdrawn rather than lost.
 **Changes in 4.3:** Added "Who the user is" - the session-start preamble names the signed-in DevThrottle user (email + nickname); "me / my account / email me" means that user unless they say otherwise, and identity must not be guessed from usage or the database (issue #1357).
+
+### WHO OWNS THE SESSION YOU OPEN - you must say
+
+Every session has exactly one owner, and it is either another SESSION or the USER. There is no third
+answer and there is no unowned session: no owner means the user. When you spawn from inside a session
+there are two candidates and NO default between them, so the spawn is REFUSED until you say which:
+
+```
+--controlled-by self   YOU own it. It stays quiet on the roster and reports back to YOU when it
+                       finishes. Use this for work you will collect.
+--standalone           the USER owns it. It goes red and asks HIM when it finishes, and you will not
+                       hear from it. Use this for work you are starting on his behalf.
+--controlled-by <id>   another session owns it.
+```
+
+This used to default to `self` silently, and that default was the only way work could quietly stop
+being the user's - a session answering to a machine because an environment variable happened to be set,
+with nobody having chosen it. So choose deliberately: if you will not actually come back and read that
+session's answer, it is not yours, and `--standalone` is the honest declaration.
+
+A person spawning from the desktop, the Cockpit or the phone declares nothing. A session a person opens
+is the user's, and there is no second candidate to tell it apart from.

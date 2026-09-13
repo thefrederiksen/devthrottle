@@ -68,8 +68,16 @@ public sealed class DesktopRoleStampWireProofTests
         return s;
     }
 
-    /// <summary>Drive the REAL verb the Gateway sends down the tunnel. No field is assigned by the test.</summary>
-    private static DirectorCommandResult StampRole(SessionManager manager, Session session, string role)
+    /// <summary>
+    /// Drive the REAL verb the Gateway sends down the tunnel. No field is assigned by the test.
+    ///
+    /// The supervision answer rides on the same command as the role, because it is the same kind of fact and
+    /// has the same reason for travelling: one Director cannot see the session supervising one of its own.
+    /// It defaults to FALSE here, which is the Gateway saying "nobody is holding this" - the value that
+    /// surfaces the session to the owner, and the right default for a test that has not said otherwise.
+    /// </summary>
+    private static DirectorCommandResult StampRole(SessionManager manager, Session session, string role,
+        bool hasLiveSupervisor = false)
     {
         var command = new DirectorCommand
         {
@@ -77,7 +85,7 @@ public sealed class DesktopRoleStampWireProofTests
             Verb = "set-resolved-role",
             SessionId = session.Id.ToString(),
             PayloadJson = System.Text.Json.JsonSerializer.Serialize(
-                new SetResolvedRoleRequest { Role = role },
+                new SetResolvedRoleRequest { Role = role, HasLiveSupervisor = hasLiveSupervisor },
                 new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)),
         };
         var context = new SessionCommandContext(manager, "director-under-test", Services: null, SendSource.Framework);
@@ -112,12 +120,13 @@ public sealed class DesktopRoleStampWireProofTests
         Assert.Equal("Needs you", SessionOrdering.StateLabel(before));
 
         // ===== THE GATEWAY STAMPS. The real verb, over the real command shape. =====
-        var result = StampRole(manager, worker, SessionRoles.Worker);
+        var result = StampRole(manager, worker, SessionRoles.Worker, hasLiveSupervisor: true);
         Assert.Equal(DirectorCommandStatus.Ok, result.Status);
 
         // ===== AFTER: the same mapper, the same fold, a different answer - because the fact arrived. =====
         var after = ControlEndpoints.Map(worker, directorId: "");
         Assert.Equal(SessionRoles.Worker, after.SessionRole);
+        Assert.True(after.HasLiveSupervisor);
         Assert.Equal("supporting", SessionOrdering.EffectiveColor(after));
         // The label is "Snoozed" (was "Sub-agent") since the owner ruled on 2026-09-02 that a supervised
         // session goes to on-hold when it is not working; the slate dot is unchanged. See the supervised arm
@@ -155,7 +164,8 @@ public sealed class DesktopRoleStampWireProofTests
         Assert.Equal("supporting", gatewayAnswer);
 
         // The Gateway stamps what it resolved back down - the real verb again.
-        Assert.Equal(DirectorCommandStatus.Ok, StampRole(manager, worker, gatewayWorker.SessionRole!).Status);
+        Assert.Equal(DirectorCommandStatus.Ok,
+            StampRole(manager, worker, gatewayWorker.SessionRole!, gatewayWorker.HasLiveSupervisor).Status);
 
         // The DESKTOP's answer: the real mapper, the real fold. THIS is the assertion defect 5 was blocking.
         var desktopAnswer = SessionOrdering.EffectiveColor(ControlEndpoints.Map(worker, directorId: ""));
@@ -192,7 +202,9 @@ public sealed class DesktopRoleStampWireProofTests
         Assert.Equal(SessionRoles.Standalone, gatewayWorker.SessionRole);
         Assert.Equal("red", SessionOrdering.EffectiveColor(gatewayWorker));
 
-        Assert.Equal(DirectorCommandStatus.Ok, StampRole(manager, worker, gatewayWorker.SessionRole!).Status);
+        Assert.False(gatewayWorker.HasLiveSupervisor);
+        Assert.Equal(DirectorCommandStatus.Ok,
+            StampRole(manager, worker, gatewayWorker.SessionRole!, gatewayWorker.HasLiveSupervisor).Status);
         Assert.Equal("red", SessionOrdering.EffectiveColor(ControlEndpoints.Map(worker, directorId: "")));
     }
 
@@ -209,11 +221,15 @@ public sealed class DesktopRoleStampWireProofTests
         worker.ApplyTerminalActivityState(ActivityState.WaitingForInput);
         worker.ControllerSessionId = Guid.NewGuid();
 
-        Assert.Equal(DirectorCommandStatus.Ok, StampRole(manager, worker, SessionRoles.Worker).Status);
+        Assert.Equal(DirectorCommandStatus.Ok,
+            StampRole(manager, worker, SessionRoles.Worker, hasLiveSupervisor: true).Status);
         Assert.Equal("supporting", SessionOrdering.EffectiveColor(ControlEndpoints.Map(worker, directorId: "")));
 
+        // Retracting the role retracts the supervision answer with it. A cleared seat that left "somebody is
+        // holding this" behind would be the stale-fact-outliving-its-truth defect wearing a different field.
         Assert.Equal(DirectorCommandStatus.Ok, StampRole(manager, worker, "").Status);
         Assert.Null(ControlEndpoints.Map(worker, directorId: "").SessionRole);
+        Assert.False(ControlEndpoints.Map(worker, directorId: "").HasLiveSupervisor);
         Assert.Equal("red", SessionOrdering.EffectiveColor(ControlEndpoints.Map(worker, directorId: "")));
     }
 

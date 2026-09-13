@@ -30,13 +30,37 @@ cc-devthrottle session list
 cc-devthrottle session whoami
 cc-devthrottle session rename "Dev Throttle Review"
 cc-devthrottle session rename 9b2f "Frontend Review"
-cc-devthrottle session spawn D:\path\to\repo --purpose "implement #799"
-cc-devthrottle session spawn D:\path\to\repo --name "Frontend review"
-cc-devthrottle session spawn D:\path\to\repo --purpose "run the test suite" --agent ClaudeCode --prompt "Run the tests and report failures."
-cc-devthrottle session spawn D:\path\to\repo --name "frontend" --agent RawCli --command cmd
+cc-devthrottle session spawn D:\path\to\repo --purpose "implement #799" --controlled-by self
+cc-devthrottle session spawn D:\path\to\repo --name "Frontend review" --standalone
+cc-devthrottle session spawn D:\path\to\repo --purpose "run the test suite" --controlled-by self --agent ClaudeCode --prompt "Run the tests and report failures."
+cc-devthrottle session spawn D:\path\to\repo --name "frontend" --standalone --agent RawCli --command cmd
 cc-devthrottle director list
-cc-devthrottle session spawn D:\path\to\repo --name "build" --director "North build"
+cc-devthrottle session spawn D:\path\to\repo --name "build" --controlled-by self --director "North build"
 ```
+
+Every one of those says who will own the new session. From inside a session that is REQUIRED.
+### WHO OWNS THE SESSION YOU OPEN - you must say
+
+Every session has exactly one owner, and it is either another SESSION or the USER. There is no third
+answer and there is no unowned session: no owner means the user. When you spawn from inside a session
+there are two candidates and NO default between them, so the spawn is REFUSED until you say which:
+
+```
+--controlled-by self   YOU own it. It stays quiet on the roster and reports back to YOU when it
+                       finishes. Use this for work you will collect.
+--standalone           the USER owns it. It goes red and asks HIM when it finishes, and you will not
+                       hear from it. Use this for work you are starting on his behalf.
+--controlled-by <id>   another session owns it.
+```
+
+This used to default to `self` silently, and that default was the only way work could quietly stop
+being the user's - a session answering to a machine because an environment variable happened to be set,
+with nobody having chosen it. So choose deliberately: if you will not actually come back and read that
+session's answer, it is not yours, and `--standalone` is the honest declaration.
+
+A person spawning from the desktop, the Cockpit or the phone declares nothing. A session a person opens
+is the user's, and there is no second candidate to tell it apart from.
+
 
 `--machine <name>` starts the session on another COMPUTER; `--director <id-or-name>` starts it on ONE
 named Director. They answer different questions: a computer runs several named Director instances, so
@@ -135,7 +159,8 @@ At each phase boundary:
    (the Gateway routes it to whichever Director hosts the session over the tunnel), or have the user
    close its tab. A session reaps ITSELF with `cc-devthrottle session done`, which flags the current
    session (`CC_SESSION_ID`) for graceful removal without killing it mid-turn.
-3. Spawn a fresh Manager with a tight brief: `session spawn <repo> --name "<Mission> - Manager"`,
+3. Spawn a fresh Manager with a tight brief: `session spawn <repo> --name "<Mission> - Manager"
+   --standalone` - a Manager answers to the USER, which is the whole point of the seat,
    pointing it at the mission document, stating plainly what is DONE and only THIS phase's goal.
 
 This only works because the mission document and memory hold the state - keep them current so a reset

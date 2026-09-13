@@ -1045,15 +1045,67 @@ def spawn_session(
     director_target: Optional[str] = None,
 ) -> None:
     """Open a new session here, on another computer (--machine), or on one named Director (--director)."""
-    # Automatic roles: a SESSION-initiated spawn (CC_SESSION_ID present) DEFAULTS to a Worker controlled by
-    # the spawner, so it stays quiet and reports to its manager instead of nagging the human. The opt-out
-    # (guard 1) is --standalone / --controlled-by none: a deliberate human-facing PEER with no controller. A
-    # human/desktop spawn (no CC_SESSION_ID) is unaffected. An explicit --controlled-by <id> or 'self' wins.
-    # (The handover / move-session flow does NOT come through here - it uses POST /handover, which never sets
-    # a controller - so a moved session keeps its red visible to the human, guard 2 by construction.)
+    # WHO OWNS THE NEW SESSION MUST BE STATED, NOT INFERRED (owner's ruling, 2026-09-13): "I think it is
+    # clear if you have to state ownership intent when you start a session."
+    #
+    # Every session has exactly ONE owner, and it is either another SESSION or the USER. There is no third
+    # answer and there is no unowned session: no owner means the user. That is the whole model, and the
+    # attention rule downstream is nothing more than reading it - a session whose owner is a live session
+    # goes quiet and reports there; a session whose owner is the user goes red and asks him.
+    #
+    # THIS USED TO BE A SILENT DEFAULT, AND THAT IS WHAT CHANGED. The line was:
+    #
+    #     elif cc_session: controller_session_id = cc_session
+    #
+    # so a session that spawned without saying anything took ownership of what it spawned, because an
+    # environment variable happened to be set. Nobody chose it and nothing recorded that a choice had been
+    # made - and the consequence is the one that matters most, because it is the only way work leaves the
+    # user's queue. A person spawning and a schedule firing both land on him already; only an agent
+    # spawning an agent can quietly make work answer to a machine. So that is the case that must declare
+    # itself, and it is the only one.
+    #
+    # A HUMAN SPAWN DECLARES NOTHING, and that is not an exemption. There is nothing to state: a session a
+    # person opens from the desktop, the Cockpit or the phone is the user's, and asking him to say so would
+    # be ceremony rather than clarity. The requirement lands exactly where the ambiguity is.
+    #
+    # (The handover / move-session flow does NOT come through here - it uses POST /handover, which never
+    # sets a controller - so a moved session keeps its red visible to the user, by construction.)
     controller_session_id: Optional[str] = None
     cc_session = os.environ.get("CC_SESSION_ID")
     opt_out = standalone or (controlled_by is not None and controlled_by.strip().lower() == "none")
+
+    if cc_session and not opt_out and not controlled_by:
+        console.print(
+            "[red]Error:[/red] this spawn has to say who will OWN the new session."
+        )
+        console.print(
+            """
+You are spawning from inside a session, so there are two
+possible owners and no safe default between them. Say which:
+
+  --controlled-by self
+      YOU own it. It stays quiet on the roster and reports
+      back to you when it finishes.
+      Use this for work you will collect.
+
+  --standalone
+      The USER owns it. It goes red and asks HIM when it
+      finishes, and you will not hear from it.
+      Use this for work you are starting on his behalf.
+
+  --controlled-by <id>
+      Another session owns it.
+
+This used to default to 'self' silently. It no longer does:
+a session that answers to a machine rather than to the user
+is the user's decision, not a side effect of an environment
+variable being set.
+""",
+            markup=False,
+            highlight=False,
+        )
+        raise typer.Exit(1)
+
     if opt_out:
         controller_session_id = None
     elif controlled_by:
@@ -1067,8 +1119,6 @@ def spawn_session(
                 raise typer.Exit(1)
         else:
             controller_session_id = controlled_by
-    elif cc_session:
-        controller_session_id = cc_session
     # Issue #800: always name your session. On this fleet many sessions run in the same
     # checkout, so a session with neither a name nor a purpose still gets an auto-composed
     # name from the Director, but it reads better when you describe what it is FOR.
