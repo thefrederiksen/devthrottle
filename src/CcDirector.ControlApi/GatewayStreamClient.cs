@@ -192,7 +192,10 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         var previousTick = previousTicks == 0 ? (DateTime?)null : new DateTime(previousTicks, DateTimeKind.Utc);
         var lateness = TimerLateness.Of(_rePushInterval, previousTick, tickAt);
 
-        var sinceAccepted = _lastAcceptedSnapshotUtc is null
+        // Elapsed since the last FULL snapshot. Deliberately NOT called the Gateway's cache age: an
+        // accepted delta refreshes that cache too and is not counted here, so this is an upper bound,
+        // and TimerLateness.Describe reports it as one rather than drawing a verdict from it.
+        var sinceFullSnapshot = _lastAcceptedSnapshotUtc is null
             ? (TimeSpan?)null
             : tickAt - _lastAcceptedSnapshotUtc.Value;
 
@@ -200,7 +203,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
                 lateness,
                 _rePushInterval,
                 TimeSpan.FromSeconds(GatewayConfig.DefaultStreamStaleAfterSeconds),
-                sinceAccepted)
+                sinceFullSnapshot)
             is { } latenessLine)
         {
             FileLog.Write($"[GatewayStreamClient] re-push tick LATE: {latenessLine} {MemoryNow()}");
@@ -263,9 +266,17 @@ public sealed class GatewayStreamClient : IAsyncDisposable
     /// </summary>
     private long _lastRePushTickUtcTicks;
 
-    /// <summary>When the Gateway last ACCEPTED a snapshot - the moment its cache was last made fresh.
-    ///  This, not the tick cadence, is what the staleness cut is measured against, so a late tick can
-    ///  report how much of the window had already been spent when it finally ran.</summary>
+    /// <summary>
+    /// When the Gateway last accepted a FULL snapshot from this Director.
+    ///
+    /// THIS IS NOT THE GATEWAY'S FRESHNESS CLOCK, and the distinction cost a false alarm before it was
+    /// written down. <c>PushedSessionStore.ApplyDelta</c> and <c>ApplyRemove</c> stamp
+    /// <c>ReceivedAtUtc</c> exactly as <c>ApplySnapshot</c> does, so an accepted delta refreshes the
+    /// Gateway's cache without ever touching this field. It is stamped after <c>InvokeAsync</c> returns,
+    /// too, which is later than the Gateway's own stamp. Elapsed time measured from here is therefore
+    /// not a bound on that cache's age in either direction - it is simply time since this Director's
+    /// last full-snapshot acknowledgement, which is all <see cref="TimerLateness.Describe"/> claims.
+    /// </summary>
     private DateTime? _lastAcceptedSnapshotUtc;
 
     /// <summary>A re-push that takes longer than this is reported. The cadence is <c>_rePushInterval</c>, so

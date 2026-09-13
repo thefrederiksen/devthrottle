@@ -42,69 +42,65 @@ public class TimerLatenessTests
     }
 
     // -------------------------------------------------------------------------------------------
-    // Staleness is judged on the SNAPSHOT'S AGE, not on lateness
+    // The line reports facts and draws NO conclusion about refusal
     // -------------------------------------------------------------------------------------------
 
     [Fact]
-    public void CacheHadAgedOut_SnapshotOlderThanTheWindow_IsTrue()
+    public void Describe_NeverClaimsActionsWereRefused_BecauseThisSideCannotKnow()
     {
-        Assert.True(TimerLateness.CacheHadAgedOut(TimeSpan.FromSeconds(25), StalenessWindow));
-        Assert.True(TimerLateness.CacheHadAgedOut(StalenessWindow, StalenessWindow));
-    }
-
-    [Fact]
-    public void CacheHadAgedOut_SnapshotInsideTheWindow_IsFalse()
-    {
-        Assert.False(TimerLateness.CacheHadAgedOut(TimeSpan.FromSeconds(12), StalenessWindow));
-    }
-
-    [Fact]
-    public void CacheHadAgedOut_NoSnapshotEverAccepted_IsNull_NotFalse()
-    {
-        // An absence is not a clean bill of health. Reporting "fresh" here would assert something
-        // nothing has measured.
-        Assert.Null(TimerLateness.CacheHadAgedOut(null, StalenessWindow));
-    }
-
-    [Fact]
-    public void Describe_TwentyFiveSecondGap_SaysActionsWereRefused()
-    {
-        // THE CODE REVIEW'S COUNTEREXAMPLE, kept as a permanent guard.
+        // THE SECOND CODE-REVIEW CORRECTION, kept as a permanent guard.
         //
-        // A snapshot accepted at the previous callback, the next callback 25 seconds later, a 10 second
-        // cadence and a 20 second window. The old code subtracted the cadence to get a lateness of 15
-        // seconds, compared THAT with the 20 second window, and printed "no action was refused" - about
-        // a snapshot that was 25 seconds old and long stale. The Gateway measures the age of what it
-        // received; it knows nothing of our cadence.
-        var lateness = TimerLateness.Of(Cadence, At, At + TimeSpan.FromSeconds(25));
-        Assert.Equal(TimeSpan.FromSeconds(15), lateness);
-
-        var text = TimerLateness.Describe(lateness, Cadence, StalenessWindow, TimeSpan.FromSeconds(25));
-
-        Assert.NotNull(text);
-        Assert.Contains("REFUSED", text, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void Describe_LateButTheSnapshotIsStillFresh_DoesNotClaimAnythingWasRefused()
-    {
-        // A delta push can have refreshed the Gateway between ticks, so a late callback does not by
-        // itself mean anything was refused.
+        // An earlier version derived a categorical freshness verdict from the age of the last FULL
+        // snapshot. That is not the Gateway's freshness clock: PushedSessionStore.ApplyDelta and
+        // ApplyRemove stamp ReceivedAtUtc exactly as ApplySnapshot does. A full snapshot at t=0, a
+        // delta accepted at t=22 and a late tick at t=25 would have announced that actions were being
+        // refused about a cache three seconds old. The Director cannot see that clock, so it must not
+        // pretend to.
         var text = TimerLateness.Describe(
-            TimeSpan.FromSeconds(15), Cadence, StalenessWindow, TimeSpan.FromSeconds(3));
+            TimeSpan.FromSeconds(15), Cadence, StalenessWindow, TimeSpan.FromSeconds(25));
 
         Assert.NotNull(text);
-        Assert.DoesNotContain("REFUSED", text, StringComparison.Ordinal);
+        // The word "refused" DOES appear - inside the sentence that denies the inference - so the
+        // assertion is on the categorical CLAIM the old version made, not on the word.
+        Assert.DoesNotContain("WERE BEING REFUSED", text, StringComparison.Ordinal);
+        Assert.Contains("CANNOT be inferred", text, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Describe_NoSnapshotYet_SaysSoRatherThanGuessing()
+    public void Describe_DoesNotCallTheElapsedTimeABoundInEitherDirection()
+    {
+        // Calling it an upper bound was itself untrue, and that was the third correction here. This
+        // side stamps its clock AFTER the push is acknowledged - later than the Gateway's own stamp -
+        // so the figure understates that snapshot's age, while accepted deltas make it overstate the
+        // cache's age. Opposite signs, no bound.
+        var text = TimerLateness.Describe(
+            TimeSpan.FromSeconds(15), Cadence, StalenessWindow, TimeSpan.FromSeconds(25));
+
+        Assert.DoesNotContain("UPPER BOUND", text!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("NOT the Gateway's cache age in either direction", text!, StringComparison.Ordinal);
+        Assert.Contains("accepted deltas refresh that cache", text!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Describe_StillReportsBothMeasurements()
+    {
+        // Removing the verdict must not remove the evidence: the lateness and the elapsed time since
+        // the last full snapshot are both facts this side really does know.
+        var text = TimerLateness.Describe(
+            TimeSpan.FromSeconds(15), Cadence, StalenessWindow, TimeSpan.FromSeconds(25));
+
+        Assert.Contains("15.0s later", text!, StringComparison.Ordinal);
+        Assert.Contains("25.0s ago", text!, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Describe_NoFullSnapshotYet_SaysSoRatherThanGuessing()
     {
         var text = TimerLateness.Describe(TimeSpan.FromSeconds(15), Cadence, StalenessWindow, null);
 
         Assert.NotNull(text);
-        Assert.DoesNotContain("REFUSED", text, StringComparison.Ordinal);
-        Assert.Contains("cannot be said", text, StringComparison.Ordinal);
+        Assert.Contains("no full snapshot has been pushed yet", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("WERE BEING REFUSED", text, StringComparison.Ordinal);
     }
 
     [Fact]
