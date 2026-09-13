@@ -240,6 +240,41 @@ morning. It defaults to false, so a fold path that forgets to resolve the fleet 
 session to the owner. The failure mode is a session asking for him when somebody had it - never
 silence over a session nobody had.
 
+### Going quiet is only safe because the parent is TOLD
+
+A session with a live parent stays off the owner's queue. That is only correct if somebody
+actually learns it finished - otherwise "quiet" means "lost", which is the failure the whole
+rule was written to end rather than relocate.
+
+So the session reports itself, at the end of its turn, in its own words:
+
+```bash
+cc-devthrottle session report "<what I did, and anything they must decide>"
+```
+
+**It is the last step of the work, not a notification.** The parent asked for something; getting
+back to them is part of doing it. The roster does not do this and must not try: a colour is a
+state, and what a parent needs is a sentence.
+
+**It INTERRUPTS the parent, deliberately** (owner's ruling, 2026-09-13). Every fleet message lands
+mid-turn in the receiving agent, and that is the right cost: a parent that took ownership took on
+being interrupted when the work comes back. The alternative already existed and is exactly what
+failed - `NeedsManager` is a pull-only flag, so a supervisor learns nothing unless it thinks to
+look. A signal nobody is obliged to read is a signal that does not exist. The load is bounded by
+how many sessions a parent CHOSE to own, and since ownership must now be declared at spawn,
+owning five of them is a deliberate act rather than an accident of an environment variable.
+
+**With no live parent it sends nothing, and succeeds.** No parent means the user, and a session
+the user owns is already red and already in his queue the moment it stops - that red IS the
+report. Messaging him again through a channel he does not read would be noise.
+
+**It refuses rather than guess.** "Do I have a parent?" is answered from the fleet, so a roster
+that could not be read in full is not evidence of having none - it is not knowing. An
+absence-shaped check failing open here would turn every roster hiccup into "you are the user's",
+and a worker would silently stop reporting to a supervisor that was alive throughout. It reads
+`hasLiveSupervisor`, the same fact the roster folds its colour from, so the report and the dot can
+never disagree about who owns the session.
+
 ### The other half: ownership is DECLARED at spawn, never inferred
 
 The rule above reads an answer. This is where the answer comes from, and the two shipped together

@@ -470,6 +470,100 @@ def raise_hand(reason: Optional[str], target: Optional[str] = None, clear: bool 
     return resp if isinstance(resp, dict) else {}
 
 
+def report_to_parent(summary: Optional[str], target: Optional[str] = None) -> None:
+    """Tell the session that owns you what you did, now that your turn has ended.
+
+    THE LAST STEP OF DELEGATED WORK, NOT A NOTIFICATION. Your parent asked you to do something;
+    getting back to them is part of doing it. This is the session doing that itself, in its own
+    words - not the roster hoping somebody wanders past a grey row and wonders about it.
+
+    IT INTERRUPTS, DELIBERATELY (owner's ruling, 2026-09-13). Every fleet message lands mid-turn in
+    the receiving agent, and that is the right cost here: a parent that took ownership of a session
+    took on being interrupted when it comes back. The alternative already existed and is what failed
+    - the hand-raise registry is pull-only, so a supervisor learns nothing unless it thinks to look,
+    which is how a finished session sits quiet and finished with nobody ever told. A signal nobody is
+    obliged to read is a signal that does not exist. The load is bounded by how many sessions a
+    parent CHOSE to own, and since ownership must now be declared at spawn, owning five of them is a
+    deliberate act rather than an accident of an environment variable.
+
+    NO PARENT MEANS THE USER, AND THEN THERE IS NOTHING TO SEND. A session the user owns is already
+    red and already in his queue - that red IS the report, and messaging him a second time through a
+    channel he does not read would be noise. This prints what happened and exits successfully,
+    because having no parent is a correct answer to "who do I report to", not a failure.
+
+    IT REFUSES RATHER THAN GUESS. "Do I have a parent?" is answered from the fleet, so a roster this
+    process could not read in full is not evidence of having none - it is not knowing. An
+    absence-shaped check that fails open here would quietly convert every unreadable roster into
+    "you are the user's", and a worker would stop reporting to a supervisor that was alive the whole
+    time. So an incomplete roster, or a roster that does not contain this session, is an error.
+    """
+    sid = resolve_target_or_current(target)
+
+    text = (summary or "").strip()
+    if not text:
+        console.print(
+            "[red]Error:[/red] say what you did. A report with no words is a 'notice me' ping - "
+            "your parent would have to open you to find out what happened, which is the work this "
+            "is meant to save. One or two sentences: what you did, and anything they must decide."
+        )
+        raise typer.Exit(1)
+
+    sessions, complete, reason, _stale = _get_fleet()
+    if not complete:
+        console.print(
+            f"[red]Error:[/red] the fleet roster could not be read in full{(' - ' + reason) if reason else ''}.\n"
+            "Refusing to report, because a roster that is missing sessions cannot tell 'you have no "
+            "parent' apart from 'your parent is one of the rows I could not see'. Fix the roster read "
+            "and try again, or name the session yourself with cc-devthrottle message send."
+        )
+        raise typer.Exit(1)
+
+    me = None
+    for s in sessions:
+        if gateway.field(s, "sessionId", "SessionId") == sid:
+            me = s
+            break
+    if me is None:
+        console.print(
+            f"[red]Error:[/red] session {gateway.short_id(sid)} is not in the fleet roster, so who "
+            "owns it cannot be answered. Refusing to guess."
+        )
+        raise typer.Exit(1)
+
+    # The SAME fact the roster folds its colour from, read here so the report and the dot can never
+    # disagree about who owns this session.
+    #
+    # READ STRAIGHT OFF THE DICT, NOT THROUGH gateway.field. That helper returns a STRING always, and
+    # str(False) is "False", which is truthy - so every orphan would have tested as having a live
+    # parent and sent its report into a dead session's mailbox. Delivered, unread, lost, with the
+    # session believing it had handed its work back. The helper's own docstring says not to use it
+    # for booleans; this comment is here because it was used for one anyway.
+    has_parent = me.get("hasLiveSupervisor", me.get("HasLiveSupervisor", False)) is True
+    parent_id = gateway.field(me, "controllerSessionId", "ControllerSessionId")
+
+    if not has_parent or not parent_id:
+        console.print(
+            "[green]No parent - the USER owns you.[/green] Nothing was sent, and that is correct: "
+            "you are red on his roster and in his queue the moment your turn ends, so that red IS "
+            "your report. Leave your answer where he will read it - in this session."
+        )
+        return
+
+    try:
+        resp = gateway.post_json(f"sessions/{parent_id}/message", {"text": text})
+    except gateway.GatewayError as err:
+        console.print(f"[red]Error:[/red] {err}")
+        raise typer.Exit(1)
+
+    parent_name = None
+    for s in sessions:
+        if gateway.field(s, "sessionId", "SessionId") == parent_id:
+            parent_name = gateway.field(s, "name", "Name")
+            break
+    label = parent_name or gateway.short_id(parent_id)
+    _report_delivery(resp, f"{label} ({gateway.short_id(parent_id)})")
+
+
 def list_my_workers(target: Optional[str] = None) -> None:
     """Show the sessions THIS session is driving, and which of them have their hand up.
 
@@ -504,7 +598,13 @@ def list_my_workers(target: Optional[str] = None) -> None:
     table.add_column("HAND UP - WHAT THEY NEED")
     for x in mine:
         sid = str(gateway.field(x, "sessionId", "SessionId") or "")
-        raised = bool(gateway.field(x, "needsManager", "NeedsManager"))
+        # STRAIGHT OFF THE DICT. gateway.field returns a STRING always, and str(False) is "False",
+        # which is truthy - so `bool(gateway.field(...))` read EVERY worker as having its hand up.
+        # Measured on the live wire: needsManager arrives present and false, so this fired on every
+        # row. It has been invisible only because the reason is null when the hand is down, leaving
+        # an empty cell; a reason that ever outlived a lowered hand would have shown a worker asking
+        # for a supervisor it was not asking for. The helper's own docstring warns against this.
+        raised = x.get("needsManager", x.get("NeedsManager", False)) is True
         reason = str(gateway.field(x, "needsManagerReason", "NeedsManagerReason") or "")
         table.add_row(
             gateway.short_id(sid),

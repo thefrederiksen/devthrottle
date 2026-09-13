@@ -647,6 +647,7 @@ COMMANDS:
   session whoami   Show this session's own fleet identity.
   session rename   Rename a session, defaulting to the current session.
   session spawn    Open a new session - here, on another computer, or on one named Director.
+  session report   Tell the session that owns you what you did, at the end of your turn.
   director list    List every Director this account runs, with the id --director accepts.
   message send     Send a message to one session, or broadcast with all.
   message ask      Ask one session a question and print its answer.
