@@ -463,6 +463,54 @@ public sealed class TerminalSubmitComposerEvidenceTests : IDisposable
         Assert.True(probe.Reads >= 2, "the machine was read only once, before typing");
     }
 
+    [Fact]
+    public async Task PressureThatBeginsDuringTheEchoWait_AlsoWidensTheObservationWindow()
+    {
+        // THE SECOND REVIEW'S FINDING 1, kept as a permanent guard.
+        //
+        // The fix above was half applied and this test is what would have caught it. The DECISION to
+        // preserve the text used the fresh reading; the BUDGET for the extra watch did not - it came
+        // from the deadline computed before the first keystroke. So a machine that had room at send
+        // start and was Critical by the deadline correctly refused the Escape, correctly said it was
+        // nearly out of memory, and then watched for the HEALTHY machine's four seconds instead of the
+        // sixteen the same rationale asks for.
+        //
+        // Asserting the decision alone could not see that. This asserts the WINDOW: with no explicit
+        // timeout, a submit that transitions into Critical must spend materially longer watching than
+        // one that stays healthy.
+        static async Task<TimeSpan> TimeASilentSubmit(bool goesCritical)
+        {
+            var probe = new ShiftingProbe(MachineMemoryReading.Read(
+                16UL * 1024 * 1024 * 1024, 12UL * 1024 * 1024 * 1024, DateTime.UtcNow));
+            TerminalSubmit.MemoryProbe = probe;
+
+            var backend = new RecordingSessionBackend { Buffer = new CircularTerminalBuffer() };
+            backend.EchoScript.UseDefault(RecordingEchoStep.Withheld());
+            if (goesCritical)
+                backend.OnFirstWrite = () => probe.Now = MachineMemoryReading.Read(
+                    16UL * 1024 * 1024 * 1024, 300UL * 1024 * 1024, DateTime.UtcNow);
+
+            var started = DateTime.UtcNow;
+            // NO explicit echoTimeout - the whole point is that the deadline is chosen from the reading.
+            // A short poll keeps the wait responsive; the deadline itself is what is under test.
+            await Assert.ThrowsAsync<ComposerNotAcceptingInputException>(
+                () => TerminalSubmit.SharedSubmitAsync(
+                    backend, "x", "ClaudeDriver",
+                    pollInterval: ShortPoll, enterSettleDelay: ShortSettle, submitVerifyBeat: FastVerifyBeat));
+            return DateTime.UtcNow - started;
+        }
+
+        var healthy = await TimeASilentSubmit(goesCritical: false);
+        var transitioned = await TimeASilentSubmit(goesCritical: true);
+
+        // Healthy: two attempts at the four second base deadline. Transitioned: one attempt at four
+        // seconds, then an extra watch sized from Critical. If the budget were still taken from the
+        // pre-typing reading the two would be indistinguishable.
+        Assert.True(transitioned > healthy + TimeSpan.FromSeconds(3),
+            $"the extra watch was not widened for a machine that went Critical mid-wait: " +
+            $"healthy {healthy.TotalSeconds:F1}s vs transitioned {transitioned.TotalSeconds:F1}s");
+    }
+
     private sealed class ShiftingProbe(MachineMemoryReading first) : IMachineMemoryProbe
     {
         public MachineMemoryReading Now { get; set; } = first;

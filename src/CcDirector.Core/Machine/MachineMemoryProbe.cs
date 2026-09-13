@@ -206,7 +206,23 @@ public sealed class MachineMemoryProbe : IMachineMemoryProbe
 
         var count = (uint)HostVmInfo64Count;
         var stats = new uint[HostVmInfo64Count];
-        var result = host_statistics64(mach_host_self(), HostVmInfo64, stats, ref count);
+
+        // mach_host_self() hands back a SEND RIGHT, and the caller owns it. Not releasing it leaks one
+        // reference per call - and this probe is read on every re-push tick, every submit and every
+        // retained-composer resolution. At a one second cache that is tens of thousands of leaked
+        // rights per day of uptime, on the platform where it is hardest to notice and in a process
+        // designed to run for weeks. Released in a finally so an early return cannot skip it.
+        var host = mach_host_self();
+        int result;
+        try
+        {
+            result = host_statistics64(host, HostVmInfo64, stats, ref count);
+        }
+        finally
+        {
+            mach_port_deallocate(mach_task_self(), host);
+        }
+
         if (result != 0)
             return MachineMemoryReading.Unreadable($"host_statistics64 returned {result}", now);
 
@@ -254,6 +270,13 @@ public sealed class MachineMemoryProbe : IMachineMemoryProbe
 
     [DllImport("libc")]
     private static extern IntPtr mach_host_self();
+
+    [DllImport("libc")]
+    private static extern IntPtr mach_task_self();
+
+    /// <summary>Releases a send right obtained from <see cref="mach_host_self"/>. See ReadMacOs.</summary>
+    [DllImport("libc")]
+    private static extern int mach_port_deallocate(IntPtr task, IntPtr name);
 
     [DllImport("libc")]
     private static extern int host_statistics64(IntPtr hostPriv, int flavor, uint[] hostInfoOut, ref uint hostInfoOutCnt);

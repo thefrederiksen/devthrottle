@@ -70,7 +70,7 @@ public static class TerminalSubmit
     /// reference when needed, and otherwise echo-verify before pressing Enter.
     /// <paramref name="screenSnapshot"/>, when provided, returns the CURRENT rendered screen rows
     /// and is consulted as a second opinion whenever the byte-stream echo check misses (see
-    /// <see cref="ScreenShowsText"/>).
+    /// <see cref="ObserveComposerAsync"/>).
     /// <paramref name="submitVerifyBeat"/> overrides the post-Enter watchdog's beat length; tests pass
     /// a fast one so the suite does not wait out real-time beats.
     /// <paramref name="sessionId"/> attributes composer-echo misses to a session in
@@ -238,6 +238,11 @@ public static class TerminalSubmit
         var cursor = buffer.TotalBytesWritten;
         for (var attempt = 1; attempt <= 2; attempt++)
         {
+            // A FRESH READING PER ATTEMPT, so attempt two is not waiting to a deadline sized for the
+            // machine as it was before attempt one. The caller's explicit timeout still wins.
+            pressure = MemoryPressure.Level(MemoryProbe.Read());
+            to = echoTimeout ?? ScaledEchoTimeout(pressure);
+
             cursor = buffer.TotalBytesWritten;
             await WriteTextAsync(backend, text);
 
@@ -298,7 +303,17 @@ public static class TerminalSubmit
                 // WE CANNOT SEE, SO WE DO NOT CUT. Watch the byte stream for a further, finite budget
                 // without typing again and without clearing. This is the path a starved machine takes:
                 // the text IS in the composer and the repaint simply has not happened yet.
-                var extra = UnknownEvidenceBudget(to);
+                // SIZED FROM THE RE-READ VERDICT, NOT THE ONE TAKEN BEFORE TYPING (issue #2818).
+                //
+                // This was the half-applied half of the fix for "pressure that began during the wait".
+                // The DECISION to preserve the text correctly used the fresh reading, but the budget did
+                // not: it came from `to`, computed before the first keystroke. So in exactly the
+                // transition the re-read exists for - room at send start, Critical by the deadline - the
+                // Escape was correctly refused, the machine was correctly described as nearly out of
+                // memory, and the observation window was then the HEALTHY machine's four seconds instead
+                // of the sixteen the same rationale asks for. A quarter of the window, in the case the
+                // design calls the common one.
+                var extra = echoTimeout ?? UnknownEvidenceBudget(ScaledEchoTimeout(pressure));
                 FileLog.Write($"[{driverTag}] EchoVerifiedSubmit: composer echo not seen on attempt {attempt} " +
                               $"(len={text.Length}) and the rendered screen cannot say whether the text is there. " +
                               $"NOT clearing it. Watching for a further {extra.TotalSeconds:F0}s. " +
@@ -547,7 +562,7 @@ public static class TerminalSubmit
 
     /// <summary>
     /// LOOK AT THE COMPOSER AND SAY WHAT IS KNOWN - the three-valued replacement for the boolean
-    /// <see cref="ScreenShowsText"/> (issue #2818).
+    /// the old boolean screen check (issue #2818).
     ///
     /// Two samples, not one. A single negative reading is not proof of absence, because the rows can be
     /// captured mid-repaint: the existing code already records that disease for the byte stream and for
@@ -612,23 +627,7 @@ public static class TerminalSubmit
         return rows.All(string.IsNullOrWhiteSpace) ? null : rows;
     }
 
-    /// <summary>
-    /// Second-opinion echo check against the RENDERED screen instead of the raw byte stream. Wrapped
-    /// composer rows reconstruct into the original text when the rows are concatenated and normalized
-    /// (the wrap points, borders and padding all fall outside <see cref="NormalizeForEcho"/>'s
-    /// alphabet), so finding the needle here is proof the composer holds the typed text even when the
-    /// byte stream only ever carried it as interleaved fragments. Also accepts the visible-tail
-    /// needle for composers that truncate the display of long input.
-    /// </summary>
-    private static bool ScreenShowsText(Func<string[]>? screenSnapshot, string needle, string? visibleTailNeedle)
-    {
-        if (screenSnapshot is null || needle.Length == 0)
-            return false;
-
-        return ScreenRowsShowText(screenSnapshot(), needle, visibleTailNeedle);
-    }
-
-    /// <summary>The row-level half of <see cref="ScreenShowsText"/>, so a capture can be taken once and asked twice.</summary>
+    /// <summary>Does this captured screen show the text? Split out so one capture can be asked twice.</summary>
     private static bool ScreenRowsShowText(string[] rows, string needle, string? visibleTailNeedle)
     {
         if (needle.Length == 0) return false;
