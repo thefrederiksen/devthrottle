@@ -125,6 +125,49 @@ public sealed class DictationExitedSessionTests : IDisposable
         Assert.Equal(DictationDeliveryState.Delivered, _store.ReadRecord(uploadId)!.State);
     }
 
+    [Fact]
+    public async Task ExitedSession_IsRefusedBeforeTHE_ASSEMBLE_NotMerelyBeforeTheTranscribe()
+    {
+        // Zero provider calls proves the gate precedes the TRANSCRIBE. It does not prove the gate precedes
+        // the ASSEMBLE, and the difference is the whole point of asking reachability first: a clip whose
+        // chunks are not all up is answered "incomplete" by the assemble, and an incomplete answer is what
+        // sends the phone back to upload more of a recording that can never be delivered. So this case
+        // stages NO chunks at all and asks for one, which is exactly what the assemble would call
+        // incomplete - and it must still resolve.
+        var sid = Seat("Failed");
+        var uploadId = _store.Register(null);
+        _store.MarkPending(uploadId, sid);
+
+        var outcome = await RunAsync(uploadId, sid, new List<string>());
+
+        Assert.True(outcome.Terminal, "an exited session must be resolved before the assemble can answer 'incomplete'");
+        Assert.False(outcome.IsIncomplete, "an incomplete answer is what sends the phone back to upload more");
+        Assert.False(_store.IsPending(uploadId));
+        Assert.Equal(0, _handler.Calls);
+    }
+
+    [Fact]
+    public async Task ASessionThatExitsDURINGTheTranscribe_IsStillResolved()
+    {
+        // The reason the gate is asked a SECOND time at the delivery point. The session is live when the run
+        // starts, so the clip is transcribed; it exits while that is happening - which the test drives from
+        // inside the transcription handler, the one place that is genuinely mid-run - and the delivery-time
+        // gate must resolve it. Without that second gate the submit would be attempted, fail, and return a
+        // retryable 502 with the record still PENDING: the same unbounded loop in a smaller window.
+        var sid = Seat("Running");
+        var uploadId = await StagedClipAsync(sid);
+        _handler.WhileTranscribing = () => Reseat(sid, "Failed");
+        var prompts = new List<string>();
+
+        var outcome = await RunAsync(uploadId, sid, prompts);
+
+        Assert.Equal(1, _handler.Calls); // it WAS transcribed - the session was live when the cost gate ran
+        Assert.Empty(prompts);           // ...and nothing was pushed at a Director that had gone
+        Assert.True(outcome.Terminal);
+        Assert.False(_store.IsPending(uploadId));
+        Assert.Equal(GatewayDictationEndpoint.ExitedSessionReason, _store.ReadRecord(uploadId)!.Reason);
+    }
+
     [Theory]
     [InlineData("Exited", "Idle")]
     [InlineData("Failed", "WaitingForInput")]
@@ -194,7 +237,17 @@ public sealed class DictationExitedSessionTests : IDisposable
     {
         var sid = Guid.NewGuid().ToString();
         _pushed.RegisterConnection(TenantId.Local, DirectorId, "conn-1");
-        Assert.True(_pushed.ApplySnapshot(TenantId.Local, DirectorId, "conn-1", 1, new[]
+        Push(sid, status, activityState, sequence: 1);
+        return sid;
+    }
+
+    /// <summary>Push a NEW snapshot for a session already seated - what the owning Director does when the
+    /// session's state changes under a run that is already in flight.</summary>
+    private void Reseat(string sid, string status, string activityState = "WaitingForInput")
+        => Push(sid, status, activityState, sequence: 2);
+
+    private void Push(string sid, string status, string activityState, long sequence)
+        => Assert.True(_pushed.ApplySnapshot(TenantId.Local, DirectorId, "conn-1", sequence, new[]
         {
             new SessionDto
             {
@@ -207,8 +260,6 @@ public sealed class DictationExitedSessionTests : IDisposable
                 LastActivityAt = DateTime.UtcNow,
             },
         }));
-        return sid;
-    }
 
     /// <summary>A registered upload id with one real chunk on disk and a PENDING marker bound to the
     /// session - the state the phone leaves behind when it has finished uploading and is completing.</summary>
@@ -265,9 +316,15 @@ public sealed class DictationExitedSessionTests : IDisposable
 
         public int Calls => Volatile.Read(ref _calls);
 
+        /// <summary>Run while the transcribe is in flight. This is the one hook a test has INSIDE the run,
+        /// so it is how a session that exits mid-transcribe is driven - the second gate cannot be proven by
+        /// setting the state before the call, because that is the first gate's case.</summary>
+        public Action? WhileTranscribing { get; set; }
+
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             Interlocked.Increment(ref _calls);
+            WhileTranscribing?.Invoke();
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent("{\"text\":\"" + _text + "\"}", Encoding.UTF8, "application/json"),
