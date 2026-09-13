@@ -10,6 +10,7 @@ using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Discovery;
 using CcDirector.Gateway.Transcription;
 using CcDirector.Gateway.Voice;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests;
@@ -173,6 +174,14 @@ public sealed class DictationExitedSessionTests : IDisposable
         var record = _store.ReadRecord(uploadId)!;
         Assert.Equal(GatewayDictationEndpoint.ExitedSessionReason, record.Reason);
         Assert.Equal(SpokenWords, record.Transcript);
+
+        // ...and the words are in the ANSWER, not only on disk. The record is what a LATER re-complete
+        // returns; this is what THIS attempt hands back, and it is the one the phone renders, so a test that
+        // checked only the record would leave the screen the user actually looks at unproven.
+        var body = await BodyOfAsync(outcome);
+        Assert.False(body.GetProperty("submitted").GetBoolean());
+        Assert.True(body.GetProperty("movedOn").GetBoolean());
+        Assert.Equal(SpokenWords, body.GetProperty("transcript").GetString());
     }
 
     [Theory]
@@ -296,6 +305,22 @@ public sealed class DictationExitedSessionTests : IDisposable
                 return Task.FromResult<DirectorCommandResult?>(DirectorCommandResult.Success("{}"));
             },
             streamStale: TimeSpan.FromSeconds(20));
+
+    /// <summary>Render an outcome through its real HTTP result and read the JSON back, so an assertion about
+    /// "what the phone is told" is made against the bytes the phone would receive rather than against a field
+    /// the outcome happens to hold.</summary>
+    private static async Task<System.Text.Json.JsonElement> BodyOfAsync(DictationOutcome outcome)
+    {
+        var provider = new Microsoft.Extensions.DependencyInjection.ServiceCollection()
+            .AddLogging().AddOptions().BuildServiceProvider();
+        var ctx = new Microsoft.AspNetCore.Http.DefaultHttpContext { RequestServices = provider };
+        using var ms = new MemoryStream();
+        ctx.Response.Body = ms;
+        await outcome.ToResult().ExecuteAsync(ctx);
+        ms.Position = 0;
+        using var doc = await System.Text.Json.JsonDocument.ParseAsync(ms);
+        return doc.RootElement.Clone();
+    }
 
     /// <summary>The real transcription service, pointed at this test's counting handler and given a
     /// scratch archive, history and glossary so it touches nothing outside this test's own root. Every
