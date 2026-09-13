@@ -29,6 +29,7 @@ from .session_ops import (
     mark_done,
     prompt_session,
     raise_hand,
+    report_to_parent,
     read_session_buffer,
     rename_session,
     set_session_role,
@@ -1161,6 +1162,29 @@ def interrupt(
 ) -> None:
     """Stop what a session is currently doing."""
     interrupt_session(target)
+
+
+@session_app.command(name="report")
+def report(
+    summary: Optional[str] = typer.Argument(
+        None, help="What you did, in your own words. One or two sentences."
+    ),
+    target: Optional[str] = typer.Option(
+        None, "--target", help="Session to report for. Defaults to THIS session (CC_SESSION_ID)."
+    ),
+) -> None:
+    """Tell the session that owns you what you did, now that your turn has ended.
+
+    This is the last step of delegated work, not a courtesy. Your parent asked you to do something;
+    getting back to them is part of doing it - so you send it yourself, in your own words, the moment
+    your turn ends. It INTERRUPTS them, deliberately: a parent that took ownership of a session took
+    on being interrupted when that work comes back, and the alternative - a flag they have to
+    remember to look at - is how finished work sits quiet with nobody ever told.
+
+    If NO live parent owns you, the USER does, and nothing is sent: you are already red and in his
+    queue, so that red is your report. Leave your answer in this session where he will read it.
+    """
+    report_to_parent(summary, target)
 
 
 @session_app.command(name="raise")
