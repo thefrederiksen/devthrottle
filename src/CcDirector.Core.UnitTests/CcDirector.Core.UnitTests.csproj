@@ -64,6 +64,7 @@
     <Compile Include="..\CcDirector.Core.Tests\Account\TestJwt.cs" Link="Account/TestJwt.cs" />
     <Compile Include="..\CcDirector.Core.Tests\Drivers\EmptyTranscriptReader.cs" Link="Drivers/EmptyTranscriptReader.cs" />
     <Compile Include="..\CcDirector.Core.Tests\Drivers\RecordingSessionBackend.cs" Link="Drivers/RecordingSessionBackend.cs" />
+    <Compile Include="..\CcDirector.Core.Tests\Drivers\PinnedMachineMemory.cs" Link="Drivers/PinnedMachineMemory.cs" />
     <Compile Include="..\CcDirector.Core.Tests\Voice\Mocks\MockSpeechToText.cs" Link="Voice/Mocks/MockSpeechToText.cs" />
     <Compile Include="..\CcDirector.Core.Tests\Voice\Mocks\MockSummarizer.cs" Link="Voice/Mocks/MockSummarizer.cs" />
     <Compile Include="..\CcDirector.Core.Tests\Voice\Mocks\MockTextToSpeech.cs" Link="Voice/Mocks/MockTextToSpeech.cs" />

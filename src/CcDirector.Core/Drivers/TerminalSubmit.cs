@@ -504,10 +504,23 @@ public static class TerminalSubmit
     internal static readonly TimeSpan BaseEchoTimeout = TimeSpan.FromSeconds(4);
 
     /// <summary>
-    /// The memory probe every submit consults. Settable so a test can present a starved machine without
-    /// needing one; the Director never replaces it.
+    /// The memory probe every submit consults.
+    ///
+    /// PUBLIC BECAUSE EVERY TEST ASSEMBLY THAT DRIVES A SUBMIT MUST BE ABLE TO PIN IT, and that is a
+    /// cost this change introduced rather than a convenience. Reading the machine put ambient state on a
+    /// path used by every driver, so any test anywhere that reaches a submit now depends on how much
+    /// memory the build agent happens to have free. It was found the honest way: a suite in a DIFFERENT
+    /// assembly - CcDirector.HostedAgent.Tests - failed on a laptop that had drifted into Tight while
+    /// passing on the same code minutes earlier. Non-determinism is worse than a consistent failure,
+    /// because it is the kind of red that gets re-run rather than read.
+    ///
+    /// Making it internal would have left that assembly unable to protect itself: it has no
+    /// InternalsVisibleTo from Core and no direct reference to it. The precedent for a seam like this in
+    /// product code is <c>PromptDeliveryFailures.ResetForTests</c>.
+    ///
+    /// THE DIRECTOR NEVER SETS THIS. Only tests do, and they restore it - see PinnedMachineMemory.
     /// </summary>
-    internal static IMachineMemoryProbe MemoryProbe { get; set; } = MachineMemoryProbe.Shared;
+    public static IMachineMemoryProbe MemoryProbe { get; set; } = MachineMemoryProbe.Shared;
 
     /// <summary>
     /// The composer echo deadline for a measured pressure level. Exactly
