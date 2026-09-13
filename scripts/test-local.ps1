@@ -10,12 +10,14 @@
     WHAT THE DEFAULT RUNS: every suite that finishes inside the two-minute budget, PLUS the two installer
     test projects. They start together and the wall clock is the slowest of them, not the sum.
 
-    COUNTS, MEASURED 2026-08-03 FROM THE TRX FILES OF A COLD RUN - not estimated, and not copied forward:
-      Gateway.UnitTests 2777    Avalonia 348    Launcher 110    HostedAgent 88    Core.UnitTests 82
-      Engine 63                 Terminal 24
-      installer: setup.Tests 25, setup-engine.Tests 453
-    3492 in the default suites, 3970 including the installer. Re-measure before changing these numbers;
-    the per-project comments below were carried forward for months after they stopped being true.
+    COUNTS, MEASURED 2026-09-13 FROM THE TRX FILES OF A FULL RUN - not estimated, and not copied forward:
+      Avalonia 423    Launcher 191    HostedAgent 88    Core.UnitTests 278    Engine 63    Terminal 25
+      installer: setup.Tests 25, setup-engine.Tests 541
+    1068 in the default suites, 1634 including the installer.
+
+    Gateway.UnitTests (4,267) LEFT this list on 2026-09-13 - see the parked block below and issue #2824.
+    Re-measure before changing these numbers; the per-project comments below were carried forward for
+    months after they stopped being true.
 
     The installer projects live outside cc-director.sln and are built separately here. They are in the
     default run because they are fast and because the thing they cover - the first screen a new user
@@ -28,8 +30,9 @@
                                    own runtime but the QUEUE behind every other working tree on the
                                    machine. On 2026-08-02 it burned two waits of 45 minutes that executed
                                    ZERO tests, and aborted a third. Its pure tests were split out into
-                                   CcDirector.Gateway.UnitTests, which is in the default run; what is
-                                   parked here is the host-bound remainder.
+                                   CcDirector.Gateway.UnitTests, which was in the default run until
+                                   2026-09-13 and is now parked beside it (issue #2824); what is parked
+                                   here is the host-bound remainder.
       CcDirector.Core.Tests      - 11 minutes on a quiet machine and 33 with the fleet busy. Nothing is
                                    wrong with it; it is simply far outside the budget.
 
@@ -105,11 +108,12 @@ if ($Gateway -and $Parked) {
 # THE TWO-MINUTE BUDGET IS THE RULE THIS LIST ENCODES. A suite is in the default run if it finishes
 # inside it, and parked if it does not. DURATIONS ONLY - the test counts live once in the header, with
 # the date they were measured, because keeping them in two places is what let one drift by a factor of
-# thirty. Measured 2026-08-03 from a cold run:
-#   Gateway.UnitTests  56s   Avalonia  7s   HostedAgent  37s   Terminal 13s
-#   Launcher            4s   Engine    4s   Core.UnitTests <1s
-#   installer: setup.Tests 5s, setup-engine.Tests 8s (plus about 3s each to build)
-# They start together, so the default costs about the slowest one - Gateway.UnitTests.
+# thirty. Measured 2026-09-13 from a full run:
+#   Avalonia 32s   HostedAgent 40s   Terminal 33s   Launcher 20s   Engine 10s   Core.UnitTests 5s
+#   installer: setup.Tests 12s, setup-engine.Tests 13s (plus about 3s each to build)
+# They start together, so the default costs about the slowest one - now HostedAgent at about 40 seconds,
+# comfortably inside the budget. Gateway.UnitTests used to be that suite at 56 seconds; it grew to about
+# 180 and was parked (issue #2824), which is why the budget has room again.
 $defaultProjects = @(
     # The PARALLEL half of the Core tests. The project they came from runs sequentially
     # (DisableTestParallelization) and takes eleven minutes for the same kind of work - that attribute is
@@ -119,11 +123,6 @@ $defaultProjects = @(
     # noticed, because a count in a comment is checked by nothing. Do not restore a number here without
     # measuring it; the header carries the measured set and the date it was taken.
     "src\CcDirector.Core.UnitTests\CcDirector.Core.UnitTests.csproj",
-    # BACK IN THE DEFAULT RUN. It was parked for exceeding the ceiling at about 2 minutes quiet and 3 to 5
-    # busy; it now finishes in under a minute, because the cost turned out to be the migration set being
-    # rebuilt from scratch once per database-backed test. At about 56 seconds it is the slowest suite in
-    # the default run, and therefore the one that sets its wall clock. (Count: see the header.)
-    "src\CcDirector.Gateway.UnitTests\CcDirector.Gateway.UnitTests.csproj",
     "src\CcDirector.Avalonia.Tests\CcDirector.Avalonia.Tests.csproj",
     "src\CcDirector.Engine.Tests\CcDirector.Engine.Tests.csproj",
     "src\CcDirector.HostedAgent.Tests\CcDirector.HostedAgent.Tests.csproj",
@@ -155,7 +154,32 @@ $installerProjects = @(
 $gatewayProject = "src\CcDirector.Gateway.Tests\CcDirector.Gateway.Tests.csproj"
 $parkedProjects = @(
     $gatewayProject,
-    "src\CcDirector.Core.Tests\CcDirector.Core.Tests.csproj"
+    "src\CcDirector.Core.Tests\CcDirector.Core.Tests.csproj",
+    # PARKED AGAIN 2026-09-13 (issue #2824), having been brought back when the migration-template fix took
+    # it under a minute. It has since grown from 2,777 tests to 4,267 and from about 56 seconds to about
+    # 180, so the ceiling STOPPED it on every run - and a stopped suite writes no TRX, which is the part
+    # that mattered: its 4,259 passing tests were contributing NOTHING to the gate's verdict, and a change
+    # that broke every one of them would have produced the same output as a change that broke none. Every
+    # run also ended red for a reason that was not a failure, which is how people learn to stop reading red.
+    #
+    # Parking restores a verdict that means something and keeps the suite gating RELEASES via -Parked. It
+    # does not restore per-change coverage, and that is a real loss, recorded here rather than glossed.
+    #
+    # MEASURED before parking, from the TRX of a full run: 713 seconds of test time over 4,267 tests in 335
+    # classes, against MaxParallelThreads = 4 in AssemblyParallelism.cs - 713/4 = 178, which is the wall
+    # clock observed. The cost is concentrated: the ten slowest classes are 312 seconds (44 percent) from
+    # about 175 tests.
+    #
+    # WHAT WOULD BRING IT BACK, and why neither half is enough alone:
+    #   - Two classes are wall-clock bound and should be FIXED, not moved: WingmanVoiceServiceTests (22
+    #     sleeps, 62s) and StatsStoreReopensAfterAnUnreachableStoreTests (55s across FOUR tests, via
+    #     Thread.Sleep(Patience)). That recovers about 115 seconds - leaving roughly 150, still over.
+    #   - The next tier is slow for a different reason and has no cheap fix: MissionNoteStoreTests and
+    #     DictionarySuggestionServiceTests cost about 3 seconds per test with NO sleeps, and the harness
+    #     already caches the migrated schema, so this is not the database-setup cost that was fixed last
+    #     time. DictionarySuggestionServiceTests does not open a database at all.
+    # Both halves are needed, which is why this is parked today rather than half-fixed. See issue #2824.
+    "src\CcDirector.Gateway.UnitTests\CcDirector.Gateway.UnitTests.csproj"
 )
 
 # THE TWO-MINUTE BUDGET IS ENFORCED, NOT DOCUMENTED. A suite that exceeds it is KILLED and the run is
