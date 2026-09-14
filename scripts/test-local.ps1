@@ -240,6 +240,21 @@ $needsPostgres = @($toRun | Where-Object { $postgresProjects -contains $_ }).Cou
 
 # The label every rig this script creates carries, and the ONLY thing the stale sweep will act on.
 $RigLabel = 'cc-test-local-rig'
+# The owning process id, stamped on every rig this script starts. It is what lets a later run prove a
+# leftover container is nobody's, rather than guessing from its age.
+$RigOwnerLabel = 'cc-test-local-rig-owner'
+
+# The rig this run must destroy when it ends, whatever way it ends. Null until one is started; read only
+# by the finally block at the foot of this script.
+$script:RigToTearDown = $null
+
+function Stop-RigForThisRun {
+    if ($null -eq $script:RigToTearDown) { return }
+    $rig = $script:RigToTearDown
+    $script:RigToTearDown = $null
+    & powershell -NoProfile -File $rig.Script -Instance $rig.Instance -Port $rig.Port -Verb down 2>&1 |
+        Out-Null
+}
 
 function Get-FreeTcpPort {
     $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
@@ -250,29 +265,65 @@ function Get-FreeTcpPort {
 <#
     Remove rigs an EARLIER run left behind, and nothing else.
 
-    A run that is killed - Ctrl+C, a reboot, a stopped background task - never reaches its teardown, so
-    its container would otherwise survive forever holding a port. This is the backstop for that case, and
-    it leans hard toward keeping: it enumerates what to DELETE by a positive test and never what to skip.
-    A container qualifies only if it carries THIS script's own label AND was created more than six hours
-    ago. The longest suite in this repository measured 1 hour 3 minutes, so six hours cannot overlap a
-    live run; anything older is provably nobody's.
+    A run that never reaches its teardown - killed, Ctrl+C, a reboot - would otherwise leave its
+    container holding a port forever. This is the backstop for exactly that, and it leans hard toward
+    keeping: it enumerates what to DELETE by a positive test and never what to skip.
+
+    THE TEST IS "THE PROCESS THAT CREATED IT IS GONE", not an elapsed time. Every rig this script starts
+    is stamped with the owning process id, so a container whose owner is no longer running is provably
+    nobody's - which is true one second after a kill, where an age rule would have to wait out its window
+    holding a port. A process id can be REUSED by an unrelated process, and that error only ever points
+    one way: a recycled id reads as alive, so the container is KEPT. Nothing about reuse can make a live
+    rig look dead.
+
+    A container carrying no owner stamp - one written by an older version of this script - falls back to
+    an age rule, and six hours is chosen so it cannot overlap a live run: the longest suite in this
+    repository measured 1 hour 3 minutes. A container whose stamp and whose age are both unreadable is
+    kept, because an unreadable age is not evidence of being old.
 #>
 function Remove-AbandonedRigs {
-    # docker ps has no age filter - `until` belongs to `container prune` and is rejected here - so the
-    # age is read per container and compared in this script, where the rule can be stated exactly.
-    $rows = @(& docker ps -a --filter "label=$RigLabel" --format "{{.ID}}`t{{.CreatedAt}}" 2>&1)
+    # The whole label set is asked for as ONE field and parsed here, rather than reaching into a named
+    # label with a Go template: a template carrying quoted strings has to survive PowerShell's quoting and
+    # then Docker's own parser, and it did not - `failed to parse template: unterminated quoted string`.
+    # {{.Labels}} needs no quoting at all.
+    $rows = @(& docker ps -a --filter "label=$RigLabel" --format "{{.ID}}|{{.CreatedAt}}|{{.Labels}}" 2>&1)
     if ($LASTEXITCODE -ne 0) { return }
 
     $cutoff = (Get-Date).AddHours(-6)
     foreach ($row in $rows) {
-        $parts = $row -split "`t", 2
-        if ($parts.Count -ne 2) { continue }
-        # A row whose timestamp cannot be read is KEPT. An unreadable age is not evidence of being old.
-        $created = [datetime]::MinValue
-        if (-not [datetime]::TryParse($parts[1], [ref]$created)) { continue }
-        if ($created -ge $cutoff) { continue }
-        Write-Host "Removing abandoned test rig $($parts[0]) (created $($parts[1]), left by a killed run)."
-        & docker rm -f -v $parts[0] 2>&1 | Out-Null
+        $parts = "$row" -split '\|', 3
+        if ($parts.Count -lt 3) { continue }
+        $id = $parts[0]
+
+        # The owner stamp, picked out of the comma-separated label list this rig carries.
+        $ownerPid = ""
+        foreach ($label in ($parts[2] -split ',')) {
+            $kv = $label -split '=', 2
+            if ($kv.Count -eq 2 -and $kv[0].Trim() -eq $RigOwnerLabel) { $ownerPid = $kv[1].Trim() }
+        }
+
+        $disposable = $false
+        $because = ""
+        if ($ownerPid -match '^\d+$') {
+            # The owner is named. Disposable ONLY when that process is positively not running.
+            if ($null -eq (Get-Process -Id ([int]$ownerPid) -ErrorAction SilentlyContinue)) {
+                $disposable = $true
+                $because = "the run that created it (process $ownerPid) is gone"
+            }
+        }
+        else {
+            # No owner stamp: a rig from an older version of this script. Fall back to age, and keep
+            # anything whose age cannot be read - an unreadable age is not evidence of being old.
+            $created = [datetime]::MinValue
+            if ([datetime]::TryParse($parts[1], [ref]$created) -and $created -lt $cutoff) {
+                $disposable = $true
+                $because = "it carries no owner stamp and was created $($parts[1])"
+            }
+        }
+
+        if (-not $disposable) { continue }
+        Write-Host "Removing abandoned test rig $id - $because."
+        & docker rm -f -v $id 2>&1 | Out-Null
     }
 }
 
@@ -300,17 +351,20 @@ if ($needsPostgres) {
     $rigPort = Get-FreeTcpPort
     Write-Host "Starting a throwaway PostgreSQL for this run (instance $rigInstance, port $rigPort)..."
 
-    # Teardown is registered BEFORE the rig is created, so a failure inside provisioning is cleaned up
-    # too. PowerShell.Exiting fires on a normal end and on every `exit` in this script, which is why the
-    # rest of the script did not have to be wrapped in a try/finally to be safe. A KILLED process fires
-    # nothing at all - Remove-AbandonedRigs above is the answer to that case, not this one.
-    $teardown = [scriptblock]::Create(
-        "& powershell -NoProfile -File '$rigScript' -Instance '$rigInstance' -Port $rigPort -Verb down " +
-        "2>&1 | Out-Null")
-    Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action $teardown | Out-Null
+    # THE RIG NAME IS RECORDED BEFORE THE RIG EXISTS, so the finally block at the end of this script
+    # tears down a container that failed half way through provisioning as readily as a healthy one.
+    #
+    # IT IS A try/finally AND NOT AN EVENT, and the difference is the whole of a defect found in review.
+    # This first used Register-EngineEvent PowerShell.Exiting, on the strength of a check that ran the
+    # script as `powershell -File ...` - a FRESH engine, which exits when the script does, so the
+    # teardown fired and the check passed. The documented way to run this gate is `.\scripts	est-local.ps1`
+    # from a shell you already have open, and there the engine does NOT exit when the script does:
+    # reproduced, the container survived the run, and every further run stacked another subscriber and
+    # another container. A proof against the wrong invocation is not a proof.
+    $script:RigToTearDown = @{ Script = $rigScript; Instance = $rigInstance; Port = $rigPort }
 
-    & powershell -NoProfile -File $rigScript -Instance $rigInstance -Port $rigPort -Verb up -Label $RigLabel 2>&1 |
-        Out-Null
+    & powershell -NoProfile -File $rigScript -Instance $rigInstance -Port $rigPort -Verb up `
+        -Label $RigLabel -OwnerLabel "$RigOwnerLabel=$PID" 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) {
         Write-Host ""
         Write-Host "RESULT: CANNOT RUN - the throwaway PostgreSQL for this run could not be provisioned."
@@ -341,6 +395,15 @@ if ($needsPostgres) {
     Write-Host "PostgreSQL ready. It is destroyed when this run ends."
 }
 
+# EVERYTHING FROM HERE IS INSIDE A try/finally, SO THE THROWAWAY DATABASE IS DESTROYED WHATEVER HAPPENS.
+# PowerShell runs a finally block on a normal end, on a terminating error, AND on every `exit` in this
+# script, with the exit code preserved - all three verified. The body below is left at its original
+# indentation deliberately: re-indenting three hundred unchanged lines would bury the change that
+# matters in a whitespace diff. Read it with `git diff -w`.
+#
+# A process that is KILLED outright runs no finally block and never will. That case belongs to
+# Remove-AbandonedRigs at the start of the next run, which removes a rig whose owning process is gone.
+try {
 Write-Host "Building once, then running $($toRun.Count) test project(s)..."
 & dotnet build $sln -c $Configuration -v q --nologo
 if ($LASTEXITCODE -ne 0) {
@@ -627,3 +690,9 @@ foreach ($f in $failed) {
 Write-Host ""
 Write-Host "Logs kept in $logDir"
 exit 1
+}
+finally {
+    # The rig, if this run started one. Nothing else belongs in here: a finally that does real work can
+    # mask the failure that brought it here.
+    Stop-RigForThisRun
+}
