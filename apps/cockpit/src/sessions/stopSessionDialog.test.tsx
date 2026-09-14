@@ -3,17 +3,19 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import type { SessionDto } from "@devthrottle/client-core/api/client";
 
-// Rendered proof of the Cockpit's stop control (mission "Stop a session", Rulings 4 and 5).
+// Rendered proof of the Cockpit's stop control, after issue internal#1992 turned it from an interrogation
+// back into a confirmation.
 //
 // What is actually being held down here:
-//   * the dialog asks for the reason BEFORE it acts, and will not offer a click the Gateway could only
-//     refuse (empty, or whitespace only);
-//   * the answer is RENDERED FROM the Gateway's headline and details - the headlines below are sentences
-//     no client could have invented, so a view that composed its own words could not pass;
-//   * every verdict word renders the same way, including a fifth this client has never heard of;
-//   * the dialog does not close on success, and the page is told it may navigate away only once the
-//     answer has been dismissed;
-//   * a refusal shows the Gateway's own sentence and keeps the typed reason.
+//   * the NOTE IS OPTIONAL - the button is live from the moment the dialog opens, and a stop with an empty
+//     box still reaches the Gateway;
+//   * the audit row is never blank - an empty box sends the derived reason naming this surface, and a
+//     written note is sent as written and trimmed;
+//   * a SUCCESS IS SILENT - the dialog closes, nothing of the Gateway's answer is rendered under any
+//     verdict word including one this client has never heard of, and the page is told it may leave;
+//   * a FAILURE SPEAKS - the Gateway's own sentence, the dialog still open, the note still in the box, and
+//     the page NOT told to navigate away;
+//   * one stop is sent however many times Enter is pressed.
 //
 // Only the three Gateway calls are replaced; GatewayError and gatewayErrorMessage are the real ones, so
 // the refusal sentence is carried by the code that actually carries it in the product.
@@ -52,7 +54,7 @@ vi.mock("@devthrottle/client-core/errors/reportClientError", async () => {
 
 import { GatewayError } from "@devthrottle/client-core/api/client";
 import { SessionMenu } from "./SessionMenu";
-import { StopSessionProvider } from "./StopSessionProvider";
+import { StopSessionProvider, STOP_REASON_FROM_THE_COCKPIT, stopReasonToRecord } from "./StopSessionProvider";
 
 function session(): SessionDto {
   return {
@@ -68,12 +70,13 @@ function session(): SessionDto {
   } as unknown as SessionDto;
 }
 
-// A Gateway answer. The headline is deliberately a sentence no client would ever compose.
+// A Gateway answer. The headline is deliberately a sentence no client would ever compose - so a dialog
+// that rendered any of it would be caught by the assertions that it is NOT on screen.
 function answer(over: Record<string, unknown> = {}) {
   return {
     verdict: "stopped",
     headline: "stopped 9c41e7a2 - process 51884 ended, row removed",
-    details: [] as string[],
+    details: ["reason: spawned into the wrong mode"] as string[],
     sessionId: "9c41e7a2-0000-4000-8000-000000000000",
     shortId: "9c41e7a2",
     processId: 51884,
@@ -89,11 +92,11 @@ function answer(over: Record<string, unknown> = {}) {
   };
 }
 
-// The menu is always mounted inside the provider, because that is how it is mounted in the product:
-// the stop dialog belongs to StopSessionProvider (AppShell), not to this menu, so that removing the row
-// the menu sits in cannot take the outstanding request or the Gateway's answer with it (finding I4).
+// The menu is always mounted inside the provider, because that is how it is mounted in the product: the
+// stop dialog belongs to StopSessionProvider (AppShell), not to this menu, so that removing the row the
+// menu sits in cannot take the outstanding request with it (finding I4).
 // stopAnswerOutlivesTheRow.test.tsx is the test that drives that removal through the real parents; this
-// file is about what the dialog SAYS.
+// file is about what the dialog SAYS and what it SENDS.
 function renderMenu(onClosed?: () => void) {
   return render(
     <StopSessionProvider>
@@ -108,7 +111,7 @@ function openStopDialog() {
   fireEvent.click(screen.getByRole("menuitem", { name: "Stop session" }));
 }
 
-function reasonBox() {
+function noteBox() {
   return screen.getByPlaceholderText("Spawned into the wrong mode");
 }
 
@@ -124,7 +127,7 @@ afterEach(() => {
   cleanup();
 });
 
-describe("the Cockpit stop dialog asks for the reason before it acts", () => {
+describe("the Cockpit stop dialog asks one question and does not demand a reason", () => {
   it("offers Stop session, not Close session", () => {
     renderMenu();
     fireEvent.click(screen.getByLabelText("Session menu"));
@@ -132,96 +135,94 @@ describe("the Cockpit stop dialog asks for the reason before it acts", () => {
     expect(screen.queryByRole("menuitem", { name: "Close session" })).toBeNull();
   });
 
-  it("says a reason is required and what it is for", () => {
+  it("asks about THIS session by name, in one question", () => {
     renderMenu();
     openStopDialog();
-    expect(screen.getByText(/A reason is required/)).toBeTruthy();
-    expect(screen.getByText(/recorded with the stop/)).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Stop throwaway?" })).toBeTruthy();
   });
 
-  it("will not submit an EMPTY reason", () => {
+  // The defect, stated as an absence: the paragraph about the audit trail and the demand for a reason are
+  // both gone, and the note says it is optional.
+  it("says the note is optional and no longer lectures about the audit trail", () => {
     renderMenu();
     openStopDialog();
-    expect((stopButton() as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(stopButton());
-    expect(stopSessionMock).not.toHaveBeenCalled();
+    expect(screen.getByText("Note (optional)")).toBeTruthy();
+    expect(screen.queryByText(/A reason is required/)).toBeNull();
+    expect(screen.queryByText(/recorded with the stop/)).toBeNull();
+    expect(screen.queryByText(/Why are you stopping it/)).toBeNull();
   });
 
-  it("will not submit a WHITESPACE-ONLY reason", () => {
+  it("offers the control immediately, with nothing typed", () => {
     renderMenu();
     openStopDialog();
-    fireEvent.change(reasonBox(), { target: { value: "   \t  " } });
-    expect((stopButton() as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(stopButton());
-    expect(stopSessionMock).not.toHaveBeenCalled();
+    expect((stopButton() as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it("enables the control once there is a reason, and sends that reason", async () => {
+  // THE DECISIVE ONE. A test on the button's state alone would still pass if the click path refused a
+  // blank note.
+  it("SENDS the stop with an empty note, recording the reason that names this surface", async () => {
     stopSessionMock.mockResolvedValue(answer());
     renderMenu();
     openStopDialog();
-    fireEvent.change(reasonBox(), { target: { value: "spawned into the wrong mode" } });
-    expect((stopButton() as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(stopButton());
 
     await waitFor(() => expect(stopSessionMock).toHaveBeenCalledTimes(1));
     expect(stopSessionMock).toHaveBeenCalledWith(
       "9c41e7a2-0000-4000-8000-000000000000",
-      "spawned into the wrong mode",
+      STOP_REASON_FROM_THE_COCKPIT,
     );
   });
 
-  // Enter is the path the disabled button cannot cover: a disabled control never fires a click, so the
-  // "it sends nothing" rule on an empty box is only really exercised through the keyboard.
-  it("sends the stop when Enter is pressed with a reason in the box", async () => {
+  it("falls through to that same reason when the box holds only whitespace", async () => {
     stopSessionMock.mockResolvedValue(answer());
     renderMenu();
     openStopDialog();
-    fireEvent.change(reasonBox(), { target: { value: "spawned into the wrong mode" } });
-    fireEvent.keyDown(reasonBox(), { key: "Enter" });
+    fireEvent.change(noteBox(), { target: { value: "   \t  " } });
+    fireEvent.click(stopButton());
 
-    await waitFor(() => expect(stopSessionMock).toHaveBeenCalledWith(
-      "9c41e7a2-0000-4000-8000-000000000000",
-      "spawned into the wrong mode",
-    ));
+    await waitFor(() => expect(stopSessionMock).toHaveBeenCalledTimes(1));
+    expect(stopSessionMock.mock.calls[0][1]).toBe(STOP_REASON_FROM_THE_COCKPIT);
   });
 
-  it("sends nothing when Enter is pressed with an empty box", () => {
-    renderMenu();
-    openStopDialog();
-    fireEvent.keyDown(reasonBox(), { key: "Enter" });
-    expect(stopSessionMock).not.toHaveBeenCalled();
-  });
-
-  it("sends nothing when Enter is pressed with only whitespace", () => {
-    renderMenu();
-    openStopDialog();
-    fireEvent.change(reasonBox(), { target: { value: "   " } });
-    fireEvent.keyDown(reasonBox(), { key: "Enter" });
-    expect(stopSessionMock).not.toHaveBeenCalled();
-  });
-
-  it("trims the reason it sends, so leading and trailing space is not recorded as the reason", async () => {
+  it("sends a written note as written, and the derived reason does not overwrite it", async () => {
     stopSessionMock.mockResolvedValue(answer());
     renderMenu();
     openStopDialog();
-    fireEvent.change(reasonBox(), { target: { value: "  doing the wrong work  " } });
+    fireEvent.change(noteBox(), { target: { value: "  doing the wrong work  " } });
     fireEvent.click(stopButton());
 
     await waitFor(() => expect(stopSessionMock).toHaveBeenCalledTimes(1));
     expect(stopSessionMock.mock.calls[0][1]).toBe("doing the wrong work");
   });
+
+  it("decides the recorded reason the same way whatever calls it", () => {
+    expect(stopReasonToRecord("")).toBe(STOP_REASON_FROM_THE_COCKPIT);
+    expect(stopReasonToRecord("   ")).toBe(STOP_REASON_FROM_THE_COCKPIT);
+    expect(stopReasonToRecord("  it was wedged  ")).toBe("it was wedged");
+  });
+
+  it("sends the stop when Enter is pressed, note or no note", async () => {
+    stopSessionMock.mockResolvedValue(answer());
+    renderMenu();
+    openStopDialog();
+    fireEvent.keyDown(noteBox(), { key: "Enter" });
+
+    await waitFor(() => expect(stopSessionMock).toHaveBeenCalledWith(
+      "9c41e7a2-0000-4000-8000-000000000000",
+      STOP_REASON_FROM_THE_COCKPIT,
+    ));
+  });
 });
 
 describe("the Cockpit stop dialog sends ONE stop, however many times Enter is pressed", () => {
-  // Inspection finding I7. The Stop button disables while a request is outstanding, but the reason box
-  // stays live and Enter is not a button - a disabled attribute does not block a key press. Two presses
-  // sent two stops, and the two independently completing handlers could overwrite the first answer with
-  // the second's or clear busy while a request was still outstanding. The guard is on the ACTION.
+  // Inspection finding I7, and it survives the simplification. The Stop button disables while a request
+  // is outstanding, but the note box stays live and Enter is not a button - a disabled attribute does not
+  // block a key press. Two presses sent two stops and two rows in the audit trail for one intention. The
+  // guard is on the ACTION.
   //
-  // None of these tests AWAITS the second press. A test that does deadlocks under its own mutation -
-  // with the guard gone, the second call waits on the same outstanding answer the first is waiting on -
-  // and a test that hangs is a test that cannot go red. (Phase B recorded exactly that trap.)
+  // None of these tests AWAITS the second press. A test that does deadlocks under its own mutation - with
+  // the guard gone, the second call waits on the same outstanding answer the first is waiting on - and a
+  // test that hangs is a test that cannot go red.
   function pendingStop(): (value: unknown) => void {
     let release: (value: unknown) => void = () => {};
     stopSessionMock.mockReturnValue(new Promise((resolve) => { release = resolve; }));
@@ -232,20 +233,20 @@ describe("the Cockpit stop dialog sends ONE stop, however many times Enter is pr
     const release = pendingStop();
     renderMenu();
     openStopDialog();
-    fireEvent.change(reasonBox(), { target: { value: "spawned into the wrong mode" } });
-    fireEvent.keyDown(reasonBox(), { key: "Enter" });
+    fireEvent.change(noteBox(), { target: { value: "spawned into the wrong mode" } });
+    fireEvent.keyDown(noteBox(), { key: "Enter" });
     await waitFor(() => expect(stopSessionMock).toHaveBeenCalledTimes(1));
 
-    // The controls say Stopping... and the button is disabled - and the reason box is not.
+    // The controls say Stopping... and the button is disabled - and the note box is not.
     expect((screen.getByRole("button", { name: "Stopping..." }) as HTMLButtonElement).disabled).toBe(true);
-    expect((reasonBox() as HTMLInputElement).disabled).toBe(false);
+    expect((noteBox() as HTMLInputElement).disabled).toBe(false);
 
-    fireEvent.keyDown(reasonBox(), { key: "Enter" });
-    fireEvent.keyDown(reasonBox(), { key: "Enter" });
+    fireEvent.keyDown(noteBox(), { key: "Enter" });
+    fireEvent.keyDown(noteBox(), { key: "Enter" });
     expect(stopSessionMock).toHaveBeenCalledTimes(1);
 
     release(answer());
-    expect(await screen.findByText(answer().headline)).toBeTruthy();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(stopSessionMock).toHaveBeenCalledTimes(1);
   });
 
@@ -253,112 +254,78 @@ describe("the Cockpit stop dialog sends ONE stop, however many times Enter is pr
     const release = pendingStop();
     renderMenu();
     openStopDialog();
-    fireEvent.change(reasonBox(), { target: { value: "spawned into the wrong mode" } });
-    fireEvent.keyDown(reasonBox(), { key: "Enter" });
-    fireEvent.keyDown(reasonBox(), { key: "Enter" });
+    fireEvent.keyDown(noteBox(), { key: "Enter" });
+    fireEvent.keyDown(noteBox(), { key: "Enter" });
 
     expect(stopSessionMock).toHaveBeenCalledTimes(1);
     release(answer());
-    await screen.findByText(answer().headline);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
-  it("offers no way out of the dialog while the stop is outstanding, so the answer has somewhere to land", async () => {
+  it("offers no way out of the dialog while the stop is outstanding", async () => {
     const release = pendingStop();
     renderMenu();
     openStopDialog();
-    fireEvent.change(reasonBox(), { target: { value: "spawned into the wrong mode" } });
     fireEvent.click(stopButton());
     await waitFor(() => expect(stopSessionMock).toHaveBeenCalledTimes(1));
 
     expect((screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(true);
-    // The backdrop is the other way out, and it is refused too while a request is in flight.
+    // The backdrop is the other way out, and it is refused too while a request is in flight - a dialog
+    // that vanished mid-flight would leave a failure with nowhere to land.
     const overlay = document.querySelector(".session-dialog-overlay");
     if (overlay === null) throw new Error("the stop dialog rendered no overlay");
     fireEvent.mouseDown(overlay);
     fireEvent.click(overlay);
-    expect(screen.getByText(/A reason is required/)).toBeTruthy();
+    expect(screen.getByRole("dialog")).toBeTruthy();
 
     release(answer());
-    expect(await screen.findByText(answer().headline)).toBeTruthy();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 });
 
-describe("the Cockpit stop dialog renders the Gateway's answer, verbatim", () => {
+describe("a successful stop is silent", () => {
   async function stopWith(outcome: Record<string, unknown>, onClosed?: () => void) {
     stopSessionMock.mockResolvedValue(outcome);
     renderMenu(onClosed);
     openStopDialog();
-    fireEvent.change(reasonBox(), { target: { value: "spawned into the wrong mode" } });
     fireEvent.click(stopButton());
     await waitFor(() => expect(stopSessionMock).toHaveBeenCalled());
   }
 
-  it("shows a headline no client could have invented", async () => {
-    // If this view composed its own sentence, this string could not appear on screen.
+  it("closes the dialog and renders NOTHING of the Gateway's answer", async () => {
     const headline = "the Gateway wrote this exact sentence and the Cockpit did not";
-    await stopWith(answer({ headline }));
-    expect(await screen.findByText(headline)).toBeTruthy();
+    await stopWith(answer({ headline, details: ["and a detail line with it"] }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.queryByText(headline)).toBeNull();
+    expect(screen.queryByText("and a detail line with it")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Done" })).toBeNull();
   });
 
-  it("shows every detail line, in the order the Gateway sent them", async () => {
-    await stopWith(
-      answer({
-        details: [
-          "the worktree D:\\Repos\\scratch was left untouched - it has uncommitted changes in it",
-          "reason: spawned into the wrong mode",
-        ],
-      }),
-    );
-    const items = await screen.findAllByRole("listitem");
-    expect(items.map((li) => li.textContent)).toEqual([
-      "the worktree D:\\Repos\\scratch was left untouched - it has uncommitted changes in it",
-      "reason: spawned into the wrong mode",
-    ]);
-  });
-
-  // Four verdict words today, and a fifth that does not exist - the view must not know how many there are.
-  const verdicts = ["stopped", "alreadyStopped", "notOnFleet", "stoppedNotDescribed", "someVerdictInvented2027"];
-  for (const verdict of verdicts) {
-    it(`renders "${verdict}" through the same path, with no special case`, async () => {
-      const headline = `the Gateway's own words for ${verdict}`;
-      await stopWith(answer({ verdict, headline }));
-      expect(await screen.findByText(headline)).toBeTruthy();
-      // No failure styling and no error: every one of these is a success.
-      expect(document.querySelector(".session-dialog-error")).toBeNull();
-    });
-  }
-
-  it("keeps the dialog open on success and tells the page nothing until it is dismissed", async () => {
+  it("tells the page it may navigate away", async () => {
     const onClosed = vi.fn();
     await stopWith(answer(), onClosed);
-
-    // The answer is on screen and the page has NOT been told to navigate away - this is the whole defect.
-    expect(await screen.findByText(answer().headline)).toBeTruthy();
-    expect(onClosed).not.toHaveBeenCalled();
-
-    fireEvent.click(screen.getByRole("button", { name: "Done" }));
-    await waitFor(() => expect(onClosed).toHaveBeenCalledTimes(1));
-    expect(screen.queryByText(answer().headline)).toBeNull();
-  });
-
-  it("treats not-on-this-fleet as the success it is - the answer, no error, and the page still leaves", async () => {
-    const onClosed = vi.fn();
-    const headline =
-      "not on this fleet - nothing in this account carries the id 9c41e7a2, so no machine was asked "
-      + "and no machine's processes were searched";
-    await stopWith(answer({ verdict: "notOnFleet", headline, processId: null, processEnded: false }), onClosed);
-
-    expect(await screen.findByText(headline)).toBeTruthy();
-    expect(document.querySelector(".session-dialog-error")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Done" }));
     await waitFor(() => expect(onClosed).toHaveBeenCalledTimes(1));
   });
+
+  // Four verdict words today, and a fifth that does not exist - the view must not know how many there
+  // are, and must not treat any of them differently (CLAUDE.md rule 7).
+  const verdicts = ["stopped", "alreadyStopped", "notOnFleet", "stoppedNotDescribed", "someVerdictInvented2027"];
+  for (const verdict of verdicts) {
+    it(`treats "${verdict}" exactly like every other verdict`, async () => {
+      const onClosed = vi.fn();
+      await stopWith(answer({ verdict, headline: `the Gateway's own words for ${verdict}` }), onClosed);
+
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      expect(screen.queryByText(`the Gateway's own words for ${verdict}`)).toBeNull();
+      expect(document.querySelector(".session-dialog-error")).toBeNull();
+      expect(onClosed).toHaveBeenCalledTimes(1);
+    });
+  }
 });
 
-describe("the Cockpit stop dialog shows a failure and keeps what was typed", () => {
+describe("only a failure speaks", () => {
   it("shows the Gateway's own refusal sentence for a stop it would not carry", async () => {
-    // A 400 the Gateway would only send if the reason were blank; forced here so the dialog's failure
-    // path is exercised with the real sentence rather than a status number.
     const refusal =
       "A stop needs a reason. Say why this session is being stopped - it is recorded with the stop, and "
       + "it is how anyone reading the trail later knows what happened.";
@@ -366,13 +333,12 @@ describe("the Cockpit stop dialog shows a failure and keeps what was typed", () 
 
     renderMenu();
     openStopDialog();
-    fireEvent.change(reasonBox(), { target: { value: "a reason" } });
     fireEvent.click(stopButton());
 
     expect(await screen.findByText(refusal)).toBeTruthy();
   });
 
-  it("keeps the dialog open and the reason in the box after an ordinary failure", async () => {
+  it("keeps the dialog open and the note in the box after an ordinary failure", async () => {
     const onClosed = vi.fn();
     stopSessionMock.mockRejectedValue(
       new GatewayError(502, "the Director on SORENLAPTOP could not be reached", {
@@ -383,18 +349,40 @@ describe("the Cockpit stop dialog shows a failure and keeps what was typed", () 
 
     renderMenu(onClosed);
     openStopDialog();
-    fireEvent.change(reasonBox(), { target: { value: "doing the wrong work" } });
+    fireEvent.change(noteBox(), { target: { value: "doing the wrong work" } });
     fireEvent.click(stopButton());
 
     expect(await screen.findByText(/could not be reached/)).toBeTruthy();
-    // The reason survives, so a retry does not start by making the user write their sentence again.
-    expect((reasonBox() as HTMLInputElement).value).toBe("doing the wrong work");
-    // And the page is not told the session ended, because it did not.
+    // The note survives, so a retry does not start by making the user write their sentence again.
+    expect((noteBox() as HTMLInputElement).value).toBe("doing the wrong work");
+    // And the page is NOT told the session ended, because it did not - it may well still be running.
     expect(onClosed).not.toHaveBeenCalled();
 
     stopSessionMock.mockResolvedValue(answer());
     fireEvent.click(stopButton());
     await waitFor(() => expect(stopSessionMock).toHaveBeenCalledTimes(2));
     expect(stopSessionMock.mock.calls[1][1]).toBe("doing the wrong work");
+    await waitFor(() => expect(onClosed).toHaveBeenCalledTimes(1));
+  });
+
+  it("clears a stale failure when the stop is retried", async () => {
+    stopSessionMock.mockRejectedValueOnce(
+      new GatewayError(502, "the Director on SORENLAPTOP could not be reached", {
+        reason: "the Director on SORENLAPTOP could not be reached",
+      }),
+    );
+    let release: (value: unknown) => void = () => {};
+    stopSessionMock.mockReturnValueOnce(new Promise((resolve) => { release = resolve; }));
+
+    renderMenu();
+    openStopDialog();
+    fireEvent.click(stopButton());
+    expect(await screen.findByText(/could not be reached/)).toBeTruthy();
+
+    fireEvent.click(stopButton());
+    // A window showing an old error beside an outstanding request describes two states at once.
+    await waitFor(() => expect(screen.queryByText(/could not be reached/)).toBeNull());
+    release(answer());
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 });
