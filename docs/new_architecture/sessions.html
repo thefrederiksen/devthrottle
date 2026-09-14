@@ -311,24 +311,93 @@ alive and working throughout. The red is what <span class="file">--standalone</s
 Anyone reading only the parent edge would call this a bug and "fix" it by making lineage decide
 attention, which is the exact regression this document exists to prevent.</p>
 
-<h3 id="ownership-rest-gap">OPEN: the declaration is enforced in the command line, not in the service</h3>
+<h3 id="ownership-rest-gap">The declaration is enforced by the SERVICE, not just the command line</h3>
+
+<div class="callout ok">
+  <p><strong>CLOSED 14 September 2026 (issue #2838).</strong> Until then the refusal lived only in
+  <span class="file">tools/cc-devthrottle/src/session_ops.py</span>. It was a convention the command line
+  chose to follow, and any other caller got an unowned session that then went red at the owner.</p>
+  <p style="margin-bottom:0">It now lives in <span class="file">SpawnOrigin.TryEstablish</span>, called by
+  <strong>both</strong> spawn doors. The Director door -
+  <span class="file">POST /directors/{id}/sessions</span>, which is what an unqualified
+  <span class="file">cc-devthrottle session spawn</span> uses - previously stamped nothing at all and
+  forwarded the body verbatim, so the untrusted path was the common one.</p>
+</div>
+
+<h3>Who is asking is established from the CREDENTIAL, never from the body</h3>
+
+<p>This is the part that makes the rule real rather than decorative. A gate that reads
+<span class="file">req.Origin</span> out of the request can be walked past by a caller that writes
+<code>"human"</code> in it. The authentication gate has already resolved who the caller is, and it says so
+itself:</p>
+
+<blockquote style="border-left:3px solid var(--line); margin:14px 0; padding:2px 0 2px 16px; color:var(--mute)">
+Anything downstream that needs to know which session is calling must read the identity this gate
+resolved, never re-read the raw request and reach its own conclusion. <strong>Two parsers of one request
+eventually disagree, and the gap between them is a session id the caller can choose.</strong>
+</blockquote>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>Caller</th><th>Origin</th><th>Parent</th><th>Ownership</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>A person's device<br><span class="file">phone, browser</span></td>
+      <td>stamped <code>human</code> from the verified device key</td>
+      <td class="bad">forced null</td>
+      <td>the USER. <strong>Never asked</strong></td>
+    </tr>
+    <tr>
+      <td>A session<br><span class="file">its own session key</span></td>
+      <td>stamped <code>agent</code> &mdash; it cannot claim otherwise</td>
+      <td><strong>the calling session's own id</strong>, from the verified identity</td>
+      <td class="good">REQUIRED, or the spawn is refused</td>
+    </tr>
+    <tr>
+      <td>A schedule</td>
+      <td>as stated</td>
+      <td>none &mdash; nobody was at a keyboard</td>
+      <td>the USER. Never asked</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p><span class="file">ControllerSessionId</span> now has exactly two legal forms for an agent-initiated
+spawn: <strong>a session id</strong>, or <strong>the literal <code>"none"</code></strong> meaning the user
+owns it. Absent is a refusal. <strong>That schema change is the heart of it</strong> - null used to mean
+both "the user's" and "nobody said", and a gate cannot tell those apart. It is the same defect as the hold
+boolean in section 6: three states squeezed into a field that can express two, and the third silently
+lost.</p>
+
+<p>A malformed id is <strong>refused, naming the value</strong>, at the Gateway and again on the Director.
+It used to fall through to null, so a caller that declared ownership and mistyped the id received an
+unowned session and <em>no error at all</em> - the dead <span class="file">--type</span> flag again, sent
+in good faith and discarded in silence.</p>
 
 <div class="callout warn">
-  <p><strong>Stated as a gap rather than left to be discovered.</strong> The refusal above lives in
-  <span class="file">tools/cc-devthrottle/src/session_ops.py</span>. It is client-side. The service
-  does not require it.</p>
-  <p><span class="file">NewSessionRequest.ControllerSessionId</span> is optional, and
-  <span class="file">SessionCommandExecutor.Create</span> validates the origin token, the origin
-  surface, the parent id's format, the role, the mission and the workflow seat - and never asks
-  whether an agent-originated create declared an owner.</p>
-  <p style="margin-bottom:0">So a caller that posts to the REST API directly, an older command line,
-  or any other client can create a session-started session with no owner, and nothing refuses it. The
-  rule is one the command-line tool chooses to follow, not one the product enforces. <strong>Closing
-  this means the same refusal in <span class="file">SessionCommandExecutor.Create</span>: an
-  <span class="file">Origin</span> of "agent" must carry either a
-  <span class="file">ControllerSessionId</span> or an explicit statement that the user owns it.</strong>
-  Until that lands, do not describe ownership as enforced.</p>
+  <p style="margin-bottom:0"><strong>Where the enforcement ends, said plainly.</strong> Only the
+  session-key arm refuses, because only there can the origin be ESTABLISHED. A spawn relayed by a Director
+  carries that Director's own key - it enrols as <code>workstation</code> - and its body was written by a
+  command line already gated before it got there. Refusing on a <em>stated</em> origin would break
+  cross-machine spawning in order to close a door that needs a credential the product issues only to its
+  own components. Enforcement goes exactly as far as identification does and no further; the
+  <span class="file">THE_BOUNDARY</span> test says so, and is the one that should change first if that ever
+  stops being true.</p>
 </div>
+
+<h3>Handing work to the user is a deliberate act, so it states a reason</h3>
+
+<p><span class="file">--standalone</span> and <span class="file">--controlled-by self</span> cost the same
+to type. Measured on 14 September: three of thirteen agent-started sessions had chosen
+<span class="file">--standalone</span>, and two of those were sitting red at the owner. So from inside a
+session it now requires <span class="file">--why</span>.</p>
+
+<p>It does not forbid the choice - there are real cases, and section 2 names them. It makes an agent that
+cannot say why the work is the owner's collect it itself. <strong>The reason is not yet carried on the
+wire</strong>, and that is a real limit rather than an oversight: there is no field for it on the create,
+so it is printed with the result and lands in the spawning session's own transcript. A field on the session
+is the right home and is not built.</p>
 
 <h2>3. Who is asked when a turn ends</h2>
 

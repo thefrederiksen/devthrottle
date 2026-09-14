@@ -3762,6 +3762,14 @@ internal static class GatewayEndpoints
                 return Results.Json(new { error = "no tenant is bound to this request" },
                     statusCode: StatusCodes.Status403Forbidden);
             var spawnRoute = $"POST /directors/{id}/sessions";
+
+            // WHO IS ASKING, and WHO WILL OWN THE RESULT (issue #2838). This door previously forwarded the
+            // body VERBATIM - no origin stamping of any kind - while the machine door stamped a person's
+            // device. It is also the door an unqualified `cc-devthrottle session spawn` uses, so the
+            // untrusted path was the common one.
+            if (!SpawnOrigin.TryEstablish(req, ctx, spawnRoute, out var originError))
+                return originError!;
+
             if (!SpawnMissionAndSeat.TryResolve(req, spawnTenant.Value, missions, workflowRuns, spawnRoute,
                     out var seatRun, out var resolveError))
                 return resolveError!;

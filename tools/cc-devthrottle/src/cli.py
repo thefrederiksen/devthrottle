@@ -1451,6 +1451,13 @@ def spawn(
         "answers to the USER. A person spawning from the desktop or the Cockpit needs none of this: a "
         "session a person opens is the user's.",
     ),
+    why: Optional[str] = typer.Option(
+        None,
+        "--why",
+        help="REQUIRED with --standalone from inside a session: why this work is the USER's rather than "
+        "yours. It is printed with the result, so the reason sits in your own transcript beside the "
+        "session it explains.",
+    ),
     standalone: bool = typer.Option(
         False,
         "--standalone",
@@ -1502,7 +1509,7 @@ def spawn(
 ) -> None:
     """Open a new session - here, on another computer with --machine, or on one Director with --director."""
     spawn_session(
-        repo, agent, prompt, name, purpose, command, command_args, controlled_by, args, standalone, role,
+        repo, agent, prompt, name, purpose, command, command_args, controlled_by, args, standalone, why, role,
         machine, mission, workflow_run, director,
     )
 
