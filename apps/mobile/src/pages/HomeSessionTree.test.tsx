@@ -126,4 +126,45 @@ describe("the phone roster is the ownership tree", () => {
     ]);
     expect(localStorage.getItem("dt.mobile.rosterOrder")).toBe("my-order");
   });
+
+  it("keeps a Manager's Workers reachable, stepped in one level, and counts them on the Architect", async () => {
+    const manager = session({ sessionId: "M", number: 200, name: "Rule Factory - Manager", sortOrder: 6, controllerSessionId: "108" });
+    const deep = session({ sessionId: "D", number: 201, name: "Rule Factory - Worker - deep", sortOrder: 7, controllerSessionId: "M" });
+    await renderHome([architect, manager, deep, worker]);
+
+    const band = screen.getByRole("button", { name: /Expand the 3 sessions under Rule Factory - Architect/ });
+    expect(band.textContent).toContain("3 under it: 3 working, 0 stopped, 0 need you");
+    fireEvent.click(band);
+    const kids = screen.getByRole("list", { name: "Sessions under Rule Factory - Architect" });
+    const links = within(kids).getAllByRole("link");
+    expect(links.map((a) => a.textContent)).toEqual([
+      "106Rule Factory - Worker - guardWorking",
+      "200Rule Factory - ManagerWorking",
+      "201Rule Factory - Worker - deepWorking",
+    ]);
+    // The deep Worker is stepped in one level further than the Manager.
+    expect((links[1] as HTMLElement).style.paddingLeft).toBe("30px");
+    expect((links[2] as HTMLElement).style.paddingLeft).toBe("46px");
+  });
+
+  it("nests a Worker on another machine under its Architect and names that machine on its row", async () => {
+    const remote = session({ sessionId: "R", number: 300, name: "Rule Factory - Worker - remote", sortOrder: 0, controllerSessionId: "108", directorId: "director-two", machineName: "SORENLAPTOP" });
+    await renderHome([alone, architect, remote]);
+    fireEvent.click(screen.getByRole("button", { name: "My order" }));
+
+    // Only SOREN_NORTH has a top-level row; the remote Worker is under 108, not a card of its own.
+    expect(screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)).toEqual(["SOREN_NORTH"]);
+    fireEvent.click(screen.getByRole("button", { name: /Expand the 1 sessions under Rule Factory - Architect/ }));
+    const kids = screen.getByRole("list", { name: "Sessions under Rule Factory - Architect" });
+    expect(within(kids).getByText("SORENLAPTOP")).toBeTruthy();
+  });
+
+  it("renders both members of an ownership loop as cards", async () => {
+    const a = session({ sessionId: "a", number: 1, name: "Rule Factory - Architect loop a", sortOrder: 0, controllerSessionId: "b" });
+    const b = session({ sessionId: "b", number: 2, name: "loop b", sortOrder: 1, controllerSessionId: "a" });
+    await renderHome([alone, a, b]);
+    // Both loop members are working roots, so they take their desktop order (0, 1) ahead of the wingman (12).
+    expect(cardNames()).toEqual(["Rule Factory - Architect loop a", "loop b", "devthrottle_internal - wingman"]);
+    expect(screen.queryByRole("button", { name: /Expand/ })).toBeNull();
+  });
 });

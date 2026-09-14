@@ -5109,3 +5109,10 @@ a.banner-btn {
   color: var(--text-dim);
   white-space: nowrap;
 }
+.crew-kid-machine {
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #9cc2ff;
+  white-space: nowrap;
+}

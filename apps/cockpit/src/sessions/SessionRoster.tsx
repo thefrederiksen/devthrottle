@@ -18,7 +18,9 @@ import {
   crewAge,
   crewSummary,
   crewSummaryLine,
+  descendantsOf,
   isCrewExpanded,
+  isOnAnotherMachine,
   setCrewExpanded,
   type SessionTree,
 } from "@devthrottle/client-core/sessions/tree";
@@ -60,9 +62,11 @@ import { RestartRequestsPanel } from "@devthrottle/client-core/restart/RestartRe
 // THE LIST IS ALWAYS THE OWNERSHIP TREE (owner ruling, 2026-09-14). A session that started another
 // session is a parent, and the sessions it started sit under it, collapsed by default, in BOTH views.
 // The order applies to the top level only: children keep their own order under their parent, because a
-// child with a live supervisor never goes red (#2826) and so has nothing for attention to reorder. A
-// crew is always on one Director, so in "My order" it sits inside its machine's group. The tree and the
-// crew summary live in client-core/sessions/tree, shared with the phone.
+// child with a live supervisor never goes red (#2826) and so has nothing for attention to reorder. The
+// tree is built over the WHOLE roster in both views (a parent may supervise a session on another
+// machine): "My order" groups the tree's ROOTS by Director, a child nests under its parent wherever the
+// parent lives, and a child on another machine carries its machine line. The tree and the crew summary
+// live in client-core/sessions/tree, shared with the phone.
 
 export type RosterView = "my-order" | "attention";
 
@@ -139,24 +143,7 @@ export function SessionRoster({ sessions, directors, portByDirector, selectedId,
       )}
 
       {sessions !== null && total > 0 && view === "my-order" && (
-        <>
-          {groupByDirector(sessions, portByDirector).map((group) => (
-            <div className="roster-group" key={group.directorId || "(no-director)"}>
-              <div className="roster-group-head">
-                <span className="roster-group-name">
-                  {machinePortLabel(group.machineName, group.port) || "(unknown director)"}
-                </span>
-              </div>
-              <TreeList
-                tree={buildSessionTree(group.sessions)}
-                directors={directors}
-                portByDirector={portByDirector}
-                showMachine={false}
-                selectedId={selectedId}
-              />
-            </div>
-          ))}
-        </>
+        <MyOrderGroups sessions={sessions} directors={directors} portByDirector={portByDirector} selectedId={selectedId} />
       )}
 
       {sessions !== null && total > 0 && view === "attention" && (
@@ -168,6 +155,42 @@ export function SessionRoster({ sessions, directors, portByDirector, selectedId,
         />
       )}
     </div>
+  );
+}
+
+// "My order": ONE tree over the whole roster, and its ROOTS grouped by their owning Director under a
+// "computer:port" header. A child sits under its parent whichever Director it is on.
+function MyOrderGroups({
+  sessions,
+  directors,
+  portByDirector,
+  selectedId,
+}: {
+  sessions: SessionDto[];
+  directors: DirectorReachability[];
+  portByDirector: Map<string, string>;
+  selectedId: string | undefined;
+}) {
+  const tree = buildSessionTree(sessions);
+  return (
+    <>
+          {groupByDirector(tree.roots, portByDirector).map((group) => (
+            <div className="roster-group" key={group.directorId || "(no-director)"}>
+              <div className="roster-group-head">
+                <span className="roster-group-name">
+                  {machinePortLabel(group.machineName, group.port) || "(unknown director)"}
+                </span>
+              </div>
+              <TreeList
+                tree={{ roots: group.sessions, childrenOf: tree.childrenOf }}
+                directors={directors}
+                portByDirector={portByDirector}
+                showMachine={false}
+                selectedId={selectedId}
+              />
+            </div>
+          ))}
+    </>
   );
 }
 
@@ -286,7 +309,7 @@ function TreeList({
         <RosterRow
           key={s.sessionId}
           session={s}
-          kids={childrenOf(tree, s)}
+          tree={tree}
           directors={directors}
           portByDirector={portByDirector}
           showMachine={showMachine}
@@ -300,8 +323,9 @@ function TreeList({
 // The crew line on a collapsed parent: one dot per session under it, in their order and colours (so
 // collapsing hides no colour), the counts, and how long the crew has been going. Ticks on the shared
 // one-second clock for the age.
-function CrewLine({ root, kids }: { root: SessionDto; kids: SessionDto[] }) {
+function CrewLine({ root, tree }: { root: SessionDto; tree: SessionTree }) {
   const now = useSharedNow();
+  const kids = descendantsOf(tree, root).map((d) => d.session);
   const sum = crewSummary(root, kids);
   const age = crewAge(sum, now);
   return (
@@ -319,15 +343,15 @@ function CrewLine({ root, kids }: { root: SessionDto; kids: SessionDto[] }) {
 
 function RosterRow({
   session,
-  kids = [],
+  tree,
   directors,
   portByDirector,
   showMachine,
   selectedId,
 }: {
   session: SessionDto;
-  /** The sessions this one supervises (client-core/sessions/tree). Empty for an ordinary row. */
-  kids?: SessionDto[];
+  /** The whole tree (client-core/sessions/tree), so a row can render the rows under it at any depth. */
+  tree: SessionTree;
   directors: DirectorReachability[];
   portByDirector: Map<string, string>;
   /** Show the "computer:port" line on the card. False in "My order" (the group header carries it); true
@@ -338,8 +362,11 @@ function RosterRow({
   const sid = session.sessionId ?? "";
   const selected = sid === selectedId;
   // A parent row: collapsed by default, remembered per crew on this device. The chevron sits OUTSIDE
-  // the Link so opening the crew never navigates into the parent's session.
+  // the Link so opening the crew never navigates into the parent's session. The count on the chevron
+  // is everything under it, at every level - the same number the crew line carries.
+  const kids = childrenOf(tree, session);
   const isParent = kids.length > 0;
+  const underCount = isParent ? descendantsOf(tree, session).length : 0;
   const [expanded, setExpanded] = useState<boolean>(() => isCrewExpanded(sid));
   const toggle = () => {
     const next = !expanded;
@@ -403,7 +430,7 @@ function RosterRow({
           type="button"
           className={`roster-chevron${expanded ? " open" : ""}`}
           aria-expanded={expanded}
-          aria-label={expanded ? `Collapse the ${kids.length} sessions under ${name}` : `Expand the ${kids.length} sessions under ${name}`}
+          aria-label={expanded ? `Collapse the ${underCount} sessions under ${name}` : `Expand the ${underCount} sessions under ${name}`}
           title={expanded ? "Collapse" : "Expand"}
           onClick={toggle}
         />
@@ -473,23 +500,25 @@ function RosterRow({
             <span className="roster-railline">{session.railLine}</span>
           )}
           {/* A collapsed crew still says what is under it: every child's colour, the counts, the age. */}
-          {isParent && !expanded && <CrewLine root={session} kids={kids} />}
+          {isParent && !expanded && <CrewLine root={session} tree={tree} />}
         </span>
       </Link>
       {/* The same session menu as the session page (issue #1214), pinned to the card's top-right. It
           sits OUTSIDE the Link so opening the menu never navigates into the session. */}
       <SessionMenu session={session} variant="rail" />
-      {/* The sessions under this one, each card exactly as it would be at the top level. They keep
-          their own desktop order whatever order the top level is in. */}
+      {/* The sessions under this one, each card exactly as it would be at the top level, and each
+          with its own chevron if it supervises sessions in turn. They keep their own desktop order
+          whatever order the top level is in. A child on another Director says which. */}
       {isParent && expanded && (
         <ul className="roster-list roster-kids" aria-label={`Sessions under ${name}`}>
           {kids.map((k) => (
             <RosterRow
               key={k.sessionId}
               session={k}
+              tree={tree}
               directors={directors}
               portByDirector={portByDirector}
-              showMachine={false}
+              showMachine={isOnAnotherMachine(session, k)}
               selectedId={selectedId}
             />
           ))}

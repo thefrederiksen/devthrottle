@@ -36,7 +36,18 @@ function supervisorOf(s: SessionDto): string {
 /**
  * Nest every session under its supervisor when that supervisor is in the same list. Roots keep the
  * order of `sessions` (so the caller decides my-order versus attention by ordering the roots it gets
- * back); children are in desktop order under their parent.
+ * back); children are in desktop order under their parent. Ownership can go more than one level
+ * deep (an Architect's Manager's Workers), and every level is kept.
+ *
+ * THE CROSS-DIRECTOR RULE, stated once for both shells and both orders: the tree is built over the
+ * WHOLE roster, never per machine. A session may supervise a session on another machine (the
+ * command line's --controlled-by takes any session id, and the Gateway resolves liveness fleet-wide),
+ * so a child nests under its parent wherever the parent lives, and a child on another machine says
+ * so on its own row (see isOnAnotherMachine). A view that groups by machine groups the ROOTS.
+ *
+ * EVERY SESSION RENDERS EXACTLY ONCE. A malformed ownership loop (a supervises b supervises a) puts
+ * neither in roots and would hide both; every session not reachable from a root is promoted to a
+ * root instead, the same invariant the Fleet Map keeps.
  */
 export function buildSessionTree(sessions: SessionDto[]): SessionTree {
   const ids = new Set<string>();
@@ -49,7 +60,7 @@ export function buildSessionTree(sessions: SessionDto[]): SessionTree {
   for (const s of sessions) {
     const sup = supervisorOf(s);
     // A session that names itself as its own supervisor is malformed; it stays a root rather than
-    // vanishing into a cycle nobody can expand.
+    // vanishing into a loop nobody can expand.
     if (sup.length > 0 && ids.has(sup) && sup !== String(s.sessionId ?? "").trim()) {
       const list = childrenOf.get(sup);
       if (list) list.push(s);
@@ -58,18 +69,94 @@ export function buildSessionTree(sessions: SessionDto[]): SessionTree {
       roots.push(s);
     }
   }
-  for (const [id, kids] of childrenOf) childrenOf.set(id, inDesktopOrder(kids));
+  // Promote every member of an ownership loop (a supervises b supervises a) to a root, so each
+  // renders exactly once. A session that merely hangs off a loop stays under its parent.
+  const byId = new Map<string, SessionDto>();
+  for (const s of sessions) byId.set(String(s.sessionId ?? "").trim(), s);
+  const reached = new Set<string>();
+  const walk = (s: SessionDto) => {
+    const id = String(s.sessionId ?? "").trim();
+    if (reached.has(id)) return;
+    reached.add(id);
+    for (const k of childrenOf.get(id) ?? []) walk(k);
+  };
+  for (const r of roots) walk(r);
+  const detachFromParent = (s: SessionDto) => {
+    const siblings = childrenOf.get(supervisorOf(s));
+    if (siblings) childrenOf.set(supervisorOf(s), siblings.filter((x) => x !== s));
+  };
+  for (const s of sessions) {
+    if (reached.has(String(s.sessionId ?? "").trim())) continue;
+    // Follow the supervisor chain until it revisits itself: that is the loop.
+    const path: SessionDto[] = [];
+    const at = new Map<string, number>();
+    let cur: SessionDto | undefined = s;
+    while (cur && !reached.has(String(cur.sessionId ?? "").trim()) && !at.has(String(cur.sessionId ?? "").trim())) {
+      at.set(String(cur.sessionId ?? "").trim(), path.length);
+      path.push(cur);
+      cur = byId.get(supervisorOf(cur));
+    }
+    const loopStart = cur ? at.get(String(cur.sessionId ?? "").trim()) : undefined;
+    const promoted = loopStart === undefined ? [] : path.slice(loopStart);
+    for (const m of promoted) detachFromParent(m);
+    for (const m of promoted) {
+      roots.push(m);
+      walk(m);
+    }
+    // Whatever led into the loop (or into an already-reached session) is under it and now reached.
+    for (const m of path) walk(m);
+  }
+  for (const [id, kids] of childrenOf) {
+    if (kids.length === 0) childrenOf.delete(id);
+    else childrenOf.set(id, inDesktopOrder(kids));
+  }
   return { roots, childrenOf };
 }
 
-/** The sessions under a root, or an empty list when it has none. */
+/** The sessions directly under a session, or an empty list when it has none. */
 export function childrenOf(tree: SessionTree, root: SessionDto): SessionDto[] {
   return tree.childrenOf.get(String(root.sessionId ?? "").trim()) ?? [];
 }
 
+/** One session under a root at some depth (1 = a direct child), for a shell that flattens a crew. */
+export interface Descendant {
+  session: SessionDto;
+  depth: number;
+}
+
+/**
+ * Everything under a session, depth-first in desktop order at each level, with its depth. This is
+ * what a crew IS - not just the direct children - so the crew summary and a flattened crew list both
+ * read it and cannot disagree about who is under whom.
+ */
+export function descendantsOf(tree: SessionTree, root: SessionDto): Descendant[] {
+  const out: Descendant[] = [];
+  const seen = new Set<string>();
+  const walk = (s: SessionDto, depth: number) => {
+    for (const k of childrenOf(tree, s)) {
+      const id = String(k.sessionId ?? "").trim();
+      if (seen.has(id)) continue;
+      seen.add(id);
+      out.push({ session: k, depth });
+      walk(k, depth + 1);
+    }
+  };
+  walk(root, 1);
+  return out;
+}
+
+/** True when a child lives on a different Director from its parent - its row must then say where it is. */
+export function isOnAnotherMachine(parent: SessionDto, child: SessionDto): boolean {
+  const a = String(parent.directorId ?? "").trim();
+  const b = String(child.directorId ?? "").trim();
+  if (a.length > 0 && b.length > 0) return a !== b;
+  return String(parent.machineName ?? "").trim() !== String(child.machineName ?? "").trim();
+}
+
 /**
  * What a collapsed crew row must carry so that collapsing hides nothing that matters: how many
- * sessions are under it and what each is doing, by the Gateway's own triage bucket.
+ * sessions are under it - at EVERY level, not just the direct children - and what each is doing,
+ * by the Gateway's own triage bucket. Pass descendantsOf(tree, root).map((d) => d.session).
  *
  * needsYou is zero for every live crew - a child with a live supervisor never goes red (#2826) -
  * and turns non-zero only when the supervisor has died and its sessions have surfaced. That is

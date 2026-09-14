@@ -9,11 +9,12 @@ import { classify, contextLine, deletionReason, dotHex, inDesktopOrder, isWorkin
 import {
   attentionSections,
   buildSessionTree,
-  childrenOf,
   crewAge,
   crewSummary,
   crewSummaryLine,
+  descendantsOf,
   isCrewExpanded,
+  isOnAnotherMachine,
   setCrewExpanded,
   type SessionTree,
 } from "@devthrottle/client-core/sessions/tree";
@@ -86,8 +87,9 @@ function initialOrder(): RosterOrder {
   }
 }
 
-// The roots of the tree grouped by machine, in desktop order, for "my order". A crew is always on one
-// Director, so it sits inside its machine's group.
+// The roots of the tree grouped by machine, in desktop order, for "my order". The tree itself is built
+// over the whole roster (a parent may supervise a session on another machine), so only the ROOTS are
+// grouped: a child sits under its parent wherever the parent lives, and says so if it is elsewhere.
 function groupRootsByMachine(roots: SessionDto[]): { machine: string; roots: SessionDto[] }[] {
   const groups = new Map<string, SessionDto[]>();
   for (const s of roots) {
@@ -516,7 +518,7 @@ export function Home() {
           <h2 className={`group-title${section.key === "needsYou" ? " group-title-attention" : ""}`}>{section.title}</h2>
           <ul className="roster">
             {section.roots.map((s) => (
-              <SessionRow key={`${section.key}-${s.sessionId}`} session={s} kids={childrenOf(tree, s)} mark={marks.get(s.sessionId ?? "")} marks={marks} />
+              <SessionRow key={`${section.key}-${s.sessionId}`} session={s} tree={tree} mark={marks.get(s.sessionId ?? "")} marks={marks} />
             ))}
           </ul>
         </section>
@@ -527,7 +529,7 @@ export function Home() {
           <h2 className="group-title">{group.machine}</h2>
           <ul className="roster">
             {group.roots.map((s) => (
-              <SessionRow key={s.sessionId} session={s} kids={childrenOf(tree, s)} mark={marks.get(s.sessionId ?? "")} marks={marks} />
+              <SessionRow key={s.sessionId} session={s} tree={tree} mark={marks.get(s.sessionId ?? "")} marks={marks} />
             ))}
           </ul>
         </section>
@@ -681,23 +683,25 @@ export function SessionRow({
   session,
   mark,
   fromTab = "all",
-  kids = [],
+  tree,
   marks,
 }: {
   session: SessionDto;
   mark?: RosterSessionMark;
   fromTab?: RosterTab;
-  /** The sessions this one supervises (client-core/sessions/tree). Empty for an ordinary card. */
-  kids?: SessionDto[];
+  /** The ownership tree (client-core/sessions/tree). Omitted for a plain card (the Voice tab). */
+  tree?: SessionTree;
   /** The roster's reachability marks, so a child row can carry its own. */
   marks?: Map<string, RosterSessionMark>;
 }) {
   const name = session.name && session.name.trim().length > 0 ? session.name : "(unnamed session)";
-  // A parent card: a band along its bottom carries the crew (every child's colour, the counts, the
-  // age) and expands the children IN PLACE as one-line rows inside the same card. No indentation on a
-  // phone - a second level steals width from names that already wrap. Collapsed by default, remembered
-  // per crew on this device. The band is its own tap target, separated from the card's link by its
-  // border, so opening the crew never opens the parent's session.
+  // A parent card: a band along its bottom carries the crew (every session under it at every level -
+  // its colour, the counts, the age) and expands them IN PLACE as one-line rows inside the same card,
+  // each stepped in by its depth. No card-in-card nesting on a phone - a second level of cards steals
+  // width from names that already wrap. Collapsed by default, remembered per crew on this device. The
+  // band is its own tap target, separated from the card's link by its border, so opening the crew
+  // never opens the parent's session.
+  const kids = tree ? descendantsOf(tree, session) : [];
   const isParent = kids.length > 0;
   const sidRaw = session.sessionId ?? "";
   const [expanded, setExpanded] = useState<boolean>(() => isCrewExpanded(sidRaw));
@@ -827,13 +831,19 @@ export function SessionRow({
           onClick={toggle}
         >
           <span className="crew-chevron" aria-hidden="true" />
-          <CrewBand root={session} kids={kids} />
+          <CrewBand root={session} kids={kids.map((k) => k.session)} />
         </button>
       )}
       {isParent && expanded && (
         <ul className="crew-kids" aria-label={`Sessions under ${name}`}>
           {kids.map((k) => (
-            <CrewKidRow key={k.sessionId} session={k} mark={marks?.get(k.sessionId ?? "")} />
+            <CrewKidRow
+              key={k.session.sessionId}
+              session={k.session}
+              depth={k.depth}
+              elsewhere={isOnAnotherMachine(session, k.session)}
+              mark={marks?.get(k.session.sessionId ?? "")}
+            />
           ))}
         </ul>
       )}
@@ -841,9 +851,9 @@ export function SessionRow({
   );
 }
 
-// The band's content: one dot per session under the parent, in their order and stamped colours (so
-// collapsing hides no colour), the counts, and how long the crew has been going, ticking on the shared
-// one-second clock.
+// The band's content: one dot per session under the parent at every level, in their order and stamped
+// colours (so collapsing hides no colour), the counts, and how long the crew has been going, ticking on
+// the shared one-second clock.
 function CrewBand({ root, kids }: { root: SessionDto; kids: SessionDto[] }) {
   const now = useSharedNow();
   const sum = crewSummary(root, kids);
@@ -862,19 +872,23 @@ function CrewBand({ root, kids }: { root: SessionDto; kids: SessionDto[] }) {
 }
 
 // One session under an expanded parent: a one-line row at touch height - dot, number, name, state -
-// that opens that session. The full card is one tap away on the session's own screen.
-function CrewKidRow({ session, mark }: { session: SessionDto; mark?: RosterSessionMark }) {
+// that opens that session, stepped in by its depth so a Manager's Workers read as the Manager's. A
+// session on another machine than its parent carries that machine's name. The full card is one tap
+// away on the session's own screen.
+function CrewKidRow({ session, depth, elsewhere, mark }: { session: SessionDto; depth: number; elsewhere: boolean; mark?: RosterSessionMark }) {
   const name = session.name && session.name.trim().length > 0 ? session.name : "(unnamed session)";
+  const machine = machineName(session);
   const num = session.number;
   const hasNum = num !== null && num !== undefined && String(num).trim().length > 0;
   const sid = encodeURIComponent(session.sessionId ?? "");
   const to = session.voiceMode ? `/session/${sid}/voice` : `/session/${sid}`;
   return (
     <li className={`crew-kid${mark ? " row-unreachable" : ""}`}>
-      <Link className="crew-kid-link" to={to} state={{ voiceMode: Boolean(session.voiceMode), fromTab: "all" }}>
+      <Link className="crew-kid-link" style={{ paddingLeft: `${30 + (depth - 1) * 16}px` }} to={to} state={{ voiceMode: Boolean(session.voiceMode), fromTab: "all" }}>
         <span className="dot crew-kid-dot" style={{ backgroundColor: dotHex(session) }} aria-hidden="true" />
         {hasNum && <span className="row-num">{num}</span>}
         <span className="crew-kid-name">{name}</span>
+        {elsewhere && machine && <span className="crew-kid-machine">{machine}</span>}
         <span className="crew-kid-state">{contextLine(session)}</span>
       </Link>
     </li>

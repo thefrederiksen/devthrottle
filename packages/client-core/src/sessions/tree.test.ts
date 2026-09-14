@@ -7,7 +7,9 @@ import {
   crewAge,
   crewSummary,
   crewSummaryLine,
+  descendantsOf,
   isCrewExpanded,
+  isOnAnotherMachine,
   resetCrewExpandedForTests,
   setCrewExpanded,
 } from "./tree";
@@ -109,5 +111,48 @@ describe("expanded state", () => {
     expect(isCrewExpanded("108")).toBe(true);
     setCrewExpanded("108", false);
     expect(isCrewExpanded("108")).toBe(false);
+  });
+});
+
+describe("the inspection's three cases (pull request 2852 review)", () => {
+  const manager = session({ sessionId: "M", sortOrder: 6, controllerSessionId: "108", createdAt: "2026-09-14T17:30:00Z" });
+  const deepWorker = session({ sessionId: "D", sortOrder: 7, controllerSessionId: "M", createdAt: "2026-09-14T17:40:00Z", effectiveColor: "supporting", triageBucket: "onHold" });
+
+  it("keeps a second ownership level reachable and counts it in the crew", () => {
+    const tree = buildSessionTree([architect, manager, deepWorker, w106]);
+    expect(tree.roots.map((s) => s.sessionId)).toEqual(["108"]);
+    expect(childrenOf(tree, architect).map((s) => s.sessionId)).toEqual(["106", "M"]);
+    expect(childrenOf(tree, manager).map((s) => s.sessionId)).toEqual(["D"]);
+    expect(descendantsOf(tree, architect).map((d) => `${d.session.sessionId}@${d.depth}`)).toEqual(["106@1", "M@1", "D@2"]);
+    const sum = crewSummary(architect, descendantsOf(tree, architect).map((d) => d.session));
+    expect(crewSummaryLine(sum)).toBe("3 under it: 2 working, 1 stopped, 0 need you");
+  });
+
+  it("nests a child on another Director under its parent, and says it is elsewhere", () => {
+    const remote = session({ sessionId: "R", sortOrder: 0, controllerSessionId: "108", directorId: "d2", machineName: "SORENLAPTOP" });
+    const local = { ...architect, directorId: "d1", machineName: "SOREN_NORTH" } as SessionDto;
+    const tree = buildSessionTree([local, remote]);
+    expect(tree.roots.map((s) => s.sessionId)).toEqual(["108"]);
+    expect(childrenOf(tree, local).map((s) => s.sessionId)).toEqual(["R"]);
+    expect(isOnAnotherMachine(local, remote)).toBe(true);
+    expect(isOnAnotherMachine(local, { ...w106, directorId: "d1" } as SessionDto)).toBe(false);
+  });
+
+  it("renders every member of an ownership loop exactly once, as roots", () => {
+    const a = session({ sessionId: "a", sortOrder: 0, controllerSessionId: "b" });
+    const b = session({ sessionId: "b", sortOrder: 1, controllerSessionId: "a" });
+    const tree = buildSessionTree([s112, a, b]);
+    expect(tree.roots.map((s) => s.sessionId)).toEqual(["112", "a", "b"]);
+    expect(descendantsOf(tree, a)).toEqual([]);
+    expect(descendantsOf(tree, b)).toEqual([]);
+  });
+
+  it("promotes a loop's whole subtree with it, so nothing under a loop is lost", () => {
+    const a = session({ sessionId: "a", sortOrder: 0, controllerSessionId: "b" });
+    const b = session({ sessionId: "b", sortOrder: 1, controllerSessionId: "a" });
+    const under = session({ sessionId: "u", sortOrder: 2, controllerSessionId: "b" });
+    const tree = buildSessionTree([a, b, under]);
+    expect(tree.roots.map((s) => s.sessionId)).toEqual(["a", "b"]);
+    expect(childrenOf(tree, b).map((s) => s.sessionId)).toEqual(["u"]);
   });
 });
