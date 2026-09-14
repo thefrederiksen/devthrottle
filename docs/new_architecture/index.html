@@ -309,10 +309,16 @@
 <h1>DevThrottle Architecture</h1>
 <p>The authoritative, rebuilt-from-scratch architecture documentation for DevThrottle: cc-director, the Gateway, the Cockpit, and the mobile client.</p>
 <blockquote>
-<p><strong>This is a clean-room rebuild.</strong> Every architecture document is being rewritten here from scratch. The documents in the legacy <code>docs/architecture/</code> tree are not trusted and are not authoritative. A document is authoritative only once it has been deliberately re-vetted and placed in this <code>docs/new_architecture/</code> area. All documents here are HTML.</p>
+<p><strong>This is a clean-room rebuild.</strong> A document is authoritative only once it has been deliberately re-vetted and placed in this <code>docs/new_architecture/</code> area. All documents here are HTML.</p>
+<p><strong>What is left in the legacy <code>docs/architecture/</code> tree, stated precisely</strong>, because "not trusted" was too blunt to act on and the code disagreed with it. On 14 September 2026 that tree went from 171 files to 66: 105 finished work artifacts were deleted - mission briefs addressed to session ids, phase manager briefs, dated review verdicts, handovers and QA reports, several still saying "active mission" about work that ended in July. None was referenced by any code, skill or workflow.</p>
+<p>What remains is <strong>not</strong> disposable and is <strong>not</strong> yet re-vetted. It is the topic architecture for six areas this tree does not cover - Gateway, Cockpit, Wingman, mobile, dictation and security - plus their diagrams, and eleven documents that live SOURCE CODE cites by name. Those six areas are the next consolidation, not a deletion: until each is re-authored and verified here, the legacy document is the only architecture they have.</p>
 </blockquote>
 <hr/>
 <h2>Documents</h2>
+<p>Five documents. Each one owns its subject completely, and no rule is stated in two of them - if you
+find the same rule written twice, one of the copies is already wrong, and that is not a hypothetical:
+it is the failure that cost this project two months in 2026 and is recorded at length in
+<a href="sessions.html">sessions.html</a>.</p>
 <table>
 <thead>
 <tr>
@@ -323,29 +329,58 @@
 </thead>
 <tbody>
 <tr>
-<td><a href="session-state.html"><strong>Session State - the authoritative machine</strong></a></td>
+<td><a href="sessions.html"><strong>Sessions</strong></a></td>
 <td>THE LAW</td>
-<td><strong>The single, standing definition of session state. Read this before touching any state or colour rule; there is no other document, by design.</strong> THE LAW: if a session is working, it is BLUE - always, no exceptions, nothing outranks working. The Director is a sensor (reports raw facts only), the Gateway is the single interpreter (one fold; owns EffectiveColor, StateLabel, and TriageBucket), clients only render. Contains the state diagram, the full ladder, the per-fact ownership split, and the inventory of every place that still disagrees. Supersedes and replaces the retired state-and-color-architecture.html, phase-2-state-color-spec.md, and session-state-machine-2026-07-14.html, all three now DELETED so no agent can read them by mistake.</td>
+<td><strong>Everything about ONE session.</strong> The four facts - TYPE, PARENT, OWNERSHIP, COLOUR - and which of them decides who gets interrupted (only ownership). Ownership: declared at spawn, never inferred. Who is asked when a turn ends. The seats, and the machine-checked supervision table. Then the state machine, the full colour ladder, the canonical palette, the per-fact ownership split, and the inventory of every place that still disagrees. THE LAW: if a session is working it is BLUE, always; the Director is a sensor, the Gateway is the single interpreter, clients only render.</td>
 </tr>
 <tr>
-<td><a href="portless-director-gateway-stream.html">Portless Director: one outbound stream to the Gateway</a></td>
-<td>CANDIDATE</td>
-<td>Proposed transport: each Director dials one persistent, bidirectional connection out to the Gateway and exposes no network-facing ports. State pushes up, commands and requests flow both ways, terminal bytes ride outbound byte streams. Records the invariants (no Director-to-Director; all remote access via the Gateway; loopback stays), the reconnect-is-reseed recovery, the accepted consequences, and the open decisions. UNDER CONSIDERATION -- nothing built.</td>
+<td><a href="fleet.html"><strong>Fleet</strong></a></td>
+<td>CURRENT</td>
+<td><strong>What happens when there is more than one session.</strong> The Mission as a first-class object, seat cardinality, what sizes a mission, attaching and moving (and the workflow seat that moves with it), the tenant boundary. Naming and addressing: session numbers, the display-name convention, role-of-mission. Starting and stopping a session, including across machines. Closes with an inventory of what was proposed and never built, and what the source documents got wrong.</td>
 </tr>
 <tr>
-<td><a href="phase-1-director-gateway-stream-plan.html">Phase 1 plan: Director-to-Gateway push stream</a></td>
-<td>PLAN</td>
-<td>Implementation plan for the first, safe increment of the portless model: move session-state reporting from Gateway-pull to Director-push over a flag-gated SignalR stream, keeping the pull path as fallback. Filed as GitHub issues <a href="https://github.com/thefrederiksen/devthrottle/issues/1176">#1176</a> (Phase 1a, ready for development) and <a href="https://github.com/thefrederiksen/devthrottle/issues/1177">#1177</a> (Phase 1b, blocked on 1a). Source of record for a development agent is the companion <code>.md</code>.</td>
+<td><a href="director-and-gateway.html"><strong>Director and Gateway</strong></a></td>
+<td>CURRENT</td>
+<td><strong>How a machine and the Gateway talk.</strong> One outbound stream, no ports of any kind - not even loopback. What collapsed into the stream, the command envelope, reconnect-is-reseed and connection generations. The Gateway read model: last-known state for reads that DISPLAY, refusal for reads that ACT. Workspaces stored on the Gateway. The accepted consequences, and how every open decision was settled.</td>
+</tr>
+<tr>
+<td><a href="names.html"><strong>Terminology</strong></a></td>
+<td>CURRENT</td>
+<td><strong>What we call things.</strong> One word per idea, one idea per word, and the older names still left in the code.</td>
+</tr>
+<tr>
+<td><a href="index.html">This index</a></td>
+<td>CURRENT</td>
+<td>The map, and the conventions below.</td>
 </tr>
 </tbody>
 </table>
+<blockquote>
+<p><strong>Consolidated 14 September 2026, from 21 files to 5.</strong> Twelve of the twenty-one were
+work orders and phase records from the July 2026 streaming epic - documents addressed to workers who
+had finished months earlier, on branches that no longer exist, several of them still marked "Do NOT
+commit". Two of them were the same document in Markdown and HTML, already drifted apart. The designs
+they carried are in the three documents above; everything else is in git history, which is where a
+finished instruction belongs. The files are DELETED rather than marked superseded, because a retired
+document still answers a grep and an agent in a hurry reads the table, not the banner.</p>
+</blockquote>
 <hr/>
 <h2>Conventions</h2>
 <ul>
-<li><strong>HTML only.</strong> Every architecture document in this area is delivered as HTML. (Implementation plans handed to a development agent also keep a companion Markdown source of record.)</li>
-<li><strong>Status on every document.</strong> One of CURRENT (describes code that exists), PLANNED / PLAN (intended design or implementation plan), CANDIDATE (proposed, under consideration, nothing built), or HYBRID (each section labels its own status). CURRENT sections carry a "verified against" date.</li>
-<li><strong>Reference code by symbol name</strong> (class, method, field), never by line number, because line numbers drift on every refactor.</li>
-<li><strong>Trusted only.</strong> Nothing is copied over from the legacy tree wholesale. Each document is re-authored and re-verified before it lands here.</li>
+<li><strong>HTML only.</strong> Every architecture document in this area is delivered as HTML.</li>
+<li><strong>One idea, one document.</strong> A rule is stated once, in the document that owns it, and
+linked to from anywhere else that needs it. Never restated - two written sources for one rule drift,
+and the drift is invisible until somebody acts on the stale one.</li>
+<li><strong>Say what is NOT built.</strong> A document that describes a design without saying whether
+it shipped is worse than no document: it reads as current in the same voice as the true paragraphs
+around it. Every document here names its unbuilt parts explicitly.</li>
+<li><strong>Reference code by symbol name</strong> (class, method, field), never by line number,
+because line numbers drift on every refactor.</li>
+<li><strong>A claim gets checked, not carried.</strong> When content moves between documents, each
+claim is re-verified against the code rather than copied on the strength of having been written down
+before.</li>
+<li><strong>No dates in filenames.</strong> A dated filename makes a document look disposable, which is
+how each of the retired predecessors came to be ignored rather than updated.</li>
 </ul>
 </article>
 </body>

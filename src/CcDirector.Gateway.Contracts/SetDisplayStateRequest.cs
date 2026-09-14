@@ -11,7 +11,7 @@ namespace CcDirector.Gateway.Contracts;
 /// <c>ApplyGatewayDisplayState</c>) and reports it back out through <c>ControlEndpoints.Map</c>; it never
 /// computes, adjusts, or second-guesses the fold. The Gateway is the single fold, and the one screen that
 /// cannot poll the Gateway for itself - the local rail - has to be told. See
-/// docs/new_architecture/session-state.html.
+/// docs/new_architecture/sessions.html.
 /// </summary>
 public sealed class SetDisplayStateRequest
 {

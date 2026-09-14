@@ -2,7 +2,7 @@ namespace CcDirector.Gateway.Contracts;
 
 /// <summary>
 /// A Mission: the named unit of work a pod of sessions is collectively chartered to accomplish
-/// (see docs/new_architecture/mission-as-first-class-unit-of-work.md). A Mission is its OWN
+/// (see docs/new_architecture/fleet.html). A Mission is its OWN
 /// persisted record - not merely an attachment field on a session - so it survives a Manager
 /// restart and later anchors the cockpit map. Sessions ATTACH to a Mission by its
 /// <see cref="MissionId"/>; that attachment (not the spawn tree) is what binds a pod together.
@@ -108,7 +108,7 @@ public sealed class MissionPatchResultDto
 /// same call. A mission's shape is discovered rather than planned - that is what makes it a mission - so the
 /// first classification of a session is a guess, and a one-way attach would make every wrong guess permanent
 /// until the session was killed. The attachment rules are written up in
-/// docs/new_architecture/mission-as-first-class-unit-of-work.md.
+/// docs/new_architecture/fleet.html.
 /// </summary>
 public sealed class SetMissionRequest
 {

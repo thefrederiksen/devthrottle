@@ -20,7 +20,7 @@ namespace CcDirector.ControlApi;
 ///
 /// Its own area because a verb belongs to exactly one area and an area is the unit that avoids the merge
 /// chokepoint - adding this verb touched no other area's file.
-/// (docs/new_architecture/session-state.html.)
+/// (docs/new_architecture/sessions.html.)
 /// </summary>
 internal sealed class FleetDisplayStateExecutor : ISessionCommandArea
 {

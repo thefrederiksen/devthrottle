@@ -85,7 +85,7 @@ public sealed class SessionDto
 
     /// <summary>
     /// The Mission this session is ATTACHED to (see
-    /// docs/new_architecture/mission-as-first-class-unit-of-work.md), or null when it is attached to no
+    /// docs/new_architecture/fleet.html), or null when it is attached to no
     /// Mission. A Mission is its own persisted record (<see cref="MissionDto"/>); this is the attachment
     /// link, stamped at spawn (from <see cref="NewSessionRequest.MissionId"/>) or later via
     /// POST /sessions/{id}/mission. Mirrors <c>Session.MissionId</c> on the owning Director; passes through
@@ -538,7 +538,7 @@ public sealed class SessionDto
     ///
     /// THE REMAINDER, stated exactly: the fact crosses the wire, the DESKTOP RAIL RENDERS THE BADGE (see
     /// MainWindow.axaml), and the PHONE AND COCKPIT DO NOT YET. Rendering it there is outstanding - see
-    /// "Still to do" in docs/new_architecture/session-state.html.
+    /// "Still to do" in docs/new_architecture/sessions.html.
     ///
     /// This paragraph said "no client renders a badge yet" in the same change that added the desktop
     /// badge - false the moment it was written, and false in the direction that makes a reader stop

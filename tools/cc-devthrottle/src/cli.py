@@ -1486,7 +1486,7 @@ def spawn(
     mission: Optional[str] = typer.Option(
         None,
         "--mission",
-        help="Attach the new session to a Mission by its id at spawn (mission-as-first-class-unit-of-work). "
+        help="Attach the new session to a Mission by its id at spawn (fleet.html). "
         "The Mission must already exist (create one with 'cc-devthrottle mission create'); an unknown "
         "Mission is rejected by the Director. A mission spawn also auto-seats the session on the "
         "mission's workflow run. Omitted, a session spawned with a controlling session INHERITS that "

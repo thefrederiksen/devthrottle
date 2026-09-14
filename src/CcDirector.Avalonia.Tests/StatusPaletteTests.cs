@@ -11,7 +11,7 @@ namespace CcDirector.Avalonia.Tests;
 /// them - so nothing noticed that "red" meant #EF4444 on the rail, #E5484D in the turn review,
 /// #F44747 in the removed FIFO window and the (dead) Director view, and #F14C4C on the phone. This file is
 /// the C# half of the pin; the web/mobile client carries the same table in
-/// packages/client-core/src/sessions/ordering.ts, and docs/new_architecture/session-state.html is
+/// packages/client-core/src/sessions/ordering.ts, and docs/new_architecture/sessions.html is
 /// the single written source both sides cite. PaletteAgreementTests now READS that shipping TypeScript
 /// table and asserts it equals the canonical map and this one, so the two sides are machine-checked to
 /// agree instead of relying on a human to change both in the same pull request.
@@ -107,7 +107,7 @@ public sealed class StatusPaletteTests
             Assert.True(StatusPalette.Knows(color),
                 $"The fold can emit '{color}' and the desktop palette does not know it, so the rail would " +
                 $"render the BROKEN magenta sentinel. Add it to StatusPalette AND to the palette table in " +
-                $"docs/new_architecture/session-state.html AND to the client's ordering.ts, in one pull request.");
+                $"docs/new_architecture/sessions.html AND to the client's ordering.ts, in one pull request.");
     }
 
     /// <summary>
@@ -128,7 +128,7 @@ public sealed class StatusPaletteTests
             Assert.True(SessionColorPalette.Knows(color),
                 $"The fold can emit '{color}' and the canonical SessionColorPalette does not know it, so the " +
                 "Gateway would stamp the magenta BROKEN sentinel for it. Add it to SessionColorPalette AND to " +
-                "docs/new_architecture/session-state.html AND to the client's ordering.ts, in one pull request.");
+                "docs/new_architecture/sessions.html AND to the client's ordering.ts, in one pull request.");
     }
 
     /// <summary>Every colour the REAL fold (<see cref="SessionOrdering.EffectiveColor"/>) can emit across

@@ -413,7 +413,7 @@ public sealed class SessionsAggregationTests : IAsyncLifetime
         // present tense - there was nothing anywhere that could go red when the written rule and the code
         // disagreed. A behaviour test cannot close that whichever way it points; the guard that does is
         // SupervisionRuleMatchesTheDesignDocumentTests in CcDirector.Gateway.UnitTests, which reads the
-        // attention table out of docs/new_architecture/session-roles-semantics.md and fails when the
+        // attention table out of docs/new_architecture/sessions.html and fails when the
         // document and SessionOrdering.IsSupervised disagree about any case.
         var mgr = Sample("mgr", "ClaudeCode", "repo", "Working", "blue");
         var arch = Sample("arch", "ClaudeCode", "repo", "WaitingForInput", "red");

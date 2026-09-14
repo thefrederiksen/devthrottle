@@ -20,7 +20,7 @@ namespace CcDirector.Gateway.Fleet;
 /// role is a Gateway-owned fact, and the reason the Director must be TOLD its answer rather than compute
 /// one. Note <c>SessionManager.ResolveLocalRole</c> on the Director, which mirrors this logic against the
 /// LOCAL roster only: it is a best-effort rail glyph, it is wrong for exactly the cross-machine case, and
-/// it must never be wired into the colour fold. (docs/new_architecture/session-state.html, defect 5.)
+/// it must never be wired into the colour fold. (docs/new_architecture/sessions.html, defect 5.)
 /// </summary>
 internal static class FleetRoleResolver
 {

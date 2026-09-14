@@ -16,7 +16,7 @@ namespace CcDirector.Gateway.Tests;
 /// The change gate is the only thing standing between the observer and an infinite echo, because the stamp
 /// we send down comes straight back up on the Director's next delta.
 ///
-/// Design: docs/new_architecture/session-state.html, defect 5.
+/// Design: docs/new_architecture/sessions.html, defect 5.
 /// </summary>
 public sealed class FleetRoleObserverTests
 {

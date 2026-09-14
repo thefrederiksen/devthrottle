@@ -37,7 +37,7 @@ namespace CcDirector.Gateway.Tests;
 /// happening - while every other test in the suite stays green. That is the check that makes this file
 /// evidence rather than decoration.
 ///
-/// Design: docs/new_architecture/session-state.html, defect 19.
+/// Design: docs/new_architecture/sessions.html, defect 19.
 /// </summary>
 public sealed class DictationOrangeProducerTests : IDisposable
 {

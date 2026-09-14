@@ -719,7 +719,7 @@ public sealed class SessionOrderingTests
         // shipped behaviour in the present tense, so a document saying the opposite made nothing go red.
         // A test of behaviour cannot close that on its own, whichever way it points, and this comment is not
         // the guard. The guard is SupervisionRuleMatchesTheDesignDocumentTests, which reads the attention
-        // table out of docs/new_architecture/session-roles-semantics.md and fails when the document and
+        // table out of docs/new_architecture/sessions.html and fails when the document and
         // SessionOrdering.IsSupervised disagree about any seat.
         Assert.Equal("red", SessionOrdering.EffectiveColor(
             Raw("WaitingForInput", controlled: true, controllerId: Guid.NewGuid().ToString(), sessionRole: SessionRoles.Architect)));
@@ -1320,7 +1320,7 @@ public sealed class SessionOrderingTests
 
     // ===================================================================================
     // THE LAW: a working session is BLUE, always. Nothing outranks working.
-    // (Owner's ruling, 2026-07-14. See docs/new_architecture/session-state.html.)
+    // (Owner's ruling, 2026-07-14. See docs/new_architecture/sessions.html.)
     //
     // These tests exist to make the law UNBREAKABLE. Every colour that has ever been put
     // above working in the ladder gets its own case below. If you are here because one of

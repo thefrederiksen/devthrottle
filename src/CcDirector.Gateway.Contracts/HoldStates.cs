@@ -15,7 +15,7 @@ namespace CcDirector.Gateway.Contracts;
 /// could tell "not held" from "about to be held". The Gateway's snooze expiry sweep read that boolean,
 /// concluded a deferred snooze was over, and deleted its timer 15 seconds after it was asked for - so an
 /// agent-requested snooze never expired. A lossy wire is not a cosmetic problem; it is how the answer
-/// gets lost. See docs/new_architecture/session-state.html.
+/// gets lost. See docs/new_architecture/sessions.html.
 /// </summary>
 public static class HoldStates
 {

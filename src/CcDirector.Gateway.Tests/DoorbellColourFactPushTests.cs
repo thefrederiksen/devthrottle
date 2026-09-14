@@ -29,7 +29,7 @@ namespace CcDirector.Gateway.Tests;
 /// carry the fact anyway - so a pass means a PUSH happened, not that we waited out the fallback. Remove any
 /// of the three subscriptions and the matching test fails by timing out, which is the defect exactly.
 ///
-/// Design: docs/new_architecture/session-state.html, defect 14.
+/// Design: docs/new_architecture/sessions.html, defect 14.
 /// </summary>
 [Collection("DirectorRoot")]
 public sealed class DoorbellColourFactPushTests : IAsyncLifetime

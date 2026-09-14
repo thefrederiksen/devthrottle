@@ -264,7 +264,7 @@ internal static class ControlEndpoints
             DriverCapabilities = CapabilityNames(s),
             Name = s.CustomName,
             Number = s.Number,
-            // Mission attachment (mission-as-first-class-unit-of-work): the link + cached display name flow
+            // Mission attachment (fleet.html): the link + cached display name flow
             // straight through the Gateway aggregation on the SessionDto. Both values were STAMPED by what
             // the create or attach verb carried - the Mission record itself lives at the Gateway, and this
             // Director holds no mission store to resolve one from (issue #2629).
@@ -340,7 +340,7 @@ internal static class ControlEndpoints
             // surfaces because nothing authoritative has said otherwise. That is the honest answer; a local
             // guess would be the defect. The value also rides back UP to the Gateway on the next delta,
             // where PushedSessionStore DISCARDS it at ingest so this echo can never be mistaken for an
-            // authority. (docs/new_architecture/session-state.html, defect 5.)
+            // authority. (docs/new_architecture/sessions.html, defect 5.)
             SessionRole = s.GatewayResolvedRole,
             // The other half of the Gateway's answer. Without it the desktop folds every session as
             // unsupervised and every held worker goes red on one screen while the phone shows it held.
@@ -353,7 +353,7 @@ internal static class ControlEndpoints
             // the Cockpit read "Snoozed". Null until a Gateway stamps them (the standalone-desktop floor);
             // the rail shows a neutral waiting-for-gateway placeholder rather than guessing. Like SessionRole
             // these ride back UP on the next delta, where the Gateway OVERWRITES them from its own fold, so
-            // the echo can never be mistaken for an authority. (docs/new_architecture/session-state.html.)
+            // the echo can never be mistaken for an authority. (docs/new_architecture/sessions.html.)
             EffectiveColor = s.GatewayEffectiveColor,
             StateLabel = s.GatewayStateLabel,
             TriageBucket = s.GatewayTriageBucket,

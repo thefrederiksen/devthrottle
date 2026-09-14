@@ -11,7 +11,7 @@ namespace CcDirector.Core.Tests;
 /// cached fact with no signal is invisible - the same failure defect 5 shipped with the role - so these pin
 /// the SIGNAL: the fact announces itself once, on real changes only, and the cache is authoritative.
 ///
-/// Design: docs/new_architecture/session-state.html.
+/// Design: docs/new_architecture/sessions.html.
 /// </summary>
 public sealed class GatewayDisplayStateSignalTests
 {

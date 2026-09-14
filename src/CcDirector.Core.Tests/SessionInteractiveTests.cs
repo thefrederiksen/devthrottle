@@ -50,7 +50,7 @@ public sealed class SessionInteractiveTests
 
     // ================= the hold state machine =================
     // One field, three states: None / Held / DeferredHold. Design and diagram:
-    // docs/new_architecture/session-state.html. These tests walk every cell of the
+    // docs/new_architecture/sessions.html. These tests walk every cell of the
     // transition table in that document. Credit: the five deferred-hold cases come from pull request
     // #1512 (session "Gateway Cleanup - Tunnel-Only Migration"), re-pointed at the live ActivityState.
 

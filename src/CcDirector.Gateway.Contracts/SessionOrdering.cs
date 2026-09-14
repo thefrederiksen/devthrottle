@@ -211,7 +211,7 @@ public static class SessionOrdering
     ///
     /// THE WRITTEN RULE AND THIS METHOD ARE MACHINE-CHECKED AGAINST EACH OTHER by
     /// <c>SupervisionRuleMatchesTheDesignDocumentTests</c>, which reads the attention table out of
-    /// <c>docs/new_architecture/session-roles-semantics.md</c> and fails when the document and this method
+    /// <c>docs/new_architecture/sessions.html</c> and fails when the document and this method
     /// disagree about any case. That guard exists because an earlier amendment sat in the document,
     /// unimplemented and uncontradicted, for two months: every test of the day asserted the SHIPPED
     /// behaviour in the present tense, so a document saying something else could not make anything go red.
@@ -225,7 +225,7 @@ public static class SessionOrdering
     ///
     /// THIS IS THE WHOLE OF THE NEW RULE, and it is deliberately one predicate read by all three fold arms
     /// so the dot, the words and the bucket cannot disagree about it - the standing requirement in
-    /// docs/new_architecture/session-state.html.
+    /// docs/new_architecture/sessions.html.
     ///
     /// EXITED IS EXCLUDED, and it is not an oversight. The owner already ruled the identical question for
     /// the owner's own snooze (defect 21): "a dead session must never hide behind a Snoozed label". A

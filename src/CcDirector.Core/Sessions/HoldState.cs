@@ -2,7 +2,7 @@
 
 /// <summary>
 /// Where a session sits in the hold ("Snooze") state machine - the user's "I do not want to deal with
-/// this one right now". Design and diagram: docs/new_architecture/session-state.html.
+/// this one right now". Design and diagram: docs/new_architecture/sessions.html.
 ///
 /// The whole machine, driven by two things: what the user pressed, and whether the agent is working
 /// (<see cref="ActivityState"/>, the authoritative live fact - never a latch):

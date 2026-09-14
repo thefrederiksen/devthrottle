@@ -33,7 +33,7 @@ public static class MissionStates
 
 /// <summary>
 /// A Mission: the named unit of work a pod of sessions is collectively chartered to accomplish
-/// (see docs/new_architecture/mission-as-first-class-unit-of-work.md). A Mission is its OWN persisted
+/// (see docs/new_architecture/fleet.html). A Mission is its OWN persisted
 /// record - not merely an attachment field on a session - so it survives a Director/Manager restart and
 /// later anchors the cockpit map. Sessions ATTACH to a Mission by its <see cref="MissionId"/>.
 ///

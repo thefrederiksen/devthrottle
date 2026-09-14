@@ -29,7 +29,7 @@ namespace CcDirector.Gateway.Tests;
 /// clock, while the phone correctly showed "Snoozed". The rows below are the ACTUAL diverging sessions from
 /// that measurement. Anything that re-introduces a second READING of these inputs fails here.
 ///
-/// Design: docs/new_architecture/session-state.html
+/// Design: docs/new_architecture/sessions.html
 /// </summary>
 public sealed class DesktopGatewayFoldAgreementTests
 {

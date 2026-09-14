@@ -2,7 +2,7 @@
 
 A **mission** is a body of work too big for one session and too long for one sitting. This document
 is the run-book for how one is RUN. It is not about what a Mission *is* as an object in the product -
-that is `docs/new_architecture/mission-as-first-class-unit-of-work.md`, which defines the data model,
+that is `docs/new_architecture/fleet.html`, which defines the data model,
 the naming, and the attachment rules. Read that for the object. Read this for the conduct.
 
 > **THIS WORKFLOW IS THE ONLY PLACE THE RULES LIVE. A mission brief must never restate them, and must

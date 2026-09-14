@@ -267,7 +267,7 @@ public sealed class Session : IDisposable
     /// in would make the Director decide a colour input - which law 2 forbids and which re-opens the whole
     /// defect class. It is deliberately NOT persisted: a restarted Director has no business remembering a
     /// fact it never owned, and the Gateway re-stamps within one push of reconnecting.
-    /// (docs/new_architecture/session-state.html, defect 5.)
+    /// (docs/new_architecture/sessions.html, defect 5.)
     /// </summary>
     public string? GatewayResolvedRole { get; private set; }
 
@@ -329,7 +329,7 @@ public sealed class Session : IDisposable
     // set-display-state verb, read back out through ControlEndpoints.Map onto the SessionDto. Deliberately
     // NOT persisted - a restarted Director has no business remembering a fold it never owned, and the
     // Gateway re-stamps within one push of reconnecting (same rule as GatewayResolvedRole).
-    // (docs/new_architecture/session-state.html - "the desktop must ask".) =====
+    // (docs/new_architecture/sessions.html - "the desktop must ask".) =====
 
     /// <summary>The Gateway's folded effective color (<see cref="SessionOrdering.EffectiveColor"/>), or null
     /// until a Gateway has stamped one. The rail renders this verbatim - it does not compute a colour.</summary>
@@ -434,7 +434,7 @@ public sealed class Session : IDisposable
 
     /// <summary>
     /// The Mission this session is ATTACHED to (see
-    /// docs/new_architecture/mission-as-first-class-unit-of-work.md), or null when it is attached to no
+    /// docs/new_architecture/fleet.html), or null when it is attached to no
     /// Mission. A Mission is its own persisted record (<see cref="Mission"/>); this is the attachment link
     /// that binds a pod (Architect + Manager + Workers all attach to one Mission). Stamped at spawn (from
     /// the create request) or later via the attach verb (<see cref="AttachToMission"/>). Persisted so the

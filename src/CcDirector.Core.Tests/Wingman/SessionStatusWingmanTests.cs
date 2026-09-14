@@ -116,7 +116,7 @@ public sealed class SessionStatusWingmanTests
     // So these tests were GREEN and they asserted the wedge: `VoiceMode_waiting_and_not_ready_is_yellow`
     // pinned "no audio yet -> yellow" as correct behaviour. They are deleted with the method rather than
     // corrected - there is nothing left to test, and the live rule is tested at SessionOrderingTests.
-    // (docs/new_architecture/session-state.html - the traps.)
+    // (docs/new_architecture/sessions.html - the traps.)
 
     // ---------- End-to-end: the timer flip drives the badge ----------
 

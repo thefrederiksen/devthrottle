@@ -1,4 +1,4 @@
-<title>DevThrottle Session State - The Authoritative Machine</title>
+<title>DevThrottle Sessions - The Authoritative Document</title>
 <style>
   :root {
     --ink:#1a1f2b; --mute:#5b6675; --line:#d8dee8; --bg:#ffffff; --panel:#f6f8fb;
@@ -47,15 +47,33 @@
 </style>
 <div class="wrap">
 <header>
-  <h1>DevThrottle Session State</h1>
-  <p class="sub">The authoritative machine &middot; the ONLY document that defines session state &middot; living document, kept current on origin/main</p>
+  <h1>DevThrottle Sessions</h1>
+  <p class="sub">Type &middot; parent &middot; ownership &middot; state &middot; colour &middot; who is asked when a turn ends &mdash; the ONLY document that defines any of them</p>
 </header>
 
-<p class="lede">You asked why fixing one state rule breaks another. The answer is not that the code is
-sloppy. It is that <strong>the written design says the opposite of what you want</strong>, there are three
-competing documents and none is authoritative, and the decision "what colour is this session?" is
-answered independently in about fourteen places. Every fix lands in one of them. This document
-replaces all three, states the machine once, and lists every place that currently disagrees with it.</p>
+<p class="lede">Everything about a session is defined here and nowhere else: what seat it holds, who
+made it, who it answers to, what it is doing, what colour that is, and who gets told when its turn
+ends. If a rule about a session is not in this document, it is not a rule.</p>
+
+<div class="callout">
+  <p><strong>This document is a consolidation, and it names what it absorbed</strong> so that a stale
+  link or a half-remembered filename does not send the next reader looking for a second opinion that no
+  longer exists. It replaces, and those files are DELETED rather than retired:</p>
+  <ul style="margin-bottom:8px">
+    <li><span class="file">session-state.html</span> - the state machine, the ladder and the palette. This document IS that one, renamed and extended.</li>
+    <li><span class="file">session-roles-semantics.md</span> - the seats and the supervision table, now sections 2 and 4.</li>
+    <li><span class="file">devthrottle_internal/docs/architecture/session-attention-state.html</span> - the turn-end rule, now section 3.</li>
+  </ul>
+  <p style="margin-bottom:0">They are deleted rather than banner-retired, for the reason section 5
+  gives at the point where three earlier predecessors were deleted on 14 July 2026. The same argument
+  applies to these, and it is not repeated here.</p>
+</div>
+
+<p>The original problem this document was written to end has not changed. You asked why fixing one
+state rule breaks another. The answer was never that the code is sloppy. It was that <strong>the
+written design said the opposite of what you wanted</strong>, there were competing documents and none
+was authoritative, and "what colour is this session?" was answered independently in about fourteen
+places. Every fix landed in one of them.</p>
 
 <div class="callout law">
   <p><strong>The law, in the owner's words (14 July 2026). This is not open for debate.</strong></p>
@@ -80,7 +98,598 @@ replaces all three, states the machine once, and lists every place that currentl
   that instruction is void, and this paragraph is why.</p>
 </div>
 
-<h2>1. Why this keeps happening</h2>
+<h2>1. The four facts about a session</h2>
+
+<p class="lede">Four different things get called "what this session is", and for two years the wrong
+ones were deciding who gets interrupted. They are separated here, named once, and each one says
+plainly whether it decides anything.</p>
+
+<div class="callout law">
+  <p><strong>The shape of it, in one line.</strong> A session's <strong>type</strong> says what job it
+  holds. Its <strong>parent</strong> says who made it. Its <strong>owner</strong> says who it answers
+  to. Its <strong>colour</strong> says what it is doing right now.</p>
+  <p style="margin-bottom:0"><strong>Only the owner decides who is interrupted.</strong> Type and
+  parent describe; they do not decide. Colour is computed from the rest and is never chosen by
+  anybody.</p>
+</div>
+
+<div class="scroll">
+<table>
+  <thead>
+    <tr><th>Fact</th><th>Set by</th><th>Can it change after birth?</th><th>Does it decide who is asked?</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Type</strong> (the seat)<br><span class="file">SessionRole</span></td>
+      <td>Explicitly set, or derived from the spawn graph.</td>
+      <td>Yes - derived seats are recomputed every pass; an explicit seat is sticky.</td>
+      <td><span class="bad">NO.</span> Since 13 September 2026 the seat has no vote. It names what a session is for and groups the fleet.</td>
+    </tr>
+    <tr>
+      <td><strong>Parent</strong> (lineage)<br><span class="file">ParentSessionId</span></td>
+      <td>Inferred from whoever made the create call. Never asked for.</td>
+      <td><span class="bad">No - never.</span> It stays true long after the parent is dead.</td>
+      <td><span class="bad">NO.</span> It is history. It answers "where did this come from", not "who wants it".</td>
+    </tr>
+    <tr>
+      <td><strong>Owner</strong> (who it answers to)<br><span class="file">ControllerSessionId</span> &rarr; <span class="file">HasLiveSupervisor</span></td>
+      <td><strong>Declared at spawn.</strong> Never inferred. Either another session or the user.</td>
+      <td>The declaration is fixed at birth; whether that owner is still <em>alive</em> is re-read every pass.</td>
+      <td><span class="good">YES. This is the only one.</span></td>
+    </tr>
+    <tr>
+      <td><strong>Colour</strong><br><span class="file">EffectiveColor</span></td>
+      <td>Computed once at the Gateway, from activity plus the owner answer.</td>
+      <td>Every pass. It is a function, not a stored value.</td>
+      <td>It is the <em>result</em>, not an input. Nothing decides by reading it.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<h3>Why this separation is the whole design</h3>
+
+<p>Read the "does it decide" column downwards and you have the entire history of this system's worst
+bugs. Every one of them was a fact that described something being allowed to decide something.</p>
+
+<ul>
+  <li>The <strong>type</strong> decided, so a session stamped "Worker" at spawn stayed quiet for
+  hours after the supervisor it worked for had exited. The seat outlived the relationship it stood
+  for, and the documented orphan escape hatch could never fire.</li>
+  <li>The <strong>origin</strong> decided, so a scheduled run was silenced on the grounds that it
+  escalates by email - a path nothing on the roster could attest had ever fired.</li>
+  <li>The <strong>colour</strong> decided, in the oldest form of this mistake: the July ladder put
+  "somebody else owns this" two rows above "working", so a controlled session twenty-three minutes
+  into real work reported slate and the work was discarded. See finding 1.</li>
+</ul>
+
+<div class="callout warn">
+  <p style="margin-bottom:0"><strong>The rule that falls out of all three, and the one to hold onto:
+  a category assigned at birth must never decide whether a session may reach the owner.</strong> The
+  question is always about <em>now</em> - is somebody alive holding this - and it is asked fresh
+  every pass. On 13 September 2026 six sessions sat grey and labelled "Snoozed" with nothing snoozed;
+  five of the six had nobody who would ever come for them. That is what deciding by category looks
+  like from the outside.</p>
+</div>
+
+<h3>The words, and the drift still in the code</h3>
+
+<p>One idea here has four names, which is exactly what this fleet's terminology rule forbids. Said
+plainly, so the next reader is not left to guess which is which:</p>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>Word</th><th>Status</th><th>What it means here</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Owner</strong></td><td>The idea</td><td>Who a session answers to. Either a session or the user. Every session has exactly one.</td></tr>
+    <tr><td><strong>Supervisor</strong></td><td>The fleet's word</td><td>The owner when it is another <em>session</em>. This is the term to use in prose, issues and commits.</td></tr>
+    <tr><td><span class="file">ControllerSessionId</span></td><td>The field name, still</td><td>The wire field that carries the supervisor's id. Named before the word was settled.</td></tr>
+    <tr><td><strong>Manager</strong></td><td>A SEAT, not a relationship</td><td>A <em>type</em> (section 4). A Manager is a session that supervises others - but supervising is what makes it one, not the other way round. Do not use "manager" to mean "owner".</td></tr>
+    <tr><td><strong>Parent</strong></td><td>Lineage only</td><td>Who made the create call. NOT the owner, and the two deliberately come apart - see section 2.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p><strong>Open, and small:</strong> <span class="file">ControllerSessionId</span> should become
+<span class="file">SupervisorSessionId</span> on the wire. It is a rename across the contracts, the
+Director, the clients and the command line, and it is not worth doing on its own - but it is the last
+place the retired word still teaches itself to the next reader.</p>
+
+<h2>2. Ownership - who a session answers to</h2>
+
+<div class="callout law">
+  <p style="margin-bottom:0"><strong>Every session has exactly one owner, and it is either another
+  session or the user. There is no third answer and there is no unowned session: no owner means the
+  user.</strong></p>
+</div>
+
+<h3>Parent is inferred. Ownership is chosen. They are not the same edge.</h3>
+
+<p>These two are confused constantly because on an ordinary spawn they carry the same session id. They
+are different questions and they come apart on purpose.</p>
+
+<div class="scroll">
+<table>
+  <thead><tr><th></th><th>Parent</th><th>Owner</th></tr></thead>
+  <tbody>
+    <tr><td><strong>The question</strong></td><td>Who asked for this session?</td><td>Who does this session answer to?</td></tr>
+    <tr><td><strong>How it is set</strong></td><td>Inferred from the caller. Nobody is asked.</td><td>Declared, explicitly, at spawn.</td></tr>
+    <tr><td><strong>Lifetime</strong></td><td>Permanent. True forever, including after the parent dies.</td><td>A claim about <em>now</em>. Re-read every pass.</td></tr>
+    <tr><td><strong>When the other party dies</strong></td><td>Unchanged - it is history.</td><td>Gone. The session becomes the user's.</td></tr>
+    <tr><td><strong>Decides attention?</strong></td><td>No.</td><td>Yes.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>"Somebody will come for this" is a claim about the present, not about birth. A parent alive at
+spawn can be gone by three in the morning, which is why ownership is derived every turn and never
+stamped.</p>
+
+<h3>A session-initiated spawn must SAY which</h3>
+
+<p>The owner's ruling, 13 September 2026 - <em>"I think it is clear if you have to state ownership
+intent when you start a session."</em></p>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>Declaration</th><th>Owner</th><th>What happens when it stops</th></tr></thead>
+  <tbody>
+    <tr><td><span class="file">--controlled-by self</span></td><td>the spawning session</td><td>Quiet on the roster; it reports back to its owner.</td></tr>
+    <tr><td><span class="file">--controlled-by &lt;id&gt;</span></td><td>that session</td><td>The same, to that session.</td></tr>
+    <tr><td><span class="file">--standalone</span> (= <span class="file">--controlled-by none</span>)</td><td>the USER</td><td>Red, and in his queue.</td></tr>
+    <tr><td>nothing, from inside a session</td><td class="bad">REFUSED</td><td>The spawn does not happen.</td></tr>
+    <tr><td>nothing, from a person or a schedule</td><td>the USER</td><td>Red, and in his queue.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p><strong>Why the refusal.</strong> <span class="file">cc-devthrottle session spawn</span> used to
+read:</p>
+
+<pre>elif cc_session: controller_session_id = cc_session</pre>
+
+<p>So a session that spawned without saying anything took ownership of what it spawned, because
+<span class="file">CC_SESSION_ID</span> happened to be set in its environment. Nobody chose it and
+nothing recorded that a choice had been made. That default was the <em>only</em> way work could stop
+being the user's - a person spawning and a schedule firing both land on him already, so a session
+spawning a session is the single path by which something leaves his queue. It is now the single path
+that has to declare itself.</p>
+
+<p><strong>A human spawn declares nothing, and that is not an exemption.</strong> There is nothing to
+state: a session a person opens from the desktop, the Cockpit or the phone is the user's, and there is
+no second candidate to tell it apart from. The requirement lands exactly where the ambiguity is.</p>
+
+<h3><span class="file">--standalone</span> stays, and it is not a loophole</h3>
+
+<p>The owner settled this on 14 September 2026 when it was put to him that a session started by another
+session should never be allowed to hand itself to the user. He kept the choice, and the reasoning is the
+point:</p>
+
+<blockquote style="border-left:3px solid var(--line); margin:14px 0; padding:2px 0 2px 16px; color:var(--mute)">
+"Stand-alone should not disappear, because there are cases where the user asked to start a new
+session that is standalone, or an agent can start a session that should pop up to the user. But the
+agent should clearly understand this, and they should be forced to choose."
+</blockquote>
+
+<p>Two legitimate cases, and in neither is the spawning session shirking:</p>
+
+<ul>
+  <li><strong>The user asked for it.</strong> He told a session to open another for him. That session
+  made the call, but the work was never its own.</li>
+  <li><strong>The session is starting something for him.</strong> Work that genuinely should reach him
+  rather than be collected by the session that started it.</li>
+</ul>
+
+<div class="callout">
+  <p style="margin-bottom:0"><strong>So the rule is not "a session may never give work to the
+  user".</strong> It is that a session can never arrive there <em>by accident</em>. Forced to choose,
+  knowingly - not forced into one answer. The failure being closed was a silent default, and a
+  default is exactly what an explicit declaration is not.</p>
+</div>
+
+<h3>A worked example, because the two edges diverging is easy to miss</h3>
+
+<p>Session 133 (<span class="file">1e3f7d99</span>) spawned session 132
+(<span class="file">56065cd4</span>) on 14 September 2026, declaring
+<span class="file">--standalone</span>. Both facts are on session 132's record and they say different
+things:</p>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>Field</th><th>Value</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td><span class="file">originKind</span></td><td>agent</td><td>A session made this call, not a person.</td></tr>
+    <tr><td><span class="file">parentSessionId</span></td><td><span class="file">1e3f7d99</span></td><td>Session 133 made it. Permanently true.</td></tr>
+    <tr><td><span class="file">controllerSessionId</span></td><td class="bad">null</td><td>It answers to nobody. It is the user's.</td></tr>
+    <tr><td><span class="file">hasLiveSupervisor</span></td><td class="bad">false</td><td>So when its turn ended it went RED.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>A live parent and no owner, at the same instant, and that is correct rather than a defect: 133 was
+alive and working throughout. The red is what <span class="file">--standalone</span> <em>means</em>.
+Anyone reading only the parent edge would call this a bug and "fix" it by making lineage decide
+attention, which is the exact regression this document exists to prevent.</p>
+
+<h3 id="ownership-rest-gap">OPEN: the declaration is enforced in the command line, not in the service</h3>
+
+<div class="callout warn">
+  <p><strong>Stated as a gap rather than left to be discovered.</strong> The refusal above lives in
+  <span class="file">tools/cc-devthrottle/src/session_ops.py</span>. It is client-side. The service
+  does not require it.</p>
+  <p><span class="file">NewSessionRequest.ControllerSessionId</span> is optional, and
+  <span class="file">SessionCommandExecutor.Create</span> validates the origin token, the origin
+  surface, the parent id's format, the role, the mission and the workflow seat - and never asks
+  whether an agent-originated create declared an owner.</p>
+  <p style="margin-bottom:0">So a caller that posts to the REST API directly, an older command line,
+  or any other client can create a session-started session with no owner, and nothing refuses it. The
+  rule is one the command-line tool chooses to follow, not one the product enforces. <strong>Closing
+  this means the same refusal in <span class="file">SessionCommandExecutor.Create</span>: an
+  <span class="file">Origin</span> of "agent" must carry either a
+  <span class="file">ControllerSessionId</span> or an explicit statement that the user owns it.</strong>
+  Until that lands, do not describe ownership as enforced.</p>
+</div>
+
+<h2>3. Who is asked when a turn ends</h2>
+
+<p class="lede">A session goes quiet only when something alive is actually holding it.</p>
+
+<h3>The rule</h3>
+
+<p>When a turn finishes, a session asks exactly one question: <strong>is there a live owner right
+now?</strong></p>
+
+<ul>
+  <li><strong>No.</strong> Then it goes RED and asks the user. It does not matter what seat it holds
+  or how it was started.</li>
+  <li><strong>Yes.</strong> Then it stays quiet, and <strong>it tells that owner itself</strong> -
+  because the owner asked it to do something, and getting back to them is part of doing it.</li>
+</ul>
+
+<p>That is the whole rule. In code it is one line, and the line is the point:</p>
+
+<pre>IsSupervised(s) =&gt; s.HasLiveSupervisor</pre>
+
+<p>No seat. No origin. One fact, read fresh every pass.</p>
+
+<div class="callout law">
+  <p><strong>It fails toward the owner.</strong> <span class="file">HasLiveSupervisor</span> defaults
+  to false, so a path that folds without resolving the fleet first answers "not supervised" and the
+  session SURFACES.</p>
+  <p style="margin-bottom:0">Read the two error directions, because the asymmetry is deliberate. The
+  wrong answer this can give is a session asking for him when somebody had it - a nuisance. The wrong
+  answer it cannot give is <em>silence over a session nobody had</em> - which is the failure that
+  cost six sessions on 13 September.</p>
+</div>
+
+<h3>The report is the last step of the work, not a notification</h3>
+
+<p>This is the half that did not exist in any form before 13 September 2026, and it is the centre of
+the change. A session with an owner was asked to do something. Finishing includes getting back to
+whoever asked. So the report is an action the session takes, in its own words, saying what it did -
+not the Gateway inferring from a grey dot that somebody ought to go and look.</p>
+
+<ul>
+  <li><strong>Quiet becomes earned.</strong> A session is allowed to be grey only because a message
+  was actually sent to somebody alive. No message, no grey.</li>
+  <li><strong>An owner has a queue too.</strong> Being an owner means receiving these reports, which
+  is what makes delegation real rather than decorative.</li>
+  <li><strong>It INTERRUPTS the owner, deliberately</strong> (owner's ruling, 13 September 2026).
+  Every fleet message lands mid-turn in the receiving session, and that is the right cost: a session
+  that took ownership took on being interrupted when the work comes back. The alternative already
+  existed and is exactly what failed - <span class="file">NeedsManager</span> is a pull-only flag, so
+  a supervisor learns nothing unless it thinks to look. <strong>A signal nobody is obliged to read is
+  a signal that does not exist.</strong></li>
+  <li><strong>With no live owner it sends nothing, and succeeds.</strong> No owner means the user, and
+  a session the user owns is already red and already in his queue the moment it stops - that red IS
+  the report.</li>
+  <li><strong>It refuses rather than guess.</strong> "Do I have an owner?" is answered from the fleet,
+  so a roster that could not be read in full is not evidence of having none - it is not knowing. An
+  absence-shaped check failing open here would turn every roster hiccup into "you are the user's", and
+  a worker would silently stop reporting to a supervisor that was alive throughout.</li>
+</ul>
+
+<h3>How the report is actually sent</h3>
+
+<p>The rule above is only real because there is a verb for it:</p>
+
+<pre>cc-devthrottle session report "&lt;what you did, in your own words&gt;"
+cc-devthrottle session raise  "&lt;what you are blocked on&gt;"   # still working, need a decision
+cc-devthrottle session raise  --clear                          # the decision was answered
+cc-devthrottle session workers                                  # what I own, and who has a hand up</pre>
+
+<p><span class="file">session report</span> is the last step of delegated work, not a courtesy, and it
+resolves the owner itself - so a session never has to know whether it has one. With no live owner it
+sends nothing and succeeds, because the red already in the user's queue IS the report.</p>
+
+<p><span class="file">session raise</span> is the other direction and a different moment: not "I have
+finished" but "I cannot go on without an answer", raised while still working. The hand lowers itself
+when the session stops. The owner never sees a raised hand - it is not read by the colour, the label
+or the triage bucket, and a test asserts it changes none of the three. The supervisor-facing surface is
+<span class="file">session workers</span>, the command line, which is where supervisors on this fleet
+actually live.</p>
+
+<h3>The state machine</h3>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>At turn end, is there a live owner?</th><th>Colour</th><th>State</th><th>Who is asked</th></tr></thead>
+  <tbody>
+    <tr><td>Yes</td><td><span class="dot d-slate"></span>#64748B</td><td>Held</td><td><strong>THE OWNER</strong> - the session sends the report</td></tr>
+    <tr><td>No - the owner died</td><td><span class="dot d-red"></span>#EF4444</td><td>Needs you</td><td>YOU</td></tr>
+    <tr><td>No - it never had one</td><td><span class="dot d-red"></span>#EF4444</td><td>Needs you</td><td>YOU</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>Three rows, and every one has a named recipient. <strong>Nothing in the fleet finishes a turn and
+tells no one.</strong></p>
+
+<div class="callout warn">
+  <p style="margin-bottom:0"><strong>Outside the question entirely.</strong> WORKING is always blue -
+  nothing outranks working, and no owner check runs while bytes are flowing. CRASHED never hides
+  behind any label, owner or not. EXITED reads Exited: a dead session must never hide behind a
+  Snoozed label.</p>
+</div>
+
+<h3>What it replaced, and the measurement that prompted it</h3>
+
+<p>Before 13 September 2026 the inputs were the seat, the origin, and - in one case out of ten - the
+owner's liveness, skipped entirely whenever a seat had been assigned by hand. Seven of ten cases were
+silenced. <strong>One of those seven had a live owner.</strong> The other six were quiet because of a
+category, and even in the one legitimate row the owner was never told: it would have had to go
+looking.</p>
+
+<p>The shift is from <em>type</em> to <em>relationship</em>. The fleet used to quieten a session
+because of what kind of thing it was. It now quietens a session only because somebody real is holding
+it.</p>
+
+<h3>Settled: a scheduled run goes red like anything else</h3>
+
+<p>This reversed a standing rule. Scheduled runs used to be silenced on the grounds that they escalate
+by email and never sit red on the roster. The owner settled it on 13 September 2026: <strong>let them
+go red.</strong> A session nobody is holding is the owner's, whatever started it, and an email path
+that nothing on the roster can attest to is not a supervisor.</p>
+
+<h2>4. The seats</h2>
+
+<p class="lede">What a session is FOR. Four seats, and since 13 September 2026 none of them decides
+who is interrupted - which is what makes them safe to use for what they are good at: naming the job
+and grouping the fleet.</p>
+
+<h3>The four</h3>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>Seat</th><th>How it is assigned</th><th>What it means</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>Standalone</strong></td>
+      <td>The default. Derived: not a worker, not an architect, controls nothing live.</td>
+      <td>An ordinary session. Nothing about ordinary use changes.</td>
+    </tr>
+    <tr>
+      <td><strong>Manager</strong></td>
+      <td>Derived from the spawn graph: a non-worker, non-architect that supervises at least one live session.</td>
+      <td>A coordinator. It becomes a Manager the instant it has a live worker and reverts to Standalone when the last one exits. Learns worker status by READING them, not by being messaged "notice me".</td>
+    </tr>
+    <tr>
+      <td><strong>Worker</strong></td>
+      <td>Derived: it names a supervisor.</td>
+      <td>A session doing a piece of work for another. A Worker that spawns sub-workers keeps the Worker label and is not relabelled - nesting works, and a mid-tree session simply shows the Worker badge.</td>
+    </tr>
+    <tr>
+      <td><strong>Architect</strong></td>
+      <td><strong>EXPLICIT only.</strong> Never derived - architecture cannot be inferred from the spawn graph.</td>
+      <td>A design seat. It recommends and maintains the design documents; it does not implement. <strong>It is human-facing</strong> (owner's ruling, 6 September 2026): "the architect is always the session i talk to."</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p><strong>Resolution precedence:</strong> an explicitly-set seat wins; otherwise the seat derives from
+the spawn graph, in the order Worker (has a supervisor) &rarr; Manager (supervises a live session)
+&rarr; Standalone.</p>
+
+<div class="callout warn">
+  <p style="margin-bottom:0"><strong>An explicit seat is sticky, and that used to be dangerous.</strong>
+  Because the resolver returned an explicit stamp <em>before</em> the liveness check, a seat stamped
+  "Worker" at spawn outlived the supervisor it stood for, and the orphan escape hatch could never fire.
+  That is fixed by the seat no longer deciding anything - but the stickiness itself is unchanged, so do
+  not reintroduce a rule that reads the stamped seat to answer a question about <em>now</em>.</p>
+</div>
+
+<h3>One axis only - there is no job-type</h3>
+
+<p>DECIDED (owner, 9 July 2026): the fleet uses ONLY the management axis. There is no separate
+job-type axis, and the command line once carried a <span class="file">--type</span> option (Developer /
+Implementation / Discuss / Product / QA / Support) that the server never read; it was removed on 9 July
+2026, in the same change that removed the guesswork it encouraged.</p>
+
+<h3>Raising a hand - <span class="file">NeedsManager</span></h3>
+
+<p>A supervised session can raise its hand to its supervisor while still working (issue #2662, BUILT).
+Set it when all of these hold: the session is still actively Working; continuing without a decision
+would be wrong or wasteful (an ambiguous requirement, a destructive step, a real design fork, an
+authorization it does not hold); and it cannot resolve the decision within its own mandate.</p>
+
+<ul>
+  <li><strong>The hand lowers itself</strong> when the session stops working - derived, not swept -
+  because stopping already cues the supervisor, and a latch somebody has to clear is the one still up
+  next week.</li>
+  <li><strong>The reason is required.</strong> A hand with no words is the "notice me" ping this design
+  rejects.</li>
+  <li><strong>The owner never sees it.</strong> It is not read by the colour, the label or the triage
+  bucket, and a test asserts a raised hand changes none of the three.</li>
+  <li>Do NOT set it for routine progress or for "I finished" - going quiet covers that.</li>
+</ul>
+
+<h3>The supervision table - MACHINE-CHECKED, and the one to change</h3>
+
+<p>This table is the written half of <span class="file">SessionOrdering.IsSupervised</span>, and it is
+not decoration. <span class="file">SupervisionRuleMatchesTheDesignDocumentTests</span> (in
+<span class="file">CcDirector.Gateway.UnitTests</span>) parses the rows below and fails when the
+document and the code disagree about any case, in either direction. It also fails when a row is
+missing: the table must name every combination of the four seats, the two origins and the two
+supervisor states, so it cannot pass by saying nothing.</p>
+
+<div class="callout">
+  <p style="margin-bottom:0"><strong>The seat and origin columns are here precisely BECAUSE they no
+  longer decide anything.</strong> A two-row table would state the rule correctly and prove nothing
+  about the thing that went wrong: for two years the answer turned on a category. Sixteen rows, with
+  the verdict constant down each block, is the claim itself - <em>neither the seat nor the origin
+  changes the answer</em> - written where the machine can check it. A guard fires here the moment
+  anyone makes a seat matter again.</p>
+</div>
+
+<p><strong>Why the guard exists.</strong> The 9 July 2026 amendment sat in the design document,
+unimplemented, for two months. Every test of the day asserted the SHIPPED behaviour in the present
+tense, so a document saying the opposite could not make anything go red. The divergence was invisible
+to the machine and was only ever going to be found by a person reading both halves side by side.
+Writing the rule down twice, once in prose and once in code, with nothing tying the two together, is
+what cost the two months.</p>
+
+<p>The seat is the one the Gateway RESOLVED across the whole fleet, not the one a Director pushed -
+and so is the live-supervisor answer. Both are recomputed on every pass by
+<span class="file">FleetRoleResolver</span>; neither is a birth fact. "Live supervisor = yes" means
+this session is controlled, names its supervisor, and that supervisor is present and not Exited in the
+fleet the pass resolved from.</p>
+
+<div class="scroll">
+<!-- SUPERVISION-TABLE-BEGIN -->
+<table id="supervision-table">
+  <thead>
+    <tr><th>Resolved role</th><th>Origin kind</th><th>Live supervisor</th><th>Verdict</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Standalone</td><td>(none)</td><td>no</td><td>HUMAN-FACING</td></tr>
+    <tr><td>Manager</td><td>(none)</td><td>no</td><td>HUMAN-FACING</td></tr>
+    <tr><td>Architect</td><td>(none)</td><td>no</td><td>HUMAN-FACING</td></tr>
+    <tr><td>Worker</td><td>(none)</td><td>no</td><td>HUMAN-FACING</td></tr>
+    <tr><td>Standalone</td><td>schedule</td><td>no</td><td>HUMAN-FACING</td></tr>
+    <tr><td>Manager</td><td>schedule</td><td>no</td><td>HUMAN-FACING</td></tr>
+    <tr><td>Architect</td><td>schedule</td><td>no</td><td>HUMAN-FACING</td></tr>
+    <tr><td>Worker</td><td>schedule</td><td>no</td><td>HUMAN-FACING</td></tr>
+    <tr><td>Standalone</td><td>(none)</td><td>yes</td><td>SUPERVISED</td></tr>
+    <tr><td>Manager</td><td>(none)</td><td>yes</td><td>SUPERVISED</td></tr>
+    <tr><td>Architect</td><td>(none)</td><td>yes</td><td>SUPERVISED</td></tr>
+    <tr><td>Worker</td><td>(none)</td><td>yes</td><td>SUPERVISED</td></tr>
+    <tr><td>Standalone</td><td>schedule</td><td>yes</td><td>SUPERVISED</td></tr>
+    <tr><td>Manager</td><td>schedule</td><td>yes</td><td>SUPERVISED</td></tr>
+    <tr><td>Architect</td><td>schedule</td><td>yes</td><td>SUPERVISED</td></tr>
+    <tr><td>Worker</td><td>schedule</td><td>yes</td><td>SUPERVISED</td></tr>
+  </tbody>
+</table>
+<!-- SUPERVISION-TABLE-END -->
+</div>
+
+<p><strong>HUMAN-FACING</strong> means all three of: the row may go red and reach the owner, it counts
+in the needs-you total, and the wingman reads it aloud. <strong>SUPERVISED</strong> means it parks as
+"Snoozed" when it stops working - still fully visible and readable on every screen, just out of his
+queue - and the wingman leaves it alone. Nothing outranks WORKING: a supervised session mid-turn is
+still blue, and an exited or crashed one never hides behind a snoozed label.</p>
+
+<p>The verdict is constant down each block: every row with no live supervisor is HUMAN-FACING and
+every row with one is SUPERVISED, whatever the seat and whatever started it.</p>
+
+<h3>Attention routing</h3>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>Live supervisor</th><th>Signal</th><th>Layer</th><th>Who sees it</th></tr></thead>
+  <tbody>
+    <tr><td>No (never had one)</td><td>Waiting / needs-perm</td><td>global colour (fold)</td><td>human, red allowed</td></tr>
+    <tr><td>No (supervisor died)</td><td>Waiting / needs-perm</td><td>global colour (fold)</td><td>human, red allowed - the orphan escape hatch</td></tr>
+    <tr><td>No (scheduled run)</td><td>Waiting / needs-perm</td><td>global colour (fold)</td><td>human, red allowed (owner, 13 September 2026: let them go red)</td></tr>
+    <tr><td>Yes</td><td>Waiting / blocked</td><td>global colour (fold)</td><td>everyone: quiet, red suppressed</td></tr>
+    <tr><td>Yes</td><td>Waiting OR NeedsManager</td><td>supervisor-facing highlight</td><td>ONLY its supervisor, never the human</td></tr>
+    <tr><td>Any</td><td>Working</td><td>-</td><td>everyone: blue. Nothing outranks working.</td></tr>
+    <tr><td>Any</td><td>Exited / Crashed</td><td>global colour (fold)</td><td>human. Never hidden behind a snoozed label.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>The seat does not appear in this table any more, and that is the change.</p>
+
+<h3>Two layers of attention - do not conflate them</h3>
+
+<p><span class="file">EffectiveColor</span> is ONE value per session, shown to ALL viewers. So "a
+worker glows toward ITS supervisor" - which only that supervisor should see - cannot live in
+<span class="file">EffectiveColor</span>. Attention splits into two layers:</p>
+
+<ol>
+  <li><strong>Global, human-facing</strong> - the colour, label and triage bucket, owned by the single
+  Gateway fold. One value everyone sees. This is where "supervised sessions do not nag the human" is
+  enforced.</li>
+  <li><strong>Viewer-relative, supervisor-facing</strong> - a "this session wants me" highlight,
+  computed locally by each client from the facts the fold exposes, shown only to the viewer who IS
+  that session's supervisor.</li>
+</ol>
+
+<div class="callout warn">
+  <p style="margin-bottom:0"><strong>STILL NOT BUILT, and this document should not be read as claiming
+  otherwise:</strong> no client draws the viewer-relative highlight. No client knows its own session
+  id, so none can ask "am I this row's supervisor?". The supervisor-facing surface that WAS built for
+  issue #2662 is the command line - <span class="file">cc-devthrottle session workers</span> - which is
+  where supervisors actually live on this fleet. A rail highlight remains open.</p>
+</div>
+
+<h3>A supervised session is not the owner's to be read aloud</h3>
+
+<p>The wingman does not enrol a supervised session into voice mode, and it also switches one back off.
+Both passes exist. The rule had to RESOLVE the seats itself rather than read the field, because the
+push store nulls the resolved seat at ingest - a check that merely read it would answer "not
+supervised" for every session on the fleet and narrate exactly as before, which would have read as
+"the change had no effect" on precisely the fleet that prompted it.</p>
+
+<p>The off-direction is deliberately NOT gated on the fleet voice switch. That switch answers "does
+this tenant want voice?"; this answers "is this session the owner's to be read?" - and a supervised
+session is not his to be read whether the switch is on or off. Gating it would leave a tenant who had
+since turned voice mode off with a set of marked sessions that nothing ever clears.</p>
+
+<div class="callout">
+  <p style="margin-bottom:0"><strong>The one accepted cost, named rather than discovered.</strong> The
+  sweep's on-direction is deliberately one-way so it never fights somebody who put ONE session on voice
+  by hand. The off-direction DOES fight that person, in exactly one case: they put voice on a supervised
+  session deliberately and this turns it back off. Accepted - being able to hand-mark a session into a
+  state the rule forbids is not a capability worth preserving. It touches nothing else: a Manager or a
+  Standalone marked for voice is never in that list.</p>
+</div>
+
+<h3>A handover is a PEER, and never inherits a supervisor</h3>
+
+<p>The handover and move-session path does not go through spawn and never sets a supervisor. Its target
+is a CONTINUATION of the source - a peer, not a subordinate - so if it were auto-supervised the moved
+session's red would be suppressed toward the user and he would lose sight of work he is still holding.
+The source session is deliberately not recorded as the parent either: lineage means "who asked for
+this", and nobody asked for a handover target; the work simply moved.</p>
+
+<h3>An orphan escalates with an EXPLANATION, and is never reassigned</h3>
+
+<p>A session whose supervisor died is nobody's, so it reaches the user - that is the escape hatch, and
+it falls out of the rule rather than being a special case. Two details survive from the 9 July 2026
+ruling and still bind:</p>
+
+<ul>
+  <li><strong>It surfaces with a clear explanation, not just a red dot:</strong> the supervisor it was
+  working for is gone, here is the task, here is where it is stuck. The user then decides - resume,
+  reassign, hand off, or stop. The owner's standing rule for exceptions is that an exception always
+  involves him.</li>
+  <li><strong>It is NEVER auto-reassigned to another supervisor</strong> (the owner's veto of the
+  reassign-to-a-hub-manager proposal). That would mask the problem and need always-on machinery to do
+  it. A session that finished cleanly needs no escalation at all; it is the BLOCKED orphan that has to
+  reach somebody.</li>
+</ul>
+
+<p>The design goal that minimises the whole case: a supervisor shutting down CLEANLY deals with what it
+owns first - finish, hand off, or stop - so orphaning only ever comes from a true crash.</p>
+
+<h3>Permissions are the user's choice, per session</h3>
+
+<p>DECIDED (owner, 9 July 2026): permission and safety posture is the user's call, for every seat
+including Worker. The framework does NOT force, gate, or nag about it. We are not a seatbelt chime.</p>
+
+<h2>5. Why this keeps happening</h2>
 
 <div class="callout warn">
 <p class="big">The failure mode was never "renders wrong". It was <strong>renders plausible</strong>.</p>
@@ -109,7 +718,7 @@ look like the system working.</p>
 error handling was rigorous exactly where it did not matter, and absent in the case that actually happened.
 <strong>Rigour pointed at the wrong place reads as rigour.</strong></p>
 <p><strong>So the defence cannot be care, seniority, or review</strong> - all three were present for every
-failure above. It has to be mechanical, and it is: <a href="#">the five checks in section 8</a>, which are the
+failure above. It has to be mechanical, and it is: <a href="#">the five checks in section 12</a>, which are the
 only things that have ever caught one of these.</p>
 </div>
 
@@ -193,7 +802,7 @@ outright, and every reference to them in the code, the tests, and the overnight 
 instead. An agent looking for "how does state work" finds exactly one answer, which is the entire
 point.</p>
 <p><strong>And this document does not carry a date in its filename</strong>, because that is what made
-each of its predecessors look disposable. See section 8.</p>
+each of its predecessors look disposable. See section 12.</p>
 </div>
 
 <h3>Finding 3: the same question is answered in about fourteen places</h3>
@@ -213,7 +822,7 @@ each of its predecessors look disposable. See section 8.</p>
 
 <p><strong>The law, stated plainly:</strong> the client is dumb. Every verdict - colour, label, triage, and now the voice-mode display state (badge, message, and which actions are offered) - is computed once on the Gateway and pushed; clients only render it. A client that rules for itself renders something <em>plausible</em> when it should render something <em>true</em>, which is precisely how the Voice screen offered a button that could never work. Add a new state in the fold, never as a fresh branch in a view.</p>
 
-<h2>2. The machine</h2>
+<h2>6. The machine</h2>
 
 <p>Three layers. Each has exactly one job. The whole design is that no layer does another layer's job.</p>
 
@@ -371,7 +980,7 @@ Gateway runs it in one pass after the whole fleet is assembled, because deciding
 Worker needs the whole fleet, not one Director.</p>
 
 <p><strong>The ladder is stated ONCE, in
-<a href="#">&ldquo;Every state, listed&rdquo;</a> below (section 2, part 4).</strong> It is deliberately not
+<a href="#">&ldquo;Every state, listed&rdquo;</a> below (section 6, part 4).</strong> It is deliberately not
 repeated here.</p>
 
 <div class="callout warn">
@@ -520,7 +1129,7 @@ screen. This is the full ladder, in order. Read the divider as the whole design.
 <tr><td colspan="4" style="background:var(--panel);text-align:center;font-weight:600">&darr; Everything below applies ONLY to a session that is NOT working &darr;</td></tr>
 <tr><td>1</td><td><span class="dot d-grey"></span>Grey</td><td>Snoozed</td><td>Parked by you or the agent, and the timer has not expired.</td></tr>
 <tr><td>2</td><td><span class="dot d-orange"></span>Orange</td><td>Uploading from phone / Transcribing</td><td>A dictated utterance is uploading or being transcribed. Do not let anyone else type into it.</td></tr>
-<tr><td>3</td><td><span class="dot d-slate"></span>Slate</td><td>Snoozed</td><td><strong>SUPERVISED and stopped</strong> - it answers to another session (a live supervisor) or to a schedule, so when it stops there is nobody it can ask but the person it does not report to. It keeps its row on every screen and sinks into the parked bucket. Owner's ruling, 2026-09-02: "supervised still show up in Director and Cockpit, session should go to onhold when not working". <em>Was order 8, fired only for a Worker, and only recoloured - it did not park. It sits here rather than below the yellows so a supervised session can never read "Wingman reading" or "Preparing voice" at you.</em> <strong>An ARCHITECT A PERSON STARTED is NOT one of these.</strong> The role was in this arm from 3 to 6 September 2026; the owner took it back out - <em>"parking the architect seat is wrong. the architect is always the session i talk to"</em> - so this arm no longer parks it and it reaches him like a Manager does. It is not a claim that such a row is always red: every arm above still applies to it, so it can legitimately read snoozed, transcribing, narrating, exited or crashed. And the SCHEDULE half of this arm still catches it - an Architect a cron fired is supervised, because nobody was at a keyboard. The written rule and the code are now machine-checked against each other by the supervision table in <span class="file">docs/new_architecture/session-roles-semantics.md</span>.</td></tr>
+<tr><td>3</td><td><span class="dot d-slate"></span>Slate</td><td>Snoozed</td><td><strong>SUPERVISED and stopped</strong> - something alive is holding it, so when it stops it reports THERE rather than to the owner. It keeps its row on every screen and sinks into the parked bucket. Owner's ruling, 2026-09-02: "supervised still show up in Director and Cockpit, session should go to onhold when not working". <em>Was order 8, fired only for a Worker, and only recoloured - it did not park. It sits here rather than below the yellows so a supervised session can never read "Wingman reading" or "Preparing voice" at you.</em> <strong>NO SEAT AND NO ORIGIN IS IN THIS ARM ANY MORE - corrected 14 September 2026, and this row was STALE.</strong> It read "another session (a live supervisor) OR a schedule", and it named the Architect twice: out of the arm by seat, back into it by cron. All of that was overtaken on 13 September 2026, when the rule became one question - <code>IsSupervised =&gt; HasLiveSupervisor</code> - with no seat and no origin in it. A scheduled run has no supervisor, so it is NOT in this arm: it goes red like anything else nobody is holding. An Architect is in this arm when something alive holds it and not otherwise, exactly like every other seat. <em>Why this row was wrong for a day: the September 13 change updated the rule, the code and the roles document, and did not reach the ladder - two files, one rule, which is the drift section 12 exists to prevent, committed by the very change that closed the same drift elsewhere.</em> It is not a claim that a supervised row is always red or always parked: every arm above still applies, so it can legitimately read snoozed, transcribing, narrating, exited or crashed. The written rule and the code are machine-checked against each other by the supervision table in <a href="#supervision-table">section 4 of this document</a>.</td></tr>
 <tr><td>4</td><td><span class="dot d-orange"></span>Orange</td><td>Explaining</td><td>A deep dive you asked for is running. (Currently unreachable - defect 11.)</td></tr>
 <tr><td>5</td><td><span class="dot d-yellow"></span>Yellow</td><td>Wingman reading</td><td>The wingman is reading the finished turn. We do not yet know if it needs you.</td></tr>
 <tr><td>6</td><td><span class="dot d-yellow"></span>Yellow</td><td>Preparing voice</td><td>A voice-mode session is generating its spoken summary.</td></tr>
@@ -678,7 +1287,7 @@ therefore "never wedges". Both are half-true: the marker does clear on delivery,
 <em>normal</em> path never wedges - but neither comment mentions the paths that reach no terminal state
 at all, which is the entire defect. A reader who trusts them concludes there is no bug. A reader who
 believes the first draft concludes orange must persist until an acknowledgement that is not actually
-required. Both readers are wrong, in opposite directions. This is finding 3 of section 1 repeating
+required. Both readers are wrong, in opposite directions. This is finding 3 of section 5 repeating
 itself in miniature: <strong>the comments are the bug's delivery mechanism.</strong></p>
 </div>
 
@@ -808,7 +1417,7 @@ shipped this morning.</p>
 </table>
 </div>
 
-<h2>3. Who owns which fact</h2>
+<h2>7. Who owns which fact</h2>
 
 <p>"Which component is authoritative?" has no single answer, and that ambiguity is what made this hard. The
 split is per fact, not per component.</p>
@@ -825,7 +1434,7 @@ split is per fact, not per component.</p>
 the first fact and a consumer of the other two, at the same time.</strong> It cannot compute its own role
 or its own hold expiry, so it cannot compute its own colour. It must ask.</p>
 
-<h2>4. Every place that disagrees today</h2>
+<h2>8. Every place that disagrees today</h2>
 
 <p>All verified against origin/main. This is the list that has to go to zero.</p>
 
@@ -836,7 +1445,7 @@ or its own hold expiry, so it cannot compute its own colour. It must ask.</p>
 <tr><td>1</td><td><span class="good">FIXED 14 July 2026.</span> A controlled session that is working read grey "Sub-agent" while 23 minutes and 56 thousand tokens into real work. Also fixed in the same pass: a <em>snoozed</em> session that woke and started working stayed grey and sank to the parked bucket, and a working session with dictation in flight painted orange.</td><td><span class="file">SessionOrdering.cs:129</span> - <code>if (controlled &amp;&amp; !isRed) return "supporting";</code>. The specification's order 5 beating order 7. The rule is deleted and <code>EffectiveColor</code> now answers the working question first; a theory test asserts blue against every overlay that ever outranked it.</td></tr>
 <tr><td>2</td><td>A snoozed session shows a grey "Snoozed" row underneath a header reading "1 need you".</td><td><span class="file">MainWindow.axaml.cs:3814</span> counts raw red with no hold check, no role check, no overlays.</td></tr>
 <tr><td>3</td><td>A snoozed session still pops the "Claude is waiting on your answer" card.</td><td><span class="file">CleanView.axaml.cs:258</span> reads raw status colour. Never heard of hold.</td></tr>
-<tr><td>4</td><td><span class="good">FIXED - and this document was WRONG about it.</span> A crashed session used to look identical to an exited one: when the rail joined the shared fold (#1537) it inherited a fold that could never return <code>"error"</code>. Fixed by #1562, which merged <strong>before this mission began</strong> - yet this document went on calling it open in four places, including the claim that <span class="file">SessionViewModel.cs:158</span> "still has the deep-red brush. Nothing can select it." <strong>That claim was false when it was written.</strong> Verified against this branch, end to end: <span class="file">SessionDto.cs:141</span> carries <code>Crashed</code>; <span class="file">ControlEndpoints.cs:1191</span> maps it; <span class="file">SessionOrdering.cs:203</span> folds <code>"Exited" =&gt; s.Crashed ? "error" : "grey"</code> and <span class="file">:244</span> labels it "Crashed"; <span class="file">ordering.ts:125</span> renders <code>#B91C1C</code>; and the desktop's <span class="file">SessionViewModel.cs:141</span> folds through the SAME <code>ControlEndpoints.Map</code>, so <span class="file">:158</span>'s <code>"error" =&gt; ErrorStatusBrush</code> is selectable on the rail too. <em>The lesson is section 8's: a document that is not updated in the same pull request as the code starts lying within hours - and it lies in BOTH directions. Here it under-claimed, inventing an open defect that a reader could have "fixed" by re-implementing a fix that already shipped.</em></td></tr>
+<tr><td>4</td><td><span class="good">FIXED - and this document was WRONG about it.</span> A crashed session used to look identical to an exited one: when the rail joined the shared fold (#1537) it inherited a fold that could never return <code>"error"</code>. Fixed by #1562, which merged <strong>before this mission began</strong> - yet this document went on calling it open in four places, including the claim that <span class="file">SessionViewModel.cs:158</span> "still has the deep-red brush. Nothing can select it." <strong>That claim was false when it was written.</strong> Verified against this branch, end to end: <span class="file">SessionDto.cs:141</span> carries <code>Crashed</code>; <span class="file">ControlEndpoints.cs:1191</span> maps it; <span class="file">SessionOrdering.cs:203</span> folds <code>"Exited" =&gt; s.Crashed ? "error" : "grey"</code> and <span class="file">:244</span> labels it "Crashed"; <span class="file">ordering.ts:125</span> renders <code>#B91C1C</code>; and the desktop's <span class="file">SessionViewModel.cs:141</span> folds through the SAME <code>ControlEndpoints.Map</code>, so <span class="file">:158</span>'s <code>"error" =&gt; ErrorStatusBrush</code> is selectable on the rail too. <em>The lesson is section 12's: a document that is not updated in the same pull request as the code starts lying within hours - and it lies in BOTH directions. Here it under-claimed, inventing an open defect that a reader could have "fixed" by re-implementing a fix that already shipped.</em></td></tr>
 <tr><td>5</td><td>A live Worker shows slate "Sub-agent" on your phone and red "Needs you" on your desktop, at the same instant.</td><td><span class="file">ControlEndpoints.Map</span> never sets <code>SessionRole</code> (it is computed at the Gateway). The desktop's red-suppression gates on that field, so on the desktop it can never fire. Marked in the code as "Known gap (Phase 2b)".</td></tr>
 <tr><td>6</td><td>The same session shows a different colour on the Exes page than on every other screen.</td><td><span class="file">ExesEndpoints.cs:89</span> calls the fold without the fleet pass - no role, no snooze expiry, no voice or transcribing enrichment.</td></tr>
 <tr><td>7</td><td>In the Director detail table, the dot and the State cell beside it disagree.</td><td><span class="file">DirectorDetailView.tsx:185</span> uses the Gateway's answer; <span class="file">:195</span> ignores it and re-derives. Same row, two authorities.</td></tr>
@@ -924,7 +1533,7 @@ of them is on origin/main right now.</p>
 <li><strong>The specification itself is the biggest trap of all</strong> - it is wrong about blue and wrong about red, and it is the first thing any agent reads. See findings 1 and 1b.</li>
 <li><strong>Five comments</strong> name <code>SessionStatusWingman.ColorFor</code> as the source of truth. That method was renamed in phase 2.3 and <strong>does not exist</strong>.</li>
 <li><strong>Four comments</strong> describe green, yellow, purple, orange, and slate as colours "the wingman writes onto each Session". It has not since phase 2.3. It emits only blue, red, and unknown.</li>
-<li>The fold claims the Gateway "reads the Director's cooked StatusColor for NOTHING". <strong>Half true</strong> - the fold is clean, but the pipeline feeding it still gates a stamp on <code>StatusColor == "red"</code>. <strong>This half-truth was load-bearing:</strong> section 5's item 5 believed the tidy half and told the next agent to delete a producer with five live consumers. The same sentence is repeated as fact at <span class="file">SessionOrdering.cs:129-130</span>, <span class="file">SessionDto.cs:341</span> and - freshly, by this mission - <span class="file">Session.cs:1281-1283</span>. <span class="good">The pipeline gate is fixed (14 July 2026)</span>, so the claim is now TRUE of the Gateway; the comments are corrected to say why rather than merely asserting it.</li>
+<li>The fold claims the Gateway "reads the Director's cooked StatusColor for NOTHING". <strong>Half true</strong> - the fold is clean, but the pipeline feeding it still gates a stamp on <code>StatusColor == "red"</code>. <strong>This half-truth was load-bearing:</strong> section 9's item 5 believed the tidy half and told the next agent to delete a producer with five live consumers. The same sentence is repeated as fact at <span class="file">SessionOrdering.cs:129-130</span>, <span class="file">SessionDto.cs:341</span> and - freshly, by this mission - <span class="file">Session.cs:1281-1283</span>. <span class="good">The pipeline gate is fixed (14 July 2026)</span>, so the claim is now TRUE of the Gateway; the comments are corrected to say why rather than merely asserting it.</li>
 <li>A dead copy of the voice rule (<code>VoiceColorFor</code>) <strong>still carries the bug the Gateway fixed</strong> - the one that wedged a session orange forever when text-to-speech failed - and its comment claims the Gateway "applies the same rule". It does not.</li>
 <li><code>SessionStatusWingman</code> and <code>Session.cs</code> both claim to be the "single writer" of the status colour. <strong>TWO other paths write it</strong> - <span class="file">Session.cs:2437</span> (the crash edge) and <span class="file">TransientErrorAutoResume.cs:244</span> (auto-resume gave up). <em>This document said THREE. It counted against origin/main and the branch moved: the third was <code>MarkForDeletion</code>'s <code>SetStatusColor(Unknown, ...)</code>, deleted by defect 23 earlier in this same mission. A count is a fact with a shelf life - re-count it, do not inherit it.</em></li>
 <li>A dead desktop fold maps <code>Working</code> to <strong>green</strong> and <code>WaitingForInput</code> to <strong>amber</strong>. Unreferenced - but it is the corpse the next agent will read and copy.</li>
@@ -944,7 +1553,7 @@ of them is on origin/main right now.</p>
 <li><strong>This mission wrote a fresh lie into the code while fixing one.</strong> Defect 23's fix left <span class="file">Session.cs:1281-1283</span> asserting the deleted colour write was one <em>"nothing that paints reads anyway (the Gateway is the single fold and reads the Director's cooked StatusColor for NOTHING)"</em>. <strong>That was false when it was written</strong> - <span class="file">GatewayEndpoints.cs:718</span> read exactly that field to stamp a yellow. The half-truth four lines up in this list was propagated into a brand-new comment, where it reads as a finding rather than an inheritance. <strong>The delivery mechanism is not old comments. It is comments written by agents who trusted this document</strong> - which is why every trap here is cited by file and line, and why a fix that only deletes a stale comment without checking what is TRUE just moves the lie.</li>
 </ul>
 
-<h2>5. What has to change</h2>
+<h2>9. What has to change</h2>
 
 <h3>Done - 14 July 2026</h3>
 
@@ -971,7 +1580,7 @@ render the Gateway's stamped answer. <span class="file">packages/client-core/src
 
 <h3>Still to do</h3>
 
-<p>Every item below is DECIDED - the rulings are in section 7 and are not to be re-opened. What remains
+<p>Every item below is DECIDED - the rulings are in section 11 and are not to be re-opened. What remains
 is implementation.</p>
 
 <div class="callout ok">
@@ -1015,7 +1624,7 @@ the function they both call.</strong> Two obvious wrong diagnoses were entertain
 disproven: it was NOT a stale desktop build, and it was NOT a surviving local fold in the Avalonia app
 (there are still zero). Defended by <span class="file">DisplayPushVoiceEnrichmentTests</span>.</p>
 <p><strong class="good">Shipped alongside it: the gateway-offline floor</strong> - see the callout in
-section 2, layer 3. Same pull request, opposite direction: #1843's first half made the desktop's
+section 6, layer 3. Same pull request, opposite direction: #1843's first half made the desktop's
 <em>online</em> answer identical to the browsers', and its second half gave the desktop an honest
 <em>offline</em> answer instead of a frozen stale one.</p>
 <p><strong>The voice window, MEASURED rather than asserted - 19 July 2026.</strong> The Gateway was sampled
@@ -1042,7 +1651,7 @@ alone would have shown red for 55 seconds in the middle of preparing the voice.<
 <p><strong>The fourth is TRANSIENT and the first three are STRUCTURAL</strong> - the distinction matters and must not be smoothed over: <span class="file">SnoozeExpirySweep</span> nudges a live Director off hold within its 15-second interval, so the snooze row heals itself; nothing ever heals the other three.</p>
 <p><strong>THE LAW ALREADY CONTAINS THE DAMAGE, and this is the law paying for itself:</strong> every one of these sits BELOW blue, so none can touch a working session. A working session with all four at once is blue on every screen. The gap can only ever bite a session that has STOPPED.</p>
 <p><strong>Why nobody saw it, and it is the shape of every lie in this document:</strong> the common case agrees perfectly. A session that is merely working, or merely waiting, carries none of the four - so the rail and the phone fold identical inputs and reach identical answers, every time you look. On the live fleet at the moment it was measured, <strong>ZERO of thirteen sessions carried any of them.</strong> It is correct in the ordinary case and wrong in the one nobody looked at - the same shape as the two reds, the same shape as "it never wedges".</p>
-<p><strong class="good">THE RECOMMENDATION, and it is this document's own: section 3 already states the end-state - the desktop "cannot compute its own role or its own hold expiry, so it cannot compute its own colour. IT MUST ASK."</strong> Pushing four more fields down is treating the symptom; the disease is that the desktop folds at all. That is a scope decision, and it is the owner's - it is recorded here rather than fixed, because QA measures and does not choose.</p>
+<p><strong class="good">THE RECOMMENDATION, and it is this document's own: section 7 already states the end-state - the desktop "cannot compute its own role or its own hold expiry, so it cannot compute its own colour. IT MUST ASK."</strong> Pushing four more fields down is treating the symptom; the disease is that the desktop folds at all. That is a scope decision, and it is the owner's - it is recorded here rather than fixed, because QA measures and does not choose.</p>
 </div></li>
 <li><strong>Delete the Director's colour computation - NOT YET. This item was DESTRUCTIVE as written, and it is the most dangerous thing this document has ever said.</strong> It read: <em>"Nothing that paints reads it. It exists only to be mistaken for the answer."</em> <strong class="bad">The first sentence is FALSE.</strong> Verified 14 July 2026 by tracing the CONSUMER side rather than the call site, which is what the claim actually required:
 <ul>
@@ -1100,7 +1709,7 @@ client's throw silently becomes a swallowed one</strong> - the exact Avalonia tr
 would change. The mechanism would flip from loud to silent by an edit somewhere else entirely.</em></li>
 </ol>
 
-<h2>6. How we prove it, and why a green test is not enough</h2>
+<h2>10. How we prove it, and why a green test is not enough</h2>
 
 <p>The measurement that found this becomes the test: <strong>read the live fleet and assert that every
 session's desktop answer equals its phone answer equals its Cockpit answer.</strong> The earlier document
@@ -1182,7 +1791,7 @@ by that promise.</strong> If the comment says "over the stream, not HTTP" and th
 command", they are not the same sentence, and the gap between them is where the false red comes from.</p>
 </div>
 
-<h2>7. Decisions</h2>
+<h2>11. Decisions</h2>
 
 <h3>Answered</h3>
 
@@ -1216,16 +1825,16 @@ implements <em>this</em>, and does not re-open the question.</p>
 <h3>Still open</h3>
 
 <ol>
-<li><strong>ANSWERED, and this entry was STALE before it was answered - read the correction first.</strong> It said gray-when-controlled "is not built". It <em>was</em> built, in <code>BaseColor</code>, and had been for some time; this document simply never caught up, which is the drift its own section 8 exists to prevent. The owner then WIDENED it on 2026-09-02: the rule now covers every SUPERVISED session, not just a Worker, and it PARKS the session rather than only recolouring it. It lives at ladder order 3. <strong>And then he NARROWED it again on 2026-09-06</strong>, taking the Architect back out - the widened set was Worker + Architect + scheduled run for three days, and is Worker + scheduled run now. Recorded this way on purpose - a stale entry that gets quietly overwritten by its own answer teaches the next reader nothing, and a rule that moved twice teaches more than a rule stated once.</li>
+<li><strong>ANSWERED, and this entry was STALE before it was answered - read the correction first.</strong> It said gray-when-controlled "is not built". It <em>was</em> built, in <code>BaseColor</code>, and had been for some time; this document simply never caught up, which is the drift its own section 12 exists to prevent. The owner then WIDENED it on 2026-09-02: the rule now covers every SUPERVISED session, not just a Worker, and it PARKS the session rather than only recolouring it. It lives at ladder order 3. <strong>And then he NARROWED it again on 2026-09-06</strong>, taking the Architect back out - the widened set was Worker + Architect + scheduled run for three days, then Worker + scheduled run. <strong>And then, on 2026-09-13, the set stopped being a set of SEATS at all:</strong> the rule became <code>HasLiveSupervisor</code>, so no seat and no origin is in it, and a scheduled run - which has no supervisor - goes red. Recorded this way on purpose - a stale entry that gets quietly overwritten by its own answer teaches the next reader nothing, and a rule that moved THREE times teaches more than a rule stated once. Note the shape of the third move: the first two argued about WHICH seats belong in the set; the third answered that the question was wrong.</li>
 <li><strong>Does a controlled session whose controller has died still recede?</strong> NO, and that is deliberate - it is the escape hatch. The role resolver already answers this: a session whose supervisor has died resolves to Standalone rather than Worker, so it is not supervised, so order 3 does not fire and its red reaches the owner. This matches the owner's 2026-07-09 orphan ruling (an exception always involves the operator). What is STILL open is the second half of that ruling: the orphan surfaces as a plain red row with no explanation, where the ruling asked for "the Manager you were working for is gone; here is the task; here is where you are stuck". NOT BUILT.</li>
 <li><strong>Snoozed, exited, crashed, sub-agent: four distinct colours, or do you accept the collision?</strong> Today they are four greys and a slate, indistinguishable in a rail dot (defect 17).</li>
 </ol>
 
-<h2>8. How to keep this document true</h2>
+<h2>12. How to keep this document true</h2>
 
 <div class="callout warn">
 <p><strong>This document has no date in its filename, on purpose.</strong> It is
-<span class="file">docs/new_architecture/session-state.html</span> and it stays there. Do not write
+<span class="file">docs/new_architecture/sessions.html</span> and it stays there. Do not write
 <span class="file">session-state-2026-08-01.html</span>. Do not write "the new state architecture". Do
 not write a fresh document because this one looks out of date - <strong>update this one.</strong></p>
 <p>Every dated state document this project has produced became a competing source of truth within days,
@@ -1237,7 +1846,7 @@ been written that same afternoon. The name did that.</p>
 </div>
 
 <p>If you change a state or colour rule in code, you change it here in the same pull request. A change
-that lands in one and not the other is the whole failure mode described in section 1, and it will be
+that lands in one and not the other is the whole failure mode described in section 5, and it will be
 reverted by the next agent who reads whichever half you left behind.</p>
 
 <div class="callout warn">
@@ -1252,7 +1861,7 @@ written down as near-fact.</p>
 <p>That is the most dangerous thing anyone can do to this document, and it is worse than the bug it
 described. A cited defect is checkable. <strong>A fabricated cause is not - it reads exactly like a
 finding, it survives review because it sounds reasonable, and the next agent implements against a world
-that does not exist.</strong> Every disaster in section 1 started this way: a document asserting something
+that does not exist.</strong> Every disaster in section 5 started this way: a document asserting something
 nobody had checked.</p>
 <p><strong>Someone has now checked, and this is how the story ends - it is worth reading twice.</strong> On
 14 July 2026 the logs were correlated (2402 files, 824 upload ids). Out-of-credits had <strong>never happened
@@ -1339,7 +1948,7 @@ standing to hide its own record.</p>
 <p><strong>Errors 10 to 13 were all produced BY THIS MISSION, by the agents who wrote the rules being broken</strong> -
 and three of the four were caught only by a mechanical check, not by care:</p>
 <ul>
-<li><strong>Error 10 is species 2</strong>, from the table in section 6 that this mission wrote to name species 2.</li>
+<li><strong>Error 10 is species 2</strong>, from the table in section 10 that this mission wrote to name species 2.</li>
 <li><strong>Error 11</strong> was believed simultaneously by the Architect and the Manager, in writing, and died the
 moment one of them tried to REFUTE it rather than repeat it (check 1).</li>
 <li><strong>Error 12</strong> would have published a fabricated zero as the mission's entire outcome. It died to check 5 -

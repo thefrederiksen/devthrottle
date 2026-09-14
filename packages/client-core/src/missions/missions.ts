@@ -1,5 +1,5 @@
 // The Mission RECORDS on the Gateway - the first-class objects sessions attach to (see
-// docs/new_architecture/mission-as-first-class-unit-of-work.md). This is what makes a mission exist on a
+// docs/new_architecture/fleet.html). This is what makes a mission exist on a
 // screen INDEPENDENTLY of whether any session happens to be attached to it right now: a mission the owner
 // created and has not staffed yet is still a mission, and it has to be visible or there is nowhere to drop
 // a session onto.
