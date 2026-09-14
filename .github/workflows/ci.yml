@@ -31,7 +31,7 @@ on:
 #
 # That was not a cosmetic loss. Two architecture guards were red on main that morning, and the commit
 # that fixed them (#2424) had its own run evicted, so nothing on GitHub ever reported either the break
-# or the repair. Continuous integration is also the backstop for the two suites parked out of the local
+# or the repair. Continuous integration is also the backstop for the three suites parked out of the local
 # gate, and a backstop that is evicted before it starts is not a backstop.
 #
 # Keying the group on the commit removes main from the shared queue entirely: every merge gets a run

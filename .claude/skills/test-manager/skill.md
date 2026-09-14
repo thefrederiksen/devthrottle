@@ -178,7 +178,7 @@ the exact commit about to be tagged:
     dotnet test tools/cc-director-setup.Tests/ -c Release
     dotnet test tools/cc-director-setup-engine.Tests/ -c Release
 
-`-Parked` adds the two skipped suites. `-Configuration Release` matches what users download,
+`-Parked` adds the three skipped suites. `-Configuration Release` matches what users download,
 because this script defaults to Debug while the continuous integration job it replaced ran Release.
 The two installer projects are outside `cc-director.sln` and this script therefore never runs them,
 while the release ships `cc-director-setup.exe` - folding them into `-Parked` is the follow-up that
