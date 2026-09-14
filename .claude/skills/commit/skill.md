@@ -139,8 +139,11 @@ commit (Step 4), drive it home:
    faster when the suite improves.
 
    KNOW WHAT THE DEFAULT RUN DOES NOT COVER. It runs the suites that fit the two-minute budget,
-   roughly 3400 tests. It does NOT run the two parked suites - Gateway.Tests (host-bound, takes a
-   machine-wide lock) and Core.Tests - which need -Parked. It runs NO web tests and NO Python
+   1,634 tests as measured on 2026-09-13. It does NOT run the three parked suites - Gateway.Tests
+   (host-bound, takes a machine-wide lock), Core.Tests, and Gateway.UnitTests (parked 2026-09-13 for
+   outgrowing the ceiling, issue #2824) - which need -Parked. The last of those is the one most
+   likely to catch you out: a green default run no longer says anything about the Gateway's unit
+   tests. It runs NO web tests and NO Python
    tests. And -Fast is a NO-OP retained for old callers; the default is already the fast run, so
    passing it gates nothing and must never be cited as though it did.
 
@@ -158,7 +161,7 @@ commit (Step 4), drive it home:
    to pay the fifty minutes again.
 
    Do NOT justify this by telling yourself the job runs the same tests you just ran. It does not
-   run the same tests as your DEFAULT local run, which omits the two parked suites and never
+   run the same tests as your DEFAULT local run, which omits the three parked suites and never
    touches the two installer projects. That coverage is reachable locally and on purpose -
    `-Parked` for the suites, and the two explicit `dotnet test tools/cc-director-setup*.Tests`
    commands - which is what the release gate uses.

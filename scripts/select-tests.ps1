@@ -4,7 +4,7 @@
     Decide WHICH test suites a change actually needs, from the files it touched.
 
 .DESCRIPTION
-    The gate runs about 3400 tests in eighty seconds, and two suites are parked because they cannot
+    The gate runs 1,634 tests in about three minutes, and three suites are parked because they cannot
     meet that budget - so most of the time they run for nobody. Selection is how the parked coverage
     comes back: a change that touches the Gateway's host-bound surface picks up the host-bound suite
     automatically, whether or not anyone remembered to pass -Parked, while a change to the phone app

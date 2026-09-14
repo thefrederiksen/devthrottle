@@ -23,8 +23,8 @@
     default run because they are fast and because the thing they cover - the first screen a new user
     ever sees - was running nowhere locally at all.
 
-    WHAT THE DEFAULT NO LONGER RUNS - AND THIS IS DELIBERATE, NOT AN OVERSIGHT. Two suites are PARKED
-    behind -Parked because neither can meet the budget:
+    WHAT THE DEFAULT NO LONGER RUNS - AND THIS IS DELIBERATE, NOT AN OVERSIGHT. Three suites are PARKED
+    behind -Parked because none can meet the budget:
 
       CcDirector.Gateway.Tests   - serializes machine-wide (GatewayTestSuiteLock), so its cost is not its
                                    own runtime but the QUEUE behind every other working tree on the
@@ -36,7 +36,7 @@
       CcDirector.Core.Tests      - 11 minutes on a quiet machine and 33 with the fleet busy. Nothing is
                                    wrong with it; it is simply far outside the budget.
 
-    THE TRADE, STATED PLAINLY SO NOBODY DISCOVERS IT THE HARD WAY: those two suites hold real coverage,
+    THE TRADE, STATED PLAINLY SO NOBODY DISCOVERS IT THE HARD WAY: those three suites hold real coverage,
     including the Gateway's host-bound endpoint, tenancy and boundary tests. Parked means a regression in
     them can reach main without a local red. That is a deliberate, temporary choice to fix the speed
     problem first - a gate so slow that a day of work becomes a day of waiting is not protecting anything,
@@ -64,8 +64,8 @@
     Run ONLY the parked Gateway suite (host-bound, machine-wide lock). Expect a queue.
 
 .PARAMETER Parked
-    Also run the two parked suites - Gateway.Tests and Core.Tests. This is the RELEASE gate. Expect tens
-    of minutes, most of it queueing for the Gateway lock.
+    Also run the three parked suites - Gateway.Tests, Core.Tests and Gateway.UnitTests. This is the
+    RELEASE gate. Expect tens of minutes, most of it queueing for the Gateway lock.
 
 .PARAMETER Fast
     Retained for callers that pass it. The default IS fast now, so this is a no-op.
@@ -149,8 +149,8 @@ $installerProjects = @(
 
 # PARKED. Not deleted, not broken - excluded from the default because they cannot meet the budget.
 # Gateway.Tests costs a machine-wide QUEUE (45-minute waits that ran nothing); Core.Tests costs 11 to 33
-# minutes of its own. Run them with -Parked before a release, and move either back into the list above
-# the day it fits.
+# minutes of its own; Gateway.UnitTests grew past the ceiling (see its block below). Run them with
+# -Parked before a release, and move any of them back into the list above the day it fits.
 $gatewayProject = "src\CcDirector.Gateway.Tests\CcDirector.Gateway.Tests.csproj"
 $parkedProjects = @(
     $gatewayProject,
@@ -324,7 +324,7 @@ Write-Host ""
 Write-Host "TRX files: $logDir"
 Write-Host ""
 
-# COVERAGE WARNING. The default run is fast because two suites are parked - but "parked" must never
+# COVERAGE WARNING. The default run is fast because three suites are parked - but "parked" must never
 # quietly mean "this change was never tested". select-tests.ps1 works out, from the reference graph,
 # which suites this change could actually affect; if a PARKED one is in that set, say so loudly.
 #
