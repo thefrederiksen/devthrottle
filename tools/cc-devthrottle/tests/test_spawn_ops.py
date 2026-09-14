@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import typer
 from typer.testing import CliRunner
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -54,6 +55,7 @@ def _spawn(
     cc_session=None,
     controlled_by=None,
     standalone=False,
+    why=None,
     role=None,
     mission=None,
     roster=None,
@@ -80,6 +82,7 @@ def _spawn(
         controlled_by=controlled_by,
         args=None,
         standalone=standalone,
+        why=why,
         role=role,
         mission=mission,
     )
@@ -106,7 +109,10 @@ def test_a_session_spawn_that_declares_no_owner_is_refused(monkeypatch, captured
     assert "controlled-by self" in result.output
     assert "--standalone" in result.output
     # And nothing was sent: a refusal that still spawned would be the worst of both.
-    assert "controllerSessionId" not in captured
+    # SAID OUT LOUD, not left absent (issue #2838). Omitting the field used to mean BOTH "the user's"
+    # and "nobody said", and the Gateway cannot tell those apart - so a deliberate opt-out now states
+    # itself on the wire and an agent that sends nothing is refused there too.
+    assert captured == {}, "a refused spawn must not reach the Gateway"
     assert "_path" not in captured
 
 
@@ -121,14 +127,20 @@ def test_a_human_spawn_declares_nothing_and_is_not_refused(monkeypatch, captured
 def test_standalone_forces_no_controller_even_inside_a_session(monkeypatch, captured):
     # --standalone declares the USER as the owner: no controller, so it goes red and asks him when it
     # stops. This is a session breaking free of whoever started it, which has to stay possible.
-    _spawn(monkeypatch, cc_session="sess-A", standalone=True)
-    assert "controllerSessionId" not in captured
+    _spawn(monkeypatch, cc_session="sess-A", standalone=True, why="the owner asked me to open this for him")
+    # SAID OUT LOUD, not left absent (issue #2838). Omitting the field used to mean BOTH "the
+    # user's" and "nobody said", and the Gateway cannot tell those apart - so a deliberate opt-out
+    # now states itself on the wire.
+    assert captured["controllerSessionId"] == "none"
 
 
 def test_controlled_by_none_forces_no_controller(monkeypatch, captured):
     # Guard 1 alias: --controlled-by none is the same opt-out as --standalone.
-    _spawn(monkeypatch, cc_session="sess-A", controlled_by="none")
-    assert "controllerSessionId" not in captured
+    _spawn(monkeypatch, cc_session="sess-A", controlled_by="none", why="the owner asked me to open this for him")
+    # SAID OUT LOUD, not left absent (issue #2838). Omitting the field used to mean BOTH "the
+    # user's" and "nobody said", and the Gateway cannot tell those apart - so a deliberate opt-out
+    # now states itself on the wire.
+    assert captured["controllerSessionId"] == "none"
 
 
 def test_explicit_controlled_by_id_wins(monkeypatch, captured):
@@ -193,8 +205,11 @@ def test_standalone_keeps_the_lineage_even_though_it_drops_the_controller(monkey
     # The case that separates lineage from supervision. --standalone deliberately creates a
     # human-facing PEER with no controller, so nothing about the running session says an agent
     # made it. It is still an agent-started session, and that is exactly what is being counted.
-    _spawn(monkeypatch, cc_session="sess-A", standalone=True)
-    assert "controllerSessionId" not in captured
+    _spawn(monkeypatch, cc_session="sess-A", standalone=True, why="the owner asked me to open this for him")
+    # SAID OUT LOUD, not left absent (issue #2838). Omitting the field used to mean BOTH "the
+    # user's" and "nobody said", and the Gateway cannot tell those apart - so a deliberate opt-out
+    # now states itself on the wire.
+    assert captured["controllerSessionId"] == "none"
     assert captured.get("origin") == "agent"
     assert captured.get("parentSessionId") == "sess-A"
 
@@ -359,7 +374,7 @@ def test_a_spawn_with_no_controller_inherits_nothing(monkeypatch, captured):
 def test_standalone_inherits_nothing_because_it_has_no_controller(monkeypatch, captured):
     # --standalone drops the controller, and inheritance follows the controller. A deliberate peer
     # is not silently folded into the mission of the session that happened to start it.
-    _spawn(monkeypatch, cc_session="sess-A", standalone=True, roster=[MANAGER_ON_A_MISSION])
+    _spawn(monkeypatch, cc_session="sess-A", standalone=True, why="the owner asked me to open this for him", roster=[MANAGER_ON_A_MISSION])
     assert "missionId" not in captured
 
 
@@ -425,3 +440,25 @@ def test_an_unreadable_roster_is_reported_and_the_spawn_still_opens(
     out = plain(capsys.readouterr().out)
     assert "no mission" in out
     assert "Opened" in out   # the control: the spawn itself still happened
+
+
+def test_standalone_from_inside_a_session_REFUSES_without_a_reason(monkeypatch, captured):
+    """Handing work to the USER is a deliberate act, so it has to say why (issue #2838).
+
+    --standalone and --controlled-by self cost the same to type, and on 14 September three of thirteen
+    agent-started sessions had chosen --standalone - two of them then sat red at the owner. This does not
+    forbid the choice; it makes an agent that cannot justify it collect its own work.
+    """
+    with pytest.raises(typer.Exit):
+        _spawn(monkeypatch, cc_session="sess-A", standalone=True)
+    assert captured == {}, "a refused spawn must not reach the Gateway"
+
+
+def test_a_person_spawning_standalone_is_never_asked_for_a_reason(monkeypatch, captured):
+    """No CC_SESSION_ID means a person is spawning, and a session a person opens is the user's already.
+
+    There is no second candidate to tell it apart from, so there is nothing to state and asking would be
+    ceremony. The requirement lands exactly where the ambiguity is.
+    """
+    _spawn(monkeypatch, cc_session=None, standalone=True)
+    assert "controllerSessionId" not in captured

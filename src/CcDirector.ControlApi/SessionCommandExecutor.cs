@@ -900,12 +900,24 @@ internal static class SessionCommandExecutor
         var explicitName = req.Name;
         var purpose = req.Purpose;
 
-        // Issue #815: a controlled "Supporting" sub-agent carries the spawning session's id (set only at
-        // birth). An absent/unparseable value leaves it a normal (uncontrolled) session.
+        // WHO OWNS THIS SESSION (issue #815 for the field, #2838 for the refusal). A controlled sub-agent
+        // carries its owner's session id, set only at birth. An ABSENT value means the user owns it - and
+        // the Gateway has already refused an agent-initiated spawn that never said so, which is where that
+        // requirement belongs, because only the Gateway can see the verified credential.
+        //
+        // AN UNPARSEABLE VALUE IS REFUSED HERE, NOT DROPPED, and the change is small but it is the whole
+        // defect: this used to fall through to null, so a caller that DECLARED ownership and mistyped the
+        // id got an unowned session and no error - the one outcome declaring ownership exists to prevent.
+        // Silently discarding a stated intention is the dead `--type` flag again.
         Guid? controllerSessionId = null;
-        if (!string.IsNullOrWhiteSpace(req.ControllerSessionId)
-            && Guid.TryParse(req.ControllerSessionId, out var parsedControllerId))
+        if (!string.IsNullOrWhiteSpace(req.ControllerSessionId))
+        {
+            if (!Guid.TryParse(req.ControllerSessionId, out var parsedControllerId))
+                return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest,
+                    $"controllerSessionId '{req.ControllerSessionId}' is not a session id. It names the " +
+                    "session that will OWN this one; omit it entirely if the user owns it.");
             controllerSessionId = parsedControllerId;
+        }
 
         Session session;
         try

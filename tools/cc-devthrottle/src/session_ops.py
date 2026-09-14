@@ -1136,6 +1136,7 @@ def spawn_session(
     controlled_by: Optional[str] = None,
     args: Optional[str] = None,
     standalone: bool = False,
+    why: Optional[str] = None,
     role: Optional[str] = None,
     machine: Optional[str] = None,
     mission: Optional[str] = None,
@@ -1206,6 +1207,33 @@ variable being set.
         )
         raise typer.Exit(1)
 
+    # HANDING WORK TO THE USER IS A DELIBERATE ACT, SO IT STATES A REASON (owner's ruling, 2026-09-14).
+    # --standalone and --controlled-by self cost the same to type, and on 14 September three of thirteen
+    # agent-started sessions had chosen --standalone - two of them then sat red at the owner. Requiring a
+    # reason does not forbid the choice; it makes an agent that cannot justify it collect its own work.
+    #
+    # THE REASON IS NOT YET CARRIED ON THE WIRE, and saying so is better than implying otherwise: there is
+    # no field for it on the create, so it is printed here and lands in the SPAWNING session's transcript,
+    # which is searchable and durable. A field on the session is the right home and is not built.
+    if cc_session and opt_out and not (why or "").strip():
+        console.print("[red]Error:[/red] --standalone gives this session to the USER. Say why.")
+        console.print(
+            """
+You are handing work to the owner rather than collecting it
+yourself, so it will go RED and ask him when it finishes.
+
+  --why "he asked me to open this for him"
+  --why "this needs his decision before anything else runs"
+
+If you cannot say why it is his, it is probably yours:
+
+  --controlled-by self
+""",
+            markup=False,
+            highlight=False,
+        )
+        raise typer.Exit(1)
+
     if opt_out:
         controller_session_id = None
     elif controlled_by:
@@ -1247,6 +1275,12 @@ variable being set.
         body["commandArgs"] = command_args
     if controller_session_id:
         body["controllerSessionId"] = controller_session_id
+    elif cc_session:
+        # THE USER OWNS IT, SAID OUT LOUD (issue #2838). Omitting the field used to mean two different
+        # things - "the user's" and "nobody said" - and the Gateway cannot tell those apart, so it now
+        # refuses an agent-initiated spawn that sends nothing. A deliberate --standalone therefore has to
+        # state itself on the wire rather than be inferred from an absence.
+        body["controllerSessionId"] = "none"
     # Session origin and lineage (devthrottle_internal issue #982). This process is the only place
     # that can tell a session-initiated spawn from a human one: CC_SESSION_ID is injected into a
     # session's environment at birth and is absent from a human's own shell, so its presence IS the
@@ -1348,6 +1382,8 @@ variable being set.
     # The Director names the session at birth (issue #800), so the response carries the final name.
     label = gateway.field(resp, "name", "Name") or name or short
     console.print(f"[green]Opened[/green] session {short} ({label}).")
+    if opt_out and cc_session:
+        console.print(f"[yellow]The USER owns it[/yellow] - it will go red and ask him. Reason given: {why.strip()}")
     console.print(f"id: {sid}")
     if inherited_from is not None:
         # Never silent. An inherited mission the caller did not ask for is only safe if they can see

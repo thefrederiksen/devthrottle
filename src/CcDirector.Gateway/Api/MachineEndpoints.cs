@@ -187,34 +187,6 @@ internal static class MachineEndpoints
     private static IResult NoTenant() =>
         Results.Json(new { error = "no tenant is bound to this request" }, statusCode: 403);
 
-    /// <summary>
-    /// Session origin (devthrottle_internal issue #982), stamped GATEWAY-AUTHORITATIVELY on the spawn
-    /// relay - the same rule <c>PromptRequest.Surface</c> already follows for turns.
-    ///
-    /// This route is the one spawn path a caller outside the owner's machines can reach, so what a
-    /// client CLAIMS about its own origin cannot be the record. When the verified per-device key says
-    /// the caller is a signed-in phone or browser, we know two things by construction - a person is
-    /// holding it, and which surface it is - and both are OVERWRITTEN here, along with any parent
-    /// session the client named (a phone is nobody's child).
-    ///
-    /// Every OTHER caller is left exactly as it arrived, and that is the important half. A remote spawn
-    /// from an agent reaches this route relayed by its own Director over the tunnel, carrying that
-    /// Director's key rather than a device key; the Director already stamped the truth on the loopback
-    /// floor, and overwriting it here would erase the agent lineage on precisely the cross-machine
-    /// spawns - one session driving work on another computer - that make the lineage worth having.
-    /// </summary>
-    private static void StampOriginFromDeviceKey(NewSessionRequest req, HttpContext ctx)
-    {
-        var deviceType = ctx.Items.TryGetValue(AuthMiddleware.DeviceTypeItemKey, out var dt) ? dt as string : null;
-        var surface = Core.Sessions.SessionOriginSurfaces.FromDeviceType(deviceType);
-        if (surface == Core.Sessions.SessionOriginSurfaces.Unknown)
-            return; // not a person's device - keep what the relaying Director stated
-
-        req.Origin = Core.Sessions.SessionOriginKinds.Human;
-        req.OriginSurface = surface;
-        req.ParentSessionId = null;
-        FileLog.Write($"[MachineEndpoints] spawn origin stamped from the verified device key: human/{surface} (deviceType={deviceType})");
-    }
 
     /// <summary>
     /// The four launcher self-registration routes, mapped relative to <see cref="LauncherPrefix"/> so the full
@@ -388,12 +360,16 @@ internal static class MachineEndpoints
             // property. Scopes nest and restore on dispose, so re-entering the same tenant costs nothing.
             using var tenantScope = boundary is null ? null : boundary.EnterScope(tenant);
 
-            StampOriginFromDeviceKey(req, ctx);
+            // WHO IS ASKING, and WHO WILL OWN THE RESULT - settled from the verified credential rather
+            // than from the body, in the ONE place both spawn doors share (issue #2838). This replaced a
+            // stamp that lived only on this door and only covered a person's device.
+            var route = $"POST /machines/{machine}/sessions";
+            if (!SpawnOrigin.TryEstablish(req, ctx, route, out var originError))
+                return originError!;
 
             // The mission NAME and the workflow SEAT, resolved in the ONE place both spawn doors share
             // (issue #2629 - this route and POST /directors/{id}/sessions had drifted, and the Director
             // door's missing name took mission-scoped spawning down completely).
-            var route = $"POST /machines/{machine}/sessions";
             if (!SpawnMissionAndSeat.TryResolve(req, tenant, missions, workflowRuns, route, out var seatRun, out var resolveError))
                 return resolveError!;
 
