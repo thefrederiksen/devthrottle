@@ -248,6 +248,33 @@ $RigOwnerLabel = 'cc-test-local-rig-owner'
 # by the finally block at the foot of this script.
 $script:RigToTearDown = $null
 
+# WHAT THE CALLER'S ENVIRONMENT HELD BEFORE THIS RUN TOUCHED IT, so the finally can put it back.
+#
+# THE FALSE RED THIS CLOSES, found in review. This script sets the two connection strings and
+# CC_TEST_REQUIRE_POSTGRES in ITS OWN PROCESS - and run the documented way, `.\scripts	est-local.ps1`
+# from a shell you already have open, that process IS the caller's shell. The variables therefore
+# outlived the run while the database they name was destroyed by the same run. The next `dotnet test` in
+# that shell, or an editor launched from it, then saw a promise of a database that no longer exists and
+# refused to load the assembly - reproduced: two of two failed with TypeInitializationException on a
+# setup that was perfectly valid.
+#
+# It RESTORES rather than blanks, because a developer may have set these deliberately for a rig they
+# started by hand, and eating their configuration would be a second, quieter version of the same rudeness.
+$script:PriorRigEnvironment = $null
+$script:RigEnvironmentVars = @(
+    "CC_GATEWAY_TEST_PG_CONNECTION",
+    "CC_GATEWAY_TEST_PG_STATS_CONNECTION",
+    "CC_TEST_REQUIRE_POSTGRES"
+)
+
+function Restore-RigEnvironment {
+    if ($null -eq $script:PriorRigEnvironment) { return }
+    foreach ($name in $script:RigEnvironmentVars) {
+        [Environment]::SetEnvironmentVariable($name, $script:PriorRigEnvironment[$name])
+    }
+    $script:PriorRigEnvironment = $null
+}
+
 <#
     Destroy this run's rig. Called from the finally block at the foot of the script, which means it runs
     while a real failure may be on its way out - so NOTHING in here may throw, and nothing in here may
@@ -406,6 +433,13 @@ if ($needsPostgres) {
         Write-Host "This is deliberately fatal rather than a skip. The Postgres-backed proofs would report"
         Write-Host "SKIPPED, which reads exactly like a pass, and this run is the release gate."
         exit 6
+    }
+
+    # Remembered BEFORE anything is changed, so the finally can put the caller's shell back exactly as it
+    # was whether this run gets as far as building a rig or not.
+    $script:PriorRigEnvironment = @{}
+    foreach ($name in $script:RigEnvironmentVars) {
+        $script:PriorRigEnvironment[$name] = [Environment]::GetEnvironmentVariable($name)
     }
 
     Remove-AbandonedRigs
@@ -837,7 +871,9 @@ Write-Host "Logs kept in $logDir"
 exit 1
 }
 finally {
-    # The rig, if this run started one. Nothing else belongs in here: a finally that does real work can
-    # mask the failure that brought it here.
+    # The rig, if this run started one, and then the caller's environment exactly as it was. Nothing else
+    # belongs in here: a finally that does real work can mask the failure that brought it here, which is
+    # why both of these are written to report rather than throw.
     Stop-RigForThisRun
+    Restore-RigEnvironment
 }
