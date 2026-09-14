@@ -90,7 +90,20 @@ param(
 
     [string] $SuperuserPassword = 'proof',
 
-    [string] $RestrictedPassword = 'proof'
+    [string] $RestrictedPassword = 'proof',
+
+    # An EXTRA docker label to stamp on the container, so an automated caller can find and clean up the
+    # rigs it created without having to remember their instance names. scripts	est-local.ps1 passes its
+    # own label and sweeps on it after a killed run (issue #2834). Empty for a hand-driven rig, which is
+    # owned by the person who started it and is never swept.
+    [ValidatePattern('^[a-z0-9][a-z0-9-]{0,39}$|^$')]
+    [string] $Label = '',
+
+    # A second label in key=value form, so an automated caller can record WHO owns the rig. test-local.ps1
+    # stamps its own process id here; a later run removes a rig whose owning process is gone, which is a
+    # positive test of disposability rather than a guess from the container's age.
+    [ValidatePattern('^[a-z0-9][a-z0-9-]{0,39}=[A-Za-z0-9_.-]{1,64}$|^$')]
+    [string] $OwnerLabel = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -262,15 +275,22 @@ function Invoke-Up {
     else {
         Assert-PortIsFree
         Write-Step "Creating container '$ContainerName' from postgres:16 on host port $Port."
-        Invoke-Docker -DockerArgs @(
+        $dockerArgs = @(
             'run', '-d',
             '--name', $ContainerName,
-            '--label', "$InstanceLabel=$Instance",
+            '--label', "$InstanceLabel=$Instance"
+        )
+        # The caller's own label, when it gave one, so it can sweep its abandoned rigs by label, and its
+        # ownership stamp, so the sweep can tell a live rig from an abandoned one.
+        if ($Label -ne '') { $dockerArgs += @('--label', "$Label=1") }
+        if ($OwnerLabel -ne '') { $dockerArgs += @('--label', $OwnerLabel) }
+        $dockerArgs += @(
             '-e', "POSTGRES_PASSWORD=$SuperuserPassword",
             '-e', "POSTGRES_DB=$ProofDatabase",
             '-p', "${Port}:5432",
             'postgres:16'
-        ) | Out-Null
+        )
+        Invoke-Docker -DockerArgs $dockerArgs | Out-Null
     }
 
     Wait-ForPostgres

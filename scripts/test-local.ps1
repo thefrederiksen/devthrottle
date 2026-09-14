@@ -48,6 +48,14 @@
     be invoked by hand; a gate that depends on remembering two extra commands is one that will eventually
     be run without them, and a release is the one place there is no fixing it forward.
 
+    -PARKED NEEDS DOCKER, AND SAYS SO RATHER THAN SKIPPING (issue #2834). Two of the parked suites carry
+    PostgreSQL-backed proofs. This script now BUILDS a throwaway PostgreSQL for the run that needs one,
+    hands its connection strings to the test processes, and destroys it when the run ends - so there is
+    no shared container for a person to start and nothing to go stale between runs. It IGNORES whatever
+    the machine has in its user environment. With Docker absent the run STOPS: those proofs would report
+    SKIPPED, and a skip is indistinguishable from a pass in the console summary, in the TRX counters and
+    in every report built from them. The default run starts no database and needs no Docker.
+
     A RUN THAT COLLECTED ZERO TESTS - OR ONLY PART OF WHAT IT WAS ASKED FOR - IS REFUSED, WITH ITS OWN
     EXIT CODE. A filter that matches nothing
     used to exit 0 from every project and end on "all projects exited zero" - a green that means nothing
@@ -200,6 +208,359 @@ if ($Gateway) {
     if ($Parked) { $toRun += $parkedProjects }
 }
 
+
+# ---------------------------------------------------------------------------------------------------
+# THE RUN OWNS ITS OWN POSTGRESQL (issue #2834)
+#
+# THE DEFECT THIS CLOSES, and it cost a release. The Postgres-backed proofs used to read a connection
+# string a PERSON had exported by hand, pointing at a container a PERSON had started by hand and that
+# nothing kept alive. On 14 September 2026 that container stopped at 12:02 UTC, nothing noticed, and the
+# release gate for v2.1.2 came back red with eight socket errors on a change that touched an Avalonia
+# window and a React file. The variables on that machine were ALSO stale - naming a database and a
+# password from an older generation of the rig script - so they had been pointing at nothing for as long
+# as anyone could tell. Three states (right, stale, pointing at a corpse) all looked identical from
+# inside the test.
+#
+# The rig is now born and destroyed inside the run that needs it. There is no shared container to die,
+# no variable for a person to set, and nothing to go stale between runs - so that failure has nowhere
+# left to live.
+#
+# IT IS NOT PROVISIONED FOR EVERY RUN. Only the two suites below carry Postgres-backed proofs, and both
+# are parked - so the everyday gate pays nothing for this, and a change to a dialog never starts a
+# database.
+#
+# INHERITED VARIABLES ARE OVERRIDDEN, DELIBERATELY. Whatever a machine has in its user environment is
+# ignored: this run sets both variables in its own process, so its children see the rig it just built.
+# A run that trusted an inherited value would be back in the failure above.
+$postgresProjects = @(
+    $gatewayProject,
+    "src\CcDirector.Gateway.UnitTests\CcDirector.Gateway.UnitTests.csproj"
+)
+$needsPostgres = @($toRun | Where-Object { $postgresProjects -contains $_ }).Count -gt 0
+
+# The label every rig this script creates carries, and the ONLY thing the stale sweep will act on.
+$RigLabel = 'cc-test-local-rig'
+# The owning process id, stamped on every rig this script starts. It is what lets a later run prove a
+# leftover container is nobody's, rather than guessing from its age.
+$RigOwnerLabel = 'cc-test-local-rig-owner'
+
+# The rig this run must destroy when it ends, whatever way it ends. Null until one is started; read only
+# by the finally block at the foot of this script.
+$script:RigToTearDown = $null
+
+# WHAT THE CALLER'S ENVIRONMENT HELD BEFORE THIS RUN TOUCHED IT, so the finally can put it back.
+#
+# THE FALSE RED THIS CLOSES, found in review. This script sets the two connection strings and
+# CC_TEST_REQUIRE_POSTGRES in ITS OWN PROCESS - and run the documented way, `.\scripts	est-local.ps1`
+# from a shell you already have open, that process IS the caller's shell. The variables therefore
+# outlived the run while the database they name was destroyed by the same run. The next `dotnet test` in
+# that shell, or an editor launched from it, then saw a promise of a database that no longer exists and
+# refused to load the assembly - reproduced: two of two failed with TypeInitializationException on a
+# setup that was perfectly valid.
+#
+# It RESTORES rather than blanks, because a developer may have set these deliberately for a rig they
+# started by hand, and eating their configuration would be a second, quieter version of the same rudeness.
+$script:PriorRigEnvironment = $null
+$script:RigEnvironmentVars = @(
+    "CC_GATEWAY_TEST_PG_CONNECTION",
+    "CC_GATEWAY_TEST_PG_STATS_CONNECTION",
+    "CC_TEST_REQUIRE_POSTGRES"
+)
+
+<#
+    Run a docker command and hand back its exit code and output, without letting it terminate the script.
+
+    THIS EXISTS BECAUSE THE INTENDED ERROR PATHS WERE UNREACHABLE, found in review. This script runs under
+    $ErrorActionPreference = 'Stop', and under Windows PowerShell 5.1 anything a NATIVE executable writes
+    to stderr is turned into a terminating error - so `& docker ...` followed by a check of $LASTEXITCODE
+    never reached the check. Docker being unavailable, provisioning failing, and the end-of-run liveness
+    probe all threw past their own tailored messages and exit codes. Reproduced with a failing `docker ps`
+    going straight to the catch.
+
+    Every docker call in this script goes through here, so the decision is made in one place rather than
+    remembered at each call site.
+#>
+function Invoke-Docker {
+    param([Parameter(Mandatory = $true)][string[]] $DockerArgs)
+
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $output = (& docker @DockerArgs 2>&1 | Out-String)
+        return [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $output }
+    }
+    catch {
+        return [pscustomobject]@{ ExitCode = -1; Output = $_.Exception.Message }
+    }
+    finally {
+        $ErrorActionPreference = $previous
+    }
+}
+
+function Restore-RigEnvironment {
+    if ($null -eq $script:PriorRigEnvironment) { return }
+    foreach ($name in $script:RigEnvironmentVars) {
+        [Environment]::SetEnvironmentVariable($name, $script:PriorRigEnvironment[$name])
+    }
+    $script:PriorRigEnvironment = $null
+}
+
+<#
+    Destroy this run's rig. Called from the finally block at the foot of the script, which means it runs
+    while a real failure may be on its way out - so NOTHING in here may throw, and nothing in here may
+    change the exit code.
+
+    BOTH OF THOSE WERE DEFECTS, found in review. This script runs under $ErrorActionPreference = 'Stop',
+    where anything a native executable writes to stderr becomes a TERMINATING error - and `2>&1` piped
+    the child's stderr straight into that stream. A cleanup that stumbled therefore replaced the body's
+    own failure: an intended exit 7 was reproduced coming out as exit 1, and a body exception was
+    replaced by a NativeCommandError from the cleanup. A finally block that can eat the reason you are
+    in it is worse than no finally block.
+
+    The target was also cleared BEFORE the teardown ran, so a cleanup that failed forgot the rig it had
+    failed to remove. It is cleared only on success now; on failure it stays, is reported, and is left
+    for Remove-AbandonedRigs.
+#>
+function Stop-RigForThisRun {
+    if ($null -eq $script:RigToTearDown) { return }
+    $rig = $script:RigToTearDown
+
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & powershell -NoProfile -File $rig.Script -Instance $rig.Instance -Port $rig.Port -Verb down *>&1 |
+            Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            # SECOND ATTEMPT, BY NAME. Do NOT tell the reader "the next run will sweep it" - that is not
+            # true here and saying it would be worse than saying nothing. The sweep removes a rig whose
+            # OWNING PROCESS is gone, and when the gate is run the documented way the owning process is
+            # the shell the operator is sitting in, which outlives the run. A rig leaked this way is
+            # invisible to the sweep for as long as that terminal stays open, so the removal is retried
+            # directly, against the one container name this run created.
+            $retry = Invoke-Docker @("rm", "-f", "-v", "cc-pg-stats-proof-$($rig.Instance)")
+            $global:LASTEXITCODE = $retry.ExitCode
+        }
+
+        if ($LASTEXITCODE -eq 0) {
+            $script:RigToTearDown = $null
+        }
+        else {
+            Write-Host ""
+            Write-Host "WARNING: the throwaway PostgreSQL for this run could not be removed."
+            Write-Host "         It is holding port $($rig.Port). Remove it with:"
+            Write-Host "           docker rm -f -v cc-pg-stats-proof-$($rig.Instance)"
+            Write-Host "         This run's own result above is unaffected."
+        }
+    }
+    catch {
+        Write-Host ""
+        Write-Host "WARNING: removing the throwaway PostgreSQL threw: $($_.Exception.Message)"
+        Write-Host "         Remove it with: docker rm -f -v cc-pg-stats-proof-$($rig.Instance)"
+        Write-Host "         This run's own result above is unaffected."
+    }
+    finally {
+        $ErrorActionPreference = $previous
+    }
+}
+
+function Get-FreeTcpPort {
+    $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+    $listener.Start()
+    try { return $listener.LocalEndpoint.Port } finally { $listener.Stop() }
+}
+
+<#
+    Remove rigs an EARLIER run left behind, and nothing else.
+
+    A run that never reaches its teardown - killed, Ctrl+C, a reboot - would otherwise leave its
+    container holding a port forever. This is the backstop for exactly that, and it leans hard toward
+    keeping: it enumerates what to DELETE by a positive test and never what to skip.
+
+    THE TEST IS "THE PROCESS THAT CREATED IT IS GONE", not an elapsed time. Every rig this script starts
+    is stamped with the owning process id, so a container whose owner is no longer running is provably
+    nobody's - which is true one second after a kill, where an age rule would have to wait out its window
+    holding a port. A process id can be REUSED by an unrelated process, and that error only ever points
+    one way: a recycled id reads as alive, so the container is KEPT. Nothing about reuse can make a live
+    rig look dead.
+
+    A container carrying no owner stamp - one written by an older version of this script - falls back to
+    an age rule, and six hours is chosen so it cannot overlap a live run: the longest suite in this
+    repository measured 1 hour 3 minutes. A container whose stamp and whose age are both unreadable is
+    kept, because an unreadable age is not evidence of being old.
+#>
+function Remove-AbandonedRigs {
+    # The whole label set is asked for as ONE field and parsed here, rather than reaching into a named
+    # label with a Go template: a template carrying quoted strings has to survive PowerShell's quoting and
+    # then Docker's own parser, and it did not - `failed to parse template: unterminated quoted string`.
+    # {{.Labels}} needs no quoting at all.
+    $listed = Invoke-Docker @("ps", "-a", "--filter", "label=$RigLabel", "--format", "{{.ID}}|{{.CreatedAt}}|{{.Labels}}")
+    if ($listed.ExitCode -ne 0) { return }
+    $rows = @($listed.Output -split "`r?`n" | Where-Object { $_.Trim() -ne "" })
+
+    $cutoff = (Get-Date).AddHours(-6)
+    foreach ($row in $rows) {
+        $parts = "$row" -split '\|', 3
+        if ($parts.Count -lt 3) { continue }
+        $id = $parts[0]
+
+        # The owner stamp, picked out of the comma-separated label list this rig carries.
+        $ownerPid = ""
+        foreach ($label in ($parts[2] -split ',')) {
+            $kv = $label -split '=', 2
+            if ($kv.Count -eq 2 -and $kv[0].Trim() -eq $RigOwnerLabel) { $ownerPid = $kv[1].Trim() }
+        }
+
+        $disposable = $false
+        $because = ""
+        if ($ownerPid -match '^\d+$') {
+            # The owner is named. Disposable ONLY when that process is positively not running.
+            if ($null -eq (Get-Process -Id ([int]$ownerPid) -ErrorAction SilentlyContinue)) {
+                $disposable = $true
+                $because = "the run that created it (process $ownerPid) is gone"
+            }
+        }
+        else {
+            # No owner stamp: a rig from an older version of this script. Fall back to age, and keep
+            # anything whose age cannot be read - an unreadable age is not evidence of being old.
+            $created = [datetime]::MinValue
+            if ([datetime]::TryParse($parts[1], [ref]$created) -and $created -lt $cutoff) {
+                $disposable = $true
+                $because = "it carries no owner stamp and was created $($parts[1])"
+            }
+        }
+
+        if (-not $disposable) { continue }
+        Write-Host "Removing abandoned test rig $id - $because."
+        $removal = Invoke-Docker @("rm", "-f", "-v", $id)
+        if ($removal.ExitCode -ne 0) {
+            # Said out loud. The line above announces an intention; announcing it and then silently
+            # failing leaves a reader believing a port was freed that is still held.
+            Write-Host "WARNING: that rig could NOT be removed (docker exited $($removal.ExitCode)):"
+            Write-Host "         $($removal.Output.Trim())"
+        }
+    }
+}
+
+# EVERYTHING FROM HERE IS INSIDE A try/finally, SO THE THROWAWAY DATABASE IS DESTROYED WHATEVER HAPPENS.
+# PowerShell runs a finally block on a normal end, on a terminating error, AND on every `exit` in this
+# script, with the exit code preserved - all three verified. The body below is left at its original
+# indentation deliberately: re-indenting three hundred unchanged lines would bury the change that
+# matters in a whitespace diff. Read it with `git diff -w`.
+#
+# IT OPENS BEFORE THE RIG IS BUILT, NOT AFTER. Found in review: it used to open after provisioning, so
+# the three ways provisioning itself can fail - the rig script exiting non-zero, an unreadable print-env
+# line, a missing variable - each left a container that docker had already created with no teardown to
+# remove it. The sweep could not help either, because the owning process is the operator's own shell and
+# is still alive. Every path that can exist after `docker run` must be inside this block.
+#
+# A process that is KILLED outright runs no finally block and never will. That case belongs to
+# Remove-AbandonedRigs at the start of the next run, which removes a rig whose owning process is gone.
+try {
+if ($needsPostgres) {
+    # NO FALLBACK. A run that cannot build its database does not quietly run the suites without one:
+    # those proofs would SKIP, and a skip is indistinguishable from a pass in every report we produce.
+    # It says what is missing and what to do about it, and stops.
+    $dockerCheck = Invoke-Docker @("version", "--format", "{{.Server.Version}}")
+    if ($dockerCheck.ExitCode -ne 0) {
+        Write-Host ""
+        Write-Host "RESULT: CANNOT RUN - Docker is not available, and these suites need a PostgreSQL server."
+        Write-Host ""
+        Write-Host "  Suites needing it: CcDirector.Gateway.Tests, CcDirector.Gateway.UnitTests"
+        Write-Host "  Start Docker Desktop and run this again."
+        Write-Host ""
+        Write-Host "This is deliberately fatal rather than a skip. The Postgres-backed proofs would report"
+        Write-Host "SKIPPED, which reads exactly like a pass, and this run is the release gate."
+        exit 6
+    }
+
+    # Remembered BEFORE anything is changed, so the finally can put the caller's shell back exactly as it
+    # was whether this run gets as far as building a rig or not.
+    $script:PriorRigEnvironment = @{}
+    foreach ($name in $script:RigEnvironmentVars) {
+        $script:PriorRigEnvironment[$name] = [Environment]::GetEnvironmentVariable($name)
+    }
+
+    Remove-AbandonedRigs
+
+    $rigScript = Join-Path $PSScriptRoot "pg-stats-proof-rig.ps1"
+    $rigInstance = "run" + [Guid]::NewGuid().ToString("N").Substring(0, 8)
+    $rigPort = Get-FreeTcpPort
+    Write-Host "Starting a throwaway PostgreSQL for this run (instance $rigInstance, port $rigPort)..."
+
+    # THE RIG NAME IS RECORDED BEFORE THE RIG EXISTS, so the finally block at the end of this script
+    # tears down a container that failed half way through provisioning as readily as a healthy one.
+    #
+    # IT IS A try/finally AND NOT AN EVENT, and the difference is the whole of a defect found in review.
+    # This first used Register-EngineEvent PowerShell.Exiting, on the strength of a check that ran the
+    # script as `powershell -File ...` - a FRESH engine, which exits when the script does, so the
+    # teardown fired and the check passed. The documented way to run this gate is `.\scripts	est-local.ps1`
+    # from a shell you already have open, and there the engine does NOT exit when the script does:
+    # reproduced, the container survived the run, and every further run stacked another subscriber and
+    # another container. A proof against the wrong invocation is not a proof.
+    $script:RigToTearDown = @{ Script = $rigScript; Instance = $rigInstance; Port = $rigPort }
+
+    & powershell -NoProfile -File $rigScript -Instance $rigInstance -Port $rigPort -Verb up `
+        -Label $RigLabel -OwnerLabel "$RigOwnerLabel=$PID" 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host ""
+        Write-Host "RESULT: CANNOT RUN - the throwaway PostgreSQL for this run could not be provisioned."
+        Write-Host "  Re-run the rig by hand to see why:"
+        Write-Host "    powershell -NoProfile -File scripts\pg-stats-proof-rig.ps1 -Instance $rigInstance -Port $rigPort -Verb up"
+        exit 6
+    }
+
+    # The connection strings come from the rig itself rather than being composed here, so exactly one
+    # place knows the database names, the role and the password.
+    #
+    # THE INHERITED VALUES ARE CLEARED FIRST, AND EVERY LINE MUST BE UNDERSTOOD. Found in review, and it
+    # is the original defect wearing a new hat: the first version ignored any line its pattern did not
+    # match, so a rig that changed the quoting on ONE of its two lines left that variable at whatever the
+    # machine had inherited - a stale database from an older rig - while the other was set to the new one.
+    # Both variables were then non-empty, the emptiness check passed, and the run proceeded against TWO
+    # DIFFERENT DATABASES. Reproduced in review with a double-quoted statistics line.
+    #
+    # So: clear both, accept either quoting, and treat a line this cannot parse as a CHANGE IN THE RIG
+    # rather than as noise. Silence about an unrecognised line is how a mixed-database run gets certified.
+    $expectedVars = @("CC_GATEWAY_TEST_PG_CONNECTION", "CC_GATEWAY_TEST_PG_STATS_CONNECTION")
+    foreach ($name in $expectedVars) { [Environment]::SetEnvironmentVariable($name, $null) }
+
+    $envLines = & powershell -NoProfile -File $rigScript -Instance $rigInstance -Port $rigPort -Verb print-env
+    $seenVars = @{}
+    foreach ($line in $envLines) {
+        if ([string]::IsNullOrWhiteSpace("$line")) { continue }
+        if ("$line" -match '^\s*\$env:([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:''([^'']*)''|"([^"]*)")\s*$') {
+            $name = $Matches[1]
+            $value = if ($null -ne $Matches[2] -and $Matches[2] -ne "") { $Matches[2] } else { $Matches[3] }
+            [Environment]::SetEnvironmentVariable($name, $value)
+            $seenVars[$name] = $true
+        }
+        else {
+            Write-Host ""
+            Write-Host "RESULT: CANNOT RUN - the rig's print-env produced a line this gate cannot read:"
+            Write-Host "    $line"
+            Write-Host "  pg-stats-proof-rig.ps1 and this script disagree about that output's shape."
+            Write-Host "  Fix them together; a line skipped here means a test running against the wrong database."
+            exit 6
+        }
+    }
+
+    $missingVars = @($expectedVars | Where-Object { -not $seenVars.ContainsKey($_) })
+    if ($missingVars.Count -gt 0) {
+        Write-Host ""
+        Write-Host "RESULT: CANNOT RUN - the rig started but named no value for: $($missingVars -join ', ')"
+        exit 6
+    }
+
+    # What turns a SKIP into a FAILURE inside the test assemblies. It carries the rig's INSTANCE NAME
+    # rather than a bare "1", and that is a review finding rather than a detail: every database and role
+    # the rig creates is derived from this name, so the tests can be held to the exact databases this run
+    # built instead of merely to "something answered". PostgresRigGate refuses to let either Postgres
+    # assembly load when the promise does not hold - from a module initializer, where -Filter cannot
+    # exclude it.
+    $env:CC_TEST_REQUIRE_POSTGRES = $rigInstance
+    Write-Host "PostgreSQL ready. It is destroyed when this run ends."
+}
+
 Write-Host "Building once, then running $($toRun.Count) test project(s)..."
 & dotnet build $sln -c $Configuration -v q --nologo
 if ($LASTEXITCODE -ne 0) {
@@ -298,14 +659,21 @@ foreach ($r in $running) {
 
     # The authoritative pair, read from the TRX rather than from the console line above.
     $outcome = "NO-TRX"
+    $executed = 0
     $total = 0
     if (Test-Path $r.Trx) {
         [xml] $doc = Get-Content $r.Trx -Raw
         $outcome = [string] $doc.TestRun.ResultSummary.outcome
         $total = [int] $doc.TestRun.ResultSummary.Counters.total
+        # EXECUTED is not the same number as TOTAL, and the difference is load-bearing (issue #2834).
+        # A test carrying a static Skip is COLLECTED and counted in total while executing nothing, so a
+        # run can report total=1, executed=0 and "Test Run Successful". Anything that asks "did this run
+        # actually enforce something" has to read executed.
+        $executed = [int] $doc.TestRun.ResultSummary.Counters.executed
     }
     $r | Add-Member -NotePropertyName Outcome -NotePropertyValue $outcome
     $r | Add-Member -NotePropertyName Total -NotePropertyValue $total
+    $r | Add-Member -NotePropertyName Executed -NotePropertyValue $executed
 
     if ($r.Process.ExitCode -eq 0) {
         Write-Host ("  PASS  {0}  {1}" -f $r.Name, $summary.Trim())
@@ -316,9 +684,50 @@ foreach ($r in $running) {
 }
 
 Write-Host ""
-Write-Host "TRX verdict - THIS is the gate. Outcome must be 'Completed' AND total at or above the baseline:"
+Write-Host "TRX verdict - THIS is the gate. Every suite must report outcome=Completed:"
 foreach ($r in $running) {
-    Write-Host ("  {0,-40} outcome={1,-12} total={2}" -f $r.Name, $r.Outcome, $r.Total)
+    Write-Host ("  {0,-40} outcome={1,-12} total={2,-6} executed={3}" -f $r.Name, $r.Outcome, $r.Total, $r.Executed)
+}
+
+# AND NOW IT IS ACTUALLY CHECKED. Until review round four of issue #2834 this block PRINTED a sentence
+# saying outcome had to be Completed and then compared nothing - the line the whole fleet reads as "THIS
+# is the gate" was a display. A suite that aborted or timed out while exiting zero was shown as not
+# Completed and the run still ended on "all projects exited zero".
+#
+# The sentence also promised "total at or above the baseline", and there is no baseline anywhere in this
+# repository to compare against. That half is not implemented here - a per-project floor needs a recorded
+# file and a way to update it, which is its own change - so the claim has been REMOVED from the sentence
+# rather than left standing. A gate that advertises a check nobody performs is the exact defect this
+# issue is about, and leaving the words there while fixing only half would repeat it.
+# WHICH OUTCOMES MEAN THE RUN FINISHED. Both of these do, and the difference between them is whether
+# the assertions passed - which is NOT what this check is about:
+#   Completed - it finished and everything passed.
+#   Failed    - it finished and something failed. MEASURED, not assumed: a real run of
+#               cc-director-setup-engine.Tests with one assertion failure writes
+#               outcome="Failed" total="541" executed="541" passed="540" failed="1".
+# An ordinary failing gate is therefore a FINISHED run, and it must fall through to the established
+# failure report below, which names the projects and their logs and exits 1.
+#
+# THE FIRST VERSION OF THIS CHECK GOT THAT WRONG and called anything that was not "Completed"
+# incomplete - so every ordinary red run would have exited 9 here, losing its exit code and its detailed
+# output, and a database death that made tests fail would have been intercepted before the liveness
+# branch that exists to explain it. Caught in review round five before it ever ran in anger.
+#
+# What is left is the genuinely unfinished: Aborted, Timeout, Error, Disconnected. Those can carry
+# passing assertions up to the point they stopped, which is the shape that has "very nearly certified a
+# change that silently stopped 1,340 tests from running" - the warning this script already carries
+# twenty lines above, now actually enforced.
+$finishedOutcomes = @("Completed", "Failed")
+$notCompleted = @($running | Where-Object { $_.Outcome -ne "NO-TRX" -and $finishedOutcomes -notcontains $_.Outcome })
+if ($notCompleted.Count -gt 0) {
+    Write-Host ""
+    Write-Host "RESULT: A SUITE DID NOT FINISH - this run is not a verdict on anything."
+    foreach ($r in $notCompleted) { Write-Host ("  {0} reported outcome={1} -> {2}" -f $r.Name, $r.Outcome, $r.Log) }
+    Write-Host ""
+    Write-Host "This is NOT an assertion failure - a run that finished with failures reports 'Failed' and is"
+    Write-Host "reported below, in full. This is a suite that stopped part way through, whose assertions may"
+    Write-Host "all have passed up to the point it stopped, and whose remaining tests were never reached."
+    exit 9
 }
 Write-Host ""
 Write-Host "TRX files: $logDir"
@@ -379,7 +788,77 @@ if ($overBudget.Count -gt 0) {
 # nothing in the Avalonia suite - but a run in which NOTHING ran anywhere is refused, loudly, with its own
 # exit code so a caller can tell it apart from a test failure.
 $collected = 0
-foreach ($r in $running) { $collected += [int] $r.Total }
+$executedAll = 0
+foreach ($r in $running) {
+    $collected += [int] $r.Total
+    $executedAll += [int] $r.Executed
+}
+
+# THE RUN VERIFIES ITS OWN PROMISE. IT DOES NOT DELEGATE THAT TO WHICHEVER TESTS WERE SELECTED.
+#
+# Found in the third review round, and it is the fail-open pattern this whole issue is about, one level
+# up. The in-assembly guard (PostgresRigGate) refuses to let a Postgres suite load when the database this
+# run promised is not there - and that works for every ordinary selected test, confirmed in both
+# assemblies. But a module initializer runs when the module is first touched, and a selection that
+# EXECUTES NOTHING never touches it in time: filtering to a statically-skipped test produced "Test Run
+# Successful", exit 0, and a completed result file with total=1 and executed=0, with the initializer's
+# exception arriving only at process exit, after the verdict was already written.
+#
+# So the promise is checked HERE as well, where it cannot depend on test selection at all:
+#
+#   1. the rig must still be RUNNING. The failure that started this issue was a database that died
+#      mid-run; a container that is gone by the end means every Postgres proof after that moment was
+#      running against nothing, whatever the suites reported.
+#   2. something must actually have EXECUTED in the suites that carry the proofs. A run that collected
+#      them and executed none of them enforced nothing, and must not be read as having proved anything.
+#
+# Both are stated as a PRESENCE - a thing that must be true - rather than as the absence of an error,
+# because an absence is what fails open.
+if ($needsPostgres -and $null -ne $rigInstance) {
+    $rigContainer = "cc-pg-stats-proof-$rigInstance"
+    $probe = Invoke-Docker @("ps", "-q", "--filter", "name=$rigContainer")
+    $stillRunning = @($probe.Output -split "`r?`n" | Where-Object { $_.Trim() -ne "" })
+    if ($probe.ExitCode -ne 0 -or $stillRunning.Count -eq 0) {
+        Write-Host ""
+        Write-Host "RESULT: THE DATABASE THIS RUN BUILT IS GONE - the run is not evidence for anything."
+        Write-Host ""
+        Write-Host "  The throwaway PostgreSQL '$rigContainer' was provisioned for this run and is no"
+        Write-Host "  longer running. Every Postgres-backed proof after it died was running against"
+        Write-Host "  nothing, whatever the suites above reported."
+        Write-Host ""
+        Write-Host "  Inspect it before it is removed:  docker logs $rigContainer"
+        # Its own code. 6 means "this run could not START a database" and 4 means "no result file"; a
+        # database that died MID-RUN is neither, and a caller that cannot tell them apart cannot react
+        # to them differently.
+        exit 7
+    }
+
+    $postgresNames = @($postgresProjects | ForEach-Object {
+        Split-Path -Leaf ([System.IO.Path]::GetDirectoryName((Join-Path $repoRoot $_)))
+    })
+    $postgresRan = @($running | Where-Object { $postgresNames -contains $_.Name })
+    $executedThere = 0
+    $collectedThere = 0
+    foreach ($r in $postgresRan) {
+        $executedThere += [int] $r.Executed
+        $collectedThere += [int] $r.Total
+    }
+
+    # COLLECTED SOMETHING AND EXECUTED NONE OF IT is the fault. Collecting nothing is not: a filter that
+    # legitimately names an installer test collects zero in the Postgres suites, and the first version of
+    # this check failed that run - reproduced in review with a WizardStepFlowTests filter. A check that
+    # reds a correct run is not a stricter check, it is a broken one, and it teaches people to pass -Force.
+    if ($collectedThere -gt 0 -and $executedThere -eq 0) {
+        Write-Host ""
+        Write-Host "RESULT: A DATABASE WAS BUILT AND NOTHING RAN AGAINST IT."
+        Write-Host ""
+        Write-Host "  This run provisioned a PostgreSQL and the suites that carry the Postgres proofs"
+        Write-Host "  executed ZERO tests between them - collected some, executed none, which a static"
+        Write-Host "  Skip produces. Nothing enforced that the database was the right one, so this run"
+        Write-Host "  proves nothing about it. Widen or drop the filter."
+        exit 8
+    }
+}
 $noTrx = @($running | Where-Object { $_.Outcome -eq "NO-TRX" -and $_.Process.ExitCode -eq 0 })
 
 if ($noTrx.Count -gt 0) {
@@ -408,14 +887,26 @@ if ($noTrx.Count -gt 0) {
 # named must have COLLECTED at least one test whose name contains that token. It is derived from the
 # filter the caller passed - never a second list kept here, which would be one more thing to keep in step.
 if ($Filter -ne "") {
+    # THE NAMES THAT ACTUALLY RAN, NOT THE NAMES THAT WERE COLLECTED (issue #2834, review round four).
+    #
+    # This read TestDefinitions, which lists every test the run COLLECTED - including one carrying a
+    # static Skip, which executes nothing. So a caller who named a skipped test in their filter got a
+    # green for it: reproduced with "PostgresRigIsPresentWhenRequiredTests|DT_TEN_3" and -ExpectTests 5,
+    # where four ran, the named DT_TEN_3 was skipped, and the gate exited 0. One live term laundered the
+    # dead one, which is the same shape as the defect this whole issue is about.
+    #
+    # So a term is satisfied only by a test that EXECUTED. The results carry the outcome; NotExecuted is
+    # what xUnit writes for a skip, and it is exactly what must not count as evidence.
     $names = New-Object System.Collections.Generic.List[string]
     foreach ($r in $running) {
         if (-not (Test-Path $r.Trx)) { continue }
         [xml] $doc = Get-Content $r.Trx -Raw
-        $defs = $doc.TestRun.TestDefinitions
-        if ($null -eq $defs) { continue }
-        foreach ($u in @($defs.UnitTest)) {
-            if ($null -ne $u -and $null -ne $u.name) { $names.Add([string]$u.name) }
+        $results = $doc.TestRun.Results
+        if ($null -eq $results) { continue }
+        foreach ($u in @($results.UnitTestResult)) {
+            if ($null -eq $u -or $null -eq $u.testName) { continue }
+            if ([string]$u.outcome -eq "NotExecuted") { continue }
+            $names.Add([string]$u.testName)
         }
     }
 
@@ -436,7 +927,8 @@ if ($Filter -ne "") {
     if ($absent.Count -gt 0) {
         Write-Host ""
         Write-Host "RESULT: PART OF THE FILTER MATCHED NOTHING - this run is not evidence for what it named."
-        Write-Host "These terms collected no test anywhere in the run:"
+        Write-Host "These terms RAN no test anywhere in the run - a test that was collected and then"
+        Write-Host "skipped does not count, because a skip proves nothing:"
         foreach ($t in $absent) { Write-Host "  $t" }
         Write-Host ""
         Write-Host "$($names.Count) test(s) were collected in total, so the run is not empty - which is exactly"
@@ -452,6 +944,32 @@ if ($Filter -ne "") {
         Write-Host "The caller declared the inventory this evidence needs and the run did not match it."
         exit 5
     }
+}
+
+# NOTHING EXECUTED ANYWHERE IS NOT A PASS, WHATEVER SHAPE THE FILTER TOOK (review round five).
+#
+# The refusal below counts what was COLLECTED, and a statically skipped test IS collected - so a run in
+# which every selected test was skipped had a non-zero count and sailed through. The per-term checker did
+# not catch it either: it only understands the "FullyQualifiedName~TOKEN" contains form and deliberately
+# says nothing about any other, so an EXACT-name filter was checked by nothing at all. Reproduced at
+# b8368c9c0 with a -Parked run naming one statically skipped test by its exact name: all eleven suites
+# executed zero, and the gate printed "RESULT: all projects exited zero".
+#
+# This is the same fault as the collected-zero one below, one step along: a run that collected tests and
+# executed none of them is as empty as a run that collected none. It is stated separately because it
+# needs its own sentence - "your filter matched something, and every one of them was skipped" is a
+# different thing for a reader to fix.
+if ($collected -gt 0 -and $executedAll -eq 0) {
+    Write-Host ""
+    Write-Host "RESULT: EVERY TEST THIS RUN SELECTED WAS SKIPPED - nothing executed, so this is not a pass."
+    Write-Host ""
+    Write-Host "  $collected test(s) were collected across the run and NONE of them ran. A test carrying a"
+    Write-Host "  static Skip is collected and counted like any other, so a count alone cannot tell this"
+    Write-Host "  apart from a real run - which is why it is checked separately."
+    if ($Filter -ne "") { Write-Host "  The filter was: $Filter" }
+    Write-Host ""
+    Write-Host "  A skip proves nothing. Name a test that runs."
+    exit 8
 }
 
 if ($collected -eq 0) {
@@ -486,3 +1004,11 @@ foreach ($f in $failed) {
 Write-Host ""
 Write-Host "Logs kept in $logDir"
 exit 1
+}
+finally {
+    # The rig, if this run started one, and then the caller's environment exactly as it was. Nothing else
+    # belongs in here: a finally that does real work can mask the failure that brought it here, which is
+    # why both of these are written to report rather than throw.
+    Stop-RigForThisRun
+    Restore-RigEnvironment
+}
