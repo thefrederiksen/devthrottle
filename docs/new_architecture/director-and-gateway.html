@@ -34,6 +34,7 @@
   ul, ol { margin:0 0 14px; padding-left:22px; }
   li { margin-bottom:7px; }
   .file { font:12.5px/1.4 "SF Mono",Consolas,monospace; color:var(--mute); }
+  .cap { font-size:13px; color:var(--mute); margin:2px 0 22px; }
   footer { margin-top:64px; padding-top:20px; border-top:1px solid var(--line); color:var(--mute); font-size:13px; }
   @media (prefers-color-scheme: dark) {
     :root { --ink:#e8ecf3; --mute:#9aa7b8; --line:#2b3340; --bg:#12161d; --panel:#1a1f28; }
@@ -85,9 +86,82 @@ reachable host in the system.</p>
 flow down; requests work in both directions; terminal bytes ride outbound byte streams the Director
 dials on demand.</p>
 
-<p>Because the Director dials out, it needs no inbound firewall port, no port-forward and no
-per-machine network address. It works behind any NAT or firewall that allows outbound HTTPS - home,
-corporate, cellular, anywhere.</p>
+<svg viewBox="0 0 920 500" width="100%" style="max-width:920px;height:auto;margin:18px 0 6px" role="img" aria-labelledby="portless-t">
+  <title id="portless-t">The portless model: browsers and phones reach only the Gateway, each Director dials outward to the Gateway and exposes no inbound ports, the Gateway never dials a Director, and no Director ever talks to another Director</title>
+  <defs>
+    <marker id="pa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="var(--mute)"/>
+    </marker>
+    <marker id="pb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="var(--blue)"/>
+    </marker>
+  </defs>
+
+  <!-- clients -->
+  <rect x="110" y="16" width="210" height="62" rx="8" fill="var(--panel)" stroke="var(--line)" stroke-width="1.5"/>
+  <text x="215" y="42" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink)">COCKPIT</text>
+  <text x="215" y="62" text-anchor="middle" font-size="11.5" fill="var(--mute)">a browser, anywhere</text>
+
+  <rect x="600" y="16" width="210" height="62" rx="8" fill="var(--panel)" stroke="var(--line)" stroke-width="1.5"/>
+  <text x="705" y="42" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink)">PHONE</text>
+  <text x="705" y="62" text-anchor="middle" font-size="11.5" fill="var(--mute)">the mobile app</text>
+
+  <!-- gateway -->
+  <rect x="150" y="150" width="620" height="94" rx="10" fill="var(--panel)" stroke="var(--blue)" stroke-width="2.5"/>
+  <text x="460" y="182" text-anchor="middle" font-size="16" font-weight="700" fill="var(--ink)">THE GATEWAY</text>
+  <text x="460" y="204" text-anchor="middle" font-size="12.5" fill="var(--mute)">the only reachable host in the system</text>
+  <text x="460" y="226" text-anchor="middle" font-size="11.5" fill="var(--mute)">holds the live model &#183; decides every colour &#183; relays everything</text>
+
+  <!-- client arrows in -->
+  <line x1="215" y1="78" x2="215" y2="146" stroke="var(--mute)" stroke-width="1.6" marker-end="url(#pa)"/>
+  <line x1="705" y1="78" x2="705" y2="146" stroke="var(--mute)" stroke-width="1.6" marker-end="url(#pa)"/>
+  <text x="228" y="118" font-size="11" fill="var(--mute)">HTTPS</text>
+  <text x="718" y="118" font-size="11" fill="var(--mute)">HTTPS</text>
+
+  <!-- machines -->
+  <rect x="26" y="336" width="396" height="150" rx="10" fill="none" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="7 5"/>
+  <text x="40" y="356" font-size="11" fill="var(--mute)">MACHINE 1 &#183; behind NAT / a firewall</text>
+  <rect x="50" y="368" width="348" height="98" rx="8" fill="var(--panel)" stroke="var(--line)" stroke-width="1.5"/>
+  <text x="224" y="396" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink)">DIRECTOR A</text>
+  <text x="224" y="418" text-anchor="middle" font-size="11.5" fill="var(--mute)">hosts the sessions &#183; sees the terminal bytes</text>
+  <text x="224" y="440" text-anchor="middle" font-size="11.5" font-weight="600" fill="var(--red)">NO inbound ports</text>
+  <text x="224" y="457" text-anchor="middle" font-size="10.5" fill="var(--mute)">no listener at all &#8212; not even loopback</text>
+
+  <rect x="498" y="336" width="396" height="150" rx="10" fill="none" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="7 5"/>
+  <text x="512" y="356" font-size="11" fill="var(--mute)">MACHINE 2 &#183; behind NAT / a firewall</text>
+  <rect x="522" y="368" width="348" height="98" rx="8" fill="var(--panel)" stroke="var(--line)" stroke-width="1.5"/>
+  <text x="696" y="396" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink)">DIRECTOR B</text>
+  <text x="696" y="418" text-anchor="middle" font-size="11.5" fill="var(--mute)">same shape, another computer</text>
+  <text x="696" y="440" text-anchor="middle" font-size="11.5" font-weight="600" fill="var(--red)">NO inbound ports</text>
+  <text x="696" y="457" text-anchor="middle" font-size="10.5" fill="var(--mute)">no listener at all &#8212; not even loopback</text>
+
+  <!-- outbound dials -->
+  <line x1="224" y1="368" x2="300" y2="248" stroke="var(--blue)" stroke-width="2.4" marker-end="url(#pb)"/>
+  <line x1="696" y1="368" x2="620" y2="248" stroke="var(--blue)" stroke-width="2.4" marker-end="url(#pb)"/>
+  <text x="168" y="300" font-size="11.5" font-weight="600" fill="var(--blue)">dials OUT</text>
+  <text x="120" y="316" font-size="10.5" fill="var(--mute)">one connection, kept open</text>
+  <text x="700" y="300" font-size="11.5" font-weight="600" fill="var(--blue)">dials OUT</text>
+  <text x="652" y="316" font-size="10.5" fill="var(--mute)">one connection, kept open</text>
+
+  <!-- what rides it -->
+  <text x="460" y="286" text-anchor="middle" font-size="11.5" fill="var(--mute)">state pushes UP &#183; commands and requests come DOWN &#183; terminal bytes ride outbound streams</text>
+
+  <!-- forbidden: gateway dialling in -->
+  <line x1="430" y1="248" x2="430" y2="330" stroke="var(--red)" stroke-width="1.6" stroke-dasharray="5 4"/>
+  <line x1="420" y1="279" x2="440" y2="299" stroke="var(--red)" stroke-width="2.4"/>
+  <line x1="440" y1="279" x2="420" y2="299" stroke="var(--red)" stroke-width="2.4"/>
+  <text x="450" y="296" font-size="11" font-weight="600" fill="var(--red)">the Gateway NEVER dials a Director</text>
+
+  <!-- forbidden: director to director -->
+  <line x1="422" y1="417" x2="498" y2="417" stroke="var(--red)" stroke-width="1.6" stroke-dasharray="5 4"/>
+  <line x1="450" y1="407" x2="470" y2="427" stroke="var(--red)" stroke-width="2.4"/>
+  <line x1="470" y1="407" x2="450" y2="427" stroke="var(--red)" stroke-width="2.4"/>
+  <text x="460" y="399" text-anchor="middle" font-size="10.5" font-weight="600" fill="var(--red)">never</text>
+</svg>
+<p class="cap">Because the Director dials out, it needs no inbound firewall port, no port-forward and no
+per-machine address. It works behind any NAT or firewall that allows outbound HTTPS &mdash; home,
+corporate, cellular, anywhere. <strong>Who initiates is not who can ask:</strong> that one
+Director-initiated connection carries requests in both directions.</p>
 
 <div class="callout law">
   <p><strong>The invariants. These are the musts.</strong></p>
@@ -138,6 +212,59 @@ reader does not go looking for an API.</p>
 <h2>2. What collapsed into the stream</h2>
 
 <p>Everything that used to be a separate Director-to-Gateway mechanism is now one channel.</p>
+<svg viewBox="0 0 920 400" width="100%" style="max-width:920px;height:auto;margin:18px 0 6px" role="img" aria-labelledby="collapse-t">
+  <title id="collapse-t">Seven separate Director-to-Gateway mechanisms, four of which needed a way into the machine, all replaced by one outbound connection</title>
+  <defs>
+    <marker id="ca" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="var(--blue)"/>
+    </marker>
+  </defs>
+  <text x="14" y="26" font-size="12" font-weight="700" fill="var(--mute)">BEFORE &#8212; seven mechanisms, four of them needing a way in</text>
+  <text x="600" y="26" font-size="12" font-weight="700" fill="var(--mute)">NOW</text>
+  <rect x="14" y="44" width="330" height="36" rx="6" fill="var(--panel)" stroke="var(--line)" stroke-width="1.4"/>
+  <text x="26" y="60" font-size="11.5" font-weight="600" fill="var(--ink)">Register on start</text>
+  <text x="26" y="74" font-size="10" fill="var(--mute)">HTTP</text>
+  <path d="M448 62 C 500 62, 520 210, 566 210" fill="none" stroke="var(--mute)" stroke-width="1.1" opacity="0.65"/>
+  <rect x="14" y="90" width="330" height="36" rx="6" fill="var(--panel)" stroke="var(--line)" stroke-width="1.4"/>
+  <text x="26" y="106" font-size="11.5" font-weight="600" fill="var(--ink)">Heartbeat every 15 seconds</text>
+  <text x="26" y="120" font-size="10" fill="var(--mute)">HTTP push</text>
+  <path d="M448 108 C 500 108, 520 210, 566 210" fill="none" stroke="var(--mute)" stroke-width="1.1" opacity="0.65"/>
+  <rect x="14" y="136" width="330" height="36" rx="6" fill="var(--panel)" stroke="var(--line)" stroke-width="1.4"/>
+  <text x="26" y="152" font-size="11.5" font-weight="600" fill="var(--ink)">Doorbell on change</text>
+  <text x="26" y="166" font-size="10" fill="var(--mute)">best-effort HTTP push</text>
+  <path d="M448 154 C 500 154, 520 210, 566 210" fill="none" stroke="var(--mute)" stroke-width="1.1" opacity="0.65"/>
+  <rect x="14" y="182" width="330" height="36" rx="6" fill="var(--panel)" stroke="var(--red)" stroke-width="1.4"/>
+  <text x="26" y="198" font-size="11.5" font-weight="600" fill="var(--ink)">Gateway fans out and PULLS each Director</text>
+  <text x="26" y="212" font-size="10" fill="var(--mute)">on every client poll</text>
+  <text x="352" y="205" font-size="9.5" font-weight="600" fill="var(--red)">needs a way IN</text>
+  <path d="M448 200 C 500 200, 520 210, 566 210" fill="none" stroke="var(--mute)" stroke-width="1.1" opacity="0.65"/>
+  <rect x="14" y="228" width="330" height="36" rx="6" fill="var(--panel)" stroke="var(--red)" stroke-width="1.4"/>
+  <text x="26" y="244" font-size="11.5" font-weight="600" fill="var(--ink)">Commands: Gateway to Director</text>
+  <text x="26" y="258" font-size="10" fill="var(--mute)">HTTP into the machine</text>
+  <text x="352" y="251" font-size="9.5" font-weight="600" fill="var(--red)">needs a way IN</text>
+  <path d="M448 246 C 500 246, 520 210, 566 210" fill="none" stroke="var(--mute)" stroke-width="1.1" opacity="0.65"/>
+  <rect x="14" y="274" width="330" height="36" rx="6" fill="var(--panel)" stroke="var(--red)" stroke-width="1.4"/>
+  <text x="26" y="290" font-size="11.5" font-weight="600" fill="var(--ink)">History: the Gateway pulls on demand</text>
+  <text x="26" y="304" font-size="10" fill="var(--mute)">HTTP into the machine</text>
+  <text x="352" y="297" font-size="9.5" font-weight="600" fill="var(--red)">needs a way IN</text>
+  <path d="M448 292 C 500 292, 520 210, 566 210" fill="none" stroke="var(--mute)" stroke-width="1.1" opacity="0.65"/>
+  <rect x="14" y="320" width="330" height="36" rx="6" fill="var(--panel)" stroke="var(--red)" stroke-width="1.4"/>
+  <text x="26" y="336" font-size="11.5" font-weight="600" fill="var(--ink)">Terminal bytes: browser straight to Director</text>
+  <text x="26" y="350" font-size="10" fill="var(--mute)">direct reachability</text>
+  <text x="352" y="343" font-size="9.5" font-weight="600" fill="var(--red)">needs a way IN</text>
+  <path d="M448 338 C 500 338, 520 210, 566 210" fill="none" stroke="var(--mute)" stroke-width="1.1" opacity="0.65"/>
+  <line x1="566" y1="210" x2="790" y2="210" stroke="var(--blue)" stroke-width="9" stroke-linecap="round" marker-end="url(#ca)"/>
+  <rect x="800" y="168" width="106" height="84" rx="8" fill="var(--panel)" stroke="var(--blue)" stroke-width="2"/>
+  <text x="853" y="198" text-anchor="middle" font-size="12" font-weight="700" fill="var(--ink)">GATEWAY</text>
+  <text x="853" y="216" text-anchor="middle" font-size="10" fill="var(--mute)">the only</text>
+  <text x="853" y="230" text-anchor="middle" font-size="10" fill="var(--mute)">reachable</text>
+  <text x="853" y="244" text-anchor="middle" font-size="10" fill="var(--mute)">host</text>
+  <text x="600" y="196" font-size="12.5" font-weight="700" fill="var(--blue)">ONE outbound connection</text>
+  <text x="600" y="234" font-size="10.5" fill="var(--mute)">the Director dials it, and keeps it open</text>
+</svg>
+<p class="cap">The four marked rows are the reason this is not a tidy-up. Each needed the Gateway to reach
+INTO the machine, which means a port, a port-forward, or a per-machine address. Folding them into a
+connection the Director dials outward is what removes the inbound surface entirely.</p>
 
 <div class="scroll">
 <table>
@@ -246,6 +373,40 @@ hour, <em>while the Gateway sat holding the very data it had just refused to sho
 the read alone would have bought about a minute against a requirement of five.</p>
 
 <h3>Two methods, deliberately - and this is not a relaxation</h3>
+<svg viewBox="0 0 900 300" width="100%" style="max-width:900px;height:auto;margin:18px 0 6px" role="img" aria-labelledby="readmodel-t">
+  <title id="readmodel-t">Two reads over one store: reads that only display serve last-known state with its age, and reads that act refuse a stale answer outright</title>
+  <defs>
+    <marker id="ra" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="var(--mute)"/>
+    </marker>
+  </defs>
+
+  <rect x="330" y="18" width="240" height="66" rx="8" fill="var(--panel)" stroke="var(--line)" stroke-width="1.5"/>
+  <text x="450" y="44" text-anchor="middle" font-size="13.5" font-weight="700" fill="var(--ink)">the pushed store</text>
+  <text x="450" y="64" text-anchor="middle" font-size="11" fill="var(--mute)">whatever each Director last sent</text>
+
+  <path d="M380 84 C 300 120, 250 130, 214 150" fill="none" stroke="var(--mute)" stroke-width="1.6" marker-end="url(#ra)"/>
+  <path d="M520 84 C 600 120, 650 130, 686 150" fill="none" stroke="var(--mute)" stroke-width="1.6" marker-end="url(#ra)"/>
+
+  <rect x="20" y="156" width="388" height="118" rx="9" fill="var(--panel)" stroke="var(--green)" stroke-width="2.2"/>
+  <text x="40" y="182" font-size="13" font-weight="700" fill="var(--ink)">reads that DISPLAY</text>
+  <text x="40" y="202" font-size="11" fill="var(--mute)">the roster, every screen</text>
+  <text x="40" y="228" font-size="12" font-weight="600" fill="var(--green)">serve LAST-KNOWN, always</text>
+  <text x="40" y="248" font-size="11" fill="var(--mute)">with its age reported alongside. A stale row that</text>
+  <text x="40" y="264" font-size="11" fill="var(--mute)">says it is stale beats a blank screen.</text>
+
+  <rect x="492" y="156" width="388" height="118" rx="9" fill="var(--panel)" stroke="var(--red)" stroke-width="2.2"/>
+  <text x="512" y="182" font-size="13" font-weight="700" fill="var(--ink)">reads that ACT</text>
+  <text x="512" y="202" font-size="11" fill="var(--mute)">routing a command, every gate</text>
+  <text x="512" y="228" font-size="12" font-weight="600" fill="var(--red)">REFUSE a stale answer</text>
+  <text x="512" y="248" font-size="11" fill="var(--mute)">acting on one could aim a command at a machine</text>
+  <text x="512" y="264" font-size="11" fill="var(--mute)">that is no longer there.</text>
+
+  <text x="450" y="126" text-anchor="middle" font-size="11" font-weight="600" fill="var(--mute)">one store, two questions</text>
+</svg>
+<p class="cap">Collapsing these into a single &quot;is it fresh?&quot; question is what caused the defect.
+Two missed ticks blanked a whole machine &mdash; every session, every colour &mdash;
+<em>while the Gateway sat holding the very data it had just refused to show.</em></p>
 
 <div class="scroll">
 <table>
