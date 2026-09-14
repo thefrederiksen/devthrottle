@@ -48,6 +48,14 @@
     be invoked by hand; a gate that depends on remembering two extra commands is one that will eventually
     be run without them, and a release is the one place there is no fixing it forward.
 
+    -PARKED NEEDS DOCKER, AND SAYS SO RATHER THAN SKIPPING (issue #2834). Two of the parked suites carry
+    PostgreSQL-backed proofs. This script now BUILDS a throwaway PostgreSQL for the run that needs one,
+    hands its connection strings to the test processes, and destroys it when the run ends - so there is
+    no shared container for a person to start and nothing to go stale between runs. It IGNORES whatever
+    the machine has in its user environment. With Docker absent the run STOPS: those proofs would report
+    SKIPPED, and a skip is indistinguishable from a pass in the console summary, in the TRX counters and
+    in every report built from them. The default run starts no database and needs no Docker.
+
     A RUN THAT COLLECTED ZERO TESTS - OR ONLY PART OF WHAT IT WAS ASKED FOR - IS REFUSED, WITH ITS OWN
     EXIT CODE. A filter that matches nothing
     used to exit 0 from every project and end on "all projects exited zero" - a green that means nothing
@@ -198,6 +206,139 @@ if ($Gateway) {
 } else {
     $toRun = $defaultProjects + $installerProjects
     if ($Parked) { $toRun += $parkedProjects }
+}
+
+
+# ---------------------------------------------------------------------------------------------------
+# THE RUN OWNS ITS OWN POSTGRESQL (issue #2834)
+#
+# THE DEFECT THIS CLOSES, and it cost a release. The Postgres-backed proofs used to read a connection
+# string a PERSON had exported by hand, pointing at a container a PERSON had started by hand and that
+# nothing kept alive. On 14 September 2026 that container stopped at 12:02 UTC, nothing noticed, and the
+# release gate for v2.1.2 came back red with eight socket errors on a change that touched an Avalonia
+# window and a React file. The variables on that machine were ALSO stale - naming a database and a
+# password from an older generation of the rig script - so they had been pointing at nothing for as long
+# as anyone could tell. Three states (right, stale, pointing at a corpse) all looked identical from
+# inside the test.
+#
+# The rig is now born and destroyed inside the run that needs it. There is no shared container to die,
+# no variable for a person to set, and nothing to go stale between runs - so that failure has nowhere
+# left to live.
+#
+# IT IS NOT PROVISIONED FOR EVERY RUN. Only the two suites below carry Postgres-backed proofs, and both
+# are parked - so the everyday gate pays nothing for this, and a change to a dialog never starts a
+# database.
+#
+# INHERITED VARIABLES ARE OVERRIDDEN, DELIBERATELY. Whatever a machine has in its user environment is
+# ignored: this run sets both variables in its own process, so its children see the rig it just built.
+# A run that trusted an inherited value would be back in the failure above.
+$postgresProjects = @(
+    $gatewayProject,
+    "src\CcDirector.Gateway.UnitTests\CcDirector.Gateway.UnitTests.csproj"
+)
+$needsPostgres = @($toRun | Where-Object { $postgresProjects -contains $_ }).Count -gt 0
+
+# The label every rig this script creates carries, and the ONLY thing the stale sweep will act on.
+$RigLabel = 'cc-test-local-rig'
+
+function Get-FreeTcpPort {
+    $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+    $listener.Start()
+    try { return $listener.LocalEndpoint.Port } finally { $listener.Stop() }
+}
+
+<#
+    Remove rigs an EARLIER run left behind, and nothing else.
+
+    A run that is killed - Ctrl+C, a reboot, a stopped background task - never reaches its teardown, so
+    its container would otherwise survive forever holding a port. This is the backstop for that case, and
+    it leans hard toward keeping: it enumerates what to DELETE by a positive test and never what to skip.
+    A container qualifies only if it carries THIS script's own label AND was created more than six hours
+    ago. The longest suite in this repository measured 1 hour 3 minutes, so six hours cannot overlap a
+    live run; anything older is provably nobody's.
+#>
+function Remove-AbandonedRigs {
+    # docker ps has no age filter - `until` belongs to `container prune` and is rejected here - so the
+    # age is read per container and compared in this script, where the rule can be stated exactly.
+    $rows = @(& docker ps -a --filter "label=$RigLabel" --format "{{.ID}}`t{{.CreatedAt}}" 2>&1)
+    if ($LASTEXITCODE -ne 0) { return }
+
+    $cutoff = (Get-Date).AddHours(-6)
+    foreach ($row in $rows) {
+        $parts = $row -split "`t", 2
+        if ($parts.Count -ne 2) { continue }
+        # A row whose timestamp cannot be read is KEPT. An unreadable age is not evidence of being old.
+        $created = [datetime]::MinValue
+        if (-not [datetime]::TryParse($parts[1], [ref]$created)) { continue }
+        if ($created -ge $cutoff) { continue }
+        Write-Host "Removing abandoned test rig $($parts[0]) (created $($parts[1]), left by a killed run)."
+        & docker rm -f -v $parts[0] 2>&1 | Out-Null
+    }
+}
+
+if ($needsPostgres) {
+    # NO FALLBACK. A run that cannot build its database does not quietly run the suites without one:
+    # those proofs would SKIP, and a skip is indistinguishable from a pass in every report we produce.
+    # It says what is missing and what to do about it, and stops.
+    & docker version --format '{{.Server.Version}}' 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host ""
+        Write-Host "RESULT: CANNOT RUN - Docker is not available, and these suites need a PostgreSQL server."
+        Write-Host ""
+        Write-Host "  Suites needing it: CcDirector.Gateway.Tests, CcDirector.Gateway.UnitTests"
+        Write-Host "  Start Docker Desktop and run this again."
+        Write-Host ""
+        Write-Host "This is deliberately fatal rather than a skip. The Postgres-backed proofs would report"
+        Write-Host "SKIPPED, which reads exactly like a pass, and this run is the release gate."
+        exit 6
+    }
+
+    Remove-AbandonedRigs
+
+    $rigScript = Join-Path $PSScriptRoot "pg-stats-proof-rig.ps1"
+    $rigInstance = "run" + [Guid]::NewGuid().ToString("N").Substring(0, 8)
+    $rigPort = Get-FreeTcpPort
+    Write-Host "Starting a throwaway PostgreSQL for this run (instance $rigInstance, port $rigPort)..."
+
+    # Teardown is registered BEFORE the rig is created, so a failure inside provisioning is cleaned up
+    # too. PowerShell.Exiting fires on a normal end and on every `exit` in this script, which is why the
+    # rest of the script did not have to be wrapped in a try/finally to be safe. A KILLED process fires
+    # nothing at all - Remove-AbandonedRigs above is the answer to that case, not this one.
+    $teardown = [scriptblock]::Create(
+        "& powershell -NoProfile -File '$rigScript' -Instance '$rigInstance' -Port $rigPort -Verb down " +
+        "2>&1 | Out-Null")
+    Register-EngineEvent -SourceIdentifier PowerShell.Exiting -Action $teardown | Out-Null
+
+    & powershell -NoProfile -File $rigScript -Instance $rigInstance -Port $rigPort -Verb up -Label $RigLabel 2>&1 |
+        Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host ""
+        Write-Host "RESULT: CANNOT RUN - the throwaway PostgreSQL for this run could not be provisioned."
+        Write-Host "  Re-run the rig by hand to see why:"
+        Write-Host "    powershell -NoProfile -File scripts\pg-stats-proof-rig.ps1 -Instance $rigInstance -Port $rigPort -Verb up"
+        exit 6
+    }
+
+    # The connection strings come from the rig itself rather than being composed here, so exactly one
+    # place knows the database names, the role and the password.
+    $envLines = & powershell -NoProfile -File $rigScript -Instance $rigInstance -Port $rigPort -Verb print-env
+    foreach ($line in $envLines) {
+        if ($line -match '^\s*\$env:([A-Z_]+)\s*=\s*''(.+)''\s*$') {
+            Set-Item -Path "Env:$($Matches[1])" -Value $Matches[2]
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace($env:CC_GATEWAY_TEST_PG_CONNECTION) -or
+        [string]::IsNullOrWhiteSpace($env:CC_GATEWAY_TEST_PG_STATS_CONNECTION)) {
+        Write-Host ""
+        Write-Host "RESULT: CANNOT RUN - the rig started but did not hand back both connection strings."
+        exit 6
+    }
+
+    # What turns a SKIP into a FAILURE inside the test assemblies. The run is asserting that it HAS
+    # provided a database; PostgresRigIsPresentWhenRequiredTests holds it to that, so a rig that started
+    # and then died mid-run is one red test with a sentence, not eight socket errors nobody can read.
+    $env:CC_TEST_REQUIRE_POSTGRES = "1"
+    Write-Host "PostgreSQL ready. It is destroyed when this run ends."
 }
 
 Write-Host "Building once, then running $($toRun.Count) test project(s)..."

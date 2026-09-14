@@ -266,6 +266,14 @@ commit about to be tagged, and it is ONE command:**
 `-Parked` adds the three skipped suites. `-Configuration Release` matches what users download,
 because the script defaults to Debug while the continuous integration job it replaced ran Release.
 
+**`-Parked` needs Docker running, and says so rather than skipping (issue #2834).** Two of those three
+suites carry PostgreSQL-backed proofs, and the run now BUILDS its own throwaway PostgreSQL, uses it, and
+destroys it - there is no container to start by hand and no connection-string variable to set. Whatever
+is in your user environment is ignored. If Docker is not running the gate stops and says so, because the
+alternative is those proofs reporting SKIPPED, which is indistinguishable from a pass in every report we
+produce - a dead shared container did exactly that to the v2.1.2 release gate. The DEFAULT run starts no
+database and needs no Docker.
+
 **Corrected 2026-08-04, on evidence, by the remove-the-network-port mission.** This section used to
 say the gate was THREE commands, because the two installer projects were not in `cc-director.sln`
 and the script "runs nine projects, all under `src\`". That is no longer true of the script: it

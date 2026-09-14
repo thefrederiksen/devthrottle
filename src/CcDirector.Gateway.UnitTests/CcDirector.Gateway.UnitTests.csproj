@@ -92,6 +92,12 @@
          full parallel run fails exactly one database test, a different one each time, all passing in
          isolation. -->
     <Compile Include="..\CcDirector.Gateway.Tests\Data\GatewayDbEnvironmentGate.cs" Link="Data/GatewayDbEnvironmentGate.cs" />
+    <!-- WHETHER THIS RUN WAS PROMISED A DATABASE, and the one test that holds it to that (issue #2834).
+         Both assemblies carry Postgres-backed proofs and both can lose their database mid-run, so the
+         rule and its pinning test are LINKED into both rather than copied - a split that let the two
+         disagree about when a skip is honest would reintroduce the false green they exist to remove. -->
+    <Compile Include="..\CcDirector.Gateway.Tests\Data\PostgresRigGate.cs" Link="Data/PostgresRigGate.cs" />
+    <Compile Include="..\CcDirector.Gateway.Tests\Data\PostgresRigIsPresentWhenRequiredTests.cs" Link="Data/PostgresRigIsPresentWhenRequiredTests.cs" />
     <Compile Include="..\CcDirector.Gateway.Tests\StatsConcurrencyTestDb.cs" Link="StatsConcurrencyTestDb.cs" />
     <Compile Include="..\CcDirector.Gateway.Tests\TestEs256Key.cs" Link="TestEs256Key.cs" />
     <Compile Include="..\CcDirector.Gateway.Tests\Stats\FrozenSqliteStatsReader.cs" Link="Stats/FrozenSqliteStatsReader.cs" />
