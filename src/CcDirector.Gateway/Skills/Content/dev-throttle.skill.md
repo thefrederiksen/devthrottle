@@ -120,6 +120,10 @@ cc-devthrottle session spawn D:\Repos\myrepo \
   --prompt "Fix the bug in auth.js"
 ```
 
+`--controlled-by self` says YOU own it, so it reports back to you and stays out of the user's
+queue. Say `--standalone --why "<reason>"` instead when the USER owns it. From inside a session
+one of the two is required - the spawn is refused until you say which.
+
 The Director names the session at birth and returns the final id and name. See the **fleet-comms**
 skill for the full flag set (`--agent`, `--role`, `--mission`, `--machine`, `--controlled-by`, and the
 display-name convention).

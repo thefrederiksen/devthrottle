@@ -1,4 +1,4 @@
-﻿# Fleet communication between sessions
+# Fleet communication between sessions
 
 DevThrottle lets a session talk to other sessions running anywhere in the fleet, meaning any
 machine whose Director is attached to the same Gateway. Use the single `cc-devthrottle` command.
@@ -26,7 +26,7 @@ cc-devthrottle session whoami
 cc-devthrottle session rename "Dev Throttle Review"
 cc-devthrottle session rename 9b2f "Frontend Review"
 cc-devthrottle session spawn D:\path\to\repo --controlled-by self --purpose "implement #799"
-cc-devthrottle session spawn D:\path\to\repo --controlled-by self --name "Frontend review"
+cc-devthrottle session spawn D:\path\to\repo --standalone --why "he asked me to open this for him" --name "Frontend review"
 cc-devthrottle session spawn D:\path\to\repo --controlled-by self --purpose "run the test suite" --agent ClaudeCode --prompt "Run the tests and report failures."
 cc-devthrottle session spawn D:\path\to\repo --controlled-by self --name "frontend" --agent RawCli --command cmd
 cc-devthrottle director list
