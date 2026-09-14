@@ -224,9 +224,13 @@ answer you already have locally was the single largest source of dead time in th
    going further.
 
    Know exactly what the default run covers, because it is not everything:
-   - It runs every suite that fits the two-minute budget, roughly 3,400 tests.
-   - **Two suites are PARKED and do NOT run by default** - `Gateway.Tests` (host-bound, takes a
-     machine-wide lock) and `Core.Tests` (far outside the budget). Run them with `-Parked`.
+   - It runs every suite that fits the two-minute budget, 1,634 tests as measured on 2026-09-13.
+   - **Three suites are PARKED and do NOT run by default** - `Gateway.Tests` (host-bound, takes a
+     machine-wide lock), `Core.Tests` (far outside the budget), and `Gateway.UnitTests` (grew past
+     the ceiling; issue #2824). Run them with `-Parked`.
+   - **`Gateway.UnitTests` being parked is the one most likely to surprise you**: a green default run
+     no longer says anything about the Gateway's 4,259 unit tests. If you touched the Gateway, the
+     COVERAGE GAP line will say so - run `-Parked`.
    - `-Fast` is a **no-op**, retained only for callers that still pass it. The default is the
      fast run. Do not claim a change was gated by `-Fast`; it means nothing.
    - It runs **no web tests and no Python tests** at all.
@@ -259,7 +263,7 @@ commit about to be tagged, and it is ONE command:**
 
     .\scripts\test-local.ps1 -Parked -Configuration Release
 
-`-Parked` adds the two skipped suites. `-Configuration Release` matches what users download,
+`-Parked` adds the three skipped suites. `-Configuration Release` matches what users download,
 because the script defaults to Debug while the continuous integration job it replaced ran Release.
 
 **Corrected 2026-08-04, on evidence, by the remove-the-network-port mission.** This section used to

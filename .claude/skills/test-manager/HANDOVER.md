@@ -9,9 +9,10 @@ That is the whole point of the work; do not trade it away.
 
 | suite | state | tests | time |
 |-------|-------|-------|------|
-| `CcDirector.Gateway.UnitTests` | default gate | ~2780 | ~60 s |
-| `CcDirector.Core.UnitTests` | default gate | 82 | ~0.06 s |
-| `Avalonia` / `Engine` / `HostedAgent` / `Launcher` / `Terminal.Avalonia` | default gate | ~630 | seconds |
+| `CcDirector.Core.UnitTests` | default gate | 278 | seconds |
+| `Avalonia` / `Engine` / `HostedAgent` / `Launcher` / `Terminal.Avalonia` | default gate | 790 | seconds |
+| installer: `setup.Tests` / `setup-engine.Tests` | default gate | 566 | seconds |
+| `CcDirector.Gateway.UnitTests` | **PARKED** 2026-09-13 | 4,267 | ~180 s against a 120 s ceiling |
 | `CcDirector.Gateway.Tests` | **PARKED** | ~1450 | machine-wide lock queue |
 | `CcDirector.Core.Tests` | **PARKED** | ~3400 | 11 min quiet, 33 busy, sequential |
 

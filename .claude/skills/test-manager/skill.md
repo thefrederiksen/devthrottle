@@ -178,7 +178,7 @@ the exact commit about to be tagged:
     dotnet test tools/cc-director-setup.Tests/ -c Release
     dotnet test tools/cc-director-setup-engine.Tests/ -c Release
 
-`-Parked` adds the two skipped suites. `-Configuration Release` matches what users download,
+`-Parked` adds the three skipped suites. `-Configuration Release` matches what users download,
 because this script defaults to Debug while the continuous integration job it replaced ran Release.
 The two installer projects are outside `cc-director.sln` and this script therefore never runs them,
 while the release ships `cc-director-setup.exe` - folding them into `-Parked` is the follow-up that
@@ -270,26 +270,31 @@ expected to be slow.
 
 | Suite | Tests | Notes |
 |-------|-------|-------|
-| `CcDirector.Gateway.UnitTests` | ~2780 | The PURE Gateway tests. No lock. |
-| `CcDirector.Core.UnitTests` | ~2860 | The PARALLEL half of Core: 9 seconds, against 11 minutes sequential for the whole. |
-| `CcDirector.Avalonia.Tests` | ~350 | |
-| `CcDirector.Engine.Tests` | ~63 | |
-| `CcDirector.HostedAgent.Tests` | ~88 | |
-| `CcDirector.Launcher.Tests` | ~110 | |
-| `CcDirector.Terminal.Avalonia.Tests` | ~24 | |
+| `CcDirector.Core.UnitTests` | 278 | The PARALLEL half of Core, against 11 minutes sequential for the whole. |
+| `CcDirector.Avalonia.Tests` | 423 | |
+| `CcDirector.Engine.Tests` | 63 | |
+| `CcDirector.HostedAgent.Tests` | 88 | The slowest in the default run, about 40 seconds. |
+| `CcDirector.Launcher.Tests` | 191 | |
+| `CcDirector.Terminal.Avalonia.Tests` | 25 | |
+| installer: `setup.Tests`, `setup-engine.Tests` | 566 | Outside the solution; built separately by the script. |
 
-Roughly 3400 tests, about 80 seconds end to end including the build.
+1,634 tests, about three minutes end to end including the build. Measured 2026-09-13.
+
+`CcDirector.Gateway.UnitTests` LEFT this table on 2026-09-13 - see Parked below and issue #2824.
 
 ### Parked (opt in with `-Parked`)
 
 | Suite | Cost | Why it cannot fit |
 |-------|------|-------------------|
 | `CcDirector.Gateway.Tests` | a QUEUE, not a runtime | Serializes machine-wide. Its cost is waiting for every other working tree on the machine. Runs of 45 minutes have executed ZERO tests. |
+| `CcDirector.Gateway.UnitTests` | about 180s, against a 120s ceiling | Grew from 2,777 tests to 4,267 and from about 56 seconds to 180, so the gate STOPPED it on every run - and a stopped suite writes no result file, so its 4,259 passing tests were gating nothing at all. Parked 2026-09-13, issue #2824, which also records what would bring it back. |
 | `CcDirector.Core.Tests` | 11 min quiet, 33 busy | Runs SEQUENTIALLY, and its slowest classes spend 30-80 seconds each creating real git repositories and worktrees on disk. Its fast, parallel-safe half was split into `CcDirector.Core.UnitTests` (below); what is left is the timing, git and process work plus the named bad tests. |
 
-**THE COST OF PARKING, WHICH MUST BE SAID OUT LOUD WHENEVER IT COMES UP.** Those two suites hold
-real coverage - the Gateway's host-bound endpoint, tenancy and boundary tests, and most of Core. A
-regression in either can reach main without a local red until `-Parked` runs. That is a deliberate,
+**THE COST OF PARKING, WHICH MUST BE SAID OUT LOUD WHENEVER IT COMES UP.** Those three suites hold
+real coverage - the Gateway's host-bound endpoint, tenancy and boundary tests, most of Core, and since
+2026-09-13 the Gateway's 4,259 UNIT tests as well. A regression in any of them can reach main without a
+local red until `-Parked` runs. The Gateway.UnitTests parking is the one most likely to catch someone
+out, because a green default run used to mean the Gateway was covered and no longer does. That is a deliberate,
 temporary trade: a gate that is actually run beats one that is comprehensive and skipped. It is not
 a reason to relax about it.
 
@@ -490,9 +495,10 @@ assembly NAME at runtime, so its absence is a `FileNotFoundException`, not an un
 
 Answer with what is NOT running, not with a number of tests. The honest summary today:
 
-- **Running by default:** ~3400 tests, ~80 seconds.
-- **Not running by default:** the host-bound Gateway suite (endpoints, tenancy, boundaries) and all
-  of `Core.Tests`. Both run under `-Parked`.
+- **Running by default:** 1,634 tests, about three minutes (measured 2026-09-13).
+- **Not running by default:** the host-bound Gateway suite (endpoints, tenancy, boundaries), all of
+  `Core.Tests`, and since 2026-09-13 all 4,259 of `Gateway.UnitTests` (issue #2824). All three run
+  under `-Parked`.
 - **Continuous integration** still runs everything after a merge as a backstop; it takes about fifty
   minutes, blocks nobody, and is never waited for. When it reddens it is fixed forward at once - an
   unchased red is how this backstop stops being one.
