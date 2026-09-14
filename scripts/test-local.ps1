@@ -587,14 +587,21 @@ foreach ($r in $running) {
 
     # The authoritative pair, read from the TRX rather than from the console line above.
     $outcome = "NO-TRX"
+    $executed = 0
     $total = 0
     if (Test-Path $r.Trx) {
         [xml] $doc = Get-Content $r.Trx -Raw
         $outcome = [string] $doc.TestRun.ResultSummary.outcome
         $total = [int] $doc.TestRun.ResultSummary.Counters.total
+        # EXECUTED is not the same number as TOTAL, and the difference is load-bearing (issue #2834).
+        # A test carrying a static Skip is COLLECTED and counted in total while executing nothing, so a
+        # run can report total=1, executed=0 and "Test Run Successful". Anything that asks "did this run
+        # actually enforce something" has to read executed.
+        $executed = [int] $doc.TestRun.ResultSummary.Counters.executed
     }
     $r | Add-Member -NotePropertyName Outcome -NotePropertyValue $outcome
     $r | Add-Member -NotePropertyName Total -NotePropertyValue $total
+    $r | Add-Member -NotePropertyName Executed -NotePropertyValue $executed
 
     if ($r.Process.ExitCode -eq 0) {
         Write-Host ("  PASS  {0}  {1}" -f $r.Name, $summary.Trim())
@@ -669,6 +676,59 @@ if ($overBudget.Count -gt 0) {
 # exit code so a caller can tell it apart from a test failure.
 $collected = 0
 foreach ($r in $running) { $collected += [int] $r.Total }
+
+# THE RUN VERIFIES ITS OWN PROMISE. IT DOES NOT DELEGATE THAT TO WHICHEVER TESTS WERE SELECTED.
+#
+# Found in the third review round, and it is the fail-open pattern this whole issue is about, one level
+# up. The in-assembly guard (PostgresRigGate) refuses to let a Postgres suite load when the database this
+# run promised is not there - and that works for every ordinary selected test, confirmed in both
+# assemblies. But a module initializer runs when the module is first touched, and a selection that
+# EXECUTES NOTHING never touches it in time: filtering to a statically-skipped test produced "Test Run
+# Successful", exit 0, and a completed result file with total=1 and executed=0, with the initializer's
+# exception arriving only at process exit, after the verdict was already written.
+#
+# So the promise is checked HERE as well, where it cannot depend on test selection at all:
+#
+#   1. the rig must still be RUNNING. The failure that started this issue was a database that died
+#      mid-run; a container that is gone by the end means every Postgres proof after that moment was
+#      running against nothing, whatever the suites reported.
+#   2. something must actually have EXECUTED in the suites that carry the proofs. A run that collected
+#      them and executed none of them enforced nothing, and must not be read as having proved anything.
+#
+# Both are stated as a PRESENCE - a thing that must be true - rather than as the absence of an error,
+# because an absence is what fails open.
+if ($needsPostgres -and $null -ne $rigInstance) {
+    $rigContainer = "cc-pg-stats-proof-$rigInstance"
+    $stillRunning = @(& docker ps -q --filter "name=$rigContainer" 2>&1)
+    if ($LASTEXITCODE -ne 0 -or $stillRunning.Count -eq 0) {
+        Write-Host ""
+        Write-Host "RESULT: THE DATABASE THIS RUN BUILT IS GONE - the run is not evidence for anything."
+        Write-Host ""
+        Write-Host "  The throwaway PostgreSQL '$rigContainer' was provisioned for this run and is no"
+        Write-Host "  longer running. Every Postgres-backed proof after it died was running against"
+        Write-Host "  nothing, whatever the suites above reported."
+        Write-Host ""
+        Write-Host "  Inspect it before it is removed:  docker logs $rigContainer"
+        exit 6
+    }
+
+    $postgresNames = @($postgresProjects | ForEach-Object {
+        Split-Path -Leaf ([System.IO.Path]::GetDirectoryName((Join-Path $repoRoot $_)))
+    })
+    $postgresRan = @($running | Where-Object { $postgresNames -contains $_.Name })
+    $executedThere = 0
+    foreach ($r in $postgresRan) { $executedThere += [int] $r.Executed }
+    if ($postgresRan.Count -gt 0 -and $executedThere -eq 0) {
+        Write-Host ""
+        Write-Host "RESULT: A DATABASE WAS BUILT AND NOTHING RAN AGAINST IT."
+        Write-Host ""
+        Write-Host "  This run provisioned a PostgreSQL and the suites that carry the Postgres proofs"
+        Write-Host "  executed ZERO tests between them - collected some, executed none, which a static"
+        Write-Host "  Skip produces. Nothing enforced that the database was the right one, so this run"
+        Write-Host "  proves nothing about it. Widen or drop the filter."
+        exit 4
+    }
+}
 $noTrx = @($running | Where-Object { $_.Outcome -eq "NO-TRX" -and $_.Process.ExitCode -eq 0 })
 
 if ($noTrx.Count -gt 0) {
