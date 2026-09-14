@@ -1,6 +1,6 @@
 using Xunit;
 
-namespace CcDirector.Gateway.Tests;
+namespace CcDirector.Core.UnitTests.Skills;
 
 /// <summary>
 /// A SHIPPED SKILL MUST NOT TEACH A COMMAND THE PRODUCT REFUSES.
