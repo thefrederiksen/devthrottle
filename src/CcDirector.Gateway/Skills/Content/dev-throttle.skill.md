@@ -114,6 +114,7 @@ prompts, or on the wrong model.
 ```
 # Create a properly-named, autonomous-ready session
 cc-devthrottle session spawn D:\Repos\myrepo \
+  --controlled-by self \
   --name "myrepo - fix auth bug #123" \
   --args "--dangerously-skip-permissions --model opus[1m]" \
   --prompt "Fix the bug in auth.js"
@@ -131,6 +132,7 @@ whichever the Gateway lists first. When you were told to use a specific Director
 ```
 cc-devthrottle director list          # names, machines, and the Director id to use
 cc-devthrottle session spawn D:\Repos\myrepo \
+  --controlled-by self \
   --director 6f0a2b41-1c33-4f9e-9a10-2b7d5e8c1234 \
   --name "myrepo - fix auth bug #123"
 ```
