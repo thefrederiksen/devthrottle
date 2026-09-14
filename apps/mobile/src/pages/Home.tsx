@@ -696,11 +696,11 @@ export function SessionRow({
 }) {
   const name = session.name && session.name.trim().length > 0 ? session.name : "(unnamed session)";
   // A parent card: a band along its bottom carries the crew (every session under it at every level -
-  // its colour, the counts, the age) and expands them IN PLACE as one-line rows inside the same card,
-  // each stepped in by its depth. No card-in-card nesting on a phone - a second level of cards steals
-  // width from names that already wrap. Collapsed by default, remembered per crew on this device. The
-  // band is its own tap target, separated from the card's link by its border, so opening the crew
-  // never opens the parent's session.
+  // its colour, the counts, the age) and expands them IN PLACE as one-line rows inside the same card.
+  // NO INDENTATION on a phone (the settled design): a deeper level is marked by thin guide lines
+  // inside the gutter every row already has, so a name never loses width to its depth. Collapsed by
+  // default, remembered per crew on this device. The band is its own tap target, separated from the
+  // card's link by its border, so opening the crew never opens the parent's session.
   const kids = tree ? descendantsOf(tree, session) : [];
   const isParent = kids.length > 0;
   const sidRaw = session.sessionId ?? "";
@@ -841,7 +841,7 @@ export function SessionRow({
               key={k.session.sessionId}
               session={k.session}
               depth={k.depth}
-              elsewhere={isOnAnotherMachine(session, k.session)}
+              elsewhere={isOnAnotherMachine(k.parent, k.session)}
               mark={marks?.get(k.session.sessionId ?? "")}
             />
           ))}
@@ -872,9 +872,10 @@ function CrewBand({ root, kids }: { root: SessionDto; kids: SessionDto[] }) {
 }
 
 // One session under an expanded parent: a one-line row at touch height - dot, number, name, state -
-// that opens that session, stepped in by its depth so a Manager's Workers read as the Manager's. A
-// session on another machine than its parent carries that machine's name. The full card is one tap
-// away on the session's own screen.
+// that opens that session. Depth is shown as guide lines in the gutter (one per level below the first),
+// never as indentation, so the name keeps its width at any depth. A session on another machine than
+// the session DIRECTLY above it carries that machine's name. The full card is one tap away on the
+// session's own screen.
 function CrewKidRow({ session, depth, elsewhere, mark }: { session: SessionDto; depth: number; elsewhere: boolean; mark?: RosterSessionMark }) {
   const name = session.name && session.name.trim().length > 0 ? session.name : "(unnamed session)";
   const machine = machineName(session);
@@ -884,7 +885,16 @@ function CrewKidRow({ session, depth, elsewhere, mark }: { session: SessionDto; 
   const to = session.voiceMode ? `/session/${sid}/voice` : `/session/${sid}`;
   return (
     <li className={`crew-kid${mark ? " row-unreachable" : ""}`}>
-      <Link className="crew-kid-link" style={{ paddingLeft: `${30 + (depth - 1) * 16}px` }} to={to} state={{ voiceMode: Boolean(session.voiceMode), fromTab: "all" }}>
+      <Link className="crew-kid-link" to={to} state={{ voiceMode: Boolean(session.voiceMode), fromTab: "all" }}>
+        {depth > 1 && (
+          <span className="crew-kid-guides" aria-hidden="true">
+            {/* Capped at three guides: with 4 pixel spacing from 12 pixels in, a fourth would reach
+                the dot at 30 pixels. Deeper than that reads as "deep", which is all the eye needs. */}
+            {Array.from({ length: Math.min(depth - 1, 3) }, (_, i) => (
+              <i key={i} />
+            ))}
+          </span>
+        )}
         <span className="dot crew-kid-dot" style={{ backgroundColor: dotHex(session) }} aria-hidden="true" />
         {hasNum && <span className="row-num">{num}</span>}
         <span className="crew-kid-name">{name}</span>

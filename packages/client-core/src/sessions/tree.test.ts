@@ -124,6 +124,8 @@ describe("the inspection's three cases (pull request 2852 review)", () => {
     expect(childrenOf(tree, architect).map((s) => s.sessionId)).toEqual(["106", "M"]);
     expect(childrenOf(tree, manager).map((s) => s.sessionId)).toEqual(["D"]);
     expect(descendantsOf(tree, architect).map((d) => `${d.session.sessionId}@${d.depth}`)).toEqual(["106@1", "M@1", "D@2"]);
+    // Each descendant names the session it is DIRECTLY under, not the root.
+    expect(descendantsOf(tree, architect).map((d) => d.parent.sessionId)).toEqual(["108", "108", "M"]);
     const sum = crewSummary(architect, descendantsOf(tree, architect).map((d) => d.session));
     expect(crewSummaryLine(sum)).toBe("3 under it: 2 working, 1 stopped, 0 need you");
   });

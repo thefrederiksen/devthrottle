@@ -118,9 +118,12 @@ export function childrenOf(tree: SessionTree, root: SessionDto): SessionDto[] {
   return tree.childrenOf.get(String(root.sessionId ?? "").trim()) ?? [];
 }
 
-/** One session under a root at some depth (1 = a direct child), for a shell that flattens a crew. */
+/** One session under a root at some depth (1 = a direct child), for a shell that flattens a crew.
+ *  `parent` is the session it is DIRECTLY under - not the root - so a shell that flattens the crew
+ *  can still answer per-edge questions (is this one on another machine than the session above it?). */
 export interface Descendant {
   session: SessionDto;
+  parent: SessionDto;
   depth: number;
 }
 
@@ -137,7 +140,7 @@ export function descendantsOf(tree: SessionTree, root: SessionDto): Descendant[]
       const id = String(k.sessionId ?? "").trim();
       if (seen.has(id)) continue;
       seen.add(id);
-      out.push({ session: k, depth });
+      out.push({ session: k, parent: s, depth });
       walk(k, depth + 1);
     }
   };

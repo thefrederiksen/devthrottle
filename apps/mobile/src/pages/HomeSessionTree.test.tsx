@@ -142,9 +142,11 @@ describe("the phone roster is the ownership tree", () => {
       "200Rule Factory - ManagerWorking",
       "201Rule Factory - Worker - deepWorking",
     ]);
-    // The deep Worker is stepped in one level further than the Manager.
-    expect((links[1] as HTMLElement).style.paddingLeft).toBe("30px");
-    expect((links[2] as HTMLElement).style.paddingLeft).toBe("46px");
+    // No indentation on the phone (the settled design): depth is one guide line per level below the
+    // first, inside the gutter, and no row gets an inline padding.
+    expect(links.every((a) => (a as HTMLElement).style.paddingLeft === "")).toBe(true);
+    expect(links[1].querySelectorAll(".crew-kid-guides i")).toHaveLength(0);
+    expect(links[2].querySelectorAll(".crew-kid-guides i")).toHaveLength(1);
   });
 
   it("nests a Worker on another machine under its Architect and names that machine on its row", async () => {
@@ -157,6 +159,18 @@ describe("the phone roster is the ownership tree", () => {
     fireEvent.click(screen.getByRole("button", { name: /Expand the 1 sessions under Rule Factory - Architect/ }));
     const kids = screen.getByRole("list", { name: "Sessions under Rule Factory - Architect" });
     expect(within(kids).getByText("SORENLAPTOP")).toBeTruthy();
+  });
+
+  it("names the machine on every edge that crosses one, not just against the crew's root", async () => {
+    // Architect on SOREN_NORTH -> Manager on SORENLAPTOP -> Worker back on SOREN_NORTH. The Worker is on
+    // the Architect's machine, but not on its OWN parent's, so its row must say SOREN_NORTH.
+    const manager = session({ sessionId: "M", number: 200, name: "Rule Factory - Manager", sortOrder: 6, controllerSessionId: "108", directorId: "director-two", machineName: "SORENLAPTOP" });
+    const deep = session({ sessionId: "D", number: 201, name: "Rule Factory - Worker - deep", sortOrder: 7, controllerSessionId: "M" });
+    await renderHome([architect, manager, deep]);
+    fireEvent.click(screen.getByRole("button", { name: /Expand the 2 sessions under Rule Factory - Architect/ }));
+    const links = within(screen.getByRole("list", { name: "Sessions under Rule Factory - Architect" })).getAllByRole("link");
+    expect(links[0].querySelector(".crew-kid-machine")?.textContent).toBe("SORENLAPTOP");
+    expect(links[1].querySelector(".crew-kid-machine")?.textContent).toBe("SOREN_NORTH");
   });
 
   it("renders both members of an ownership loop as cards", async () => {

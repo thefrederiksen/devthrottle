@@ -160,6 +160,16 @@ describe("the Cockpit roster is the ownership tree", () => {
     expect(rowNames(att.container)).toEqual(["Rule Factory - Architect", "devthrottle_internal - wingman"]);
   });
 
+  it("labels every machine crossing against the row's own parent, not the crew's root", () => {
+    const manager = session({ sessionId: "M", name: "Rule Factory - Manager", sortOrder: 6, controllerSessionId: "108", directorId: "d2", machineName: "SORENLAPTOP" });
+    const deep = session({ sessionId: "D", name: "Rule Factory - Worker - deep", sortOrder: 7, controllerSessionId: "M" });
+    const { container } = renderRoster([architect, manager, deep], "my-order");
+    fireEvent.click(screen.getByRole("button", { name: /Expand the 2 sessions under Rule Factory - Architect/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Expand the 1 sessions under Rule Factory - Manager/ }));
+    const machines = Array.from(container.querySelectorAll(".roster-machine")).map((el) => el.textContent);
+    expect(machines).toEqual(["SORENLAPTOP", "SOREN_NORTH"]);
+  });
+
   it("renders both members of an ownership loop as top-level rows", () => {
     const a = session({ sessionId: "a", name: "loop a", sortOrder: 0, controllerSessionId: "b" });
     const b = session({ sessionId: "b", name: "loop b", sortOrder: 1, controllerSessionId: "a" });

@@ -5076,6 +5076,7 @@ a.banner-btn {
   border-radius: 0 0 10px 10px;
 }
 .crew-kid-link {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -5083,6 +5084,21 @@ a.banner-btn {
   padding: 0 14px 0 30px;
   color: inherit;
   text-decoration: none;
+}
+/* Depth without indentation: one thin guide per level below the first, drawn inside the 30 pixel
+   gutter the row already has. The name's width does not change with depth. */
+.crew-kid-guides {
+  position: absolute;
+  left: 12px;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  gap: 4px;
+}
+.crew-kid-guides i {
+  display: block;
+  width: 1px;
+  background: var(--border);
 }
 .crew-kid-dot {
   width: 10px;
@@ -5096,7 +5112,9 @@ a.banner-btn {
 }
 .crew-kid-name {
   flex: 1 1 auto;
-  min-width: 0;
+  /* The name is the row's point; it keeps at least this much of the row before anything else
+     can squeeze it, and the state and machine chips shrink first. */
+  min-width: 40%;
   font-size: 13.5px;
   font-weight: 500;
   white-space: nowrap;
@@ -5104,15 +5122,21 @@ a.banner-btn {
   text-overflow: ellipsis;
 }
 .crew-kid-state {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: 0;
   font-size: 11.5px;
   color: var(--text-dim);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .crew-kid-machine {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: 0;
   font-size: 10.5px;
   font-weight: 600;
   color: #9cc2ff;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
