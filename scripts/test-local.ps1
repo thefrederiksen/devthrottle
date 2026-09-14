@@ -431,7 +431,13 @@ function Remove-AbandonedRigs {
 
         if (-not $disposable) { continue }
         Write-Host "Removing abandoned test rig $id - $because."
-        Invoke-Docker @("rm", "-f", "-v", $id) | Out-Null
+        $removal = Invoke-Docker @("rm", "-f", "-v", $id)
+        if ($removal.ExitCode -ne 0) {
+            # Said out loud. The line above announces an intention; announcing it and then silently
+            # failing leaves a reader believing a port was freed that is still held.
+            Write-Host "WARNING: that rig could NOT be removed (docker exited $($removal.ExitCode)):"
+            Write-Host "         $($removal.Output.Trim())"
+        }
     }
 }
 
@@ -693,15 +699,34 @@ foreach ($r in $running) {
 # file and a way to update it, which is its own change - so the claim has been REMOVED from the sentence
 # rather than left standing. A gate that advertises a check nobody performs is the exact defect this
 # issue is about, and leaving the words there while fixing only half would repeat it.
-$notCompleted = @($running | Where-Object { $_.Outcome -ne "Completed" -and $_.Outcome -ne "NO-TRX" })
+# WHICH OUTCOMES MEAN THE RUN FINISHED. Both of these do, and the difference between them is whether
+# the assertions passed - which is NOT what this check is about:
+#   Completed - it finished and everything passed.
+#   Failed    - it finished and something failed. MEASURED, not assumed: a real run of
+#               cc-director-setup-engine.Tests with one assertion failure writes
+#               outcome="Failed" total="541" executed="541" passed="540" failed="1".
+# An ordinary failing gate is therefore a FINISHED run, and it must fall through to the established
+# failure report below, which names the projects and their logs and exits 1.
+#
+# THE FIRST VERSION OF THIS CHECK GOT THAT WRONG and called anything that was not "Completed"
+# incomplete - so every ordinary red run would have exited 9 here, losing its exit code and its detailed
+# output, and a database death that made tests fail would have been intercepted before the liveness
+# branch that exists to explain it. Caught in review round five before it ever ran in anger.
+#
+# What is left is the genuinely unfinished: Aborted, Timeout, Error, Disconnected. Those can carry
+# passing assertions up to the point they stopped, which is the shape that has "very nearly certified a
+# change that silently stopped 1,340 tests from running" - the warning this script already carries
+# twenty lines above, now actually enforced.
+$finishedOutcomes = @("Completed", "Failed")
+$notCompleted = @($running | Where-Object { $_.Outcome -ne "NO-TRX" -and $finishedOutcomes -notcontains $_.Outcome })
 if ($notCompleted.Count -gt 0) {
     Write-Host ""
-    Write-Host "RESULT: A SUITE DID NOT COMPLETE - this run is not a verdict on anything."
+    Write-Host "RESULT: A SUITE DID NOT FINISH - this run is not a verdict on anything."
     foreach ($r in $notCompleted) { Write-Host ("  {0} reported outcome={1} -> {2}" -f $r.Name, $r.Outcome, $r.Log) }
     Write-Host ""
-    Write-Host "A suite whose run did not COMPLETE may have stopped part way through with its assertions"
-    Write-Host "passing up to that point. That is not a pass; it is an unfinished run, and the tests after"
-    Write-Host "the stop were never reached."
+    Write-Host "This is NOT an assertion failure - a run that finished with failures reports 'Failed' and is"
+    Write-Host "reported below, in full. This is a suite that stopped part way through, whose assertions may"
+    Write-Host "all have passed up to the point it stopped, and whose remaining tests were never reached."
     exit 9
 }
 Write-Host ""
@@ -763,7 +788,11 @@ if ($overBudget.Count -gt 0) {
 # nothing in the Avalonia suite - but a run in which NOTHING ran anywhere is refused, loudly, with its own
 # exit code so a caller can tell it apart from a test failure.
 $collected = 0
-foreach ($r in $running) { $collected += [int] $r.Total }
+$executedAll = 0
+foreach ($r in $running) {
+    $collected += [int] $r.Total
+    $executedAll += [int] $r.Executed
+}
 
 # THE RUN VERIFIES ITS OWN PROMISE. IT DOES NOT DELEGATE THAT TO WHICHEVER TESTS WERE SELECTED.
 #
@@ -915,6 +944,32 @@ if ($Filter -ne "") {
         Write-Host "The caller declared the inventory this evidence needs and the run did not match it."
         exit 5
     }
+}
+
+# NOTHING EXECUTED ANYWHERE IS NOT A PASS, WHATEVER SHAPE THE FILTER TOOK (review round five).
+#
+# The refusal below counts what was COLLECTED, and a statically skipped test IS collected - so a run in
+# which every selected test was skipped had a non-zero count and sailed through. The per-term checker did
+# not catch it either: it only understands the "FullyQualifiedName~TOKEN" contains form and deliberately
+# says nothing about any other, so an EXACT-name filter was checked by nothing at all. Reproduced at
+# b8368c9c0 with a -Parked run naming one statically skipped test by its exact name: all eleven suites
+# executed zero, and the gate printed "RESULT: all projects exited zero".
+#
+# This is the same fault as the collected-zero one below, one step along: a run that collected tests and
+# executed none of them is as empty as a run that collected none. It is stated separately because it
+# needs its own sentence - "your filter matched something, and every one of them was skipped" is a
+# different thing for a reader to fix.
+if ($collected -gt 0 -and $executedAll -eq 0) {
+    Write-Host ""
+    Write-Host "RESULT: EVERY TEST THIS RUN SELECTED WAS SKIPPED - nothing executed, so this is not a pass."
+    Write-Host ""
+    Write-Host "  $collected test(s) were collected across the run and NONE of them ran. A test carrying a"
+    Write-Host "  static Skip is collected and counted like any other, so a count alone cannot tell this"
+    Write-Host "  apart from a real run - which is why it is checked separately."
+    if ($Filter -ne "") { Write-Host "  The filter was: $Filter" }
+    Write-Host ""
+    Write-Host "  A skip proves nothing. Name a test that runs."
+    exit 8
 }
 
 if ($collected -eq 0) {
