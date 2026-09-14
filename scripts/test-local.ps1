@@ -248,12 +248,61 @@ $RigOwnerLabel = 'cc-test-local-rig-owner'
 # by the finally block at the foot of this script.
 $script:RigToTearDown = $null
 
+<#
+    Destroy this run's rig. Called from the finally block at the foot of the script, which means it runs
+    while a real failure may be on its way out - so NOTHING in here may throw, and nothing in here may
+    change the exit code.
+
+    BOTH OF THOSE WERE DEFECTS, found in review. This script runs under $ErrorActionPreference = 'Stop',
+    where anything a native executable writes to stderr becomes a TERMINATING error - and `2>&1` piped
+    the child's stderr straight into that stream. A cleanup that stumbled therefore replaced the body's
+    own failure: an intended exit 7 was reproduced coming out as exit 1, and a body exception was
+    replaced by a NativeCommandError from the cleanup. A finally block that can eat the reason you are
+    in it is worse than no finally block.
+
+    The target was also cleared BEFORE the teardown ran, so a cleanup that failed forgot the rig it had
+    failed to remove. It is cleared only on success now; on failure it stays, is reported, and is left
+    for Remove-AbandonedRigs.
+#>
 function Stop-RigForThisRun {
     if ($null -eq $script:RigToTearDown) { return }
     $rig = $script:RigToTearDown
-    $script:RigToTearDown = $null
-    & powershell -NoProfile -File $rig.Script -Instance $rig.Instance -Port $rig.Port -Verb down 2>&1 |
-        Out-Null
+
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & powershell -NoProfile -File $rig.Script -Instance $rig.Instance -Port $rig.Port -Verb down *>&1 |
+            Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            # SECOND ATTEMPT, BY NAME. Do NOT tell the reader "the next run will sweep it" - that is not
+            # true here and saying it would be worse than saying nothing. The sweep removes a rig whose
+            # OWNING PROCESS is gone, and when the gate is run the documented way the owning process is
+            # the shell the operator is sitting in, which outlives the run. A rig leaked this way is
+            # invisible to the sweep for as long as that terminal stays open, so the removal is retried
+            # directly, against the one container name this run created.
+            & docker rm -f -v "cc-pg-stats-proof-$($rig.Instance)" *>&1 | Out-Null
+        }
+
+        if ($LASTEXITCODE -eq 0) {
+            $script:RigToTearDown = $null
+        }
+        else {
+            Write-Host ""
+            Write-Host "WARNING: the throwaway PostgreSQL for this run could not be removed."
+            Write-Host "         It is holding port $($rig.Port). Remove it with:"
+            Write-Host "           docker rm -f -v cc-pg-stats-proof-$($rig.Instance)"
+            Write-Host "         This run's own result above is unaffected."
+        }
+    }
+    catch {
+        Write-Host ""
+        Write-Host "WARNING: removing the throwaway PostgreSQL threw: $($_.Exception.Message)"
+        Write-Host "         Remove it with: docker rm -f -v cc-pg-stats-proof-$($rig.Instance)"
+        Write-Host "         This run's own result above is unaffected."
+    }
+    finally {
+        $ErrorActionPreference = $previous
+    }
 }
 
 function Get-FreeTcpPort {
@@ -327,6 +376,21 @@ function Remove-AbandonedRigs {
     }
 }
 
+# EVERYTHING FROM HERE IS INSIDE A try/finally, SO THE THROWAWAY DATABASE IS DESTROYED WHATEVER HAPPENS.
+# PowerShell runs a finally block on a normal end, on a terminating error, AND on every `exit` in this
+# script, with the exit code preserved - all three verified. The body below is left at its original
+# indentation deliberately: re-indenting three hundred unchanged lines would bury the change that
+# matters in a whitespace diff. Read it with `git diff -w`.
+#
+# IT OPENS BEFORE THE RIG IS BUILT, NOT AFTER. Found in review: it used to open after provisioning, so
+# the three ways provisioning itself can fail - the rig script exiting non-zero, an unreadable print-env
+# line, a missing variable - each left a container that docker had already created with no teardown to
+# remove it. The sweep could not help either, because the owning process is the operator's own shell and
+# is still alive. Every path that can exist after `docker run` must be inside this block.
+#
+# A process that is KILLED outright runs no finally block and never will. That case belongs to
+# Remove-AbandonedRigs at the start of the next run, which removes a rig whose owning process is gone.
+try {
 if ($needsPostgres) {
     # NO FALLBACK. A run that cannot build its database does not quietly run the suites without one:
     # those proofs would SKIP, and a skip is indistinguishable from a pass in every report we produce.
@@ -375,35 +439,56 @@ if ($needsPostgres) {
 
     # The connection strings come from the rig itself rather than being composed here, so exactly one
     # place knows the database names, the role and the password.
+    #
+    # THE INHERITED VALUES ARE CLEARED FIRST, AND EVERY LINE MUST BE UNDERSTOOD. Found in review, and it
+    # is the original defect wearing a new hat: the first version ignored any line its pattern did not
+    # match, so a rig that changed the quoting on ONE of its two lines left that variable at whatever the
+    # machine had inherited - a stale database from an older rig - while the other was set to the new one.
+    # Both variables were then non-empty, the emptiness check passed, and the run proceeded against TWO
+    # DIFFERENT DATABASES. Reproduced in review with a double-quoted statistics line.
+    #
+    # So: clear both, accept either quoting, and treat a line this cannot parse as a CHANGE IN THE RIG
+    # rather than as noise. Silence about an unrecognised line is how a mixed-database run gets certified.
+    $expectedVars = @("CC_GATEWAY_TEST_PG_CONNECTION", "CC_GATEWAY_TEST_PG_STATS_CONNECTION")
+    foreach ($name in $expectedVars) { [Environment]::SetEnvironmentVariable($name, $null) }
+
     $envLines = & powershell -NoProfile -File $rigScript -Instance $rigInstance -Port $rigPort -Verb print-env
+    $seenVars = @{}
     foreach ($line in $envLines) {
-        if ($line -match '^\s*\$env:([A-Z_]+)\s*=\s*''(.+)''\s*$') {
-            Set-Item -Path "Env:$($Matches[1])" -Value $Matches[2]
+        if ([string]::IsNullOrWhiteSpace("$line")) { continue }
+        if ("$line" -match '^\s*\$env:([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:''([^'']*)''|"([^"]*)")\s*$') {
+            $name = $Matches[1]
+            $value = if ($null -ne $Matches[2] -and $Matches[2] -ne "") { $Matches[2] } else { $Matches[3] }
+            [Environment]::SetEnvironmentVariable($name, $value)
+            $seenVars[$name] = $true
+        }
+        else {
+            Write-Host ""
+            Write-Host "RESULT: CANNOT RUN - the rig's print-env produced a line this gate cannot read:"
+            Write-Host "    $line"
+            Write-Host "  pg-stats-proof-rig.ps1 and this script disagree about that output's shape."
+            Write-Host "  Fix them together; a line skipped here means a test running against the wrong database."
+            exit 6
         }
     }
-    if ([string]::IsNullOrWhiteSpace($env:CC_GATEWAY_TEST_PG_CONNECTION) -or
-        [string]::IsNullOrWhiteSpace($env:CC_GATEWAY_TEST_PG_STATS_CONNECTION)) {
+
+    $missingVars = @($expectedVars | Where-Object { -not $seenVars.ContainsKey($_) })
+    if ($missingVars.Count -gt 0) {
         Write-Host ""
-        Write-Host "RESULT: CANNOT RUN - the rig started but did not hand back both connection strings."
+        Write-Host "RESULT: CANNOT RUN - the rig started but named no value for: $($missingVars -join ', ')"
         exit 6
     }
 
-    # What turns a SKIP into a FAILURE inside the test assemblies. The run is asserting that it HAS
-    # provided a database; PostgresRigIsPresentWhenRequiredTests holds it to that, so a rig that started
-    # and then died mid-run is one red test with a sentence, not eight socket errors nobody can read.
-    $env:CC_TEST_REQUIRE_POSTGRES = "1"
+    # What turns a SKIP into a FAILURE inside the test assemblies. It carries the rig's INSTANCE NAME
+    # rather than a bare "1", and that is a review finding rather than a detail: every database and role
+    # the rig creates is derived from this name, so the tests can be held to the exact databases this run
+    # built instead of merely to "something answered". PostgresRigGate refuses to let either Postgres
+    # assembly load when the promise does not hold - from a module initializer, where -Filter cannot
+    # exclude it.
+    $env:CC_TEST_REQUIRE_POSTGRES = $rigInstance
     Write-Host "PostgreSQL ready. It is destroyed when this run ends."
 }
 
-# EVERYTHING FROM HERE IS INSIDE A try/finally, SO THE THROWAWAY DATABASE IS DESTROYED WHATEVER HAPPENS.
-# PowerShell runs a finally block on a normal end, on a terminating error, AND on every `exit` in this
-# script, with the exit code preserved - all three verified. The body below is left at its original
-# indentation deliberately: re-indenting three hundred unchanged lines would bury the change that
-# matters in a whitespace diff. Read it with `git diff -w`.
-#
-# A process that is KILLED outright runs no finally block and never will. That case belongs to
-# Remove-AbandonedRigs at the start of the next run, which removes a rig whose owning process is gone.
-try {
 Write-Host "Building once, then running $($toRun.Count) test project(s)..."
 & dotnet build $sln -c $Configuration -v q --nologo
 if ($LASTEXITCODE -ne 0) {
