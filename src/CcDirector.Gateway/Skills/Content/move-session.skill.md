@@ -164,7 +164,7 @@ Director, which `--machine` cannot do when a computer runs several named instanc
 ```bash
 cc-devthrottle session spawn "<repoPath>" \
   --director "<target Director id or name>" \
-  --standalone \
+  --standalone --why "a moved session is a continuation of the source, so it stays the user's" \
   --agent <sourceAgent> \
   --name "<the source's ORIGINAL name>" \
   --purpose "continue <work> after being moved" \

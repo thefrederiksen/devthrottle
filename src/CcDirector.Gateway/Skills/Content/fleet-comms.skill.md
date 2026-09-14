@@ -25,13 +25,45 @@ cc-devthrottle session list
 cc-devthrottle session whoami
 cc-devthrottle session rename "Dev Throttle Review"
 cc-devthrottle session rename 9b2f "Frontend Review"
-cc-devthrottle session spawn D:\path\to\repo --purpose "implement #799"
-cc-devthrottle session spawn D:\path\to\repo --name "Frontend review"
-cc-devthrottle session spawn D:\path\to\repo --purpose "run the test suite" --agent ClaudeCode --prompt "Run the tests and report failures."
-cc-devthrottle session spawn D:\path\to\repo --name "frontend" --agent RawCli --command cmd
+cc-devthrottle session spawn D:\path\to\repo --controlled-by self --purpose "implement #799"
+cc-devthrottle session spawn D:\path\to\repo --controlled-by self --name "Frontend review"
+cc-devthrottle session spawn D:\path\to\repo --controlled-by self --purpose "run the test suite" --agent ClaudeCode --prompt "Run the tests and report failures."
+cc-devthrottle session spawn D:\path\to\repo --controlled-by self --name "frontend" --agent RawCli --command cmd
 cc-devthrottle director list
-cc-devthrottle session spawn D:\path\to\repo --name "build" --director "North build"
+cc-devthrottle session spawn D:\path\to\repo --controlled-by self --name "build" --director "North build"
 ```
+
+### WHEN YOU SPAWN, YOU MUST SAY WHO OWNS THE RESULT
+
+**Every session answers to something.** Either another session is holding it - and gets told when its
+turn ends - or it is the USER's, and it goes red and asks him. There is no third answer, and there is
+no unowned session.
+
+You are a session, so when you spawn there are two possible owners and no safe default between them.
+**The spawn is REFUSED until you say which.** That is why every example above carries a declaration.
+
+```
+--controlled-by self           YOU own it. It stays quiet on the roster and reports back
+                               to you when it finishes. For work you will collect.
+
+--controlled-by <session-id>   Another session owns it.
+
+--standalone --why "<reason>"  The USER owns it. It goes RED and asks HIM when it
+                               finishes, and you will not hear from it.
+```
+
+**Reach for `--controlled-by self` by default.** You asked for the work; getting back with it is part
+of doing it. `--standalone` is for the narrow case where the work is genuinely the user's - he asked
+you to open it for him, or it needs his decision before anything else can run - and it requires
+`--why` for exactly that reason: an agent that cannot say why the work is his should keep it.
+
+This used to default silently to `self` whenever an environment variable happened to be set. That
+default is gone: who a session answers to is too important to be decided by an environment variable.
+
+*Version note: the `--why` requirement arrived in v2.1.3. An older Director accepts `--standalone`
+without it. `--controlled-by self` behaves identically on every version, which is another reason to
+reach for it first.*
+
 
 `--machine <name>` starts the session on another COMPUTER; `--director <id-or-name>` starts it on ONE
 named Director. They answer different questions: a computer runs several named Director instances, so

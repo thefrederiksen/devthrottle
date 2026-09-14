@@ -38,6 +38,9 @@ cc-devthrottle director list
 cc-devthrottle session spawn D:\path\to\repo --name "build" --controlled-by self --director "North build"
 ```
 
+**`--standalone` now states a reason.** From v2.1.3 an opt-out spawned from inside a session requires `--why "<reason>"`: it hands the work to the USER, so it goes red and asks him and you hear nothing back. It does not forbid the choice - it means an agent that cannot say why the work is his should keep it. `--controlled-by self` behaves the same on every version.
+
+
 Every one of those says who will own the new session. From inside a session that is REQUIRED.
 ### WHO OWNS THE SESSION YOU OPEN - you must say
 
@@ -159,7 +162,7 @@ At each phase boundary:
    (the Gateway routes it to whichever Director hosts the session over the tunnel), or have the user
    close its tab. A session reaps ITSELF with `cc-devthrottle session done`, which flags the current
    session (`CC_SESSION_ID`) for graceful removal without killing it mid-turn.
-3. Spawn a fresh Manager with a tight brief: `session spawn <repo> --name "<Mission> - Manager"
+3. Spawn a fresh Manager with a tight brief: `session spawn <repo> --controlled-by self --name "<Mission> - Manager"
    --standalone` - a Manager answers to the USER, which is the whole point of the seat,
    pointing it at the mission document, stating plainly what is DONE and only THIS phase's goal.
 
