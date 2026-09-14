@@ -267,6 +267,36 @@ $script:RigEnvironmentVars = @(
     "CC_TEST_REQUIRE_POSTGRES"
 )
 
+<#
+    Run a docker command and hand back its exit code and output, without letting it terminate the script.
+
+    THIS EXISTS BECAUSE THE INTENDED ERROR PATHS WERE UNREACHABLE, found in review. This script runs under
+    $ErrorActionPreference = 'Stop', and under Windows PowerShell 5.1 anything a NATIVE executable writes
+    to stderr is turned into a terminating error - so `& docker ...` followed by a check of $LASTEXITCODE
+    never reached the check. Docker being unavailable, provisioning failing, and the end-of-run liveness
+    probe all threw past their own tailored messages and exit codes. Reproduced with a failing `docker ps`
+    going straight to the catch.
+
+    Every docker call in this script goes through here, so the decision is made in one place rather than
+    remembered at each call site.
+#>
+function Invoke-Docker {
+    param([Parameter(Mandatory = $true)][string[]] $DockerArgs)
+
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $output = (& docker @DockerArgs 2>&1 | Out-String)
+        return [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = $output }
+    }
+    catch {
+        return [pscustomobject]@{ ExitCode = -1; Output = $_.Exception.Message }
+    }
+    finally {
+        $ErrorActionPreference = $previous
+    }
+}
+
 function Restore-RigEnvironment {
     if ($null -eq $script:PriorRigEnvironment) { return }
     foreach ($name in $script:RigEnvironmentVars) {
@@ -307,7 +337,8 @@ function Stop-RigForThisRun {
             # the shell the operator is sitting in, which outlives the run. A rig leaked this way is
             # invisible to the sweep for as long as that terminal stays open, so the removal is retried
             # directly, against the one container name this run created.
-            & docker rm -f -v "cc-pg-stats-proof-$($rig.Instance)" *>&1 | Out-Null
+            $retry = Invoke-Docker @("rm", "-f", "-v", "cc-pg-stats-proof-$($rig.Instance)")
+            $global:LASTEXITCODE = $retry.ExitCode
         }
 
         if ($LASTEXITCODE -eq 0) {
@@ -362,8 +393,9 @@ function Remove-AbandonedRigs {
     # label with a Go template: a template carrying quoted strings has to survive PowerShell's quoting and
     # then Docker's own parser, and it did not - `failed to parse template: unterminated quoted string`.
     # {{.Labels}} needs no quoting at all.
-    $rows = @(& docker ps -a --filter "label=$RigLabel" --format "{{.ID}}|{{.CreatedAt}}|{{.Labels}}" 2>&1)
-    if ($LASTEXITCODE -ne 0) { return }
+    $listed = Invoke-Docker @("ps", "-a", "--filter", "label=$RigLabel", "--format", "{{.ID}}|{{.CreatedAt}}|{{.Labels}}")
+    if ($listed.ExitCode -ne 0) { return }
+    $rows = @($listed.Output -split "`r?`n" | Where-Object { $_.Trim() -ne "" })
 
     $cutoff = (Get-Date).AddHours(-6)
     foreach ($row in $rows) {
@@ -399,7 +431,7 @@ function Remove-AbandonedRigs {
 
         if (-not $disposable) { continue }
         Write-Host "Removing abandoned test rig $id - $because."
-        & docker rm -f -v $id 2>&1 | Out-Null
+        Invoke-Docker @("rm", "-f", "-v", $id) | Out-Null
     }
 }
 
@@ -422,8 +454,8 @@ if ($needsPostgres) {
     # NO FALLBACK. A run that cannot build its database does not quietly run the suites without one:
     # those proofs would SKIP, and a skip is indistinguishable from a pass in every report we produce.
     # It says what is missing and what to do about it, and stops.
-    & docker version --format '{{.Server.Version}}' 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) {
+    $dockerCheck = Invoke-Docker @("version", "--format", "{{.Server.Version}}")
+    if ($dockerCheck.ExitCode -ne 0) {
         Write-Host ""
         Write-Host "RESULT: CANNOT RUN - Docker is not available, and these suites need a PostgreSQL server."
         Write-Host ""
@@ -646,9 +678,31 @@ foreach ($r in $running) {
 }
 
 Write-Host ""
-Write-Host "TRX verdict - THIS is the gate. Outcome must be 'Completed' AND total at or above the baseline:"
+Write-Host "TRX verdict - THIS is the gate. Every suite must report outcome=Completed:"
 foreach ($r in $running) {
-    Write-Host ("  {0,-40} outcome={1,-12} total={2}" -f $r.Name, $r.Outcome, $r.Total)
+    Write-Host ("  {0,-40} outcome={1,-12} total={2,-6} executed={3}" -f $r.Name, $r.Outcome, $r.Total, $r.Executed)
+}
+
+# AND NOW IT IS ACTUALLY CHECKED. Until review round four of issue #2834 this block PRINTED a sentence
+# saying outcome had to be Completed and then compared nothing - the line the whole fleet reads as "THIS
+# is the gate" was a display. A suite that aborted or timed out while exiting zero was shown as not
+# Completed and the run still ended on "all projects exited zero".
+#
+# The sentence also promised "total at or above the baseline", and there is no baseline anywhere in this
+# repository to compare against. That half is not implemented here - a per-project floor needs a recorded
+# file and a way to update it, which is its own change - so the claim has been REMOVED from the sentence
+# rather than left standing. A gate that advertises a check nobody performs is the exact defect this
+# issue is about, and leaving the words there while fixing only half would repeat it.
+$notCompleted = @($running | Where-Object { $_.Outcome -ne "Completed" -and $_.Outcome -ne "NO-TRX" })
+if ($notCompleted.Count -gt 0) {
+    Write-Host ""
+    Write-Host "RESULT: A SUITE DID NOT COMPLETE - this run is not a verdict on anything."
+    foreach ($r in $notCompleted) { Write-Host ("  {0} reported outcome={1} -> {2}" -f $r.Name, $r.Outcome, $r.Log) }
+    Write-Host ""
+    Write-Host "A suite whose run did not COMPLETE may have stopped part way through with its assertions"
+    Write-Host "passing up to that point. That is not a pass; it is an unfinished run, and the tests after"
+    Write-Host "the stop were never reached."
+    exit 9
 }
 Write-Host ""
 Write-Host "TRX files: $logDir"
@@ -733,8 +787,9 @@ foreach ($r in $running) { $collected += [int] $r.Total }
 # because an absence is what fails open.
 if ($needsPostgres -and $null -ne $rigInstance) {
     $rigContainer = "cc-pg-stats-proof-$rigInstance"
-    $stillRunning = @(& docker ps -q --filter "name=$rigContainer" 2>&1)
-    if ($LASTEXITCODE -ne 0 -or $stillRunning.Count -eq 0) {
+    $probe = Invoke-Docker @("ps", "-q", "--filter", "name=$rigContainer")
+    $stillRunning = @($probe.Output -split "`r?`n" | Where-Object { $_.Trim() -ne "" })
+    if ($probe.ExitCode -ne 0 -or $stillRunning.Count -eq 0) {
         Write-Host ""
         Write-Host "RESULT: THE DATABASE THIS RUN BUILT IS GONE - the run is not evidence for anything."
         Write-Host ""
@@ -743,7 +798,10 @@ if ($needsPostgres -and $null -ne $rigInstance) {
         Write-Host "  nothing, whatever the suites above reported."
         Write-Host ""
         Write-Host "  Inspect it before it is removed:  docker logs $rigContainer"
-        exit 6
+        # Its own code. 6 means "this run could not START a database" and 4 means "no result file"; a
+        # database that died MID-RUN is neither, and a caller that cannot tell them apart cannot react
+        # to them differently.
+        exit 7
     }
 
     $postgresNames = @($postgresProjects | ForEach-Object {
@@ -751,8 +809,17 @@ if ($needsPostgres -and $null -ne $rigInstance) {
     })
     $postgresRan = @($running | Where-Object { $postgresNames -contains $_.Name })
     $executedThere = 0
-    foreach ($r in $postgresRan) { $executedThere += [int] $r.Executed }
-    if ($postgresRan.Count -gt 0 -and $executedThere -eq 0) {
+    $collectedThere = 0
+    foreach ($r in $postgresRan) {
+        $executedThere += [int] $r.Executed
+        $collectedThere += [int] $r.Total
+    }
+
+    # COLLECTED SOMETHING AND EXECUTED NONE OF IT is the fault. Collecting nothing is not: a filter that
+    # legitimately names an installer test collects zero in the Postgres suites, and the first version of
+    # this check failed that run - reproduced in review with a WizardStepFlowTests filter. A check that
+    # reds a correct run is not a stricter check, it is a broken one, and it teaches people to pass -Force.
+    if ($collectedThere -gt 0 -and $executedThere -eq 0) {
         Write-Host ""
         Write-Host "RESULT: A DATABASE WAS BUILT AND NOTHING RAN AGAINST IT."
         Write-Host ""
@@ -760,7 +827,7 @@ if ($needsPostgres -and $null -ne $rigInstance) {
         Write-Host "  executed ZERO tests between them - collected some, executed none, which a static"
         Write-Host "  Skip produces. Nothing enforced that the database was the right one, so this run"
         Write-Host "  proves nothing about it. Widen or drop the filter."
-        exit 4
+        exit 8
     }
 }
 $noTrx = @($running | Where-Object { $_.Outcome -eq "NO-TRX" -and $_.Process.ExitCode -eq 0 })
@@ -791,14 +858,26 @@ if ($noTrx.Count -gt 0) {
 # named must have COLLECTED at least one test whose name contains that token. It is derived from the
 # filter the caller passed - never a second list kept here, which would be one more thing to keep in step.
 if ($Filter -ne "") {
+    # THE NAMES THAT ACTUALLY RAN, NOT THE NAMES THAT WERE COLLECTED (issue #2834, review round four).
+    #
+    # This read TestDefinitions, which lists every test the run COLLECTED - including one carrying a
+    # static Skip, which executes nothing. So a caller who named a skipped test in their filter got a
+    # green for it: reproduced with "PostgresRigIsPresentWhenRequiredTests|DT_TEN_3" and -ExpectTests 5,
+    # where four ran, the named DT_TEN_3 was skipped, and the gate exited 0. One live term laundered the
+    # dead one, which is the same shape as the defect this whole issue is about.
+    #
+    # So a term is satisfied only by a test that EXECUTED. The results carry the outcome; NotExecuted is
+    # what xUnit writes for a skip, and it is exactly what must not count as evidence.
     $names = New-Object System.Collections.Generic.List[string]
     foreach ($r in $running) {
         if (-not (Test-Path $r.Trx)) { continue }
         [xml] $doc = Get-Content $r.Trx -Raw
-        $defs = $doc.TestRun.TestDefinitions
-        if ($null -eq $defs) { continue }
-        foreach ($u in @($defs.UnitTest)) {
-            if ($null -ne $u -and $null -ne $u.name) { $names.Add([string]$u.name) }
+        $results = $doc.TestRun.Results
+        if ($null -eq $results) { continue }
+        foreach ($u in @($results.UnitTestResult)) {
+            if ($null -eq $u -or $null -eq $u.testName) { continue }
+            if ([string]$u.outcome -eq "NotExecuted") { continue }
+            $names.Add([string]$u.testName)
         }
     }
 
@@ -819,7 +898,8 @@ if ($Filter -ne "") {
     if ($absent.Count -gt 0) {
         Write-Host ""
         Write-Host "RESULT: PART OF THE FILTER MATCHED NOTHING - this run is not evidence for what it named."
-        Write-Host "These terms collected no test anywhere in the run:"
+        Write-Host "These terms RAN no test anywhere in the run - a test that was collected and then"
+        Write-Host "skipped does not count, because a skip proves nothing:"
         foreach ($t in $absent) { Write-Host "  $t" }
         Write-Host ""
         Write-Host "$($names.Count) test(s) were collected in total, so the run is not empty - which is exactly"
