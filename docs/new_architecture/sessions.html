@@ -38,6 +38,7 @@
   ul, ol { margin:0 0 14px; padding-left:22px; }
   li { margin-bottom:7px; }
   .file { font:12.5px/1.4 "SF Mono",Consolas,monospace; color:var(--mute); }
+  .cap { font-size:13px; color:var(--mute); margin:2px 0 22px; }
   footer { margin-top:64px; padding-top:20px; border-top:1px solid var(--line); color:var(--mute); font-size:13px; }
   .big { font-size:20px; font-weight:600; }
   @media (prefers-color-scheme: dark) {
@@ -112,6 +113,47 @@ plainly whether it decides anything.</p>
   parent describe; they do not decide. Colour is computed from the rest and is never chosen by
   anybody.</p>
 </div>
+
+<svg viewBox="0 0 900 250" width="100%" style="max-width:900px;height:auto;margin:18px 0 6px" role="img" aria-labelledby="fourfacts-t">
+  <title id="fourfacts-t">The four facts a session carries: type, parent, owner and colour. Only ownership decides who gets interrupted; type and parent describe, and colour is the result.</title>
+  <text x="14" y="20" font-size="12" font-weight="700" fill="var(--mute)">FOUR FACTS &#8212; and only one of them is allowed to decide who gets interrupted</text>
+  <rect x="14" y="34" width="206" height="186" rx="9" fill="var(--panel)" stroke="var(--line)" stroke-width="1.5"/>
+  <text x="117" y="64" text-anchor="middle" font-size="15" font-weight="700" fill="var(--ink)">TYPE</text>
+  <text x="117" y="83" text-anchor="middle" font-size="11" fill="var(--mute)">the seat</text>
+  <text x="117" y="114" text-anchor="middle" font-size="11.5" fill="var(--ink)">Standalone, Manager,</text>
+  <text x="117" y="131" text-anchor="middle" font-size="11.5" fill="var(--ink)">Worker, Architect.</text>
+  <text x="117" y="163" text-anchor="middle" font-size="10.5" fill="var(--mute)">Explicit, or derived</text>
+  <rect x="32" y="180" width="170" height="26" rx="13" fill="none" stroke="var(--mute)" stroke-width="1.4"/>
+  <text x="117" y="197" text-anchor="middle" font-size="10.5" font-weight="700" fill="var(--mute)">DECIDES NOTHING</text>
+  <rect x="236" y="34" width="206" height="186" rx="9" fill="var(--panel)" stroke="var(--line)" stroke-width="1.5"/>
+  <text x="339" y="64" text-anchor="middle" font-size="15" font-weight="700" fill="var(--ink)">PARENT</text>
+  <text x="339" y="83" text-anchor="middle" font-size="11" fill="var(--mute)">lineage</text>
+  <text x="339" y="114" text-anchor="middle" font-size="11.5" fill="var(--ink)">Who made the call</text>
+  <text x="339" y="131" text-anchor="middle" font-size="11.5" fill="var(--ink)">that created it.</text>
+  <text x="339" y="163" text-anchor="middle" font-size="10.5" fill="var(--mute)">Inferred. Permanent.</text>
+  <rect x="254" y="180" width="170" height="26" rx="13" fill="none" stroke="var(--mute)" stroke-width="1.4"/>
+  <text x="339" y="197" text-anchor="middle" font-size="10.5" font-weight="700" fill="var(--mute)">DECIDES NOTHING</text>
+  <rect x="458" y="34" width="206" height="186" rx="9" fill="var(--panel)" stroke="var(--blue)" stroke-width="2.6"/>
+  <text x="561" y="64" text-anchor="middle" font-size="15" font-weight="700" fill="var(--ink)">OWNER</text>
+  <text x="561" y="83" text-anchor="middle" font-size="11" fill="var(--mute)">who it answers to</text>
+  <text x="561" y="114" text-anchor="middle" font-size="11.5" fill="var(--ink)">Another session,</text>
+  <text x="561" y="131" text-anchor="middle" font-size="11.5" fill="var(--ink)">or the USER.</text>
+  <text x="561" y="163" text-anchor="middle" font-size="10.5" fill="var(--mute)">DECLARED at spawn</text>
+  <rect x="476" y="180" width="170" height="26" rx="13" fill="none" stroke="var(--blue)" stroke-width="1.4"/>
+  <text x="561" y="197" text-anchor="middle" font-size="10.5" font-weight="700" fill="var(--blue)">THIS ONE DECIDES</text>
+  <rect x="680" y="34" width="206" height="186" rx="9" fill="var(--panel)" stroke="var(--line)" stroke-width="1.5"/>
+  <text x="783" y="64" text-anchor="middle" font-size="15" font-weight="700" fill="var(--ink)">COLOUR</text>
+  <text x="783" y="83" text-anchor="middle" font-size="11" fill="var(--mute)">what you see</text>
+  <text x="783" y="114" text-anchor="middle" font-size="11.5" fill="var(--ink)">Computed once,</text>
+  <text x="783" y="131" text-anchor="middle" font-size="11.5" fill="var(--ink)">at the Gateway.</text>
+  <text x="783" y="163" text-anchor="middle" font-size="10.5" fill="var(--mute)">Never chosen</text>
+  <rect x="698" y="180" width="170" height="26" rx="13" fill="none" stroke="var(--mute)" stroke-width="1.4"/>
+  <text x="783" y="197" text-anchor="middle" font-size="10.5" font-weight="700" fill="var(--mute)">THE RESULT</text>
+</svg>
+<p class="cap">Read the badges along the bottom and you have the history of this system's worst bugs.
+Every one was a fact that <em>describes</em> being allowed to <em>decide</em> &mdash; a seat stamped at
+birth outliving the supervisor it stood for, an origin silencing a scheduled run, a colour ladder that
+let &quot;somebody else owns this&quot; erase &quot;this is working&quot;.</p>
 
 <div class="scroll">
 <table>
@@ -477,6 +519,50 @@ when the session stops. The owner never sees a raised hand - it is not read by t
 or the triage bucket, and a test asserts it changes none of the three. The supervisor-facing surface is
 <span class="file">session workers</span>, the command line, which is where supervisors on this fleet
 actually live.</p>
+
+<svg viewBox="0 0 900 330" width="100%" style="max-width:900px;height:auto;margin:18px 0 6px" role="img" aria-labelledby="turnend-t">
+  <title id="turnend-t">At the end of a turn a session asks one question, is there a live owner right now: yes means it stays quiet and reports to that owner, no means it goes red and asks the user</title>
+  <defs>
+    <marker id="ta" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="var(--mute)"/>
+    </marker>
+  </defs>
+
+  <rect x="14" y="128" width="150" height="66" rx="8" fill="var(--panel)" stroke="var(--blue)" stroke-width="2.5"/>
+  <text x="89" y="156" text-anchor="middle" font-size="14" font-weight="700" fill="var(--ink)">WORKING</text>
+  <text x="89" y="176" text-anchor="middle" font-size="11" fill="var(--mute)">bytes are flowing</text>
+
+  <line x1="164" y1="161" x2="232" y2="161" stroke="var(--mute)" stroke-width="1.6" marker-end="url(#ta)"/>
+  <text x="198" y="152" text-anchor="middle" font-size="10.5" fill="var(--mute)">turn ends</text>
+
+  <polygon points="360,96 470,161 360,226 250,161" fill="var(--panel)" stroke="var(--ink)" stroke-width="2"/>
+  <text x="360" y="150" text-anchor="middle" font-size="12.5" font-weight="700" fill="var(--ink)">is there a LIVE</text>
+  <text x="360" y="168" text-anchor="middle" font-size="12.5" font-weight="700" fill="var(--ink)">OWNER right now?</text>
+  <text x="360" y="252" text-anchor="middle" font-size="10.5" fill="var(--mute)">asked fresh, every turn &#183; no seat, no origin</text>
+
+  <path d="M430 128 C 500 96, 520 78, 556 78" fill="none" stroke="var(--mute)" stroke-width="1.6" marker-end="url(#ta)"/>
+  <text x="492" y="86" text-anchor="middle" font-size="12" font-weight="700" fill="var(--green)">YES</text>
+
+  <path d="M430 194 C 500 226, 520 244, 556 244" fill="none" stroke="var(--mute)" stroke-width="1.6" marker-end="url(#ta)"/>
+  <text x="492" y="252" text-anchor="middle" font-size="12" font-weight="700" fill="var(--red)">NO</text>
+
+  <rect x="562" y="42" width="324" height="74" rx="8" fill="var(--panel)" stroke="var(--slate)" stroke-width="2.5"/>
+  <circle cx="586" cy="66" r="7" fill="var(--slate)"/>
+  <text x="602" y="71" font-size="14" font-weight="700" fill="var(--ink)">HELD</text>
+  <text x="576" y="92" font-size="11.5" fill="var(--mute)">quiet, not lost. It tells that owner ITSELF &#8212;</text>
+  <text x="576" y="108" font-size="11.5" fill="var(--mute)">the report is the last step of the work.</text>
+
+  <rect x="562" y="208" width="324" height="74" rx="8" fill="var(--panel)" stroke="var(--red)" stroke-width="2.5"/>
+  <circle cx="586" cy="232" r="7" fill="var(--red)"/>
+  <text x="602" y="237" font-size="14" font-weight="700" fill="var(--ink)">NEEDS YOU</text>
+  <text x="576" y="258" font-size="11.5" fill="var(--mute)">top of your queue. No owner means the user,</text>
+  <text x="576" y="274" font-size="11.5" fill="var(--mute)">whatever seat it holds and whatever started it.</text>
+
+  <text x="450" y="312" text-anchor="middle" font-size="11" fill="var(--mute)">Outside the question entirely: WORKING is always blue &#183; CRASHED never hides behind any label &#183; EXITED reads Exited</text>
+</svg>
+<p class="cap">Three outcomes, and every one has a named recipient. <strong>Nothing in the fleet finishes a
+turn and tells no one.</strong> The question is about NOW, which is why it is asked fresh every turn and
+never stamped at birth.</p>
 
 <h3>The state machine</h3>
 

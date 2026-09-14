@@ -34,6 +34,7 @@
   ul, ol { margin:0 0 14px; padding-left:22px; }
   li { margin-bottom:7px; }
   .file { font:12.5px/1.4 "SF Mono",Consolas,monospace; color:var(--mute); }
+  .cap { font-size:13px; color:var(--mute); margin:2px 0 22px; }
   footer { margin-top:64px; padding-top:20px; border-top:1px solid var(--line); color:var(--mute); font-size:13px; }
   .big { font-size:20px; font-weight:600; }
   blockquote { border-left:3px solid var(--line); margin:14px 0; padding:2px 0 2px 16px; color:var(--mute); }
@@ -96,6 +97,55 @@ stalling the running Manager - neither controls the other. Without a Mission obj
 beside Manager" has nothing to hang on and collapses back into a chain.</p>
 
 <h3>Role cardinality - one Architect, one Manager, N Workers</h3>
+<svg viewBox="0 0 900 350" width="100%" style="max-width:900px;height:auto;margin:18px 0 6px" role="img" aria-labelledby="mission-t">
+  <title id="mission-t">A Mission drawn as a container: the Architect and the Manager sit side by side at the top as peers because they share the Mission, and the Workers hang beneath the Manager</title>
+  <defs>
+    <marker id="ma" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="var(--mute)"/>
+    </marker>
+  </defs>
+
+  <rect x="16" y="30" width="868" height="272" rx="12" fill="none" stroke="var(--ink)" stroke-width="2"/>
+  <text x="34" y="54" font-size="13" font-weight="700" fill="var(--ink)">MISSION &#8212; &#8220;Gateway Connection&#8221;</text>
+  <text x="34" y="72" font-size="10.5" fill="var(--mute)">being INSIDE the box is what &#8220;attached to the Mission&#8221; means</text>
+
+  <rect x="120" y="92" width="250" height="66" rx="8" fill="var(--panel)" stroke="var(--line)" stroke-width="1.5"/>
+  <text x="245" y="120" text-anchor="middle" font-size="14" font-weight="700" fill="var(--ink)">ARCHITECT</text>
+  <text x="245" y="140" text-anchor="middle" font-size="11" fill="var(--mute)">settles the design &#183; exactly one</text>
+
+  <rect x="530" y="92" width="250" height="66" rx="8" fill="var(--panel)" stroke="var(--line)" stroke-width="1.5"/>
+  <text x="655" y="120" text-anchor="middle" font-size="14" font-weight="700" fill="var(--ink)">MANAGER</text>
+  <text x="655" y="140" text-anchor="middle" font-size="11" fill="var(--mute)">drives the work &#183; exactly one</text>
+
+  <line x1="370" y1="125" x2="530" y2="125" stroke="var(--mute)" stroke-width="1.6" stroke-dasharray="6 4"/>
+  <text x="450" y="118" text-anchor="middle" font-size="10.5" font-weight="600" fill="var(--mute)">PEERS</text>
+  <text x="450" y="146" text-anchor="middle" font-size="10" fill="var(--mute)">neither controls the other</text>
+
+  <line x1="655" y1="158" x2="560" y2="212" stroke="var(--mute)" stroke-width="1.4" marker-end="url(#ma)"/>
+  <line x1="655" y1="158" x2="680" y2="212" stroke="var(--mute)" stroke-width="1.4" marker-end="url(#ma)"/>
+  <line x1="655" y1="158" x2="800" y2="212" stroke="var(--mute)" stroke-width="1.4" marker-end="url(#ma)"/>
+
+  <rect x="498" y="216" width="124" height="60" rx="7" fill="var(--panel)" stroke="var(--line)" stroke-width="1.4"/>
+  <text x="560" y="240" text-anchor="middle" font-size="12" font-weight="600" fill="var(--ink)">WORKER</text>
+  <text x="560" y="258" text-anchor="middle" font-size="10" fill="var(--mute)">one Task</text>
+
+  <rect x="628" y="216" width="124" height="60" rx="7" fill="var(--panel)" stroke="var(--line)" stroke-width="1.4"/>
+  <text x="690" y="240" text-anchor="middle" font-size="12" font-weight="600" fill="var(--ink)">WORKER</text>
+  <text x="690" y="258" text-anchor="middle" font-size="10" fill="var(--mute)">one Task</text>
+
+  <rect x="758" y="216" width="124" height="60" rx="7" fill="var(--panel)" stroke="var(--line)" stroke-width="1.4"/>
+  <text x="820" y="240" text-anchor="middle" font-size="12" font-weight="600" fill="var(--ink)">WORKER</text>
+  <text x="820" y="258" text-anchor="middle" font-size="10" fill="var(--mute)">one Task</text>
+
+  <text x="245" y="232" text-anchor="middle" font-size="11" fill="var(--mute)">A simple Mission can run</text>
+  <text x="245" y="250" text-anchor="middle" font-size="11" fill="var(--mute)">with no Architect at all.</text>
+
+  <text x="450" y="330" text-anchor="middle" font-size="11" fill="var(--mute)">Missions are FLAT since 7 August 2026 &#8212; boxes never contain boxes. Two related missions are simply two missions.</text>
+</svg>
+<p class="cap">This is the shape the Mission object exists to make expressible. A spawn tree can only say
+&quot;X started Y&quot;; it cannot say the Architect and the Manager are equals pointed at one goal.
+<strong>They are peers BECAUSE they share a Mission</strong>, not because one started the other &mdash;
+which is what lets you rework a design with the Architect without stalling the running Manager.</p>
 
 <div class="scroll">
 <table>
