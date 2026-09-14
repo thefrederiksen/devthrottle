@@ -30,39 +30,44 @@ cc-devthrottle session list
 cc-devthrottle session whoami
 cc-devthrottle session rename "Dev Throttle Review"
 cc-devthrottle session rename 9b2f "Frontend Review"
-cc-devthrottle session spawn D:\path\to\repo --purpose "implement #799" --controlled-by self
-cc-devthrottle session spawn D:\path\to\repo --name "Frontend review" --standalone
-cc-devthrottle session spawn D:\path\to\repo --purpose "run the test suite" --controlled-by self --agent ClaudeCode --prompt "Run the tests and report failures."
-cc-devthrottle session spawn D:\path\to\repo --name "frontend" --standalone --agent RawCli --command cmd
+cc-devthrottle session spawn D:\path\to\repo --controlled-by self --purpose "implement #799"
+cc-devthrottle session spawn D:\path\to\repo --standalone --why "he asked me to open this for him" --name "Frontend review"
+cc-devthrottle session spawn D:\path\to\repo --controlled-by self --purpose "run the test suite" --agent ClaudeCode --prompt "Run the tests and report failures."
+cc-devthrottle session spawn D:\path\to\repo --controlled-by self --name "frontend" --agent RawCli --command cmd
 cc-devthrottle director list
-cc-devthrottle session spawn D:\path\to\repo --name "build" --controlled-by self --director "North build"
+cc-devthrottle session spawn D:\path\to\repo --controlled-by self --name "build" --director "North build"
 ```
 
-**`--standalone` now states a reason.** From v2.1.3 an opt-out spawned from inside a session requires `--why "<reason>"`: it hands the work to the USER, so it goes red and asks him and you hear nothing back. It does not forbid the choice - it means an agent that cannot say why the work is his should keep it. `--controlled-by self` behaves the same on every version.
+### WHEN YOU SPAWN, YOU MUST SAY WHO OWNS THE RESULT
 
+**Every session answers to something.** Either another session is holding it - and gets told when its
+turn ends - or it is the USER's, and it goes red and asks him. There is no third answer, and there is
+no unowned session.
 
-Every one of those says who will own the new session. From inside a session that is REQUIRED.
-### WHO OWNS THE SESSION YOU OPEN - you must say
-
-Every session has exactly one owner, and it is either another SESSION or the USER. There is no third
-answer and there is no unowned session: no owner means the user. When you spawn from inside a session
-there are two candidates and NO default between them, so the spawn is REFUSED until you say which:
+You are a session, so when you spawn there are two possible owners and no safe default between them.
+**The spawn is REFUSED until you say which.** That is why every example above carries a declaration.
 
 ```
---controlled-by self   YOU own it. It stays quiet on the roster and reports back to YOU when it
-                       finishes. Use this for work you will collect.
---standalone           the USER owns it. It goes red and asks HIM when it finishes, and you will not
-                       hear from it. Use this for work you are starting on his behalf.
---controlled-by <id>   another session owns it.
+--controlled-by self           YOU own it. It stays quiet on the roster and reports back
+                               to you when it finishes. For work you will collect.
+
+--controlled-by <session-id>   Another session owns it.
+
+--standalone --why "<reason>"  The USER owns it. It goes RED and asks HIM when it
+                               finishes, and you will not hear from it.
 ```
 
-This used to default to `self` silently, and that default was the only way work could quietly stop
-being the user's - a session answering to a machine because an environment variable happened to be set,
-with nobody having chosen it. So choose deliberately: if you will not actually come back and read that
-session's answer, it is not yours, and `--standalone` is the honest declaration.
+**Reach for `--controlled-by self` by default.** You asked for the work; getting back with it is part
+of doing it. `--standalone` is for the narrow case where the work is genuinely the user's - he asked
+you to open it for him, or it needs his decision before anything else can run - and it requires
+`--why` for exactly that reason: an agent that cannot say why the work is his should keep it.
 
-A person spawning from the desktop, the Cockpit or the phone declares nothing. A session a person opens
-is the user's, and there is no second candidate to tell it apart from.
+This used to default silently to `self` whenever an environment variable happened to be set. That
+default is gone: who a session answers to is too important to be decided by an environment variable.
+
+*Version note: the `--why` requirement arrived in v2.1.3. An older Director accepts `--standalone`
+without it. `--controlled-by self` behaves identically on every version, which is another reason to
+reach for it first.*
 
 
 `--machine <name>` starts the session on another COMPUTER; `--director <id-or-name>` starts it on ONE
@@ -162,8 +167,7 @@ At each phase boundary:
    (the Gateway routes it to whichever Director hosts the session over the tunnel), or have the user
    close its tab. A session reaps ITSELF with `cc-devthrottle session done`, which flags the current
    session (`CC_SESSION_ID`) for graceful removal without killing it mid-turn.
-3. Spawn a fresh Manager with a tight brief: `session spawn <repo> --controlled-by self --name "<Mission> - Manager"
-   --standalone` - a Manager answers to the USER, which is the whole point of the seat,
+3. Spawn a fresh Manager with a tight brief: `session spawn <repo> --name "<Mission> - Manager"`,
    pointing it at the mission document, stating plainly what is DONE and only THIS phase's goal.
 
 This only works because the mission document and memory hold the state - keep them current so a reset

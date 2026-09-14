@@ -383,6 +383,49 @@ If the skill cannot do what is needed, that is a gap to FIX IN THE WORKFLOW. Say
 
 Rolling back is also a workflow (`rollback-hosted-gateway.yml`). Never swap by hand.
 
+## A BUILT-IN SKILL IS CHANGED IN ONE PLACE, AND IT REACHES PEOPLE BY DEPLOYING THE GATEWAY
+
+The four skills DevThrottle ships - `dev-throttle`, `fleet-comms`, `move-session`, `terminology` -
+have **one source**: `src/CcDirector.Gateway/Skills/Content/<id>.skill.md`. That file is compiled
+into the Gateway binary, seeded into the skill store at startup, and pulled down by every Director
+onto disk where agents read it.
+
+**`.claude/skills/<id>/SKILL.md` is NOT a second copy to maintain.** It exists only so Claude Code
+finds the skill while working inside this repository, and it is the shipped body plus the YAML
+frontmatter Claude Code requires. It is REGENERATED from the shipped file. Do not hand-edit it.
+
+**You cannot change a built-in on the Gateway instead.** `SkillStore` holds built-ins READ-ONLY,
+refuses a tenant skill created under a built-in id, and the seeder is the only writer of their
+content - so `skill push` or an edit in the store is either refused or erased on the next Gateway
+start. The Gateway is where the skill is SERVED from, not where it is authored.
+
+**The loop, and there is no shorter one:**
+
+1. Edit `src/CcDirector.Gateway/Skills/Content/<id>.skill.md`.
+2. Regenerate the `.claude/skills/<id>/SKILL.md` copy from it (frontmatter + body, nothing else).
+3. Merge.
+4. **Deploy the Gateway** - the `deploy-hosted-gateway` skill. The seeder republishes the body as a
+   new version, in both directions, so a rollback republishes the older one and the version rows are
+   an honest record of what the fleet was served.
+5. It comes back down to `~/.agents/skills` on every machine, and you can read it current.
+
+**Why this is a rule and not tidiness.** On 2026-09-14 the two copies had drifted apart in BOTH
+directions. The shipped `fleet-comms` showed five spawn examples and never mentioned
+`--controlled-by` or `--standalone`, while an undeclared spawn had been REFUSED since 2026-09-13 -
+so for a day every agent outside this repository was handed examples the product rejects, while the
+copy a developer reads was correct. Meanwhile the repository `move-session` carried a paragraph no
+user ever saw, and the shipped `dev-throttle` carried a browsers section the repository copy had
+lost. Each had content the other lacked.
+
+And the shadowing makes it invisible exactly where it would be caught: Claude Code reads a project's
+own `.claude/skills` ahead of the `~/.claude/skills` links a Director installs, so **inside the
+repository where DevThrottle is built, the hand-edited copy wins over the shipped one.**
+
+`BuiltInSkillsHaveOneSourceTests` fails when the two bodies differ.
+`ShippedSkillsTeachOwnershipTests` fails when a shipped skill shows a spawn the product would refuse.
+Deleting a `.claude/skills` copy entirely is allowed and is the cleanest end state - the guard never
+demands one exist, only that one which exists agrees.
+
 ## NEVER MENTION CLAUDE ANYWHERE IN GITHUB - ABSOLUTE
 
 **NO Claude / Claude Code / Anthropic / AI attribution EVER appears in anything
