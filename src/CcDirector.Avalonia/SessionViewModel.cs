@@ -200,7 +200,7 @@ public class SessionViewModel : INotifyPropertyChanged
     /// session before its first push, or a Director with no tunnel - the "no Gateway, no fold" floor) the
     /// value is null, and the rail shows a neutral placeholder rather than guessing a colour. A genuinely
     /// unrecognised stamp value still falls through to the magenta sentinel in <see cref="StatusColorBrush"/>,
-    /// which is the real fail-loud. (docs/new_architecture/session-state.html.)
+    /// which is the real fail-loud. (docs/new_architecture/sessions.html.)
     /// </summary>
     private string EffectiveColor => RailColor(IsGatewayOffline, FoldInput.EffectiveColor, Session.ActivityState, IsGatewaySettled, Session.OnHold);
 
@@ -225,7 +225,7 @@ public class SessionViewModel : INotifyPropertyChanged
     /// local fold would wedge every voice-mode session permanently yellow "Preparing voice". Two colours
     /// only; every richer state waits for the Gateway to come back and stamp it. The phone and Cockpit keep
     /// the neutral placeholder when offline because, unlike the Director, they do not host the session and
-    /// cannot know what it is doing. (docs/new_architecture/session-state.html.)
+    /// cannot know what it is doing. (docs/new_architecture/sessions.html.)
     /// </summary>
     internal static string RailColor(bool gatewayOffline, string? gatewayStamp, ActivityState localActivity, bool gatewaySettled, bool isHeld = false)
     {

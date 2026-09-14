@@ -144,7 +144,7 @@ public static class StatusPalette
     public static void ReportUnknownColor(string? foldColor, string sessionId)
         => FileLog.Write($"[StatusPalette] UNKNOWN FOLD COLOUR '{foldColor}' for session {sessionId} - " +
                          "not in the desktop palette, rendering the BROKEN magenta sentinel. The Gateway is " +
-                         "emitting a colour name this build does not know; see docs/new_architecture/session-state.html.");
+                         "emitting a colour name this build does not know; see docs/new_architecture/sessions.html.");
 
     /// <summary>
     /// Report that the Director is CONNECTED and settled but the Gateway has stamped NO display state for a
@@ -158,5 +158,5 @@ public static class StatusPalette
                          "tunnel is connected and settled - the set-display-state push is not delivering the " +
                          "Gateway's verdict. Rendering the BROKEN magenta sentinel (never grey). Likely a " +
                          "Gateway/Director version or tenancy mismatch; redeploy the Gateway and Director " +
-                         "together. See docs/new_architecture/session-state.html.");
+                         "together. See docs/new_architecture/sessions.html.");
 }

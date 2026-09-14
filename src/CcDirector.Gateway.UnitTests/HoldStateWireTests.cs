@@ -12,7 +12,7 @@ namespace CcDirector.Gateway.Tests;
 /// <c>None</c> and <c>DeferredHold</c> were byte-identical - both false - so nothing downstream could tell
 /// "not held" from "about to be held". The Gateway's expiry sweep read that boolean, concluded a deferred
 /// snooze was over, and deleted its timer 15 seconds after it was asked for.
-/// See docs/new_architecture/session-state.html.
+/// See docs/new_architecture/sessions.html.
 /// </summary>
 public sealed class HoldStateWireTests
 {

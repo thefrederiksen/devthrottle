@@ -1,7 +1,7 @@
 """Mission operations for cc-devthrottle.
 
 A Mission is a first-class persisted record that a pod of sessions is collectively chartered to
-accomplish (see docs/new_architecture/mission-as-first-class-unit-of-work.md). Missions are a
+accomplish (see docs/new_architecture/fleet.html). Missions are a
 FLEET-level concept - they span Directors and machines and nest - so their source of truth lives at
 the GATEWAY, like fleet messaging and scheduling, not on any one Director (Gateway Cleanup mission,
 Wave 4b). These commands create and list Mission records via the Gateway Control API
@@ -138,7 +138,7 @@ class MissionClient:
 
     def create(self, name: str) -> Dict[str, Any]:
         # Missions are FLAT. The parent link was removed on 2026-08-07 after never being used once;
-        # see docs/new_architecture/mission-as-first-class-unit-of-work.md.
+        # see docs/new_architecture/fleet.html.
         return self._ok_or_raise(self._request("POST", "/missions", {"missionName": name}))
 
     def list_all(self, state: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -365,7 +365,7 @@ def reopen_mission(mission_query: str) -> None:
 # ===== Attach and detach (issue #2387) =====================================================
 #
 # THE RULES, settled here and written up in
-# docs/new_architecture/mission-as-first-class-unit-of-work.md. Each one had to be decided because
+# docs/new_architecture/fleet.html. Each one had to be decided because
 # somebody will hit it, and an implied answer is one that gets re-litigated at the worst moment:
 #
 #  * Attaching is a MOVE, not a one-way door. A session that already carries a mission is

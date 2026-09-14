@@ -1,0 +1,435 @@
+<title>DevThrottle Director and Gateway - One Outbound Stream</title>
+<style>
+  :root {
+    --ink:#1a1f2b; --mute:#5b6675; --line:#d8dee8; --bg:#ffffff; --panel:#f6f8fb;
+    --red:#ef4444; --blue:#3b82f6; --grey:#9ca3af; --slate:#64748b;
+    --green:#16a34a; --amber:#f0b848; --accent:#2563eb; --purple:#a855f7; --orange:#f97316;
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; padding:0 24px 80px; background:var(--bg); color:var(--ink);
+    font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  .wrap { max-width:960px; margin:0 auto; }
+  header { border-bottom:3px solid var(--ink); padding:48px 0 20px; margin-bottom:36px; }
+  h1 { font-size:34px; line-height:1.15; margin:0 0 10px; letter-spacing:-0.02em; }
+  .sub { color:var(--mute); font-size:15px; margin:0; }
+  h2 { font-size:24px; margin:56px 0 14px; padding-top:24px; border-top:1px solid var(--line); letter-spacing:-0.01em; }
+  h3 { font-size:17.5px; margin:32px 0 8px; }
+  p { margin:0 0 14px; }
+  .lede { font-size:18.5px; line-height:1.6; }
+  .callout { background:var(--panel); border-left:4px solid var(--accent); padding:16px 18px; margin:22px 0; border-radius:0 6px 6px 0; }
+  .callout.warn { border-left-color:var(--red); }
+  .callout.ok { border-left-color:var(--green); }
+  .callout.law { border-left-color:var(--blue); background:#eff6ff; }
+  .callout p:last-child { margin-bottom:0; }
+  table { border-collapse:collapse; width:100%; margin:18px 0; font-size:14px; }
+  th, td { border-bottom:1px solid var(--line); padding:9px 10px; text-align:left; vertical-align:top; }
+  th { background:var(--panel); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--mute); }
+  code { font:13px/1.4 "SF Mono",Consolas,"Liberation Mono",monospace; background:var(--panel); padding:1px 5px; border-radius:3px; }
+  pre { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:14px 16px; overflow-x:auto; font:13px/1.5 "SF Mono",Consolas,monospace; }
+  .bad { color:var(--red); font-weight:600; }
+  .good { color:var(--green); font-weight:600; }
+  .scroll { overflow-x:auto; }
+  ul, ol { margin:0 0 14px; padding-left:22px; }
+  li { margin-bottom:7px; }
+  .file { font:12.5px/1.4 "SF Mono",Consolas,monospace; color:var(--mute); }
+  footer { margin-top:64px; padding-top:20px; border-top:1px solid var(--line); color:var(--mute); font-size:13px; }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink:#e8ecf3; --mute:#9aa7b8; --line:#2b3340; --bg:#12161d; --panel:#1a1f28; }
+    .callout.law { background:#132033; }
+  }
+</style>
+<div class="wrap">
+<header>
+  <h1>Director and Gateway</h1>
+  <p class="sub">One outbound stream &middot; no ports &middot; the read model &middot; workspaces &mdash; how a machine and the Gateway talk</p>
+</header>
+
+<p class="lede">A Director opens exactly one connection - outbound - to the Gateway, and keeps it open.
+Everything flows over it. The Director exposes no network ports at all. The Gateway is the only
+reachable host in the system.</p>
+
+<div class="callout">
+  <p><strong>This document is a consolidation, and it names what it absorbed</strong> - those files
+  are DELETED rather than retired:</p>
+  <ul style="margin-bottom:8px">
+    <li><span class="file">portless-director-gateway-stream.html</span> - the model itself, now sections 1 to 4.</li>
+    <li><span class="file">roster-last-known-phase1.md</span> - the Gateway read model, now section 5.</li>
+    <li><span class="file">workspace-as-a-stored-object.md</span> - now section 6.</li>
+    <li><span class="file">phase-1-full-bidirectional-spec.md</span> - the command envelope, now section 3. The rest was a build order.</li>
+    <li><span class="file">phase-1-director-gateway-stream-improvements.md</span> - the connection-generation and tombstone decisions, now section 4.</li>
+    <li><span class="file">phase-4a-portless-location-fix.md</span> - why session location reads the cache, now section 5.</li>
+    <li><span class="file">phase-1-increment-6-handoff.md</span>, <span class="file">phase-1a-qa-report.md</span>, <span class="file">phase-3-live-verify-plan.md</span>, <span class="file">phase-1-director-gateway-stream-plan.md</span> and its <span class="file">.html</span> twin, <span class="file">OVERNIGHT-STATUS.md</span> - phase records and instructions to workers who finished in July 2026. Their designs are above; the rest is in git history.</li>
+  </ul>
+  <p style="margin-bottom:0"><strong>The two files named
+  <span class="file">phase-1-director-gateway-stream-plan</span> were the same document in
+  <span class="file">.md</span> and <span class="file">.html</span>, and they had already drifted
+  apart from each other.</strong> That is the clearest possible argument for one document per idea,
+  and it is why this consolidation happened.</p>
+</div>
+
+<div class="callout warn">
+  <p><strong>THE SOURCE DOCUMENT SAID THIS WAS NOT BUILT. It is what the product runs on.</strong>
+  <span class="file">portless-director-gateway-stream.html</span> carried the banner <em>"Status:
+  CANDIDATE - UNDER CONSIDERATION. Not decided... Nothing here is built."</em> from 8 July 2026 until
+  it was deleted on 14 September 2026.</p>
+  <p style="margin-bottom:0">Every invariant in it shipped, and one of them shipped harder than
+  proposed. A session reading that banner would have concluded the current architecture was a
+  daydream - the exact inversion of the usual stale-document failure, and just as expensive.</p>
+</div>
+
+<h2>1. The one idea, and the invariants</h2>
+
+<p>The Director dials out and keeps one connection open. Raw state pushes up; commands and requests
+flow down; requests work in both directions; terminal bytes ride outbound byte streams the Director
+dials on demand.</p>
+
+<p>Because the Director dials out, it needs no inbound firewall port, no port-forward and no
+per-machine network address. It works behind any NAT or firewall that allows outbound HTTPS - home,
+corporate, cellular, anywhere.</p>
+
+<div class="callout law">
+  <p><strong>The invariants. These are the musts.</strong></p>
+  <ol style="margin-bottom:0">
+    <li><strong>The Director dials the Gateway. The Gateway never dials the Director.</strong> This is
+    the whole point; it is what makes the Director portless.</li>
+    <li><strong>No Director ever talks to another Director.</strong> All cross-session messaging, fleet
+    comms and remote viewing are relayed by the Gateway. If any Director-to-Director path survived,
+    something would still have to be reachable and the benefit collapses.</li>
+    <li><strong>All remote access goes through the Gateway.</strong> A phone or another machine can
+    only reach a Director by way of the Gateway.</li>
+    <li><strong>The Director has NO listener at all - not even loopback.</strong> See below; this is
+    the one that changed.</li>
+    <li><strong>Who-initiates is not who-can-ask.</strong> One Director-initiated connection carries
+    requests in both directions. The Gateway can ask the Director for history over the open stream.
+    Portless forbids a new inbound connection, not the request-and-reply pattern.</li>
+  </ol>
+</div>
+
+<h3>Invariant 4 went further than the proposal - there is no loopback API either</h3>
+
+<p>The candidate document proposed keeping a loopback-only API on 127.0.0.1 for the local agent and
+the command-line tools, reasoning that it exposes no network port and so does not violate portless,
+and that local work would never depend on the Gateway being up.</p>
+
+<p><strong>That is not what shipped.</strong> The Remove-the-network-port mission deleted the
+Director's HTTP Control API outright - the web host, the loopback routes, and the port allocator that
+picked from the range 7879 to 7898. In the words of the class that used to host it:</p>
+
+<blockquote style="border-left:3px solid var(--line); margin:14px 0; padding:2px 0 2px 16px; color:var(--mute)">
+THERE IS NO LISTENER HERE, AND THERE MUST NOT BE. [...] Everything an agent or another machine does
+to this Director arrives over the Gateway, down the tunnel this host dials OUT. Process lifecycle
+(stop, update check) is a named signal, not a route. If a change here needs a caller to reach this
+process directly, the answer is a tunnel verb or a file, never a socket.
+</blockquote>
+
+<p>The consequence the candidate wanted to avoid was accepted deliberately: <strong>local work now
+does depend on the Gateway.</strong> A command-line tool talking to a session on its own machine goes
+out to the Gateway and back. The trade was made because a second door is a second door even when it
+is only open to the local machine - and because "it is only loopback" is exactly the argument that
+keeps a port alive forever.</p>
+
+<p><strong>The class name <span class="file">ControlApiHost</span> survives the listener it was named
+for</strong>, because it is referenced throughout the desktop, the tests and the documentation. What
+it hosts today is the Director's service plane. That is a naming debt, recorded here so the next
+reader does not go looking for an API.</p>
+
+<h2>2. What collapsed into the stream</h2>
+
+<p>Everything that used to be a separate Director-to-Gateway mechanism is now one channel.</p>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>Before</th><th>Now</th></tr></thead>
+  <tbody>
+    <tr><td>Register on start, over HTTP</td><td>Stream connect, with authentication in the handshake</td></tr>
+    <tr><td>Heartbeat every 15 seconds, pushed over HTTP</td><td>Stream keepalive plus a periodic full-snapshot reseed</td></tr>
+    <tr><td>Doorbell on change, best-effort HTTP push</td><td>A delta pushed up the stream</td></tr>
+    <tr><td>Gateway fans out and PULLS each Director on every client poll</td><td>The Gateway serves its own in-memory model. No fan-out.</td></tr>
+    <tr><td>Assessed state pushed down into the Director over HTTP</td><td>A message down the stream</td></tr>
+    <tr><td>Commands: Gateway to Director over HTTP - needs an inbound port</td><td>A message down the stream. No inbound port.</td></tr>
+    <tr><td>Terminal bytes: browser to Director directly</td><td>An outbound byte stream the Director dials, relayed by the Gateway</td></tr>
+    <tr><td>History: the Gateway pulls the Director on demand - needs an inbound port</td><td>A request down the stream; the Director answers up it</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="callout ok">
+  <p style="margin-bottom:0"><strong>The transitional flag is GONE, and that matters more than it
+  sounds.</strong> The stream shipped behind a <span class="file">gateway.streamMode</span> gate with
+  the whole HTTP path preserved beside it, so a Director behaved identically with the flag off. That
+  dual-mode period is over: the Gateway Cleanup mission removed the gate, and a configured Gateway
+  means the tunnel. <strong>There is one path now, not a preferred path with a fallback.</strong> A
+  fallback that still exists is a fallback that will be taken, and the second path could only ever be
+  taken in the situation nobody was testing.</p>
+</div>
+
+<h2>3. Commands: one envelope, one executor</h2>
+
+<p>When commands moved onto the stream there was a choice: write a stream handler per verb beside each
+existing REST handler, or build one envelope both paths execute through. The second was chosen, and
+the reason is the reason this whole repository keeps re-learning:
+<strong>two implementations of one rule drift, and the drift is invisible until somebody hits the
+path nobody exercised.</strong></p>
+
+<p>So a command is a generic envelope - a verb, a session id, and a serialized payload - and a single
+shared executor runs it. The stream path and any other caller reach the same method, with the same
+guards, and cannot disagree.</p>
+
+<pre>DirectorCommand   { CommandId, Verb, SessionId, PayloadJson }
+DirectorCommandResult { CommandId, Status, BodyJson, Error }
+
+Status: Ok | BadRequest | NotFound | Conflict | Error</pre>
+
+<p>The result carries the outcome rather than an HTTP status, because the stream has no status codes.
+The common guards - parse the session id, find the session - live once in the executor rather than
+once per verb.</p>
+
+<p><strong>A command to a disconnected Director is REJECTED immediately, never queued.</strong> The
+Gateway resolves the Director's live connection; if there is none, the answer is "unreachable" now. A
+mutating command held in a queue would fire against a machine whose state has moved on, at a moment
+nobody is watching.</p>
+
+<h2>4. Recovery: reconnect is the same path as first connect</h2>
+
+<p class="lede">The Director is the source of truth. The Gateway is a disposable derived cache.</p>
+
+<p>So the Gateway never "reacquires" - the Director re-asserts. Every attach, whether the first or the
+thousandth, begins by sending a full snapshot of every session's current facts; then deltas flow. No
+diffing, no gap replay. Nothing is lost because the durable truth - the terminal buffer, the
+transcript files, the raw facts - never left the Director.</p>
+
+<h3>A connection generation, not an integer epoch</h3>
+
+<p>A dying connection can deliver a message after its replacement has already attached, and that
+message would overwrite fresher state with staler state. Each attach therefore takes a monotonic
+generation, and the Gateway drops any message from an older one.</p>
+
+<p>The first design was a simple integer epoch on the Director. It was replaced by a generation
+assigned per CONNECTION at the Gateway, because the Director is the one component that might have
+restarted - a counter that resets to zero on the very event the mechanism exists to survive is not a
+mechanism. Duplicate-connection ownership follows from the same fact: the newest generation owns the
+Director's entry, and an older connection still talking is ignored rather than fought with.</p>
+
+<h3>Removals travel as tombstones</h3>
+
+<p>A delta that only ever adds and updates cannot say "this session is gone", so a killed session
+would live forever in the Gateway's model until a full reseed happened to drop it. Removal is an
+explicit tombstone in the delta - the absence of a session is a fact that has to be SENT, not
+inferred from a list that no longer mentions it.</p>
+
+<h2>5. The Gateway read model</h2>
+
+<p class="lede">The roster serves last-known state, unconditionally. Age decides what the roster SAYS
+about a machine; it no longer decides whether the machine is on it.</p>
+
+<h3>The defect this replaced, because the shape recurs</h3>
+
+<p>The Gateway refused to serve any machine whose last push was older than twenty seconds. A Director
+re-pushes every ten seconds, so <strong>two missed ticks blanked a machine</strong> - every session,
+every colour - and with the tunnel dropping dozens of times a day the roster emptied several times an
+hour, <em>while the Gateway sat holding the very data it had just refused to show.</em></p>
+
+<p>There were three staleness authorities stacked in one path, which is the part worth remembering:</p>
+
+<ol>
+  <li>The pushed store was read through a freshness check that returns nothing past its window, and
+  that nothing was rendered as "unreachable, no sessions".</li>
+  <li>The result was then handed to a roster cache that granted three poll cycles of grace and then
+  declared the machine offline and dropped its sessions for good.</li>
+  <li>Further out again, the registry swept a Director's entry sixty seconds after its last heartbeat,
+  taking its cached sessions, its snooze rows and its session numbers with it.</li>
+</ol>
+
+<p><strong>The third one is why a partial fix would have looked like a whole one:</strong> restoring
+the read alone would have bought about a minute against a requirement of five.</p>
+
+<h3>Two methods, deliberately - and this is not a relaxation</h3>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>Read</th><th>Serves</th><th>Used by</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><span class="file">GetLastKnown</span></td>
+      <td>Whatever was last pushed, with its age reported alongside.</td>
+      <td>The roster - reads that only DISPLAY. A stale row that says it is stale is better than a blank screen.</td>
+    </tr>
+    <tr>
+      <td><span class="file">TryGetFresh</span></td>
+      <td>Nothing at all once past the staleness window.</td>
+      <td>Reads that ACT - session location for command routing, and every gate. Untouched, and it kept every one of its callers.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p>A read that ACTS must still refuse a stale answer, because acting on one could route a command at a
+machine that is no longer there. Displaying one merely needs to be honest about its age. Collapsing
+the two into a single "is it fresh?" question is what caused the defect.</p>
+
+<h3>Link state comes from the tunnel, not a countdown</h3>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>State</th><th>Means</th><th>Sessions shown?</th></tr></thead>
+  <tbody>
+    <tr><td>online</td><td>Tunnel up and a current push.</td><td>Yes</td></tr>
+    <tr><td>wobbly</td><td>Tunnel up, nothing recent.</td><td>Yes</td></tr>
+    <tr><td>offline</td><td>Tunnel down.</td><td><strong>Yes</strong> - this is the change</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>The roster cache was DELETED rather than bypassed. Its only production consumer was this one
+handler, and <strong>a second authority that can still be wired back in is a defect waiting to be
+re-introduced.</strong></p>
+
+<h3>Session location reads the cache, because a pull is impossible</h3>
+
+<p>Finding which Director hosts a session used to be an HTTP pull against each Director. Under
+portless there is nothing to pull - so location reads the pushed cache instead. This is not an
+optimisation: the old path <em>cannot run at all</em> on a portless Director, and a location that
+silently failed would make a session unreachable rather than visibly absent. The push cache is
+therefore kept fresh specifically so location never needs a fallback that does not exist.</p>
+
+<h2>6. Workspaces live on the Gateway</h2>
+
+<p class="lede">A workspace is a named set of SEATS. A seat is a repository plus the agent, model,
+seat, mission, owner and opening prompt that make one session.</p>
+
+<p>There are two ways to get one - <strong>authored</strong> by hand ("my morning fleet"), or
+<strong>captured</strong> from a running Director, which is exactly what a drain produces. And two ways
+to use one - started <strong>cold</strong>, which is the ordinary set-of-sessions case, or started with
+each seat <strong>seeded by its own handover</strong>, which is the restart case.</p>
+
+<p><strong>Those are the same object.</strong> The restart index written by hand during the first real
+drain, on 6 September 2026, already was a workspace with extra fields on it; a workspace is a restart
+index with the drain's judgments left blank. So one thing is stored, not two.</p>
+
+<h3>Why on the Gateway</h3>
+
+<p>The one moment a workspace is worth having is the moment the machine it describes has been
+restarted out from under its fleet. So it has to be readable when that machine is down, and editable
+from another computer. That is the whole reason it REPLACES the Director-local workspace files rather
+than sitting beside them: those were readable only while that machine was up and editable only at that
+keyboard.</p>
+
+<p>Nothing on disk was lost in the move. The first time either dialog is opened, every legacy
+workspace file on the machine is pushed up and renamed aside. A file whose id is already on the
+Gateway leaves the Gateway's copy alone - that is the one people have been editing since - and a file
+that cannot be parsed keeps its own name so the bytes stay findable. With no Gateway configured the
+dialogs SAY so, rather than showing an empty list, which would read as the upgrade having deleted the
+user's saved work.</p>
+
+<h3>What happened to the Director and what happened to the seats are TWO facts</h3>
+
+<p>The hand-written index had one coarse word for both, and two of its values welded the pair into a
+single token: <em>restored</em> meant <em>the Director was restarted AND the seats came back</em>. So
+the first combination nobody happened to weld had no word at all - and that combination is not exotic.
+A drain that BLOCKS has already closed, leaf-first, every seat that handed over cleanly, so the
+expected result of never forcing is a half-gone fleet, with no restart, whose seats must then be
+brought back without one.</p>
+
+<p>Three fixes were tried, and the first two each looked finished:</p>
+
+<ol>
+  <li><strong>A fifth value.</strong> It hid the same defect one case further out - the next case
+  (restarted, restore only half complete) needs a sixth.</li>
+  <li><strong>Deriving the word from the pair.</strong> That stopped it CONTRADICTING them but still
+  welded them: a refused restart and a session that would not stop both derive "blocked", which are the
+  two most confusable results a run can have. The fix for that was a warning telling every future
+  reader never to read the field alone - <strong>and a rule that must be obeyed forever by people who
+  were not in the conversation is the weakest kind of fix there is.</strong></li>
+  <li><strong>Deleting it</strong>, which is what shipped.</li>
+</ol>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>Field</th><th>Values</th></tr></thead>
+  <tbody>
+    <tr><td><span class="file">directorOutcome</span></td><td><code>not-restarted</code>, <code>restarted</code>, <code>restart-refused</code></td></tr>
+    <tr><td><span class="file">seatOutcome</span></td><td><code>restoredCount</code>, <code>notRestoredCount</code>, <code>notRestoredWhy</code>, and a <code>scope</code> DERIVED from the two counts: <code>nothing-to-restore</code>, <code>none</code>, <code>some</code>, <code>all</code></td></tr>
+  </tbody>
+</table>
+</div>
+
+<p><span class="file">scope</span> has four values and not three for the same reason the pair exists at
+all: "nothing was owed" and "everything owed is missing" are a success and a total failure, and one
+word for both is the absence-shaped hazard in miniature - <strong>an empty restore list reading as
+success is how a run that restored nothing certifies itself.</strong>
+<span class="file">notRestoredWhy</span> is REQUIRED whenever anything was not restored, because a
+missing seat with no reason beside it is indistinguishable from one nobody noticed.</p>
+
+<h3>The surface</h3>
+
+<pre>GET    /gateway/workspaces        every workspace, newest first (summaries)
+GET    /gateway/workspaces/{id}   the whole document
+POST   /gateway/workspaces        CAPTURE: fold a Director's live sessions into a new one
+PUT    /gateway/workspaces/{id}   store one (authored, or a captured one with judgments written on)
+DELETE /gateway/workspaces/{id}   remove one</pre>
+
+<p>The document is stored as JSON in one column, with a few head columns projected from it for the
+list. That is deliberate: a workspace is a RECORD, its shape grew three whole blocks during the first
+real run, and it will grow again. Columns would make each of those a migration. A document written
+elsewhere that still carries a retired field keeps it verbatim in the unknown-field bag - not modelled,
+not obeyed, and not lost.</p>
+
+<p><strong>Capture is a verb rather than something the caller assembles</strong>, because the facts on
+a seat - the agent, the resolved seat, the owner, the model, the transcript path - are ones the Gateway
+holds firsthand, and this document is read after those sessions are gone, when nobody can check. It
+CREATES and never replaces: overwriting would destroy a drain somebody is halfway through, silently.
+And the capture makes <strong>no judgments</strong> - drain state, handover path, restore decision and
+the restore list are all left at their honest empty values, so a document nobody has judged yet cannot
+be mistaken for one that has been.</p>
+
+<p>A session key may call all five. A session drives a drain, so a guard that let a session read
+workspaces but never write one would leave the record to a human at the keyboard of the machine being
+restarted - the one person the exercise exists to spare. Restarting the Director itself stays refused;
+that is the admission surface.</p>
+
+<h2>7. Consequences accepted, eyes open</h2>
+
+<p>Each of these was named before the model was built and is still true.</p>
+
+<ul>
+  <li><strong>The Gateway is a single point of failure for REMOTE access.</strong> With no direct path,
+  a Gateway that is down means no phone and no other machine can reach a Director at all.</li>
+  <li><strong>The Gateway is in the byte data path.</strong> Bytes go Director, Gateway, browser rather
+  than browser-direct. Measured load is small - single-digit kilobytes per second per watched session -
+  but the Gateway now relays bytes, not just metadata.</li>
+  <li><strong>Local work depends on the Gateway.</strong> Session-to-session messaging on ONE machine
+  routes out to the Gateway and back. The candidate document expected loopback to spare us this; the
+  loopback API was then removed, so this consequence is larger than it was written to be.</li>
+</ul>
+
+<p><strong>The connection indicator in the Director window is load-bearing under this model</strong>,
+and is the one signal for "is remote access working right now": healthy, reconnecting, or down. When
+the stream is down the desktop keeps rendering the one fact it owns firsthand - is this agent producing
+output - as blue or red, and nothing else. That floor is described in
+<a href="sessions.html">sessions.html</a>, which owns every rule about colour.</p>
+
+<h2>8. How the open decisions were settled</h2>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>Decision</th><th>Was</th><th>Settled as</th></tr></thead>
+  <tbody>
+    <tr><td>Move to a single outbound stream at all</td><td>"Leaning yes", under consideration</td><td class="good">Built. It is the only path; the transitional flag is gone.</td></tr>
+    <tr><td>Transport</td><td>Proposed: a hub over WebSocket for control, dedicated outbound sockets for bytes</td><td class="good">Built as proposed.</td></tr>
+    <tr><td>Interactive input latency through the relay</td><td>"Must test" - named as the main new risk</td><td>Accepted in practice. The relay is the only path and the product is used this way daily. No published measurement - if a number is ever needed, it has to be taken, not quoted.</td></tr>
+    <tr><td>Commands to a disconnected Director</td><td>Proposed: reject immediately, never queue</td><td class="good">Built as proposed. Section 3.</td></tr>
+    <tr><td>History: on demand, or stored on the Gateway</td><td>Open</td><td>STORED. The Gateway keeps each session's conversation current by having the Director push what the Gateway has not seen, so history is readable while a Director is offline.</td></tr>
+    <tr><td>Migration</td><td>Proposed: dual-mode behind a flag, not a big bang</td><td class="good">Done exactly that way, and then the flag was removed. The dual-mode period is over.</td></tr>
+    <tr><td>Keep a loopback API</td><td>Stated as an invariant to preserve</td><td class="bad">REVERSED. There is no listener of any kind. Section 1.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<footer>
+  <p>Sessions, seats, ownership, attention and colour: <a href="sessions.html">sessions.html</a>.
+  Missions, naming and lifecycle: <a href="fleet.html">fleet.html</a>.
+  Terminology: <a href="names.html">names.html</a>. Index: <a href="index.html">index.html</a>.</p>
+</footer>
+</div>

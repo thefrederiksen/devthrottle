@@ -12,7 +12,7 @@ namespace CcDirector.Core.Wingman;
 /// "SessionStatusWingman.ColorFor - the single source of truth". That method does not exist (renamed in
 /// phase 2.3), the wingman is not the single writer (two other paths write StatusColor), and every colour
 /// below except blue/red/unknown is folded at the GATEWAY from raw facts on the wire. The single source of
-/// truth is <c>SessionOrdering</c>, and the specification is docs/new_architecture/session-state.html.
+/// truth is <c>SessionOrdering</c>, and the specification is docs/new_architecture/sessions.html.
 ///
 /// The vocabulary, and who decides each one:
 ///   blue    = the agent is WORKING. Written here by the wingman's activity map; folded at the Gateway

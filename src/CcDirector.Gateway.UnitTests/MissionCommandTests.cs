@@ -7,7 +7,7 @@ using Xunit;
 namespace CcDirector.Gateway.Tests;
 
 /// <summary>
-/// Tests for the Mission-attach command paths (mission-as-first-class-unit-of-work) through the shared
+/// Tests for the Mission-attach command paths (fleet.html) through the shared
 /// <see cref="SessionCommandExecutor"/>: the <c>attach-mission</c> verb stamps a session's MissionId +
 /// cached MissionName (and detaches on a blank id), and a create-time <see cref="NewSessionRequest.MissionId"/>
 /// attaches the new session at spawn. Mirrors the set-role tests in <see cref="SessionCommandExecutorTests"/>.

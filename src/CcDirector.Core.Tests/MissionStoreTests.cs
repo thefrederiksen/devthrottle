@@ -6,7 +6,7 @@ namespace CcDirector.Core.Tests;
 
 /// <summary>
 /// Tests for <see cref="MissionStore"/> - the durable record store behind the first-class Mission
-/// (mission-as-first-class-unit-of-work). Mirrors <see cref="SessionStateStoreTests"/>: each test uses a
+/// (fleet.html). Mirrors <see cref="SessionStateStoreTests"/>: each test uses a
 /// throwaway temp file and asserts the create / get / list / delete API plus survival across a fresh store
 /// instance (the "survives a restart" guarantee), and the session-side MissionId/MissionName round-trip
 /// through <see cref="PersistedSession"/>.

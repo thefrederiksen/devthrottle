@@ -22,7 +22,7 @@ namespace CcDirector.Avalonia.Tests;
 /// expired snooze. So the live zero DID NOT EXERCISE those arms at all. They are exercised here, on purpose,
 /// which is the difference between a proof and a green light.
 ///
-/// Design: docs/new_architecture/session-state.html, section 6.
+/// Design: docs/new_architecture/sessions.html, section 6.
 /// </summary>
 public sealed class AgreementCheckFaultInjectionTests
 {

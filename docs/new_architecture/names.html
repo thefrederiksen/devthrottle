@@ -234,8 +234,19 @@ rather than deciding &mdash; the Task record, and the renames listed in the Cost
   <tr class="sec"><td colspan="6">How sessions relate</td></tr>
 
   <tr class="done">
+    <td class="thing">Owner</td>
+    <td>Who a session ANSWERS TO. Either another session - its supervisor - or the USER. Every session
+    has exactly one, and no owner means the user. Decides who is told when a turn ends.</td>
+    <td class="now">Owner, in the spawn refusal and <code>--controlled-by</code>'s help; nowhere on the wire</td>
+    <td class="should"><span class="tag t-keep">keep</span> Owner. It is the only word that covers
+    BOTH answers - a supervisor is always a session, and the user is not one.</td>
+    <td class="cost c-none">none</td>
+    <td class="status"><span class="st s-done">settled</span></td>
+  </tr>
+
+  <tr class="done">
     <td class="thing">Supervisor</td>
-    <td>The session that supervises another. Live; changes how the session is displayed.</td>
+    <td>The owner WHEN IT IS A SESSION. Live; changes how the session is displayed. Not a synonym for Owner - the user owns sessions and supervises nothing.</td>
     <td class="now">Controller, ControllerSessionId, --controlled-by</td>
     <td class="should"><span class="tag t-ren">rename</span> Supervisor</td>
     <td class="cost c-med">medium</td>
@@ -320,6 +331,21 @@ rather than deciding &mdash; the Task record, and the renames listed in the Cost
 </div>
 
 <div class="callout ok">
+  <p><strong>OPEN, raised by the 14 September 2026 consolidation: "seat" now means three things.</strong>
+  (1) A ROLE a session holds - "the Manager seat" - which this table already settles as <em>Role</em>.
+  (2) A session's membership of a workflow run, which the Participation row above is retiring the word
+  from. (3) An entry in a WORKSPACE - a repository plus the agent, model, role and owner that would make
+  one session - which is not a role or a participation at all, and has no other name. The architecture
+  documents use all three. This is the owner's call and is deliberately NOT resolved here; resolving it
+  silently across three documents would be one session inventing vocabulary the fleet has to live with.</p>
+
+  <p><strong>Owner was added on 14 September 2026</strong>, after this table was settled on 2 August.
+  The ownership model shipped in between - a session-initiated spawn must now declare who will own the
+  result - and it needed a word that covers the case where the answer is the USER, which "supervisor"
+  cannot. Owner, Supervisor and Parent are three different questions, and the distinction is the whole
+  of <a href="sessions.html">sessions.html</a> section 1: who does it ANSWER TO, which SESSION is that,
+  and who STARTED it. Only the first decides anything.</p>
+
   <p><strong>Mission and Run are two records, and that is correct.</strong> I originally wanted to collapse
   them into one. That was wrong. A Mission is a durable statement of purpose that holds several tasks and can
   outlive any single execution; a Run is one mechanical execution of a workflow. They link &mdash; one to one

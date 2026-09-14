@@ -150,7 +150,7 @@ public sealed class NewSessionRequest
 
     /// <summary>
     /// Optional Mission to ATTACH the new session to at spawn (see
-    /// docs/new_architecture/mission-as-first-class-unit-of-work.md). When set, the Director stamps the
+    /// docs/new_architecture/fleet.html). When set, the Director stamps the
     /// session's <see cref="SessionDto.MissionId"/> and caches the resolved
     /// <see cref="SessionDto.MissionName"/> at birth - the attachment that binds this session into a pod.
     /// The Mission must already exist (create it with POST /missions); an unknown Mission is REJECTED as a

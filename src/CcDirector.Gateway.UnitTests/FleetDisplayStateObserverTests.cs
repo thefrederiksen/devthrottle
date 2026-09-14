@@ -11,7 +11,7 @@ namespace CcDirector.Gateway.Tests;
 ///
 /// The fold itself is proved elsewhere (SessionOrderingTests); here the fold is a deterministic stub so the
 /// tests target the observer's gate and payload, exactly as FleetRoleObserverTests target the role
-/// observer's. Design: docs/new_architecture/session-state.html.
+/// observer's. Design: docs/new_architecture/sessions.html.
 /// </summary>
 public sealed class FleetDisplayStateObserverTests
 {

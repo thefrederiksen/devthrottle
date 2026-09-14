@@ -24,7 +24,7 @@ namespace CcDirector.Core.Wingman;
 /// the removed FIFO window's red filter read it too, as does the wingman brief's
 /// CurrentColor. Deleting this computation would strand every one of them - a deleted producer under live
 /// consumers, which is this repository's signature bug. It is retired only after those readers move to the
-/// Gateway's fold (docs/new_architecture/session-state.html, "Still to do").
+/// Gateway's fold (docs/new_architecture/sessions.html, "Still to do").
 ///
 /// Phase 2.3 (issue #1177): the Director computes ONLY the dumb color map here - no overlays. The badge is
 /// a direct, mechanical mapping from the session's <see cref="ActivityState"/> and nothing else:

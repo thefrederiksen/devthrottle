@@ -765,7 +765,7 @@ export function useVoiceMode(
   // of "what does the Voice screen show and offer" ruling the client used to do for itself - the badge,
   // the message, whether a Generate button appears, retrying vs service-down vs nothing-to-narrate - now
   // lives on the Gateway. The client is dumb: it reads this and renders it, and derives nothing. That is
-  // the law (docs/new_architecture/session-state.html). Null until the first poll resolves the session.
+  // the law (docs/new_architecture/sessions.html). Null until the first poll resolves the session.
   const voiceDisplay: VoiceDisplay | null = session?.voiceDisplay ?? null;
 
   return {

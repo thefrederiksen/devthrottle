@@ -299,7 +299,7 @@ Dispatcher.BeginInvoke(() =>
 
 **Every display verdict is computed on the Gateway and pushed; clients only render it, verbatim.** Colors, labels, triage buckets, and the voice-mode display state (badge, message, and which actions are offered) are all FOLDED once on the Gateway and stamped onto the session the client reads. A client never re-derives a verdict, never guesses, never branches to decide what a state "means".
 
-**Why:** a client that rules for itself will, the moment the Gateway hands it something it did not expect, render something *plausible* instead of something *true*. That is exactly how the Voice screen came to show a red "Voice unavailable" badge next to a "Generate narration now" button that could never work: the Gateway sent no reason, so the phone GUESSED "offer a button". A dumb client cannot guess. See `docs/new_architecture/session-state.html`.
+**Why:** a client that rules for itself will, the moment the Gateway hands it something it did not expect, render something *plausible* instead of something *true*. That is exactly how the Voice screen came to show a red "Voice unavailable" badge next to a "Generate narration now" button that could never work: the Gateway sent no reason, so the phone GUESSED "offer a button". A dumb client cannot guess. See `docs/new_architecture/sessions.html`.
 
 **How to apply:** compute the verdict in one Gateway place (e.g. `SessionOrdering` for color/label/triage, `VoiceDisplayFold` for the voice screen), put the finished strings and booleans on the DTO, and have the client read them. If you find yourself writing a conditional in a `.tsx`/`.xaml` view that decides *what a state means* (as opposed to *how to lay out* what the Gateway already decided), move it to the Gateway. Adding a new state is one edit in the fold, never a new branch in every client.
 
@@ -412,9 +412,10 @@ stretch it writes the likeliest caption from its training data - "Thank you.", "
 "Bye." - and about one dictation in eight carried a word the speaker never said. A word
 the model invents is an instruction nobody gave, so removing it SERVES this rule rather
 than bending it. What may never happen is a removal the audio does not justify: see
-`docs/architecture/transcription-pipeline-versions.md` for the rule and its measured
-score, and the research behind it in
-`docs/research/transcription/2026-09-09-unspoken-words.md`.
+`devthrottle_internal/docs/architecture/transcription-pipeline-versions.md` for the rule
+and its measured score, and the research behind it in
+`devthrottle_internal/docs/research/transcription/2026-09-09-unspoken-words.md`. Both live in the
+INTERNAL repository, not this one.
 
 This binds the Gateway (`CcDirector.Gateway/Transcription`, `CcDirector.Core/Dictation`),
 the Director's local dictation, the phone app, Notes, Wingman, and the proxy in

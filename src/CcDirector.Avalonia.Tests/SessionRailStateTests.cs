@@ -22,7 +22,7 @@ namespace CcDirector.Avalonia.Tests;
 /// So these stamp the display state the Gateway would push, then assert the rail renders it verbatim. A
 /// session with NO stamp shows a neutral placeholder - the "no Gateway, no fold" floor - not a local guess.
 ///
-/// Design: docs/new_architecture/session-state.html
+/// Design: docs/new_architecture/sessions.html
 /// </summary>
 public sealed class SessionRailStateTests
 {

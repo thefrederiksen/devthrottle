@@ -16,7 +16,7 @@ namespace CcDirector.ControlApi;
 ///
 /// It is its own area because a verb belongs to exactly one area and an area is the unit that avoids the
 /// merge chokepoint - adding this verb touched no other area's file.
-/// (docs/new_architecture/session-state.html, defect 5.)
+/// (docs/new_architecture/sessions.html, defect 5.)
 /// </summary>
 internal sealed class FleetRoleExecutor : ISessionCommandArea
 {

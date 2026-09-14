@@ -9,7 +9,7 @@ namespace CcDirector.Gateway.Contracts;
 /// it verbatim on <c>Session.GatewayResolvedRole</c> and reports it back out through
 /// <c>ControlEndpoints.Map</c>; it never computes, adjusts, or second-guesses the value. "Is this session's
 /// controller still alive?" is unanswerable from one Director - which is why the answer has to arrive from
-/// here. See docs/new_architecture/session-state.html, defect 5.
+/// here. See docs/new_architecture/sessions.html, defect 5.
 /// </summary>
 public sealed class SetResolvedRoleRequest
 {

@@ -12,7 +12,7 @@ namespace CcDirector.Gateway.Contracts;
 /// Gateway chose; the desktop palette (<c>StatusPalette</c>) sources its values from these same
 /// constants so a C# client cannot drift from the wire either.
 ///
-/// The values are the Tailwind-500 ramp, written down in docs/new_architecture/session-state.html - the
+/// The values are the Tailwind-500 ramp, written down in docs/new_architecture/sessions.html - the
 /// single spec both this map and the web client (packages/client-core/src/sessions/ordering.ts) cite.
 /// TWO deliberate departures from the 500 ramp, both load-bearing:
 ///   - <see cref="Error"/> is red-700, not red-500. A session that DIED must never read as one that

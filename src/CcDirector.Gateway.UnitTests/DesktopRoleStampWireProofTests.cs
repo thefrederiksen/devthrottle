@@ -33,7 +33,7 @@ namespace CcDirector.Gateway.Tests;
 ///     -> real <see cref="SessionOrdering.EffectiveColor"/>
 ///     -> "supporting".
 ///
-/// Design: docs/new_architecture/session-state.html, defect 5.
+/// Design: docs/new_architecture/sessions.html, defect 5.
 /// </summary>
 public sealed class DesktopRoleStampWireProofTests
 {

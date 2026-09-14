@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Text.RegularExpressions;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Fleet;
 using Xunit;
@@ -8,7 +9,7 @@ namespace CcDirector.Gateway.Tests;
 /// <summary>
 /// THE WRITTEN RULE AND THE CODE, CHECKED AGAINST EACH OTHER.
 ///
-/// Reads the supervision table out of <c>docs/new_architecture/session-roles-semantics.md</c> and asserts
+/// Reads the supervision table out of <c>docs/new_architecture/sessions.html</c> and asserts
 /// that the shipped attention rule answers what the table says, for every case, in both directions.
 ///
 /// IT DRIVES THE REAL PATH, NOT THE FIELD. <see cref="SessionOrdering.IsSupervised"/> now reads a single
@@ -39,7 +40,7 @@ namespace CcDirector.Gateway.Tests;
 /// </summary>
 public sealed class SupervisionRuleMatchesTheDesignDocumentTests
 {
-    private const string DocRelativePath = "docs/new_architecture/session-roles-semantics.md";
+    private const string DocRelativePath = "docs/new_architecture/sessions.html";
     private const string Begin = "<!-- SUPERVISION-TABLE-BEGIN -->";
     private const string End = "<!-- SUPERVISION-TABLE-END -->";
 
@@ -285,33 +286,74 @@ public sealed class SupervisionRuleMatchesTheDesignDocumentTests
 
         var body = text[(begin + Begin.Length)..end];
 
-        // THE FENCE IS NOT ENOUGH ON ITS OWN - IT MUST BE A REAL MARKDOWN TABLE. Pipe-prefixed lines inside a
-        // fenced code block would parse here perfectly and render as a code sample: the document a person
-        // opens would state NO RULE at all while this test went on passing. So a code fence between the
-        // markers is refused outright, and the header and separator rows are REQUIRED, in that order, with
-        // nothing above the header counted as a row.
-        Assert.DoesNotContain("```", body, StringComparison.Ordinal);
+        // THE PARSER'S TABLE AND THE READER'S TABLE MUST BE THE SAME TABLE. The markers are HTML comments,
+        // which a reader cannot see, so every check below exists to close a way of making this test read
+        // something the person opening the document does not. All five were found by adversarial review on
+        // 14 September 2026, and four of them PASSED before these lines existed.
+        //
+        // 1. A table inside <pre>/<code> renders as a code SAMPLE - the document would state no rule at all.
+        Assert.DoesNotContain("<pre", body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("<code", body, StringComparison.OrdinalIgnoreCase);
 
-        var lines = body.Split('\n').Select(l => l.Trim()).ToList();
-        var headerAt = lines.FindIndex(l => l.StartsWith("| Resolved role", StringComparison.Ordinal));
-        Assert.True(headerAt >= 0,
-            $"The supervision table in {DocRelativePath} has no \"| Resolved role | Origin kind | Live " +
-            "supervisor | Verdict |\" header row between its markers. Without a header the rows are not a " +
-            "table, so the document would render as nothing while this test carried on reading the raw lines.");
-        Assert.True(headerAt + 1 < lines.Count && lines[headerAt + 1].StartsWith("|---", StringComparison.Ordinal),
-            $"The supervision table in {DocRelativePath} has a header with no separator row beneath it, so " +
-            "markdown will not render it as a table.");
+        // 2. A COMMENTED-OUT ROW is the sharpest of them. This parser matches <tr> inside an HTML comment
+        //    perfectly well, so the coverage check counts a row the reader cannot see: the document says
+        //    nothing about that case while the machine certifies every case is covered.
+        Assert.DoesNotContain("<!--", body, StringComparison.Ordinal);
+
+        // 3. A HIDDEN table satisfies every content check and renders nothing.
+        foreach (var hider in new[] { "hidden", "display:none", "display: none", "visibility:hidden", "visibility: hidden" })
+            Assert.True(body.IndexOf(hider, StringComparison.OrdinalIgnoreCase) < 0,
+                $"The supervision table in {DocRelativePath} carries \"{hider}\", so it does not render. A rule " +
+                "nobody can read is not a written rule, however well this parser can still find it.");
+
+        Assert.True(body.Contains("<table", StringComparison.OrdinalIgnoreCase),
+            $"There is no <table> between the supervision markers in {DocRelativePath}. The rows must be a " +
+            "real table that renders for a reader, not raw text that only this parser can see.");
+
+        // 4. EXACTLY ONE TABLE, AND IT IS THIS ONE. A second table elsewhere in the document, saying the
+        //    opposite, is invisible to a parser that only reads between the markers - and a reader has no
+        //    way to know which of the two the machine checked.
+        Assert.True(body.Contains("id=\"supervision-table\"", StringComparison.Ordinal),
+            $"The table between the supervision markers in {DocRelativePath} must carry " +
+            "id=\"supervision-table\", so that the table this guard reads is identifiable as the one the " +
+            "document presents.");
+        Assert.Equal(1, CountOccurrences(text, "id=\"supervision-table\""));
+        Assert.True(CountOccurrences(text, "| Resolved role") == 0,
+            $"{DocRelativePath} still contains a markdown-style supervision header. The table moved to HTML; " +
+            "a leftover markdown copy is a second written answer to a question that has one.");
+        var headerElsewhere = CountOccurrences(text, "<th>Resolved role</th>");
+        Assert.True(headerElsewhere == 1,
+            $"{DocRelativePath} has {headerElsewhere} tables with a \"Resolved role\" header. There must be " +
+            "exactly one - a second one is a contradicting rule this guard would never read.");
+
+        // The header is REQUIRED and must name all four columns in order, so a table that quietly lost a
+        // column cannot go on being read positionally against the wrong meanings.
+        var header = Cells(body, "th");
+        Assert.True(
+            header.Count == 4 && header[0] == "Resolved role" && header[1] == "Origin kind" &&
+            header[2] == "Live supervisor" && header[3] == "Verdict",
+            $"The supervision table in {DocRelativePath} must have the header row \"Resolved role | Origin " +
+            $"kind | Live supervisor | Verdict\". Found: \"{string.Join(" | ", header)}\". The rows below " +
+            "are read by POSITION, so a renamed or reordered column would silently change what every row " +
+            "claims.");
 
         var rows = new List<Row>();
-        foreach (var trimmed in lines.Skip(headerAt + 2))
+        foreach (Match tr in Regex.Matches(body, @"<tr(?:\s[^>]*)?>(.*?)</tr>",
+                     RegexOptions.Singleline | RegexOptions.IgnoreCase))
         {
-            if (trimmed.Length == 0 || trimmed[0] != '|') continue;
+            var row = tr.Groups[1].Value;
 
-            var cells = trimmed.Trim('|').Split('|').Select(c => c.Trim()).ToArray();
-            Assert.True(cells.Length == 4,
-                $"A row of the supervision table in {DocRelativePath} has {cells.Length} cells, not 4: " +
-                $"\"{trimmed}\". A malformed row FAILS rather than being skipped - skipping is how a case " +
-                "silently stops being covered while everything stays green.");
+            // The header row is the ONLY row allowed to contribute nothing, and it is identified by having
+            // <th> cells rather than by being first or by being empty. Anything else that yields no data
+            // cells FAILS below rather than being skipped - skipping is how a case silently stops being
+            // covered while everything stays green.
+            if (row.Contains("<th", StringComparison.OrdinalIgnoreCase)) continue;
+
+            var cells = Cells(row, "td");
+            Assert.True(cells.Count == 4,
+                $"A row of the supervision table in {DocRelativePath} has {cells.Count} cells, not 4: " +
+                $"\"{row.Trim()}\". A malformed row FAILS rather than being skipped - skipping is how a " +
+                "case silently stops being covered while everything stays green.");
 
             var supervisor = cells[2];
             Assert.True(supervisor is "yes" or "no",
@@ -333,6 +375,37 @@ public sealed class SupervisionRuleMatchesTheDesignDocumentTests
         // document contradicted itself. One row per case.
         Assert.Equal(rows.Count, rows.Select(r => (r.Role, r.Origin, r.LiveSupervisor)).Distinct().Count());
         return rows;
+    }
+
+    /// <summary>
+    /// The text of every <c>&lt;th&gt;</c> or <c>&lt;td&gt;</c> cell in one fragment, tags stripped and the
+    /// handful of entities this document uses resolved, so a cell written as <c>&lt;strong&gt;yes&lt;/strong&gt;</c>
+    /// reads as "yes" rather than failing the vocabulary check on its own markup.
+    /// </summary>
+    private static List<string> Cells(string fragment, string tag) =>
+        // The tag name must END here - "<th[^>]*>" also matches "<thead>", which made the header read
+            // "<tr><th>Resolved role" and only looked right because tag-stripping tidied it up.
+            Regex.Matches(fragment, $@"<{tag}(?:\s[^>]*)?>(.*?)</{tag}>", RegexOptions.Singleline | RegexOptions.IgnoreCase)
+            .Select(m => m.Groups[1].Value)
+            .Select(raw =>
+            {
+                // A CELL IS PLAIN TEXT, and this refusal is the point rather than a parsing convenience.
+                // Stripping tags would read <s>SUPERVISED</s> as "SUPERVISED" - the machine seeing a rule
+                // the reader sees struck through. Any markup at all in a verdict cell fails.
+                Assert.True(raw.IndexOf('<') < 0,
+                    $"A cell of the supervision table in {DocRelativePath} contains markup: \"{raw.Trim()}\". " +
+                    "Cells must be plain text, because markup can strike out, hide or qualify a word that " +
+                    "this guard would still read at face value.");
+                return raw.Replace("&amp;", "&").Replace("&nbsp;", " ").Trim();
+            })
+            .ToList();
+
+    private static int CountOccurrences(string haystack, string needle)
+    {
+        var n = 0;
+        for (var i = haystack.IndexOf(needle, StringComparison.Ordinal); i >= 0;
+             i = haystack.IndexOf(needle, i + needle.Length, StringComparison.Ordinal)) n++;
+        return n;
     }
 
     /// <summary>
@@ -362,7 +435,7 @@ public sealed class SupervisionRuleMatchesTheDesignDocumentTests
         foreach (var marker in new[]
                  {
                      Path.Combine("src", "CcDirector.Gateway.Contracts", "SessionOrdering.cs"),
-                     Path.Combine("docs", "new_architecture", "session-roles-semantics.md"),
+                     Path.Combine("docs", "new_architecture", "sessions.html"),
                  })
         {
             Assert.True(File.Exists(Path.Combine(root, marker)),

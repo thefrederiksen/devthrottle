@@ -1,0 +1,617 @@
+<title>DevThrottle Fleet - Missions, Naming and Lifecycle</title>
+<style>
+  :root {
+    --ink:#1a1f2b; --mute:#5b6675; --line:#d8dee8; --bg:#ffffff; --panel:#f6f8fb;
+    --red:#ef4444; --blue:#3b82f6; --grey:#9ca3af; --slate:#64748b;
+    --green:#16a34a; --amber:#f0b848; --accent:#2563eb; --purple:#a855f7; --orange:#f97316;
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; padding:0 24px 80px; background:var(--bg); color:var(--ink);
+    font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  .wrap { max-width:960px; margin:0 auto; }
+  header { border-bottom:3px solid var(--ink); padding:48px 0 20px; margin-bottom:36px; }
+  h1 { font-size:34px; line-height:1.15; margin:0 0 10px; letter-spacing:-0.02em; }
+  .sub { color:var(--mute); font-size:15px; margin:0; }
+  h2 { font-size:24px; margin:56px 0 14px; padding-top:24px; border-top:1px solid var(--line); letter-spacing:-0.01em; }
+  h3 { font-size:17.5px; margin:32px 0 8px; }
+  p { margin:0 0 14px; }
+  .lede { font-size:18.5px; line-height:1.6; }
+  .callout { background:var(--panel); border-left:4px solid var(--accent); padding:16px 18px; margin:22px 0; border-radius:0 6px 6px 0; }
+  .callout.warn { border-left-color:var(--red); }
+  .callout.ok { border-left-color:var(--green); }
+  .callout.law { border-left-color:var(--blue); background:#eff6ff; }
+  .callout p:last-child { margin-bottom:0; }
+  table { border-collapse:collapse; width:100%; margin:18px 0; font-size:14px; }
+  th, td { border-bottom:1px solid var(--line); padding:9px 10px; text-align:left; vertical-align:top; }
+  th { background:var(--panel); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--mute); }
+  code { font:13px/1.4 "SF Mono",Consolas,"Liberation Mono",monospace; background:var(--panel); padding:1px 5px; border-radius:3px; }
+  pre { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:14px 16px; overflow-x:auto; font:13px/1.5 "SF Mono",Consolas,monospace; }
+  .bad { color:var(--red); font-weight:600; }
+  .good { color:var(--green); font-weight:600; }
+  .scroll { overflow-x:auto; }
+  ul, ol { margin:0 0 14px; padding-left:22px; }
+  li { margin-bottom:7px; }
+  .file { font:12.5px/1.4 "SF Mono",Consolas,monospace; color:var(--mute); }
+  footer { margin-top:64px; padding-top:20px; border-top:1px solid var(--line); color:var(--mute); font-size:13px; }
+  .big { font-size:20px; font-weight:600; }
+  blockquote { border-left:3px solid var(--line); margin:14px 0; padding:2px 0 2px 16px; color:var(--mute); }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink:#e8ecf3; --mute:#9aa7b8; --line:#2b3340; --bg:#12161d; --panel:#1a1f28; }
+    .callout.law { background:#132033; }
+  }
+</style>
+<div class="wrap">
+<header>
+  <h1>DevThrottle Fleet</h1>
+  <p class="sub">Missions &middot; naming and addressing &middot; starting and stopping a session &mdash; how many sessions become one body of work</p>
+</header>
+
+<p class="lede">A session on its own is defined in <a href="sessions.html">sessions.html</a>. This
+document is about what happens when there is more than one: what binds them into a single body of
+work, what each is called, how one is started and stopped, and where a machine fits in.</p>
+
+<div class="callout">
+  <p><strong>This document is a consolidation, and it names what it absorbed</strong> - those files
+  are DELETED rather than retired, because a retired document still answers a grep:</p>
+  <ul style="margin-bottom:8px">
+    <li><span class="file">mission-as-first-class-unit-of-work.md</span> - the Mission object, now sections 1 to 3.</li>
+    <li><span class="file">fleet-identity-naming-and-addressing.md</span> - numbers, names, addressing, now section 4.</li>
+    <li><span class="file">fleet-session-lifecycle-recipe.md</span> - starting and stopping, now section 5.</li>
+    <li><span class="file">automatic-session-roles-naming-spec.md</span> - a July build order for a worker. Its design is in <a href="sessions.html">sessions.html</a> section 4; the rest was instructions to somebody who finished two months ago.</li>
+    <li><span class="file">hub-manager-and-per-role-models.md</span> - two proposals, neither built. Section 6.</li>
+  </ul>
+  <p style="margin-bottom:0"><strong>Every claim here was checked against the code on 14 September
+  2026</strong>, not carried across from the source documents. Three things they asserted turned out
+  to be false, and each is corrected in place and marked - see section 7 if you want them in one
+  list.</p>
+</div>
+
+<div class="callout law">
+  <p style="margin-bottom:0"><strong>Attention is NOT defined here.</strong> Who may go red, who is
+  told when a turn ends, and what colour any of it is are defined once, in
+  <a href="sessions.html">sessions.html</a>. This document never restates those rules - two written
+  sources for one rule is the failure that cost this project two months, and it is recorded in that
+  document at length. Where a source document stated an attention rule, it has been removed from here
+  and a pointer left in its place.</p>
+</div>
+
+<h2>1. The Mission</h2>
+
+<p class="lede">A <strong>Mission</strong> is the named unit of work a group of sessions is
+collectively chartered to accomplish. Sessions ATTACH to a Mission, and that attachment - not the
+spawn tree - is what ties them together.</p>
+
+<h3>Why an object, and not just the spawn tree</h3>
+
+<p>The only relationship the fleet used to model was the spawn tree: X started Y. A tree can express
+strict hierarchy and nothing else. It cannot express <em>"the Architect and the Manager are equals
+pointed at the same goal"</em>.</p>
+
+<p>The Mission supplies the missing horizontal binding. An Architect, a Manager and Workers all
+attach to one Mission; the Architect and the Manager are peers BECAUSE they share a Mission, not
+because one started the other. That is what lets you rework a design with the Architect without
+stalling the running Manager - neither controls the other. Without a Mission object, "Architect
+beside Manager" has nothing to hang on and collapses back into a chain.</p>
+
+<h3>Role cardinality - one Architect, one Manager, N Workers</h3>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>Seat</th><th>How many</th><th>Mandate</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>Architect</strong></td>
+      <td>Exactly one, optional</td>
+      <td>The DESIGN authority. It recommends to the Manager and maintains the architecture documents. It does not drive implementation. Co-equal with the Manager on design; the Manager alone owns execution. A simple Mission can run with no Architect.</td>
+    </tr>
+    <tr>
+      <td><strong>Manager</strong></td>
+      <td>Exactly one, required once work is delegated</td>
+      <td>The coordinator. Owns the decomposition of the Mission into Tasks and the supervision of the Workers. How a Manager learns what its Workers are doing is a seat rule, defined in <a href="sessions.html">sessions.html</a> section 4.</td>
+    </tr>
+    <tr>
+      <td><strong>Worker</strong></td>
+      <td>N</td>
+      <td>Does one Task. A Worker's job type - developer, quality assurance, and so on - is decided by the agent skill at runtime and is deliberately NOT encoded in the seat.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p><strong>Never two Architects and never two Managers on one Mission</strong> - single design
+authority, single coordinator. This matches every serious system surveyed: Magentic-One's one
+Orchestrator, Anthropic's one lead agent, CrewAI's one manager in the hierarchical process.</p>
+
+<div class="callout warn">
+  <p style="margin-bottom:0"><strong>CORRECTED against the source document.</strong> The mission
+  document said of the Architect that "it never pushes needs-you or status to the human" and engages
+  him only in a conversation he initiates. <strong>That was reversed by the owner on 6 September
+  2026</strong> - <em>"parking the architect seat is wrong. the architect is always the session i
+  talk to."</em> The Architect is human-facing; what that means is defined in
+  <a href="sessions.html">sessions.html</a> section 4. The July text had been superseded for over a
+  week and still read as current, so carrying it here unchanged would have re-taught a rule the owner
+  had already thrown out.</p>
+</div>
+
+<h3>What sizes a Mission: the goal, not the labor</h3>
+
+<p>A Mission is defined by its GOAL, not by how much work it takes or how many sessions do it
+(owner, 9 July 2026). <strong>A large goal does not become several Missions</strong> - it becomes ONE
+Mission with more Tasks and more Workers under the single Manager. A Manager scales by adding
+Workers, never by spawning peer Managers.</p>
+
+<p>Labor size, or the fact that work spans several sessions, is NOT a reason to declare two Missions.
+That is a division of LABOR, which is what Tasks are for, not a division of MISSION.</p>
+
+<p><em>Worked example from this project:</em> "fix the session lifecycle" is ONE Mission. The
+plumbing - the role data, the schema, auto-naming - and the visible features - the role badge, the
+spawn command, attaching a session to a Mission - are TASKS inside it, even though different sessions
+built them.</p>
+
+<h3>Missions are FLAT - nesting was removed on 7 August 2026</h3>
+
+<p>Nesting was specified, built (<span class="file">Mission.ParentMissionId</span>, a parent argument
+on create, parent validation on the route, and a tenant-scoping test for it) and then
+<strong>never used once</strong>. Every Mission the fleet ever created had a null parent. The owner
+dropped it on 7 August 2026.</p>
+
+<p><strong>Why remove it rather than leave it lying there.</strong> An unused field is not free. It
+has to be understood by everyone who reads the type, kept correct in every store and route that
+touches it, carried through every migration, and reasoned about by every feature built afterwards -
+and mission state, rename and numbering were all about to be built on top of it. It also widened the
+create route's attack surface for nothing: a parent is a caller-supplied reference INTO the mission
+set, so it needed its own tenant guard and its own test to prove another account's mission could not
+be named as one. Deleting the field deleted that whole class of question.</p>
+
+<p>Two related missions today are simply two missions. If a real case for sub-Missions ever turns up,
+the reasoning above is the thing to restart from - and the tenant-scoping test comes back with it.</p>
+
+<h3>Mission state</h3>
+
+<p>A Mission is its OWN persisted record, not merely an attachment field on a session, so it survives
+a Manager restart. <span class="file">MissionStates</span>: <code>active</code>,
+<code>complete</code>, <code>removed</code>. A record written before state existed reads as active.
+The command line carries <span class="file">mission create / list / rename / complete / remove /
+reopen</span>.</p>
+
+<h3>Scope, and work that belongs to nobody</h3>
+
+<p>Surfaced from live use on 9 July 2026: work kept being routed to a Mission because its NAME sounded
+close, not because it was in scope. Two rules came out of it.</p>
+
+<ol>
+  <li><strong>A Mission has an explicit SCOPE</strong> - the written boundary of what it owns. Work is
+  routed by SCOPE, never by name similarity. <strong>A Manager declining out-of-scope work is CORRECT
+  behavior, not obstruction.</strong> The scope must be written down precisely so that routing is a
+  reading rather than a guess at the name.</li>
+  <li><strong>Homeless work is ASSIGNED, never DEFAULTED.</strong> Cross-cutting work that no existing
+  Mission owns - release, installer, self-update, deploy infrastructure - must be explicitly assigned
+  its own Mission or a named owner, and must NEVER default onto the nearest-sounding Mission. A
+  Manager that meets homeless work DECLINES and escalates the assignment question; it does not absorb
+  it.</li>
+</ol>
+
+<h2>2. Attaching, moving and detaching</h2>
+
+<p>A Mission could originally only be joined in the instant a session was spawned. That made the
+feature miss the case it exists for: <strong>a mission's shape is DISCOVERED as it runs</strong> -
+that is what makes it a mission rather than a task - so attach-at-birth grouped only the work
+somebody had already planned, which is the work that least needs grouping.</p>
+
+<p>The case that found it: a release push that began as one coordinating seat and grew over a day
+into about a dozen - an architect and a manager, three review seats, three more for a different
+question, an investigation seat, four independent gate reviewers commissioned one pull request at a
+time, and a session fixing a defect one of them found. All one body of work. None of it foreseeable
+at spawn. None of it representable.</p>
+
+<pre>cc-devthrottle mission attach &lt;session&gt; &lt;mission&gt;
+cc-devthrottle mission detach &lt;session&gt;</pre>
+
+<h3>The six rules, each decided rather than implied</h3>
+
+<p>Somebody hits every one of these, and an implied answer gets re-litigated at the worst moment.</p>
+
+<ol>
+  <li><strong>Attaching is a MOVE, not a one-way door.</strong> A session that already carries a
+  mission is re-pointed by the same command. The first classification of a session is always a guess
+  about work still taking shape, so a one-way attach would make every wrong guess permanent until the
+  session was killed.</li>
+  <li><strong>The move is REPORTED.</strong> The command names the mission the session LEFT. A move
+  that reports only its destination hides that anything was displaced, which is how a session goes
+  missing from the pod somebody is looking at.</li>
+  <li><strong>Detaching is supported.</strong> No mission is the ORDINARY state of a session, so
+  returning to it must not require inventing a mission to park the session in. A session that had no
+  mission is told exactly that, rather than being told it was detached from nothing.</li>
+  <li><strong>A refused attach changes nothing.</strong> A mistyped mission id leaves an existing
+  attachment intact - otherwise the failure looks like nothing happened until somebody goes looking
+  for the pod.</li>
+  <li><strong>Attaching a controlling session does NOT bring its children by default;
+  <span class="file">--with-children</span> does.</strong> A supervisor routinely commissions work
+  that is not part of its own mission, and a silent bulk re-parent cannot be undone in one step. With
+  the flag the walk is TRANSITIVE - children, their children, and so on - because stopping at the
+  first level would attach the Manager and leave the Workers behind, which reads as success while
+  producing exactly the split view this feature exists to end. Every session it moves is NAMED, not
+  counted.</li>
+  <li><strong>A spawned session INHERITS its supervisor's mission by default.</strong> The fleet
+  already records the relationship, so this costs nothing and would have grouped the release push
+  above for free. An explicit <span class="file">--mission</span> wins (stated intent beats a
+  default), <span class="file">--mission none</span> is the opt-out, and the inheritance is never
+  silent: the spawn names the mission, names the session it came from, and says how to undo it.</li>
+</ol>
+
+<h3>The workflow seat moves with the mission</h3>
+
+<p>A Mission is not only a record. It is also a RUN of the built-in <span class="file">mission</span>
+workflow, and a mission-scoped spawn seats the session on that run. The seat - the run id plus the
+workflow id and its PINNED version - is what decides the conduct the agent was told to follow.</p>
+
+<p>So the mission link and the seat are two halves of one fact. An attach that moved only the link
+would leave a session <strong>displayed under one mission while governed by the one it left</strong>,
+taking its conduct from a mission it is no longer in and still counted in that mission's participant
+ledger. That is worse than an inconsistent label, and it would happen in exactly the case this
+feature was built for. <em>(Found by independent review of the first cut, which moved only the
+link.)</em></p>
+
+<ul>
+  <li>A seat that <strong>is a run of the mission being left</strong> follows it: on a move it becomes
+  the destination mission's run; on a detach it is cleared.</li>
+  <li>A seat the caller <strong>chose independently</strong> - an explicit
+  <span class="file">--workflow-run</span> that is not this mission's run - is preserved untouched. It
+  was never the mission's to take.</li>
+  <li>A session with <strong>no seat</strong> simply gains the destination mission's seat.</li>
+  <li>A destination mission with <strong>no run of its own</strong> seats nobody, so the session moves
+  unseated rather than keeping the old seat. A move must not smuggle a seat past a switch the owner
+  deliberately turned off.</li>
+</ul>
+
+<p><strong>Detach clears the seat rather than refusing.</strong> Refusing to detach while a seat
+exists was considered and rejected: every mission-spawned session is seated, so refusal would make
+detach impossible for precisely the sessions that most need it. Refusal is the right answer only
+where no coherent action exists, and here one does - leave the run.</p>
+
+<p><strong>Leaving is recorded, not erased.</strong> The ledger marks the participant as having left.
+That the session <em>was</em> in that run is true and stays true.</p>
+
+<div class="callout">
+  <p style="margin-bottom:0"><strong>The limit, stated because it is real.</strong> Moving the seat
+  corrects the RECORD - what the fleet shows, what governs the session, who the run lists. It cannot
+  reach into a running agent's context and replace the conduct text injected at birth. Only telling
+  the session to fetch its conduct again does that, and the command line says so every time a seat
+  moves.</p>
+</div>
+
+<h3>The tenant boundary, which is the constraint that governs the design</h3>
+
+<p>Missions are TENANT-SCOPED, and that was hard won: a live leak once served every account's mission
+list to every account, and <strong>a mission NAME is free text a person typed</strong> - customer
+names, project names, people's names. Attach is the first WRITE that takes a mission id from a caller
+and applies it, so it is exactly the shape that would put the leak back.</p>
+
+<p>The attach route therefore follows the mission-read route line for line: resolve the CALLER's own
+tenant server-side from the authenticated device key, REFUSE when no tenant is bound (never fall back
+to a shared partition), and resolve the mission INSIDE that tenant. The mission is resolved BEFORE
+the session is located, so a refusal is a property of the tenant gate alone and cannot be confused
+with a Director being offline.</p>
+
+<div class="callout warn">
+  <p><strong>A refusal must not reveal WHICH refusal it is</strong>, and that is a security property
+  of the route rather than a nicety of its error text. "No mission has that id" and "that mission
+  belongs to someone else" answer identically - same status, same sentence, only the echoed id
+  differing.</p>
+  <p style="margin-bottom:0">If they diverged, attaching a session to guessed identifiers would
+  enumerate which missions exist in other accounts, one request at a time, without ever reading one.
+  The test that holds this compares the two answers TO EACH OTHER rather than to a fixed string, so a
+  later edit cannot reword one and leave the other behind.</p>
+</div>
+
+<p>The Gateway sends the RESOLVED NAME down with the id and the Director stamps it directly. A
+Director must not re-validate against its own mission store: that is a different, single-tenant,
+per-machine set, so a mission that is real and owned would be rejected for being absent from the
+wrong store. This is also why a Director's own mission route relays through the Gateway even for a
+session it hosts itself - a second implementation of this rule would drift, and the drift would be
+invisible until somebody found a session governed by a mission it had left.</p>
+
+<h2>3. Mission and Task - the vocabulary, and why</h2>
+
+<ul>
+  <li>The shared root a pod attacks is a <strong>Mission</strong>.</li>
+  <li>The single piece a Manager hands to one Worker is a <strong>Task</strong>.</li>
+</ul>
+
+<p>Chosen after a prior-art survey of multi-agent frameworks and mature work-management tools.
+<strong>Task</strong> is the universal, baggage-free unit-of-work primitive - CrewAI, Magentic-One,
+MetaGPT, LangGraph, Jira, Azure DevOps and Asana all use it for exactly this.
+<strong>Mission</strong> is the one root name that inherently means "a crew is collectively
+dispatched to accomplish one objective", has a real decompose-into-tasks precedent, collides with no
+mainstream work-management hierarchy level, and reinforces the Mission Control brand.</p>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>Rejected</th><th>Why</th></tr></thead>
+  <tbody>
+    <tr><td>Work item</td><td>The industry umbrella term for ALL work types - Azure DevOps and Jira define a Task AND an Epic as both being "work items" - so it blurs the root and the piece into one word. The most confusing option, not a neutral one.</td></tr>
+    <tr><td>Objective</td><td>Collides with Anthropic's use of "objective" for the delegated piece, and carries objectives-and-key-results baggage.</td></tr>
+    <tr><td>Epic / Story</td><td>Locks the vocabulary into agile ceremony.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h2>4. Naming and addressing</h2>
+
+<p class="lede">Two rules make a fleet legible: NAME every session, and ADDRESS it by something a
+person can say out loud.</p>
+
+<h3>Every session has a number</h3>
+
+<p>A short number is allocated at creation, in the range <strong>100 to 999</strong>
+(<span class="file">SessionNumberAllocator</span>). The Director always allocates, so a session has a
+number even with no Gateway.</p>
+
+<div class="callout ok">
+  <p style="margin-bottom:0"><strong>The July open question about fleet-unique numbers is SETTLED and
+  built.</strong> The Gateway is the authority and hands out from the LOW end, 100 upward. When a
+  Director cannot reach the Gateway at creation it picks a random free number from a high OFFLINE
+  BAND, which makes a clash between a coordinated number and an offline guess very unlikely. The
+  source document listed this as an open decision for the owner between two designs; the shipped
+  answer is neither of them exactly, and is better than both.</p>
+</div>
+
+<h3>Address by name or number, never by an internal id</h3>
+
+<p>People do not parse GUIDs, and neither the wingman nor inter-agent text should make them try.</p>
+
+<ul>
+  <li>The canonical address in any human-facing or agent-facing text is the NAME if present, else the
+  NUMBER. <strong>A raw GUID never appears in human- or agent-facing output.</strong></li>
+  <li>The wingman says "111 wants you", never a GUID.</li>
+  <li>The command line accepts a number, a name, or a short id prefix as an address.</li>
+  <li>The rail shows the number prominently, so a person maps talk-to-row instantly.</li>
+</ul>
+
+<h3>For the Architect and Manager seats, the name IS the role-of-mission</h3>
+
+<p>Because a Mission has exactly ONE Architect and ONE Manager, "the {role} of {mission}" is a unique,
+unambiguous address for those two seats - a direct payoff of the cardinality rule. Say "the Manager of
+the Lifecycle mission", never "f33d" or "111". Workers are N per Mission, so a Worker is addressed by
+its TASK - which is exactly why a Worker is named from its task.</p>
+
+<h3>The display-name convention (ratified by the owner, 11 July 2026)</h3>
+
+<p>Mission first, role second, joined with " - ":</p>
+
+<pre>Gateway Connection - Architect
+Gateway Connection - Manager
+Gateway Connection - Worker - connect panel</pre>
+
+<ol>
+  <li><strong>Mission name FIRST</strong>, so sorting the session list by name groups every session of
+  one Mission together, Architect and Manager adjacent, Workers under them.</li>
+  <li><strong>The repository is NEVER part of the name</strong> - the session list shows the
+  repository in its own column, so repeating it is noise that pushes the meaningful part
+  off-screen.</li>
+  <li><strong>Session ids and numbers are NEVER part of the name.</strong> They are machine
+  addressing.</li>
+  <li>A solo session with no Mission is named for its work - "Clean up stale branches" - again without
+  the repository.</li>
+</ol>
+
+<h3>Auto-naming, and what is actually built</h3>
+
+<p>A session left on its default name is illegible: the roster reads like a list of hashes. What
+exists today is the birth half - a name is composed when the session is created, and
+<span class="file">IsAutoNamed</span> records that it was auto-composed so that a later rename by a
+person or by the session itself always wins and is never overwritten.</p>
+
+<div class="callout warn">
+  <p style="margin-bottom:0"><strong>NOT BUILT, and the source document read as though it were:</strong>
+  the rename-the-stragglers policy - a generic-name test, a trigger after N turns or M minutes, the
+  Gateway reading a session's first prompt to propose a better name, and help-then-enforce. There is
+  no auto-namer in the Gateway. The thresholds in the source document (3 turns, 2 minutes) were a
+  proposal awaiting the owner's decision and were never settled. Treat this as an idea, not a rule.</p>
+</div>
+
+<h3>The wingman speaks the model, in plain engineering English</h3>
+
+<p>The wingman must understand the Mission and seat model so it can talk about sessions correctly, and
+it must use plain engineering English: "the Manager of Lifecycle needs you".</p>
+
+<h2>5. Starting and stopping a session</h2>
+
+<div class="callout warn">
+  <p><strong>CORRECTED against the source document, and this one matters most.</strong> The lifecycle
+  recipe told every agent to start a session by posting directly to its own Director on a loopback
+  address - <em>"You reach only your OWN Director... No Gateway address, no token."</em></p>
+  <p style="margin-bottom:0"><strong>That is no longer how it works.</strong> The
+  remove-the-network-port mission took the loopback port away. EVERY spawn now goes through the
+  Gateway, including one on the very machine you are sitting on. An agent following the source
+  document would be calling a door that no longer exists.</p>
+</div>
+
+<h3>The path a spawn actually takes</h3>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>Target</th><th>Route</th><th>What it means</th></tr></thead>
+  <tbody>
+    <tr><td>Here</td><td><span class="file">POST directors/{my director}/sessions</span></td><td>This session's own Director, named from what the session was told at launch - no roster lookup and no hostname read off the operating system, which is a different string on a different day.</td></tr>
+    <tr><td>A machine</td><td><span class="file">POST machines/{machine}/sessions</span></td><td>Some Director on that computer, auto-launching one if none is running.</td></tr>
+    <tr><td>One named Director</td><td><span class="file">POST directors/{id}/sessions</span></td><td>A machine can run several named Directors, so this names ONE - by id or display name. A name that matches two Directors is an error listing both; it never falls back and never auto-launches.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p>There is no local path to fall back to, and that is the point of the mission that built it: a spawn
+that quietly landed somewhere else would be the second door in its worst form.</p>
+
+<h3>Who owns the new session must be DECLARED</h3>
+
+<p>A spawn from inside a session is refused until it says who will own the result. That rule, the
+three answers, and why <span class="file">--standalone</span> exists are defined in
+<a href="sessions.html">sessions.html</a> section 2 and are deliberately not restated here.</p>
+
+<h3>Starting on another computer</h3>
+
+<p>Starting and stopping sessions across computers is a first-class capability (owner, 9 July 2026).</p>
+
+<ul>
+  <li><strong>"Which computer" is optional and defaults to LOCAL</strong> - the machine the requesting
+  agent is on. To target another, you NAME it.</li>
+  <li><strong>Address the target by MACHINE NAME</strong>, consistent with the addressing policy:
+  names, not GUIDs.</li>
+  <li><strong>No Director on the target?</strong> The Gateway auto-launches one through the launcher,
+  then spawns.</li>
+  <li><strong>STOP takes no computer parameter.</strong> A session's machine is part of its identity,
+  so stop addresses the SESSION and routes to its home machine automatically. Machine-targeting is
+  START-only.</li>
+  <li><strong>Cross-machine pods work.</strong> A Manager on machine A may own a Worker on machine B;
+  the attention model is fleet-wide.</li>
+</ul>
+
+<div class="callout law">
+  <p style="margin-bottom:0"><strong>An offline or unreachable target FAILS FAST and FAILS LOUD</strong>
+  (owner, 9 July 2026). We cannot power on machines, so the start fails immediately with a clear error
+  naming the computer. No queue-until-wake, no silent fallback to local. That is the no-fallback law,
+  applied: queue-until-wake was considered and explicitly rejected.</p>
+</div>
+
+<p><strong>The launcher is what makes this possible, and it is built.</strong> The launcher is the
+small tray application that starts on boot and is always running, unlike a Director. It holds the same
+persistent connection to the Gateway that a Director does, so the Gateway can command a machine to
+start a Director when none is running: Gateway, to always-connected launcher, to a new Director, to
+the session. EVERY machine runs one, including the machine hosting the Gateway - that uniformity is
+the point, and it means the flow can be tested on one machine.</p>
+
+<h3>Stopping</h3>
+
+<p>A session is stopped with <span class="file">cc-devthrottle session stop &lt;target&gt; --reason "&lt;why&gt;"</span>.
+The reason is not decoration: it is one confirmation rather than an interrogation, and the stop reports
+what it did. To stop a whole test Director, raise its shutdown signal, named for that
+Director's own identifier. Graceful: it kills its own sessions and deletes its crash journal, avoiding
+a phantom "interrupted" fleet entry. There is deliberately no shutdown endpoint - the
+remove-the-network-port mission took lifecycle off the socket, because stopping a Director has to work
+when nothing is listening.</p>
+
+<h3>Manager discipline when spawning a Worker</h3>
+
+<p>From the 9 July 2026 harness survey, and still true:</p>
+
+<ul>
+  <li><strong>Every Worker's opening prompt MUST carry an explicit objective, the expected output
+  format, and hard task boundaries.</strong> The documented multi-agent failure is two Workers
+  duplicating the same investigation because the boundaries were vague.</li>
+  <li><strong>Only spawn Workers for high-value tasks.</strong> Multi-agent runs cost roughly fifteen
+  times the tokens of a single chat. Do not spawn a fleet for something one session can do.</li>
+  <li><strong>Name the model you intend.</strong> Arguments are passed literally and no default model
+  is applied, so omitting the model runs the session on something other than what you meant.</li>
+  <li><strong>Permission posture is the user's choice, per session</strong> (owner, 9 July 2026). The
+  framework does not force, gate or police it. We are not a seatbelt chime.</li>
+</ul>
+
+<h3>What the survey of other systems actually taught us</h3>
+
+<p>A 9 July 2026 survey of CrewAI, AutoGen, LangGraph, OpenAI Swarm, MetaGPT, Anthropic's
+orchestrator-worker pattern, claude-flow and cmux. The findings that shaped this design:</p>
+
+<ul>
+  <li><strong>Enforce in the TRANSPORT, not the prompt.</strong> The only system that reliably keeps
+  workers from interrupting the human does it by DENYING the tool, not by instructing. So our
+  suppression is structural - in the fold - and is never a prompt request.</li>
+  <li><strong>Report UP, never hand OFF.</strong> A Worker is an agent-as-tool: it returns a result to
+  whoever asked and never inherits the human conversation.</li>
+  <li><strong>Prefer the supervisor PULLING over the worker PUSHING.</strong> Routing everything
+  through a manager as broadcast is quadratic chatter at scale.</li>
+  <li><strong>Give workers a status, not a raw dump.</strong></li>
+  <li><strong>Make the seat VISIBLE and route worker attention to its supervisor, not the human
+  roster.</strong> cmux, which has no seat model, proves the failure: N panes all shouting at one
+  person.</li>
+</ul>
+
+<h2>6. Proposed and never built</h2>
+
+<p>Kept because the ideas are the owner's and may still be wanted - and marked, at length, because the
+source document read exactly like design that had landed. Neither of these exists in the code. Both
+were checked on 14 September 2026.</p>
+
+<h3>The Hub Manager</h3>
+
+<p>Proposed 9 July 2026: the fleet gets a top-level Manager that runs as a real session at the Gateway
+box rather than as an implicit background brain - the fleet's Queen. It would supervise workers, be a
+seat that surfaces to the owner, and have a large-language-model assistant it can call on demand for
+judgment: summarize a worker, decide, brief the human. The argument for making it a real session is
+that it is then a first-class Manager like any other - it can own workers, appears on the roster, and
+is addressable by number or name.</p>
+
+<p><strong>Status: not built.</strong> There is no hub manager anywhere in the code. The design also
+never answered its own three open questions - one per fleet or one per machine; whether its terminal
+runs an agent that separately calls the assistant or the assistant IS its agent; and how a person
+talks to it.</p>
+
+<h3>Per-role model configuration</h3>
+
+<p>Proposed the same day: name the CONSUMER rather than just the tier. Today a model is resolved from
+two generic tiers, thinking and fast, stored as <span class="file">brain_model</span>. The proposal
+was to add per-role keys - a wingman model, a hub-manager model - resolving as "the role's model if
+set, else the generic tier, else the provider default", with one dropdown per named role in
+settings.</p>
+
+<p><strong>Status: not built.</strong> The generic tiers are all that exists. This one is also
+partly blocked on the item above: half its purpose was a model binding for a seat that does not
+exist.</p>
+
+<h2>7. What the source documents got wrong</h2>
+
+<p>Collected in one place, because the pattern matters more than any single item: every one of these
+read as current design, in the same voice as the true paragraphs around it. That is the failure mode
+<a href="sessions.html">sessions.html</a> section 5 is about, and it is why every claim in this
+document was checked against the code rather than carried across.</p>
+
+<div class="scroll">
+<table>
+  <thead><tr><th>The document said</th><th>The truth on 14 September 2026</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Start a session by posting to your own Director on loopback. "No Gateway address, no token."</td>
+      <td class="bad">Wrong, and actively misleading. Every spawn goes through the Gateway; the loopback port was deliberately removed.</td>
+    </tr>
+    <tr>
+      <td>The Architect never pushes status to the human and is engaged only in a conversation the human starts.</td>
+      <td class="bad">Reversed by the owner on 6 September 2026. The Architect is human-facing - it is the seat he talks to.</td>
+    </tr>
+    <tr>
+      <td>Attention is decided by the seat: only a Manager, a Standalone or an Architect ever surfaces.</td>
+      <td class="bad">Superseded on 13 September 2026. No seat decides. The one question is whether a live owner is holding the session. See <a href="sessions.html">sessions.html</a> section 3.</td>
+    </tr>
+    <tr>
+      <td>Fleet-unique session numbers are an open decision between two designs.</td>
+      <td>Settled and built: the Gateway allocates from the low end, an offline Director picks from a high band.</td>
+    </tr>
+    <tr>
+      <td>A Hub Manager and per-role model configuration.</td>
+      <td>Never built. Section 6.</td>
+    </tr>
+    <tr>
+      <td>Auto-naming will rename generic sessions after 3 turns or 2 minutes.</td>
+      <td>Never built, and the thresholds were never settled. Only the birth-time name and the <span class="file">IsAutoNamed</span> flag exist.</td>
+    </tr>
+    <tr>
+      <td>The rail shows a crown for Manager and a gear for Worker; the Architect needs a glyph.</td>
+      <td>Superseded within the source document itself and then built differently: grey letters M, W and A, with no marker for Standalone. Non-colour, so the seat marker never competes with the status colour.</td>
+    </tr>
+    <tr>
+      <td>The Cockpit map draws each Mission as a container box with the pod arranged inside.</td>
+      <td>Not built. The rail is flat and hand-ordered by design; the map that was to carry every relationship does not exist yet, so today nothing draws the pod.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<footer>
+  <p>Sessions, seats, ownership, attention and colour: <a href="sessions.html">sessions.html</a>.
+  Terminology: <a href="names.html">names.html</a>. Index: <a href="index.html">index.html</a>.</p>
+  <p>How a mission is RUN - as opposed to what one IS - is the <span class="file">mission</span>
+  workflow's own conduct, fetched by a seated session at the version it was pinned to. This document
+  defines the object; the workflow governs the conduct.</p>
+</footer>
+</div>

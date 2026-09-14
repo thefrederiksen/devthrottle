@@ -14,7 +14,7 @@
 /// "Generate narration now" button next to a red "Voice unavailable" badge, a button that re-ran the same
 /// empty read and could never succeed. A dumb client cannot guess; it renders what it is told.
 ///
-/// THE LAW (docs/new_architecture/session-state.html): the client is dumb. ALL ruling - state, colors,
+/// THE LAW (docs/new_architecture/sessions.html): the client is dumb. ALL ruling - state, colors,
 /// labels, and which actions are offered - is computed on the Gateway and pushed; clients only render.
 /// So this carries the finished strings and booleans, not the facts to re-derive them from. Add a new
 /// voice state HERE and in <c>VoiceDisplayFold</c>, never as a fresh branch in a client view.

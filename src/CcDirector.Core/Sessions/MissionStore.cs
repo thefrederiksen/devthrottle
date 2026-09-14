@@ -7,7 +7,7 @@ namespace CcDirector.Core.Sessions;
 
 /// <summary>
 /// Durable store of <see cref="Mission"/> records (see
-/// docs/new_architecture/mission-as-first-class-unit-of-work.md). A Mission is a first-class persisted
+/// docs/new_architecture/fleet.html). A Mission is a first-class persisted
 /// record that sessions attach to, so it MUST survive a Director restart - this store persists the whole
 /// set to <c>missions.json</c> in the same director tool-config location as <see cref="SessionStateStore"/>
 /// keeps <c>sessions.json</c>. Mirrors that store's JSON options + logging shape, but exposes a record API

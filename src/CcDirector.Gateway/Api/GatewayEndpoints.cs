@@ -1188,7 +1188,7 @@ internal static class GatewayEndpoints
             // MACHINE_A whose Manager runs on MACHINE_B still gets its red un-suppressed by
             // `?machine=MACHINE_A`. Reordering cannot fix that one - the other Director is never read at all -
             // and fixing it means pulling every Director on every filtered read, which is a cost change that
-            // needs its own decision. Recorded in docs/new_architecture/session-state.html.
+            // needs its own decision. Recorded in docs/new_architecture/sessions.html.
             var fleet = new List<SessionDto>();
             var machineErrors = new List<MachineErrorDto>();
             // Session ids drawn from a serve the owning machine confirmed - see where it is filled below.
@@ -1540,7 +1540,7 @@ internal static class GatewayEndpoints
                     // whether a "Generate narration" button appears - is decided HERE, from the facts just
                     // stamped plus the "nothing to narrate" marker, so a dumb client never has to guess (the
                     // guess is what put a dead-end Generate button next to a red "unavailable" badge). This
-                    // is the law: the Gateway rules, the client renders (docs/new_architecture/session-state.html).
+                    // is the law: the Gateway rules, the client renders (docs/new_architecture/sessions.html).
                     // Issue #2576: the wait-for-voice clock. Stamped from the SAME facts the fold
                     // immediately below reads, so the elapsed time on the row and the words on the row can
                     // never disagree about whether this session is waiting at all. It is a SECOND clock
@@ -5146,7 +5146,7 @@ internal static class GatewayEndpoints
                 FileLog.Write($"[GatewayEndpoints] UNKNOWN FOLD COLOUR '{effectiveColor}' for session " +
                               $"{s.SessionId} - not in SessionColorPalette; stamping the magenta BROKEN sentinel. " +
                               "The fold emitted a colour name the canonical palette does not know; see " +
-                              "docs/new_architecture/session-state.html.");
+                              "docs/new_architecture/sessions.html.");
             s.EffectiveColorHex = SessionColorPalette.HexFor(effectiveColor);
             s.StateLabel = SessionOrdering.StateLabel(s);
             // Which model this session is running, folded to finished words (issue internal#1340). The raw

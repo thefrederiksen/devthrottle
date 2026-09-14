@@ -9,7 +9,7 @@ namespace CcDirector.Avalonia.Tests;
 /// the Director - the one surface that HOSTS the session and sees its terminal - paints the single fact it
 /// owns firsthand: blue when the agent is producing output, red when it is idle. Two colours only; it never
 /// runs the Gateway fold locally (which would wedge every voice-mode session yellow, since VoiceAudioReady is
-/// a Gateway-only fact the Director cannot know). Design: docs/new_architecture/session-state.html.
+/// a Gateway-only fact the Director cannot know). Design: docs/new_architecture/sessions.html.
 /// </summary>
 public sealed class OfflineFloorRailColorTests
 {

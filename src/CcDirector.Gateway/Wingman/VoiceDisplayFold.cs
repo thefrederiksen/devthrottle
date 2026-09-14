@@ -11,7 +11,7 @@ namespace CcDirector.Gateway.Wingman;
 /// branching). Pure and total so it is unit-tested directly, and so "add a voice state" is one edit here
 /// instead of a new branch in every client.
 ///
-/// The law it serves (docs/new_architecture/session-state.html): the client is dumb; all ruling - state,
+/// The law it serves (docs/new_architecture/sessions.html): the client is dumb; all ruling - state,
 /// colors, labels, and which actions are offered - is computed on the Gateway and pushed. The credit /
 /// key / service-down / retrying copy is reused from the single-source <see cref="HostedAiMessages"/> so
 /// the voice screen says exactly what every other surface says for the same condition.
