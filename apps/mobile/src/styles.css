@@ -4969,3 +4969,143 @@ a.banner-btn {
 .restart-request-btn:disabled { opacity: 0.5; }
 .restart-request-btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .restart-request-btn-danger { background: var(--attention); border-color: var(--attention); color: #fff; }
+
+/* ---- The ownership tree on the phone (owner ruling, 2026-09-14). A parent card carries a band along
+   its bottom: the chevron, one dot per session under it, the counts, the age. Tapping the band expands
+   the children IN PLACE as one-line rows at touch height. No indentation - a second level would steal
+   width from names that already wrap. ---- */
+.order-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 2px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.order-label {
+  flex: 0 0 auto;
+}
+.order-switch {
+  display: flex;
+  margin-left: auto;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+}
+.order-btn {
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border: 0;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.order-btn.on {
+  color: #ffffff;
+  background: var(--accent);
+}
+.crew-band {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 14px;
+  box-sizing: border-box;
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 10px 10px;
+  background: transparent;
+  color: #9cc2ff;
+  font-size: 11.5px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.crew-band.open {
+  border-radius: 0;
+}
+.crew-chevron {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  margin-right: 4px;
+  border-right: 2px solid #9cc2ff;
+  border-bottom: 2px solid #9cc2ff;
+  transform: rotate(-45deg);
+}
+.crew-band.open .crew-chevron {
+  transform: rotate(45deg);
+}
+.crew-strip {
+  display: flex;
+  gap: 3px;
+  flex: 0 0 auto;
+}
+.crew-strip i {
+  display: block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+.crew-text {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.crew-text.alarm {
+  color: var(--attention);
+  font-weight: 600;
+}
+.crew-age {
+  margin-left: auto;
+  flex: 0 0 auto;
+  color: var(--text-dim);
+}
+.crew-kids {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.crew-kid {
+  border-top: 1px solid var(--border);
+}
+.crew-kid:last-child .crew-kid-link {
+  border-radius: 0 0 10px 10px;
+}
+.crew-kid-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 14px 0 30px;
+  color: inherit;
+  text-decoration: none;
+}
+.crew-kid-dot {
+  width: 10px;
+  height: 10px;
+  margin-top: 0;
+  box-shadow: none;
+}
+.crew-kid .row-num {
+  margin-right: 0;
+  font-size: 11px;
+}
+.crew-kid-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.crew-kid-state {
+  flex: 0 0 auto;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
