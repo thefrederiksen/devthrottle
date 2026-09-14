@@ -10,25 +10,29 @@ using Xunit;
 namespace CcDirector.Avalonia.Tests;
 
 /// <summary>
-/// The Director window's Stop control (mission "Stop a session", Rulings 4 and 5).
+/// The Director window's Stop control, after issue internal#1992 turned it from an interrogation back into
+/// a confirmation.
 ///
-/// THE DEFECT THIS REPLACED. The rail's Close killed the process in-process and removed the session: no
-/// reason was asked for, none was recorded, and the operator was told nothing about what happened. "A
-/// control that accepts a click and says nothing" is the mission's own description of it.
+/// THE DEFECT THESE NOW PIN AGAINST. The window demanded a written reason before it would enable its own
+/// button, explained the audit trail in four sentences, and then held a monospace panel open reporting what
+/// had happened to a session the owner had just watched leave the rail. Ruling 4's reason requirement binds
+/// the REST API - an AGENT key may stop any OTHER session and the trail must say why - not the owner's own
+/// hand.
 ///
 /// WHAT THESE PIN, and each one fails on its own if its guard is removed:
-///   - the reason gate: the Gateway requires a reason, so the control must not offer a click that can only
-///     be refused;
-///   - the rendering: the headline and every detail line, in the Gateway's order, VERBATIM - no sentence
-///     composed here and no branch on the verdict word;
-///   - the failure: it is shown in words, in the same place, carrying the sentence it came with - and
-///     it says only what this window knows, never what became of the session.
+///   - the note is OPTIONAL: the button is live from the moment the window opens, and a stop with an empty
+///     box still reaches the Gateway;
+///   - the audit row is never blank: an empty box sends the derived reason naming this surface, and a
+///     written note is sent as written;
+///   - a success is SILENT and closes the window, on every verdict word including one this build has never
+///     heard of - no branch on the verdict here;
+///   - a failure SPEAKS, keeps the window open with the note intact, and says only what this window knows,
+///     never what became of the session.
 ///
 /// The stop is injected, so all of this runs with no Gateway, no Director and no network. What these do
-/// NOT cover is written down in missions/stop-a-session/worker-e-notes.md: they drive the dialog's own
-/// logic, not the pixels, and nothing here proves the rail row disappears - that is
-/// MainWindow.OnExternalSessionRemoved, reached by the Gateway sending the stop back down the tunnel, and
-/// it needs a real Director and a real Gateway to observe.
+/// NOT cover: they drive the dialog's own logic, not the pixels, and nothing here proves the rail row
+/// disappears - that is MainWindow.OnExternalSessionRemoved, reached by the Gateway sending the stop back
+/// down the tunnel, and it needs a real Director and a real Gateway to observe.
 /// </summary>
 public class StopSessionDialogTests
 {
@@ -49,48 +53,24 @@ public class StopSessionDialogTests
         new(SessionId, "throwaway", stop);
 
     /// <summary>
-    /// Nothing typed, nothing to click. The Gateway will refuse a stop with no reason (Ruling 4), so a
-    /// button that offered the click would be offering a refusal.
+    /// THE HEADLINE CHANGE. Nothing has been typed and the control is offered anyway: the owner's click is
+    /// the authorisation, so there is nothing to fill in first. This is the exact assertion that was
+    /// inverted before.
     /// </summary>
     [AvaloniaFact]
-    public void WithNoReasonTyped_TheStopButtonIsOff()
+    public void WithNothingTyped_TheStopButtonIsAlreadyOn()
     {
         var dialog = DialogAnswering((_, _) => throw new InvalidOperationException("must not be called"));
-
-        Assert.False(dialog.CanStop);
-    }
-
-    /// <summary>
-    /// Whitespace is not a reason. The Gateway trims and refuses a blank one, so spaces must not turn the
-    /// button on - this is the case a naive "is the box empty" check gets wrong.
-    /// </summary>
-    [AvaloniaFact]
-    public void WithOnlyWhitespaceTyped_TheStopButtonIsStillOff()
-    {
-        var dialog = DialogAnswering((_, _) => throw new InvalidOperationException("must not be called"));
-
-        dialog.ReasonText = "    ";
-
-        Assert.False(dialog.CanStop);
-    }
-
-    /// <summary>With a reason written, the control is offered.</summary>
-    [AvaloniaFact]
-    public void WithAReasonTyped_TheStopButtonComesOn()
-    {
-        var dialog = DialogAnswering((_, _) => throw new InvalidOperationException("must not be called"));
-
-        dialog.ReasonText = "spawned into the wrong mode";
 
         Assert.True(dialog.CanStop);
     }
 
     /// <summary>
-    /// The decisive one for the gate: with a blank reason, NOTHING is sent. A test that only checked the
-    /// button's state would still pass if the click path ignored it.
+    /// The decisive one: with the box empty, the stop is actually SENT. A test that only checked the
+    /// button's state would still pass if the click path refused a blank note.
     /// </summary>
     [AvaloniaFact]
-    public async Task WithABlankReason_NothingIsSent()
+    public async Task WithAnEmptyNote_TheStopIsStillSent()
     {
         var calls = 0;
         var dialog = DialogAnswering((_, _) =>
@@ -99,15 +79,54 @@ public class StopSessionDialogTests
             return Task.FromResult(Answer("stopped"));
         });
 
-        dialog.ReasonText = "   ";
         await dialog.StopNowAsync();
 
-        Assert.Equal(0, calls);
+        Assert.Equal(1, calls);
     }
 
-    /// <summary>The reason reaches the route trimmed, exactly as it was written.</summary>
+    /// <summary>
+    /// An empty box records the DERIVED reason, so the Gateway's requirement is met and the audit row says
+    /// where the stop came from. A window that sent an empty string would have its stop refused.
+    /// </summary>
     [AvaloniaFact]
-    public async Task TheReasonIsSentAsItWasWritten()
+    public async Task WithAnEmptyNote_TheReasonRecordedNamesThisSurface()
+    {
+        string? sent = null;
+        var dialog = DialogAnswering((reason, _) =>
+        {
+            sent = reason;
+            return Task.FromResult(Answer("stopped 9c41e7a2"));
+        });
+
+        await dialog.StopNowAsync();
+
+        Assert.Equal(StopSessionDialog.ReasonFromTheDirector, sent);
+    }
+
+    /// <summary>
+    /// Whitespace is not a note. Spaces must fall through to the derived reason - this is the case a naive
+    /// "is the box empty" check gets wrong, and the Gateway trims and refuses a blank one.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task WithOnlyWhitespaceTyped_TheDerivedReasonIsRecorded()
+    {
+        string? sent = null;
+        var dialog = DialogAnswering((reason, _) =>
+        {
+            sent = reason;
+            return Task.FromResult(Answer("stopped 9c41e7a2"));
+        });
+
+        dialog.ReasonText = "    ";
+        await dialog.StopNowAsync();
+
+        Assert.Equal(StopSessionDialog.ReasonFromTheDirector, sent);
+    }
+
+    /// <summary>A note the owner did write reaches the route trimmed, exactly as it was written, and the
+    /// derived reason does not overwrite it.</summary>
+    [AvaloniaFact]
+    public async Task AWrittenNoteIsSentAsItWasWritten()
     {
         string? sent = null;
         var dialog = DialogAnswering((reason, _) =>
@@ -122,39 +141,44 @@ public class StopSessionDialogTests
         Assert.Equal("spawned into the wrong mode", sent);
     }
 
+    /// <summary>The same rule stated where it is decided, for both directions at once.</summary>
+    [AvaloniaTheory]
+    [InlineData(null, StopSessionDialog.ReasonFromTheDirector)]
+    [InlineData("", StopSessionDialog.ReasonFromTheDirector)]
+    [InlineData("   ", StopSessionDialog.ReasonFromTheDirector)]
+    [InlineData("  it was wedged  ", "it was wedged")]
+    public void TheReasonToRecordIsTheNoteOrTheDerivedOne(string? note, string expected)
+        => Assert.Equal(expected, StopSessionDialog.ReasonToRecord(note));
+
     /// <summary>
-    /// THE RULE OF THIS WHOLE PHASE. The Gateway folded the words; the window shows the headline and then
-    /// each detail line, in the Gateway's order, and NOTHING ELSE. The assertion is on the whole rendered
-    /// string rather than on "contains", so a window that added a sentence of its own - a "Success!"
-    /// banner, a re-worded verdict - fails here.
+    /// A SUCCESS IS SILENT. The session leaves the rail, which is the answer; there is no report to read
+    /// and nothing to dismiss. The window closing is the whole of it.
     /// </summary>
     [AvaloniaFact]
-    public async Task ItShowsTheHeadlineAndEveryDetailLineVerbatim_AndAddsNothing()
+    public async Task OnSuccess_TheWindowCloses_AndSaysNothing()
     {
         var dialog = DialogAnswering((_, _) => Task.FromResult(Answer(
             "stopped 9c41e7a2 - process 51884 ended and the row was removed",
-            "Its working tree at C:\\repo has uncommitted changes. They were left exactly as they were.",
             "Reason recorded: spawned into the wrong mode")));
+
+        var closed = false;
+        dialog.Closed += (_, _) => closed = true;
 
         dialog.ReasonText = "spawned into the wrong mode";
         await dialog.StopNowAsync();
 
-        Assert.Equal(
-            "stopped 9c41e7a2 - process 51884 ended and the row was removed" + Environment.NewLine
-            + "Its working tree at C:\\repo has uncommitted changes. They were left exactly as they were."
-            + Environment.NewLine
-            + "Reason recorded: spawned into the wrong mode",
-            dialog.AnswerText);
+        Assert.True(closed);
+        Assert.Equal("", dialog.FailureText);
     }
 
     /// <summary>
-    /// A verdict word this build has never heard of renders like any other, because the window never looks
-    /// at the verdict at all. There are four words today; a fifth is one edit on the Gateway, and this is
-    /// the test that says so. A window that branched on the verdict to choose its wording would show
-    /// nothing, or a default, for an unknown one.
+    /// A verdict word this build has never heard of closes the window like any other, because the window
+    /// never looks at the verdict at all. There are four words today; a fifth is one edit on the Gateway,
+    /// and this is the test that says so. A window that branched on the verdict would stall on an unknown
+    /// one (CLAUDE.md rule 7).
     /// </summary>
     [AvaloniaFact]
-    public async Task AVerdictWordItHasNeverSeen_RendersLikeAnyOther()
+    public async Task AVerdictWordItHasNeverSeen_ClosesTheWindowLikeAnyOther()
     {
         var dialog = DialogAnswering((_, _) => Task.FromResult(new SessionStopResponse
         {
@@ -163,35 +187,21 @@ public class StopSessionDialogTests
             Details = new List<string> { "and a second one" },
         }));
 
-        dialog.ReasonText = "why";
+        var closed = false;
+        dialog.Closed += (_, _) => closed = true;
+
         await dialog.StopNowAsync();
 
-        Assert.Equal(
-            "a sentence written on the Gateway" + Environment.NewLine + "and a second one",
-            dialog.AnswerText);
+        Assert.True(closed);
     }
 
     /// <summary>
-    /// An answer with no detail lines shows the headline and stops there. The headline is always present;
-    /// the details are not, and a window that assumed one would print a stray blank line.
+    /// A failure SAYS SO, carrying the sentence that came with it, and the window STAYS OPEN. Closing
+    /// silently is the defect: the operator would read a vanished window as "it worked", when the session
+    /// may well still be running.
     /// </summary>
     [AvaloniaFact]
-    public async Task AnAnswerWithNoDetailLines_ShowsTheHeadlineAlone()
-    {
-        var dialog = DialogAnswering((_, _) => Task.FromResult(Answer("nothing in this account carries that id")));
-
-        dialog.ReasonText = "why";
-        await dialog.StopNowAsync();
-
-        Assert.Equal("nothing in this account carries that id", dialog.AnswerText);
-    }
-
-    /// <summary>
-    /// A failure SAYS SO, in the same place the answer would have been, carrying the sentence that came
-    /// with it. Silence is the defect: the operator would read an unchanged window as "it worked".
-    /// </summary>
-    [AvaloniaFact]
-    public async Task AFailureIsShownInWords_CarryingTheSentenceItCameWith()
+    public async Task AFailureIsShownInWords_AndTheWindowStaysOpen()
     {
         var dialog = DialogAnswering((_, _) => throw new InvalidOperationException(
             "the process would not die: process 51884 is still running after the stop"));
@@ -199,23 +209,35 @@ public class StopSessionDialogTests
         dialog.ReasonText = "spawned into the wrong mode";
         await dialog.StopNowAsync();
 
-        Assert.Contains(StopSessionDialog.OutcomeUnknownPrefix, dialog.AnswerText);
+        Assert.Contains(StopSessionDialog.OutcomeUnknownPrefix, dialog.FailureText);
         Assert.Contains("the process would not die: process 51884 is still running after the stop",
-            dialog.AnswerText);
+            dialog.FailureText);
     }
 
     /// <summary>
-    /// THE FINDING (inspection 1, I5), PINNED. When the Gateway says it does not know what happened, this
-    /// window must not say that it does.
+    /// A failure leaves the note in the box, so a retry does not begin by making the owner write his
+    /// sentence again.
+    /// </summary>
+    [AvaloniaFact]
+    public async Task AfterAFailure_TheNoteIsStillInTheBox_AndTheStopCanBeTriedAgain()
+    {
+        var dialog = DialogAnswering((_, _) => throw new InvalidOperationException("the Gateway is unreachable"));
+
+        dialog.ReasonText = "spawned into the wrong mode";
+        await dialog.StopNowAsync();
+
+        Assert.Equal("spawned into the wrong mode", dialog.ReasonText);
+        Assert.True(dialog.CanStop);
+    }
+
+    /// <summary>
+    /// THE FINDING (inspection 1, I5), STILL PINNED. When the Gateway says it does not know what happened,
+    /// this window must not say that it does.
     ///
     /// The sentence is the router's own, word for word: a timeout proves only that the GATEWAY stopped
-    /// waiting, and the Director may have ended the session and answered late. The window used to print
-    /// "The session was not stopped:" directly above it - a client composing a verdict in the same breath
-    /// as the server saying there is no verdict to be had. An operator who believes the window goes
-    /// looking for a session that is already gone, or presses Stop again on one that never stopped.
-    ///
-    /// The test therefore asserts on what is NOT there. The uncertainty is the Gateway's to state, and the
-    /// only thing being pinned is that this window does not contradict it.
+    /// waiting, and the Director may have ended the session and answered late. An operator who believes a
+    /// window claiming otherwise goes looking for a session that is already gone, or presses Stop again on
+    /// one that never stopped. The assertion is therefore on what is NOT there.
     /// </summary>
     [AvaloniaFact]
     public async Task WhenTheGatewaySaysItDoesNotKnow_TheWindowDoesNotSayThatItDoes()
@@ -225,58 +247,63 @@ public class StopSessionDialogTests
             + "It is not known whether the command was carried out.";
         var dialog = DialogAnswering((_, _) => throw new InvalidOperationException(uncertain));
 
-        dialog.ReasonText = "spawned into the wrong mode";
         await dialog.StopNowAsync();
 
         // The Gateway's sentence, intact.
-        Assert.Contains(uncertain, dialog.AnswerText);
+        Assert.Contains(uncertain, dialog.FailureText);
         // And nothing of this window's own claiming an outcome over the top of it, in either direction.
-        Assert.DoesNotContain("was not stopped", dialog.AnswerText, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("was stopped", dialog.AnswerText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("was not stopped", dialog.FailureText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("was stopped", dialog.FailureText, StringComparison.OrdinalIgnoreCase);
         // What it does say is what it knows: that it cannot tell.
-        Assert.Contains("cannot say whether the session is still running", dialog.AnswerText);
+        Assert.Contains("cannot say whether the session is still running", dialog.FailureText);
     }
 
     /// <summary>
-    /// After a failure the control is offered again, because the stop can honestly be tried again. After a
-    /// success it is not: the stop has been asked for and answered.
+    /// A second failure replaces the first rather than stacking, and a retry clears the stale failure while
+    /// it is in flight - a window showing an old error beside an outstanding request describes two states
+    /// at once.
     /// </summary>
     [AvaloniaFact]
-    public async Task AfterAFailureTheStopCanBeTriedAgain_AfterAnAnswerItCannot()
+    public async Task ARetryClearsTheFailureWhileItIsInFlight()
     {
-        var failing = DialogAnswering((_, _) => throw new InvalidOperationException("the Gateway is unreachable"));
-        failing.ReasonText = "why";
-        await failing.StopNowAsync();
-        Assert.True(failing.CanStop);
+        var release = new TaskCompletionSource<SessionStopResponse>();
+        var attempt = 0;
+        var dialog = DialogAnswering((_, _) =>
+        {
+            attempt++;
+            if (attempt == 1) throw new InvalidOperationException("the Gateway is unreachable");
+            return release.Task;
+        });
 
-        var answering = DialogAnswering((_, _) => Task.FromResult(Answer("stopped 9c41e7a2")));
-        answering.ReasonText = "why";
-        await answering.StopNowAsync();
-        Assert.False(answering.CanStop);
+        await dialog.StopNowAsync();
+        Assert.NotEqual("", dialog.FailureText);
+
+        var retry = dialog.StopNowAsync();
+        Assert.Equal("", dialog.FailureText);
+
+        release.SetResult(Answer("stopped 9c41e7a2"));
+        await retry;
     }
 
     /// <summary>
-    /// While the stop is in flight the window says so and the button is off (CLAUDE.md rule 1 - the round
-    /// trip is not always loopback, so it is a real wait). Once it has answered, the in-flight line is
-    /// gone: a "stopping..." left on screen beside a finished answer is a window describing two states at
-    /// once.
+    /// While the stop is in flight the button says so and is off (CLAUDE.md rule 1 - the round trip is not
+    /// always loopback, so it is a real wait).
     /// </summary>
     [AvaloniaFact]
-    public async Task WhileTheStopIsInFlightItSaysSo_AndTheLineGoesWhenItAnswers()
+    public async Task WhileTheStopIsInFlight_TheButtonSaysSoAndIsOff()
     {
         var release = new TaskCompletionSource<SessionStopResponse>();
         var dialog = DialogAnswering((_, _) => release.Task);
 
-        dialog.ReasonText = "why";
         var inFlight = dialog.StopNowAsync();
 
-        Assert.Equal(StopSessionDialog.StopInFlight, dialog.PhaseText);
+        Assert.True(dialog.IsStopping);
         Assert.False(dialog.CanStop);
 
         release.SetResult(Answer("stopped 9c41e7a2"));
         await inFlight;
 
-        Assert.Equal("", dialog.PhaseText);
+        Assert.False(dialog.IsStopping);
     }
 
     /// <summary>
@@ -294,7 +321,6 @@ public class StopSessionDialogTests
             return release.Task;
         });
 
-        dialog.ReasonText = "why";
         var inFlight = dialog.StopNowAsync();
         // Started, NOT awaited. With the guard this returns at once having sent nothing; without it, it
         // would sit on the same outstanding answer as the first press and awaiting it here would deadlock
@@ -309,14 +335,14 @@ public class StopSessionDialogTests
     }
 
     /// <summary>
-    /// Before anything is asked, the window says that nothing has happened yet. An empty panel beside a
-    /// button reads as an answer of "nothing to report", which is a different claim entirely.
+    /// Before anything is asked the window shows no failure. An error panel visible at rest reads as
+    /// something having already gone wrong.
     /// </summary>
     [AvaloniaFact]
-    public void BeforeAnythingIsAsked_ItSaysNothingHasHappened()
+    public void BeforeAnythingIsAsked_NoFailureIsShowing()
     {
         var dialog = DialogAnswering((_, _) => throw new InvalidOperationException("must not be called"));
 
-        Assert.Equal(StopSessionDialog.NothingAskedYet, dialog.AnswerText);
+        Assert.Equal("", dialog.FailureText);
     }
 }
