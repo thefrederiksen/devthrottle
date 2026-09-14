@@ -131,6 +131,14 @@ STEP 7: Open the pull request, merge on green, and park back on main
 The job is not done until the work is MERGED to origin/main. Once the user approved the
 commit (Step 4), drive it home:
 
+0. IF YOU TOUCHED A SKILL FILE, CHECK WHICH ONE. The four built-ins - dev-throttle, fleet-comms,
+   move-session, terminology - have ONE source: src/CcDirector.Gateway/Skills/Content/<id>.skill.md.
+   The .claude/skills/<id>/SKILL.md copy is REGENERATED from it (frontmatter + that body) and is never
+   hand-edited. Editing the copy changes what agents read in THIS repository and nothing any user
+   receives - which is how the two drifted apart in both directions on 2026-09-14, shipping spawn
+   examples the product refuses. See the rule in CLAUDE.md. A built-in cannot be changed on the
+   Gateway instead; it is served from there, not authored there.
+
 1. RUN THE TESTS LOCALLY FIRST. This is the gate - not GitHub (issue #1156):
 
        .\scripts\test-local.ps1

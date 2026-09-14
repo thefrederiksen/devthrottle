@@ -187,6 +187,13 @@ $parkedProjects = @(
     #     already caches the migrated schema, so this is not the database-setup cost that was fixed last
     #     time. DictionarySuggestionServiceTests does not open a database at all.
     # Both halves are needed, which is why this is parked today rather than half-fixed. See issue #2824.
+    #
+    # A GUARD MUST NOT LIVE IN A PARKED SUITE. The two skill guards - one that a shipped skill never
+    # teaches a command the product refuses, one that a built-in has a single source - were written here
+    # on 2026-09-14 and MOVED OUT the same day, into Core.UnitTests. They read files and take 33ms
+    # between them, so parking was never about their cost: it was that a parked suite tells a developer
+    # nothing at commit time, and both exist to catch an edit at the moment it is made. Anything cheap
+    # whose whole value is fast feedback belongs in a project that actually runs.
     "src\CcDirector.Gateway.UnitTests\CcDirector.Gateway.UnitTests.csproj"
 )
 

@@ -1,6 +1,6 @@
 using Xunit;
 
-namespace CcDirector.Gateway.Tests;
+namespace CcDirector.Core.UnitTests.Skills;
 
 /// <summary>
 /// A BUILT-IN SKILL HAS ONE SOURCE, AND IT IS THE FILE THAT SHIPS.
