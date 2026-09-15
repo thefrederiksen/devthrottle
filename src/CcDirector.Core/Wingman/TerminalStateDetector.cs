@@ -208,6 +208,47 @@ public sealed class TerminalStateDetector : IDisposable
     internal bool HasPendingCheck(Guid sessionId)
         => _watchers.TryGetValue(sessionId, out var watcher) && watcher.HasPendingCheck;
 
+    /// <summary>
+    /// Is the ACTIVE LATCH set for this session right now? A test-only read, and it is the fact
+    /// that decides whether a burst that armed no check is a product defect or a racing test.
+    ///
+    /// A burst that reaches an ALREADY-ACTIVE session correctly arms nothing and writes no row -
+    /// that is the design, because the rule must cost a working session nothing. A burst that
+    /// reaches a SETTLED session and still arms nothing is the defect. The two are indistinguishable
+    /// from the shadow directory and from <see cref="HasPendingCheck"/>, so the latch has to be
+    /// readable or the question cannot be answered from a run at all.
+    /// </summary>
+    internal bool IsActiveLatched(Guid sessionId)
+        => _watchers.TryGetValue(sessionId, out var watcher) && watcher.IsActiveLatched;
+
+    /// <summary>
+    /// How many content checks have faulted CONSECUTIVELY for this session, and what the last one
+    /// said. A test-only read, and the third fact the other two cannot carry.
+    ///
+    /// A check that faults past <c>MaxCheckRetries</c> stops retrying: it opens the turn and writes
+    /// NO row. From outside, that is the same observation as a burst that never armed anything -
+    /// no pending check, no new row - and the two have entirely different causes. The fault count
+    /// tells them apart, and the message says what actually threw, which is otherwise only in
+    /// FileLog and therefore only on the machine that ran it.
+    /// </summary>
+    internal (int Faults, string? LastFault) CheckFaultState(Guid sessionId)
+        => _watchers.TryGetValue(sessionId, out var watcher)
+            ? (watcher.ConsecutiveCheckFailures, watcher.LastCheckFault)
+            : (0, null);
+
+    /// <summary>
+    /// Which branch of the byte path the LAST burst on this session took, in words. A test-only
+    /// read, and the one that answers "was the session settled or already active when that burst
+    /// arrived" from a run rather than from reading the code.
+    ///
+    /// Every terminal branch of the byte path names itself, so the answer is a positive statement
+    /// about what happened rather than an inference from what did not. An absent value means no
+    /// burst has reached the byte path at all, which is itself a distinct fact from every branch
+    /// below it.
+    /// </summary>
+    internal string? LastByteDisposition(Guid sessionId)
+        => _watchers.TryGetValue(sessionId, out var watcher) ? watcher.LastByteDisposition : null;
+
     public void Start()
     {
         if (_started) return;
@@ -328,6 +369,11 @@ public sealed class TerminalStateDetector : IDisposable
         // Consecutive faulted checks. Reset by any check that completes. See RestorePendingCheck.
         private int _checkFailures;
 
+        // What the last faulted check threw, kept so a failing test can say WHY no row was written.
+        // FileLog carries it too, but a FileLog line lives on the machine that ran the suite and a
+        // test failure has to be readable from its own message.
+        private string? _lastCheckFault;
+
         /// <summary>
         /// How many times a faulted check's burst may be PUT BACK. The name says retries rather
         /// than failures because the old one was off by one in every direction: at three it read
@@ -348,6 +394,23 @@ public sealed class TerminalStateDetector : IDisposable
 
         /// <summary>See TerminalStateDetector.HasPendingCheck - a test-only read of that flag.</summary>
         internal bool HasPendingCheck => Volatile.Read(ref _checkPending) != 0;
+
+        /// <summary>See TerminalStateDetector.IsActiveLatched - a test-only read of that latch.</summary>
+        internal bool IsActiveLatched => _active;
+
+        /// <summary>See TerminalStateDetector.LastByteDisposition.</summary>
+        internal string? LastByteDisposition => Volatile.Read(ref _lastByteDisposition);
+
+        // Which branch the last burst took. One reference store of a shared constant per burst,
+        // written beside work that already arms a timer on the same path, so it is not a cost the
+        // "a working session pays nothing" claim has to account for.
+        private string? _lastByteDisposition;
+
+        /// <summary>See TerminalStateDetector.CheckFaultState.</summary>
+        internal int ConsecutiveCheckFailures => Volatile.Read(ref _checkFailures);
+
+        /// <summary>See TerminalStateDetector.CheckFaultState.</summary>
+        internal string? LastCheckFault => Volatile.Read(ref _lastCheckFault);
 
         // The screen body captured at the last flip to settled, and its normalized hash - the "before"
         // side of the bounded evidence an unexplained wake records. Touched only on the PTY producer
@@ -465,7 +528,10 @@ public sealed class TerminalStateDetector : IDisposable
             // QuietThreshold), so a genuine work-start inside it is only delayed until the next
             // byte after the window, which re-flags Working.
             if (DateTime.UtcNow < _session.SuppressActivityUntilUtc)
+            {
+                Stamp("suppressed as a Director-induced repaint");
                 return;
+            }
 
             // Brand-new session: Claude Code's startup splash (logo, version line, prompt box,
             // bypass-permissions footer) emits a flood of bytes BEFORE the user has done anything.
@@ -474,7 +540,10 @@ public sealed class TerminalStateDetector : IDisposable
             // moment the user's first submission is verified. The resulting Working transition
             // starts the silence countdown, including when the entire response arrived first.
             if (_session.IsBrandNew)
+            {
+                Stamp("dropped because the session is still brand new");
                 return;
+            }
 
             // WHILE THE SESSION IS ALREADY ACTIVE, NOTHING BELOW APPLIES. Bytes re-arm the idle
             // countdown and no screen is read. That is where almost all the bytes are, so the
@@ -495,7 +564,9 @@ public sealed class TerminalStateDetector : IDisposable
                     {
                         MarkContinuousActive();
                         if (Volatile.Read(ref _checkPending) != 0) ScheduleContentCheck(bytes.Length);
+                        Stamp("already ACTIVE (body changed); a check was only pushed out if one was armed");
                     }
+                    else Stamp("already ACTIVE (no body change); nothing armed, by design");
                     return;
                 }
 
@@ -504,6 +575,7 @@ public sealed class TerminalStateDetector : IDisposable
                 // read is the whole cost of this on the hot path.
                 if (Volatile.Read(ref _checkPending) != 0) ScheduleContentCheck(bytes.Length);
                 ArmQuietTimer();
+                Stamp("already ACTIVE; no screen read and no check armed, by design");
                 return;
             }
 
@@ -518,7 +590,9 @@ public sealed class TerminalStateDetector : IDisposable
                     {
                         MarkContinuousActive();
                         ScheduleContentCheck(bytes.Length);
+                        Stamp("SETTLED, rule off, body changed; check armed");
                     }
+                    else Stamp("SETTLED, rule off, body unchanged; nothing armed");
                     return;
                 }
 
@@ -531,6 +605,7 @@ public sealed class TerminalStateDetector : IDisposable
                 // The state write above already happened. The check below reads the screen and
                 // records what the rule WOULD have decided; it cannot change anything.
                 ScheduleContentCheck(bytes.Length);
+                Stamp("SETTLED, rule off; the byte opened the turn and a check was armed");
                 return;
             }
 
@@ -538,11 +613,24 @@ public sealed class TerminalStateDetector : IDisposable
             // later, so a repaint is judged once it has finished drawing.
             if (_continuousIdle)
             {
-                if (ObserveBodyChange()) ScheduleContentCheck(bytes.Length);
+                if (ObserveBodyChange())
+                {
+                    ScheduleContentCheck(bytes.Length);
+                    Stamp("SETTLED, rule on, body changed; check armed");
+                }
+                else Stamp("SETTLED, rule on, body unchanged; nothing armed");
                 return;
             }
             ScheduleContentCheck(bytes.Length);
+            Stamp("SETTLED, rule on; check armed");
         }
+
+        /// <summary>
+        /// Name the branch this burst took, for <see cref="LastByteDisposition"/>. Every terminal
+        /// branch of the byte path calls this, so the read is a positive statement rather than an
+        /// inference from silence.
+        /// </summary>
+        private void Stamp(string disposition) => Volatile.Write(ref _lastByteDisposition, disposition);
 
         /// <summary>
         /// Today's activation, kept intact so the switch-off path is byte for byte.
@@ -723,6 +811,7 @@ public sealed class TerminalStateDetector : IDisposable
             catch (Exception ex)
             {
                 // A timer-thread exception would be unhandled and would take the process with it.
+                Volatile.Write(ref _lastCheckFault, ex.GetType().Name + ": " + ex.Message);
                 FileLog.Write($"[TerminalStateDetector] content check failed session={_session.Id}: {ex.Message}");
             }
         }

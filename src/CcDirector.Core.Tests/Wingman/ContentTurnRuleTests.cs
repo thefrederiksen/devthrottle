@@ -1022,8 +1022,32 @@ public sealed class ContentTurnRuleTests : IDisposable
                 ? "a check IS still armed for this session, so the row is LATE rather than absent"
                 : "NO check is armed for this session, so no row will ever be written for this burst";
 
+        // AND WHY. "No check is armed" is where the previous diagnosis stopped, and it has three
+        // entirely different causes that look identical from here: the burst reached an
+        // already-ACTIVE session and correctly armed nothing, the burst reached a SETTLED session
+        // and armed nothing anyway, or a check WAS armed, ran, and faulted past its retry bound so
+        // it opened the turn and wrote no row. The detector names the branch the burst took and
+        // carries the fault count, so the message says which rather than leaving it to be guessed.
+        var why = detector is null
+            ? string.Empty
+            : $"; the last burst on this session was {detector.LastByteDisposition(sessionId) ?? "(no burst reached the byte path at all)"}"
+              + $"; the active latch reads {(detector.IsActiveLatched(sessionId) ? "SET" : "clear")} now"
+              + FaultSentence(detector, sessionId);
+
         throw new Xunit.Sdk.XunitException(
-            $"no shadow row was written past row {baseline} in {path}; the directory holds {present}; {lateness}");
+            $"no shadow row was written past row {baseline} in {path}; the directory holds {present}; {lateness}{why}");
+    }
+
+    /// <summary>
+    /// What the consecutive check faults say, or that there were none. Written as a sentence rather
+    /// than a bare count because a count of zero is ambiguous on its own - no check ever faulted,
+    /// and a check faulted then a later one completed and reset it, read the same.
+    /// </summary>
+    private static string FaultSentence(TerminalStateDetector detector, Guid sessionId)
+    {
+        var (faults, last) = detector.CheckFaultState(sessionId);
+        if (faults == 0 && last is null) return "; no content check has faulted for this session";
+        return $"; consecutive check faults now {faults}, and the last fault seen was {last ?? "(none recorded)"}";
     }
 
     private static string[] ShadowRows(Guid sessionId)
