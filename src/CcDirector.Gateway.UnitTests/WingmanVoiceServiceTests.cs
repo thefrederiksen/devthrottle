@@ -346,7 +346,7 @@ public sealed class WingmanVoiceServiceTests : IDisposable
         private int _hits;
         public int Hits => _hits;
 
-        public CcDirector.Gateway.Contracts.ScreenGridResponse? ScreenGrid { get; init; }
+        public CcDirector.Gateway.Contracts.ScreenGridResponse? ScreenGrid { get; set; }
 
         public CcDirector.Gateway.Api.DirectorCommandRouter.SendDirectorCommandAsync SendCommand => (_, command, _) =>
         {
@@ -1529,7 +1529,9 @@ public sealed class WingmanVoiceServiceTests : IDisposable
     [Fact]
     public async Task ANewTurn_ClearsTheAbandonedVerdict_AndGivesTheTurnItsOwnRetryBudget()
     {
-        var director = new TunnelStub();
+        // A READABLE screen: a speech re-attempt only ever reuses the stop's stored verdict and never asks the judge,
+        // so on an unreadable screen it would give up for the stop instead of re-attempting the speech.
+        var director = new TunnelStub { ScreenGrid = TurnVerdictTestDoubles.Screen("sid-1", "the reply to narrate") };
         var conversation = StoredConversationStub.Of(("Text", "the reply to narrate"));
         var dir = Path.Combine(Path.GetTempPath(), "wmvs-modelreset-" + Guid.NewGuid().ToString("N"));
         var persistPath = Path.Combine(dir, "voice-sessions.json");
@@ -1557,6 +1559,50 @@ public sealed class WingmanVoiceServiceTests : IDisposable
                 "the new turn did not get its own re-attempt - the old turn's spent budget carried over");
             await Task.Delay(500);
             Assert.Equal(callsBefore + 2, handler.Calls);   // one attempt, one re-attempt, and no more
+        }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
+    }
+
+    /// <summary>
+    /// A SPEECH RE-ATTEMPT NEVER ASKS THE JUDGE. The screen here cannot be read, and an unreadable screen is never
+    /// reused outside the idle sweep, so the re-attempt finds no verdict it may reuse. It gives up for that stop:
+    /// zero judge calls, no speech call, and the screen reports a stop that was not narrated.
+    ///
+    /// The speech provider refuses only its FIRST call, so a re-attempt that asked the judge again would have gone
+    /// on to produce audio - the count below is the absence of a second model call that would have succeeded. The
+    /// positive control is the first narration of the stop, which made its one judge call and booked the re-attempt.
+    /// </summary>
+    [Fact]
+    public async Task ASpeechReattempt_OnAnUnreadableScreen_MakesZeroJudgeCalls_AndGivesUpForTheStop()
+    {
+        var director = new TunnelStub();   // no screen grid: the screen cannot be read
+        var conversation = StoredConversationStub.Of(("Text", "the reply to narrate"));
+        var dir = Path.Combine(Path.GetTempPath(), "wmvs-reattempt-nojudge-" + Guid.NewGuid().ToString("N"));
+        var persistPath = Path.Combine(dir, "voice-sessions.json");
+        try
+        {
+            var brain = new RecordingBrain();
+            var handler = new TtsRateLimitedHandler(refusals: 1);
+            var svc = ServiceWithBrainAndTtsHandler(brain, handler, persistPath, conversation.Reader);
+            svc.UseModelRetryBackoffForTest(TimeSpan.FromMilliseconds(30));   // one rung
+
+            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
+
+            // POSITIVE CONTROL: the first narration made its one judge call, reached the speech provider, and booked
+            // the speech re-attempt.
+            Assert.Equal(1, brain.AskCount);
+            Assert.Equal(1, handler.Calls);
+            Assert.NotNull(svc.LastBookedRetryDelayForTest);
+
+            // Wait for the re-attempt to finish either way: it gives up, or it asks the judge again.
+            Assert.True(await Eventually(() => svc.NarrationAbandonedFor(TenantId.Local, "sid-1") || brain.AskCount > 1),
+                "the booked speech re-attempt never finished");
+            await Task.Delay(300);
+
+            Assert.Equal(1, brain.AskCount);   // ZERO judge calls on the re-attempt
+            Assert.Equal(1, handler.Calls);    // and it never reached the speech provider
+            Assert.False(svc.HasVoice(TenantId.Local, "sid-1"));
+            Assert.True(svc.NarrationAbandonedFor(TenantId.Local, "sid-1"));
         }
         finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
     }
@@ -1691,7 +1737,9 @@ public sealed class WingmanVoiceServiceTests : IDisposable
     [Fact]
     public async Task AConcurrentFailure_WhileAReattemptIsBooked_SpendsNothingAndClaimsNothing()
     {
-        var director = new TunnelStub();
+        // A READABLE screen: a speech re-attempt only ever reuses the stop's stored verdict and never asks the judge,
+        // so on an unreadable screen it would give up for the stop instead of re-attempting the speech.
+        var director = new TunnelStub { ScreenGrid = TurnVerdictTestDoubles.Screen("sid-1", "the reply to narrate") };
         var conversation = StoredConversationStub.Of(("Text", "the reply to narrate"));
         var dir = Path.Combine(Path.GetTempPath(), "wmvs-modelpending-" + Guid.NewGuid().ToString("N"));
         var persistPath = Path.Combine(dir, "voice-sessions.json");
@@ -1743,7 +1791,9 @@ public sealed class WingmanVoiceServiceTests : IDisposable
     [Fact]
     public async Task ANewReply_GetsItsOwnRetryBudget_EvenWithoutTheWorkingTransition()
     {
-        var director = new TunnelStub();
+        // A READABLE screen: a speech re-attempt only ever reuses the stop's stored verdict and never asks the judge,
+        // so on an unreadable screen it would give up for the stop instead of re-attempting the speech.
+        var director = new TunnelStub { ScreenGrid = TurnVerdictTestDoubles.Screen("sid-1", "the FIRST reply") };
         var conversation = StoredConversationStub.Of(("Text", "the FIRST reply"));
         var dir = Path.Combine(Path.GetTempPath(), "wmvs-modelreplykey-" + Guid.NewGuid().ToString("N"));
         var persistPath = Path.Combine(dir, "voice-sessions.json");
@@ -1759,6 +1809,7 @@ public sealed class WingmanVoiceServiceTests : IDisposable
 
             // The agent answered again. NO OnSessionWorking - this is the missed edge.
             conversation.Store(("Text", "the SECOND reply"));
+            director.ScreenGrid = TurnVerdictTestDoubles.Screen("sid-1", "the SECOND reply");   // and the screen shows it
 
             await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
 
@@ -2296,7 +2347,9 @@ public sealed class WingmanVoiceServiceTests : IDisposable
     [Fact]
     public async Task WhenTheSpeechLegDoesNotAnswer_TheVoicePathBooksItsOwnReattempt_AndTheTurnIsNarrated()
     {
-        var director = new TunnelStub();
+        // A READABLE screen: a speech re-attempt only ever reuses the stop's stored verdict and never asks the judge,
+        // so on an unreadable screen it would give up for the stop instead of re-attempting the speech.
+        var director = new TunnelStub { ScreenGrid = TurnVerdictTestDoubles.Screen("sid-1", "the reply to narrate") };
         var conversation = StoredConversationStub.Of(("Text", "the reply to narrate"));
         var dir = Path.Combine(Path.GetTempPath(), "wmvs-ttsretry-" + Guid.NewGuid().ToString("N"));
         var persistPath = Path.Combine(dir, "voice-sessions.json");
@@ -2333,7 +2386,9 @@ public sealed class WingmanVoiceServiceTests : IDisposable
     [Fact]
     public async Task WhenTheSpeechLegIsRateLimited_TheVoicePathBooksItsOwnReattempt_AndTheTurnIsNarrated()
     {
-        var director = new TunnelStub();
+        // A READABLE screen: a speech re-attempt only ever reuses the stop's stored verdict and never asks the judge,
+        // so on an unreadable screen it would give up for the stop instead of re-attempting the speech.
+        var director = new TunnelStub { ScreenGrid = TurnVerdictTestDoubles.Screen("sid-1", "the reply to narrate") };
         var conversation = StoredConversationStub.Of(("Text", "the reply to narrate"));
         var dir = Path.Combine(Path.GetTempPath(), "wmvs-tts429-" + Guid.NewGuid().ToString("N"));
         var persistPath = Path.Combine(dir, "voice-sessions.json");
@@ -2362,7 +2417,9 @@ public sealed class WingmanVoiceServiceTests : IDisposable
     [Fact]
     public async Task ASpeechProvidersRetryAfter_IsHonoured_WhenItAsksForLongerThanTheRung()
     {
-        var director = new TunnelStub();
+        // A READABLE screen: a speech re-attempt only ever reuses the stop's stored verdict and never asks the judge,
+        // so on an unreadable screen it would give up for the stop instead of re-attempting the speech.
+        var director = new TunnelStub { ScreenGrid = TurnVerdictTestDoubles.Screen("sid-1", "the reply to narrate") };
         var conversation = StoredConversationStub.Of(("Text", "the reply to narrate"));
         var dir = Path.Combine(Path.GetTempPath(), "wmvs-tts429after-" + Guid.NewGuid().ToString("N"));
         var persistPath = Path.Combine(dir, "voice-sessions.json");
@@ -2533,7 +2590,9 @@ public sealed class WingmanVoiceServiceTests : IDisposable
     [Fact]
     public async Task AnOldTimer_CannotStealAReattemptBookedByALaterAttempt()
     {
-        var director = new TunnelStub();
+        // A READABLE screen: a speech re-attempt only ever reuses the stop's stored verdict and never asks the judge,
+        // so on an unreadable screen it would give up for the stop instead of re-attempting the speech.
+        var director = new TunnelStub { ScreenGrid = TurnVerdictTestDoubles.Screen("sid-1", "the reply to narrate") };
         var conversation = StoredConversationStub.Of(("Text", "the reply to narrate"));
         var dir = Path.Combine(Path.GetTempPath(), "wmvs-reservation-" + Guid.NewGuid().ToString("N"));
         var persistPath = Path.Combine(dir, "voice-sessions.json");

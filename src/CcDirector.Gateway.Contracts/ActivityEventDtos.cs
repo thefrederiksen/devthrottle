@@ -322,6 +322,10 @@ public static class ActivityCauses
     /// <summary>A judgement for this same session is already in flight, so a second stop is not queued.</summary>
     public const string AlreadyJudging = "already-judging";
 
+    /// <summary>A voice narration's speech re-attempt found no verdict it could reuse. A re-attempt never asks the
+    /// judge, so it gives up for that stop instead of making a second model call for it.</summary>
+    public const string ReattemptNeverJudges = "reattempt-never-judges";
+
     /// <summary>Every legal cause, for validation.</summary>
     public static readonly IReadOnlyList<string> All = new[]
     {
@@ -331,7 +335,7 @@ public static class ActivityCauses
         TransientTransport, RateLimited, ContextFull, NonRecoverable, UnclassifiedFault,
         MenuOwnsScreen, RetryCeiling,
         JudgeAnswered, ScreenUnchanged, JudgeDidNotAnswer, JudgeRefused, JudgeUnavailable,
-        Held, BrandNew, JudgeSwitchOff, InFlightCap, AlreadyJudging,
+        Held, BrandNew, JudgeSwitchOff, InFlightCap, AlreadyJudging, ReattemptNeverJudges,
     };
 }
 

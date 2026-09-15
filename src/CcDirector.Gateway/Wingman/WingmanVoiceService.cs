@@ -1282,7 +1282,11 @@ public sealed class WingmanVoiceService
     /// than the silence the retry exists to prevent. The retry checks <see cref="IsVoiceSession"/> for
     /// itself and does nothing when the answer is no.
     /// </param>
-    internal async Task GenerateAsync(TenantId tenant, string sid, SessionVerbClient route, CancellationToken ct = default, bool showReadingWindow = true, Action? onProviderReached = null, bool markAsVoiceSession = true, SweepGenerationInput? sweepInput = null)
+    /// <param name="isSpeechReattempt">
+    /// True only for the speech leg's booked re-attempt. It may reuse the stop's stored verdict and may never ask
+    /// the judge; when no stored verdict can be reused it gives up for that stop.
+    /// </param>
+    internal async Task GenerateAsync(TenantId tenant, string sid, SessionVerbClient route, CancellationToken ct = default, bool showReadingWindow = true, Action? onProviderReached = null, bool markAsVoiceSession = true, SweepGenerationInput? sweepInput = null, bool isSpeechReattempt = false)
     {
         if (onProviderReached is not null && sweepInput is null)
             throw new ArgumentException("A provider-budget callback requires the sweep's prepared input.", nameof(sweepInput));
@@ -1314,7 +1318,7 @@ public sealed class WingmanVoiceService
             return;
         try
         {
-            await GenerateOnceAsync(tenant, sid, route, ct, showReadingWindow, onProviderReached, sweepInput);
+            await GenerateOnceAsync(tenant, sid, route, ct, showReadingWindow, onProviderReached, sweepInput, isSpeechReattempt);
         }
         catch (WingmanModelRateLimitedException rl)
         {
@@ -1352,7 +1356,7 @@ public sealed class WingmanVoiceService
     /// Returns TRUE only when an accepted verdict reached the speech leg; FALSE means there was nothing to do
     /// or nothing usable came back.
     /// </summary>
-    private async Task<bool> GenerateOnceAsync(TenantId tenant, string sid, SessionVerbClient route, CancellationToken ct, bool showReadingWindow, Action? onProviderReached = null, SweepGenerationInput? sweepInput = null)
+    private async Task<bool> GenerateOnceAsync(TenantId tenant, string sid, SessionVerbClient route, CancellationToken ct, bool showReadingWindow, Action? onProviderReached = null, SweepGenerationInput? sweepInput = null, bool isSpeechReattempt = false)
     {
         var state = StateFor(tenant);
         var verdicts = RequireVerdicts();
@@ -1403,7 +1407,8 @@ public sealed class WingmanVoiceService
                 : _ => Task.FromResult(sweepInput.ScreenGrid);
             var outcome = await verdicts.VerdictForCurrentScreenAsync(
                 tenant, route.Director.DirectorId, sid, trigger, screen, ct,
-                providerHold: (hash, sourceText) => ModelCallHeldOffFor(state, sid, ReplyKey(LadderKey(hash, sourceText))));
+                providerHold: (hash, sourceText) => ModelCallHeldOffFor(state, sid, ReplyKey(LadderKey(hash, sourceText))),
+                mayAskJudge: !isSpeechReattempt);
 
             // ONE ladder per stop, shared by the judge leg and the speech leg, keyed on the screen the stop was
             // judged on. A stop that loses its words to a stalled judge and then its audio to a stalled speech
@@ -1435,6 +1440,16 @@ public sealed class WingmanVoiceService
                         // A session that has taken no turn has nothing to narrate - the honest wait, not an error.
                         state.NothingToNarrate[sid] = 1;
                         ClearModelRetryState(state, sid);
+                    }
+                    else if (outcome.SkipCause == ActivityCauses.ReattemptNeverJudges)
+                    {
+                        // THE RE-ATTEMPT GIVES UP FOR THIS STOP. It found no verdict it could reuse - always so on an
+                        // unreadable screen - and asking the judge would be a second model call for one stop. Nothing
+                        // is booked behind it, so the screen reports a stop that was not narrated.
+                        if (CurrentTurnEpoch(state, sid) == turnEpoch)
+                            MarkAbandonedIfNothingPending(state, sid);
+                        FileLog.Write($"[WingmanVoiceService] sid={sid}: speech re-attempt gave up for this stop - no reusable verdict, and a re-attempt never asks the judge");
+                        return false;
                     }
                     FileLog.Write($"[WingmanVoiceService] sid={sid}: no narration - the verdict was skipped ({outcome.SkipCause})");
                     return false;
@@ -1870,14 +1885,14 @@ public sealed class WingmanVoiceService
     /// ONLY THE SPEECH LEG BOOKS ONE. A judge that did not answer is never re-attempted (see the failed arm of
     /// GenerateOnceAsync). A speech-leg re-attempt re-reads the screen and asks the verdict service again, which
     /// returns the stored ACCEPTED verdict for an unchanged readable screen without asking the judge - so the
-    /// re-attempt speaks the same verdict's words for the same stop, with no second model call. When the screen
-    /// HAS changed in the meantime, that is a new stop, judged once like any other, and the re-attempt narrates
-    /// the CURRENT stop rather than the old one's words.
+    /// re-attempt speaks the same verdict's words for the same stop, with no second model call.
     ///
-    /// GAP, NOT PROVEN: AN UNREADABLE SCREEN IS JUDGED AGAIN ON A SPEECH RE-ATTEMPT. The verdict service never
-    /// reuses an unreadable screen outside the idle sweep (a confirmed decision: every unreadable screen hashes
-    /// alike, so reuse could play one stop's words for another), so a speech re-attempt on a session whose
-    /// screen cannot be read asks the judge a second time for that stop.
+    /// A SPEECH RE-ATTEMPT NEVER ASKS THE JUDGE. It passes isSpeechReattempt, and when the verdict service finds
+    /// no verdict to reuse it skips instead of judging: the re-attempt gives up for that stop, logs it, and the
+    /// screen reports a stop that was not narrated. That is always the case on an unreadable screen, which the
+    /// verdict service never reuses outside the idle sweep (a confirmed decision: every unreadable screen hashes
+    /// alike, so reuse could play one stop's words for another), and it is also the case on a screen that has
+    /// changed since - a new stop, which the turn end or the sweep judges, not this re-attempt.
     /// </summary>
     private void ScheduleModelRetry(TenantId tenant, string sid, SessionVerbClient route, TimeSpan delay, string replyKey, long reservation, int attempt, int cap)
     {
@@ -1913,7 +1928,7 @@ public sealed class WingmanVoiceService
                 if (HasVoice(tenant, sid)) return;          // a new turn already narrated it
                 FileLog.Write($"[WingmanVoiceService] model retry {attempt} of {cap} starting for sid={sid} (the voice path's own re-attempt, not the sweep)");
                 await GenerateAsync(tenant, sid, route, CancellationToken.None, showReadingWindow: false,
-                    markAsVoiceSession: false).ConfigureAwait(false);
+                    markAsVoiceSession: false, isSpeechReattempt: true).ConfigureAwait(false);
             }
             catch (Exception ex)
             {

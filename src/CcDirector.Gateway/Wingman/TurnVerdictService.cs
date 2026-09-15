@@ -100,7 +100,8 @@ public enum TurnVerdictTrigger
     TurnEnd,
 
     /// <summary>A voice session's own narration, including its booked re-attempts. Held and exited sessions
-    /// are skipped; the judge switch and the ceiling do not apply, because somebody is listening.</summary>
+    /// are skipped; the judge switch and the ceiling do not apply, because somebody is listening. A booked
+    /// re-attempt only ever reuses a stored verdict and never asks the judge.</summary>
     Voice,
 
     /// <summary>The idle voice sweep. Like <see cref="Voice"/>, but capped, and it never re-asks the judge
@@ -295,7 +296,7 @@ public sealed class TurnVerdictService : IDisposable
 
         FileLog.Write($"[TurnVerdictService] OnTurnEnd: sid={signal.SessionId} tenant={signal.Tenant.ToLogString()} newTurn={signal.IsNewTurn}");
         return Task.Run(() => RunFlightAsync(key, flight, signal.DirectorId, signal.ObservedAtUtc,
-            TurnVerdictTrigger.TurnEnd, screenReader: null, providerHold: null));
+            TurnVerdictTrigger.TurnEnd, screenReader: null, providerHold: null, mayAskJudge: true));
     }
 
     /// <summary>
@@ -312,6 +313,9 @@ public sealed class TurnVerdictService : IDisposable
     /// <param name="providerHold">Given the screen hash and the source text of THIS stop, how long the provider
     /// asked this caller to wait before asking again, or null. Consulted after the screen and the source are
     /// known and before the judge is asked, so a new stop is never held back by an earlier stop's wait.</param>
+    /// <param name="mayAskJudge">False for a voice narration's speech re-attempt, which never asks the judge. When
+    /// the stored verdict cannot be reused - including every unreadable screen, which is never reused outside the
+    /// sweep - the request is skipped under <see cref="ActivityCauses.ReattemptNeverJudges"/> instead of judged.</param>
     public async Task<TurnVerdictOutcome> VerdictForCurrentScreenAsync(
         TenantId tenant,
         string directorId,
@@ -319,7 +323,8 @@ public sealed class TurnVerdictService : IDisposable
         TurnVerdictTrigger trigger,
         Func<CancellationToken, Task<ScreenGridResponse?>>? screenReader = null,
         CancellationToken ct = default,
-        Func<string, string?, TimeSpan?>? providerHold = null)
+        Func<string, string?, TimeSpan?>? providerHold = null,
+        bool mayAskJudge = true)
     {
         if (!tenant.IsValid) throw new ArgumentException("A verdict needs a valid tenant.", nameof(tenant));
         if (string.IsNullOrWhiteSpace(sessionId)) throw new ArgumentException("A session id is required.", nameof(sessionId));
@@ -332,9 +337,10 @@ public sealed class TurnVerdictService : IDisposable
             {
                 var joined = await existing.Done.Task.WaitAsync(ct).ConfigureAwait(false);
                 // A turn-end judgement that stood down for a reason that binds only the turn-end path - this
-                // account's ceiling, or its judge switch - is not an answer for somebody who is listening.
+                // account's ceiling, or its judge switch - is not an answer for somebody who is listening. Nor is a
+                // speech re-attempt that stood down because it may not ask the judge: that binds the re-attempt only.
                 if (!(joined.Kind == TurnVerdictOutcomeKind.Skipped
-                      && joined.SkipCause is ActivityCauses.InFlightCap or ActivityCauses.JudgeSwitchOff))
+                      && joined.SkipCause is ActivityCauses.InFlightCap or ActivityCauses.JudgeSwitchOff or ActivityCauses.ReattemptNeverJudges))
                     return joined;
                 continue;
             }
@@ -347,7 +353,7 @@ public sealed class TurnVerdictService : IDisposable
             }
 
             var observedAt = _lastObserved.TryGetValue(key, out var seen) ? seen : _env.NowUtc();
-            return await RunFlightAsync(key, flight, directorId, observedAt, trigger, screenReader, providerHold).ConfigureAwait(false);
+            return await RunFlightAsync(key, flight, directorId, observedAt, trigger, screenReader, providerHold, mayAskJudge).ConfigureAwait(false);
         }
 
         throw new InvalidOperationException(
@@ -395,7 +401,8 @@ public sealed class TurnVerdictService : IDisposable
         DateTime observedAt,
         TurnVerdictTrigger trigger,
         Func<CancellationToken, Task<ScreenGridResponse?>>? screenReader,
-        Func<string, string?, TimeSpan?>? providerHold)
+        Func<string, string?, TimeSpan?>? providerHold,
+        bool mayAskJudge)
     {
         // THE EPOCH THIS FLIGHT STANDS ON, captured before anything is read - before the roster, the screen and
         // the stored verdict. Every store this flight makes, on any arm, lands only while it is still current.
@@ -403,7 +410,7 @@ public sealed class TurnVerdictService : IDisposable
         TurnVerdictOutcome outcome;
         try
         {
-            outcome = await JudgeAsync(key, flight.Cts.Token, epoch, directorId, observedAt, trigger, screenReader, providerHold).ConfigureAwait(false);
+            outcome = await JudgeAsync(key, flight.Cts.Token, epoch, directorId, observedAt, trigger, screenReader, providerHold, mayAskJudge).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (flight.Cts.IsCancellationRequested)
         {
@@ -489,7 +496,8 @@ public sealed class TurnVerdictService : IDisposable
         DateTime observedAt,
         TurnVerdictTrigger trigger,
         Func<CancellationToken, Task<ScreenGridResponse?>>? screenReader,
-        Func<string, string?, TimeSpan?>? providerHold)
+        Func<string, string?, TimeSpan?>? providerHold,
+        bool mayAskJudge)
     {
         var (tenant, sid) = key;
         var settings = _env.Settings(tenant);
@@ -535,6 +543,15 @@ public sealed class TurnVerdictService : IDisposable
             && (hash.Length > 0 || trigger == TurnVerdictTrigger.Sweep)
             && (!latest.Failed || trigger == TurnVerdictTrigger.Sweep))
             return Reuse(key, epoch, ct, directorId, trigger, observedAt, latest, hash, rows);
+
+        // A SPEECH RE-ATTEMPT NEVER ASKS THE JUDGE. No automatic path costs two model calls for one stop, so a caller
+        // that may not ask stops here, after the reuse check and before anything else is read or paid for. On an
+        // unreadable screen this is always the answer, because an unreadable screen is never reused outside the sweep.
+        if (!mayAskJudge)
+        {
+            FileLog.Write($"[TurnVerdictService] sid={sid}: no reusable verdict for this {(hash.Length == 0 ? "unreadable" : "readable")} screen, and this caller may not ask the judge - skipped");
+            return Skip(tenant, directorId, sid, trigger, ActivityCauses.ReattemptNeverJudges);
+        }
 
         // The source this stop is judged from, chosen ONCE, over this one screen read.
         var conversation = _env.ReadConversation(tenant, sid)
