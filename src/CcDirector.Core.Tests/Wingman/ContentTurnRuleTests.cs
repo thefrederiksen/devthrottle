@@ -11,11 +11,13 @@ namespace CcDirector.Core.Tests.Wingman;
 
 /// <summary>
 /// Work item four of the turn-detection phase: a settled session opens a turn because the
-/// conversation gained something, not because a byte arrived - behind a switch that ships OFF.
+/// conversation gained something, not because a byte arrived. The row rule is ON by default; the
+/// switch set to off restores the byte rule.
 ///
-/// THE SWITCH-OFF CASE IS THE ONE THAT MATTERS MOST, because that is what every Director will
-/// actually run. It is proved twice over: the state writes are identical with the shadow log on
-/// and off, and the flip still happens ON THE BYTE rather than after the settling window.
+/// THE SWITCH-OFF CASE STILL HAS TO BE EXACT, because it is the escape hatch: when the row rule
+/// misbehaves on a Director, setting the switch to off must give back precisely the old behaviour.
+/// It is proved twice over: the state writes are identical with the shadow log on and off, and the
+/// flip still happens ON THE BYTE rather than after the settling window.
 ///
 /// These drive the detector's real timers, so they live in the serialised half of the Core tests
 /// and do NOT run in the default gate. CC_DIRECTOR_ROOT is pinned to a throwaway directory so the
@@ -224,18 +226,26 @@ public sealed class ContentTurnRuleTests : IDisposable
     }
 
     [Fact]
-    public void The_switch_ships_off()
+    public void The_switch_ships_on_with_the_row_rule_and_anything_unreadable_is_off()
     {
-        // Unset, zero, or anything unrecognised is OFF. Turning it on is the owner's decision and
-        // he wants the shadow numbers first, so an unrecognised value must never quietly enable it.
-        Assert.Equal(TurnContentRule.Off, TerminalStateDetector.ResolveContentRule(null));
-        Assert.Equal(TurnContentRule.Off, TerminalStateDetector.ResolveContentRule(""));
+        // Unset is the ROW rule: the owner turned it on by default. The variable now exists to move
+        // AWAY from that default, most likely to turn a misbehaving rule off, so an unrecognised value
+        // falls to OFF - a misspelt "off" must never leave the rule running.
+        Assert.Equal(TurnContentRule.Row, TerminalStateDetector.ResolveContentRule(null));
+        Assert.Equal(TurnContentRule.Row, TerminalStateDetector.ResolveContentRule(""));
+        Assert.Equal(TurnContentRule.Row, TerminalStateDetector.ResolveContentRule("   "));
+
+        Assert.Equal(TurnContentRule.Off, TerminalStateDetector.ResolveContentRule("off"));
         Assert.Equal(TurnContentRule.Off, TerminalStateDetector.ResolveContentRule("0"));
-        Assert.Equal(TurnContentRule.Off, TerminalStateDetector.ResolveContentRule("true"));
-        Assert.Equal(TurnContentRule.Off, TerminalStateDetector.ResolveContentRule("yes"));
+        Assert.Equal(TurnContentRule.Off, TerminalStateDetector.ResolveContentRule("false"));
+        Assert.Equal(TurnContentRule.Off, TerminalStateDetector.ResolveContentRule("no"));
+        Assert.Equal(TurnContentRule.Off, TerminalStateDetector.ResolveContentRule("of"));
 
         Assert.Equal(TurnContentRule.Row, TerminalStateDetector.ResolveContentRule("1"));
         Assert.Equal(TurnContentRule.Row, TerminalStateDetector.ResolveContentRule("row"));
+        Assert.Equal(TurnContentRule.Row, TerminalStateDetector.ResolveContentRule("on"));
+        Assert.Equal(TurnContentRule.Row, TerminalStateDetector.ResolveContentRule("true"));
+        Assert.Equal(TurnContentRule.Row, TerminalStateDetector.ResolveContentRule("YES"));
         Assert.Equal(TurnContentRule.Size, TerminalStateDetector.ResolveContentRule("size"));
     }
 
@@ -512,8 +522,13 @@ public sealed class ContentTurnRuleTests : IDisposable
             using (var rows = new TerminalStateDetector(_manager, driveState: false))
                 Assert.Equal(TurnContentRule.Row, rows.ContentRule);
 
-            // And the shipped default, which is the one every Director actually runs.
+            // And the shipped default, which is the one every Director actually runs: the row rule.
             Environment.SetEnvironmentVariable(TerminalStateDetector.ContentRuleVariable, null);
+            using (var shipped = new TerminalStateDetector(_manager, driveState: false))
+                Assert.Equal(TurnContentRule.Row, shipped.ContentRule);
+
+            // And the escape hatch reaches the detector too, not only the resolver.
+            Environment.SetEnvironmentVariable(TerminalStateDetector.ContentRuleVariable, "off");
             using (var off = new TerminalStateDetector(_manager, driveState: false))
                 Assert.Equal(TurnContentRule.Off, off.ContentRule);
         }

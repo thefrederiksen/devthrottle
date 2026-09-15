@@ -22,8 +22,11 @@ namespace CcDirector.Core.Wingman;
 /// have done, which is the whole point: a row with the byte rule opening and both candidates
 /// holding is a phantom turn that would have been suppressed.
 ///
-/// THE RULE SWITCH DEFAULTS OFF AND THIS LOG DEFAULTS ON. That pairing is deliberate - the owner's
-/// Director produces the comparison numbers while behaving exactly as it does today.
+/// THIS LOG DEFAULTS ON, AND SO DOES THE ROW RULE. It was planned the other way round - rule off,
+/// log on, so a Director would produce comparison numbers while behaving exactly as it did before -
+/// and the owner turned the rule on by default on 15 September 2026. The log still earns its place:
+/// each row carries what the byte rule WOULD have done beside what the running rule did, so the live
+/// comparison stays answerable, now against the rule that is actually running.
 ///
 /// Write-only and infrequent, so a single process-wide lock is plenty, and the append happens AFTER
 /// the state decision it observes - so it cannot delay that decision, whatever the filesystem does.
