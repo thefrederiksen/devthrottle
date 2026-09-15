@@ -36,6 +36,9 @@ public sealed class TurnVerdictRowStampTests : IDisposable
         public bool Colour = true;
         public readonly HashSet<string> Reading = new(StringComparer.Ordinal);
         public int SnapshotReads;
+        /// <summary>Every question the fold asks through the reading-state seam. Counted because it is asked per
+        /// row: a store read behind it would be one read per session, and must not pass as one snapshot.</summary>
+        public int IsReadingReads;
 
         public CountingRows(TurnVerdictStore store) => _store = store;
 
@@ -47,7 +50,11 @@ public sealed class TurnVerdictRowStampTests : IDisposable
             return _store.SnapshotLatest(tenant);
         }
 
-        public bool IsReading(TenantId tenant, string sessionId) => Reading.Contains(sessionId);
+        public bool IsReading(TenantId tenant, string sessionId)
+        {
+            IsReadingReads++;
+            return Reading.Contains(sessionId);
+        }
     }
 
     private static SessionDto Row(string sid, string activity = "WaitingForInput") => new()
@@ -106,6 +113,9 @@ public sealed class TurnVerdictRowStampTests : IDisposable
         Fold(rows, source, Account);
 
         Assert.Equal(1, source.SnapshotReads);
+        // The reading-state seam is asked once per row and no more; the production answer comes from the seat's
+        // memory (ProductionRowSource_IsReading_NeverReadsTheStore), so one snapshot stays the only store read.
+        Assert.Equal(rows.Count, source.IsReadingReads);
 
         Assert.Equal(VerdictStates.Judged, Get(rows, "finished").VerdictState);
         Assert.Equal("green", Get(rows, "finished").EffectiveColor);
@@ -271,5 +281,30 @@ public sealed class TurnVerdictRowStampTests : IDisposable
         Assert.Equal("green", Get(rows, "finished").EffectiveColor);
         // No seat built yet: nothing is being read.
         Assert.False(source.IsReading(Account, "finished"));
+    }
+
+    /// <summary>
+    /// The production reading-state seam answers from the seat's memory and never from the store (slice D
+    /// inspection, note 4). The fold asks it once per row, so a store read behind it would be one read per session
+    /// hiding beside the one snapshot. Its store here is over a CLOSED database, so any read through it throws.
+    /// </summary>
+    [Fact]
+    public void ProductionRowSource_IsReading_NeverReadsTheStore()
+    {
+        using var closedHarness = new GatewayDbTestHarness();
+        var closed = closedHarness.Open();
+        var closedStore = new TurnVerdictStore(closed);
+        closed.Dispose();
+        // CONTROL: a read through this store really does fail, so a quiet answer below is not a quiet store.
+        Assert.ThrowsAny<Exception>(() => closedStore.Latest(Account, "finished"));
+
+        using var seat = new TurnVerdictService(new FakeTurnVerdictEnvironment());
+        var source = new TurnVerdictRowSource(
+            _ => TurnVerdictSettings.Defaults with { JudgeEnabled = true, ColourEnabled = true },
+            closedStore,
+            () => seat);
+
+        foreach (var sid in new[] { "finished", "carrying", "never" })
+            Assert.False(source.IsReading(Account, sid));
     }
 }

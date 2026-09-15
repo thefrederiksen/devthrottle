@@ -99,6 +99,29 @@ describe("Attention first - the Needs you waiting line", () => {
     expect(needsYouRowOrder()).toEqual(["oldest", "middle", "newest"]);
   });
 
+  it("draws the calm band under the reds: its title, its count, and the judged calm row inside it", () => {
+    const done = {
+      ...needsYou("done-report", "2026-07-26T08:00:00Z", 1),
+      effectiveColor: "green",
+      effectiveColorHex: "#22C55E",
+      stateLabel: "Done - Pushed the branch",
+      triageBucket: "active",
+      verdictState: "judged",
+      needsYouSince: undefined,
+    } as unknown as SessionDto;
+
+    renderAttention([done, needsYou("waiting", "2026-07-26T09:50:00Z", 2)]);
+
+    const bucket = Array.from(document.querySelectorAll(".roster-bucket")).find(
+      (b) => b.querySelector(".roster-bucket-head.needs") !== null,
+    );
+    if (bucket === undefined) throw new Error("the attention view rendered no 'Needs you' bucket");
+    const heads = Array.from(bucket.querySelectorAll(".roster-bucket-head")).map((h) => h.textContent);
+    // The red is counted under Needs you; the calm row is listed under its own heading, below, and not counted there.
+    expect(heads).toEqual(["Needs you 1", "Done or carrying on 1"]);
+    expect(Array.from(bucket.querySelectorAll(".roster-name-text")).map((el) => el.textContent)).toEqual(["waiting", "done-report"]);
+  });
+
   it("sorts a session the Gateway never stamped with a wait time to the bottom", () => {
     const unstamped = needsYou("unstamped", "2026-07-26T08:00:00Z", 1);
     delete (unstamped as unknown as Record<string, unknown>).needsYouSince;

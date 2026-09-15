@@ -854,6 +854,12 @@ public sealed class TurnVerdictService : IDisposable
     /// gate; each expiry re-reads the session's latest verdict INSIDE the gate <see cref="OnSessionWorking"/>
     /// invalidates under, and stores only when it is still the same carrying-on verdict and still past its
     /// deadline. A session that worked in between has no verdict left, and one judged again has a different one.
+    ///
+    /// A CHILD'S WORKING TRANSITION is not seen through the verdict at all - it invalidates only the child's own
+    /// verdict - so the deadline inside the gate is computed from the owned sessions read AGAIN inside the gate,
+    /// immediately before the store, never from the read taken before it. A child that is Working in the roster
+    /// at that moment stands the expiry down. The read and the store follow each other inside the gate with
+    /// nothing awaited between them.
     /// </summary>
     public int ExpireCarryingOn(TenantId tenant)
     {
@@ -876,8 +882,15 @@ public sealed class TurnVerdictService : IDisposable
             {
                 var current = _env.Latest(tenant, sid);
                 if (current is null
-                    || !string.Equals(current.VerdictId, snapshot.VerdictId, StringComparison.Ordinal)
-                    || !TurnVerdictWatchdog.IsExpired(current, now, owned))
+                    || !string.Equals(current.VerdictId, snapshot.VerdictId, StringComparison.Ordinal))
+                    continue;
+
+                // A CHILD'S WORKING TRANSITION DOES NOT TOUCH ITS OWNER'S VERDICT, so the owned sessions read above
+                // can be stale by now: a child that started Working since then must still hold its owner purple.
+                // They are read again here, inside the gate and immediately before the store, and the expiry
+                // stands down when any of them is Working.
+                var ownedNow = _env.OwnedSessions(tenant, sid);
+                if (!TurnVerdictWatchdog.IsExpired(current, now, ownedNow))
                     continue;
 
                 replacement = TurnVerdictWatchdog.Expire(current, now);

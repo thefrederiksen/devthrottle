@@ -1616,6 +1616,18 @@ public sealed class TurnVerdictContractTests
     }
 
     [Fact]
+    public void ContractVersion_IsV2_AndNamesThePromptFileTheBytesAreReadFrom()
+    {
+        // Slice D changed the prompt and the validation, so the stamp moved from v1 (what slice C shipped live)
+        // to v2, and a stored answer says which of the two shapes it was accepted under.
+        Assert.Equal("v2", TurnVerdictContract.Version);
+        // The version and the file it names move together: a version bumped without the file, or a file renamed
+        // without the version, fails here and not in the grading.
+        Assert.EndsWith($"/turn-verdict-{TurnVerdictContract.Version}.txt", TurnVerdictContract.PromptResourcePath);
+        Assert.EndsWith($".turn-verdict-{TurnVerdictContract.Version}.txt", TurnVerdictContract.PromptResourceName);
+    }
+
+    [Fact]
     public void BuildPrompt_FillsEveryPlaceholderAndLeavesNone()
     {
         var prompt = TurnVerdictContract.BuildPrompt(MenuStop());

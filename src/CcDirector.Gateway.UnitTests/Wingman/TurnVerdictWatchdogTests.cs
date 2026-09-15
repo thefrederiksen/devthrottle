@@ -310,6 +310,41 @@ public sealed class TurnVerdictWatchdogTests
         Assert.Equal(TurnVerdictWatchdog.ExpiredLabel, SessionOrdering.StateLabel(RowFor(latest)));
     }
 
+    /// <summary>
+    /// THE INSPECTOR'S PROBE (slice D inspection, finding 1). The first owned-session read sees the child stopped,
+    /// and on that read alone the owner has run out. The child then starts Working before the store - here at the
+    /// latest point the seat allows, after the owner's verdict is re-read inside the gate - and a child's Working
+    /// transition does not touch its owner's verdict. The owner must stay purple: the clock does not run while any
+    /// owned session is working.
+    /// </summary>
+    [Fact]
+    public void ExpireCarryingOn_AChildThatStartsWorkingAfterTheOwnedRead_DoesNotExpireItsOwner()
+    {
+        var now = JudgedAt;
+        var env = ColourOnEnv(() => now);
+        env.Store(Tenant, "owner", CarryingOn());
+        var stopped = new OwnedSessionsFacts(Working: 0, Stopped: 1, NeedYou: 0, LastActivityAtUtc: JudgedAt);
+        var working = new OwnedSessionsFacts(Working: 1, Stopped: 0, NeedYou: 0, LastActivityAtUtc: JudgedAt.AddMinutes(11));
+        var childWorking = false;
+        env.Owned = sid => sid != "owner" ? null : childWorking ? working : stopped;
+        env.AfterNextLatest = () => childWorking = true;
+        var service = new TurnVerdictService(env);
+
+        now = JudgedAt.AddMinutes(11);
+        // CONTROL: on the read that saw the child stopped, the owner's clock has run out.
+        Assert.True(TurnVerdictWatchdog.IsExpired(CarryingOn(), now, stopped));
+
+        Assert.Equal(0, service.ExpireCarryingOn(Tenant));
+
+        // CONTROL: the child really did start Working inside the window, after the first read.
+        Assert.True(childWorking);
+        var latest = env.Latest(Tenant, "owner")!;
+        Assert.Equal(TurnVerdictVocabulary.ContinuesAlone, latest.Verdict);
+        Assert.Equal("purple", SessionOrdering.EffectiveColor(RowFor(latest)));
+        Assert.Single(env.StoredRows(Tenant, "owner"));
+        Assert.DoesNotContain(env.Records, r => r.EventType == ActivityEventTypes.TurnVerdictExpired);
+    }
+
     [Fact]
     public void ExpireCarryingOn_AChildThatGoesRed_FlipsNothingOnTheOwner()
     {

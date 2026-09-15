@@ -22,24 +22,29 @@ namespace CcDirector.Core.Wingman;
 /// here therefore fails AWAY from calm: a refused answer leaves the row exactly as the detector left
 /// it, which is red. Silence is never a decision, and a broken answer never moves a row toward quiet.
 ///
-/// The prompt lives in Prompts/turn-verdict-v1.txt as an embedded resource rather than in this file,
+/// The prompt lives in Prompts/turn-verdict-v2.txt as an embedded resource rather than in this file,
 /// because the grading tool in the internal repository renders the SAME prompt from the SAME bytes. A
 /// prompt that existed twice would be graded in one version and shipped in another.
 /// </summary>
 public static class TurnVerdictContract
 {
     /// <summary>Stamped on every verdict record so a stored answer can say which contract produced it.
-    /// Bump on every change to the prompt or to validation.</summary>
-    public const string Version = "v1";
+    /// Bump on every change to the prompt or to validation, and rename the prompt file with it.
+    ///
+    /// v1: the judge contract as slice C shipped it. v2 (slice D): the prompt gained finishedKind and the
+    /// owned-sessions facts, and validation requires finishedKind on a finished verdict and refuses it on
+    /// every other. Records stored under v1 keep their v1 stamp and stay readable; nothing reads the
+    /// version to decide whether a record may be shown.</summary>
+    public const string Version = "v2";
 
     /// <summary>The embedded name of the prompt template. The grading tool reads the same file off
-    /// disk at src/CcDirector.Core/Wingman/Prompts/turn-verdict-v1.txt; a test pins the two to be
+    /// disk at src/CcDirector.Core/Wingman/Prompts/turn-verdict-v2.txt; a test pins the two to be
     /// byte for byte the same.</summary>
-    public const string PromptResourceName = "CcDirector.Core.Wingman.Prompts.turn-verdict-v1.txt";
+    public const string PromptResourceName = "CcDirector.Core.Wingman.Prompts.turn-verdict-v2.txt";
 
     /// <summary>The repository-relative path of the same file, for the tool that reads it off disk and
     /// for the test that pins the embedded copy to it.</summary>
-    public const string PromptResourcePath = "src/CcDirector.Core/Wingman/Prompts/turn-verdict-v1.txt";
+    public const string PromptResourcePath = "src/CcDirector.Core/Wingman/Prompts/turn-verdict-v2.txt";
 
     // ==================================================================== caps
     //
