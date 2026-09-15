@@ -39,6 +39,7 @@ function judged(): SessionDto {
     machineName: "SORENLAPTOP",
     repoPath: "D:/Repos/scratch",
     agent: "ClaudeCode",
+    agentToolDisplay: "Claude Code",
     activityState: "WaitingForInput",
     effectiveColor: "red",
     stateLabel: "Apply the migration now?",
@@ -81,7 +82,7 @@ describe("the Cockpit session view", () => {
     );
 
     expect(screen.getByRole("region", { name: "Wingman verdict" })).toBeTruthy();
-    expect(screen.getByText("Claude said")).toBeTruthy();
+    expect(screen.getByText("Claude Code said")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Apply it" })).toBeTruthy();
   });
 });
