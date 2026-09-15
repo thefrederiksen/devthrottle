@@ -125,6 +125,46 @@ public sealed class SessionTreeTests
     }
 
     [Fact]
+    public void Build_ASupervisorIdThatIsBlankOrOnlySpaces_MeansTheSessionAnswersToNobody()
+    {
+        // The wire can carry "" or "   " for a session nobody is driving. Neither may be treated as the
+        // id of a session, and neither may make the row vanish looking for a parent that cannot exist.
+        var empty = S("e", 0, controller: "");
+        var spaces = S("s", 1, controller: "   ");
+
+        var tree = SessionTree.Build(new[] { empty, spaces });
+
+        Assert.Equal(new[] { "e", "s" }, Ids(tree.Roots));
+        Assert.Empty(tree.ChildrenBySessionId);
+    }
+
+    [Fact]
+    public void Build_ASupervisorIdWithSpacesAroundIt_StillNamesItsSupervisor()
+    {
+        var architect = Architect();
+        var child = S("c", 1, controller: "  108  ");
+
+        var tree = SessionTree.Build(new[] { architect, child });
+
+        Assert.Equal(new[] { "108" }, Ids(tree.Roots));
+        Assert.Equal(new[] { "c" }, Ids(SessionTree.ChildrenOf(tree, architect)));
+    }
+
+    [Fact]
+    public void AnEmptyList_ProducesAnEmptyTree_AnEmptyCrewAndNoSections()
+    {
+        var tree = SessionTree.Build(Array.Empty<SessionDto>());
+
+        Assert.Empty(tree.Roots);
+        Assert.Empty(tree.ChildrenBySessionId);
+        Assert.Empty(SessionTree.AttentionSections(Array.Empty<SessionDto>()));
+
+        var sum = SessionTree.SummarizeCrew(S112(), Array.Empty<SessionDto>());
+        Assert.Equal(0, sum.Count);
+        Assert.Equal("0 under it: 0 working, 0 stopped, 0 need you", SessionTree.CrewSummaryLine(sum));
+    }
+
+    [Fact]
     public void Build_ChildrenNeverReSort_SoAttentionIsATopLevelAnswerOnly()
     {
         // A child that needs you and a child that is working, dragged into an order that puts the working
