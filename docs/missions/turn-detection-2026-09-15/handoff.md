@@ -265,3 +265,31 @@ Worth noticing what that one record IS, because it is not a rounding detail. It 
 while the agent was still working: a FALSE RED, which is the failure phase one explicitly does not
 fix and phase two does. It is correctly outside repaint scoring. A published table that drops the
 row it has no column for is how a known limitation quietly stops being visible.
+
+## Accepted deviation: the latch release is CONDITIONAL, and my ruling was the weaker one
+
+I ruled that the two shipped activation paths should get "the same latch release" already applied
+next door. That ruling was incomplete. I specified a mechanism without checking the guard it had to
+work with, and the Manager was right to deviate.
+
+`OnQuietCore` returns on its first line unless the latch is set. So clearing the latch
+unconditionally after a fault creates a NEW failure rather than closing the old one: if the state
+write had already landed, the session is Working, the latch is clear, and the armed countdown fires
+into a method that returns immediately - a session stuck blue for ever, with nothing left to bring
+it back.
+
+What shipped instead, and it is correct in both directions:
+
+- The quiet timer is armed in a `finally`, so a fault can never cost the countdown.
+- The latch is released **only when the session is not already sitting in Working** - that is, only
+  when nothing was actually written. Then later bytes re-enter the settled path and can schedule a
+  check.
+- When the write DID land, the latch stays set and the armed countdown delivers red normally.
+
+It was also extended to `MarkActiveFromContent`, because finding one's new open-the-turn fallback
+calls it from a place no retry follows.
+
+The general lesson, written down because it is the second time this mission has produced it: a
+ruling that names a MECHANISM rather than an OUTCOME can be faithfully followed into a defect. The
+outcome I wanted was "a fault can never leave the session in a state nothing recovers from". Had I
+ruled that, the mechanism would have followed from it.
