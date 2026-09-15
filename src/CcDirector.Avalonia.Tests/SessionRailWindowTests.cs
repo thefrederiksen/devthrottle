@@ -168,6 +168,39 @@ public sealed class SessionRailWindowTests
         Assert.True(architect.IsCrewExpanded);
     }
 
+    /// <summary>
+    /// REVEAL WALKS THE WHOLE CHAIN, NOT ONE LINK OF IT. The test above is a two-level rig, which is the
+    /// level the original defect was found at - and a rail that opened only the crew DIRECTLY over the
+    /// session would pass it while leaving every grandchild exactly as invisible as before.
+    ///
+    /// Three levels is where that shows: opening the Middle's crew alone achieves nothing, because while
+    /// the Owner's crew is closed the Middle has no row either, so the Worker still has nowhere to
+    /// appear and the click still looks broken. Every crew above the session has to open.
+    /// </summary>
+    [AvaloniaFact]
+    public void SelectingAGrandchild_OpensEveryCrewAboveIt_NotOnlyTheOneDirectlyOverIt()
+    {
+        var window = new MainWindow();
+        var owner = Make("Owner", sortOrder: 0);
+        var middle = Make("Middle", owner, sortOrder: 1);
+        var worker = Make("Worker", middle, sortOrder: 2);
+
+        var vms = new[] { new SessionViewModel(owner), new SessionViewModel(middle), new SessionViewModel(worker) };
+        foreach (var vm in vms) window._sessions.Add(vm);
+        window.RememberExpandedCrews = _ => { };
+        window.BindSessionRail();
+
+        // Both crews closed: the Owner is the only row on the rail, and the Worker is two closed crews
+        // beneath it.
+        Assert.Equal(new[] { "Owner" }, RowNames(window));
+
+        window.SelectSession(vms[2]);
+
+        Assert.Equal(new[] { "Owner", "Middle", "Worker" }, RowNames(window));
+        Assert.True(vms[0].IsCrewExpanded);
+        Assert.True(vms[1].IsCrewExpanded);
+    }
+
     /// <summary>An inert backend: the Session needs one, these tests never run a process.</summary>
     private sealed class InertBackend : ISessionBackend
     {
