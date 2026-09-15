@@ -6,8 +6,11 @@ So this search refuses to report a clean result unless, for every file it search
 
 1. the file exists and is not empty (otherwise it is a broken instrument, not a clean run);
 2. the file contains a marker proving it covers the run being checked (the caller names it);
-3. a copy of the file's own head with the secret planted in it - once for every form searched - IS
-   found by the same code path. A search that cannot find a planted secret cannot certify its absence.
+3. a copy of the file's own head with the secret planted in it - every form, in every encoding
+   searched - IS found by the same code path. A search that cannot find a planted secret cannot
+   certify its absence.
+
+It searches the same forms and encodings the scrubber removes, so the two cannot drift apart.
 """
 
 from __future__ import annotations
@@ -21,9 +24,9 @@ TOOL_DIR = Path(__file__).resolve().parent.parent
 if str(TOOL_DIR) not in sys.path:
     sys.path.insert(0, str(TOOL_DIR))
 
-from src.redact import variants_for  # noqa: E402
+from src.redact import output_encodings, variants_for  # noqa: E402
 
-PLANT_SAMPLE_BYTES = 256 * 1024
+PLANT_SAMPLE_BYTES = 64 * 1024
 
 
 class BrokenInstrumentError(AssertionError):
@@ -44,21 +47,21 @@ class SecretSearch:
         for secret, username in secrets:
             forms.update(variants_for(secret, username))
         self._forms = sorted(forms, key=len, reverse=True)
+        self._encodings = output_encodings()
         self._needles = []
-        for form in self._forms:
-            self._needles.append((form.encode("utf-8"), "utf-8"))
-            self._needles.append((form.encode("utf-16-le"), "utf-16-le"))
+        for index, form in enumerate(self._forms):
+            for encoding in self._encodings:
+                try:
+                    self._needles.append((form.encode(encoding), index, encoding))
+                except UnicodeEncodeError:
+                    continue
 
     @property
     def form_count(self) -> int:
         return len(self._forms)
 
     def hits_in_bytes(self, data: bytes, label: str) -> List[Hit]:
-        hits = []
-        for index, (needle, encoding) in enumerate(self._needles):
-            if needle in data:
-                hits.append(Hit(label, index // 2, encoding))
-        return hits
+        return [Hit(label, index, encoding) for needle, index, encoding in self._needles if needle in data]
 
     def search_file(self, path: Path, marker: str, workdir: Path) -> List[Hit]:
         """Search one file after proving the search works on it. Returns the hits (empty is clean)."""
@@ -83,13 +86,14 @@ class SecretSearch:
         return count, hits
 
     def prove_detects(self, sample: bytes, label: str, workdir: Path) -> None:
-        """Plant every form in a copy of `sample` on disk and require the search to find each one."""
+        """Plant every form, in every encoding, in a copy of `sample` on disk; require each to be found."""
         workdir.mkdir(parents=True, exist_ok=True)
         planted_file = workdir / f"planted-{label}"
-        for index, form in enumerate(self._forms):
-            for encoding in ("utf-8", "utf-16-le"):
-                planted_file.write_bytes(sample + b"\n noise " + form.encode(encoding) + b" noise\n")
-                found = self.hits_in_bytes(planted_file.read_bytes(), label)
-                if not any(h.form_index == index and h.encoding == encoding for h in found):
-                    raise BrokenInstrumentError(f"The search could not find a planted secret in {label} ({encoding}).")
+        for encoding in self._encodings:
+            wanted = [(needle, index) for needle, index, enc in self._needles if enc == encoding]
+            planted_file.write_bytes(sample + b"".join(b"\n noise " + needle + b" noise\n" for needle, _ in wanted))
+            found = {h.form_index for h in self.hits_in_bytes(planted_file.read_bytes(), label) if h.encoding == encoding}
+            missing = [index for _, index in wanted if index not in found]
+            if missing:
+                raise BrokenInstrumentError(f"The search could not find a planted secret in {label} ({encoding}).")
         planted_file.unlink()

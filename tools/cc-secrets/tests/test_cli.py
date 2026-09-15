@@ -2,6 +2,8 @@ import getpass
 import json
 import sys
 
+import pytest
+
 from typer.testing import CliRunner
 
 from conftest import add_entry, new_secret
@@ -246,6 +248,68 @@ def test_Login_WithoutDirector_FailsWithReason(store, monkeypatch):
     assert result.exit_code == cli.EXIT_FAILED
     assert "CC_DIRECTOR_ID" in _all_text(result)
     assert _audit_lines()[-1]["outcome"] == "failed"
+
+
+BACKSLASH = chr(92)
+
+
+def test_IsMsysPtyPipeName_RecognisesOnlyAGitBashTerminal():
+    assert cli.is_msys_pty_pipe_name(BACKSLASH + "msys-dd50a72ab4668b33-pty0-from-master")
+    assert cli.is_msys_pty_pipe_name(BACKSLASH + "cygwin-e022582115c10879-pty3-from-master")
+    assert not cli.is_msys_pty_pipe_name(BACKSLASH + "msys-dd50a72ab4668b33-5836-pipe-0x1")
+    assert not cli.is_msys_pty_pipe_name("")
+
+
+def test_Add_FromAGitBashTerminal_RefusedBeforeReadingAnything(store, monkeypatch, plain):
+    monkeypatch.setattr(cli, "_stdin_is_mintty", lambda: True)
+
+    result = runner.invoke(cli.app, ["add", "web", "--username", "u", "--domains", "example.com", "--agents"],
+                           input="typed-visibly\n")
+
+    assert result.exit_code == cli.EXIT_REFUSED
+    assert "PowerShell or cmd" in " ".join(plain(_all_text(result)).split())
+    assert store.get("web") is None
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows pipe names")
+@pytest.mark.parametrize("pipe_name,expected", [
+    ("msys-{hex}-pty7-from-master", "True"),
+    ("cc-secrets-ordinary-pipe-{hex}", "False"),
+])
+def test_StdinIsMintty_ReadsTheNameOfTheRealPipeOnStandardInput(pipe_name, expected):
+    import ctypes
+    import msvcrt
+    import os
+    import secrets as token
+    import subprocess
+    from ctypes import wintypes
+
+    from conftest import TOOL_DIR
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateNamedPipeW.restype = wintypes.HANDLE
+    kernel32.CreateNamedPipeW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.DWORD,
+                                          wintypes.DWORD, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p]
+    kernel32.CreateFileW.restype = wintypes.HANDLE
+    kernel32.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p,
+                                     wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    invalid = ctypes.c_void_p(-1).value
+    full_name = BACKSLASH * 2 + "." + BACKSLASH + "pipe" + BACKSLASH + pipe_name.format(hex=token.token_hex(8))
+    PIPE_ACCESS_OUTBOUND, GENERIC_READ, OPEN_EXISTING = 0x2, 0x80000000, 3
+    server = kernel32.CreateNamedPipeW(full_name, PIPE_ACCESS_OUTBOUND, 0, 1, 4096, 4096, 0, None)
+    assert server not in (None, invalid)
+    client = kernel32.CreateFileW(full_name, GENERIC_READ, 0, None, OPEN_EXISTING, 0, None)
+    assert client not in (None, invalid)
+    descriptor = msvcrt.open_osfhandle(client, os.O_RDONLY)
+    try:
+        code = f"import sys; sys.path.insert(0, {str(TOOL_DIR)!r}); import src.cli as c; print(c._stdin_is_mintty())"
+        result = subprocess.run([sys.executable, "-c", code], stdin=descriptor, capture_output=True, text=True, timeout=60)
+    finally:
+        os.close(descriptor)
+        kernel32.CloseHandle(server)
+
+    assert result.stdout.strip() == expected, result.stderr
 
 
 def test_Log_ShowsAuditLines(store):

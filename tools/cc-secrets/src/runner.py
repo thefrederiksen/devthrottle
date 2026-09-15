@@ -7,8 +7,9 @@ Three ways to supply the secret, chosen by the caller:
 - askpass: SUDO_ASKPASS, SSH_ASKPASS and GIT_ASKPASS point at a helper that fetches the secret from a
            one-shot loopback listener guarded by a random per-run token.
 
-The command's output is captured in full and scrubbed before anything is returned. It is not streamed:
-a secret split across two reads would slip past a scrub of each read on its own.
+The command's output is captured in full and scrubbed as bytes, in every encoding it may be in, before it
+is decoded and returned. It is not streamed: a secret split across two reads would slip past a scrub of
+each read on its own.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ from pathlib import Path
 from typing import List
 
 from . import filelog
+from .errors import InputError
 from .redact import SCRUBBER
 from .store import Entry
 
@@ -100,7 +102,7 @@ def _askpass_script(folder: Path) -> Path:
 def _resolve_program(command: List[str]) -> List[str]:
     found = shutil.which(command[0])
     if found is None:
-        raise FileNotFoundError(f"Command not found: {command[0]}")
+        raise InputError(f"Command not found: {command[0]}")
     return [found] + command[1:]
 
 
@@ -108,9 +110,9 @@ def run_with_secret(entry: Entry, command: List[str], via: str, env_name: str = 
                     timeout_seconds: float = 600) -> RunResult:
     """Run `command` with the entry's secret supplied `via` stdin, env or askpass."""
     if not command:
-        raise ValueError("No command was given. Put it after '--', for example: run devlinux -- sudo -S true")
+        raise InputError("No command was given. Put it after '--', for example: run devlinux -- sudo -S true")
     if via not in VIA_CHOICES:
-        raise ValueError(f"--via must be one of: {', '.join(VIA_CHOICES)}")
+        raise InputError(f"--via must be one of: {', '.join(VIA_CHOICES)}")
     filelog.write(f"[runner] run_with_secret: entry={entry.name}, via={via}, program={Path(command[0]).name}")
 
     secret = entry.secret.reveal()
@@ -154,8 +156,8 @@ def run_with_secret(entry: Entry, command: List[str], via: str, env_name: str = 
             out, err = process.communicate()
         result = RunResult(
             exit_code=process.returncode,
-            stdout=SCRUBBER.scrub(out.decode("utf-8", errors="replace")),
-            stderr=SCRUBBER.scrub(err.decode("utf-8", errors="replace")),
+            stdout=SCRUBBER.decode_scrubbed(out),
+            stderr=SCRUBBER.decode_scrubbed(err),
             timed_out=timed_out,
         )
         filelog.write(f"[runner] run_with_secret: entry={entry.name}, exit={result.exit_code}, timedOut={timed_out}")

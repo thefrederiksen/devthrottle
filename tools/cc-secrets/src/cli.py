@@ -6,6 +6,10 @@ through the process-wide scrubber, and the commands that act with a secret hand 
 The owner calls `add` and `remove` from their own terminal. Those commands refuse to run inside a
 DevThrottle session, and `add` takes the secret only from a hidden prompt or piped on standard input -
 never as a command-line argument, where it would land in shell history and the process list.
+
+No error is ever printed as a traceback. The console-script entry point is `main`, which shows an
+unexpected error by its type name alone: a traceback's messages and local variables can hold the whole
+store. Typer's own pretty tracebacks, which print local variables, are switched off as well.
 """
 
 from __future__ import annotations
@@ -13,10 +17,12 @@ from __future__ import annotations
 import getpass
 import json
 import os
+import re
 import sys
+import traceback
 import warnings
 from pathlib import Path
-from typing import List, Optional
+from typing import List, NoReturn, Optional
 from urllib.parse import urlsplit
 
 import typer
@@ -26,7 +32,8 @@ from rich.table import Table
 from . import _console  # noqa: F401  (installs the ASCII-only output patches)
 from . import __version__, filelog, paths
 from .audit import AuditLog
-from .browser_login import CdpError, login as browser_login, OUTCOME_LOGGED_IN
+from .browser_login import OUTCOME_LOGGED_IN, OUTCOME_REFUSED, login as browser_login
+from .errors import CcSecretsError
 from .redact import SCRUBBER
 from .runner import DEFAULT_ENV_NAME, VIA_CHOICES, run_with_secret
 from .store import USES, EntryNotAvailableError, SecretStore, make_entry
@@ -37,18 +44,30 @@ _tools_dir = str(Path(__file__).resolve().parent.parent.parent)
 if _tools_dir not in sys.path:
     sys.path.insert(0, _tools_dir)
 
+PROTECTION = ("It protects against accidental exposure (transcripts, logs, output, screenshots), not against a "
+              "hostile program running as the same user.")
+
 app = typer.Typer(
     name="cc-secrets",
-    help="Use a stored password without the model ever seeing it. Agents: list, run, login. Owner: add, remove. Anyone: log. "
-         "It protects against accidental exposure (transcripts, logs, output, screenshots), not against a hostile "
-         "program running as the same user.",
+    help="Use a stored password without the model ever seeing it. Agents: list, run, login. Owner: add, remove. "
+         "Anyone: log. " + PROTECTION,
     add_completion=False,
     no_args_is_help=True,
+    pretty_exceptions_enable=False,
+    pretty_exceptions_show_locals=False,
 )
 console = Console()
 
 EXIT_FAILED = 1
 EXIT_REFUSED = 2
+
+MINTTY_MESSAGE = (
+    "This terminal (Git Bash, or another mintty window) cannot hide what you type, so cc-secrets will not "
+    "read a secret from it. Run 'cc-secrets add' from PowerShell or cmd, or pipe the secret in, for example: "
+    "<password manager command> | cc-secrets add NAME --username USER --domains https://example.com --agents"
+)
+
+_MSYS_PTY_PIPE = re.compile(r"\\(?:msys|cygwin)-[0-9a-f]+-pty\d+-(?:from|to)-master", re.IGNORECASE)
 
 
 def _say(text: str, err: bool = False) -> None:
@@ -61,12 +80,33 @@ def _say_json(payload: object) -> None:
     _say(json.dumps(payload, indent=2))
 
 
+def _describe(exc: BaseException) -> str:
+    """What may be shown about an error: a message cc-secrets wrote itself, or only the type of anything else."""
+    if isinstance(exc, CcSecretsError):
+        return SCRUBBER.scrub(str(exc))
+    return f"an unexpected {type(exc).__name__} (details, without any store content, are in the cc-secrets tool log)"
+
+
+def _log_failure(where: str, exc: BaseException) -> None:
+    """Log where it failed: the type and the stack of code lines, never the message or local variables."""
+    stack = "".join(traceback.format_list(traceback.extract_tb(exc.__traceback__)))
+    message = f": {exc}" if isinstance(exc, CcSecretsError) else ""
+    filelog.write(f"[cli] {where} FAILED: {type(exc).__name__}{message}\n{stack}")
+
+
 def _store() -> SecretStore:
     return SecretStore(UserOnlyFile(paths.store_path()))
 
 
 def _audit() -> AuditLog:
     return AuditLog(paths.audit_path())
+
+
+def _fail(command: str, name: str, label: str, exc: BaseException) -> NoReturn:
+    _log_failure(command, exc)
+    _audit().record(name, label, "failed", _describe(exc))
+    _say(f"failed: {_describe(exc)}", err=True)
+    raise typer.Exit(EXIT_FAILED)
 
 
 def _owner_only(command: str) -> None:
@@ -81,6 +121,39 @@ def _stdin_is_tty() -> bool:
     return sys.stdin.isatty()
 
 
+def is_msys_pty_pipe_name(name: str) -> bool:
+    """True for the pipe a Git Bash (mintty) window connects to a program's standard input."""
+    return bool(_MSYS_PTY_PIPE.search(name or ""))
+
+
+def _stdin_is_mintty() -> bool:
+    """True when standard input is a Git Bash or Cygwin terminal window rather than a real pipe.
+
+    mintty is not a Windows console, so a program's standard input there is a named pipe and does not
+    count as a terminal - yet the person is typing into it, and it shows every character. The pipe's
+    name tells the two apart.
+    """
+    if sys.platform != "win32":
+        return False
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    try:
+        handle = msvcrt.get_osfhandle(sys.stdin.fileno())
+    except (OSError, ValueError, AttributeError):
+        return False  # standard input has no operating-system handle (an in-memory stream)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.GetFileInformationByHandleEx.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    kernel32.GetFileInformationByHandleEx.restype = wintypes.BOOL
+    FILE_NAME_INFO_CLASS = 2
+    buffer = ctypes.create_string_buffer(4 + 4096)
+    if not kernel32.GetFileInformationByHandleEx(handle, FILE_NAME_INFO_CLASS, buffer, len(buffer)):
+        return False
+    length = int.from_bytes(buffer.raw[:4], "little")
+    return is_msys_pty_pipe_name(buffer.raw[4:4 + length].decode("utf-16-le", "replace"))
+
+
 def _read_secret_from_owner() -> str:
     """The secret from a hidden prompt (typed twice), or piped on standard input."""
     if not _stdin_is_tty():
@@ -88,7 +161,7 @@ def _read_secret_from_owner() -> str:
         secret = piped[:-1] if piped.endswith("\n") else piped
         secret = secret[:-1] if secret.endswith("\r") else secret
         if "\n" in secret:
-            raise ValueError("The piped secret has more than one line. Pipe exactly one line.")
+            raise CcSecretsError("The piped secret has more than one line. Pipe exactly one line.")
         return secret
     with warnings.catch_warnings():
         # getpass falls back to a VISIBLE prompt when it cannot hide input; make that an error instead.
@@ -96,7 +169,7 @@ def _read_secret_from_owner() -> str:
         first = getpass.getpass("Secret (hidden): ")
         second = getpass.getpass("Secret again: ")
     if first != second:
-        raise ValueError("The two entries did not match. Nothing was saved.")
+        raise CcSecretsError("The two entries did not match. Nothing was saved.")
     return first
 
 
@@ -108,7 +181,7 @@ def _split_list(value: str) -> List[str]:
 def add(
     name: str = typer.Argument(..., help="Entry name, for example devlinux or github-work."),
     username: Optional[str] = typer.Option(None, "--username", help="The user name that goes with the secret."),
-    domains: Optional[str] = typer.Option(None, "--domains", help="Comma-separated hosts login may fill, for example example.com,*.example.com."),
+    domains: Optional[str] = typer.Option(None, "--domains", help="Comma-separated site addresses login may fill, for example https://example.com,https://*.example.com,http://127.0.0.1:8080. No scheme means https; scheme and port must match exactly."),
     notes: Optional[str] = typer.Option(None, "--notes", help="A note for yourself. Agents see it in list."),
     agents: Optional[bool] = typer.Option(None, "--agents/--no-agents", help="Whether sessions on this machine may use it."),
     uses: Optional[str] = typer.Option(None, "--uses", help="Comma-separated: login, run. Default both."),
@@ -116,8 +189,11 @@ def add(
 ):
     """OWNER: add or replace an entry. The secret comes from a hidden prompt, or piped on stdin."""
     _owner_only("add")
+    interactive = _stdin_is_tty()
+    if not interactive and _stdin_is_mintty():
+        _say(MINTTY_MESSAGE, err=True)
+        raise typer.Exit(EXIT_REFUSED)
     try:
-        interactive = _stdin_is_tty()
         if not interactive and (username is None or domains is None or agents is None):
             _say("With the secret piped on stdin there is no prompt for the other fields: pass --username, "
                  "--domains and --agents or --no-agents.", err=True)
@@ -130,7 +206,7 @@ def add(
         if username is None:
             username = typer.prompt("Username", default="", show_default=False)
         if domains is None:
-            domains = typer.prompt("Allowed domains for login (comma-separated, blank for none)", default="", show_default=False)
+            domains = typer.prompt("Allowed site addresses for login (comma-separated, blank for none)", default="", show_default=False)
         if notes is None:
             notes = typer.prompt("Notes", default="", show_default=False) if interactive else ""
         if agents is None:
@@ -142,12 +218,13 @@ def add(
         replaced = store.put(entry)
         _audit().record(name, "add", "ok", "replaced" if replaced else "added")
         _say(f"{'Replaced' if replaced else 'Added'} '{name}' in {store.location}. "
-             f"Agents may use it: {'yes' if entry.agents_may_use else 'no'}. Uses: {', '.join(entry.uses)}.")
+             f"Agents may use it: {'yes' if entry.agents_may_use else 'no'}. Uses: {', '.join(entry.uses)}. "
+             f"Allowed addresses: {', '.join(entry.allowed_domains) or 'none'}.")
     except typer.Exit:
         raise
     except Exception as exc:
-        filelog.write(f"[cli] add FAILED: {exc}")
-        _say(f"add failed: {exc}", err=True)
+        _log_failure("add", exc)
+        _say(f"add failed: {_describe(exc)}", err=True)
         raise typer.Exit(EXIT_FAILED)
 
 
@@ -169,8 +246,8 @@ def remove(
     except typer.Exit:
         raise
     except Exception as exc:
-        filelog.write(f"[cli] remove FAILED: {exc}")
-        _say(f"remove failed: {exc}", err=True)
+        _log_failure("remove", exc)
+        _say(f"remove failed: {_describe(exc)}", err=True)
         raise typer.Exit(EXIT_FAILED)
 
 
@@ -179,7 +256,7 @@ def list_entries(
     all_entries: bool = typer.Option(False, "--all", help="OWNER: include entries agents may not use."),
     json_output: bool = typer.Option(False, "--json", help="Print JSON."),
 ):
-    """Show the entries agents may use: names, usernames, allowed domains. Never secrets."""
+    """Show the entries agents may use: names, usernames, allowed addresses. Never secrets."""
     if all_entries:
         _owner_only("list --all")
     try:
@@ -193,7 +270,7 @@ def list_entries(
             _say("No secrets are available to agents on this machine." if not all_entries else "The store is empty.")
             return
         table = Table(show_lines=False)
-        for column in ("Name", "Username", "Allowed domains", "Uses") + (("Agents",) if all_entries else ()) + ("Notes",):
+        for column in ("Name", "Username", "Allowed addresses", "Uses") + (("Agents",) if all_entries else ()) + ("Notes",):
             table.add_column(column)
         for v in views:
             row = [v["name"], v["username"], ", ".join(v["allowedDomains"]), ", ".join(v["uses"])]
@@ -203,9 +280,18 @@ def list_entries(
             table.add_row(*[SCRUBBER.scrub(str(c)) for c in row])
         console.print(table)
     except Exception as exc:
-        filelog.write(f"[cli] list FAILED: {exc}")
-        _say(f"list failed: {exc}", err=True)
+        _log_failure("list", exc)
+        _say(f"list failed: {_describe(exc)}", err=True)
         raise typer.Exit(EXIT_FAILED)
+
+
+def _refused(name: str, label: str, exc: EntryNotAvailableError, json_output: bool) -> NoReturn:
+    _audit().record(name, label, "refused", str(exc))
+    if json_output:
+        _say_json({"entry": name, "outcome": OUTCOME_REFUSED, "reason": _describe(exc)})
+    else:
+        _say(f"refused: {_describe(exc)}", err=True)
+    raise typer.Exit(EXIT_REFUSED)
 
 
 @app.command()
@@ -221,23 +307,19 @@ def run(
 
     Example: cc-secrets run devlinux -- sudo -S apt-get update
     """
-    audit = _audit()
     label = "run " + " ".join(command or [])[:200]
     try:
         entry = _store().entry_for_agent(name, "run")
     except EntryNotAvailableError as exc:
-        audit.record(name, label, "refused", str(exc))
-        _say(f"refused: {exc}", err=True)
-        raise typer.Exit(EXIT_REFUSED)
+        _refused(name, label, exc, json_output)
+    except Exception as exc:
+        _fail("run", name, label, exc)
     try:
         result = run_with_secret(entry, command or [], via, env_name, timeout)
     except Exception as exc:
-        filelog.write(f"[cli] run FAILED: {exc}")
-        audit.record(name, label, "failed", str(exc))
-        _say(f"failed: {exc}", err=True)
-        raise typer.Exit(EXIT_FAILED)
+        _fail("run", name, label, exc)
     outcome = "ok" if result.exit_code == 0 and not result.timed_out else "failed"
-    audit.record(name, label, outcome, f"exit {result.exit_code}" + (", timed out" if result.timed_out else ""))
+    _audit().record(name, label, outcome, f"exit {result.exit_code}" + (", timed out" if result.timed_out else ""))
     if json_output:
         _say_json({"entry": name, "exitCode": result.exit_code, "timedOut": result.timed_out,
                    "stdout": result.stdout, "stderr": result.stderr})
@@ -262,18 +344,21 @@ def _browser_port(target: str) -> int:
 
     director_id = (os.environ.get("CC_DIRECTOR_ID") or "").strip()
     if not director_id:
-        raise RuntimeError("CC_DIRECTOR_ID is not set. login drives a Director-owned browser and only works inside a DevThrottle session.")
-    payload = gateway.get_json(f"directors/{director_id}/browsers") or {}
+        raise CcSecretsError("CC_DIRECTOR_ID is not set. login drives a Director-owned browser and only works inside a DevThrottle session.")
+    try:
+        payload = gateway.get_json(f"directors/{director_id}/browsers") or {}
+    except gateway.GatewayError as exc:
+        raise CcSecretsError(f"The Director could not be asked for its browsers: {exc}") from exc
     browsers = payload.get("browsers", payload.get("Browsers", [])) or []
     key = target.strip().lower()
     match = next((b for b in browsers if gateway.field(b, "id", "Id").lower() == key), None) \
         or next((b for b in browsers if gateway.field(b, "name", "Name").lower() == key), None)
     if match is None:
         names = ", ".join(gateway.field(b, "id", "Id") for b in browsers) or "none"
-        raise RuntimeError(f"No Director-owned browser named '{target}' on this machine (browsers: {names}).")
+        raise CcSecretsError(f"No Director-owned browser named '{target}' on this machine (browsers: {names}).")
     address = urlsplit(gateway.field(match, "buCdpUrl", "BuCdpUrl"))
     if address.hostname not in ("127.0.0.1", "localhost") or not address.port:
-        raise RuntimeError(f"Browser '{target}' does not have a loopback debug address.")
+        raise CcSecretsError(f"Browser '{target}' does not have a loopback debug address.")
     return address.port
 
 
@@ -284,27 +369,23 @@ def login(
     timeout: float = typer.Option(30, "--timeout", help="Seconds to wait for the login to complete."),
     json_output: bool = typer.Option(False, "--json", help="Print JSON."),
 ):
-    """Fill and submit the login form on the open tab of the entry's site. Refuses any other domain.
+    """Fill and submit the login form on the open tab of the entry's site. Refuses any other address.
 
     Open the login page in that browser first (cc-devthrottle browser start, then browser-harness).
     """
-    audit = _audit()
     label = f"login --browser {browser}"
     try:
         entry = _store().entry_for_agent(name, "login")
     except EntryNotAvailableError as exc:
-        audit.record(name, label, "refused", str(exc))
-        _say(f"refused: {exc}", err=True)
-        raise typer.Exit(EXIT_REFUSED)
+        _refused(name, label, exc, json_output)
+    except Exception as exc:
+        _fail("login", name, label, exc)
     try:
         result = browser_login(entry, _browser_port(browser), timeout)
-    except (CdpError, RuntimeError, OSError) as exc:
-        filelog.write(f"[cli] login FAILED: {exc}")
-        audit.record(name, label, "failed", str(exc))
-        _say(f"failed: {exc}", err=True)
-        raise typer.Exit(EXIT_FAILED)
+    except Exception as exc:
+        _fail("login", name, label, exc)
     outcome = {"logged in": "ok", "refused": "refused"}.get(result.outcome, "failed")
-    audit.record(name, label, outcome, f"{result.outcome}: {result.reason} host={result.host}")
+    _audit().record(name, label, outcome, f"{result.outcome}: {result.reason} origin={result.host}")
     if json_output:
         _say_json({"entry": name, "outcome": result.outcome, "reason": result.reason, "host": result.host})
     elif result.outcome == OUTCOME_LOGGED_IN:
@@ -312,7 +393,7 @@ def login(
     else:
         _say(f"{result.outcome}: {result.reason}", err=True)
     if result.outcome != OUTCOME_LOGGED_IN:
-        raise typer.Exit(EXIT_REFUSED if result.outcome == "refused" else EXIT_FAILED)
+        raise typer.Exit(EXIT_REFUSED if result.outcome == OUTCOME_REFUSED else EXIT_FAILED)
 
 
 @app.command("log")
@@ -336,8 +417,8 @@ def show_log(
             table.add_row(*[SCRUBBER.scrub(str(l.get(k, ""))) for k in ("time", "entry", "session", "command", "outcome", "detail")])
         console.print(table)
     except Exception as exc:
-        filelog.write(f"[cli] log FAILED: {exc}")
-        _say(f"log failed: {exc}", err=True)
+        _log_failure("log", exc)
+        _say(f"log failed: {_describe(exc)}", err=True)
         raise typer.Exit(EXIT_FAILED)
 
 
@@ -345,3 +426,25 @@ def show_log(
 def version():
     """Print the version."""
     _say(__version__)
+
+
+def main() -> None:
+    """The console-script entry point. Whatever escapes a command is shown without a traceback."""
+    try:
+        app()
+    except SystemExit:
+        raise
+    except KeyboardInterrupt:
+        _say("cc-secrets: interrupted.", err=True)
+        raise SystemExit(130)
+    except BaseException as exc:
+        try:
+            _log_failure("main", exc)
+        except BaseException:
+            pass  # the log itself may be what failed (for example, the folder's permissions); still say why below
+        _say(f"cc-secrets stopped: {_describe(exc)}", err=True)
+        raise SystemExit(EXIT_FAILED)
+
+
+if __name__ == "__main__":
+    main()

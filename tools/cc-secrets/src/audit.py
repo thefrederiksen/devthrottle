@@ -1,8 +1,9 @@
 """The audit log: one JSON line per use of a secret, and never the secret.
 
 Each line records the time, the entry, the session that asked (CC_SESSION_ID, empty outside a
-session), the machine, the command, and the outcome. A line that would contain any form of an open
-secret is refused before it reaches the disk - that is an error, not a line quietly rewritten.
+session), the machine, the command, and the outcome. A line that would contain any form of a secret
+this process has read is refused before it reaches the disk - that is an error, not a line quietly
+rewritten. The log lives in the private secrets folder, whose permissions are checked before writing.
 """
 
 from __future__ import annotations
@@ -14,10 +15,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List
 
+from . import paths
+from .errors import CcSecretsError
 from .redact import SCRUBBER
 
 
-class AuditLineContainsSecretError(RuntimeError):
+class AuditLineContainsSecretError(CcSecretsError):
     """An audit line was about to be written with a secret in it."""
 
 
@@ -42,7 +45,7 @@ class AuditLog:
         text = json.dumps(line, ensure_ascii=True)
         if SCRUBBER.contains(text):
             raise AuditLineContainsSecretError("Refused to write an audit line that contained a secret.")
-        self._path.parent.mkdir(parents=True, exist_ok=True)
+        paths.ensure_home()
         with open(self._path, "a", encoding="utf-8") as fh:
             fh.write(text + "\n")
         return line

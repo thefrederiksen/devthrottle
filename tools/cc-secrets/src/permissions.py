@@ -26,8 +26,13 @@ import sys
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+from .errors import CcSecretsError
 
-class StorePermissionError(RuntimeError):
+# Written into a folder once cc-secrets has created and locked it. Only such a folder is ever tightened.
+FOLDER_MARKER = ".cc-secrets-folder"
+
+
+class StorePermissionError(CcSecretsError, RuntimeError):
     """The store's folder or file is open to someone other than this user and could not be tightened."""
 
 
@@ -219,22 +224,39 @@ def file_problem(path: Path) -> Optional[str]:
 
 
 def ensure_private_folder(folder: Path) -> Optional[str]:
-    """Create the folder if needed and make it private to this user.
+    """Create the folder if needed and make sure it is private to this user.
+
+    Permissions are only ever CHANGED on a folder cc-secrets created itself (it carries FOLDER_MARKER).
+    An existing folder that is already private is adopted; an existing folder that is not private is
+    refused and left exactly as it is, because it belongs to someone else's arrangement - pointing
+    CC_SECRETS_HOME at it must not strip other accounts' access.
 
     Returns a note when it had to tighten permissions (for the log), None when they were already right.
-    Raises StorePermissionError when they are still open afterwards.
+    Raises StorePermissionError when the folder is not private and may not or cannot be made so.
     """
+    created = not folder.exists()
     folder.mkdir(parents=True, exist_ok=True)
+    marker = folder / FOLDER_MARKER
     problem = folder_problem(folder)
     if problem is None:
+        if not marker.exists():
+            marker.write_text("This folder holds cc-secrets data and is kept private to its owner." + chr(10), encoding="utf-8")
         return None
+    if not created and not marker.exists():
+        raise StorePermissionError(
+            f"{folder} already exists and is not private to this user ({problem}). cc-secrets only changes the "
+            "permissions of a folder it created itself, so it has left this one unchanged. Point CC_SECRETS_HOME "
+            "at a folder that does not exist yet, or make this folder private to your account first."
+        )
     if sys.platform == "win32":
         _tighten_windows_folder(folder)
     else:
         os.chmod(folder, 0o700)
     remaining = folder_problem(folder)
     if remaining is not None:
-        raise StorePermissionError(f"The secret store folder is not private to this user: {remaining}")
+        raise StorePermissionError(f"The secrets folder is not private to this user: {remaining}")
+    if not marker.exists():
+        marker.write_text("This folder holds cc-secrets data and is kept private to its owner." + chr(10), encoding="utf-8")
     return f"tightened folder permissions ({problem})"
 
 

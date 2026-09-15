@@ -4,6 +4,13 @@ A secret is held in a `Secret`, whose text form is always "<hidden>". Printing a
 into an error, or logging it therefore cannot show the secret by accident; only `reveal()` returns the
 value, and only the places that act with it (the command runner, the browser login, and saving the
 store) call it.
+
+Reading the store hands every secret in it to the scrubber before anything else is done with the file,
+so no later output, log line or error message of this process can carry any of them.
+
+An entry's allowed addresses are ORIGINS: scheme, host and port, compared exactly. "example.com" means
+https://example.com on port 443 and nothing else; http://example.com or https://example.com:8443 are
+different sites. A wildcard '*.example.com' allows subdomains on the same scheme and port, not the apex.
 """
 
 from __future__ import annotations
@@ -12,12 +19,17 @@ import json
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
+from urllib.parse import urlsplit
 
 from . import filelog
+from .errors import CcSecretsError, InputError, StoreFormatError
+from .redact import SCRUBBER
 from .storefile import StoreFile
 
 NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
+_HOST_PATTERN = re.compile(r"^(\*\.)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$")
+DEFAULT_PORTS = {"http": 80, "https": 443}
 MIN_SECRET_LENGTH = 4
 USES = ("login", "run")
 STORE_VERSION = 1
@@ -43,43 +55,85 @@ class Secret:
         return "<hidden>"
 
 
-class EntryNotAvailableError(LookupError):
+class EntryNotAvailableError(CcSecretsError, LookupError):
     """No entry by that name is available for the requested use."""
 
 
 def validate_name(name: str) -> str:
     if not NAME_PATTERN.match(name or ""):
-        raise ValueError(
+        raise InputError(
             f"'{name}' is not a valid entry name: use lowercase letters, digits, dot, dash or underscore, "
             "starting with a letter or digit, at most 64 characters."
         )
     return name
 
 
-def normalize_domain(value: str) -> str:
-    """A host name or a '*.example.com' wildcard, lowercased, with any scheme, port or path removed."""
-    text = value.strip().lower()
-    text = re.sub(r"^[a-z][a-z0-9+.-]*://", "", text)
-    text = text.split("/", 1)[0].split(":", 1)[0]
-    if not text or not re.match(r"^(\*\.)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$", text):
-        raise ValueError(f"'{value}' is not a host name or a '*.domain' wildcard.")
-    return text
+def normalize_origin(value: str) -> str:
+    """The owner's address as a canonical origin: scheme://host[:port], the port left out when it is the
+    scheme's default. No scheme means https. A path is dropped; a user name, another scheme, a bare
+    top-level wildcard such as '*.com', or anything that is not a host name is refused."""
+    text = value.strip()
+    if not text:
+        raise InputError("An allowed address cannot be empty.")
+    if "://" not in text:
+        text = "https://" + text
+    parts = urlsplit(text)
+    scheme = parts.scheme.lower()
+    if scheme not in DEFAULT_PORTS:
+        raise InputError(f"'{value}' must be an http or https address.")
+    if "@" in parts.netloc:
+        raise InputError(f"'{value}' must not contain a user name.")
+    host = (parts.hostname or "").rstrip(".")
+    if not _HOST_PATTERN.match(host):
+        raise InputError(f"'{value}' is not a host name or a '*.domain' wildcard.")
+    if host.startswith("*.") and "." not in host[2:]:
+        raise InputError(f"'{value}' is too broad: a wildcard needs at least a name and a top-level domain, "
+                         "for example '*.example.com'.")
+    try:
+        port = parts.port
+    except ValueError as exc:
+        raise InputError(f"'{value}' has a port that is not a number between 0 and 65535.") from exc
+    port_text = "" if port is None or port == DEFAULT_PORTS[scheme] else f":{port}"
+    return f"{scheme}://{host}{port_text}"
 
 
-def host_allowed(host: str, allowed: List[str]) -> bool:
-    """True when `host` exactly equals an allowed host, or is a subdomain of an allowed '*.domain'.
-
-    A wildcard does not match its own apex: '*.example.com' allows 'login.example.com' but not
-    'example.com'. Nothing is implied - the owner lists what the password may be typed into.
-    """
-    host = (host or "").lower().rstrip(".")
+def _origin_parts(url: str) -> Optional[Tuple[str, str, int]]:
+    parts = urlsplit(url or "")
+    scheme = parts.scheme.lower()
+    if scheme not in DEFAULT_PORTS or "@" in parts.netloc:
+        return None
+    host = (parts.hostname or "").lower().rstrip(".")
     if not host:
+        return None
+    try:
+        port = parts.port
+    except ValueError:
+        return None
+    return scheme, host, port if port is not None else DEFAULT_PORTS[scheme]
+
+
+def origin_of(url: str) -> str:
+    """scheme://host:port of `url` for messages, or the start of the text when it is not an http address."""
+    parts = _origin_parts(url)
+    if parts is None:
+        return (url or "")[:40]
+    return f"{parts[0]}://{parts[1]}:{parts[2]}"
+
+
+def origin_allowed(url: str, allowed: List[str]) -> bool:
+    """True when `url` has exactly the scheme and port of an allowed origin, and its host equals that
+    origin's host or is a subdomain of an allowed '*.domain'."""
+    target = _origin_parts(url)
+    if target is None:
         return False
     for pattern in allowed:
-        if pattern.startswith("*."):
-            if host.endswith(pattern[1:]) and host != pattern[2:]:
+        wanted = _origin_parts(pattern)
+        if wanted is None or wanted[0] != target[0] or wanted[2] != target[2]:
+            continue
+        if wanted[1].startswith("*."):
+            if target[1].endswith(wanted[1][1:]) and target[1] != wanted[1][2:]:
                 return True
-        elif host == pattern:
+        elif target[1] == wanted[1]:
             return True
     return False
 
@@ -138,19 +192,29 @@ def make_entry(name: str, username: str, secret: str, allowed_domains: List[str]
     """Validate the owner's input and build an entry."""
     validate_name(name)
     if len(secret) < MIN_SECRET_LENGTH:
-        raise ValueError(f"The secret must be at least {MIN_SECRET_LENGTH} characters.")
+        raise InputError(f"The secret must be at least {MIN_SECRET_LENGTH} characters.")
     bad = [u for u in uses if u not in USES]
     if bad or not uses:
-        raise ValueError(f"Uses must be one or more of: {', '.join(USES)}.")
+        raise InputError(f"Uses must be one or more of: {', '.join(USES)}.")
     return Entry(
         name=name,
         username=username,
         secret=Secret(secret),
-        allowed_domains=sorted({normalize_domain(d) for d in allowed_domains if d.strip()}),
+        allowed_domains=sorted({normalize_origin(d) for d in allowed_domains if d.strip()}),
         notes=notes,
         agents_may_use=agents_may_use,
         uses=[u for u in USES if u in uses],
     )
+
+
+def _register_secrets(document: object) -> None:
+    """Hand every secret in a parsed store to the scrubber, before the document is checked any further."""
+    records = document.get("entries") if isinstance(document, dict) else None
+    if not isinstance(records, list):
+        return
+    for record in records:
+        if isinstance(record, dict) and isinstance(record.get("secret"), str) and record["secret"]:
+            SCRUBBER.add(record["secret"], str(record.get("username", "")))
 
 
 class SecretStore:
@@ -167,8 +231,11 @@ class SecretStore:
         if not self._file.exists():
             return []
         document = json.loads(self._file.read().decode("utf-8"))
-        if document.get("version") != STORE_VERSION:
-            raise ValueError(f"Secret store version {document.get('version')} is not supported.")
+        _register_secrets(document)
+        if not isinstance(document, dict) or document.get("version") != STORE_VERSION:
+            version = document.get("version") if isinstance(document, dict) else None
+            raise StoreFormatError(f"The store is in format version {version!r}, which this cc-secrets does not "
+                                   f"read (it reads version {STORE_VERSION}).")
         return [Entry._from_record(r) for r in document.get("entries", [])]
 
     def get(self, name: str) -> Optional[Entry]:

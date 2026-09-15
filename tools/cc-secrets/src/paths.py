@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 from . import permissions
+from .errors import CcSecretsError
 
 # Points the tool at a different store folder. Used by the tests and the leak check so they never
 # touch the owner's real store. Pointing it elsewhere gains an agent nothing: the other folder holds
@@ -31,7 +32,7 @@ def secrets_home() -> Path:
     if sys.platform == "win32":
         local = os.environ.get("LOCALAPPDATA")
         if not local:
-            raise RuntimeError("LOCALAPPDATA is not set, so the per-user secret store cannot be located.")
+            raise CcSecretsError("LOCALAPPDATA is not set, so the per-user secret store cannot be located.")
         return Path(local) / "cc-director" / "secrets"
     if sys.platform == "darwin":
         return Path.home() / "Library" / "Application Support" / "cc-director" / "secrets"

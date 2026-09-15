@@ -8,7 +8,7 @@ import sys
 
 import pytest
 
-from conftest import add_entry
+from conftest import add_entry, run_entry_point
 from src import paths, permissions
 
 WINDOWS = sys.platform == "win32"
@@ -18,6 +18,13 @@ BUILTIN_USERS_SID = "S-1-5-32-545"
 def _icacls(*args):
     subprocess.run([os.path.join(os.environ["SystemRoot"], "System32", "icacls.exe"), *args],
                    check=True, capture_output=True)
+
+
+def _permissions_snapshot(path):
+    if WINDOWS:
+        return permissions.windows_access_list(path)
+    info = os.stat(path)
+    return info.st_uid, stat.S_IMODE(info.st_mode)
 
 
 def test_Put_LeavesFolderAndFilePrivate(store):
@@ -31,7 +38,54 @@ def test_Put_LeavesNoTempFileBehind(store):
     add_entry(store)
     add_entry(store)
 
-    assert sorted(p.name for p in paths.secrets_home().iterdir() if p.is_file()) == ["secrets.json"]
+    assert sorted(p.name for p in paths.secrets_home().iterdir() if p.is_file()) == [".cc-secrets-folder", "secrets.json"]
+
+
+def test_ExistingFolderThatIsNotPrivate_IsRefused_AndLeftExactlyAsItWas(tmp_path, monkeypatch):
+    folder = tmp_path / "someone-elses-folder"
+    folder.mkdir()
+    (folder / "their-file.txt").write_text("theirs", encoding="utf-8")
+    before = _permissions_snapshot(folder)
+    assert permissions.folder_problem(folder) is not None
+    monkeypatch.setenv("CC_SECRETS_HOME", str(folder))
+    monkeypatch.setattr(paths, "_checked_home", None)
+
+    with pytest.raises(permissions.StorePermissionError, match="created itself"):
+        paths.ensure_home()
+
+    assert _permissions_snapshot(folder) == before
+    assert sorted(p.name for p in folder.iterdir()) == ["their-file.txt"]
+
+
+def test_Command_PointedAtAnExistingFolder_RefusesWithAClearMessage(tmp_path):
+    folder = tmp_path / "someone-elses-folder"
+    folder.mkdir()
+    before = _permissions_snapshot(folder)
+
+    result = run_entry_point(["run", "anything", "--", sys.executable, "-c", "print(1)"],
+                             {"CC_SECRETS_HOME": str(folder), "CC_SESSION_ID": "permissions-test"})
+
+    assert result.returncode != 0
+    assert b"only changes the permissions of a folder it created itself" in result.stderr
+    assert _permissions_snapshot(folder) == before
+    assert list(folder.iterdir()) == []
+
+
+def test_ExistingFolderThatIsAlreadyPrivate_IsAdopted(tmp_path, monkeypatch):
+    folder = tmp_path / "already-private"
+    folder.mkdir()
+    if WINDOWS:
+        _icacls(str(folder), "/inheritance:r", "/grant:r", f"*{permissions.current_user_sid()}:(OI)(CI)F")
+    else:
+        os.chmod(folder, 0o700)
+    before = _permissions_snapshot(folder)
+    monkeypatch.setenv("CC_SECRETS_HOME", str(folder))
+    monkeypatch.setattr(paths, "_checked_home", None)
+
+    paths.ensure_home()
+
+    assert (folder / permissions.FOLDER_MARKER).exists()
+    assert _permissions_snapshot(folder) == before
 
 
 @pytest.mark.skipif(not WINDOWS, reason="Windows access list check")
@@ -47,12 +101,12 @@ def test_Windows_FolderGrantsOnlyTheCurrentUser_AndInheritsNothing(store):
 
 
 @pytest.mark.skipif(not WINDOWS, reason="Windows access list check")
-def test_Windows_LoosenedFolder_IsDetected_ThenTightened(store):
+def test_Windows_LoosenedFolderItCreated_IsDetected_ThenTightened(store):
     add_entry(store)
     folder = paths.secrets_home()
     _icacls(str(folder), "/grant", f"*{BUILTIN_USERS_SID}:(OI)(CI)R")
 
-    assert "S-1-5-32-545" in (permissions.folder_problem(folder) or "")
+    assert BUILTIN_USERS_SID in (permissions.folder_problem(folder) or "")
     note = permissions.ensure_private_folder(folder)
 
     assert note is not None

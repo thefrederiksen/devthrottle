@@ -985,15 +985,18 @@ USAGE: cc-secrets [OPTIONS] COMMAND [ARGS]...
 COMMANDS:
   add      OWNER: add or replace an entry (hidden prompt, or secret piped on stdin)
   remove   OWNER: remove an entry
-  list     Entries agents may use: names, usernames, allowed domains. Never secrets (--all, --json)
+  list     Entries agents may use: names, usernames, allowed addresses. Never secrets (--all, --json)
   run      Run a command with the secret supplied; output comes back with the secret removed
-  login    Fill and submit the login form in a Director-owned browser; refuses any other domain
+  login    Fill and submit the login form in a Director-owned browser; refuses any other address
   log      Show the audit log (-n, --json)
   version  Print the version
 ```
 
 `add` and `remove` refuse to run inside a DevThrottle session. There is no option that takes the
-secret as an argument.
+secret as an argument. In Git Bash (mintty) typing cannot be hidden, so `add` refuses there: run it from
+PowerShell or cmd, or pipe the secret in.
+
+No error is shown as a traceback: an unexpected error is named by its type only.
 
 ### cc-secrets add
 
@@ -1002,7 +1005,9 @@ USAGE: cc-secrets add [OPTIONS] NAME
 
 OPTIONS:
   --username TEXT         The user name that goes with the secret
-  --domains TEXT          Comma-separated hosts login may fill (example.com,*.example.com)
+  --domains TEXT          Comma-separated site addresses login may fill: https://example.com,
+                          https://*.example.com, http://127.0.0.1:8080. No scheme means https;
+                          scheme, host and port must all match
   --notes TEXT            A note for yourself; agents see it in list
   --agents / --no-agents  Whether sessions on this machine may use it
   --uses TEXT             Comma-separated: login, run [default: both]
@@ -1036,8 +1041,10 @@ OPTIONS:
   --json            Print JSON
 ```
 
-Open the login page in that browser first. Outcomes: `logged in`, `refused` (the tab is not on an
-allowed domain; nothing typed), `verification` (finish two-step verification by hand), `failed`.
+Open the login page in that browser first. The tab's address AND the address the form sends to must be
+allowed. Outcomes: `logged in`, `refused` (nothing typed), `verification` (finish two-step verification
+by hand), `failed`. After a password has been typed, every password field in the tab is emptied and the
+tab's back/forward history is reset, whatever the outcome.
 
 ---
 
