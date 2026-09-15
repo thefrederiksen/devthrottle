@@ -47,3 +47,43 @@ Filled in as the phase runs. See the phase log below.
 
 - 15 September: worktree cut, five issues filed as children of #2853, the owner answered the
   one question that was his to answer (how the live shadow happens).
+
+## Ruling: the eighty percent similarity is difflib's ratio, not a longest common subsequence
+
+The near-duplicate filter's 0.80 threshold comes from Python's
+`difflib.SequenceMatcher.ratio`, which is not a longest-common-subsequence ratio. It finds the
+longest matching block, then recurses on what is left of it and what is right of it, and
+answers twice the matched length over the total length. The greedy block choice can lose
+matches an optimal subsequence would find.
+
+Measured on twenty thousand random short pairs on 15 September: the two disagree on
+twenty-eight percent of them, and the worst disagreement was 0.15 against 0.67 - far wider than
+the threshold being tested. A C# implementation built on a longest common subsequence would
+look right, pass its own tests, and quietly score differently from the published measurement,
+which would make the whole candidate comparison in work item five meaningless.
+
+So the C# must implement difflib's algorithm. Python's `autojunk` heuristic only engages on
+sequences of two hundred elements or more; whatever the C# does above that has to be written
+down rather than left to chance.
+
+## Ruling: the pinned corpus is a NEW set, and the published numbers are re-taken against it
+
+The published measurement counted four thousand three hundred and twenty-eight pairs. An
+independent rerun during review counted four thousand three hundred and twenty-five. A third
+rerun, by the Architect on 15 September from the same scripts, produced one thousand three
+hundred and thirty-seven repaint-labelled pairs and two hundred and thirty-nine long
+unexplained ones, where the published figures were nine hundred and sixty-eight plus three
+hundred and sixty-three, and two hundred and thirty-one. The directory the corpus is built from
+keeps growing and the scripts carry only a lower date bound, so every rerun scores a different
+set. That is not a discrepancy to reconcile; it is the defect the manifest exists to remove.
+
+**The published set is not recoverable and no attempt is made to recover it.** Reconstructing
+the exact four thousand three hundred and twenty-eight would be fitting the corpus to a number
+rather than pinning a corpus. The manifest is built fresh, with an explicit upper time bound as
+well as a lower one, and every number in the phase one report is re-taken against it. The older
+figures stay in the design document as history and are never quoted as current.
+
+**What the manifest records, per wake:** the session id, the agent, the wake time, how long blue
+lasted, whether a submission explained it, the class label, and both screen files by relative
+path AND by content hash. The hashes are what make it a gate: a screen file that changes under
+the manifest is caught rather than silently rescored.
