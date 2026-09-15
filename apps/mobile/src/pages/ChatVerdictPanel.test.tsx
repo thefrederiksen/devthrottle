@@ -17,6 +17,8 @@ const judged = {
   effectiveColor: "red",
   stateLabel: "Apply the migration now?",
   triageBucket: "needsYou",
+  agent: "Codex",
+  agentToolDisplay: "Codex",
   verdictState: "judged",
   turnVerdict: {
     verdictId: "tv-phone-1",
@@ -77,7 +79,7 @@ describe("the phone session screen", () => {
     );
 
     expect(await screen.findByRole("region", { name: "Wingman verdict" })).toBeTruthy();
-    expect(screen.getByText("Claude said")).toBeTruthy();
+    expect(screen.getByText("Codex said")).toBeTruthy();
     expect(screen.getByRole("note").textContent).toBe("Risk: spends-money");
     expect(screen.getByRole("button", { name: "Yes, apply it" })).toBeTruthy();
   });

@@ -15,7 +15,13 @@ import "./verdictPanel.css";
 // option is still safe to press: the answer route re-reads the screen, compares it with the one the verdict
 // was formed on, and either writes or refuses with a sentence - and that sentence is shown as it came, never
 // swallowed and never reworded. What the panel does decide is layout only: a multiple-select collects its
-// picks and sends them as ONE request, and a menu with no options (the parked reply) gets one confirm button.
+// picks and sends them as ONE request, and a menu with no options (the parked reply) gets one button that sends the
+// typed reply.
+//
+// The receipt is headed with the session's own agent, "<agent> said", and the name is the Gateway's
+// agentToolDisplay stamp, the one fold that turns the row's agent kind into a name (AgentToolDisplayFold). The
+// panel keeps no table of agent names, so a Codex session can never be headed with another agent's name. A row
+// with no stamp reads the same loud words the phone's roster card shows for it.
 
 export interface VerdictPanelProps {
   session: SessionDto;
@@ -27,6 +33,7 @@ export function VerdictPanel({ session, onReportWrong }: VerdictPanelProps) {
   const row = session as TurnVerdictRow;
   const verdict = row.verdictState === "judged" ? row.turnVerdict ?? null : null;
   const verdictId = verdict?.verdictId ?? "";
+  const agentName = (session.agentToolDisplay ?? "").trim() || "Agent tool not reported";
 
   const [picked, setPicked] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
@@ -76,7 +83,7 @@ export function VerdictPanel({ session, onReportWrong }: VerdictPanelProps) {
 
       {verdict.evidence && (
         <details className="verdict-receipt" open>
-          <summary>Claude said</summary>
+          <summary>{agentName} said</summary>
           <blockquote className="verdict-evidence">{verdict.evidence}</blockquote>
         </details>
       )}
@@ -119,7 +126,7 @@ export function VerdictPanel({ session, onReportWrong }: VerdictPanelProps) {
 
       {parkedReply && (
         <button type="button" className="verdict-send" disabled={busy} onClick={() => void send([])}>
-          Confirm
+          Send the typed reply
         </button>
       )}
 

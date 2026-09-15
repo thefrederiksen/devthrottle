@@ -32,8 +32,12 @@ function verdict(overrides: Partial<TurnVerdict> = {}): TurnVerdict {
   };
 }
 
-function session(v: TurnVerdict | null, verdictState = "judged"): SessionDto {
-  return { sessionId: SID, verdictState, turnVerdict: v } as unknown as SessionDto;
+function session(
+  v: TurnVerdict | null,
+  verdictState = "judged",
+  agent: { agent: string; agentToolDisplay?: string } = { agent: "ClaudeCode", agentToolDisplay: "Claude Code" },
+): SessionDto {
+  return { sessionId: SID, verdictState, turnVerdict: v, ...agent } as unknown as SessionDto;
 }
 
 let calls: { url: string; method: string; body: unknown }[] = [];
@@ -75,7 +79,7 @@ describe("the verdict panel", () => {
   it("shows the receipt expanded, the label and the summary, verbatim", () => {
     render(<VerdictPanel session={session(verdict())} />);
 
-    const receipt = screen.getByText("Claude said").closest("details");
+    const receipt = screen.getByText("Claude Code said").closest("details");
     expect(receipt).not.toBeNull();
     expect(receipt!.open).toBe(true);
     expect(screen.getByText("Apply the migration to the local database now?")).toBeTruthy();
@@ -83,6 +87,36 @@ describe("the verdict panel", () => {
     expect(
       screen.getByText("The migration is written; the session is asking before it changes the database."),
     ).toBeTruthy();
+  });
+
+  it("heads the receipt with the row's own agent, as the Gateway stamped its name", () => {
+    const { container, rerender } = render(
+      <VerdictPanel session={session(verdict(), "judged", { agent: "Codex", agentToolDisplay: "Codex" })} />,
+    );
+    const heading = () => container.querySelector(".verdict-receipt summary")!.textContent;
+    expect(heading()).toBe("Codex said");
+
+    rerender(<VerdictPanel session={session(verdict(), "judged", { agent: "Pi", agentToolDisplay: "Pi" })} />);
+    expect(heading()).toBe("Pi said");
+
+    rerender(
+      <VerdictPanel session={session(verdict(), "judged", { agent: "Copilot", agentToolDisplay: "GitHub Copilot" })} />,
+    );
+    expect(heading()).toBe("GitHub Copilot said");
+  });
+
+  it("never heads a kind with no display name with another agent's name", () => {
+    // A future kind the Gateway's fold has no nicer spelling for is stamped as its own word.
+    const { container, rerender } = render(
+      <VerdictPanel session={session(verdict(), "judged", { agent: "FutureTool", agentToolDisplay: "FutureTool" })} />,
+    );
+    const heading = () => container.querySelector(".verdict-receipt summary")!.textContent;
+    expect(heading()).toBe("FutureTool said");
+
+    // A row that arrived with no stamp says so, in the words the phone's roster card uses, and names no agent.
+    rerender(<VerdictPanel session={session(verdict(), "judged", { agent: "Codex" })} />);
+    expect(heading()).toBe("Agent tool not reported said");
+    expect(heading()).not.toMatch(/Claude|Codex/);
   });
 
   it("shows no risk line for none, and the risk FIRST for any other word", () => {
@@ -155,7 +189,7 @@ describe("the verdict panel", () => {
     expect(calls[0].body).toEqual({ verdictId: "tv-panel-1", optionIndexes: [2, 0] });
   });
 
-  it("gives the parked reply one confirm button that sends an empty list", async () => {
+  it("gives the parked reply one button that says it sends the typed reply, and sends an empty list", async () => {
     fakeGateway(200, SENT);
     const parked = verdict({
       menu: { question: "Send the reply already typed: run the tests first", selectionMode: "single", submit: "\r" },
@@ -164,7 +198,8 @@ describe("the verdict panel", () => {
     render(<VerdictPanel session={session(parked)} />);
 
     expect(screen.getByText("Send the reply already typed: run the tests first")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    expect(screen.queryByRole("button", { name: "Confirm" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Send the typed reply" }));
 
     await waitFor(() => expect(calls).toHaveLength(1));
     expect(calls[0].body).toEqual({ verdictId: "tv-panel-1", optionIndexes: [] });
