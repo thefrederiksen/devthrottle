@@ -137,3 +137,33 @@ owner's Director produces the comparison numbers while behaving exactly as it do
   before those fixes would describe a tree that no longer exists.
 - An independent Inspector from a different agent family was seated against the rebased branch
   in its own worktree, with the sharp questions in `inspection-brief.md`.
+
+## The machine rebooted mid-mission, 15 September 01:29 local
+
+Windows ran updates and restarted. The Director died with no drain, no handover and no warning,
+taking twelve sessions with it. This mission's Architect and its third Manager were both restored
+from their transcripts, so no reasoning and no work was lost, but three things changed underneath
+the mission and are recorded here because the next reader will otherwise trust stale facts:
+
+- **Every session id from before the crash is dead.** The Architect is now
+  `b564b0b3-148d-402d-a5ba-ac45414fb437`. Ids quoted earlier in this folder and in the review files
+  are historical and must not be messaged or reasoned about.
+- **The Manager came back unwired.** It was restored standalone with no controller, so the
+  reporting chain the mission workflow depends on did not survive even though the seat did. It is
+  driven by explicit message until it has landed its current piece, and only then re-spawned with a
+  real controller - never while it holds unlanded work.
+- **The Codex inspector is unavailable until 19 September**, having hit its provider's usage limit
+  before the machine went down. Law three requires an inspector from a different family to the
+  builder, and the builder is Claude Code. Round three therefore goes to Gemini rather than waiting
+  four days for Codex. Gemini, Grok, Copilot, Pi and OpenCode are all installed on this machine and
+  all satisfy the law; the requirement is a different family, not a particular one.
+
+**Nothing was lost.** The branch was fully pushed at `505a5a7cf`, and the Manager's in-flight work
+survived as uncommitted changes to three files in the worktree, including an atomic size verdict
+and a conditional latch release. The instruction going forward is to commit and push as the work is
+made rather than at the end of a piece, which is law two's reasoning applied at a smaller grain: the
+crash cost nothing only because the branch happened to be current.
+
+What the crash invalidated and was rechecked rather than quoted: the claim that each Director
+resolves its own storage root. Re-verified in the new session - `CC_DIRECTOR_ROOT` reads
+`...\cc-director\instances\default`, and five instance roots exist on this machine.
