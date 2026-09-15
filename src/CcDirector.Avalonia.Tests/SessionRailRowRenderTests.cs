@@ -1,0 +1,249 @@
+using Avalonia;
+using ShapePath = Avalonia.Controls.Shapes.Path;
+using Avalonia.Controls;
+using Avalonia.Headless.XUnit;
+using Avalonia.Media;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
+using CcDirector.Core.Backends;
+using CcDirector.Core.Memory;
+using CcDirector.Core.Sessions;
+using Xunit;
+
+namespace CcDirector.Avalonia.Tests;
+
+/// <summary>
+/// THE RAIL ROW AS IT IS ACTUALLY DRAWN. These take the REAL item template out of MainWindow.axaml and
+/// render it, because the row projection being right says nothing about whether the markup that reads it
+/// puts a chevron on the screen.
+///
+/// A fold test cannot see a rendered defect, and a build that succeeds says only that the bindings
+/// compile - not that the crew line appears when the crew is closed, that it goes away when the crew is
+/// open, that a child is indented, or that an ordinary row is left exactly as it was. Those are four
+/// separate visible claims and each one is asserted here.
+///
+/// The template is lifted off a real MainWindow and mounted in a plain window on purpose. MainWindow's
+/// own Loaded handler reaches for the running Director (App.SessionManager, the Gateway monitor, the rail
+/// timers), which does not exist in a headless test - so the window is never shown. What is under test is
+/// the template, and this is the template, not a copy of it.
+/// </summary>
+public sealed class SessionRailRowRenderTests
+{
+    private static SessionViewModel Vm(string name)
+    {
+        var session = new Session(
+            Guid.NewGuid(), @"C:\test\repo", @"C:\test\repo", null,
+            new InertBackend(), SessionBackendType.ConPty);
+        session.IsBrandNew = false;
+        session.CustomName = name;
+        return new SessionViewModel(session);
+    }
+
+    private static readonly IReadOnlyList<ISolidColorBrush> NoCrew = Array.Empty<ISolidColorBrush>();
+
+    private static IReadOnlyList<ISolidColorBrush> Squares(int count) =>
+        Enumerable.Range(0, count).Select(_ => StatusPalette.BrushFor("blue")).ToList();
+
+    /// <summary>Render these view models through MainWindow's own SessionList item template.</summary>
+    private static ListBox Render(params SessionViewModel[] rows)
+    {
+        var source = new MainWindow();
+        var list = new ListBox
+        {
+            ItemTemplate = source.SessionList.ItemTemplate,
+            Styles = { },
+            ItemsSource = rows,
+        };
+        var window = new Window { Content = list, Width = 300, Height = 700 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        list.Measure(new Size(300, 700));
+        list.Arrange(new Rect(0, 0, 300, 700));
+        Dispatcher.UIThread.RunJobs();
+        return list;
+    }
+
+    private static IReadOnlyList<string> VisibleText(Visual root) =>
+        root.GetVisualDescendants()
+            .OfType<TextBlock>()
+            .Where(t => t.IsEffectivelyVisible && !string.IsNullOrEmpty(t.Text))
+            .Select(t => t.Text!)
+            .ToList();
+
+    // ===== An ordinary row is unchanged =====
+
+    [AvaloniaFact]
+    public void AnOrdinaryRow_DrawsNoChevronAndNoCrewLine()
+    {
+        var solo = Vm("Solo session");
+        solo.ApplyRailRow(0, hasCrew: false, isExpanded: false, "", "", NoCrew, "", false);
+
+        var list = Render(solo);
+
+        Assert.Contains("Solo session", VisibleText(list));
+        // Nothing of the tree is drawn on a session that has nobody under it.
+        Assert.DoesNotContain(VisibleText(list), t => t.Contains("under it"));
+        Assert.Empty(VisibleChevrons(list));
+        Assert.Empty(VisibleGuideLines(list));
+    }
+
+    // ===== A closed crew carries its crew line =====
+
+    [AvaloniaFact]
+    public void AClosedCrewRow_DrawsAChevron_TheCrewLineAndTheAge()
+    {
+        var crew = Vm("Architect");
+        crew.ApplyRailRow(0, hasCrew: true, isExpanded: false,
+            "9 under it: 4 working, 5 stopped, 0 need you", "5h 29m", Squares(9), "", false);
+
+        var list = Render(crew);
+        var text = VisibleText(list);
+
+        Assert.Contains("9 under it: 4 working, 5 stopped, 0 need you", text);
+        Assert.Contains("5h 29m", text);
+        Assert.Single(VisibleChevrons(list));
+        // Closed, so it points RIGHT: there is something folded away behind it.
+        Assert.Equal("right", ChevronDirection(list));
+
+        // One square per session under it - the strip is what stops a closed crew hiding a colour, so
+        // the count of drawn squares is the claim, not merely that the control exists.
+        Assert.Equal(9, DrawnCrewSquares(list));
+    }
+
+    [AvaloniaFact]
+    public void AnOpenCrewRow_DropsTheCrewLine_BecauseItsSessionsAreThereToRead()
+    {
+        var crew = Vm("Architect");
+        crew.ApplyRailRow(0, hasCrew: true, isExpanded: true,
+            "9 under it: 4 working, 5 stopped, 0 need you", "5h 29m", Squares(9), "", false);
+
+        var list = Render(crew);
+
+        Assert.DoesNotContain(VisibleText(list), t => t.Contains("under it"));
+        Assert.DoesNotContain("5h 29m", VisibleText(list));
+        // The chevron stays - it is how the crew is closed again - and it now points DOWN.
+        Assert.Single(VisibleChevrons(list));
+        Assert.Equal("down", ChevronDirection(list));
+        Assert.Equal(0, DrawnCrewSquares(list));
+    }
+
+    // ===== A child is indented, behind a guide line, further at each level =====
+
+    [AvaloniaFact]
+    public void AChildRow_IsIndentedBehindAGuideLine_AndAGrandchildIsIndentedFurther()
+    {
+        var child = Vm("Worker");
+        child.ApplyRailRow(1, hasCrew: false, isExpanded: false, "", "", NoCrew, "", false);
+        var grandchild = Vm("Sub worker");
+        grandchild.ApplyRailRow(2, hasCrew: false, isExpanded: false, "", "", NoCrew, "", false);
+
+        var list = Render(child, grandchild);
+
+        // Two guide lines, one per row under a parent.
+        Assert.Equal(2, VisibleGuideLines(list).Count);
+
+        // And the indent grows with the depth, so a crew's own crew reads as one level further in.
+        Assert.Equal(18.0, child.RailIndentWidth);
+        Assert.Equal(36.0, grandchild.RailIndentWidth);
+        var indents = list.GetVisualDescendants().OfType<Border>()
+            .Where(b => b.Width is 18.0 or 36.0)
+            .Select(b => b.Width)
+            .OrderBy(w => w)
+            .ToList();
+        Assert.Equal(new[] { 18.0, 36.0 }, indents);
+    }
+
+    // ===== The attention section heading =====
+
+    [AvaloniaFact]
+    public void TheFirstRowOfAnAttentionSection_DrawsItsHeading_AndTheRestDoNot()
+    {
+        var first = Vm("Needs you longest");
+        first.ApplyRailRow(0, false, false, "", "", NoCrew, "NEEDS YOU 2", true);
+        var second = Vm("Needs you recently");
+        second.ApplyRailRow(0, false, false, "", "", NoCrew, "", false);
+
+        var list = Render(first, second);
+
+        // Counted by the heading SLOT, not by its words: a heading whose visibility stopped following
+        // the row would render as an EMPTY heading above the second row, which is a blank gap in the
+        // rail and would be invisible to a test that only looked for the text.
+        var headingSlots = list.GetVisualDescendants().OfType<TextBlock>()
+            .Where(t => t.IsEffectivelyVisible && t.Margin == new Thickness(8, 8, 8, 2))
+            .ToList();
+        Assert.Single(headingSlots);
+        Assert.Equal("NEEDS YOU 2", headingSlots[0].Text);
+
+        // The needs-you heading is red; the others are the muted grey. The rail reads the colour off the
+        // view model, so this is the one place the sections are told apart.
+        var heading = list.GetVisualDescendants().OfType<TextBlock>()
+            .Single(t => t.Text == "NEEDS YOU 2");
+        Assert.Equal(Color.Parse(StatusPalette.Red), ((ISolidColorBrush)heading.Foreground!).Color);
+    }
+
+    // ===== helpers that name what is being counted =====
+
+    /// <summary>
+    /// The crew chevrons on screen, found by the tooltip that says what they do rather than by their
+    /// geometry text - a Geometry's ToString is a toolkit detail and asserting on it tests the toolkit.
+    /// </summary>
+    private static IReadOnlyList<Button> VisibleChevrons(Visual root) =>
+        root.GetVisualDescendants()
+            .OfType<Button>()
+            .Where(b => b.IsEffectivelyVisible
+                        && ToolTip.GetTip(b) as string == "Open or close the sessions under this one")
+            .ToList();
+
+    /// <summary>
+    /// Which way the one drawn chevron points, read off the drawn shape rather than off the view model
+    /// the shape is supposed to be following. The closed chevron points RIGHT, so it is taller than it is
+    /// wide; the open one points DOWN, so it is wider than it is tall. Two paths share the gutter and
+    /// exactly one of them is ever visible.
+    /// </summary>
+    private static string ChevronDirection(Visual root)
+    {
+        var drawn = VisibleChevrons(root)
+            .SelectMany(b => b.GetVisualDescendants().OfType<ShapePath>())
+            .Where(p => p.IsEffectivelyVisible && p.Data is not null)
+            .ToList();
+        Assert.Single(drawn);
+        var bounds = drawn[0].Data!.Bounds;
+        return bounds.Height > bounds.Width ? "right" : "down";
+    }
+
+    /// <summary>The vertical guide lines a crew's sessions hang behind: a 1 pixel wide border.</summary>
+    private static IReadOnlyList<Border> VisibleGuideLines(Visual root) =>
+        root.GetVisualDescendants()
+            .OfType<Border>()
+            .Where(b => b.IsEffectivelyVisible && b.Width is 1.0)
+            .ToList();
+
+    /// <summary>The small squares on a crew line: 8 by 8 borders.</summary>
+    private static int DrawnCrewSquares(Visual root) =>
+        root.GetVisualDescendants()
+            .OfType<Border>()
+            .Count(b => b.IsEffectivelyVisible && b.Width is 8.0 && b.Height is 8.0);
+
+    /// <summary>An inert backend: the Session needs one, these tests never run a process.</summary>
+    private sealed class InertBackend : ISessionBackend
+    {
+        public int ProcessId => 1234;
+        public string Status => "Inert";
+        public bool IsRunning => true;
+        public bool HasExited => false;
+        public CircularTerminalBuffer? Buffer => null;
+
+#pragma warning disable CS0067 // Required by the interface; nothing raises them here.
+        public event Action<string>? StatusChanged;
+        public event Action<int>? ProcessExited;
+#pragma warning restore CS0067
+
+        public void Start(string executable, string args, string workingDir, short cols, short rows, Dictionary<string, string>? environmentVars = null) { }
+        public void Write(byte[] data) { }
+        public Task SendTextAsync(string text) => Task.CompletedTask;
+        public Task SendEnterAsync() => Task.CompletedTask;
+        public void Resize(short cols, short rows) { }
+        public Task GracefulShutdownAsync(int timeoutMs = 5000) => Task.CompletedTask;
+        public void Dispose() { }
+    }
+}
