@@ -171,9 +171,18 @@ public sealed class SessionRailRowRenderTests
     /// when the strip of squares shared their row: the squares took their space first and the counts
     /// were arranged NARROWER than they wanted, which is what trimming is.
     ///
-    /// IT IS NOT A PROOF ABOUT TEXT. Headless Avalonia has no real font metrics - a 43-character line
-    /// measures 56 pixels here - so this cannot say where real text would trim. It says the layout no
-    /// longer squeezes the counts, and that is the rule that was broken.
+    /// IT IS NOT A PROOF ABOUT TEXT, AND THE WIDTH ASSERTION IS THE WEAK HALF. Headless Avalonia has no
+    /// real font metrics: a 43-character line measures 56 pixels here, so at these metrics everything
+    /// fits on one row and nothing is squeezed. I revert-proved this test by putting the strip back
+    /// beside the counts - the drawn layout - and the width assertion stayed GREEN. What went red was
+    /// the POSITION assertion at the end ("squares at 58, counts at 58").
+    ///
+    /// So be clear about what each half does. The position assertion is the load-bearing one: it holds
+    /// down the structural cause of the trimming, which is the strip sharing the counts' row. The width
+    /// assertion cannot see real text and will not catch a font that is merely wider than the stub; it
+    /// catches only a layout greedy enough to squeeze the counts even at stub metrics. Whether the
+    /// counts trim on a real screen at 264 pixels is UNPROVEN here and needs a human looking at the
+    /// running Director.
     /// </summary>
     [AvaloniaFact]
     public void AtTheRealRailWidth_TheCountsAreNotSqueezed_AndTheAgeAndEverySquareStillShow()
