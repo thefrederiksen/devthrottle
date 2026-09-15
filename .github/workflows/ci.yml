@@ -185,3 +185,13 @@ jobs:
         env:
           FORCE_COLOR: "1"
         run: python -m pytest tests/ -q
+
+      # cc-secrets holds the owner's passwords, so its leak test and its permission checks run on every
+      # change. websockets is its one dependency beyond the ones installed above.
+      - name: Run the cc-secrets tests
+        working-directory: tools/cc-secrets
+        env:
+          FORCE_COLOR: "1"
+        run: |
+          python -m pip install websockets
+          python -m pytest tests/ -q

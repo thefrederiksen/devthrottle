@@ -1,0 +1,22 @@
+[project]
+name = "cc-secrets"
+version = "0.1.0"
+description = "Use a stored password without the model ever seeing it"
+requires-python = ">=3.11"
+dependencies = [
+    "typer>=0.9.0",
+    "rich>=13.0.0",
+    "websockets>=12.0",
+    "cc-shared",
+]
+
+[project.scripts]
+cc-secrets = "cc_secrets.cli:app"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["cc_secrets"]
+package-dir = {"cc_secrets" = "src"}

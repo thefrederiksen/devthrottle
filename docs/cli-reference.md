@@ -967,6 +967,77 @@ COMMANDS:
   screenshot  Take a screenshot
 ```
 
+## cc-secrets
+
+Use a stored password without the model ever seeing it. The owner adds entries by hand on each
+machine; agents use them through `list`, `run` and `login`, and get back only the result. No command
+prints a secret, and there is deliberately no `get`.
+
+The store is one plain JSON file per user per machine (`secrets.json`), protected by user-only file
+permissions. Every use writes a line to `secrets-audit.log`.
+
+```
+USAGE: cc-secrets [OPTIONS] COMMAND [ARGS]...
+
+COMMANDS:
+  add      OWNER: add or replace an entry (hidden prompt, or secret piped on stdin)
+  remove   OWNER: remove an entry
+  list     Entries agents may use: names, usernames, allowed domains. Never secrets (--all, --json)
+  run      Run a command with the secret supplied; output comes back with the secret removed
+  login    Fill and submit the login form in a Director-owned browser; refuses any other domain
+  log      Show the audit log (-n, --json)
+  version  Print the version
+```
+
+`add` and `remove` refuse to run inside a DevThrottle session. There is no option that takes the
+secret as an argument.
+
+### cc-secrets add
+
+```
+USAGE: cc-secrets add [OPTIONS] NAME
+
+OPTIONS:
+  --username TEXT         The user name that goes with the secret
+  --domains TEXT          Comma-separated hosts login may fill (example.com,*.example.com)
+  --notes TEXT            A note for yourself; agents see it in list
+  --agents / --no-agents  Whether sessions on this machine may use it
+  --uses TEXT             Comma-separated: login, run [default: both]
+  --replace               Replace an existing entry without asking
+```
+
+With the secret piped on stdin, `--username`, `--domains` and `--agents`/`--no-agents` are required.
+
+### cc-secrets run
+
+```
+USAGE: cc-secrets run [OPTIONS] NAME -- COMMAND...
+
+OPTIONS:
+  --via TEXT        stdin, env or askpass [default: stdin]
+  --env-name TEXT   Variable name for --via env [default: CC_SECRET]
+  --timeout FLOAT   Seconds before the command is stopped [default: 600]
+  --json            Print JSON
+```
+
+Example: `cc-secrets run devlinux -- sudo -S apt-get update`
+
+### cc-secrets login
+
+```
+USAGE: cc-secrets login [OPTIONS] NAME
+
+OPTIONS:
+  --browser TEXT    The Director-owned browser profile (cc-devthrottle browser list) [required]
+  --timeout FLOAT   Seconds to wait for the login to complete [default: 30]
+  --json            Print JSON
+```
+
+Open the login page in that browser first. Outcomes: `logged in`, `refused` (the tab is not on an
+allowed domain; nothing typed), `verification` (finish two-step verification by hand), `failed`.
+
+---
+
 ## cc-transcribe
 
 Transcribe video/audio with timestamps and screenshots.
