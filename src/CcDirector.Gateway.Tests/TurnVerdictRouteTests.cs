@@ -44,6 +44,22 @@ public sealed class TurnVerdictRouteTests : IAsyncLifetime
     // legal because a Director mints the id rather than the Gateway.
     private readonly string _sharedSessionId = Guid.NewGuid().ToString();
 
+    /// <summary>
+    /// A FRESH pair of account subjects per test, not two fixed strings.
+    ///
+    /// A tenant is minted from its account subject, so two fixed subjects mint the SAME two tenants in every
+    /// instance of this class - and xUnit builds a new instance per test method. The per-test instances
+    /// directory does not separate them: what a test writes about "tenant A" is found by the next test's
+    /// "tenant A". The colour switch is the setting that showed it, because it is the only one a test turns
+    /// ON: with fixed subjects, the test that turns the colours on left them on for the test whose whole
+    /// point is that they are OFF, which then read 200 where it required 403.
+    ///
+    /// It was found by the revert proof rather than by the ordinary run: the leak only changed a result once
+    /// something else had made these tests disagree, so the suite was green while one of its rows was
+    /// asserting nothing. A test that passes because of the order it ran in is not a test.
+    /// </summary>
+    private readonly string _runId = Guid.NewGuid().ToString("N")[..12];
+
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-turn-verdict-route-" + Guid.NewGuid().ToString("N"));
     private string? _priorHosted;
@@ -61,8 +77,10 @@ public sealed class TurnVerdictRouteTests : IAsyncLifetime
             streamMode: true);
         await _gateway.StartAsync();
 
-        var a = HostedTestEnrollment.Enroll(_gateway, "sub-verdict-a", "verdict-a@example.com", "dev-va", "MVA");
-        var b = HostedTestEnrollment.Enroll(_gateway, "sub-verdict-b", "verdict-b@example.com", "dev-vb", "MVB");
+        var a = HostedTestEnrollment.Enroll(
+            _gateway, $"sub-verdict-a-{_runId}", $"verdict-a-{_runId}@example.com", $"dev-va-{_runId}", "MVA");
+        var b = HostedTestEnrollment.Enroll(
+            _gateway, $"sub-verdict-b-{_runId}", $"verdict-b-{_runId}@example.com", $"dev-vb-{_runId}", "MVB");
         _tenantA = a.Tenant;
         _tenantB = b.Tenant;
         Assert.True(_gateway.TenantBoundary.IsHosted, "The harness must be running the HOSTED tenant boundary.");
