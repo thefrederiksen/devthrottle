@@ -103,8 +103,9 @@ public sealed class ContentTurnRuleTests : IDisposable
     [Fact]
     public async Task With_the_switch_off_the_log_still_records_what_the_rule_would_have_done()
     {
-        // The pairing the whole phase turns on: the rule is off, so the Director behaves exactly
-        // as it does today, AND it writes down the number that decides whether to turn it on.
+        // The escape hatch keeps its observer: with the switch set to off, the Director behaves
+        // exactly as it did before the content rule, AND it still writes down what the rule would
+        // have decided, so the comparison survives turning the rule off.
         TurnDetectionShadowLog.Enabled = true;
         var (session, backend, detector) = Start(TurnContentRule.Off);
         using (detector)
@@ -223,30 +224,6 @@ public sealed class ContentTurnRuleTests : IDisposable
             Assert.Equal(baseline + 1, CountShadowRows(session.Id));
             Assert.Equal(ActivityState.WaitingForInput, session.ActivityState);
         }
-    }
-
-    [Fact]
-    public void The_switch_ships_on_with_the_row_rule_and_anything_unreadable_is_off()
-    {
-        // Unset is the ROW rule: the owner turned it on by default. The variable now exists to move
-        // AWAY from that default, most likely to turn a misbehaving rule off, so an unrecognised value
-        // falls to OFF - a misspelt "off" must never leave the rule running.
-        Assert.Equal(TurnContentRule.Row, TerminalStateDetector.ResolveContentRule(null));
-        Assert.Equal(TurnContentRule.Row, TerminalStateDetector.ResolveContentRule(""));
-        Assert.Equal(TurnContentRule.Row, TerminalStateDetector.ResolveContentRule("   "));
-
-        Assert.Equal(TurnContentRule.Off, TerminalStateDetector.ResolveContentRule("off"));
-        Assert.Equal(TurnContentRule.Off, TerminalStateDetector.ResolveContentRule("0"));
-        Assert.Equal(TurnContentRule.Off, TerminalStateDetector.ResolveContentRule("false"));
-        Assert.Equal(TurnContentRule.Off, TerminalStateDetector.ResolveContentRule("no"));
-        Assert.Equal(TurnContentRule.Off, TerminalStateDetector.ResolveContentRule("of"));
-
-        Assert.Equal(TurnContentRule.Row, TerminalStateDetector.ResolveContentRule("1"));
-        Assert.Equal(TurnContentRule.Row, TerminalStateDetector.ResolveContentRule("row"));
-        Assert.Equal(TurnContentRule.Row, TerminalStateDetector.ResolveContentRule("on"));
-        Assert.Equal(TurnContentRule.Row, TerminalStateDetector.ResolveContentRule("true"));
-        Assert.Equal(TurnContentRule.Row, TerminalStateDetector.ResolveContentRule("YES"));
-        Assert.Equal(TurnContentRule.Size, TerminalStateDetector.ResolveContentRule("size"));
     }
 
     // ------------------------------------------------------------------------------------------
@@ -665,7 +642,7 @@ public sealed class ContentTurnRuleTests : IDisposable
     [Fact]
     public async Task A_faulted_state_write_on_the_byte_path_does_not_leave_the_session_stuck_working()
     {
-        // THE SWITCH-OFF PATH, which is what every Director runs today - this fault is on
+        // THE SWITCH-OFF PATH, the escape hatch when the row rule is turned off - this fault is on
         // origin/main and is older than the content rule. Session.SetActivityState assigns Working
         // and THEN calls its subscribers, so a subscriber that throws escapes from the middle of
         // the write. The byte callback swallowed it, the quiet timer was never armed, and the

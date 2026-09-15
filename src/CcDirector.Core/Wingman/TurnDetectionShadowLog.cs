@@ -156,8 +156,9 @@ public static class TurnDetectionShadowLog
         ResolveEnabled(Environment.GetEnvironmentVariable(EnabledVariable));
 
     /// <summary>
-    /// On by default. The rule it observes is off by default, so out of the box a Director behaves
-    /// exactly as it does today AND produces the numbers that decide whether to turn the rule on.
+    /// On by default, like the row rule it observes. Out of the box every check records what the
+    /// running rule decided beside what the byte rule would have done, so the live comparison is
+    /// answerable on the Director that produced it.
     /// </summary>
     public static bool Enabled { get; set; } = InitialEnabled;
 

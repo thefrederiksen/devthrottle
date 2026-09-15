@@ -647,8 +647,9 @@ public sealed class TerminalStateDetector : IDisposable
         ///
         /// A FAULT NO LONGER LEAVES THE SESSION BLUE FOR EVER. The fault this fixes is OLDER than
         /// the content rule - it is on origin/main, and this is the path a Director runs whenever the
-        /// switch is set to off, the escape hatch if the row rule misbehaves. Session.SetActivityState assigns Working and only THEN calls its
-        /// subscribers, so a subscriber that throws leaves the session in Working with the exception
+        /// switch is set to off, the escape hatch if the row rule misbehaves. Session.SetActivityState
+        /// assigns Working and only THEN calls its subscribers, so a subscriber that throws leaves the
+        /// session in Working with the exception
         /// escaping mid-write. The latch stayed set, the quiet timer was never armed, and every
         /// later byte took the already-active branch and armed nothing: permanently blue, with
         /// nothing left that could bring it back.
@@ -1182,7 +1183,7 @@ public sealed class TerminalStateDetector : IDisposable
             // that a locked snapshot nobody reads is waste. It is now taken on EVERY settle,
             // because the content rule needs it whether that producer exists or not, and a session
             // that settled without one would otherwise have no "before" to compare against and
-            // would open a turn on the next byte exactly as it does today - silently, and only for
+            // would open a turn on the next byte exactly as the byte rule does - silently, and only for
             // some sessions. The cost is one locked snapshot per SETTLE, which happens at most once
             // per turn, not per byte.
             if (TryReadScreenBodyRows(out var settledRows))
