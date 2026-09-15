@@ -195,6 +195,40 @@
                                       StrokeLineCap="Round" StrokeJoin="Round" />
                             </Viewbox>
                         </Button>
+                        <!-- The two-position order switch (Session List Views, 14 September 2026).
+                             My order is the drag order the rail has always opened on, and is the
+                             Director's default; Attention is the Gateway's own sections, longest
+                             wait on top. It applies to the TOP LEVEL ONLY - children never re-sort,
+                             because a child with a live supervisor never goes red, so there is
+                             nothing under a parent for attention to reorder. There is no third
+                             position: machine, repository and agent are filters, not orders. -->
+                        <Border DockPanel.Dock="Right"
+                                BorderBrush="#3C3C3C" BorderThickness="1" CornerRadius="4"
+                                ClipToBounds="True"
+                                Margin="0,0,6,0"
+                                VerticalAlignment="Center"
+                                ToolTip.Tip="How the top level is ordered">
+                            <StackPanel Orientation="Horizontal">
+                                <Button x:Name="BtnRailOrderMine"
+                                        Content="My order"
+                                        Click="RailOrderMine_Click"
+                                        Focusable="False"
+                                        FontSize="10" FontWeight="SemiBold"
+                                        Padding="8,2" MinWidth="0"
+                                        BorderThickness="0" CornerRadius="0"
+                                        Cursor="Hand"
+                                        ToolTip.Tip="Your own order - drag the rows where you want them" />
+                                <Button x:Name="BtnRailOrderAttention"
+                                        Content="Attention"
+                                        Click="RailOrderAttention_Click"
+                                        Focusable="False"
+                                        FontSize="10" FontWeight="SemiBold"
+                                        Padding="8,2" MinWidth="0"
+                                        BorderThickness="0" CornerRadius="0"
+                                        Cursor="Hand"
+                                        ToolTip.Tip="The session that has needed you longest on top, then the rest that need you, then working, then snoozed" />
+                            </StackPanel>
+                        </Border>
                         <TextBlock Text="SESSIONS"
                                    Foreground="{DynamicResource TextForeground}"
                                    FontSize="12" FontWeight="Bold"
@@ -393,6 +427,16 @@
                     <ListBox.ItemTemplate>
                         <DataTemplate>
                             <StackPanel Margin="0,1">
+                                <!-- Attention section heading ("NEEDS YOU 2"), on the FIRST row of the
+                                     section only. Present only in attention order; my order has no
+                                     sections. The words and the count come from the shared fold's
+                                     AttentionSections, and the colour is red for needs you and muted
+                                     for the rest - the only place the rail tells the sections apart. -->
+                                <TextBlock IsVisible="{Binding ShowSectionHeader}"
+                                           Text="{Binding SectionHeaderText}"
+                                           Foreground="{Binding SectionHeaderBrush}"
+                                           FontSize="10" FontWeight="Bold"
+                                           Margin="8,8,8,2" />
                                 <!-- Group header (issue #225): rendered above the FIRST member
                                      of a group only. Doubles as the group drag handle - grab it
                                      to move every member as one unit. -->
@@ -413,17 +457,54 @@
                                 <!-- Row body: a left accent stripe + subtle tint when this is a
                                      group member, so members read as one tied block. -->
                                 <Border Background="{Binding GroupRowBackground}">
-                                <Grid ColumnDefinitions="Auto,*">
+                                <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*">
                                     <Border Grid.Column="0" Width="3"
                                             Background="{Binding GroupAccent}"
                                             IsVisible="{Binding IsGroupMember}" />
+                                    <!-- THE OWNERSHIP TREE (Session List Views, slice 2). Three fixed
+                                         columns in front of the row body, all of them stamped by
+                                         SessionRailTree.Project from the shared fold:
+                                           1. the depth indent, so a grandchild sits further in than a child;
+                                           2. the guide line a crew's sessions hang behind;
+                                           3. the chevron gutter, RESERVED ON EVERY ROW so that rows with
+                                              and without a crew still line up with each other.
+                                         An ordinary row therefore renders pixel for pixel as it always
+                                         did, one gutter further in. -->
+                                    <Border Grid.Column="1" Width="{Binding RailIndentWidth}" />
+                                    <Border Grid.Column="2" Width="1" Margin="0,2,11,2"
+                                            Background="#3A4A63"
+                                            IsVisible="{Binding IsRailChild}" />
+                                    <Border Grid.Column="3" Width="14">
+                                        <Button IsVisible="{Binding HasCrew}"
+                                                Click="CrewChevron_Click"
+                                                Focusable="False"
+                                                Background="Transparent" BorderThickness="0"
+                                                Padding="0" Margin="0"
+                                                VerticalAlignment="Center" HorizontalAlignment="Center"
+                                                Cursor="Hand"
+                                                ToolTip.Tip="Open or close the sessions under this one">
+                                            <Panel Width="10" Height="10">
+                                                <!-- Closed: points right. Open: points down. Two paths
+                                                     rather than a rotation, so neither state depends on a
+                                                     transform the theme could restyle. -->
+                                                <Path Data="M 3,1 L 7,5 L 3,9"
+                                                      Stroke="#9DB4DD" StrokeThickness="1.6"
+                                                      StrokeLineCap="Round" StrokeJoin="Round"
+                                                      IsVisible="{Binding !IsCrewExpanded}" />
+                                                <Path Data="M 1,3 L 5,7 L 9,3"
+                                                      Stroke="#9DB4DD" StrokeThickness="1.6"
+                                                      StrokeLineCap="Round" StrokeJoin="Round"
+                                                      IsVisible="{Binding IsCrewExpanded}" />
+                                            </Panel>
+                                        </Button>
+                                    </Border>
                                 <!-- Session row content: up to three stacked lines, each
                                      element with a guaranteed slot so nothing is ever
                                      pushed out of the panel by something else growing:
                                        1. status dot | title (trims) | queue | kebab
                                        2. agent badge + type badge
                                        3. activity + waiting | changes (right-anchored) -->
-                                <StackPanel Grid.Column="1" Margin="8,6">
+                                <StackPanel Grid.Column="4" Margin="8,6">
                                     <!-- LINE 1: the title sits in the star column, so
                                          TextTrimming actually engages and a long name
                                          can never run under the kebab menu. -->
@@ -704,6 +785,70 @@
                                             </TextBlock>
                                         </Border>
                                     </Grid>
+                                    <!-- LINE 4: THE CREW LINE. Present only while this crew is CLOSED,
+                                         which is the whole point of it - a collapsed crew must hide
+                                         nothing that matters, and when the crew is open its sessions
+                                         are rows of their own saying the same thing in full.
+
+                                         One square per session under it AT EVERY LEVEL, in the crew's
+                                         own order and each in that session's own stamped colour, so
+                                         collapsing hides no colour. Then the counts, worded once by the
+                                         shared fold. Then the age of the crew's oldest session, at the
+                                         right, ticking on the rail's existing timer.
+
+                                         The need-you count is ZERO for every live crew (issue #2826 -
+                                         a child with a live supervisor never goes red) and turns
+                                         non-zero only when the supervisor dies and its sessions
+                                         surface. That is exactly when it must be seen, so it is always
+                                         carried and never dropped when zero. -->
+                                    <Grid ColumnDefinitions="*,Auto" Margin="0,4,0,0"
+                                          IsVisible="{Binding ShowCrewLine}">
+                                        <TextBlock Grid.Column="0"
+                                                   Text="{Binding CrewLineText}"
+                                                   Foreground="#9DB4DD"
+                                                   FontSize="11"
+                                                   VerticalAlignment="Center"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding CrewAgeText}"
+                                                   Foreground="#888888"
+                                                   FontSize="11"
+                                                   Margin="6,0,0,0"
+                                                   VerticalAlignment="Center" />
+                                    </Grid>
+                                    <!-- LINE 5: THE STRIP OF SQUARES, on its OWN line under the counts.
+                                         The drawn design puts it beside them, but it was drawn at 545
+                                         pixels and this rail opens at 264 (MainLayoutGrid's first
+                                         column). Beside the counts, nine squares and their gaps take 88
+                                         of about 230 usable pixels and the COUNTS are what gets trimmed
+                                         - which reads as broken, and they are the part that answers
+                                         "do I need to open this crew?".
+
+                                         Architect's ruling, 15 September 2026: give the strip its own
+                                         line. Do NOT cap it - every session under a crew keeping a
+                                         square is an explicit design promise - and do not drop the age,
+                                         which is the only thing saying how long the crew has run. The
+                                         cost is one row of height, on closed crews only. -->
+                                    <ItemsControl ItemsSource="{Binding CrewColorBrushes}"
+                                                  IsVisible="{Binding ShowCrewLine}"
+                                                  Margin="0,3,0,0"
+                                                  HorizontalAlignment="Left">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <!-- Wrapping, not clipping: a crew large enough to run
+                                                     past the rail's width takes a second row of squares
+                                                     rather than losing the sessions off the end. -->
+                                                <WrapPanel Orientation="Horizontal" />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Width="8" Height="8" CornerRadius="2"
+                                                        Margin="0,0,2,2"
+                                                        Background="{Binding}" />
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
                                 </StackPanel>
                                 </Grid>
                                 </Border>

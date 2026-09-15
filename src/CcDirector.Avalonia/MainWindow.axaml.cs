@@ -82,6 +82,35 @@ public partial class MainWindow : Window
     internal readonly ObservableCollection<SessionViewModel> _sessions = new();
     private SessionViewModel? _activeSession;
 
+    // ===== The rail as the ownership tree (Session List Views, slice 2) =====
+    //
+    // _sessions stays exactly what it was: EVERY session on this Director, in the user's drag order. It
+    // is still what the collapsed sidebar's strip of dots renders (one dot per session, unchanged), what
+    // the "N need you" count counts, and what is persisted.
+    //
+    // _railRows is the PROJECTION of that list through the ownership tree: the rows the list box
+    // actually draws, with a collapsed crew's sessions absent and an open crew's sessions following it.
+    // It holds SessionViewModel - not a row object - deliberately, so the list box's selected item is
+    // still a session and every SessionList.SelectedItem site in this file keeps working untouched.
+    private readonly ObservableCollection<SessionViewModel> _railRows = new();
+
+    // The last projection, kept because the drag rule needs to know each row's parent and depth to
+    // refuse a drop that would cross a parent boundary.
+    private IReadOnlyList<SessionRailRow> _railRowModel = Array.Empty<SessionRailRow>();
+
+    // Which position the order switch is on, and which crews the user has opened. Both are remembered
+    // per user in config.json (SessionRailConfig), beside the sidebar's own collapsed state, so they
+    // survive a restart. Loaded once in MainWindow_Loaded.
+    private SessionRailOrder _railOrder = SessionRailOrder.MyOrder;
+    private readonly HashSet<string> _expandedCrews = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Where the open crews are remembered. The Director writes them to its own config.json; a test
+    /// replaces this with a no-op, because a suite that drove the real window would otherwise rewrite the
+    /// RUNNING USER'S settings file with the sessions it invented.
+    /// </summary>
+    internal Action<IEnumerable<string>> RememberExpandedCrews = SessionRailConfig.SetExpandedCrews;
+
     // Slash command autocomplete
     private readonly SlashCommandProvider _slashCommandProvider = new();
     private List<SlashCommandItem> _filteredSlashCommands = new();
@@ -340,8 +369,7 @@ public partial class MainWindow : Window
         var app = (App)global::Avalonia.Application.Current!;
         _sessionManager = app.SessionManager;
 
-        SessionList.ItemsSource = _sessions;
-        SlimSessionList.ItemsSource = _sessions;
+        BindSessionRail();
         QueueItemsList.ItemsSource = _queueItems;
         ScreenshotList.ItemsSource = _screenshots;
 
@@ -451,6 +479,9 @@ public partial class MainWindow : Window
         {
             foreach (var vm in _sessions) vm.RefreshTimeLabels();
             UpdateNeedsYouCount();
+            // The crew age ("5h 29m") climbs on this same timer, which is why SessionRailTree.Project
+            // takes the clock rather than reading it: one tick moves every label on the rail together.
+            RebuildRail();
         };
         _sessionGitTimer.Start();
 
@@ -2042,6 +2073,7 @@ public partial class MainWindow : Window
                 // terminal on the empty "Select a session to begin" state.
                 if (_activeSession is null)
                 {
+                    RevealInRail(vm);
                     SessionList.SelectedItem = vm;
                     FileLog.Write($"[MainWindow] OnExternalSessionCreated: auto-selected {session.Id} (no active session)");
                 }
@@ -2183,6 +2215,7 @@ public partial class MainWindow : Window
 
             var vm = new SessionViewModel(session);
             _sessions.Add(vm);
+            RevealInRail(vm);
             SessionList.SelectedItem = vm;
             FileLog.Write($"[MainWindow] CreateSession: added to UI");
 
@@ -2211,6 +2244,7 @@ public partial class MainWindow : Window
 
             var vm = new SessionViewModel(session);
             _sessions.Add(vm);
+            RevealInRail(vm);
             SessionList.SelectedItem = vm;
             FileLog.Write($"[MainWindow] CreateSession: added to UI");
 
@@ -2239,6 +2273,7 @@ public partial class MainWindow : Window
 
             var vm = new SessionViewModel(session);
             _sessions.Add(vm);
+            RevealInRail(vm);
             SessionList.SelectedItem = vm;
 
             ShowRenameDialog(vm);
@@ -2264,6 +2299,12 @@ public partial class MainWindow : Window
 
     internal void SelectSession(SessionViewModel? vm)
     {
+        // A session can be selected from somewhere other than the rail - the Cockpit creating it, a
+        // message arriving, the restore dialog - and when its crew is closed the row is not there. Open
+        // the crews above it first, so that selecting a session always shows the session. Doing nothing
+        // would look exactly like a broken click.
+        if (vm is not null) RevealInRail(vm);
+
         // Selecting a session returns to its terminal, dismissing an on-demand status view.
         if (vm != null && _statusRequested)
         {
@@ -2587,6 +2628,7 @@ public partial class MainWindow : Window
             if (sender is not Control { DataContext: SessionViewModel vm })
                 return;
             FileLog.Write($"[MainWindow] SlimSessionDot_Click: {vm.Session.Id}");
+            RevealInRail(vm);
             SessionList.SelectedItem = vm;
         }
         catch (Exception ex)
@@ -3864,13 +3906,28 @@ public partial class MainWindow : Window
         int fromIndex = _sessions.IndexOf(draggedVm);
         if (fromIndex < 0) return;
 
+        // OWNERSHIP IS NOT ARRANGEMENT. A top-level row reorders among top-level rows and a child
+        // reorders among its own siblings; a drop that would cross a parent boundary does NOTHING. The
+        // rule is in the pure SessionRailDrag.DropTarget, which also translates the drop into an
+        // insertion index in _sessions - the rail's drag order - because that one list's order drives
+        // both the top level (list position) and every crew (SortOrder, stamped from the list index).
+        //
+        // It does not snap to the nearest legal slot either: a silent relocation the user did not aim
+        // at is a worse answer than a drag that visibly did not take.
+        var pos = e.GetPosition(SessionList);
+        int dropRow = GetSessionDropIndex(pos);
+
+        var target = SessionRailDrag.DropTarget(_railRowModel, _sessions, draggedVm, dropRow);
+        if (target is not int rawTarget)
+        {
+            FileLog.Write($"[MainWindow] SessionList_Drop: REFUSED - {draggedVm.DisplayName} cannot be " +
+                          "dropped there; that would move it across a parent boundary.");
+            return;
+        }
+
         // Issue #225: a group moves as ONE unit - the pure GroupReorder.MoveBlock computes
         // the new order (whole group lifted, members keep internal order, never split or
-        // land inside another group). GetSessionDropIndex maps the pixel to a raw insert
-        // index from the live container geometry.
-        var pos = e.GetPosition(SessionList);
-        int rawTarget = GetSessionDropIndex(pos);
-
+        // land inside another group).
         var reordered = GroupReorder.MoveBlock(_sessions, vm => vm.GroupId, fromIndex, rawTarget);
         // Apply the new order onto the live ObservableCollection by stable position moves.
         for (int i = 0; i < reordered.Count; i++)
@@ -3880,10 +3937,198 @@ public partial class MainWindow : Window
         }
 
         FileLog.Write($"[MainWindow] SessionList_Drop: applied group-aware reorder, dragged {draggedVm.DisplayName}");
+        RevealInRail(draggedVm);
         SessionList.SelectedItem = draggedVm;
         RecomputeGroupPositions();
         PersistSessionState();
     }
+
+    // ==================== THE RAIL AS THE OWNERSHIP TREE ====================
+
+    /// <summary>
+    /// Point the two session lists at what each of them draws, and restore the rail's remembered state.
+    ///
+    /// THE TWO LISTS ARE DIFFERENT LISTS, AND THAT IS THE POINT. The list box draws the TREE - the
+    /// projection, where a closed crew's sessions have no row. The collapsed sidebar's slim strip of dots
+    /// draws the WHOLE ROSTER, unchanged: one dot per session, every session, whether or not its crew is
+    /// open. Collapsing the sidebar is how you ask for every session at a glance, so hiding sessions
+    /// inside it would answer a question nobody asked.
+    ///
+    /// Called from MainWindow_Loaded, and internal so a test can call it without the Loaded handler's
+    /// reach into the running Director (App.SessionManager, the Gateway monitor, the rail timers), which
+    /// does not exist headless.
+    /// </summary>
+    internal void BindSessionRail()
+    {
+        SessionList.ItemsSource = _railRows;
+        SlimSessionList.ItemsSource = _sessions;
+
+        // A session added, removed or reordered changes the tree, so the rows are re-projected. It lives
+        // here rather than with the window's other subscriptions because it belongs to the binding
+        // directly above it: a list box pointed at a projection that nothing refreshes shows the roster
+        // as it was when the window opened.
+        _sessions.CollectionChanged += (_, _) => RebuildRail();
+
+        // The rail's own remembered state: which order the switch is on, and which crews are open.
+        _railOrder = SessionRailConfig.Order == SessionRailConfig.Attention
+            ? SessionRailOrder.Attention
+            : SessionRailOrder.MyOrder;
+        foreach (var crewId in SessionRailConfig.ExpandedCrews) _expandedCrews.Add(crewId);
+        UpdateRailOrderSwitch();
+        RebuildRail();
+    }
+
+    /// <summary>
+    /// Open or close a crew and redraw. The REMEMBERING is the caller's - the chevron handler persists,
+    /// and nothing else has any business writing the user's config.json, which is why this is split out
+    /// rather than tested through the handler.
+    /// </summary>
+    internal void ToggleCrew(SessionViewModel vm)
+    {
+        var id = vm.Session.Id.ToString();
+        if (!_expandedCrews.Remove(id)) _expandedCrews.Add(id);
+        RebuildRail();
+    }
+
+    /// <summary>Move the order switch and redraw. The remembering is the caller's, as above.</summary>
+    internal void ApplyRailOrder(SessionRailOrder order)
+    {
+        _railOrder = order;
+        UpdateRailOrderSwitch();
+        RebuildRail();
+    }
+
+    /// <summary>
+    /// Re-project the roster into the rows the list box draws, and stamp each row's place in the tree
+    /// onto its view model.
+    ///
+    /// THIS METHOD DECIDES NOTHING. Who is under whom, who is a root, the crew counts, the crew line's
+    /// exact words, the crew age and the attention sections all come from the ONE fold
+    /// (CcDirector.Gateway.Contracts.SessionTree) through <see cref="SessionRailTree.Project"/>. The
+    /// Cockpit and the phone read the same answers through the TypeScript twin of that fold, which is
+    /// what stops the three surfaces wording the same crew three different ways.
+    ///
+    /// It is safe and cheap to call on every change and on the rail's 15 second tick: when the rows come
+    /// back in the same order as they already are, the collection is left ALONE and only the stamped
+    /// values are refreshed. That matters - replacing the items would drop the list box's selection and
+    /// its scroll position four times a minute.
+    /// </summary>
+    internal void RebuildRail()
+    {
+        // The rail's drag order IS the desktop order. Stamping it here, from the list index, is what
+        // makes a crew's sessions come back from the fold in the order the user dragged them into -
+        // SessionOrdering.InDesktopOrder reads SortOrder, and a stale SortOrder would order the children
+        // of a crew differently from the top-level rows right beside them.
+        for (int i = 0; i < _sessions.Count; i++) _sessions[i].Session.SortOrder = i;
+
+        var rows = SessionRailTree.Project(_sessions, _railOrder, _expandedCrews, DateTime.UtcNow);
+        _railRowModel = rows;
+
+        foreach (var row in rows)
+        {
+            var crewColors = new List<ISolidColorBrush>(row.Crew.Count);
+            foreach (var member in row.Crew) crewColors.Add(member.StatusColorBrush);
+            row.Session.ApplyRailRow(
+                row.Depth, row.HasCrew, row.IsExpanded, row.CrewLine, row.CrewAge,
+                crewColors, row.SectionTitle, row.SectionIsNeedsYou);
+        }
+
+        var sameRows = rows.Count == _railRows.Count;
+        if (sameRows)
+        {
+            for (int i = 0; i < rows.Count; i++)
+            {
+                if (ReferenceEquals(rows[i].Session, _railRows[i])) continue;
+                sameRows = false;
+                break;
+            }
+        }
+        if (sameRows) return;
+
+        var selected = SessionList.SelectedItem as SessionViewModel;
+        _railRows.Clear();
+        foreach (var row in rows) _railRows.Add(row.Session);
+        if (selected is not null && _railRows.Contains(selected))
+            SessionList.SelectedItem = selected;
+
+        FileLog.Write($"[MainWindow] RebuildRail: {_sessions.Count} session(s) -> {rows.Count} row(s), " +
+                      $"order={_railOrder}, openCrews={_expandedCrews.Count}");
+    }
+
+    /// <summary>
+    /// Open every crew above <paramref name="vm"/> so that selecting a session always shows it.
+    ///
+    /// A session can be selected from somewhere other than the rail - the Cockpit creating it, a
+    /// message arriving, the restore-sessions dialog - and if its supervisor's crew is closed the row
+    /// simply is not there to select. Rather than refuse, the rail opens the crews down to it. Silently
+    /// failing to select what the user asked for is the worse answer.
+    /// </summary>
+    private void RevealInRail(SessionViewModel vm)
+    {
+        if (_railRows.Contains(vm)) return;
+
+        // Walk up the supervisor chain in the CURRENT roster, opening each crew on the way. The chain is
+        // read from the same wire field the fold nests on, and the visited set stops a malformed
+        // ownership loop from spinning here.
+        var byId = new Dictionary<string, SessionViewModel>(StringComparer.Ordinal);
+        foreach (var s in _sessions) byId[s.Session.Id.ToString()] = s;
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var at = vm;
+        var opened = false;
+        while (at is not null && seen.Add(at.Session.Id.ToString()))
+        {
+            var supervisor = at.Session.ControllerSessionId?.ToString();
+            if (supervisor is null || !byId.TryGetValue(supervisor, out var parent)) break;
+            opened |= _expandedCrews.Add(supervisor);
+            at = parent;
+        }
+
+        if (!opened) return;
+        FileLog.Write($"[MainWindow] RevealInRail: opened the crews above {vm.DisplayName}");
+        RememberExpandedCrews(_expandedCrews);
+        RebuildRail();
+    }
+
+    /// <summary>Open or close the crew under this row, and remember the answer for next time.</summary>
+    private void CrewChevron_Click(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Control control || control.DataContext is not SessionViewModel vm) return;
+
+        ToggleCrew(vm);
+        FileLog.Write($"[MainWindow] CrewChevron_Click: {vm.DisplayName} is now " +
+                      (_expandedCrews.Contains(vm.Session.Id.ToString()) ? "open" : "closed"));
+        RememberExpandedCrews(_expandedCrews);
+    }
+
+    private void RailOrderMine_Click(object? sender, RoutedEventArgs e) => SetRailOrder(SessionRailOrder.MyOrder);
+
+    private void RailOrderAttention_Click(object? sender, RoutedEventArgs e) => SetRailOrder(SessionRailOrder.Attention);
+
+    private void SetRailOrder(SessionRailOrder order)
+    {
+        if (_railOrder == order) return;
+        ApplyRailOrder(order);
+        FileLog.Write($"[MainWindow] SetRailOrder: {order}");
+        SessionRailConfig.SetOrder(order == SessionRailOrder.Attention
+            ? SessionRailConfig.Attention
+            : SessionRailConfig.MyOrder);
+    }
+
+    /// <summary>Paint the two-position switch so the chosen position reads as chosen.</summary>
+    private void UpdateRailOrderSwitch()
+    {
+        var mine = _railOrder == SessionRailOrder.MyOrder;
+        BtnRailOrderMine.Background = mine ? RailOrderOnBrush : RailOrderOffBrush;
+        BtnRailOrderMine.Foreground = mine ? RailOrderOnTextBrush : RailOrderOffTextBrush;
+        BtnRailOrderAttention.Background = mine ? RailOrderOffBrush : RailOrderOnBrush;
+        BtnRailOrderAttention.Foreground = mine ? RailOrderOffTextBrush : RailOrderOnTextBrush;
+    }
+
+    private static readonly ISolidColorBrush RailOrderOnBrush = new SolidColorBrush(Color.FromRgb(0x00, 0x7A, 0xCC));
+    private static readonly ISolidColorBrush RailOrderOffBrush = new SolidColorBrush(Color.FromRgb(0x2A, 0x2A, 0x2A));
+    private static readonly ISolidColorBrush RailOrderOnTextBrush = new SolidColorBrush(Colors.White);
+    private static readonly ISolidColorBrush RailOrderOffTextBrush = new SolidColorBrush(Color.FromRgb(0x9A, 0x9A, 0x9A));
 
     /// <summary>Recompute first/last group flags (issue #225) so the header + bracket reflow
     /// after any list change. Cheap; safe to call on every CollectionChanged.</summary>
@@ -3914,10 +4159,18 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Where the pointer fell, as an insertion index into the RENDERED ROWS: 0 is above the first row
+    /// and the row count is below the last.
+    ///
+    /// It walks _railRows, not _sessions, because those are two different lists now - a collapsed
+    /// crew's sessions have no container at all, so asking the list box for their geometry answers for
+    /// the wrong row and the drop lands somewhere the user did not point at.
+    /// </summary>
     private int GetSessionDropIndex(Point pos)
     {
         // Walk list items and find where the drop point falls
-        for (int i = 0; i < _sessions.Count; i++)
+        for (int i = 0; i < _railRows.Count; i++)
         {
             var container = SessionList.ContainerFromIndex(i);
             if (container == null) continue;
@@ -3936,7 +4189,7 @@ public partial class MainWindow : Window
             }
         }
 
-        return _sessions.Count;
+        return _railRows.Count;
     }
 
     private void BtnNewSession_Click(object? sender, RoutedEventArgs e)

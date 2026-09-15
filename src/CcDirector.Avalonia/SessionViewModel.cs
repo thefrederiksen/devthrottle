@@ -181,7 +181,13 @@ public class SessionViewModel : INotifyPropertyChanged
     /// add an invalidation obligation across nine change handlers, where missing one means the rail quietly
     /// shows stale state - the precise failure this whole change exists to remove.
     /// </summary>
-    private SessionDto FoldInput => ControlEndpoints.Map(Session, directorId: "");
+    /// <remarks>
+    /// INTERNAL, not private, because the rail's row projection (<see cref="SessionRailTree"/>) builds the
+    /// ownership tree over these same wire objects. It reads the fold's input through the one mapper rather
+    /// than reaching into <see cref="Session"/> for a supervisor id of its own, so the tree the Director draws
+    /// is built from exactly the fields the Cockpit and the phone build theirs from.
+    /// </remarks>
+    internal SessionDto FoldInput => ControlEndpoints.Map(Session, directorId: "");
 
     /// <summary>
     /// The presentation colour the rail renders - the GATEWAY'S folded answer, stamped down onto this
@@ -796,6 +802,103 @@ public class SessionViewModel : INotifyPropertyChanged
         SessionRoles.Architect => "A",
         _ => ""
     };
+
+    // ===== The ownership tree (Session List Views, slice 2) =====
+    //
+    // THE RAIL DECIDES NONE OF THIS. Every value below is STAMPED by SessionRailTree.Project from the
+    // ONE fold in CcDirector.Gateway.Contracts.SessionTree - the same fold the Cockpit and the phone
+    // read through their TypeScript twin - and this view model only holds it for the binding to read.
+    // There is deliberately no computation here: a count worked out on the desktop is a second answer
+    // to a question the fold already answers, which is the defect this mission exists to remove.
+
+    private static readonly global::Avalonia.Media.ISolidColorBrush SectionNeedsYouBrush =
+        new SolidColorBrush(Color.Parse(StatusPalette.Red));
+    private static readonly global::Avalonia.Media.ISolidColorBrush SectionOrdinaryBrush =
+        new SolidColorBrush(Color.FromRgb(0x9A, 0x9A, 0x9A));
+
+    private static readonly IReadOnlyList<ISolidColorBrush> NoCrew = Array.Empty<ISolidColorBrush>();
+
+    private int _railDepth;
+    private bool _hasCrew;
+    private bool _isCrewExpanded;
+    private string _crewLineText = "";
+    private string _crewAgeText = "";
+    private IReadOnlyList<ISolidColorBrush> _crewColorBrushes = NoCrew;
+    private string _sectionHeaderText = "";
+    private bool _sectionIsNeedsYou;
+
+    /// <summary>How deep this row sits in the ownership tree: 0 at the top level, 1 for a child, and up
+    /// with no limit. Drives the row's indent and its guide line.</summary>
+    public int RailDepth => _railDepth;
+
+    /// <summary>The width of this row's indent in pixels, so a grandchild sits further in than a child.</summary>
+    public double RailIndentWidth => _railDepth * 18.0;
+
+    /// <summary>True for any row under a parent - the row that draws the vertical guide line.</summary>
+    public bool IsRailChild => _railDepth > 0;
+
+    /// <summary>True when this session supervises at least one other session in the rail: it gets a chevron.</summary>
+    public bool HasCrew => _hasCrew;
+
+    /// <summary>True when this crew is open and its sessions are rows of their own below it.</summary>
+    public bool IsCrewExpanded => _isCrewExpanded;
+
+    /// <summary>The crew line rides under the state line while the crew is CLOSED - it is what stops a
+    /// collapsed crew hiding anything, so it is absent exactly when the sessions themselves are visible.</summary>
+    public bool ShowCrewLine => _hasCrew && !_isCrewExpanded;
+
+    /// <summary>The crew line's words, formatted once by the shared fold: "9 under it: 4 working, 5 stopped,
+    /// 0 need you". Never composed here.</summary>
+    public string CrewLineText => _crewLineText;
+
+    /// <summary>How long the crew has been going, from its oldest session ("5h 29m"), ticking on the rail's
+    /// existing timer. Empty when no session under it carries a usable creation stamp.</summary>
+    public string CrewAgeText => _crewAgeText;
+
+    /// <summary>One square per session under this one, at EVERY level, in the crew's own order, each in that
+    /// session's own stamped colour - so collapsing a crew hides no colour.</summary>
+    public IReadOnlyList<ISolidColorBrush> CrewColorBrushes => _crewColorBrushes;
+
+    /// <summary>True on the first row of an attention section, which draws its heading above itself.</summary>
+    public bool ShowSectionHeader => _sectionHeaderText.Length > 0;
+
+    /// <summary>The attention section heading, e.g. "NEEDS YOU 2". Empty in my order, which has no sections.</summary>
+    public string SectionHeaderText => _sectionHeaderText;
+
+    /// <summary>The heading's colour: red for needs you, muted for the rest.</summary>
+    public ISolidColorBrush SectionHeaderBrush => _sectionIsNeedsYou ? SectionNeedsYouBrush : SectionOrdinaryBrush;
+
+    /// <summary>
+    /// Take this row's place in the tree from the projection. ONE entry point, raising every dependent
+    /// property, for the same reason <see cref="RaiseFoldProjection"/> exists: a per-caller list of what
+    /// to raise is a private chance to miss one, and a half-updated row looks deliberate, so the reader
+    /// believes the wrong half.
+    /// </summary>
+    internal void ApplyRailRow(int depth, bool hasCrew, bool isExpanded, string crewLine, string crewAge,
+                               IReadOnlyList<ISolidColorBrush> crewColors, string sectionHeader, bool sectionIsNeedsYou)
+    {
+        _railDepth = depth;
+        _hasCrew = hasCrew;
+        _isCrewExpanded = isExpanded;
+        _crewLineText = crewLine;
+        _crewAgeText = crewAge;
+        _crewColorBrushes = crewColors;
+        _sectionHeaderText = sectionHeader;
+        _sectionIsNeedsYou = sectionIsNeedsYou;
+
+        OnPropertyChanged(nameof(RailDepth));
+        OnPropertyChanged(nameof(RailIndentWidth));
+        OnPropertyChanged(nameof(IsRailChild));
+        OnPropertyChanged(nameof(HasCrew));
+        OnPropertyChanged(nameof(IsCrewExpanded));
+        OnPropertyChanged(nameof(ShowCrewLine));
+        OnPropertyChanged(nameof(CrewLineText));
+        OnPropertyChanged(nameof(CrewAgeText));
+        OnPropertyChanged(nameof(CrewColorBrushes));
+        OnPropertyChanged(nameof(ShowSectionHeader));
+        OnPropertyChanged(nameof(SectionHeaderText));
+        OnPropertyChanged(nameof(SectionHeaderBrush));
+    }
 
     // ===== Group membership (issue #225) =====
 
