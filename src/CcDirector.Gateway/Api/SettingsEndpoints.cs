@@ -200,7 +200,69 @@ internal static class SettingsEndpoints
                 // (devthrottle_internal#1661). A boolean and not a cadence name: the question is whether the
                 // mentor reads this person's prompts at all, and that has exactly two answers.
                 mentorReportEnabled = host.TenantSettingsResolver.MentorReportEnabled(t.Value),
+                // The two turn-judging switches (the Wingman-on-every-turn mission). Read here rather than
+                // through a GET of their own because a settings card needs one fetch to draw itself, and
+                // this is the document every card on the page already reads. The two PUTs below write them.
+                turnVerdictJudgeEnabled = host.TenantSettingsResolver.TurnVerdict(t.Value).JudgeEnabled,
+                turnVerdictColourEnabled = host.TenantSettingsResolver.TurnVerdict(t.Value).ColourEnabled,
             });
+        });
+
+        // The Wingman's turn judging, on or off for this account (the Wingman-on-every-turn mission). Per
+        // ACCOUNT, because it is one person's fleet being judged and one person's model spend. Read by the
+        // turn-end seat at every stop, so a change applies to the next turn end with no Gateway restart.
+        //
+        // TWO ROUTES AND NOT ONE, matching the two keys. Judging and colouring are separately switchable so
+        // an account can be judged in shadow - every verdict stored and gradeable - while nothing on its
+        // screens has moved. A single route taking both would make the shadow state a combination somebody
+        // has to remember rather than a switch they can see.
+        app.MapPut("/gateway/turn-verdict-judge", async (HttpContext ctx) =>
+        {
+            var t = GatewayEndpoints.ResolveReadTenant(ctx, host.TenantBoundary);
+            if (t is null) return TenantRequired();
+            try
+            {
+                var body = await JsonSerializer.DeserializeAsync<TurnVerdictSwitchBody>(
+                    ctx.Request.Body, JsonOpts, ctx.RequestAborted);
+                // A missing or non-boolean "enabled" is REFUSED, never read as either answer - the mentor
+                // report's reasoning exactly. Guessing would answer "saved" for a choice nobody made, and
+                // here one of the two guesses starts spending model calls on every stop in the account.
+                if (body?.Enabled is null)
+                    return Results.BadRequest(new { error = "body { \"enabled\": true|false } is required" });
+
+                host.TenantSettingsResolver.SetTurnVerdictJudgeEnabled(t.Value, body.Enabled.Value, DateTime.UtcNow);
+                FileLog.Write($"[SettingsEndpoints] turn_verdict_judge_enabled set to {body.Enabled.Value} for tenant={t.Value.ToLogString()}");
+                return Results.Json(new { enabled = body.Enabled.Value });
+            }
+            catch (JsonException ex)
+            {
+                FileLog.Write($"[SettingsEndpoints] PUT /gateway/turn-verdict-judge bad JSON: {ex.Message}");
+                return Results.BadRequest(new { error = "invalid JSON" });
+            }
+        });
+
+        // Whether judged verdicts reach this account's screens - the calm colours and the one-line label.
+        // Off with judging ON is the shadow state; off with judging off is what every account has today.
+        app.MapPut("/gateway/turn-verdict-colour", async (HttpContext ctx) =>
+        {
+            var t = GatewayEndpoints.ResolveReadTenant(ctx, host.TenantBoundary);
+            if (t is null) return TenantRequired();
+            try
+            {
+                var body = await JsonSerializer.DeserializeAsync<TurnVerdictSwitchBody>(
+                    ctx.Request.Body, JsonOpts, ctx.RequestAborted);
+                if (body?.Enabled is null)
+                    return Results.BadRequest(new { error = "body { \"enabled\": true|false } is required" });
+
+                host.TenantSettingsResolver.SetTurnVerdictColourEnabled(t.Value, body.Enabled.Value, DateTime.UtcNow);
+                FileLog.Write($"[SettingsEndpoints] turn_verdict_colour_enabled set to {body.Enabled.Value} for tenant={t.Value.ToLogString()}");
+                return Results.Json(new { enabled = body.Enabled.Value });
+            }
+            catch (JsonException ex)
+            {
+                FileLog.Write($"[SettingsEndpoints] PUT /gateway/turn-verdict-colour bad JSON: {ex.Message}");
+                return Results.BadRequest(new { error = "invalid JSON" });
+            }
         });
 
         // Whether this account receives the Development Mentor report (devthrottle_internal#1661). Per
@@ -839,4 +901,8 @@ internal static class SettingsEndpoints
 
     /// <summary>Nullable on purpose: a body with no "enabled" is refused rather than read as false.</summary>
     private sealed record MentorReportBody(bool? Enabled);
+
+    /// <summary>The body both turn-verdict switches take. Nullable for the same reason as the mentor
+    /// report's: a body with no "enabled" is refused rather than read as either answer.</summary>
+    private sealed record TurnVerdictSwitchBody(bool? Enabled);
 }

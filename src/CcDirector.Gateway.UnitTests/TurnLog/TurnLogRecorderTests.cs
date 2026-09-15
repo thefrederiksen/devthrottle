@@ -14,8 +14,13 @@ public sealed class TurnLogRecorderTests
 {
     private static readonly TenantId Tenant = new("acct-a");
 
+    /// <summary>The observed moment the watcher would have stamped. A FIXED value rather than
+    /// DateTime.UtcNow, so a test can prove the recorder COPIES it onto the record instead of stamping a
+    /// clock of its own - with "now" on both sides the assertion passes whichever one the recorder used.</summary>
+    private static readonly DateTime ObservedAt = new(2026, 9, 14, 8, 30, 15, DateTimeKind.Utc);
+
     private static TurnEndSignal Signal(bool isNewTurn = true, string? previous = "Working")
-        => new("sid-1", "director-1", Tenant, isNewTurn, previous);
+        => new("sid-1", "director-1", Tenant, ObservedAt, isNewTurn, previous);
 
     [Fact]
     public void OnTurnEnd_CaptureSwitchedOff_ReadsNothingAtAll()
@@ -68,6 +73,9 @@ public sealed class TurnLogRecorderTests
         Assert.Equal("transcript-1", record.Conversation.Generation);
         Assert.True(record.Moment.IsNewTurn);
         Assert.Equal("Working", record.Moment.ActivityStateBefore);
+        // THE JOIN KEY IS THE SIGNAL'S MOMENT, EXACTLY. Presence is not enough: a recorder that stamped its
+        // own clock, or a constant, would still write a value - and would pair this record with no verdict.
+        Assert.Equal(ObservedAt, record.Moment.TurnEndObservedAtUtc);
         Assert.Empty(record.Gaps);
         // Unlabelled, and it must stay that way until a person says otherwise.
         Assert.Null(record.Verdict);

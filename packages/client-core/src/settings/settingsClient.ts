@@ -35,6 +35,12 @@ export interface GatewaySettings {
   // Whether this account receives the Development Mentor report (devthrottle_internal#1661). One value for
   // the account: the mentor reads one person's own prompts and writes to one person.
   mentorReportEnabled: boolean;
+  // Whether this account's stops are judged at all (the Wingman-on-every-turn mission). Off means no model
+  // call is made at a turn end and no verdict is recorded.
+  turnVerdictJudgeEnabled: boolean;
+  // Whether judged verdicts reach this account's screens - the calm colours and the one-line label. Off
+  // with judging ON is the shadow state: every verdict is stored and gradeable and no row's colour moves.
+  turnVerdictColourEnabled: boolean;
 }
 
 /**
@@ -110,7 +116,40 @@ export async function getGatewaySettings(signal?: AbortSignal): Promise<GatewayS
     // card that showed Off because the field was missing - an older Gateway, a shape this client does not
     // know - would tell the account the mentor is stopped when it is not.
     mentorReportEnabled: body.mentorReportEnabled !== false,
+    // The OPPOSITE direction from the two above, and deliberately so. Those default to ON when the field is
+    // missing, because a card that showed Off for something still happening would tell the account it had
+    // stopped. These default to OFF, because that is what a Gateway too old to know the field is actually
+    // doing: it is not judging anything and it is not colouring anything. Showing On here would tell the
+    // account its fleet is being judged when nothing is, and the switch it would then turn off does nothing.
+    turnVerdictJudgeEnabled: body.turnVerdictJudgeEnabled === true,
+    turnVerdictColourEnabled: body.turnVerdictColourEnabled === true,
   };
+}
+
+// PUT /gateway/turn-verdict-judge { enabled } - turn the Wingman's judging of this account's stops on or
+// off (the Wingman-on-every-turn mission). Read by the turn-end seat at every stop, so a change applies to
+// the next turn end. Returns the applied value.
+export async function setTurnVerdictJudgeEnabled(enabled: boolean, signal?: AbortSignal): Promise<boolean> {
+  const body = await putJson<{ enabled?: boolean }>(
+    "/gateway/turn-verdict-judge",
+    "PUT /gateway/turn-verdict-judge",
+    { enabled },
+    signal,
+  );
+  return body.enabled === true;
+}
+
+// PUT /gateway/turn-verdict-colour { enabled } - turn the judged verdicts' COLOURS on or off for this
+// account. Separate from judging on purpose: off here with judging on is the shadow state. Returns the
+// applied value.
+export async function setTurnVerdictColourEnabled(enabled: boolean, signal?: AbortSignal): Promise<boolean> {
+  const body = await putJson<{ enabled?: boolean }>(
+    "/gateway/turn-verdict-colour",
+    "PUT /gateway/turn-verdict-colour",
+    { enabled },
+    signal,
+  );
+  return body.enabled === true;
 }
 
 // PUT /gateway/daily-report { cadence } - set how often this account gets the daily report email. Read by

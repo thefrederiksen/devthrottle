@@ -18,11 +18,21 @@ namespace CcDirector.Gateway.Briefing;
 /// a catch-up refresh (issue #1322). <paramref name="PreviousActivityState"/> is the state this session was
 /// remembered in immediately before the boundary, or null when it had never been seen - the same fact
 /// <paramref name="IsNewTurn"/> is derived from, carried in full for the turn log, which records what the
-/// detector SAW rather than only what it concluded. Nothing in the product branches on it.</summary>
+/// detector SAW rather than only what it concluded. Nothing in the product branches on it.
+///
+/// <paramref name="ObservedAtUtc"/> IS THE JOIN KEY, and it is REQUIRED rather than defaulted. It is the
+/// moment the DETECTOR saw this boundary, stamped once here where the signal is created, and it is what
+/// lets everything produced from one stop - the turn-log record and the Wingman's verdict row - be matched
+/// to each other by (account, session, observed moment). Every consumer runs at its own pace and stamps
+/// its own completion time, so without one shared moment the only way to pair them is to look for the
+/// nearest timestamp, which is a guess that gets worse the slower a consumer is. It has no default for the
+/// same reason: a caller that forgot it would stamp the epoch and match nothing, and a join key that
+/// silently matches nothing looks exactly like a stop that produced no record.</summary>
 public sealed record TurnEndSignal(
     string SessionId,
     string DirectorId,
     TenantId Tenant,
+    DateTime ObservedAtUtc,
     bool IsNewTurn = false,
     string? PreviousActivityState = null);
 
@@ -142,7 +152,11 @@ public sealed class TurnEndWatcher : IDisposable
             // A live boundary (previous state was Working) is a genuinely new turn; a first sighting
             // of an already-waiting session (no previous state) is a catch-up of an earlier turn.
             var isNewTurn = hadPrev && prev == "Working";
-            _onTurnEnd(new TurnEndSignal(sessionId, directorId, tenant, isNewTurn, hadPrev ? prev : null));
+            // The observed moment is stamped HERE, at the boundary decision, and not by any consumer: this
+            // is the only place that knows when the turn end was seen, and every consumer that stamps its
+            // own clock stamps a later, different moment.
+            _onTurnEnd(new TurnEndSignal(
+                sessionId, directorId, tenant, DateTime.UtcNow, isNewTurn, hadPrev ? prev : null));
         }
     }
 

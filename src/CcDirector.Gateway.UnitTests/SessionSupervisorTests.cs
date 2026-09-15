@@ -1,4 +1,4 @@
-using CcDirector.Core.Tenancy;
+﻿using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Briefing;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Supervision;
@@ -542,7 +542,7 @@ public sealed class SessionSupervisorTests
             gate.Release();
         };
 
-        supervisor.OnTurnEnd(new TurnEndSignal(Session, Director, Tenant, IsNewTurn: true));
+        supervisor.OnTurnEnd(new TurnEndSignal(Session, Director, Tenant, DateTime.UtcNow, IsNewTurn: true));
 
         Assert.True(await gate.WaitAsync(TimeSpan.FromSeconds(5)), "the supervisor never reached its first wait");
         await WaitUntil(() => env.OfType(ActivityEventTypes.SupervisorRecovered).Any());
@@ -566,11 +566,11 @@ public sealed class SessionSupervisorTests
         };
         using var supervisor = new SessionSupervisor(env);
 
-        supervisor.OnTurnEnd(new TurnEndSignal(Session, Director, Tenant, IsNewTurn: true));
+        supervisor.OnTurnEnd(new TurnEndSignal(Session, Director, Tenant, DateTime.UtcNow, IsNewTurn: true));
         Assert.True(await reached.WaitAsync(TimeSpan.FromSeconds(5)), "the first ladder never started");
 
         // A second signal for the same session arrives while the first ladder is mid-wait.
-        supervisor.OnTurnEnd(new TurnEndSignal(Session, Director, Tenant, IsNewTurn: true));
+        supervisor.OnTurnEnd(new TurnEndSignal(Session, Director, Tenant, DateTime.UtcNow, IsNewTurn: true));
         await Task.Delay(50);
 
         // Still exactly one ladder: one detection, one wait.

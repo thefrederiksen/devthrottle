@@ -1702,6 +1702,93 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.ToTable("turn_log_switches", (string)null);
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TurnVerdictEntity", b =>
+                {
+                    b.Property<string>("TenantId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("SessionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("JudgedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Failed")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("FailureReason")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ScreenHash")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("TurnEndObservedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("VerdictId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("VerdictJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("TenantId", "SessionId", "JudgedAtUtc");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "JudgedAtUtc");
+
+                    b.HasIndex("TenantId", "SessionId", "JudgedAtUtc");
+
+                    b.ToTable("turn_verdicts", (string)null);
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TurnVerdictFeedbackEntity", b =>
+                {
+                    b.Property<string>("TenantId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("VerdictId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CorrectedVerdict")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Note")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("ReportedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SessionId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("TurnEndObservedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("TenantId", "VerdictId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "ReportedAtUtc");
+
+                    b.HasIndex("TenantId", "SessionId", "ReportedAtUtc");
+
+                    b.ToTable("turn_verdict_feedback", (string)null);
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.WingmanInstructionEntity", b =>
                 {
                     b.Property<Guid>("Id")

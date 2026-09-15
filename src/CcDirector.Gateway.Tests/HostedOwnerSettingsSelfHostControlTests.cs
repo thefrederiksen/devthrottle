@@ -183,8 +183,18 @@ public sealed class HostedOwnerSettingsSelfHostControlTests : IAsyncLifetime
                     "snoozeDefaultMinutes", "snoozePresets",
                     "snoozeMaxPresets", "timeZone", "timeZoneMachineDefault", "dailyReportCadence",
                     "mentorReportEnabled",
+                    // The Wingman's two turn-judging switches (the Wingman-on-every-turn mission). They are
+                    // per-account settings and they ride on this snapshot rather than on a GET of their own,
+                    // because the card that draws them needs one fetch and this is the document every card on
+                    // that page already reads. Adding them here is the acknowledgement this exact allow-list
+                    // exists to demand - it went red on the day they were added, which is its whole job.
+                    "turnVerdictJudgeEnabled", "turnVerdictColourEnabled",
                 }, properties);
                 Assert.True(root.GetProperty("mentorReportEnabled").GetBoolean());
+                // Both default OFF, and that direction is asserted rather than assumed: ON for the colour
+                // switch means a session painted calm, which is the failure nobody is woken by.
+                Assert.False(root.GetProperty("turnVerdictJudgeEnabled").GetBoolean());
+                Assert.False(root.GetProperty("turnVerdictColourEnabled").GetBoolean());
                 Assert.Equal(ReportCadences.DailyName, root.GetProperty("dailyReportCadence").GetString());
                 Assert.True(root.GetProperty("snoozePresets").GetArrayLength() > 0);
                 Assert.Equal(SnoozePresetsConfig.MaxPresets, root.GetProperty("snoozeMaxPresets").GetInt32());

@@ -532,6 +532,11 @@ public sealed class GatewayHost : IAsyncDisposable
     /// an unset override returns only the operator global default.</summary>
     internal Settings.TenantSettingsResolver TenantSettingsResolver => _tenantSettingsResolver;
 
+    /// <summary>The judged-stop record (the Wingman-on-every-turn mission). Internal, and reached from the
+    /// tests through InternalsVisibleTo, so a route test can seed a verdict the way the turn-end seat will
+    /// and then assert what the route hands to each kind of caller.</summary>
+    internal Wingman.TurnVerdictStore TurnVerdicts => _turnVerdicts;
+
     /// <summary>
     /// The auth-boundary tenant binder. Exposed to the test assembly so an isolation test can enter the same
     /// tenant scope a real request or tunnel connection would, and drive the production loop code inside it.
@@ -632,6 +637,15 @@ public sealed class GatewayHost : IAsyncDisposable
     private static readonly TimeSpan ActivityRetentionInterval = TimeSpan.FromHours(6);
     private static readonly TimeSpan ActivityRetentionStartupDelay = TimeSpan.FromMinutes(5);
 
+    // The judged stops' seven-day retention purge (the Wingman-on-every-turn mission): the same shape as
+    // the activity sweep above, on the same per-tenant worker seam, with the same overlap guard. Created
+    // in StartAsync, disposed in StopAsync.
+    private Wingman.TurnVerdictRetentionSweep? _turnVerdictRetentionSweep;
+    private System.Threading.Timer? _turnVerdictRetentionTimer;
+    private int _turnVerdictRetentionInFlight;
+    private static readonly TimeSpan TurnVerdictRetentionInterval = TimeSpan.FromHours(6);
+    private static readonly TimeSpan TurnVerdictRetentionStartupDelay = TimeSpan.FromMinutes(7);
+
     // The prompt log's retention purge (CR-3b, devthrottle_internal #1180): wakes a few times a day and
     // deletes every partition's daily files older than the retention window. Guarded against overlap the
     // same way the activity sweep is. Created in StartAsync, disposed in StopAsync.
@@ -660,6 +674,10 @@ public sealed class GatewayHost : IAsyncDisposable
     private readonly History.KnownRepositoryStore _knownRepositories;
     /// <summary>The stored conversation (turn-push mission): what Directors push and every reader reads.</summary>
     private readonly History.SessionTurnStore _sessionTurns;
+    /// <summary>The judged stops (the Wingman-on-every-turn mission): what the Wingman said each turn end
+    /// MEANS, per tenant and per session. Written by the turn-end seat and read by the roster fold and the
+    /// two turn-verdict routes.</summary>
+    private readonly Wingman.TurnVerdictStore _turnVerdicts;
     /// <summary>Which Directors told this Gateway they send conversations (turn-push mission, phase 2).</summary>
     private readonly Streaming.TurnPushCapabilityRegistry _turnPushCapabilities = new();
     private readonly History.SessionHistoryRecorder _sessionHistoryRecorder;
@@ -1781,6 +1799,11 @@ public sealed class GatewayHost : IAsyncDisposable
         _sessionHistory = new History.SessionHistoryStore(_gatewayDb);
         _knownRepositories = new History.KnownRepositoryStore(_gatewayDb);
         _sessionTurns = new History.SessionTurnStore(_gatewayDb);
+        // The Wingman-on-every-turn mission: the judged-stop record, and its seven-day purge on the same
+        // per-tenant worker seam the activity ledger's retention uses.
+        _turnVerdicts = new Wingman.TurnVerdictStore(_gatewayDb);
+        _turnVerdictRetentionSweep = new Wingman.TurnVerdictRetentionSweep(
+            _tenantBoundary, TenantRegistry, _tenantContext, _turnVerdicts);
         // The machine name and the Director version are stamped from the CONNECTION record, not
         // from the pushed session: the pushed machine name is hard-coded empty on every client in
         // the field, and the version has never been on the session payload at all. Reading them
@@ -3237,6 +3260,8 @@ public sealed class GatewayHost : IAsyncDisposable
             // Mission "Stop a session": the same audit trail the governance endpoints write to, so a stop is
             // recorded as an intervention with who asked and why.
             governanceAudit: _governanceAudit,
+            // The Wingman-on-every-turn mission: the store GET /sessions/{sid}/turn-verdict(s) serve from.
+            turnVerdicts: _turnVerdicts,
             // Issue #2022: the live process diagnostics the About page shows read-only on both surfaces,
             // after the machine settings left the Cockpit Settings page.
             gatewayStartedAtUtc: StartedAtUtc,
@@ -4152,6 +4177,12 @@ public sealed class GatewayHost : IAsyncDisposable
             ActivityRetentionStartupDelay, ActivityRetentionInterval);
         FileLog.Write($"[GatewayHost] activity retention sweep started: every {ActivityRetentionInterval.TotalHours:0}h, retention {Activity.ActivityRetentionSweep.RetentionPeriod.TotalDays:0} days");
 
+        // The judged stops' seven-day retention purge. Offset from the activity sweep's startup delay so two
+        // bulk deletes do not contend on the same database at the same minute of every boot.
+        _turnVerdictRetentionTimer = new System.Threading.Timer(_ => SweepTurnVerdictRetention(), null,
+            TurnVerdictRetentionStartupDelay, TurnVerdictRetentionInterval);
+        FileLog.Write($"[GatewayHost] turn verdict retention sweep started: every {TurnVerdictRetentionInterval.TotalHours:0}h, retention {Wingman.TurnVerdictStore.RetentionPeriod.TotalDays:0} days");
+
         // The prompt log's retention purge (CR-3b): same footing as the other bounded stores. The window
         // resolves from the deployment mode - hosted is always the product default; self-host may override
         // via the environment (a malformed override throws HERE, loudly, at startup, not mid-sweep).
@@ -4639,6 +4670,35 @@ public sealed class GatewayHost : IAsyncDisposable
     }
 
     /// <summary>
+    /// The judged-stop retention timer callback (a boundary - it owns the overlap guard and the try/catch so
+    /// a purge failure never crashes the timer thread). One sweep at a time; a skipped tick simply purges on
+    /// the next one, which retention granularity is indifferent to.
+    /// </summary>
+    private void SweepTurnVerdictRetention()
+    {
+        if (Interlocked.CompareExchange(ref _turnVerdictRetentionInFlight, 1, 0) != 0)
+            return;
+        _ = RunTurnVerdictRetentionSweepAsync();
+    }
+
+    private async Task RunTurnVerdictRetentionSweepAsync()
+    {
+        try
+        {
+            if (_turnVerdictRetentionSweep is not null)
+                await _turnVerdictRetentionSweep.SweepAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayHost] turn verdict retention sweep FAILED: {ex.Message}");
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _turnVerdictRetentionInFlight, 0);
+        }
+    }
+
+    /// <summary>
     /// The prompt-log retention timer callback (a boundary - it owns the overlap guard and the try/catch so
     /// a purge failure never crashes the timer thread). One sweep at a time; a skipped tick simply purges on
     /// the next one, which retention granularity is indifferent to.
@@ -4928,12 +4988,14 @@ public sealed class GatewayHost : IAsyncDisposable
         try { _cronTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] cron timer dispose error: {ex.Message}"); }
         _cronTimer = null;
         try { _activityRetentionTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] activity retention timer dispose error: {ex.Message}"); }
+        try { _turnVerdictRetentionTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] turn verdict retention timer dispose error: {ex.Message}"); }
         try { _promptRetentionTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] prompt-log retention timer dispose error: {ex.Message}"); }
         _promptRetentionTimer = null;
         try { _suggestionSweepTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] dictionary-suggestion timer dispose error: {ex.Message}"); }
         try { _sessionHistoryTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] session history timer dispose error: {ex.Message}"); }
         _sessionHistoryTimer = null;
         _activityRetentionTimer = null;
+        _turnVerdictRetentionTimer = null;
         try { _leaseSweepTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] lease sweep timer dispose error: {ex.Message}"); }
         _leaseSweepTimer = null;
         try { _autoDismissTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] auto-dismiss timer dispose error: {ex.Message}"); }
