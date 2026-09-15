@@ -194,7 +194,7 @@ jobs:
           # typed name.
           workflow_file=${GITHUB_WORKFLOW_REF#*/.github/workflows/}
           workflow_file=${workflow_file%@*}
-          own_runs=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow_file}/runs?head_sha=${sha}&per_page=100" \
+          own_runs=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow_file}/runs?head_sha=${sha}&per_page=100" --paginate \
                        --jq '.workflow_runs[].id')
           own_pattern="/actions/runs/${GITHUB_RUN_ID}/"
           for id in $own_runs; do own_pattern="${own_pattern}|/actions/runs/${id}/"; done
