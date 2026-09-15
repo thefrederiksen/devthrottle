@@ -2621,7 +2621,14 @@ public sealed class GatewayHost : IAsyncDisposable
     /// session however the Gateway was started.
     /// </summary>
     private Wingman.TurnVerdictService EnsureTurnVerdictService()
-        => _turnVerdictService ??= new Wingman.TurnVerdictService(BuildTurnVerdictEnvironment());
+        => _turnVerdictService ??= new Wingman.TurnVerdictService(EnsureTurnVerdictEnvironment());
+
+    private Wingman.GatewayTurnVerdictEnvironment? _turnVerdictEnvironment;
+
+    /// <summary>The one live turn-verdict environment, shared by the seat and the answer route (slice E), so both
+    /// write their ledger lines through the same writer inside the owning account's scope.</summary>
+    private Wingman.GatewayTurnVerdictEnvironment EnsureTurnVerdictEnvironment()
+        => _turnVerdictEnvironment ??= BuildTurnVerdictEnvironment();
 
     /// <summary>
     /// Wire the turn-verdict seat to the live Gateway. Every leg is machinery that already exists: the pushed
@@ -3374,6 +3381,9 @@ public sealed class GatewayHost : IAsyncDisposable
             turnVerdicts: _turnVerdicts,
             // Slice D: the verdict source the roster and GET /sessions/{sid} fold from.
             turnVerdictRows: _turnVerdictRows,
+            // Slice E: the one write path for a verdict's options, recording into the same ledger the seat does.
+            turnVerdictAnswers: new Wingman.TurnVerdictAnswerService(new Wingman.TurnVerdictAnswerRecords(
+                _turnVerdicts, record => EnsureTurnVerdictEnvironment().Record(record))),
             // Issue #2022: the live process diagnostics the About page shows read-only on both surfaces,
             // after the machine settings left the Cockpit Settings page.
             gatewayStartedAtUtc: StartedAtUtc,

@@ -128,6 +128,29 @@ public sealed class TurnVerdictStore
     }
 
     /// <summary>
+    /// Find one verdict by its own id, in this tenant, and say WHICH SESSION it belongs to. Null when this tenant
+    /// holds no verdict with that id.
+    ///
+    /// The session is returned rather than taken as a filter on purpose. The answer route has to join the verdict
+    /// to the session in its path, and that join is only testable - and only removable in a revert proof - if
+    /// the lookup does not already perform it. The tenant partition is not optional in the same way: the context
+    /// is tenant-scoped, so another account's verdict is never found at all.
+    /// </summary>
+    public TurnVerdictLocated? FindById(TenantId tenant, string verdictId)
+    {
+        if (string.IsNullOrWhiteSpace(verdictId))
+            throw new ArgumentException("A verdict id is required.", nameof(verdictId));
+        using var ctx = _db.CreateContext(tenant);
+        var row = ctx.TurnVerdicts.AsNoTracking()
+            .Where(v => v.VerdictId == verdictId)
+            .OrderByDescending(v => v.JudgedAtUtc)
+            .FirstOrDefault();
+        if (row is null) return null;
+        var dto = Deserialize(row);
+        return dto is null ? null : new TurnVerdictLocated(row.SessionId, dto);
+    }
+
+    /// <summary>
     /// This session's judged stops, newest first, capped at <see cref="MaxHistoryCount"/>. The history is
     /// what makes a wrong verdict answerable afterwards - "what did it say about this session all
     /// morning" is not a question one row can answer.

@@ -201,6 +201,19 @@ public static class ActivityEventTypes
     /// detail carries the two verdict ids and never a word of the screen.</summary>
     public const string TurnVerdictExpired = "turn-verdict-expired";
 
+    /// <summary>The owner answered a verdict from the panel and the Director confirmed the bytes were written into
+    /// the session. The cause is <see cref="ActivityCauses.OwnerAnswered"/>; the detail carries the verdict id, the
+    /// answer shape and how many options were chosen - never the bytes and never a word of the screen.</summary>
+    public const string TurnVerdictAnswered = "turn-verdict-answered";
+
+    /// <summary>An answer was refused before anything was written - the cause says why (the screen changed, the
+    /// verdict is not this session's, the selection is not one the verdict allows). Nothing reached the session.</summary>
+    public const string TurnVerdictAnswerRefused = "turn-verdict-answer-refused";
+
+    /// <summary>An answer's bytes went out to the Director and it did not confirm them, so whether they were
+    /// written is not known. Kept apart from a refusal, which is a promise that nothing was sent.</summary>
+    public const string TurnVerdictAnswerUnconfirmed = "turn-verdict-answer-unconfirmed";
+
     /// <summary>Every legal event type, for validation.</summary>
     public static readonly IReadOnlyList<string> All = new[]
     {
@@ -209,7 +222,7 @@ public static class ActivityEventTypes
         SupervisorFaultDetected, SupervisorWaiting, SupervisorContinueSent, SupervisorRecovered,
         SupervisorEscalated, SupervisorStoodDown,
         TurnVerdictJudged, TurnVerdictReused, TurnVerdictFailed, TurnVerdictSkipped, TurnVerdictCancelled,
-        TurnVerdictExpired,
+        TurnVerdictExpired, TurnVerdictAnswered, TurnVerdictAnswerRefused, TurnVerdictAnswerUnconfirmed,
     };
 }
 
@@ -337,6 +350,46 @@ public static class ActivityCauses
     /// minutes, or ten minutes after it was judged - with no Working transition in between.</summary>
     public const string CarryingOnExpired = "carrying-on-expired";
 
+    /// <summary>The owner's answer to a verdict was written into the session and the Director confirmed it.</summary>
+    public const string OwnerAnswered = "owner-answered";
+
+    /// <summary>An answer request named no verdict, carried no option list, or could not be read at all.</summary>
+    public const string AnswerMalformed = "answer-malformed";
+
+    /// <summary>An answer named a session that is not in the caller's account (or does not exist).</summary>
+    public const string AnswerSessionNotFound = "answer-session-not-found";
+
+    /// <summary>A session key tried to answer while the account's verdict colours are off. The verdicts are a
+    /// shadow record then, and a shadow verdict acted on by automation is the shadow ending without anyone
+    /// deciding it had.</summary>
+    public const string AnswerShadowRecord = "answer-shadow-record";
+
+    /// <summary>An answer named a verdict that is not one of this session's.</summary>
+    public const string AnswerVerdictNotFound = "answer-verdict-not-found";
+
+    /// <summary>An answer named a verdict the contract refused, which has nothing to execute.</summary>
+    public const string AnswerVerdictFailed = "answer-verdict-failed";
+
+    /// <summary>An answer named a verdict that a newer verdict for the same session has replaced.</summary>
+    public const string AnswerVerdictSuperseded = "answer-verdict-superseded";
+
+    /// <summary>An answer's option list is not one the verdict allows: the wrong count for the selection mode, an
+    /// index out of range, the same index twice, or an empty list outside the parked-reply shape.</summary>
+    public const string AnswerSelectionRefused = "answer-selection-refused";
+
+    /// <summary>The session's screen could not be read, so it could not be compared with the verdict's.</summary>
+    public const string AnswerScreenUnreadable = "answer-screen-unreadable";
+
+    /// <summary>The session's screen is not the one the verdict was formed on, so its options may no longer mean
+    /// what they meant.</summary>
+    public const string AnswerScreenChanged = "answer-screen-changed";
+
+    /// <summary>The session's owning Director is not connected, so the answer never left the Gateway.</summary>
+    public const string AnswerNeverSent = "answer-never-sent";
+
+    /// <summary>The answer went to the Director and it did not confirm the write.</summary>
+    public const string AnswerUnanswered = "answer-unanswered";
+
     /// <summary>Every legal cause, for validation.</summary>
     public static readonly IReadOnlyList<string> All = new[]
     {
@@ -347,6 +400,9 @@ public static class ActivityCauses
         MenuOwnsScreen, RetryCeiling,
         JudgeAnswered, ScreenUnchanged, JudgeDidNotAnswer, JudgeRefused, JudgeUnavailable,
         Held, BrandNew, JudgeSwitchOff, InFlightCap, AlreadyJudging, ReattemptNeverJudges, CarryingOnExpired,
+        OwnerAnswered, AnswerMalformed, AnswerSessionNotFound, AnswerShadowRecord, AnswerVerdictNotFound, AnswerVerdictFailed,
+        AnswerVerdictSuperseded, AnswerSelectionRefused, AnswerScreenUnreadable, AnswerScreenChanged,
+        AnswerNeverSent, AnswerUnanswered,
     };
 }
 
