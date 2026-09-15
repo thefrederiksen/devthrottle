@@ -56,3 +56,39 @@ The first run's assertion message was destroyed by piping the run through `tail`
 discards. The evidence above exists because the second run was redirected to a file instead. Do not
 pipe a long run through `tail` or `head` - it also makes `$?` the exit code of `tail`, so the first
 run reported `exited with code 0` while carrying a failure.
+
+## Closed - and the Architect verified it independently
+
+The cause was NOT the product defect this document was written to fear. The run showed the session
+SETTLED, a check ARMED, and nothing faulted. The two failures were the two directions of one
+collision: the test's reader and the shadow log's writer fighting over a single Windows file handle,
+where `File.ReadAllLines` denies writers and `File.AppendAllText` denies readers. The reader losing
+threw a sharing violation; the writer losing had its append swallowed and the row lost for good,
+which reads exactly like a check that armed nothing.
+
+**One half of that is a product finding, not a test bug.** Reading one of these files used to cost a
+row. Anyone running `Get-Content` over a shadow file, a scoring script, or a backup scan would
+silently thin the very measurement the file exists to hold - and item five's whole job is scoring
+those rows. The append now retries within a bounded budget; past the bound the row is still lost and
+still logged.
+
+### Independent verification by the Architect
+
+Three full end-to-end runs of `CcDirector.Core.Tests` now pass, two by the Manager and one by this
+seat, against a reproduction that failed twice in a row on the same machine under the same load:
+
+| Run | By | Result |
+|---|---|---|
+| reproduction | Architect | 4,470 passed, **1 failed** |
+| reproduction | Architect | 4,470 passed, **1 failed** (a DIFFERENT test) |
+| after the fix | Manager | 4,475 passed, 0 failed, 8m05s |
+| after the fix | Manager | 4,475 passed, 0 failed, 8m46s |
+| after the fix | **Architect** | **4,475 passed, 0 failed, 8 skipped, 10m54s** |
+
+The Architect's run was redirected to a file rather than piped, so the exit code is `dotnet`'s own
+and the log is complete: zero occurrences of `[FAIL]` or `Failed!` in the whole 2,990-byte log.
+
+**What three green runs do and do not establish**, in the Manager's own words and this seat agrees:
+they NARROW an intermittent failure, they do not settle it. What settles it is the mechanism and the
+reverts that reproduce both observed symptoms. Stated here so a later reader does not take the table
+above as more than it is.
