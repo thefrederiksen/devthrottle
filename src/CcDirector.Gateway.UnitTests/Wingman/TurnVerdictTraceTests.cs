@@ -241,6 +241,58 @@ public sealed class TurnVerdictTraceTests : IDisposable
     }
 
     [Fact]
+    public async Task AStopArrivingWhileTheJudgementItWouldJoinIsEnding_TakesTheGateItself_AndIsJudged()
+    {
+        // Found in review: the ending judgement closed its joined list while it still held the gate, so a stop arriving
+        // in that window could neither join it nor take the gate, and was lost. The gate is released first, so an
+        // arriving stop always has somewhere to go.
+        var env = Env();
+        var firstJudge = new TaskCompletionSource();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var writingJoined = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseWrite = new TaskCompletionSource();
+        var judgeCalls = 0;
+        env.Judge = async (_, _) =>
+        {
+            if (Interlocked.Increment(ref judgeCalls) == 1)
+            {
+                entered.TrySetResult();
+                await firstJudge.Task;
+            }
+            return FinishedAnswer;
+        };
+        // Hold the seat inside the JOINED row's write - which happens after the gate is released - and act there. Keyed
+        // on that row, not on a count: the arriving stop writes its own row meanwhile, and must not be held too.
+        env.BeforeRecordTrace = trace =>
+        {
+            if (trace.Outcome != TurnVerdictTraceOutcomes.Joined) return;
+            writingJoined.TrySetResult();
+            releaseWrite.Task.Wait(TimeSpan.FromSeconds(10));
+        };
+        var service = new TurnVerdictService(env);
+
+        var first = service.StartTurnEnd(Signal());
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(ActivityCauses.AlreadyJudging, (await service.StartTurnEnd(Signal(ObservedAt.AddMinutes(1)))).SkipCause);
+
+        firstJudge.SetResult();
+        await writingJoined.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // The first judgement is mid-way through writing the stop that joined it. A stop arriving NOW must take the gate.
+        // Its screen differs, so it is judged rather than served the stored verdict - the point is that it gets the gate.
+        env.Screen = () => Screen(Sid, "A different screen, so this stop is judged rather than reusing the last verdict.", "> ");
+        var arriving = await service.StartTurnEnd(Signal(ObservedAt.AddMinutes(2))).WaitAsync(TimeSpan.FromSeconds(5));
+        releaseWrite.SetResult();
+        await first.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(TurnVerdictOutcomeKind.Judged, arriving.Kind);
+        Assert.Equal(2, judgeCalls);
+        Assert.True(await WaitUntil(() => env.Traces.Count == 3), $"expected three traces, saw {env.Traces.Count}");
+        Assert.Equal(2, env.Traces.Count(t => t.Outcome == TurnVerdictTraceOutcomes.Judged));
+        Assert.Single(env.Traces, t => t.Outcome == TurnVerdictTraceOutcomes.Joined);
+    }
+
+    [Fact]
     public async Task AtShutdown_AJoinedStopIsRecorded_BecauseTheJudgementItJoinedIsWaitedFor()
     {
         // The joined stop is part of the judgement it joined, so the shutdown wait covers it; as a background task it

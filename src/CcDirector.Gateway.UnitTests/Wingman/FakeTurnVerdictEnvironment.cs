@@ -145,7 +145,16 @@ internal sealed class FakeTurnVerdictEnvironment : ITurnVerdictEnvironment
 
     /// <summary>Every trace the seat wrote for the Wingman inspector, in order.</summary>
     public readonly ConcurrentQueue<TurnVerdictTrace> Traces = new();
-    public void RecordTrace(TenantId tenant, TurnVerdictTrace trace) => Traces.Enqueue(trace);
+
+    /// <summary>Runs before each trace is recorded, with the trace itself - so a test can hold the seat inside one
+    /// particular trace write and act while it is held.</summary>
+    public Action<TurnVerdictTrace>? BeforeRecordTrace;
+
+    public void RecordTrace(TenantId tenant, TurnVerdictTrace trace)
+    {
+        BeforeRecordTrace?.Invoke(trace);
+        Traces.Enqueue(trace);
+    }
 
     /// <summary>The seat's clock. Replace it to move time without waiting.</summary>
     public Func<DateTime> Clock = () => DateTime.UtcNow;

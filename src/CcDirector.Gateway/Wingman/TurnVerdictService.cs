@@ -384,7 +384,7 @@ public sealed class TurnVerdictService : IDisposable
         // the flag AFTER the flight is added, so one of the two always sees the other. A late one stands down here,
         // releasing anybody who joined it in the meantime.
         if (_disposed)
-            return Task.FromResult(StandDownAfterDispose(key, flight));
+            return Task.FromResult(StandDownAfterDispose(key, flight, signal.DirectorId));
 
         FileLog.Write($"[TurnVerdictService] OnTurnEnd: sid={signal.SessionId} tenant={signal.Tenant.ToLogString()} newTurn={signal.IsNewTurn}");
 
@@ -469,7 +469,7 @@ public sealed class TurnVerdictService : IDisposable
             // Admitted after shutdown began - see StartTurnEnd for why the flag is read again after the add.
             if (_disposed)
             {
-                StandDownAfterDispose(key, flight);
+                StandDownAfterDispose(key, flight, directorId);
                 throw new ObjectDisposedException(nameof(TurnVerdictService));
             }
 
@@ -551,14 +551,18 @@ public sealed class TurnVerdictService : IDisposable
             }
             finally
             {
-                // The stops that joined this flight while it ran, recorded by the flight itself - never by a background
-                // task nobody tracks, and never out of order.
-                WriteJoinedTraces(key, flight, directorId);
                 // EVERY EXIT CLEARS READING - a skip after the settle wait, a reuse, a cancel, a failure - and it is cleared
                 // BEFORE the gate is released, so it can never clear the stamp of the next flight, which is set only after
                 // that flight takes the gate.
                 _reading.TryRemove(key, out _);
+                // THE GATE IS RELEASED BEFORE THE JOINED STOPS ARE WRITTEN, and that order is the whole protocol. Found in
+                // review: writing first closed this flight's list while the flight still held the gate, so a stop arriving
+                // in between could neither join this flight nor take the gate, and was lost. Released first, an arriving
+                // stop either joins this flight while its list is still open, or takes the gate itself on its next try.
                 _inFlight.TryRemove(new KeyValuePair<(TenantId, string), Flight>(key, flight));
+                // The stops that joined this flight while it ran, recorded by the flight itself - never by a background
+                // task nobody tracks, and never out of order.
+                WriteJoinedTraces(key, flight, directorId);
             }
         }
         finally
@@ -1036,12 +1040,16 @@ public sealed class TurnVerdictService : IDisposable
     }
 
     /// <summary>A flight admitted after <see cref="Dispose"/> began: anybody who joined it is released with a skip, and
-    /// it leaves the gate without reading or asking anything.</summary>
-    private TurnVerdictOutcome StandDownAfterDispose((TenantId Tenant, string SessionId) key, Flight flight)
+    /// any stop that attached to it is drained, and it leaves the gate without reading or asking anything.</summary>
+    private TurnVerdictOutcome StandDownAfterDispose((TenantId Tenant, string SessionId) key, Flight flight, string directorId)
     {
         var standDown = new TurnVerdictOutcome { Kind = TurnVerdictOutcomeKind.Skipped, SkipCause = ActivityCauses.Unknown };
         flight.Done.TrySetResult(standDown);
         _inFlight.TryRemove(new KeyValuePair<(TenantId, string), Flight>(key, flight));
+        // A STOP MAY ALREADY HAVE JOINED THIS FLIGHT - found in review: another turn end can attach to it in the moment
+        // between this flight taking the gate and this check. The flight never ran, so it never read its settings, and
+        // each joined stop is logged rather than traced; what must not happen is that it is neither.
+        WriteJoinedTraces(key, flight, directorId);
         flight.Cts.Dispose();
         FileLog.Write($"[TurnVerdictService] a verdict request arrived as the service was shutting down and stood down: sid={key.SessionId}");
         return standDown;
