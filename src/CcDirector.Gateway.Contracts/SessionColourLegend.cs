@@ -10,9 +10,12 @@ namespace CcDirector.Gateway.Contracts;
 /// ruling). A client-side copy was the first draft of this legend, and two of its sentences were already false
 /// against the fold on the day it was written - which is the whole argument for this file.
 ///
-/// EVERY SENTENCE IS HELD TO THE FOLD. <c>SessionColourLegendTests</c> builds an example session for each entry and
-/// runs it through the real fold: it must wear the entry's colour, and "asks for you: Yes" must be exactly the
-/// needs-you bucket. The verdict note is executed the same way - a calm session with the switch off must fold red.
+/// EVERY SENTENCE IS HELD TO THE FOLD, CLAUSE BY CLAUSE. <c>SessionColourLegendTests</c> names each claim a sentence
+/// makes, requires the claim to appear VERBATIM in the text served here, and runs a session built from exactly
+/// those facts through the real fold - for its colour, for the words beside the dot, and for which side of the
+/// needs-you line it lands on. "Not yet" must become needs-you once the thing it waits for arrives, "Look at it"
+/// must be a session that died, and the verdict note is read and its claims executed. So a sentence reworded into
+/// something false fails here rather than reaching a screen.
 /// </summary>
 public static class SessionColourLegend
 {
@@ -25,7 +28,7 @@ public static class SessionColourLegend
         Entries =
         {
             Entry("red", "Needs you",
-                "The session has stopped and is waiting for you - at a prompt, on a permission, or with a question.",
+                "The session has stopped and is waiting for you - at a prompt, on a permission, or gone quiet.",
                 AsksYes),
             Entry("blue", "Working",
                 "The agent is running a turn right now. A working session is always blue.",
@@ -51,7 +54,8 @@ public static class SessionColourLegend
                 "Stopped, but another live session is driving it, so it waits on that session instead of you.",
                 AsksNo),
             Entry("grey", "Snoozed or exited",
-                "You snoozed it, its agent exited, or its state could not be read. The words beside the dot say which.",
+                "You snoozed it, its agent exited, or its state could not be read. The label says which: Snoozed, Exited, or " +
+                "Idle when it cannot be read.",
                 AsksNo),
             Entry("error", "Crashed",
                 "The agent process died. It is darker than the red that means needs you, so a crash never reads as a " +
