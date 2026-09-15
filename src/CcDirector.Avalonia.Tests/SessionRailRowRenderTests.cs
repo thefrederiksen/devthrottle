@@ -220,6 +220,35 @@ public sealed class SessionRailRowRenderTests
             $"counts at {countsTop:F0}");
     }
 
+    /// <summary>
+    /// A CREW TOO WIDE FOR THE RAIL WRAPS - it does not lose sessions off the end. The strip is
+    /// deliberately uncapped, so on a rail 264 pixels wide a crew of forty is wider than the row it sits
+    /// in, and the question is what happens to the overflow. Clipping would hide sessions, which is the
+    /// one thing the strip exists to prevent.
+    /// </summary>
+    [AvaloniaFact]
+    public void ACrewTooWideForTheRail_WrapsOntoAnotherRow_RatherThanLosingSessions()
+    {
+        var crew = Vm("Architect");
+        crew.ApplyRailRow(0, true, false, "40 under it: 10 working, 30 stopped, 0 need you", "2d 3h",
+            Squares(40), "", false);
+
+        var list = RenderAt(RealRailWidth, crew);
+
+        // Every one of the forty is drawn.
+        Assert.Equal(40, DrawnCrewSquares(list));
+
+        // And they are on more than one row: a 264 pixel rail cannot hold forty 10-pixel squares.
+        var rows = list.GetVisualDescendants().OfType<Border>()
+            .Where(b => b.IsEffectivelyVisible && b.Width is 8.0 && b.Height is 8.0)
+            .Select(b => b.TranslatePoint(new Point(0, 0), list)!.Value.Y)
+            .Distinct()
+            .ToList();
+        Assert.True(rows.Count > 1,
+            $"forty squares were laid out on {rows.Count} row(s) at {RealRailWidth} pixels - they are " +
+            "being clipped or overflowing rather than wrapping, and sessions are being lost");
+    }
+
     // ===== A child is indented, behind a guide line, further at each level =====
 
     [AvaloniaFact]
