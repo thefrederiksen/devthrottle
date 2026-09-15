@@ -104,6 +104,13 @@ public partial class MainWindow : Window
     private SessionRailOrder _railOrder = SessionRailOrder.MyOrder;
     private readonly HashSet<string> _expandedCrews = new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// Where the open crews are remembered. The Director writes them to its own config.json; a test
+    /// replaces this with a no-op, because a suite that drove the real window would otherwise rewrite the
+    /// RUNNING USER'S settings file with the sessions it invented.
+    /// </summary>
+    internal Action<IEnumerable<string>> RememberExpandedCrews = SessionRailConfig.SetExpandedCrews;
+
     // Slash command autocomplete
     private readonly SlashCommandProvider _slashCommandProvider = new();
     private List<SlashCommandItem> _filteredSlashCommands = new();
@@ -362,18 +369,7 @@ public partial class MainWindow : Window
         var app = (App)global::Avalonia.Application.Current!;
         _sessionManager = app.SessionManager;
 
-        // The list box draws the TREE (the projection); the collapsed sidebar's strip of dots draws the
-        // WHOLE roster, unchanged - one dot per session, every session, whether or not its crew is open.
-        SessionList.ItemsSource = _railRows;
-        SlimSessionList.ItemsSource = _sessions;
-
-        // The rail's own remembered state: which order the switch is on, and which crews are open.
-        _railOrder = SessionRailConfig.Order == SessionRailConfig.Attention
-            ? SessionRailOrder.Attention
-            : SessionRailOrder.MyOrder;
-        foreach (var crewId in SessionRailConfig.ExpandedCrews) _expandedCrews.Add(crewId);
-        UpdateRailOrderSwitch();
-        RebuildRail();
+        BindSessionRail();
         QueueItemsList.ItemsSource = _queueItems;
         ScreenshotList.ItemsSource = _screenshots;
 
@@ -384,10 +380,6 @@ public partial class MainWindow : Window
         // Keep group brackets/headers (issue #225) correct after any add/remove/restore.
         // Cheap flag recompute; the drop handler also calls it explicitly after a reorder.
         _sessions.CollectionChanged += (_, _) => RecomputeGroupPositions();
-
-        // A session added, removed or reordered changes the tree, so the rows are re-projected. This is
-        // the ONLY place the rail decides what to draw, and it decides nothing itself - see RebuildRail.
-        _sessions.CollectionChanged += (_, _) => RebuildRail();
 
         // Keep the "N need you" header count instant: recompute whenever a session is
         // added/removed or ANY session's status color flips (e.g. a background session goes
@@ -2307,6 +2299,12 @@ public partial class MainWindow : Window
 
     internal void SelectSession(SessionViewModel? vm)
     {
+        // A session can be selected from somewhere other than the rail - the Cockpit creating it, a
+        // message arriving, the restore dialog - and when its crew is closed the row is not there. Open
+        // the crews above it first, so that selecting a session always shows the session. Doing nothing
+        // would look exactly like a broken click.
+        if (vm is not null) RevealInRail(vm);
+
         // Selecting a session returns to its terminal, dismissing an on-demand status view.
         if (vm != null && _statusRequested)
         {
@@ -3948,6 +3946,61 @@ public partial class MainWindow : Window
     // ==================== THE RAIL AS THE OWNERSHIP TREE ====================
 
     /// <summary>
+    /// Point the two session lists at what each of them draws, and restore the rail's remembered state.
+    ///
+    /// THE TWO LISTS ARE DIFFERENT LISTS, AND THAT IS THE POINT. The list box draws the TREE - the
+    /// projection, where a closed crew's sessions have no row. The collapsed sidebar's slim strip of dots
+    /// draws the WHOLE ROSTER, unchanged: one dot per session, every session, whether or not its crew is
+    /// open. Collapsing the sidebar is how you ask for every session at a glance, so hiding sessions
+    /// inside it would answer a question nobody asked.
+    ///
+    /// Called from MainWindow_Loaded, and internal so a test can call it without the Loaded handler's
+    /// reach into the running Director (App.SessionManager, the Gateway monitor, the rail timers), which
+    /// does not exist headless.
+    /// </summary>
+    internal void BindSessionRail()
+    {
+        SessionList.ItemsSource = _railRows;
+        SlimSessionList.ItemsSource = _sessions;
+
+        // A session added, removed or reordered changes the tree, so the rows are re-projected. It lives
+        // here rather than with the window's other subscriptions because it belongs to the binding
+        // directly above it: a list box pointed at a projection that nothing refreshes shows the roster
+        // as it was when the window opened.
+        _sessions.CollectionChanged += (_, _) => RebuildRail();
+
+        // The rail's own remembered state: which order the switch is on, and which crews are open.
+        _railOrder = SessionRailConfig.Order == SessionRailConfig.Attention
+            ? SessionRailOrder.Attention
+            : SessionRailOrder.MyOrder;
+        foreach (var crewId in SessionRailConfig.ExpandedCrews) _expandedCrews.Add(crewId);
+        UpdateRailOrderSwitch();
+        RebuildRail();
+    }
+
+    /// <summary>
+    /// Open or close a crew and redraw. The REMEMBERING is the caller's - the chevron handler persists,
+    /// and nothing else has any business writing the user's config.json, which is why this is split out
+    /// rather than tested through the handler.
+    /// </summary>
+    internal void ToggleCrew(SessionViewModel vm)
+    {
+        var id = vm.Session.Id.ToString();
+        if (!_expandedCrews.Remove(id)) _expandedCrews.Add(id);
+        RebuildRail();
+    }
+
+    /// <summary>Move the order switch and redraw. The remembering is the caller's, as above.</summary>
+    internal void ApplyRailOrder(SessionRailOrder order)
+    {
+        _railOrder = order;
+        UpdateRailOrderSwitch();
+        RebuildRail();
+    }
+
+
+
+    /// <summary>
     /// Re-project the roster into the rows the list box draws, and stamp each row's place in the tree
     /// onto its view model.
     ///
@@ -3962,7 +4015,7 @@ public partial class MainWindow : Window
     /// values are refreshed. That matters - replacing the items would drop the list box's selection and
     /// its scroll position four times a minute.
     /// </summary>
-    private void RebuildRail()
+    internal void RebuildRail()
     {
         // The rail's drag order IS the desktop order. Stamping it here, from the list index, is what
         // makes a crew's sessions come back from the fold in the order the user dragged them into -
@@ -4035,7 +4088,7 @@ public partial class MainWindow : Window
 
         if (!opened) return;
         FileLog.Write($"[MainWindow] RevealInRail: opened the crews above {vm.DisplayName}");
-        SessionRailConfig.SetExpandedCrews(_expandedCrews);
+        RememberExpandedCrews(_expandedCrews);
         RebuildRail();
     }
 
@@ -4044,13 +4097,10 @@ public partial class MainWindow : Window
     {
         if (sender is not Control control || control.DataContext is not SessionViewModel vm) return;
 
-        var id = vm.Session.Id.ToString();
-        if (!_expandedCrews.Remove(id)) _expandedCrews.Add(id);
-
+        ToggleCrew(vm);
         FileLog.Write($"[MainWindow] CrewChevron_Click: {vm.DisplayName} is now " +
-                      (_expandedCrews.Contains(id) ? "open" : "closed"));
-        SessionRailConfig.SetExpandedCrews(_expandedCrews);
-        RebuildRail();
+                      (_expandedCrews.Contains(vm.Session.Id.ToString()) ? "open" : "closed"));
+        RememberExpandedCrews(_expandedCrews);
     }
 
     private void RailOrderMine_Click(object? sender, RoutedEventArgs e) => SetRailOrder(SessionRailOrder.MyOrder);
@@ -4060,13 +4110,11 @@ public partial class MainWindow : Window
     private void SetRailOrder(SessionRailOrder order)
     {
         if (_railOrder == order) return;
-        _railOrder = order;
+        ApplyRailOrder(order);
         FileLog.Write($"[MainWindow] SetRailOrder: {order}");
         SessionRailConfig.SetOrder(order == SessionRailOrder.Attention
             ? SessionRailConfig.Attention
             : SessionRailConfig.MyOrder);
-        UpdateRailOrderSwitch();
-        RebuildRail();
     }
 
     /// <summary>Paint the two-position switch so the chosen position reads as chosen.</summary>
