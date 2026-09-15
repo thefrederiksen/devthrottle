@@ -184,8 +184,24 @@ jobs:
           all=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${sha}/check-runs" --paginate \
                   --jq '.check_runs[] | [.name, .status, (.conclusion // ""), (.details_url // "")] | @tsv')
 
+          # EARLIER runs of THIS WORKFLOW on the same commit are not checks on the code either. A deploy
+          # attempt that was cancelled (a later dispatch superseded it) or that refused (this very step)
+          # leaves a completed, non-successful check run on the commit, and on 2026-09-15 two such
+          # attempts poisoned each other in a circle: every new deploy of 13891211f saw the previous
+          # attempt's job and refused. So every run of this workflow file on this commit is excluded,
+          # found by RUN ID through the workflow-runs API - the same rule as above, extended from "this
+          # run" to "this workflow". The workflow file path comes from GITHUB_WORKFLOW_REF, never from a
+          # typed name.
+          workflow_file=${GITHUB_WORKFLOW_REF#*/.github/workflows/}
+          workflow_file=${workflow_file%@*}
+          own_runs=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow_file}/runs?head_sha=${sha}&per_page=100" --paginate \
+                       --jq '.workflow_runs[].id')
+          own_pattern="/actions/runs/${GITHUB_RUN_ID}/"
+          for id in $own_runs; do own_pattern="${own_pattern}|/actions/runs/${id}/"; done
+          echo "Excluding this workflow's own runs on ${sha}: ${GITHUB_RUN_ID} $(echo $own_runs)"
+
           others=$(printf '%s\n' "$all" \
-                   | grep -v "/actions/runs/${GITHUB_RUN_ID}/" || true)
+                   | grep -Ev "${own_pattern}" || true)
 
           if [ -z "$others" ]; then
             echo "NOTE: commit ${sha} has no check runs of its own yet."
