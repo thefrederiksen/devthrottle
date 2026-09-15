@@ -133,6 +133,14 @@ public enum TurnVerdictTrigger
 
     /// <summary>A person pressed a button (explain, a spoken reply). Only the brand-new check applies.</summary>
     OnDemand,
+
+    /// <summary>
+    /// A snooze's clock ran out with a stop nothing had judged (slice F, ruling 10). Automatic, so every free
+    /// check applies, and the judge switch and the ceiling apply with them - it is unattended and it runs off
+    /// the fold, which is the hot path. No settle delay: the stop it asks about is minutes or hours old and has
+    /// long since stopped repainting.
+    /// </summary>
+    SnoozeExpiry,
 }
 
 /// <summary>How a verdict request ended.</summary>
@@ -679,7 +687,11 @@ public sealed class TurnVerdictService : IDisposable
         if (SessionStateSkipCause(state, automatic) is { } cause)
             return Skip(tenant, directorId, sid, trigger, cause, settings, observedAt);
         var facts = state.Facts;
-        if (trigger == TurnVerdictTrigger.TurnEnd && !settings.JudgeEnabled && !_env.IsVoiceSession(tenant, sid))
+        // THE JUDGE SWITCH binds the two triggers nobody is waiting on: the detector's turn end, and a snooze
+        // expiry with a stop nothing has judged. A voice session is the standing exception - somebody is
+        // listening to it - and a person's own request is not automatic at all.
+        if (trigger is TurnVerdictTrigger.TurnEnd or TurnVerdictTrigger.SnoozeExpiry
+            && !settings.JudgeEnabled && !_env.IsVoiceSession(tenant, sid))
             return Skip(tenant, directorId, sid, trigger, ActivityCauses.JudgeSwitchOff, settings, observedAt);
 
         if (trigger == TurnVerdictTrigger.TurnEnd && settings.SettleMs > 0)
@@ -735,7 +747,7 @@ public sealed class TurnVerdictService : IDisposable
         }
 
         // ---- the account's ceiling ----
-        var capped = trigger is TurnVerdictTrigger.TurnEnd or TurnVerdictTrigger.Sweep;
+        var capped = trigger is TurnVerdictTrigger.TurnEnd or TurnVerdictTrigger.Sweep or TurnVerdictTrigger.SnoozeExpiry;
         var load = _tenantLoad.GetOrAdd(tenant, _ => new StrongBox<int>());
         if (capped && Interlocked.Increment(ref load.Value) > settings.MaxInFlight)
         {
@@ -1288,6 +1300,7 @@ public sealed class TurnVerdictService : IDisposable
         TurnVerdictTrigger.TurnEnd => "turn-end",
         TurnVerdictTrigger.Voice => "voice",
         TurnVerdictTrigger.Sweep => "sweep",
+        TurnVerdictTrigger.SnoozeExpiry => "snooze-expiry",
         _ => "on-demand",
     };
 

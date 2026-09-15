@@ -96,6 +96,42 @@ public static class SessionOrdering
         && (string.Equals(verdict.Verdict, VerdictFinished, StringComparison.Ordinal)
             || string.Equals(verdict.Verdict, VerdictContinuesAlone, StringComparison.Ordinal));
 
+    /// <summary>
+    /// The colour a snooze that ended with nothing new comes back in (the Wingman-on-every-turn mission, slice F,
+    /// ruling 10).
+    ///
+    /// CYAN, BY THE ARCHITECT'S RULING OF 2026-09-15, and the implementation plan's "green" is superseded. A
+    /// session coming back from a snooze has TAKEN TURNS, and green is the brand-new session's "Ready" (issue
+    /// #2892) - painting this row green would say the opposite of what is true about it, which is the same
+    /// misreading that took green away from a finished report. So it takes the calm colour the owner chose for a
+    /// row that needs nothing from him. The words are what tell the two apart.
+    /// </summary>
+    public const string SnoozeEndedNothingNewColor = "cyan";
+
+    /// <summary>The words on a row that came back from a snooze with nothing new to say.</summary>
+    public const string SnoozeEndedNothingNewLabel = "Snooze ended, nothing new";
+
+    /// <summary>
+    /// THE SNOOZE-EXPIRY ARM (the Wingman-on-every-turn mission, slice F, ruling 10): the owner asked for quiet,
+    /// the timer ran out, and the session took no turn while it ran. A snooze expiry must not manufacture a red -
+    /// nothing happened, so there is nothing to bring him.
+    ///
+    /// RAW RED IS A GATE, exactly as it is on <see cref="IsCalmVerdict"/>: this may quieten a session that is
+    /// stopped, and never one that is working, exited or crashed. The stamp itself is written only for an account
+    /// whose colour switch is on, so a shadow account never sees this colour.
+    ///
+    /// AN ACCEPTED VERDICT IS THE SECOND GATE, and it is not belt and braces. "Nothing was judged" and "here is
+    /// what the judge said" are answers to the same question, and a row must never be able to carry both: a red
+    /// judged row - a real ask the Wingman found while the snooze ran - would otherwise be painted calm by this
+    /// arm, which is a quietened question and the worst thing this mission can do. The fold does not stamp both
+    /// (a judged stop is case 2 of ruling 10 and stamps nothing), so this gate is what makes that a property of
+    /// the ladder rather than a promise from the producer.
+    /// </summary>
+    public static bool IsSnoozeEndedNothingNew(SessionDto s) =>
+        s.SnoozeEndedNothingNew
+        && IsRawRed(s)
+        && !string.Equals(s.VerdictState, VerdictStates.Judged, StringComparison.Ordinal);
+
     /// <summary>The finished kind for work the agent says is complete (owner ruling, 2026-09-15).</summary>
     public const string FinishedKindDone = "done";
 
@@ -504,6 +540,12 @@ public static class SessionOrdering
         // PURPLE HAS ONE PRODUCER, and it is this line. The Director's "background running" purple in
         // ResolveActivity is deleted - see the tombstone there.
         : IsCalmVerdict(s) ? CalmColor(s)
+        // THE SNOOZE-EXPIRY ARM (the Wingman-on-every-turn mission, slice F, ruling 10). The owner's quiet ran
+        // out and nothing happened while it did, so the row comes back calm instead of as a red the clock
+        // manufactured. BELOW the verdict arms on purpose: a stop that WAS judged while the snooze ran is ruled
+        // by its verdict, and this arm only ever speaks when there is nothing to rule on. ABOVE BaseColor,
+        // whose red is the colour it exists to replace.
+        : IsSnoozeEndedNothingNew(s) ? SnoozeEndedNothingNewColor
         // Issue #1177 (Phase 2): the base color is computed from RAW facts. NO GATEWAY-DECIDED COLOUR READS
         // THE DIRECTOR'S COOKED StatusColor - as of 2026-07-14 that is true of the pipeline as well as the
         // fold. It was NOT true before: the Gateway's voice-mode window (GatewayEndpoints, issue #531) gated
@@ -652,6 +694,9 @@ public static class SessionOrdering
         // verbatim - the report - and "Done" or "Carrying on" only when the verdict carries no line at all.
         if (IsVerdictReading(s)) return "Wingman reading";
         if (IsCalmVerdict(s)) return CalmLabel(s);
+        // Mirrors EffectiveColor's snooze-expiry arm, in the same position, so the dot and the words are folded
+        // from the same inputs in the same order.
+        if (IsSnoozeEndedNothingNew(s)) return SnoozeEndedNothingNewLabel;
         return BaseColor(s) switch
         {
             // NO "supporting" ARM. It is not missing - it is unreachable, and saying so here is cheaper than

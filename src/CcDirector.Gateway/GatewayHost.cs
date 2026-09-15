@@ -645,6 +645,10 @@ public sealed class GatewayHost : IAsyncDisposable
     private int _turnVerdictRetentionInFlight;
     // Slice D: the verdict source every fold reads, and the carrying-on clock's sweep, its timer and its overlap guard.
     private readonly Wingman.TurnVerdictRowSource _turnVerdictRows;
+    // Slice F: the fold's snooze memory. ONE instance for this Gateway, shared by the roster, the single-session
+    // read and the display push, because the edge it fires is an edge across ALL of them - a second instance
+    // would be a second memory, and each would fire its own "first" expiry for the same session.
+    private readonly Wingman.SnoozeExpiryReJudge _snoozeExpiry;
     private readonly Wingman.TurnVerdictWatchdogSweep _turnVerdictWatchdogSweep;
     private System.Threading.Timer? _turnVerdictWatchdogTimer;
     private int _turnVerdictWatchdogInFlight;
@@ -1639,7 +1643,9 @@ public sealed class GatewayHost : IAsyncDisposable
                     : null,
                 // Slice D: the same verdict source the roster folds from, so the desktop is pushed the same colour
                 // and label every browser gets.
-                turnVerdictRows: _turnVerdictRows),
+                turnVerdictRows: _turnVerdictRows,
+                // Slice F: the same snooze memory, so the push and the roster see ONE expiry edge between them.
+                snoozeExpiry: _snoozeExpiry),
             SendCommandAsync,
             currentScopeKey: () => _tenantPass.Current?.Value);
         // Mission Screen mission (Phase 1b, issue #1405): the mission-WHY store, at a Gateway-side file
@@ -1836,6 +1842,13 @@ public sealed class GatewayHost : IAsyncDisposable
             _tenantSettingsResolver.TurnVerdict, _turnVerdicts, () => _turnVerdictService);
         _turnVerdictWatchdogSweep = new Wingman.TurnVerdictWatchdogSweep(
             _tenantBoundary, TenantRegistry, _tenantContext, EnsureTurnVerdictService);
+        // Slice F (ruling 10): a snooze expiry re-judges. The read is FIRE AND FORGET - the fold is the hot path
+        // and waits for nothing - and it goes through the seat's ordinary current-screen request, so an unchanged
+        // screen reuses the stored verdict and only a changed one costs a model call.
+        _snoozeExpiry = new Wingman.SnoozeExpiryReJudge(
+            requestRead: (tenant, directorId, sid) => _ = EnsureTurnVerdictService()
+                .VerdictForCurrentScreenAsync(tenant, directorId, sid, Wingman.TurnVerdictTrigger.SnoozeExpiry),
+            record: record => EnsureTurnVerdictEnvironment().Record(record));
         // The machine name and the Director version are stamped from the CONNECTION record, not
         // from the pushed session: the pushed machine name is hard-coded empty on every client in
         // the field, and the version has never been on the session payload at all. Reading them
@@ -3395,6 +3408,8 @@ public sealed class GatewayHost : IAsyncDisposable
             turnVerdicts: _turnVerdicts,
             // Slice D: the verdict source the roster and GET /sessions/{sid} fold from.
             turnVerdictRows: _turnVerdictRows,
+            // Slice F: the same snooze memory the display push folds with, so one expiry is one edge.
+            snoozeExpiry: _snoozeExpiry,
             // Slice E: the one write path for a verdict's options, recording into the same ledger the seat does.
             turnVerdictAnswers: new Wingman.TurnVerdictAnswerService(new Wingman.TurnVerdictAnswerRecords(
                 _turnVerdicts, record => EnsureTurnVerdictEnvironment().Record(record))),
@@ -4675,7 +4690,9 @@ public sealed class GatewayHost : IAsyncDisposable
         Func<string, bool, DateTime?>? voiceWaitingStampFor = null,
         // The Wingman-on-every-turn mission, slice D: the same verdict source the roster folds from, so the colour
         // and the label pushed to the desktop are the ones every browser gets.
-        Wingman.ITurnVerdictRowSource? turnVerdictRows = null)
+        Wingman.ITurnVerdictRowSource? turnVerdictRows = null,
+        // Slice F: the same snooze memory the roster folds with. Shared, not a second instance - see the field.
+        Wingman.SnoozeExpiryReJudge? snoozeExpiry = null)
     {
         foreach (var s in sessions)
         {
@@ -4708,7 +4725,7 @@ public sealed class GatewayHost : IAsyncDisposable
                 narrationAbandoned: narrationAbandonedFor?.Invoke(s.SessionId) ?? false,
                 waitingSince: s.VoiceWaitingSince);
         }
-        Api.GatewayEndpoints.StampFleetRolesAndFold(sessions, sessions, needsYouStampFor, snoozeRegistry, tenant, handRaises, turnVerdictRows);
+        Api.GatewayEndpoints.StampFleetRolesAndFold(sessions, sessions, needsYouStampFor, snoozeRegistry, tenant, handRaises, turnVerdictRows, snoozeExpiry);
     }
 
     /// <summary>

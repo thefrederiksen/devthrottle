@@ -64,14 +64,17 @@ public static class TurnVerdictRowStamp
     /// <param name="source">Where the verdicts come from. Null (a diagnostics page, an older test) stamps "none".</param>
     /// <param name="tenant">The account the rows belong to. Null or invalid stamps "none" - the verdicts are
     /// partitioned by account and there is no read without one.</param>
-    public static void Stamp(IReadOnlyList<SessionDto> rows, ITurnVerdictRowSource? source, TenantId? tenant)
+    /// <returns>Whether this account's verdicts reached these rows - false when there is no source, no account,
+    /// or the colour switch is off. Slice F's stamp runs on the same footing and asks this rather than reading
+    /// the switch a second time, so the two cannot come to different answers about one account.</returns>
+    public static bool Stamp(IReadOnlyList<SessionDto> rows, ITurnVerdictRowSource? source, TenantId? tenant)
     {
         ArgumentNullException.ThrowIfNull(rows);
 
         if (source is null || tenant is not { IsValid: true } account || !source.ColourEnabled(account))
         {
             foreach (var s in rows) None(s);
-            return;
+            return false;
         }
 
         var latest = source.SnapshotLatest(account);
@@ -111,6 +114,8 @@ public static class TurnVerdictRowStamp
                 s.VerdictLabel = string.IsNullOrWhiteSpace(verdict.Label) ? null : verdict.Label;
             }
         }
+
+        return true;
     }
 
     private static void None(SessionDto s)

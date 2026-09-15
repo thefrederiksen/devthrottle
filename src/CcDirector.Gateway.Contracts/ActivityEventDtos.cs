@@ -201,6 +201,12 @@ public static class ActivityEventTypes
     /// detail carries the two verdict ids and never a word of the screen.</summary>
     public const string TurnVerdictExpired = "turn-verdict-expired";
 
+    /// <summary>A snooze's clock ran out and the Wingman ruled on what that means (ruling 10): nothing happened
+    /// while it ran, or a stop happened and its verdict rules, or a stop happened with no verdict covering it and
+    /// the judge is being asked now. The cause says which; the detail carries the row's verdict state and never a
+    /// word of the screen. Exactly one of these is written per expiry - the ruling is an edge, not a condition.</summary>
+    public const string TurnVerdictSnoozeExpiry = "turn-verdict-snooze-expiry";
+
     /// <summary>The owner answered a verdict from the panel and the Director confirmed the bytes were written into
     /// the session. The cause is <see cref="ActivityCauses.OwnerAnswered"/>; the detail carries the verdict id, the
     /// answer shape and how many options were chosen - never the bytes and never a word of the screen.</summary>
@@ -356,6 +362,18 @@ public static class ActivityCauses
     /// <summary>A "continues-alone" verdict passed its carrying-on deadline - the announced next wake-up plus two
     /// minutes, or ten minutes after it was judged - with no Working transition in between.</summary>
     public const string CarryingOnExpired = "carrying-on-expired";
+
+    /// <summary>A snooze's clock ran out and no turn had ended since it was set, so the row came back calm and
+    /// nobody was asked anything (ruling 10). The common case, and the whole point of the rule.</summary>
+    public const string SnoozeNothingNew = "snooze-nothing-new";
+
+    /// <summary>A snooze's clock ran out and a stop that happened while it ran is already judged, so that
+    /// verdict rules the row - calm or red - and the expiry changed nothing.</summary>
+    public const string SnoozeVerdictRules = "snooze-verdict-rules";
+
+    /// <summary>A snooze's clock ran out, a stop happened while it ran, and no verdict covers it - so the judge
+    /// is being asked about the current screen now. The row stays red until an answer lands.</summary>
+    public const string SnoozeReJudgeRequested = "snooze-re-judge-requested";
 
     /// <summary>The owner's answer to a verdict was written into the session and the Director confirmed it.</summary>
     public const string OwnerAnswered = "owner-answered";

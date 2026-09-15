@@ -254,7 +254,10 @@ internal static class GatewayEndpoints
         Wingman.TurnVerdictAnswerService? turnVerdictAnswers = null,
         // Slice E round 3: the turn-verdict ledger writer, handed to the answer route on its own so that the one exit a
         // missing answer service leaves still writes its cause word. Production passes the same writer the service uses.
-        Action<Wingman.TurnVerdictRecord>? turnVerdictLedger = null)
+        Action<Wingman.TurnVerdictRecord>? turnVerdictLedger = null,
+        // Slice F: the fold's snooze memory, which turns "expired" into the one EDGE ruling 10 acts on. Null stamps
+        // false on every row - the row exactly as slice D left it.
+        Wingman.SnoozeExpiryReJudge? snoozeExpiry = null)
     {
         // The old issue #1188 "session lock" (423 Locked on human input while a PENDING dictation record
         // existed) was removed deliberately (issue #1308). This is a single-operator tool: a collision
@@ -1607,7 +1610,7 @@ internal static class GatewayEndpoints
             // stamp the presentation fold (which reads the role to suppress a live Worker's red toward the
             // human). Done here, once, because the role needs the full fleet view - the UNFILTERED one
             // (`fleet`), not the response set (`all`). See defect 13 in StampFleetRolesAndFold.
-            StampFleetRolesAndFold(fleet, all, needsYouStampFor, snoozeRegistry, reqTenant.Value, handRaises, turnVerdictRows);
+            StampFleetRolesAndFold(fleet, all, needsYouStampFor, snoozeRegistry, reqTenant.Value, handRaises, turnVerdictRows, snoozeExpiry);
 
             // DevThrottle Stats: fold the assembled roster's per-session input tallies into the always-
             // available aggregate that backs "Your Throttle". This is the ONE path that carries
@@ -1956,7 +1959,7 @@ internal static class GatewayEndpoints
             // is driven by the roster read. Letting a by-id read stamp it would drive that clock out of band
             // and corrupt the roster's own waiting times. NeedsYouSince stays unstamped here, exactly as
             // before - this fix does not claim it.
-            StampFleetRolesAndFold(fleet, new[] { session }, needsYouStampFor: null, snoozeRegistry: snoozeRegistry, tenant: reqTenant.Value, handRaises: handRaises, turnVerdictRows: turnVerdictRows);
+            StampFleetRolesAndFold(fleet, new[] { session }, needsYouStampFor: null, snoozeRegistry: snoozeRegistry, tenant: reqTenant.Value, handRaises: handRaises, turnVerdictRows: turnVerdictRows, snoozeExpiry: snoozeExpiry);
             return Results.Json(session);
         });
 
@@ -5157,7 +5160,16 @@ internal static class GatewayEndpoints
         Fleet.HandRaiseRegistry? handRaises = null,
         // The Wingman-on-every-turn mission, slice D: where the verdicts the colour, the label and the calm band
         // read come from. Null stamps "none" on every row, which is exactly the row as the detector made it.
-        Wingman.ITurnVerdictRowSource? turnVerdictRows = null)
+        Wingman.ITurnVerdictRowSource? turnVerdictRows = null,
+        // The Wingman-on-every-turn mission, slice F: the fold's memory of each session's snooze, which is what
+        // turns "expired" - a computation that is true on every fold - into the single EDGE ruling 10 acts on.
+        // Null stamps false on every row, which is the row as slice D left it.
+        Wingman.SnoozeExpiryReJudge? snoozeExpiry = null,
+        // THE FOLD'S ONE MOMENT. Production passes null and the fold reads the clock itself; a test passes a moment
+        // so that both ends of a snooze - armed, then elapsed - can be folded without waiting out a real timer.
+        // It is the moment the WHOLE fold answers as of, exactly as the clock it replaces is (see the snapshot
+        // note below), so there is no second time in here for it to disagree with.
+        DateTime? nowUtc = null)
     {
         if (roleUniverse is null) throw new ArgumentNullException(nameof(roleUniverse));
         if (toStamp is null) throw new ArgumentNullException(nameof(toStamp));
@@ -5193,7 +5205,7 @@ internal static class GatewayEndpoints
         // the owner asked for N minutes of quiet and got them. SnoozeExpired is display metadata, not a
         // hold state - it says "this one JUST came back BECAUSE its timer ran out", which the clients render
         // as a distinct "Snooze ended" badge and the phone announces once.
-        var nowUtc = DateTime.UtcNow;
+        var foldNowUtc = nowUtc ?? DateTime.UtcNow;
         // ONE SET-BASED READ FOR THE WHOLE FOLD (issue #2323, read-model epic #1159). This used to be three
         // database reads PER SESSION - HoldStateFor and IsExpired in the loop just below, and SnoozeUntilFor
         // in the second loop further down - each one taking the registry's process-wide monitor, renting its
@@ -5208,7 +5220,7 @@ internal static class GatewayEndpoints
         //
         // It is also more consistent than what it replaces: the two loops used to read the store at different
         // instants, so a snooze written between them could be visible to one and not the other. One snapshot
-        // and one `nowUtc` mean the whole fold answers as of a single moment.
+        // and one moment mean the whole fold answers as of a single instant.
         var holds = snoozeRegistry is null
             ? Snooze.SnoozeHoldSnapshot.Empty
             : snoozeRegistry.HoldSnapshotFor(all.Select(s => s.SessionId));
@@ -5216,7 +5228,7 @@ internal static class GatewayEndpoints
             foreach (var s in all)
             {
                 if (string.IsNullOrEmpty(s.SessionId)) continue;
-                s.HoldState = holds.HoldStateFor(s.SessionId, nowUtc);
+                s.HoldState = holds.HoldStateFor(s.SessionId, foldNowUtc);
                 // Expiry is a REGISTRY fact, not a Director one, and it is ASSIGNED both ways every fold -
                 // never OR-ed in. The DTO reaching this fold can already carry SnoozeExpired=true (the
                 // roster re-serves the store's folded clones), so a one-way "set true when
@@ -5225,7 +5237,7 @@ internal static class GatewayEndpoints
                 // edge), a re-snooze arming a fresh clock, an owner turn - kept a stale badge it never
                 // earned. Assigning = IsExpired makes the badge mean EXACTLY one thing, both directions:
                 // true only while an armed entry's clock has elapsed, false the instant that stops being so.
-                s.SnoozeExpired = holds.IsExpired(s.SessionId, nowUtc);
+                s.SnoozeExpired = holds.IsExpired(s.SessionId, foldNowUtc);
             }
 
         // Defect 5: the role resolution moved to Fleet.FleetRoleResolver so this roster read and the
@@ -5248,7 +5260,12 @@ internal static class GatewayEndpoints
         // THE WINGMAN'S VERDICT, stamped before the loop because the loop's colour, label and bucket read it. ONE
         // snapshot of the account's verdicts for the whole fold, and no read at all while the account's colour
         // switch is off - see TurnVerdictRowStamp.
-        Wingman.TurnVerdictRowStamp.Stamp(all, turnVerdictRows, tenant);
+        var verdictsOnTheWire = Wingman.TurnVerdictRowStamp.Stamp(all, turnVerdictRows, tenant);
+
+        // A SNOOZE EXPIRY RE-JUDGES (slice F, ruling 10), stamped after the verdicts because its decision reads
+        // them, and before the loop because the loop's colour and label read its answer. It takes the SAME snooze
+        // snapshot the hold state above came from - the fold's one read - and never a second one.
+        Wingman.SnoozeExpiryRowStamp.Stamp(all, snoozeExpiry, verdictsOnTheWire, holds, tenant, foldNowUtc);
 
         foreach (var s in all)
         {
