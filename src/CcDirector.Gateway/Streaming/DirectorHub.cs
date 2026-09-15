@@ -63,8 +63,10 @@ public sealed class DirectorHub : Hub
         History.SessionHistoryRecorder? sessionHistory = null,
         Pairing.SessionKeyRegistry? sessionKeys = null,
         History.SessionTurnStore? sessionTurns = null,
-        TurnPushCapabilityRegistry? turnPushCapabilities = null)
+        TurnPushCapabilityRegistry? turnPushCapabilities = null,
+        Briefing.TurnEndWatcher? turnEnds = null)
     {
+        _turnEnds = turnEnds;
         _turnPushCapabilities = turnPushCapabilities;
         _sessionTurns = sessionTurns;
         _sessionKeys = sessionKeys;
@@ -83,6 +85,10 @@ public sealed class DirectorHub : Hub
     }
 
     private readonly PushedRepositoryStore? _repositoryStore;
+
+    /// <summary>The turn-end watcher an accepted delta feeds before the display fold. Null (older callers, tests that
+    /// do not exercise turn ends) leaves the watcher to its 15-second reconcile sweep alone.</summary>
+    private readonly Briefing.TurnEndWatcher? _turnEnds;
 
     /// <summary>
     /// Remove-the-network-port phase 1b: the per-session credential registry. Null in tests and older
@@ -565,6 +571,25 @@ public sealed class DirectorHub : Hub
         // way the resolution is fleet-wide, and the changed roles are stamped back down so every desktop
         // folds the same answer the phone does.
         _fleetRoles?.Observe(session);
+        // THE TURN-END SEAM (the Wingman-on-every-turn mission, owner ruling 2026-09-15: no red frame before the Wingman
+        // reads). An ACCEPTED delta reaches the turn-end watcher HERE, immediately before the fold below pushes its
+        // colour, so a stop that will be judged is stamped "reading" by the verdict seat before the first fold of that
+        // stop, and the first colour pushed is yellow rather than the detector's red. The watcher's 15-second sweep
+        // stays as the reconcile; its transition memory makes that replay of a stop already observed here a no-op. A
+        // rejected push is not authoritative and does not reach it.
+        if (accepted && _turnEnds is not null && !string.IsNullOrEmpty(session.ActivityState))
+        {
+            try
+            {
+                _turnEnds.Observe(RequireBoundTenant(), session.SessionId, session.ActivityState, directorId);
+            }
+            catch (Exception ex)
+            {
+                // A turn-end consumer's fault must not take the display fold below down with it; the fold still runs,
+                // and the fault is written where it can be found.
+                FileLog.Write($"[DirectorHub] PushDelta turn-end observe FAILED: director={directorId}, sid={session.SessionId}: {ex.GetType().FullName}: {ex.Message}");
+            }
+        }
         // THE FOLD SEAM. This delta changed this session's raw facts (activity, hold, dictation) and may
         // change another session's fold across the fleet. Re-fold and stamp the changed answers down, so the
         // desktop rail shows the Gateway's colour/label/triage within milliseconds of the change.

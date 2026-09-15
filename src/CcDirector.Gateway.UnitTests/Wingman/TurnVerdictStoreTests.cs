@@ -86,6 +86,54 @@ public sealed class TurnVerdictStoreTests : IDisposable
     }
 
     [Fact]
+    public void The_answered_mark_is_stored_read_back_in_utc_and_the_first_mark_stands()
+    {
+        var store = NewStore();
+        var judgedAt = new DateTime(2026, 9, 15, 10, 0, 0, DateTimeKind.Utc);
+        store.Store(TenantA, "sid-1", Verdict(judgedAt, verdictId: "tv-answered"));
+        // CONTROL: a verdict nobody has answered reads back unanswered.
+        Assert.Null(store.FindById(TenantA, "tv-answered")!.AnsweredAtUtc);
+
+        var answeredAt = judgedAt.AddMinutes(1);
+        Assert.True(store.MarkAnswered(TenantA, "tv-answered", answeredAt));
+        Assert.False(store.MarkAnswered(TenantA, "tv-answered", answeredAt.AddMinutes(5)));
+
+        var read = store.FindById(TenantA, "tv-answered")!;
+        Assert.Equal(answeredAt, read.AnsweredAtUtc);
+        Assert.Equal(DateTimeKind.Utc, read.AnsweredAtUtc!.Value.Kind);
+        Assert.False(store.MarkAnswered(TenantA, "tv-no-such-verdict", answeredAt));
+    }
+
+    [Fact]
+    public void One_account_can_neither_mark_nor_see_anothers_answered_mark()
+    {
+        var store = NewStore();
+        var judgedAt = new DateTime(2026, 9, 15, 10, 0, 0, DateTimeKind.Utc);
+        store.Store(TenantA, "sid-1", Verdict(judgedAt, verdictId: "tv-answered-a"));
+
+        Assert.False(store.MarkAnswered(TenantB, "tv-answered-a", judgedAt.AddMinutes(1)));
+        Assert.Null(store.FindById(TenantA, "tv-answered-a")!.AnsweredAtUtc);
+
+        Assert.True(store.MarkAnswered(TenantA, "tv-answered-a", judgedAt.AddMinutes(2)));
+        Assert.Null(store.FindById(TenantB, "tv-answered-a"));
+    }
+
+    [Fact]
+    public void A_same_moment_rejudgement_under_a_new_id_is_unanswered_and_under_the_same_id_keeps_its_mark()
+    {
+        var store = NewStore();
+        var judgedAt = new DateTime(2026, 9, 15, 10, 0, 0, DateTimeKind.Utc);
+        store.Store(TenantA, "sid-1", Verdict(judgedAt, verdictId: "tv-same"));
+        Assert.True(store.MarkAnswered(TenantA, "tv-same", judgedAt.AddMinutes(1)));
+
+        store.Store(TenantA, "sid-1", Verdict(judgedAt, verdictId: "tv-same"));
+        Assert.NotNull(store.FindById(TenantA, "tv-same")!.AnsweredAtUtc);
+
+        store.Store(TenantA, "sid-1", Verdict(judgedAt, verdictId: "tv-replaced"));
+        Assert.Null(store.FindById(TenantA, "tv-replaced")!.AnsweredAtUtc);
+    }
+
+    [Fact]
     public void A_refused_answer_is_stored_as_a_failed_row_with_its_reason()
     {
         var store = NewStore();

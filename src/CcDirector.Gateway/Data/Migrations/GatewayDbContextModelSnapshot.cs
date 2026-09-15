@@ -1715,6 +1715,9 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<DateTime>("JudgedAtUtc")
                         .HasColumnType("TEXT");
 
+                    b.Property<DateTime?>("AnsweredAtUtc")
+                        .HasColumnType("TEXT");
+
                     b.Property<bool>("Failed")
                         .HasColumnType("INTEGER");
 

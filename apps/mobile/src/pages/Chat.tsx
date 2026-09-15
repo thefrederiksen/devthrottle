@@ -4,6 +4,7 @@ import { listSessions } from "@devthrottle/client-core/api/client";
 import { useSessionChat } from "@devthrottle/client-core/history/useSessionChat";
 import { chatLinkLabel } from "@devthrottle/client-core/history/chatView";
 import { DictationStatusStrip } from "@devthrottle/client-core/dictation/DictationStatusStrip";
+import { VerdictPanel } from "@devthrottle/client-core/sessions/VerdictPanel";
 import { SessionAppBar } from "../components/SessionAppBar";
 import { SessionControls } from "../components/SessionControls";
 import { useSessionManage } from "../components/useSessionManage";
@@ -129,6 +130,13 @@ export function Chat() {
 
       {/* Live dictation status so a Speak Send from Chat is never silent (#1139). */}
       <DictationStatusStrip sessionId={sessionId} />
+
+      {/* What the Wingman read at this stop, and the owner's answer to it - the shared client-core panel, fed
+          from the same roster poll as the snooze state. It renders nothing unless the row carries a judged verdict.
+          The hook hands over only THIS route's row, and the panel answers with THIS route's session id. With no row
+          to act on - a read pending, failed or missing this session - there is no panel, only the reason. */}
+      {manage.session && sessionId && <VerdictPanel sessionId={sessionId} session={manage.session} />}
+      {manage.sessionProblem !== null && <div className="chat-stale" role="status">{manage.sessionProblem}</div>}
 
       {/* ABOVE the scrolling conversation, not inside it. A long conversation opens at the BOTTOM, so a
           notice placed at the top of the scroll is exactly where nobody looks (found in review); and it
