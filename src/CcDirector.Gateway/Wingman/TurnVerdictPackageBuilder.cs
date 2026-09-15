@@ -4,7 +4,6 @@ using CcDirector.Core.Wingman;
 using CcDirector.Gateway.Briefing;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.History;
-using CcDirector.Gateway.Supervision;
 
 namespace CcDirector.Gateway.Wingman;
 
@@ -18,11 +17,12 @@ namespace CcDirector.Gateway.Wingman;
 /// Gateway. The record and the contract stay in Core so that the same package can be rebuilt from a
 /// saved turn-log bundle and replayed against a different judge with no Gateway in the room.
 ///
-/// The source selection is deliberately the one the narration path already uses
-/// (<see cref="WingmanNarrationSource"/>): a completed agent reply wins, and only when the person's
-/// later message has no reply does a recognised failure on the live terminal take its place. Writing a
-/// second rule for the same question is how two parts of one product come to disagree about what a
-/// session just did.
+/// The source selection is the one the narration path uses, and it is the ONLY one
+/// (<see cref="WingmanNarrationSource"/>): a completed agent reply wins; when the person's later
+/// message has no reply, or when there is no stored conversation at all, a recognised failure on the
+/// live terminal takes its place. This builder has no rule of its own and never classifies the screen
+/// itself. It did, for one round, and that second rule is how two parts of one product come to
+/// disagree about what a session just did.
 /// </summary>
 public static class TurnVerdictPackageBuilder
 {
@@ -93,11 +93,15 @@ public static class TurnVerdictPackageBuilder
     /// What this stop is made of, and where the current reply sits in the conversation so the recent
     /// turns can stop short of it.
     ///
-    /// The narration source answers the first two cases. The third - no conversation at all, or a
-    /// conversation whose last word is the person's with no recognised failure on screen - it answers
-    /// with null, because there is nothing new to NARRATE. There is still something to JUDGE, so the
-    /// screen is classified directly: a recognised failure makes it a terminal-failure stop, and
-    /// anything else is an agent-reply stop with no reply, whose receipt can only come off the screen.
+    /// There is ONE selection rule and it is <see cref="WingmanNarrationSource.Select"/>. This method
+    /// asks it and does as it says; it never classifies the screen itself. A local second rule was what
+    /// let the verdict path and the voice path disagree about the same stop.
+    ///
+    /// When Select yields no source at all, the stop is an agent-reply stop with NO reply. That is the
+    /// honest shape: there is nothing the agent said to judge, the prompt already says in as many words
+    /// what an empty reply means, and the receipt check then binds any calm verdict to the screen alone.
+    /// Whether a conversation existed at all is carried separately, in
+    /// <see cref="TurnVerdictPackage.ConversationAvailable"/>.
     /// </summary>
     private static (TurnVerdictPackageKind Kind, string? Reply, string? Failure, int ReplyIndex) SelectSource(
         IReadOnlyList<TurnWidgetDto> widgets,
@@ -109,14 +113,6 @@ public static class TurnVerdictPackageBuilder
 
         if (source is { Kind: WingmanNarrationSourceKind.TerminalFailure })
             return (TurnVerdictPackageKind.TerminalFailure, null, StartCut(source.Content), widgets.Count);
-
-        var fault = TerminatingFaultClassifier.Classify(rows);
-        if (fault.Class != SessionFaultClass.None)
-        {
-            var text = string.Join('\n', TerminatingFaultClassifier.ContentWindow(rows)).Trim();
-            if (text.Length > 0)
-                return (TurnVerdictPackageKind.TerminalFailure, null, StartCut(text), widgets.Count);
-        }
 
         return (TurnVerdictPackageKind.AgentReply, null, null, widgets.Count);
     }
@@ -145,9 +141,16 @@ public static class TurnVerdictPackageBuilder
     /// meaning, and the judge is being asked what the stop MEANS, not what the agent read. The block is
     /// cut from its OLDEST end, because the turn nearest the stop is the one that explains it.
     ///
-    /// The turn being judged is excluded. The person's message that opened it is not "before" the stop -
-    /// it is part of it - and letting it in would spend one of the four slots on an ask the judge is
-    /// already looking at the answer to.
+    /// The turn being judged is excluded, ALWAYS. It is the last thing the person said within the window
+    /// being read, whatever mixture of agent text, tool calls and more agent text follows it - the stop
+    /// is the whole of that turn, not just its final reply. The person's message that opened it is not
+    /// "before" the stop, it is part of it, and letting it in would spend one of the four slots on an ask
+    /// the judge is already looking at the answer to.
+    ///
+    /// This used to be decided by asking whether the last turn contained any agent text, which is true of
+    /// every turn that did any work before replying. A turn made of agent text, a tool call and then the
+    /// reply was therefore kept, and the judge saw three turns of history and the ask it was already
+    /// answering rather than four turns of history.
     ///
     /// NOT CARRIED, and it is a real gap rather than an oversight: on a stop with NO reply, the person's
     /// last message is the trailing turn, so it is excluded here and reaches the judge only through the
@@ -167,24 +170,11 @@ public static class TurnVerdictPackageBuilder
 
         if (turnStarts.Count == 0) return "";
 
-        // The last turn is the one being judged when nothing the agent said follows its opening message -
-        // which is exactly the case when the reply being judged is the next thing after this window, or
-        // when there is no reply at all. Drop it.
-        var lastStart = turnStarts[^1];
-        var lastTurnHasAgentText = false;
-        for (var i = lastStart; i < end; i++)
-        {
-            if (!string.Equals(widgets[i].Kind, StoredConversationWidgets.AgentTextKind, StringComparison.Ordinal))
-                continue;
-            lastTurnHasAgentText = true;
-            break;
-        }
-        if (!lastTurnHasAgentText)
-        {
-            end = lastStart;
-            turnStarts.RemoveAt(turnStarts.Count - 1);
-            if (turnStarts.Count == 0) return "";
-        }
+        // The last thing the person said inside this window opened the turn being judged. Drop it, and
+        // everything after it, unconditionally.
+        end = turnStarts[^1];
+        turnStarts.RemoveAt(turnStarts.Count - 1);
+        if (turnStarts.Count == 0) return "";
 
         var firstKept = Math.Max(0, turnStarts.Count - TurnVerdictPackage.RecentTurnCount);
         var sb = new StringBuilder();

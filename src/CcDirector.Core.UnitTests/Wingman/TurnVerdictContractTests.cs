@@ -507,8 +507,12 @@ public sealed class TurnVerdictContractTests
     }
 
     [Fact]
-    public void ParseAndValidate_MoreThanOneRecommended_KeepsOnlyTheFirst()
+    public void ParseAndValidate_MoreThanOneRecommended_RejectedRatherThanQuietlyRepaired()
     {
+        // This test used to pin the opposite: the extra flags were cleared and the answer accepted. That
+        // is a silent repair of a malformed answer - the judge said two different things were the one to
+        // do, nothing here can know which it meant, and keeping the first leaves the owner pressing a
+        // button he believes a judge chose for him.
         var answer = Answer(
             verdict: TurnVerdictVocabulary.NeededYou,
             evidence: "Push the deploy guard to main?",
@@ -523,9 +527,129 @@ public sealed class TurnVerdictContractTests
 
         var result = TurnVerdictContract.ParseAndValidate(answer, MenuStop(), Model, ObservedAt);
 
+        Assert.True(result.Failed);
+        Assert.Contains("marked recommended", result.FailureReason);
+    }
+
+    [Fact]
+    public void ParseAndValidate_ExactlyOneRecommended_Accepted()
+    {
+        // The control for the test above: the rule is "more than one", not "any".
+        var answer = Answer(
+            verdict: TurnVerdictVocabulary.NeededYou,
+            evidence: "Push the deploy guard to main?",
+            label: "Push the deploy guard to main?",
+            risk: "irreversible",
+            answerVia: "reply",
+            options: new object[]
+            {
+                new { key = "Push it now", send = "yes", recommended = true, note = "Puts the guard live." },
+                new { key = "Leave it", send = "no", recommended = false, note = "Nothing changes." },
+            });
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, MenuStop(), Model, ObservedAt);
+
         Assert.False(result.Failed, result.FailureReason);
         Assert.Single(result.Options, o => o.Recommended);
-        Assert.True(result.Options[0].Recommended);
+    }
+
+    // ============================================ finding 3: three shapes that used to default quietly
+
+    [Fact]
+    public void ParseAndValidate_OptionsPresentButNotAList_Rejected()
+    {
+        // A calm-looking answer with a valid receipt and "options": {} used to be read as an answer that
+        // offered nothing. It is a broken answer, and a broken answer is thrown away whole.
+        var answer = Answer(
+            verdict: TurnVerdictVocabulary.Finished,
+            evidence: "Nothing is needed from you - I will stop here.",
+            label: "Retention sweep done",
+            risk: "none",
+            optionsRaw: new Dictionary<string, object?>(StringComparer.Ordinal));
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, ReportStop(), Model, ObservedAt);
+
+        Assert.True(result.Failed);
+        Assert.Contains("not a list", result.FailureReason);
+    }
+
+    [Fact]
+    public void ParseAndValidate_OptionsExplicitlyNull_IsNoOptionsAndAccepted()
+    {
+        // The control: JSON null is the judge saying there are none, which is the ordinary shape of a
+        // report, and it is a different thing from an object where a list belongs.
+        var answer = Answer(
+            verdict: TurnVerdictVocabulary.Finished,
+            evidence: "Nothing is needed from you - I will stop here.",
+            label: "Retention sweep done",
+            risk: "none",
+            optionsRaw: null,
+            optionsNull: true);
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, ReportStop(), Model, ObservedAt);
+
+        Assert.False(result.Failed, result.FailureReason);
+        Assert.Empty(result.Options);
+    }
+
+    [Fact]
+    public void ParseAndValidate_MenuWithNoSelectionMode_Rejected()
+    {
+        // A missing selection mode used to become "single". It decides whether one key answers the picker
+        // or several do, and writing one in is this contract deciding how a live session gets typed into.
+        var answer = Answer(
+            verdict: TurnVerdictVocabulary.NeededYou,
+            evidence: "Push the deploy guard to main?",
+            label: "Push the deploy guard to main?",
+            risk: "irreversible",
+            answerVia: "keys",
+            menu: new { question = "Push the deploy guard to main?", submit = "" },
+            options: new object[]
+            {
+                new { key = "Push it now", send = "1\r", recommended = false, note = "Puts the guard live." },
+                new { key = "Leave it", send = "2\r", recommended = true, note = "Nothing changes." },
+            });
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, MenuStop(), Model, ObservedAt);
+
+        Assert.True(result.Failed);
+        Assert.Contains("no selectionMode", result.FailureReason);
+    }
+
+    [Fact]
+    public void ParseAndValidate_UnknownConfidenceWord_Rejected()
+    {
+        // "fairly-sure" used to be read as "ambiguous". Confidence is not a colour, which is why this
+        // looked harmless; but the stored record then said the judge answered a word it never wrote.
+        var answer = Answer(
+            verdict: TurnVerdictVocabulary.Finished,
+            evidence: "Nothing is needed from you - I will stop here.",
+            label: "Retention sweep done",
+            risk: "none",
+            confidence: "fairly-sure");
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, ReportStop(), Model, ObservedAt);
+
+        Assert.True(result.Failed);
+        Assert.Contains("unknown confidence word", result.FailureReason);
+    }
+
+    [Fact]
+    public void ParseAndValidate_MissingConfidence_Rejected()
+    {
+        // The same rule as the risk word, for the same reason: there is no default, because a default is
+        // this contract answering on the judge's behalf.
+        var answer = Answer(
+            verdict: TurnVerdictVocabulary.Finished,
+            evidence: "Nothing is needed from you - I will stop here.",
+            label: "Retention sweep done",
+            risk: "none",
+            confidence: null);
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, ReportStop(), Model, ObservedAt);
+
+        Assert.True(result.Failed);
+        Assert.Contains("no confidence word", result.FailureReason);
     }
 
     // ================================================================= calm can never come from a failure
@@ -579,8 +703,45 @@ public sealed class TurnVerdictContractTests
     }
 
     [Fact]
-    public void ParseAndValidate_OverLongFields_Capped()
+    public void ParseAndValidate_OverLongFields_AreCutAtTheLastWholeWord()
     {
+        // The three capped prose fields are READ - on a row, in a panel, out loud - so a cut one must not
+        // end mid-word. "the deploy guard is bl" reads as a broken product rather than as a long answer.
+        var word = "alpha ";
+        var label = string.Concat(Enumerable.Repeat(word, 40));
+        var summary = string.Concat(Enumerable.Repeat(word, 200));
+        var spoken = string.Concat(Enumerable.Repeat(word, 400));
+        var answer = Answer(
+            verdict: TurnVerdictVocabulary.Finished,
+            evidence: "Nothing is needed from you - I will stop here.",
+            label: label,
+            risk: "none",
+            summary: summary,
+            spoken: spoken);
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, ReportStop(), Model, ObservedAt);
+
+        Assert.False(result.Failed, result.FailureReason);
+        foreach (var (field, cut, max) in new[]
+        {
+            ("label", result.Label, TurnVerdictContract.MaxLabelChars),
+            ("summary", result.Summary, TurnVerdictContract.MaxSummaryChars),
+            ("spoken", result.Spoken, TurnVerdictContract.MaxSpokenChars),
+        })
+        {
+            Assert.True(cut.Length <= max, $"{field} is {cut.Length} characters, over {max}");
+            Assert.EndsWith("alpha", cut);
+            Assert.False(char.IsWhiteSpace(cut[^1]), $"{field} ends in whitespace");
+            // The bound is still nearly reached: a word boundary is found, not the whole field thrown out.
+            Assert.True(cut.Length > max - word.Length, $"{field} lost more than one word");
+        }
+    }
+
+    [Fact]
+    public void ParseAndValidate_OneUnbrokenRunLongerThanTheBound_IsStillCutAtTheBound()
+    {
+        // No boundary exists to cut at. An empty field says less to the reader than a cut one, so the
+        // hard bound stands. This is the case the previous test for the caps was written with.
         var answer = Answer(
             verdict: TurnVerdictVocabulary.Finished,
             evidence: "Nothing is needed from you - I will stop here.",
@@ -781,7 +942,9 @@ public sealed class TurnVerdictContractTests
         string? answerVia = "reply",
         object? menu = null,
         object[]? options = null,
-        string? confidence = "high")
+        string? confidence = "high",
+        object? optionsRaw = null,
+        bool optionsNull = false)
     {
         var fields = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
@@ -794,6 +957,10 @@ public sealed class TurnVerdictContractTests
             ["menu"] = menu,
             ["agentRecommends"] = agentRecommends,
         };
+        // optionsRaw writes whatever is given where the list belongs - an object, a number, a string -
+        // so a malformed shape can be tested. optionsNull writes an explicit JSON null there.
+        if (optionsRaw is not null) fields["options"] = optionsRaw;
+        if (optionsNull) fields["options"] = null;
         if (risk is not null) fields["risk"] = risk;
         if (answerVia is not null) fields["answerVia"] = answerVia;
         if (confidence is not null) fields["confidence"] = confidence;

@@ -293,10 +293,9 @@ public static class TurnVerdictContract
                 return Refuse(package, model, turnEndObservedAtUtc,
                     "no label; the label is the one line every row shows, and a row that reports nothing "
                     + "reads as broken");
-            if (label.Length > MaxLabelChars) label = label[..MaxLabelChars];
+            label = CapAtWordBoundary(label, MaxLabelChars);
 
-            var summary = Str(root, "summary");
-            if (summary.Length > MaxSummaryChars) summary = summary[..MaxSummaryChars];
+            var summary = CapAtWordBoundary(Str(root, "summary"), MaxSummaryChars);
 
             // ---- the spoken section -----------------------------------------------------------
             var spoken = Str(root, "spoken");
@@ -304,7 +303,7 @@ public static class TurnVerdictContract
                 return Refuse(package, model, turnEndObservedAtUtc,
                     "no spoken section; it is produced for every owned stop, whether or not anybody is "
                     + "listening, and a stop without one is silent in the car");
-            if (spoken.Length > MaxSpokenChars) spoken = spoken[..MaxSpokenChars];
+            spoken = CapAtWordBoundary(spoken, MaxSpokenChars);
 
             // ---- how the person answers -------------------------------------------------------
             var optionsResult = ReadOptions(root);
@@ -338,13 +337,21 @@ public static class TurnVerdictContract
                     "the answer is a selection in a picker but carries no menu; without it nothing knows "
                     + "what question the keys answer");
 
-            // ---- confidence -------------------------------------------------------------------
-            // A word outside the pair is read as "ambiguous" rather than "high". The judge did not say it
-            // was sure, so nothing here may say so on its behalf. Confidence is not a colour and never
-            // demotes a red stop, so this cannot fail toward quiet.
+            // ---- confidence: one of the two, and never defaulted -------------------------------
+            // Reading an unknown word as "ambiguous" was a silent repair. It looked harmless because
+            // confidence is not a colour, but it is the same defect as any other default: the record then
+            // says the judge answered something it never said, and every reader downstream - the grading,
+            // the owner, a later slice - believes it. A malformed answer is refused whole, exactly as the
+            // risk word is, and for the same reason.
             var confidence = Str(root, "confidence");
             if (!TurnVerdictVocabulary.Confidences.Contains(confidence, StringComparer.Ordinal))
-                confidence = "ambiguous";
+                return Refuse(package, model, turnEndObservedAtUtc,
+                    confidence.Length == 0
+                        ? "no confidence word; the two allowed words are "
+                          + string.Join(", ", TurnVerdictVocabulary.Confidences)
+                          + ", and neither may be written on the judge's behalf"
+                        : $"unknown confidence word '{confidence}'; the two allowed words are "
+                          + string.Join(", ", TurnVerdictVocabulary.Confidences));
 
             var agentRecommends = Str(root, "agentRecommends");
             if (agentRecommends.Length > MaxAgentRecommendsChars)
@@ -446,8 +453,15 @@ public static class TurnVerdictContract
     private static OptionsResult ReadOptions(JsonElement root)
     {
         var options = new List<TurnVerdictOptionDto>();
-        if (!root.TryGetProperty("options", out var array) || array.ValueKind != JsonValueKind.Array)
+        // Absent, or explicitly null: there are no options, which is the ordinary shape of a report.
+        if (!root.TryGetProperty("options", out var array) || array.ValueKind == JsonValueKind.Null)
             return new OptionsResult(options, null);
+        // Present and not a list: the answer is malformed, and reading it as "no options" would turn a
+        // broken answer into a calm-looking one with nothing for the owner to press.
+        if (array.ValueKind != JsonValueKind.Array)
+            return new OptionsResult(options,
+                "options is present but is not a list; a malformed answer is thrown away whole rather than "
+                + "read as an answer that offered nothing");
 
         foreach (var element in array.EnumerateArray())
         {
@@ -481,20 +495,19 @@ public static class TurnVerdictContract
                 $"{options.Count} options were offered, over the bound of {MaxOptions}; they are not trimmed, "
                 + "because dropping one changes what the reader can choose");
 
-        // At most one recommended. An extra flag is a presentation defect, not a reason to throw away an
-        // otherwise sound answer: the extras are dropped so the stored record satisfies the invariant,
-        // and the drop is logged so it is visible rather than silent.
-        var seen = false;
+        // At most one recommended, and more than one throws the whole answer away. Clearing the extra
+        // flags and accepting was a silent repair of a malformed answer: the judge said two different
+        // things were the one to do, and nothing here can know which it meant. Keeping the first is this
+        // file guessing on the judge's behalf, and a guessed recommendation is a button the owner presses
+        // believing a judge chose it.
+        var recommendedCount = 0;
         foreach (var option in options)
-        {
-            if (!option.Recommended) continue;
-            if (seen)
-            {
-                FileLog.Write("[TurnVerdictContract] more than one recommended option; dropping the extra flag");
-                option.Recommended = false;
-            }
-            seen = true;
-        }
+            if (option.Recommended) recommendedCount++;
+        if (recommendedCount > 1)
+            return new OptionsResult(options,
+                $"{recommendedCount} options are marked recommended; at most one may be, and the extra flags are "
+                + "not cleared, because that would leave a recommendation this contract chose rather than "
+                + "the judge");
 
         return new OptionsResult(options, null);
     }
@@ -531,11 +544,14 @@ public static class TurnVerdictContract
             return new MenuResult(null, null);
 
         var selectionMode = Str(element, "selectionMode");
-        if (selectionMode.Length == 0) selectionMode = "single";
         if (!TurnVerdictVocabulary.SelectionModes.Contains(selectionMode, StringComparer.Ordinal))
             return new MenuResult(null,
-                $"unknown selectionMode '{selectionMode}'; it decides whether one key answers the picker or "
-                + "several do, and a wrong guess types the wrong thing into a live session");
+                selectionMode.Length == 0
+                    ? "the menu carries no selectionMode; it decides whether one key answers the picker or "
+                      + "several do, and writing one in would be this contract deciding how a live session "
+                      + "gets typed into"
+                    : $"unknown selectionMode '{selectionMode}'; it decides whether one key answers the "
+                      + "picker or several do, and a wrong guess types the wrong thing into a live session");
 
         var submit = element.TryGetProperty("submit", out var submitElement)
             && submitElement.ValueKind == JsonValueKind.String
@@ -609,4 +625,35 @@ public static class TurnVerdictContract
 
     private static string Cap(string value, int max)
         => value.Length <= max ? value : value[..max];
+
+    /// <summary>
+    /// Cut a prose field to its bound at the last word boundary before it, so a cut field never ends
+    /// mid-word.
+    ///
+    /// The label, the summary and the spoken section are READ - on a row, in a panel, out loud - and a
+    /// hard cut at the character bound leaves "the deploy guard is bl", which reads as a broken product
+    /// rather than as a long answer. The receipt is deliberately NOT cut this way, because it is not cut
+    /// at all: a shortened quote is no longer what the agent said.
+    ///
+    /// A single unbroken run longer than the whole bound has no boundary to cut at. The hard bound then
+    /// stands, because an empty field says less to the reader than a cut one.
+    /// </summary>
+    private static string CapAtWordBoundary(string value, int max)
+    {
+        if (value.Length <= max) return value;
+
+        // The bound falls exactly between two words: what is kept is already whole.
+        if (char.IsWhiteSpace(value[max])) return value[..max].TrimEnd();
+
+        var head = value[..max];
+        for (var i = head.Length - 1; i >= 0; i--)
+        {
+            if (!char.IsWhiteSpace(head[i])) continue;
+            var kept = head[..i].TrimEnd();
+            if (kept.Length > 0) return kept;
+            break;
+        }
+
+        return head;
+    }
 }

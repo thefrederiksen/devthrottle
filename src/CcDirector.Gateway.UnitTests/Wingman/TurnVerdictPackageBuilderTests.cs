@@ -91,6 +91,47 @@ public sealed class TurnVerdictPackageBuilderTests
     }
 
     [Fact]
+    public void Build_TheJudgedTurnNeverTakesOneOfTheFourSlots_WhateverItIsMadeOf()
+    {
+        // The shape this used to get wrong. The turn being judged is not "the person spoke and then the
+        // agent replied" - it is everything from the person's last message onwards, and a real one
+        // usually says something, calls a tool, and only then replies. The rule used to be "drop the last
+        // turn only if the agent said nothing in it", which is false of every turn that did any work, so
+        // the judged turn was kept and the judge saw three turns of history plus the ask it was already
+        // reading the answer to.
+        var widgets = new List<TurnWidgetDto>();
+        for (var turn = 1; turn <= 4; turn++)
+        {
+            widgets.Add(User($"ask number {turn}"));
+            widgets.Add(Agent($"answer number {turn}"));
+        }
+        widgets.Add(User("the ask being judged"));
+        widgets.Add(Agent("thinking about it out loud"));
+        widgets.Add(Tool("Grep", "pattern=RetentionSweep, 412 matches"));
+        widgets.Add(Agent("the reply being judged"));
+
+        var package = TurnVerdictPackageBuilder.Build(
+            Signal(), Session(), Conversation(widgets.ToArray()), Screen("> "), previousVerdictLabel: null);
+
+        Assert.Equal("the reply being judged", package.LatestReply);
+
+        // Four and only four turns, and every one of them is a turn BEFORE the stop.
+        Assert.Equal(4, CountTurns(package.RecentTurns));
+        for (var turn = 1; turn <= 4; turn++)
+        {
+            Assert.Contains($"ask number {turn}", package.RecentTurns);
+            Assert.Contains($"answer number {turn}", package.RecentTurns);
+        }
+        Assert.DoesNotContain("the ask being judged", package.RecentTurns);
+        Assert.DoesNotContain("thinking about it out loud", package.RecentTurns);
+        Assert.DoesNotContain("the reply being judged", package.RecentTurns);
+    }
+
+    /// <summary>How many turns the recent-context block holds: one per thing the person said in it.</summary>
+    private static int CountTurns(string recentTurns)
+        => recentTurns.Split("You: ").Length - 1;
+
+    [Fact]
     public void Build_DropsToolCallsAndTheirResults()
     {
         var conversation = Conversation(
@@ -181,6 +222,22 @@ public sealed class TurnVerdictPackageBuilderTests
             previousVerdictLabel: null);
 
         Assert.False(package.ConversationAvailable);
+    }
+
+    [Fact]
+    public void Build_SupportedAndNonEmptyConversation_IsAvailable()
+    {
+        // The guard the two tests above cannot give. They prove a MISSING conversation reports false, so
+        // a substituted constant false stays green under them; only this fails when that substitution is
+        // made. The fact decides what the judge is told about what it is NOT being shown.
+        var conversation = Conversation(
+            User("Delete the rows the retention window has passed."),
+            Agent("Deleted them, and the test covers it."));
+
+        var package = TurnVerdictPackageBuilder.Build(
+            Signal(), Session(), conversation, Screen("> "), previousVerdictLabel: null);
+
+        Assert.True(package.ConversationAvailable);
     }
 
     // ================================================================= the two kinds
@@ -321,5 +378,57 @@ public sealed class TurnVerdictPackageBuilderTests
         Assert.Equal(
             WingmanScreenVerdictCache.HashRows(new[] { "line one", "line two" }),
             first.ScreenHash);
+    }
+
+    // ========================================================= the hash, against a fixed vector
+    //
+    // The three tests below exist because the one above cannot catch a wrong hash: it compares the
+    // builder with the same implementation the builder calls, so a hash that dropped the first row
+    // would agree with itself and stay green. A hash that silently ignores a row is how a changed
+    // screen gets served a stale verdict, which is the one thing the fingerprint exists to prevent.
+
+    /// <summary>The three rows the vector below was computed from. Any change to them changes the
+    /// literal, which is the point: the literal is an independent statement of what the hash IS.</summary>
+    private static readonly string[] FixedRows =
+    {
+        "the retention sweep is done",
+        "nothing is needed from you",
+        "> ",
+    };
+
+    /// <summary>SHA-256 over those three rows joined with line feeds, as upper-case hexadecimal.
+    /// Computed outside this program, so it is a fact about the algorithm rather than a re-statement
+    /// of this repository's code.</summary>
+    private const string FixedRowsHash =
+        "F5CF73E839EB835DBB38DD7CE5D545737A53F76517127CE1953CDF553BE747C2";
+
+    [Fact]
+    public void ScreenHash_OfKnownRows_IsTheKnownValue()
+    {
+        Assert.Equal(FixedRowsHash, WingmanScreenVerdictCache.HashRows(FixedRows));
+
+        var conversation = Conversation(User("run it"), Agent("Done."));
+        var package = TurnVerdictPackageBuilder.Build(
+            Signal(), Session(), conversation, Screen(FixedRows), previousVerdictLabel: null);
+
+        Assert.Equal(FixedRowsHash, package.ScreenHash);
+    }
+
+    [Fact]
+    public void ScreenHash_ChangesWhenTheFIRSTRowChanges()
+    {
+        var changed = FixedRows.ToArray();
+        changed[0] = "the retention sweep is still running";
+
+        Assert.NotEqual(FixedRowsHash, WingmanScreenVerdictCache.HashRows(changed));
+    }
+
+    [Fact]
+    public void ScreenHash_ChangesWhenTheLASTRowChanges()
+    {
+        var changed = FixedRows.ToArray();
+        changed[^1] = "> y";
+
+        Assert.NotEqual(FixedRowsHash, WingmanScreenVerdictCache.HashRows(changed));
     }
 }

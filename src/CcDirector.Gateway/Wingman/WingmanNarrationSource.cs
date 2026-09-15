@@ -26,6 +26,13 @@ public sealed record WingmanNarrationSource(
     /// Select what is true now. A completed agent reply wins. When the person's later message has no reply,
     /// a recognized failure on the live terminal replaces the older reply; without that positive screen
     /// evidence there is nothing new to narrate.
+    ///
+    /// A conversation with NOTHING in it - a screen-only agent, or a Director too old to store one - is
+    /// answered the same way: the live terminal is the only source there is, so a recognized failure on it
+    /// is the source, and anything else is nothing to narrate. This is the ONE place that question is
+    /// answered. Every caller reads it here rather than classifying the screen itself, because a second
+    /// rule for the same question is how two parts of one product come to disagree about what a session
+    /// just did.
     /// </summary>
     public static WingmanNarrationSource? Select(
         IReadOnlyList<TurnWidgetDto>? widgets,
@@ -40,8 +47,8 @@ public sealed record WingmanNarrationSource(
                 : new WingmanNarrationSource(WingmanNarrationSourceKind.AgentReply, reply, reply);
         }
 
-        if (user < 0) return null;
-
+        // user < 0 here means agent < 0 too - the first branch takes every case where an agent spoke -
+        // so this is the conversation with nothing in it, and the screen is all there is.
         var fault = TerminatingFaultClassifier.Classify(liveRows);
         if (fault.Class == SessionFaultClass.None) return null;
 
