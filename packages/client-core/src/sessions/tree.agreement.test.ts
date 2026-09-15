@@ -55,7 +55,7 @@ interface Case {
   children: Record<string, string[]>;
   onAnotherMachine?: Record<string, boolean>;
   crews: CrewExpectation[];
-  attention: { title: string; roots: string[] }[];
+  attention: { key: string; title: string; roots: string[] }[];
 }
 
 const fixtures = JSON.parse(
@@ -125,6 +125,10 @@ describe("the ownership tree agrees with the answers the Director rail is measur
       it("orders the top level the same way for attention", () => {
         const sections = attentionSections(tree.roots);
         expect(sections.map((s) => s.title)).toEqual(c.attention.map((a) => a.title));
+        // The machine-readable bucket too, not just the heading a person reads: a consumer selects on
+        // the bucket, so a section wearing the right title over the wrong bucket would send the phone's
+        // badge and Car Mode to the wrong set of sessions while the screen still looked correct.
+        expect(sections.map((s) => s.key)).toEqual(c.attention.map((a) => a.key));
         sections.forEach((s, i) => expect(ids(s.roots)).toEqual(c.attention[i].roots));
       });
     });

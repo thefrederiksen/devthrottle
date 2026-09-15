@@ -312,6 +312,44 @@ public sealed class SessionTreeTests
     }
 
     [Fact]
+    public void AttentionSections_CarryTheBucketEachSectionIsFor_NotJustItsHeading()
+    {
+        // The heading is for a person; the bucket is what a consumer selects on. Only the headings and the
+        // roots were compared, so a section could wear the right heading over the wrong bucket - which
+        // would send the phone's badge and Car Mode to the wrong set of sessions while the screen still
+        // looked correct.
+        var sections = SessionTree.AttentionSections(new[] { S100(), S103(), Architect(), S112() });
+
+        Assert.Equal(
+            new[]
+            {
+                SessionOrdering.TriageBucket.NeedsYou,
+                SessionOrdering.TriageBucket.Active,
+                SessionOrdering.TriageBucket.OnHold,
+            },
+            sections.Select(s => s.Key).ToArray());
+    }
+
+    [Fact]
+    public void AttentionSections_PutEachBucketBackIntoTheOwnersDragOrder_WhateverOrderTheRosterArrivedIn()
+    {
+        // No fixture ever handed the working or snoozed buckets their roots in an order that differed from
+        // the owner's drag order, so replacing the desktop-order fold with a plain filter over the input
+        // changed no answer - and the two bottom sections would then have rendered in arrival order.
+        var snoozedLate = S("snoozedLate", 9, bucket: "snoozed");
+        var snoozedFirst = S("snoozedFirst", 1, bucket: "snoozed");
+        var workingLate = S("workingLate", 8);
+        var workingFirst = S("workingFirst", 2);
+
+        var sections = SessionTree.AttentionSections(
+            new[] { snoozedLate, snoozedFirst, workingLate, workingFirst });
+
+        Assert.Equal(new[] { "Working", "Snoozed" }, sections.Select(s => s.Title).ToArray());
+        Assert.Equal(new[] { "workingFirst", "workingLate" }, Ids(sections[0].Roots));
+        Assert.Equal(new[] { "snoozedFirst", "snoozedLate" }, Ids(sections[1].Roots));
+    }
+
+    [Fact]
     public void AttentionSections_OmitASectionWithNothingInIt()
     {
         var sections = SessionTree.AttentionSections(new[] { S112() });

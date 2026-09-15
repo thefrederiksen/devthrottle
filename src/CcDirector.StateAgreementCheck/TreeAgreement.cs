@@ -157,6 +157,15 @@ public static class TreeAgreement
                 one.GetProperty("attention").EnumerateArray().Select(a => a.GetProperty("title").GetString() ?? "").ToList(),
                 sections.Select(s => s.Title).ToList());
 
+            // THE BUCKET KEY IS COMPARED, NOT JUST THE HEADING. A section carries a machine-readable
+            // bucket as well as a title, and a consumer selects on the bucket - so a section that kept the
+            // right heading over the wrong bucket would send the phone's badge and Car Mode to the wrong
+            // set of sessions while the screen still looked correct. Only the title and the roots were
+            // checked here, so swapping the needs-you section's key for the working one changed no answer.
+            Compare(findings, name, "attention section buckets",
+                one.GetProperty("attention").EnumerateArray().Select(a => a.GetProperty("key").GetString() ?? "").ToList(),
+                sections.Select(s => BucketName(s.Key)).ToList());
+
             foreach (var (expected, index) in one.GetProperty("attention").EnumerateArray().Select((a, i) => (a, i)))
             {
                 if (index >= sections.Count) break;
@@ -183,18 +192,20 @@ public static class TreeAgreement
             var stampedBucket = raw[i].TryGetProperty("triageBucket", out var b) ? b.GetString() ?? "" : "";
             var stampedColor = raw[i].TryGetProperty("effectiveColor", out var c) ? c.GetString() ?? "" : "";
 
-            var folded = SessionOrdering.Classify(s) switch
-            {
-                SessionOrdering.TriageBucket.NeedsYou => "needsYou",
-                SessionOrdering.TriageBucket.OnHold => "onHold",
-                _ => "active",
-            };
             Compare(findings, name, $"the triage bucket of {s.SessionId} (the stamp the browser reads versus the fold this side computes)",
-                stampedBucket, folded);
+                stampedBucket, BucketName(SessionOrdering.Classify(s)));
             Compare(findings, name, $"the effective colour of {s.SessionId} (the stamp the browser reads versus the fold this side computes)",
                 stampedColor, SessionOrdering.EffectiveColor(s));
         }
     }
+
+    /// <summary>A triage bucket under the name the shared file and the browser both use for it.</summary>
+    private static string BucketName(SessionOrdering.TriageBucket bucket) => bucket switch
+    {
+        SessionOrdering.TriageBucket.NeedsYou => "needsYou",
+        SessionOrdering.TriageBucket.OnHold => "onHold",
+        _ => "active",
+    };
 
     private static List<string> Expected(JsonElement one, string property) =>
         one.GetProperty(property).EnumerateArray().Select(v => v.GetString() ?? "").ToList();

@@ -49,9 +49,9 @@
         }
       ],
       "attention": [
-        { "title": "Needs you", "roots": ["108", "103"] },
-        { "title": "Working", "roots": ["112"] },
-        { "title": "Snoozed", "roots": ["100"] }
+        { "key": "needsYou", "title": "Needs you", "roots": ["108", "103"] },
+        { "key": "active", "title": "Working", "roots": ["112"] },
+        { "key": "onHold", "title": "Snoozed", "roots": ["100"] }
       ]
     },
     {
@@ -76,9 +76,9 @@
         }
       ],
       "attention": [
-        { "title": "Needs you", "roots": ["7"] },
-        { "title": "Working", "roots": ["106"] },
-        { "title": "Snoozed", "roots": ["100"] }
+        { "key": "needsYou", "title": "Needs you", "roots": ["7"] },
+        { "key": "active", "title": "Working", "roots": ["106"] },
+        { "key": "onHold", "title": "Snoozed", "roots": ["100"] }
       ]
     },
     {
@@ -113,7 +113,7 @@
         }
       ],
       "attention": [
-        { "title": "Needs you", "roots": ["108"] }
+        { "key": "needsYou", "title": "Needs you", "roots": ["108"] }
       ]
     },
     {
@@ -147,7 +147,7 @@
         }
       ],
       "attention": [
-        { "title": "Working", "roots": ["a", "b", "112"] }
+        { "key": "active", "title": "Working", "roots": ["a", "b", "112"] }
       ]
     },
     {
@@ -172,7 +172,7 @@
         }
       ],
       "attention": [
-        { "title": "Working", "roots": ["a", "b"] }
+        { "key": "active", "title": "Working", "roots": ["a", "b"] }
       ]
     },
     {
@@ -185,7 +185,7 @@
       "children": {},
       "crews": [],
       "attention": [
-        { "title": "Working", "roots": ["9"] }
+        { "key": "active", "title": "Working", "roots": ["9"] }
       ]
     },
     {
@@ -211,7 +211,7 @@
         }
       ],
       "attention": [
-        { "title": "Needs you", "roots": ["108"] }
+        { "key": "needsYou", "title": "Needs you", "roots": ["108"] }
       ]
     },
     {
@@ -235,7 +235,7 @@
         }
       ],
       "attention": [
-        { "title": "Working", "roots": ["x"] }
+        { "key": "active", "title": "Working", "roots": ["x"] }
       ]
     },
     {
@@ -261,8 +261,8 @@
         }
       ],
       "attention": [
-        { "title": "Needs you", "roots": ["108"] },
-        { "title": "Working", "roots": ["blank", "spaces"] }
+        { "key": "needsYou", "title": "Needs you", "roots": ["108"] },
+        { "key": "active", "title": "Working", "roots": ["blank", "spaces"] }
       ]
     },
     {
@@ -277,7 +277,7 @@
       "children": {},
       "crews": [],
       "attention": [
-        { "title": "Needs you", "roots": ["v", "w", "u"] }
+        { "key": "needsYou", "title": "Needs you", "roots": ["v", "w", "u"] }
       ]
     },
     {
@@ -310,7 +310,7 @@
         }
       ],
       "attention": [
-        { "title": "Working", "roots": ["host"] }
+        { "key": "active", "title": "Working", "roots": ["host"] }
       ]
     },
     {
@@ -334,7 +334,7 @@
         }
       ],
       "attention": [
-        { "title": "Working", "roots": ["  P  "] }
+        { "key": "active", "title": "Working", "roots": ["  P  "] }
       ]
     },
     {
@@ -359,7 +359,7 @@
         }
       ],
       "attention": [
-        { "title": "Needs you", "roots": ["R"] }
+        { "key": "needsYou", "title": "Needs you", "roots": ["R"] }
       ]
     },
     {
@@ -374,7 +374,24 @@
       "children": {},
       "crews": [],
       "attention": [
-        { "title": "Needs you", "roots": ["z", "a", "b"] }
+        { "key": "needsYou", "title": "Needs you", "roots": ["z", "a", "b"] }
+      ]
+    },
+    {
+      "name": "snoozed and working roots arriving out of the owner's order",
+      "proves": "attention puts each bucket back into the owner's drag order rather than leaving it in the order the roster happened to arrive in",
+      "sessions": [
+        { "sessionId": "snoozedLate", "sortOrder": 9, "createdAt": "2026-09-14T16:00:00Z", "activityState": "WaitingForInput", "onHold": true, "effectiveColor": "grey", "triageBucket": "onHold" },
+        { "sessionId": "snoozedFirst", "sortOrder": 1, "createdAt": "2026-09-14T16:00:00Z", "activityState": "WaitingForInput", "onHold": true, "effectiveColor": "grey", "triageBucket": "onHold" },
+        { "sessionId": "workingLate", "sortOrder": 8, "createdAt": "2026-09-14T16:00:00Z", "activityState": "Working", "effectiveColor": "blue", "triageBucket": "active" },
+        { "sessionId": "workingFirst", "sortOrder": 2, "createdAt": "2026-09-14T16:00:00Z", "activityState": "Working", "effectiveColor": "blue", "triageBucket": "active" }
+      ],
+      "roots": ["snoozedLate", "snoozedFirst", "workingLate", "workingFirst"],
+      "children": {},
+      "crews": [],
+      "attention": [
+        { "key": "active", "title": "Working", "roots": ["workingFirst", "workingLate"] },
+        { "key": "onHold", "title": "Snoozed", "roots": ["snoozedFirst", "snoozedLate"] }
       ]
     }
   ]
