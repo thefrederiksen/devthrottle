@@ -254,8 +254,14 @@ public sealed class TurnVerdictStore
         }
         catch (JsonException ex)
         {
+            // A KNOWN GAP, RULED ACCEPTABLE AND NOT A STATE TO DESIGN FOR. A corrupt row is a defect to fix
+            // at its source, never a case for the readers to learn to handle - so nothing downstream gets a
+            // "corrupt" state, and no test manufactures one. The absence it becomes reads as red, which is
+            // the safe direction this whole design leans: a stop nobody could read stays as needing a person.
+            // What makes it findable is this line, which names the row's full key - account, session and
+            // judged moment - so the one bad row can be looked up rather than inferred.
             FileLog.Write(
-                $"[TurnVerdictStore] a stored verdict could not be read: sid={row.SessionId} "
+                $"[TurnVerdictStore] a stored verdict could not be read: tenant={row.TenantId} sid={row.SessionId} "
                 + $"judged={row.JudgedAtUtc:O}: {ex.Message}");
             return null;
         }
