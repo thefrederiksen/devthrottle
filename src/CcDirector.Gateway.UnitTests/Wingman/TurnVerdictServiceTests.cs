@@ -398,6 +398,33 @@ public sealed class TurnVerdictServiceTests : IDisposable
         Assert.Equal(1, env.ScreenReads);
     }
 
+    [Fact]
+    public async Task ATurnEndObservedWhileAVerdictIsInFlight_StampsItsObservedMomentOnThatVerdict()
+    {
+        // Found on the rig: the idle sweep began judging a stop before the detector's reconcile tick observed it.
+        // The tick's turn end was dropped by the gate - rightly, one call per stop - and the stored verdict kept
+        // the previous stop's moment, so the join key into the turn log pointed at the wrong stop.
+        var env = Env();
+        var release = new TaskCompletionSource();
+        env.Judge = async (_, ct) =>
+        {
+            await release.Task.WaitAsync(ct);
+            return FakeTurnVerdictEnvironment.Finished(ReplyText, "Done.");
+        };
+        var service = new TurnVerdictService(env);
+
+        var sweep = service.VerdictForCurrentScreenAsync(Tenant, "dir-1", Sid, TurnVerdictTrigger.Sweep);
+        Assert.True(await WaitUntil(() => env.JudgeCalls == 1));
+        var observed = DateTime.UtcNow.AddMinutes(1);
+        var dropped = await service.StartTurnEnd(Signal(at: observed));
+        Assert.Equal(ActivityCauses.AlreadyJudging, dropped.SkipCause);   // control: one call for the stop
+
+        release.SetResult();
+        Assert.Equal(TurnVerdictOutcomeKind.Judged, (await sweep).Kind);
+        Assert.Equal(observed, env.Latest(Tenant, Sid)!.TurnEndObservedAtUtc);
+        Assert.Equal(1, env.JudgeCalls);
+    }
+
     // ================================================================= what the verdict feeds
 
     [Fact]

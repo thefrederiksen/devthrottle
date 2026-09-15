@@ -368,6 +368,9 @@ public sealed class TurnVerdictService : IDisposable
         }
 
         _reading.TryRemove(key, out _);
+        // The last observed stop is over too. A verdict request that starts before the detector observes the NEXT
+        // stop carries the moment it started, and takes the observed moment when the detector catches up.
+        _lastObserved.TryRemove(key, out _);
         if (_inFlight.TryGetValue(key, out var flight))
         {
             try { flight.Cts.Cancel(); }
@@ -541,6 +544,16 @@ public sealed class TurnVerdictService : IDisposable
             }
 
             ct.ThrowIfCancellationRequested();
+
+            // THE JOIN KEY IS THE LATEST OBSERVED MOMENT, found on the rig. The idle sweep began judging a stop ten
+            // seconds before the detector's reconcile tick observed it; the tick's turn end was dropped by the gate
+            // (rightly - one call per stop), and the stored verdict carried the PREVIOUS stop's moment, so the
+            // turn-log record of this stop paired with nothing. A stop observed while this flight was running is
+            // the stop this screen belongs to - a Working edge in between would have cancelled the flight - so
+            // the verdict carries that later moment.
+            if (_lastObserved.TryGetValue(key, out var seenSince) && seenSince > record.TurnEndObservedAtUtc)
+                record.TurnEndObservedAtUtc = seenSince;
+
             if (!StoreIfCurrent(key, epoch, record))
                 return Cancelled(tenant, directorId, sid, trigger, "the session worked between the read and the store; the answer describes a screen that is gone");
 
