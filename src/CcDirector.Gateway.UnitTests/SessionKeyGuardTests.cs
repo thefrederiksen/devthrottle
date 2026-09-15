@@ -1,4 +1,4 @@
-using CcDirector.Gateway.Util;
+﻿using CcDirector.Gateway.Util;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests;
@@ -22,6 +22,11 @@ public sealed class SessionKeyGuardTests
     [InlineData("GET", "/sessions")]
     [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111")]
     [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/buffer")]
+    // What the Wingman said this session's stops mean, and the history of them. Whether the ANSWER is
+    // served is the route's decision - while an account's colours are off these serve a device key only -
+    // because a guard is a pure function on a method and a path and cannot see a tenant's settings.
+    [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict")]
+    [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdicts")]
     [InlineData("GET", "/repositories")]
     [InlineData("GET", "/worktrees")]
     [InlineData("GET", "/directors")]
@@ -216,6 +221,10 @@ public sealed class SessionKeyGuardTests
     [InlineData("PUT", "/gateway/injected-text")]
     [InlineData("GET", "/gateway/transcription-mode")]
     [InlineData("PUT", "/gateway/transcription-mode")]
+    // The Wingman's turn judging (the Wingman-on-every-turn mission): whether this account's stops are
+    // judged, and whether the verdicts reach its screens. Both say how the product BEHAVES.
+    [InlineData("PUT", "/gateway/turn-verdict-judge")]
+    [InlineData("PUT", "/gateway/turn-verdict-colour")]
     // Handovers: list, read one, write one, remove one. Moving a session needs the first three.
     [InlineData("GET", "/directors/d-1/handovers")]
     [InlineData("GET", "/directors/d-1/handovers/content")]
@@ -313,6 +322,16 @@ public sealed class SessionKeyGuardTests
     // Keeping this here is what stops "settings are allowed" from becoming "the settings path is allowed".
     [InlineData("POST", "/directors/d-1/settings")]
     [InlineData("DELETE", "/directors/d-1/settings")]
+    // The turn-verdict reads are READS. A write verb on either path is refused: nothing routes there,
+    // and the day something does it has to be classified here before an agent can reach it. The two
+    // switches are likewise PUT-only, so a POST to one is not a settings write by another name.
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict")]
+    [InlineData("DELETE", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdicts")]
+    [InlineData("POST", "/gateway/turn-verdict-judge")]
+    [InlineData("DELETE", "/gateway/turn-verdict-colour")]
+    // And nothing hung off a verdict path later is reachable by accident - the allow matches a length
+    // of exactly three segments.
+    [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict/options")]
     // Somebody else's Director process lifecycle on another machine.
     [InlineData("POST", "/machines/SOREN_NORTH/director/stop")]
     [InlineData("POST", "/machines/SOREN_NORTH/director/restart")]

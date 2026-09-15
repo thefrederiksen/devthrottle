@@ -239,6 +239,13 @@ public sealed class PostgresProviderProofTests
             // on for an account somebody switched off.
             ("turn_log_switches", "account"),
             ("turn_log_switches", "machine"),
+            // The judged stops' natural keys (the Wingman-on-every-turn mission). turn_verdicts.SessionId is
+            // caller-supplied and part of a composite primary key, exactly like session_turns.SessionId
+            // above. turn_verdict_feedback.VerdictId is the value a correction is bound to, and an option
+            // activation binds to the same identity: two ids Postgres considered equal and SQLite did not
+            // would be a correction landing on a stop it was never about.
+            ("turn_verdict_feedback", "VerdictId"),
+            ("turn_verdicts", "SessionId"),
             ("workflow_tenant_overrides", "WorkflowId"),
             // The workspace slug (issue #2722). Caller-supplied, in a composite primary key with
             // tenant_id, and compared ordinally by the store exactly like the skill and workflow ids -
@@ -417,6 +424,94 @@ public sealed class PostgresProviderProofTests
             Assert.Equal(first, read.FirstObservedUtc);
             Assert.Equal(DateTimeKind.Utc, read.LastObservedUtc.Kind);
             Assert.Equal(last, read.LastObservedUtc);
+        }
+    }
+
+    /// <summary>
+    /// The judged-stop tables on a real PostgreSQL (the Wingman-on-every-turn mission, slice B): a verdict
+    /// row and a correction row written then read back in fresh contexts.
+    ///
+    /// WHY THIS IS A ROW HERE RATHER THAN ONLY IN THE SQLITE STORE TESTS. Production runs PostgreSQL and the
+    /// local gate runs SQLite, so the shapes that can differ between the two are exactly the shapes that ship
+    /// untested. Three of them meet in this table: the composite primary key led by tenant_id and completed
+    /// by a TIMESTAMP, which is the only key in the model with a time in it; the two UTC moments, one of
+    /// which is a join key that has to come back byte-identical or it matches nothing; and a long JSON
+    /// payload in a plain text column.
+    ///
+    /// The timestamp in the key is the one worth naming. Npgsql stores a Kind=Utc DateTime as timestamp with
+    /// time zone, and a key that did not round-trip to the same instant would not throw - it would quietly
+    /// insert a SECOND row for a stop the store believes it is replacing, and the history would then carry
+    /// the same stop twice with two different answers.
+    /// </summary>
+    [RequiresPostgresFact]
+    public void TurnVerdicts_CompositeKeyAndUtcMoments_RoundTrip_OnRealPostgres()
+    {
+        EnsureMigrated();
+
+        var sessionId = Guid.NewGuid().ToString();
+        var judgedAt = new DateTime(2026, 9, 14, 13, 45, 30, DateTimeKind.Utc);
+        var observedAt = new DateTime(2026, 9, 14, 13, 45, 18, DateTimeKind.Utc);
+        const string verdictId = "tv-postgres-1";
+        const string json = """{"verdictId":"tv-postgres-1","verdict":"finished","label":"Finished"}""";
+
+        using (var ctx = NewContext())
+        {
+            ctx.TurnVerdicts.Add(new TurnVerdictEntity
+            {
+                TenantId = TenantId.Local.Value,
+                SessionId = sessionId,
+                JudgedAtUtc = judgedAt,
+                VerdictId = verdictId,
+                TurnEndObservedAtUtc = observedAt,
+                ScreenHash = "screen-hash-1",
+                Failed = false,
+                FailureReason = null,
+                VerdictJson = json,
+            });
+            ctx.TurnVerdictFeedback.Add(new TurnVerdictFeedbackEntity
+            {
+                TenantId = TenantId.Local.Value,
+                VerdictId = verdictId,
+                SessionId = sessionId,
+                TurnEndObservedAtUtc = observedAt,
+                ReportedAtUtc = judgedAt.AddMinutes(3),
+                CorrectedVerdict = "needed-you",
+                Note = "it was asking me to approve the deploy",
+            });
+            ctx.SaveChanges();
+        }
+
+        using (var ctx = NewContext())
+        {
+            var read = ctx.TurnVerdicts.Single(v => v.SessionId == sessionId);
+            Assert.Equal(verdictId, read.VerdictId);
+            Assert.Equal(json, read.VerdictJson);
+            Assert.Equal("screen-hash-1", read.ScreenHash);
+            Assert.False(read.Failed);
+            Assert.Null(read.FailureReason);
+
+            Assert.Equal(DateTimeKind.Utc, read.JudgedAtUtc.Kind);
+            Assert.Equal(judgedAt, read.JudgedAtUtc);
+            // The join key. Not equal to the judged moment, and it has to survive exactly - a value that
+            // came back shifted would pair this verdict with no turn-log record at all.
+            Assert.Equal(DateTimeKind.Utc, read.TurnEndObservedAtUtc.Kind);
+            Assert.Equal(observedAt, read.TurnEndObservedAtUtc);
+
+            var correction = ctx.TurnVerdictFeedback.Single(f => f.VerdictId == verdictId);
+            Assert.Equal("needed-you", correction.CorrectedVerdict);
+            Assert.Equal("it was asking me to approve the deploy", correction.Note);
+            Assert.Equal(observedAt, correction.TurnEndObservedAtUtc);
+        }
+
+        // The key completed by a timestamp really is ONE row: re-reading the same (tenant, session, moment)
+        // finds the row just written rather than a second one. This is the property the store's replace
+        // depends on, and it is provider-specific because the timestamp is what it hinges on.
+        using (var ctx = NewContext())
+        {
+            var same = ctx.TurnVerdicts
+                .Where(v => v.SessionId == sessionId && v.JudgedAtUtc == judgedAt)
+                .ToList();
+            Assert.Single(same);
         }
     }
 

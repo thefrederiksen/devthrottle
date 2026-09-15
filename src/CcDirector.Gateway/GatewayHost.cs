@@ -532,6 +532,11 @@ public sealed class GatewayHost : IAsyncDisposable
     /// an unset override returns only the operator global default.</summary>
     internal Settings.TenantSettingsResolver TenantSettingsResolver => _tenantSettingsResolver;
 
+    /// <summary>The judged-stop record (the Wingman-on-every-turn mission). Internal, and reached from the
+    /// tests through InternalsVisibleTo, so a route test can seed a verdict the way the turn-end seat will
+    /// and then assert what the route hands to each kind of caller.</summary>
+    internal Wingman.TurnVerdictStore TurnVerdicts => _turnVerdicts;
+
     /// <summary>
     /// The auth-boundary tenant binder. Exposed to the test assembly so an isolation test can enter the same
     /// tenant scope a real request or tunnel connection would, and drive the production loop code inside it.
