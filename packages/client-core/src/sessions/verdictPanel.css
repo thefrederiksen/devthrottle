@@ -1,0 +1,77 @@
+/* The verdict panel (the Wingman-on-every-turn mission, slice E). One baseline for both shells; a shell may
+   re-tune layout under its own ancestor and never the content. */
+.verdict-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin: 8px 0;
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.verdict-risk {
+  border-left: 3px solid #f59e0b;
+  padding: 4px 8px;
+  font-weight: 600;
+}
+.verdict-receipt summary {
+  cursor: pointer;
+  font-size: 12px;
+  opacity: 0.8;
+}
+.verdict-evidence {
+  margin: 6px 0 0;
+  padding: 6px 10px;
+  border-left: 3px solid var(--border);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.verdict-label {
+  font-weight: 600;
+}
+.verdict-summary {
+  margin: 0;
+}
+.verdict-question {
+  font-style: italic;
+}
+.verdict-options {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.verdict-option {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.verdict-option-button[aria-pressed="true"] {
+  outline: 2px solid currentColor;
+}
+.verdict-recommended {
+  font-size: 12px;
+  font-weight: 600;
+}
+.verdict-note {
+  font-size: 12px;
+  opacity: 0.8;
+  flex-basis: 100%;
+}
+.verdict-refusal {
+  border-left: 3px solid #ef4444;
+  padding: 4px 8px;
+}
+.verdict-sent,
+.verdict-busy {
+  font-size: 12px;
+}
+.verdict-actions {
+  display: flex;
+  justify-content: flex-end;
+}

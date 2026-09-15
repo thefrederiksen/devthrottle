@@ -32,11 +32,13 @@ const setErrorMock = vi.fn();
 // own tested thing.
 function manage(over: Partial<SessionManage> = {}): SessionManage {
   return {
+    session: null,
     onHold: false,
     held: false,
     deferred: false,
     snoozed: false,
     holdCountdown: null,
+    sessionProblem: null,
     deliveryNotice: null,
     busy: false,
     error: null,

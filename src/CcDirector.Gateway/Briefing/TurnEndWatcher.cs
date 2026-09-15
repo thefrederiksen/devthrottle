@@ -137,9 +137,33 @@ public sealed class TurnEndWatcher : IDisposable
         if (string.IsNullOrEmpty(sessionId) || string.IsNullOrEmpty(activityState)) return;
 
         var key = (tenant, sessionId);
-        var hadPrev = _lastActivity.TryGetValue(key, out var prev);
-        if (hadPrev && prev == activityState) return; // no transition, nothing to do
-        _lastActivity[key] = activityState;
+
+        // THE TRANSITION IS TAKEN ATOMICALLY, AND ONLY THE CALLER THAT TAKES IT RAISES IT. Three feeds observe the same
+        // session - the hub's accepted delta, the host's session-state path and this watcher's own reconcile sweep - and
+        // they race. Reading the last state and writing the new one as two steps let two feeds both see Working, both
+        // accept the move to waiting, and both raise the stop: an inspection probe of twenty thousand sessions with two
+        // racing feeds raised 30,189 turn ends. So the state moves by compare-and-swap - added only if absent, updated
+        // only from the value this caller read - and a caller that loses reads the state again: when another feed
+        // already recorded this same state there is no transition left for it to raise.
+        string? prev;
+        bool hadPrev;
+        while (true)
+        {
+            if (_lastActivity.TryGetValue(key, out var seen))
+            {
+                if (seen == activityState) return; // no transition, nothing to do
+                if (!_lastActivity.TryUpdate(key, activityState, seen)) continue; // another feed moved it first
+                prev = seen;
+                hadPrev = true;
+            }
+            else
+            {
+                if (!_lastActivity.TryAdd(key, activityState)) continue; // another feed sighted it first
+                prev = null;
+                hadPrev = false;
+            }
+            break;
+        }
 
         if (IsWorking(activityState))
         {
