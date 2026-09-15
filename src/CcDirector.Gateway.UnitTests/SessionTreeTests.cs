@@ -236,6 +236,43 @@ public sealed class SessionTreeTests
     }
 
     [Fact]
+    public void CrewAge_AgesTheCrewFromADescendantWhenTheDescendantIsTheOlderOne()
+    {
+        // The fixtures only ever had a root older than its children, so dropping the descendants from the
+        // ageing pass - taking the root alone - left everything green while the crew reported itself
+        // younger than the session inside it.
+        var root = S("R", 0, createdAt: At(18, 0, 0));
+        var older = S("older", 1, controller: "R", createdAt: At(16, 0, 0));
+
+        var sum = SessionTree.SummarizeCrew(root, new[] { older });
+
+        Assert.Equal(At(16, 0, 0), sum.Since);
+        Assert.Equal("2h 0m", SessionTree.CrewAge(sum, At(18, 0, 0)));
+    }
+
+    [Fact]
+    public void CrewAge_TreatsAStampFromYearsBeforeThisOneAsReal_AndOnlyRejectsWhatCannotBeACreationStamp()
+    {
+        // The threshold is the year 2000, and every valid stamp in the fixtures was in 2026 - so raising
+        // it to 2026 changed no answer. It would then throw away the real creation stamp of anything
+        // started in an earlier year and age the crew from the wrong session entirely.
+        var root = S("R", 0, createdAt: new DateTime(2026, 9, 14, 18, 0, 0, DateTimeKind.Utc));
+        var longRunning = S("longRunning", 1, controller: "R",
+            createdAt: new DateTime(2015, 6, 1, 9, 0, 0, DateTimeKind.Utc));
+
+        var sum = SessionTree.SummarizeCrew(root, new[] { longRunning });
+
+        Assert.Equal(new DateTime(2015, 6, 1, 9, 0, 0, DateTimeKind.Utc), sum.Since);
+        Assert.Equal("2d 4h", SessionTree.CrewAge(sum, new DateTime(2015, 6, 3, 13, 30, 0, DateTimeKind.Utc)));
+
+        // And the thing the threshold is actually for: a default that survived a serializer is NOT a
+        // creation stamp, so it is ignored rather than ageing the crew from the beginning of time.
+        var zeroStamp = new SessionDto { SessionId = "z", ActivityState = "Working" };
+        var onlyRealStamps = SessionTree.SummarizeCrew(root, new[] { zeroStamp });
+        Assert.Equal(new DateTime(2026, 9, 14, 18, 0, 0, DateTimeKind.Utc), onlyRealStamps.Since);
+    }
+
+    [Fact]
     public void CrewAge_GivesNoAge_WhenNothingCarriesACreationStamp()
     {
         var rootWithoutStamp = new SessionDto { SessionId = "x", ActivityState = "Working" };
