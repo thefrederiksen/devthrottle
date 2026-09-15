@@ -24,7 +24,12 @@ public sealed class TurnVerdictPackageBuilderTests
     private const string DirectorId = "D-1";
     private static readonly TenantId Tenant = TenantId.Local;
 
-    private static TurnEndSignal Signal() => new(SessionId, DirectorId, Tenant, IsNewTurn: true);
+    /// <summary>The moment the detector observed the boundary - required on the signal since slice B, which
+    /// made it the join key between a verdict row and the turn-log record of the same stop. Fixed rather
+    /// than "now" so nothing here can pass by stamping its own clock.</summary>
+    private static readonly DateTime ObservedAt = new(2026, 9, 14, 8, 30, 15, DateTimeKind.Utc);
+
+    private static TurnEndSignal Signal() => new(SessionId, DirectorId, Tenant, ObservedAt, IsNewTurn: true);
 
     private static SessionDto Session() => new()
     {
