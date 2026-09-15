@@ -42,76 +42,7 @@ public static class Program
             var clientPalette = ClientPalette.Read(repoRoot);
             Console.WriteLine($"Client palette: {clientPalette.Count} names read from {ClientPalette.RelativePath}");
 
-            // THE OWNERSHIP TREE, BEFORE ANYTHING TOUCHES THE NETWORK. It is a pure-function comparison
-            // against the shared answers both languages are measured by, so it needs no fleet and no
-            // token - and running it first means this tool still says something useful on a machine with
-            // no Director configured, instead of throwing at ReadGatewayConfig with the tree unchecked.
-            //
-            // It is not folded into the per-session comparison below and could not be: that one compares
-            // a stamped answer on the wire, and the Gateway does not stamp the tree (a later mission). The
-            // tree's two implementations are held together by the file, not by the roster.
-            var tree = TreeAgreement.Check(repoRoot);
-            Console.WriteLine($"Ownership tree: {tree.Cases} case(s) over {tree.Sessions} session(s) from {TreeAgreement.RelativePath}");
-            foreach (var f in tree.Findings) Console.WriteLine(f.ToString());
-            Console.WriteLine(tree.Findings.Count == 0
-                ? "  PASS - the C# fold answers exactly what the shared file says, on every case."
-                : $"  FAIL ({tree.Findings.Count}) - the C# fold and the shared answers differ.");
-            Console.WriteLine("  The TypeScript half of this agreement is asserted by tree.agreement.test.ts against the");
-            Console.WriteLine("  SAME file, and is NOT run here - a green line above says nothing about the browser fold.");
-
-            var (url, token) = ReadGatewayConfig();
-            Console.WriteLine($"Gateway: {url}  (token read from config.json; never printed)");
-            Console.WriteLine();
-
-            var first = await ReadRosterAsync(url, token);
-            Console.WriteLine($"Live fleet: {first.Count} session(s).");
-            Console.WriteLine();
-
-            var findings = AgreementCheck.Compare(first, clientPalette).ToList();
-
-            // THE FINDINGS AND THE FLEET THEY ARE REPORTED AGAINST MUST BE ONE SNAPSHOT. This used to
-            // confirm findings against a SECOND read and then print them beside the FIRST read's row
-            // table, exposure count and graded denominator. Sessions come and go between two reads of a
-            // live fleet - one of them gains a dictation, one exits - so the report could pair
-            // second-snapshot findings with a first-snapshot denominator and call the result measured.
-            // Internally false output, produced by the path whose whole job is to avoid false positives.
-            // Found by inspection of pull request 1606.
-            var reportRoster = first;
-
-            if (findings.Count > 0)
-            {
-                // "finding(s)", not "disagreement(s)": an indeterminate row is a finding and is NOT a
-                // disagreement, and this line runs before anything has worked out which is which.
-                Console.WriteLine($"{findings.Count} candidate finding(s) - re-reading in {ReReadDelaySeconds}s to " +
-                                  "rule out a session that changed state between reads...");
-                await Task.Delay(TimeSpan.FromSeconds(ReReadDelaySeconds));
-                var second = await ReadRosterAsync(url, token);
-                var confirmed = AgreementCheck.Compare(second, clientPalette)
-                    .Where(f => findings.Any(x => x.SessionId == f.SessionId && x.Kind == f.Kind))
-                    .ToList();
-                var transient = findings.Count - confirmed.Count;
-                if (transient > 0)
-                    Console.WriteLine($"  {transient} did not survive the re-read (a racing state change) - NOT reported.");
-                findings = confirmed;
-                // The confirmed findings came from `second`, so `second` is the fleet the report describes.
-                reportRoster = second;
-                if (second.Count != first.Count)
-                    Console.WriteLine($"  The fleet changed between reads ({first.Count} -> {second.Count} session(s)); " +
-                                      "everything below describes the SECOND read, which is where these findings were confirmed.");
-            }
-
-            Report(reportRoster, findings, tree);
-            // The exit decision is AgreementCheck.Summary.ExitCode - bound, tested, and the only place
-            // that knows an indeterminate finding is not a disagreement. This used to be
-            // `findings.Count == 0 ? 0 : 1` right here, which returned "disagreements" for a row the
-            // check had merely been unable to read.
-            var exitCode = AgreementCheck.Summarize(reportRoster, findings).ExitCode;
-            // A tree disagreement is a real disagreement and must fail the run. It is ORed in here rather
-            // than folded into Summarize because Summarize counts findings per LIVE SESSION, and the tree
-            // check has no live session behind it - its rows are fixtures. Reporting fixture findings under
-            // a per-session denominator would be the "narrow number under the broad name" defect this file
-            // has already paid for twice.
-            return tree.Findings.Count > 0 ? 1 : exitCode;
+            return await RunAsync(repoRoot, clientPalette, LiveFleetReader());
         }
         catch (Exception ex)
         {
@@ -122,6 +53,118 @@ public static class Program
             Console.Error.WriteLine("No number is reported. A check that cannot run reports NOTHING, never zero.");
             return 2;
         }
+    }
+
+    /// <summary>
+    /// THE WHOLE RUN AND THE WHOLE VERDICT, with the only thing this tool cannot do in a test - reaching
+    /// a live Gateway - passed in as <paramref name="readRoster"/>.
+    ///
+    /// IT IS SEPARATE FROM <see cref="Main"/> SO THE COMPOSITION IS ITSELF GUARDED, which it was not.
+    /// The final line below is the ONLY line that turns a tree disagreement into a failing process, and
+    /// an independent inspection of this slice replaced it with <c>return exitCode;</c> and watched all
+    /// eight agreement tests stay green: the tests exercised <see cref="TreeAgreement.Check"/>, and
+    /// nothing exercised the arm that acts on its answer. So the tool could print a tree failure and
+    /// still return zero whenever the live comparison happened to be clean, and the claimed gate was not
+    /// a gate. Tests now drive THIS method with a deliberately broken shared file and a roster reader
+    /// that hands back a clean fleet, so that substitution goes red.
+    ///
+    /// <paramref name="readRoster"/> is a delegate rather than an already-read roster for two reasons:
+    /// the re-read below must genuinely read the fleet a second time, and the tree must be checked
+    /// BEFORE anything touches the network (see below), which it cannot be if the caller has already
+    /// had to reach the Gateway to supply a roster.
+    /// </summary>
+    public static async Task<int> RunAsync(
+        string repoRoot,
+        IReadOnlyDictionary<string, string> clientPalette,
+        Func<Task<IReadOnlyList<SessionDto>>> readRoster)
+    {
+        // THE OWNERSHIP TREE, BEFORE ANYTHING TOUCHES THE NETWORK. It is a pure-function comparison
+        // against the shared answers both languages are measured by, so it needs no fleet and no
+        // token - and running it first means this tool still says something useful on a machine with
+        // no Director configured, instead of throwing at ReadGatewayConfig with the tree unchecked.
+        //
+        // It is not folded into the per-session comparison below and could not be: that one compares
+        // a stamped answer on the wire, and the Gateway does not stamp the tree (a later mission). The
+        // tree's two implementations are held together by the file, not by the roster.
+        var tree = TreeAgreement.Check(repoRoot);
+        Console.WriteLine($"Ownership tree: {tree.Cases} case(s) over {tree.Sessions} session(s) from {TreeAgreement.RelativePath}");
+        foreach (var f in tree.Findings) Console.WriteLine(f.ToString());
+        Console.WriteLine(tree.Findings.Count == 0
+            ? "  PASS - the C# fold answers exactly what the shared file says, on every case."
+            : $"  FAIL ({tree.Findings.Count}) - the C# fold and the shared answers differ.");
+        Console.WriteLine("  The TypeScript half of this agreement is asserted by tree.agreement.test.ts against the");
+        Console.WriteLine("  SAME file, and is NOT run here - a green line above says nothing about the browser fold.");
+
+        var first = await readRoster();
+        Console.WriteLine($"Live fleet: {first.Count} session(s).");
+        Console.WriteLine();
+
+        var findings = AgreementCheck.Compare(first, clientPalette).ToList();
+
+        // THE FINDINGS AND THE FLEET THEY ARE REPORTED AGAINST MUST BE ONE SNAPSHOT. This used to
+        // confirm findings against a SECOND read and then print them beside the FIRST read's row
+        // table, exposure count and graded denominator. Sessions come and go between two reads of a
+        // live fleet - one of them gains a dictation, one exits - so the report could pair
+        // second-snapshot findings with a first-snapshot denominator and call the result measured.
+        // Internally false output, produced by the path whose whole job is to avoid false positives.
+        // Found by inspection of pull request 1606.
+        var reportRoster = first;
+
+        if (findings.Count > 0)
+        {
+            // "finding(s)", not "disagreement(s)": an indeterminate row is a finding and is NOT a
+            // disagreement, and this line runs before anything has worked out which is which.
+            Console.WriteLine($"{findings.Count} candidate finding(s) - re-reading in {ReReadDelaySeconds}s to " +
+                              "rule out a session that changed state between reads...");
+            await Task.Delay(TimeSpan.FromSeconds(ReReadDelaySeconds));
+            var second = await readRoster();
+            var confirmed = AgreementCheck.Compare(second, clientPalette)
+                .Where(f => findings.Any(x => x.SessionId == f.SessionId && x.Kind == f.Kind))
+                .ToList();
+            var transient = findings.Count - confirmed.Count;
+            if (transient > 0)
+                Console.WriteLine($"  {transient} did not survive the re-read (a racing state change) - NOT reported.");
+            findings = confirmed;
+            // The confirmed findings came from `second`, so `second` is the fleet the report describes.
+            reportRoster = second;
+            if (second.Count != first.Count)
+                Console.WriteLine($"  The fleet changed between reads ({first.Count} -> {second.Count} session(s)); " +
+                                  "everything below describes the SECOND read, which is where these findings were confirmed.");
+        }
+
+        Report(reportRoster, findings, tree);
+        // The exit decision is AgreementCheck.Summary.ExitCode - bound, tested, and the only place
+        // that knows an indeterminate finding is not a disagreement. This used to be
+        // `findings.Count == 0 ? 0 : 1` right here, which returned "disagreements" for a row the
+        // check had merely been unable to read.
+        var exitCode = AgreementCheck.Summarize(reportRoster, findings).ExitCode;
+        // A tree disagreement is a real disagreement and must fail the run. It is ORed in here rather
+        // than folded into Summarize because Summarize counts findings per LIVE SESSION, and the tree
+        // check has no live session behind it - its rows are fixtures. Reporting fixture findings under
+        // a per-session denominator would be the "narrow number under the broad name" defect this file
+        // has already paid for twice.
+        return tree.Findings.Count > 0 ? 1 : exitCode;
+    }
+
+    /// <summary>
+    /// Reads the LIVE fleet, resolving the Gateway's address and device token on the first call and
+    /// keeping them for the re-read. It is deliberately lazy: <see cref="RunAsync"/> checks the ownership
+    /// tree before anything touches the network, so that a machine with no Director configured still gets
+    /// the tree's verdict instead of throwing at the config with the tree unchecked.
+    /// </summary>
+    private static Func<Task<IReadOnlyList<SessionDto>>> LiveFleetReader()
+    {
+        (string Url, string Token)? config = null;
+        return async () =>
+        {
+            if (config is null)
+            {
+                config = ReadGatewayConfig();
+                Console.WriteLine($"Gateway: {config.Value.Url}  (token read from config.json; never printed)");
+                Console.WriteLine();
+            }
+            return await ReadRosterAsync(config.Value.Url, config.Value.Token);
+        };
     }
 
     private static void Report(IReadOnlyList<SessionDto> roster, IReadOnlyList<AgreementCheck.Finding> findings,
