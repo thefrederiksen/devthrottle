@@ -31,7 +31,7 @@ public sealed class TurnVerdictStoreTests : IDisposable
     private static TurnVerdictDto Verdict(
         DateTime judgedAt,
         DateTime? observedAt = null,
-        string verdict = TurnVerdictVocabularyWords.Finished,
+        string verdict = Core.Wingman.TurnVerdictVocabulary.Finished,
         string verdictId = "tv-1",
         bool failed = false,
         string? failureReason = null) => new()
@@ -79,7 +79,7 @@ public sealed class TurnVerdictStoreTests : IDisposable
         Assert.Equal(DateTimeKind.Utc, read.JudgedAtUtc.Kind);
         Assert.Equal(DateTimeKind.Utc, read.TurnEndObservedAtUtc.Kind);
         Assert.Equal("screen-hash-1", read.ScreenHash);
-        Assert.Equal(TurnVerdictVocabularyWords.Finished, read.Verdict);
+        Assert.Equal(Core.Wingman.TurnVerdictVocabulary.Finished, read.Verdict);
         Assert.Equal("I have finished the migration and pushed it.", read.Evidence);
         Assert.Equal("The migration session has finished.", read.Spoken);
         Assert.False(read.Failed);
@@ -275,12 +275,4 @@ public sealed class TurnVerdictStoreTests : IDisposable
             return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
         }
     }
-}
-
-/// <summary>The verdict words this file uses, taken from the shared vocabulary rather than typed as
-/// literals, so a change to the closed list breaks these tests instead of leaving them asserting a word the
-/// product no longer knows.</summary>
-internal static class TurnVerdictVocabularyWords
-{
-    internal const string Finished = Core.Wingman.TurnVerdictVocabulary.Finished;
 }
