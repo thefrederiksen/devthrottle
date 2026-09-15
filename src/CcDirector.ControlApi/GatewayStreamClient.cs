@@ -747,39 +747,63 @@ public sealed class GatewayStreamClient : IAsyncDisposable
             // 2026-09-14: 2,310 consecutive failures, every session key on the machine refused.
             //
             // Each registration is now independent. A failure is counted, named, and the loop continues.
-            var registrations = _sessionKeys();
-            var registered = 0;
-            var failures = new List<string>();
-            foreach (var registration in registrations)
+            // THE OUTER CATCH STAYS. Restructuring the loop is not a licence to drop it: the comment
+            // above promises this leg has its own try/catch so a reseed is never broken by it, and
+            // _sessionKeys() is a caller-supplied delegate that can throw before the loop is even
+            // entered. Removing it would trade one fault for a worse one - a failed registration pass
+            // taking down the snapshot push that carries the entire roster.
+            try
             {
-                try
-                {
-                    await conn.InvokeAsync("RegisterSessionKey", registration);
-                    registered++;
-                }
-                catch (Exception ex)
-                {
-                    // NAME THE SESSION. The old line reported only the exception message, so 2,310
-                    // identical lines never once said WHICH registration was failing - the single fact
-                    // that would have turned the outage into a five-minute fix.
-                    failures.Add($"{registration.SessionId}: {ex.Message}");
-                }
-            }
+                // ONE BAD REGISTRATION MUST NOT TAKE THE OTHERS DOWN WITH IT.
+                //
+                // This loop used to sit inside a single try, so the FIRST registration that threw
+                // abandoned every key after it. One session with an unregisterable key therefore cost
+                // every other session on the Director its credential, and each reseed retried in the
+                // same order and failed at the same place - a fleet-wide agent lockout produced by one
+                // row. Observed 2026-09-14: 2,310 consecutive failures, every session key refused.
+                var registrations = _sessionKeys();
+                var registered = 0;
+                var failures = new List<string>();
 
-            if (failures.Count > 0)
-            {
-                // AND DO NOT GUESS AT THE CAUSE. This line used to say "(older Gateway?)" - a guess, and
-                // on 2026-09-14 a wrong one that sent an investigation toward a production deploy. The
-                // Director logs the Gateway's version and capability check moments earlier in this same
-                // method; when that check passed, an old Gateway is the one explanation already ruled
-                // out. Report the count and the reasons, and let the reader read the line above.
-                FileLog.Write($"[GatewayStreamClient] session key re-registration INCOMPLETE: " +
-                              $"{registered}/{registrations.Count} registered, {failures.Count} failed. " +
-                              $"Each failure, by session: {string.Join(" | ", failures)}");
+                foreach (var registration in registrations)
+                {
+                    try
+                    {
+                        await conn.InvokeAsync("RegisterSessionKey", registration);
+                        registered++;
+                    }
+                    catch (Exception ex)
+                    {
+                        // NAME THE SESSION. The old line reported only the exception message, so 2,310
+                        // identical lines never once said WHICH registration was failing - the single
+                        // fact that would have turned the outage into a five-minute fix.
+                        failures.Add($"{registration.SessionId}: {ex.Message}");
+                    }
+                }
+
+                if (failures.Count > 0)
+                {
+                    // AND DO NOT GUESS AT THE CAUSE. This line used to say "(older Gateway?)" - a guess,
+                    // and on 2026-09-14 a wrong one that sent an investigation toward a production
+                    // deploy. The Director logs the Gateway's version and a PASSING capability check
+                    // moments earlier in this same method, so an old Gateway is the one explanation
+                    // already ruled out. Report what was measured; the Gateway now supplies the reason.
+                    FileLog.Write("[GatewayStreamClient] session key re-registration INCOMPLETE: " +
+                                  $"{registered}/{registrations.Count} registered, {failures.Count} failed. " +
+                                  $"Each failure, by session: {string.Join(" | ", failures)}");
+                }
+                else if (registrations.Count > 0)
+                {
+                    FileLog.Write($"[GatewayStreamClient] re-registered {registered}/{registrations.Count} session key(s)");
+                }
             }
-            else if (registrations.Count > 0)
+            catch (Exception ex)
             {
-                FileLog.Write($"[GatewayStreamClient] re-registered {registered}/{registrations.Count} session key(s)");
+                // The PASS itself failed - building the list, or something outside any one registration.
+                // Worded distinctly from the per-session failures above, because this one says nothing
+                // about any individual key.
+                FileLog.Write("[GatewayStreamClient] session key re-registration pass FAILED before it " +
+                              $"could report per-session results: {ex.GetType().Name}: {ex.Message}");
             }
         }
 
