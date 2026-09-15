@@ -71,6 +71,8 @@ public sealed class SessionKeyGuardTests
     // Mission "Stop a session", Ruling 4: any session may stop any other in the same account, because the
     // stop carries a reason and is audited. Ruling 6: and the polite flag comes off the way it went on.
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/stop")]
+    // Answer a judged stop - the one write path for a verdict's options, and the one four-segment session POST.
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict/answer")]
     [InlineData("DELETE", "/sessions/11111111-1111-1111-1111-111111111111/request-deletion")]
     [InlineData("PATCH", "/sessions/11111111-1111-1111-1111-111111111111")]
     [InlineData("POST", "/fanout")]
@@ -332,6 +334,15 @@ public sealed class SessionKeyGuardTests
     // And nothing hung off a verdict path later is reachable by accident - the allow matches a length
     // of exactly three segments.
     [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict/options")]
+    // The answer route is ONE literal shape. Its verb is POST; its neighbours are not it; and a fifth segment,
+    // the plural path, or another last word (the "this is wrong" route slice G will add) is refused until
+    // somebody classifies it here.
+    [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict/answer")]
+    [InlineData("PUT", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict/answer")]
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict/answer/again")]
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdicts/answer")]
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict/feedback")]
+    [InlineData("POST", "/machines/SOREN_NORTH/turn-verdict/answer")]
     // Somebody else's Director process lifecycle on another machine.
     [InlineData("POST", "/machines/SOREN_NORTH/director/stop")]
     [InlineData("POST", "/machines/SOREN_NORTH/director/restart")]
