@@ -127,6 +127,31 @@ public sealed class SessionRailRowRenderTests
         Assert.Equal(0, DrawnCrewSquares(list));
     }
 
+    /// <summary>
+    /// The crew's squares are a STRIP - side by side, in order, with a gap - not a pile. Counting them
+    /// would not notice nine squares drawn on top of each other, which is what an items panel that did
+    /// not take the horizontal override would produce: a single square, and eight sessions invisible.
+    /// </summary>
+    [AvaloniaFact]
+    public void TheCrewSquaresSitSideBySide_NotOnTopOfEachOther()
+    {
+        var crew = Vm("Architect");
+        crew.ApplyRailRow(0, true, false, "3 under it: 0 working, 3 stopped, 0 need you", "5h 29m",
+            Squares(3), "", false);
+
+        var list = Render(crew);
+
+        var xs = list.GetVisualDescendants().OfType<Border>()
+            .Where(b => b.IsEffectivelyVisible && b.Width is 8.0 && b.Height is 8.0)
+            .Select(b => b.TranslatePoint(new Point(0, 0), list)?.X ?? -1)
+            .ToList();
+
+        Assert.Equal(3, xs.Count);
+        // Each one begins 10 pixels after the last: an 8 pixel square and a 2 pixel gap.
+        Assert.Equal(xs[0] + 10, xs[1]);
+        Assert.Equal(xs[1] + 10, xs[2]);
+    }
+
     // ===== A child is indented, behind a guide line, further at each level =====
 
     [AvaloniaFact]
