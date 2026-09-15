@@ -118,6 +118,31 @@ public interface IAgentDriver
     /// </summary>
     bool EmitsContinuousIdleOutput => false;
 
+    /// <summary>
+    /// Rows this agent's own interface draws ABOUT ITSELF rather than about the work: the update
+    /// notice, the shortcut bar, the context-remaining hint, the interrupt hint. A row carrying one
+    /// of these never counts as the conversation gaining content, so it can no longer turn a
+    /// settled session blue - which is the single thing phase one of the turn-detection work exists
+    /// to stop. Matched as a case-insensitive substring of the row.
+    ///
+    /// Deliberately a list of STRINGS and not a model or a parser. It is readable, it is testable,
+    /// and when an agent changes its interface the failure is a slow return of phantom turns rather
+    /// than a crash or a suppressed reply. For the same reason the strings are PRECISE rather than
+    /// broad: a marker that is too narrow lets a phantom back, a marker that is too broad swallows
+    /// a real reply, and only the second of those costs the owner a turn.
+    ///
+    /// Default empty, and that is the honest answer for most agents rather than a stub. The
+    /// evidence behind the two lists that are not empty covers one machine, where 1,292 of the
+    /// measured repaints were Claude Code, 43 were Codex and two were the one continuously
+    /// repainting agent; every other supported agent had no cases at all. An empty list leaves an
+    /// agent exactly as well off as it is today. A guessed list could suppress its real output.
+    ///
+    /// This is the second terminal-behaviour trait, beside <see cref="EmitsContinuousIdleOutput"/>;
+    /// the interface carries plenty of other per-driver knowledge, for kind, capabilities, slash
+    /// commands and the command line.
+    /// </summary>
+    IReadOnlyCollection<string> SelfDescribingRowMarkers => Array.Empty<string>();
+
     /// <summary>Slash command metadata for the agent's own composer model. This is
     /// separate from <see cref="Capabilities"/>, which controls Director action buttons.</summary>
     IReadOnlyList<AgentSlashCommand> SlashCommands { get; }

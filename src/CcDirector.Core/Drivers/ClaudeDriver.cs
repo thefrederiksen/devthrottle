@@ -53,6 +53,50 @@ public sealed class ClaudeDriver : IAgentDriver
 
     public AgentKind Kind => AgentKind.ClaudeCode;
 
+    /// <summary>
+    /// See <see cref="IAgentDriver.SelfDescribingRowMarkers"/>. Taken on 15 September from the
+    /// labelled corpus by counting which rows the content rule would WRONGLY have called new
+    /// across 1,292 repaint-labelled episodes for this agent, most frequent first, plus the rows
+    /// the scoring harness's own expression carried.
+    ///
+    /// Two choices worth knowing about:
+    ///
+    /// "esc to cancel" is a DIFFERENT row from "esc to interrupt" and both are here. The expression
+    /// behind the published measurement carried only the second, which means the row rule's real
+    /// score is very slightly BETTER than the 94.0 percent published rather than worse. That figure
+    /// is not to be quietly adjusted for this - it has to be re-taken.
+    ///
+    /// The thinking line is NOT here and cannot be. Its shape is a glyph, a past-tense verb, "for"
+    /// and a duration, and the verb rotates through a large vocabulary - so the only stable
+    /// fragment is "ed for ", which also occurs in ordinary prose ("I refactored for clarity").
+    /// Including it would suppress real replies, which is the one failure that costs the owner a
+    /// turn, so it is left out and phantoms from that row remain. Expressing it would need a
+    /// pattern, and this trait is deliberately strings.
+    ///
+    /// Two rows from the same evidence are deliberately absent because other conditions already
+    /// remove them: a box rule drawn from line glyphs carries no letters or digits, so the
+    /// substance floor drops it, and the workspace indicator carries a project name, which the
+    /// exact-key and near-duplicate conditions drop because it is on both screens. A marker list
+    /// that tried to cover those would be matching content.
+    /// </summary>
+    public IReadOnlyCollection<string> SelfDescribingRowMarkers { get; } =
+    [
+        // The most common by a wide margin, and it appears truncated at several widths - so both
+        // halves of the row are listed rather than the whole of it.
+        "new task?",
+        "/clear to save",
+        "ctrl+o to expand",
+        "esc to interrupt",
+        "esc to cancel",
+        "bypass permissions",
+        "auto-accept",
+        "context left",
+        // The update check every thirty minutes on an idle session: the row that started this.
+        "Checking for updates",
+        "Update installed",
+        "IDE disconnected",
+    ];
+
     public DriverCapabilities Capabilities =>
         DriverCapabilities.ClearContext
         | DriverCapabilities.Cancel

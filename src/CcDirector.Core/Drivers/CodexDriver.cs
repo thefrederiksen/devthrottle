@@ -17,6 +17,26 @@ public sealed class CodexDriver : IAgentDriver
 
     public AgentKind Kind => AgentKind.Codex;
 
+    /// <summary>
+    /// See <see cref="IAgentDriver.SelfDescribingRowMarkers"/>. Taken on 15 September from the same
+    /// labelled corpus as the Claude Code list, but from FORTY-THREE repaint-labelled episodes
+    /// rather than 1,292. That is thin, and this list should be read as what forty-three cases
+    /// support rather than as a survey of what this agent draws about itself. Codex's phantom-blue
+    /// problem is small; its real problem is the opposite one, red landing while it is still
+    /// working, and that is phase two.
+    /// </summary>
+    public IReadOnlyCollection<string> SelfDescribingRowMarkers { get; } =
+    [
+        // One row, three fragments, because it is drawn as one line and truncates.
+        "background terminal running",
+        "/ps to view",
+        "/stop to close",
+        "Token usage:",
+        // The resume banner, drawn across two rows.
+        "To continue this session, run:",
+        "codex resume",
+    ];
+
     public DriverCapabilities Capabilities =>
         DriverCapabilities.Cancel
         | DriverCapabilities.Interrupt
