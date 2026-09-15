@@ -197,10 +197,11 @@ public sealed class TurnVerdictTraceTests : IDisposable
     }
 
     [Fact]
-    public async Task AJoinedStop_ReadsItsSettingsOffTheTurnEndHandler_SoASlowOrFailingSettingsStoreHoldsNothingUp()
+    public async Task AJoinedStop_IsRecordedByTheJudgementItJoined_WithTheSettingsThatJudgementAlreadyRead()
     {
-        // Found in review: the joined stop read the settings on the turn-end handler itself, so a slow settings store
-        // held the handler up, and a failing one could reach it.
+        // Found in review twice: this stop first vanished, and then became a background task nobody tracked - which
+        // shutdown could drop, which could record two stops out of order, and which read the settings on the turn-end
+        // handler. The judgement it joins records it, with the settings that judgement already holds.
         var env = Env();
         var release = new TaskCompletionSource();
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -214,26 +215,60 @@ public sealed class TurnVerdictTraceTests : IDisposable
 
         var pending = service.StartTurnEnd(Signal());
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        using var settingsStuck = new ManualResetEventSlim(false);
-        env.SettingsOverride = () =>
-        {
-            settingsStuck.Wait(TimeSpan.FromSeconds(10));
-            throw new InvalidOperationException("the settings store is unreachable");
-        };
+        // Unreachable from here on: the joined stop must need no settings read of its own.
+        env.SettingsOverride = () => throw new InvalidOperationException("the settings store is unreachable");
 
+        var later = ObservedAt.AddMinutes(3);
         var clock = System.Diagnostics.Stopwatch.StartNew();
-        var joined = service.StartTurnEnd(Signal(ObservedAt.AddMinutes(3)));
+        var joined = service.StartTurnEnd(Signal(later));
         clock.Stop();
 
-        // Answered at once, while the settings read is still stuck for up to ten seconds. The time is the proof: a call
-        // that did the read itself would also come back finished - only ten seconds later.
-        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(2), $"the turn end waited {clock.Elapsed} on the settings read");
         Assert.True(joined.IsCompletedSuccessfully);
         Assert.Equal(ActivityCauses.AlreadyJudging, (await joined).SkipCause);
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(1), $"the turn end waited {clock.Elapsed}");
 
-        settingsStuck.Set();
         release.SetResult();
         Assert.Equal(TurnVerdictOutcomeKind.Judged, (await pending.WaitAsync(TimeSpan.FromSeconds(5))).Kind);
+
+        // Two rows from the one judgement: its own, and the stop that joined it, under that stop's own moment.
+        Assert.Equal(2, env.Traces.Count);
+        var judged = Assert.Single(env.Traces, t => t.Outcome == TurnVerdictTraceOutcomes.Judged);
+        var joinedTrace = Assert.Single(env.Traces, t => t.Outcome == TurnVerdictTraceOutcomes.Joined);
+        Assert.Equal(later, joinedTrace.TurnEndObservedAtUtc);
+        Assert.Equal(ActivityCauses.AlreadyJudging, joinedTrace.Cause);
+        Assert.Null(joinedTrace.Prompt);
+        Assert.NotNull(judged.Prompt);
+    }
+
+    [Fact]
+    public async Task AtShutdown_AJoinedStopIsRecorded_BecauseTheJudgementItJoinedIsWaitedFor()
+    {
+        // The joined stop is part of the judgement it joined, so the shutdown wait covers it; as a background task it
+        // could be left unfinished when the writer closed and the database went.
+        var env = Env();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        env.Judge = async (_, ct) =>
+        {
+            entered.TrySetResult();
+            await Task.Delay(Timeout.Infinite, ct);
+            return FinishedAnswer;
+        };
+        var service = new TurnVerdictService(env);
+
+        var pending = service.StartTurnEnd(Signal());
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var later = ObservedAt.AddMinutes(2);
+        Assert.Equal(ActivityCauses.AlreadyJudging, (await service.StartTurnEnd(Signal(later))).SkipCause);
+
+        service.Dispose();
+        Assert.True(await service.WaitForFlightsAsync(TimeSpan.FromSeconds(5)));
+
+        // Both rows are in hand the moment the wait returns - nothing is still being written somewhere else.
+        Assert.Equal(2, env.Traces.Count);
+        Assert.Contains(env.Traces, t => t.Outcome == TurnVerdictTraceOutcomes.Cancelled);
+        var joined2 = Assert.Single(env.Traces, t => t.Outcome == TurnVerdictTraceOutcomes.Joined);
+        Assert.Equal(later, joined2.TurnEndObservedAtUtc);
+        Assert.Equal(TurnVerdictOutcomeKind.Cancelled, (await pending).Kind);
     }
 
     [Fact]

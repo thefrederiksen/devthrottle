@@ -265,6 +265,37 @@ public sealed class TurnVerdictService : IDisposable
         // mid-flight must not change what this flight records). Settings stays null until the flight has read them.
         public DateTime ObservedAt;
         public TurnVerdictSettings? Settings;
+
+        // THE STOPS THAT JOINED THIS FLIGHT while it ran. They ask nothing of their own - one model call per stop - and
+        // this flight records them as it ends, with the settings it already read. Held here rather than traced by the
+        // caller so the work is inside the flight shutdown waits for, and in the order the stops were observed.
+        private readonly List<DateTime> _joined = new();
+        private bool _closedToJoins;
+
+        /// <summary>Attach a stop to this flight. False once the flight has closed its list and is ending - then the
+        /// caller takes the gate itself.</summary>
+        public bool TryJoin(DateTime observedAt)
+        {
+            lock (_joined)
+            {
+                if (_closedToJoins) return false;
+                _joined.Add(observedAt);
+                return true;
+            }
+        }
+
+        /// <summary>Close the list and take what it holds. Called once, by the flight, as it ends.</summary>
+        public IReadOnlyList<DateTime> TakeJoined()
+        {
+            lock (_joined)
+            {
+                _closedToJoins = true;
+                if (_joined.Count == 0) return Array.Empty<DateTime>();
+                var taken = _joined.ToArray();
+                _joined.Clear();
+                return taken;
+            }
+        }
     }
 
     // The per-session gate. Presence means a verdict is being formed for this session right now.
@@ -326,10 +357,25 @@ public sealed class TurnVerdictService : IDisposable
         _lastObserved[key] = signal.ObservedAtUtc;
 
         var flight = new Flight();
-        if (!_inFlight.TryAdd(key, flight))
+        for (var attempt = 0; !_inFlight.TryAdd(key, flight); attempt++)
         {
-            flight.Cts.Dispose();
-            return Task.FromResult(Joined(signal));
+            // A JUDGEMENT IS ALREADY RUNNING FOR THIS SESSION. This stop asks nothing of its own, and it is handed to
+            // that judgement, which records it when it ends (see Flight.TryJoin).
+            if (_inFlight.TryGetValue(key, out var running) && running.TryJoin(signal.ObservedAtUtc))
+            {
+                flight.Cts.Dispose();
+                return Task.FromResult(JoinedOutcome(signal));
+            }
+
+            // That judgement has closed its list and is ending, so take the gate instead. Bounded at three tries, and
+            // then the stop is logged rather than left to spin.
+            if (attempt >= 2)
+            {
+                flight.Cts.Dispose();
+                FileLog.Write($"[TurnVerdictService] trace NOT KEPT (could not take or join the gate in three tries): " +
+                              $"outcome={TurnVerdictTraceOutcomes.Joined} sid={signal.SessionId} observed={signal.ObservedAtUtc:O}");
+                return Task.FromResult(JoinedOutcome(signal));
+            }
         }
 
         // ADMITTED AFTER SHUTDOWN BEGAN? Found in review: a caller could pass the disposed check above, pause, and add
@@ -505,6 +551,9 @@ public sealed class TurnVerdictService : IDisposable
             }
             finally
             {
+                // The stops that joined this flight while it ran, recorded by the flight itself - never by a background
+                // task nobody tracks, and never out of order.
+                WriteJoinedTraces(key, flight, directorId);
                 // EVERY EXIT CLEARS READING - a skip after the settle wait, a reuse, a cancel, a failure - and it is cleared
                 // BEFORE the gate is released, so it can never clear the stamp of the next flight, which is set only after
                 // that flight takes the gate.
@@ -947,40 +996,42 @@ public sealed class TurnVerdictService : IDisposable
     /// and the inspector keeps the prompt and the answer beside the cancellation.
     /// </summary>
     /// <summary>
-    /// A stop observed while a judgement for this session is already running. It asks nothing of its own - one model
-    /// call per stop - but it IS a stop, and found in review it used to vanish: the running flight, once cancelled by a
-    /// Working edge, traces only its own earlier stop. So it leaves a "joined" trace under its own moment, with no
-    /// content. When the running judgement is not cancelled its verdict can adopt this moment too, and the inspector
-    /// then shows both rows at this moment - joined, and judged - which is what happened.
-    ///
-    /// The settings read and the trace run off the turn-end handler, in <see cref="TraceJoined"/>.
+    /// The outcome for a stop that joined a judgement already running for its session: the ledger records it stood
+    /// down under "already judging", and one model call still serves the stop. The TRACE for it is written by the
+    /// judgement it joined, as that judgement ends.
     /// </summary>
-    private TurnVerdictOutcome Joined(TurnEndSignal signal)
-    {
-        var outcome = Skip(signal.Tenant, signal.DirectorId, signal.SessionId, TurnVerdictTrigger.TurnEnd, ActivityCauses.AlreadyJudging);
-        _ = Task.Run(() => TraceJoined(signal));
-        return outcome;
-    }
+    private TurnVerdictOutcome JoinedOutcome(TurnEndSignal signal)
+        => Skip(signal.Tenant, signal.DirectorId, signal.SessionId, TurnVerdictTrigger.TurnEnd, ActivityCauses.AlreadyJudging);
 
     /// <summary>
-    /// The joined stop's trace, on the thread pool: the settings read must not hold up the turn-end handler (found in
-    /// review), and this is that work's entry point, so a failure is caught here. It is logged with the session, the
-    /// stop's moment and the outcome - the ruling <see cref="TurnVerdictTraceWriter"/> states for any trace that
-    /// cannot be kept.
+    /// The stops that joined this flight, recorded as it ends - with the settings it read at its start, so nothing is
+    /// read on the turn-end handler, and inside the flight itself, so shutdown waits for this work like any other part
+    /// of the judgement. Found in review: as a background task it could be dropped at shutdown and could record two
+    /// stops out of order.
+    ///
+    /// A flight that never got as far as reading its settings cannot say whether this account is traced, so its joined
+    /// stops are logged instead - the ruling <see cref="TurnVerdictTraceWriter"/> states for a trace that cannot be kept.
     /// </summary>
-    private void TraceJoined(TurnEndSignal signal)
+    private void WriteJoinedTraces((TenantId Tenant, string SessionId) key, Flight flight, string directorId)
     {
-        try
+        var joined = flight.TakeJoined();
+        if (joined.Count == 0) return;
+        foreach (var observedAt in joined)
         {
-            var settings = _env.Settings(signal.Tenant);
-            if (settings.JudgeEnabled)
-                _env.RecordTrace(signal.Tenant, NewUnjudgedTrace(signal.SessionId, signal.DirectorId, TurnVerdictTrigger.TurnEnd,
-                    TurnVerdictTraceOutcomes.Joined, ActivityCauses.AlreadyJudging, signal.ObservedAtUtc, settings.ColourEnabled));
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[TurnVerdictService] trace NOT KEPT (settings could not be read): outcome={TurnVerdictTraceOutcomes.Joined} " +
-                          $"sid={signal.SessionId} observed={signal.ObservedAtUtc:O}: {ex.GetType().FullName}: {ex.Message}");
+            try
+            {
+                if (flight.Settings is { JudgeEnabled: true } settings)
+                    _env.RecordTrace(key.Tenant, NewUnjudgedTrace(key.SessionId, directorId, TurnVerdictTrigger.TurnEnd,
+                        TurnVerdictTraceOutcomes.Joined, ActivityCauses.AlreadyJudging, observedAt, settings.ColourEnabled));
+                else if (flight.Settings is null)
+                    FileLog.Write($"[TurnVerdictService] trace NOT KEPT (the judgement it joined never read its settings): " +
+                                  $"outcome={TurnVerdictTraceOutcomes.Joined} sid={key.SessionId} observed={observedAt:O}");
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[TurnVerdictService] trace NOT KEPT (recording a joined stop failed): outcome={TurnVerdictTraceOutcomes.Joined} " +
+                              $"sid={key.SessionId} observed={observedAt:O}: {ex.GetType().FullName}: {ex.Message}");
+            }
         }
     }
 
