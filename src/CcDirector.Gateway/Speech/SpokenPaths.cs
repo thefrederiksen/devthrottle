@@ -41,17 +41,17 @@ public static class SpokenPaths
     /// </summary>
     public static readonly IReadOnlyList<SpokenPath> All = new[]
     {
+        // TURN NARRATION IS NOT IN THIS LIST ANY MORE. Since the Wingman-on-every-turn mission it is the "spoken"
+        // field of the turn verdict, registered under SpokenFieldPaths below. The separate terminal-failure
+        // narration went with it: a failure is one of the two shapes the verdict judges. What remains here is
+        // the translator's whole-answer path, TranslateWithAsync, which is kept for the instructions editor's
+        // draft (issue #537). No production route calls it today - its only callers are tests - so it is
+        // registered here to keep its prompt in the language checks until that draft route exists.
         new SpokenPath(
-            "turn narration (WingmanTranslator.TranslateAsync)",
+            "draft narration for edited instructions (WingmanTranslator.TranslateWithAsync)",
             "WingmanTranslator.BuildPrompt",
             language => WingmanTranslator.BuildPrompt(
                 language, WingmanTranslator.FidelityPrompt, "recent context", "an agent reply", "a session")),
-
-        new SpokenPath(
-            "terminal failure narration (WingmanTranslator.TranslateTerminalFailureAsync)",
-            "WingmanTranslator.BuildTerminalFailurePrompt",
-            language => WingmanTranslator.BuildTerminalFailurePrompt(
-                language, "Error: the provider rejected the session credential", "a session")),
 
         new SpokenPath(
             "direct reply (WingmanTranslator.AskDirectAsync)",
@@ -73,7 +73,6 @@ public static class SpokenPaths
     };
 
     /// <summary>
-    /// <summary>
     /// SPOKEN-FIELD paths: the output as a whole is machine-read, but named FIELDS inside it are read
     /// aloud verbatim. They carry <see cref="SpeechContract.SpeakInLanguageRule"/> and NOT the whole
     /// contract, because "output plain spoken prose only, no formatting characters" would break the
@@ -86,6 +85,18 @@ public static class SpokenPaths
     /// </summary>
     public static readonly IReadOnlyList<SpokenPath> SpokenFieldPaths = new[]
     {
+        new SpokenPath(
+            "turn narration: the spoken field of the turn verdict (TurnVerdictService)",
+            "TurnVerdictPrompt.BuildVerdictPrompt",
+            language => TurnVerdictPrompt.BuildVerdictPrompt(
+                language,
+                new Core.Wingman.TurnVerdictPackage
+                {
+                    SessionTitle = "a session",
+                    LatestReply = "an agent reply",
+                    ConversationAvailable = true,
+                })),
+
         new SpokenPath(
             "menu reading, extracted fields (WingmanTranslator.DetectMenuAsync)",
             "WingmanTranslator.BuildMenuDetectPrompt",

@@ -24,6 +24,14 @@ namespace CcDirector.Gateway.Tests;
 /// This test is the fleet in miniature: an account whose every voice session takes a no-op arm, beside a
 /// second account with one session that genuinely has words to narrate, and ONE cycle of the REAL sweep.
 ///
+/// THE NO-OP ARM CHANGED WITH THE WINGMAN-ON-EVERY-TURN MISSION, and this class changed with it. The arm in
+/// the incident - an empty store on a computer that cannot send its conversation, recorded as "update that
+/// computer" - no longer exists: a voice session's stop is judged with or without a stored conversation (a
+/// confirmed ruling of that mission), so such a session now reaches the judge once, and counting it against
+/// the budget is correct. The no-op a sweep still meets is a session whose last judgement about this exact
+/// screen failed: the sweep never asks the judge again about a screen whose answer was refused, so the attempt
+/// reads the screen, spends nothing, and must take no slot. That is the arm these sessions are seeded into.
+///
 /// IT DOES NOT DEPEND ON WHICH ACCOUNT IS SWEPT FIRST, which matters because nothing promises an order.
 /// It asserts that FIVE sessions were all attempted in the one cycle; the old code could attempt three,
 /// so it fails whichever account the pass happens to reach first.
@@ -69,6 +77,14 @@ public sealed class VoiceSweepBudgetTests : IAsyncLifetime
     private FakeTunnelDirector _dirNarratable = null!;
 
     private readonly ConcurrentQueue<DirectorCommand> _seenByNarratable = new();
+    private readonly ConcurrentQueue<DirectorCommand> _seenByNoOp = new();
+
+    /// <summary>The no-op session whose screen changes, when a test says so; null keeps every no-op screen
+    /// unreadable, which is the screen their seeded failed judgements were formed on.</summary>
+    private volatile string? _noOpScreenChangedFor;
+
+    /// <summary>The failed judgement each no-op session is seeded with, by session id.</summary>
+    private readonly Dictionary<string, string> _seededVerdictIds = new();
 
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-voice-budget-" + Guid.NewGuid().ToString("N"));
@@ -92,7 +108,18 @@ public sealed class VoiceSweepBudgetTests : IAsyncLifetime
         TenantNarratable = deviceNarratable.Tenant;
 
         _dirNoOp = await FakeTunnelDirector.StartAsync(_gateway, deviceNoOp.DeviceKey, "dir-noop", "MN",
-            dispatch: _ => FakeTunnelDirector.Ok(new { ok = true }));
+            dispatch: cmd =>
+            {
+                _seenByNoOp.Enqueue(cmd);
+                return cmd.Verb == "screen-grid" && cmd.SessionId == _noOpScreenChangedFor
+                    ? FakeTunnelDirector.Ok(new ScreenGridResponse
+                    {
+                        SessionId = cmd.SessionId,
+                        HasGrid = true,
+                        Rows = new List<string> { "The computer was updated and the session moved on.", ">" },
+                    })
+                    : FakeTunnelDirector.Ok(new { ok = true });
+            });
         _dirNarratable = await FakeTunnelDirector.StartAsync(_gateway, deviceNarratable.DeviceKey, "dir-real", "MR",
             dispatch: cmd =>
             {
@@ -112,9 +139,27 @@ public sealed class VoiceSweepBudgetTests : IAsyncLifetime
                     : FakeTunnelDirector.Ok(new { ok = true });
             });
 
-        // Neither fake Director's Hello claims it sends conversations, which is exactly the state of the
-        // real computer in the incident - so a session with nothing in the store takes the
-        // "that computer cannot send its conversation" arm, the no-op arm this test is about.
+        // The no-op account's sessions each carry a FAILED judgement about the screen their computer serves -
+        // an unreadable one, which hashes to "". The sweep does not ask the judge again about that screen, so
+        // each attempt reads the screen and returns having spent nothing: the no-op arm this test is about.
+        foreach (var sid in NoOpSessions)
+        {
+            var seeded = new TurnVerdictDto
+            {
+                VerdictId = Guid.NewGuid().ToString("N"),
+                JudgedAtUtc = DateTime.UtcNow,
+                TurnEndObservedAtUtc = DateTime.UtcNow,
+                ScreenHash = "",
+                Model = "devthrottle/wingman-fast",
+                ContractVersion = CcDirector.Core.Wingman.TurnVerdictContract.Version,
+                PackageKind = "agent-reply",
+                Failed = true,
+                FailureReason = "the judge could not be asked: seeded by the test",
+            };
+            _gateway.TurnVerdicts.Store(TenantNoOp, sid, seeded);
+            _seededVerdictIds[sid] = seeded.VerdictId;
+        }
+
         await _dirNoOp.PushSnapshotAsync(NoOpSessions.Select(Sample).ToArray());
         await _dirNarratable.PushSnapshotAsync(Sample(NarratableSession));
 
@@ -136,21 +181,25 @@ public sealed class VoiceSweepBudgetTests : IAsyncLifetime
     [Fact]
     public async Task One_accounts_no_op_sessions_cannot_starve_another_accounts_session_out_of_the_same_cycle()
     {
-        // Only the second account has words to narrate. The first account's four sessions have nothing in
-        // the store and a computer that cannot send one - they cost a dictionary lookup and a store read,
-        // and nothing else.
+        // Only the second account has words to narrate. The first account's four sessions each carry a failed
+        // judgement about the screen they still show - they cost a screen read, and nothing else.
         _gateway.SeedStoredConversationForTest(TenantNarratable, "dir-real", NarratableSession,
             ("User", "do the thing"), ("Assistant", "it is done"));
 
         // ONE cycle of the REAL production sweep - the timer callback itself, not a re-implementation.
         await _gateway.SweepVoiceSessionsAsync();
 
-        // THE NO-OP ACCOUNT WAS FULLY SWEPT. The marker is recorded only by an ACTUAL attempt that read the
-        // store and found it empty, so its presence on all four is the evidence that all four were tried -
-        // and, under the old budget, at most three of these five facts could hold.
+        // THE NO-OP ACCOUNT WAS FULLY SWEPT. Every attempt reads its session's screen before deciding, and the
+        // sweep awaits that read, so a screen read for all four is the evidence that all four were tried -
+        // and, under the old budget, at most three of these five sessions could have been read.
         foreach (var sid in NoOpSessions)
-            Assert.True(_gateway.VoiceService!.DirectorCannotSendConversationFor(TenantNoOp, sid),
+            Assert.True(_seenByNoOp.Any(c => c.Verb == "screen-grid" && c.SessionId == sid),
                 $"session {sid} was never attempted, so the cycle ran out of budget on sessions that spend nothing");
+
+        // CONTROL: they really were no-ops. Had any of them reached the judge it would have stored a newer
+        // record over the seeded one.
+        foreach (var sid in NoOpSessions)
+            Assert.Equal(_seededVerdictIds[sid], _gateway.TurnVerdicts.Latest(TenantNoOp, sid)?.VerdictId);
 
         // AND THE OTHER ACCOUNT'S SESSION WAS REACHED IN THE SAME CYCLE. Its narration is the only attempt
         // here that costs the shared model and speech legs, and it is the one the budget exists to ration -
@@ -163,29 +212,36 @@ public sealed class VoiceSweepBudgetTests : IAsyncLifetime
     public async Task A_no_op_session_recovers_on_the_next_pass_with_nobody_touching_the_gateway()
     {
         // The fix must NOT be "drop these sessions from the sweep". Keeping them is what makes the recovery
-        // free: the moment that computer is updated it starts pushing, the next pass finds words, and
-        // narration resumes with nobody touching the Gateway.
+        // free: the moment that session's screen moves on, the next pass judges the new screen, and narration
+        // resumes with nobody touching the Gateway.
         await _gateway.SweepVoiceSessionsAsync();
         foreach (var sid in NoOpSessions)
-            Assert.True(_gateway.VoiceService!.DirectorCannotSendConversationFor(TenantNoOp, sid),
+            Assert.True(_seenByNoOp.Any(c => c.Verb == "screen-grid" && c.SessionId == sid),
                 $"session {sid} was never attempted on the first pass");
+        Assert.Equal(_seededVerdictIds[NoOpSessions[0]], _gateway.TurnVerdicts.Latest(TenantNoOp, NoOpSessions[0])?.VerdictId);
 
-        // That computer is updated and pushes its conversation for one of them.
-        _gateway.SeedStoredConversationForTest(TenantNoOp, "dir-noop", NoOpSessions[0],
-            ("User", "ask"), ("Assistant", "answered"));
+        // That computer's session moves on: its screen now shows something the stored judgement was not about.
+        _noOpScreenChangedFor = NoOpSessions[0];
 
         await _gateway.SweepVoiceSessionsAsync();
 
-        // The marker comes off by itself on the very next pass - no restart, nothing to clear by hand. A
-        // CHANGE from true to false, which is the one observation here that only the second pass can have
-        // produced.
-        Assert.False(_gateway.VoiceService!.DirectorCannotSendConversationFor(TenantNoOp, NoOpSessions[0]));
+        // The next pass judged the new screen by itself - no restart, nothing to clear by hand. A NEW record
+        // replacing the seeded one is a CHANGE, which is the one observation here that only the second pass can
+        // have produced. (This Gateway has no model key, so that judgement is itself a failed record; what is
+        // asserted is that the judge was asked about the new screen at all.)
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (DateTime.UtcNow < deadline
+               && _gateway.TurnVerdicts.Latest(TenantNoOp, NoOpSessions[0])?.VerdictId == _seededVerdictIds[NoOpSessions[0]])
+            await Task.Delay(50);
+        var judged = _gateway.TurnVerdicts.Latest(TenantNoOp, NoOpSessions[0]);
+        Assert.NotNull(judged);
+        Assert.NotEqual(_seededVerdictIds[NoOpSessions[0]], judged!.VerdictId);
+        Assert.NotEqual("", judged.ScreenHash);
 
-        // NOTHING IS ASSERTED HERE ABOUT THE OTHER THREE. Their markers are still set - but they were set by
-        // the FIRST pass, so their presence is a leftover and would hold just as well if the second pass had
-        // skipped them entirely (found in review). A check a stale value satisfies is not a check. The claim
-        // that every one of them is visited in a single cycle is made, as a presence, by
-        // One_accounts_no_op_sessions_cannot_starve_another_accounts_session_out_of_the_same_cycle.
+        // NOTHING IS ASSERTED HERE ABOUT THE OTHER THREE. Their seeded records still stand - but that would hold
+        // just as well if the second pass had skipped them entirely (found in review). A check a stale value
+        // satisfies is not a check. The claim that every one of them is visited in a single cycle is made, as a
+        // presence, by One_accounts_no_op_sessions_cannot_starve_another_accounts_session_out_of_the_same_cycle.
     }
 
     [Fact]

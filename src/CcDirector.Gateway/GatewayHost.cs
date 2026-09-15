@@ -843,6 +843,9 @@ public sealed class GatewayHost : IAsyncDisposable
     private TurnLog.TurnLogSwitchStore? _turnLogSwitches;
     private Timer? _turnLogRetentionTimer;
     private Wingman.WingmanVoiceService? _voiceService;
+    // The turn-verdict seat (the Wingman-on-every-turn mission, slice C). Built once, shared by the turn-end
+    // boundary, the voice narration and the explain route, so one stop is one judgement whoever asks first.
+    private Wingman.TurnVerdictService? _turnVerdictService;
     // Voice mode is a standing intent, not a one-time action: a tenant that is in voice mode wants EVERY one
     // of its sessions narrating, including the ones that do not exist yet. This timer is how that intent
     // reaches them - it walks each tenant that has voice mode on and switches on any session that is not a
@@ -855,6 +858,10 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>Test-only: the tenant-partitioned voice state, so an isolation test can seed a ready clip
     /// under one tenant and prove another tenant never reads it. Null until StartAsync builds it.</summary>
     internal Wingman.WingmanVoiceService? VoiceService => _voiceService;
+
+    /// <summary>Test-only: the turn-verdict seat, so a test on a real host can read what a stop was judged.
+    /// Null until StartAsync builds it.</summary>
+    internal Wingman.TurnVerdictService? TurnVerdictServiceForTest => _turnVerdictService;
 
     /// <summary>Test-only: the turn-end watcher, so an isolation test can drive a real session-state
     /// transition (Working -&gt; Waiting) into the REAL onTurnEnd / onSessionWorking callbacks rather than a
@@ -2385,6 +2392,8 @@ public sealed class GatewayHost : IAsyncDisposable
                     // skip existed, no later sweep could have found the recovery. ShouldSkipSweep carries its
                     // own revalidation deadline, so the read happens again on its own (found in review).
                     if (vs.ShouldSkipSweep(tenant, sid)) continue;
+                    // Held by a live owning session: not the owner's to be read (ruling 7), so not pre-built either.
+                    if (_turnVerdictService?.IsHeld(tenant, sid) == true) continue;
                     var located = PushedSessions.TryLocate(tenant, sid, stale);
                     if (located is not { } loc) continue;            // not owned by any of this tenant's directors
                     var director = Registry.Get(tenant, loc.DirectorId);
@@ -2591,6 +2600,66 @@ public sealed class GatewayHost : IAsyncDisposable
     }
 
     /// <summary>
+    /// The turn-verdict seat (the Wingman-on-every-turn mission, slice C), built once. Both voice service
+    /// construction sites and the turn-end boundary reach it through here, so there is one seat and one gate per
+    /// session however the Gateway was started.
+    /// </summary>
+    private Wingman.TurnVerdictService EnsureTurnVerdictService()
+        => _turnVerdictService ??= new Wingman.TurnVerdictService(BuildTurnVerdictEnvironment());
+
+    /// <summary>
+    /// Wire the turn-verdict seat to the live Gateway. Every leg is machinery that already exists: the pushed
+    /// roster for the held check and the facts, so nothing is dialled; the tunnel for the screen; the Gateway's
+    /// own store for the conversation; the included FAST model for the judge, built through
+    /// <see cref="Wingman.TurnVerdictJudge.BuildBrain"/> so it carries the settings' thirty-second timeout; the
+    /// verdict store; and the activity ledger inside the owning account's scope.
+    ///
+    /// GAP, NOT PROVEN: THIS WIRING IS NOT UNDER TEST. The thirty-second judge timeout is pinned on
+    /// <see cref="Wingman.TurnVerdictJudge.BuildBrain"/> by its own tests; that this method builds the judge
+    /// through that builder, and hands the service these legs and no others, is read from the code below and
+    /// is not asserted by any test.
+    /// </summary>
+    private Wingman.GatewayTurnVerdictEnvironment BuildTurnVerdictEnvironment() =>
+        new(
+            settings: _tenantSettingsResolver.TurnVerdict,
+            pushedSessions: PushedSessions,
+            streamStale: _streamStaleAfter,
+            route: (tenant, directorId) =>
+            {
+                var director = Registry.Get(tenant, directorId);
+                if (director is null) return null;
+                Api.DirectorCommandRouter.SendDirectorCommandAsync sendCommand = SendCommandAsync;
+                return new Api.SessionVerbClient(director, sendCommand);
+            },
+            // The tenant scope is entered inside this reader, synchronously - the judgement runs on a background
+            // task and an ambient scope does not survive into its continuations.
+            conversation: ReadStoredConversation,
+            judgeBrain: (tenant, settings) =>
+            {
+                var mode = Core.Configuration.TranscriptionModeConfig.Get();
+                var ep = Core.Configuration.TranscriptionEndpointResolver.ResolveWingman(mode);
+                var key = _keyVault.Get(ep.KeyName) ?? "";
+                var model = _tenantSettingsResolver.WingmanModel(tenant, mode, Wingman.TurnVerdictJudge.Role);
+                return Wingman.TurnVerdictJudge.BuildBrain(ep.BaseUrl, key, model, settings);
+            },
+            judgeModel: tenant => ResolveWingmanModel(tenant, Wingman.TurnVerdictJudge.Role),
+            store: _turnVerdicts,
+            language: _tenantSettingsResolver.SpokenLanguage,
+            // The account's own narration instructions replace the verdict's spoken rules only when they differ
+            // from the shipped default - the default is already what the verdict prompt says.
+            customSpokenRules: () =>
+            {
+                var active = _instructionsStore.ActiveContent;
+                return string.IsNullOrWhiteSpace(active)
+                       || string.Equals(active, Wingman.WingmanTranslator.FidelityPrompt, StringComparison.Ordinal)
+                    ? null
+                    : active;
+            },
+            isVoiceSession: (tenant, sid) => _voiceService?.IsVoiceSession(tenant, sid) ?? false,
+            ledger: _activityEvents,
+            enterTenantScope: tenant => _tenantBoundary.EnterScope(tenant));
+
+    /// <summary>
     /// Wire the session supervisor (issue #915) to the live Gateway. Every leg reuses machinery that already
     /// exists: the tunnel caller for the screen read, the menu check and the send; the pushed roster snapshot
     /// for the activity-state read, so liveness is NEVER established by dialing a session; the durable
@@ -2737,7 +2806,9 @@ public sealed class GatewayHost : IAsyncDisposable
             // from a tunnel command asking the Director to re-read the user's transcript. See
             // ReadStoredConversation for why the tenant scope is entered there rather than inside the service.
             conversationReader: ReadStoredConversation,
-            directorCannotSendConversation: DirectorCannotSendConversation);
+            directorCannotSendConversation: DirectorCannotSendConversation,
+            // The narration's words are the stop's verdict (the Wingman-on-every-turn mission, slice C).
+            turnVerdicts: EnsureTurnVerdictService());
 
         // The session supervisor (issue #915). It hangs off the SAME turn-end boundary as the voice refresh
         // below, deliberately: that event is the only thing that can wake it, so a Working session is out of
@@ -2824,6 +2895,21 @@ public sealed class GatewayHost : IAsyncDisposable
                 // Returns immediately; nothing below waits on it.
                 _turnLogRecorder?.OnTurnEnd(signal);
 
+                // The turn verdict (the Wingman-on-every-turn mission, slice C). AFTER the turn log, so the capture
+                // is ahead of this screen read. It returns immediately: the settle, the read and the judgement run
+                // on a background task. The gate it takes here is SYNCHRONOUS, so the voice refresh further down
+                // joins this judgement instead of asking the model a second time. NOT ORDERED against the session
+                // supervisor or the rules launcher below - see the gap written on TurnVerdictService.
+                try
+                {
+                    using (_tenantBoundary.EnterScope(tenant))
+                        _turnVerdictService?.OnTurnEnd(signal);
+                }
+                catch (Exception ex)
+                {
+                    FileLog.Write($"[GatewayHost] turn-end verdict FAILED: sid={signal.SessionId}: {ex.Message}");
+                }
+
                 // Governance capture (issue #1771, spine item 3): record this session's cumulative spend at
                 // turn-end from the pushed roster snapshot. Runs for EVERY session (not just voice), and is
                 // isolated so a spend hiccup never breaks the voice refresh below - the failure is logged loud,
@@ -2868,7 +2954,11 @@ public sealed class GatewayHost : IAsyncDisposable
                 // Voice sessions (issue #531): the turn just finished on its own, so re-make the
                 // spoken summary + audio in the background. It is then "voice ready" in the session
                 // list with no wait. Non-voice sessions do nothing here - the watcher is voice-only.
-                if (_voiceService is { } vs && vs.IsVoiceSession(tenant, signal.SessionId))
+                // A session a live owning session holds is never narrated (ruling 7 of the plan). Asked through the
+                // verdict seat, which resolves roles across the WHOLE roster - the pushed row itself always says
+                // "not held", so a check on the row would narrate every worker.
+                if (_voiceService is { } vs && vs.IsVoiceSession(tenant, signal.SessionId)
+                    && _turnVerdictService?.IsHeld(tenant, signal.SessionId) != true)
                 {
                     // Gateway Cleanup mission, Phase 2: reach the owning Director (carried on the signal as
                     // its DirectorId) through the tunnel-first SessionVerbClient - no HTTP dial. The Director
@@ -2899,6 +2989,10 @@ public sealed class GatewayHost : IAsyncDisposable
                 _ = directorId;
                 if (tenant.IsValid)
                     _voiceService?.OnSessionWorking(tenant, sid);
+                // The stored verdict described a screen that is gone: cancel the read in flight, clear the reading
+                // state, invalidate the verdict - so a verdict that survives is newer than this Working edge.
+                if (tenant.IsValid)
+                    _turnVerdictService?.OnSessionWorking(tenant, sid);
                 // Issue #915: the session is working again, so any recovery wait in flight for it is over -
                 // whether our "continue" landed or it came back on its own. This is the cancel that makes the
                 // engine incapable of sending into a session that is working.
@@ -3584,7 +3678,9 @@ public sealed class GatewayHost : IAsyncDisposable
             // from a tunnel command asking the Director to re-read the user's transcript. See
             // ReadStoredConversation for why the tenant scope is entered there rather than inside the service.
             conversationReader: ReadStoredConversation,
-            directorCannotSendConversation: DirectorCannotSendConversation);
+            directorCannotSendConversation: DirectorCannotSendConversation,
+            // The narration's words are the stop's verdict (the Wingman-on-every-turn mission, slice C).
+            turnVerdicts: EnsureTurnVerdictService());
         // The session's conversation, served from THIS Gateway's store (turn-push mission, phase 2). A
         // literal route, so it outranks the /sessions/{sid}/{**rest} catch-all - whose "history" verb entry
         // is removed in the same change, because the whole point is that reading a conversation no longer
@@ -5043,6 +5139,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // Issue #915: cancel any recovery wait in flight, so a Gateway shutdown does not leave a background
         // ladder holding a token and re-sending into a fleet this process no longer owns.
         try { _sessionSupervisor?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] session supervisor dispose error: {ex.Message}"); }
+        try { _turnVerdictService?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] turn verdict dispose error: {ex.Message}"); }
         try { _voiceModeAllSweepTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] voice-mode sweep timer dispose error: {ex.Message}"); }
         _turnEndWatcher = null;
         try { Brain.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] brain dispose error: {ex.Message}"); }

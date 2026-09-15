@@ -119,6 +119,10 @@ internal static class GatewayWingmanVoiceEndpoint
     /// family (issue #1884): each utterance leg opens the caller's own partition through a
     /// <see cref="DictationTenantGate"/> over the voice-turn store and is refused (403) when no tenant resolves
     /// on hosted. The rest of the voice surface (voice-turn, tts, transcribe, explain, ask, menu) is unchanged.
+    /// <summary>How long a spoken reply waits, after the agent's answer arrives, for the session to stop
+    /// working before its stop is narrated. See the voice-turn route for why it waits at all.</summary>
+    private static readonly TimeSpan VoiceTurnSettleWait = TimeSpan.FromSeconds(20);
+
     public static void Map(
         IEndpointRouteBuilder app,
         DirectorRegistry registry,
@@ -173,14 +177,20 @@ internal static class GatewayWingmanVoiceEndpoint
         Task<SessionVerbClient?> ResolveRouteAsync(TenantId tenant, string sid) =>
             SessionVerbClient.ResolveAsync(sid, tenant, registry, pushedSessions, stale, owners, sendCommand);
 
-        // The session's title, which the wingman speaks before the summary so a listener who cannot
-        // see the screen knows which session is talking (WingmanTranslator.FidelityPrompt v5.2). Same
-        // push-store read as ResolveRouteAsync above - no dial. Null (unknown session, or no name) is
-        // the honest answer and simply means no title is spoken; see GatewayHost.ResolveSessionTitle.
-        string? SessionTitle(TenantId tenant, string sid)
+        // The session's title is no longer resolved here: the narrations this surface plays are turn verdicts,
+        // and the verdict package carries the title the spoken section opens with.
+
+        // A bounded wait for a session to stop working, read from the pushed roster - nothing is dialled.
+        async Task WaitUntilNotWorkingAsync(TenantId tenant, string sid, CancellationToken ct)
         {
-            var name = pushedSessions?.TryLocate(tenant, sid, stale)?.Session.Name;
-            return string.IsNullOrWhiteSpace(name) ? null : name;
+            var deadline = DateTime.UtcNow + VoiceTurnSettleWait;
+            while (DateTime.UtcNow < deadline)
+            {
+                var activity = pushedSessions?.TryLocate(tenant, sid, stale)?.Session.ActivityState;
+                if (!string.Equals(activity, "Working", StringComparison.OrdinalIgnoreCase)) return;
+                await Task.Delay(250, ct);
+            }
+            FileLog.Write($"[GatewayWingmanVoice] voice-turn sid={sid}: still working after {VoiceTurnSettleWait.TotalSeconds:F0}s - narrating the current screen anyway");
         }
 
         // The single Gateway owner of speech-to-text (issue #839): both batch transcribe paths below
@@ -623,29 +633,31 @@ internal static class GatewayWingmanVoiceEndpoint
             if (string.IsNullOrWhiteSpace(reply))
                 return Results.Json(new { error = "the agent did not produce a reply in time" }, statusCode: StatusCodes.Status504GatewayTimeout);
 
-            // The agent replied; now the wingman translates it. This is gateway-owned work
-            // (CancellationToken.None) so navigating away does not lose the summary, and the
-            // session shows YELLOW while the wingman runs, then back to red (issue #531 voice mode).
-            voice.BeginGenerating(reqTenant.Value, sid);
-            try
+            // The agent replied. Its narration is the stop's verdict, like every narration since the
+            // Wingman-on-every-turn mission: one model call for the stop, never a translation beside a verdict.
+            //
+            // WAIT FOR THE STOP BEFORE ASKING. The reply reaches the store a moment before the session is seen going
+            // idle, and that boundary starts its own judgement. Asking on the reply alone would judge the screen
+            // before its last repaint, and the boundary would then ask again about the repainted one. So this waits,
+            // bounded, until the session is no longer working; the verdict seat then JOINS the boundary's judgement
+            // when it is in flight, and a boundary that arrives while this one is in flight is dropped by the gate.
+            // GAP, NOT PROVEN: a boundary observed only after this judgement finished, on a screen that repainted in
+            // between, is judged a second time.
+            // GAP, NOT PROVEN: THIS ROUTE HAS NOT BEEN DRIVEN ON THE RIG. Slice C's live proof drove the turn end,
+            // the idle sweep and explain; a spoken reply reaching this narration through the real transcription
+            // path, with the fake microphone, was not driven.
+            await WaitUntilNotWorkingAsync(reqTenant.Value, sid, ct);
+            // Gateway-owned work (CancellationToken.None) so navigating away does not lose the narration. A spoken
+            // reply IS voice mode being used, so this one enrols the session.
+            var narration = await voice.NarrateStopOnRequestAsync(reqTenant.Value, sid, route, markAsVoiceSession: true, CancellationToken.None);
+            if (narration.Error is not null)
             {
-                // Full context: prior exchanges from the pre-send snapshot + the current question,
-                // so the wingman can resolve references like "that file" or "the bug I mentioned".
-                var recentContext = string.IsNullOrWhiteSpace(priorContext)
-                    ? "You: " + req.Text.Trim()
-                    : priorContext + "\n\nYou: " + req.Text.Trim();
-                var t = await translator.TranslateAsync(reqTenant.Value, recentContext, reply, SessionTitle(reqTenant.Value, sid), ct: CancellationToken.None);
-                await voice.StoreSpokenAsync(reqTenant.Value, sid, t.Spoken, reply, CancellationToken.None);   // make it a voice session + cache audio
-                FileLog.Write($"[GatewayWingmanVoice] voice-turn sid={sid}: replyLen={reply.Length}, spokenLen={t.Spoken.Length}");
-                return Results.Json(new { reply, spoken = t.Spoken, replySeconds = t.ReplySeconds });
-            }
-            catch (Exception ex)
-            {
-                FileLog.Write($"[GatewayWingmanVoice] voice-turn sid={sid} translate FAILED: {ex.Message}");
-                return Results.Json(new { error = "wingman translation failed: " + ex.Message },
+                FileLog.Write($"[GatewayWingmanVoice] voice-turn sid={sid} narration FAILED: {narration.Error}");
+                return Results.Json(new { error = "wingman translation failed: " + narration.Error },
                     statusCode: StatusCodes.Status502BadGateway);
             }
-            finally { voice.EndGenerating(reqTenant.Value, sid); }
+            FileLog.Write($"[GatewayWingmanVoice] voice-turn sid={sid}: replyLen={reply.Length}, verdict={narration.VerdictId ?? "(none)"}, kind={narration.PackageKind ?? "(none)"}, spokenLen={narration.Spoken.Length}");
+            return Results.Json(new { reply, spoken = narration.Spoken, replySeconds = narration.ReplySeconds, retrying = narration.Retrying });
         });
 
         // Transcription (issue #531 follow-up): the phone records audio locally (survives a bad
@@ -743,129 +755,36 @@ internal static class GatewayWingmanVoiceEndpoint
             // only so a session this Gateway has never heard of is still an honest 404.
             var route = await ResolveRouteAsync(reqTenant.Value, sid);
 
-            voice.Mark(reqTenant.Value, sid);   // opening voice on a session makes it a voice session (kept fresh on turn-end)
-
-            // THE CONVERSATION COMES FROM THE GATEWAY'S OWN STORE (turn-push mission, phase 3). This route is
-            // the button a person presses when a narration has not appeared, so what it can honestly say
-            // matters more here than anywhere: it used to send a command down the tunnel asking the Director
-            // to re-read the transcript, and a failed read there arrived as a SUCCESS with no widgets, which
-            // is how this route came to tell people "this session has not produced anything to summarize yet"
-            // about sessions that had said plenty (issue #2561).
+            // PRESSING PLAY DOES NOT ENROL THE SESSION IN VOICE MODE (ruling 11 of the Wingman-on-every-turn plan).
+            // This route used to call voice.Mark first, which made every session somebody had once asked "what is
+            // happening" a voice session for ever after, narrated and paid for at every stop. Only the voice-mode
+            // toggle enrols now: this plays the stop's narration and leaves the session exactly as it was, so its
+            // next stop synthesises nothing.
             //
-            // There is no read to fail any more. Either the words are stored or they have not arrived yet,
-            // and the second is a wait on the Director rather than anything voice can fix by trying harder.
-            var stored = conversationReader?.Invoke(reqTenant.Value, sid);
-            if (stored is null && route is null)
+            // A session this Gateway has never heard of is still an honest 404: no route to its computer, and
+            // nothing stored for it.
+            if (route is null && conversationReader?.Invoke(reqTenant.Value, sid) is null)
                 return Results.Json(new { error = "session not found on any director" }, statusCode: StatusCodes.Status404NotFound);
-            if (stored is { IsSupported: false })
-            {
-                // Terminal, and the person pressed a button to find out: say the thing that is true rather
-                // than promising another try that cannot help.
-                voice.NoteReadFailed(reqTenant.Value, sid, HostedAiState.Unavailable);
-                FileLog.Write($"[GatewayWingmanVoice] explain sid={sid}: this agent keeps no conversation that can be read - TERMINAL.");
-                return Results.Json(new
-                {
-                    reply = "",
-                    spoken = "This agent does not keep a conversation I can read back to you.",
-                    replySeconds = 0.0,
-                    retrying = false,
-                });
-            }
-            var widgets = stored?.Widgets;
-            if (widgets is null)
-            {
-                FileLog.Write($"[GatewayWingmanVoice] explain sid={sid}: no conversation stored yet - the Director has not pushed it. Not a read failure, and not a statement about the session.");
-                return Results.Json(new
-                {
-                    reply = "",
-                    spoken = "This session's conversation has not reached here yet. It should arrive in a moment.",
-                    replySeconds = 0.0,
-                    retrying = true,
-                });
-            }
 
-            // The read answered: clear whatever the LAST failed read recorded, so a stale retry verdict does
-            // not go on masking the honest result below. VoiceDisplayFold consults the unavailable state
-            // before nothingToNarrate, so without this an explain that failed once and then succeeded onto an
-            // empty turn kept reporting "voice on its way" forever (found in review). Only the read's own
-            // fact is cleared - the model and speech states clear where they were set.
-            voice.ClearReadFailed(reqTenant.Value, sid);
-
-            // An older agent reply is not an answer to a later user message. In that shape, read the live
-            // terminal and let a positively classified failure become the narration source. The session is
-            // otherwise still an ordinary wait, and the older reply stays silent.
-            ScreenGridResponse? screenGrid = null;
-            if (route is not null && WingmanNarrationSource.NeedsLiveScreen(widgets))
+            // THE WORDS ARE THE STOP'S VERDICT: the stored one when the screen is unchanged, a fresh judgement when it
+            // is not. This route used to pick the reply or the terminal failure itself and ask its own translator,
+            // which was a second rule for what a stop is made of and a second model call for a stop the verdict
+            // seat had already judged. The GATEWAY owns this work, not the page (issue #531 voice mode): it runs on
+            // CancellationToken.None so it completes and caches even if the phone navigates away.
+            var narration = await voice.NarrateStopOnRequestAsync(reqTenant.Value, sid, route, markAsVoiceSession: false, CancellationToken.None);
+            if (narration.Error is not null)
+                return Results.Json(new { error = narration.Error }, statusCode: StatusCodes.Status502BadGateway);
+            FileLog.Write($"[GatewayWingmanVoice] explain sid={sid}: verdict={narration.VerdictId ?? "(none)"} kind={narration.PackageKind ?? "(none)"} retrying={narration.Retrying} nothingYet={narration.NothingYet} spokenLen={narration.Spoken.Length} voiceSession={voice.IsVoiceSession(reqTenant.Value, sid)}");
+            return Results.Json(new
             {
-                try { screenGrid = await route.GetScreenGridAsync(sid, CancellationToken.None); }
-                catch (Exception ex) { FileLog.Write($"[GatewayWingmanVoice] explain sid={sid}: terminal screen read failed: {ex.Message}"); }
-            }
-            var source = WingmanNarrationSource.Select(
-                widgets,
-                screenGrid is { HasGrid: true } ? screenGrid.Rows : null);
-            var recentContext = source?.Kind == WingmanNarrationSourceKind.AgentReply
-                ? WingmanTranslator.BuildRecentContext(widgets)
-                : "";
-
-            if (source is null)
-            {
-                // No current reply and no recognized terminal failure. Record the honest wait and return a
-                // truthful canned line without calling the model.
-                voice.SetNothingToNarrate(reqTenant.Value, sid, true);
-                return Results.Json(new
-                {
-                    reply = "",
-                    spoken = "This session has not produced anything to summarize yet. Ask it something and I will read the answer back to you.",
-                    replySeconds = 0.0,
-                    nothingYet = true,
-                });
-            }
-
-            // The GATEWAY owns this work, not the page (issue #531 voice mode): run the translation
-            // and synthesis on CancellationToken.None so it COMPLETES and caches even if the phone
-            // navigates away or the request is abandoned mid-read - returning to the session then
-            // loads the finished summary from cache instead of losing it. Mark the session generating
-            // so it shows YELLOW ("not ready yet") for the duration, then back to red.
-            voice.SetNothingToNarrate(reqTenant.Value, sid, false);   // there IS a text reply - clear any stale "nothing to narrate"
-            voice.BeginGenerating(reqTenant.Value, sid);
-            try
-            {
-                var t = source.Kind == WingmanNarrationSourceKind.TerminalFailure
-                    ? await translator.TranslateTerminalFailureAsync(
-                        reqTenant.Value, source.Content, SessionTitle(reqTenant.Value, sid), CancellationToken.None)
-                    : await translator.TranslateAsync(
-                        reqTenant.Value, recentContext, source.Content, SessionTitle(reqTenant.Value, sid), ct: CancellationToken.None);
-                await voice.StoreSpokenAsync(
-                    reqTenant.Value, sid, t.Spoken, source.Content, CancellationToken.None,
-                    sourceIdentity: source.Identity);   // cache spoken + audio, ready to play
-                FileLog.Write($"[GatewayWingmanVoice] explain sid={sid}: source={source.Kind}, sourceLen={source.Content.Length}, spokenLen={t.Spoken.Length}");
-                return Results.Json(new { reply = source.Content, spoken = t.Spoken, replySeconds = t.ReplySeconds });
-            }
-            catch (Exception ex) when (ex is TimeoutException or HttpRequestException)
-            {
-                // The model leg did not answer in time (bounded timeout) or the transport failed. This is
-                // the absence of an answer, not evidence the session's computer is offline - so record the
-                // calm Retrying state (the phone shows "voice on its way" and the sweep keeps trying) and
-                // return a benign 200, NOT the 502 the phone used to mislabel "this session's computer looks
-                // offline". Before this, a stalled model hung the request the full 180s and then 502'd, which
-                // is exactly the "I hit generate and nothing happens" the owner reported.
-                voice.NoteRetrying(reqTenant.Value, sid);
-                FileLog.Write($"[GatewayWingmanVoice] explain sid={sid} model did not answer: {ex.Message} - Retrying (audio on its way)");
-                return Results.Json(new
-                {
-                    reply = "",
-                    spoken = "Voice is taking a moment - it will keep trying.",
-                    replySeconds = 0.0,
-                    retrying = true,
-                });
-            }
-            catch (Exception ex)
-            {
-                FileLog.Write($"[GatewayWingmanVoice] explain sid={sid} FAILED: {ex.Message}");
-                return Results.Json(new { error = "wingman could not summarize: " + ex.Message },
-                    statusCode: StatusCodes.Status502BadGateway);
-            }
-            finally { voice.EndGenerating(reqTenant.Value, sid); }
+                reply = narration.Reply,
+                spoken = narration.Spoken,
+                replySeconds = narration.ReplySeconds,
+                retrying = narration.Retrying,
+                nothingYet = narration.NothingYet,
+                verdictId = narration.VerdictId,
+                packageKind = narration.PackageKind,
+            });
         });
 
         app.MapPost("/wingman/ask-direct", async (WingmanVoiceTurnRequest? req, HttpContext ctx, CancellationToken ct) =>

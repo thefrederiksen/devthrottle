@@ -174,6 +174,27 @@ public static class ActivityEventTypes
     /// state is no longer one a "continue" may be sent to. Nothing needed a person's attention.</summary>
     public const string SupervisorStoodDown = "supervisor-stood-down";
 
+    /// <summary>The Wingman judged a stop and its answer was ACCEPTED by the turn-verdict contract (the
+    /// Wingman-on-every-turn mission). The detail carries the verdict word, the package kind, the verdict id,
+    /// the trigger and the model - never a word of the screen or the conversation.</summary>
+    public const string TurnVerdictJudged = "turn-verdict-judged";
+
+    /// <summary>The Wingman did not ask the judge because the screen is the one it last judged, so the stored
+    /// verdict still describes it. The cause is <see cref="ActivityCauses.ScreenUnchanged"/>.</summary>
+    public const string TurnVerdictReused = "turn-verdict-reused";
+
+    /// <summary>The Wingman asked the judge and got no usable verdict: no answer, a rate limit, or an answer
+    /// the contract refused. The cause says which. A failed record is stored and the row stays red.</summary>
+    public const string TurnVerdictFailed = "turn-verdict-failed";
+
+    /// <summary>The Wingman did not judge this stop at all, and the cause says why - most importantly
+    /// <see cref="ActivityCauses.Held"/>, a session a live owning session is holding, which is never read.</summary>
+    public const string TurnVerdictSkipped = "turn-verdict-skipped";
+
+    /// <summary>A judgement in flight was abandoned because the session started working again, so its answer
+    /// would have described a screen that no longer exists. Nothing is stored.</summary>
+    public const string TurnVerdictCancelled = "turn-verdict-cancelled";
+
     /// <summary>Every legal event type, for validation.</summary>
     public static readonly IReadOnlyList<string> All = new[]
     {
@@ -181,6 +202,7 @@ public static class ActivityEventTypes
         TurnObservedInTranscript, SessionExited, SnoozeCreated, SnoozeLanded, SnoozeEnded,
         SupervisorFaultDetected, SupervisorWaiting, SupervisorContinueSent, SupervisorRecovered,
         SupervisorEscalated, SupervisorStoodDown,
+        TurnVerdictJudged, TurnVerdictReused, TurnVerdictFailed, TurnVerdictSkipped, TurnVerdictCancelled,
     };
 }
 
@@ -270,6 +292,40 @@ public static class ActivityCauses
     /// retrying forever.</summary>
     public const string RetryCeiling = "retry-ceiling";
 
+    /// <summary>The judge answered and the contract accepted the answer.</summary>
+    public const string JudgeAnswered = "judge-answered";
+
+    /// <summary>The screen is the one the stored verdict was formed on, so no judge was asked.</summary>
+    public const string ScreenUnchanged = "screen-unchanged";
+
+    /// <summary>The judge did not answer within its timeout, or the call never reached it.</summary>
+    public const string JudgeDidNotAnswer = "judge-did-not-answer";
+
+    /// <summary>The judge answered and the turn-verdict contract refused the answer.</summary>
+    public const string JudgeRefused = "judge-refused";
+
+    /// <summary>The judge could not be asked at all - no account key, or the provider answered an error.</summary>
+    public const string JudgeUnavailable = "judge-unavailable";
+
+    /// <summary>A live owning session holds this session, so it is not the owner's to be read.</summary>
+    public const string Held = "held";
+
+    /// <summary>The session has taken no turn yet, so there is no stop to judge.</summary>
+    public const string BrandNew = "brand-new";
+
+    /// <summary>This account has not switched turn judging on.</summary>
+    public const string JudgeSwitchOff = "judge-switch-off";
+
+    /// <summary>This account already has as many judgements in flight as its ceiling allows.</summary>
+    public const string InFlightCap = "in-flight-cap";
+
+    /// <summary>A judgement for this same session is already in flight, so a second stop is not queued.</summary>
+    public const string AlreadyJudging = "already-judging";
+
+    /// <summary>A voice narration's speech re-attempt found no verdict it could reuse. A re-attempt never asks the
+    /// judge, so it gives up for that stop instead of making a second model call for it.</summary>
+    public const string ReattemptNeverJudges = "reattempt-never-judges";
+
     /// <summary>Every legal cause, for validation.</summary>
     public static readonly IReadOnlyList<string> All = new[]
     {
@@ -278,6 +334,8 @@ public static class ActivityCauses
         SnoozeRequested, WorkSettled, DirectorRemoved, SessionNotLive, Unknown,
         TransientTransport, RateLimited, ContextFull, NonRecoverable, UnclassifiedFault,
         MenuOwnsScreen, RetryCeiling,
+        JudgeAnswered, ScreenUnchanged, JudgeDidNotAnswer, JudgeRefused, JudgeUnavailable,
+        Held, BrandNew, JudgeSwitchOff, InFlightCap, AlreadyJudging, ReattemptNeverJudges,
     };
 }
 

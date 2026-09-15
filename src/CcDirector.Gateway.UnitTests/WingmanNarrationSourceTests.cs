@@ -101,17 +101,6 @@ public sealed class WingmanNarrationSourceTests
         Assert.Null(WingmanNarrationSource.Select(new List<TurnWidgetDto>(), null));
     }
 
-    [Fact]
-    public void LiveScreenIsNeededOnlyWhenThePersonSpokeAfterTheLatestReply()
-    {
-        Assert.True(WingmanNarrationSource.NeedsLiveScreen(Widgets(
-            ("Text", "old"),
-            ("UserMessage", "new"))));
-        Assert.False(WingmanNarrationSource.NeedsLiveScreen(Widgets(
-            ("UserMessage", "question"),
-            ("Text", "answer"))));
-    }
-
     private static List<TurnWidgetDto> Widgets(params (string Kind, string Content)[] values)
         => values.Select(value => new TurnWidgetDto
         {
