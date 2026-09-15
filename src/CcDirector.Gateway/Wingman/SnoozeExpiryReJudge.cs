@@ -119,10 +119,30 @@ public static class SnoozeExpiryDecision
 /// </summary>
 public sealed class SnoozeExpiryReJudge
 {
-    /// <summary>What the previous fold saw for one session. <paramref name="ArmedUntilUtc"/> identifies WHICH
-    /// snooze was seen armed, so a re-snooze is a new clock and takes a new observation rather than inheriting
-    /// the old one's.</summary>
-    private sealed record Watch(bool Expired, DateTime? ArmedSeenAtUtc, DateTime? ArmedUntilUtc, bool NothingNew);
+    /// <summary>
+    /// What the previous fold saw for one session. <see cref="ArmedUntilUtc"/> identifies WHICH snooze was seen
+    /// armed, so a re-snooze is a new clock and takes a new observation rather than inheriting the old one's.
+    ///
+    /// A CLASS, NOT A RECORD, AND THAT IS LOAD-BEARING. It is the compare value of a compare-and-swap, and
+    /// <c>ConcurrentDictionary.TryUpdate</c> compares with the default equality comparer - which for a record is
+    /// VALUE equality. Two folds holding two equal-but-different snapshots would then both win the swap, and both
+    /// would fire the edge. Reference equality makes the swap mean what a swap has to mean: exactly one winner.
+    /// </summary>
+    private sealed class Watch
+    {
+        public Watch(bool expired, DateTime? armedSeenAtUtc, DateTime? armedUntilUtc, bool nothingNew)
+        {
+            Expired = expired;
+            ArmedSeenAtUtc = armedSeenAtUtc;
+            ArmedUntilUtc = armedUntilUtc;
+            NothingNew = nothingNew;
+        }
+
+        public bool Expired { get; }
+        public DateTime? ArmedSeenAtUtc { get; }
+        public DateTime? ArmedUntilUtc { get; }
+        public bool NothingNew { get; }
+    }
 
     private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), Watch> _watch = new();
     private readonly Action<TenantId, string, string>? _requestRead;
@@ -169,13 +189,17 @@ public sealed class SnoozeExpiryReJudge
                 // one has none any more; both forget, so the next arming is observed afresh.
                 if (until is DateTime deadline && deadline > nowUtc)
                 {
+                    // THE FIRST FOLD TO SEE THIS CLOCK IS THE ONE THAT DATES IT. A concurrent fold must not
+                    // re-stamp the observation to its own later moment, so the entry is only added or swapped
+                    // when this caller genuinely has something new to say: a clock nobody had seen yet.
                     var previous = _watch.TryGetValue(key, out var seen) ? seen : null;
-                    var sameClock = previous is { ArmedUntilUtc: DateTime was } && was == deadline;
-                    _watch[key] = new Watch(
-                        Expired: false,
-                        ArmedSeenAtUtc: sameClock ? previous!.ArmedSeenAtUtc : nowUtc,
-                        ArmedUntilUtc: deadline,
-                        NothingNew: false);
+                    var sameClock = previous is { Expired: false, ArmedUntilUtc: DateTime was } && was == deadline;
+                    if (!sameClock)
+                    {
+                        var armed = new Watch(false, nowUtc, deadline, false);
+                        if (previous is null) _watch.TryAdd(key, armed);
+                        else _watch.TryUpdate(key, armed, previous);
+                    }
                 }
                 else
                 {
@@ -184,36 +208,52 @@ public sealed class SnoozeExpiryReJudge
                 continue;
             }
 
+            StampExpired(tenant, key, s, until);
+        }
+    }
+
+    /// <summary>
+    /// One session whose snooze has elapsed: take the edge if it is still there to take, otherwise hold.
+    ///
+    /// THE EDGE IS WON, NOT OBSERVED. The roster, the single-session read and every accepted Director push all
+    /// fold through here, concurrently, over ONE shared memory - so "was it expired last time?" read and then
+    /// written is two steps a second fold can slip between, and both would ask the judge about the same stop.
+    /// The transition is a compare-and-swap instead: whoever swaps the session's entry from not-expired to
+    /// expired is the one caller that acts, and everybody else goes round and takes the hold path. This is the
+    /// same defect, and the same fix, as the one-stop-raised-twice finding on slice E.
+    /// </summary>
+    private void StampExpired(TenantId tenant, (TenantId, string) key, SessionDto s, DateTime? until)
+    {
+        while (true)
+        {
             var watch = _watch.TryGetValue(key, out var held) ? held : null;
             // The observation only counts for the clock that actually elapsed. A snooze this Gateway watched
             // being armed, then re-armed elsewhere, is a different stretch of quiet.
             var armedAt = watch is { ArmedUntilUtc: DateTime armedUntil } && until is DateTime elapsed && armedUntil == elapsed
                 ? watch.ArmedSeenAtUtc
                 : null;
+            var outcome = SnoozeExpiryDecision.AtExpiry(armedAt, s.TurnVerdict, s.VerdictState, turnEndsSinceSnoozeSet: null);
 
             if (watch is { Expired: true })
             {
-                // ALREADY EXPIRED ON THE PREVIOUS FOLD: the edge has fired, so nothing is asked and nothing is
-                // recorded. The calm stamp is re-decided rather than remembered, and only ever downward - this
-                // can stop saying "nothing new", and can never start.
-                var stillNothingNew = watch.NothingNew
-                    && SnoozeExpiryDecision.AtExpiry(armedAt, s.TurnVerdict, s.VerdictState, turnEndsSinceSnoozeSet: null)
-                        == SnoozeExpiryOutcome.NothingNew;
+                // ALREADY EXPIRED WHEN SOMEBODY LOOKED LAST: the edge has fired, so nothing is asked and nothing
+                // is recorded. The calm stamp is re-decided rather than remembered, and only ever downward - this
+                // can stop saying "nothing new", and can never start. A lost swap here changes nothing worth
+                // retrying for: the other caller computed the same answer from the same row.
+                var stillNothingNew = watch.NothingNew && outcome == SnoozeExpiryOutcome.NothingNew;
                 s.SnoozeEndedNothingNew = stillNothingNew;
-                _watch[key] = watch with { NothingNew = stillNothingNew };
-                continue;
+                if (stillNothingNew != watch.NothingNew)
+                    _watch.TryUpdate(key, new Watch(true, watch.ArmedSeenAtUtc, watch.ArmedUntilUtc, stillNothingNew), watch);
+                return;
             }
 
-            // THE EDGE.
-            var outcome = SnoozeExpiryDecision.AtExpiry(armedAt, s.TurnVerdict, s.VerdictState, turnEndsSinceSnoozeSet: null);
-            s.SnoozeEndedNothingNew = outcome == SnoozeExpiryOutcome.NothingNew;
-            _watch[key] = new Watch(
-                Expired: true,
-                ArmedSeenAtUtc: armedAt,
-                ArmedUntilUtc: until,
-                NothingNew: outcome == SnoozeExpiryOutcome.NothingNew);
+            // THE EDGE. Nobody acts until the swap is won.
+            var next = new Watch(true, armedAt, until, outcome == SnoozeExpiryOutcome.NothingNew);
+            var won = watch is null ? _watch.TryAdd(key, next) : _watch.TryUpdate(key, next, watch);
+            if (!won) continue;   // another fold took this expiry; go round and hold with whatever it decided
 
-            if (outcome == SnoozeExpiryOutcome.None) continue;
+            s.SnoozeEndedNothingNew = outcome == SnoozeExpiryOutcome.NothingNew;
+            if (outcome == SnoozeExpiryOutcome.None) return;
 
             FileLog.Write($"[SnoozeExpiryReJudge] sid={s.SessionId} tenant={tenant.ToLogString()} snooze ended: {outcome}");
             _record?.Invoke(new TurnVerdictRecord(tenant, s.DirectorId ?? "", s.SessionId,
@@ -222,6 +262,7 @@ public sealed class SnoozeExpiryReJudge
 
             if (outcome == SnoozeExpiryOutcome.ReadRequested)
                 _requestRead?.Invoke(tenant, s.DirectorId ?? "", s.SessionId);
+            return;
         }
     }
 

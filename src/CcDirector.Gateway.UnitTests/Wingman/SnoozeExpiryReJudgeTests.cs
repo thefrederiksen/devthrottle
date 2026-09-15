@@ -453,6 +453,56 @@ public sealed class SnoozeExpiryReJudgeTests : IDisposable
     }
 
     [Fact]
+    public void ManyFoldsRacingOnOneExpiry_AskExactlyOnceBetweenThem()
+    {
+        // THE ROSTER, THE SINGLE-SESSION READ AND EVERY ACCEPTED DIRECTOR PUSH ALL FOLD CONCURRENTLY over ONE
+        // shared memory, each holding its own clone of the row. "Was it expired last time?" read and then
+        // written is two steps another fold can slip between, and both would then ask the judge about the same
+        // stop - the one-stop-raised-twice defect slice E's inspector found. The transition is a compare-and-swap,
+        // and this is what makes that claim mean something.
+        //
+        // It drives the memory directly rather than the whole fold, so the racers really do contend on the one
+        // thing under test; the verdict each clone carries is what the row stamp would have put there.
+        Snoozes.Snooze("s1", Deadline, "dir-1");
+        var refused = Verdict("", "", Armed.AddMinutes(5), failed: true);
+        var seen = Snoozes.HoldSnapshotFor(new[] { "s1" });
+
+        var reads = new System.Collections.Concurrent.ConcurrentBag<string>();
+        var ledger = new System.Collections.Concurrent.ConcurrentBag<string>();
+        var racing = new SnoozeExpiryReJudge(
+            requestRead: (_, _, sid) => reads.Add(sid),
+            record: r => ledger.Add(r.Cause));
+
+        SessionDto Clone()
+        {
+            var r = Row("s1");
+            r.TurnVerdict = refused;
+            r.VerdictState = VerdictStates.Failed;
+            return r;
+        }
+
+        // Seen armed once, as a fold would before the clock ran out.
+        racing.Observe(Account, new[] { Clone() }, seen, Armed.AddSeconds(1));
+
+        const int racers = 32;
+        var clones = Enumerable.Range(0, racers).Select(_ => Clone()).ToArray();
+        using var start = new Barrier(racers);
+        var threads = Enumerable.Range(0, racers).Select(i => new Thread(() =>
+        {
+            start.SignalAndWait();
+            racing.Observe(Account, new[] { clones[i] }, seen, AfterExpiry);
+        })).ToArray();
+        foreach (var t in threads) t.Start();
+        foreach (var t in threads) Assert.True(t.Join(TimeSpan.FromSeconds(30)));
+
+        // ONE read and ONE ledger line between all of them.
+        Assert.Single(reads);
+        Assert.Equal(new[] { "snooze-re-judge-requested" }, ledger.ToArray());
+        // And every racer folded its own row, winner or not: a row that lost the swap is still answered.
+        Assert.All(clones, c => Assert.False(c.SnoozeEndedNothingNew));
+    }
+
+    [Fact]
     public void ADeferredHoldThatNeverArmed_IsNeverAnExpiry()
     {
         // A deferred hold has no clock until the work ends, so it can never elapse and there is nothing to rule on.
