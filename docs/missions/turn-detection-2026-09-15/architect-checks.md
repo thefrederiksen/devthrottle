@@ -84,3 +84,30 @@ This is worth recording as a pattern, not just a correction. Both Managers reach
 reassuring sentence available - "nothing touches the Gateway", "references none of the changed types"
 - and in both cases the narrower true statement was still good enough to justify the same decision.
 The wide version cost nothing to write and would have been believed.
+
+## The Gateway suite cannot be run locally under contention, measured
+
+This mission spent real time waiting for `CcDirector.Gateway.Tests` to become runnable, on the
+Architect's instruction that it must have a verdict before landing. That instruction was wrong on
+two counts and both are recorded here rather than quietly dropped.
+
+**It cannot be waited out.** The lock's maximum wait is 45 minutes. Measured from the lock's own log
+on 15 September, across 487 distinct holder processes, the longest single hold is 6,555 seconds -
+one hour and 49 minutes. A queued run therefore cannot acquire under contention: it waits the full
+45 minutes and reports `outcome=Failed  total=0  executed=0`, which is a run that collected nothing
+and reads in a report exactly like a run that found no defect. The constant is sized by a code
+comment claiming the suite takes roughly nine minutes. Filed as issue #2862 with the numbers.
+
+**It was not the merge gate anyway.** The repository's rule is a green local run plus a review from
+a different agent family, then merge - never hold a merge for a check. `-Parked`, which is where
+this suite lives, is the RELEASE gate. Holding phase one's merge for it inverted that.
+
+So the corrected plan: merge on the local green and the inspection, and read the continuous
+integration result afterwards, where the suite runs on a clean runner with no lock at all
+(`ci.yml` runs `dotnet test cc-director.sln -c Release`, and the suite is in that solution - both
+checked). A red there is chased forward immediately.
+
+**What this does NOT license.** The suite still has no verdict at the moment of merging, and this
+change is not released by merging. Before any release carries it, the release gate is one command -
+`.\scripts\test-local.ps1 -Parked -Configuration Release` - and that run has to happen on a machine
+quiet enough for the lock to be free.
