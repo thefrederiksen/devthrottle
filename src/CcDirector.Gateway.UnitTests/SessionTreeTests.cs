@@ -337,6 +337,26 @@ public sealed class SessionTreeTests
     }
 
     [Fact]
+    public void IsOnAnotherMachine_FallsBackToTheMachineName_WhenEitherSideDoesNotSayWhichDirectorItIsOn()
+    {
+        // The fallback existed and was unreachable by any fixture: every session in the suite carried a
+        // Director id, so deleting the fallback and returning false left everything green - and a child on
+        // another machine would then have been reported as sitting beside its parent whenever an id was
+        // missing. A Director id can be absent on a roster read before the Director has registered, and the
+        // machine name is the only thing left that can tell two of them apart.
+        var host = S("host", 0, machineName: "SOREN_NORTH");
+        var beside = S("beside", 1, controller: "host", machineName: "SOREN_NORTH");
+        var away = S("away", 2, controller: "host", machineName: "SORENLAPTOP");
+        var awayNamed = S("awayNamed", 3, controller: "host", directorId: "d9", machineName: "SORENLAPTOP");
+
+        Assert.False(SessionTree.IsOnAnotherMachine(host, beside));
+        Assert.True(SessionTree.IsOnAnotherMachine(host, away));
+        // ONE side missing its Director id is enough to fall back: an id cannot be compared to nothing.
+        Assert.True(SessionTree.IsOnAnotherMachine(host, awayNamed));
+        Assert.False(SessionTree.IsOnAnotherMachine(awayNamed, away));
+    }
+
+    [Fact]
     public void Build_RendersEveryMemberOfAnOwnershipLoopExactlyOnce_AsRoots()
     {
         var a = S("a", 0, controller: "b");

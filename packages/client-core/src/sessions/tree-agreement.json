@@ -279,6 +279,39 @@
       "attention": [
         { "title": "Needs you", "roots": ["v", "w", "u"] }
       ]
+    },
+    {
+      "name": "a Director that did not say who it is",
+      "proves": "when either side carries no Director id the row falls back to the machine name, which is the only thing left that can tell two Directors apart",
+      "sessions": [
+        { "sessionId": "host", "sortOrder": 0, "machineName": "SOREN_NORTH", "createdAt": "2026-09-14T16:00:00Z", "activityState": "Working", "effectiveColor": "blue", "triageBucket": "active" },
+        { "sessionId": "beside", "sortOrder": 1, "controllerSessionId": "host", "machineName": "SOREN_NORTH", "createdAt": "2026-09-14T16:10:00Z", "activityState": "Working", "effectiveColor": "blue", "triageBucket": "active" },
+        { "sessionId": "away", "sortOrder": 2, "controllerSessionId": "host", "directorId": "d9", "machineName": "SORENLAPTOP", "createdAt": "2026-09-14T16:20:00Z", "activityState": "Working", "effectiveColor": "blue", "triageBucket": "active" },
+        { "sessionId": "alsoAway", "sortOrder": 3, "controllerSessionId": "host", "machineName": "SORENLAPTOP", "createdAt": "2026-09-14T16:30:00Z", "activityState": "Working", "effectiveColor": "blue", "triageBucket": "active" }
+      ],
+      "roots": ["host"],
+      "children": { "host": ["beside", "away", "alsoAway"] },
+      "onAnotherMachine": {
+        "host>beside": false,
+        "host>away": true,
+        "host>alsoAway": true,
+        "away>alsoAway": false,
+        "away>beside": true
+      },
+      "crews": [
+        {
+          "root": "host",
+          "descendants": ["beside@host@1", "away@host@1", "alsoAway@host@1"],
+          "count": 3, "needsYou": 0, "working": 3, "stopped": 0,
+          "since": "2026-09-14T16:00:00.000Z",
+          "line": "3 under it: 3 working, 0 stopped, 0 need you",
+          "ageAt": "2026-09-14T17:00:00Z",
+          "age": "1h 0m"
+        }
+      ],
+      "attention": [
+        { "title": "Working", "roots": ["host"] }
+      ]
     }
   ]
 }
