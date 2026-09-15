@@ -414,8 +414,18 @@ public static class TurnVerdictContract
         return sb.ToString();
     }
 
+    /// <summary>The first character of the box-drawing block: the corners, lines and junctions an agent
+    /// draws its panels with. Written as a code point rather than as the character, so this file stays
+    /// plain keyboard text.</summary>
+    private const char BoxDrawingFirst = (char)0x2500;
+
+    /// <summary>The last character of the block-elements block, which follows box drawing immediately:
+    /// the bars a progress or selection marker is drawn with. The two blocks are contiguous, so one
+    /// range covers both.</summary>
+    private const char BlockElementsLast = (char)0x259F;
+
     private static bool IsEdgeCharacter(char c)
-        => char.IsWhiteSpace(c) || (c >= '─' && c <= '▟');
+        => char.IsWhiteSpace(c) || (c >= BoxDrawingFirst && c <= BlockElementsLast);
 
     // ==================================================================== pieces
 
@@ -477,16 +487,28 @@ public static class TurnVerdictContract
         return new OptionsResult(options, null);
     }
 
-    /// <summary>An option's bytes. A send of nothing but control characters - a lone carriage return,
-    /// which is how a picker is confirmed - survives the trim that every other field gets.</summary>
+    /// <summary>
+    /// An option's bytes, taken EXACTLY as written and never trimmed.
+    ///
+    /// Every other string field here is trimmed, and this one must not be. The send is what gets typed
+    /// into a live session: a picker is confirmed by a carriage return carried inside the send, and
+    /// trimming turns "1\r" into "1", which selects the option and never confirms it - the person taps
+    /// the button, the picker sits there, and nothing says why. That is not a hypothetical; the first
+    /// run of this contract's own tests caught it, because the trim was inherited from a contract whose
+    /// fields are all prose.
+    ///
+    /// Nothing to send means an empty string, or one made only of ordinary whitespace - spaces type
+    /// spaces, which answers nothing. A send that is only carriage returns or line feeds is a real
+    /// send: it is how a picker's highlighted default is accepted.
+    /// </summary>
     private static string ReadSend(JsonElement option)
     {
         if (!option.TryGetProperty("send", out var element) || element.ValueKind != JsonValueKind.String)
             return "";
         var raw = element.GetString() ?? "";
-        var trimmed = raw.Trim();
-        if (trimmed.Length > 0) return trimmed;
-        return raw.Length > 0 && raw.All(c => c is '\r' or '\n') ? raw : "";
+        if (raw.Length == 0) return "";
+        if (raw.Trim().Length == 0 && !raw.Any(c => c is '\r' or '\n')) return "";
+        return raw;
     }
 
     private readonly record struct MenuResult(TurnVerdictMenuDto? Menu, string? Reason);
