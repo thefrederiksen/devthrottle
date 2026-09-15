@@ -32,6 +32,7 @@ import { NavDrawer } from "../components/NavDrawer";
 import { AccountSwitcher } from "@devthrottle/client-core/auth/AccountSwitcher";
 import { RestartRequestsPanel } from "@devthrottle/client-core/restart/RestartRequestsPanel";
 import { SessionFilterPanel } from "../components/SessionFilterPanel";
+import { ColourLegendButton } from "@devthrottle/client-core/sessions/ColourLegend";
 import { useSessionFilter } from "../hooks/useSessionFilter";
 import {
   enablePush,
@@ -419,6 +420,13 @@ export function Home() {
               Attention
             </button>
           </div>
+        </div>
+      )}
+
+      {/* What the dots mean. The same shared legend the Cockpit roster rail mounts. */}
+      {tab === "all" && sessions !== null && total > 0 && (
+        <div className="legend-row">
+          <ColourLegendButton />
         </div>
       )}
 
