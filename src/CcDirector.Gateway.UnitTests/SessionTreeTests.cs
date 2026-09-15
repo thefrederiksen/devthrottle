@@ -331,6 +331,27 @@ public sealed class SessionTreeTests
         Assert.Equal(new[] { "w", "u" }, Ids(sections[0].Roots));
     }
 
+    [Fact]
+    public void AttentionSections_TwoEqualWaits_AreOrderedByCreationTimeAndThenBySessionId()
+    {
+        // Both deterministic tie-breaks were decorative: no fixture held two sessions with the same
+        // waiting stamp, so removing either one changed no answer - and equal-wait rows would then swap
+        // places between polls, which is the exact jitter the waiting line exists to stop.
+        //
+        // The ids and creation times deliberately disagree with each other: "z" is the OLDEST but sorts
+        // LAST by id, so a fold that had lost the creation-time tie-break cannot reach this answer by the
+        // id tie-break alone. And "b" is handed in before "a" with the same creation time, so a fold that
+        // had lost the id tie-break would fall back to arrival order and put "b" first.
+        var wait = At(21, 0, 0);
+        var b = S("b", 1, bucket: "needsYou", needsYouSince: wait, createdAt: At(16, 0, 0));
+        var a = S("a", 2, bucket: "needsYou", needsYouSince: wait, createdAt: At(16, 0, 0));
+        var z = S("z", 3, bucket: "needsYou", needsYouSince: wait, createdAt: At(15, 0, 0));
+
+        var sections = SessionTree.AttentionSections(new[] { b, a, z });
+
+        Assert.Equal(new[] { "z", "a", "b" }, Ids(sections[0].Roots));
+    }
+
     // ===== The three cases the pull request 2852 inspections forced =====
 
     [Fact]

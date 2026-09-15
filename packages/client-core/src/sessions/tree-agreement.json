@@ -361,6 +361,21 @@
       "attention": [
         { "title": "Needs you", "roots": ["R"] }
       ]
+    },
+    {
+      "name": "equal waits, broken by creation time and then by session id",
+      "proves": "two sessions that have waited exactly as long are ordered deterministically - by when they were created, then by their id - so the line never jitters between polls",
+      "sessions": [
+        { "sessionId": "b", "sortOrder": 1, "createdAt": "2026-09-14T16:00:00Z", "activityState": "WaitingForInput", "needsYouSince": "2026-09-14T21:00:00Z", "effectiveColor": "red", "triageBucket": "needsYou" },
+        { "sessionId": "a", "sortOrder": 2, "createdAt": "2026-09-14T16:00:00Z", "activityState": "WaitingForInput", "needsYouSince": "2026-09-14T21:00:00Z", "effectiveColor": "red", "triageBucket": "needsYou" },
+        { "sessionId": "z", "sortOrder": 3, "createdAt": "2026-09-14T15:00:00Z", "activityState": "WaitingForInput", "needsYouSince": "2026-09-14T21:00:00Z", "effectiveColor": "red", "triageBucket": "needsYou" }
+      ],
+      "roots": ["b", "a", "z"],
+      "children": {},
+      "crews": [],
+      "attention": [
+        { "title": "Needs you", "roots": ["z", "a", "b"] }
+      ]
     }
   ]
 }
