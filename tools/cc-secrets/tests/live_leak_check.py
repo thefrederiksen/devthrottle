@@ -7,11 +7,12 @@ after the command has returned:
              site (and a second "agent" site on another port), and then uses them through every command
              an agent has - list, run (stdin, env and askpass), and login in the Director-owned browser.
              The login cases: a one-page form, a two-step form, a wrong password, a form that will not
-             submit, a tab on a host the entry does not allow, an entry kept back from agents, and the
-             reviewer's cases from pull request 2891 - pressing Back after logging in and after a wrong
-             password, a single-page app that hides its form, an agent rewriting the form's action to its
-             own server, and a tab on another port of the allowed host. After each login it takes what an
-             agent can take: browser-harness page info, the page HTML, the page text, every input's value
+             submit, a tab on a host the entry does not allow, an entry kept back from agents, the first
+             review's cases (pressing Back after logging in and after a wrong password, a single-page app
+             that hides its form, an agent rewriting the form's action to its own server, a tab on another
+             port of the allowed host) and the second review's cases (a form that sends by GET, and the
+             browser connection dropping right after the password was typed). After each login it takes what
+             an agent can take: browser-harness page info, the page HTML, the page text, every input's value
              (hidden ones included), the accessibility tree, and a screenshot. EVERYTHING it prints is what
              the agent would see, and it all lands in the transcript.
   2. verify  Checks every login had the expected outcome, then searches the transcript, the recorded
@@ -24,9 +25,9 @@ copy of the secret in each kind of file, and unless each file covers this run. S
 Windows' built-in text recognition; the control is a page that shows the secret in plain text, which the
 recognition must read back before its silence about the real screenshots counts.
 
-Where a check needs to know whether an agent-side action got hold of the secret - the agent's own server
-receiving it, or a listener the agent attached to the page - the comparison is made here, privately, and
-only "yes" or "no" is printed.
+Where a check needs to know whether something got hold of the secret - the agent's own server, the page
+address, the page after a dropped connection, a listener the agent attached to the page - the comparison is
+made here, privately, and only "yes" or "no" is printed.
 
 Known limitation, checked and reported rather than hidden: JavaScript already running in the page receives
 the password, because the site needs it, so an input listener an agent attaches to the page before calling
@@ -65,6 +66,28 @@ sys.path.insert(0, str(TESTS_DIR))
 OCR_SAFE = "ACDEFGHJKMNPQRTUVWXY34679"
 USERNAME = "leak-user"
 
+# Runs the installed command with the browser connection dropping right after the password is typed - the
+# second review's reproduction. Only the timing of the failure is injected; the page and browser are real.
+DROP_AFTER_PASSWORD = """
+import sys
+import cc_secrets.browser_login as bl
+from cc_secrets.cli import main
+original = bl.CdpConnection.call
+fills = 0
+def drop_after_second_fill(self, method, params=None):
+    global fills
+    result = original(self, method, params)
+    if method == 'Runtime.callFunctionOn' and (params or {}).get('functionDeclaration') == bl._SET_VALUE:
+        fills += 1
+        if fills == 2:
+            self._ws.close()
+            raise ConnectionResetError('injected disconnect after password delivery')
+    return result
+bl.CdpConnection.call = drop_after_second_fill
+sys.argv[0] = 'cc-secrets'
+main()
+"""
+
 
 def ocr_safe_secret(length: int = 20) -> str:
     return "".join(secrets.choice(OCR_SAFE) for _ in range(length))
@@ -88,6 +111,9 @@ FORM = """<!doctype html><html><head><title>Leak check {title}</title></head><bo
 <button type="submit">Sign in</button></form>{script}</body></html>"""
 USER_FIELD = '<p><label>User <input name="username" autocomplete="username"></label></p>'
 PASS_FIELD = '<p><label>Password <input type="password" name="password" autocomplete="current-password"></label></p>'
+GET_FORM = ('<!doctype html><html><head><title>Leak check get form</title></head><body style="font:20px sans-serif">'
+            '<h1>Leak check get form</h1><form action="/welcome">' + USER_FIELD + PASS_FIELD +
+            '<button type="submit">Sign in</button></form></body></html>')
 SPA_SCRIPT = """<script>
 document.forms[0].addEventListener('submit', e => {
   e.preventDefault();
@@ -123,7 +149,7 @@ class _Handler(BaseHTTPRequestHandler):
         return parse_qs(self.rfile.read(length).decode("utf-8"))
 
 
-def make_site(good_secret: str, marker: str):
+def make_site(good_secret: str, marker: str, get_received: list):
     class Handler(_Handler):
         def do_GET(self):
             url = urlsplit(self.path)
@@ -132,6 +158,8 @@ def make_site(good_secret: str, marker: str):
                 message = "Wrong password." if "error" in query else "Please sign in."
                 self._send(200, FORM.format(title="login", message=message, action="/session", extra="",
                                             fields=USER_FIELD + PASS_FIELD, script=""))
+            elif url.path == "/get-login":
+                self._send(200, GET_FORM)
             elif url.path == "/two-step":
                 self._send(200, FORM.format(title="two-step", message="Step one.", action="/two-step-user",
                                             extra="", fields=USER_FIELD, script=""))
@@ -146,6 +174,7 @@ def make_site(good_secret: str, marker: str):
                 self._send(200, FORM.format(title="single-page app", message="Sign in.", action="/api", extra="",
                                             fields=USER_FIELD + PASS_FIELD, script=SPA_SCRIPT))
             elif url.path == "/welcome":
+                get_received.append(query.get("password", [""])[0])
                 self._send(200, f"<!doctype html><title>Leak check welcome</title><h1>Signed in as {USERNAME}</h1><p>{marker}</p>")
             elif url.path == "/planted":
                 self._send(200, "<!doctype html><title>Leak check control</title><body style='background:#fff'>"
@@ -229,8 +258,8 @@ def run(args) -> int:
     run_id = "live-" + secrets.token_hex(6)
     started = datetime.now(timezone.utc)
     good, wrong, kept = ocr_safe_secret(), ocr_safe_secret(), ocr_safe_secret()
-    received = []
-    site = make_site(good, run_id)
+    received, get_received = [], []
+    site = make_site(good, run_id, get_received)
     agent_site = make_agent_site(received)
     port = site.server_address[1]
     agent_port = agent_site.server_address[1]
@@ -282,6 +311,7 @@ def run(args) -> int:
         command([cc, "run", "leak-good", "--", py, "-c",
                  "import sys,base64; s=sys.stdin.readline().strip(); print('plain', s); print('b64', base64.b64encode(s.encode()).decode())"], out, env=env)
         command([cc, "run", "leak-good", "--via", "env", "--", py, "-c", "import os; print('env', os.environ['CC_SECRET'])"], out, env=env)
+        command([cc, "run", "leak-good", "--via", "env", "--", py, "-c", "import os; print({'password': os.environ['CC_SECRET']})"], out, env=env)
         command([cc, "run", "leak-good", "--via", "env", "--", "cmd", "/c", "echo cmd %CC_SECRET%"], out, env=env)
         command([cc, "run", "leak-good", "--via", "env", "--", "cmd", "/u", "/c", "echo utf16 %CC_SECRET%"], out, env=env)
         command([cc, "run", "leak-good", "--via", "askpass", "--", py, "-c",
@@ -327,6 +357,22 @@ print("screenshot saved")
         received.clear()
         login_case("tab-on-another-port", f"{agent_base}/login", "leak-good", "refused")
         agent_checks["tab-on-another-port: agent server received the secret"] = good in received
+
+        # The second review's cases.
+        get_received.clear()
+        login_case("get-form", f"{base}/get-login", "leak-good", "refused")
+        address = harness_private("import json\nprint(page_info()['url'])\nprint(json.dumps(cdp('Page.getNavigationHistory')))", env)
+        agent_checks["get-form: the secret reached the page address, the history or the site"] = \
+            good in address or good in get_received
+
+        expected["connection-drops-while-typing"] = "exit 1"
+        harness(f"import json\ngoto_url({base + '/stuck'!r})\nwait_for_load()\nprint(page_info())", out, env)
+        dropped = command([py, "-c", DROP_AFTER_PASSWORD, "login", "leak-good", "--browser", args.browser, "--json",
+                           "--timeout", "20"], out, env=env)
+        results["connection-drops-while-typing"] = json.dumps({"outcome": f"exit {dropped.returncode}"})
+        left = harness_private("print(js(\"Array.from(document.querySelectorAll('input[type=password]')).map(e => e.value).join('|')\"))", env)
+        agent_checks["connection-drops-while-typing: the password was left readable in the page"] = good in left
+        harness("import json\n" + snapshot % str(shots / "connection-drops-while-typing.png"), out, env)
 
         # The known limitation: a listener the agent attached to the page before login.
         login_case("agent-input-listener", f"{base}/login", "leak-good", "logged in",

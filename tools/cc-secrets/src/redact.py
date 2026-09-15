@@ -46,6 +46,19 @@ def _base64_forms(raw: bytes) -> set:
     return {standard, standard.rstrip("="), url_safe, url_safe.rstrip("=")}
 
 
+def _python_forms(secret: str) -> set:
+    """How Python prints the secret inside a string or bytes literal - print(dict), print(list), repr(),
+    ascii(), print(bytes). Python picks a quote mark and escapes the other characters, so a secret holding a
+    quote mark, a backslash or a non-ASCII letter comes out changed and would not match as typed."""
+    backslash = chr(92)
+    forms = {repr(secret)[1:-1], ascii(secret)[1:-1], repr(secret.encode("utf-8"))[2:-1]}
+    for quote_mark in ("'", '"'):
+        escaped = secret.replace(backslash, backslash * 2).replace(quote_mark, backslash + quote_mark)
+        forms.add(escaped)
+        forms.add(escaped.encode("ascii", "backslashreplace").decode("ascii"))
+    return forms
+
+
 def variants_for(secret: str, username: str = "") -> List[str]:
     """Every text form of `secret` the scrubber removes, longest first so a longer form is never half-removed."""
     if not secret:
@@ -57,6 +70,7 @@ def variants_for(secret: str, username: str = "") -> List[str]:
         html.escape(secret, quote=True),
         html.escape(secret, quote=False),
     }
+    forms |= _python_forms(secret)
     for percent in (quote(secret, safe=""), quote_plus(secret), quote(secret, safe="-_.!~*'()"),
                     quote_plus(secret, safe="*-._")):
         forms.add(percent)

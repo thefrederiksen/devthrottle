@@ -94,6 +94,78 @@ def test_ExistingFolderThatIsAlreadyPrivate_IsAdopted(tmp_path, monkeypatch):
     assert _permissions_snapshot(folder) == before
 
 
+def _folder_granted_to_this_user_only(tmp_path, name, grant):
+    folder = tmp_path / name
+    folder.mkdir()
+    user = permissions.current_user_sid()
+    _icacls(str(folder), "/inheritance:r", "/grant:r", f"*{user}:{grant}")
+    for sid in {sid for _, sid in permissions.windows_access_list(folder)[1] if sid and sid != user}:
+        _icacls(str(folder), "/remove", f"*{sid}")
+    return folder
+
+
+@pytest.mark.skipif(not WINDOWS, reason="Windows access list check")
+def test_Windows_FolderWhoseGrantIsNotInheritedByNewFiles_IsNotPrivate(tmp_path):
+    # The review's probe, steps 1-3: a "this folder only" grant (no (OI)(CI)).
+    folder = _folder_granted_to_this_user_only(tmp_path, "private-no-inheritance", "F")
+
+    assert "new files" in (permissions.folder_problem(folder) or "")
+
+
+@pytest.mark.skipif(not WINDOWS, reason="Windows access list check")
+def test_Windows_SaveIntoAFolderWithoutAnInheritableGrant_NeverSucceedsUnreadable(tmp_path, monkeypatch):
+    # The review's probe, steps 5-6: the save used to succeed and leave a store nobody could read back.
+    import json
+
+    from src.storefile import UserOnlyFile
+
+    folder = _folder_granted_to_this_user_only(tmp_path, "private-no-inheritance", "F")
+    monkeypatch.setenv("CC_SECRETS_HOME", str(folder))
+    monkeypatch.setattr(paths, "_checked_home", None)
+    data = json.dumps({"version": 1, "entries": []}).encode("utf-8")
+    store_file = UserOnlyFile(folder / "secrets.json")
+
+    try:
+        store_file.write(data)
+        saved = True
+    except permissions.StorePermissionError:
+        saved = False
+
+    if saved:
+        assert store_file.read() == data
+    assert saved is False
+    assert not (folder / "secrets.json").exists()
+
+
+@pytest.mark.skipif(not WINDOWS, reason="Windows access list check")
+def test_Windows_AdoptedFolderWithAnInheritableGrant_SavesAndReadsBack(tmp_path, monkeypatch):
+    import json
+
+    from src.storefile import UserOnlyFile
+
+    folder = _folder_granted_to_this_user_only(tmp_path, "private-inheriting", "(OI)(CI)F")
+    monkeypatch.setenv("CC_SECRETS_HOME", str(folder))
+    monkeypatch.setattr(paths, "_checked_home", None)
+    data = json.dumps({"version": 1, "entries": []}).encode("utf-8")
+    store_file = UserOnlyFile(folder / "secrets.json")
+
+    store_file.write(data)
+
+    assert store_file.read() == data
+    assert permissions.file_problem(folder / "secrets.json") is None
+
+
+@pytest.mark.skipif(not WINDOWS, reason="Windows access list check")
+def test_Windows_FileWithAnEmptyAccessList_IsNotPrivate(tmp_path):
+    locked_out = tmp_path / "locked-out.txt"
+    locked_out.write_text("x", encoding="utf-8")
+    _icacls(str(locked_out), "/inheritance:r")
+    try:
+        assert "empty access list" in (permissions.file_problem(locked_out) or "")
+    finally:
+        _icacls(str(locked_out), "/reset")
+
+
 @pytest.mark.skipif(not WINDOWS, reason="Windows access list check")
 def test_Windows_FolderGrantsOnlyTheCurrentUser_AndInheritsNothing(store):
     add_entry(store)
@@ -157,6 +229,39 @@ def test_Posix_FolderIs0700_AndFileIs0600(store):
 
     assert stat.S_IMODE(os.stat(paths.secrets_home()).st_mode) == 0o700
     assert stat.S_IMODE(os.stat(paths.store_path()).st_mode) == 0o600
+
+
+@pytest.mark.skipif(not WINDOWS, reason="Windows access list check")
+def test_Windows_NewFileThatWouldNotBePrivate_IsRefusedBeforeAnythingIsWritten(tmp_path):
+    # The review's probe, step 4: in a folder whose grant new files do not inherit, a new file gets the
+    # process's default permissions. Creating it must be refused, and nothing left behind.
+    folder = _folder_granted_to_this_user_only(tmp_path, "private-no-inheritance", "F")
+    probe = folder / "probe.tmp"
+
+    with pytest.raises(permissions.StorePermissionError, match="would not be private"):
+        permissions.create_private_file(probe)
+
+    assert not probe.exists()
+
+
+@pytest.mark.skipif(not WINDOWS, reason="Windows access list check")
+def test_Windows_SaveThatCannotBeReadBack_IsReportedAsFailed(home, monkeypatch):
+    # Defence behind the folder check: whatever leaves the saved file unreadable, the save must not report success.
+    import json
+
+    from src.storefile import UserOnlyFile
+
+    def lock_everyone_out(path):
+        _icacls(str(path), "/inheritance:r")
+        return None
+
+    monkeypatch.setattr(permissions, "ensure_private_file", lock_everyone_out)
+    data = json.dumps({"version": 1, "entries": []}).encode("utf-8")
+    store_file = UserOnlyFile(paths.store_path())
+
+    with pytest.raises(permissions.StorePermissionError, match="cannot be read back"):
+        store_file.write(data)
+    _icacls(str(paths.store_path()), "/reset")
 
 
 @pytest.mark.skipif(WINDOWS, reason="POSIX mode check")

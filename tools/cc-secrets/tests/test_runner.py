@@ -127,6 +127,30 @@ def test_CommonEncodedForms_AreScrubbed():
         assert scrubber.scrub(f"a {form} b") == f"a {REDACTED} b", label
 
 
+@pytest.mark.parametrize("tail", ["", chr(0xE4) + chr(92)])
+@pytest.mark.parametrize("printer", [
+    "print({'password': s})",   # the review's probe: ordinary diagnostic dictionary output
+    "print([s])",
+    "print((s, 1))",
+    "print(repr(s))",
+    "print(ascii(s))",
+    "print(s.encode())",
+])
+def test_PythonPrintedStrings_AreScrubbed(store, printer, tail):
+    import secrets as token
+
+    # The review's secret: both quote marks, so Python escapes one of them when it prints the string.
+    secret = token.token_hex(8) + chr(39) + chr(34) + token.token_hex(8) + tail
+    add_entry(store, name="review-repr", secret=secret, uses=("run",))
+    script = "import os; s = os.environ['CC_SECRET']; " + printer
+
+    result = run_with_secret(store.get("review-repr"), [PY, "-c", script], "env")
+
+    assert result.exit_code == 0
+    assert REDACTED in result.stdout
+    assert secret[:16] not in result.stdout and secret[18:34] not in result.stdout
+
+
 def test_ExitCode_IsPassedThrough(store):
     entry, _ = _entry(store)
 

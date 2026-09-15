@@ -77,4 +77,13 @@ class UserOnlyFile(StoreFile):
         note = permissions.ensure_private_file(self._path)
         if note:
             filelog.write(f"[UserOnlyFile] write: {note} after replace")
-        filelog.write(f"[UserOnlyFile] write: {len(data)} bytes to {self._path}")
+        # A save only counts when the store reads back as written: a file this user cannot open is a lost store.
+        try:
+            written = self._path.read_bytes()
+        except OSError as exc:
+            raise permissions.StorePermissionError(
+                f"The store was saved to {self._path} but cannot be read back ({type(exc).__name__}). "
+                "Check that folder's permissions.") from exc
+        if written != data:
+            raise permissions.StorePermissionError(f"The store saved to {self._path} does not read back as written.")
+        filelog.write(f"[UserOnlyFile] write: {len(data)} bytes to {self._path}, read back")

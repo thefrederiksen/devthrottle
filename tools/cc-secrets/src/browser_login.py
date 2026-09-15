@@ -4,22 +4,28 @@ The secret goes from this process straight to the page, over the browser's loopb
 It never passes through the agent, and nothing this module logs carries a debug-protocol parameter:
 the tool log records method names, message ids and outcomes only.
 
-Where the password may go is checked against the entry's allowed ORIGINS (scheme, host and port,
-exactly), twice, before anything is typed:
+Before anything is typed, three things are checked against the entry's allowed ORIGINS (scheme, host and
+port, exactly):
 
 1. the tab's address, read from the browser (Page.getFrameTree), which page scripts cannot alter;
-2. where the form will send it: the submit button's formaction or the form's action.
+2. where the form will send it: the submit button's formaction, else the form's action;
+3. HOW the form will send it: only POST is accepted. A GET form would put the password in the page
+   address and the browser history, where nothing afterwards can remove it; a dialog form sends nothing
+   anywhere a login could be checked.
 
-Both the form lookup and the fill run in an ISOLATED script world created for this login, which shares
-the page's document but not its JavaScript objects. A script the page - or an agent driving the same
-tab - put in place cannot change what `form.action` or the value setter mean to this code. The fields
-are handled through object handles the browser destroys if the tab navigates, and the submit re-checks
-that the form still sends to the checked address, so a change made in between stops the submit.
+The form lookup, the checks and the fill run in an ISOLATED script world created for this login, which
+shares the page's document but not its JavaScript objects, so a script the page - or an agent driving the
+same tab - put in place cannot change what `form.action`, `form.method` or the value setter mean to this
+code. The fields are handled through object handles the browser destroys if the tab navigates, and the
+submit re-checks destination and method, so a change made in between stops the submit.
 
-Once a password has been typed, whatever the outcome - logged in, refused, failed, or a crash - every
-password field in the tab is emptied, including hidden ones, and the tab's back and forward history is
-reset, so the login page cannot be brought back from the browser's back-forward cache with the password
-still in it.
+Once a password has been typed, whatever the outcome - logged in, refused, failed, or a crash - the tab is
+made safe, and that is CONFIRMED, not assumed: every password field is emptied (hidden ones included), the
+tab's back and forward history is reset, and then the tab is read back to confirm no password field holds
+a value and only one history entry is left. If that cannot be confirmed on the login's own connection -
+for example because the connection dropped - it is done again over a fresh connection to the same tab. If
+it still cannot be confirmed, the tab is closed. If the tab cannot be closed either, the login fails with
+a message telling the person to close it.
 
 Not covered, stated plainly: JavaScript already running in the page receives the password, because the
 site needs it - so a listener an agent attached to the page before calling login can copy it. The same
@@ -36,7 +42,7 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from . import filelog
 from .errors import CcSecretsError
@@ -91,16 +97,18 @@ _STATE = "(() => {" + _VISIBLE + """
   return {password, username, verification: otp || captcha || (!password && !username && words)};
 })()"""
 
-# Where the form holding `this` will send: the submit button's formaction, else the form's action. An
-# empty string means there is no form and the page would send with its own JavaScript.
+# Where and how the form holding `this` will send: the submit button's formaction and formmethod, else the
+# form's action and method. `form.method` is always "get", "post" or "dialog" (a missing method is "get").
+# An empty target means there is no form and the page would send with its own JavaScript.
 _TARGET = """
   const form = this.form;
   const button = form ? form.querySelector('button[type=submit], input[type=submit], button:not([type])') : null;
   const submitter = (button && button.form === form) ? button : null;
   const target = !form ? '' : ((submitter && submitter.hasAttribute('formaction')) ? submitter.formAction : form.action);
+  const method = !form ? '' : ((submitter && submitter.hasAttribute('formmethod')) ? submitter.formMethod : form.method);
 """
 
-_SUBMIT_TARGET = "function() {" + _TARGET + "  return target;\n}"
+_SUBMISSION = "function() {" + _TARGET + "  return {target: target, method: method};\n}"
 
 _SET_VALUE = """function(value) {
   this.focus();
@@ -111,8 +119,8 @@ _SET_VALUE = """function(value) {
   return this.value.length === value.length;
 }"""
 
-_SUBMIT = "function(expected) {" + _TARGET + """
-  if (target !== expected) return 'changed';
+_SUBMIT = "function(expectedTarget, expectedMethod) {" + _TARGET + """
+  if (target !== expectedTarget || method !== expectedMethod) return 'changed';
   if (!form) { this.focus(); return 'enter'; }
   if (typeof form.requestSubmit === 'function') {
     if (submitter) form.requestSubmit(submitter); else form.requestSubmit();
@@ -128,6 +136,8 @@ _CLEAR_PASSWORDS = """(() => {
   });
   return cleared;
 })()"""
+
+_PASSWORD_LEFT = "Array.from(document.querySelectorAll('input[type=password]')).some(e => e.value.length > 0)"
 
 
 @dataclass
@@ -178,6 +188,14 @@ class CdpConnection:
     def close(self) -> None:
         self._ws.close()
         filelog.write("[cdp] closed")
+
+
+def _close_quietly(conn) -> None:
+    """Close a connection that may already be broken; a failure here is logged by type and changes nothing."""
+    try:
+        conn.close()
+    except Exception as exc:
+        filelog.write(f"[cdp] close FAILED: {type(exc).__name__}")
 
 
 def list_page_targets(port: int) -> List[Dict]:
@@ -240,12 +258,17 @@ class _Tab:
             raise CdpError(f"Locating the {which} field raised an error in the page.")
         return reply["result"].get("objectId")
 
-    def submit_target(self, object_id: str) -> str:
+    def submission(self, object_id: str) -> Tuple[str, str]:
+        """(where, how) the form holding the field will send: an absolute address and "get", "post" or "dialog".
+        Both are empty when there is no form."""
         reply = self._conn.call("Runtime.callFunctionOn", {
-            "objectId": object_id, "functionDeclaration": _SUBMIT_TARGET, "returnByValue": True})
+            "objectId": object_id, "functionDeclaration": _SUBMISSION, "returnByValue": True})
         if "exceptionDetails" in reply:
-            raise CdpError("Reading where the form sends raised an error in the page.")
-        return str(reply["result"].get("value") or "")
+            raise CdpError("Reading where and how the form sends raised an error in the page.")
+        value = reply["result"].get("value")
+        if not isinstance(value, dict):
+            raise CdpError("Reading where and how the form sends returned something unexpected.")
+        return str(value.get("target") or ""), str(value.get("method") or "").lower()
 
     def fill(self, object_id: str, value: str, what: str) -> None:
         reply = self._conn.call("Runtime.callFunctionOn", {
@@ -254,11 +277,11 @@ class _Tab:
         if "exceptionDetails" in reply or reply["result"].get("value") is not True:
             raise CdpError(f"The {what} field did not accept the value.")
 
-    def submit(self, object_id: str, expected_target: str) -> bool:
-        """Submit, unless the form no longer sends to `expected_target`. Returns False when it did not."""
+    def submit(self, object_id: str, expected_target: str, expected_method: str) -> bool:
+        """Submit, unless the form no longer sends to `expected_target` by `expected_method`. Returns False then."""
         reply = self._conn.call("Runtime.callFunctionOn", {
             "objectId": object_id, "functionDeclaration": _SUBMIT,
-            "arguments": [{"value": expected_target}], "returnByValue": True})
+            "arguments": [{"value": expected_target}, {"value": expected_method}], "returnByValue": True})
         if "exceptionDetails" in reply:
             raise CdpError("Submitting the form raised an error in the page.")
         how = reply["result"].get("value")
@@ -272,19 +295,68 @@ class _Tab:
                 self._conn.call("Input.dispatchKeyEvent", params)
         return True
 
-    def clean_up(self) -> None:
-        """Empty every password field in the tab and reset its history. Each step is tried on its own and
-        a failure is logged by type, because this also runs while an error is on its way out."""
+    def clean_up_confirmed(self) -> bool:
+        """Empty every password field and reset the history, then read the tab back. True only when no password
+        field holds a value and one history entry is left. Any failure - including a dropped connection - is
+        logged by type and answers False, because this also runs while an error is on its way out."""
         try:
-            reply = self._evaluate(_CLEAR_PASSWORDS, True)
-            filelog.write(f"[login] cleared {reply.get('result', {}).get('value')} password field(s)")
-        except Exception as exc:
-            filelog.write(f"[login] clearing password fields FAILED: {type(exc).__name__}")
-        try:
+            cleared = self._evaluate(_CLEAR_PASSWORDS, True)
+            filelog.write(f"[login] cleared {cleared.get('result', {}).get('value')} password field(s)")
             self._conn.call("Page.resetNavigationHistory", {})
-            filelog.write("[login] reset the tab's navigation history")
+            left = self._evaluate(_PASSWORD_LEFT, True)
+            if "exceptionDetails" in left or left.get("result", {}).get("value") is not False:
+                filelog.write("[login] clean-up NOT confirmed: a password field still holds a value")
+                return False
+            entries = self._conn.call("Page.getNavigationHistory").get("entries", [])
+            if len(entries) != 1:
+                filelog.write(f"[login] clean-up NOT confirmed: {len(entries)} history entries are left")
+                return False
+            filelog.write("[login] clean-up confirmed: no password field holds a value and the history is reset")
+            return True
         except Exception as exc:
-            filelog.write(f"[login] resetting navigation history FAILED: {type(exc).__name__}")
+            filelog.write(f"[login] clean-up FAILED: {type(exc).__name__}")
+            return False
+
+
+def _close_tab(port: int, target_id: str) -> bool:
+    """Close the tab and confirm it is gone. False when that cannot be confirmed."""
+    if not target_id:
+        return False
+    try:
+        urllib.request.urlopen(f"http://127.0.0.1:{port}/json/close/{target_id}", timeout=10).read()
+    except Exception as exc:
+        filelog.write(f"[login] closing the tab FAILED: {type(exc).__name__}")
+    try:
+        remaining = list_page_targets(port)
+    except CdpError as exc:
+        filelog.write(f"[login] could not list tabs to confirm the close: {type(exc).__name__}")
+        return False
+    return all(t.get("id") != target_id for t in remaining)
+
+
+def _make_tab_safe(tab: _Tab, entry: Entry, target: Dict, port: int) -> None:
+    """Make sure no typed password is left in the login tab, and raise when that cannot be made sure."""
+    if tab.clean_up_confirmed():
+        return
+    filelog.write("[login] clean-up not confirmed on the login connection; trying a fresh connection to the tab")
+    try:
+        fresh = CdpConnection(target["webSocketDebuggerUrl"])
+    except Exception as exc:
+        filelog.write(f"[login] fresh connection FAILED: {type(exc).__name__}")
+        fresh = None
+    if fresh is not None:
+        try:
+            if _Tab(fresh, entry).clean_up_confirmed():
+                filelog.write("[login] clean-up confirmed on a fresh connection")
+                return
+        finally:
+            _close_quietly(fresh)
+    filelog.write("[login] clean-up could not be confirmed; closing the login tab")
+    if _close_tab(port, str(target.get("id") or "")):
+        filelog.write("[login] the login tab was closed")
+        return
+    raise CcSecretsError("A typed password may still be in the login tab, and cc-secrets could neither clear it nor "
+                         "close the tab. Close that browser tab now.")
 
 
 def _wait(tab: _Tab, deadline: float, done) -> Optional[Dict]:
@@ -329,12 +401,16 @@ def _drive(tab: _Tab, entry: Entry, secret: str, timeout_seconds: float) -> Logi
         if not origin_allowed(url, allowed):
             return LoginResult(OUTCOME_REFUSED, f"The tab is on '{origin_of(url)}', which is not an allowed address "
                                f"for '{entry.name}' (allowed: {', '.join(allowed)}). Nothing was typed.", origin_of(url))
-        # Check 2: where the form sends what is typed into it.
-        target = tab.submit_target(field)
+        # Checks 2 and 3: where, and how, the form sends what is typed into it.
+        target, method = tab.submission(field)
         if target and not origin_allowed(target, allowed):
             return LoginResult(OUTCOME_REFUSED, f"The form on this page sends to '{origin_of(target)}', which is not "
                                f"an allowed address for '{entry.name}' (allowed: {', '.join(allowed)}). "
                                "Nothing was typed.", origin_of(url))
+        if target and method != "post":
+            return LoginResult(OUTCOME_REFUSED, f"The form on this page sends by {method.upper() or 'an unknown method'}, "
+                               "not POST. A GET form would put the password in the page address and the browser "
+                               "history. Nothing was typed.", origin_of(url))
 
         if username_id:
             tab.fill(username_id, entry.username, "username")
@@ -342,13 +418,13 @@ def _drive(tab: _Tab, entry: Entry, secret: str, timeout_seconds: float) -> Logi
         if password_id:
             tab.typed = True
             tab.fill(password_id, secret, "password")
-            if not tab.submit(password_id, target):
-                return LoginResult(OUTCOME_FAILED, "The form's destination changed after it was checked, so it was "
-                                   "not submitted.", origin_of(url))
+            if not tab.submit(password_id, target, method):
+                return LoginResult(OUTCOME_FAILED, "The form's destination or method changed after it was checked, "
+                                   "so it was not submitted.", origin_of(url))
             return _await_outcome(tab, deadline, origin_of(url))
-        if not tab.submit(username_id, target):
-            return LoginResult(OUTCOME_FAILED, "The form's destination changed after it was checked, so it was "
-                               "not submitted.", origin_of(url))
+        if not tab.submit(username_id, target, method):
+            return LoginResult(OUTCOME_FAILED, "The form's destination or method changed after it was checked, "
+                               "so it was not submitted.", origin_of(url))
         after = _wait(tab, deadline, lambda s: s["password"] or s["verification"])
         if after is None:
             return LoginResult(OUTCOME_FAILED, "No password field appeared after the username was submitted.", origin_of(url))
@@ -395,13 +471,16 @@ def login(entry: Entry, port: int, timeout_seconds: float = 30) -> LoginResult:
                            f"{', '.join(entry.allowed_domains)}; open tabs: {', '.join(origins) or 'none'}). "
                            "Open the login page in that browser first. Nothing was typed.")
 
-    conn = CdpConnection(matching[0]["webSocketDebuggerUrl"])
+    target = matching[0]
+    conn = CdpConnection(target["webSocketDebuggerUrl"])
     tab = _Tab(conn, entry)
     try:
         result = _drive(tab, entry, secret, timeout_seconds)
         filelog.write(f"[login] done: entry={entry.name}, outcome={result.outcome}, origin={result.host}")
         return result
     finally:
-        if tab.typed:
-            tab.clean_up()
-        conn.close()
+        try:
+            if tab.typed:
+                _make_tab_safe(tab, entry, target, port)
+        finally:
+            _close_quietly(conn)

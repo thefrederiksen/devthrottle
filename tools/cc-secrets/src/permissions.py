@@ -111,9 +111,9 @@ def current_user_sid() -> str:
         kernel32.CloseHandle(token)
 
 
-def windows_access_list(path: Path) -> Tuple[bool, Optional[List[Tuple[int, Optional[str]]]]]:
-    """(inheritance removed, [(entry type, security identifier)]). The list is None for a null access
-    list, which Windows treats as full access for everyone."""
+def windows_access_entries(path: Path) -> Tuple[bool, Optional[List[Tuple[int, int, Optional[str]]]]]:
+    """(inheritance removed, [(entry type, entry flags, security identifier)]). The list is None for a null
+    access list, which Windows treats as full access for everyone."""
     api = _win_api()
     ctypes, wintypes, advapi32, kernel32 = api
     SE_FILE_OBJECT = 1
@@ -146,29 +146,56 @@ def windows_access_list(path: Path) -> Tuple[bool, Optional[List[Tuple[int, Opti
             ace = ctypes.c_void_p()
             if not advapi32.GetAce(dacl, index, ctypes.byref(ace)):
                 raise StorePermissionError(f"GetAce failed (Windows error {ctypes.get_last_error()}).")
-            ace_type = ctypes.cast(ace, ctypes.POINTER(AceHeader)).contents.AceType
+            header = ctypes.cast(ace, ctypes.POINTER(AceHeader)).contents
+            ace_type, ace_flags = header.AceType, header.AceFlags
             sid = None
             if ace_type in (_ACCESS_ALLOWED_ACE_TYPE, _ACCESS_DENIED_ACE_TYPE):
                 # ACCESS_ALLOWED_ACE / ACCESS_DENIED_ACE: 4-byte header, 4-byte mask, then the SID.
                 sid = _sid_to_string(api, ace.value + 8)
-            entries.append((ace_type, sid))
+            entries.append((ace_type, ace_flags, sid))
         return protected, entries
     finally:
         kernel32.LocalFree(descriptor)
 
 
-def _windows_problem(path: Path, require_protected: bool) -> Optional[str]:
-    protected, entries = windows_access_list(path)
+def windows_access_list(path: Path) -> Tuple[bool, Optional[List[Tuple[int, Optional[str]]]]]:
+    """(inheritance removed, [(entry type, security identifier)]): windows_access_entries without the flags."""
+    protected, entries = windows_access_entries(path)
+    return protected, None if entries is None else [(ace_type, sid) for ace_type, _, sid in entries]
+
+
+_OBJECT_INHERIT_ACE = 0x1
+_CONTAINER_INHERIT_ACE = 0x2
+_INHERIT_ONLY_ACE = 0x8
+
+
+def _windows_problem(path: Path, is_folder: bool) -> Optional[str]:
+    """Why `path` is not private to this user, or None.
+
+    Private means: an access list that is protected from inheritance (folders), not empty, granting nobody
+    but this user, granting this user access to the object itself - and, for a folder, passing that grant on
+    to new files and folders created inside it. Without the last rule a folder can look private while every
+    file created in it gets the process's default permissions instead (review of pull request 2891).
+    """
+    protected, entries = windows_access_entries(path)
     if entries is None:
         return f"{path} has no access list, which gives everyone full access"
-    if require_protected and not protected:
+    if not entries:
+        return f"{path} has an empty access list, so not even this user can open it"
+    if is_folder and not protected:
         return f"{path} still inherits permissions from its parent folder"
     user = current_user_sid()
-    for ace_type, sid in entries:
+    for ace_type, _, sid in entries:
         if ace_type == _ACCESS_DENIED_ACE_TYPE:
             continue
         if ace_type != _ACCESS_ALLOWED_ACE_TYPE or sid != user:
             return f"{path} grants access to {sid or 'an entry of type ' + str(ace_type)}, not only to this user"
+    user_grants = [flags for ace_type, flags, sid in entries if ace_type == _ACCESS_ALLOWED_ACE_TYPE and sid == user]
+    if not any(not flags & _INHERIT_ONLY_ACE for flags in user_grants):
+        return f"{path} does not grant this user access to it"
+    if is_folder and not any(flags & _OBJECT_INHERIT_ACE and flags & _CONTAINER_INHERIT_ACE for flags in user_grants):
+        return (f"{path} grants this user access to the folder only, not to new files inside it, so a file "
+                "created there would not be private to this user")
     return None
 
 
@@ -212,14 +239,14 @@ def _posix_problem(path: Path) -> Optional[str]:
 def folder_problem(folder: Path) -> Optional[str]:
     """Why the folder is not private to this user, or None when it is."""
     if sys.platform == "win32":
-        return _windows_problem(folder, require_protected=True)
+        return _windows_problem(folder, is_folder=True)
     return _posix_problem(folder)
 
 
 def file_problem(path: Path) -> Optional[str]:
     """Why the file is not private to this user, or None when it is."""
     if sys.platform == "win32":
-        return _windows_problem(path, require_protected=False)
+        return _windows_problem(path, is_folder=False)
     return _posix_problem(path)
 
 
@@ -282,4 +309,11 @@ def create_private_file(path: Path) -> int:
     single grant by inheritance at creation, and on macOS and Linux it is created with mode 0600.
     """
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
-    return os.open(path, flags, 0o600)
+    descriptor = os.open(path, flags, 0o600)
+    problem = file_problem(path)
+    if problem is not None:
+        os.close(descriptor)
+        path.unlink()
+        raise StorePermissionError(f"A new file in the secrets folder would not be private to this user ({problem}), "
+                                   "so nothing was written.")
+    return descriptor
