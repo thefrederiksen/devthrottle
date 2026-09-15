@@ -377,8 +377,41 @@ public sealed class DirectorHub : Hub
             throw new HubException("this Gateway has no session key registry");
         }
 
-        var registered = _sessionKeys.Register(
-            tenant, directorId, registration.SessionId, registration.KeyHash, registration.ExpiresAtUtc);
+        // THE TENANT IS VALIDATED HERE, like the session id and the key hash above it.
+        //
+        // It was not, and the registry's own first guard - `if (!tenant.IsValid) throw new
+        // ArgumentException(...)` - sits ABOVE that method's try block, so an invalid tenant escaped
+        // untyped. Every other refusal on this method is a HubException carrying a sentence; that one
+        // reached the Director as SignalR's "An unexpected error occurred invoking 'RegisterSessionKey'",
+        // which names nothing.
+        if (!tenant.IsValid)
+        {
+            FileLog.Write($"[DirectorHub] RegisterSessionKey REJECTED (the connection's bound tenant is not valid): director={directorId}, session={registration.SessionId}");
+            throw new HubException("the connection's bound tenant is not valid");
+        }
+
+        bool registered;
+        try
+        {
+            registered = _sessionKeys.Register(
+                tenant, directorId, registration.SessionId, registration.KeyHash, registration.ExpiresAtUtc);
+        }
+        catch (Exception ex)
+        {
+            // A HUB METHOD IS A BOUNDARY, AND THIS ONE SAID SO WITHOUT DOING IT.
+            //
+            // The summary above already promises that "a registry failure must surface to the calling
+            // Director as a hub error it can log and retry ... never as a faulted connection". Only the
+            // registry's INTERNAL failures were wrapped, by its own filtered catch; anything that filter
+            // did not match - every ArgumentException guard above its try among them - propagated raw.
+            //
+            // The cost was not the throw, it was the SILENCE about it. On 2026-09-14 this produced 2,310
+            // identical untyped errors on one machine, refusing every agent session key on the fleet, and
+            // not one of them said which argument was wrong. The Gateway knew; the Director could not be
+            // told. Rethrown as a HubException, the reason travels.
+            FileLog.Write($"[DirectorHub] RegisterSessionKey FAILED UNEXPECTEDLY: director={directorId}, session={registration.SessionId}, {ex.GetType().Name}: {ex.Message}");
+            throw new HubException($"the session key for {registration.SessionId} could not be registered: {ex.GetType().Name}: {ex.Message}");
+        }
 
         if (!registered)
         {

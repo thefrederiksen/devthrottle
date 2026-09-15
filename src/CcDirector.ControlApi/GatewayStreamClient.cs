@@ -738,21 +738,48 @@ public sealed class GatewayStreamClient : IAsyncDisposable
         // without a long-running session ever losing it.
         if (_sessionKeys is not null && conn.State == HubConnectionState.Connected)
         {
-            try
+            // ONE BAD REGISTRATION MUST NOT TAKE THE OTHERS DOWN WITH IT.
+            //
+            // This loop used to sit inside a single try, so the FIRST registration that threw abandoned
+            // every key after it. One session with an unregisterable key therefore cost every other
+            // session on the Director its credential, and each reseed retried in the same order and
+            // failed at the same place - a fleet-wide agent lockout produced by one row. Observed on
+            // 2026-09-14: 2,310 consecutive failures, every session key on the machine refused.
+            //
+            // Each registration is now independent. A failure is counted, named, and the loop continues.
+            var registrations = _sessionKeys();
+            var registered = 0;
+            var failures = new List<string>();
+            foreach (var registration in registrations)
             {
-                var registrations = _sessionKeys();
-                var registered = 0;
-                foreach (var registration in registrations)
+                try
                 {
                     await conn.InvokeAsync("RegisterSessionKey", registration);
                     registered++;
                 }
-                if (registrations.Count > 0)
-                    FileLog.Write($"[GatewayStreamClient] re-registered {registered}/{registrations.Count} session key(s)");
+                catch (Exception ex)
+                {
+                    // NAME THE SESSION. The old line reported only the exception message, so 2,310
+                    // identical lines never once said WHICH registration was failing - the single fact
+                    // that would have turned the outage into a five-minute fix.
+                    failures.Add($"{registration.SessionId}: {ex.Message}");
+                }
             }
-            catch (Exception ex)
+
+            if (failures.Count > 0)
             {
-                FileLog.Write($"[GatewayStreamClient] session key re-registration incomplete (older Gateway?): {ex.Message}");
+                // AND DO NOT GUESS AT THE CAUSE. This line used to say "(older Gateway?)" - a guess, and
+                // on 2026-09-14 a wrong one that sent an investigation toward a production deploy. The
+                // Director logs the Gateway's version and capability check moments earlier in this same
+                // method; when that check passed, an old Gateway is the one explanation already ruled
+                // out. Report the count and the reasons, and let the reader read the line above.
+                FileLog.Write($"[GatewayStreamClient] session key re-registration INCOMPLETE: " +
+                              $"{registered}/{registrations.Count} registered, {failures.Count} failed. " +
+                              $"Each failure, by session: {string.Join(" | ", failures)}");
+            }
+            else if (registrations.Count > 0)
+            {
+                FileLog.Write($"[GatewayStreamClient] re-registered {registered}/{registrations.Count} session key(s)");
             }
         }
 
