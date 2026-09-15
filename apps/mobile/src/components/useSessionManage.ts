@@ -3,6 +3,7 @@ import {
   holdSession,
   listSessions,
   stopSession,
+  type SessionDto,
   type SessionStopOutcome,
 } from "@devthrottle/client-core/api/client";
 import { classify, isDeferredHold, isWorking, snoozeCountdown } from "@devthrottle/client-core/sessions/ordering";
@@ -42,6 +43,10 @@ const STOP_REASON_FROM_THE_PHONE = "Stopped by the owner from the mobile app";
 const POLL_INTERVAL_MS = 4000;
 
 export interface SessionManage {
+  // The session's row exactly as the last roster poll returned it, or null before the first poll finds it. The
+  // session screen renders Gateway-stamped fields off it verbatim (the verdict panel, slice E of the
+  // Wingman-on-every-turn mission) - read on this SAME poll, so they refresh with everything else here.
+  session: SessionDto | null;
   onHold: boolean | null;
   held: boolean;
   // A DEFERRED snooze: asked for while the agent was working, so it arms when the work ends. Distinct
@@ -89,6 +94,7 @@ export interface SessionManage {
 }
 
 export function useSessionManage(sessionId: string | undefined): SessionManage {
+  const [session, setSession] = useState<SessionDto | null>(null);
   const [onHold, setOnHold] = useState<boolean | null>(null);
   const [deferred, setDeferred] = useState(false);
   const [working, setWorking] = useState(false);
@@ -112,6 +118,7 @@ export function useSessionManage(sessionId: string | undefined): SessionManage {
       if (pendingRef.current) return;
       const match = all.find((s) => s.sessionId === sessionId);
       if (match) {
+        setSession(match);
         // The toggle needs the raw hold (what it will flip); the DISPLAY reads the fold (working wins).
         setOnHold(Boolean(match.onHold));
         // The Gateway-owned tri-state: DeferredHold is a real snooze that has not armed yet.
@@ -240,6 +247,7 @@ export function useSessionManage(sessionId: string | undefined): SessionManage {
   }, [sessionId]);
 
   return {
+    session,
     onHold,
     held: onHold === true,
     deferred,
