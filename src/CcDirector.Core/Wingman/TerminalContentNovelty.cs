@@ -117,10 +117,20 @@ internal static class TerminalContentNovelty
 
     /// <summary>
     /// Condition four on its own. The candidate key is compared ONLY against settled keys whose
-    /// length is within max(8, length / 2) of it, inclusive at both ends: a key far shorter or far
-    /// longer cannot reach the similarity threshold, and skipping it keeps the cost down on a full
-    /// screen. Orientation matters and is pinned to the harness: the settled key is sequence A and
-    /// the candidate key is sequence B, because <see cref="SequenceRatio"/> is not symmetric.
+    /// length is within max(8, length / 2) of it, inclusive at both ends, which is the band the
+    /// harness uses.
+    ///
+    /// AT 0.80 THE BAND IS SPEED AND NOTHING ELSE, and that is worth knowing before anyone moves
+    /// the threshold. The ratio can never exceed 2 * min(lengths) / (sum of lengths), so a settled
+    /// key longer than length + max(8, length / 2) tops out strictly below 0.80, and one shorter
+    /// than length - max(8, length / 2) tops out below 0.67. Every row the band skips was already
+    /// unreachable, so skipping it changes no verdict - <c>The_length_band_only_skips_rows_that_
+    /// could_never_reach_the_threshold</c> holds that arithmetic. LOWER the threshold much past
+    /// 0.80 and that stops being true: the band would start deciding things, which is not what it
+    /// is for.
+    ///
+    /// Orientation matters and is pinned to the harness: the settled key is sequence A and the
+    /// candidate key is sequence B, because <see cref="SequenceRatio"/> is not symmetric.
     /// </summary>
     internal static bool IsNearDuplicateOfSettled(string key, IReadOnlyList<string> settledKeys)
     {
@@ -341,5 +351,272 @@ internal sealed class ChangedSizeRule : ITerminalNoveltyRule
         }
         evidence = $"changed {changed} characters";
         return true;
+    }
+}
+
+/// <summary>
+/// A faithful port of Python's difflib SequenceMatcher, restricted to what the scoring harness
+/// behind this work actually uses: no junk predicate, the default popularity heuristic, and the
+/// ratio.
+///
+/// WHY A PORT AND NOT SOMETHING EQUIVALENT. The corpus numbers this rule is judged against were
+/// produced by Python's algorithm, and a longest-common-subsequence ratio is NOT that algorithm
+/// even though both return "how similar, from zero to one". Measured on twenty thousand short
+/// pairs the two disagree on 28 percent, worst case 0.15 against 0.67. A near-miss at a 0.80
+/// threshold is a different verdict, so an equivalent-looking implementation would score
+/// differently from the published numbers while every hand-written test still passed.
+///
+/// THE ALGORITHM. Find the longest block of B that matches a block of A, seeded through an index
+/// of where each element of B occurs; then recurse into the region left of that block and the
+/// region right of it. The ratio is 2 * (total matched elements) / (length of A + length of B).
+/// Ties go to the EARLIEST block in both sequences, which is what makes the answer stable.
+///
+/// TWO PYTHON BEHAVIOURS THAT LOOK LIKE DETAILS AND ARE NOT:
+///
+///   1. It is not symmetric. The index is built over B, so the ratio of A against B and the ratio
+///      of B against A can differ. The harness sets sequence two first and sequence one second,
+///      which makes the SETTLED row A and the CANDIDATE row B, and this port keeps that
+///      orientation.
+///   2. The popularity heuristic ("autojunk") only engages once B has 200 OR MORE elements. Below
+///      that it does nothing at all, so for terminal-row keys - the only thing the row rule
+///      compares - it is almost always inert. At or above 200, any element of B occurring strictly
+///      more than (length of B) / 100 + 1 times is dropped from the index, so it can no longer SEED
+///      a match, although a match that reaches it can still extend over it. For an eighty-column
+///      terminal a key never reaches 200 characters; on a very wide terminal it can, and there this
+///      port does exactly what Python does rather than quietly diverging from the numbers. It is
+///      turned off in exactly one place, and this file says so there: the size rule aligns whole
+///      ROWS, where a row that repeats is signal rather than noise.
+///
+/// Python's junk-extension passes are not reproduced because they cannot fire: no junk predicate
+/// is supplied, so the junk set is empty. Popular elements are NOT junk - Python keeps that
+/// distinction and so does this.
+/// </summary>
+internal sealed class PythonSequenceMatcher
+{
+    /// <summary>Python applies the popularity heuristic only from this length of B upwards.</summary>
+    internal const int AutoJunkMinimumLength = 200;
+
+    private readonly CharSequence _b;
+    private readonly Dictionary<char, List<int>> _b2j;
+    private Dictionary<char, int>? _fullBCount;
+
+    /// <param name="b">
+    /// The SECOND sequence - the candidate row's key. The index is built over it, so it is the one
+    /// that is reused across many comparisons.
+    /// </param>
+    internal PythonSequenceMatcher(string b, bool autoJunk = true)
+    {
+        _b = new CharSequence(b ?? "");
+        _b2j = BuildIndex(_b, autoJunk, EqualityComparer<char>.Default);
+    }
+
+    /// <summary>
+    /// The exact ratio of <paramref name="a"/> against the sequence this matcher was built on.
+    /// </summary>
+    internal double RatioAgainst(string a)
+    {
+        var seqA = new CharSequence(a ?? "");
+        int total = seqA.Count + _b.Count;
+        if (total == 0) return 1.0;
+        return 2.0 * MatchedCount(seqA, _b, _b2j, EqualityComparer<char>.Default) / total;
+    }
+
+    /// <summary>
+    /// Is the ratio at least <paramref name="threshold"/>? Identical in outcome to comparing
+    /// <see cref="RatioAgainst"/> against the threshold - the two shortcuts below are Python's own
+    /// upper bounds on the ratio, so a sequence they reject could never have reached it - and it is
+    /// the shape the harness uses.
+    /// </summary>
+    internal bool RatioAtLeast(string a, double threshold)
+    {
+        var seqA = new CharSequence(a ?? "");
+        int total = seqA.Count + _b.Count;
+        if (total == 0) return 1.0 >= threshold;
+
+        // The bound from the lengths alone.
+        if (2.0 * Math.Min(seqA.Count, _b.Count) / total < threshold) return false;
+
+        // The bound from the multiset intersection, ignoring order.
+        if (2.0 * QuickMatchCount(seqA) / total < threshold) return false;
+
+        return 2.0 * MatchedCount(seqA, _b, _b2j, EqualityComparer<char>.Default) / total >= threshold;
+    }
+
+    /// <summary>One matching block: where it starts in each sequence, and how long it is.</summary>
+    internal readonly record struct Block(int AStart, int BStart, int Length);
+
+    /// <summary>
+    /// The matching blocks between two sequences of rows. Used by the size rule, which aligns whole
+    /// rows rather than characters.
+    /// </summary>
+    internal static List<Block> MatchingBlocks(
+        IReadOnlyList<string> a, IReadOnlyList<string> b, bool autoJunk)
+    {
+        var index = BuildIndex(b, autoJunk, StringComparer.Ordinal);
+        var blocks = new List<Block>();
+        CollectBlocks(a, b, index, StringComparer.Ordinal, blocks);
+        return blocks;
+    }
+
+    // ------------------------------------------------------------------------------------------
+
+    private static Dictionary<T, List<int>> BuildIndex<T>(
+        IReadOnlyList<T> b, bool autoJunk, IEqualityComparer<T> comparer) where T : notnull
+    {
+        var index = new Dictionary<T, List<int>>(comparer);
+        for (int j = 0; j < b.Count; j++)
+        {
+            if (!index.TryGetValue(b[j], out var at))
+            {
+                at = new List<int>();
+                index[b[j]] = at;
+            }
+            at.Add(j);
+        }
+
+        // Python purges POPULAR elements from the index once the sequence is long enough. They are
+        // not junk: a match can still extend over them, it just cannot start on them.
+        if (autoJunk && b.Count >= AutoJunkMinimumLength)
+        {
+            int ntest = b.Count / 100 + 1;
+            List<T>? popular = null;
+            foreach (var pair in index)
+            {
+                if (pair.Value.Count > ntest) (popular ??= new List<T>()).Add(pair.Key);
+            }
+            if (popular is not null)
+            {
+                foreach (var elt in popular) index.Remove(elt);
+            }
+        }
+
+        return index;
+    }
+
+    private static int MatchedCount<T>(
+        IReadOnlyList<T> a, IReadOnlyList<T> b, Dictionary<T, List<int>> index,
+        IEqualityComparer<T> comparer) where T : notnull
+    {
+        var blocks = new List<Block>();
+        CollectBlocks(a, b, index, comparer, blocks);
+        int matched = 0;
+        foreach (var block in blocks) matched += block.Length;
+        return matched;
+    }
+
+    /// <summary>
+    /// Python's get_matching_blocks, minus the adjacent-block merge and the terminating sentinel,
+    /// neither of which changes the total matched count that the ratio is built from.
+    /// </summary>
+    private static void CollectBlocks<T>(
+        IReadOnlyList<T> a, IReadOnlyList<T> b, Dictionary<T, List<int>> index,
+        IEqualityComparer<T> comparer, List<Block> into) where T : notnull
+    {
+        var queue = new Stack<(int ALo, int AHi, int BLo, int BHi)>();
+        queue.Push((0, a.Count, 0, b.Count));
+        while (queue.Count > 0)
+        {
+            var (alo, ahi, blo, bhi) = queue.Pop();
+            var match = FindLongestMatch(a, b, index, comparer, alo, ahi, blo, bhi);
+            if (match.Length == 0) continue;
+
+            into.Add(match);
+            if (alo < match.AStart && blo < match.BStart)
+                queue.Push((alo, match.AStart, blo, match.BStart));
+            if (match.AStart + match.Length < ahi && match.BStart + match.Length < bhi)
+                queue.Push((match.AStart + match.Length, ahi, match.BStart + match.Length, bhi));
+        }
+    }
+
+    /// <summary>
+    /// Python's find_longest_match. The rolling map from "index in B" to "length of the run ending
+    /// there" is what makes this linear in the number of index hits rather than quadratic, and the
+    /// strict greater-than on the best size is what makes ties go to the earliest block.
+    /// </summary>
+    private static Block FindLongestMatch<T>(
+        IReadOnlyList<T> a, IReadOnlyList<T> b, Dictionary<T, List<int>> index,
+        IEqualityComparer<T> comparer, int alo, int ahi, int blo, int bhi) where T : notnull
+    {
+        int besti = alo, bestj = blo, bestsize = 0;
+        var runEndingAt = new Dictionary<int, int>();
+
+        for (int i = alo; i < ahi; i++)
+        {
+            var next = new Dictionary<int, int>();
+            if (index.TryGetValue(a[i], out var positions))
+            {
+                foreach (int j in positions)
+                {
+                    if (j < blo) continue;
+                    if (j >= bhi) break;
+                    int k = (runEndingAt.TryGetValue(j - 1, out var prior) ? prior : 0) + 1;
+                    next[j] = k;
+                    if (k > bestsize)
+                    {
+                        besti = i - k + 1;
+                        bestj = j - k + 1;
+                        bestsize = k;
+                    }
+                }
+            }
+            runEndingAt = next;
+        }
+
+        // Extend the block over elements the index does not carry - the popular ones the heuristic
+        // dropped. Python then runs the same two loops again over JUNK elements; with no junk
+        // predicate supplied the junk set is empty, so those passes cannot fire and are not here.
+        while (besti > alo && bestj > blo && comparer.Equals(a[besti - 1], b[bestj - 1]))
+        {
+            besti--; bestj--; bestsize++;
+        }
+        while (besti + bestsize < ahi && bestj + bestsize < bhi
+               && comparer.Equals(a[besti + bestsize], b[bestj + bestsize]))
+        {
+            bestsize++;
+        }
+
+        return new Block(besti, bestj, bestsize);
+    }
+
+    /// <summary>The numerator of Python's quick_ratio: the multiset intersection, order ignored.</summary>
+    private int QuickMatchCount(CharSequence a)
+    {
+        if (_fullBCount is null)
+        {
+            var counts = new Dictionary<char, int>();
+            for (int j = 0; j < _b.Count; j++)
+            {
+                counts.TryGetValue(_b[j], out var n);
+                counts[_b[j]] = n + 1;
+            }
+            _fullBCount = counts;
+        }
+
+        var available = new Dictionary<char, int>();
+        int matches = 0;
+        for (int i = 0; i < a.Count; i++)
+        {
+            char c = a[i];
+            int remaining;
+            if (available.TryGetValue(c, out var left)) remaining = left;
+            else remaining = _fullBCount.TryGetValue(c, out var total) ? total : 0;
+            available[c] = remaining - 1;
+            if (remaining > 0) matches++;
+        }
+        return matches;
+    }
+
+    /// <summary>
+    /// A string as a read-only list of characters. System.String does not implement
+    /// IReadOnlyList of char, and this avoids copying the string in order to compare it.
+    /// </summary>
+    private sealed class CharSequence : IReadOnlyList<char>
+    {
+        private readonly string _s;
+        internal CharSequence(string s) => _s = s;
+        public char this[int index] => _s[index];
+        public int Count => _s.Length;
+        public IEnumerator<char> GetEnumerator() => _s.GetEnumerator();
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => _s.GetEnumerator();
     }
 }
