@@ -130,6 +130,19 @@ public sealed record TurnLogMoment
     /// that mixes them over-reports turn ends in the minutes after a Gateway restart.</summary>
     [JsonPropertyName("is_new_turn")] public bool IsNewTurn { get; init; }
 
+    /// <summary>
+    /// When the DETECTOR observed this turn end, as the boundary itself stamped it - not when this record
+    /// was captured, and not when any other consumer finished its own work.
+    ///
+    /// THIS IS THE JOIN KEY. Everything the product makes out of one stop is produced by a different
+    /// consumer running at its own pace: this capture, and the Wingman's verdict row, which can be many
+    /// seconds later. Each stamps its own completion time, so the only honest way to say "this record and
+    /// that verdict are about the same stop" is one moment both copy from the signal. Without it the pair
+    /// can only be matched by nearest timestamp, and a corpus built on nearest-timestamp matching is
+    /// silently wrong exactly when the judge was slow, which is exactly when the stop was interesting.
+    /// </summary>
+    [JsonPropertyName("turn_end_observed_at_utc")] public DateTime TurnEndObservedAtUtc { get; init; }
+
     /// <summary>How long the session had been quiet when we looked, as the session itself reports it.</summary>
     [JsonPropertyName("idle_seconds")] public double? IdleSeconds { get; init; }
 

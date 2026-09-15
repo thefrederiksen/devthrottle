@@ -141,6 +141,17 @@ public static class SessionKeyGuard
             // allow list that widens by pattern stops being an allow list.
             if (s.Length == 3 && s[0] == "sessions" && s[2] == "history") return true;
 
+            // What the Wingman said this session's stops MEAN - the latest judged stop, and the history of
+            // them. The same class of read again: one session's own record, inside the caller's own
+            // account. Listed as two literals rather than one prefix, for the reason above.
+            //
+            // NOTE WHAT THIS DOES NOT DECIDE. Allowing the PATH here is not allowing the ANSWER: while an
+            // account's colour switch is off its verdicts are a shadow record, and the route itself refuses
+            // a session key and serves only a device key. A guard is a pure function on a method and a
+            // path, so it cannot see a tenant's settings; the two halves add up at the route.
+            if (s.Length == 3 && s[0] == "sessions"
+                && (s[2] == "turn-verdict" || s[2] == "turn-verdicts")) return true;
+
             // One mission, one workflow run. Scheduled jobs are handled by IsScheduleRoute below, which
             // owns every /cron shape in one place rather than splitting the reads away from the writes.
             if (s.Length == 2 && s[0] == "missions") return true;
@@ -474,6 +485,12 @@ public static class SessionKeyGuard
         "gateway/spoken-language/voice" => true,
         "gateway/injected-text" => true,
         "gateway/transcription-mode" => true,
+        // The Wingman's turn judging: whether this account's stops are judged at all, and whether the
+        // verdicts reach its screens. Both say how the product should BEHAVE - what it looks at and what
+        // colour it paints a row - and neither says who may sign in or which devices are admitted, which
+        // is the line this whole set is drawn on.
+        "gateway/turn-verdict-judge" => true,
+        "gateway/turn-verdict-colour" => true,
         _ => false,
     };
 

@@ -378,6 +378,24 @@ public sealed class TenantSettingsResolver
         };
     }
 
+    /// <summary>
+    /// This tenant's turn-judging settings (the Wingman-on-every-turn mission) - the two switches plus the
+    /// three numbers the seat runs on.
+    ///
+    /// The two switches fall back to OFF when the tenant has expressed no choice, and ALSO when the stored
+    /// value is not a boolean. That direction is the same one the supervisor block takes and it matters
+    /// more here: a corrupt override must never read as ON, because ON for the colour switch means a calm
+    /// colour on somebody's screen that the judge has not earned, and a calm colour is the failure that is
+    /// silent. The three numbers are not settable by a tenant today - they are the design's values, held
+    /// here so the seat has ONE place to read them rather than three constants scattered through it.
+    /// </summary>
+    public Wingman.TurnVerdictSettings TurnVerdict(TenantId tenant)
+        => new()
+        {
+            JudgeEnabled = ParseBool(_store.Get(tenant, TenantSettingKeys.TurnVerdictJudgeEnabled)) ?? false,
+            ColourEnabled = ParseBool(_store.Get(tenant, TenantSettingKeys.TurnVerdictColourEnabled)) ?? false,
+        };
+
     // ---- writes: validate like the global setters, then persist a per-tenant override -------------------
 
     /// <summary>Set the tenant's wingman model for a role.</summary>
@@ -583,6 +601,17 @@ public sealed class TenantSettingsResolver
                 $"{Supervision.SupervisorSettings.MaxLongRetriesAllowed}.");
         _store.Set(tenant, TenantSettingKeys.SessionSupervisorMaxLongRetries, retries.ToString(), nowUtc);
     }
+
+    /// <summary>Turn this tenant's turn JUDGING on or off. Stored explicitly, like voice mode, so "off" is a
+    /// decision this account made rather than the absence of one.</summary>
+    public void SetTurnVerdictJudgeEnabled(TenantId tenant, bool enabled, DateTime nowUtc)
+        => _store.Set(tenant, TenantSettingKeys.TurnVerdictJudgeEnabled, enabled ? "true" : "false", nowUtc);
+
+    /// <summary>Turn this tenant's turn-verdict COLOURS on or off - whether judged verdicts reach the
+    /// screen. Independent of the judge switch on purpose: off here with the judge on is the shadow state,
+    /// where verdicts are stored and gradeable and no row's colour moves.</summary>
+    public void SetTurnVerdictColourEnabled(TenantId tenant, bool enabled, DateTime nowUtc)
+        => _store.Set(tenant, TenantSettingKeys.TurnVerdictColourEnabled, enabled ? "true" : "false", nowUtc);
 
     /// <summary>Record this tenant's daily-email cadence state after a mention is emitted.</summary>
     public void SetDictationEmailCadence(TenantId tenant, DictationEmailCadenceState state, DateTime nowUtc)

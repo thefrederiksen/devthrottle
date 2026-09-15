@@ -14,8 +14,13 @@ public sealed class TurnLogRecorderTests
 {
     private static readonly TenantId Tenant = new("acct-a");
 
+    /// <summary>The observed moment the watcher would have stamped. A FIXED value rather than
+    /// DateTime.UtcNow, so a test can prove the recorder COPIES it onto the record instead of stamping a
+    /// clock of its own - with "now" on both sides the assertion passes whichever one the recorder used.</summary>
+    private static readonly DateTime ObservedAt = new(2026, 9, 14, 8, 30, 15, DateTimeKind.Utc);
+
     private static TurnEndSignal Signal(bool isNewTurn = true, string? previous = "Working")
-        => new("sid-1", "director-1", Tenant, isNewTurn, previous);
+        => new("sid-1", "director-1", Tenant, ObservedAt, isNewTurn, previous);
 
     [Fact]
     public void OnTurnEnd_CaptureSwitchedOff_ReadsNothingAtAll()

@@ -7,6 +7,7 @@ import {
   setCarModeModel,
 } from "../api/ai";
 import { ACCOUNT_SCOPE, CardHead, ensureIds, errText } from "./settingsShared";
+import { TurnVerdictCard } from "./TurnVerdictCard";
 import "./settings.css";
 
 // ---- "Assistant" tab: the model the fleet brain thinks with ---------------------------------------
@@ -24,7 +25,20 @@ import "./settings.css";
 //
 // Shared by both surfaces, like every other settings card.
 
+// TWO CARDS, EACH LOADING ITS OWN DATA. The model card reads the AI provider snapshot and the turn-verdict
+// card reads the per-account settings document, so a failure in either shows its own error and leaves the
+// other usable. Folded into one component they would share an early return, and a Gateway that cannot serve
+// the model catalog would take the turn-verdict switches off the screen with it.
 export function AssistantTab() {
+  return (
+    <>
+      <AssistantModelCard />
+      <TurnVerdictCard />
+    </>
+  );
+}
+
+function AssistantModelCard() {
   const [snap, setSnap] = useState<AiProviderSnapshot | null>(null);
   const [chatModels, setChatModels] = useState<AiModel[]>([]);
   const [error, setError] = useState<string | null>(null);

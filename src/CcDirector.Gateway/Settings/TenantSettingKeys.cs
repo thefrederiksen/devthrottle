@@ -158,6 +158,26 @@ public static class TenantSettingKeys
     /// ON.</summary>
     public const string SessionSupervisorModelFallbackEnabled = "session_supervisor_model_fallback_enabled";
 
+    // ---- the Wingman on every turn -----------------------------------------------------------------
+    // TWO SWITCHES, NOT ONE, and the split is the whole safety of the rollout. Judging is what COSTS
+    // (one model call per stop) and what fills the record; colouring is what the account SEES. Separating
+    // them makes a shadow run possible: an account can be judged for days, with every verdict stored and
+    // gradeable, while nothing on any screen has moved. One switch would have forced the choice between
+    // learning nothing and showing every account a calm colour the judge had not yet earned - and a calm
+    // colour is the one that goes wrong quietly, because it is the one that does NOT wake somebody.
+    //
+    // Like VoiceModeAll there is no operator global default to fall back to, and BOTH default to OFF.
+    // Off is the behaviour every account already has, so nothing changes for anyone until somebody asks.
+
+    /// <summary>Whether this tenant's stops are judged at all. Default OFF. Off means no model call is
+    /// made and no verdict row is written.</summary>
+    public const string TurnVerdictJudgeEnabled = "turn_verdict_judge_enabled";
+
+    /// <summary>Whether this tenant's judged verdicts reach the screen - the calm colours and the one-line
+    /// label. Default OFF, which is the SHADOW state: verdicts are stored and can be graded, and every row
+    /// stays exactly the colour the detector made it.</summary>
+    public const string TurnVerdictColourEnabled = "turn_verdict_colour_enabled";
+
     /// <summary>Every key this resolver serves, for validation and enumeration.</summary>
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -167,5 +187,6 @@ public static class TenantSettingKeys
         MentorReportEnabled, SpokenLanguage, SpokenVoiceByLanguage,
         SessionSupervisorEnabled, SessionSupervisorFirstRetrySeconds, SessionSupervisorRetryCadenceMinutes,
         SessionSupervisorMaxLongRetries, SessionSupervisorModelFallbackEnabled,
+        TurnVerdictJudgeEnabled, TurnVerdictColourEnabled,
     };
 }

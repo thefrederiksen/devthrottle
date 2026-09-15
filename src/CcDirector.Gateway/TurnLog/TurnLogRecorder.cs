@@ -313,6 +313,10 @@ public sealed class TurnLogRecorder : IDisposable
                 ActivityStateBefore = signal.PreviousActivityState,
                 ActivityStateAfter = session?.ActivityState,
                 IsNewTurn = signal.IsNewTurn,
+                // COPIED FROM THE SIGNAL, never re-stamped here. This capture starts after the boundary and
+                // takes as long as the machine takes; the moment the detector SAW the turn end is the one
+                // thing that can pair this record with the verdict formed on the same stop.
+                TurnEndObservedAtUtc = signal.ObservedAtUtc,
                 IdleSeconds = session?.IdleSeconds,
                 QuietThresholdSeconds = session?.QuietThresholdSeconds,
                 LastActivityAtUtc = session?.LastActivityAt,

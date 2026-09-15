@@ -288,6 +288,15 @@ public sealed class GatewayDbContext : DbContext
     /// watermark, and the per-session facts a history read needs.</summary>
     public DbSet<SessionTurnHeadEntity> SessionTurnHeads => Set<SessionTurnHeadEntity>();
 
+    /// <summary>One judged stop (<c>turn_verdicts</c>, the Wingman-on-every-turn mission): what the Wingman
+    /// said this turn end MEANS, with the agent's own words as the receipt. One row per stop, kept seven
+    /// days.</summary>
+    public DbSet<TurnVerdictEntity> TurnVerdicts => Set<TurnVerdictEntity>();
+
+    /// <summary>One report that a verdict was wrong (<c>turn_verdict_feedback</c>). The schema lands with
+    /// the verdict table so the pair needs one migration; nothing writes it until slice G of that mission.</summary>
+    public DbSet<TurnVerdictFeedbackEntity> TurnVerdictFeedback => Set<TurnVerdictFeedbackEntity>();
+
     /// <summary>Per-tenant setting overrides (<c>tenant_settings</c>, issue #2017) - the per-tenant home the
     /// AI / voice / car-mode / notification settings needed before they could be served on the hosted Gateway.
     /// Tenant-scoped: an absent row means "no override" and the typed resolver returns the operator global
@@ -689,6 +698,43 @@ public sealed class GatewayDbContext : DbContext
             // Hello asks "every session this Director has pushed"; retention cuts on updated-at.
             b.HasIndex(e => new { e.TenantId, e.DirectorId });
             b.HasIndex(e => new { e.TenantId, e.UpdatedAtUtc });
+        });
+
+        // ---- the Wingman on every turn: one judged stop per row, and the corrections people make -----
+
+        modelBuilder.Entity<TurnVerdictEntity>(b =>
+        {
+            b.ToTable("turn_verdicts");
+            // COMPOSITE primary key led by tenant_id, the session_turns reasoning exactly: the session id
+            // is caller-supplied (it arrives on the push stream), so a key that did not lead with the
+            // tenant would let one account squat an id for every other one. Judged-at completes it because
+            // a session is judged again at every stop - the row is one per STOP, and the history is what
+            // makes a wrong verdict answerable afterwards.
+            b.HasKey(e => new { e.TenantId, e.SessionId, e.JudgedAtUtc });
+            b.Property(e => e.SessionId).HasMaxLength(64);
+            b.Property(e => e.VerdictId).HasMaxLength(64);
+            b.Property(e => e.ScreenHash).HasMaxLength(128);
+            // The roster fold asks for EVERY session's latest verdict in one query, and the history read
+            // asks for one session newest-first. Both are served by this index; it is tenant-leading for
+            // the global filter, exactly like every other index on this model.
+            b.HasIndex(e => new { e.TenantId, e.SessionId, e.JudgedAtUtc });
+            // Retention cuts on the judged moment. A separate index because the purge orders by time
+            // across every session, which the key's session-leading order cannot serve.
+            b.HasIndex(e => new { e.TenantId, e.JudgedAtUtc });
+        });
+
+        modelBuilder.Entity<TurnVerdictFeedbackEntity>(b =>
+        {
+            b.ToTable("turn_verdict_feedback");
+            // One correction per verdict - see the entity for why a second report replaces the first
+            // rather than adding a second opinion about the same stop.
+            b.HasKey(e => new { e.TenantId, e.VerdictId });
+            b.Property(e => e.VerdictId).HasMaxLength(64);
+            b.Property(e => e.SessionId).HasMaxLength(64);
+            b.Property(e => e.CorrectedVerdict).HasMaxLength(32);
+            // "What was corrected on this session?" and the retention cut.
+            b.HasIndex(e => new { e.TenantId, e.SessionId, e.ReportedAtUtc });
+            b.HasIndex(e => new { e.TenantId, e.ReportedAtUtc });
         });
 
         modelBuilder.Entity<SessionHistoryEntity>(b =>
@@ -1099,6 +1145,8 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<SessionTurnHeadEntity>(modelBuilder);
         ApplyTenantScope<SessionRuleEntity>(modelBuilder);
         ApplyTenantScope<SessionRuleFiringEntity>(modelBuilder);
+        ApplyTenantScope<TurnVerdictEntity>(modelBuilder);
+        ApplyTenantScope<TurnVerdictFeedbackEntity>(modelBuilder);
 
         ApplyCommonSubsetConventions(modelBuilder);
 
@@ -1159,6 +1207,13 @@ public sealed class GatewayDbContext : DbContext
             modelBuilder.Entity<SessionTurnHeadEntity>().Property(e => e.SessionId).UseCollation("C");
             modelBuilder.Entity<SessionTurnHeadEntity>().Property(e => e.Generation).UseCollation("C");
             modelBuilder.Entity<SessionHistoryRollupEntity>().Property(e => e.RepoKey).UseCollation("C");
+            // turn_verdicts.SessionId is a caller-supplied natural-key string in a composite primary key,
+            // the same byte-ordinal equality/uniqueness requirement as session_turns.SessionId above - pin
+            // it to "C" so the two providers agree. turn_verdict_feedback.VerdictId is likewise a key
+            // column, and it is the one an option activation is bound to: two ids Postgres considered equal
+            // and SQLite did not would be a correction landing on the wrong verdict.
+            modelBuilder.Entity<TurnVerdictEntity>().Property(e => e.SessionId).UseCollation("C");
+            modelBuilder.Entity<TurnVerdictFeedbackEntity>().Property(e => e.VerdictId).UseCollation("C");
             // Known-repository lookups use these normalized values as exact indexed predicates. Pin both
             // to byte-ordinal equality so SQLite and Postgres select the same bounded candidate set.
             modelBuilder.Entity<KnownRepositoryEntity>().Property(e => e.MachineKey).UseCollation("C");

@@ -241,7 +241,11 @@ internal static class GatewayEndpoints
         // Nullable only so a test can map the routes without a database - and a null is never silent: a stop
         // served with nothing wired logs loudly that it went unrecorded, because a governance check whose
         // pass condition is an absence certifies a run that never happened.
-        Governance.GovernanceAuditLog? governanceAudit = null)
+        Governance.GovernanceAuditLog? governanceAudit = null,
+        // The Wingman-on-every-turn mission: the store the two turn-verdict read routes serve from. Null
+        // leaves those routes answering 404 rather than guessing - a Gateway built without the store has
+        // no verdicts, and saying so is more honest than an empty list that reads as "never judged".
+        Wingman.TurnVerdictStore? turnVerdicts = null)
     {
         // The old issue #1188 "session lock" (423 Locked on human input while a PENDING dictation record
         // existed) was removed deliberately (issue #1308). This is a single-operator tool: a collision
@@ -2946,6 +2950,63 @@ internal static class GatewayEndpoints
                 ? Results.Content(streamResult.BodyJson, "application/json")
                 : TunnelFailure(streamResult);
         });
+
+        // ---- what the Wingman said this session's stops MEAN (the Wingman-on-every-turn mission) --------
+        //
+        // Two reads, both served from THIS Gateway's own store: the latest judged stop, and the history of
+        // them. Nothing travels down the tunnel - the verdict was formed here and is held here.
+        //
+        // THE COLOUR SWITCH DECIDES WHO MAY READ, and this is the only place that can decide it. While an
+        // account's colour switch is off its verdicts are a SHADOW record: they exist so the judge can be
+        // graded, and nothing about them has been shown to the account or earned its trust. An operator
+        // holding a device key may read that record, because reading it is the whole point of a shadow run.
+        // An agent holding a session key may not, because a session key is how the product's own automation
+        // reaches the Gateway, and a shadow verdict reaching automation is the shadow ending without anyone
+        // deciding it had.
+        //
+        // Both take an HttpContext, which is what lets them resolve the caller's tenant at all - a route
+        // with a path parameter and no context cannot read the request it is answering.
+        IResult ReadTurnVerdicts(HttpContext ctx, string sid, bool history, int? count)
+        {
+            var tenant = ResolveReadTenant(ctx, tenantBoundary);
+            if (tenant is null)
+                return Results.Json(new { error = "no tenant is bound to this request" },
+                    statusCode: StatusCodes.Status403Forbidden);
+            if (!Guid.TryParse(sid, out _))
+                return Results.Json(new { error = "invalid session id format" },
+                    statusCode: StatusCodes.Status400BadRequest);
+            if (turnVerdicts is null || tenantSettings is null)
+                return Results.Json(new { error = "turn verdicts are not available on this gateway" },
+                    statusCode: StatusCodes.Status404NotFound);
+
+            var colourOn = tenantSettings.TurnVerdict(tenant.Value).ColourEnabled;
+            if (!colourOn && AuthMiddleware.CallingSession(ctx) is not null)
+                return Results.Json(new
+                {
+                    error = "this account's turn verdicts are a shadow record - they are stored so the judge "
+                          + "can be graded, and they are not served to a session key until the account turns "
+                          + "the verdict colours on",
+                }, statusCode: StatusCodes.Status403Forbidden);
+
+            if (!history)
+            {
+                var latest = turnVerdicts.Latest(tenant.Value, sid);
+                // A session that has never been judged is not an error - it is the ordinary state of every
+                // session on an account whose judge switch is off, and of every session that has not stopped
+                // yet. It answers with a null verdict and says so, rather than 404, so a client can tell
+                // "nothing to show" apart from "this route is not here".
+                return Results.Json(new { sessionId = sid, verdict = latest });
+            }
+
+            var rows = turnVerdicts.History(tenant.Value, sid, count ?? Wingman.TurnVerdictStore.DefaultHistoryCount);
+            return Results.Json(new { sessionId = sid, verdicts = rows });
+        }
+
+        app.MapGet("/sessions/{sid}/turn-verdict", (HttpContext ctx, string sid)
+            => ReadTurnVerdicts(ctx, sid, history: false, count: null));
+
+        app.MapGet("/sessions/{sid}/turn-verdicts", (HttpContext ctx, string sid, int? count)
+            => ReadTurnVerdicts(ctx, sid, history: true, count: count));
 
         // Deliver a prompt down the tunnel and, when asked, wait for the session to go idle and return what
         // it printed. Extracted from POST /sessions/{sid}/prompt by the Remove-the-network-port mission's
