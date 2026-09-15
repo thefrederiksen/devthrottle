@@ -75,9 +75,15 @@ def test_ExistingFolderThatIsAlreadyPrivate_IsAdopted(tmp_path, monkeypatch):
     folder = tmp_path / "already-private"
     folder.mkdir()
     if WINDOWS:
-        _icacls(str(folder), "/inheritance:r", "/grant:r", f"*{permissions.current_user_sid()}:(OI)(CI)F")
+        user = permissions.current_user_sid()
+        _icacls(str(folder), "/inheritance:r", "/grant:r", f"*{user}:(OI)(CI)F")
+        # /inheritance:r drops inherited entries only. A folder can also carry explicit ones - the Windows
+        # continuous integration runner's temp folder grants SYSTEM explicitly - so remove every other identity.
+        for sid in {sid for _, sid in permissions.windows_access_list(folder)[1] if sid and sid != user}:
+            _icacls(str(folder), "/remove", f"*{sid}")
     else:
         os.chmod(folder, 0o700)
+    assert permissions.folder_problem(folder) is None, "test setup did not make the folder private"
     before = _permissions_snapshot(folder)
     monkeypatch.setenv("CC_SECRETS_HOME", str(folder))
     monkeypatch.setattr(paths, "_checked_home", None)
