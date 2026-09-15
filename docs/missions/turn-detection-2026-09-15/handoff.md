@@ -200,3 +200,18 @@ Two Architects sit on mission `d2bb87ec` and the fleet map now names them apart:
 **The owner has ruled that phase two does not open until phase one is finished and landed.** So the
 scope line in the brief is now a sequencing rule as well as a scope one: work that belongs to phase
 two is not merely out of scope here, it is not startable by anyone until this phase is done.
+
+## Gemini is out. GLM only.
+
+Adding a second inspector on Gemini was explored and abandoned the same day, on the owner's
+instruction. The evidence, so nobody re-derives it inside this mission: the credentials load, so it
+is not a sign-in problem; the account is on a Google Workspace domain, which makes the command line
+demand a cloud project; with a project supplied and ACCEPTED, the real error is that the account has
+no Gemini Code Assist licence. There is no API key on file either.
+
+It is fixable and it is not this mission's problem. It has its own standalone session
+(`24eb8980`, "Fix Gemini - the command line has no license") holding the full diagnosis and standing
+by for the owner.
+
+**Every inspection from here runs on Pi with GLM-5.3.** One inspector, one family, and it is a
+different family from the Claude Code that builds - which is all law three requires.
