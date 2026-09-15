@@ -130,8 +130,14 @@ public sealed class SessionRailTreeTests
         Assert.Equal(1, rows[2].Depth);
         Assert.Same(architect, rows[1].Parent);
         Assert.Same(architect, rows[2].Parent);
-        // An open crew says it in full, so it does not also say it in summary.
-        Assert.False(rows[0].Session.ShowCrewLine || false);
+        // An open crew still CARRIES its summary - that is what the row falls back to the moment the
+        // user closes it again - and the projection is not the thing that decides to stop drawing it.
+        // Project never stamps a view model (ApplyRailRow is called only from RebuildRail), so the rule
+        // "an open crew drops the crew line" is a rule about the drawn row, and it is held down where it
+        // can go red: SessionRailRowRenderTests.AnOpenCrewRow_DropsTheCrewLine... and
+        // SessionRailWindowTests.TheCrewRowIsStampedWithWhatTheFoldSaid.
+        Assert.True(rows[0].HasCrew);
+        Assert.Equal("2 under it: 0 working, 2 stopped, 0 need you", rows[0].CrewLine);
     }
 
     // ===== THE DEFECT THE TYPESCRIPT INSPECTIONS FOUND TWICE: stopping at the first level =====
