@@ -1241,8 +1241,9 @@ public sealed class ControlApiHost : IAsyncDisposable
                 _streamClient?.NotifyDelta(ControlEndpoints.Map(session, DirectorId));
 
             // Defect 14: the three colour inputs that were invisible to the Gateway until something ELSE
-            // happened. The Gateway folds orange from IsTranscribing, orange from IsAutoExplaining, and
-            // purple from IsBackgroundRunning - reading them off the pushed SessionDto - but nothing pushed
+            // happened. The Gateway folded orange from IsTranscribing, orange from IsAutoExplaining, and
+            // purple from IsBackgroundRunning (that purple is deleted now, and the fact still pushes as a raw
+            // fact) - reading them off the pushed SessionDto - but nothing pushed
             // when they changed. Each raised its Director event to an empty room: OnIsBackgroundRunningChanged
             // and OnIsExplainingChanged had ZERO subscribers anywhere in the codebase, and
             // OnIsTranscribingChanged had exactly one (a desktop UI handler, which pushes nothing). So the
@@ -1260,10 +1261,10 @@ public sealed class ControlApiHost : IAsyncDisposable
 
             // THE GATE ON TWO OF THOSE THREE, and it was missing from the list above - which is the whole
             // trap in miniature. The comment right there says "the three colour inputs", and the fold reads
-            // a FOURTH: yellow needs WingmanEnabled AND IsAutoExplaining, purple needs WingmanEnabled AND
-            // IsBackgroundRunning (SessionOrdering.ResolveActivity). So a wingman-enabled=false command on a
-            // session parked on its background task changes the right answer from purple "Background" to red
-            // "Needs you" while NONE of the three above fire - nothing pushes, and the phone and Cockpit
+            // a FOURTH: yellow needs WingmanEnabled AND IsAutoExplaining (SessionOrdering.ResolveActivity; a
+            // purple arm gated the same way was deleted by the Wingman-on-every-turn mission). So a
+            // wingman-enabled=false command on an auto-explaining session changes the right answer from yellow
+            // "Wingman reading" to red "Needs you" while NONE of the three above fire - nothing pushes, and the phone and Cockpit
             // keep the stale fold until the ten-second re-push.
             //
             // It hid because a gate is not the thing being rendered. Defect 14 went looking for "colour

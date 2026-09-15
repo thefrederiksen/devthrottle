@@ -138,7 +138,35 @@ internal sealed class FakeTurnVerdictEnvironment : ITurnVerdictEnvironment
     }
 
     public void Record(TurnVerdictRecord record) => Records.Enqueue(record);
-    public DateTime NowUtc() => DateTime.UtcNow;
+
+    /// <summary>The seat's clock. Replace it to move time without waiting.</summary>
+    public Func<DateTime> Clock = () => DateTime.UtcNow;
+    public DateTime NowUtc() => Clock();
+
+    private int _snapshotReads;
+    public int SnapshotReads => _snapshotReads;
+
+    /// <summary>The sessions each session owns. Null: it owns none.</summary>
+    public Func<string, OwnedSessionsFacts?> Owned = _ => null;
+    public OwnedSessionsFacts? OwnedSessions(TenantId tenant, string sessionId) => Owned(sessionId);
+
+    public IReadOnlyDictionary<string, TurnVerdictDto> SnapshotLatest(TenantId tenant)
+    {
+        Interlocked.Increment(ref _snapshotReads);
+        lock (_gate)
+            return _stored
+                .Where(kv => kv.Key.Item1.Equals(tenant) && kv.Value.Count > 0)
+                .ToDictionary(kv => kv.Key.Item2, kv => kv.Value.OrderByDescending(r => r.JudgedAtUtc).First(), StringComparer.Ordinal);
+    }
+
+    /// <summary>Every stored record for this session, newest first.</summary>
+    public IReadOnlyList<TurnVerdictDto> StoredRows(TenantId tenant, string sessionId)
+    {
+        lock (_gate)
+            return _stored.TryGetValue((tenant, sessionId), out var rows)
+                ? rows.OrderByDescending(r => r.JudgedAtUtc).ToList()
+                : new List<TurnVerdictDto>();
+    }
 
     // ------------------------------------------------------------------ canned judge answers
 
@@ -175,6 +203,7 @@ internal sealed class FakeTurnVerdictEnvironment : ITurnVerdictEnvironment
         options = Array.Empty<object>(),
         risk,
         spoken,
+        finishedKind = "done",
     });
 
     /// <summary>A "needed-you" answer on a single-select picker, receipt <paramref name="evidence"/>.</summary>

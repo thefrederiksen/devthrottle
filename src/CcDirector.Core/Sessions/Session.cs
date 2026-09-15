@@ -1013,11 +1013,11 @@ public sealed class Session : IDisposable
     /// dialog. Durable per session (persisted via <see cref="PersistedSession.WingmanEnabled"/>).
     /// </summary>
     /// <remarks>
-    /// A FOLD INPUT, therefore change-notifying. It is not an overlay flag - it is the GATE on two of
-    /// them: SessionOrdering.ResolveActivity yields yellow only when WingmanEnabled AND IsAutoExplaining,
-    /// and purple only when WingmanEnabled AND IsBackgroundRunning. So turning the Wingman off on a session
-    /// parked on its own background task flips the correct answer from purple "Background" to red "Needs
-    /// you" WITHOUT any overlay flag changing.
+    /// A FOLD INPUT, therefore change-notifying. It is not an overlay flag - it is the GATE on one of
+    /// them: SessionOrdering.ResolveActivity yields yellow only when WingmanEnabled AND IsAutoExplaining.
+    /// So turning the Wingman off on an auto-explaining session flips the correct answer from yellow
+    /// "Wingman reading" to red "Needs you" WITHOUT any overlay flag changing. (It also gated a purple
+    /// "Background" arm, which the Wingman-on-every-turn mission deleted.)
     ///
     /// It was a bare auto-property, so nothing could hear that. The overlays it gates all raise; the gate
     /// did not, and it was the last unwired fold input after three review passes fixed the obvious ones.
@@ -1229,11 +1229,11 @@ public sealed class Session : IDisposable
     /// transitions off WaitingForInput in <see cref="SetActivityState"/>). Transient (in-memory only);
     /// it tracks a live read of the screen, not durable state.
     ///
-    /// This is a RAW FACT. It is reported on <c>SessionDto.IsBackgroundRunning</c> and the GATEWAY folds
-    /// the purple from it (with <see cref="WingmanEnabled"/>, at a turn end). <c>SessionStatusWingman</c>
-    /// does not "paint the badge Purple" and has not since Phase 2.3 - it emits blue, red and unknown only.
-    /// <see cref="OnIsBackgroundRunningChanged"/> had ZERO subscribers anywhere until defect 14 wired the
-    /// push, so the purple could lag a change by up to one ten-second re-push.
+    /// This is a RAW FACT. It is reported on <c>SessionDto.IsBackgroundRunning</c>, and NO COLOUR READS IT: the
+    /// Gateway's background purple was deleted by the Wingman-on-every-turn mission, so purple has one producer,
+    /// the calm verdict arm. <c>SessionStatusWingman</c> does not "paint the badge Purple" and has not since
+    /// Phase 2.3 - it emits blue, red and unknown only. <see cref="OnIsBackgroundRunningChanged"/> had ZERO
+    /// subscribers anywhere until defect 14 wired the push.
     /// </summary>
     public bool IsBackgroundRunning
     {

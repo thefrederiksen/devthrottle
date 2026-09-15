@@ -39,6 +39,110 @@ public static class SessionOrdering
     public static bool IsBriefing(SessionDto s) =>
         s.BriefingState == "Briefing" && IsRawRed(s);
 
+    /// <summary>The verdict word for a stop that was a report of finished work.</summary>
+    public const string VerdictFinished = "finished";
+
+    /// <summary>The verdict word for a stop where the agent said it would carry on by itself.</summary>
+    public const string VerdictContinuesAlone = "continues-alone";
+
+    /// <summary>The one confidence word that may calm a red row. "ambiguous" is accepted and stored, and it
+    /// never demotes red.</summary>
+    public const string ConfidenceHigh = "high";
+
+    // The three words above are LITERAL because this assembly references nothing. The product's one vocabulary is
+    // TurnVerdictVocabulary in Core, and SessionOrderingVerdictWordsTests pins these to it, so the fold cannot
+    // come to calm a word the contract never emits.
+
+    /// <summary>The words a calm row reads when its verdict carries no label of its own: green is "Done",
+    /// purple is "Carrying on" (ruling 1). The Wingman's own label is used whenever there is one.</summary>
+    public const string CalmFinishedLabel = "Done";
+
+    /// <inheritdoc cref="CalmFinishedLabel"/>
+    public const string CalmContinuesLabel = "Carrying on";
+
+    /// <summary>
+    /// True while the Gateway's turn-verdict seat is forming a verdict about this session's stop
+    /// (<see cref="SessionDto.VerdictState"/> is "reading") AND the raw activity colour is red: the Wingman is
+    /// reading the finished turn, so it is not yet known whether the stop needs the owner.
+    ///
+    /// The Gateway stamps "reading" only for an account whose colour switch is on, so an account in shadow never
+    /// sees this yellow. Gated on raw red for the same reason <see cref="IsBriefing"/> is: a session that went
+    /// back to work is blue, and a read in flight is about a screen that is gone.
+    /// </summary>
+    public static bool IsVerdictReading(SessionDto s) =>
+        string.Equals(s.VerdictState, VerdictStates.Reading, StringComparison.Ordinal) && IsRawRed(s);
+
+    /// <summary>
+    /// THE CALM ARM (the Wingman-on-every-turn mission, slice D): the Wingman judged this stop a REPORT rather
+    /// than an ask, so the row drops from red to a calm colour, keeps its row everywhere, and is not counted in
+    /// "needs you".
+    ///
+    /// ALL FOUR GATES, and each one alone keeps the row red:
+    ///  - RAW RED. The detector says the session is stopped. A verdict never recolours a working, exited or
+    ///    crashed session.
+    ///  - STATE JUDGED. An accepted verdict is on the row. "reading", "failed" and "none" never calm anything,
+    ///    and the Gateway stamps "none" on every row of an account whose colour switch is off.
+    ///  - CONFIDENCE HIGH. An "ambiguous" answer is accepted and stored, and it never demotes red.
+    ///  - VERDICT FINISHED OR CONTINUES-ALONE. Every other word is an ask, a stuck session, or cannot-tell.
+    ///
+    /// It errs toward the owner. Every gate that cannot be answered answers "not calm", so the wrong answer this
+    /// can give is a red row that did not need him, never a calm row that did.
+    /// </summary>
+    public static bool IsCalmVerdict(SessionDto s) =>
+        IsRawRed(s)
+        && string.Equals(s.VerdictState, VerdictStates.Judged, StringComparison.Ordinal)
+        && s.TurnVerdict is { } verdict
+        && string.Equals(verdict.Confidence, ConfidenceHigh, StringComparison.Ordinal)
+        && (string.Equals(verdict.Verdict, VerdictFinished, StringComparison.Ordinal)
+            || string.Equals(verdict.Verdict, VerdictContinuesAlone, StringComparison.Ordinal));
+
+    /// <summary>The finished kind for work the agent says is complete (owner ruling, 2026-09-15).</summary>
+    public const string FinishedKindDone = "done";
+
+    /// <summary>The finished kind for a stop where the agent only informs the owner and asks nothing.</summary>
+    public const string FinishedKindReport = "report";
+
+    /// <summary>The word a calm "report" row's label leads with. "Done" is <see cref="CalmFinishedLabel"/>.</summary>
+    public const string CalmReportLabel = "Report";
+
+    /// <summary>
+    /// THE WORDS ON A CALM ROW. Purple reads the Wingman's own line, or "Carrying on". Green LEADS WITH "Done" or
+    /// "Report" (owner ruling, 2026-09-15: "an informational state where I'm not needed but I'm just given
+    /// information"), followed by the Wingman's line when there is one. The two kinds are the same colour, the same
+    /// band and equally uncounted; only the words differ.
+    ///
+    /// A finished verdict with no kind is one stored before the field existed - the contract refuses such an answer
+    /// now - and reads the Wingman's line alone, as it did when it was judged.
+    /// </summary>
+    private static string CalmLabel(SessionDto s)
+    {
+        var line = JudgedLabel(s);
+        if (CalmColor(s) == "purple") return line ?? CalmContinuesLabel;
+
+        var lead = s.TurnVerdict?.FinishedKind switch
+        {
+            FinishedKindDone => CalmFinishedLabel,
+            FinishedKindReport => CalmReportLabel,
+            _ => null,
+        };
+        if (lead is null) return line ?? CalmFinishedLabel;
+        return line is null ? lead : $"{lead} - {line}";
+    }
+
+    /// <summary>Green for finished, purple for continues-alone. Asked only after <see cref="IsCalmVerdict"/>.</summary>
+    private static string CalmColor(SessionDto s) =>
+        string.Equals(s.TurnVerdict?.Verdict, VerdictContinuesAlone, StringComparison.Ordinal) ? "purple" : "green";
+
+    /// <summary>
+    /// The Wingman's one-line label for a row carrying an ACCEPTED verdict, verbatim, or null when the row carries
+    /// none. A blank label counts as none, so no label on this ladder is ever the empty string (gap 6).
+    /// </summary>
+    private static string? JudgedLabel(SessionDto s) =>
+        string.Equals(s.VerdictState, VerdictStates.Judged, StringComparison.Ordinal)
+        && !string.IsNullOrWhiteSpace(s.VerdictLabel)
+            ? s.VerdictLabel
+            : null;
+
     // GAP 5: THE GATEWAY'S VOICE WINDOW NEEDS NO RULE HERE - IsVoicePreparing BELOW ALREADY IS IT.
     //
     // The Gateway used to get its voice-mode yellow by WRITING s.BriefingState = "Briefing" onto the row
@@ -339,6 +443,23 @@ public static class SessionOrdering
         // (gap 5). Do not add a third rule for either fact.
         : IsBriefing(s) ? "yellow"
         : IsVoicePreparing(s) ? "yellow"
+        // THE WINGMAN'S VERDICT ARMS (the Wingman-on-every-turn mission, slice D).
+        //
+        // Reading: the Gateway's turn-verdict seat is forming a verdict about this stop. Beside IsVoicePreparing
+        // because it is the same kind of fact - the Gateway is working on a stopped session and does not yet know
+        // what it needs - and below the two earlier yellows so the Director's own briefing and a voice session's
+        // missing audio keep the words they already had.
+        : IsVerdictReading(s) ? "yellow"
+        // Calm: the Wingman judged the stop a REPORT, with high confidence. Green "Done" for finished, purple
+        // "Carrying on" for continues-alone. BELOW everything above - working, a snooze, a dictation in flight, a
+        // supervised session and both yellows each describe something a verdict does not outrank - and ABOVE
+        // BaseColor, whose red is the one colour a verdict may calm. The four gates are in IsCalmVerdict. Classify
+        // reads this colour, so a calm row leaves the needs-you bucket, the needs-you clock and every needs-you
+        // count without any of them learning a rule.
+        //
+        // PURPLE HAS ONE PRODUCER, and it is this line. The Director's "background running" purple in
+        // ResolveActivity is deleted - see the tombstone there.
+        : IsCalmVerdict(s) ? CalmColor(s)
         // Issue #1177 (Phase 2): the base color is computed from RAW facts. NO GATEWAY-DECIDED COLOUR READS
         // THE DIRECTOR'S COOKED StatusColor - as of 2026-07-14 that is true of the pipeline as well as the
         // fold. It was NOT true before: the Gateway's voice-mode window (GatewayEndpoints, issue #531) gated
@@ -390,15 +511,20 @@ public static class SessionOrdering
         return ResolveActivity(s);
     }
 
-    /// <summary>The activity color plus the turn-end overlays the Director bakes: auto-explain yellow,
-    /// background purple, brand-new green. Order matches the Director's <c>ResolveActivityColor</c>.</summary>
+    /// <summary>The activity color plus the turn-end overlays the Director bakes: auto-explain yellow and
+    /// brand-new green. Order matches the Director's <c>ResolveActivityColor</c>.</summary>
     private static string ResolveActivity(SessionDto s)
     {
         var atTurnEnd = IsAtTurnEnd(s);
         // Legacy auto-explain (ProactiveExplainService): yellow while WingmanEnabled and at a turn-end.
         if (s.WingmanEnabled && s.IsAutoExplaining && atTurnEnd) return "yellow";
-        // Parked on its OWN background task: purple (turn-end, WingmanEnabled).
-        if (s.WingmanEnabled && s.IsBackgroundRunning && atTurnEnd) return "purple";
+        // THE "BACKGROUND RUNNING" PURPLE THAT USED TO LIVE HERE IS DELETED (the Wingman-on-every-turn mission,
+        // ruling 3). It read `WingmanEnabled && IsBackgroundRunning && atTurnEnd -> purple`, and its only feed is
+        // the Director's ProactiveExplainService, which is switched off - a dead producer of the colour the calm
+        // arm in EffectiveColor now owns. Two producers of one colour, one alive and one dead, is the defect class
+        // this file's history is made of. IsBackgroundRunning stays on the wire as a raw fact; no colour reads it.
+        // Do not restore this arm.
+        //
         // Brand-new, has not yet taken a turn: green ("ready").
         if (s.IsBrandNew && atTurnEnd) return "green";
         return RawActivityColor(s);
@@ -478,6 +604,10 @@ public static class SessionOrdering
         // first arm and read "Wingman reading" - the wrong words, on top of a destroyed fact (gap 5).
         if (IsBriefing(s)) return "Wingman reading";
         if (IsVoicePreparing(s)) return VoiceHoldLabel(s);
+        // Mirrors EffectiveColor's two verdict arms, in the same order. A calm row reads the Wingman's own line
+        // verbatim - the report - and "Done" or "Carrying on" only when the verdict carries no line at all.
+        if (IsVerdictReading(s)) return "Wingman reading";
+        if (IsCalmVerdict(s)) return CalmLabel(s);
         return BaseColor(s) switch
         {
             // NO "supporting" ARM. It is not missing - it is unreachable, and saying so here is cheaper than
@@ -485,11 +615,17 @@ public static class SessionOrdering
             // it), and the only thing that does - the supervised arm - already returned "Snoozed" above this
             // switch. A "supporting" => something mapping here would be a second answer to a question that
             // has already been answered, which is how this file previously came to label a blue dot "Snoozed".
-            "purple" => "Background",
+            //
+            // NO "purple" ARM EITHER. BaseColor no longer produces purple (the background arm is deleted), and
+            // the calm arm that does has already returned its label above.
             "green" => "Ready",
             "yellow" => "Wingman reading",   // Director auto-explain base yellow
             "blue" => "Working",
-            "red" => "Needs you",
+            // A red row the Wingman has judged carries the Wingman's own line where "Needs you" was (ruling 3):
+            // the ask, an ambiguous report that stayed red, or the carrying-on clock's "Said it would continue
+            // and did not". A row with no accepted verdict - never judged, refused, or an account whose colour
+            // switch is off - still reads "Needs you".
+            "red" => JudgedLabel(s) ?? "Needs you",
             "grey" => "Exited",              // Phase 2.3: an exited session's grey base (see RawActivityColor)
             "error" => "Crashed",            // issue #959: died, not finished - never reads as a clean "Exited"
             _ => "Idle",
@@ -717,12 +853,36 @@ public static class SessionOrdering
     /// and timestamps are ISO 8601, so the two agree on every value this field can carry - and ordinal is
     /// the one that cannot change answer with the machine's locale.
     /// </summary>
-    public static IReadOnlyList<SessionDto> InWaitingOrder(IEnumerable<SessionDto> sessions) =>
-        sessions.Where(s => Classify(s) == TriageBucket.NeedsYou)
-            .OrderBy(s => s.NeedsYouSince ?? DateTime.MaxValue)
-            .ThenBy(s => s.CreatedAt)
-            .ThenBy(s => s.SessionId, StringComparer.Ordinal)
+    ///
+    /// THE CALM BAND (the Wingman-on-every-turn mission, slice D). After every needs-you row come the rows in
+    /// <see cref="IsInCalmBand"/>, ordered by the same rule. They are listed and not counted: their bucket is
+    /// Active, so nothing that counts needs-you counts them.
+    /// </summary>
+    public static IReadOnlyList<SessionDto> InWaitingOrder(IEnumerable<SessionDto> sessions)
+    {
+        var list = sessions as IReadOnlyCollection<SessionDto> ?? sessions.ToList();
+        return WaitingLine(list.Where(s => Classify(s) == TriageBucket.NeedsYou))
+            .Concat(WaitingLine(list.Where(IsInCalmBand)))
             .ToList();
+    }
+
+    private static IEnumerable<SessionDto> WaitingLine(IEnumerable<SessionDto> rows) =>
+        rows.OrderBy(s => s.NeedsYouSince ?? DateTime.MaxValue)
+            .ThenBy(s => s.CreatedAt)
+            .ThenBy(s => s.SessionId, StringComparer.Ordinal);
+
+    /// <summary>
+    /// Is this row in the calm band - a calm colour AND an accepted verdict? The port of <c>isInCalmBand</c> in
+    /// packages/client-core/src/sessions/ordering.ts, which selects on the same two stamped strings, and
+    /// tree-agreement.json holds the two to the same answers. A brand-new session is green too and carries no
+    /// verdict, so it is not in the band; a snoozed row is grey, so a snooze keeps a row out of it.
+    /// </summary>
+    public static bool IsInCalmBand(SessionDto s)
+    {
+        var color = EffectiveColor(s);
+        return (string.Equals(color, "green", StringComparison.Ordinal) || string.Equals(color, "purple", StringComparison.Ordinal))
+               && string.Equals(s.VerdictState, VerdictStates.Judged, StringComparison.Ordinal);
+    }
 
     /// <summary>
     /// The display label for the "(no repo)" group: sessions whose <see cref="SessionDto.RepoPath"/>

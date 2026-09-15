@@ -54,6 +54,13 @@ public interface ITurnVerdictEnvironment
     /// <summary>This session's latest stored verdict in this account, or null.</summary>
     TurnVerdictDto? Latest(TenantId tenant, string sessionId);
 
+    /// <summary>Every session's latest stored verdict in this account, in one read - for the carrying-on clock.</summary>
+    IReadOnlyDictionary<string, TurnVerdictDto> SnapshotLatest(TenantId tenant);
+
+    /// <summary>The sessions this session owns, resolved across the account's whole fresh roster, or null when it
+    /// owns none (or is not in the roster).</summary>
+    OwnedSessionsFacts? OwnedSessions(TenantId tenant, string sessionId);
+
     /// <summary>Store one verdict record, accepted or failed.</summary>
     void Store(TenantId tenant, string sessionId, TurnVerdictDto verdict);
 
@@ -580,12 +587,15 @@ public sealed class TurnVerdictService : IDisposable
         try
         {
             var signal = new TurnEndSignal(sid, directorId, tenant, observedAt, IsNewTurn: trigger == TurnVerdictTrigger.TurnEnd);
+            // The owner's own sessions (owner ruling, 2026-09-15), counted by the same crew summary the row prints.
+            var owned = _env.OwnedSessions(tenant, sid);
             var package = TurnVerdictPackageBuilder.Build(
                 signal,
                 facts ?? new SessionDto { SessionId = sid },
                 conversation,
                 grid,
-                latest is { Failed: false } ? latest.Label : null);
+                latest is { Failed: false } ? latest.Label : null,
+                owned is null ? null : new OwnedSessionCounts(owned.Working, owned.Stopped, owned.NeedYou));
             var prompt = TurnVerdictPrompt.BuildVerdictPrompt(_env.Language(tenant), package, _env.CustomSpokenRules());
 
             TurnVerdictDto record;
@@ -598,6 +608,8 @@ public sealed class TurnVerdictService : IDisposable
                 var answer = await _env.AskJudgeAsync(tenant, prompt, ct).ConfigureAwait(false);
                 replySeconds = answer.ReplySeconds;
                 record = TurnVerdictContract.ParseAndValidate(answer.Raw, package, answer.Model, observedAt);
+                // The carrying-on clock's first source travels on the stored record, so it survives a restart.
+                record.NextScheduledWakeUtc = package.NextScheduledWakeUtc;
                 if (record.Failed)
                 {
                     failure = TurnVerdictFailureKind.Refused;
@@ -823,7 +835,78 @@ public sealed class TurnVerdictService : IDisposable
         Options = v.Options,
         Risk = v.Risk,
         Spoken = v.Spoken,
+        NextScheduledWakeUtc = v.NextScheduledWakeUtc,
+        FinishedKind = v.FinishedKind,
     };
+
+    /// <summary>
+    /// THE CARRYING-ON CLOCK'S TICK for one account (<see cref="TurnVerdictWatchdog"/>): every stored
+    /// "continues-alone" verdict whose deadline has passed is replaced by a "needed-you" verdict labelled "Said it
+    /// would continue and did not". Returns how many expired.
+    ///
+    /// For every account whose JUDGE switch is on, whether or not its colour switch is (the Architect's ruling on
+    /// slice D, decision 5 reversed). A shadow account's stored verdicts are what the product would have shown,
+    /// so its purple must expire exactly like a live one; a purple that never expires overstates "carrying on" in
+    /// every grading report. What reaches a screen does not change: the row stamp still reads the colour switch.
+    /// The judge's own answer is never overwritten either way - the expiry is a new, later record.
+    ///
+    /// A WORKING TRANSITION STOPS THE CLOCK, AND IT CANNOT LOSE A RACE WITH THIS. The snapshot is read outside the
+    /// gate; each expiry re-reads the session's latest verdict INSIDE the gate <see cref="OnSessionWorking"/>
+    /// invalidates under, and stores only when it is still the same carrying-on verdict and still past its
+    /// deadline. A session that worked in between has no verdict left, and one judged again has a different one.
+    ///
+    /// A CHILD'S WORKING TRANSITION is not seen through the verdict at all - it invalidates only the child's own
+    /// verdict - so the deadline inside the gate is computed from the owned sessions read AGAIN inside the gate,
+    /// immediately before the store, never from the read taken before it. A child that is Working in the roster
+    /// at that moment stands the expiry down. The read and the store follow each other inside the gate with
+    /// nothing awaited between them.
+    /// </summary>
+    public int ExpireCarryingOn(TenantId tenant)
+    {
+        if (_disposed || !tenant.IsValid) return 0;
+        if (!_env.Settings(tenant).JudgeEnabled) return 0;
+
+        var now = _env.NowUtc();
+        var expired = 0;
+        foreach (var (sid, snapshot) in _env.SnapshotLatest(tenant))
+        {
+            // Only a carrying-on verdict has a clock at all, so only one of those costs a roster read.
+            if (TurnVerdictWatchdog.DeadlineFor(snapshot) is null) continue;
+            // THE OWNER'S OWN SESSIONS (owner ruling, 2026-09-15): while any session this one owns is working its
+            // clock does not run, and once none is, it counts from the moment the last one stopped.
+            var owned = _env.OwnedSessions(tenant, sid);
+            if (!TurnVerdictWatchdog.IsExpired(snapshot, now, owned)) continue;
+
+            TurnVerdictDto replacement;
+            lock (_storeGate)
+            {
+                var current = _env.Latest(tenant, sid);
+                if (current is null
+                    || !string.Equals(current.VerdictId, snapshot.VerdictId, StringComparison.Ordinal))
+                    continue;
+
+                // A CHILD'S WORKING TRANSITION DOES NOT TOUCH ITS OWNER'S VERDICT, so the owned sessions read above
+                // can be stale by now: a child that started Working since then must still hold its owner purple.
+                // They are read again here, inside the gate and immediately before the store, and the expiry
+                // stands down when any of them is Working.
+                var ownedNow = _env.OwnedSessions(tenant, sid);
+                if (!TurnVerdictWatchdog.IsExpired(current, now, ownedNow))
+                    continue;
+
+                replacement = TurnVerdictWatchdog.Expire(current, now);
+                _env.Store(tenant, sid, replacement);
+                _knownEmpty.TryRemove((tenant, sid), out _);
+            }
+
+            expired++;
+            _env.Record(new TurnVerdictRecord(tenant, _env.ReadSessionState(tenant, sid).Facts?.DirectorId ?? "", sid,
+                ActivityEventTypes.TurnVerdictExpired, ActivityCauses.CarryingOnExpired,
+                $"expired={snapshot.VerdictId} id={replacement.VerdictId}"));
+            FileLog.Write($"[TurnVerdictService] ExpireCarryingOn: sid={sid} tenant={tenant.ToLogString()} said it would continue and did not; verdict {snapshot.VerdictId} replaced by {replacement.VerdictId}");
+        }
+
+        return expired;
+    }
 
     /// <summary>The three-word screen verdict the menu cache has always held, read off the verdict: a picker
     /// the answer selects from is a menu; a stop that needs a person is waiting on an answer; anything else

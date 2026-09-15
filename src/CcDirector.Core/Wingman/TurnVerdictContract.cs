@@ -22,24 +22,29 @@ namespace CcDirector.Core.Wingman;
 /// here therefore fails AWAY from calm: a refused answer leaves the row exactly as the detector left
 /// it, which is red. Silence is never a decision, and a broken answer never moves a row toward quiet.
 ///
-/// The prompt lives in Prompts/turn-verdict-v1.txt as an embedded resource rather than in this file,
+/// The prompt lives in Prompts/turn-verdict-v2.txt as an embedded resource rather than in this file,
 /// because the grading tool in the internal repository renders the SAME prompt from the SAME bytes. A
 /// prompt that existed twice would be graded in one version and shipped in another.
 /// </summary>
 public static class TurnVerdictContract
 {
     /// <summary>Stamped on every verdict record so a stored answer can say which contract produced it.
-    /// Bump on every change to the prompt or to validation.</summary>
-    public const string Version = "v1";
+    /// Bump on every change to the prompt or to validation, and rename the prompt file with it.
+    ///
+    /// v1: the judge contract as slice C shipped it. v2 (slice D): the prompt gained finishedKind and the
+    /// owned-sessions facts, and validation requires finishedKind on a finished verdict and refuses it on
+    /// every other. Records stored under v1 keep their v1 stamp and stay readable; nothing reads the
+    /// version to decide whether a record may be shown.</summary>
+    public const string Version = "v2";
 
     /// <summary>The embedded name of the prompt template. The grading tool reads the same file off
-    /// disk at src/CcDirector.Core/Wingman/Prompts/turn-verdict-v1.txt; a test pins the two to be
+    /// disk at src/CcDirector.Core/Wingman/Prompts/turn-verdict-v2.txt; a test pins the two to be
     /// byte for byte the same.</summary>
-    public const string PromptResourceName = "CcDirector.Core.Wingman.Prompts.turn-verdict-v1.txt";
+    public const string PromptResourceName = "CcDirector.Core.Wingman.Prompts.turn-verdict-v2.txt";
 
     /// <summary>The repository-relative path of the same file, for the tool that reads it off disk and
     /// for the test that pins the embedded copy to it.</summary>
-    public const string PromptResourcePath = "src/CcDirector.Core/Wingman/Prompts/turn-verdict-v1.txt";
+    public const string PromptResourcePath = "src/CcDirector.Core/Wingman/Prompts/turn-verdict-v2.txt";
 
     // ==================================================================== caps
     //
@@ -107,6 +112,7 @@ public static class TurnVerdictContract
         "TURN_END_CONFIDENCE",
         "PENDING_WAKE_UPS",
         "NEXT_SCHEDULED_WAKE",
+        "OWNED_SESSIONS",
         "RECENT_TURNS",
         "REPLY_OR_FAILURE",
         "CURSOR_ROW",
@@ -160,6 +166,10 @@ public static class TurnVerdictContract
             ["TURN_END_CONFIDENCE"] = Present(package.TurnEndConfidence),
             ["PENDING_WAKE_UPS"] = package.PendingWakeUps?.ToString() ?? AbsentValue,
             ["NEXT_SCHEDULED_WAKE"] = package.NextScheduledWakeUtc?.ToString("u") ?? AbsentValue,
+            // Owning nothing is a known fact rather than an absent one, so it is said in words.
+            ["OWNED_SESSIONS"] = package.OwnedSessions is { } owned
+                ? $"{owned.Working} working, {owned.Stopped} stopped, {owned.NeedYou} need a person"
+                : "none - this session owns no other session",
             ["RECENT_TURNS"] = Present(package.RecentTurns),
             ["REPLY_OR_FAILURE"] = Present(package.SourceText),
             ["CURSOR_ROW"] = package.CursorRow >= 0 ? package.CursorRow.ToString() : AbsentValue,
@@ -267,6 +277,33 @@ public static class TurnVerdictContract
                 return Refuse(package, model, turnEndObservedAtUtc,
                     $"the verdict '{verdict}' is calm, and this stop has no reply at all - its turn ended on "
                     + "a failure shown on screen, which cannot mean the session finished or is carrying on");
+
+            // ---- finishedKind: which finished it is, and only on finished (owner ruling, 2026-09-15) ----
+            // "done" or "report", present whenever the verdict is finished and absent on every other verdict. A
+            // missing kind is not read as "done", and a kind on another verdict is not ignored: either would be this
+            // contract writing the first word of the row's label on the judge's behalf.
+            string? finishedKind = null;
+            var hasFinishedKind = root.TryGetProperty("finishedKind", out var finishedKindElement);
+            if (verdict == TurnVerdictVocabulary.Finished)
+            {
+                if (!hasFinishedKind)
+                    return Refuse(package, model, turnEndObservedAtUtc,
+                        "a finished answer carries no 'finishedKind'; it must say which finished it is - "
+                        + string.Join(" or ", TurnVerdictVocabulary.FinishedKinds)
+                        + " - and neither may be written on the judge's behalf");
+                if (finishedKindElement.ValueKind != JsonValueKind.String
+                    || !TurnVerdictVocabulary.FinishedKinds.Contains(finishedKindElement.GetString(), StringComparer.Ordinal))
+                    return Refuse(package, model, turnEndObservedAtUtc,
+                        $"unknown finishedKind {finishedKindElement.GetRawText()}; the two allowed words are "
+                        + string.Join(", ", TurnVerdictVocabulary.FinishedKinds));
+                finishedKind = finishedKindElement.GetString();
+            }
+            else if (hasFinishedKind)
+            {
+                return Refuse(package, model, turnEndObservedAtUtc,
+                    $"'finishedKind' is on a '{verdict}' answer; it belongs to a finished answer only, and an "
+                    + "answer that carries it anywhere else is thrown away whole");
+            }
 
             // ---- risk: one of the four, and never defaulted ----------------------------------
             var risk = Str(root, "risk");
@@ -387,6 +424,7 @@ public static class TurnVerdictContract
                 Failed = false,
                 FailureReason = null,
                 Verdict = verdict,
+                FinishedKind = finishedKind,
                 Confidence = confidence,
                 Evidence = evidence,
                 Label = label,

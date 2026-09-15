@@ -614,11 +614,18 @@ public sealed class SessionOrderingTests
         Assert.Equal("Preparing voice", SessionOrdering.StateLabel(s));
     }
 
+    // EffectiveColor_BackgroundRunningAtTurnEnd_IsPurple_FromRawFacts and StateLabel_BackgroundRunning_IsBackground
+    // lived here. Deleted with the arm they pinned (the Wingman-on-every-turn mission, ruling 3): the Director's
+    // background purple had one feed, a switched-off service, and the calm verdict arm now owns purple. The test
+    // below is what goes red if the arm is restored.
     [Fact]
-    public void EffectiveColor_BackgroundRunningAtTurnEnd_IsPurple_FromRawFacts()
+    public void EffectiveColor_BackgroundRunning_WithTheWingmanOn_IsRed_BecausePurpleHasOneProducer()
     {
-        Assert.Equal("purple", SessionOrdering.EffectiveColor(
-            Raw("WaitingForInput", wingmanEnabled: true, backgroundRunning: true)));
+        var s = Raw("WaitingForInput", wingmanEnabled: true, backgroundRunning: true);
+
+        Assert.Equal("red", SessionOrdering.EffectiveColor(s));
+        Assert.Equal("Needs you", SessionOrdering.StateLabel(s));
+        Assert.Equal(SessionOrdering.TriageBucket.NeedsYou, SessionOrdering.Classify(s));
     }
 
     [Fact]
@@ -1142,13 +1149,6 @@ public sealed class SessionOrderingTests
         s.VoiceMode = true;
         s.VoiceGenerating = true;
         Assert.Equal("Preparing voice", SessionOrdering.StateLabel(s));
-    }
-
-    [Fact]
-    public void StateLabel_BackgroundRunning_IsBackground()
-    {
-        Assert.Equal("Background", SessionOrdering.StateLabel(
-            Raw("WaitingForInput", wingmanEnabled: true, backgroundRunning: true)));
     }
 
     [Fact]

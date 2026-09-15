@@ -334,7 +334,8 @@ public sealed class SessionDto
     /// <summary>
     /// Gateway-owned human-readable state label after the same fold (issue #1177, Phase 2):
     /// e.g. "Needs you" | "Working" | "Ready" | "Wingman reading" | "Preparing voice" |
-    /// "Transcribing" | "Background" | "Snoozed" | "Exited".
+    /// "Transcribing" | "Snoozed" | "Exited", or the Wingman's own one-line label on a judged row.
+    /// ("Background" was in this list; its purple arm was deleted by the Wingman-on-every-turn mission.)
     /// ("Explaining" was in this list and was never once emitted - see the tombstone in
     /// <see cref="SessionOrdering.EffectiveColor"/>.)
     /// Computed by <see cref="SessionOrdering.StateLabel"/> from the same raw facts + overlays as
@@ -592,6 +593,29 @@ public sealed class SessionDto
     public VoiceDisplay? VoiceDisplay { get; set; }
 
     /// <summary>
+    /// THE WINGMAN'S VERDICT ON THIS SESSION'S LAST STOP (the Wingman-on-every-turn mission, slice D): what the
+    /// stop MEANS, with the agent's own words as the receipt. Stamped by the Gateway fold from ONE snapshot of
+    /// the account's stored verdicts per fold, and ONLY while the account's colour switch is on - with the
+    /// switch off this is null on every row whatever is stored, so a shadow verdict never reaches the wire.
+    /// Carried while <see cref="VerdictState"/> is "judged" (the accepted answer) or "failed" (the refused
+    /// record, with its reason); null otherwise. Replaced wholesale by the fold, never mutated. Clients render
+    /// it and decide nothing from it. Null in Director-local responses.
+    /// </summary>
+    public TurnVerdictDto? TurnVerdict { get; set; }
+
+    /// <summary>
+    /// Where the Wingman is with this row (<see cref="VerdictStates"/>): "none", "reading", "judged" or
+    /// "failed". Assigned by the Gateway on EVERY fold, in both directions, so a re-served row never keeps a
+    /// state it no longer has. Read by <see cref="SessionOrdering.IsCalmVerdict"/> and
+    /// <see cref="SessionOrdering.IsVerdictReading"/>, and by the clients' calm band, which selects on it.
+    /// </summary>
+    public string VerdictState { get; set; } = VerdictStates.None;
+
+    /// <summary>The accepted verdict's one-line label while <see cref="VerdictState"/> is "judged", else null.
+    /// <see cref="SessionOrdering.StateLabel"/> renders it verbatim on a judged row that is red or calm.</summary>
+    public string? VerdictLabel { get; set; }
+
+    /// <summary>
     /// True while a client is transcribing a dictated utterance into this session: the phone has
     /// released the Speak dialog and the Gateway is uploading + transcribing the recorded audio in
     /// the background, which will then be submitted into the session. Stamped by the Gateway
@@ -798,8 +822,9 @@ public sealed class SessionDto
 
     /// <summary>
     /// RAW FACT: the Wingman determined this session is parked on its OWN background task (a build, a
-    /// running shell) rather than on the user (mirrors <c>Session.IsBackgroundRunning</c>). At a turn-end
-    /// the fold paints this purple instead of red.
+    /// running shell) rather than on the user (mirrors <c>Session.IsBackgroundRunning</c>). NO COLOUR READS IT:
+    /// the fold's background purple was deleted by the Wingman-on-every-turn mission, so purple has one
+    /// producer, the calm verdict arm in <see cref="SessionOrdering.EffectiveColor"/>.
     /// </summary>
     public bool IsBackgroundRunning { get; set; }
 
@@ -993,8 +1018,8 @@ public sealed class SessionDto
     /// voice/transcription overlays, etc.) on the object it serves, so callers must never receive the
     /// cached instance itself or one request would contaminate the cache for later ones. Reference-type
     /// members the aggregator could mutate in place are re-created here; <see cref="VoiceUnavailable"/>,
-    /// <see cref="VoiceDisplay"/> and <see cref="ModelDisplay"/> are only ever replaced wholesale by the
-    /// aggregator (never mutated), so sharing their references is safe.
+    /// <see cref="VoiceDisplay"/>, <see cref="ModelDisplay"/> and <see cref="TurnVerdict"/> are only ever replaced
+    /// wholesale by the aggregator (never mutated), so sharing their references is safe.
     /// </summary>
     public SessionDto Clone()
     {

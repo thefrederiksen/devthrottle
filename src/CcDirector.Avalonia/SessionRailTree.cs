@@ -159,7 +159,10 @@ public static class SessionRailTree
         foreach (var section in SessionTree.AttentionSections(tree.Roots))
         {
             var isNeedsYou = section.Key == SessionOrdering.TriageBucket.NeedsYou;
-            var heading = $"{section.Title.ToUpperInvariant()} {section.Roots.Count}";
+            // The count is the rows before the calm band: a calm row is listed under "Needs you" and never
+            // counted in it. The desktop's display push carries no verdict state today, so its band is empty
+            // and this equals the root count - but the heading counts the same thing on every surface.
+            var heading = $"{section.Title.ToUpperInvariant()} {section.BandStart}";
             var first = true;
             foreach (var root in section.Roots)
             {

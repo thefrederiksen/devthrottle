@@ -145,18 +145,20 @@ public sealed class DoorbellColourFactPushTests : IAsyncLifetime
         s.SetBackgroundRunning(true, "running in background"); // what ProactiveExplainService does
 
         Assert.True(await WaitForPushed(s.Id.ToString(), d => d.IsBackgroundRunning, PushWindow),
-            "IsBackgroundRunning never reached the Gateway inside the push window - the Gateway folds the " +
-            "purple from this fact. Before defect 14 this event had ZERO subscribers anywhere.");
+            "IsBackgroundRunning never reached the Gateway inside the push window. No colour reads it since the " +
+            "background purple was deleted, but it is still a raw fact on the pushed row and it pushes on its own. " +
+            "Before defect 14 this event had ZERO subscribers anywhere.");
     }
 
     /// <summary>
     /// THE FOURTH INPUT DEFECT 14 DID NOT COUNT: the GATE on the other three.
     ///
     /// This class says "three colour inputs" and the fold reads four - yellow needs WingmanEnabled AND
-    /// IsAutoExplaining, purple needs WingmanEnabled AND IsBackgroundRunning. So turning the Wingman OFF on
-    /// a session parked on its background task changes the right answer from purple "Background" to red
-    /// "Needs you" while none of the three flags move, nothing pushes, and the phone keeps the stale fold
-    /// until the ten-second re-push.
+    /// IsAutoExplaining. So turning the Wingman OFF on an auto-explaining session changes the right answer from
+    /// yellow "Wingman reading" to red "Needs you" while none of the three flags move, nothing pushes, and the
+    /// phone keeps the stale fold until the ten-second re-push. (A purple arm gated the same way was deleted by
+    /// the Wingman-on-every-turn mission; the setup below still sets its fact, which proves the gate pushes
+    /// whatever it guards.)
     ///
     /// It survived defect 14 and three later passes hunting exactly this, because a gate is not the thing
     /// being rendered - it does not look like a colour input. Which is why the rule cannot be a judgement
@@ -167,18 +169,19 @@ public sealed class DoorbellColourFactPushTests : IAsyncLifetime
     {
         var s = await ASessionTheGatewayCanSee();
 
-        // The state the gate actually gates: parked on its own background task, Wingman on -> purple.
+        // A gated fact with the Wingman on. It used to produce purple; that arm is deleted, and the gate is what
+        // this test is about.
         s.WingmanEnabled = true;
         s.SetBackgroundRunning(true, "running in background");
         Assert.True(await WaitForPushed(s.Id.ToString(), d => d.WingmanEnabled && d.IsBackgroundRunning, PushWindow),
-            "the purple setup never reached the Gateway - the real assertion below cannot mean anything yet");
+            "the setup never reached the Gateway - the real assertion below cannot mean anything yet");
 
         // Exactly what the wingman-enabled=false command does (SessionWriteExecutor).
         s.WingmanEnabled = false;
 
         Assert.True(await WaitForPushed(s.Id.ToString(), d => !d.WingmanEnabled, PushWindow),
-            "WingmanEnabled=false never reached the Gateway inside the push window - it GATES the purple " +
-            "and yellow the fold reads, so the phone would keep folding purple 'Background' for a session " +
+            "WingmanEnabled=false never reached the Gateway inside the push window - it GATES the auto-explain " +
+            "yellow the fold reads, so the phone would keep folding yellow 'Wingman reading' for a session " +
             "the desktop already calls red 'Needs you', until one ten-second re-push");
     }
 

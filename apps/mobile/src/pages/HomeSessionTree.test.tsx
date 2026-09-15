@@ -123,6 +123,16 @@ describe("the phone roster is the ownership tree", () => {
     expect(band.querySelectorAll(".crew-strip i")).toHaveLength(2);
   });
 
+  it("draws the calm band under the reds: its title, and the judged calm row as a card inside it", async () => {
+    const report = session({ sessionId: "130", number: 130, name: "devthrottle - report", sortOrder: 1, activityState: "WaitingForInput", effectiveColor: "green", effectiveColorHex: "#22c55e", stateLabel: "Done - Pushed the branch", triageBucket: "active", verdictState: "judged" } as Partial<SessionDto> & { sessionId: string; name: string });
+    await renderHome([alone, report, architect]);
+
+    const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
+    expect(headings).toEqual(["Needs you", "Done or carrying on", "Working"]);
+    // The red first, then the calm row in its band, then the working session - the calm row is not under Working.
+    expect(cardNames()).toEqual(["Rule Factory - Architect", "devthrottle - report", "devthrottle_internal - wingman"]);
+  });
+
   it("expands the crew in place as one-line rows that open the child session", async () => {
     await renderHome([alone, architect, worker, stopped]);
     fireEvent.click(screen.getByRole("button", { name: /Expand the 2 sessions/ }));

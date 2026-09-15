@@ -195,6 +195,12 @@ public static class ActivityEventTypes
     /// would have described a screen that no longer exists. Nothing is stored.</summary>
     public const string TurnVerdictCancelled = "turn-verdict-cancelled";
 
+    /// <summary>A "continues-alone" verdict ran out of time: the session said it would carry on by itself and
+    /// has not worked since, so the carrying-on clock stored a "needed-you" verdict in its place, labelled
+    /// "Said it would continue and did not". The cause is <see cref="ActivityCauses.CarryingOnExpired"/>; the
+    /// detail carries the two verdict ids and never a word of the screen.</summary>
+    public const string TurnVerdictExpired = "turn-verdict-expired";
+
     /// <summary>Every legal event type, for validation.</summary>
     public static readonly IReadOnlyList<string> All = new[]
     {
@@ -203,6 +209,7 @@ public static class ActivityEventTypes
         SupervisorFaultDetected, SupervisorWaiting, SupervisorContinueSent, SupervisorRecovered,
         SupervisorEscalated, SupervisorStoodDown,
         TurnVerdictJudged, TurnVerdictReused, TurnVerdictFailed, TurnVerdictSkipped, TurnVerdictCancelled,
+        TurnVerdictExpired,
     };
 }
 
@@ -326,6 +333,10 @@ public static class ActivityCauses
     /// judge, so it gives up for that stop instead of making a second model call for it.</summary>
     public const string ReattemptNeverJudges = "reattempt-never-judges";
 
+    /// <summary>A "continues-alone" verdict passed its carrying-on deadline - the announced next wake-up plus two
+    /// minutes, or ten minutes after it was judged - with no Working transition in between.</summary>
+    public const string CarryingOnExpired = "carrying-on-expired";
+
     /// <summary>Every legal cause, for validation.</summary>
     public static readonly IReadOnlyList<string> All = new[]
     {
@@ -335,7 +346,7 @@ public static class ActivityCauses
         TransientTransport, RateLimited, ContextFull, NonRecoverable, UnclassifiedFault,
         MenuOwnsScreen, RetryCeiling,
         JudgeAnswered, ScreenUnchanged, JudgeDidNotAnswer, JudgeRefused, JudgeUnavailable,
-        Held, BrandNew, JudgeSwitchOff, InFlightCap, AlreadyJudging, ReattemptNeverJudges,
+        Held, BrandNew, JudgeSwitchOff, InFlightCap, AlreadyJudging, ReattemptNeverJudges, CarryingOnExpired,
     };
 }
 

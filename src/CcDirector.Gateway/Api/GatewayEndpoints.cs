@@ -245,7 +245,10 @@ internal static class GatewayEndpoints
         // The Wingman-on-every-turn mission: the store the two turn-verdict read routes serve from. Null
         // leaves those routes answering 404 rather than guessing - a Gateway built without the store has
         // no verdicts, and saying so is more honest than an empty list that reads as "never judged".
-        Wingman.TurnVerdictStore? turnVerdicts = null)
+        Wingman.TurnVerdictStore? turnVerdicts = null,
+        // Slice D: the verdict source the roster and the single-session read fold from. Null stamps "none" on
+        // every row - the row exactly as the detector made it.
+        Wingman.ITurnVerdictRowSource? turnVerdictRows = null)
     {
         // The old issue #1188 "session lock" (423 Locked on human input while a PENDING dictation record
         // existed) was removed deliberately (issue #1308). This is a single-operator tool: a collision
@@ -1598,7 +1601,7 @@ internal static class GatewayEndpoints
             // stamp the presentation fold (which reads the role to suppress a live Worker's red toward the
             // human). Done here, once, because the role needs the full fleet view - the UNFILTERED one
             // (`fleet`), not the response set (`all`). See defect 13 in StampFleetRolesAndFold.
-            StampFleetRolesAndFold(fleet, all, needsYouStampFor, snoozeRegistry, reqTenant.Value, handRaises);
+            StampFleetRolesAndFold(fleet, all, needsYouStampFor, snoozeRegistry, reqTenant.Value, handRaises, turnVerdictRows);
 
             // DevThrottle Stats: fold the assembled roster's per-session input tallies into the always-
             // available aggregate that backs "Your Throttle". This is the ONE path that carries
@@ -1947,7 +1950,7 @@ internal static class GatewayEndpoints
             // is driven by the roster read. Letting a by-id read stamp it would drive that clock out of band
             // and corrupt the roster's own waiting times. NeedsYouSince stays unstamped here, exactly as
             // before - this fix does not claim it.
-            StampFleetRolesAndFold(fleet, new[] { session }, needsYouStampFor: null, snoozeRegistry: snoozeRegistry, tenant: reqTenant.Value, handRaises: handRaises);
+            StampFleetRolesAndFold(fleet, new[] { session }, needsYouStampFor: null, snoozeRegistry: snoozeRegistry, tenant: reqTenant.Value, handRaises: handRaises, turnVerdictRows: turnVerdictRows);
             return Results.Json(session);
         });
 
@@ -5118,7 +5121,10 @@ internal static class GatewayEndpoints
         Func<TenantId, string, bool, DateTime?>? needsYouStampFor = null,
         Snooze.SnoozeRegistry? snoozeRegistry = null,
         TenantId? tenant = null,
-        Fleet.HandRaiseRegistry? handRaises = null)
+        Fleet.HandRaiseRegistry? handRaises = null,
+        // The Wingman-on-every-turn mission, slice D: where the verdicts the colour, the label and the calm band
+        // read come from. Null stamps "none" on every row, which is exactly the row as the detector made it.
+        Wingman.ITurnVerdictRowSource? turnVerdictRows = null)
     {
         if (roleUniverse is null) throw new ArgumentNullException(nameof(roleUniverse));
         if (toStamp is null) throw new ArgumentNullException(nameof(toStamp));
@@ -5205,6 +5211,11 @@ internal static class GatewayEndpoints
         // the next caller. The overload makes it structurally impossible instead: references or copies both
         // work, and a session absent from the universe fails loud.
         Fleet.FleetRoleResolver.Stamp(roleUniverse, all);
+
+        // THE WINGMAN'S VERDICT, stamped before the loop because the loop's colour, label and bucket read it. ONE
+        // snapshot of the account's verdicts for the whole fold, and no read at all while the account's colour
+        // switch is off - see TurnVerdictRowStamp.
+        Wingman.TurnVerdictRowStamp.Stamp(all, turnVerdictRows, tenant);
 
         foreach (var s in all)
         {

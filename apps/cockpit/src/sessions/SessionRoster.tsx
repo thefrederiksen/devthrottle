@@ -14,6 +14,7 @@ import {
 import {
   attentionSections,
   buildSessionTree,
+  CALM_BAND_TITLE,
   childrenOf,
   crewAge,
   crewSummary,
@@ -273,15 +274,31 @@ function AttentionGroups({
       {attentionSections(tree.roots).map((section) => (
         <div className="roster-bucket" key={section.key}>
           <div className={`roster-bucket-head ${section.key === "needsYou" ? "needs" : section.key === "onHold" ? "hold" : ""}`}>
-            {section.title} <span className="roster-bucket-count">{section.roots.length}</span>
+            {section.title} <span className="roster-bucket-count">{section.bandStart}</span>
           </div>
           <TreeList
-            tree={{ roots: section.roots, childrenOf: tree.childrenOf }}
+            tree={{ roots: section.roots.slice(0, section.bandStart), childrenOf: tree.childrenOf }}
             directors={directors}
             portByDirector={portByDirector}
             showMachine
             selectedId={selectedId}
           />
+          {/* The calm band: the rows the Wingman judged a report, below the reds and not counted in them. Which
+              rows they are is decided in client-core from the Gateway's stamps; this only lays them out. */}
+          {section.bandStart < section.roots.length && (
+            <>
+              <div className="roster-bucket-head">
+                {CALM_BAND_TITLE} <span className="roster-bucket-count">{section.roots.length - section.bandStart}</span>
+              </div>
+              <TreeList
+                tree={{ roots: section.roots.slice(section.bandStart), childrenOf: tree.childrenOf }}
+                directors={directors}
+                portByDirector={portByDirector}
+                showMachine
+                selectedId={selectedId}
+              />
+            </>
+          )}
         </div>
       ))}
     </>
