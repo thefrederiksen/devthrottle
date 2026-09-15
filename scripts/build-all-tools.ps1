@@ -84,6 +84,7 @@ $pythonTools = @(
     "cc-photos",
     "cc-powerpoint",
     "cc-reddit",
+    "cc-secrets",
     "cc-transcribe",
     "cc-vault",
     "cc-video",
