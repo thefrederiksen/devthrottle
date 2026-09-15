@@ -250,3 +250,18 @@ scorer that runs the shipped C# rule against it, and the shadow numbers.
 screens do not record the cursor and production does; and anything about the settling window,
 because the two screens in a pair are about ten seconds apart and carry no byte timing at all. A
 good score here remains a regression gate, not proof. The proof is the shadow run on live bytes.
+
+### The 1,332 against 1,331 is resolved: the table was incomplete, not the corpus
+
+The one-record gap noted above is closed and the corpus was right. The short-unexplained class
+splits three ways - 968 settled, 363 stop-hook tail, and **one mid-work** - and the published table
+printed the first two rows and silently dropped the third.
+
+Verified here rather than accepted: the named record is in the manifest exactly as described -
+session `b2d6a3e7`, `2026-09-12T00:56:50Z`, blue 10.004 seconds, Codex - and the paired
+short-unexplained total is 1,332.
+
+Worth noticing what that one record IS, because it is not a rounding detail. It is a red that fired
+while the agent was still working: a FALSE RED, which is the failure phase one explicitly does not
+fix and phase two does. It is correctly outside repaint scoring. A published table that drops the
+row it has no column for is how a known limitation quietly stops being visible.
