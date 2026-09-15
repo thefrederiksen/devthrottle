@@ -162,11 +162,37 @@ rather than deciding &mdash; the Task record, and the renames listed in the Cost
 
   <tr class="done">
     <td class="thing">Team</td>
-    <td>The workflow where an Architect settles the design, a Manager drives, and Workers build. Also the
-      sessions themselves, when they are on one mission together.</td>
-    <td class="now">the "mission" workflow &mdash; competes with Mission</td>
-    <td class="should"><span class="tag t-ren">rename</span> Team. Not Crew: that is CrewAI's signature
-      word.</td>
+    <td>A session and every session beneath it: the supervisor, the sessions it supervises, and theirs,
+      all the way down. What the session list nests, and what a collapsed row summarises. Made by
+      SUPERVISION, not by Mission.</td>
+    <td class="now"><code>Crew</code>, <code>CrewSummary</code>, <code>crewAge</code>,
+      <code>crew-*</code> in the stylesheets &mdash; 727 occurrences over 24 files</td>
+    <td class="should"><span class="tag t-ren">rename</span> Team. Retire Crew: it is CrewAI's
+      signature word.</td>
+    <td class="cost c-med">medium</td>
+    <td class="status"><span class="st s-done">settled</span></td>
+  </tr>
+
+  <tr class="done">
+    <td class="thing">Mission workflow</td>
+    <td>The workflow where an Architect settles the design, a Manager drives, and Workers build.</td>
+    <td class="now">published as id <code>mission</code>, name &ldquo;Mission&rdquo;, in force</td>
+    <td class="should"><span class="tag t-keep">keep</span> the Mission workflow &mdash; always said
+      with the word &ldquo;workflow&rdquo;, which is what separates it from the Mission it runs. The
+      2 August proposal to call it Team is RETIRED: Team now names the group of sessions, and in six
+      weeks nothing was ever renamed.</td>
+    <td class="cost c-none">none</td>
+    <td class="status"><span class="st s-done">settled</span></td>
+  </tr>
+
+  <tr class="done">
+    <td class="thing">Mission (in <code>message send all</code>)</td>
+    <td>The reach of a broadcast: your Mission first, and when you are on none, the sessions sharing
+      your checkout on this machine.</td>
+    <td class="now">&ldquo;your team&rdquo; in <code>BroadcastScope</code>, the fan-out policy, the
+      preamble &mdash; ~79 places</td>
+    <td class="should"><span class="tag t-ren">rename</span> Mission. Team is now the group of
+      sessions, so calling the broadcast scope a team is the same word for two ideas.</td>
     <td class="cost c-low">low</td>
     <td class="status"><span class="st s-done">settled</span></td>
   </tr>
@@ -345,6 +371,18 @@ rather than deciding &mdash; the Task record, and the renames listed in the Cost
   cannot. Owner, Supervisor and Parent are three different questions, and the distinction is the whole
   of <a href="sessions.html">sessions.html</a> section 1: who does it ANSWER TO, which SESSION is that,
   and who STARTED it. Only the first decides anything.</p>
+
+  <p><strong>Team was moved on 15 September 2026, and the workflow proposal was retired.</strong>
+  On 2 August this table gave Team to the WORKFLOW and wrote, in the same row, &ldquo;Not Crew: that is
+  CrewAI's signature word.&rdquo; Six weeks later the session tree shipped calling a supervisor and the
+  sessions beneath it a <em>crew</em> &mdash; the one word the table had already ruled out &mdash; because
+  nobody read the table. The owner stopped it and said he remembered choosing Team. He had: it was
+  settled, for the thing next door. So Team now names the group of sessions, which is the sense the code
+  was already reaching for; the proposal to rename the workflow is retired UNEXECUTED (in six weeks
+  nothing was ever renamed, and it is published as <code>mission</code> to this day); and the ~79 places
+  that call a broadcast's reach &ldquo;your team&rdquo; say Mission, which is what the precedence
+  actually resolves to. Two senses removed, one word placed. The sweep is one pull request after
+  v2.2.0.</p>
 
   <p><strong>Mission and Run are two records, and that is correct.</strong> I originally wanted to collapse
   them into one. That was wrong. A Mission is a durable statement of purpose that holds several tasks and can

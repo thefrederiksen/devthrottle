@@ -2,7 +2,6 @@
 name: terminology
 description: The words DevThrottle uses and what each one means - session, mission, task, workflow, run, team, the five roles, supervisor, parent, participation, snooze, agent. Use when writing an issue, brief, commit message, document or code comment, when unsure what to call something, or when you meet an older name in the code. Triggers on "/terminology", "what do we call", "what is the right word", "glossary", "vocabulary", "naming", "is it hold or snooze", "controller or supervisor".
 ---
-
 # DevThrottle terminology - the words we use, and what they mean
 
 One word per idea, one idea per word. These are the definitions everything else in DevThrottle
@@ -23,11 +22,16 @@ already means something DIFFERENT in it.
 - **Task** - one piece of a mission, handed to one worker. A mission has several. (The word is
   settled; a Task record is not built yet, so do not write as though the system stores one.)
 - **Workflow** - a reusable, versioned, published way of working. The HOW, where a mission is the
-  WHAT. A mission may run any workflow.
+  WHAT. A mission may run any workflow. The one where an Architect settles the design, a Manager
+  drives the phases and Workers build is the **Mission workflow** - always said with the word
+  "workflow", which is what separates it from the Mission it runs.
 - **Run** - one execution of a workflow, in service of a mission. It carries what the workflow
   promised and the evidence for each promise.
-- **Team** - the workflow where an Architect settles the design, a Manager drives the phases, and
-  Workers build; and also the sessions themselves when they are on one mission together.
+- **Team** - a session and every session beneath it: the supervisor, the sessions it supervises,
+  and theirs, all the way down. It is what the session list nests and what a collapsed row
+  summarises ("3 under it: 2 working, 1 stopped"). A Team is made by SUPERVISION, not by Mission -
+  a session with no supervisor in the list is a top-level row, and a standalone session that starts
+  one helper is a Team of two.
 
 Mission and Run are two records and that is deliberate. A Mission is a durable statement of
 purpose that holds several tasks and can outlive any single execution; a Run is one mechanical
@@ -62,6 +66,11 @@ when a session deliberately starts a human-facing peer: no supervisor, but still
 - **Participation** - a session's membership of a run, either active or ended. Do not say "seat":
   in any commercial context a seat is a paid licence.
 
+A **Team** is the whole of what one supervisor owns, read downwards - so Supervisor is the edge and
+Team is the shape it makes. Team is NOT the broadcast boundary: `message send all` reaches the
+sessions on your MISSION, and when you are on no mission, the sessions sharing your checkout on
+this machine. Say Mission there, never team.
+
 ## State
 
 - **Snooze** - suppressing a session's demand for attention, either now or as soon as it stops
@@ -83,6 +92,10 @@ when a session deliberately starts a human-facing peer: no supervisor, but still
   the command line, and it is a word we say out loud. Accepted, not overlooked.
 - **Group** is retired. It was an older way of clustering sessions in the rail; Mission does that
   job. Do not use it in new work.
+- **Crew** is retired. The session tree used it for a supervisor and the sessions beneath it; that
+  is a **Team**. The word belongs to CrewAI, whose signature word it is, and this rule's own test is
+  that we do not take a word that already means something different in the industry. It is still in
+  the code and is being swept out; do not write it in new work.
 
 ## Words in the code that have not caught up yet
 
@@ -94,7 +107,8 @@ prose, use the word on the left.
 | Supervisor | `Controller`, `ControllerSessionId`, `--controlled-by` |
 | Snooze | `HoldState`, `DeferredHold`, "parked" |
 | Participation | "seat" |
-| Team (the workflow) | the `mission` workflow |
+| Team | `Crew`, `CrewSummary`, `crewAge`, `crew-*` in the stylesheets |
+| Mission (in `message send all`) | "team" in the broadcast prose and warnings |
 | Reviewer | nothing - the role does not exist yet |
 
 Do not "fix" these opportunistically in unrelated work; each is a deliberate rename with its own
