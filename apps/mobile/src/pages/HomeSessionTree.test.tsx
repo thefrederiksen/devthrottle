@@ -13,11 +13,24 @@ import { Home } from "./Home";
 // visible and keep the state readable are asserted as a contract on the file the build ships.
 const STYLESHEET = readFileSync(resolve(__dirname, "../styles.css"), "utf8");
 
-// The declarations of one rule block, by its exact selector line.
+// The declarations for a selector, by its exact selector line. The cascade lets a LATER block for
+// the same selector override an earlier one, so a contract that read only the first block would
+// certify a stylesheet whose effective rule hides the thing. This therefore demands the selector
+// appears exactly ONCE and returns that one block; a second block for the same selector fails the
+// contract outright, whatever it says.
 function rule(selector: string): string {
-  const start = STYLESHEET.indexOf(`\n${selector} {`);
-  if (start < 0) throw new Error(`No rule for ${selector} in styles.css`);
-  return STYLESHEET.slice(start, STYLESHEET.indexOf("}", start));
+  const blocks: string[] = [];
+  const needle = `\n${selector} {`;
+  let from = 0;
+  for (;;) {
+    const start = STYLESHEET.indexOf(needle, from);
+    if (start < 0) break;
+    blocks.push(STYLESHEET.slice(start, STYLESHEET.indexOf("}", start)));
+    from = start + needle.length;
+  }
+  if (blocks.length === 0) throw new Error(`No rule for ${selector} in styles.css`);
+  if (blocks.length > 1) throw new Error(`${selector} is declared ${blocks.length} times in styles.css; a later block would win the cascade unseen`);
+  return blocks[0];
 }
 
 // THE LIST IS ALWAYS THE OWNERSHIP TREE (owner ruling, 2026-09-14). On the phone a parent is a card
@@ -174,7 +187,7 @@ describe("the phone roster is the ownership tree", () => {
     expect(within(kids).getByText("SORENLAPTOP")).toBeTruthy();
   });
 
-  it("draws the guides with the stylesheet the build ships - hiding them in CSS is caught here", () => {
+  it("draws the guides with the stylesheet the build ships - hiding them in CSS, or re-declaring the selector later, is caught here", () => {
     // The React half (one <i> per level) is guarded above; this is the visual half. A guide is a
     // 1 pixel bar with a colour, laid out as a flex row inside the row's gutter, and never hidden.
     expect(rule(".crew-kid-guides")).toMatch(/display:\s*flex/);
@@ -192,7 +205,12 @@ describe("the phone roster is the ownership tree", () => {
     expect(rule(".crew-kid-state")).not.toMatch(/text-overflow|min-width:\s*0/);
     expect(rule(".crew-kid-machine")).toMatch(/flex:\s*0 0 auto/);
     expect(rule(".crew-kid-machine")).not.toMatch(/text-overflow|min-width:\s*0/);
+    // The two-line clamp is a co-dependent stack: the clamp count does nothing without the box
+    // display, the vertical orientation and hidden overflow. All four are asserted.
+    expect(rule(".crew-kid-name")).toMatch(/display:\s*-webkit-box/);
+    expect(rule(".crew-kid-name")).toMatch(/-webkit-box-orient:\s*vertical/);
     expect(rule(".crew-kid-name")).toMatch(/-webkit-line-clamp:\s*2/);
+    expect(rule(".crew-kid-name")).toMatch(/overflow:\s*hidden/);
     expect(rule(".crew-kid-name")).toMatch(/overflow-wrap:\s*anywhere/);
     expect(rule(".crew-kid-name")).not.toMatch(/white-space:\s*nowrap/);
   });
