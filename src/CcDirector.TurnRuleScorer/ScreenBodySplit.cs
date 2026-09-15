@@ -27,9 +27,9 @@ internal static class ScreenBodySplit
     /// <summary>
     /// A row that looks like the agent's input box: optional leading whitespace, then a greater-than
     /// sign, a heavy right-pointing angle quotation mark (U+276F), or a black right-pointing
-    /// triangle (U+25B6). Pinned to the harness expression <c>^\s*[&gt;❯▶]</c>.
+    /// triangle (U+25B6). Pinned to the harness expression <c>^\s*[&gt;\u276F\u25B6]</c>.
     /// </summary>
-    private static readonly Regex PromptLike = new(@"^\s*[>❯▶]", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex PromptLike = new(@"^\s*[>\u276F\u25B6]", RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     /// <summary>How many rows of this screen look like the input box.</summary>
     internal static int PromptLikeRowCount(IReadOnlyList<string> rows)

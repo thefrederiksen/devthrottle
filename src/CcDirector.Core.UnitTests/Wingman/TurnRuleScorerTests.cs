@@ -197,8 +197,8 @@ public sealed class TurnRuleScorerTests
     [Theory]
     [InlineData(">")]
     [InlineData("   >")]
-    [InlineData("❯")]
-    [InlineData("▶")]
+    [InlineData("\u276F")]
+    [InlineData("\u25B6")]
     public void Every_prompt_glyph_the_harness_recognised_is_recognised_here(string row)
     {
         Assert.Equal(1, ScreenBodySplit.PromptLikeRowCount(new[] { row }));
