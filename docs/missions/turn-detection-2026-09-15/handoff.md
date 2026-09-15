@@ -167,3 +167,23 @@ crash cost nothing only because the branch happened to be current.
 What the crash invalidated and was rechecked rather than quoted: the claim that each Director
 resolves its own storage root. Re-verified in the new session - `CC_DIRECTOR_ROOT` reads
 `...\cc-director\instances\default`, and five instance roots exist on this machine.
+
+## Ruling: round three is inspected by Pi on GLM-5.3
+
+The owner's instruction was Pi with GLM 5.2. **GLM 5.2 is not available on this machine.** Pi's own
+model list offers `zai-org/GLM-5.3` and `zai-org/GLM-5.3-Flash` through the `deepinfra-mindzie`
+provider, and nothing matching 5.2 under any provider - checked across all fifty-five models Pi
+lists, not just a fuzzy search for the name.
+
+Taking the full `zai-org/GLM-5.3` rather than Flash: same family, same provider, strictly newer than
+what was asked for, and the non-Flash variant because an adversarial code review wants reasoning
+rather than speed.
+
+Verified before it was depended on, rather than at the moment it mattered: a one-shot run with that
+model returned cleanly, so the model resolves and the provider credential works. What that does NOT
+cover is whether the Director's own launch path passes the model through - that is checked by
+reading the seated session's buffer once it is spawned, not assumed.
+
+Pi satisfies law three because it is a different family from Claude Code, which built the work. The
+law names a different family, not a particular vendor, which is what makes it possible to keep
+moving while Codex is unavailable.
