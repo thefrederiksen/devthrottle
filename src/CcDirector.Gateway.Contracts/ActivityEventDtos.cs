@@ -390,6 +390,17 @@ public static class ActivityCauses
     /// <summary>The answer went to the Director and it did not confirm the write.</summary>
     public const string AnswerUnanswered = "answer-unanswered";
 
+    /// <summary>An answer named a verdict that was already answered. The first accepted answer marks the verdict,
+    /// inside the answer route's lock, and every answer after it is refused without writing anything.</summary>
+    public const string AnswerAlreadyAnswered = "answer-already-answered";
+
+    /// <summary>An answer's path named a session id that is not a session id at all.</summary>
+    public const string AnswerInvalidSessionId = "answer-invalid-session-id";
+
+    /// <summary>The answer route could not act because this Gateway has no settings store to read the account's
+    /// shadow rule from.</summary>
+    public const string AnswerUnavailable = "answer-unavailable";
+
     /// <summary>Every legal cause, for validation.</summary>
     public static readonly IReadOnlyList<string> All = new[]
     {
@@ -402,7 +413,7 @@ public static class ActivityCauses
         Held, BrandNew, JudgeSwitchOff, InFlightCap, AlreadyJudging, ReattemptNeverJudges, CarryingOnExpired,
         OwnerAnswered, AnswerMalformed, AnswerSessionNotFound, AnswerShadowRecord, AnswerVerdictNotFound, AnswerVerdictFailed,
         AnswerVerdictSuperseded, AnswerSelectionRefused, AnswerScreenUnreadable, AnswerScreenChanged,
-        AnswerNeverSent, AnswerUnanswered,
+        AnswerNeverSent, AnswerUnanswered, AnswerAlreadyAnswered, AnswerInvalidSessionId, AnswerUnavailable,
     };
 }
 

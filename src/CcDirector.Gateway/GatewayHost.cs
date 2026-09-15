@@ -3119,6 +3119,10 @@ public sealed class GatewayHost : IAsyncDisposable
         builder.Services.AddSingleton(SnoozeLandings);
         builder.Services.AddSingleton(FleetRoles);
         builder.Services.AddSingleton(FleetDisplayState);
+        // The turn-end watcher, built above in this method: the hub feeds it each accepted delta immediately before the
+        // display fold, so a stop the Wingman will read is stamped "reading" before its first colour is pushed.
+        builder.Services.AddSingleton(_turnEndWatcher
+            ?? throw new InvalidOperationException("[GatewayHost] the turn-end watcher must be built before the hub's services are registered"));
         // Register the tenancy seam as the SAME instance GatewayDatabase reads (Hosted Multi-Tenancy
         // increment 1), so a scope a SignalR-hosted boundary enters is exactly what the stores resolve. On
         // self-host this is the SingleTenantContext (always Local); on hosted it is the AsyncLocalTenantContext.

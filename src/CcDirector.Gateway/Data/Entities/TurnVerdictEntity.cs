@@ -57,6 +57,12 @@ public sealed class TurnVerdictEntity : TenantScopedEntity
     /// <summary>The whole answer as serialized <c>TurnVerdictDto</c> JSON. The clients render it verbatim,
     /// so it is stored whole rather than spread over columns that would have to be folded back together.</summary>
     public string VerdictJson { get; set; } = "";
+
+    /// <summary>When the owner's answer to this verdict was written into the session and the Director confirmed
+    /// it (UTC). Null until then. Set once, inside the answer route's per-session lock, so an answer that waited
+    /// behind an accepted one finds the verdict answered and sends nothing: one verdict, one activation, whatever
+    /// the screen does after the first write.</summary>
+    public DateTime? AnsweredAtUtc { get; set; }
 }
 
 /// <summary>

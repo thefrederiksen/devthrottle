@@ -43,10 +43,17 @@ const STOP_REASON_FROM_THE_PHONE = "Stopped by the owner from the mobile app";
 const POLL_INTERVAL_MS = 4000;
 
 export interface SessionManage {
-  // The session's row exactly as the last roster poll returned it, or null before the first poll finds it. The
-  // session screen renders Gateway-stamped fields off it verbatim (the verdict panel, slice E of the
-  // Wingman-on-every-turn mission) - read on this SAME poll, so they refresh with everything else here.
+  // The row for THIS route's session exactly as the last roster poll returned it, or null. The session screen renders
+  // Gateway-stamped fields off it verbatim (the verdict panel, slice E of the Wingman-on-every-turn mission) - read on
+  // this SAME poll, so they refresh with everything else here.
+  //
+  // KEYED BY THE ROUTE, NEVER REMEMBERED ACROSS IT. Null while this route's read is pending, when the roster does not
+  // hold this session, and when the read failed - never another session's row, and never a row a later read could not
+  // confirm. A remembered row on a changed route put session A's answer buttons on session B's screen.
   session: SessionDto | null;
+  // Why there is no row to act on, in words for the owner: the roster read failed, or it does not hold this session.
+  // Null while a read is pending or the row is current. Shown as a notice, never as something to press.
+  sessionProblem: string | null;
   onHold: boolean | null;
   held: boolean;
   // A DEFERRED snooze: asked for while the agent was working, so it arms when the work ends. Distinct
@@ -95,6 +102,11 @@ export interface SessionManage {
 
 export function useSessionManage(sessionId: string | undefined): SessionManage {
   const [session, setSession] = useState<SessionDto | null>(null);
+  const [sessionProblem, setSessionProblem] = useState<string | null>(null);
+  // The route this hook is serving RIGHT NOW, read after every await: a read that answers for a route the screen has
+  // left must not write its row onto the route the screen is on.
+  const routeRef = useRef(sessionId);
+  routeRef.current = sessionId;
   const [onHold, setOnHold] = useState<boolean | null>(null);
   const [deferred, setDeferred] = useState(false);
   const [working, setWorking] = useState(false);
@@ -115,10 +127,17 @@ export function useSessionManage(sessionId: string | undefined): SessionManage {
     if (!sessionId) return;
     try {
       const all = await listSessions(signal);
+      if (signal?.aborted || routeRef.current !== sessionId) return;
       if (pendingRef.current) return;
       const match = all.find((s) => s.sessionId === sessionId);
+      if (!match) {
+        // The roster answered and does not hold this session: nothing survives to be pressed.
+        setSession(null);
+        setSessionProblem("This session is not on the roster right now, so there is nothing here to answer.");
+      }
       if (match) {
         setSession(match);
+        setSessionProblem(null);
         // The toggle needs the raw hold (what it will flip); the DISPLAY reads the fold (working wins).
         setOnHold(Boolean(match.onHold));
         // The Gateway-owned tri-state: DeferredHold is a real snooze that has not armed yet.
@@ -134,13 +153,24 @@ export function useSessionManage(sessionId: string | undefined): SessionManage {
         // mixed-version blip must not throw the refresh, so keep the last verdict on that rare miss.
         try {
           setSnoozed(classify(match) === "onHold");
-        } catch {
-          /* keep the last-known snoozed verdict */
+        } catch (err) {
+          // The row itself is this read's and current, so it stays; the snooze verdict could not be read from it,
+          // and the screen says so rather than passing the last one off as fresh.
+          setSessionProblem(`This session's snooze state could not be read: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
-    } catch {
-      /* keep the last-known held state; the actions surface their own errors */
+    } catch (err) {
+      if (signal?.aborted || routeRef.current !== sessionId) return;
+      // A failed read confirms nothing, so no row survives it: the answer buttons go, and the reason is shown.
+      setSession(null);
+      setSessionProblem(`Could not read the roster, so this session's Wingman verdict is not shown: ${err instanceof Error ? err.message : String(err)}`);
     }
+  }, [sessionId]);
+
+  // A new route is a new session: nothing read for the last one stands until this one's own read answers.
+  useEffect(() => {
+    setSession(null);
+    setSessionProblem(null);
   }, [sessionId]);
 
   useEffect(() => {
@@ -247,7 +277,10 @@ export function useSessionManage(sessionId: string | undefined): SessionManage {
   }, [sessionId]);
 
   return {
-    session,
+    // Checked against the route on every render, so even the one render between a route change and the reset effect
+    // above can never hand out the previous session's row.
+    session: session !== null && session.sessionId === sessionId ? session : null,
+    sessionProblem,
     onHold,
     held: onHold === true,
     deferred,

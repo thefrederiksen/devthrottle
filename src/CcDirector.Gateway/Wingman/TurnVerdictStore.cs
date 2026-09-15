@@ -99,6 +99,10 @@ public sealed class TurnVerdictStore
             }
             else
             {
+                // The answered moment belongs to a verdict id. A same-moment re-judgement that mints a new id is a
+                // new verdict nobody has answered; one that keeps the id keeps its answer.
+                if (!string.Equals(existing.VerdictId, verdict.VerdictId, StringComparison.Ordinal))
+                    existing.AnsweredAtUtc = null;
                 existing.VerdictId = verdict.VerdictId;
                 existing.TurnEndObservedAtUtc = Utc(verdict.TurnEndObservedAtUtc);
                 existing.ScreenHash = verdict.ScreenHash;
@@ -147,7 +151,33 @@ public sealed class TurnVerdictStore
             .FirstOrDefault();
         if (row is null) return null;
         var dto = Deserialize(row);
-        return dto is null ? null : new TurnVerdictLocated(row.SessionId, dto);
+        return dto is null ? null : new TurnVerdictLocated(row.SessionId, dto, row.AnsweredAtUtc);
+    }
+
+    /// <summary>
+    /// Record that the owner's answer to this verdict was written and confirmed. True when this call marked it;
+    /// false when this tenant holds no such verdict or it was already answered - the first mark stands and is
+    /// never moved.
+    ///
+    /// A stored fact rather than a flag in memory, so "this verdict was answered" is answerable by query and
+    /// holds across a Gateway restart, and so the answer route's check reads the same record it marks.
+    /// </summary>
+    public bool MarkAnswered(TenantId tenant, string verdictId, DateTime answeredAtUtc)
+    {
+        if (string.IsNullOrWhiteSpace(verdictId))
+            throw new ArgumentException("A verdict id is required.", nameof(verdictId));
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var row = ctx.TurnVerdicts
+                .Where(v => v.VerdictId == verdictId)
+                .OrderByDescending(v => v.JudgedAtUtc)
+                .FirstOrDefault();
+            if (row is null || row.AnsweredAtUtc is not null) return false;
+            row.AnsweredAtUtc = Utc(answeredAtUtc);
+            ctx.SaveChanges();
+            return true;
+        }
     }
 
     /// <summary>
