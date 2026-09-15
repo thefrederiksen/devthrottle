@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CcDirector.Gateway.Data.Migrations
 {
     [DbContext(typeof(GatewayDbContext))]
-    [Migration("20260915211923_AddTurnVerdictTraces")]
+    [Migration("20260915225122_AddTurnVerdictTraces")]
     partial class AddTurnVerdictTraces
     {
         /// <inheritdoc />
@@ -1716,6 +1716,9 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<DateTime>("JudgedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("AnsweredAtUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<bool>("Failed")

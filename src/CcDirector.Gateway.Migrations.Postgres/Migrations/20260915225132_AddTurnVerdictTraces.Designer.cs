@@ -13,7 +13,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CcDirector.Gateway.Migrations.Postgres.Migrations
 {
     [DbContext(typeof(GatewayDbContext))]
-    [Migration("20260915211941_AddTurnVerdictTraces")]
+    [Migration("20260915225132_AddTurnVerdictTraces")]
     partial class AddTurnVerdictTraces
     {
         /// <inheritdoc />
@@ -1752,6 +1752,9 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .UseCollation("C");
 
                     b.Property<DateTime>("JudgedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("AnsweredAtUtc")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<bool>("Failed")
