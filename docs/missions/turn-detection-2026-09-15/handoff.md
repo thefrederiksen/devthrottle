@@ -215,3 +215,38 @@ by for the owner.
 
 **Every inspection from here runs on Pi with GLM-5.3.** One inspector, one family, and it is a
 different family from the Claude Code that builds - which is all law three requires.
+
+## SUPERSEDED: the published corpus WAS recoverable, and is now pinned
+
+The ruling above - "the pinned corpus is a NEW set, and the published numbers are re-taken against
+it" - is wrong and is superseded. It is left in place rather than deleted, because the reasoning
+behind it was sound on what was known at the time and the next reader should see why it changed.
+
+What I got wrong: I concluded the published set could not be recovered, because three reruns of the
+labelling script produced three different populations and the script carries only a lower date
+bound. That was true of the SCRIPT. It was not true of the run - the original wake table survived
+the reboot in a scratchpad directory, and it names the exact records.
+
+It is now merged on `devthrottle_internal` main as
+`corpus/state-switching/wakes-2026-09-15.jsonl` (commit `e048b2c4`), and this seat verified it
+independently rather than taking the report:
+
+- 6,953 wake rows, of which **4,328 carry both screens** - the published figure exactly.
+- The paired labels are **231 long-unexplained and 1,975 explained**, both exactly as published, and
+  1,332 short-unexplained against the published 1,331. The manifest deliberately does NOT split that
+  last group into repaint and stop-hook tail, because that split is a reading of the screen made at
+  scoring time and does not belong in a manifest.
+- The labels are named as **behaviour classes, not causes** - "short-unexplained", not "repaint
+  phantom" - which is the correction the independent review asked for and the previous naming got
+  wrong.
+- Every screen is pinned by its SHA-256. On a random sample of 300 pairs, **600 of 600 screen files
+  were present and hashed exactly**, with no misses and no mismatches. That is what makes it a gate
+  rather than a list: a screen that changes underneath it is caught.
+
+**Use it. Do not rebuild one.** Work item #2858's corpus half is done; what remains there is the
+scorer that runs the shipped C# rule against it, and the shadow numbers.
+
+**What it still cannot answer**, and this is unchanged by pinning it: the body split, because saved
+screens do not record the cursor and production does; and anything about the settling window,
+because the two screens in a pair are about ten seconds apart and carry no byte timing at all. A
+good score here remains a regression gate, not proof. The proof is the shadow run on live bytes.
