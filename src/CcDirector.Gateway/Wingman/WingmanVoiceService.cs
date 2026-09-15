@@ -770,12 +770,11 @@ public sealed class WingmanVoiceService
     /// Whether a turn-end should (re)generate the spoken narration for this session. True when there is
     /// something to say (<paramref name="currentSourceIdentity"/> non-empty) and it is NOT already the exact
     /// source we hold cached audio for. This replaces the old bare "does any narration exist" guard
-    /// (issue #1322): comparing the reply TEXT means a genuinely new or changed reply always regenerates
-    /// even when the Working transition that would have cleared the cache was never observed (a racy
-    /// sampled edge, missed on multi-part turns), while a redundant re-hit of the SAME turn still stays
-    /// quiet so a client already playing this turn's clip is never disturbed (no re-mint, no yellow flip).
-    /// Reply text is compared trimmed + ordinal - the two sources (cache vs the live /turns widget) are
-    /// the same JSONL text block, so an unchanged turn matches exactly.
+    /// (issue #1322): comparing the source identity - the turn narration passes the verdict's identifier -
+    /// means a new verdict always regenerates even when the Working transition that would have cleared the
+    /// cache was never observed (a racy sampled edge, missed on multi-part turns), while a redundant re-hit of
+    /// the SAME stop still stays quiet so a client already playing this stop's clip is never disturbed (no
+    /// re-mint, no yellow flip). The identity is compared trimmed and ordinal.
     /// </summary>
     internal bool ShouldRegenerate(TenantId tenant, string sid, string? currentSourceIdentity)
     {
@@ -1209,6 +1208,10 @@ public sealed class WingmanVoiceService
     /// whether that attempt would cost anything. The rule is the verdict service's own reuse rule for a sweep:
     /// a stored answer about this exact screen - accepted or refused - is used without asking the judge again,
     /// so only a changed screen, or an accepted verdict that has no audio yet, reaches a provider.
+    ///
+    /// GAP, NOT PROVEN: THE SWEEP READS WITHOUT THE SETTLE DELAY. The turn end waits out the settle delay before
+    /// its read; this read does not, so a sweep that comes past just after a stop can judge a screen that is
+    /// still repainting. On the rig a sweep began a stop's judgement before the detector had observed the stop.
     /// </summary>
     internal async Task<SweepGenerationInput> PrepareSweepGenerationAsync(
         TenantId tenant,
@@ -1234,9 +1237,10 @@ public sealed class WingmanVoiceService
     }
 
     /// <summary>
-    /// Regenerate the voice for a session from its latest turn: read the last reply, translate it,
-    /// synthesize audio, store. Called on every turn-end for voice sessions (background, best-effort
-    /// - it swallows its own failures so a turn is never blocked on voice).
+    /// Regenerate the voice for a session from its latest stop: take the stop's verdict from the verdict
+    /// service (joining a judgement in flight, reusing the stored verdict for an unchanged screen, or asking
+    /// the judge once), synthesize its spoken section, store. Called on every turn-end for voice sessions
+    /// (background, best-effort - it swallows its own failures so a turn is never blocked on voice).
     ///
     /// Issue #1322: a re-narration must never interrupt a client that is already listening to this
     /// turn's narration. Two guards make it "prepare quietly": it does nothing when the current turn
@@ -1262,8 +1266,9 @@ public sealed class WingmanVoiceService
     /// added ahead of the commit point would break it.
     /// </param>
     /// <param name="sweepInput">
-    /// The background sweep's captured conversation and, when needed, live terminal. Required whenever
-    /// <paramref name="onProviderReached"/> is supplied: the asynchronous terminal read happens before this
+    /// The background sweep's captured screen read, and whether an attempt on that screen would reach a
+    /// provider at all (<see cref="SweepGenerationInput"/> holds exactly those two). Required whenever
+    /// <paramref name="onProviderReached"/> is supplied: the asynchronous screen read happens before this
     /// method is entered, leaving the provider callback synchronous exactly as its contract requires.
     /// </param>
     /// <param name="markAsVoiceSession">
@@ -1291,8 +1296,8 @@ public sealed class WingmanVoiceService
         // reply, then a sub-agent, then the real answer), the intermediate Working can fall between two
         // samples that both read "waiting" - so the cache is never cleared and the bare guard wrongly
         // suppressed narration of the final answer forever (the phone replayed the stale interim clip).
-        // Comparing the reply TEXT instead removes the dependency on catching that edge: a changed reply
-        // always regenerates, the same reply still stays quiet so a client mid-play is never disturbed.
+        // Comparing the verdict's IDENTIFIER instead removes the dependency on catching that edge: a new
+        // verdict always regenerates, the same verdict still stays quiet so a client mid-play is never disturbed.
         // The idle sweep also reaches this identity comparison. A bare HasVoice guard cannot distinguish a
         // current clip from one left behind when the sampled Working transition was missed.
 
@@ -1422,26 +1427,24 @@ public sealed class WingmanVoiceService
                     return false;
 
                 case TurnVerdictOutcomeKind.Failed:
-                    if (outcome.Failure is TurnVerdictFailureKind.DidNotAnswer or TurnVerdictFailureKind.RateLimited)
+                    // THE JUDGE LEG IS NEVER RE-ATTEMPTED, whatever the failure. No stop costs two model calls, in
+                    // any slice: a re-attempt here would re-enter GenerateAsync, find this screen's stored record
+                    // failed, and ask the judge again. So the failed record stands, the row stays red, this stop
+                    // gets no narration, and the screen reports a stop that was not narrated. Only the SPEECH leg
+                    // below books re-attempts, and those reuse the accepted verdict instead of asking again.
+                    if (CurrentTurnEpoch(state, sid) == turnEpoch)
                     {
-                        // The judge did not answer, or said "not now". No evidence about the service, so this is
-                        // Retrying, and THE RETRY IS BOOKED HERE, BY THIS LEG (issue #2676) - a re-attempt
-                        // re-enters GenerateAsync, and the verdict service asks again because the stored record
-                        // for this screen is a failure.
-                        NoteNarrationAttemptFailed(tenant, state, sid, route, ladderKey, outcome.FailureDetail ?? "",
-                            outcome.Failure == TurnVerdictFailureKind.RateLimited ? outcome.RetryAfter : null,
-                            cause: outcome.Failure == TurnVerdictFailureKind.RateLimited
-                                ? $"the judge was rate limited (429){(outcome.RetryAfter is { } ra ? $", provider asked for {ra.TotalSeconds:F0}s" : ", no Retry-After sent")}"
-                                : "the judge did not answer",
-                            epoch: turnEpoch);
-                    }
-                    else if (CurrentTurnEpoch(state, sid) == turnEpoch)
-                    {
-                        // Refused by the contract, or the judge could not be asked at all. Asking again about the
-                        // same screen is a second paid call that the same answer would refuse, so nothing is
-                        // booked and the screen reports a stop that was not narrated.
+                        if (outcome.Failure is TurnVerdictFailureKind.DidNotAnswer or TurnVerdictFailureKind.RateLimited)
+                        {
+                            // No evidence about the service, so the cause is Retrying; the abandoned fact beside it
+                            // is what tells the reader nothing further is coming (VoiceDisplayFold reads the pair).
+                            state.Unavailable[sid] = HostedAiState.Retrying;
+                            // A provider that named its own wait is not called again for this stop before it passes.
+                            if (outcome.RetryAfter is { } wait)
+                                HoldModelCallsUntil(state, sid, ReplyKey(ladderKey), DateTime.UtcNow + wait);
+                        }
                         MarkAbandonedIfNothingPending(state, sid);
-                        FileLog.Write($"[WingmanVoiceService] sid={sid}: no narration - the verdict failed ({outcome.Failure}): {outcome.FailureDetail}");
+                        FileLog.Write($"[WingmanVoiceService] sid={sid}: no narration - the verdict failed ({outcome.Failure}){(outcome.RetryAfter is { } ra ? $", provider asked for {ra.TotalSeconds:F0}s" : "")}: {outcome.FailureDetail} - the judge is not asked again for this stop");
                     }
                     return false;
             }
@@ -1795,6 +1798,22 @@ public sealed class WingmanVoiceService
     /// such restriction. Non-null only after a provider asked for a delay this service would not hold a
     /// promise across - see <see cref="TenantVoiceState.ModelRetryLedger.NotBefore"/>.
     /// </summary>
+    /// <summary>
+    /// Record that the provider asked for no call about this stop before <paramref name="notBefore"/>, without
+    /// booking anything - the judge leg's rate limit, which is never re-attempted but whose named wait is still
+    /// honoured. A ledger for a different stop is replaced, as everywhere else in this ladder.
+    /// </summary>
+    private static void HoldModelCallsUntil(TenantVoiceState state, string sid, string replyKey, DateTime notBefore)
+    {
+        lock (state.ModelRetryGate)
+        {
+            if (!state.ModelRetries.TryGetValue(sid, out var ledger)
+                || !string.Equals(ledger.ReplyKey, replyKey, StringComparison.Ordinal))
+                ledger = new TenantVoiceState.ModelRetryLedger(replyKey, 0, 0, 0);
+            state.ModelRetries[sid] = ledger with { NotBefore = notBefore > ledger.NotBefore ? notBefore : ledger.NotBefore };
+        }
+    }
+
     private static TimeSpan? ModelCallHeldOffFor(TenantVoiceState state, string sid, string replyKey)
     {
         lock (state.ModelRetryGate)
@@ -1829,14 +1848,19 @@ public sealed class WingmanVoiceService
     /// just switched off would be the worst kind of nothing.
     ///
     /// It re-enters <see cref="GenerateAsync"/> rather than the inner attempt, so every guard on the ordinary
-    /// path still applies: coalescing, the identity-aware "already narrated" skip, and the reply read itself.
+    /// path still applies: coalescing, the identity-aware "already narrated" skip, and the verdict request itself.
     ///
-    /// THAT RE-RUNS THE MODEL EVEN WHEN ONLY THE SPEECH LEG FAILED, and it is a deliberate trade rather than
-    /// an oversight (raised in review). Resuming at the speech step would save a model call, and would do it
-    /// by speaking text that was written for a reply this retry has not re-read - so a turn that moved on in
-    /// the meantime would be narrated with the OLD turn's words, which is the failure mode this file has
-    /// spent three issues removing. Re-reading is what makes a re-attempt narrate the CURRENT turn. The cost
-    /// is one extra model call on a speech-only failure, bounded by the same three-rung ladder.
+    /// ONLY THE SPEECH LEG BOOKS ONE. A judge that did not answer is never re-attempted (see the failed arm of
+    /// GenerateOnceAsync). A speech-leg re-attempt re-reads the screen and asks the verdict service again, which
+    /// returns the stored ACCEPTED verdict for an unchanged readable screen without asking the judge - so the
+    /// re-attempt speaks the same verdict's words for the same stop, with no second model call. When the screen
+    /// HAS changed in the meantime, that is a new stop, judged once like any other, and the re-attempt narrates
+    /// the CURRENT stop rather than the old one's words.
+    ///
+    /// GAP, NOT PROVEN: AN UNREADABLE SCREEN IS JUDGED AGAIN ON A SPEECH RE-ATTEMPT. The verdict service never
+    /// reuses an unreadable screen outside the idle sweep (a confirmed decision: every unreadable screen hashes
+    /// alike, so reuse could play one stop's words for another), so a speech re-attempt on a session whose
+    /// screen cannot be read asks the judge a second time for that stop.
     /// </summary>
     private void ScheduleModelRetry(TenantId tenant, string sid, SessionVerbClient route, TimeSpan delay, string replyKey, long reservation, int attempt, int cap)
     {
