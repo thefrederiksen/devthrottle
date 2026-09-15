@@ -57,6 +57,16 @@ public sealed record WingmanNarrationSource(
                 TerminalIdentityPrefix + terminal);
     }
 
+    /// <summary>
+    /// True when the conversation ends with the person's words rather than an agent reply - so any narration
+    /// made before that message answers an earlier request. False for a conversation with nothing in it.
+    /// </summary>
+    public static bool EndsWithALaterUserMessage(IReadOnlyList<TurnWidgetDto>? widgets)
+    {
+        var (agent, user) = LatestSpeakerIndexes(widgets);
+        return user > agent;
+    }
+
     private static (int Agent, int User) LatestSpeakerIndexes(IReadOnlyList<TurnWidgetDto>? widgets)
     {
         var agent = -1;

@@ -1410,6 +1410,23 @@ public sealed class WingmanVoiceService
             // provider has failed twice, not started again.
             var ladderKey = LadderKey(outcome.ScreenHash, outcome.SourceText);
 
+            // A STOP THAT WAS READ SUPERSEDES WHAT THE SESSION SAID BEFORE IT, whatever the judge made of it.
+            // "Nothing to narrate" is recorded only for a brand-new session now, so a judged, reused or failed stop
+            // clears it. And when the stored conversation ends with the person's later message, the cached clip
+            // answers the request BEFORE that message: it stops being playable at once, not when new audio
+            // arrives, because a judge or speech provider that is slow or unavailable would otherwise keep
+            // replaying the previous turn over a failure on the screen. A clip already made from this very
+            // verdict is kept. (Slice C first lost this rule when the words moved to the verdict; the sweep test
+            // Cached_audio_cannot_hide_a_terminal_failure_after_a_later_user_message found it.)
+            if (outcome.Kind is TurnVerdictOutcomeKind.Judged or TurnVerdictOutcomeKind.Reused or TurnVerdictOutcomeKind.Failed
+                && outcome.Verdict is { } stop)
+            {
+                state.NothingToNarrate.TryRemove(sid, out _);
+                if (WingmanNarrationSource.EndsWithALaterUserMessage(_conversationReader?.Invoke(tenant, sid)?.Widgets)
+                    && ShouldRegenerate(tenant, sid, stop.VerdictId))
+                    DropReadyForSupersedingUserMessage(tenant, state, sid);
+            }
+
             switch (outcome.Kind)
             {
                 case TurnVerdictOutcomeKind.Skipped:
