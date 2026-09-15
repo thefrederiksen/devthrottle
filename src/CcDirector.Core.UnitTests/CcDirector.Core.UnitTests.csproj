@@ -38,6 +38,9 @@
   <ItemGroup>
     <ProjectReference Include="..\CcDirector.Core\CcDirector.Core.csproj" />
     <ProjectReference Include="..\CcDirector.Terminal.Core\CcDirector.Terminal.Core.csproj" />
+    <!-- The corpus scorer for turn detection. It is an executable and is referenced here for its
+         types alone - reading a saved screen, guessing the body split, and the hash gate. -->
+    <ProjectReference Include="..\CcDirector.TurnRuleScorer\CcDirector.TurnRuleScorer.csproj" />
   </ItemGroup>
 
   <ItemGroup>

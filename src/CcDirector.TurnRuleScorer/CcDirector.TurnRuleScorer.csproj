@@ -11,6 +11,14 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The scorer's own reading, splitting and tallying are tested like any other code. The rule
+         it asks is tested next door in ContentTurnRuleTests; these cover the parts that are this
+         tool's - the hash gate, the body-split guess, and the census that keeps an empty capture
+         from reading as a verdict. -->
+    <InternalsVisibleTo Include="CcDirector.Core.UnitTests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- THE SHIPPED RULE ITSELF, and nothing that re-states it. This tool constructs
          TerminalContentNovelty's real rule objects through ITerminalNoveltyRule and
          ITerminalSizeRule - the same objects TerminalStateDetector holds - and asks them. A scorer

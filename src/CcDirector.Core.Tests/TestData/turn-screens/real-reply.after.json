@@ -1,0 +1,112 @@
+{
+  "TsUtc": "2026-01-01T00:00:10.0000000Z",
+  "SessionId": "00000000-0000-0000-0000-00000000f004",
+  "SessionName": "Turn detection fixture",
+  "ScreenCells": [
+    [
+      {
+        "Text": "  I read the three files you named and the two they point at. Here is what is there, and",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [
+      {
+        "Text": "  what is not, before anything is changed.",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [],
+    [
+      {
+        "Text": "  The reader and the writer disagree about one thing only: what counts as a finished line.",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [
+      {
+        "Text": "  The writer appends a whole record and a newline in one call. The reader splits on the",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [
+      {
+        "Text": "  newline and keeps whatever is left over, which is how half a record becomes a record.",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [],
+    [
+      {
+        "Text": "  That is the whole defect. It needs one change on the reading side and a test that watches",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [
+      {
+        "Text": "  the old reader fail with a torn last line, which is the only symptom anyone would see.",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [],
+    [
+      {
+        "Text": "* Simmered for 1m 4s | done 12:06 AM",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [],
+    [
+      {
+        "Text": "----------------------------------------------------------------------------------------------------",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [
+      {
+        "Text": ">",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [
+      {
+        "Text": "----------------------------------------------------------------------------------------------------",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [
+      {
+        "Text": "  bypass permissions on (shift+tab to cycle) - esc to interrupt",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ]
+  ],
+  "Transcript": null,
+  "StatusColor": null,
+  "StatusReason": null,
+  "WingmanSaid": null,
+  "WingmanActions": null
+}

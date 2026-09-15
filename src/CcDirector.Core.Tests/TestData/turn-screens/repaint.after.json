@@ -1,0 +1,173 @@
+{
+  "TsUtc": "2026-01-01T00:00:10.0000000Z",
+  "SessionId": "00000000-0000-0000-0000-00000000f001",
+  "SessionName": "Turn detection fixture",
+  "ScreenCells": [
+    [
+      {
+        "Text": "  - 16 checks compared on the answers, 4 on the refusals - 20 comparisons, zero differences",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [
+      {
+        "Text": "  - Biggest single comparison: the settings table at 9 fields",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [],
+    [
+      {
+        "Text": "  And the outside tool runs - I invoked it: three groups, 11 methods, from one contract.",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [],
+    [
+      {
+        "Text": "  Status: everything is merged",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [],
+    [
+      {
+        "Text": "  All phases merged. Two independent inspections, both ruled on in writing, both fix rounds",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [
+      {
+        "Text": "  re-proved. Four builds; on the last one every test passed and none were skipped.",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [],
+    [
+      {
+        "Text": "  What I will not claim",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [],
+    [
+      {
+        "Text": "  The acceptance demonstration is not certified. The judge meant to prove it turned out able",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [
+      {
+        "Text": "  to pass over stale evidence, so it was rebuilt to refuse and then watched refusing.",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [],
+    [
+      {
+        "Text": "  Where I need you - two things",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [],
+    [
+      {
+        "Text": "  1. One migration on the test database. One table, two indexes, a version bump. No",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [
+      {
+        "Text": "     destructive statement of any kind, idempotent, and already merged.",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [
+      {
+        "Text": "  2. One wedged session. Its work is safely merged. I have told it to stop and it keeps",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [
+      {
+        "Text": "     running, and I stopped asking because each message restarts its turn.",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [],
+    [
+      {
+        "Text": ". Composing... (8m 0s | 13.6k tokens)",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [],
+    [
+      {
+        "Text": "* Simmered for 8m 1s | done 7:59 PM",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [
+      {
+        "Text": "> apply the migration",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [
+      {
+        "Text": "----------------------------------------------------------------------------------------------------",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [
+      {
+        "Text": "  bypass permissions on (shift+tab to cycle)",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ]
+  ],
+  "Transcript": null,
+  "StatusColor": null,
+  "StatusReason": null,
+  "WingmanSaid": null,
+  "WingmanActions": null
+}

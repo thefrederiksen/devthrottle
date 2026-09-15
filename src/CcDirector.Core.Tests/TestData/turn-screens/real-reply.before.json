@@ -1,0 +1,70 @@
+{
+  "TsUtc": "2026-01-01T00:00:00.0000000Z",
+  "SessionId": "00000000-0000-0000-0000-00000000f004",
+  "SessionName": "Turn detection fixture",
+  "ScreenCells": [
+    [
+      {
+        "Text": "  I read the three files you named and the two they point at. Here is what is there, and",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [
+      {
+        "Text": "  what is not, before anything is changed.",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [],
+    [
+      {
+        "Text": ". Composing... (12s | 1.1k tokens)",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [],
+    [
+      {
+        "Text": "----------------------------------------------------------------------------------------------------",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [
+      {
+        "Text": ">",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [
+      {
+        "Text": "----------------------------------------------------------------------------------------------------",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [
+      {
+        "Text": "  bypass permissions on (shift+tab to cycle) - esc to interrupt",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ]
+  ],
+  "Transcript": null,
+  "StatusColor": null,
+  "StatusReason": null,
+  "WingmanSaid": null,
+  "WingmanActions": null
+}

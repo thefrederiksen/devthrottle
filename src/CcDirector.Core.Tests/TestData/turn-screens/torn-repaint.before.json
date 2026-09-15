@@ -1,0 +1,121 @@
+{
+  "TsUtc": "2026-01-01T00:00:00.0000000Z",
+  "SessionId": "00000000-0000-0000-0000-00000000f002",
+  "SessionName": "Turn detection fixture",
+  "ScreenCells": [
+    [
+      {
+        "Text": "  The report is the spender, not the narration. Because the model call is refused there is",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [
+      {
+        "Text": "  no text to speak, so lifting the second limit alone would change nothing at all.",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [],
+    [
+      {
+        "Text": "  Where that leaves you",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [],
+    [
+      {
+        "Text": "  Nothing resets until the first of the month. At this rate the same thing happens on the",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [
+      {
+        "Text": "  seventh of every month, since last month's report alone cost nearly twice the allowance.",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [],
+    [
+      {
+        "Text": "  That leaves one decision for you. Do you want the limit raised or restructured, or do you",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [
+      {
+        "Text": "  want to go without the narration until the first? My recommendation is to give the report",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [
+      {
+        "Text": "  its own allowance rather than one shared pool, and to set that allowance from real usage.",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [],
+    [
+      {
+        "Text": ". Reducing... (running stop hook | 8m 43s | 25.0k tokens)",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [],
+    [
+      {
+        "Text": "----------------------------------------------------------------------------------------------------",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [
+      {
+        "Text": ">",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [
+      {
+        "Text": "----------------------------------------------------------------------------------------------------",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ],
+    [
+      {
+        "Text": "  bypass permissions on (shift+tab to cycle) - esc to interrupt",
+        "Fg": null,
+        "Bg": null,
+        "Bold": false
+      }
+    ]
+  ],
+  "Transcript": null,
+  "StatusColor": null,
+  "StatusReason": null,
+  "WingmanSaid": null,
+  "WingmanActions": null
+}
