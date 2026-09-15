@@ -70,6 +70,38 @@ public sealed class WingmanNarrationSourceTests
     }
 
     [Fact]
+    public void NoStoredConversationAtAll_ClassifiesTheLiveScreen()
+    {
+        // A screen-only agent, or a Director too old to store a conversation. This used to answer null
+        // before it looked at the screen, so every caller that still needed an answer wrote its own rule
+        // - and the turn-verdict package builder did exactly that, and the two rules then disagreed.
+        var source = WingmanNarrationSource.Select(
+            new List<TurnWidgetDto>(),
+            new[] { "Error: API key auth failed for provider openai-mindzie", ">" });
+
+        Assert.NotNull(source);
+        Assert.Equal(WingmanNarrationSourceKind.TerminalFailure, source!.Kind);
+        Assert.Contains("API key auth failed", source.Content);
+    }
+
+    [Fact]
+    public void NoStoredConversationAndNothingWrongOnScreen_IsStillNothingToNarrate()
+    {
+        // The control: the screen is the only source there is, and an ordinary prompt on it is not a
+        // failure. Without this, the test above would pass against a rule that called every screen-only
+        // stop a failure.
+        Assert.Null(WingmanNarrationSource.Select(
+            new List<TurnWidgetDto>(),
+            new[] { "working on it", "> " }));
+    }
+
+    [Fact]
+    public void NoStoredConversationAndNoScreen_IsNothingToNarrate()
+    {
+        Assert.Null(WingmanNarrationSource.Select(new List<TurnWidgetDto>(), null));
+    }
+
+    [Fact]
     public void LiveScreenIsNeededOnlyWhenThePersonSpokeAfterTheLatestReply()
     {
         Assert.True(WingmanNarrationSource.NeedsLiveScreen(Widgets(

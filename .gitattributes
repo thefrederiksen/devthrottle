@@ -1,1 +1,7 @@
 *.bin binary
+
+# The turn-verdict prompt is the ONE source read by two programs on two platforms - the product
+# embeds it and the grading tool in the internal repository reads it off disk. A checkout that
+# rewrote its line endings would make the embedded copy and the file on disk differ by every line,
+# and the test that pins them together would pass on one machine and fail on the next. Pin it.
+src/CcDirector.Core/Wingman/Prompts/*.txt text eol=lf

@@ -50,6 +50,11 @@
     <!-- Tools catalog data, embedded so they are available at runtime regardless of cwd. -->
     <EmbeddedResource Include="Tools\tools-manifest.json" />
     <EmbeddedResource Include="Tools\skill-tool-overrides.json" />
+    <!-- The turn-verdict prompt. Embedded rather than written into a C# string because the grading
+         tool in the internal repository renders the SAME prompt from the SAME bytes off disk; a
+         prompt that existed twice would be graded in one version and shipped in another. A test
+         pins the embedded copy to the file byte for byte. -->
+    <EmbeddedResource Include="Wingman\Prompts\turn-verdict-v1.txt" />
   </ItemGroup>
 
   <!-- macOS controlling-terminal shim (UnixPty/ccd-ptyshim.c, see its header comment).
