@@ -34,10 +34,15 @@ public sealed record TurnVerdictSettings
     public int SettleMs { get; init; } = DefaultSettleMs;
 
     /// <summary>
-    /// How long to wait for the judge, in seconds. Passed through to the hosted inference call, whose own
-    /// default is 60. Shorter on purpose: this runs at every stop, and an answer that arrives a minute later
-    /// is an answer about a screen that has moved. A timeout is not a calm verdict - nothing is stored and
-    /// the row stays red, which is exactly today's behaviour and costs nothing new.
+    /// How long to wait for the judge, in seconds. Shorter on purpose than the hosted inference call's own
+    /// default of 60: this runs at every stop, and an answer that arrives a minute later is an answer about a
+    /// screen that has moved. A timeout is not a calm verdict - nothing is stored and the row stays red, which
+    /// is exactly today's behaviour and costs nothing new.
+    ///
+    /// NOTHING READS THIS YET. This slice stores the value and makes no model call at all. Its consumer is
+    /// slice C's <c>TurnVerdictService</c>, which constructs the <c>HostedInferenceBrain</c> and must hand it
+    /// this number; until that lands, the brain still uses its own 60 seconds, and a claim that the value is
+    /// "passed through" would be false. Slice C carries the test that pins the constructed brain to it.
     ///
     /// THIRTY IS MEASURED, NOT CHOSEN. The plan carried 20 as a guess. Slice 0 graded the judges against the
     /// labelled corpus and the Architect's ruling fixed the rule rather than the number: 20 stands unless the
