@@ -417,10 +417,16 @@ public sealed class TurnVerdictPackageBuilderTests
     [Fact]
     public void ScreenHash_ChangesWhenTheFIRSTRowChanges()
     {
+        // Compared with the hash of the UNCHANGED rows, not with the literal. Against the literal this
+        // test would stay green under the very substitution it exists to catch: a hash that ignores the
+        // first row differs from the literal either way. Against the unchanged rows the two are equal,
+        // and the test goes red.
         var changed = FixedRows.ToArray();
         changed[0] = "the retention sweep is still running";
 
-        Assert.NotEqual(FixedRowsHash, WingmanScreenVerdictCache.HashRows(changed));
+        Assert.NotEqual(
+            WingmanScreenVerdictCache.HashRows(FixedRows),
+            WingmanScreenVerdictCache.HashRows(changed));
     }
 
     [Fact]
@@ -429,6 +435,8 @@ public sealed class TurnVerdictPackageBuilderTests
         var changed = FixedRows.ToArray();
         changed[^1] = "> y";
 
-        Assert.NotEqual(FixedRowsHash, WingmanScreenVerdictCache.HashRows(changed));
+        Assert.NotEqual(
+            WingmanScreenVerdictCache.HashRows(FixedRows),
+            WingmanScreenVerdictCache.HashRows(changed));
     }
 }
