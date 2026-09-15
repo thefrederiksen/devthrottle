@@ -84,7 +84,7 @@ describe("mobile roster card agent tool", () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByRole("heading", { name: "Other sessions" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Working" })).toBeTruthy();
     expect(screen.getByText("testing pi")).toBeTruthy();
     expect(screen.getByTitle("Agent tool").textContent).toBe("Claude Code");
     expect(screen.queryByText("gpt-5.6-sol")).toBeNull();

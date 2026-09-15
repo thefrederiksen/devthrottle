@@ -2786,3 +2786,77 @@ body {
 .restart-request-btn:disabled { opacity: 0.5; cursor: default; }
 .restart-request-btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .restart-request-btn-danger { background: var(--attention); border-color: var(--attention); color: #fff; }
+
+/* ---- The ownership tree (owner ruling, 2026-09-14): a parent row carries a chevron in the gutter,
+   a crew line while collapsed, and its children as a nested list while expanded. The gutter is
+   reserved only on parent rows, so an ordinary row does not move. ---- */
+.roster-li-parent > .roster-row {
+  padding-left: 22px;
+}
+.roster-chevron {
+  position: absolute;
+  left: 4px;
+  top: 9px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  z-index: 2;
+}
+.roster-chevron::before {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 5px;
+  width: 6px;
+  height: 6px;
+  border-right: 1.6px solid #9cc2ff;
+  border-bottom: 1.6px solid #9cc2ff;
+  transform: rotate(-45deg);
+}
+.roster-chevron.open::before {
+  top: 3px;
+  transform: rotate(45deg);
+}
+.roster-chevron:hover::before {
+  border-color: var(--text);
+}
+.roster-crew {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #9cc2ff;
+  min-width: 0;
+}
+.roster-crew-strip {
+  display: flex;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+.roster-crew-strip i {
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.roster-crew-text {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.roster-crew-text.alarm {
+  color: var(--attention);
+  font-weight: 600;
+}
+.roster-crew-age {
+  margin-left: auto;
+  color: var(--text-dim);
+  flex: 0 0 auto;
+}
+.roster-kids {
+  margin-left: 18px;
+  padding-left: 4px;
+  border-left: 1px solid var(--border);
+}

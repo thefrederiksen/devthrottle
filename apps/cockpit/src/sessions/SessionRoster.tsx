@@ -7,12 +7,23 @@ import {
   deletionReason,
   dotHex,
   groupByDirector,
-  inBucket,
-  inWaitingOrder,
   pendingDeletion,
   snoozeCountdown,
   snoozeExpired,
 } from "@devthrottle/client-core/sessions/ordering";
+import {
+  attentionSections,
+  buildSessionTree,
+  childrenOf,
+  crewAge,
+  crewSummary,
+  crewSummaryLine,
+  descendantsOf,
+  isCrewExpanded,
+  isOnAnotherMachine,
+  setCrewExpanded,
+  type SessionTree,
+} from "@devthrottle/client-core/sessions/tree";
 import { changesBadge, changesTitle } from "@devthrottle/client-core/sessions/changes";
 import {
   DELIVERY_BADGE_TEXT,
@@ -44,8 +55,18 @@ import { RestartRequestsPanel } from "@devthrottle/client-core/restart/RestartRe
 // desktop order (the owning Director's drag-to-reorder SortOrder), so rows hold their slot and never
 // reshuffle on a color change. In "My order" the sessions are grouped by their owning cc-director under
 // a "computer:port" header (the port tells apart several Directors on one machine), and each session's
-// facts get their own line so nothing truncates. "Attention first" is an OPT-IN view that groups
-// needs-you at the top and on-hold at the bottom, across every machine; it is never applied automatically.
+// facts get their own line so nothing truncates. "Attention first" is an OPT-IN view that puts the
+// session that has needed you longest at the top, then the working ones, then the snoozed ones at the
+// bottom, across every machine; it is never applied automatically.
+//
+// THE LIST IS ALWAYS THE OWNERSHIP TREE (owner ruling, 2026-09-14). A session that started another
+// session is a parent, and the sessions it started sit under it, collapsed by default, in BOTH views.
+// The order applies to the top level only: children keep their own order under their parent, because a
+// child with a live supervisor never goes red (#2826) and so has nothing for attention to reorder. The
+// tree is built over the WHOLE roster in both views (a parent may supervise a session on another
+// machine): "My order" groups the tree's ROOTS by Director, a child nests under its parent wherever the
+// parent lives, and a child on another machine carries its machine line. The tree and the crew summary
+// live in client-core/sessions/tree, shared with the phone.
 
 export type RosterView = "my-order" | "attention";
 
@@ -122,29 +143,7 @@ export function SessionRoster({ sessions, directors, portByDirector, selectedId,
       )}
 
       {sessions !== null && total > 0 && view === "my-order" && (
-        <>
-          {groupByDirector(sessions, portByDirector).map((group) => (
-            <div className="roster-group" key={group.directorId || "(no-director)"}>
-              <div className="roster-group-head">
-                <span className="roster-group-name">
-                  {machinePortLabel(group.machineName, group.port) || "(unknown director)"}
-                </span>
-              </div>
-              <ul className="roster-list">
-                {group.sessions.map((s) => (
-                  <RosterRow
-                    key={s.sessionId}
-                    session={s}
-                    directors={directors}
-                    portByDirector={portByDirector}
-                    showMachine={false}
-                    selectedId={selectedId}
-                  />
-                ))}
-              </ul>
-            </div>
-          ))}
-        </>
+        <MyOrderGroups sessions={sessions} directors={directors} portByDirector={portByDirector} selectedId={selectedId} />
       )}
 
       {sessions !== null && total > 0 && view === "attention" && (
@@ -156,6 +155,42 @@ export function SessionRoster({ sessions, directors, portByDirector, selectedId,
         />
       )}
     </div>
+  );
+}
+
+// "My order": ONE tree over the whole roster, and its ROOTS grouped by their owning Director under a
+// "computer:port" header. A child sits under its parent whichever Director it is on.
+function MyOrderGroups({
+  sessions,
+  directors,
+  portByDirector,
+  selectedId,
+}: {
+  sessions: SessionDto[];
+  directors: DirectorReachability[];
+  portByDirector: Map<string, string>;
+  selectedId: string | undefined;
+}) {
+  const tree = buildSessionTree(sessions);
+  return (
+    <>
+          {groupByDirector(tree.roots, portByDirector).map((group) => (
+            <div className="roster-group" key={group.directorId || "(no-director)"}>
+              <div className="roster-group-head">
+                <span className="roster-group-name">
+                  {machinePortLabel(group.machineName, group.port) || "(unknown director)"}
+                </span>
+              </div>
+              <TreeList
+                tree={{ roots: group.sessions, childrenOf: tree.childrenOf }}
+                directors={directors}
+                portByDirector={portByDirector}
+                showMachine={false}
+                selectedId={selectedId}
+              />
+            </div>
+          ))}
+    </>
   );
 }
 
@@ -209,15 +244,17 @@ function VoiceAllButton({ sessions }: { sessions: SessionDto[] }) {
   );
 }
 
-// Opt-in attention view: needs-you first, then active, then on-hold.
+// Opt-in attention view: needs-you first, then working, then snoozed - the attention order from
+// client-core/sessions/tree, applied to the TOP LEVEL of the tree across every machine.
 //
-// The needs-you group is a WAITING LINE (inWaitingOrder), the same order the phone roster uses: the
-// session that has been asking for you the LONGEST sits at the top, and a session that only just
-// started needing you joins at the BOTTOM. Work it from the top down and it is first-in, first-handled,
-// and it never reshuffles under you as new work arrives. The active and on-hold groups below keep their
-// members in desktop order (inBucket), so a session holds its slot within its bucket.
+// The needs-you section is a WAITING LINE, the same order the phone roster uses: the session that has
+// been asking for you the LONGEST sits at the top, and a session that only just started needing you
+// joins at the BOTTOM. Work it from the top down and it is first-in, first-handled, and it never
+// reshuffles under you as new work arrives. The working and snoozed sections keep their members in
+// desktop order, so a session holds its slot within its section. A crew is one row in whichever
+// section its parent falls, with its children collapsed under it.
 //
-// These buckets mix machines, so - unlike the grouped "My order" view - each card still shows its own
+// These sections mix machines, so - unlike the grouped "My order" view - each card still shows its own
 // "computer:port" line so you can see which cc-director a needs-you session lives on.
 function AttentionGroups({
   sessions,
@@ -230,65 +267,91 @@ function AttentionGroups({
   portByDirector: Map<string, string>;
   selectedId: string | undefined;
 }) {
-  const needs = inWaitingOrder(sessions);
-  const active = inBucket(sessions, "active");
-  const held = inBucket(sessions, "onHold");
+  const tree = buildSessionTree(sessions);
   return (
     <>
-      {needs.length > 0 && (
-        <Bucket title="Needs you" tone="needs" count={needs.length}>
-          {needs.map((s) => (
-            <RosterRow key={`needs-${s.sessionId}`} session={s} directors={directors} portByDirector={portByDirector} showMachine selectedId={selectedId} />
-          ))}
-        </Bucket>
-      )}
-      {active.length > 0 && (
-        <Bucket title="Active" count={active.length}>
-          {active.map((s) => (
-            <RosterRow key={`active-${s.sessionId}`} session={s} directors={directors} portByDirector={portByDirector} showMachine selectedId={selectedId} />
-          ))}
-        </Bucket>
-      )}
-      {held.length > 0 && (
-        <Bucket title="Snoozed" tone="hold" count={held.length}>
-          {held.map((s) => (
-            <RosterRow key={`hold-${s.sessionId}`} session={s} directors={directors} portByDirector={portByDirector} showMachine selectedId={selectedId} />
-          ))}
-        </Bucket>
-      )}
+      {attentionSections(tree.roots).map((section) => (
+        <div className="roster-bucket" key={section.key}>
+          <div className={`roster-bucket-head ${section.key === "needsYou" ? "needs" : section.key === "onHold" ? "hold" : ""}`}>
+            {section.title} <span className="roster-bucket-count">{section.roots.length}</span>
+          </div>
+          <TreeList
+            tree={{ roots: section.roots, childrenOf: tree.childrenOf }}
+            directors={directors}
+            portByDirector={portByDirector}
+            showMachine
+            selectedId={selectedId}
+          />
+        </div>
+      ))}
     </>
   );
 }
 
-function Bucket({
-  title,
-  count,
-  tone,
-  children,
+// One level of the tree as a list: each root is a card, and a root with sessions under it carries the
+// chevron, the crew line while collapsed, and its children as a nested list while expanded.
+function TreeList({
+  tree,
+  directors,
+  portByDirector,
+  showMachine,
+  selectedId,
 }: {
-  title: string;
-  count: number;
-  tone?: "needs" | "hold";
-  children: React.ReactNode;
+  tree: SessionTree;
+  directors: DirectorReachability[];
+  portByDirector: Map<string, string>;
+  showMachine: boolean;
+  selectedId: string | undefined;
 }) {
   return (
-    <div className="roster-bucket">
-      <div className={`roster-bucket-head ${tone ?? ""}`}>
-        {title} <span className="roster-bucket-count">{count}</span>
-      </div>
-      <ul className="roster-list">{children}</ul>
-    </div>
+    <ul className="roster-list">
+      {tree.roots.map((s) => (
+        <RosterRow
+          key={s.sessionId}
+          session={s}
+          tree={tree}
+          directors={directors}
+          portByDirector={portByDirector}
+          showMachine={showMachine}
+          selectedId={selectedId}
+        />
+      ))}
+    </ul>
+  );
+}
+
+// The crew line on a collapsed parent: one dot per session under it, in their order and colours (so
+// collapsing hides no colour), the counts, and how long the crew has been going. Ticks on the shared
+// one-second clock for the age.
+function CrewLine({ root, tree }: { root: SessionDto; tree: SessionTree }) {
+  const now = useSharedNow();
+  const kids = descendantsOf(tree, root).map((d) => d.session);
+  const sum = crewSummary(root, kids);
+  const age = crewAge(sum, now);
+  return (
+    <span className="roster-crew" title={crewSummaryLine(sum)}>
+      <span className="roster-crew-strip" aria-hidden="true">
+        {kids.map((k) => (
+          <i key={k.sessionId} style={{ backgroundColor: dotHex(k) }} />
+        ))}
+      </span>
+      <span className={sum.needsYou > 0 ? "roster-crew-text alarm" : "roster-crew-text"}>{crewSummaryLine(sum)}</span>
+      {age.length > 0 && <span className="roster-crew-age">{age}</span>}
+    </span>
   );
 }
 
 function RosterRow({
   session,
+  tree,
   directors,
   portByDirector,
   showMachine,
   selectedId,
 }: {
   session: SessionDto;
+  /** The whole tree (client-core/sessions/tree), so a row can render the rows under it at any depth. */
+  tree: SessionTree;
   directors: DirectorReachability[];
   portByDirector: Map<string, string>;
   /** Show the "computer:port" line on the card. False in "My order" (the group header carries it); true
@@ -298,6 +361,18 @@ function RosterRow({
 }) {
   const sid = session.sessionId ?? "";
   const selected = sid === selectedId;
+  // A parent row: collapsed by default, remembered per crew on this device. The chevron sits OUTSIDE
+  // the Link so opening the crew never navigates into the parent's session. The count on the chevron
+  // is everything under it, at every level - the same number the crew line carries.
+  const kids = childrenOf(tree, session);
+  const isParent = kids.length > 0;
+  const underCount = isParent ? descendantsOf(tree, session).length : 0;
+  const [expanded, setExpanded] = useState<boolean>(() => isCrewExpanded(sid));
+  const toggle = () => {
+    const next = !expanded;
+    setExpanded(next);
+    setCrewExpanded(sid, next);
+  };
   const attention = classify(session) === "needsYou";
   const name = session.name && session.name.trim().length > 0 ? session.name : session.repoPath || "(unnamed session)";
   const num = session.number;
@@ -349,7 +424,17 @@ function RosterRow({
     lastSeen.length > 0 ||
     (attention && !!session.needsYouSince);
   return (
-    <li className="roster-li">
+    <li className={`roster-li${isParent ? " roster-li-parent" : ""}`}>
+      {isParent && (
+        <button
+          type="button"
+          className={`roster-chevron${expanded ? " open" : ""}`}
+          aria-expanded={expanded}
+          aria-label={expanded ? `Collapse the ${underCount} sessions under ${name}` : `Expand the ${underCount} sessions under ${name}`}
+          title={expanded ? "Collapse" : "Expand"}
+          onClick={toggle}
+        />
+      )}
       <Link
         className={`roster-row${selected ? " roster-row-selected" : ""}${attention ? " roster-row-attention" : ""}${wobbly ? " roster-row-wobbly" : ""}${offline ? " roster-row-offline" : ""}`}
         style={{ borderLeftColor: dotHex(session) }}
@@ -414,11 +499,31 @@ function RosterRow({
           {attention && session.railLine && session.railLine.trim().length > 0 && (
             <span className="roster-railline">{session.railLine}</span>
           )}
+          {/* A collapsed crew still says what is under it: every child's colour, the counts, the age. */}
+          {isParent && !expanded && <CrewLine root={session} tree={tree} />}
         </span>
       </Link>
       {/* The same session menu as the session page (issue #1214), pinned to the card's top-right. It
           sits OUTSIDE the Link so opening the menu never navigates into the session. */}
       <SessionMenu session={session} variant="rail" />
+      {/* The sessions under this one, each card exactly as it would be at the top level, and each
+          with its own chevron if it supervises sessions in turn. They keep their own desktop order
+          whatever order the top level is in. A child on another Director says which. */}
+      {isParent && expanded && (
+        <ul className="roster-list roster-kids" aria-label={`Sessions under ${name}`}>
+          {kids.map((k) => (
+            <RosterRow
+              key={k.sessionId}
+              session={k}
+              tree={tree}
+              directors={directors}
+              portByDirector={portByDirector}
+              showMachine={isOnAnotherMachine(session, k)}
+              selectedId={selectedId}
+            />
+          ))}
+        </ul>
+      )}
     </li>
   );
 }

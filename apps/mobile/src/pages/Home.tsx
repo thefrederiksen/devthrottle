@@ -5,7 +5,19 @@ import { getAutoSpeak, queueTouchMs, setAutoSpeak } from "@devthrottle/client-co
 import { useVoiceModeAll } from "@devthrottle/client-core/voice/useVoiceModeAll";
 import { getSessionsEnvelope } from "@devthrottle/client-core/fleet/fleetClient";
 import { emptyRetentionCache, mergeRosterRetention, type RosterSessionMark } from "@devthrottle/client-core/fleet/rosterRetention";
-import { classify, contextLine, deletionReason, dotHex, inDesktopOrder, inWaitingOrder, isWorking, machineCanBeActedOn, needsYouBadgeCount, pendingDeletion, repoLeaf, snoozeCountdown, snoozeExpired } from "@devthrottle/client-core/sessions/ordering";
+import { classify, contextLine, deletionReason, dotHex, inDesktopOrder, isWorking, machineCanBeActedOn, needsYouBadgeCount, pendingDeletion, repoLeaf, snoozeCountdown, snoozeExpired } from "@devthrottle/client-core/sessions/ordering";
+import {
+  attentionSections,
+  buildSessionTree,
+  crewAge,
+  crewSummary,
+  crewSummaryLine,
+  descendantsOf,
+  isCrewExpanded,
+  isOnAnotherMachine,
+  setCrewExpanded,
+  type SessionTree,
+} from "@devthrottle/client-core/sessions/tree";
 import { DELIVERY_BADGE_TEXT, hasUndeliveredPrompt, promptDeliveryTitle } from "@devthrottle/client-core/sessions/delivery";
 import { applyFilter, filterIsActive, filterSummary, machineName, pruneFilter } from "@devthrottle/client-core/sessions/filter";
 import { useDictationStatusFor } from "@devthrottle/client-core/dictation/status";
@@ -58,6 +70,39 @@ const AUTO_SPEAK_COOLDOWN_MS = 20000;
 /** The roster's two lenses: the full roster, or only the sessions that can speak to you right now. */
 type RosterTab = "all" | "voice";
 
+// The two orders of the All tab (owner ruling, 2026-09-14): "attention" - the session that has needed
+// you longest on top, then working, then snoozed at the bottom - or "my-order", the desktop drag order
+// grouped by machine. The phone opens in attention order because the phone is where you triage. The
+// list under either order is ALWAYS the ownership tree: a session another session started sits under
+// it, collapsed, as a card with a band. Persisted per device, unlike the transient Voice lens: an order
+// is a preference, not a lens you can get stranded in.
+type RosterOrder = "attention" | "my-order";
+const ORDER_STORAGE_KEY = "dt.mobile.rosterOrder";
+
+function initialOrder(): RosterOrder {
+  try {
+    return window.localStorage.getItem(ORDER_STORAGE_KEY) === "my-order" ? "my-order" : "attention";
+  } catch {
+    return "attention";
+  }
+}
+
+// The roots of the tree grouped by machine, in desktop order, for "my order". The tree itself is built
+// over the whole roster (a parent may supervise a session on another machine), so only the ROOTS are
+// grouped: a child sits under its parent wherever the parent lives, and says so if it is elsewhere.
+function groupRootsByMachine(roots: SessionDto[]): { machine: string; roots: SessionDto[] }[] {
+  const groups = new Map<string, SessionDto[]>();
+  for (const s of roots) {
+    const machine = (s.machineName ?? "").trim() || "(unknown machine)";
+    const list = groups.get(machine);
+    if (list) list.push(s);
+    else groups.set(machine, [s]);
+  }
+  return [...groups.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([machine, list]) => ({ machine, roots: list }));
+}
+
 export function Home() {
   const [sessions, setSessions] = useState<SessionDto[] | null>(null);
   // Per-session reachability marks from the merge - only unreachable (wobbly/offline) sessions have one.
@@ -104,6 +149,16 @@ export function Home() {
       (location.state as { tab?: string } | null)?.tab === "voice" ? "voice" : "all";
     setTab(historyTab);
   }, [location.key, location.state]);
+  // The All tab's order switch, sticky per device (see RosterOrder above).
+  const [order, setOrderState] = useState<RosterOrder>(initialOrder);
+  const setOrder = (next: RosterOrder) => {
+    setOrderState(next);
+    try {
+      window.localStorage.setItem(ORDER_STORAGE_KEY, next);
+    } catch {
+      // Storage unavailable: the choice still holds for the life of the page.
+    }
+  };
   // Auto-speak (voice-mode queue flow): when checked, the Voice tab jumps into the oldest waiting
   // voice-ready session by itself and reads it aloud - the hands-free queue. Persisted per device.
   const [autoSpeak, setAutoSpeakState] = useState<boolean>(getAutoSpeak);
@@ -200,14 +255,16 @@ export function Home() {
   // UP silently left the queue and the owner stopped being told about work he could still act on. Passing
   // sessions and nothing else means there is no longer an argument here to get wrong.
   const voiceReady = filtered ? voiceQueueFor(filtered) : [];
-  // The "Needs you" group is a waiting line: the session that has been waiting for you the longest
-  // sits at the top, and a session that only just started needing you drops in at the bottom
-  // (inWaitingOrder). This keeps the list from reshuffling under you as sessions change state, and
-  // lets you work it top to bottom, dealing with the longest-neglected session first.
-  const needsYou = filtered ? inWaitingOrder(filtered) : [];
-  // The bottom group is "the rest": every session that is NOT waiting on you, still in your manual
-  // desktop order. A needs-you session shows only once, at the top - never duplicated down here.
-  const others = filtered ? inDesktopOrder(filtered.filter((s) => classify(s) !== "needsYou")) : [];
+  // THE LIST IS ALWAYS THE OWNERSHIP TREE (owner ruling, 2026-09-14): a session another session
+  // started sits under it, collapsed. Built once from the filtered roster in desktop order, so the
+  // children under every parent are in desktop order whichever order the top level is in.
+  const tree: SessionTree | null = filtered ? buildSessionTree(inDesktopOrder(filtered)) : null;
+  // Attention order, top level only: "Needs you" as a waiting line (the session that has been waiting
+  // for you the longest sits at the top, one that only just started needing you drops in at the
+  // bottom, so the list never reshuffles under you), then "Working", then "Snoozed" at the bottom.
+  const sections = tree ? attentionSections(tree.roots) : [];
+  // My order: the top level grouped by machine, in desktop order.
+  const machineGroups = tree ? groupRootsByMachine(tree.roots) : [];
   const total = sessions ? sessions.length : 0;
   const shownTotal = filtered ? filtered.length : 0;
   const active = filterIsActive(filter);
@@ -338,6 +395,32 @@ export function Home() {
         </Link>
       )}
 
+      {/* The order switch: attention (the default here) or your own desktop order. Two positions, on
+          purpose - machine, repository and agent are filters (the funnel above), not orders. */}
+      {tab === "all" && sessions !== null && total > 0 && (
+        <div className="order-row">
+          <span className="order-label">Order</span>
+          <div className="order-switch" role="group" aria-label="Roster order">
+            <button
+              type="button"
+              className={`order-btn${order === "my-order" ? " on" : ""}`}
+              aria-pressed={order === "my-order"}
+              onClick={() => setOrder("my-order")}
+            >
+              My order
+            </button>
+            <button
+              type="button"
+              className={`order-btn${order === "attention" ? " on" : ""}`}
+              aria-pressed={order === "attention"}
+              onClick={() => setOrder("attention")}
+            >
+              Attention
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Car Mode's entry point is the nav drawer (top-left), NOT a banner here. It used to be both.
           The roster is a list of sessions that need you; a permanent full-width call-to-action for a
           different screen sat above that list drawing attention it had not earned - loudest element on
@@ -430,27 +513,27 @@ export function Home() {
           only tunes its layout under .screen. Renders nothing while no request exists. */}
       {tab === "all" && <RestartRequestsPanel />}
 
-      {tab === "all" && needsYou.length > 0 && (
-        <section className="group">
-          <h2 className="group-title group-title-attention">Needs you</h2>
+      {tab === "all" && tree !== null && order === "attention" && sections.map((section) => (
+        <section className="group" key={section.key}>
+          <h2 className={`group-title${section.key === "needsYou" ? " group-title-attention" : ""}`}>{section.title}</h2>
           <ul className="roster">
-            {needsYou.map((s) => (
-              <SessionRow key={`needs-${s.sessionId}`} session={s} mark={marks.get(s.sessionId ?? "")} />
+            {section.roots.map((s) => (
+              <SessionRow key={`${section.key}-${s.sessionId}`} session={s} tree={tree} mark={marks.get(s.sessionId ?? "")} marks={marks} />
             ))}
           </ul>
         </section>
-      )}
+      ))}
 
-      {tab === "all" && others.length > 0 && (
-        <section className="group">
-          <h2 className="group-title">Other sessions</h2>
+      {tab === "all" && tree !== null && order === "my-order" && machineGroups.map((group) => (
+        <section className="group" key={group.machine}>
+          <h2 className="group-title">{group.machine}</h2>
           <ul className="roster">
-            {others.map((s) => (
-              <SessionRow key={s.sessionId} session={s} mark={marks.get(s.sessionId ?? "")} />
+            {group.roots.map((s) => (
+              <SessionRow key={s.sessionId} session={s} tree={tree} mark={marks.get(s.sessionId ?? "")} marks={marks} />
             ))}
           </ul>
         </section>
-      )}
+      ))}
     </div>
   );
 }
@@ -596,8 +679,37 @@ function unreachableNote(mark: RosterSessionMark): string {
   return mark.lastSeenLabel.length > 0 ? `${base} - ${mark.lastSeenLabel}` : base;
 }
 
-export function SessionRow({ session, mark, fromTab = "all" }: { session: SessionDto; mark?: RosterSessionMark; fromTab?: RosterTab }) {
+export function SessionRow({
+  session,
+  mark,
+  fromTab = "all",
+  tree,
+  marks,
+}: {
+  session: SessionDto;
+  mark?: RosterSessionMark;
+  fromTab?: RosterTab;
+  /** The ownership tree (client-core/sessions/tree). Omitted for a plain card (the Voice tab). */
+  tree?: SessionTree;
+  /** The roster's reachability marks, so a child row can carry its own. */
+  marks?: Map<string, RosterSessionMark>;
+}) {
   const name = session.name && session.name.trim().length > 0 ? session.name : "(unnamed session)";
+  // A parent card: a band along its bottom carries the crew (every session under it at every level -
+  // its colour, the counts, the age) and expands them IN PLACE as one-line rows inside the same card.
+  // NO INDENTATION on a phone (the settled design): a deeper level is marked by thin guide lines
+  // inside the gutter every row already has, so a name never loses width to its depth. Collapsed by
+  // default, remembered per crew on this device. The band is its own tap target, separated from the
+  // card's link by its border, so opening the crew never opens the parent's session.
+  const kids = tree ? descendantsOf(tree, session) : [];
+  const isParent = kids.length > 0;
+  const sidRaw = session.sessionId ?? "";
+  const [expanded, setExpanded] = useState<boolean>(() => isCrewExpanded(sidRaw));
+  const toggle = () => {
+    const next = !expanded;
+    setExpanded(next);
+    setCrewExpanded(sidRaw, next);
+  };
   const repo = repoLeaf(session);
   const machine = machineName(session);
   // The Gateway folds the raw SessionDto.agent identity into finished display words. An absent stamp is
@@ -709,6 +821,92 @@ export function SessionRow({ session, mark, fromTab = "all" }: { session: Sessio
             can still be spoken to, so it keeps its triangle: the promise the triangle makes is "tapping
             this will speak", and that promise holds whenever the tunnel is up. */}
         <VoiceIndicator session={session} reachable={actionable} />
+      </Link>
+      {isParent && (
+        <button
+          type="button"
+          className={`crew-band${expanded ? " open" : ""}`}
+          aria-expanded={expanded}
+          aria-label={expanded ? `Collapse the ${kids.length} sessions under ${name}` : `Expand the ${kids.length} sessions under ${name}`}
+          onClick={toggle}
+        >
+          <span className="crew-chevron" aria-hidden="true" />
+          <CrewBand root={session} kids={kids.map((k) => k.session)} />
+        </button>
+      )}
+      {isParent && expanded && (
+        <ul className="crew-kids" aria-label={`Sessions under ${name}`}>
+          {kids.map((k) => (
+            <CrewKidRow
+              key={k.session.sessionId}
+              session={k.session}
+              depth={k.depth}
+              elsewhere={isOnAnotherMachine(k.parent, k.session)}
+              mark={marks?.get(k.session.sessionId ?? "")}
+            />
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+}
+
+// The band's content: one dot per session under the parent at every level, in their order and stamped
+// colours (so collapsing hides no colour), the counts, and how long the crew has been going, ticking on
+// the shared one-second clock.
+function CrewBand({ root, kids }: { root: SessionDto; kids: SessionDto[] }) {
+  const now = useSharedNow();
+  const sum = crewSummary(root, kids);
+  const age = crewAge(sum, now);
+  return (
+    <>
+      <span className="crew-strip" aria-hidden="true">
+        {kids.map((k) => (
+          <i key={k.sessionId} style={{ backgroundColor: dotHex(k) }} />
+        ))}
+      </span>
+      <span className={sum.needsYou > 0 ? "crew-text alarm" : "crew-text"}>{crewSummaryLine(sum)}</span>
+      {age.length > 0 && <span className="crew-age">{age}</span>}
+    </>
+  );
+}
+
+// One session under an expanded parent: a row at touch height - dot, number, name, state - that opens
+// that session. The name may wrap to a second line; the state and the machine never shrink, because
+// what a session is DOING is the row's answer and must stay readable however long its name is. Depth
+// is shown as guide lines in the gutter (one per level below the first, up to three, then the level
+// number), never as indentation, so the name keeps its width at any depth. A session on another
+// machine than the session DIRECTLY above it carries that machine's name. The full card is one tap
+// away on the session's own screen.
+function CrewKidRow({ session, depth, elsewhere, mark }: { session: SessionDto; depth: number; elsewhere: boolean; mark?: RosterSessionMark }) {
+  const name = session.name && session.name.trim().length > 0 ? session.name : "(unnamed session)";
+  const machine = machineName(session);
+  const num = session.number;
+  const hasNum = num !== null && num !== undefined && String(num).trim().length > 0;
+  const sid = encodeURIComponent(session.sessionId ?? "");
+  const to = session.voiceMode ? `/session/${sid}/voice` : `/session/${sid}`;
+  return (
+    <li className={`crew-kid${mark ? " row-unreachable" : ""}`}>
+      <Link className="crew-kid-link" to={to} state={{ voiceMode: Boolean(session.voiceMode), fromTab: "all" }}>
+        {depth > 1 && depth <= 4 && (
+          <span className="crew-kid-guides" aria-hidden="true">
+            {/* One guide per level below the first, up to three: with 4 pixel spacing from 12 pixels
+                in, a fourth would reach the dot at 30 pixels. */}
+            {Array.from({ length: depth - 1 }, (_, i) => (
+              <i key={i} />
+            ))}
+          </span>
+        )}
+        {depth > 4 && (
+          /* Deeper than the guides can show: the level number itself, in the same gutter, so two
+             adjacent deep rows never read as siblings when one is under the other. */
+          <span className="crew-kid-depth" aria-label={`Level ${depth}`}>{depth}</span>
+        )}
+        <span className="dot crew-kid-dot" style={{ backgroundColor: dotHex(session) }} aria-hidden="true" />
+        {hasNum && <span className="row-num">{num}</span>}
+        <span className="crew-kid-name">{name}</span>
+        {elsewhere && machine && <span className="crew-kid-machine">{machine}</span>}
+        <span className="crew-kid-state">{contextLine(session)}</span>
       </Link>
     </li>
   );

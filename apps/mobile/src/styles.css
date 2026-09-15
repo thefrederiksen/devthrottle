@@ -4969,3 +4969,181 @@ a.banner-btn {
 .restart-request-btn:disabled { opacity: 0.5; }
 .restart-request-btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .restart-request-btn-danger { background: var(--attention); border-color: var(--attention); color: #fff; }
+
+/* ---- The ownership tree on the phone (owner ruling, 2026-09-14). A parent card carries a band along
+   its bottom: the chevron, one dot per session under it, the counts, the age. Tapping the band expands
+   the children IN PLACE as one-line rows at touch height. No indentation - a second level would steal
+   width from names that already wrap. ---- */
+.order-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 2px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.order-label {
+  flex: 0 0 auto;
+}
+.order-switch {
+  display: flex;
+  margin-left: auto;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  overflow: hidden;
+}
+.order-btn {
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border: 0;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.order-btn.on {
+  color: #ffffff;
+  background: var(--accent);
+}
+.crew-band {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 14px;
+  box-sizing: border-box;
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 10px 10px;
+  background: transparent;
+  color: #9cc2ff;
+  font-size: 11.5px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.crew-band.open {
+  border-radius: 0;
+}
+.crew-chevron {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  margin-right: 4px;
+  border-right: 2px solid #9cc2ff;
+  border-bottom: 2px solid #9cc2ff;
+  transform: rotate(-45deg);
+}
+.crew-band.open .crew-chevron {
+  transform: rotate(45deg);
+}
+.crew-strip {
+  display: flex;
+  gap: 3px;
+  flex: 0 0 auto;
+}
+.crew-strip i {
+  display: block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+.crew-text {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.crew-text.alarm {
+  color: var(--attention);
+  font-weight: 600;
+}
+.crew-age {
+  margin-left: auto;
+  flex: 0 0 auto;
+  color: var(--text-dim);
+}
+.crew-kids {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.crew-kid {
+  border-top: 1px solid var(--border);
+}
+.crew-kid:last-child .crew-kid-link {
+  border-radius: 0 0 10px 10px;
+}
+.crew-kid-link {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 6px 14px 6px 30px;
+  color: inherit;
+  text-decoration: none;
+}
+/* Depth without indentation: one thin guide per level below the first, drawn inside the 30 pixel
+   gutter the row already has. The name's width does not change with depth. */
+.crew-kid-guides {
+  position: absolute;
+  left: 12px;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  gap: 4px;
+}
+.crew-kid-guides i {
+  display: block;
+  width: 1px;
+  background: var(--border);
+}
+.crew-kid-dot {
+  width: 10px;
+  height: 10px;
+  margin-top: 0;
+  box-shadow: none;
+}
+.crew-kid .row-num {
+  margin-right: 0;
+  font-size: 11px;
+}
+.crew-kid-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.3;
+  /* A long name wraps to a second line rather than squeezing the state beside it; beyond two
+     lines it is cut with an ellipsis. The state and machine never shrink (below). */
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.crew-kid-state {
+  flex: 0 0 auto;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.crew-kid-depth {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--text-dim);
+  line-height: 1;
+}
+.crew-kid-machine {
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #9cc2ff;
+  white-space: nowrap;
+}
