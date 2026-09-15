@@ -62,8 +62,9 @@ public static class SessionRailDrag
             siblings.Add(rows[i].Session);
         }
 
-        if (siblings.Count == 0) return null;
-
+        // No emptiness check here, deliberately: the dragged row was found among `rows` and its own
+        // Parent IS `parent`, so the loop above always adds at least itself. A guard that cannot fire
+        // reads as a safety check and spends the next reader's scepticism on nothing.
         if (position < siblings.Count)
         {
             var anchor = siblings[position];
