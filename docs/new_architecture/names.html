@@ -261,21 +261,29 @@ rather than deciding &mdash; the Task record, and the renames listed in the Cost
 
   <tr class="done">
     <td class="thing">Owner</td>
-    <td>Who a session ANSWERS TO. Either another session - its supervisor - or the USER. Every session
-    has exactly one, and no owner means the user. Decides who is told when a turn ends.</td>
-    <td class="now">Owner, in the spawn refusal and <code>--controlled-by</code>'s help; nowhere on the wire</td>
-    <td class="should"><span class="tag t-keep">keep</span> Owner. It is the only word that covers
-    BOTH answers - a supervisor is always a session, and the user is not one.</td>
-    <td class="cost c-none">none</td>
+    <td>Who a session ANSWERS TO. Either another session - its owning session - or the USER. Every
+    session has exactly one, and no owning session means the user. Decides where a session sits in the
+    list, whether it goes red, and who is told when a turn ends. "The owner" with nothing after it means
+    the user.</td>
+    <td class="now">Owner in the spawn refusal; <code>ControllerSessionId</code>, <code>HasLiveSupervisor</code>,
+    <code>--controlled-by</code> and "supervisor" on the wire and in the prose</td>
+    <td class="should"><span class="tag t-ren">rename</span> Owner, everywhere it means this relationship.
+    Owner session id <code>"none"</code> means the user owns it.</td>
+    <td class="cost c-high">high</td>
     <td class="status"><span class="st s-done">settled</span></td>
   </tr>
 
   <tr class="done">
     <td class="thing">Supervisor</td>
-    <td>The owner WHEN IT IS A SESSION. Live; changes how the session is displayed. Not a synonym for Owner - the user owns sessions and supervises nothing.</td>
-    <td class="now">Controller, ControllerSessionId, --controlled-by</td>
-    <td class="should"><span class="tag t-ren">rename</span> Supervisor</td>
-    <td class="cost c-med">medium</td>
+    <td>A component that WATCHES something running and steps in when it goes wrong:
+    <code>SessionSupervisor</code>, <code>DirectorSupervisor</code>, <code>BrainSupervisor</code>. Machinery, never a
+    session, never an owner.</td>
+    <td class="now">used for BOTH this and the owning session - about 530 occurrences in the watchdog sense,
+    and the rest in the ownership sense</td>
+    <td class="should"><span class="tag t-keep">keep</span> Supervisor for the watchdog ONLY. The
+    14 September proposal to rename Controller to Supervisor is RETIRED unexecuted: Controller becomes
+    Owner.</td>
+    <td class="cost c-none">none</td>
     <td class="status"><span class="st s-done">settled</span></td>
   </tr>
 
@@ -371,6 +379,17 @@ rather than deciding &mdash; the Task record, and the renames listed in the Cost
   cannot. Owner, Supervisor and Parent are three different questions, and the distinction is the whole
   of <a href="sessions.html">sessions.html</a> section 1: who does it ANSWER TO, which SESSION is that,
   and who STARTED it. Only the first decides anything.</p>
+
+  <p><strong>Supervisor became Owner on 15 September 2026, the same day.</strong> The owner asked the
+  plain question: the list collapses sessions under the session that OWNS them, not under their parent,
+  so why do we call that edge a supervisor? The wire answered it. The field the list reads,
+  <code>ControllerSessionId</code>, carries both answers - a session's id, or <code>"none"</code> meaning the
+  user - and a supervisor can never be the user, so it was always an ownership field wearing a supervision
+  name. <code>tree.ts</code> called the result "the ownership tree" on its first line and "the supervisor a
+  session answers to" on its sixth. And "supervisor" already had a second, correct meaning in the code: the
+  watchdogs that nudge a stuck session or restart a Director. So the edge is Owner, Supervisor keeps only
+  the watchdog, and the Controller-to-Supervisor rename that was settled here and never started is retired.
+  It cannot be a find-and-replace; every occurrence has to be read for which sense it is.</p>
 
   <p><strong>Team was moved on 15 September 2026, and the workflow proposal was retired.</strong>
   On 2 August this table gave Team to the WORKFLOW and wrote, in the same row, &ldquo;Not Crew: that is

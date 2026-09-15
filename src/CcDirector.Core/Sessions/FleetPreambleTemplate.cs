@@ -61,7 +61,7 @@ public static class FleetPreambleTemplate
         "ONE WORD PER IDEA. A SESSION is one running coding agent; an AGENT is the tool it runs (Claude\n" +
         "Code, Codex, Grok) - never call a session an agent. A MISSION is why the work exists and who is\n" +
         "on it together; a WORKFLOW is how it is run; a RUN is one execution of that workflow. Say SNOOZE,\n" +
-        "not hold or parked; say SUPERVISOR, not controller. Use these words in issues, briefs, commits,\n" +
+        "not hold or parked; say OWNER, not supervisor or controller. Use these words in issues, briefs, commits,\n" +
         "documents and code comments. The full list, and the older names still left in the code:\n" +
         "  cc-devthrottle skill get terminology\n" +
         "\n" +
