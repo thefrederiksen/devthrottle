@@ -33,15 +33,33 @@ public sealed record TurnVerdictSettings
     /// screen would put the wrong evidence in the receipt.</summary>
     public int SettleMs { get; init; } = DefaultSettleMs;
 
-    /// <summary>How long to wait for the judge, in seconds. Default 20, passed through to the hosted
-    /// inference call whose own default is 60. Shorter on purpose: this runs at every stop, and an answer
-    /// that arrives a minute later is an answer about a screen that has moved. A timeout is not a calm
-    /// verdict - nothing is stored and the row stays red.</summary>
+    /// <summary>
+    /// How long to wait for the judge, in seconds. Passed through to the hosted inference call, whose own
+    /// default is 60. Shorter on purpose: this runs at every stop, and an answer that arrives a minute later
+    /// is an answer about a screen that has moved. A timeout is not a calm verdict - nothing is stored and
+    /// the row stays red, which is exactly today's behaviour and costs nothing new.
+    ///
+    /// THIRTY IS MEASURED, NOT CHOSEN. The plan carried 20 as a guess. Slice 0 graded the judges against the
+    /// labelled corpus and the Architect's ruling fixed the rule rather than the number: 20 stands unless the
+    /// chosen judge's NINETY-FIFTH percentile is over 20 seconds, in which case it becomes 30 - because a
+    /// timed-out stop stays red, so headroom costs yellow time rather than safety. The chosen judge,
+    /// <c>devthrottle/wingman-fast</c>, measured a ninety-fifth percentile of 21.7 seconds at the product's
+    /// own cap of eight calls in flight (ninetieth 18.0), so the condition is met and the number is 30.
+    ///
+    /// THE SLOWEST ANSWERS ARE STILL LOST, and that is deliberate rather than an oversight. The slowest
+    /// single answer in that grading was 33.5 seconds, so even at 30 the tail is cut off. Widening further
+    /// than the ruling says would buy the last few answers at the price of holding a row yellow for longer on
+    /// every stop that is going to fail anyway; the ruling weighed that and stopped at 30.
+    /// </summary>
     public int JudgeTimeoutSeconds { get; init; } = DefaultJudgeTimeoutSeconds;
 
     public const int DefaultMaxInFlight = 8;
     public const int DefaultSettleMs = 600;
-    public const int DefaultJudgeTimeoutSeconds = 20;
+
+    /// <summary>Thirty seconds, set from slice 0's measured ninety-fifth percentile of 21.7 seconds for
+    /// <c>devthrottle/wingman-fast</c> at eight calls in flight - see the note on
+    /// <see cref="JudgeTimeoutSeconds"/> for the ruling this follows and why it is not wider.</summary>
+    public const int DefaultJudgeTimeoutSeconds = 30;
 
     /// <summary>The shipped defaults, as one value.</summary>
     public static readonly TurnVerdictSettings Defaults = new();

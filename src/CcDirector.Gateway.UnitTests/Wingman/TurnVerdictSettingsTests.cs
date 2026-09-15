@@ -49,6 +49,35 @@ public sealed class TurnVerdictSettingsTests : IDisposable
         Assert.Equal(TurnVerdictSettings.DefaultJudgeTimeoutSeconds, settings.JudgeTimeoutSeconds);
     }
 
+    /// <summary>
+    /// THE JUDGE TIMEOUT IS PINNED TO ITS LITERAL VALUE, not to the constant that holds it.
+    ///
+    /// The assertions above compare the resolved settings against the constants, which proves the resolver
+    /// carries the defaults through - and would stay green if somebody changed a constant to any other
+    /// number. That is the wrong shape for this one figure. Thirty is not a preference: it is the answer the
+    /// Architect's slice 0 ruling produced from a measurement, and the number cannot move without the
+    /// measurement moving with it. Pinning the literal makes a silent edit fail here, where the reasoning is
+    /// written down, rather than quietly changing how long every stop on the fleet waits.
+    ///
+    /// The measurement, so the next reader does not have to go looking: the chosen judge
+    /// <c>devthrottle/wingman-fast</c> graded at a ninety-fifth percentile of 21.7 seconds at the product's
+    /// cap of eight calls in flight, which is over 20, and the ruling says the timeout becomes 30 in exactly
+    /// that case. Its slowest single answer was 33.5 seconds, so 30 knowingly loses the tail - a timed-out
+    /// stop stays red, which is today's behaviour, and widening further would hold rows yellow for longer on
+    /// stops that were going to fail anyway.
+    /// </summary>
+    [Fact]
+    public void The_judge_timeout_is_the_thirty_seconds_the_grading_measured()
+    {
+        Assert.Equal(30, TurnVerdictSettings.DefaultJudgeTimeoutSeconds);
+        Assert.Equal(30, TurnVerdictSettings.Defaults.JudgeTimeoutSeconds);
+
+        // The two numbers beside it are the plan's and are NOT measured - see the gaps in the slice's proof.
+        // They are pinned here only so a change to either is deliberate rather than incidental.
+        Assert.Equal(8, TurnVerdictSettings.DefaultMaxInFlight);
+        Assert.Equal(600, TurnVerdictSettings.DefaultSettleMs);
+    }
+
     [Fact]
     public void The_two_switches_are_independent_so_the_shadow_state_is_reachable()
     {
