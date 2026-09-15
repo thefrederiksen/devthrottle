@@ -245,6 +245,9 @@ public sealed class PostgresProviderProofTests
             // activation binds to the same identity: two ids Postgres considered equal and SQLite did not
             // would be a correction landing on a stop it was never about.
             ("turn_verdict_feedback", "VerdictId"),
+            // The Wingman inspector's record: its minted key, and the session its history is read by.
+            ("turn_verdict_traces", "SessionId"),
+            ("turn_verdict_traces", "TraceId"),
             ("turn_verdicts", "SessionId"),
             ("workflow_tenant_overrides", "WorkflowId"),
             // The workspace slug (issue #2722). Caller-supplied, in a composite primary key with

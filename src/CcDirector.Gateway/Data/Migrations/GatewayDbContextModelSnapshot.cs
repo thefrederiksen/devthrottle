@@ -1792,6 +1792,91 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.ToTable("turn_verdict_feedback", (string)null);
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.TurnVerdictTraceEntity", b =>
+                {
+                    b.Property<string>("TenantId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("TraceId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Cause")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("ColourEnabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("DirectorId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PackageJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("PackageOmitted")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Prompt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("PromptTruncated")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("RawReply")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("RawReplyTruncated")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("RecordedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ReplacedVerdictId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<double?>("ReplySeconds")
+                        .HasColumnType("REAL");
+
+                    b.Property<string>("SessionId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Trigger")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("TurnEndObservedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("VerdictId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("VerdictJson")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("TenantId", "TraceId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "RecordedAtUtc");
+
+                    b.HasIndex("TenantId", "SessionId", "RecordedAtUtc");
+
+                    b.ToTable("turn_verdict_traces", (string)null);
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.WingmanInstructionEntity", b =>
                 {
                     b.Property<Guid>("Id")
