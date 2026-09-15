@@ -3998,8 +3998,6 @@ public partial class MainWindow : Window
         RebuildRail();
     }
 
-
-
     /// <summary>
     /// Re-project the roster into the rows the list box draws, and stamp each row's place in the tree
     /// onto its view model.
