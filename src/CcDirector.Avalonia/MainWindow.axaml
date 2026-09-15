@@ -801,37 +801,54 @@
                                          non-zero only when the supervisor dies and its sessions
                                          surface. That is exactly when it must be seen, so it is always
                                          carried and never dropped when zero. -->
-                                    <Grid ColumnDefinitions="Auto,*,Auto" Margin="0,4,0,0"
+                                    <Grid ColumnDefinitions="*,Auto" Margin="0,4,0,0"
                                           IsVisible="{Binding ShowCrewLine}">
-                                        <ItemsControl Grid.Column="0"
-                                                      ItemsSource="{Binding CrewColorBrushes}"
-                                                      VerticalAlignment="Center">
-                                            <ItemsControl.ItemsPanel>
-                                                <ItemsPanelTemplate>
-                                                    <StackPanel Orientation="Horizontal" Spacing="2" />
-                                                </ItemsPanelTemplate>
-                                            </ItemsControl.ItemsPanel>
-                                            <ItemsControl.ItemTemplate>
-                                                <DataTemplate>
-                                                    <Border Width="8" Height="8" CornerRadius="2"
-                                                            Background="{Binding}" />
-                                                </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
-                                        <TextBlock Grid.Column="1"
+                                        <TextBlock Grid.Column="0"
                                                    Text="{Binding CrewLineText}"
                                                    Foreground="#9DB4DD"
                                                    FontSize="11"
-                                                   Margin="6,0,0,0"
                                                    VerticalAlignment="Center"
                                                    TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Grid.Column="2"
+                                        <TextBlock Grid.Column="1"
                                                    Text="{Binding CrewAgeText}"
                                                    Foreground="#888888"
                                                    FontSize="11"
                                                    Margin="6,0,0,0"
                                                    VerticalAlignment="Center" />
                                     </Grid>
+                                    <!-- LINE 5: THE STRIP OF SQUARES, on its OWN line under the counts.
+                                         The drawn design puts it beside them, but it was drawn at 545
+                                         pixels and this rail opens at 264 (MainLayoutGrid's first
+                                         column). Beside the counts, nine squares and their gaps take 88
+                                         of about 230 usable pixels and the COUNTS are what gets trimmed
+                                         - which reads as broken, and they are the part that answers
+                                         "do I need to open this crew?".
+
+                                         Architect's ruling, 15 September 2026: give the strip its own
+                                         line. Do NOT cap it - every session under a crew keeping a
+                                         square is an explicit design promise - and do not drop the age,
+                                         which is the only thing saying how long the crew has run. The
+                                         cost is one row of height, on closed crews only. -->
+                                    <ItemsControl ItemsSource="{Binding CrewColorBrushes}"
+                                                  IsVisible="{Binding ShowCrewLine}"
+                                                  Margin="0,3,0,0"
+                                                  HorizontalAlignment="Left">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <!-- Wrapping, not clipping: a crew large enough to run
+                                                     past the rail's width takes a second row of squares
+                                                     rather than losing the sessions off the end. -->
+                                                <WrapPanel Orientation="Horizontal" />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Width="8" Height="8" CornerRadius="2"
+                                                        Margin="0,0,2,2"
+                                                        Background="{Binding}" />
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
                                 </StackPanel>
                                 </Grid>
                                 </Border>

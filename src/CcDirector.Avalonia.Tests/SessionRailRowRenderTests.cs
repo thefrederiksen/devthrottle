@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Layout;
 using ShapePath = Avalonia.Controls.Shapes.Path;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
@@ -44,8 +45,17 @@ public sealed class SessionRailRowRenderTests
     private static IReadOnlyList<ISolidColorBrush> Squares(int count) =>
         Enumerable.Range(0, count).Select(_ => StatusPalette.BrushFor("blue")).ToList();
 
+    /// <summary>
+    /// The width the Director's rail actually opens at: the first column of MainWindow.axaml's
+    /// MainLayoutGrid. The drawn design is 545 wide and says it is "the rail's real width"; it is not,
+    /// and that gap is why the crew line's squares moved onto their own row.
+    /// </summary>
+    private const double RealRailWidth = 264;
+
     /// <summary>Render these view models through MainWindow's own SessionList item template.</summary>
-    private static ListBox Render(params SessionViewModel[] rows)
+    private static ListBox Render(params SessionViewModel[] rows) => RenderAt(300, rows);
+
+    private static ListBox RenderAt(double width, params SessionViewModel[] rows)
     {
         var source = new MainWindow();
         var list = new ListBox
@@ -54,11 +64,11 @@ public sealed class SessionRailRowRenderTests
             Styles = { },
             ItemsSource = rows,
         };
-        var window = new Window { Content = list, Width = 300, Height = 700 };
+        var window = new Window { Content = list, Width = width, Height = 700 };
         window.Show();
         Dispatcher.UIThread.RunJobs();
-        list.Measure(new Size(300, 700));
-        list.Arrange(new Rect(0, 0, 300, 700));
+        list.Measure(new Size(width, 700));
+        list.Arrange(new Rect(0, 0, width, 700));
         Dispatcher.UIThread.RunJobs();
         return list;
     }
@@ -152,6 +162,55 @@ public sealed class SessionRailRowRenderTests
         Assert.Equal(xs[1] + 10, xs[2]);
     }
 
+    /// <summary>
+    /// THE COUNTS SURVIVE THE REAL RAIL WIDTH. Architect's ruling, 15 September 2026, after the drawn
+    /// design turned out to be 545 pixels wide against a rail that opens at 264.
+    ///
+    /// What this asserts is that the counts are GIVEN the width they asked for - arranged at least as
+    /// wide as they measured - which is a layout fact, not a font fact, and is exactly what went wrong
+    /// when the strip of squares shared their row: the squares took their space first and the counts
+    /// were arranged NARROWER than they wanted, which is what trimming is.
+    ///
+    /// IT IS NOT A PROOF ABOUT TEXT. Headless Avalonia has no real font metrics - a 43-character line
+    /// measures 56 pixels here - so this cannot say where real text would trim. It says the layout no
+    /// longer squeezes the counts, and that is the rule that was broken.
+    /// </summary>
+    [AvaloniaFact]
+    public void AtTheRealRailWidth_TheCountsAreNotSqueezed_AndTheAgeAndEverySquareStillShow()
+    {
+        var crew = Vm("Rule Factory - Architect - Epic 9171 implement the BPMN rule catalogue");
+        crew.ApplyRailRow(0, true, false,
+            "9 under it: 4 working, 5 stopped, 0 need you", "5h 29m", Squares(9), "", false);
+
+        var list = RenderAt(RealRailWidth, crew);
+
+        var counts = list.GetVisualDescendants().OfType<TextBlock>()
+            .Single(t => t.Text == "9 under it: 4 working, 5 stopped, 0 need you");
+        Assert.True(counts.IsEffectivelyVisible);
+        Assert.True(
+            counts.Bounds.Width >= WantedWidth(counts),
+            $"the counts were squeezed: arranged {counts.Bounds.Width:F0} against a wanted " +
+            $"{WantedWidth(counts):F0} - something on their row is taking the width first");
+
+        // The age is still there. It is the only thing saying how long the crew has run, so it was
+        // never a candidate for dropping.
+        var age = list.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == "5h 29m");
+        Assert.True(age.IsEffectivelyVisible);
+        Assert.True(age.Bounds.Width >= WantedWidth(age),
+            $"the age was squeezed: arranged {age.Bounds.Width:F0} against a wanted {WantedWidth(age):F0}");
+
+        // And the strip is uncapped: every session under the crew still has a square, on its own row.
+        Assert.Equal(9, DrawnCrewSquares(list));
+        var squareTop = list.GetVisualDescendants().OfType<Border>()
+            .Where(b => b.IsEffectivelyVisible && b.Width is 8.0 && b.Height is 8.0)
+            .Select(b => b.TranslatePoint(new Point(0, 0), list)!.Value.Y)
+            .Min();
+        var countsTop = counts.TranslatePoint(new Point(0, 0), list)!.Value.Y;
+        Assert.True(squareTop > countsTop,
+            $"the squares are meant to sit BELOW the counts, not beside them: squares at {squareTop:F0}, " +
+            $"counts at {countsTop:F0}");
+    }
+
     // ===== A child is indented, behind a guide line, further at each level =====
 
     [AvaloniaFact]
@@ -205,6 +264,14 @@ public sealed class SessionRailRowRenderTests
             .Single(t => t.Text == "NEEDS YOU 2");
         Assert.Equal(Color.Parse(StatusPalette.Red), ((ISolidColorBrush)heading.Foreground!).Color);
     }
+
+    /// <summary>
+    /// How wide an element asked to be, in the same terms as its arranged <c>Bounds</c>. DesiredSize
+    /// INCLUDES the element's margin and Bounds does not, so comparing the two raw makes any element
+    /// with a margin look squeezed when it was given exactly what it wanted.
+    /// </summary>
+    private static double WantedWidth(Layoutable element) =>
+        Math.Max(0, element.DesiredSize.Width - element.Margin.Left - element.Margin.Right);
 
     // ===== helpers that name what is being counted =====
 
