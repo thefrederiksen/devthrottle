@@ -1632,6 +1632,19 @@ public sealed class TurnVerdictContractTests
     }
 
     [Fact]
+    public void BuildPrompt_OwnedSessions_AreCountedForAnOwner_AndOwningNoneIsSaidInWords()
+    {
+        // Owner ruling, 2026-09-15: an owner whose reply waits on its own working sessions is carrying on.
+        var owner = TurnVerdictContract.BuildPrompt(ReportStop() with { OwnedSessions = new OwnedSessionCounts(Working: 3, Stopped: 2, NeedYou: 1) });
+        var solo = TurnVerdictContract.BuildPrompt(ReportStop());
+
+        Assert.Contains("Sessions this session owns: 3 working, 2 stopped, 1 need a person", owner);
+        Assert.Contains("Sessions this session owns: none - this session owns no other session", solo);
+        // The rule the facts line is there for.
+        Assert.Contains("When its reply waits on its own working sessions and asks a person", owner);
+    }
+
+    [Fact]
     public void BuildPrompt_ScreenTextThatLooksLikeAPlaceholder_IsNotSubstituted()
     {
         // The screen is written by somebody else. A row that reads like a placeholder is inert text,
@@ -1690,7 +1703,81 @@ public sealed class TurnVerdictContractTests
             ["summary"] = "The retention sweep is done and the test covers it.",
             ["spoken"] = "Retention timer. The sweep is done and nothing is needed from you.",
         };
+        if (verdict == "finished") fields["finishedKind"] = "done";
         return JsonSerializer.Serialize(fields);
+    }
+
+    /// <summary>The default for <see cref="Answer"/>'s finishedKind: "done" on a finished answer, nothing on any
+    /// other - the shape the contract requires. Pass null to leave the member out, or a word to write it as given.</summary>
+    private const string AutoFinishedKind = "(written for a finished answer only)";
+
+    // ================================================================= "Done" and "Report" (owner ruling, 2026-09-15)
+
+    private const string ReportEvidence = "Nothing is needed from you - I will stop here.";
+
+    [Theory]
+    [InlineData("done")]
+    [InlineData("report")]
+    public void ParseAndValidate_FinishedWithEitherKind_IsAcceptedAndCarriesTheKind(string kind)
+    {
+        var answer = Answer(verdict: TurnVerdictVocabulary.Finished, evidence: ReportEvidence,
+            label: "Retention sweep done, nothing needed", risk: "none", finishedKind: kind);
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, ReportStop(), Model, ObservedAt);
+
+        Assert.False(result.Failed, result.FailureReason);
+        Assert.Equal(kind, result.FinishedKind);
+    }
+
+    [Fact]
+    public void ParseAndValidate_FinishedWithoutFinishedKind_IsRefused()
+    {
+        var answer = Answer(verdict: TurnVerdictVocabulary.Finished, evidence: ReportEvidence,
+            label: "Retention sweep done, nothing needed", risk: "none", finishedKind: null);
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, ReportStop(), Model, ObservedAt);
+
+        Assert.True(result.Failed);
+        Assert.Contains("finishedKind", result.FailureReason);
+        Assert.Null(result.FinishedKind);
+    }
+
+    [Theory]
+    [InlineData("Done")]
+    [InlineData("complete")]
+    [InlineData("")]
+    public void ParseAndValidate_FinishedWithAKindThatIsNotOneOfTheTwoWords_IsRefused(string kind)
+    {
+        var answer = Answer(verdict: TurnVerdictVocabulary.Finished, evidence: ReportEvidence,
+            label: "Retention sweep done, nothing needed", risk: "none", finishedKind: kind);
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, ReportStop(), Model, ObservedAt);
+
+        Assert.True(result.Failed);
+        Assert.Contains("finishedKind", result.FailureReason);
+    }
+
+    [Theory]
+    [InlineData("continues-alone")]
+    [InlineData("needed-you")]
+    [InlineData("stuck-recoverable")]
+    [InlineData("cannot-tell")]
+    public void ParseAndValidate_FinishedKindOnAnyOtherVerdict_IsRefused(string verdict)
+    {
+        var evidence = verdict == TurnVerdictVocabulary.CannotTell ? "" : ReportEvidence;
+
+        var withKind = TurnVerdictContract.ParseAndValidate(
+            Answer(verdict: verdict, evidence: evidence, label: "Retention sweep", risk: "none", finishedKind: "done"),
+            ReportStop(), Model, ObservedAt);
+        // CONTROL: the same answer without the member is not refused over it.
+        var withoutKind = TurnVerdictContract.ParseAndValidate(
+            Answer(verdict: verdict, evidence: evidence, label: "Retention sweep", risk: "none", finishedKind: null),
+            ReportStop(), Model, ObservedAt);
+
+        Assert.True(withKind.Failed);
+        Assert.Contains("finishedKind", withKind.FailureReason);
+        Assert.DoesNotContain("finishedKind", withoutKind.FailureReason ?? "");
+        Assert.Null(withoutKind.FinishedKind);
     }
 
     private static string Answer(
@@ -1708,7 +1795,8 @@ public sealed class TurnVerdictContractTests
         object? optionsRaw = null,
         bool optionsNull = false,
         object? agentRecommendsRaw = null,
-        string[]? omit = null)
+        string[]? omit = null,
+        string? finishedKind = AutoFinishedKind)
     {
         var fields = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
@@ -1730,6 +1818,14 @@ public sealed class TurnVerdictContractTests
         if (agentRecommendsRaw is not null) fields["agentRecommends"] = agentRecommendsRaw;
         // omit REMOVES a member from the object entirely, which is a different thing from writing null
         // into it - the contract treats absent and null differently and so must these fixtures.
+        if (finishedKind == AutoFinishedKind)
+        {
+            if (verdict == TurnVerdictVocabulary.Finished) fields["finishedKind"] = "done";
+        }
+        else if (finishedKind is not null)
+        {
+            fields["finishedKind"] = finishedKind;
+        }
         foreach (var name in omit ?? Array.Empty<string>()) fields.Remove(name);
         if (risk is not null) fields["risk"] = risk;
         if (answerVia is not null) fields["answerVia"] = answerVia;

@@ -57,6 +57,10 @@ public interface ITurnVerdictEnvironment
     /// <summary>Every session's latest stored verdict in this account, in one read - for the carrying-on clock.</summary>
     IReadOnlyDictionary<string, TurnVerdictDto> SnapshotLatest(TenantId tenant);
 
+    /// <summary>The sessions this session owns, resolved across the account's whole fresh roster, or null when it
+    /// owns none (or is not in the roster).</summary>
+    OwnedSessionsFacts? OwnedSessions(TenantId tenant, string sessionId);
+
     /// <summary>Store one verdict record, accepted or failed.</summary>
     void Store(TenantId tenant, string sessionId, TurnVerdictDto verdict);
 
@@ -583,12 +587,15 @@ public sealed class TurnVerdictService : IDisposable
         try
         {
             var signal = new TurnEndSignal(sid, directorId, tenant, observedAt, IsNewTurn: trigger == TurnVerdictTrigger.TurnEnd);
+            // The owner's own sessions (owner ruling, 2026-09-15), counted by the same crew summary the row prints.
+            var owned = _env.OwnedSessions(tenant, sid);
             var package = TurnVerdictPackageBuilder.Build(
                 signal,
                 facts ?? new SessionDto { SessionId = sid },
                 conversation,
                 grid,
-                latest is { Failed: false } ? latest.Label : null);
+                latest is { Failed: false } ? latest.Label : null,
+                owned is null ? null : new OwnedSessionCounts(owned.Working, owned.Stopped, owned.NeedYou));
             var prompt = TurnVerdictPrompt.BuildVerdictPrompt(_env.Language(tenant), package, _env.CustomSpokenRules());
 
             TurnVerdictDto record;
@@ -829,6 +836,7 @@ public sealed class TurnVerdictService : IDisposable
         Risk = v.Risk,
         Spoken = v.Spoken,
         NextScheduledWakeUtc = v.NextScheduledWakeUtc,
+        FinishedKind = v.FinishedKind,
     };
 
     /// <summary>
@@ -853,7 +861,12 @@ public sealed class TurnVerdictService : IDisposable
         var expired = 0;
         foreach (var (sid, snapshot) in _env.SnapshotLatest(tenant))
         {
-            if (!TurnVerdictWatchdog.IsExpired(snapshot, now)) continue;
+            // Only a carrying-on verdict has a clock at all, so only one of those costs a roster read.
+            if (TurnVerdictWatchdog.DeadlineFor(snapshot) is null) continue;
+            // THE OWNER'S OWN SESSIONS (owner ruling, 2026-09-15): while any session this one owns is working its
+            // clock does not run, and once none is, it counts from the moment the last one stopped.
+            var owned = _env.OwnedSessions(tenant, sid);
+            if (!TurnVerdictWatchdog.IsExpired(snapshot, now, owned)) continue;
 
             TurnVerdictDto replacement;
             lock (_storeGate)
@@ -861,7 +874,7 @@ public sealed class TurnVerdictService : IDisposable
                 var current = _env.Latest(tenant, sid);
                 if (current is null
                     || !string.Equals(current.VerdictId, snapshot.VerdictId, StringComparison.Ordinal)
-                    || !TurnVerdictWatchdog.IsExpired(current, now))
+                    || !TurnVerdictWatchdog.IsExpired(current, now, owned))
                     continue;
 
                 replacement = TurnVerdictWatchdog.Expire(current, now);

@@ -95,6 +95,11 @@ public sealed record TurnVerdictPackage
     /// this build. The purple clock falls back to a fixed ten minutes while this stays null.</summary>
     public DateTime? NextScheduledWakeUtc { get; init; }
 
+    /// <summary>The states of the sessions this session owns, at every level, as the row's own crew line counts
+    /// them. Null when it owns no session. The owner's ruling of 2026-09-15: an owner whose reply waits on its
+    /// own working sessions is carrying on, whatever else the reply says.</summary>
+    public OwnedSessionCounts? OwnedSessions { get; init; }
+
     /// <summary>False when this agent keeps no readable conversation, or keeps one that is still empty.
     /// The prompt is told so plainly and the receipt check then binds evidence to the screen alone. It
     /// is a fact about the session, not a failure to read it.</summary>

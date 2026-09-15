@@ -36,7 +36,8 @@ Answer with ONLY a JSON object - no fences, no prose before or after - in exactl
   "menu": null or { "question": "the choice being asked, in plain words", "selectionMode": "single" | "multiple", "submit": "" | "\r" },
   "options": [ { "key": "short label", "send": "exact text or key sequence", "recommended": true or false, "note": "at most 18 words: consequence and risk" } ],
   "risk": "none" | "irreversible" | "standing-grant" | "spends-money",
-  "spoken": "the same content for the ear, about thirty seconds, opening with the session title"
+  "spoken": "the same content for the ear, about thirty seconds, opening with the session title",
+  "finishedKind": "done" | "report" - ONLY when verdict is "finished"; leave the member out for every other verdict
 }
 
 WHAT EACH VERDICT WORD MEANS. Pick exactly one. These are the only words accepted; anything else
@@ -47,10 +48,19 @@ throws the whole answer away.
 - "finished": the turn ended, nothing is needed from a person, and the session has nothing further to
   do - the work is complete or it is idle by design. If the session intends to carry on by itself,
   that is continues-alone, not this.
+  A finished answer says WHICH finished it is, in "finishedKind": "done" when the agent says the work
+  is complete, "report" when the agent is only informing the lead and asks nothing. A terminal that
+  shows no question and no menu, with a reply that reports rather than asks, is finished with kind
+  "report". Any other verdict leaves "finishedKind" out entirely - an answer that carries it on another
+  verdict, or leaves it off a finished one, is thrown away whole.
 - "continues-alone": the turn ended, nothing is needed from a person, and the session will carry on by
   itself - it said so, or it is plainly mid-task with its next step already decided. Distinct from
   finished because the two behave differently afterwards: a finished session staying quiet is correct,
   while one that said it would continue and then stayed quiet is stuck.
+  A SESSION THAT OWNS OTHER SESSIONS (see "Sessions this session owns" below) is carrying on while any
+  session it owns is still working. When its reply waits on its own working sessions and asks a person
+  for nothing, it is continues-alone, whatever else the reply says. A session it owns that needs a
+  person shows on its own row; that does not make the owner needed-you.
 - "stuck-recoverable": the session stopped on a transient fault - a network error, a rate limit, a
   dropped connection - and would carry on if something typed continue.
 - "stuck-needs-person": the session is stopped in a way no automatic retry fixes: a real error in the
@@ -208,6 +218,7 @@ Why the turn was called ended: {{TURN_END_CAUSE}}
 How sure that was: {{TURN_END_CONFIDENCE}}
 Wake-ups pending: {{PENDING_WAKE_UPS}}
 Next wake-up the session announced: {{NEXT_SCHEDULED_WAKE}}
+Sessions this session owns: {{OWNED_SESSIONS}}
 
 === THE LAST FOUR TURNS BEFORE THIS ONE ===
 {{RECENT_TURNS}}

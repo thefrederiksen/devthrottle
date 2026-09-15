@@ -96,6 +96,39 @@ public static class SessionOrdering
         && (string.Equals(verdict.Verdict, VerdictFinished, StringComparison.Ordinal)
             || string.Equals(verdict.Verdict, VerdictContinuesAlone, StringComparison.Ordinal));
 
+    /// <summary>The finished kind for work the agent says is complete (owner ruling, 2026-09-15).</summary>
+    public const string FinishedKindDone = "done";
+
+    /// <summary>The finished kind for a stop where the agent only informs the owner and asks nothing.</summary>
+    public const string FinishedKindReport = "report";
+
+    /// <summary>The word a calm "report" row's label leads with. "Done" is <see cref="CalmFinishedLabel"/>.</summary>
+    public const string CalmReportLabel = "Report";
+
+    /// <summary>
+    /// THE WORDS ON A CALM ROW. Purple reads the Wingman's own line, or "Carrying on". Green LEADS WITH "Done" or
+    /// "Report" (owner ruling, 2026-09-15: "an informational state where I'm not needed but I'm just given
+    /// information"), followed by the Wingman's line when there is one. The two kinds are the same colour, the same
+    /// band and equally uncounted; only the words differ.
+    ///
+    /// A finished verdict with no kind is one stored before the field existed - the contract refuses such an answer
+    /// now - and reads the Wingman's line alone, as it did when it was judged.
+    /// </summary>
+    private static string CalmLabel(SessionDto s)
+    {
+        var line = JudgedLabel(s);
+        if (CalmColor(s) == "purple") return line ?? CalmContinuesLabel;
+
+        var lead = s.TurnVerdict?.FinishedKind switch
+        {
+            FinishedKindDone => CalmFinishedLabel,
+            FinishedKindReport => CalmReportLabel,
+            _ => null,
+        };
+        if (lead is null) return line ?? CalmFinishedLabel;
+        return line is null ? lead : $"{lead} - {line}";
+    }
+
     /// <summary>Green for finished, purple for continues-alone. Asked only after <see cref="IsCalmVerdict"/>.</summary>
     private static string CalmColor(SessionDto s) =>
         string.Equals(s.TurnVerdict?.Verdict, VerdictContinuesAlone, StringComparison.Ordinal) ? "purple" : "green";
@@ -574,9 +607,7 @@ public static class SessionOrdering
         // Mirrors EffectiveColor's two verdict arms, in the same order. A calm row reads the Wingman's own line
         // verbatim - the report - and "Done" or "Carrying on" only when the verdict carries no line at all.
         if (IsVerdictReading(s)) return "Wingman reading";
-        if (IsCalmVerdict(s))
-            return JudgedLabel(s)
-                   ?? (CalmColor(s) == "purple" ? CalmContinuesLabel : CalmFinishedLabel);
+        if (IsCalmVerdict(s)) return CalmLabel(s);
         return BaseColor(s) switch
         {
             // NO "supporting" ARM. It is not missing - it is unreachable, and saying so here is cheaper than

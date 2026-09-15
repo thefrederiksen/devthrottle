@@ -86,6 +86,14 @@ public sealed class TurnVerdictDto
     /// is present, and ten minutes after <see cref="JudgedAtUtc"/> when it is not. Carried on the stored
     /// record, rather than held in memory, so a Gateway restart does not forget a clock that was running.</summary>
     public DateTime? NextScheduledWakeUtc { get; set; }
+
+    /// <summary>
+    /// "done" or "report" when <see cref="Verdict"/> is "finished", null for every other verdict (owner ruling,
+    /// 2026-09-15): the agent says the work is complete, or it is only informing the owner and asks nothing. Both
+    /// are green, in the same band and uncounted; the row's label leads with "Done" or "Report". A verdict stored
+    /// before the field existed carries null.
+    /// </summary>
+    public string? FinishedKind { get; set; }
 }
 
 /// <summary>The picker on the screen that a "keys" answer selects from.</summary>

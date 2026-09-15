@@ -166,6 +166,9 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
 
     public IReadOnlyDictionary<string, TurnVerdictDto> SnapshotLatest(TenantId tenant) => _store.SnapshotLatest(tenant);
 
+    public OwnedSessionsFacts? OwnedSessions(TenantId tenant, string sessionId)
+        => TurnVerdictOwnedSessions.For(_pushedSessions.SnapshotFresh(tenant, _streamStale), sessionId);
+
     public void Store(TenantId tenant, string sessionId, TurnVerdictDto verdict) => _store.Store(tenant, sessionId, verdict);
 
     public int Invalidate(TenantId tenant, string sessionId) => _store.Invalidate(tenant, sessionId);

@@ -132,6 +132,14 @@ public static class TurnVerdictVocabulary
 
     public const string RiskNone = "none";
 
+    /// <summary>
+    /// The two kinds of "finished" (owner ruling, 2026-09-15): "done", the agent says the work is complete, and
+    /// "report", the agent only informs the owner and asks nothing. Required on a finished answer and refused on
+    /// every other verdict. Not a verdict word: the six words are what the corpus was graded on, so the kind rides
+    /// beside the verdict rather than splitting it.
+    /// </summary>
+    public static readonly IReadOnlyList<string> FinishedKinds = new[] { "done", "report" };
+
     /// <summary>True when the word is one of the six the Wingman may answer with.</summary>
     public static bool IsWingmanVerdict(string? word)
         => word is not null && WingmanVerdicts.Contains(word, StringComparer.Ordinal);

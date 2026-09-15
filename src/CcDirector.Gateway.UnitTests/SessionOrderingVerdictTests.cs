@@ -289,6 +289,50 @@ public sealed class SessionOrderingVerdictTests
         Assert.Equal("Needs you", SessionOrdering.StateLabel(s));
     }
 
+    // ================================================================= "Done" and "Report" (owner ruling, 2026-09-15)
+
+    [Fact]
+    public void FinishedKindWords_OnTheFold_AreTheVocabularysOwnWords()
+    {
+        Assert.Equal(new[] { SessionOrdering.FinishedKindDone, SessionOrdering.FinishedKindReport }, TurnVerdictVocabulary.FinishedKinds);
+    }
+
+    [Theory]
+    [InlineData("done", "Done - " + ReportLabel)]
+    [InlineData("report", "Report - " + ReportLabel)]
+    public void StateLabel_FinishedKind_LeadsTheCalmLabel_AndBothKindsAreGreenAndUncounted(string kind, string expected)
+    {
+        var s = Calm();
+        s.TurnVerdict!.FinishedKind = kind;
+
+        Assert.Equal(expected, SessionOrdering.StateLabel(s));
+        Assert.Equal("green", SessionOrdering.EffectiveColor(s));
+        Assert.Equal(SessionOrdering.TriageBucket.Active, SessionOrdering.Classify(s));
+        Assert.True(SessionOrdering.IsInCalmBand(s));
+    }
+
+    [Fact]
+    public void StateLabel_FinishedKindWithNoLineOfItsOwn_IsTheLeadingWordAlone()
+    {
+        var done = Calm(label: null);
+        done.TurnVerdict!.FinishedKind = "done";
+        var report = Calm(label: null);
+        report.TurnVerdict!.FinishedKind = "report";
+
+        Assert.Equal("Done", SessionOrdering.StateLabel(done));
+        Assert.Equal("Report", SessionOrdering.StateLabel(report));
+    }
+
+    [Fact]
+    public void StateLabel_AFinishedKindOnARedRow_DoesNotLead_BecauseItIsNotCalm()
+    {
+        var s = Calm(confidence: "ambiguous");
+        s.TurnVerdict!.FinishedKind = "report";
+
+        Assert.Equal("red", SessionOrdering.EffectiveColor(s));
+        Assert.Equal(ReportLabel, SessionOrdering.StateLabel(s));
+    }
+
     // ================================================================= the calm band
 
     [Fact]

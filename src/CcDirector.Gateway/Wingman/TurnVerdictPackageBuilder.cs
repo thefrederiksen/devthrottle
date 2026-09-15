@@ -45,7 +45,8 @@ public static class TurnVerdictPackageBuilder
         SessionDto session,
         StoredConversation conversation,
         ScreenGridResponse? screen,
-        string? previousVerdictLabel)
+        string? previousVerdictLabel,
+        OwnedSessionCounts? ownedSessions = null)
     {
         ArgumentNullException.ThrowIfNull(signal);
         ArgumentNullException.ThrowIfNull(session);
@@ -77,6 +78,7 @@ public static class TurnVerdictPackageBuilder
             TurnEndConfidence = null,
             PendingWakeUps = null,
             NextScheduledWakeUtc = null,
+            OwnedSessions = ownedSessions,
             ConversationAvailable = conversationAvailable,
         };
 

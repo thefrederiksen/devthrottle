@@ -146,6 +146,10 @@ internal sealed class FakeTurnVerdictEnvironment : ITurnVerdictEnvironment
     private int _snapshotReads;
     public int SnapshotReads => _snapshotReads;
 
+    /// <summary>The sessions each session owns. Null: it owns none.</summary>
+    public Func<string, OwnedSessionsFacts?> Owned = _ => null;
+    public OwnedSessionsFacts? OwnedSessions(TenantId tenant, string sessionId) => Owned(sessionId);
+
     public IReadOnlyDictionary<string, TurnVerdictDto> SnapshotLatest(TenantId tenant)
     {
         Interlocked.Increment(ref _snapshotReads);
@@ -199,6 +203,7 @@ internal sealed class FakeTurnVerdictEnvironment : ITurnVerdictEnvironment
         options = Array.Empty<object>(),
         risk,
         spoken,
+        finishedKind = "done",
     });
 
     /// <summary>A "needed-you" answer on a single-select picker, receipt <paramref name="evidence"/>.</summary>

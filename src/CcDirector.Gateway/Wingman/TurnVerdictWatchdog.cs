@@ -33,23 +33,37 @@ public static class TurnVerdictWatchdog
     /// <summary>The whole allowance when no wake-up was announced.</summary>
     public static readonly TimeSpan WithoutAnnouncedWake = TimeSpan.FromMinutes(10);
 
-    /// <summary>When this verdict's carrying-on clock runs out, or null when it has no clock: it is not an
-    /// accepted "continues-alone" verdict.</summary>
-    public static DateTime? DeadlineFor(TurnVerdictDto verdict)
+    /// <summary>
+    /// When this verdict's carrying-on clock runs out, or null when no clock is running: it is not an accepted
+    /// "continues-alone" verdict, or a session it owns is still working.
+    ///
+    /// THE OWNER'S OWN SESSIONS (owner ruling, 2026-09-15). A session that owns other sessions is carrying on while
+    /// any of them is working, so its clock does not run then. Once none is, the clock starts from the moment the
+    /// last one stopped - the latest last activity across them - when that is later than the verdict's own
+    /// starting point: the judging moment plus ten minutes, or the announced wake-up plus two.
+    /// </summary>
+    /// <param name="owned">The session's owned sessions, or null when it owns none.</param>
+    public static DateTime? DeadlineFor(TurnVerdictDto verdict, OwnedSessionsFacts? owned = null)
     {
         ArgumentNullException.ThrowIfNull(verdict);
         if (verdict.Failed
             || !string.Equals(verdict.Verdict, TurnVerdictVocabulary.ContinuesAlone, StringComparison.Ordinal))
             return null;
+        if (owned is { Working: > 0 }) return null;
 
+        var lastOwnedStop = owned?.LastActivityAtUtc is { } stopped ? Utc(stopped) : (DateTime?)null;
         return verdict.NextScheduledWakeUtc is { } wake
-            ? Utc(wake) + AfterAnnouncedWake
-            : Utc(verdict.JudgedAtUtc) + WithoutAnnouncedWake;
+            ? Later(Utc(wake), lastOwnedStop) + AfterAnnouncedWake
+            : Later(Utc(verdict.JudgedAtUtc), lastOwnedStop) + WithoutAnnouncedWake;
     }
 
-    /// <summary>True when this verdict has a carrying-on clock and <paramref name="nowUtc"/> is at or past its deadline.</summary>
-    public static bool IsExpired(TurnVerdictDto verdict, DateTime nowUtc)
-        => DeadlineFor(verdict) is { } deadline && Utc(nowUtc) >= deadline;
+    /// <summary>True when this verdict has a running carrying-on clock and <paramref name="nowUtc"/> is at or past
+    /// its deadline.</summary>
+    public static bool IsExpired(TurnVerdictDto verdict, DateTime nowUtc, OwnedSessionsFacts? owned = null)
+        => DeadlineFor(verdict, owned) is { } deadline && Utc(nowUtc) >= deadline;
+
+    private static DateTime Later(DateTime start, DateTime? other)
+        => other is { } o && o > start ? o : start;
 
     /// <summary>
     /// The verdict stored in place of an expired carrying-on one: "needed-you", the expiry label, the original
@@ -81,6 +95,7 @@ public static class TurnVerdictWatchdog
             Risk = TurnVerdictVocabulary.RiskNone,
             Spoken = "It said it would continue, and it did not.",
             NextScheduledWakeUtc = null,
+            FinishedKind = null,
         };
     }
 
