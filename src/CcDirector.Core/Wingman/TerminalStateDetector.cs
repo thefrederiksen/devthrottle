@@ -41,10 +41,31 @@ public sealed class TerminalStateDetector : IDisposable
     internal static bool TryExtractBody(string[] rows, int cursorRow, out string body)
     {
         body = "";
+        if (!TryExtractBodyRows(rows, cursorRow, out var bodyRows))
+            return false;
+        body = string.Join("\n", bodyRows);
+        return true;
+    }
+
+    /// <summary>
+    /// The same body as <see cref="TryExtractBody"/>, kept as ROWS. The content rule compares row
+    /// against row - it asks whether a row appeared, not whether a string differs - so joining
+    /// first and splitting again would be work done twice and a place for the two to drift.
+    ///
+    /// The cursor is the whole reason this is trustworthy. The measurement behind the rule ran on
+    /// saved screens, which do not record the cursor, so it had to GUESS where the input box
+    /// started by looking for a prompt-like row; of the 8,650 screens in that corpus only 1,674 had
+    /// exactly one prompt-like row, so the guess was load-bearing and sometimes cut away a real
+    /// reply. Production has the real cursor and guesses nothing.
+    /// </summary>
+    internal static bool TryExtractBodyRows(string[] rows, int cursorRow, out string[] bodyRows)
+    {
+        bodyRows = Array.Empty<string>();
         if (rows is null || rows.Length == 0 || cursorRow <= 0)
             return false;
-        int bodyRows = Math.Min(cursorRow, rows.Length);
-        body = string.Join("\n", rows, 0, bodyRows);
+        int take = Math.Min(cursorRow, rows.Length);
+        bodyRows = new string[take];
+        Array.Copy(rows, bodyRows, take);
         return true;
     }
 
@@ -128,6 +149,20 @@ public sealed class TerminalStateDetector : IDisposable
             w.Dispose();
     }
 
+    /// <summary>
+    /// The settled screen this detector captured for a session, as rows. A test seam: it exists so
+    /// the capture can be proved to happen on a settle with no shadow evidence producer wired,
+    /// which is the whole of work item two. Returns false when the session is not watched or has
+    /// not settled yet.
+    /// </summary>
+    internal bool TryGetSettledBodyRows(Guid sessionId, out string[] rows)
+    {
+        rows = Array.Empty<string>();
+        if (!_watchers.TryGetValue(sessionId, out var watcher)) return false;
+        rows = watcher.SettledBodyRows;
+        return rows.Length > 0;
+    }
+
     public void Dispose()
     {
         if (_disposed) return;
@@ -162,6 +197,10 @@ public sealed class TerminalStateDetector : IDisposable
         // which side reads/writes it).
         private string? _settledBody;
         private string? _settledBodyHash;
+
+        // The same settled screen kept as ROWS, which is what the content rule compares against.
+        // Empty until the session has settled at least once.
+        private string[] _settledBodyRows = Array.Empty<string>();
 
         // True for agents whose idle terminal never goes byte-silent (Grok): an animated footer
         // keeps repainting forever. For these the byte rule is replaced by a screen-body rule.
@@ -335,6 +374,16 @@ public sealed class TerminalStateDetector : IDisposable
             return TryExtractBody(rows, cursorRow, out body);
         }
 
+        /// <summary>The same read, kept as rows for the content rule.</summary>
+        private bool TryReadScreenBodyRows(out string[] bodyRows)
+        {
+            var (rows, cursorRow, _) = _session.SnapshotScreenRowsWithCursor();
+            return TryExtractBodyRows(rows, cursorRow, out bodyRows);
+        }
+
+        /// <summary>The settled screen as rows, for the tests that prove it was captured.</summary>
+        internal string[] SettledBodyRows => _settledBodyRows;
+
         /// <summary>Body changed (or an ambiguous frame): flag Working and re-arm the idle timer
         /// from now. The quiet confirmation in OnQuietCore measures silence from this moment.</summary>
         private void MarkContinuousActive()
@@ -411,13 +460,22 @@ public sealed class TerminalStateDetector : IDisposable
             // apart from "blocked on a question"; a long silence means "needs you".
             _active = false;
 
-            // Capture the settled screen body - the "before" side of the evidence a later
-            // unexplained wake records. Only when the shadow producer is wired; the snapshot is
-            // locked, and paying for it every settle with nobody reading it would be waste.
-            if (_activityProducer is not null && TryReadScreenBody(out var settledBody))
+            // Capture the settled screen - the "before" side of every later comparison: the
+            // evidence an unexplained wake records, and the screen the content rule asks whether
+            // anything was added to.
+            //
+            // This used to happen only when the shadow evidence producer was wired, on the grounds
+            // that a locked snapshot nobody reads is waste. It is now taken on EVERY settle,
+            // because the content rule needs it whether that producer exists or not, and a session
+            // that settled without one would otherwise have no "before" to compare against and
+            // would open a turn on the next byte exactly as it does today - silently, and only for
+            // some sessions. The cost is one locked snapshot per SETTLE, which happens at most once
+            // per turn, not per byte.
+            if (TryReadScreenBodyRows(out var settledRows))
             {
-                _settledBody = settledBody;
-                _settledBodyHash = Activity.ActivityEvidence.BodyHash(settledBody);
+                _settledBodyRows = settledRows;
+                _settledBody = string.Join("\n", settledRows);
+                _settledBodyHash = Activity.ActivityEvidence.BodyHash(_settledBody);
             }
             FileLog.Write($"[TerminalStateDetector] {_session.Id} terminal=NEEDS-YOU after {idle.TotalSeconds:F1}s silent | hook={_session.ActivityState}");
             if (_driveState) _session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
