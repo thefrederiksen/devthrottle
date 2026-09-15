@@ -56,8 +56,17 @@ internal static class TerminalContentNovelty
     /// it has no marker list to keep current, but it can say a screen moved without saying what
     /// appeared - worth less in a log and worth less to the Wingman.
     /// </summary>
-    internal static ITerminalNoveltyRule SizeRule(int changedCharacterThreshold) =>
+    internal static ITerminalSizeRule SizeRule(int changedCharacterThreshold) =>
         new ChangedSizeRule(changedCharacterThreshold);
+
+    /// <summary>
+    /// The size candidate at the starting threshold - the one the detector runs. It exists so the
+    /// threshold is chosen in ONE place rather than at each call site; an inspection found the
+    /// detector re-implementing the comparison beside the rule, which is exactly how work item five
+    /// could come to score one function while the Director ran another.
+    /// </summary>
+    internal static ITerminalSizeRule StartingSizeRule() =>
+        SizeRule(StartingChangedCharacterThreshold);
 
     // ------------------------------------------------------------------------------------------
     // The row rule
@@ -322,6 +331,28 @@ internal interface ITerminalNoveltyRule
         out string? evidence);
 }
 
+/// <summary>
+/// The size candidate: a rule whose verdict is a THRESHOLD ON A NUMBER, and which can report that
+/// number whatever it decided. The log carries the magnitude on every row so work item five can
+/// re-choose the threshold from the log rather than re-running anything, and the magnitude must
+/// come from the same object that produced the verdict - otherwise the number written down and the
+/// number ruled on can drift apart, which is the whole defect this interface exists to prevent.
+///
+/// It is separate from <see cref="ITerminalNoveltyRule"/> because the row rule has no magnitude: it
+/// answers with a row, not a number, and giving it a meaningless one would be worse than no number.
+/// </summary>
+internal interface ITerminalSizeRule : ITerminalNoveltyRule
+{
+    /// <summary>The threshold this rule takes its verdict at. Written into the log beside it.</summary>
+    int Threshold { get; }
+
+    /// <summary>
+    /// How much text changed, whatever the verdict was. The same measurement the verdict is taken
+    /// from, so a row in the log and the decision beside it can never describe different functions.
+    /// </summary>
+    int Measure(IReadOnlyList<string>? settledBody, IReadOnlyList<string>? currentBody);
+}
+
 /// <summary>The row rule behind <see cref="ITerminalNoveltyRule"/>.</summary>
 internal sealed class RowNoveltyRule : ITerminalNoveltyRule
 {
@@ -340,7 +371,7 @@ internal sealed class RowNoveltyRule : ITerminalNoveltyRule
 /// that is its selling point (no list to keep current) and its weakness (an agent's own footer
 /// counts as gained text once it is long enough).
 /// </summary>
-internal sealed class ChangedSizeRule : ITerminalNoveltyRule
+internal sealed class ChangedSizeRule : ITerminalSizeRule
 {
     private readonly int _threshold;
 
@@ -353,6 +384,11 @@ internal sealed class ChangedSizeRule : ITerminalNoveltyRule
 
     public string Name => $"size>={_threshold}";
 
+    public int Threshold => _threshold;
+
+    public int Measure(IReadOnlyList<string>? settledBody, IReadOnlyList<string>? currentBody)
+        => TerminalContentNovelty.ChangedCharacters(settledBody, currentBody);
+
     public bool GainedContent(
         IReadOnlyList<string> settledBody,
         IReadOnlyList<string> currentBody,
@@ -360,7 +396,7 @@ internal sealed class ChangedSizeRule : ITerminalNoveltyRule
         out string? evidence)
     {
         _ = chromeMarkers;
-        int changed = TerminalContentNovelty.ChangedCharacters(settledBody, currentBody);
+        int changed = Measure(settledBody, currentBody);
         if (changed < _threshold)
         {
             evidence = null;

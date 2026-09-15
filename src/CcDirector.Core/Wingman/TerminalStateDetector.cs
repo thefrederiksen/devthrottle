@@ -88,8 +88,16 @@ public sealed class TerminalStateDetector : IDisposable
             _ => TurnContentRule.Off,
         };
 
-    /// <summary>What the content rule is set to on this Director. Read once, at type load.</summary>
-    internal static TurnContentRule ContentRuleDefault { get; } =
+    /// <summary>
+    /// What the content rule is set to on this Director, read from the environment.
+    ///
+    /// A METHOD AND NOT A CACHED STATIC. It used to be a property initialised at type load, which
+    /// no test could ever change - so "the switch resolves correctly" was pinned and "the switch
+    /// reaches the detector" was not, and a detector that ignored the variable entirely would have
+    /// passed every test in the repository. A detector is constructed once or twice in a process;
+    /// reading one environment variable there costs nothing.
+    /// </summary>
+    internal static TurnContentRule ContentRuleFromEnvironment() =>
         ResolveContentRule(Environment.GetEnvironmentVariable(ContentRuleVariable));
 
     /// <summary>
@@ -112,6 +120,8 @@ public sealed class TerminalStateDetector : IDisposable
     private readonly TurnContentRule _contentRule;
     private readonly TimeSpan _settleCheckDelay;
     private readonly TimeSpan _maxSettleCheckDeferral;
+    private readonly ITerminalNoveltyRule _rowRule;
+    private readonly ITerminalSizeRule _sizeRule;
     private readonly ConcurrentDictionary<Guid, Watcher> _watchers = new();
     private bool _started;
     private bool _disposed;
@@ -134,13 +144,24 @@ public sealed class TerminalStateDetector : IDisposable
     }
 
     /// <summary>
-    /// Test seam for exercising the silence rule without waiting for the production interval.
+    /// Test seam for exercising the silence rule without waiting for the production interval, and
+    /// for handing the detector a candidate other than the two it ships with.
     /// </summary>
+    /// <param name="rowRule">
+    /// The row candidate, or null for the shipped one. Injectable because the interface is the
+    /// single seam between this detector and the rules: an inspection found production calling the
+    /// rule functions directly, which would have let work item five score one function while the
+    /// Director ran another with every test still green. A test that hands in a rule and watches
+    /// the Director obey it is what keeps that honest.
+    /// </param>
+    /// <param name="sizeRule">The size candidate, or null for the shipped one.</param>
     internal TerminalStateDetector(SessionManager sessionManager, bool driveState,
         TimeSpan quietThreshold, Activity.ActivityEventProducer? activityProducer = null,
         TurnContentRule? contentRule = null,
         TimeSpan? settleCheckDelay = null,
-        TimeSpan? maxSettleCheckDeferral = null)
+        TimeSpan? maxSettleCheckDeferral = null,
+        ITerminalNoveltyRule? rowRule = null,
+        ITerminalSizeRule? sizeRule = null)
     {
         if (quietThreshold <= TimeSpan.Zero)
             throw new ArgumentOutOfRangeException(nameof(quietThreshold));
@@ -149,10 +170,20 @@ public sealed class TerminalStateDetector : IDisposable
         _driveState = driveState;
         _quietThreshold = quietThreshold;
         _activityProducer = activityProducer;
-        _contentRule = contentRule ?? ContentRuleDefault;
+        _contentRule = contentRule ?? ContentRuleFromEnvironment();
         _settleCheckDelay = settleCheckDelay ?? SettleCheckDelay;
         _maxSettleCheckDeferral = maxSettleCheckDeferral ?? MaxSettleCheckDeferral;
+        _rowRule = rowRule ?? TerminalContentNovelty.RowRule;
+        _sizeRule = sizeRule ?? TerminalContentNovelty.StartingSizeRule();
     }
+
+    /// <summary>
+    /// Which content candidate this detector is running - the whole chain from the environment
+    /// variable to the field the per-session watcher is handed. A test seam, because "the switch
+    /// resolves correctly" and "the resolved switch is what the watcher gets" are two different
+    /// claims and only the first of them was pinned.
+    /// </summary>
+    internal TurnContentRule ContentRule => _contentRule;
 
     public void Start()
     {
@@ -191,7 +222,7 @@ public sealed class TerminalStateDetector : IDisposable
         if (session.BackendType == Backends.SessionBackendType.GitHubActions) return;
         if (_watchers.ContainsKey(session.Id)) return;
         var w = new Watcher(session, _driveState, _quietThreshold, _activityProducer,
-            _contentRule, _settleCheckDelay, _maxSettleCheckDeferral);
+            _contentRule, _settleCheckDelay, _maxSettleCheckDeferral, _rowRule, _sizeRule);
         if (_watchers.TryAdd(session.Id, w))
             w.Start();
         else
@@ -248,12 +279,26 @@ public sealed class TerminalStateDetector : IDisposable
         private readonly IReadOnlyCollection<string> _chromeMarkers;
         private readonly System.Threading.Timer _contentCheckTimer;
 
+        // The two candidates, held as INTERFACES and never as functions. Both are asked on every
+        // check - the one that is authoritative decides, and the other is written down beside it -
+        // so the rule work item five scores is the rule the Director ran.
+        private readonly ITerminalNoveltyRule _rowRule;
+        private readonly ITerminalSizeRule _sizeRule;
+
         // Guards the settled-session decision, which the PTY producer thread and the check timer
         // both touch. The ACTIVE path - where almost every byte lands - never takes it.
         private readonly object _checkGate = new();
         private bool _checkScheduled;
         private long _checkDeadlineTicks;      // when the check may no longer be pushed out
         private long _pendingBytes;            // bytes in the burst that produced the pending check
+
+        // Consecutive faulted checks. Reset by any check that completes. See RestorePendingCheck.
+        private int _checkFailures;
+
+        /// <summary>How many times running a check may fault before its burst is dropped rather
+        /// than retried. A retry loop on a permanent fault would spin a core; one lost turn is the
+        /// smaller failure, and it is written to the log rather than passing in silence.</summary>
+        private const int MaxCheckFailures = 3;
 
         // The same "a check is armed" fact as _checkScheduled, readable WITHOUT taking the lock, so
         // the hot path on an already-working session pays one volatile read rather than a lock.
@@ -286,8 +331,11 @@ public sealed class TerminalStateDetector : IDisposable
 
         public Watcher(Session session, bool driveState, TimeSpan quietThreshold,
             Activity.ActivityEventProducer? activityProducer,
-            TurnContentRule contentRule, TimeSpan settleCheckDelay, TimeSpan maxSettleCheckDeferral)
+            TurnContentRule contentRule, TimeSpan settleCheckDelay, TimeSpan maxSettleCheckDeferral,
+            ITerminalNoveltyRule rowRule, ITerminalSizeRule sizeRule)
         {
+            _rowRule = rowRule;
+            _sizeRule = sizeRule;
             _session = session;
             _buffer = session.Buffer!;
             _driveState = driveState;
@@ -389,28 +437,51 @@ public sealed class TerminalStateDetector : IDisposable
             //
             // EmitsContinuousIdleOutput now selects ONLY this: whether a raw byte may re-arm the
             // quiet timer. For an agent whose footer repaints forever it may not - its idle clock
-            // runs off screen-BODY changes instead, which is what OnBytesContinuousIdle stamps.
+            // runs off screen-BODY changes instead, which is what ObserveBodyChange looks for.
             // It no longer selects a different activation rule; the settled case below is shared.
             if (_active)
             {
+                if (_continuousIdle)
+                {
+                    // A footer that repaints forever is not a burst. For this driver the unit of
+                    // activity is a BODY CHANGE, so a raw byte neither pushes a pending check out
+                    // nor arms anything.
+                    if (ObserveBodyChange())
+                    {
+                        MarkContinuousActive();
+                        if (Volatile.Read(ref _checkPending) != 0) ScheduleContentCheck(bytes.Length);
+                    }
+                    return;
+                }
+
                 // A shadow check pending from the wake is still pushed out by later bytes, so the
                 // screen it reads is the finished burst rather than a half-drawn one. One volatile
                 // read is the whole cost of this on the hot path.
                 if (Volatile.Read(ref _checkPending) != 0) ScheduleContentCheck(bytes.Length);
-                if (_continuousIdle) OnBytesContinuousIdle();
-                else ArmQuietTimer();
+                ArmQuietTimer();
                 return;
             }
 
             // THE SESSION IS SETTLED, which is the only place the content rule has anything to say.
             if (_contentRule == TurnContentRule.Off)
             {
+                if (_continuousIdle)
+                {
+                    // Today's state rule for this driver, unchanged - the body decides - and the
+                    // check now rides on the same decision instead of on raw bytes.
+                    if (ObserveBodyChange())
+                    {
+                        MarkContinuousActive();
+                        ScheduleContentCheck(bytes.Length);
+                    }
+                    return;
+                }
+
                 // Today's rule, unchanged: a byte out of the ConPTY means the agent is producing
                 // output, so it is working. We do not inspect what the byte is. A byte is activity.
                 // Period. Full stop. The buffer already stamps LastWriteAtUtc on every write, so
                 // "time since the last character" (the idle clock the panel shows) is free.
-                if (_continuousIdle) OnBytesContinuousIdle();
-                else MarkActiveFromByte(bytes.Length);
+                MarkActiveFromByte(bytes.Length);
 
                 // The state write above already happened. The check below reads the screen and
                 // records what the rule WOULD have decided; it cannot change anything.
@@ -420,6 +491,11 @@ public sealed class TerminalStateDetector : IDisposable
 
             // The rule is on: the byte does not flip anything. It schedules a check a short delay
             // later, so a repaint is judged once it has finished drawing.
+            if (_continuousIdle)
+            {
+                if (ObserveBodyChange()) ScheduleContentCheck(bytes.Length);
+                return;
+            }
             ScheduleContentCheck(bytes.Length);
         }
 
@@ -437,36 +513,42 @@ public sealed class TerminalStateDetector : IDisposable
         }
 
         /// <summary>
-        /// Activity rule for agents whose idle terminal never goes byte-silent. We cannot trust
-        /// raw bytes (the footer animates forever), so the agent is "working" only while the
-        /// screen BODY changes. Body = the visible rows ABOVE the cursor; the input composer and
-        /// the animated footer (spinner / shortcuts / clock) sit at and below the cursor, so the
-        /// churn that never stops is excluded. The screen snapshot is taken under a lock, so it is
-        /// throttled to BodyCheckIntervalTicks; between checks we deliberately do nothing, which is
-        /// what lets the idle timer actually fire. When the body cannot be isolated (cursor at the
-        /// very top, or no grid yet) we treat the frame as activity - never go idle on an ambiguous
-        /// frame, the same conservative outcome the byte rule would give.
+        /// The unit of activity for agents whose idle terminal never goes byte-silent: did the
+        /// screen BODY change? We cannot trust raw bytes (the footer animates forever), so the
+        /// agent is "working" only while the body moves. Body = the visible rows ABOVE the cursor;
+        /// the input composer and the animated footer (spinner / shortcuts / clock) sit at and
+        /// below the cursor, so the churn that never stops is excluded. The screen snapshot is
+        /// taken under a lock, so it is throttled to BodyCheckIntervalTicks; between looks we
+        /// deliberately do nothing, which is what lets the idle timer actually fire.
+        ///
+        /// Returns TRUE when the body changed, and also when the body cannot be isolated (cursor at
+        /// the very top, or no grid yet) - never go idle on an ambiguous frame, the same
+        /// conservative outcome the byte rule would give. Returns false for a footer-only repaint
+        /// AND while the throttle says it is too soon to look again.
+        ///
+        /// IT IS ALSO WHAT SCHEDULES THE SHADOW CHECK for this driver. An agent that repaints
+        /// forever never goes byte-silent, so a check armed on raw bytes would fire at the deferral
+        /// cap for as long as the session sits idle, writing a row every few seconds for ever. A
+        /// row per real body change is both cheaper and the measurement actually wanted; a row per
+        /// footer frame is noise that would skew it. The honest cost: a reply on such an agent can
+        /// be sampled up to one throttle interval into its drawing rather than after a quiet
+        /// window, because later footer bytes no longer push the check out.
         /// </summary>
-        private void OnBytesContinuousIdle()
+        private bool ObserveBodyChange()
         {
             var nowTicks = DateTime.UtcNow.Ticks;
             if (nowTicks - Volatile.Read(ref _lastBodyCheckTicks) < BodyCheckIntervalTicks)
-                return;
+                return false;
             Volatile.Write(ref _lastBodyCheckTicks, nowTicks);
 
             if (!TryReadScreenBody(out var body))
-            {
-                MarkContinuousActive();
-                return;
-            }
+                return true;
 
-            if (!string.Equals(body, _lastBody, StringComparison.Ordinal))
-            {
-                _lastBody = body;
-                MarkContinuousActive();
-            }
-            // else: body unchanged (footer-only repaint) - do nothing. The quiet timer keeps
-            // running from the last real change and will flip the session to WaitingForInput.
+            if (string.Equals(body, _lastBody, StringComparison.Ordinal))
+                return false;
+
+            _lastBody = body;
+            return true;
         }
 
         /// <summary>Read the screen body (rows strictly above the cursor) as one string. Returns
@@ -496,11 +578,16 @@ public sealed class TerminalStateDetector : IDisposable
         /// settled session, and on a byte that arrives while a check from the wake is still
         /// pending.
         ///
-        /// BYTES INSIDE THE WINDOW PUSH THE CHECK OUT RATHER THAN BEING DROPPED. A burst longer
-        /// than the window is therefore never sampled half drawn - which matters because a
-        /// half-drawn repaint looks exactly like new content. The deadline caps the pushing: an
-        /// agent writing something every three hundred milliseconds forever would otherwise defer
-        /// its own check forever and never be judged at all.
+        /// BYTES INSIDE THE WINDOW PUSH THE CHECK OUT RATHER THAN BEING DROPPED, so a burst that
+        /// finishes inside the maximum deferral is judged once it has stopped drawing - which
+        /// matters because a half-drawn repaint looks exactly like new content.
+        ///
+        /// A BURST THAT OUTLIVES THE MAXIMUM DEFERRAL IS SAMPLED WHILE IT IS STILL DRAWING. That is
+        /// the trade the cap makes, and it is stated rather than wished away: an agent writing
+        /// something every three hundred milliseconds forever would otherwise defer its own check
+        /// forever and never be judged at all, so the cap buys "judged, possibly half-drawn" in
+        /// place of "never judged". (A comment here used to claim a longer burst is never sampled
+        /// half drawn. That was false of this code.)
         /// </summary>
         private void ScheduleContentCheck(long byteCount)
         {
@@ -541,8 +628,8 @@ public sealed class TerminalStateDetector : IDisposable
         }
 
         /// <summary>
-        /// Read the screen, ask both candidates whether the conversation gained anything, write the
-        /// row, and - only when the rule is on - open the turn.
+        /// Take the burst off the books and run one check on it - the work itself is in
+        /// RunContentCheck, which decides first and writes the observation row afterwards.
         ///
         /// A CHECK THAT FINDS NOTHING CHANGES NOTHING AND ARMS THE NEXT ONE. That is the guarantee
         /// the whole "a miss can only delay a turn" claim rests on: the scheduled flag is cleared
@@ -562,13 +649,49 @@ public sealed class TerminalStateDetector : IDisposable
                 _pendingBytes = 0;
             }
 
+            // EVERYTHING BELOW RUNS WITH THE BURST ALREADY TAKEN OFF THE BOOKS, so a fault here
+            // would otherwise consume it: a one-burst reply would have no pending check and no
+            // later byte to create another, and the session would sit red for good. A fault puts
+            // the burst back and re-arms instead. See RestorePendingCheck for the retry bound.
+            try
+            {
+                RunContentCheck(bytes);
+                Volatile.Write(ref _checkFailures, 0);
+            }
+            catch
+            {
+                RestorePendingCheck(bytes);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// One check: read the screen, ask both candidates through the interface, apply the state
+        /// if the authoritative one opens, and only THEN write the observation row.
+        ///
+        /// THE ORDER IS THE POINT. The append is a synchronous file write under one process-wide
+        /// lock with no latency bound, so running it before the state decision let an observation
+        /// delay the very thing it observes. Appending afterwards removes that outright rather than
+        /// bounding it. The cost is that a check whose state write FAULTS writes no row at all -
+        /// which is correct, because that check is retried and the retry writes one.
+        /// </summary>
+        private void RunContentCheck(long bytes)
+        {
             var settled = _settledBodyRows;
             var current = TryReadScreenBodyRows(out var rows) ? rows : Array.Empty<string>();
 
-            // An ambiguous frame - no grid yet, or the cursor at the very top - cannot be compared.
-            // Never go idle on one: treat it as content, the same conservative outcome the byte
-            // rule gives, and say so in the log rather than recording a silent zero.
-            bool ambiguous = current.Length == 0;
+            // AN AMBIGUOUS FRAME CANNOT BE COMPARED, and there are two ways to get one: the screen
+            // could not be read (no grid yet, or the cursor at the very top), or there is no
+            // SETTLED side to compare it against. The second was missed and it could lose a turn:
+            // a settle whose extraction failed leaves no baseline, and a small real reply then
+            // scores under the size threshold against nothing and holds the session red, with no
+            // later byte to ask again. Both take the conservative open path the byte rule gives,
+            // and the log says WHICH rather than recording a silent zero.
+            string? ambiguousReason =
+                current.Length == 0 ? "(screen could not be read)"
+                : settled.Length == 0 ? "(no settled screen to compare against)"
+                : null;
+            bool ambiguous = ambiguousReason is not null;
 
             string? firstNewRow = null;
             bool rowOpens;
@@ -582,15 +705,18 @@ public sealed class TerminalStateDetector : IDisposable
             }
             else
             {
-                rowOpens = TerminalContentNovelty.GainedContent(settled, current, _chromeMarkers, out firstNewRow);
-                changed = TerminalContentNovelty.ChangedCharacters(settled, current);
-                sizeOpens = changed >= TerminalContentNovelty.StartingChangedCharacterThreshold;
+                // THROUGH THE INTERFACE, ALWAYS. Not a function call beside it and not a threshold
+                // comparison repeated here: the rule that decides is the rule work item five
+                // scores, and the magnitude written down is the one this verdict was taken from.
+                rowOpens = _rowRule.GainedContent(settled, current, _chromeMarkers, out firstNewRow);
+                sizeOpens = _sizeRule.GainedContent(settled, current, _chromeMarkers, out _);
+                changed = _sizeRule.Measure(settled, current);
             }
 
             bool submitted = _session.LastSubmissionAtUtc is DateTime submittedAt
                 && DateTime.UtcNow - submittedAt <= Activity.ActivityEventProducer.SubmissionWindow;
 
-            TurnDetectionShadowLog.Append(_session.Id, new TurnDetectionShadowLog.Record(
+            var record = new TurnDetectionShadowLog.Record(
                 T: DateTime.UtcNow.ToString("o"),
                 Agent: _session.Driver.Kind.ToString(),
                 Mode: _continuousIdle ? "body" : "byte",
@@ -599,22 +725,67 @@ public sealed class TerminalStateDetector : IDisposable
                 // byte reached a settled session, which is precisely what today's rule opens on.
                 ByteRuleOpens: true,
                 RowRuleOpens: rowOpens,
-                RowEvidence: ambiguous ? "(screen could not be read)" : firstNewRow,
+                RowEvidence: ambiguousReason ?? firstNewRow,
                 SizeRuleOpens: sizeOpens,
                 ChangedCharacters: changed,
-                SizeThreshold: TerminalContentNovelty.StartingChangedCharacterThreshold,
+                SizeThreshold: _sizeRule.Threshold,
                 SettledHash: _settledBodyHash,
                 CurrentHash: ambiguous ? null : Activity.ActivityEvidence.BodyHash(string.Join("\n", current)),
                 Bytes: bytes,
-                Submitted: submitted));
+                Submitted: submitted);
 
-            // With the rule off the row above is the entire effect of this check.
-            if (_contentRule == TurnContentRule.Off) return;
+            // The state decision comes FIRST, and with the rule off there is none to make: the byte
+            // already flipped the session on the way in and this check only observes.
+            if (_contentRule != TurnContentRule.Off)
+            {
+                bool opens = _contentRule == TurnContentRule.Size ? sizeOpens : rowOpens;
+                if (opens) MarkActiveFromContent(bytes, ambiguousReason ?? firstNewRow);
+            }
 
-            bool opens = _contentRule == TurnContentRule.Size ? sizeOpens : rowOpens;
-            if (!opens) return;
+            TurnDetectionShadowLog.Append(_session.Id, record);
+        }
 
-            MarkActiveFromContent(bytes, ambiguous ? "(screen could not be read)" : firstNewRow);
+        /// <summary>
+        /// A check faulted: put its burst back and arm the timer again, so the burst is asked about
+        /// rather than swallowed.
+        ///
+        /// IT IS BOUNDED, because a fault that repeats would otherwise retry forever - and the
+        /// deadline of the original check is already in the past, so each retry would fire
+        /// immediately and spin. After <see cref="MaxCheckFailures"/> consecutive failures the
+        /// burst is dropped and said so in the log: one lost turn is a smaller failure than a
+        /// session pinning a core.
+        /// </summary>
+        private void RestorePendingCheck(long bytes)
+        {
+            if (Volatile.Read(ref _disposed) != 0) return;
+
+            if (Interlocked.Increment(ref _checkFailures) > MaxCheckFailures)
+            {
+                FileLog.Write($"[TerminalStateDetector] {_session.Id} content check failed {MaxCheckFailures} times running; dropping the burst of {bytes} bytes");
+                return;
+            }
+
+            lock (_checkGate)
+            {
+                if (_checkScheduled)
+                {
+                    // A later byte already armed a fresh check; hand it the bytes and leave its own
+                    // deadline alone.
+                    _pendingBytes += bytes;
+                }
+                else
+                {
+                    _checkScheduled = true;
+                    Volatile.Write(ref _checkPending, 1);
+                    _pendingBytes = bytes;
+                    // A FRESH deadline, not the original one. The original is in the past, so
+                    // reusing it would make the retry fire with no delay at all.
+                    _checkDeadlineTicks = DateTime.UtcNow.Ticks + _maxSettleCheckDeferral.Ticks;
+                }
+
+                try { _contentCheckTimer.Change(_settleCheckDelay, Timeout.InfiniteTimeSpan); }
+                catch (ObjectDisposedException) { /* race with Dispose */ }
+            }
         }
 
         /// <summary>
@@ -626,22 +797,37 @@ public sealed class TerminalStateDetector : IDisposable
         {
             // _active is also written by the quiet timer and by the state-change handler, as it was
             // before this method existed; this adds one more thread to a latch that was already
-            // loose. The worst outcome is a duplicate Working write, not a wrong colour.
+            // loose.
+            //
+            // A FAULT AFTER THE LATCH UNLATCHES IT AGAIN. Setting it and then throwing left the
+            // session red AND latched active, after which every later byte took the already-active
+            // branch and scheduled nothing: permanently red with no way back. (A comment here used
+            // to claim the worst outcome of the loose latch was a duplicate Working write. It was
+            // false - the state write, the evidence call and the timer arm all follow the latch and
+            // any of them can throw - and it is deleted rather than softened.)
             if (_active) return;
             _active = true;
-            FileLog.Write($"[TerminalStateDetector] {_session.Id} terminal=ACTIVE (content:{_contentRule.ToString().ToLowerInvariant()}) gained={QuoteRow(evidence)} | hook={_session.ActivityState}");
-
-            if (_continuousIdle)
+            try
             {
-                // This agent's idle clock runs off body changes rather than bytes, so stamp one:
-                // the quiet threshold must measure silence from this moment.
-                if (TryReadScreenBody(out var body)) _lastBody = body;
-                _session.StampBodyActivity();
-            }
+                FileLog.Write($"[TerminalStateDetector] {_session.Id} terminal=ACTIVE (content:{_contentRule.ToString().ToLowerInvariant()}) gained={QuoteRow(evidence)} | hook={_session.ActivityState}");
 
-            RecordUnexplainedWakeEvidence(byteCount, _continuousIdle ? "body" : "content");
-            if (_driveState) _session.ApplyTerminalActivityState(ActivityState.Working);
-            ArmQuietTimer();
+                if (_continuousIdle)
+                {
+                    // This agent's idle clock runs off body changes rather than bytes, so stamp one:
+                    // the quiet threshold must measure silence from this moment.
+                    if (TryReadScreenBody(out var body)) _lastBody = body;
+                    _session.StampBodyActivity();
+                }
+
+                RecordUnexplainedWakeEvidence(byteCount, _continuousIdle ? "body" : "content");
+                if (_driveState) _session.ApplyTerminalActivityState(ActivityState.Working);
+                ArmQuietTimer();
+            }
+            catch
+            {
+                _active = false;
+                throw;
+            }
         }
 
         /// <summary>One line, bounded, for the log. A screen row can be long and can carry
@@ -746,6 +932,18 @@ public sealed class TerminalStateDetector : IDisposable
                 _settledBodyRows = settledRows;
                 _settledBody = string.Join("\n", settledRows);
                 _settledBodyHash = Activity.ActivityEvidence.BodyHash(_settledBody);
+            }
+            else
+            {
+                // NO BASELINE IS HONEST; THE PREVIOUS TURN'S IS A WRONG ANSWER. Leaving the old rows
+                // in place made the next check compare this turn's screen against a screen from a
+                // turn that had already ended, and call the difference between two unrelated turns
+                // "what was gained". An absent baseline is ambiguous and opens the turn, which is
+                // the conservative outcome; a stale one silently decides.
+                _settledBodyRows = Array.Empty<string>();
+                _settledBody = null;
+                _settledBodyHash = null;
+                FileLog.Write($"[TerminalStateDetector] {_session.Id} settled with NO baseline (screen could not be read); the next check is ambiguous and will open");
             }
             FileLog.Write($"[TerminalStateDetector] {_session.Id} terminal=NEEDS-YOU after {idle.TotalSeconds:F1}s silent | hook={_session.ActivityState}");
             if (_driveState) _session.ApplyTerminalActivityState(ActivityState.WaitingForInput);

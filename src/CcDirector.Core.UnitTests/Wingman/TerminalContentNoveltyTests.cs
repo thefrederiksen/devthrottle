@@ -230,6 +230,99 @@ public sealed class TerminalContentNoveltyTests
         Assert.Equal("  I have finished the refactor. The nine call sites now go through one", row);
     }
 
+    // ------------------------------------------------------------------------------------------
+    // The load-bearing numbers, pinned so they cannot move under a green suite
+    // ------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void The_near_duplicate_threshold_is_eighty_percent_and_a_verdict_turns_on_it()
+    {
+        // Pinned in BOTH directions and independently of the value under test. The examples
+        // elsewhere in this file sit at about 0.98 and 0.30, so raising the threshold to 0.90 or
+        // dropping it to 0.70 left every one of them passing: the number was free to move. These
+        // two rows bracket it - one similar enough to be the same row redrawn, one not - and their
+        // ratios are asserted first, from the ratio function, so this test pins the THRESHOLD
+        // rather than restating it.
+        var settled = new[] { "  the build is running on the agent" };
+        const string redrawn = "  the build was running on the other agent";
+        const string different = "  the build is queued on the agent";
+
+        double redrawnRatio = TerminalContentNovelty.SequenceRatio(
+            TerminalContentNovelty.Key(settled[0]), TerminalContentNovelty.Key(redrawn));
+        double differentRatio = TerminalContentNovelty.SequenceRatio(
+            TerminalContentNovelty.Key(settled[0]), TerminalContentNovelty.Key(different));
+
+        Assert.True(redrawnRatio > 0.80 && redrawnRatio < 0.90,
+            $"the near-duplicate example must sit between 0.80 and 0.90 to pin the threshold, and is {redrawnRatio}");
+        Assert.True(differentRatio > 0.70 && differentRatio < 0.80,
+            $"the different-row example must sit between 0.70 and 0.80 to pin the threshold, and is {differentRatio}");
+
+        // At 0.80 the first is a repaint and the second is not. At 0.90 the first would be new
+        // content; at 0.70 the second would be swallowed as a repaint.
+        Assert.False(TerminalContentNovelty.GainedContent(
+            settled, new[] { settled[0], redrawn }, System.Array.Empty<string>(), out _),
+            "a row this close to a settled row is the same row redrawn");
+        Assert.True(TerminalContentNovelty.GainedContent(
+            settled, new[] { settled[0], different }, System.Array.Empty<string>(), out var row),
+            "a row this far from a settled row is new content");
+        Assert.Equal(different, row);
+
+        // Last, and deliberately last: the literal. Put first it would fire on every mutation and
+        // hide whether the two verdicts above actually turn on this number.
+        Assert.Equal(0.80, TerminalContentNovelty.NearDuplicateSimilarity, 10);
+    }
+
+    [Fact]
+    public void The_size_rule_starts_at_two_hundred_changed_characters()
+    {
+        // The starting threshold was self-referenced rather than pinned: the one test that used it
+        // fed it a sample of exactly 201 characters, so moving the constant to 201 changed nothing,
+        // and the boundary test built its own unrelated threshold. This walks the real boundary
+        // with the shipped rule, and asserts the magnitudes first so the boundary is independent of
+        // the number it is pinning.
+        var under = SettledPlus("  " + new string('u', 197));
+        var at = SettledPlus("  " + new string('a', 198));
+
+        Assert.Equal(199, TerminalContentNovelty.ChangedCharacters(SettledScreen, under));
+        Assert.Equal(200, TerminalContentNovelty.ChangedCharacters(SettledScreen, at));
+
+        var rule = TerminalContentNovelty.StartingSizeRule();
+        Assert.Equal(TerminalContentNovelty.StartingChangedCharacterThreshold, rule.Threshold);
+        Assert.False(rule.GainedContent(SettledScreen, under, System.Array.Empty<string>(), out _),
+            "199 changed characters is under the starting threshold");
+        Assert.True(rule.GainedContent(SettledScreen, at, System.Array.Empty<string>(), out _),
+            "200 changed characters is at the starting threshold");
+
+        // Last, for the same reason as the near-duplicate threshold above.
+        Assert.Equal(200, TerminalContentNovelty.StartingChangedCharacterThreshold);
+    }
+
+    [Fact]
+    public void The_size_rules_magnitude_is_the_measurement_its_verdict_was_taken_from()
+    {
+        // The interface promise: the number written into the log comes from the same object that
+        // ruled on it, so the two can never describe different functions.
+        var current = SettledPlus("  The migration completed with warnings.");
+        var rule = TerminalContentNovelty.SizeRule(10);
+
+        int magnitude = rule.Measure(SettledScreen, current);
+        Assert.Equal(TerminalContentNovelty.ChangedCharacters(SettledScreen, current), magnitude);
+        Assert.True(rule.GainedContent(SettledScreen, current, System.Array.Empty<string>(), out var evidence));
+        Assert.Equal($"changed {magnitude} characters", evidence);
+    }
+
+    [Fact]
+    public void The_settling_window_and_its_cap_are_the_numbers_that_ship()
+    {
+        // Every behaviour test injects its own timings, so nothing pinned the production pair. A
+        // reader who wants to know how long a repaint is given to finish drawing, and how long a
+        // chattering agent can defer its own judgement, reads it here.
+        Assert.Equal(System.TimeSpan.FromMilliseconds(400), TerminalStateDetector.SettleCheckDelay);
+        Assert.Equal(System.TimeSpan.FromSeconds(3), TerminalStateDetector.MaxSettleCheckDeferral);
+        Assert.True(TerminalStateDetector.MaxSettleCheckDeferral > TerminalStateDetector.SettleCheckDelay,
+            "a cap at or below the window would judge every burst half drawn");
+    }
+
     [Fact]
     public void An_unchanged_screen_is_not_gained_content()
     {
@@ -241,8 +334,13 @@ public sealed class TerminalContentNoveltyTests
     [Fact]
     public void A_first_screen_with_no_settled_side_is_all_gained_content()
     {
-        // Nothing was settled, so the first row with substance is new. The detector never asks the
-        // rule in this state today, but the function must answer honestly rather than assume it.
+        // Nothing was settled, so the first row with substance is new.
+        //
+        // A comment here used to say the detector never asks the rule with no settled side. That
+        // was false - a settle whose screen could not be read leaves no baseline at all - and the
+        // detector no longer asks: it calls that frame ambiguous and opens the turn, because a
+        // real reply scored against an empty baseline can fall under the size threshold and hold a
+        // session red with nothing left to ask again. The function still answers honestly here.
         Assert.True(TerminalContentNovelty.GainedContent(
             System.Array.Empty<string>(), SettledScreen, ClaudeCodeMarkers, out var row));
         Assert.Equal("> summarise the deployment", row);
