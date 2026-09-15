@@ -174,7 +174,8 @@ public sealed class NoRedFrameBeforeTheWingmanReadsTests : IDisposable
         _display.Sweep();
 
         var pushed = Pushed();
-        Assert.StartsWith("green/", pushed[^1]);
+        // A finished report is cyan (pull request 2893), not the brand-new green.
+        Assert.StartsWith("cyan/", pushed[^1]);
         Assert.DoesNotContain(pushed, p => p.StartsWith("red/", StringComparison.Ordinal));
     }
 
@@ -210,20 +211,76 @@ public sealed class NoRedFrameBeforeTheWingmanReadsTests : IDisposable
         Assert.Equal(0, _env.JudgeCalls);
     }
 
+    /// <summary>
+    /// A Working transition WHILE THE WINGMAN READS - the judge has been asked - clears reading at once, cancels the
+    /// judgement and pushes the session back to blue.
+    ///
+    /// OBSERVED CAUSE of this test failing when its class ran alone (2026-09-15): it pushed the Working delta straight
+    /// after the turn end, and the verdict flight, started on the thread pool, had not run yet. The Working edge DID find
+    /// the flight and cancel its token - read off the seat at the flight's own roster re-check: in flight, cancelled,
+    /// not reading - but the flight had awaited nothing that observes the token, so it stood down at that re-check as a
+    /// working-observation skip and no cancel was ever written. No window in the product: the test waited on the wrong
+    /// signal. It now waits for the point it is about, the judge call, which the rig already holds open until released.
+    /// The other outcome is real and has its own test below.
+    /// </summary>
     [Fact]
     public async Task AWorkingTransitionWhileTheWingmanReads_ClearsReading()
     {
         Start();
         _hub.PushDelta(3, Row("WaitingForInput"));
         Assert.True(_service.IsReading(Tenant, Sid));   // CONTROL: it really is reading
+        Assert.True(await WaitUntil(() => _env.JudgeCalls == 1), "the judge was never asked; the seat recorded: " + Recorded());
 
         _hub.PushDelta(4, Row("Working"));
 
         Assert.False(_service.IsReading(Tenant, Sid));
         Assert.Equal(new[] { "blue/Working", "yellow/Wingman reading", "blue/Working" }, Pushed());
         Assert.True(await WaitUntil(() => _env.Records.Any(r => r.EventType == ActivityEventTypes.TurnVerdictCancelled)),
-            "the judgement was not cancelled");
+            "the judgement was not cancelled; the seat recorded: " + Recorded());
+        Assert.Equal(0, _env.StoredCount(Tenant, Sid));
     }
+
+    /// <summary>
+    /// The other real outcome, the one the class showed when it ran alone: the Working delta lands after the turn end is
+    /// taken and before the flight re-reads the roster. Reading clears at once and the session pushes back to blue; the
+    /// flight finds the session Working at its re-check and stands down as a working-observation skip, with no screen read
+    /// and no judge call. Made certain by holding the flight's re-check - its second roster read, the first being the
+    /// synchronous one at the turn end - until the test has pushed the Working delta.
+    /// </summary>
+    [Fact]
+    public async Task AWorkingTransitionBeforeTheFlightRereadsTheRoster_ClearsReading_AndTheFlightStandsDownWithNothingRead()
+    {
+        using var workingPushed = new ManualResetEventSlim(false);
+        Start(env =>
+        {
+            var roster = env.Facts;
+            var reads = 0;
+            env.Facts = sid =>
+            {
+                if (Interlocked.Increment(ref reads) == 2 && !workingPushed.Wait(TimeSpan.FromSeconds(5)))
+                    throw new TimeoutException("the test never pushed the Working delta");
+                return roster(sid);
+            };
+        });
+        _hub.PushDelta(3, Row("WaitingForInput"));
+        Assert.True(_service.IsReading(Tenant, Sid));   // CONTROL: it really is reading
+
+        _hub.PushDelta(4, Row("Working"));
+        workingPushed.Set();
+
+        Assert.False(_service.IsReading(Tenant, Sid));
+        Assert.Equal(new[] { "blue/Working", "yellow/Wingman reading", "blue/Working" }, Pushed());
+        Assert.True(await WaitUntil(() => _env.Records.Any(r =>
+                r.EventType == ActivityEventTypes.TurnVerdictSkipped && r.Cause == ActivityCauses.WorkingObservation)),
+            "the flight did not stand down as a working-observation skip; the seat recorded: " + Recorded());
+        Assert.Equal(0, _env.ScreenReads);
+        Assert.Equal(0, _env.JudgeCalls);
+        Assert.DoesNotContain(_env.Records, r => r.EventType == ActivityEventTypes.TurnVerdictCancelled);
+    }
+
+    private string Recorded()
+        => string.Join(", ", _env.Records.Select(r => r.EventType + "/" + r.Cause))
+           + $"; judge calls={_env.JudgeCalls}, screen reads={_env.ScreenReads}";
 
     // ================================================================= the reconcile sweep replays nothing
 
