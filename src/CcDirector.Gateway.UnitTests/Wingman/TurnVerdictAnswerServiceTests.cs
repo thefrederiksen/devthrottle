@@ -333,7 +333,7 @@ public sealed class TurnVerdictAnswerServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task TwoAnswersRacingOnOneSession_OnlyTheFirstIsWritten_AndTheSecondIsRefusedOnTheScreenTheFirstChanged()
+    public async Task TwoAnswersRacingOnOneSession_WhenTheFirstWriteRepaintsTheScreen_OnlyTheFirstIsWritten_AndTheSecondIsRefusedAsAlreadyAnswered()
     {
         var v = Stored(Sid, Base("tv-race", "keys", Menu("single", "\r"), Option("a", "1"), Option("b", "2")));
         var channel = Matching();
@@ -347,8 +347,83 @@ public sealed class TurnVerdictAnswerServiceTests : IDisposable
 
         Assert.Single(channel.Writes);
         Assert.Equal(1, outcomes.Count(o => o.Accepted));
-        Assert.Equal(1, outcomes.Count(o => o.Code == ActivityCauses.AnswerScreenChanged));
+        // The answered mark is read before the screen, so the waiter is refused for the verdict, not for the repaint.
+        // The screen compare keeps its own test: AScreenThatIsNotTheJudgedScreen_IsRefusedWithAReasonTheClientShows_AndNothingIsWritten.
+        Assert.Equal(1, outcomes.Count(o => o.Code == ActivityCauses.AnswerAlreadyAnswered));
         Assert.Equal(2, _records.Count);
+    }
+
+    /// <summary>
+    /// The inspector's probe for finding 1, kept as the test. The first accepted write leaves the judged screen in
+    /// place - RowsAfterWrite stays null - so the screen compare alone let the second waiter through, and the channel
+    /// recorded ("1\r", false) and then ("2\r", false). One verdict, one activation: the stored answered mark is what
+    /// refuses the second, whatever the screen does after the first write.
+    /// </summary>
+    [Fact]
+    public async Task TwoAnswersRacingOnAScreenThatHasNotRepainted_OnlyTheFirstIsWritten_AndTheSecondIsRefusedAsAlreadyAnswered()
+    {
+        var v = Stored(Sid, Base("tv-race-still", "keys", Menu("single", "\r"), Option("a", "1"), Option("b", "2")));
+        var channel = Matching();
+        channel.ReadDelay = TimeSpan.FromMilliseconds(150);
+        var service = Service();
+
+        var outcomes = await Task.WhenAll(
+            Task.Run(() => service.AnswerAsync(Tenant, Dir, Sid, Request(v.VerdictId, 0), channel, CancellationToken.None)),
+            Task.Run(() => service.AnswerAsync(Tenant, Dir, Sid, Request(v.VerdictId, 1), channel, CancellationToken.None)));
+
+        // The writes FIRST, so a missing rule fails naming both sets of bytes.
+        Assert.Single(channel.Writes);
+        Assert.Equal(1, outcomes.Count(o => o.Accepted));
+        var refused = Assert.Single(outcomes, o => !o.Accepted);
+        Assert.Equal(ActivityCauses.AnswerAlreadyAnswered, refused.Code);
+        Assert.Equal(TurnVerdictAnswerService.AlreadyAnsweredReason, refused.Reason);
+        Assert.Equal(409, refused.StatusCode);
+        // The screen was read once: the refused waiter stopped at the mark, before the screen.
+        Assert.Equal(1, channel.Reads);
+        Assert.NotNull(_store.FindById(Tenant, v.VerdictId)!.AnsweredAtUtc);
+        lock (_records)
+        {
+            Assert.Equal(2, _records.Count);
+            Assert.Single(_records, r => r.EventType == ActivityEventTypes.TurnVerdictAnswered);
+            Assert.Single(_records, r => r.EventType == ActivityEventTypes.TurnVerdictAnswerRefused
+                                         && r.Cause == ActivityCauses.AnswerAlreadyAnswered);
+        }
+    }
+
+    [Fact]
+    public async Task AnAnsweredVerdict_IsRefusedAsAlreadyAnswered_ByAnotherServiceInstance_BeforeItsScreenIsRead()
+    {
+        var v = Stored(Sid, Base("tv-answered-once", "keys", Menu("single", "\r"), Option("a", "1"), Option("b", "2")));
+        var first = Matching();
+        Assert.True((await Service().AnswerAsync(Tenant, Dir, Sid, Request(v.VerdictId, 0), first, CancellationToken.None)).Accepted);
+        lock (_records) _records.Clear();
+
+        // A second instance has none of the first one's locks or memory - a restarted Gateway. Only the stored mark
+        // can refuse it.
+        var second = Matching();
+        var outcome = await Service().AnswerAsync(Tenant, Dir, Sid, Request(v.VerdictId, 1), second, CancellationToken.None);
+
+        AssertRefusedAndNothingWritten(outcome, second, ActivityCauses.AnswerAlreadyAnswered);
+        Assert.Equal(0, second.Reads);
+    }
+
+    /// <summary>
+    /// Only a CONFIRMED write marks the verdict. A write the Director did not confirm, and one that never left the
+    /// Gateway, leave it unanswered, so the owner can press again. Pinned as a decision that can be reversed on purpose.
+    /// </summary>
+    [Theory]
+    [InlineData(TurnVerdictAnswerWriteKind.Unanswered)]
+    [InlineData(TurnVerdictAnswerWriteKind.NeverLeftTheGateway)]
+    public async Task AWriteThatWasNotConfirmed_DoesNotMarkTheVerdictAnswered(TurnVerdictAnswerWriteKind kind)
+    {
+        var v = Stored(Sid, Base("tv-unconfirmed-" + kind, "keys", Menu("single", "\r"), Option("a", "1"), Option("b", "2")));
+        var channel = Matching();
+        channel.WriteKind = kind;
+
+        var outcome = await Service().AnswerAsync(Tenant, Dir, Sid, Request(v.VerdictId, 0), channel, CancellationToken.None);
+
+        Assert.False(outcome.Accepted);
+        Assert.Null(_store.FindById(Tenant, v.VerdictId)!.AnsweredAtUtc);
     }
 
     // ================================================================= the joins
@@ -466,7 +541,8 @@ public sealed class TurnVerdictAnswerServiceTests : IDisposable
                      ActivityCauses.AnswerShadowRecord, ActivityCauses.AnswerVerdictNotFound, ActivityCauses.AnswerVerdictFailed,
                      ActivityCauses.AnswerVerdictSuperseded, ActivityCauses.AnswerSelectionRefused, ActivityCauses.AnswerScreenUnreadable,
                      ActivityCauses.AnswerScreenChanged, ActivityCauses.AnswerNeverSent, ActivityCauses.AnswerUnanswered,
-                     ActivityCauses.MenuOwnsScreen,
+                     ActivityCauses.MenuOwnsScreen, ActivityCauses.AnswerAlreadyAnswered, ActivityCauses.AnswerInvalidSessionId,
+                     ActivityCauses.AnswerUnavailable,
                  })
             Assert.Contains(cause, ActivityCauses.All);
     }

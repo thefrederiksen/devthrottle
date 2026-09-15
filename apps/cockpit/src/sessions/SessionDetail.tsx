@@ -127,7 +127,7 @@ export function SessionDetail() {
 
         {/* What the Wingman read at this stop, and the owner's answer to it (the shared client-core panel; it
             renders nothing unless the Gateway stamped a judged verdict on this row). */}
-        {selected && <VerdictPanel session={selected} />}
+        {selected && sessionId && <VerdictPanel sessionId={sessionId} session={selected} />}
 
         <div className="session-content">
           {/* The terminal is ALWAYS mounted (hidden, not unmounted, when Chat or Voice is active) so its

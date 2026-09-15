@@ -68,16 +68,28 @@ afterEach(() => {
 });
 
 describe("the verdict panel", () => {
+  it("renders nothing for another session's row, and answers to the screen's own session id", async () => {
+    fakeGateway(200, SENT);
+    const OTHER = "5b0c2e7a-0000-4000-8000-000000000002";
+    const { container, rerender } = render(<VerdictPanel sessionId={OTHER} session={session(verdict())} />);
+    expect(container.innerHTML).toBe("");
+
+    rerender(<VerdictPanel sessionId={SID} session={session(verdict())} />);
+    fireEvent.click(screen.getByRole("button", { name: "Yes, apply it" }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].url).toBe(`/sessions/${SID}/turn-verdict/answer`);
+  });
+
   it("renders nothing for a row that carries no judged verdict", () => {
-    const { container, rerender } = render(<VerdictPanel session={session(null)} />);
+    const { container, rerender } = render(<VerdictPanel sessionId={SID} session={session(null)} />);
     expect(container.innerHTML).toBe("");
     // A failed or reading row may carry a record; only "judged" is an answer to show.
-    rerender(<VerdictPanel session={session(verdict(), "failed")} />);
+    rerender(<VerdictPanel sessionId={SID} session={session(verdict(), "failed")} />);
     expect(container.innerHTML).toBe("");
   });
 
   it("shows the receipt expanded, the label and the summary, verbatim", () => {
-    render(<VerdictPanel session={session(verdict())} />);
+    render(<VerdictPanel sessionId={SID} session={session(verdict())} />);
 
     const receipt = screen.getByText("Claude Code said").closest("details");
     expect(receipt).not.toBeNull();
@@ -91,16 +103,16 @@ describe("the verdict panel", () => {
 
   it("heads the receipt with the row's own agent, as the Gateway stamped its name", () => {
     const { container, rerender } = render(
-      <VerdictPanel session={session(verdict(), "judged", { agent: "Codex", agentToolDisplay: "Codex" })} />,
+      <VerdictPanel sessionId={SID} session={session(verdict(), "judged", { agent: "Codex", agentToolDisplay: "Codex" })} />,
     );
     const heading = () => container.querySelector(".verdict-receipt summary")!.textContent;
     expect(heading()).toBe("Codex said");
 
-    rerender(<VerdictPanel session={session(verdict(), "judged", { agent: "Pi", agentToolDisplay: "Pi" })} />);
+    rerender(<VerdictPanel sessionId={SID} session={session(verdict(), "judged", { agent: "Pi", agentToolDisplay: "Pi" })} />);
     expect(heading()).toBe("Pi said");
 
     rerender(
-      <VerdictPanel session={session(verdict(), "judged", { agent: "Copilot", agentToolDisplay: "GitHub Copilot" })} />,
+      <VerdictPanel sessionId={SID} session={session(verdict(), "judged", { agent: "Copilot", agentToolDisplay: "GitHub Copilot" })} />,
     );
     expect(heading()).toBe("GitHub Copilot said");
   });
@@ -108,22 +120,22 @@ describe("the verdict panel", () => {
   it("never heads a kind with no display name with another agent's name", () => {
     // A future kind the Gateway's fold has no nicer spelling for is stamped as its own word.
     const { container, rerender } = render(
-      <VerdictPanel session={session(verdict(), "judged", { agent: "FutureTool", agentToolDisplay: "FutureTool" })} />,
+      <VerdictPanel sessionId={SID} session={session(verdict(), "judged", { agent: "FutureTool", agentToolDisplay: "FutureTool" })} />,
     );
     const heading = () => container.querySelector(".verdict-receipt summary")!.textContent;
     expect(heading()).toBe("FutureTool said");
 
     // A row that arrived with no stamp says so, in the words the phone's roster card uses, and names no agent.
-    rerender(<VerdictPanel session={session(verdict(), "judged", { agent: "Codex" })} />);
+    rerender(<VerdictPanel sessionId={SID} session={session(verdict(), "judged", { agent: "Codex" })} />);
     expect(heading()).toBe("Agent tool not reported said");
     expect(heading()).not.toMatch(/Claude|Codex/);
   });
 
   it("shows no risk line for none, and the risk FIRST for any other word", () => {
-    const { container, rerender } = render(<VerdictPanel session={session(verdict())} />);
+    const { container, rerender } = render(<VerdictPanel sessionId={SID} session={session(verdict())} />);
     expect(container.querySelector(".verdict-risk")).toBeNull();
 
-    rerender(<VerdictPanel session={session(verdict({ risk: "irreversible" }))} />);
+    rerender(<VerdictPanel sessionId={SID} session={session(verdict({ risk: "irreversible" }))} />);
     const risk = screen.getByRole("note");
     expect(risk.textContent).toBe("Risk: irreversible");
     const panel = container.querySelector(".verdict-panel")!;
@@ -138,7 +150,7 @@ describe("the verdict panel", () => {
   });
 
   it("shows each option's label, note and recommendation", () => {
-    render(<VerdictPanel session={session(verdict())} />);
+    render(<VerdictPanel sessionId={SID} session={session(verdict())} />);
     expect(screen.getByRole("button", { name: "Yes, apply it" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "No, leave it" })).toBeTruthy();
     expect(screen.getByText("Changes the local database.")).toBeTruthy();
@@ -149,7 +161,7 @@ describe("the verdict panel", () => {
 
   it("answers a single-select tap with ONE request naming the verdict and that option", async () => {
     fakeGateway(200, SENT);
-    render(<VerdictPanel session={session(verdict())} />);
+    render(<VerdictPanel sessionId={SID} session={session(verdict())} />);
 
     fireEvent.click(screen.getByRole("button", { name: "No, leave it" }));
 
@@ -173,7 +185,7 @@ describe("the verdict panel", () => {
         { key: "the seed rows", send: "3", recommended: false, note: "" },
       ],
     });
-    render(<VerdictPanel session={session(multi)} />);
+    render(<VerdictPanel sessionId={SID} session={session(multi)} />);
 
     const sendButton = screen.getByRole("button", { name: "Send the chosen options" }) as HTMLButtonElement;
     expect(sendButton.disabled).toBe(true);
@@ -195,7 +207,7 @@ describe("the verdict panel", () => {
       menu: { question: "Send the reply already typed: run the tests first", selectionMode: "single", submit: "\r" },
       options: [],
     });
-    render(<VerdictPanel session={session(parked)} />);
+    render(<VerdictPanel sessionId={SID} session={session(parked)} />);
 
     expect(screen.getByText("Send the reply already typed: run the tests first")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Confirm" })).toBeNull();
@@ -208,7 +220,7 @@ describe("the verdict panel", () => {
   it("shows the route's refusal sentence exactly as the route wrote it", async () => {
     const reason = "The screen has changed since the Wingman read it, so nothing was sent. Look at the session again.";
     fakeGateway(409, { accepted: false, code: "answer-screen-changed", reason, verdictId: "tv-panel-1" });
-    render(<VerdictPanel session={session(verdict())} />);
+    render(<VerdictPanel sessionId={SID} session={session(verdict())} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Yes, apply it" }));
 
@@ -218,11 +230,11 @@ describe("the verdict panel", () => {
   });
 
   it("shows the this-is-wrong action, unpressable until slice G wires it", () => {
-    const { rerender } = render(<VerdictPanel session={session(verdict())} />);
+    const { rerender } = render(<VerdictPanel sessionId={SID} session={session(verdict())} />);
     expect((screen.getByRole("button", { name: "This is wrong" }) as HTMLButtonElement).disabled).toBe(true);
 
     const reported: string[] = [];
-    rerender(<VerdictPanel session={session(verdict())} onReportWrong={(v) => reported.push(v.verdictId)} />);
+    rerender(<VerdictPanel sessionId={SID} session={session(verdict())} onReportWrong={(v) => reported.push(v.verdictId)} />);
     fireEvent.click(screen.getByRole("button", { name: "This is wrong" }));
     expect(reported).toEqual(["tv-panel-1"]);
   });

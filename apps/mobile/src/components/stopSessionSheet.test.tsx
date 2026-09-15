@@ -38,6 +38,7 @@ function manage(over: Partial<SessionManage> = {}): SessionManage {
     deferred: false,
     snoozed: false,
     holdCountdown: null,
+    sessionProblem: null,
     deliveryNotice: null,
     busy: false,
     error: null,

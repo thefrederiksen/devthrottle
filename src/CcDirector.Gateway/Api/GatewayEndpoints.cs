@@ -3036,94 +3036,11 @@ internal static class GatewayEndpoints
         // session's existence inside it, the shadow rule, the body, and the attribution markers for the send.
         //
         // Existence is decided exactly as the read routes decide it, so a session of another account answers the
-        // same 404 an unknown session answers. Every exit after the tenant resolves leaves one ledger line.
-        app.MapPost("/sessions/{sid}/turn-verdict/answer", async (HttpContext ctx, string sid) =>
-        {
-            var tenant = ResolveReadTenant(ctx, tenantBoundary);
-            if (tenant is null)
-                return Results.Json(new { error = "no tenant is bound to this request" },
-                    statusCode: StatusCodes.Status403Forbidden);
-            if (!Guid.TryParse(sid, out _))
-                return Results.Json(new { error = "invalid session id format" },
-                    statusCode: StatusCodes.Status400BadRequest);
-            if (turnVerdictAnswers is null || tenantSettings is null)
-                return Results.Json(new { error = "turn verdicts are not available on this gateway" },
-                    statusCode: StatusCodes.Status404NotFound);
-
-            IResult Answer(Wingman.TurnVerdictAnswerOutcome outcome, string verdictId)
-                => Results.Json(new TurnVerdictAnswerResponse
-                {
-                    Accepted = outcome.Accepted,
-                    Code = outcome.Code,
-                    Reason = outcome.Reason,
-                    VerdictId = verdictId,
-                }, statusCode: outcome.StatusCode);
-
-            var (director, session) = await LocateSessionForRequestAsync(ctx, tenantBoundary, registry, sid, pushedSessions, streamStaleResolved, owners);
-            if (session is null || director is null)
-            {
-                turnVerdictAnswers.RefuseBeforeLookup(tenant.Value, "gateway", sid, "", StatusCodes.Status404NotFound,
-                    ActivityCauses.AnswerSessionNotFound, "");
-                return SessionUnavailable(ctx, tenantBoundary, pushedSessions, sid);
-            }
-
-            TurnVerdictAnswerRequest? req;
-            try
-            {
-                req = await ctx.Request.ReadFromJsonAsync<TurnVerdictAnswerRequest>(CancellationToken.None);
-            }
-            catch (Exception ex) when (ex is JsonException or InvalidOperationException)
-            {
-                FileLog.Write($"[GatewayEndpoints] POST turn-verdict/answer: sid={sid} unreadable body: {ex.Message}");
-                return Answer(turnVerdictAnswers.RefuseBeforeLookup(tenant.Value, director.DirectorId, sid, "",
-                    StatusCodes.Status400BadRequest, ActivityCauses.AnswerMalformed,
-                    "The answer could not be read, so nothing was sent."), "");
-            }
-            var verdictId = req?.VerdictId?.Trim() ?? "";
-
-            // THE SHADOW RULE, the read routes' rule applied to the write: while the account's colours are off its
-            // verdicts are a shadow record, and a session key - the product's own automation - may not act on one.
-            var callingSession = AuthMiddleware.CallingSession(ctx);
-            if (!tenantSettings.TurnVerdict(tenant.Value).ColourEnabled && callingSession is not null)
-                return Answer(turnVerdictAnswers.RefuseBeforeLookup(tenant.Value, director.DirectorId, sid, verdictId,
-                    StatusCodes.Status403Forbidden, ActivityCauses.AnswerShadowRecord,
-                    "This account's turn verdicts are a shadow record, and a session key may not answer one until "
-                    + "the account turns the verdict colours on, so nothing was sent."), verdictId);
-
-            // The attribution markers, decided from the AUTHENTICATED credential exactly as the prompt route decides
-            // them: a session key is one agent driving another; anything else is the person. Never from the body.
-            var surface = (ctx.Items.TryGetValue(AuthMiddleware.DeviceTypeItemKey, out var dt) ? dt as string : null) ?? "unknown";
-            var identityKind = AuthMiddleware.IdentityKind(ctx);
-            var channel = new TunnelTurnVerdictAnswerChannel(new SessionVerbClient(director, sendCommand), sid, tenant.Value,
-                wingmanTranslator, (text, appendEnter) => new PromptRequest
-                {
-                    Text = text,
-                    AppendEnter = appendEnter,
-                    WaitForIdle = false,
-                    Surface = surface,
-                    AgentDriven = callingSession is not null,
-                    Provenance = new SubmissionProvenanceDto
-                    {
-                        Route = callingSession is not null ? Core.Sessions.SubmissionRoutes.FleetMessage : Core.Sessions.SubmissionRoutes.GatewayPrompt,
-                        IdentityKind = identityKind,
-                        TranscriptId = null,
-                        SpokenSpans = new List<SpokenSpanDto>(),
-                    },
-                });
-
-            try
-            {
-                // CancellationToken.None on purpose: a caller that disconnects after the bytes left must not skip
-                // the ledger line that says they left.
-                var outcome = await turnVerdictAnswers.AnswerAsync(tenant.Value, director.DirectorId, sid, req, channel, CancellationToken.None);
-                return Answer(outcome, verdictId);
-            }
-            catch (Exception ex)
-            {
-                FileLog.Write($"[GatewayEndpoints] POST turn-verdict/answer FAILED: sid={sid} verdict={verdictId}: {ex.Message}");
-                return Answer(turnVerdictAnswers.RecordUnconfirmed(tenant.Value, director.DirectorId, sid, verdictId, ex.Message), verdictId);
-            }
-        });
+        // same 404 an unknown session answers. Every exit after the tenant resolves leaves one ledger line - see
+        // AnswerTurnVerdictAsync, which holds the handler so each of those exits is testable without a booted host.
+        app.MapPost("/sessions/{sid}/turn-verdict/answer", (HttpContext ctx, string sid)
+            => AnswerTurnVerdictAsync(ctx, sid, tenantBoundary, turnVerdictAnswers, tenantSettings, registry,
+                pushedSessions, streamStaleResolved, owners, sendCommand, wingmanTranslator));
 
         // Deliver a prompt down the tunnel and, when asked, wait for the session to go idle and return what
         // it printed. Extracted from POST /sessions/{sid}/prompt by the Remove-the-network-port mission's
@@ -5538,6 +5455,142 @@ internal static class GatewayEndpoints
     /// Both bodies carry <c>error</c>, <c>code</c> and <c>retryable</c>, which is the shape the browser
     /// client reads to build the sentence it shows and to decide whether to retry once on its own.
     /// </summary>
+    /// <summary>
+    /// <c>POST /sessions/{sid}/turn-verdict/answer</c>, the handler (the Wingman-on-every-turn mission, slice E). Held
+    /// here rather than inline so every exit can be driven by a unit test with no booted host.
+    ///
+    /// EVERY EXIT AFTER THE ACCOUNT RESOLVES WRITES ONE LEDGER LINE, and that is true by construction: the invalid
+    /// session id and the missing settings store record their cause word, and everything from the session lookup on
+    /// runs inside one recorder, so a throw anywhere in it is recorded too - as a refusal while nothing can have been
+    /// sent, and as unconfirmed once the answer service has been asked. The one exit before the account is a Gateway
+    /// built without the answer service: it has no turn verdicts and no ledger writer for them, nothing about the
+    /// request can change that, and there is nothing to record it through.
+    /// </summary>
+    internal static async Task<IResult> AnswerTurnVerdictAsync(
+        HttpContext ctx,
+        string sid,
+        Tenancy.HostedTenantBoundary tenantBoundary,
+        Wingman.TurnVerdictAnswerService? turnVerdictAnswers,
+        Settings.TenantSettingsResolver? tenantSettings,
+        DirectorRegistry registry,
+        Streaming.PushedSessionStore? pushedSessions,
+        TimeSpan streamStale,
+        SessionOwnerCache? owners,
+        DirectorCommandRouter.SendDirectorCommandAsync? sendCommand,
+        Wingman.WingmanTranslator? wingmanTranslator)
+    {
+        FileLog.Write($"[GatewayEndpoints] POST turn-verdict/answer: sid={sid}");
+        if (turnVerdictAnswers is null)
+            return Results.Json(new { error = "turn verdicts are not available on this gateway" },
+                statusCode: StatusCodes.Status404NotFound);
+
+        var tenant = ResolveReadTenant(ctx, tenantBoundary);
+        if (tenant is null)
+            return Results.Json(new { error = "no tenant is bound to this request" },
+                statusCode: StatusCodes.Status403Forbidden);
+
+        // ---- from here on, every exit writes one ledger line ----
+        if (!Guid.TryParse(sid, out _))
+        {
+            turnVerdictAnswers.RefuseBeforeLookup(tenant.Value, "gateway", sid, "", StatusCodes.Status400BadRequest,
+                ActivityCauses.AnswerInvalidSessionId, "");
+            return Results.Json(new { error = "invalid session id format" },
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+        if (tenantSettings is null)
+        {
+            turnVerdictAnswers.RefuseBeforeLookup(tenant.Value, "gateway", sid, "", StatusCodes.Status404NotFound,
+                ActivityCauses.AnswerUnavailable, "");
+            return Results.Json(new { error = "turn verdicts are not available on this gateway" },
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        IResult Answer(Wingman.TurnVerdictAnswerOutcome outcome, string answeredVerdictId)
+            => Results.Json(new TurnVerdictAnswerResponse
+            {
+                Accepted = outcome.Accepted,
+                Code = outcome.Code,
+                Reason = outcome.Reason,
+                VerdictId = answeredVerdictId,
+            }, statusCode: outcome.StatusCode);
+
+        var directorId = "gateway";
+        var verdictId = "";
+        var serviceAsked = false;
+        try
+        {
+            var (director, session) = await LocateSessionForRequestAsync(ctx, tenantBoundary, registry, sid, pushedSessions, streamStale, owners);
+            if (session is null || director is null)
+            {
+                turnVerdictAnswers.RefuseBeforeLookup(tenant.Value, "gateway", sid, "", StatusCodes.Status404NotFound,
+                    ActivityCauses.AnswerSessionNotFound, "");
+                return SessionUnavailable(ctx, tenantBoundary, pushedSessions, sid);
+            }
+            directorId = director.DirectorId;
+
+            TurnVerdictAnswerRequest? req;
+            try
+            {
+                req = await ctx.Request.ReadFromJsonAsync<TurnVerdictAnswerRequest>(CancellationToken.None);
+            }
+            catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+            {
+                FileLog.Write($"[GatewayEndpoints] POST turn-verdict/answer: sid={sid} unreadable body: {ex.Message}");
+                return Answer(turnVerdictAnswers.RefuseBeforeLookup(tenant.Value, directorId, sid, "",
+                    StatusCodes.Status400BadRequest, ActivityCauses.AnswerMalformed,
+                    "The answer could not be read, so nothing was sent."), "");
+            }
+            verdictId = req?.VerdictId?.Trim() ?? "";
+
+            // THE SHADOW RULE, the read routes' rule applied to the write: while the account's colours are off its
+            // verdicts are a shadow record, and a session key - the product's own automation - may not act on one.
+            var callingSession = AuthMiddleware.CallingSession(ctx);
+            if (!tenantSettings.TurnVerdict(tenant.Value).ColourEnabled && callingSession is not null)
+                return Answer(turnVerdictAnswers.RefuseBeforeLookup(tenant.Value, directorId, sid, verdictId,
+                    StatusCodes.Status403Forbidden, ActivityCauses.AnswerShadowRecord,
+                    "This account's turn verdicts are a shadow record, and a session key may not answer one until "
+                    + "the account turns the verdict colours on, so nothing was sent."), verdictId);
+
+            // The attribution markers, decided from the AUTHENTICATED credential exactly as the prompt route decides
+            // them: a session key is one agent driving another; anything else is the person. Never from the body.
+            var surface = (ctx.Items.TryGetValue(AuthMiddleware.DeviceTypeItemKey, out var dt) ? dt as string : null) ?? "unknown";
+            var identityKind = AuthMiddleware.IdentityKind(ctx);
+            var channel = new TunnelTurnVerdictAnswerChannel(new SessionVerbClient(director, sendCommand), sid, tenant.Value,
+                wingmanTranslator, (text, appendEnter) => new PromptRequest
+                {
+                    Text = text,
+                    AppendEnter = appendEnter,
+                    WaitForIdle = false,
+                    Surface = surface,
+                    AgentDriven = callingSession is not null,
+                    Provenance = new SubmissionProvenanceDto
+                    {
+                        Route = callingSession is not null ? Core.Sessions.SubmissionRoutes.FleetMessage : Core.Sessions.SubmissionRoutes.GatewayPrompt,
+                        IdentityKind = identityKind,
+                        TranscriptId = null,
+                        SpokenSpans = new List<SpokenSpanDto>(),
+                    },
+                });
+
+            // CancellationToken.None on purpose: a caller that disconnects after the bytes left must not skip the
+            // ledger line that says they left.
+            serviceAsked = true;
+            var outcome = await turnVerdictAnswers.AnswerAsync(tenant.Value, directorId, sid, req, channel, CancellationToken.None);
+            return Answer(outcome, verdictId);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayEndpoints] POST turn-verdict/answer FAILED: sid={sid} verdict={verdictId} serviceAsked={serviceAsked}: {ex.GetType().FullName}: {ex.Message}");
+            // Before the service is asked nothing can have been written, so it is a refusal; after, whether anything
+            // reached the session is not known, so it is never recorded as a refusal.
+            if (!serviceAsked)
+                return Answer(turnVerdictAnswers.RefuseBeforeLookup(tenant.Value, directorId, sid, verdictId,
+                    StatusCodes.Status500InternalServerError, ActivityCauses.Unknown,
+                    $"The answer failed before anything was sent, so nothing was sent: {ex.Message}"), verdictId);
+            return Answer(turnVerdictAnswers.RecordUnconfirmed(tenant.Value, directorId, sid, verdictId, ex.Message), verdictId);
+        }
+    }
+
     private static IResult SessionUnavailable(
         HttpContext ctx,
         Tenancy.HostedTenantBoundary? tenantBoundary,

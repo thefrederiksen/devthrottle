@@ -302,8 +302,30 @@ public sealed class TurnVerdictService : IDisposable
         }
 
         FileLog.Write($"[TurnVerdictService] OnTurnEnd: sid={signal.SessionId} tenant={signal.Tenant.ToLogString()} newTurn={signal.IsNewTurn}");
+
+        // NO RED FRAME BEFORE THE WINGMAN READS (owner ruling, 2026-09-15). The free checks run HERE, synchronously, on
+        // the caller's thread, so a stop that WILL be judged is stamped "reading" before this returns: before the settle
+        // wait, before the screen read, and before the fold the caller runs next pushes the stop. A stop that will not
+        // be judged - held, not live, brand-new, exited, working, the judge switch off, the account's ceiling reached -
+        // is not stamped and shows the detector's red, as before. The flight clears the stamp on every exit.
+        TurnVerdictSessionState? firstState = null;
+        try
+        {
+            firstState = _env.ReadSessionState(signal.Tenant, signal.SessionId);
+            if (WillJudgeTurnEnd(signal.Tenant, signal.SessionId, firstState))
+                _reading[key] = 1;
+        }
+        catch (Exception ex)
+        {
+            // Not swallowed into a verdict: the flight reads the roster again inside its own boundary, where a fault
+            // becomes a stored failed record and a ledger event, exactly as it did before this check moved here.
+            firstState = null;
+            FileLog.Write($"[TurnVerdictService] OnTurnEnd: the free checks FAILED on the caller's thread, sid={signal.SessionId}: {ex.GetType().FullName}: {ex.Message}");
+        }
+
+        var state = firstState;
         return Task.Run(() => RunFlightAsync(key, flight, signal.DirectorId, signal.ObservedAtUtc,
-            TurnVerdictTrigger.TurnEnd, screenReader: null, providerHold: null, mayAskJudge: true));
+            TurnVerdictTrigger.TurnEnd, screenReader: null, providerHold: null, mayAskJudge: true, firstState: state));
     }
 
     /// <summary>
@@ -360,7 +382,7 @@ public sealed class TurnVerdictService : IDisposable
             }
 
             var observedAt = _lastObserved.TryGetValue(key, out var seen) ? seen : _env.NowUtc();
-            return await RunFlightAsync(key, flight, directorId, observedAt, trigger, screenReader, providerHold, mayAskJudge).ConfigureAwait(false);
+            return await RunFlightAsync(key, flight, directorId, observedAt, trigger, screenReader, providerHold, mayAskJudge, firstState: null).ConfigureAwait(false);
         }
 
         throw new InvalidOperationException(
@@ -409,7 +431,8 @@ public sealed class TurnVerdictService : IDisposable
         TurnVerdictTrigger trigger,
         Func<CancellationToken, Task<ScreenGridResponse?>>? screenReader,
         Func<string, string?, TimeSpan?>? providerHold,
-        bool mayAskJudge)
+        bool mayAskJudge,
+        TurnVerdictSessionState? firstState)
     {
         // THE EPOCH THIS FLIGHT STANDS ON, captured before anything is read - before the roster, the screen and
         // the stored verdict. Every store this flight makes, on any arm, lands only while it is still current.
@@ -417,7 +440,7 @@ public sealed class TurnVerdictService : IDisposable
         TurnVerdictOutcome outcome;
         try
         {
-            outcome = await JudgeAsync(key, flight.Cts.Token, epoch, directorId, observedAt, trigger, screenReader, providerHold, mayAskJudge).ConfigureAwait(false);
+            outcome = await JudgeAsync(key, flight.Cts.Token, epoch, directorId, observedAt, trigger, screenReader, providerHold, mayAskJudge, firstState).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (flight.Cts.IsCancellationRequested)
         {
@@ -433,6 +456,10 @@ public sealed class TurnVerdictService : IDisposable
         }
         finally
         {
+            // EVERY EXIT CLEARS READING - a skip after the settle wait, a reuse, a cancel, a failure - and it is cleared
+            // BEFORE the gate is released, so it can never clear the stamp of the next flight, which is set only after
+            // that flight takes the gate.
+            _reading.TryRemove(key, out _);
             _inFlight.TryRemove(new KeyValuePair<(TenantId, string), Flight>(key, flight));
         }
 
@@ -504,7 +531,8 @@ public sealed class TurnVerdictService : IDisposable
         TurnVerdictTrigger trigger,
         Func<CancellationToken, Task<ScreenGridResponse?>>? screenReader,
         Func<string, string?, TimeSpan?>? providerHold,
-        bool mayAskJudge)
+        bool mayAskJudge,
+        TurnVerdictSessionState? firstState)
     {
         var (tenant, sid) = key;
         var settings = _env.Settings(tenant);
@@ -514,7 +542,9 @@ public sealed class TurnVerdictService : IDisposable
         // ONE SNAPSHOT for the role and the facts, so the two cannot describe different moments. HELD FIRST: a
         // session a live owning session holds is not the owner's to be read, so its screen is never read and no
         // model is asked about it.
-        var state = _env.ReadSessionState(tenant, sid);
+        // A turn end hands in the snapshot its synchronous check already took, so the roster is read once for that
+        // check and not twice.
+        var state = firstState ?? _env.ReadSessionState(tenant, sid);
         if (SessionStateSkipCause(state, automatic) is { } cause)
             return Skip(tenant, directorId, sid, trigger, cause);
         var facts = state.Facts;
@@ -931,6 +961,21 @@ public sealed class TurnVerdictService : IDisposable
         if (automatic && IsExited(state.Facts)) return ActivityCauses.SessionExit;
         if (automatic && IsWorking(state.Facts)) return ActivityCauses.WorkingObservation;
         return null;
+    }
+
+    /// <summary>
+    /// Whether a turn end with this roster snapshot will be judged, decided from the same free checks the flight makes,
+    /// without reading or paying for anything. Only this answer stamps "reading" at the boundary. The flight still makes
+    /// every check itself, so a stop this answers yes for and the flight then skips shows reading only until the flight
+    /// exits.
+    /// </summary>
+    private bool WillJudgeTurnEnd(TenantId tenant, string sid, TurnVerdictSessionState state)
+    {
+        if (SessionStateSkipCause(state, automatic: true) is not null) return false;
+        var settings = _env.Settings(tenant);
+        if (!settings.JudgeEnabled && !_env.IsVoiceSession(tenant, sid)) return false;
+        var load = _tenantLoad.TryGetValue(tenant, out var box) ? Volatile.Read(ref box.Value) : 0;
+        return load < settings.MaxInFlight;
     }
 
     private static bool IsExited(SessionDto s)

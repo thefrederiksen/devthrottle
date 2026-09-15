@@ -24,12 +24,15 @@ import "./verdictPanel.css";
 // with no stamp reads the same loud words the phone's roster card shows for it.
 
 export interface VerdictPanelProps {
+  /** The session the SCREEN is showing - the route's id. The answer is posted to it, and a row for any other session
+   *  renders nothing, so a remembered row can never answer from another session's screen. */
+  sessionId: string;
   session: SessionDto;
   /** The "this is wrong" action. Slice G wires it; until then the action is shown and cannot be pressed. */
   onReportWrong?: (verdict: TurnVerdict) => void;
 }
 
-export function VerdictPanel({ session, onReportWrong }: VerdictPanelProps) {
+export function VerdictPanel({ sessionId, session, onReportWrong }: VerdictPanelProps) {
   const row = session as TurnVerdictRow;
   const verdict = row.verdictState === "judged" ? row.turnVerdict ?? null : null;
   const verdictId = verdict?.verdictId ?? "";
@@ -45,9 +48,9 @@ export function VerdictPanel({ session, onReportWrong }: VerdictPanelProps) {
     setPicked([]);
     setRefusal(null);
     setSent(null);
-  }, [row.sessionId, verdictId]);
+  }, [sessionId, verdictId]);
 
-  if (verdict === null) return null;
+  if (verdict === null || row.sessionId !== sessionId) return null;
 
   const menu = verdict.menu ?? null;
   const options = verdict.options ?? [];
@@ -55,12 +58,12 @@ export function VerdictPanel({ session, onReportWrong }: VerdictPanelProps) {
   const parkedReply = verdict.answerVia === "keys" && menu !== null && options.length === 0;
 
   const send = async (indexes: readonly number[]) => {
-    if (busy || !row.sessionId) return;
+    if (busy || !sessionId) return;
     setBusy(true);
     setRefusal(null);
     setSent(null);
     try {
-      const result = await answerTurnVerdict(row.sessionId, verdict.verdictId, indexes);
+      const result = await answerTurnVerdict(sessionId, verdict.verdictId, indexes);
       setSent(result.reason);
       setPicked([]);
     } catch (err) {
