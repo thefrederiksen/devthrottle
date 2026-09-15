@@ -678,3 +678,144 @@ assumed.
 Still uncovered, unchanged from round one: live terminal bytes, the labelled corpus, a real
 two-process rollover - which the reasoning above argues is unreachable rather than merely untested -
 and the parked Gateway suite.
+
+---
+
+# The full Core suite failure: the cause, how it was established, and what changed
+
+Written by the Manager seated on `fix-task-suite-failure.md`. The suite failure that blocked the
+merge was NOT the product defect the brief feared. It was two sides of one file fighting each other
+over a Windows file handle, and the product half of it is real but separate.
+
+## The question the mandate said to settle first
+
+*Was the session settled or already active when the test wrote its burst?* Neither answer was
+right, and the run said so in words rather than leaving it to be inferred.
+
+The existing diagnostic stopped at "NO check is armed for this session". Three entirely different
+things read identically from there: a burst that reached an already-ACTIVE session and correctly
+armed nothing, a burst that reached a SETTLED session and armed nothing anyway, and a check that
+WAS armed, ran, and faulted past its retry bound - which opens the turn and writes no row. So the
+first change was to make the failure say which. Every terminal branch of the byte path now names
+itself, and the detector carries the consecutive fault count and the last fault message.
+
+The very next full run failed, and the message answered it outright:
+
+> ...NO check is armed for this session, so no row will ever be written for this burst; **the last
+> burst on this session was SETTLED, rule on; check armed**; the active latch reads clear now; **no
+> content check has faulted for this session**
+
+The session was SETTLED. A check WAS armed. Nothing faulted. So the byte path, the arming and the
+check all behaved exactly as designed - and the row still did not reach the file. The failure is
+downstream of everything the earlier rounds were chasing.
+
+## The cause, observed in both directions in one run
+
+That same run carried a SECOND failure, in a different test of the same class, and it named the
+mechanism directly:
+
+> `System.IO.IOException : The process cannot access the file
+> '...\turn-detection-shadow\798bdb03...jsonl' because it is being used by another process.`
+> at `File.ReadAllLines` in `ContentTurnRuleTests.ShadowRows`
+
+Two failures, one cause, one in each direction:
+
+- The test's wait helper polls the shadow file every twenty-five milliseconds for up to fifteen
+  seconds, through `File.ReadAllLines`, which opens the file permitting other READERS and denying
+  WRITERS.
+- `TurnDetectionShadowLog.Append` wrote through `File.AppendAllText`, which opens permitting
+  READERS and denying WRITERS.
+
+Each therefore denies the other. Whichever wins the race, the loser fails:
+
+- **Reader loses:** the sharing violation is thrown out of the poll. Loud, and it names itself.
+- **Writer loses:** the append throws inside the log, where failures are logged and swallowed. The
+  row is gone for good, because `OnContentCheckCore` takes the burst off the books BEFORE the check
+  runs, so there is no pending check left and no later byte to make one. From outside, that is
+  indistinguishable from a burst that armed nothing - which is exactly what it looked like.
+
+The sharing semantics were confirmed directly rather than reasoned about, both directions, with the
+exact message from the run:
+
+- A reader holding the file the way `File.ReadAllLines` does, then `File.AppendAllText`:
+  `APPEND THREW: ...because it is being used by another process.`
+- A writer holding it the way `File.AppendAllText` does, then `File.ReadAllLines`:
+  `READ THREW: ...because it is being used by another process.`
+
+And it answers why only a FULL suite on a busy machine ever saw it. The append takes well under a
+millisecond and the poll runs every twenty-five, so the overlap window is tiny; it needs the
+scheduler to preempt one side while it holds the handle. A focused run of twenty-four tests never
+produced it. Nothing about the rebase onto `origin/main` caused this - the collision has been there
+since the shadow log was written, and the rebase only changed the machine's load.
+
+## What changed
+
+**The test's reader, which is what actually fixes the suite.**
+`ContentTurnRuleTests.ShadowRows` no longer uses `File.ReadAllLines`. It opens with
+`FileShare.ReadWrite | FileShare.Delete`, which permits the writer, and that alone resolves BOTH
+directions: a permissive reader is allowed in while the log writes, and it no longer denies the log.
+Sharing the file with a live writer means the last line can be half written, so the reader counts
+only newline-terminated lines - half a row is not a row. Counted as one it would satisfy a caller
+waiting for a new row and then fail to parse as JSON.
+
+**The product's writer, which fixes a different and real defect.** These files exist to be read -
+that is the entire reason the verdicts are local rather than on the hosted Gateway. Every ordinary
+way of reading one on Windows (Get-Content, File.ReadAllLines, a scoring script, a backup or
+antivirus scan) denies writers, so the act of looking at the measurement silently thins it, with
+nothing on screen to say so. `Append` now retries a sharing violation for a bounded five hundred
+milliseconds. It is bounded because it runs under the process-wide lock, and past the bound the row
+is still lost and still logged - a test pins that residual rather than leaving it implied.
+
+**A correction made during the work, because it matters more than the fix.** The first attempt also
+widened what the append PERMITS, to `FileShare.ReadWrite | FileShare.Delete`, and a guard was
+written to pin it. That guard passed identically against the OLD `File.AppendAllText`, three runs in
+a row. Widening our own share mode buys nothing: a reader that opened denying writers denies this
+write whatever it asks for, and no share flag here can reach that. So the share mode was put back to
+byte-for-byte what `File.AppendAllText` did, and the guard was deleted rather than kept. A test that
+passes with and without the change it exists for is decoration.
+
+## Proved, by watching each fix fail with the reported symptom
+
+The detector's own diagnostic reads were committed first, so no revert could eat a fix.
+
+| Reverted | Test | What it printed |
+|---|---|---|
+| `ShadowRows` back to `File.ReadAllLines` | `The_row_reader_does_not_shut_the_writer_out` | `System.IO.IOException : The process cannot access the file ...because it is being used by another process.` - the reported symptom verbatim |
+| `ShadowRows` back to `File.ReadAllLines` | `A_half_written_row_is_not_counted_as_a_row` | `Assert.Single() Failure: The collection contained 2 items` - the second item being the half-written fragment |
+| `Append` back to `File.AppendAllText` | `A_reader_holding_the_file_does_not_cost_a_row` | `Assert.Equal() Failure: Values differ` - one row on disk where two were appended. Red on all three runs |
+
+Controls in every case: the other twenty-four tests in `ContentTurnRuleTests` and the other nineteen
+in `TurnDetectionShadowRetentionTests` stayed green, so each revert moved only its own test.
+
+`An_append_past_the_contention_budget_loses_the_row_and_says_so` is the fourth, and it asserts the
+LOSS: with the budget cut to sixty milliseconds and a reader that never lets go, the row does not
+arrive. It is green both before and after the fix by design - it pins the bound, not the fix.
+
+## The gate
+
+- `CcDirector.Core.Tests` in full, end to end, twice in a row, output redirected to a file and the
+  exit code read from `dotnet`, never through a pipe:
+  - run one, 06:49 to 06:57: `DOTNET_EXIT=0`, 4,475 passed, 8 skipped, 0 failed, 8 minutes 5 seconds
+  - run two, 06:57 to 07:06: `DOTNET_EXIT=0`, 4,475 passed, 8 skipped, 0 failed, 8 minutes 46 seconds
+- The reproduction that preceded them, on the same tree with the same command, failed in 8 minutes
+  45 seconds - so the green runs were taken under comparable load, not on a quiet machine.
+- `.\scripts\test-local.ps1`: `TEST_LOCAL_EXIT=0`, all eight projects reporting `outcome=Completed`.
+
+## What is NOT proved
+
+- **Two green full runs are not, by themselves, proof.** The failure was intermittent - it needed a
+  full run under load to appear at all - so two clean runs narrow it and do not settle it. What
+  settles it is the mechanism, confirmed in both directions outside the suite, and the three reverts
+  watched failing with the reported symptoms.
+- **`CcDirector.Gateway.Tests` and `CcDirector.Gateway.UnitTests` have no verdict on this change.**
+  The mandate excluded a full `-Parked` run because the Gateway lock is unwinnable on this machine
+  today (issue #2862). The coverage warning names them because anything under `CcDirector.Core` maps
+  to every downstream suite by project dependency; checked by source grep rather than assumed, no
+  source file in either suite references `TurnDetectionShadowLog` or `TerminalStateDetector` - the
+  only two hits are comments in `ControlApiHostTests.cs`. That gap is not new to this fix; the whole
+  branch carries it.
+- **The retry's five hundred milliseconds is a judgement, not a measurement.** Nobody has measured
+  how long a real foreign reader holds one of these files. It is bounded so that a handle nobody
+  releases cannot stall every other session's append behind it, and the bound's cost - a lost row -
+  is pinned by a test.
+- **Nothing here was exercised against live terminal bytes.** Unchanged from the earlier rounds.
