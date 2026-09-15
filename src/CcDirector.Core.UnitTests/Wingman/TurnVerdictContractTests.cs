@@ -142,8 +142,8 @@ public sealed class TurnVerdictContractTests
             menu: new { question = "Push the deploy guard to main?", selectionMode = "single", submit = "" },
             options: new object[]
             {
-                new { key = "Push it now", send = "1\r", recommended = false, note = "Puts the guard live; a bad guard blocks every deploy." },
-                new { key = "Leave it on the branch", send = "2\r", recommended = true, note = "Nothing changes; decide after the review." },
+                new { key = "Push it now", send = "1", recommended = false, note = "Puts the guard live; a bad guard blocks every deploy." },
+                new { key = "Leave it on the branch", send = "2", recommended = true, note = "Nothing changes; decide after the review." },
             });
 
         var result = TurnVerdictContract.ParseAndValidate(answer, MenuStop(), Model, ObservedAt);
@@ -153,7 +153,10 @@ public sealed class TurnVerdictContractTests
         Assert.NotNull(result.Menu);
         Assert.Equal("single", result.Menu!.SelectionMode);
         Assert.Equal(2, result.Options.Count);
-        Assert.Equal("1\r", result.Options[0].Send);
+        // The option carries ONLY the bytes that select it. The confirm is the menu's submit, sent once
+        // by the route after every selected option - never inside a send.
+        Assert.Equal("1", result.Options[0].Send);
+        Assert.Equal("", result.Menu!.Submit);
         Assert.Single(result.Options, o => o.Recommended);
         Assert.Equal("irreversible", result.Risk);
     }
@@ -207,8 +210,8 @@ public sealed class TurnVerdictContractTests
             menu: new { question = "Push the deploy guard to main?", selectionMode = "single", submit = "" },
             options: new object[]
             {
-                new { key = "Push it now", send = "1\r", recommended = false, note = "Puts the guard live." },
-                new { key = "Leave it", send = "2\r", recommended = true, note = "Nothing changes." },
+                new { key = "Push it now", send = "1", recommended = false, note = "Puts the guard live." },
+                new { key = "Leave it", send = "2", recommended = true, note = "Nothing changes." },
             });
 
         var result = TurnVerdictContract.ParseAndValidate(answer, MenuStop(), Model, ObservedAt);
@@ -332,7 +335,9 @@ public sealed class TurnVerdictContractTests
         var result = TurnVerdictContract.ParseAndValidate(answer, ReportStop(), Model, ObservedAt);
 
         Assert.True(result.Failed);
-        Assert.Contains("no risk word", result.FailureReason);
+        // Caught by the shape pass now: a member the shape declares is missing, which is a different
+        // fault from a risk word nobody recognises, and says so.
+        Assert.Contains("has no 'risk'", result.FailureReason);
     }
 
     // ================================================================= the answering shape
@@ -348,8 +353,8 @@ public sealed class TurnVerdictContractTests
             answerVia: "keys",
             options: new object[]
             {
-                new { key = "Push it now", send = "1\r", recommended = false, note = "Puts the guard live." },
-                new { key = "Leave it", send = "2\r", recommended = true, note = "Nothing changes." },
+                new { key = "Push it now", send = "1", recommended = false, note = "Puts the guard live." },
+                new { key = "Leave it", send = "2", recommended = true, note = "Nothing changes." },
             });
 
         var result = TurnVerdictContract.ParseAndValidate(answer, MenuStop(), Model, ObservedAt);
@@ -396,7 +401,7 @@ public sealed class TurnVerdictContractTests
         var result = TurnVerdictContract.ParseAndValidate(answer, MenuStop(), Model, ObservedAt);
 
         Assert.True(result.Failed);
-        Assert.Contains("nothing to send", result.FailureReason);
+        Assert.Contains("'send' is empty", result.FailureReason);
     }
 
     [Fact]
@@ -422,8 +427,10 @@ public sealed class TurnVerdictContractTests
     }
 
     [Fact]
-    public void ParseAndValidate_OptionsWithNoAnswerVia_Rejected()
+    public void ParseAndValidate_MissingAnswerVia_Rejected()
     {
+        // It used to be written in as "reply" whenever no options were offered. It decides how bytes
+        // reach a live session, so the contract choosing it is the contract deciding what gets typed.
         var answer = Answer(
             verdict: TurnVerdictVocabulary.NeededYou,
             evidence: "Push the deploy guard to main?",
@@ -439,7 +446,7 @@ public sealed class TurnVerdictContractTests
         var result = TurnVerdictContract.ParseAndValidate(answer, MenuStop(), Model, ObservedAt);
 
         Assert.True(result.Failed);
-        Assert.Contains("no answerVia", result.FailureReason);
+        Assert.Contains("has no 'answerVia'", result.FailureReason);
     }
 
     [Fact]
@@ -459,30 +466,34 @@ public sealed class TurnVerdictContractTests
     }
 
     [Fact]
-    public void ParseAndValidate_SendKeepsItsCarriageReturn_AndALoneOneIsARealSend()
+    public void ParseAndValidate_SendIsNeverTrimmedButNeverCarriesALineEnding()
     {
-        // The send is what gets typed into a live session. A picker is confirmed by the carriage return
-        // carried inside the send, and nothing appends one for a keys option - so trimming "1\r" to "1"
-        // would select the option and never confirm it. A send of nothing BUT a carriage return is how a
-        // picker's highlighted default is accepted, so it is a real send rather than an empty one.
+        // THIS TEST USED TO PIN THE OPPOSITE. Until the contract was amended, a keys option was supposed
+        // to carry its own confirm ("1\r") and a send of nothing but a carriage return was how a
+        // picker's highlighted default was accepted. Three parts of the product each said something
+        // different about that, and the consequence was a multiple-select nobody could answer: the route
+        // took one option, re-checked the screen hash, and refused the second toggle by its own lock.
+        // The one rule now is that a send carries only the bytes that CHOOSE, and the confirm is the
+        // menu's submit.
+        //
+        // What has not changed: a send is never trimmed. Leading and trailing spaces inside a real send
+        // are bytes that get typed, and tidying them is a change to what reaches the session.
         var answer = Answer(
             verdict: TurnVerdictVocabulary.NeededYou,
             evidence: "Push the deploy guard to main?",
             label: "Push the deploy guard to main?",
             risk: "irreversible",
-            answerVia: "keys",
-            menu: new { question = "Push the deploy guard to main?", selectionMode = "single", submit = "" },
+            answerVia: "reply",
             options: new object[]
             {
-                new { key = "Accept what is highlighted", send = "\r", recommended = false, note = "Takes the default." },
-                new { key = "Leave it on the branch", send = "2\r", recommended = true, note = "Nothing changes." },
+                new { key = "Push it now", send = " yes, push it ", recommended = false, note = "Puts the guard live." },
+                new { key = "Leave it on the branch", send = "no", recommended = true, note = "Nothing changes." },
             });
 
         var result = TurnVerdictContract.ParseAndValidate(answer, MenuStop(), Model, ObservedAt);
 
         Assert.False(result.Failed, result.FailureReason);
-        Assert.Equal("\r", result.Options[0].Send);
-        Assert.Equal("2\r", result.Options[1].Send);
+        Assert.Equal(" yes, push it ", result.Options[0].Send);
     }
 
     [Fact]
@@ -503,7 +514,7 @@ public sealed class TurnVerdictContractTests
         var result = TurnVerdictContract.ParseAndValidate(answer, MenuStop(), Model, ObservedAt);
 
         Assert.True(result.Failed);
-        Assert.Contains("nothing to send", result.FailureReason);
+        Assert.Contains("'send' is empty", result.FailureReason);
     }
 
     [Fact]
@@ -755,7 +766,7 @@ public sealed class TurnVerdictContractTests
         var result = TurnVerdictContract.ParseAndValidate(answer, ReportStop(), Model, ObservedAt);
 
         Assert.True(result.Failed);
-        Assert.Contains("no confidence word", result.FailureReason);
+        Assert.Contains("has no 'confidence'", result.FailureReason);
     }
 
     // ================================================================= calm can never come from a failure
@@ -936,6 +947,533 @@ public sealed class TurnVerdictContractTests
         Assert.False(result.Failed, result.FailureReason);
     }
 
+
+    // ============================================ the shape is proved before anything is read
+    //
+    // Each pair below is a member the contract used to REPAIR: it read a missing field, or a field of
+    // the wrong kind, as an absence, and stored a value the judge never wrote. The rejection test says
+    // the repair is gone; the control beside it says the field is still accepted when it is right, so
+    // the rule cannot drift into refusing everything.
+
+    [Fact]
+    public void ParseAndValidate_MissingSummary_Rejected()
+    {
+        var answer = Answer(
+            verdict: TurnVerdictVocabulary.Finished,
+            evidence: "Nothing is needed from you - I will stop here.",
+            label: "Retention sweep done",
+            risk: "none",
+            omit: new[] { "summary" });
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, ReportStop(), Model, ObservedAt);
+
+        Assert.True(result.Failed);
+        Assert.Contains("has no 'summary'", result.FailureReason);
+    }
+
+    [Fact]
+    public void ParseAndValidate_EmptySummary_Rejected()
+    {
+        // Present and empty is not the same fault as absent, and it gets its own sentence - but it is
+        // the same outcome for the reader, who is shown a row that reports nothing.
+        var answer = Answer(
+            verdict: TurnVerdictVocabulary.Finished,
+            evidence: "Nothing is needed from you - I will stop here.",
+            label: "Retention sweep done",
+            risk: "none",
+            summary: "");
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, ReportStop(), Model, ObservedAt);
+
+        Assert.True(result.Failed);
+        Assert.Contains("summary is empty", result.FailureReason);
+    }
+
+    [Fact]
+    public void ParseAndValidate_SummaryOfOneSentence_Accepted()
+    {
+        var answer = Answer(
+            verdict: TurnVerdictVocabulary.Finished,
+            evidence: "Nothing is needed from you - I will stop here.",
+            label: "Retention sweep done",
+            risk: "none",
+            summary: "The sweep deleted the rows past the window and the test covers it.");
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, ReportStop(), Model, ObservedAt);
+
+        Assert.False(result.Failed, result.FailureReason);
+        Assert.Equal("The sweep deleted the rows past the window and the test covers it.", result.Summary);
+    }
+
+    [Fact]
+    public void ParseAndValidate_VerdictOfTheWrongType_Rejected()
+    {
+        // A number where a word belongs used to read as the empty string and be refused as an unknown
+        // verdict. Same outcome, different reason - and the reason is what a reader of the stored
+        // record has to act on.
+        var result = TurnVerdictContract.ParseAndValidate(
+            RawAnswer(@"{""verdict"": 7, ""confidence"": ""high"", ""evidence"": ""x"", ""label"": ""x"","
+                + @" ""summary"": ""x"", ""answerVia"": ""reply"", ""risk"": ""none"", ""spoken"": ""x""}"),
+            ReportStop(), Model, ObservedAt);
+
+        Assert.True(result.Failed);
+        Assert.Contains("'verdict' is Number where the shape declares a string", result.FailureReason);
+    }
+
+    [Fact]
+    public void ParseAndValidate_MenuOfTheWrongType_Rejected()
+    {
+        // An ARRAY where the menu belongs was discarded as no menu, so a keys answer became a reply
+        // answer and the owner was offered a typing box for a picker he cannot type into.
+        var answer = Answer(
+            verdict: TurnVerdictVocabulary.NeededYou,
+            evidence: "Push the deploy guard to main?",
+            label: "Push the deploy guard to main?",
+            risk: "irreversible",
+            answerVia: "keys",
+            menu: new object[] { "single" },
+            options: new object[]
+            {
+                new { key = "Push it now", send = "1", recommended = false, note = "Puts the guard live." },
+                new { key = "Leave it", send = "2", recommended = true, note = "Nothing changes." },
+            });
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, MenuStop(), Model, ObservedAt);
+
+        Assert.True(result.Failed);
+        Assert.Contains("'menu' is Array", result.FailureReason);
+    }
+
+    [Fact]
+    public void ParseAndValidate_MenuExplicitlyNull_IsNoPickerAndAccepted()
+    {
+        // The control: menu is the one member the shape declares nullable, so null is a real answer.
+        var answer = Answer(
+            verdict: TurnVerdictVocabulary.Finished,
+            evidence: "Nothing is needed from you - I will stop here.",
+            label: "Retention sweep done",
+            risk: "none",
+            menu: null);
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, ReportStop(), Model, ObservedAt);
+
+        Assert.False(result.Failed, result.FailureReason);
+        Assert.Null(result.Menu);
+    }
+
+    [Fact]
+    public void ParseAndValidate_AgentRecommendsOfTheWrongType_Rejected()
+    {
+        var answer = Answer(
+            verdict: TurnVerdictVocabulary.Finished,
+            evidence: "Nothing is needed from you - I will stop here.",
+            label: "Retention sweep done",
+            risk: "none",
+            agentRecommendsRaw: new { text = "push it" });
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, ReportStop(), Model, ObservedAt);
+
+        Assert.True(result.Failed);
+        Assert.Contains("'agentRecommends' is Object", result.FailureReason);
+    }
+
+    [Fact]
+    public void ParseAndValidate_AgentRecommendsNullOrAString_BothAccepted()
+    {
+        var withNull = TurnVerdictContract.ParseAndValidate(
+            Answer(
+                verdict: TurnVerdictVocabulary.Finished,
+                evidence: "Nothing is needed from you - I will stop here.",
+                label: "Retention sweep done",
+                risk: "none",
+                agentRecommends: null),
+            ReportStop(), Model, ObservedAt);
+
+        var withText = TurnVerdictContract.ParseAndValidate(
+            Answer(
+                verdict: TurnVerdictVocabulary.Finished,
+                evidence: "Nothing is needed from you - I will stop here.",
+                label: "Retention sweep done",
+                risk: "none",
+                agentRecommends: "I would leave the guard on the branch."),
+            ReportStop(), Model, ObservedAt);
+
+        Assert.False(withNull.Failed, withNull.FailureReason);
+        Assert.Null(withNull.AgentRecommends);
+        Assert.False(withText.Failed, withText.FailureReason);
+        Assert.Equal("I would leave the guard on the branch.", withText.AgentRecommends);
+    }
+
+    [Fact]
+    public void ParseAndValidate_RecommendedAsAString_Rejected()
+    {
+        // "true" is not true. It used to be read as false, which stores the OPPOSITE of what the judge
+        // wrote: the option it meant to recommend arrives recommending nothing.
+        var answer = Answer(
+            verdict: TurnVerdictVocabulary.NeededYou,
+            evidence: "Push the deploy guard to main?",
+            label: "Push the deploy guard to main?",
+            risk: "irreversible",
+            answerVia: "reply",
+            options: new object[]
+            {
+                new { key = "Push it now", send = "yes", recommended = "true", note = "Puts the guard live." },
+                new { key = "Leave it", send = "no", recommended = false, note = "Nothing changes." },
+            });
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, MenuStop(), Model, ObservedAt);
+
+        Assert.True(result.Failed);
+        Assert.Contains("'recommended' is String", result.FailureReason);
+    }
+
+    [Fact]
+    public void ParseAndValidate_RecommendedFalseOnEveryOption_Accepted()
+    {
+        // The control, and the one a "reject unless exactly one is recommended" slip would break: the
+        // judge is allowed to recommend nothing.
+        var answer = Answer(
+            verdict: TurnVerdictVocabulary.NeededYou,
+            evidence: "Push the deploy guard to main?",
+            label: "Push the deploy guard to main?",
+            risk: "irreversible",
+            answerVia: "reply",
+            options: new object[]
+            {
+                new { key = "Push it now", send = "yes", recommended = false, note = "Puts the guard live." },
+                new { key = "Leave it", send = "no", recommended = false, note = "Nothing changes." },
+            });
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, MenuStop(), Model, ObservedAt);
+
+        Assert.False(result.Failed, result.FailureReason);
+        Assert.DoesNotContain(result.Options, o => o.Recommended);
+    }
+
+    [Fact]
+    public void ParseAndValidate_OptionMissingItsKey_Rejected()
+    {
+        var answer = Answer(
+            verdict: TurnVerdictVocabulary.NeededYou,
+            evidence: "Push the deploy guard to main?",
+            label: "Push the deploy guard to main?",
+            risk: "irreversible",
+            answerVia: "reply",
+            options: new object[]
+            {
+                new { send = "yes", recommended = false, note = "Puts the guard live." },
+                new { key = "Leave it", send = "no", recommended = false, note = "Nothing changes." },
+            });
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, MenuStop(), Model, ObservedAt);
+
+        Assert.True(result.Failed);
+        Assert.Contains("has no 'key'", result.FailureReason);
+    }
+
+    [Fact]
+    public void ParseAndValidate_OptionMissingItsNote_Rejected()
+    {
+        // The note is the consequence. A button with no consequence is one the owner presses without
+        // being told what it does, and storing an empty string is this contract writing that silence.
+        var answer = Answer(
+            verdict: TurnVerdictVocabulary.NeededYou,
+            evidence: "Push the deploy guard to main?",
+            label: "Push the deploy guard to main?",
+            risk: "irreversible",
+            answerVia: "reply",
+            options: new object[]
+            {
+                new { key = "Push it now", send = "yes", recommended = false },
+                new { key = "Leave it", send = "no", recommended = false, note = "Nothing changes." },
+            });
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, MenuStop(), Model, ObservedAt);
+
+        Assert.True(result.Failed);
+        Assert.Contains("has no 'note'", result.FailureReason);
+    }
+
+    [Fact]
+    public void ParseAndValidate_SingleSelectMenuMissingItsSubmit_Rejected()
+    {
+        // An absent submit used to become "", which says the picker acts on the key itself. On a picker
+        // that needs Enter, that is a tap that selects and never confirms.
+        var answer = Answer(
+            verdict: TurnVerdictVocabulary.NeededYou,
+            evidence: "Push the deploy guard to main?",
+            label: "Push the deploy guard to main?",
+            risk: "irreversible",
+            answerVia: "keys",
+            menu: new { question = "Push the deploy guard to main?", selectionMode = "single" },
+            options: new object[]
+            {
+                new { key = "Push it now", send = "1", recommended = false, note = "Puts the guard live." },
+                new { key = "Leave it", send = "2", recommended = true, note = "Nothing changes." },
+            });
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, MenuStop(), Model, ObservedAt);
+
+        Assert.True(result.Failed);
+        Assert.Contains("no submit", result.FailureReason);
+    }
+
+    [Fact]
+    public void ParseAndValidate_MenuWithNoQuestion_Rejected()
+    {
+        var answer = Answer(
+            verdict: TurnVerdictVocabulary.NeededYou,
+            evidence: "Push the deploy guard to main?",
+            label: "Push the deploy guard to main?",
+            risk: "irreversible",
+            answerVia: "keys",
+            menu: new { selectionMode = "single", submit = "" },
+            options: new object[]
+            {
+                new { key = "Push it now", send = "1", recommended = false, note = "Puts the guard live." },
+                new { key = "Leave it", send = "2", recommended = true, note = "Nothing changes." },
+            });
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, MenuStop(), Model, ObservedAt);
+
+        Assert.True(result.Failed);
+        Assert.Contains("no question", result.FailureReason);
+    }
+
+    [Fact]
+    public void ParseAndValidate_SingleSelectWithAnEmptySubmit_Accepted()
+    {
+        // The exact-boundary control for the two tests above: "" is a real submit - it says the picker
+        // acts on the key itself - and it must stay accepted or every single-select would refuse.
+        var answer = Answer(
+            verdict: TurnVerdictVocabulary.NeededYou,
+            evidence: "Push the deploy guard to main?",
+            label: "Push the deploy guard to main?",
+            risk: "irreversible",
+            answerVia: "keys",
+            menu: new { question = "Push the deploy guard to main?", selectionMode = "single", submit = "" },
+            options: new object[]
+            {
+                new { key = "Push it now", send = "1", recommended = false, note = "Puts the guard live." },
+                new { key = "Leave it", send = "2", recommended = true, note = "Nothing changes." },
+            });
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, MenuStop(), Model, ObservedAt);
+
+        Assert.False(result.Failed, result.FailureReason);
+        Assert.Equal("", result.Menu!.Submit);
+        Assert.Equal("single", result.Menu.SelectionMode);
+    }
+
+    // ============================== can the route actually perform this, exactly once?
+
+    [Fact]
+    public void ParseAndValidate_ReplyOptionCarryingACarriageReturn_Rejected()
+    {
+        // The route appends one Enter to a reply. A send that already ends in one sends the answer
+        // twice - the second time into whatever the session showed after the first.
+        var answer = Answer(
+            verdict: TurnVerdictVocabulary.NeededYou,
+            evidence: "Push the deploy guard to main?",
+            label: "Push the deploy guard to main?",
+            risk: "irreversible",
+            answerVia: "reply",
+            options: new object[]
+            {
+                new { key = "Push it now", send = "production\r", recommended = false, note = "Puts the guard live." },
+                new { key = "Leave it", send = "no", recommended = false, note = "Nothing changes." },
+            });
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, MenuStop(), Model, ObservedAt);
+
+        Assert.True(result.Failed);
+        Assert.Contains("carriage return or a line feed", result.FailureReason);
+    }
+
+    [Fact]
+    public void ParseAndValidate_KeysOptionCarryingALineFeed_Rejected()
+    {
+        var answer = Answer(
+            verdict: TurnVerdictVocabulary.NeededYou,
+            evidence: "Push the deploy guard to main?",
+            label: "Push the deploy guard to main?",
+            risk: "irreversible",
+            answerVia: "keys",
+            menu: new { question = "Push the deploy guard to main?", selectionMode = "single", submit = "\r" },
+            options: new object[]
+            {
+                new { key = "Push it now", send = "1\n", recommended = false, note = "Puts the guard live." },
+                new { key = "Leave it", send = "2", recommended = true, note = "Nothing changes." },
+            });
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, MenuStop(), Model, ObservedAt);
+
+        Assert.True(result.Failed);
+        Assert.Contains("carriage return or a line feed", result.FailureReason);
+    }
+
+    [Fact]
+    public void ParseAndValidate_ReplyCarryingAPickerMenu_Rejected()
+    {
+        // A reply is typed words and a menu is a picker. A record claiming both cannot say which one
+        // the owner is doing, and the route would have to guess.
+        var answer = Answer(
+            verdict: TurnVerdictVocabulary.NeededYou,
+            evidence: "Push the deploy guard to main?",
+            label: "Push the deploy guard to main?",
+            risk: "irreversible",
+            answerVia: "reply",
+            menu: new { question = "Push the deploy guard to main?", selectionMode = "single", submit = "" },
+            options: new object[]
+            {
+                new { key = "Push it now", send = "yes", recommended = false, note = "Puts the guard live." },
+                new { key = "Leave it", send = "no", recommended = false, note = "Nothing changes." },
+            });
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, MenuStop(), Model, ObservedAt);
+
+        Assert.True(result.Failed);
+        Assert.Contains("carries a picker menu", result.FailureReason);
+    }
+
+    [Fact]
+    public void ParseAndValidate_MultipleSelectWhoseSubmitIsNotACarriageReturn_Rejected()
+    {
+        var answer = Answer(
+            verdict: TurnVerdictVocabulary.NeededYou,
+            evidence: "Push the deploy guard to main?",
+            label: "Pick the checks to run",
+            risk: "none",
+            answerVia: "keys",
+            menu: new { question = "Pick any that apply", selectionMode = "multiple", submit = "" },
+            options: new object[]
+            {
+                new { key = "Unit tests", send = "1", recommended = false, note = "Toggles the unit tests." },
+                new { key = "Gate", send = "2", recommended = false, note = "Toggles the local gate." },
+            });
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, MenuStop(), Model, ObservedAt);
+
+        Assert.True(result.Failed);
+        Assert.Contains("submit", result.FailureReason);
+    }
+
+    [Fact]
+    public void ParseAndValidate_MultipleSelectWithACarriageReturnSubmit_Accepted()
+    {
+        // The control: each option toggles with its own bytes and the submit finishes the whole set,
+        // which is the only shape a checklist can be answered in.
+        var answer = Answer(
+            verdict: TurnVerdictVocabulary.NeededYou,
+            evidence: "Push the deploy guard to main?",
+            label: "Pick the checks to run",
+            risk: "none",
+            answerVia: "keys",
+            menu: new { question = "Pick any that apply", selectionMode = "multiple", submit = "\r" },
+            options: new object[]
+            {
+                new { key = "Unit tests", send = "1", recommended = false, note = "Toggles the unit tests." },
+                new { key = "Gate", send = "2", recommended = false, note = "Toggles the local gate." },
+            });
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, MenuStop(), Model, ObservedAt);
+
+        Assert.False(result.Failed, result.FailureReason);
+        Assert.Equal("multiple", result.Menu!.SelectionMode);
+        Assert.Equal("\r", result.Menu.Submit);
+        Assert.Equal("1", result.Options[0].Send);
+    }
+
+    [Fact]
+    public void ParseAndValidate_KeysWithAMenuAndNothingToSelect_Rejected()
+    {
+        // A question with buttons the owner cannot see, because there are none, and nothing to confirm
+        // either. The one shape that may carry no options is the already-typed reply below.
+        var answer = Answer(
+            verdict: TurnVerdictVocabulary.NeededYou,
+            evidence: "Push the deploy guard to main?",
+            label: "Push the deploy guard to main?",
+            risk: "irreversible",
+            answerVia: "keys",
+            menu: new { question = "Push the deploy guard to main?", selectionMode = "single", submit = "" },
+            options: new object[0]);
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, MenuStop(), Model, ObservedAt);
+
+        Assert.True(result.Failed);
+        Assert.Contains("nothing to select", result.FailureReason);
+    }
+
+    // ============================== the already-typed reply: the one keys answer with no options
+
+    [Fact]
+    public void ParseAndValidate_AlreadyTypedReply_AcceptedWithNoOptions()
+    {
+        // The person has typed their answer into the composer and the only action left is to send it.
+        // There is nothing to toggle and something to confirm, so the submit IS the action and the
+        // route sends it alone. This is the single exception to "keys must offer something to select".
+        var answer = Answer(
+            verdict: TurnVerdictVocabulary.NeededYou,
+            evidence: "Push the deploy guard to main?",
+            label: "Send the reply already typed",
+            risk: "irreversible",
+            answerVia: "keys",
+            menu: new
+            {
+                question = "Send the reply already typed: 'yes, push it to production'",
+                selectionMode = "single",
+                submit = "\r",
+            },
+            options: new object[0]);
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, MenuStop(), Model, ObservedAt);
+
+        Assert.False(result.Failed, result.FailureReason);
+        Assert.Empty(result.Options);
+        Assert.Equal("\r", result.Menu!.Submit);
+        Assert.Contains("already typed", result.Menu.Question);
+    }
+
+    [Fact]
+    public void ParseAndValidate_NoOptionsAndNothingToConfirm_Rejected()
+    {
+        // The first leg of the exception removed: no options AND an empty submit is an answer that
+        // sends nothing at all.
+        var answer = Answer(
+            verdict: TurnVerdictVocabulary.NeededYou,
+            evidence: "Push the deploy guard to main?",
+            label: "Send the reply already typed",
+            risk: "irreversible",
+            answerVia: "keys",
+            menu: new { question = "Send the reply already typed", selectionMode = "single", submit = "" },
+            options: new object[0]);
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, MenuStop(), Model, ObservedAt);
+
+        Assert.True(result.Failed);
+        Assert.Contains("nothing to confirm", result.FailureReason);
+    }
+
+    [Fact]
+    public void ParseAndValidate_NoOptionsAndSelectionModeMultiple_Rejected()
+    {
+        // The second leg removed: pick-any-that-apply, from nothing. The exception is a single confirm
+        // and nothing else.
+        var answer = Answer(
+            verdict: TurnVerdictVocabulary.NeededYou,
+            evidence: "Push the deploy guard to main?",
+            label: "Send the reply already typed",
+            risk: "irreversible",
+            answerVia: "keys",
+            menu: new { question = "Send the reply already typed", selectionMode = "multiple", submit = "\r" },
+            options: new object[0]);
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, MenuStop(), Model, ObservedAt);
+
+        Assert.True(result.Failed);
+        Assert.Contains("nothing to pick", result.FailureReason);
+    }
+
     // ================================================================= the vocabulary pin
 
     [Fact]
@@ -1037,6 +1575,10 @@ public sealed class TurnVerdictContractTests
     /// the judge is pretending to have said; null means the field is absent from the object entirely,
     /// which is a different thing from present and empty.
     /// </summary>
+    /// <summary>One answer written out by hand, for a shape the typed helpers cannot express - a member
+    /// of the wrong JSON kind, where the helper would serialise a well-formed one.</summary>
+    private static string RawAnswer(string json) => json;
+
     /// <summary>
     /// The same canned answer with the "options" field LEFT OUT of the object entirely. Absent and
     /// present-but-null are different JSON and the contract treats them differently, so a test that
@@ -1075,7 +1617,9 @@ public sealed class TurnVerdictContractTests
         object[]? options = null,
         string? confidence = "high",
         object? optionsRaw = null,
-        bool optionsNull = false)
+        bool optionsNull = false,
+        object? agentRecommendsRaw = null,
+        string[]? omit = null)
     {
         var fields = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
@@ -1093,6 +1637,11 @@ public sealed class TurnVerdictContractTests
         // NOT the same as leaving the field out: see AnswerWithoutOptions for that.
         if (optionsRaw is not null) fields["options"] = optionsRaw;
         if (optionsNull) fields["options"] = null;
+        // agentRecommendsRaw writes a value of the wrong KIND where a string or null belongs.
+        if (agentRecommendsRaw is not null) fields["agentRecommends"] = agentRecommendsRaw;
+        // omit REMOVES a member from the object entirely, which is a different thing from writing null
+        // into it - the contract treats absent and null differently and so must these fixtures.
+        foreach (var name in omit ?? Array.Empty<string>()) fields.Remove(name);
         if (risk is not null) fields["risk"] = risk;
         if (answerVia is not null) fields["answerVia"] = answerVia;
         if (confidence is not null) fields["confidence"] = confidence;

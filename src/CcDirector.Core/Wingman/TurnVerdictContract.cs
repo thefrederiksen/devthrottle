@@ -246,6 +246,15 @@ public static class TurnVerdictContract
             if (root.ValueKind != JsonValueKind.Object)
                 return Refuse(package, model, turnEndObservedAtUtc, "the answer is not a JSON object");
 
+            // ---- THE SHAPE, BEFORE ANY OF IT IS READ FOR MEANING -----------------------------
+            // Every rule below this line reads a field already proved to exist and to be the type the
+            // shape declares. Before this pass, a missing field and a wrongly typed one both arrived as
+            // an empty string or a null, so a malformed answer became a well-formed one on the way in
+            // and the record then said the judge had answered something it never wrote.
+            var shapeFault = ValidateShape(root);
+            if (shapeFault is not null)
+                return Refuse(package, model, turnEndObservedAtUtc, shapeFault);
+
             // ---- verdict: one of the six, and nothing else ----------------------------------
             var verdict = Str(root, "verdict");
             if (!TurnVerdictVocabulary.IsWingmanVerdict(verdict))
@@ -304,7 +313,13 @@ public static class TurnVerdictContract
                     + "reads as broken");
             label = CapAtWordBoundary(label, MaxLabelChars);
 
-            var summary = CapAtWordBoundary(Str(root, "summary"), MaxSummaryChars);
+            var summary = Str(root, "summary");
+            if (summary.Length == 0)
+                return Refuse(package, model, turnEndObservedAtUtc,
+                    "the summary is empty; it is the one or two sentences given to a reader who has not "
+                    + "looked at this session for hours, and an empty one reads as a broken row exactly "
+                    + "as an empty label does");
+            summary = CapAtWordBoundary(summary, MaxSummaryChars);
 
             // ---- the spoken section -----------------------------------------------------------
             var spoken = Str(root, "spoken");
@@ -320,31 +335,23 @@ public static class TurnVerdictContract
                 return Refuse(package, model, turnEndObservedAtUtc, optionsResult.Reason);
             var options = optionsResult.Options;
 
-            var hasAnswerVia = root.TryGetProperty("answerVia", out var answerViaElement)
-                && answerViaElement.ValueKind == JsonValueKind.String;
-            var answerVia = hasAnswerVia ? (answerViaElement.GetString() ?? "").Trim() : "";
-            if (hasAnswerVia && !TurnVerdictVocabulary.AnswerVias.Contains(answerVia, StringComparer.Ordinal))
+            // The shape pass has proved answerVia is present and a string. It is never written in: it
+            // decides how bytes reach a live session, so a default here is this contract deciding what
+            // gets typed.
+            var answerVia = Str(root, "answerVia");
+            if (!TurnVerdictVocabulary.AnswerVias.Contains(answerVia, StringComparer.Ordinal))
                 return Refuse(package, model, turnEndObservedAtUtc,
-                    $"unknown answerVia word '{answerVia}'; it decides whether a carriage return is appended "
-                    + "to what gets typed into a live session, so it is never guessed");
-            if (!hasAnswerVia)
-            {
-                if (options.Count > 0)
-                    return Refuse(package, model, turnEndObservedAtUtc,
-                        "options were offered with no answerVia; nothing can say how those bytes reach the "
-                        + "session");
-                // No options and no answerVia: there is nothing to answer, so the field is inert. "reply"
-                // is written rather than an empty string so the stored shape is always one of the two words.
-                answerVia = "reply";
-            }
+                    $"unknown answerVia word '{answerVia}'; the two allowed words are "
+                    + string.Join(", ", TurnVerdictVocabulary.AnswerVias));
 
             var menuResult = ReadMenu(root);
             if (menuResult.Reason is not null)
                 return Refuse(package, model, turnEndObservedAtUtc, menuResult.Reason);
-            if (answerVia == "keys" && menuResult.Menu is null)
-                return Refuse(package, model, turnEndObservedAtUtc,
-                    "the answer is a selection in a picker but carries no menu; without it nothing knows "
-                    + "what question the keys answer");
+
+            // ---- CAN THE ROUTE ACTUALLY PERFORM THIS, EXACTLY ONCE? --------------------------
+            var executableFault = ValidateExecutable(answerVia, menuResult.Menu, options);
+            if (executableFault is not null)
+                return Refuse(package, model, turnEndObservedAtUtc, executableFault);
 
             // ---- confidence: one of the two, and never defaulted -------------------------------
             // Reading an unknown word as "ambiguous" was a silent repair. It looked harmless because
@@ -362,6 +369,8 @@ public static class TurnVerdictContract
                         : $"unknown confidence word '{confidence}'; the two allowed words are "
                           + string.Join(", ", TurnVerdictVocabulary.Confidences));
 
+            // Null or absent means the agent recommended nothing. The shape pass has already refused
+            // every other kind of value, so an object here can no longer become a silence.
             var agentRecommends = Str(root, "agentRecommends");
             if (agentRecommends.Length > MaxAgentRecommendsChars)
                 agentRecommends = agentRecommends[..MaxAgentRecommendsChars];
@@ -455,6 +464,144 @@ public static class TurnVerdictContract
     private static bool IsEdgeCharacter(char c)
         => char.IsWhiteSpace(c) || (c >= BoxDrawingFirst && c <= BlockElementsLast);
 
+    // ==================================================================== the shape
+
+    /// <summary>Members the shape declares as strings and always present. A missing one is not an empty
+    /// one: "the judge did not answer this" and "the judge answered nothing here" are different facts,
+    /// and only the second is the judge's.</summary>
+    private static readonly string[] RequiredStringMembers =
+    {
+        "verdict", "confidence", "evidence", "label", "summary", "answerVia", "risk", "spoken",
+    };
+
+    /// <summary>
+    /// THE DECLARED SHAPE, PROVED BEFORE ANY FIELD IS READ FOR WHAT IT MEANS.
+    ///
+    /// The prompt asks for an object "in exactly this shape". This proves the answer IS that shape:
+    /// every declared string is present and is a string, and each nullable member is null or its own
+    /// type and nothing else.
+    ///
+    /// WHY IT IS A SEPARATE PASS. The readers below are convenient - they answer "" for a field that is
+    /// missing, and "" again for a field that is a number, an array or an object. That convenience is
+    /// how a malformed answer used to arrive looking well formed: an array where the menu belongs read
+    /// as no menu, an object where the recommendation belongs as no recommendation, the string "true"
+    /// as recommended-false. Each was a repair this contract made on the judge's behalf and then stored
+    /// as though the judge had made it. Proving the shape first means every rule after this point is
+    /// reading a value the judge actually wrote.
+    /// </summary>
+    private static string? ValidateShape(JsonElement root)
+    {
+        foreach (var name in RequiredStringMembers)
+        {
+            if (!root.TryGetProperty(name, out var value))
+                return $"the answer has no '{name}'; the shape declares it, a missing field is not an "
+                    + "empty one, and nothing here answers it on the judge's behalf";
+            if (value.ValueKind != JsonValueKind.String)
+                return $"'{name}' is {value.ValueKind} where the shape declares a string; a malformed "
+                    + "answer is thrown away whole rather than read as though the field were absent";
+        }
+
+        // Nullable members: null is an answer, a wrong type is not. Absent reads as null, because the
+        // shape's own "null or ..." says there is nothing to carry.
+        if (root.TryGetProperty("agentRecommends", out var recommends)
+            && recommends.ValueKind is not (JsonValueKind.String or JsonValueKind.Null))
+            return $"'agentRecommends' is {recommends.ValueKind} where the shape declares a string or "
+                + "null; it is not read as no recommendation, because that stores a silence the judge "
+                + "did not answer with";
+
+        if (root.TryGetProperty("menu", out var menu)
+            && menu.ValueKind is not (JsonValueKind.Object or JsonValueKind.Null))
+            return $"'menu' is {menu.ValueKind} where the shape declares an object or null; it is not "
+                + "read as no menu, because a picker silently becoming no picker is how a selection the "
+                + "owner cannot make gets stored as one he can";
+
+        return null;
+    }
+
+    // ==================================================================== can it be executed?
+
+    /// <summary>
+    /// ONE RULE, AND EVERY ACCEPTED RECORD OBEYS IT: the owner presses once, and the right bytes reach
+    /// the session once.
+    ///
+    /// A reply option is sent and ONE carriage return is appended by the route, so the send carries none
+    /// itself, and a reply is not a picker so it carries no menu. A keys option carries only the bytes
+    /// that SELECT it; the selected options go in the order given and then the menu's submit, as one
+    /// action under one screen lock, so the confirm lives in the submit and never inside a send. A
+    /// pick-any-that-apply menu must submit with a carriage return, because a checklist with nothing to
+    /// confirm cannot be finished.
+    ///
+    /// These are CROSS-FIELD rules: each field can be right on its own while the record as a whole
+    /// promises something nothing can perform. A reply send ending in a carriage return gets a second
+    /// appended and sends twice. A picker whose confirm sits inside the first option's send confirms
+    /// before the person has finished choosing. Keys with a menu and no options is a question with no
+    /// buttons - except in the one shape below, where there is nothing to choose and only something to
+    /// confirm.
+    /// </summary>
+    private static string? ValidateExecutable(
+        string answerVia,
+        TurnVerdictMenuDto? menu,
+        IReadOnlyList<TurnVerdictOptionDto> options)
+    {
+        foreach (var option in options)
+        {
+            if (option.Send.IndexOf(CarriageReturn) < 0 && option.Send.IndexOf(LineFeed) < 0) continue;
+            return $"the option '{option.Key}' sends a carriage return or a line feed; an option carries "
+                + "only the bytes that choose it - a reply has one Enter appended by the route, and a "
+                + "picker is confirmed by the menu's submit - so a line ending inside a send is either "
+                + "sent twice or confirms before the person has finished choosing";
+        }
+
+        if (answerVia != "keys")
+        {
+            return menu is null
+                ? null
+                : "the answer is typed or spoken words and yet carries a picker menu; a reply is not a "
+                  + "selection, and a record claiming both cannot say which one the owner is doing";
+        }
+
+        if (menu is null)
+            return "the answer is a selection in a picker but carries no menu; without it nothing knows "
+                + "what question the keys answer, or what confirms it";
+
+        if (menu.SelectionMode == "multiple" && menu.Submit != CarriageReturnText)
+            return "a pick-any-that-apply menu whose submit is not a carriage return; the toggles choose "
+                + "and only the submit finishes, so without one the person could toggle for ever and "
+                + "never answer";
+
+        if (options.Count > 0) return null;
+
+        // THE ONE SHAPE IN WHICH A KEYS ANSWER MAY CARRY NO OPTIONS: the person has already typed their
+        // reply into the composer and the only action left is to send it. There is nothing to toggle and
+        // something to confirm, so the submit is the whole action and the route sends it alone.
+        //
+        // NOT VALIDATED, and it is a gap rather than an oversight: the rule also says the menu's question
+        // must NAME the parked text, so the owner can see what one tap is about to send instead of
+        // confirming something invisible. Nothing here can check that - this package carries no
+        // mechanically extracted composer text, so there is nothing to compare the question against. It
+        // is an instruction to the judge in the prompt and nothing more, and a judge that ignores it
+        // produces an answer this contract accepts.
+        if (menu.Submit != CarriageReturnText)
+            return "the answer is a selection in a picker, offers nothing to select, and has nothing to "
+                + "confirm either; a question with no buttons and no submit is one the owner cannot "
+                + "answer at all";
+
+        if (menu.SelectionMode != "single")
+            return "a pick-any-that-apply menu with nothing to pick; the only answer that may carry no "
+                + "options is the already-typed reply, and that is a single confirm";
+
+        return null;
+    }
+
+    /// <summary>The two characters an option's send may never contain, written as code points so this
+    /// file stays plain keyboard text where it talks about them.</summary>
+    private const char CarriageReturn = (char)13;
+
+    private const char LineFeed = (char)10;
+
+    /// <summary>The only non-empty submit a menu may carry.</summary>
+    private static readonly string CarriageReturnText = CarriageReturn.ToString();
+
     // ==================================================================== pieces
 
     private readonly record struct OptionsResult(List<TurnVerdictOptionDto> Options, string? Reason);
@@ -482,12 +629,14 @@ public static class TurnVerdictContract
             if (element.ValueKind != JsonValueKind.Object)
                 return new OptionsResult(options, "an option is not an object");
 
+            // The option's own shape, proved before any of it is read. An option is a button the owner
+            // presses: a missing label, a missing consequence or a missing send are not empty strings to
+            // be stored, they are an option that cannot be offered.
+            var optionFault = ValidateOptionShape(element);
+            if (optionFault is not null) return new OptionsResult(options, optionFault);
+
             var key = Str(element, "key");
-            var send = ReadSend(element);
-            if (send.Length == 0)
-                return new OptionsResult(options,
-                    $"the option '{key}' has nothing to send; an option that cannot be sent is not an "
-                    + "option, and dropping it would silently turn a choice into a single button");
+            var send = element.GetProperty("send").GetString() ?? "";
 
             // Neither half of an option is ever cut. See MaxOptionNoteChars for why.
             if (key.Length > MaxOptionKeyChars)
@@ -507,8 +656,7 @@ public static class TurnVerdictContract
             {
                 Key = key,
                 Send = send,
-                Recommended = element.TryGetProperty("recommended", out var recommended)
-                    && recommended.ValueKind == JsonValueKind.True,
+                Recommended = element.GetProperty("recommended").ValueKind == JsonValueKind.True,
                 Note = note,
             });
         }
@@ -541,35 +689,74 @@ public static class TurnVerdictContract
     }
 
     /// <summary>
-    /// An option's bytes, taken EXACTLY as written and never trimmed.
+    /// ONE OPTION'S OWN SHAPE. Every member is declared, so every member must be there and be what it
+    /// is declared to be. None of them is synthesised: an option missing its label, its consequence or
+    /// its bytes was stored with empty strings until round four, which is a button whose words, whose
+    /// promise, or whose effect this contract wrote rather than the judge.
     ///
-    /// Every other string field here is trimmed, and this one must not be. The send is what gets typed
-    /// into a live session: a picker is confirmed by a carriage return carried inside the send, and
-    /// trimming turns "1\r" into "1", which selects the option and never confirms it - the person taps
-    /// the button, the picker sits there, and nothing says why. That is not a hypothetical; the first
-    /// run of this contract's own tests caught it, because the trim was inherited from a contract whose
-    /// fields are all prose.
-    ///
-    /// Nothing to send means an empty string, or one made only of ordinary whitespace - spaces type
-    /// spaces, which answers nothing. A send that is only carriage returns or line feeds is a real
-    /// send: it is how a picker's highlighted default is accepted.
+    /// The send is NOT trimmed, unlike every prose field here. It is typed into a live session verbatim,
+    /// and what looks like tidying is a change to what gets typed. It may not be whitespace alone -
+    /// spaces type spaces, which answers nothing - and the line-ending rule lives with the other
+    /// cross-field rules in ValidateExecutable, because whether a carriage return is wrong depends on
+    /// what the route will do with the record as a whole.
     /// </summary>
-    private static string ReadSend(JsonElement option)
+    private static string? ValidateOptionShape(JsonElement option)
     {
-        if (!option.TryGetProperty("send", out var element) || element.ValueKind != JsonValueKind.String)
-            return "";
-        var raw = element.GetString() ?? "";
-        if (raw.Length == 0) return "";
-        if (raw.Trim().Length == 0 && !raw.Any(c => c is '\r' or '\n')) return "";
-        return raw;
+        foreach (var name in new[] { "key", "send", "note" })
+        {
+            if (!option.TryGetProperty(name, out var value))
+                return $"an option has no '{name}'; every part of an option is declared, and a missing "
+                    + "one is not an empty one - an option is a button, and this contract does not write "
+                    + "its words, its consequence or its bytes on the judge's behalf";
+            if (value.ValueKind != JsonValueKind.String)
+                return $"an option's '{name}' is {value.ValueKind} where the shape declares a string";
+            if ((value.GetString() ?? "").Trim().Length == 0)
+                return $"an option's '{name}' is empty; an option that cannot be labelled, explained or "
+                    + "sent is not an option, and dropping it would silently turn a choice into a "
+                    + "single button";
+        }
+
+        if (!option.TryGetProperty("recommended", out var recommended))
+            return "an option has no 'recommended'; the shape declares it on every option, and a missing "
+                + "one is not a false one";
+        if (recommended.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            return $"an option's 'recommended' is {recommended.ValueKind} where the shape declares true "
+                + "or false; the string \"true\" is not a boolean, and reading it as false would store "
+                + "the opposite of what it says";
+
+        return null;
     }
 
     private readonly record struct MenuResult(TurnVerdictMenuDto? Menu, string? Reason);
 
     private static MenuResult ReadMenu(JsonElement root)
     {
+        // The shape pass has already refused anything that is neither an object nor null, so an absent
+        // or null menu is the judge saying there is no picker.
         if (!root.TryGetProperty("menu", out var element) || element.ValueKind != JsonValueKind.Object)
             return new MenuResult(null, null);
+
+        // The menu's own members are declared too, and none of them is written in. The question is what
+        // the owner reads above the buttons; an empty one is a picker that asks nothing.
+        if (!element.TryGetProperty("question", out var questionElement))
+            return new MenuResult(null,
+                "the menu has no question; it is the line the owner reads before choosing, and a picker "
+                + "that asks nothing is one he answers blind");
+        if (questionElement.ValueKind != JsonValueKind.String)
+            return new MenuResult(null,
+                $"the menu's question is {questionElement.ValueKind} where the shape declares a string");
+        if ((questionElement.GetString() ?? "").Trim().Length == 0)
+            return new MenuResult(null,
+                "the menu's question is empty; a picker that asks nothing is one the owner answers blind");
+
+        if (!element.TryGetProperty("submit", out var submitElement))
+            return new MenuResult(null,
+                "the menu has no submit; it says whether the picker acts on the key itself or needs a "
+                + "confirm, and writing one in would be this contract deciding when a live session is "
+                + "committed to");
+        if (submitElement.ValueKind != JsonValueKind.String)
+            return new MenuResult(null,
+                $"the menu's submit is {submitElement.ValueKind} where the shape declares a string");
 
         var selectionMode = Str(element, "selectionMode");
         if (!TurnVerdictVocabulary.SelectionModes.Contains(selectionMode, StringComparer.Ordinal))
@@ -581,10 +768,7 @@ public static class TurnVerdictContract
                     : $"unknown selectionMode '{selectionMode}'; it decides whether one key answers the "
                       + "picker or several do, and a wrong guess types the wrong thing into a live session");
 
-        var submit = element.TryGetProperty("submit", out var submitElement)
-            && submitElement.ValueKind == JsonValueKind.String
-                ? submitElement.GetString() ?? ""
-                : "";
+        var submit = submitElement.GetString() ?? "";
         if (submit.Length > 0 && submit != "\r")
             return new MenuResult(null,
                 "the menu's submit is neither empty nor a carriage return; nothing else completes a picker");

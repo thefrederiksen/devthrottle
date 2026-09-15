@@ -87,11 +87,15 @@ HOW THE PERSON ANSWERS
 
 - "answerVia": "keys" means the question exists on the SCREEN as an interactive picker - a permission
   prompt, a plan approval, a chooser with a selection marker - and typed free text will NOT work
-  there. Read the question off the screen. Set "menu" as well: keys without a menu is thrown away.
-  Each option's "send" carries exactly the bytes to type. Pickers that confirm with Enter need it
-  inside the send ("1\r"); nothing appends one for you.
-- "answerVia": "reply" means the person answers in typed or spoken words. The send is the words. A
-  carriage return is appended for you; do not put one in.
+  there. Read the question off the screen. Set "menu" as well: keys without a menu is thrown away,
+  and so is a menu with nothing to select and nothing to confirm.
+  Each option's "send" carries ONLY the bytes that SELECT it - "1", "2" - and never a carriage
+  return or a line feed. The confirm lives in "menu.submit": "" when the picker acts on the key
+  itself, "\r" when it needs Enter. The options the person picks are sent in the order you give
+  them and then the submit, as one action.
+- "answerVia": "reply" means the person answers in typed or spoken words. The send is the words,
+  and it carries no carriage return and no line feed - one Enter is appended for you. "menu" must be
+  null: a reply is not a picker, and an answer claiming both is thrown away.
 - A numbered list INSIDE the agent's prose - a summary of work done, steps, findings - is NOT a menu,
   even if a stray marker glyph sits beside a number. A menu is an interactive control waiting for a
   selection. A finished reply above an empty input box is "reply", never "keys".
@@ -102,9 +106,11 @@ HOW THE PERSON ANSWERS
   mechanics of the menu.
 - TYPED BUT UNSENT TEXT. When the bottom of the screen clearly shows text the person has already typed
   into the composer but not sent, the decision may already be made and the job collapses to getting it
-  sent: quote that text, answerVia "keys", and the recommended option sends "\r" alone - never resend
-  the text itself, which would double it. Say that the send state is uncertain, because nothing here
-  measured it.
+  sent. There is nothing to select and only something to confirm, so this is the ONE answer that offers
+  no options at all: answerVia "keys", "options": [], and a menu with selectionMode "single", submit
+  "\r", and a question that QUOTES the parked text - the owner is about to send it with one tap and
+  must be able to read what it says. Never resend the text itself, which would double it. Say that the
+  send state is uncertain, because nothing here measured it.
 
 RISK - and why it is a separate word
 
