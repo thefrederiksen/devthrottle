@@ -239,6 +239,33 @@
       ]
     },
     {
+      "name": "supervisor ids that are blank, spaces, or padded",
+      "proves": "a whitespace-only supervisor means the session answers to nobody, and a padded one still finds its supervisor - both languages trim, and both must trim the same way",
+      "sessions": [
+        { "sessionId": "108", "sortOrder": 2, "createdAt": "2026-09-14T16:12:42Z", "activityState": "WaitingForInput", "needsYouSince": "2026-09-14T21:39:20Z", "effectiveColor": "red", "triageBucket": "needsYou" },
+        { "sessionId": "padded", "sortOrder": 3, "controllerSessionId": "  108  ", "createdAt": "2026-09-14T17:00:00Z", "activityState": "Working", "effectiveColor": "blue", "triageBucket": "active" },
+        { "sessionId": "blank", "sortOrder": 4, "controllerSessionId": "", "createdAt": "2026-09-14T17:05:00Z", "activityState": "Working", "effectiveColor": "blue", "triageBucket": "active" },
+        { "sessionId": "spaces", "sortOrder": 5, "controllerSessionId": "   ", "createdAt": "2026-09-14T17:10:00Z", "activityState": "Working", "effectiveColor": "blue", "triageBucket": "active" }
+      ],
+      "roots": ["108", "blank", "spaces"],
+      "children": { "108": ["padded"] },
+      "crews": [
+        {
+          "root": "108",
+          "descendants": ["padded@108@1"],
+          "count": 1, "needsYou": 0, "working": 1, "stopped": 0,
+          "since": "2026-09-14T16:12:42.000Z",
+          "line": "1 under it: 1 working, 0 stopped, 0 need you",
+          "ageAt": "2026-09-14T21:42:00Z",
+          "age": "5h 29m"
+        }
+      ],
+      "attention": [
+        { "title": "Needs you", "roots": ["108"] },
+        { "title": "Working", "roots": ["blank", "spaces"] }
+      ]
+    },
+    {
       "name": "the waiting line",
       "proves": "needs-you is ordered by how long each has waited, longest first, and a session with no stamp sorts to the bottom",
       "sessions": [
