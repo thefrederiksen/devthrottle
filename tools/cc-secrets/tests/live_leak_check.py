@@ -114,6 +114,14 @@ PASS_FIELD = '<p><label>Password <input type="password" name="password" autocomp
 GET_FORM = ('<!doctype html><html><head><title>Leak check get form</title></head><body style="font:20px sans-serif">'
             '<h1>Leak check get form</h1><form action="/welcome">' + USER_FIELD + PASS_FIELD +
             '<button type="submit">Sign in</button></form></body></html>')
+
+
+def handler_form(title, form_extra="", button_extra=""):
+    """A POST form whose own submit handler changes where or how it sends - the review's cases."""
+    return ('<!doctype html><html><head><title>Leak check ' + title + '</title></head>'
+            '<body style="font:20px sans-serif"><h1>Leak check ' + title + '</h1>'
+            '<form method="post" action="/session" ' + form_extra + '>' + USER_FIELD + PASS_FIELD +
+            '<button type="submit" ' + button_extra + '>Sign in</button></form></body></html>')
 SPA_SCRIPT = """<script>
 document.forms[0].addEventListener('submit', e => {
   e.preventDefault();
@@ -149,7 +157,7 @@ class _Handler(BaseHTTPRequestHandler):
         return parse_qs(self.rfile.read(length).decode("utf-8"))
 
 
-def make_site(good_secret: str, marker: str, get_received: list):
+def make_site(good_secret: str, marker: str, get_received: list, requests_seen: list):
     class Handler(_Handler):
         def do_GET(self):
             url = urlsplit(self.path)
@@ -160,6 +168,13 @@ def make_site(good_secret: str, marker: str, get_received: list):
                                             fields=USER_FIELD + PASS_FIELD, script=""))
             elif url.path == "/get-login":
                 self._send(200, GET_FORM)
+            elif url.path == "/submit-method":
+                self._send(200, handler_form("submit-method", form_extra='onsubmit="this.method=' + chr(39) + "get" + chr(39) + '"'))
+            elif url.path == "/submit-action":
+                other = "http://localhost:" + str(self.server.server_port) + "/session"
+                self._send(200, handler_form("submit-action", form_extra='onsubmit="this.action=' + chr(39) + other + chr(39) + '"'))
+            elif url.path == "/submit-button":
+                self._send(200, handler_form("submit-button", form_extra='onsubmit="event.submitter.formMethod=' + chr(39) + "get" + chr(39) + '"'))
             elif url.path == "/two-step":
                 self._send(200, FORM.format(title="two-step", message="Step one.", action="/two-step-user",
                                             extra="", fields=USER_FIELD, script=""))
@@ -175,6 +190,8 @@ def make_site(good_secret: str, marker: str, get_received: list):
                                             fields=USER_FIELD + PASS_FIELD, script=SPA_SCRIPT))
             elif url.path == "/welcome":
                 get_received.append(query.get("password", [""])[0])
+                requests_seen.append({"method": "GET", "host": self.headers.get("Host", ""),
+                                      "secret": query.get("password", [""])[0] == good_secret})
                 self._send(200, f"<!doctype html><title>Leak check welcome</title><h1>Signed in as {USERNAME}</h1><p>{marker}</p>")
             elif url.path == "/planted":
                 self._send(200, "<!doctype html><title>Leak check control</title><body style='background:#fff'>"
@@ -186,6 +203,8 @@ def make_site(good_secret: str, marker: str, get_received: list):
             fields = self._fields()
             username = fields.get("username", [""])[0]
             password = fields.get("password", [""])[0]
+            requests_seen.append({"method": "POST", "host": self.headers.get("Host", ""),
+                                  "secret": password == good_secret})
             if self.path == "/two-step-user":
                 self._send(303, location=f"/two-step-password?u={username}")
             elif self.path == "/api":
@@ -258,8 +277,8 @@ def run(args) -> int:
     run_id = "live-" + secrets.token_hex(6)
     started = datetime.now(timezone.utc)
     good, wrong, kept = ocr_safe_secret(), ocr_safe_secret(), ocr_safe_secret()
-    received, get_received = [], []
-    site = make_site(good, run_id, get_received)
+    received, get_received, requests_seen = [], [], []
+    site = make_site(good, run_id, get_received, requests_seen)
     agent_site = make_agent_site(received)
     port = site.server_address[1]
     agent_port = agent_site.server_address[1]
@@ -312,6 +331,10 @@ def run(args) -> int:
                  "import sys,base64; s=sys.stdin.readline().strip(); print('plain', s); print('b64', base64.b64encode(s.encode()).decode())"], out, env=env)
         command([cc, "run", "leak-good", "--via", "env", "--", py, "-c", "import os; print('env', os.environ['CC_SECRET'])"], out, env=env)
         command([cc, "run", "leak-good", "--via", "env", "--", py, "-c", "import os; print({'password': os.environ['CC_SECRET']})"], out, env=env)
+        command([cc, "run", "leak-good", "--via", "env", "--", py, "-c",
+                 "import os; print({'password': os.environ['CC_SECRET'].encode('utf-16-le')})"], out, env=env)
+        command([cc, "run", "leak-good", "--via", "env", "--", py, "-c",
+                 "import os,sys; sys.stdout.buffer.write(str([os.environ['CC_SECRET'].encode('cp1252')]).encode('cp1252'))"], out, env=env)
         command([cc, "run", "leak-good", "--via", "env", "--", "cmd", "/c", "echo cmd %CC_SECRET%"], out, env=env)
         command([cc, "run", "leak-good", "--via", "env", "--", "cmd", "/u", "/c", "echo utf16 %CC_SECRET%"], out, env=env)
         command([cc, "run", "leak-good", "--via", "askpass", "--", py, "-c",
@@ -364,6 +387,15 @@ print("screenshot saved")
         address = harness_private("import json\nprint(page_info()['url'])\nprint(json.dumps(cdp('Page.getNavigationHistory')))", env)
         agent_checks["get-form: the secret reached the page address, the history or the site"] = \
             good in address or good in get_received
+
+        for case, path in (("submit-handler-changes-method", "/submit-method"),
+                           ("submit-handler-changes-action", "/submit-action"),
+                           ("submit-handler-changes-button-method", "/submit-button")):
+            requests_seen.clear()
+            login_case(case, f"{base}{path}", "leak-good", "refused")
+            seen = harness_private("import json\nprint(page_info()['url'])\nprint(json.dumps(cdp('Page.getNavigationHistory')))", env)
+            agent_checks[f"{case}: the secret reached the address, the history or the site"] = (
+                good in seen or any(r["secret"] for r in requests_seen))
 
         expected["connection-drops-while-typing"] = "exit 1"
         harness(f"import json\ngoto_url({base + '/stuck'!r})\nwait_for_load()\nprint(page_info())", out, env)

@@ -5,14 +5,18 @@ SCRUBBER first, and a command's raw output is scrubbed as BYTES before it is dec
 the secret of every entry this process has read, in the forms a command or a web page echoes it back
 without anyone meaning to:
 
-- as typed; JSON-escaped; HTML-escaped;
+- as typed; JSON-escaped; HTML-escaped; the way Python prints a string (repr, ascii, inside a dict or a
+  list), with either quote mark;
 - percent-encoded the ways URLs and forms do it (Python quote and quote_plus, JavaScript
   encodeURIComponent, browser form encoding), with upper- and lower-case escapes;
 - base64 and base64url, with and without padding, of the secret and of "username:secret";
 - hexadecimal;
+- the secret ENCODED BY EVERY CODEC Python has - raw bytes, and the way Python prints those bytes
+  (`b'...'`). Listing a few encodings was not enough: a diagnostic printing `s.encode('utf-16-le')` or
+  Windows-1252 bytes handed the whole secret back (review of pull request 2891).
 
-and each of those in every encoding a command's output may use here: UTF-8, UTF-16 in both byte
-orders, and on Windows the console, OEM and ANSI code pages (what `cmd /c echo` writes).
+Each of those is then matched as bytes in every encoding a command's output may use here, so it is caught
+whether the command wrote UTF-8, UTF-16 or a Windows code page.
 
 What this does NOT cover, stated plainly: a command that deliberately transforms the secret - reverses
 it, hashes it, splits it across lines - produces output with no recognisable form of it. The scrubber
@@ -24,13 +28,14 @@ from __future__ import annotations
 
 import base64
 import codecs
+import encodings.aliases
 import html
 import json
 import locale
 import re
 import sys
 import threading
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 from urllib.parse import quote, quote_plus
 
 REDACTED = "[REDACTED]"
@@ -47,16 +52,46 @@ def _base64_forms(raw: bytes) -> set:
 
 
 def _python_forms(secret: str) -> set:
-    """How Python prints the secret inside a string or bytes literal - print(dict), print(list), repr(),
-    ascii(), print(bytes). Python picks a quote mark and escapes the other characters, so a secret holding a
-    quote mark, a backslash or a non-ASCII letter comes out changed and would not match as typed."""
+    """How Python prints the secret inside a string literal - print(dict), print(list), repr(), ascii().
+    Python picks a quote mark and escapes the other characters, so a secret holding a quote mark, a
+    backslash or a non-ASCII letter comes out changed and would not match as typed."""
     backslash = chr(92)
-    forms = {repr(secret)[1:-1], ascii(secret)[1:-1], repr(secret.encode("utf-8"))[2:-1]}
+    forms = {repr(secret)[1:-1], ascii(secret)[1:-1]}
     for quote_mark in ("'", '"'):
         escaped = secret.replace(backslash, backslash * 2).replace(quote_mark, backslash + quote_mark)
         forms.add(escaped)
         forms.add(escaped.encode("ascii", "backslashreplace").decode("ascii"))
     return forms
+
+
+def text_codecs() -> List[str]:
+    """Every codec in this Python that can turn text into bytes, plus this machine's console encodings.
+
+    Built from the standard library's own alias table rather than a list of the encodings we happened to
+    think of, so a secret printed as bytes in any of them is still recognised.
+    """
+    names = set(encodings.aliases.aliases.values()) | set(output_encodings())
+    usable = []
+    for name in sorted(names):
+        try:
+            if isinstance("probe".encode(name), bytes):
+                usable.append(name)
+        except (LookupError, UnicodeError, TypeError, ValueError):
+            continue
+    return usable
+
+
+def encoded_secret_bytes(secret: str) -> Dict[bytes, str]:
+    """{the secret encoded: the codec that produced it}, one entry per distinct byte string."""
+    found: Dict[bytes, str] = {}
+    for name in text_codecs():
+        try:
+            raw = secret.encode(name)
+        except (LookupError, UnicodeError, TypeError, ValueError):
+            continue
+        if raw and raw not in found:
+            found[raw] = name
+    return found
 
 
 def variants_for(secret: str, username: str = "") -> List[str]:
@@ -80,6 +115,8 @@ def variants_for(secret: str, username: str = "") -> List[str]:
     forms |= {raw.hex(), raw.hex().upper()}
     if username:
         forms |= _base64_forms(f"{username}:{secret}".encode("utf-8"))
+    # How Python prints those bytes: print(s.encode('utf-16-le')), a bytearray, a list of them.
+    forms |= {repr(encoded)[2:-1] for encoded in encoded_secret_bytes(secret)}
     return sorted((f for f in forms if f), key=len, reverse=True)
 
 
@@ -136,7 +173,8 @@ class Scrubber:
         with self._lock:
             merged = set(self._variants) | set(variants_for(secret, username))
             self._variants = sorted(merged, key=len, reverse=True)
-            needles = {}
+            needles: Dict[bytes, bytes] = {}
+            # Every text form, in every encoding this machine's commands write.
             for encoding in output_encodings():
                 marker = REDACTED.encode(encoding)
                 for variant in self._variants:
@@ -144,6 +182,13 @@ class Scrubber:
                         needles.setdefault(variant.encode(encoding), marker)
                     except UnicodeEncodeError:
                         continue
+            # The secret encoded by any codec at all, as raw bytes in the output.
+            for raw, codec_name in encoded_secret_bytes(secret).items():
+                try:
+                    marker = REDACTED.encode(codec_name)
+                except (LookupError, UnicodeError, TypeError, ValueError):
+                    marker = REDACTED.encode("ascii")
+                needles.setdefault(raw, marker)
             self._needles = sorted(needles.items(), key=lambda item: len(item[0]), reverse=True)
 
     def clear(self) -> None:

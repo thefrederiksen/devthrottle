@@ -1,5 +1,6 @@
-"""The login decisions - which tab, the address and method checks, the steps, the outcome, the clean-up -
-against a scripted tab. Driving real Chrome is proven by tests/live_leak_check.py, not here."""
+"""The login decisions - which tab, the address and method checks, what happens when the page changes the
+form inside its own submit handler, the outcome, the clean-up - against a scripted tab. Driving real
+Chrome is proven by tests/live_leak_check.py, not here."""
 
 import pytest
 
@@ -7,18 +8,28 @@ from conftest import add_entry
 from src import browser_login
 from src.browser_login import (CdpError, OUTCOME_FAILED, OUTCOME_LOGGED_IN, OUTCOME_REFUSED,
                                OUTCOME_VERIFICATION, _drive)
+
 from src.errors import CcSecretsError
+
+# What the browser reports a submission did. Spelled out here rather than imported, so these tests can run
+# against a version that does not have the names yet.
+SUBMITTED = "form"
+CHANGED_BEFORE_SUBMIT = "changed"
+CANCELLED_IN_SUBMIT_HANDLER = "aborted"
 
 
 def page(url="https://127.0.0.1/login", password=False, username=False, verification=False, unreachable=False,
-         target="https://127.0.0.1/session", method="post", target_after_fill=None, method_after_fill=None):
+         target="https://127.0.0.1/session", method="post", target_after_fill=None, method_after_fill=None,
+         submit_status=None):
     return {"url": url, "password": password, "username": username, "verification": verification,
             "unreachable": unreachable, "target": target, "method": method,
-            "target_after_fill": target_after_fill, "method_after_fill": method_after_fill}
+            "target_after_fill": target_after_fill, "method_after_fill": method_after_fill,
+            "submit_status": submit_status}
 
 
 class FakeTab:
-    """A tab that moves to its next page on every submit. `confirmations` scripts what each clean-up reports."""
+    """A tab that moves to its next page on every submit. `confirmations` scripts what each clean-up reports,
+    and a page's `submit_status` scripts what the browser reports the submission did."""
 
     def __init__(self, pages, fail_fill=None, fail_with=None, confirmations=(True,)):
         self.pages = [dict(p) for p in pages]
@@ -50,9 +61,6 @@ class FakeTab:
     def submission(self, object_id):
         return self.current["target"], self.current["method"]
 
-    def submit_target(self, object_id):
-        return self.current["target"]
-
     def fill(self, object_id, value, what):
         if what == "password" and self.fail_with is not None:
             raise self.fail_with
@@ -65,17 +73,17 @@ class FakeTab:
             self.current["method"] = self.current["method_after_fill"]
 
     def submit(self, object_id, expected_target, expected_method="post"):
+        if self.current["submit_status"]:
+            return self.current["submit_status"]
         if self.current["target"] != expected_target or self.current["method"] != expected_method:
-            return False
+            return CHANGED_BEFORE_SUBMIT
         self.submitted += 1
         self.index = min(self.index + 1, len(self.pages) - 1)
-        return True
+        return SUBMITTED
 
     def clean_up_confirmed(self):
         self.cleaned += 1
         return self.confirmations.pop(0) if self.confirmations else True
-
-    clean_up = clean_up_confirmed
 
 
 @pytest.fixture(autouse=True)
@@ -139,8 +147,6 @@ def test_FormSendsToAnotherOrigin_RefusedAndNothingTyped(entry, target):
 
 @pytest.mark.parametrize("method", ["get", "dialog", ""])
 def test_FormThatDoesNotPost_RefusedBeforeAnythingIsTyped(entry, method):
-    # The review's probe: <form action="/welcome"> has no method, so it sends by GET and the password would
-    # land in the page address and the browser history.
     tab = FakeTab([page(password=True, username=True, target="https://127.0.0.1/welcome", method=method),
                    page(url="https://127.0.0.1/welcome?username=leak-user&password=typed")])
 
@@ -160,8 +166,39 @@ def test_UsernameStepThatDoesNotPost_IsRefusedToo(entry):
     assert tab.filled == []
 
 
+def test_SubmitHandlerChangedTheForm_SubmissionIsCancelledAndRefused(entry):
+    # The review's case: the page's own onsubmit handler sets method to GET or points the action elsewhere,
+    # after every check made beforehand. The browser cancels it in that event and reports it back.
+    tab = FakeTab([page(password=True, username=True, submit_status=CANCELLED_IN_SUBMIT_HANDLER)])
+
+    result = _drive(tab, entry, entry.secret.reveal(), 2)
+
+    assert result.outcome == OUTCOME_REFUSED
+    assert "submit handler" in result.reason and "Nothing was sent" in result.reason
+    assert tab.submitted == 0 and tab.typed is True
+
+
+def test_SubmitHandlerChangedTheUsernameStep_IsCancelledToo(entry):
+    tab = FakeTab([page(username=True, submit_status=CANCELLED_IN_SUBMIT_HANDLER), page(password=True)])
+
+    result = _drive(tab, entry, entry.secret.reveal(), 2)
+
+    assert result.outcome == OUTCOME_REFUSED
+    assert tab.submitted == 0
+
+
+def test_SubmitReportsSomethingUnexpected_CountsAsNotSubmitted(entry):
+    tab = FakeTab([page(password=True, username=True, submit_status="who knows")])
+
+    result = _drive(tab, entry, entry.secret.reveal(), 2)
+
+    assert result.outcome == OUTCOME_FAILED
+    assert "not submitted" in result.reason
+
+
 def test_PageWithoutForm_IsFilledOnThePageOriginCheck(entry):
-    tab = FakeTab([page(password=True, username=True, target="", method=""), page(url="https://127.0.0.1/app")])
+    tab = FakeTab([page(password=True, username=True, target="", method=""),
+                   page(url="https://127.0.0.1/app")])
 
     assert _drive(tab, entry, entry.secret.reveal(), 2).outcome == OUTCOME_LOGGED_IN
 
@@ -292,6 +329,7 @@ def test_Login_EntryWithoutAddresses_Refused(store, monkeypatch):
     ([page(password=True, username=True)], 0.3, OUTCOME_FAILED),
     ([page(password=True, username=True), page(verification=True)], 2, OUTCOME_VERIFICATION),
     ([page(password=True, username=True, target_after_fill="http://127.0.0.1:9999/steal")], 2, OUTCOME_FAILED),
+    ([page(password=True, username=True, submit_status=CANCELLED_IN_SUBMIT_HANDLER)], 2, OUTCOME_REFUSED),
 ])
 def test_Login_AnyOutcomeAfterTyping_CleansUpTheTab(entry, monkeypatch, pages, timeout, outcome):
     tab = FakeTab(pages)
@@ -312,8 +350,6 @@ def test_Login_RefusedBeforeTyping_LeavesTheTabAlone(entry, monkeypatch):
 
 
 def test_Login_CleanUpNotConfirmedOnTheLoginConnection_IsRedoneOnAFreshConnection(entry, monkeypatch):
-    # The review's case: the login connection drops after the password was delivered, so clean-up on it
-    # cannot complete. It must be done again over a new connection to the same tab.
     tab = FakeTab([page(password=True, username=True), page(url="https://127.0.0.1/welcome")], confirmations=[False, True])
     connections, closed = _patch_browser(monkeypatch, LOGIN_TAB, tab)
 

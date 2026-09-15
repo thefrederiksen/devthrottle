@@ -151,6 +151,55 @@ def test_PythonPrintedStrings_AreScrubbed(store, printer, tail):
     assert secret[:16] not in result.stdout and secret[18:34] not in result.stdout
 
 
+@pytest.mark.parametrize("output_encoding", ["utf-8", "utf-16-le", "cp1252"])
+@pytest.mark.parametrize("container", ["dict", "list", "bytearray"])
+@pytest.mark.parametrize("value_encoding", ["str", "utf-8", "utf-16-le", "utf-16-be", "cp1252"])
+def test_PrintedValuesInAnyEncoding_AreScrubbed(store, value_encoding, container, output_encoding):
+    """The review's output matrix: the secret as text or as bytes in any encoding, inside ordinary
+    containers, with the output itself written in any of three encodings."""
+    import secrets as token
+
+    if value_encoding == "str" and container == "bytearray":
+        pytest.skip("bytearray needs bytes")
+    # Both quote marks, a euro sign (which Windows-1252 has and UTF-8 encodes differently), a backslash.
+    secret = token.token_hex(8) + chr(39) + chr(34) + chr(0x20AC) + chr(92) + token.token_hex(8)
+    add_entry(store, name="matrix", secret=secret, uses=("run",))
+    value_code = "s" if value_encoding == "str" else f"s.encode({value_encoding!r})"
+    expression = {"dict": "{'password': v}", "list": "[v]", "bytearray": "bytearray(v)"}[container]
+    script = (f"import os,sys; s=os.environ['CC_SECRET']; v={value_code}; "
+              f"sys.stdout.buffer.write(str({expression}).encode({output_encoding!r}))")
+
+    result = run_with_secret(store.get("matrix"), [PY, "-c", script], "env")
+
+    assert result.exit_code == 0
+    assert REDACTED in result.stdout
+    assert secret[:16] not in result.stdout and secret[-16:] not in result.stdout
+
+
+@pytest.mark.parametrize("encoding", ["utf-16-le", "utf-16-be", "utf-32-le", "cp1252", "cp850", "mac-roman"])
+def test_RawEncodedBytes_AreScrubbed(encoding):
+    """A command that writes the secret as raw bytes in some encoding, not as a Python representation of
+    them. The scrubber's byte forms come from every codec, so this is caught whichever one it used.
+
+    Checked as BYTES: such output mixes widths (ASCII around UTF-16, say), so decoding it to text mangles
+    the marker and would say nothing about whether the secret itself survived.
+    """
+    import secrets as token
+
+    from src.redact import Scrubber
+
+    secret = token.token_hex(8) + chr(0xE9) + token.token_hex(8)
+    scrubber = Scrubber()
+    scrubber.add(secret, "leak-user")
+    raw = b"before " + secret.encode(encoding) + b" after"
+
+    scrubbed = scrubber.scrub_bytes(raw)
+
+    assert secret.encode(encoding) not in scrubbed
+    assert REDACTED.encode(encoding) in scrubbed
+    assert scrubbed.startswith(b"before ") and scrubbed.endswith(b" after")
+
+
 def test_ExitCode_IsPassedThrough(store):
     entry, _ = _entry(store)
 

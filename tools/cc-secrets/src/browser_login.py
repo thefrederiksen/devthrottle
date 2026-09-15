@@ -10,29 +10,41 @@ port, exactly):
 1. the tab's address, read from the browser (Page.getFrameTree), which page scripts cannot alter;
 2. where the form will send it: the submit button's formaction, else the form's action;
 3. HOW the form will send it: only POST is accepted. A GET form would put the password in the page
-   address and the browser history, where nothing afterwards can remove it; a dialog form sends nothing
-   anywhere a login could be checked.
+   address and the browser history, where nothing afterwards can remove it.
 
-The form lookup, the checks and the fill run in an ISOLATED script world created for this login, which
-shares the page's document but not its JavaScript objects, so a script the page - or an agent driving the
-same tab - put in place cannot change what `form.action`, `form.method` or the value setter mean to this
-code. The fields are handled through object handles the browser destroys if the tab navigates, and the
-submit re-checks destination and method, so a change made in between stops the submit.
+Those checks are not enough on their own, because the browser reads the form's method and action AFTER the
+page's submit handlers have run, so a handler could change either one after a check made beforehand. The
+submission is therefore bound to what was checked (review of pull request 2891):
+
+- a listener in this login's own isolated script world, at the window in the BUBBLE phase - which runs
+  after the page's own handlers - re-reads where and how the form is about to send, and CANCELS the
+  submission in that event if either has changed;
+- afterwards the tab's address and history are checked for the secret, and cleared if it is there.
+
+Holding the form's `action` and `method` unwritable was tried and REMOVED: a property defined on a node in
+an isolated world is only visible in that world, so the page's own scripts still see the original setter
+and still change the form. Measured against real Chrome: with only that hold in place all three of the
+review's cases still leaked, and with only the cancelling listener none of them did.
+
+The form lookup, the checks and the fill run in an ISOLATED script world, which shares the page's
+document but not its JavaScript objects, so a script the page - or an agent driving the same tab - put in
+place cannot change what `form.action`, `form.method` or the value setter mean to this code.
 
 Once a password has been typed, whatever the outcome - logged in, refused, failed, or a crash - the tab is
 made safe, and that is CONFIRMED, not assumed: every password field is emptied (hidden ones included), the
-tab's back and forward history is reset, and then the tab is read back to confirm no password field holds
-a value and only one history entry is left. If that cannot be confirmed on the login's own connection -
-for example because the connection dropped - it is done again over a fresh connection to the same tab. If
-it still cannot be confirmed, the tab is closed. If the tab cannot be closed either, the login fails with
-a message telling the person to close it.
+tab's back and forward history is reset, and then the tab is read back to confirm that no password field
+holds a value, that one history entry is left, and that neither the address nor the history carries the
+secret. If that cannot be confirmed on the login's own connection - for example because the connection
+dropped - it is done again over a fresh connection to the same tab. If it still cannot be confirmed, the
+tab is closed. If the tab cannot be closed either, the login fails with a message telling the person to
+close it.
 
 Not covered, stated plainly: JavaScript already running in the page receives the password, because the
-site needs it - so a listener an agent attached to the page before calling login can copy it. The same
-holds for a form that sends with JavaScript instead of a form action. Also not covered: login forms
-inside cross-origin frames, two-step verification and captchas (reported as a verification stop for the
-owner to finish by hand), and a hostile process running as this same user that binds the profile's
-debug port in place of the real browser.
+site needs it - so a listener an agent attached to the page before calling login can copy it, and a page
+that sends the password with its own script instead of a form action can send it anywhere. Also not
+covered: login forms inside cross-origin frames, two-step verification and captchas (reported as a
+verification stop for the owner to finish by hand), and a hostile process running as this same user that
+binds the profile's debug port in place of the real browser.
 """
 
 from __future__ import annotations
@@ -53,6 +65,11 @@ OUTCOME_LOGGED_IN = "logged in"
 OUTCOME_FAILED = "failed"
 OUTCOME_VERIFICATION = "verification"
 OUTCOME_REFUSED = "refused"
+
+SUBMITTED = "form"
+SUBMITTED_BY_ENTER = "enter"
+CHANGED_BEFORE_SUBMIT = "changed"
+CANCELLED_IN_SUBMIT_HANDLER = "aborted"
 
 POLL_SECONDS = 0.5
 SETTLED_POLLS = 3
@@ -99,16 +116,23 @@ _STATE = "(() => {" + _VISIBLE + """
 
 # Where and how the form holding `this` will send: the submit button's formaction and formmethod, else the
 # form's action and method. `form.method` is always "get", "post" or "dialog" (a missing method is "get").
-# An empty target means there is no form and the page would send with its own JavaScript.
-_TARGET = """
+_READ_SUBMISSION = """
   const form = this.form;
-  const button = form ? form.querySelector('button[type=submit], input[type=submit], button:not([type])') : null;
-  const submitter = (button && button.form === form) ? button : null;
-  const target = !form ? '' : ((submitter && submitter.hasAttribute('formaction')) ? submitter.formAction : form.action);
-  const method = !form ? '' : ((submitter && submitter.hasAttribute('formmethod')) ? submitter.formMethod : form.method);
+  const readSubmission = () => {
+    const button = form ? form.querySelector('button[type=submit], input[type=submit], button:not([type])') : null;
+    const submitter = (button && button.form === form) ? button : null;
+    return {
+      target: !form ? '' : ((submitter && submitter.hasAttribute('formaction')) ? submitter.formAction : form.action),
+      method: !form ? '' : ((submitter && submitter.hasAttribute('formmethod')) ? submitter.formMethod : form.method),
+      submitter: submitter,
+    };
+  };
 """
 
-_SUBMISSION = "function() {" + _TARGET + "  return {target: target, method: method};\n}"
+_SUBMISSION = "function() {" + _READ_SUBMISSION + """
+  const now = readSubmission();
+  return {target: now.target, method: now.method};
+}"""
 
 _SET_VALUE = """function(value) {
   this.focus();
@@ -119,13 +143,32 @@ _SET_VALUE = """function(value) {
   return this.value.length === value.length;
 }"""
 
-_SUBMIT = "function(expectedTarget, expectedMethod) {" + _TARGET + """
-  if (target !== expectedTarget || method !== expectedMethod) return 'changed';
+_SUBMIT = "function(expectedTarget, expectedMethod) {" + _READ_SUBMISSION + """
+  const first = readSubmission();
+  if (first.target !== expectedTarget || first.method !== expectedMethod) return 'changed';
   if (!form) { this.focus(); return 'enter'; }
-  if (typeof form.requestSubmit === 'function') {
-    if (submitter) form.requestSubmit(submitter); else form.requestSubmit();
-  } else if (submitter) { submitter.click(); } else { form.submit(); }
-  return 'form';
+
+  let cancelled = false;
+  // The page's own handlers run at the form; this one runs after them, in the bubble phase at the window,
+  // so it sees whatever they changed - and cancels the submission there.
+  const guard = event => {
+    const now = readSubmission();
+    if (now.target !== expectedTarget || now.method !== expectedMethod) {
+      cancelled = true;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+  };
+  window.addEventListener('submit', guard, false);
+
+  try {
+    if (typeof form.requestSubmit === 'function') {
+      if (first.submitter) form.requestSubmit(first.submitter); else form.requestSubmit();
+    } else if (first.submitter) { first.submitter.click(); } else { form.submit(); }
+  } finally {
+    window.removeEventListener('submit', guard, false);
+  }
+  return cancelled ? 'aborted' : 'form';
 }"""
 
 _CLEAR_PASSWORDS = """(() => {
@@ -138,6 +181,7 @@ _CLEAR_PASSWORDS = """(() => {
 })()"""
 
 _PASSWORD_LEFT = "Array.from(document.querySelectorAll('input[type=password]')).some(e => e.value.length > 0)"
+_ADDRESS = "location.href"
 
 
 @dataclass
@@ -277,41 +321,60 @@ class _Tab:
         if "exceptionDetails" in reply or reply["result"].get("value") is not True:
             raise CdpError(f"The {what} field did not accept the value.")
 
-    def submit(self, object_id: str, expected_target: str, expected_method: str) -> bool:
-        """Submit, unless the form no longer sends to `expected_target` by `expected_method`. Returns False then."""
+    def submit(self, object_id: str, expected_target: str, expected_method: str) -> str:
+        """Submit, held to `expected_target` and `expected_method`. Returns what happened: SUBMITTED,
+        SUBMITTED_BY_ENTER, CHANGED_BEFORE_SUBMIT (nothing was sent), or CANCELLED_IN_SUBMIT_HANDLER
+        (the page's own submit handler changed it, and the submission was cancelled in that event)."""
         reply = self._conn.call("Runtime.callFunctionOn", {
             "objectId": object_id, "functionDeclaration": _SUBMIT,
             "arguments": [{"value": expected_target}, {"value": expected_method}], "returnByValue": True})
         if "exceptionDetails" in reply:
             raise CdpError("Submitting the form raised an error in the page.")
-        how = reply["result"].get("value")
-        if how == "changed":
-            return False
-        if how == "enter":
+        how = str(reply["result"].get("value") or "")
+        if how == SUBMITTED_BY_ENTER:
             for kind in ("rawKeyDown", "char", "keyUp"):
                 params = {"type": kind, "key": "Enter", "code": "Enter", "windowsVirtualKeyCode": 13}
                 if kind == "char":
                     params["text"] = "\r"
                 self._conn.call("Input.dispatchKeyEvent", params)
-        return True
+        return how
+
+    def _address_and_history(self) -> Tuple[str, List[str]]:
+        address = self._evaluate(_ADDRESS, True).get("result", {}).get("value") or ""
+        entries = self._conn.call("Page.getNavigationHistory").get("entries", [])
+        return str(address), [str(e.get("url", "")) for e in entries]
 
     def clean_up_confirmed(self) -> bool:
-        """Empty every password field and reset the history, then read the tab back. True only when no password
-        field holds a value and one history entry is left. Any failure - including a dropped connection - is
-        logged by type and answers False, because this also runs while an error is on its way out."""
+        """Empty every password field, reset the history, then read the tab back. True only when no password
+        field holds a value, one history entry is left, and neither the address nor the history carries the
+        secret. Any failure - including a dropped connection - is logged by type and answers False, because
+        this also runs while an error is on its way out."""
+        secret = self._entry.secret.reveal()
         try:
             cleared = self._evaluate(_CLEAR_PASSWORDS, True)
             filelog.write(f"[login] cleared {cleared.get('result', {}).get('value')} password field(s)")
             self._conn.call("Page.resetNavigationHistory", {})
+            address, history = self._address_and_history()
+            if secret in address or any(secret in url for url in history):
+                # The page put the password in its own address (a GET submission it forced). The address is
+                # the current history entry, so the only way to remove it is to leave the page.
+                filelog.write("[login] the tab's address carried the password; leaving the page and clearing it")
+                self._conn.call("Page.navigate", {"url": "about:blank"})
+                time.sleep(POLL_SECONDS)
+                self._world = None
+                self._conn.call("Page.resetNavigationHistory", {})
+                address, history = self._address_and_history()
+                if secret in address or any(secret in url for url in history):
+                    filelog.write("[login] clean-up NOT confirmed: the address still carries the password")
+                    return False
             left = self._evaluate(_PASSWORD_LEFT, True)
             if "exceptionDetails" in left or left.get("result", {}).get("value") is not False:
                 filelog.write("[login] clean-up NOT confirmed: a password field still holds a value")
                 return False
-            entries = self._conn.call("Page.getNavigationHistory").get("entries", [])
-            if len(entries) != 1:
-                filelog.write(f"[login] clean-up NOT confirmed: {len(entries)} history entries are left")
+            if len(history) != 1:
+                filelog.write(f"[login] clean-up NOT confirmed: {len(history)} history entries are left")
                 return False
-            filelog.write("[login] clean-up confirmed: no password field holds a value and the history is reset")
+            filelog.write("[login] clean-up confirmed: no password field, no address or history entry holds it")
             return True
         except Exception as exc:
             filelog.write(f"[login] clean-up FAILED: {type(exc).__name__}")
@@ -369,6 +432,19 @@ def _wait(tab: _Tab, deadline: float, done) -> Optional[Dict]:
     return None
 
 
+def _submission_stopped(status: str, origin: str) -> Optional[LoginResult]:
+    """The result when a submission did not go ahead, or None when it did."""
+    if status == CHANGED_BEFORE_SUBMIT:
+        return LoginResult(OUTCOME_FAILED, "The form's destination or method changed after it was checked, so it "
+                           "was not submitted.", origin)
+    if status == CANCELLED_IN_SUBMIT_HANDLER:
+        return LoginResult(OUTCOME_REFUSED, "The page's own submit handler changed where or how the form sends, so "
+                           "the submission was cancelled in that event. Nothing was sent.", origin)
+    if status not in (SUBMITTED, SUBMITTED_BY_ENTER):
+        return LoginResult(OUTCOME_FAILED, f"The form was not submitted ({status or 'no answer'}).", origin)
+    return None
+
+
 def _drive(tab: _Tab, entry: Entry, secret: str, timeout_seconds: float) -> LoginResult:
     deadline = time.monotonic() + timeout_seconds
     allowed = entry.allowed_domains
@@ -418,13 +494,13 @@ def _drive(tab: _Tab, entry: Entry, secret: str, timeout_seconds: float) -> Logi
         if password_id:
             tab.typed = True
             tab.fill(password_id, secret, "password")
-            if not tab.submit(password_id, target, method):
-                return LoginResult(OUTCOME_FAILED, "The form's destination or method changed after it was checked, "
-                                   "so it was not submitted.", origin_of(url))
+            stopped = _submission_stopped(tab.submit(password_id, target, method), origin_of(url))
+            if stopped is not None:
+                return stopped
             return _await_outcome(tab, deadline, origin_of(url))
-        if not tab.submit(username_id, target, method):
-            return LoginResult(OUTCOME_FAILED, "The form's destination or method changed after it was checked, "
-                               "so it was not submitted.", origin_of(url))
+        stopped = _submission_stopped(tab.submit(username_id, target, method), origin_of(url))
+        if stopped is not None:
+            return stopped
         after = _wait(tab, deadline, lambda s: s["password"] or s["verification"])
         if after is None:
             return LoginResult(OUTCOME_FAILED, "No password field appeared after the username was submitted.", origin_of(url))

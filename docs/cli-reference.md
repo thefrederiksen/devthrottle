@@ -1043,11 +1043,14 @@ OPTIONS:
 
 Open the login page in that browser first. The tab's address AND the address the form sends to must be
 allowed, and the form must send by POST: a GET form would put the password in the page address and the
-browser history, so it is refused before anything is typed. Outcomes: `logged in`, `refused` (nothing typed), `verification` (finish two-step verification
+browser history, so it is refused before anything is typed. The browser reads the form's method and
+address again after the page's own submit handlers have run, so those are re-checked inside the submit
+event itself and the submission is cancelled there if the page changed either one. Outcomes: `logged in`, `refused` (nothing typed), `verification` (finish two-step verification
 by hand), `failed`. After a password has been typed, whatever the outcome, every password field in the tab
-is emptied and the tab's back/forward history is reset, and that is confirmed by reading the tab back. If it
-cannot be confirmed - for example the connection dropped - it is redone over a fresh connection, and if that
-fails too the tab is closed.
+is emptied and the tab's back/forward history is reset, and that is confirmed by reading the tab back -
+including that neither the address nor the history holds the password; if one does, the tab is taken off
+that page first. If it cannot be confirmed - for example the connection dropped - it is redone over a fresh
+connection, and if that fails too the tab is closed.
 
 ---
 

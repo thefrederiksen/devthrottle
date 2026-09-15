@@ -28,7 +28,9 @@ def test_Search_FindsAPlantedSecret_InEveryForm(tmp_path):
 
     for form in variants_for(secret, "leak-user"):
         leaky = tmp_path / "leaky.log"
-        leaky.write_text(json.dumps({"marker": RUN_MARKER, "line": f"before {form} after"}) + "\n", encoding="utf-8")
+        # Planted as plain text: writing it as JSON would escape the backslashes in forms like Python's
+        # repr of UTF-32 bytes, so the file would no longer hold the form the search looks for.
+        leaky.write_text(f"{RUN_MARKER} before {form} after\n", encoding="utf-8")
         assert search.search_file(leaky, RUN_MARKER, tmp_path / "work"), form
     assert search.search_file(clean, RUN_MARKER, tmp_path / "work") == []
 
