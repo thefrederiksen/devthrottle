@@ -108,8 +108,10 @@ HOW THE PERSON ANSWERS
   into the composer but not sent, the decision may already be made and the job collapses to getting it
   sent. There is nothing to select and only something to confirm, so this is the ONE answer that offers
   no options at all: answerVia "keys", "options": [], and a menu with selectionMode "single", submit
-  "\r", and a question that QUOTES the parked text - the owner is about to send it with one tap and
-  must be able to read what it says. Never resend the text itself, which would double it. Say that the
+  "\r", and a question that IS the parked text, copied off the screen character for character. The
+  question is checked against the screen exactly as the receipt is, so framing words around it - "Send
+  the reply already typed: ..." - are not found and throw the answer away. Copy the typed line and
+  nothing else; it is what the owner reads before he sends it with one tap. Never resend the text itself, which would double it. Say that the
   send state is uncertain, because nothing here measured it.
 
 RISK - and why it is a separate word

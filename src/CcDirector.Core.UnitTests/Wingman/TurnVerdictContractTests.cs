@@ -606,15 +606,35 @@ public sealed class TurnVerdictContractTests
     }
 
     [Fact]
-    public void ParseAndValidate_OptionsAbsentAltogether_IsNoOptionsAndAccepted()
+    public void ParseAndValidate_OptionsAbsentAltogether_Rejected()
     {
-        // The control, and the only way an answer says there are none: leave the field out. This is the
-        // ordinary shape of a report, and it must stay accepted or every report would refuse.
+        // THIS TEST USED TO PIN THE OPPOSITE. Round three made an explicit null refuse and left ABSENT
+        // meaning "there are none", which left two ways to say one thing: the same answer could arrive
+        // with the member missing or with an empty list, and the same stored list was made from either.
+        // The shape declares the member, the prompt shows it, and the parked reply needs it present and
+        // empty - so there is ONE form, and a missing member is not an empty list.
         var answer = AnswerWithoutOptions(
             verdict: TurnVerdictVocabulary.Finished,
             evidence: "Nothing is needed from you - I will stop here.",
             label: "Retention sweep done",
             risk: "none");
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, ReportStop(), Model, ObservedAt);
+
+        Assert.True(result.Failed);
+        Assert.Contains("has no 'options'", result.FailureReason);
+    }
+
+    [Fact]
+    public void ParseAndValidate_OptionsPresentAndEmpty_IsTheOneWayToSayThereAreNone()
+    {
+        // The control for the test above, and the form every accepted report in this suite uses.
+        var answer = Answer(
+            verdict: TurnVerdictVocabulary.Finished,
+            evidence: "Nothing is needed from you - I will stop here.",
+            label: "Retention sweep done",
+            risk: "none",
+            options: new object[0]);
 
         var result = TurnVerdictContract.ParseAndValidate(answer, ReportStop(), Model, ObservedAt);
 
@@ -1406,32 +1426,101 @@ public sealed class TurnVerdictContractTests
 
     // ============================== the already-typed reply: the one keys answer with no options
 
+    /// <summary>A stop whose screen shows the person's own half-typed reply sitting in the composer,
+    /// unsent. The parked text is ON THE SCREEN, which is what makes the one-tap confirm checkable.</summary>
+    private static TurnVerdictPackage ParkedReplyStop() => MenuStop() with
+    {
+        ScreenRows = new[]
+        {
+            "  I have staged the change and it is ready to go out.",
+            "",
+            "> yes, push it to production",
+        },
+    };
+
     [Fact]
     public void ParseAndValidate_AlreadyTypedReply_AcceptedWithNoOptions()
     {
         // The person has typed their answer into the composer and the only action left is to send it.
         // There is nothing to toggle and something to confirm, so the submit IS the action and the
-        // route sends it alone. This is the single exception to "keys must offer something to select".
+        // route sends it alone. This is the single exception to "keys must offer something to select",
+        // and the question is the typed text itself, copied off the screen - which is what proves the
+        // owner can read what one tap will send.
         var answer = Answer(
             verdict: TurnVerdictVocabulary.NeededYou,
-            evidence: "Push the deploy guard to main?",
+            evidence: "I need your decision before I can carry on.",
             label: "Send the reply already typed",
             risk: "irreversible",
             answerVia: "keys",
             menu: new
             {
-                question = "Send the reply already typed: 'yes, push it to production'",
+                question = "yes, push it to production",
                 selectionMode = "single",
                 submit = "\r",
             },
             options: new object[0]);
 
-        var result = TurnVerdictContract.ParseAndValidate(answer, MenuStop(), Model, ObservedAt);
+        var result = TurnVerdictContract.ParseAndValidate(answer, ParkedReplyStop(), Model, ObservedAt);
 
         Assert.False(result.Failed, result.FailureReason);
         Assert.Empty(result.Options);
         Assert.Equal("\r", result.Menu!.Submit);
-        Assert.Contains("already typed", result.Menu.Question);
+        Assert.Equal("yes, push it to production", result.Menu.Question);
+    }
+
+    [Fact]
+    public void ParseAndValidate_OneTapConfirmWhoseQuestionIsNotOnTheScreen_Rejected()
+    {
+        // The leg this exception was missing until round five. Every other part is the parked-reply
+        // shape - keys, no options, single, a carriage-return submit - and the question names something
+        // that is nowhere on the screen. Accepted, that is a one-tap Enter offered under a sentence
+        // nothing supports: the owner confirms a send he cannot see.
+        var answer = Answer(
+            verdict: TurnVerdictVocabulary.NeededYou,
+            evidence: "I need your decision before I can carry on.",
+            label: "Send the reply already typed",
+            risk: "irreversible",
+            answerVia: "keys",
+            menu: new
+            {
+                question = "Send the nightly sweep report to the whole team?",
+                selectionMode = "single",
+                submit = "\r",
+            },
+            options: new object[0]);
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, ParkedReplyStop(), Model, ObservedAt);
+
+        Assert.True(result.Failed);
+        Assert.Contains("question is not on the screen", result.FailureReason);
+    }
+
+    [Fact]
+    public void ParseAndValidate_OneTapConfirmQuestionMatchedAfterWhitespaceNormalisation_Accepted()
+    {
+        // The same tolerance the receipt check has, and for the same reason: the screen imposed the
+        // spacing, and a run of spaces is not a different sentence.
+        var package = MenuStop() with
+        {
+            ScreenRows = new[] { "> yes,    push it   to production" },
+        };
+        var answer = Answer(
+            verdict: TurnVerdictVocabulary.NeededYou,
+            evidence: "I need your decision before I can carry on.",
+            label: "Send the reply already typed",
+            risk: "irreversible",
+            answerVia: "keys",
+            menu: new
+            {
+                question = "yes, push it to production",
+                selectionMode = "single",
+                submit = "\r",
+            },
+            options: new object[0]);
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, package, Model, ObservedAt);
+
+        Assert.False(result.Failed, result.FailureReason);
     }
 
     [Fact]

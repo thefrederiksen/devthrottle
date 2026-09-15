@@ -103,9 +103,20 @@ public sealed class TurnVerdictOptionDto
     /// <summary>The short label, naming the ACTION being decided rather than the mechanism.</summary>
     public string Key { get; set; } = "";
 
-    /// <summary>Exactly the bytes to type. For a keys option this includes the carriage return where
-    /// the picker needs one, and the activation route never appends another; for a reply option the
-    /// activation route always appends one.</summary>
+    /// <summary>
+    /// ONLY the bytes that CHOOSE this option, and never a carriage return or a line feed.
+    ///
+    /// For a reply option the activation route sends these bytes and appends exactly one Enter. For a
+    /// keys option it sends the selected options' bytes in the order given and THEN the menu's submit,
+    /// under one screen lock - so the confirm lives in <see cref="TurnVerdictMenuDto.Submit"/> and never
+    /// inside a send.
+    ///
+    /// This record said the opposite until the contract was amended: that a keys option carried its own
+    /// carriage return and the route appended none. Three parts of the product each described a
+    /// different rule, and the result was a multiple-select nobody could answer - the route took one
+    /// option, re-checked the screen, and refused the second toggle by its own lock. A reader building
+    /// against the old sentence would build exactly the action the validator now rejects.
+    /// </summary>
     public string Send { get; set; } = "";
 
     /// <summary>True on at most one option.</summary>

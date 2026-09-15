@@ -349,7 +349,7 @@ public static class TurnVerdictContract
                 return Refuse(package, model, turnEndObservedAtUtc, menuResult.Reason);
 
             // ---- CAN THE ROUTE ACTUALLY PERFORM THIS, EXACTLY ONCE? --------------------------
-            var executableFault = ValidateExecutable(answerVia, menuResult.Menu, options);
+            var executableFault = ValidateExecutable(package, answerVia, menuResult.Menu, options);
             if (executableFault is not null)
                 return Refuse(package, model, turnEndObservedAtUtc, executableFault);
 
@@ -509,6 +509,19 @@ public static class TurnVerdictContract
                 + "null; it is not read as no recommendation, because that stores a silence the judge "
                 + "did not answer with";
 
+        // options is REQUIRED and is an array - empty when there are none, exactly as the prompt shows.
+        // Round three made an explicit null refuse and left ABSENT meaning "there are none", which is a
+        // second way to say one thing: the same answer could arrive with the member missing or with an
+        // empty array, and the same list was synthesised from either. The shape declares the member, so
+        // the member is there.
+        if (!root.TryGetProperty("options", out var options))
+            return "the answer has no 'options'; the shape declares it as a list, empty when there is "
+                + "nothing to offer, and a missing member is not an empty list - one shape, not two";
+        if (options.ValueKind != JsonValueKind.Array)
+            return $"options is present but is not a list (it is {options.ValueKind}); the shape declares "
+                + "an array and never a null, so a malformed answer is thrown away whole rather than read "
+                + "as an answer that offered nothing";
+
         if (root.TryGetProperty("menu", out var menu)
             && menu.ValueKind is not (JsonValueKind.Object or JsonValueKind.Null))
             return $"'menu' is {menu.ValueKind} where the shape declares an object or null; it is not "
@@ -539,6 +552,7 @@ public static class TurnVerdictContract
     /// confirm.
     /// </summary>
     private static string? ValidateExecutable(
+        TurnVerdictPackage package,
         string answerVia,
         TurnVerdictMenuDto? menu,
         IReadOnlyList<TurnVerdictOptionDto> options)
@@ -575,12 +589,13 @@ public static class TurnVerdictContract
         // reply into the composer and the only action left is to send it. There is nothing to toggle and
         // something to confirm, so the submit is the whole action and the route sends it alone.
         //
-        // NOT VALIDATED, and it is a gap rather than an oversight: the rule also says the menu's question
-        // must NAME the parked text, so the owner can see what one tap is about to send instead of
-        // confirming something invisible. Nothing here can check that - this package carries no
-        // mechanically extracted composer text, so there is nothing to compare the question against. It
-        // is an instruction to the judge in the prompt and nothing more, and a judge that ignores it
-        // produces an answer this contract accepts.
+        // All three legs are checked, INCLUDING the question. This was written as a gap in round four -
+        // "the package carries no mechanically extracted composer text, so there is nothing to compare
+        // the question against" - and that was wrong. The parked text is ON THE SCREEN, which the package
+        // does carry, so the question can be held to it exactly as a receipt is held to the reply. An
+        // exception nobody can check is not an exception, it is a hole: without this leg a judge could
+        // offer a one-tap Enter under any question at all, and the owner would confirm a send he cannot
+        // see.
         if (menu.Submit != CarriageReturnText)
             return "the answer is a selection in a picker, offers nothing to select, and has nothing to "
                 + "confirm either; a question with no buttons and no submit is one the owner cannot "
@@ -589,6 +604,21 @@ public static class TurnVerdictContract
         if (menu.SelectionMode != "single")
             return "a pick-any-that-apply menu with nothing to pick; the only answer that may carry no "
                 + "options is the already-typed reply, and that is a single confirm";
+
+        // The question must be ON THE SCREEN, word for word, after the same whitespace normalisation the
+        // receipt check uses. The owner is about to send something with one tap; the only thing that can
+        // tell him what, is the question, and the only thing that can prove the question is the parked
+        // text is finding it where the parked text is.
+        //
+        // The question checked is the one that gets STORED, which is capped like every other prose field.
+        // A question long enough to be cut will not be found and the answer is refused - toward red,
+        // never toward quiet, which is the direction every doubt in this file falls.
+        var screen = NormalizeScreen(package.ScreenRows);
+        if (screen.Length == 0 || BriefBuilder.FindVerbatim(screen, menu.Question) is null)
+            return "the answer offers a one-tap confirm but its question is not on the screen; the only "
+                + "answer that may carry no options is the reply the person has already typed, and the "
+                + "question has to quote it - otherwise the owner is asked to send something he cannot "
+                + "read";
 
         return null;
     }
@@ -609,20 +639,9 @@ public static class TurnVerdictContract
     private static OptionsResult ReadOptions(JsonElement root)
     {
         var options = new List<TurnVerdictOptionDto>();
-        // ABSENT is the only way to say there are none, and it is the ordinary shape of a report.
-        if (!root.TryGetProperty("options", out var array))
-            return new OptionsResult(options, null);
-
-        // Present and not a list - and an explicit null is not a list. The frozen shape declares options
-        // an array and, unlike menu, never a nullable one, so there is no reading of null that this file
-        // is entitled to choose. Round two of this contract let null through as "no options"; that was
-        // the same silent repair as reading an object that way, one step quieter, and a malformed answer
-        // that happens to carry a good receipt is still a malformed answer.
-        if (array.ValueKind != JsonValueKind.Array)
-            return new OptionsResult(options,
-                $"options is present but is not a list (it is {array.ValueKind}); the shape declares an "
-                + "array and never a null, so a malformed answer is thrown away whole rather than read as "
-                + "an answer that offered nothing");
+        // Present, and an array: the shape pass has already proved both, so an empty list here is the
+        // judge saying there is nothing to offer - the ordinary shape of a report.
+        var array = root.GetProperty("options");
 
         foreach (var element in array.EnumerateArray())
         {
