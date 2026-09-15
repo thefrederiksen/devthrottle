@@ -643,6 +643,9 @@ internal static class GatewayWingmanVoiceEndpoint
             // when it is in flight, and a boundary that arrives while this one is in flight is dropped by the gate.
             // GAP, NOT PROVEN: a boundary observed only after this judgement finished, on a screen that repainted in
             // between, is judged a second time.
+            // GAP, NOT PROVEN: THIS ROUTE HAS NOT BEEN DRIVEN ON THE RIG. Slice C's live proof drove the turn end,
+            // the idle sweep and explain; a spoken reply reaching this narration through the real transcription
+            // path, with the fake microphone, was not driven.
             await WaitUntilNotWorkingAsync(reqTenant.Value, sid, ct);
             // Gateway-owned work (CancellationToken.None) so navigating away does not lose the narration. A spoken
             // reply IS voice mode being used, so this one enrols the session.

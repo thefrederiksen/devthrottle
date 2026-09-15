@@ -2613,6 +2613,11 @@ public sealed class GatewayHost : IAsyncDisposable
     /// own store for the conversation; the included FAST model for the judge, built through
     /// <see cref="Wingman.TurnVerdictJudge.BuildBrain"/> so it carries the settings' thirty-second timeout; the
     /// verdict store; and the activity ledger inside the owning account's scope.
+    ///
+    /// GAP, NOT PROVEN: THIS WIRING IS NOT UNDER TEST. The thirty-second judge timeout is pinned on
+    /// <see cref="Wingman.TurnVerdictJudge.BuildBrain"/> by its own tests; that this method builds the judge
+    /// through that builder, and hands the service these legs and no others, is read from the code below and
+    /// is not asserted by any test.
     /// </summary>
     private Wingman.GatewayTurnVerdictEnvironment BuildTurnVerdictEnvironment() =>
         new(

@@ -44,7 +44,9 @@ public static class SpokenPaths
         // TURN NARRATION IS NOT IN THIS LIST ANY MORE. Since the Wingman-on-every-turn mission it is the "spoken"
         // field of the turn verdict, registered under SpokenFieldPaths below. The separate terminal-failure
         // narration went with it: a failure is one of the two shapes the verdict judges. What remains here is
-        // the translator's whole-answer path, which the instructions editor's draft (issue #537) runs through.
+        // the translator's whole-answer path, TranslateWithAsync, which is kept for the instructions editor's
+        // draft (issue #537). No production route calls it today - its only callers are tests - so it is
+        // registered here to keep its prompt in the language checks until that draft route exists.
         new SpokenPath(
             "draft narration for edited instructions (WingmanTranslator.TranslateWithAsync)",
             "WingmanTranslator.BuildPrompt",
@@ -70,7 +72,6 @@ public static class SpokenPaths
             CarModeBrain.BuildSystemPrompt),
     };
 
-    /// <summary>
     /// <summary>
     /// SPOKEN-FIELD paths: the output as a whole is machine-read, but named FIELDS inside it are read
     /// aloud verbatim. They carry <see cref="SpeechContract.SpeakInLanguageRule"/> and NOT the whole
