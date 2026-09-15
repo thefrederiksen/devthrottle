@@ -18,6 +18,7 @@ import { isSettingsDirty, prettyPrintSettings } from "@devthrottle/client-core/f
 import { ConfirmDialog } from "../components";
 import { clockLabel, portLabel, relativeTime, repoBasename, uptime } from "./format";
 import { directorPrimaryLabel } from "./directorsFormat";
+import { DirectorUpdateCard } from "./DirectorUpdateCard";
 
 // The standalone Director page (issue #975) - the React port of the Blazor DirectorDetail.razor:
 // registration facts, health, the Director's live sessions, and the repositories it offers for new
@@ -307,6 +308,7 @@ export function DirectorDetailView() {
         </div>
 
         <div className="ddet-side">
+          <DirectorUpdateCard directorId={d.directorId} machineName={d.machineName ?? ""} />
           <section className="ddet-sec">
             <div className="ddet-sec-head"><h2>Registration</h2></div>
             <dl className="ddet-kv">

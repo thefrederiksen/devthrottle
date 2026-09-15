@@ -41,6 +41,8 @@ public sealed class LauncherDeclaredCapabilitiesTests
     [InlineData(LauncherCapabilities.Launch)]
     [InlineData(LauncherCapabilities.Apps)]
     [InlineData(LauncherCapabilities.Files)]
+    [InlineData(LauncherCapabilities.DirectorUpdate)]
+    [InlineData(LauncherCapabilities.DirectorUpdateStatus)]
     public void Every_verb_this_build_declares_is_honoured(string verb)
     {
         Assert.Contains(verb, LauncherDeclaredCapabilities.Verbs);
@@ -60,8 +62,22 @@ public sealed class LauncherDeclaredCapabilitiesTests
             new[]
             {
                 "director/start", "director/stop", "director/restart", "launch", "apps", "files",
+                "director/update", "director/update-status",
             },
             LauncherDeclaredCapabilities.Verbs);
+    }
+
+    /// <summary>
+    /// Every update decision this launcher can report is one the Gateway has words for. The Gateway's tests pin
+    /// a sentence to each name in KnownDecisions, so a decision added here without adding it there would reach a
+    /// screen as "a result this Gateway does not recognise".
+    /// </summary>
+    [Fact]
+    public void Every_update_decision_is_known_to_the_gateway()
+    {
+        Assert.Equal(
+            Enum.GetNames<DirectorUpdateDecision>().OrderBy(n => n, StringComparer.Ordinal),
+            LauncherDirectorUpdateReport.KnownDecisions.OrderBy(n => n, StringComparer.Ordinal));
     }
 
     /// <summary>

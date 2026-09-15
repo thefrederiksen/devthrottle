@@ -34,6 +34,10 @@ namespace CcDirector.Gateway.Api;
 ///   POST /machines/{machine}/launch                 push -> launcher verb launch
 ///   GET  /machines/{machine}/apps                   push -> launcher verb apps
 ///   GET  /machines/{machine}/files                  push -> launcher verb files
+///   GET  /machines                                  every machine, its launcher and Directors, versions
+///        against the newest release, and which of update / restart / start can be done (a read)
+///   POST /machines/{machine}/director/update        push -> launcher verb director/update
+///   GET  /machines/{machine}/director/update-status push -> launcher verb director/update-status
 ///
 /// Relay calls are token-gated (Gateway Bearer) and audit-logged. A slot guard in the
 /// relay refuses restart/stop targeting the main Director build or slots 1-4 unless the
@@ -169,14 +173,22 @@ internal static class MachineEndpoints
         // query's whole job is to be believed before a drain closes a session, and the two facts it needs
         // most both come from this registry - so a Gateway wired without it must say "I cannot answer",
         // never compute a verdict from the absence and report a reachable machine as unreachable.
-        Streaming.LauncherConnectionRegistry? launcherConnections = null)
+        Streaming.LauncherConnectionRegistry? launcherConnections = null,
+        // Fleet maintenance (devthrottle_internal#2026): GET /machines folds launchers, Directors, their session
+        // counts and the newest release into one view. Any of them missing makes that ONE route answer 503,
+        // for the same reason restart-capability does: a view computed from what it cannot see would call a
+        // busy Director idle, or a behind one current.
+        DirectorRegistry? directors = null,
+        Streaming.PushedSessionStore? pushedSessions = null,
+        NewestReleaseWatch? newestRelease = null)
     {
         if (spawner is null) throw new ArgumentNullException(nameof(spawner));
 
         FileLog.Write($"[MachineEndpoints] mapping {LauncherPrefix} + {MachinePrefix}; hosted={GatewayHostedMode.IsHosted} - every route authorizes against the CALLING tenant, resolved from the authenticated device key");
 
         MapLauncherRoutes(outer.MapGroup(LauncherPrefix), launchers, boundary);
-        MapMachineRoutes(outer.MapGroup(MachinePrefix), launchers, spawner, sendLauncherCommand, missions, workflowRuns, boundary, launcherConnections);
+        MapMachineRoutes(outer.MapGroup(MachinePrefix), launchers, spawner, sendLauncherCommand, missions, workflowRuns, boundary, launcherConnections,
+            directors, pushedSessions, newestRelease);
     }
 
     /// <summary>The calling tenant, resolved from the authenticated device key. Null means no tenant is
@@ -260,12 +272,86 @@ internal static class MachineEndpoints
         Core.Sessions.MissionStore? missions,
         Workflows.WorkflowRunStore? workflowRuns,
         HostedTenantBoundary? boundary,
-        Streaming.LauncherConnectionRegistry? launcherConnections)
+        Streaming.LauncherConnectionRegistry? launcherConnections,
+        DirectorRegistry? directors,
+        Streaming.PushedSessionStore? pushedSessions,
+        NewestReleaseWatch? newestRelease)
     {
         // ===== Machine relay surface =====
         // The target machine name is in the path; the caller's TENANT comes from the authenticated key, and
         // the launcher/connection is resolved as (callerTenant, machine) - so a caller can only ever reach a
         // launcher its OWN tenant registered, never another tenant's machine of the same bare name.
+
+        // GET /machines - every machine this account owns, its launcher, its Directors, versions against the
+        // newest release, and which of update, restart and start can be done from here (fleet maintenance,
+        // devthrottle_internal#2026). A read: it sends nothing to any machine. The newest release is whatever
+        // the watch already knows; reading it never waits on GitHub.
+        app.MapGet("", (HttpContext ctx) =>
+        {
+            FileLog.Write($"[MachineEndpoints] GET /machines: caller={ctx.Connection.RemoteIpAddress}");
+            if (ReqTenant(ctx, boundary) is not { } tenant) return NoTenant();
+
+            if (launcherConnections is null || directors is null || pushedSessions is null || newestRelease is null)
+            {
+                FileLog.Write("[MachineEndpoints] GET /machines: a registry this view needs is not wired - refusing to answer");
+                return Results.Json(new
+                {
+                    error = "this Gateway cannot answer GET /machines: the launcher connections, the Director registry, "
+                          + "the session store or the newest-release watch is not wired, and a view built without one "
+                          + "would call a busy Director idle or a behind one current. This is a Gateway wiring fault.",
+                }, statusCode: 503);
+            }
+
+            var sessionsByDirector = pushedSessions.SnapshotConnected(tenant)
+                .Where(p => !string.Equals(p.Session.ActivityState, "Exited", StringComparison.OrdinalIgnoreCase))
+                .GroupBy(p => p.DirectorId, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
+
+            var view = FleetMachinesFold.Fold(
+                launchers.ListLaunchers(tenant),
+                machine => launcherConnections.GetActiveConnection(tenant, machine),
+                directors.ListDirectors(tenant),
+                sessionsByDirector,
+                newestRelease.Current(),
+                DateTime.UtcNow);
+
+            FileLog.Write($"[MachineEndpoints] GET /machines tenant={tenant.Value}: machines={view.Machines.Count}, "
+                          + $"newest={view.NewestRelease.Label}, updatable={view.Machines.Count(m => m.Update.Offered)}");
+            return Results.Json(view);
+        });
+
+        // POST /machines/{machine}/director/update - install a downloaded Director update NOW, if the Director
+        // is empty (devthrottle_internal#2021). The launcher runs the same update pass it runs on its own timer,
+        // answers within seconds with the decision - or with "installing" when the swap is under way - and the
+        // Gateway words the answer. It never waits for the whole install: that can take minutes, longer than a
+        // hosted request is held open.
+        app.MapPost("/{machine}/director/update", async (string machine, HttpContext ctx, CancellationToken ct) =>
+        {
+            FileLog.Write($"[MachineEndpoints] POST /machines/{machine}/director/update: caller={ctx.Connection.RemoteIpAddress}");
+            if (ReqTenant(ctx, boundary) is not { } tenant) return NoTenant();
+            if (RefuseUndeclaredUpdateVerb(tenant, machine, LauncherCapabilities.DirectorUpdate, launcherConnections) is { } refused)
+                return refused;
+
+            var outcome = await LauncherLifecycleRelay.SendQueryAsync(
+                tenant, machine, LauncherCapabilities.DirectorUpdate, query: null, limit: 0, timeoutMilliseconds: 0,
+                launchers, sendLauncherCommand, ct);
+            return ToUpdateViewResult(machine, LauncherCapabilities.DirectorUpdate, outcome);
+        });
+
+        // GET /machines/{machine}/director/update-status - a downloaded build waiting, an update running, and the
+        // last recorded result (devthrottle_internal#2022). Asks the launcher; changes nothing.
+        app.MapGet("/{machine}/director/update-status", async (string machine, HttpContext ctx, CancellationToken ct) =>
+        {
+            FileLog.Write($"[MachineEndpoints] GET /machines/{machine}/director/update-status: caller={ctx.Connection.RemoteIpAddress}");
+            if (ReqTenant(ctx, boundary) is not { } tenant) return NoTenant();
+            if (RefuseUndeclaredUpdateVerb(tenant, machine, LauncherCapabilities.DirectorUpdateStatus, launcherConnections) is { } refused)
+                return refused;
+
+            var outcome = await LauncherLifecycleRelay.SendQueryAsync(
+                tenant, machine, LauncherCapabilities.DirectorUpdateStatus, query: null, limit: 0, timeoutMilliseconds: 0,
+                launchers, sendLauncherCommand, ct);
+            return ToUpdateViewResult(machine, LauncherCapabilities.DirectorUpdateStatus, outcome);
+        });
 
         // GET /machines/{machine}/restart-capability - CAN this machine be restarted? Issue #2720.
         //
@@ -540,6 +626,69 @@ internal static class MachineEndpoints
 
         return Results.Content(outcome.Payload, "application/json; charset=utf-8", statusCode: outcome.RelayStatus);
     }
+
+    /// <summary>
+    /// Refuse an update verb the machine's launcher has DECLARED it does not have, with a sentence that says the
+    /// launcher is older than the command - rather than sending it and relaying the launcher's bare "unknown verb".
+    /// A launcher that declared nothing, or holds no stream, is not refused here: the relay says what is true of
+    /// it better than a guess made from an absent declaration would.
+    /// </summary>
+    private static IResult? RefuseUndeclaredUpdateVerb(TenantId tenant, string machine, string verb,
+        Streaming.LauncherConnectionRegistry? launcherConnections)
+    {
+        if (launcherConnections?.GetActiveConnection(tenant, machine) is not { Declaration: { } declared })
+            return null;
+        if (declared.Commands.Any(c => string.Equals(c?.Trim(), verb, StringComparison.OrdinalIgnoreCase)))
+            return null;
+
+        FileLog.Write($"[MachineEndpoints] {verb} on {machine}: the launcher does not declare it - refused before sending");
+        return Results.Json(new
+        {
+            error = $"the launcher on '{machine}' is older than remote updates, so it cannot be asked to update or "
+                  + "report its update from here. It still installs a downloaded Director update by itself once the "
+                  + "Director is empty. Update that launcher to manage updates from here.",
+            machine,
+            verb,
+            reason = "launcher-too-old-for-update",
+        }, statusCode: 409);
+    }
+
+    /// <summary>
+    /// Render an update verb's answer: the launcher's report, worded by <see cref="DirectorUpdateViewFold"/>. A
+    /// failure keeps the relay's own answer, which already says what went wrong; a success whose report cannot be
+    /// read is a fault in the launcher's answer and is reported as one, never as an empty view.
+    /// </summary>
+    private static IResult ToUpdateViewResult(string machine, string verb, LauncherLifecycleRelay.LauncherRelayOutcome outcome)
+    {
+        if (!outcome.Accepted)
+            return ToQueryResult(machine, verb, outcome);
+
+        LauncherDirectorUpdateReport? report = null;
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(outcome.Payload))
+                report = JsonSerializer.Deserialize<LauncherDirectorUpdateReport>(outcome.Payload, UpdateReportJson);
+        }
+        catch (JsonException ex)
+        {
+            FileLog.Write($"[MachineEndpoints] {verb} on {machine}: the launcher's report could not be read: {ex.Message}");
+        }
+
+        if (report is null)
+            return Results.Json(new
+            {
+                error = $"the launcher on '{machine}' answered '{verb}' with a report this Gateway could not read, so "
+                      + "what it did is not known here. Check that machine's launcher log.",
+                machine,
+                verb,
+            }, statusCode: 502);
+
+        var view = DirectorUpdateViewFold.Fold(machine, report);
+        FileLog.Write($"[MachineEndpoints] {verb} on {machine}: {view.Headline}");
+        return Results.Json(view);
+    }
+
+    private static readonly JsonSerializerOptions UpdateReportJson = new(JsonSerializerDefaults.Web);
 
     /// <summary>
     /// Render a relay outcome as the HTTP answer.

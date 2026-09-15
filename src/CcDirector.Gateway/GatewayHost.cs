@@ -4062,7 +4062,12 @@ public sealed class GatewayHost : IAsyncDisposable
             // down, so the capability query and the delivery it predicts read one set of connections.
             // A second instance here would let the query answer "a stream is up" about a connection no
             // command could ever travel on.
-            launcherConnections: LauncherConnections);
+            launcherConnections: LauncherConnections,
+            // Fleet maintenance (devthrottle_internal#2026): the Machines view reads the same Director registry
+            // and pushed-session store the roster serves from, and the newest release this Gateway has read.
+            directors: Registry,
+            pushedSessions: PushedSessions,
+            newestRelease: Api.NewestReleaseWatch.FromGitHub());
 
         // Issue #2725 (restart epic, Phase 6): a session ASKS for a Director restart, the Gateway
         // scrutinises it with the SAME capability fold the query above uses, over the SAME registries,

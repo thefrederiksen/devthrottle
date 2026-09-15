@@ -883,3 +883,129 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ===== Fleet maintenance: the Machines tab and the Version and updates card (devthrottle_internal#2026) ===== */
+.fm-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin: 4px 0 16px;
+}
+
+.fm-tab {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  color: var(--text-dim);
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.fm-tab:hover:not(.active) {
+  color: var(--text);
+}
+
+.fm-tab.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+.fm-release {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+  padding: 10px 14px;
+  margin-bottom: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.fm-release-label {
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.fm-release-version {
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 700;
+  margin-left: 4px;
+}
+
+.fm-highlight {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.fm-table td {
+  vertical-align: top;
+}
+
+.fm-machine td {
+  background: var(--surface-2);
+  border-top: 1px solid var(--border);
+}
+
+.fm-table td.fm-indent {
+  padding-left: 28px;
+}
+
+.fm-num {
+  text-align: right;
+  width: 80px;
+}
+
+.fm-sub,
+.fm-id {
+  font-size: 12px;
+}
+
+.fm-pill {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 0 6px;
+  border: 1px solid currentColor;
+  border-radius: 5px;
+  margin-left: 4px;
+  white-space: nowrap;
+}
+
+.fm-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fm-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.fm-why {
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.45;
+  margin-top: 4px;
+  max-width: 420px;
+}
+
+.fm-why-label {
+  font-weight: 600;
+}
+
+.fm-result {
+  font-size: 12.5px;
+  margin-top: 6px;
+  line-height: 1.45;
+}
+
+.fm-card .fm-actions {
+  margin-top: 12px;
+}

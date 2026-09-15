@@ -50,6 +50,15 @@ public static class LauncherCapabilities
     /// <summary>Answer with a filename search across the machine's drives.</summary>
     public const string Files = "files";
 
+    /// <summary>Install a downloaded Director update now, if the Director is empty, and answer with the decision
+    /// (fleet maintenance, devthrottle_internal#2021). Runs the same update pass the launcher runs on its own
+    /// timer - there is no second install path.</summary>
+    public const string DirectorUpdate = "director/update";
+
+    /// <summary>Report the Director update's state: a downloaded build waiting, a pass running, and the last
+    /// recorded result (devthrottle_internal#2022). Changes nothing.</summary>
+    public const string DirectorUpdateStatus = "director/update-status";
+
     /// <summary>
     /// Every token this build KNOWS. Its purpose is to make "we do not recognise anything it said" a
     /// POSITIVE determination rather than an inference from a missing verb.
@@ -66,6 +75,7 @@ public static class LauncherCapabilities
     public static readonly IReadOnlyList<string> KnownTokens = new[]
     {
         DirectorStart, DirectorStop, DirectorRestart, DirectorRestartOnlyIfEmpty, Launch, Apps, Files,
+        DirectorUpdate, DirectorUpdateStatus,
     };
 
     /// <summary>Is this a token this build understands? Case-insensitive, as everywhere else a token is
