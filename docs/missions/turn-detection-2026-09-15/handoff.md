@@ -187,3 +187,16 @@ reading the seated session's buffer once it is spawned, not assumed.
 Pi satisfies law three because it is a different family from Claude Code, which built the work. The
 law names a different family, not a particular vendor, which is what makes it possible to keep
 moving while Codex is unavailable.
+
+## Who owns what, after the restart
+
+Two Architects sit on mission `d2bb87ec` and the fleet map now names them apart:
+
+- **Turn detection - Architect - the design and all three phases** (`86c09e78`) owns the design
+  across all three phases, including the per-agent turn-end hooks that phase two rests on.
+- **Turn detection - Architect - phase one only, the terminal rule** (`b564b0b3`) - this seat - owns
+  phase one and nothing beyond it.
+
+**The owner has ruled that phase two does not open until phase one is finished and landed.** So the
+scope line in the brief is now a sequencing rule as well as a scope one: work that belongs to phase
+two is not merely out of scope here, it is not startable by anyone until this phase is done.
