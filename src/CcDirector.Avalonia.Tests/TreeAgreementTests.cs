@@ -19,7 +19,7 @@ namespace CcDirector.Avalonia.Tests;
 /// before a release. A guard whose whole value is catching an edit at the moment it is made must not live
 /// in a suite that tells a developer nothing at commit time - the repository already wrote that rule down
 /// for the skill guards, in scripts/test-local.ps1, and this is the same shape of guard. It costs
-/// milliseconds: it reads one file and folds nine tiny rosters.
+/// milliseconds: it reads one file and folds fifteen tiny rosters.
 ///
 /// AND IT IS WATCHED FAILING, below, because a check nobody has seen go red is decoration.
 /// </summary>
@@ -40,8 +40,8 @@ public sealed class TreeAgreementTests
 
         // The scope, stated rather than assumed: a pass over zero cases is not a pass, and the reader of a
         // green run should be able to see how much was examined.
-        Assert.True(result.Cases >= 9, $"The shared file holds only {result.Cases} case(s) - cases were deleted, not added.");
-        Assert.True(result.Sessions >= 20, $"The shared file holds only {result.Sessions} session(s).");
+        Assert.True(result.Cases >= 15, $"The shared file holds only {result.Cases} case(s) - cases were deleted, not added.");
+        Assert.True(result.Sessions >= 49, $"The shared file holds only {result.Sessions} session(s).");
         Assert.Empty(result.Findings.Select(f => f.ToString()));
     }
 

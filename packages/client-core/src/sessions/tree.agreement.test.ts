@@ -68,8 +68,8 @@ const byId = (c: Case) => new Map(c.sessions.map((s) => [String(s.sessionId), s]
 describe("the ownership tree agrees with the answers the Director rail is measured by", () => {
   // A file that parsed to nothing would make every assertion below vacuous - a check that cannot fail.
   it("reads a shared file with cases in it", () => {
-    expect(fixtures.cases.length).toBeGreaterThanOrEqual(9);
-    expect(fixtures.cases.flatMap((c) => c.sessions).length).toBeGreaterThanOrEqual(20);
+    expect(fixtures.cases.length).toBeGreaterThanOrEqual(15);
+    expect(fixtures.cases.flatMap((c) => c.sessions).length).toBeGreaterThanOrEqual(49);
   });
 
   for (const c of fixtures.cases) {
