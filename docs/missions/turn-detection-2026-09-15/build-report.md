@@ -419,6 +419,11 @@ scored.
 dropped is a number chosen to stop a spin, not one taken from any observation of how often a check
 faults - because it has never been observed faulting at all.
 
+> **SUPERSEDED, round two.** Two things above are wrong. The drop happened on the FOURTH consecutive
+> fault, not the third - the comparison was greater-than and the prose never matched it. And the
+> burst is no longer dropped at all: past the bound the turn OPENS. See finding 1 in the round-two
+> section at the end of this report.
+
 **The continuous-idle sampling trade is unmeasured.** Riding the check on a body change means a
 reply on such an agent can be sampled up to one throttle interval (500 ms) into its drawing. That is
 the ruling's intent and it is cheaper, but no measurement says how often a half-drawn sample changes
@@ -444,3 +449,232 @@ cannot be confused again. What the test asserts is unchanged. Twenty-six consecu
 including eight with a build running alongside, are green. The cause is stated as scheduling latency
 rather than proven to be: no run has been caught failing with the new diagnostic in place, so if it
 returns, that message is what will tell the next reader which of the two it is.
+
+> **CORRECTED, round two.** "So the two cannot be confused again" was false, and the inspection
+> demonstrated it: a directory holding exactly the baseline rows is the same observation whether the
+> row is late or will never be written, so a listing of files and sizes can never separate them. The
+> longer wait is a tolerance change and diagnoses nothing on its own. A positive signal that DOES
+> separate them - whether a check is still armed at the deadline - has since been added, and both
+> sides of it were demonstrated. See finding 7 in the round-two section at the end of this report.
+
+---
+
+# Round two - the four findings the second inspection left open
+
+The second inspection returned DISAGREE. Round-one findings 1 and 4 were closed; findings 2, 3, 5
+and 6 were not, and a seventh finding named a false claim in the section above. Every one was
+accepted, and the Architect settled the parts where the inspection had identified a problem without
+choosing between the ways out.
+
+Every fix below was watched failing first, with the mutation named and the message it printed. The
+mutations were applied to the committed tree, so `git checkout --` restored the FIX rather than the
+defect; the working tree was checked clean of every mutation afterwards and the focused suites
+re-run.
+
+## Finding 1 - the fourth consecutive fault no longer loses the turn
+
+Past the retry bound the burst was DROPPED. A one-burst reply whose check faulted four times then
+had no pending check and no later byte to make one, so the session sat red for ever - the exact
+failure this whole design exists to prevent.
+
+Past the bound the turn now OPENS. That is today's behaviour, it is always available, and it is the
+conservative direction: a wrong open costs a blue session that settles again a quiet window later, a
+wrong drop costs work that sits red until somebody happens to look at it. With the switch OFF
+nothing opens, because the byte already flipped the session on the way in and the check only
+observes - so the switch-off path stays byte for byte.
+
+The failure count is deliberately not reset. While the fault persists every later burst takes the
+same path and opens immediately, which IS today's byte rule; the first check that completes resets
+it.
+
+The off-by-one is gone in all three places the inspection named. The constant is renamed
+`MaxCheckRetries` because it counts RESTORES, not failures: faults one, two and three put the burst
+back and fault four stops retrying. The log line now prints the count it actually observed rather
+than the constant, and the paragraph above claiming three has been corrected here.
+
+- Test: `A_check_that_faults_past_the_retry_bound_opens_the_turn_rather_than_losing_it`. It
+  reproduces the inspection's probe - one real burst, a rule that faults on every call, nothing
+  afterwards - and also asserts the rule was asked more than once, so the fallback stays the last
+  resort rather than becoming the first.
+- Mutation watched red: the `MarkActiveFromContent` call removed, leaving the bare `return`.
+  Reported `a check that faulted past the retry bound lost the burst, so the turn never opened`.
+
+## Finding 2 - the faulted latch on both shipped activation paths
+
+Not a regression from this mission. The same shape is on `origin/main`, and these are the paths
+every Director runs while the switch ships off. `Session.SetActivityState` assigns `Working` and
+only then calls its subscribers, so a subscriber that throws escapes from the middle of the write:
+the session was left in `Working`, the latch set, and no idle countdown armed, after which every
+later byte took the already-active branch and armed nothing.
+
+**The remedy is not the one the ruling named, and the difference is load-bearing.** The ruling said
+to apply the same latch release already used next door. Applied literally it closes nothing here:
+`OnQuietCore` returns on its first line when the latch is clear, so a cleared latch plus an armed
+countdown is a timer firing into nothing and the session stays blue exactly as before. That was
+established by reading the code that consumes the latch, not assumed.
+
+What closes it is arming the countdown WHATEVER happened above - the arm now sits in a `finally`,
+which is what "restart the idle countdown on every byte" always meant. The latch release is kept but
+made CONDITIONAL, in a helper with the reasoning written on it: it goes back only when the session
+is not sitting in `Working`, because a fault before the state write leaves a latch that is a lie,
+while a fault after it leaves a session that still owes a settle and only the latch can deliver one.
+Reading the session's state is the only signal that separates the two, since the throw itself cannot
+say how far the write got.
+
+`MarkActiveFromContent` was given the same treatment rather than left alone. Its unconditional
+release was survivable only because the check retry re-ran it, and finding 1's fallback now calls it
+from a place where no retry follows.
+
+- Tests: `A_faulted_state_write_on_the_byte_path_does_not_leave_the_session_stuck_working` and
+  `A_faulted_state_write_on_the_body_path_does_not_leave_the_session_stuck_working`. Both reproduce
+  the inspection's probes: a settled session, ONE burst, a state-change subscriber that throws once,
+  and nothing afterwards to rescue it. The body-path test runs as Grok, whose idle terminal never
+  goes byte-silent, so it goes through the other method.
+- Mutation watched red, separately for each: the `finally` emptied so a throw skips the arm. Both
+  reported `the session never came back to red, so the faulted write left it latched Working`.
+
+## Finding 3 - the seam's guarantees
+
+Two defects, two different answers, as ruled.
+
+**The size verdict is now one answer.** `ITerminalSizeRule.Evaluate` returns a `SizeVerdict`
+carrying the verdict, the magnitude, the threshold and the log line together, and `Measure` is gone
+from the interface. The detector asks once. The three numbers cannot describe different
+measurements, rather than being three calls trusted to agree. `Threshold` stays on the interface for
+exactly one caller - the row written for an ambiguous frame, where no verdict exists to read one
+from - and that is said on the property.
+
+**The ambiguous-frame comment is corrected and the behaviour is not.** An unreadable screen, or one
+with no settled side, short-circuits to the conservative open without consulting either rule. That
+is right: it is not a question a content rule can answer, and asking one to compare an empty list
+against an empty list would produce a verdict shaped like a measurement and meaning nothing. The
+comment claiming both candidates are asked on EVERY check is replaced by one that says what happens
+and why.
+
+- Test: `The_size_verdict_and_its_numbers_come_from_one_call`, driven by a rule whose magnitude
+  changes on every call, alternating above and below its own threshold - so a detector that asks
+  twice writes a row that contradicts itself. It asserts the logged triple is self-consistent and
+  that the rule was asked exactly once. Two pure tests in `TerminalContentNoveltyTests` cover the
+  verdict in both directions, including that the magnitude is recorded when the rule HOLDS.
+- Mutation watched red: the verdict taken from one `Evaluate` call and the magnitude from a second.
+  The row said the size rule opened while carrying a magnitude of 4 against a threshold of 100.
+
+## Finding 4 - the sweep deletes only what it can prove it wrote
+
+The sweep enumerated every `*.jsonl` and deleted on age alone. An extension rules some things out;
+it is not proof of ownership, and the inspection demonstrated the consequence by dropping an aged
+`owner-notes.jsonl` into the directory and watching the next append delete it.
+
+It now matches the two shapes the writer composes - a thirty-two character lower-case hexadecimal
+session id, optionally followed by the predecessor's `.1`, then `.jsonl` - anchored at both ends. It
+enumerates what to DELETE and never what to skip. Anything it does not recognise is left alone and
+said so, once per sweep, because a directory quietly filling with files this log will never touch
+should not look identical to one doing its job.
+
+- Tests: `The_sweep_leaves_alone_an_aged_file_this_log_did_not_write` reproduces the probe and, in
+  the same test, puts an aged owned file and an aged rolled predecessor beside it that must still
+  go - a sweep that deleted nothing would otherwise pass. Nine table cases pin the name shapes,
+  including the thirty-one and thirty-three character near-misses, upper case, `.2.jsonl`, a
+  prefixed name and a `.jsonl.bak` suffix.
+- Mutation watched red: the ownership test removed and the `*.jsonl` filter restored. Reported
+  `the sweep deleted a file this log never wrote; an extension is a deny boundary, not ownership`.
+
+## Finding 5 - the rollover
+
+**A failed rollover no longer costs the row.** Rotation shared the append's one broad try, so a
+`File.Move` that threw skipped the append entirely and the observation survived only in `FileLog`,
+never in the shadow file the comparison is actually read from. Rotation now has its own catch and
+the append goes ahead regardless. An oversized file is a far smaller harm than a missing
+observation.
+
+**The cross-process reasoning is written down, and it is stronger than the ruling's.** The ruling
+said the file is per session and a session belongs to one Director. True, but the real reason comes
+earlier: every path here resolves through `CcStorage`, whose root is `CC_DIRECTOR_ROOT` when that
+variable is set, and it is set per Director INSTANCE. Verified rather than taken on trust -
+`CcStorage.Root()` is `Base()`, `Base()` returns `CC_DIRECTOR_ROOT` when non-empty, five instance
+roots exist side by side on this machine (default, devthrottledemo, slot-1, slot-5, slot-7), and
+this session's own variable reads the first of them. So two Directors never share the shadow
+DIRECTORY, let alone a file, and the per-session filename is a second independent reason rather than
+the only one. Neither is a claim about the lock: the lock serialises threads inside one process,
+which is all it is now claimed to do.
+
+**The size bound is stated honestly rather than the algorithm tightened.** The size is tested before
+the next record is appended, so a live file may reach the bound plus at most one record, and a file
+rolled at that moment preserves the same overshoot. The cost per session is twice the bound plus at
+most two records, not twice the bound exactly.
+
+- Tests: `A_rollover_that_cannot_happen_still_writes_the_row` makes the failure real rather than
+  mocked - a directory sits where the rolled predecessor would go, so `File.Move` cannot succeed
+  while the live file stays writable. `A_live_file_can_pass_the_size_bound_by_at_most_one_record`
+  measures the overshoot as it happens and asserts both that it exists and that it is within one
+  record.
+- Mutations watched red: rotation put back inside the outer try, which lost the row (2 lines
+  expected, 1 found); and rolling over 500 bytes early, after which the overshoot test reported
+  `the live file never passed the bound (581 bytes against 1000), so this test is not measuring the
+  overshoot it claims to`.
+
+## Finding 6 - the shipped defaults, not just the named constants
+
+The inspection left every named constant alone, substituted the production defaults only, and all
+102 focused tests stayed green. Fixed for all five values it named.
+
+- The settling window and its cap: the detector now exposes what it is actually running, and
+  `A_detector_built_the_way_the_product_builds_one_runs_the_shipped_timings` builds one through the
+  public constructor with no timings and compares. Mutation watched red: the constructor's fallback
+  changed to 401 milliseconds, leaving both constants untouched.
+- The retention size, age and sweep interval: the live fields are asserted against the shipped
+  constants where nothing has moved them - this class's constructor does not touch them and every
+  test in the collection restores what it found. Mutation watched red: the live size initialised to
+  five megabytes with `DefaultMaxFileBytes` left alone.
+- The shadow log's enabled default: compared against the value read before this class turns the log
+  on. Mutation watched red: `Enabled` initialised to a bare `false` with `ResolveEnabled` and
+  `InitialEnabled` untouched.
+
+## Finding 7 - the false claim about late and never
+
+The claim was false and is withdrawn. Lengthening the wait from five seconds to fifteen changes no
+production behaviour and establishes no cause; it makes the flake less likely, which is a tolerance
+change. A target file holding exactly the baseline rows is the same observation whether the row is
+late or will never be written, so the directory listing could never separate them.
+
+A positive signal was cheap, so it was added rather than the limitation merely admitted. A check
+that is still ARMED at the deadline is unique to "late": the callback is scheduled and has not
+fired. No check armed and no row means nothing is going to write one. The detector exposes that
+fact, the wait helper reports it, and every call site now passes the detector so the answer is
+available to all of them. A caller that does not gets the honest sentence saying the two cannot be
+told apart, never a guess.
+
+Both sides were demonstrated on the SAME directory state, which is the whole point:
+
+- Appends suppressed entirely: `the directory holds (the directory does not exist); NO check is
+  armed for this session, so no row will ever be written for this burst`.
+- The check timer armed sixty seconds out: `the directory holds (the directory does not exist); a
+  check IS still armed for this session, so the row is LATE rather than absent`.
+
+While doing this it turned out every transition wait in these tests used `Task.WaitAsync`, which
+throws before `Assert.True` can look at the result - so each one reported `The operation has timed
+out` and discarded the sentence its author wrote. The first mutation proof of finding 1 printed
+exactly that and nothing else. A waiter that answers instead of throwing replaced it, which is why
+the messages quoted above exist at all.
+
+## The gate, round two
+
+- `.\scripts\test-local.ps1`: green. 1,742 tests across eight projects, every one reporting
+  `outcome=Completed`.
+- `CcDirector.Core.Tests` in full, the parked suite this change lives in: 4,471 passed, 8 skipped,
+  0 failed, 8 minutes 10 seconds.
+- `CcDirector.Gateway.UnitTests`, the other parked suite the coverage gap named: 4,296 passed, 0
+  failed, with `HostedSchemaRefusesAnUnownedRowTests` excluded.
+- `CcDirector.Gateway.Tests` has NO verdict on this change and is not called green. Its machine-wide
+  lock is unwinnable here today (issue #2862) and the mandate excluded it.
+
+**What is NOT covered, said plainly.** The eight excluded Gateway tests are PostgreSQL-backed and
+fail with `Npgsql.NpgsqlException: Failed to connect to 127.0.0.1:55432` - the throwaway database
+only a `-Parked` run provisions, and a `-Parked` run would also take the lock this mandate forbids.
+They are environmental, not a verdict on this change: the whole branch touches no Gateway file, and
+every product change is under `CcDirector.Core`, checked against the true merge base rather than
+assumed.
+
+Still uncovered, unchanged from round one: live terminal bytes, the labelled corpus, a real
+two-process rollover - which the reasoning above argues is unreachable rather than merely untested -
+and the parked Gateway suite.
