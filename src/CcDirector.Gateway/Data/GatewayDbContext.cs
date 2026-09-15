@@ -297,6 +297,11 @@ public sealed class GatewayDbContext : DbContext
     /// the verdict table so the pair needs one migration; nothing writes it until slice G of that mission.</summary>
     public DbSet<TurnVerdictFeedbackEntity> TurnVerdictFeedback => Set<TurnVerdictFeedbackEntity>();
 
+    /// <summary>One judgement the Wingman made, kept whole for the inspector (<c>turn_verdict_traces</c>,
+    /// devthrottle_internal#2029): the package, the prompt, the raw reply and the verdict. Appended only, never
+    /// cleared when a session works again, kept seven days.</summary>
+    public DbSet<TurnVerdictTraceEntity> TurnVerdictTraces => Set<TurnVerdictTraceEntity>();
+
     /// <summary>Per-tenant setting overrides (<c>tenant_settings</c>, issue #2017) - the per-tenant home the
     /// AI / voice / car-mode / notification settings needed before they could be served on the hosted Gateway.
     /// Tenant-scoped: an absent row means "no override" and the typed resolver returns the operator global
@@ -723,6 +728,23 @@ public sealed class GatewayDbContext : DbContext
             b.HasIndex(e => new { e.TenantId, e.JudgedAtUtc });
         });
 
+        modelBuilder.Entity<TurnVerdictTraceEntity>(b =>
+        {
+            b.ToTable("turn_verdict_traces");
+            // Keyed on its own minted id, led by the tenant: a session can be judged twice inside one tick, and
+            // an append-only record must never let the second write land on the first.
+            b.HasKey(e => new { e.TenantId, e.TraceId });
+            b.Property(e => e.TraceId).HasMaxLength(64);
+            b.Property(e => e.SessionId).HasMaxLength(64);
+            b.Property(e => e.Trigger).HasMaxLength(32);
+            b.Property(e => e.Outcome).HasMaxLength(32);
+            b.Property(e => e.VerdictId).HasMaxLength(64);
+            b.Property(e => e.ReplacedVerdictId).HasMaxLength(64);
+            // The inspector reads one session newest-first; the purge cuts on time across every session.
+            b.HasIndex(e => new { e.TenantId, e.SessionId, e.RecordedAtUtc });
+            b.HasIndex(e => new { e.TenantId, e.RecordedAtUtc });
+        });
+
         modelBuilder.Entity<TurnVerdictFeedbackEntity>(b =>
         {
             b.ToTable("turn_verdict_feedback");
@@ -1147,6 +1169,7 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<SessionRuleFiringEntity>(modelBuilder);
         ApplyTenantScope<TurnVerdictEntity>(modelBuilder);
         ApplyTenantScope<TurnVerdictFeedbackEntity>(modelBuilder);
+        ApplyTenantScope<TurnVerdictTraceEntity>(modelBuilder);
 
         ApplyCommonSubsetConventions(modelBuilder);
 
@@ -1214,6 +1237,10 @@ public sealed class GatewayDbContext : DbContext
             // and SQLite did not would be a correction landing on the wrong verdict.
             modelBuilder.Entity<TurnVerdictEntity>().Property(e => e.SessionId).UseCollation("C");
             modelBuilder.Entity<TurnVerdictFeedbackEntity>().Property(e => e.VerdictId).UseCollation("C");
+            // turn_verdict_traces: the minted trace id is the key, and the session id is what the inspector
+            // selects a session's history on - both compared byte-ordinally, for the reasons above.
+            modelBuilder.Entity<TurnVerdictTraceEntity>().Property(e => e.TraceId).UseCollation("C");
+            modelBuilder.Entity<TurnVerdictTraceEntity>().Property(e => e.SessionId).UseCollation("C");
             // Known-repository lookups use these normalized values as exact indexed predicates. Pin both
             // to byte-ordinal equality so SQLite and Postgres select the same bounded candidate set.
             modelBuilder.Entity<KnownRepositoryEntity>().Property(e => e.MachineKey).UseCollation("C");

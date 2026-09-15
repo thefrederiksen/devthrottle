@@ -78,6 +78,7 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
     private readonly Func<TenantId, TurnVerdictSettings, IAgentBrain> _judgeBrain;
     private readonly Func<TenantId, string> _judgeModel;
     private readonly TurnVerdictStore _store;
+    private readonly TurnVerdictTraceStore _traces;
     private readonly Func<TenantId, SpokenLanguage> _language;
     private readonly Func<string?> _customSpokenRules;
     private readonly Func<TenantId, string, bool> _isVoiceSession;
@@ -98,6 +99,7 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
         Func<TenantId, TurnVerdictSettings, IAgentBrain> judgeBrain,
         Func<TenantId, string> judgeModel,
         TurnVerdictStore store,
+        TurnVerdictTraceStore traces,
         Func<TenantId, SpokenLanguage> language,
         Func<string?> customSpokenRules,
         Func<TenantId, string, bool> isVoiceSession,
@@ -113,6 +115,7 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
         _judgeBrain = judgeBrain ?? throw new ArgumentNullException(nameof(judgeBrain));
         _judgeModel = judgeModel ?? throw new ArgumentNullException(nameof(judgeModel));
         _store = store ?? throw new ArgumentNullException(nameof(store));
+        _traces = traces ?? throw new ArgumentNullException(nameof(traces));
         _language = language ?? throw new ArgumentNullException(nameof(language));
         _customSpokenRules = customSpokenRules ?? throw new ArgumentNullException(nameof(customSpokenRules));
         _isVoiceSession = isVoiceSession ?? throw new ArgumentNullException(nameof(isVoiceSession));
@@ -205,6 +208,22 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
         {
             // The ledger OBSERVES the seat: an append fault is logged loudly and never changes a verdict.
             FileLog.Write($"[GatewayTurnVerdictEnvironment] ledger append FAILED for {record.EventType} sid={record.SessionId}: {ex.Message}");
+        }
+    }
+
+    public void RecordTrace(TenantId tenant, TurnVerdictTrace trace)
+    {
+        if (trace is null) return;
+        try
+        {
+            _traces.Append(tenant, trace);
+        }
+        catch (Exception ex)
+        {
+            // The inspector's record OBSERVES the seat, exactly like the ledger above: a write fault is logged
+            // loudly and never changes a verdict.
+            FileLog.Write($"[GatewayTurnVerdictEnvironment] trace append FAILED for {trace.Outcome} sid={trace.SessionId} " +
+                          $"verdict={trace.VerdictId}: {ex.GetType().FullName}: {ex.Message}");
         }
     }
 

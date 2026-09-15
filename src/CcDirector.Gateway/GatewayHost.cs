@@ -684,6 +684,9 @@ public sealed class GatewayHost : IAsyncDisposable
     /// MEANS, per tenant and per session. Written by the turn-end seat and read by the roster fold and the
     /// two turn-verdict routes.</summary>
     private readonly Wingman.TurnVerdictStore _turnVerdicts;
+    /// <summary>The Wingman inspector's record: every judgement kept whole - package, prompt, raw reply, verdict -
+    /// appended by the turn-end seat and never cleared when a session works again. Seven days.</summary>
+    private readonly Wingman.TurnVerdictTraceStore _turnVerdictTraces;
     /// <summary>Which Directors told this Gateway they send conversations (turn-push mission, phase 2).</summary>
     private readonly Streaming.TurnPushCapabilityRegistry _turnPushCapabilities = new();
     private readonly History.SessionHistoryRecorder _sessionHistoryRecorder;
@@ -1818,8 +1821,9 @@ public sealed class GatewayHost : IAsyncDisposable
         // The Wingman-on-every-turn mission: the judged-stop record, and its seven-day purge on the same
         // per-tenant worker seam the activity ledger's retention uses.
         _turnVerdicts = new Wingman.TurnVerdictStore(_gatewayDb);
+        _turnVerdictTraces = new Wingman.TurnVerdictTraceStore(_gatewayDb);
         _turnVerdictRetentionSweep = new Wingman.TurnVerdictRetentionSweep(
-            _tenantBoundary, TenantRegistry, _tenantContext, _turnVerdicts);
+            _tenantBoundary, TenantRegistry, _tenantContext, _turnVerdicts, _turnVerdictTraces);
         // Slice D: the one source every fold reads verdicts through - the roster, the single-session read and the
         // display push to the desktop - so all three stamp one answer. And the carrying-on clock, on the same
         // per-tenant seam as the retention above.
@@ -2660,6 +2664,7 @@ public sealed class GatewayHost : IAsyncDisposable
             },
             judgeModel: tenant => ResolveWingmanModel(tenant, Wingman.TurnVerdictJudge.Role),
             store: _turnVerdicts,
+            traces: _turnVerdictTraces,
             language: _tenantSettingsResolver.SpokenLanguage,
             // The account's own narration instructions replace the verdict's spoken rules only when they differ
             // from the shipped default - the default is already what the verdict prompt says.

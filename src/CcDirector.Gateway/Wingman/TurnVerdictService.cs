@@ -77,6 +77,13 @@ public interface ITurnVerdictEnvironment
     /// <summary>Append one record to the activity ledger. Closed event and cause words; never screen text.</summary>
     void Record(TurnVerdictRecord record);
 
+    /// <summary>
+    /// Keep one judgement whole for the Wingman inspector: the package, the prompt, the raw reply and the verdict.
+    /// The seat calls it only for an account whose judge switch is on. It OBSERVES the seat - a write that fails
+    /// is logged loudly and never changes a verdict.
+    /// </summary>
+    void RecordTrace(TenantId tenant, TurnVerdictTrace trace);
+
     /// <summary>Now, in UTC.</summary>
     DateTime NowUtc();
 }
@@ -477,6 +484,18 @@ public sealed class TurnVerdictService : IDisposable
 
         try
         {
+            var settings = _env.Settings(tenant);
+            if (settings.JudgeEnabled)
+                _env.RecordTrace(tenant, NewTrace(sid, directorId, trigger, TurnVerdictTraceOutcomes.Unavailable, record,
+                    settings.ColourEnabled));
+        }
+        catch (Exception traceEx)
+        {
+            FileLog.Write($"[TurnVerdictService] the trace for a failed verdict could NOT be written: sid={sid}: {traceEx.GetType().FullName}: {traceEx.Message}");
+        }
+
+        try
+        {
             _env.Record(new TurnVerdictRecord(tenant, directorId ?? "", sid, ActivityEventTypes.TurnVerdictFailed,
                 ActivityCauses.JudgeUnavailable,
                 $"trigger={TriggerWord(trigger)} id={record.VerdictId} model={record.Model} exception={ex.GetType().Name}"));
@@ -549,7 +568,7 @@ public sealed class TurnVerdictService : IDisposable
             && string.Equals(latest.ScreenHash, hash, StringComparison.Ordinal)
             && (hash.Length > 0 || trigger == TurnVerdictTrigger.Sweep)
             && (!latest.Failed || trigger == TurnVerdictTrigger.Sweep))
-            return Reuse(key, epoch, ct, directorId, trigger, observedAt, latest, hash, rows);
+            return Reuse(key, epoch, ct, directorId, trigger, observedAt, latest, hash, rows, settings);
 
         // A SPEECH RE-ATTEMPT NEVER ASKS THE JUDGE. No automatic path costs two model calls for one stop, so a caller
         // that may not ask stops here, after the reuse check and before anything else is read or paid for. On an
@@ -603,10 +622,12 @@ public sealed class TurnVerdictService : IDisposable
             TimeSpan? retryAfter = null;
             string? detail = null;
             double replySeconds = 0;
+            string? rawReply = null;
             try
             {
                 var answer = await _env.AskJudgeAsync(tenant, prompt, ct).ConfigureAwait(false);
                 replySeconds = answer.ReplySeconds;
+                rawReply = answer.Raw;
                 record = TurnVerdictContract.ParseAndValidate(answer.Raw, package, answer.Model, observedAt);
                 // The carrying-on clock's first source travels on the stored record, so it survives a restart.
                 record.NextScheduledWakeUtc = package.NextScheduledWakeUtc;
@@ -653,6 +674,19 @@ public sealed class TurnVerdictService : IDisposable
 
             if (!StoreIfCurrent(key, epoch, record))
                 return Cancelled(tenant, directorId, sid, trigger, "the session worked between the read and the store; the answer describes a screen that is gone");
+
+            // THE INSPECTOR'S RECORD, written for exactly what was stored: the package the judge was given, the
+            // prompt it was asked, its answer as received, and how long it took. An answer the contract refused is
+            // kept with the raw reply that failed - that is the case the record exists for.
+            if (settings.JudgeEnabled)
+                _env.RecordTrace(tenant, NewTrace(sid, directorId, trigger, TraceOutcome(record, failure), record,
+                    settings.ColourEnabled) with
+                {
+                    ReplySeconds = rawReply is null ? null : replySeconds,
+                    Package = package,
+                    Prompt = prompt,
+                    RawReply = rawReply,
+                });
 
             if (record.Failed)
             {
@@ -709,7 +743,8 @@ public sealed class TurnVerdictService : IDisposable
         DateTime observedAt,
         TurnVerdictDto latest,
         string hash,
-        IReadOnlyList<string> rows)
+        IReadOnlyList<string> rows,
+        TurnVerdictSettings settings)
     {
         var (tenant, sid) = key;
         var verdict = latest;
@@ -731,6 +766,12 @@ public sealed class TurnVerdictService : IDisposable
 
         if (_epochs.GetOrAdd(key, 0) != epoch)
             return Cancelled(tenant, directorId, sid, trigger, "the session worked after its stored verdict was read; that verdict is not reused");
+
+        // A reuse is a STOP only on the turn-end path. The voice path and the sweep come past an unchanged screen
+        // over and over, and a trace for each pass would bury the stops under the passes.
+        if (trigger == TurnVerdictTrigger.TurnEnd && settings.JudgeEnabled)
+            _env.RecordTrace(tenant, NewTrace(sid, directorId, trigger, TurnVerdictTraceOutcomes.Reused, verdict,
+                settings.ColourEnabled));
 
         _env.Record(new TurnVerdictRecord(tenant, directorId, sid, ActivityEventTypes.TurnVerdictReused,
             ActivityCauses.ScreenUnchanged,
@@ -864,7 +905,8 @@ public sealed class TurnVerdictService : IDisposable
     public int ExpireCarryingOn(TenantId tenant)
     {
         if (_disposed || !tenant.IsValid) return 0;
-        if (!_env.Settings(tenant).JudgeEnabled) return 0;
+        var settings = _env.Settings(tenant);
+        if (!settings.JudgeEnabled) return 0;
 
         var now = _env.NowUtc();
         var expired = 0;
@@ -899,7 +941,10 @@ public sealed class TurnVerdictService : IDisposable
             }
 
             expired++;
-            _env.Record(new TurnVerdictRecord(tenant, _env.ReadSessionState(tenant, sid).Facts?.DirectorId ?? "", sid,
+            var expiredDirectorId = _env.ReadSessionState(tenant, sid).Facts?.DirectorId ?? "";
+            _env.RecordTrace(tenant, NewTrace(sid, expiredDirectorId, ClockTrigger, TurnVerdictTraceOutcomes.Expired,
+                replacement, settings.ColourEnabled) with { ReplacedVerdictId = snapshot.VerdictId });
+            _env.Record(new TurnVerdictRecord(tenant, expiredDirectorId, sid,
                 ActivityEventTypes.TurnVerdictExpired, ActivityCauses.CarryingOnExpired,
                 $"expired={snapshot.VerdictId} id={replacement.VerdictId}"));
             FileLog.Write($"[TurnVerdictService] ExpireCarryingOn: sid={sid} tenant={tenant.ToLogString()} said it would continue and did not; verdict {snapshot.VerdictId} replaced by {replacement.VerdictId}");
@@ -946,6 +991,40 @@ public sealed class TurnVerdictService : IDisposable
         TurnVerdictFailureKind.Refused => ActivityCauses.JudgeRefused,
         _ => ActivityCauses.JudgeUnavailable,
     };
+
+    /// <summary>The trigger word a trace of the carrying-on clock's expiry carries - it is not a request trigger.</summary>
+    private const string ClockTrigger = "clock";
+
+    private TurnVerdictTrace NewTrace(string sid, string directorId, TurnVerdictTrigger trigger, string outcome,
+        TurnVerdictDto verdict, bool colourEnabled)
+        => NewTrace(sid, directorId, TriggerWord(trigger), outcome, verdict, colourEnabled);
+
+    private TurnVerdictTrace NewTrace(string sid, string directorId, string trigger, string outcome,
+        TurnVerdictDto verdict, bool colourEnabled) => new()
+    {
+        TraceId = Guid.NewGuid().ToString("N"),
+        SessionId = sid,
+        DirectorId = directorId ?? "",
+        RecordedAtUtc = _env.NowUtc(),
+        TurnEndObservedAtUtc = verdict.TurnEndObservedAtUtc,
+        Trigger = trigger,
+        Outcome = outcome,
+        VerdictId = verdict.VerdictId,
+        ColourEnabled = colourEnabled,
+        Verdict = verdict,
+    };
+
+    private static string TraceOutcome(TurnVerdictDto record, TurnVerdictFailureKind failure)
+    {
+        if (!record.Failed) return TurnVerdictTraceOutcomes.Judged;
+        return failure switch
+        {
+            TurnVerdictFailureKind.Refused => TurnVerdictTraceOutcomes.Refused,
+            TurnVerdictFailureKind.DidNotAnswer => TurnVerdictTraceOutcomes.DidNotAnswer,
+            TurnVerdictFailureKind.RateLimited => TurnVerdictTraceOutcomes.RateLimited,
+            _ => TurnVerdictTraceOutcomes.Unavailable,
+        };
+    }
 
     private static string TriggerWord(TurnVerdictTrigger trigger) => trigger switch
     {
