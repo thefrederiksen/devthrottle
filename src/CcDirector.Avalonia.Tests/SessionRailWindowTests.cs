@@ -168,6 +168,29 @@ public sealed class SessionRailWindowTests
         Assert.True(architect.IsCrewExpanded);
     }
 
+    [AvaloniaFact]
+    public void ARedrawNeverSwitchesTheUserToASessionTheyDidNotPick()
+    {
+        var (window, architect, one, _) = Rig();
+        window.ToggleCrew(architect);
+        window.SessionList.SelectedItem = one;
+
+        // Replacing the rows empties the list box's selection before refilling it, so the selection
+        // handler would otherwise see a value the user never chose and switch them to it. Adding a
+        // session redraws the rail, so this is the ordinary case, not a contrived one.
+        var switchedTo = new List<string>();
+        window.SessionList.SelectionChanged += (_, _) =>
+        {
+            if (window.SessionList.SelectedItem is SessionViewModel vm) switchedTo.Add(vm.DisplayName);
+        };
+
+        window._sessions.Add(new SessionViewModel(Make("Latecomer", sortOrder: 3)));
+
+        Assert.Same(one, window.SessionList.SelectedItem);
+        Assert.DoesNotContain("Architect", switchedTo);
+        Assert.DoesNotContain("Latecomer", switchedTo);
+    }
+
     /// <summary>An inert backend: the Session needs one, these tests never run a process.</summary>
     private sealed class InertBackend : ISessionBackend
     {

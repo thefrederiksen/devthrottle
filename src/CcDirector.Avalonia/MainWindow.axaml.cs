@@ -102,6 +102,14 @@ public partial class MainWindow : Window
     // per user in config.json (SessionRailConfig), beside the sidebar's own collapsed state, so they
     // survive a restart. Loaded once in MainWindow_Loaded.
     private SessionRailOrder _railOrder = SessionRailOrder.MyOrder;
+
+    /// <summary>
+    /// True while the rows are being replaced. Replacing the list box's items empties its selection and
+    /// then fills it again, which raises SelectionChanged on a value the user never chose - and the
+    /// handler ACTS on that value, so without this a redraw would switch the user to another session and
+    /// then switch back. The redraw restores the real selection itself, in the same breath.
+    /// </summary>
+    private bool _railRedrawing;
     private readonly HashSet<string> _expandedCrews = new(StringComparer.Ordinal);
 
     /// <summary>
@@ -3861,6 +3869,9 @@ public partial class MainWindow : Window
 
     private void SessionList_SelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
+        // A redraw empties the item list and refills it, so this fires on a value the user never chose.
+        // RebuildRail puts the real selection back itself, immediately after.
+        if (_railRedrawing) return;
         if (SessionList.SelectedItem is SessionViewModel vm)
             SelectSession(vm);
     }
@@ -4048,10 +4059,18 @@ public partial class MainWindow : Window
         if (sameRows) return;
 
         var selected = SessionList.SelectedItem as SessionViewModel;
-        _railRows.Clear();
-        foreach (var row in rows) _railRows.Add(row.Session);
-        if (selected is not null && _railRows.Contains(selected))
-            SessionList.SelectedItem = selected;
+        _railRedrawing = true;
+        try
+        {
+            _railRows.Clear();
+            foreach (var row in rows) _railRows.Add(row.Session);
+            if (selected is not null && _railRows.Contains(selected))
+                SessionList.SelectedItem = selected;
+        }
+        finally
+        {
+            _railRedrawing = false;
+        }
 
         FileLog.Write($"[MainWindow] RebuildRail: {_sessions.Count} session(s) -> {rows.Count} row(s), " +
                       $"order={_railOrder}, openCrews={_expandedCrews.Count}");
