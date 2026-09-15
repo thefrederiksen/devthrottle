@@ -2621,7 +2621,14 @@ public sealed class GatewayHost : IAsyncDisposable
     /// session however the Gateway was started.
     /// </summary>
     private Wingman.TurnVerdictService EnsureTurnVerdictService()
-        => _turnVerdictService ??= new Wingman.TurnVerdictService(BuildTurnVerdictEnvironment());
+        => _turnVerdictService ??= new Wingman.TurnVerdictService(EnsureTurnVerdictEnvironment());
+
+    private Wingman.GatewayTurnVerdictEnvironment? _turnVerdictEnvironment;
+
+    /// <summary>The one live turn-verdict environment, shared by the seat and the answer route (slice E), so both
+    /// write their ledger lines through the same writer inside the owning account's scope.</summary>
+    private Wingman.GatewayTurnVerdictEnvironment EnsureTurnVerdictEnvironment()
+        => _turnVerdictEnvironment ??= BuildTurnVerdictEnvironment();
 
     /// <summary>
     /// Wire the turn-verdict seat to the live Gateway. Every leg is machinery that already exists: the pushed
@@ -3112,6 +3119,10 @@ public sealed class GatewayHost : IAsyncDisposable
         builder.Services.AddSingleton(SnoozeLandings);
         builder.Services.AddSingleton(FleetRoles);
         builder.Services.AddSingleton(FleetDisplayState);
+        // The turn-end watcher, built above in this method: the hub feeds it each accepted delta immediately before the
+        // display fold, so a stop the Wingman will read is stamped "reading" before its first colour is pushed.
+        builder.Services.AddSingleton(_turnEndWatcher
+            ?? throw new InvalidOperationException("[GatewayHost] the turn-end watcher must be built before the hub's services are registered"));
         // Register the tenancy seam as the SAME instance GatewayDatabase reads (Hosted Multi-Tenancy
         // increment 1), so a scope a SignalR-hosted boundary enters is exactly what the stores resolve. On
         // self-host this is the SingleTenantContext (always Local); on hosted it is the AsyncLocalTenantContext.
@@ -3374,6 +3385,11 @@ public sealed class GatewayHost : IAsyncDisposable
             turnVerdicts: _turnVerdicts,
             // Slice D: the verdict source the roster and GET /sessions/{sid} fold from.
             turnVerdictRows: _turnVerdictRows,
+            // Slice E: the one write path for a verdict's options, recording into the same ledger the seat does.
+            turnVerdictAnswers: new Wingman.TurnVerdictAnswerService(new Wingman.TurnVerdictAnswerRecords(
+                _turnVerdicts, record => EnsureTurnVerdictEnvironment().Record(record))),
+            // Slice E round 3: the same ledger writer, for the answer route's refusal when the service is missing.
+            turnVerdictLedger: record => EnsureTurnVerdictEnvironment().Record(record),
             // Issue #2022: the live process diagnostics the About page shows read-only on both surfaces,
             // after the machine settings left the Cockpit Settings page.
             gatewayStartedAtUtc: StartedAtUtc,

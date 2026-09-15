@@ -232,6 +232,13 @@ public static class SessionKeyGuard
                 return false;
             }
 
+            // ANSWER a judged stop: the one server-owned write path for a verdict's options (the
+            // Wingman-on-every-turn mission, slice E). No wider than "prompt" above - it writes into one session
+            // of the caller's own account, and strictly narrower, because the bytes are the verdict's own options
+            // and the route refuses them unless the live screen is still the one the verdict was formed on.
+            // Matched as one literal four-segment shape, so nothing hung off it later is reachable by accident.
+            if (s.Length == 4 && s[0] == "sessions" && s[2] == "turn-verdict" && s[3] == "answer") return true;
+
             // A message to the agent's own team (the fanout the fleet's "message send all" uses), and the
             // team-resolving front door onto it - which is what the command line actually calls, because
             // working out who is on the team is the Gateway's ruling to make, not the caller's.
