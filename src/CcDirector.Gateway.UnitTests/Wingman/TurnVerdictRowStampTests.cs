@@ -118,7 +118,7 @@ public sealed class TurnVerdictRowStampTests : IDisposable
         Assert.Equal(rows.Count, source.IsReadingReads);
 
         Assert.Equal(VerdictStates.Judged, Get(rows, "finished").VerdictState);
-        Assert.Equal("green", Get(rows, "finished").EffectiveColor);
+        Assert.Equal("cyan", Get(rows, "finished").EffectiveColor);
         Assert.Equal("Pushed the branch", Get(rows, "finished").StateLabel);
         Assert.Equal("active", Get(rows, "finished").TriageBucket);
 
@@ -174,7 +174,7 @@ public sealed class TurnVerdictRowStampTests : IDisposable
         var rows = SixRowsWithFiveVerdictsStored();
         var source = new CountingRows(Store);
         Fold(rows, source, Account);
-        Assert.Equal("green", Get(rows, "finished").EffectiveColor);
+        Assert.Equal("cyan", Get(rows, "finished").EffectiveColor);
 
         source.Colour = false;
         Fold(rows, source, Account);
@@ -278,7 +278,7 @@ public sealed class TurnVerdictRowStampTests : IDisposable
         colourOn = true;
         Fold(rows, source, Account);
         Assert.Equal(VerdictStates.Judged, Get(rows, "finished").VerdictState);
-        Assert.Equal("green", Get(rows, "finished").EffectiveColor);
+        Assert.Equal("cyan", Get(rows, "finished").EffectiveColor);
         // No seat built yet: nothing is being read.
         Assert.False(source.IsReading(Account, "finished"));
     }

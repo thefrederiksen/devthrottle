@@ -102,8 +102,8 @@ describe("Attention first - the Needs you waiting line", () => {
   it("draws the calm band under the reds: its title, its count, and the judged calm row inside it", () => {
     const done = {
       ...needsYou("done-report", "2026-07-26T08:00:00Z", 1),
-      effectiveColor: "green",
-      effectiveColorHex: "#22C55E",
+      effectiveColor: "cyan",
+      effectiveColorHex: "#06B6D4",
       stateLabel: "Done - Pushed the branch",
       triageBucket: "active",
       verdictState: "judged",

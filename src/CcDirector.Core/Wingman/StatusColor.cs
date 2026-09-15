@@ -20,8 +20,9 @@ namespace CcDirector.Core.Wingman;
 ///   red     = needs the user (silent past the quiet threshold). Written here; folded there.
 ///   unknown = process exited, or the source is unreachable. Written here; the Gateway folds Exited to
 ///             "grey" instead, deliberately - it is the single source of truth for the fold.
-///   green   = brand-new, never took a turn, or the Wingman judged the stop done. GATEWAY ONLY, from
-///             SessionDto.IsBrandNew and the turn verdict.
+///   green   = brand-new, never took a turn. GATEWAY ONLY, from SessionDto.IsBrandNew.
+///   cyan    = the Wingman judged the stop finished - done, or a report that asks nothing. GATEWAY ONLY,
+///             from the turn verdict. It was green until issue #2892, and a finished row read as a new one.
 ///   yellow  = the wingman is reading the finished turn, or a voice summary is being prepared.
 ///             GATEWAY ONLY.
 ///   purple  = the Wingman judged that the session is carrying on by itself. GATEWAY ONLY, from the turn
