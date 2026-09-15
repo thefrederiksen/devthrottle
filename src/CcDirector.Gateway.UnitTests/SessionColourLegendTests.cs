@@ -4,14 +4,18 @@ using Xunit;
 namespace CcDirector.Gateway.Tests;
 
 /// <summary>
-/// The legend's words, held to the fold that decides the colours.
+/// The legend's words, held to the fold that decides the colours - CLAUSE BY CLAUSE.
 ///
-/// A legend that only renders its own strings proves nothing about whether they are TRUE - the first draft of this
-/// legend passed every test of that kind with two false sentences in it ("or a schedule is driving it", and "with
-/// them off, every stopped session is red"). So every entry here is EXECUTED: <see cref="ExampleFor"/> builds a
-/// session with the facts the entry's sentence describes, and the real <see cref="SessionOrdering"/> must give it that
-/// colour and the matching needs-you answer. An entry added without an example fails, because the example switch
-/// throws for a colour it does not know.
+/// A legend that only renders its own strings proves nothing about whether they are TRUE: the first draft of this
+/// legend passed tests of that kind with two false sentences in it ("or a schedule is driving it", and "with them off,
+/// every stopped session is red"). One example per colour is not enough either - it binds the sentence's FIRST claim
+/// and leaves the rest as prose. "You snoozed it, its agent exited, or its state could not be read" makes three
+/// claims, so it carries three examples.
+///
+/// So every entry names its clauses, each clause carries a session built from exactly the facts that clause
+/// describes, and each one is run through the real <see cref="SessionOrdering"/>: it must wear the colour the entry
+/// promises, and it must sit on the side of the needs-you line the entry promises. A colour added to the legend
+/// without clauses fails, because <see cref="ClausesFor"/> throws for a colour it does not know.
 /// </summary>
 public sealed class SessionColourLegendTests
 {
@@ -19,33 +23,102 @@ public sealed class SessionColourLegendTests
     private static readonly string[] FoldColours =
         { "red", "yellow", "orange", "green", "cyan", "blue", "purple", "supporting", "error", "grey", "unknown" };
 
-    /// <summary>A session with exactly the facts the entry's sentence names, and nothing else.</summary>
-    private static SessionDto ExampleFor(string colour) => colour switch
+    /// <summary>One claim a sentence makes: the words, a session with exactly those facts, and the fold colour that
+    /// session must wear (the entry's own, unless the clause is about a name that shares the entry - "unknown").</summary>
+    private sealed record Clause(string Claim, SessionDto Session, string? FoldsTo = null);
+
+    /// <summary>Every claim in an entry's sentence, each with the session that tests it.</summary>
+    private static Clause[] ClausesFor(string colour) => colour switch
     {
-        // "stopped and is waiting for you"
-        "red" => new SessionDto { SessionId = "example-red", ActivityState = "WaitingForInput" },
-        // "running a turn right now"
-        "blue" => new SessionDto { SessionId = "example-blue", ActivityState = "Working" },
-        // "stopped and the Wingman judged it finished ... only reporting"
-        "cyan" => Judged("example-cyan", SessionOrdering.VerdictFinished, SessionOrdering.FinishedKindReport),
-        // "stopped, but the Wingman judged it will continue on its own"
-        "purple" => Judged("example-purple", SessionOrdering.VerdictContinuesAlone, finishedKind: null),
-        // "the Director is reading the stop" - the yellow that does NOT depend on the verdict switch
-        "yellow" => new SessionDto { SessionId = "example-yellow", ActivityState = "WaitingForInput", BriefingState = "Briefing" },
-        // "a brand-new session at its first prompt"
-        "green" => new SessionDto { SessionId = "example-green", ActivityState = "WaitingForInput", IsBrandNew = true },
-        // "your dictation is still ... being turned into text"
-        "orange" => new SessionDto { SessionId = "example-orange", ActivityState = "WaitingForInput", Transcribing = true },
-        // "stopped, but another live session is driving it" - a live supervisor and nothing else
-        "supporting" => new SessionDto { SessionId = "example-supporting", ActivityState = "WaitingForInput", HasLiveSupervisor = true },
-        // "you snoozed it"
-        "grey" => new SessionDto { SessionId = "example-grey", ActivityState = "WaitingForInput", OnHold = true },
-        // "the agent process died"
-        "error" => new SessionDto { SessionId = "example-error", ActivityState = "Exited", Crashed = true },
+        "red" =>
+        [
+            new("at a prompt", Stopped("red-prompt", "WaitingForInput")),
+            new("on a permission", Stopped("red-permission", "WaitingForPerm")),
+            new("with a question", Stopped("red-idle", "Idle")),
+        ],
+        "blue" =>
+        [
+            new("running a turn right now", Stopped("blue-working", "Working")),
+            new("starting is running too", Stopped("blue-starting", "Starting")),
+            // "always blue": snoozed, supervised and mid-dictation at once, and still working.
+            new("always blue, whatever else is true", new SessionDto
+            {
+                SessionId = "blue-outranks-everything", ActivityState = "Working",
+                OnHold = true, HasLiveSupervisor = true, Transcribing = true, IsBrandNew = true,
+            }),
+        ],
+        "cyan" =>
+        [
+            new("the work is done", Judged("cyan-done", SessionOrdering.VerdictFinished, SessionOrdering.FinishedKindDone)),
+            new("it is only reporting something", Judged("cyan-report", SessionOrdering.VerdictFinished, SessionOrdering.FinishedKindReport)),
+        ],
+        "purple" =>
+        [
+            new("it will continue on its own", Judged("purple-continues", SessionOrdering.VerdictContinuesAlone, finishedKind: null)),
+        ],
+        "yellow" =>
+        [
+            new("the Director is reading the stop", new SessionDto
+            {
+                SessionId = "yellow-briefing", ActivityState = "WaitingForInput", BriefingState = "Briefing",
+            }),
+            new("the Wingman is reading the stop", new SessionDto
+            {
+                SessionId = "yellow-verdict-reading", ActivityState = "WaitingForInput", VerdictState = VerdictStates.Reading,
+            }),
+            new("its voice summary is not ready yet", new SessionDto
+            {
+                SessionId = "yellow-voice", ActivityState = "WaitingForInput", VoiceMode = true, VoiceAudioReady = false,
+            }),
+        ],
+        "green" =>
+        [
+            new("a brand-new session at its first prompt", new SessionDto
+            {
+                SessionId = "green-new", ActivityState = "WaitingForInput", IsBrandNew = true,
+            }),
+        ],
+        "orange" =>
+        [
+            new("still uploading", new SessionDto
+            {
+                SessionId = "orange-uploading", ActivityState = "WaitingForInput", DictationStatus = "Uploading from phone",
+            }),
+            new("being turned into text", new SessionDto
+            {
+                SessionId = "orange-transcribing", ActivityState = "WaitingForInput", Transcribing = true,
+            }),
+            new("the desktop's own dictation counts too", new SessionDto
+            {
+                SessionId = "orange-desktop", ActivityState = "WaitingForInput", IsTranscribing = true,
+            }),
+        ],
+        "supporting" =>
+        [
+            new("another live session is driving it", new SessionDto
+            {
+                SessionId = "supporting-supervised", ActivityState = "WaitingForInput", HasLiveSupervisor = true,
+            }),
+        ],
+        "grey" =>
+        [
+            new("you snoozed it", new SessionDto { SessionId = "grey-snoozed", ActivityState = "WaitingForInput", OnHold = true }),
+            new("its agent exited", new SessionDto { SessionId = "grey-exited", ActivityState = "Exited" }),
+            // The fold's own word for a state it cannot read. A different NAME, the same pixel - which is why the
+            // legend lets this entry speak for it (SessionColourLegend.SharesAnEntry).
+            new("its state could not be read", new SessionDto { SessionId = "grey-unreadable", ActivityState = "SomethingNew" }, FoldsTo: "unknown"),
+        ],
+        "error" =>
+        [
+            new("the agent process died", new SessionDto { SessionId = "error-crashed", ActivityState = "Exited", Crashed = true }),
+        ],
         _ => throw new InvalidOperationException(
-            $"the legend has an entry for '{colour}' but this test has no example session for it - write the facts " +
-            "its sentence describes, so the sentence is checked against the fold rather than trusted"),
+            $"the legend has an entry for '{colour}' but this test names no claims for it - write one clause per thing " +
+            "its sentence says, each with a session built from those facts, so the sentence is checked against the " +
+            "fold rather than trusted"),
     };
+
+    private static SessionDto Stopped(string id, string activity) => new() { SessionId = id, ActivityState = activity };
 
     private static SessionDto Judged(string id, string verdict, string? finishedKind) => new()
     {
@@ -64,23 +137,42 @@ public sealed class SessionColourLegendTests
     };
 
     [Fact]
-    public void EveryEntry_ItsExampleSession_FoldsToTheEntrysColour()
+    public void EveryClause_OfEverySentence_FoldsToTheColourItsEntryPromises()
     {
         foreach (var entry in SessionColourLegend.Build().Entries)
-            Assert.True(entry.Colour == SessionOrdering.EffectiveColor(ExampleFor(entry.Colour)),
-                $"the legend says '{entry.Title}' is {entry.Colour}, but a session with those facts folds to " +
-                $"'{SessionOrdering.EffectiveColor(ExampleFor(entry.Colour))}'");
+            foreach (var clause in ClausesFor(entry.Colour))
+            {
+                var expected = clause.FoldsTo ?? entry.Colour;
+                var actual = SessionOrdering.EffectiveColor(clause.Session);
+                Assert.True(expected == actual,
+                    $"'{entry.Title}' says \"{clause.Claim}\", but a session with those facts folds to '{actual}', not '{expected}'");
+                // A clause that folds to a SHARED name must at least paint the same pixel, or the entry is speaking
+                // for a colour the person would see as a different dot.
+                Assert.Equal(SessionColorPalette.HexFor(entry.Colour), SessionColorPalette.HexFor(actual));
+            }
     }
 
     [Fact]
-    public void EveryEntry_AsksForYouYes_IsExactlyTheNeedsYouBucket()
+    public void EveryClause_SitsOnTheSideOfTheNeedsYouLine_ItsEntryPromises()
+    {
+        foreach (var entry in SessionColourLegend.Build().Entries)
+            foreach (var clause in ClausesFor(entry.Colour))
+            {
+                var needsYou = SessionOrdering.Classify(clause.Session) == SessionOrdering.TriageBucket.NeedsYou;
+                Assert.True(needsYou == (entry.AsksForYou == SessionColourLegend.AsksYes),
+                    $"'{entry.Title}' says it asks for you: {entry.AsksForYou}, but \"{clause.Claim}\" lands in " +
+                    $"{SessionOrdering.Classify(clause.Session)}");
+            }
+    }
+
+    [Fact]
+    public void EveryEntry_NamesAtLeastOneClause_AndEveryClauseSaysWhatItIsTesting()
     {
         foreach (var entry in SessionColourLegend.Build().Entries)
         {
-            var needsYou = SessionOrdering.Classify(ExampleFor(entry.Colour)) == SessionOrdering.TriageBucket.NeedsYou;
-            Assert.True(needsYou == (entry.AsksForYou == SessionColourLegend.AsksYes),
-                $"'{entry.Title}' says it asks for you: {entry.AsksForYou}, but the fold puts its example in " +
-                $"{SessionOrdering.Classify(ExampleFor(entry.Colour))}");
+            var clauses = ClausesFor(entry.Colour);
+            Assert.NotEmpty(clauses);
+            foreach (var clause in clauses) Assert.False(string.IsNullOrWhiteSpace(clause.Claim));
         }
     }
 
@@ -114,41 +206,46 @@ public sealed class SessionColourLegendTests
     }
 
     [Fact]
-    public void ASharedName_PointsAtAnEntry_ThatPaintsTheSamePixel()
+    public void TheCrashedEntry_IsADifferentRed_FromTheOneThatMeansNeedsYou()
     {
-        var unreadable = new SessionDto { SessionId = "example-unknown", ActivityState = "SomethingNew" };
-        Assert.Equal("unknown", SessionOrdering.EffectiveColor(unreadable));
-
-        foreach (var (name, entryColour) in SessionColourLegend.SharesAnEntry)
-        {
-            Assert.Contains(SessionColourLegend.Build().Entries, e => e.Colour == entryColour);
-            Assert.Equal(SessionColorPalette.HexFor(entryColour), SessionColorPalette.HexFor(name));
-        }
+        // "darker than the red that means needs you" - the part that can be executed is that they are not the same
+        // pixel, which is the whole point of issue #959.
+        Assert.NotEqual(SessionColorPalette.HexFor("red"), SessionColorPalette.HexFor("error"));
     }
 
     [Fact]
-    public void TheVerdictNote_WithTheSwitchOff_TheCalmSessionsFoldRed_AndTheDirectorsYellowDoesNot()
+    public void TheVerdictNote_WithTheSwitchOff_TheCalmSessionsFoldRed_AndTheOtherYellowsDoNot()
     {
         // The note says two things. Execute both. With the switch off the Gateway stamps VerdictState "none" on every
         // row - so the same finished and carrying-on sessions, unstamped, must fold red...
-        foreach (var calm in new[] { ExampleFor("cyan"), ExampleFor("purple") })
-        {
-            calm.VerdictState = VerdictStates.None;
-            Assert.Equal("red", SessionOrdering.EffectiveColor(calm));
-        }
+        foreach (var colour in new[] { "cyan", "purple" })
+            foreach (var clause in ClausesFor(colour))
+            {
+                clause.Session.VerdictState = VerdictStates.None;
+                clause.Session.TurnVerdict = null;
+                Assert.Equal("red", SessionOrdering.EffectiveColor(clause.Session));
+            }
 
-        // ...while the Director's briefing yellow, which the note deliberately does not name, stays yellow.
-        var briefing = ExampleFor("yellow");
-        briefing.VerdictState = VerdictStates.None;
-        Assert.Equal("yellow", SessionOrdering.EffectiveColor(briefing));
+        // ...while the two yellows the note deliberately does not name - the Director's briefing and a voice summary -
+        // are untouched by the switch.
+        foreach (var claim in new[] { "the Director is reading the stop", "its voice summary is not ready yet" })
+        {
+            var clause = ClausesFor("yellow").Single(c => c.Claim == claim);
+            clause.Session.VerdictState = VerdictStates.None;
+            Assert.Equal("yellow", SessionOrdering.EffectiveColor(clause.Session));
+        }
     }
 
     [Fact]
     public void TheSupervisedEntry_IsALiveSupervisor_NotASchedule()
     {
         // The first draft said "or a schedule is driving it". A schedule is not supervision: IsSupervised reads only a
-        // live supervisor. A stopped session with no live supervisor is red, whoever started it.
-        var noSupervisor = new SessionDto { SessionId = "example-scheduled", ActivityState = "WaitingForInput", HasLiveSupervisor = false };
+        // live supervisor. A stopped session without one is red, whoever started it.
+        var noSupervisor = new SessionDto
+        {
+            SessionId = "scheduled-run", ActivityState = "WaitingForInput", HasLiveSupervisor = false,
+            OriginKind = "schedule",
+        };
 
         Assert.Equal("red", SessionOrdering.EffectiveColor(noSupervisor));
         Assert.DoesNotContain("schedule", SessionColourLegend.Build().Entries.Single(e => e.Colour == "supporting").Means,
