@@ -5,7 +5,20 @@ import { MemoryRouter } from "react-router-dom";
 import type { SessionDto } from "@devthrottle/client-core/api/client";
 import { REACHABILITY_ONLINE } from "@devthrottle/client-core/fleet/fleetClient";
 import { resetCrewExpandedForTests } from "@devthrottle/client-core/sessions/tree";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { Home } from "./Home";
+
+// The phone stylesheet, read as text: jsdom does not lay out, so the rules that make the guides
+// visible and keep the state readable are asserted as a contract on the file the build ships.
+const STYLESHEET = readFileSync(resolve(__dirname, "../styles.css"), "utf8");
+
+// The declarations of one rule block, by its exact selector line.
+function rule(selector: string): string {
+  const start = STYLESHEET.indexOf(`\n${selector} {`);
+  if (start < 0) throw new Error(`No rule for ${selector} in styles.css`);
+  return STYLESHEET.slice(start, STYLESHEET.indexOf("}", start));
+}
 
 // THE LIST IS ALWAYS THE OWNERSHIP TREE (owner ruling, 2026-09-14). On the phone a parent is a card
 // with a band along its bottom; the children expand in place as one-line rows. The All tab opens in
@@ -159,6 +172,44 @@ describe("the phone roster is the ownership tree", () => {
     fireEvent.click(screen.getByRole("button", { name: /Expand the 1 sessions under Rule Factory - Architect/ }));
     const kids = screen.getByRole("list", { name: "Sessions under Rule Factory - Architect" });
     expect(within(kids).getByText("SORENLAPTOP")).toBeTruthy();
+  });
+
+  it("draws the guides with the stylesheet the build ships - hiding them in CSS is caught here", () => {
+    // The React half (one <i> per level) is guarded above; this is the visual half. A guide is a
+    // 1 pixel bar with a colour, laid out as a flex row inside the row's gutter, and never hidden.
+    expect(rule(".crew-kid-guides")).toMatch(/display:\s*flex/);
+    expect(rule(".crew-kid-guides")).not.toMatch(/display:\s*none|visibility:\s*hidden|opacity:\s*0\b/);
+    expect(rule(".crew-kid-guides i")).toMatch(/width:\s*1px/);
+    expect(rule(".crew-kid-guides i")).toMatch(/background:\s*var\(--border\)/);
+    expect(rule(".crew-kid-guides i")).not.toMatch(/display:\s*none/);
+    expect(rule(".crew-kid-link")).toMatch(/position:\s*relative/);
+  });
+
+  it("never shrinks the state or the machine on a phone row - the name wraps instead", () => {
+    // A long name used to squeeze "Working" to "W...". The state and machine are fixed-size items;
+    // the name is the only flexible one and wraps to at most two lines.
+    expect(rule(".crew-kid-state")).toMatch(/flex:\s*0 0 auto/);
+    expect(rule(".crew-kid-state")).not.toMatch(/text-overflow|min-width:\s*0/);
+    expect(rule(".crew-kid-machine")).toMatch(/flex:\s*0 0 auto/);
+    expect(rule(".crew-kid-machine")).not.toMatch(/text-overflow|min-width:\s*0/);
+    expect(rule(".crew-kid-name")).toMatch(/-webkit-line-clamp:\s*2/);
+    expect(rule(".crew-kid-name")).toMatch(/overflow-wrap:\s*anywhere/);
+    expect(rule(".crew-kid-name")).not.toMatch(/white-space:\s*nowrap/);
+  });
+
+  it("shows the level number instead of guides once a row is deeper than the guides can draw", async () => {
+    const chain = [architect];
+    let parent = "108";
+    for (let i = 1; i <= 5; i++) {
+      chain.push(session({ sessionId: `L${i}`, number: 300 + i, name: `level ${i + 1}`, sortOrder: i, controllerSessionId: parent }));
+      parent = `L${i}`;
+    }
+    await renderHome(chain);
+    fireEvent.click(screen.getByRole("button", { name: /Expand the 5 sessions under Rule Factory - Architect/ }));
+    const links = within(screen.getByRole("list", { name: "Sessions under Rule Factory - Architect" })).getAllByRole("link");
+    // depths 1..5: guides 0,1,2,3 then a level number for depth 5 (and deeper).
+    expect(links.map((a) => a.querySelectorAll(".crew-kid-guides i").length)).toEqual([0, 1, 2, 3, 0]);
+    expect(links.map((a) => a.querySelector(".crew-kid-depth")?.textContent ?? "")).toEqual(["", "", "", "", "5"]);
   });
 
   it("names the machine on every edge that crosses one, not just against the crew's root", async () => {

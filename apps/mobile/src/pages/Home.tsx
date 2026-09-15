@@ -871,11 +871,13 @@ function CrewBand({ root, kids }: { root: SessionDto; kids: SessionDto[] }) {
   );
 }
 
-// One session under an expanded parent: a one-line row at touch height - dot, number, name, state -
-// that opens that session. Depth is shown as guide lines in the gutter (one per level below the first),
-// never as indentation, so the name keeps its width at any depth. A session on another machine than
-// the session DIRECTLY above it carries that machine's name. The full card is one tap away on the
-// session's own screen.
+// One session under an expanded parent: a row at touch height - dot, number, name, state - that opens
+// that session. The name may wrap to a second line; the state and the machine never shrink, because
+// what a session is DOING is the row's answer and must stay readable however long its name is. Depth
+// is shown as guide lines in the gutter (one per level below the first, up to three, then the level
+// number), never as indentation, so the name keeps its width at any depth. A session on another
+// machine than the session DIRECTLY above it carries that machine's name. The full card is one tap
+// away on the session's own screen.
 function CrewKidRow({ session, depth, elsewhere, mark }: { session: SessionDto; depth: number; elsewhere: boolean; mark?: RosterSessionMark }) {
   const name = session.name && session.name.trim().length > 0 ? session.name : "(unnamed session)";
   const machine = machineName(session);
@@ -886,14 +888,19 @@ function CrewKidRow({ session, depth, elsewhere, mark }: { session: SessionDto; 
   return (
     <li className={`crew-kid${mark ? " row-unreachable" : ""}`}>
       <Link className="crew-kid-link" to={to} state={{ voiceMode: Boolean(session.voiceMode), fromTab: "all" }}>
-        {depth > 1 && (
+        {depth > 1 && depth <= 4 && (
           <span className="crew-kid-guides" aria-hidden="true">
-            {/* Capped at three guides: with 4 pixel spacing from 12 pixels in, a fourth would reach
-                the dot at 30 pixels. Deeper than that reads as "deep", which is all the eye needs. */}
-            {Array.from({ length: Math.min(depth - 1, 3) }, (_, i) => (
+            {/* One guide per level below the first, up to three: with 4 pixel spacing from 12 pixels
+                in, a fourth would reach the dot at 30 pixels. */}
+            {Array.from({ length: depth - 1 }, (_, i) => (
               <i key={i} />
             ))}
           </span>
+        )}
+        {depth > 4 && (
+          /* Deeper than the guides can show: the level number itself, in the same gutter, so two
+             adjacent deep rows never read as siblings when one is under the other. */
+          <span className="crew-kid-depth" aria-label={`Level ${depth}`}>{depth}</span>
         )}
         <span className="dot crew-kid-dot" style={{ backgroundColor: dotHex(session) }} aria-hidden="true" />
         {hasNum && <span className="row-num">{num}</span>}
