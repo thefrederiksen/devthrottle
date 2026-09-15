@@ -698,6 +698,33 @@ public static class SessionOrdering
         InDesktopOrder(sessions.Where(s => Classify(s) == bucket));
 
     /// <summary>
+    /// THE WAITING LINE for the needs-you group. The session that has been asking for you the LONGEST
+    /// sits at the top; a session that only just started needing you drops in at the BOTTOM. This keeps
+    /// the list from reshuffling under you as new work arrives and makes it a first-in, first-handled
+    /// queue when you work down from the top.
+    ///
+    /// Ordered by <see cref="SessionDto.NeedsYouSince"/> ascending - the earliest stamp is the oldest
+    /// wait - then <see cref="SessionDto.CreatedAt"/> and finally the session id, so equal waits never
+    /// jitter between polls. A session with no stamp sorts to the BOTTOM: we cannot place it in the line,
+    /// so it never jumps ahead of a session with a real wait time.
+    ///
+    /// IT DELIBERATELY IGNORES <see cref="SessionDto.SortOrder"/>. The needs-you group is a queue by wait
+    /// time, not the owner's manual arrangement - which is the whole difference between the attention
+    /// order and my order.
+    ///
+    /// The port of <c>inWaitingOrder</c> in packages/client-core/src/sessions/ordering.ts, and the tie
+    /// breaks are ORDINAL where the TypeScript's are locale-aware. Session ids are hexadecimal or numeric
+    /// and timestamps are ISO 8601, so the two agree on every value this field can carry - and ordinal is
+    /// the one that cannot change answer with the machine's locale.
+    /// </summary>
+    public static IReadOnlyList<SessionDto> InWaitingOrder(IEnumerable<SessionDto> sessions) =>
+        sessions.Where(s => Classify(s) == TriageBucket.NeedsYou)
+            .OrderBy(s => s.NeedsYouSince ?? DateTime.MaxValue)
+            .ThenBy(s => s.CreatedAt)
+            .ThenBy(s => s.SessionId, StringComparer.Ordinal)
+            .ToList();
+
+    /// <summary>
     /// The display label for the "(no repo)" group: sessions whose <see cref="SessionDto.RepoPath"/>
     /// is empty (and that carry no <see cref="SessionDto.RemoteRepo"/>). Rendered last in the
     /// by-repo view (issue #219).
