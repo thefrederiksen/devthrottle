@@ -273,10 +273,18 @@ public static class TurnVerdictContract
                         $"the evidence is {evidence.Length} characters, over the {MaxEvidenceChars} character "
                         + "bound; a receipt is one decisive sentence, and it cannot be cut without breaking "
                         + "the check that it is verbatim");
-                if (!EvidenceIsVerbatim(package, evidence))
+                var found = FindEvidence(package, evidence);
+                if (found is null)
                     return Refuse(package, model, turnEndObservedAtUtc,
                         "the evidence is not found verbatim in the reply or on the screen; it was paraphrased, "
                         + "retyped or invented, and an unanchored answer is thrown away whole");
+
+                // Store the SOURCE's own characters, not the judge's rendering of them. A model that
+                // collapsed two spaces into one has still quoted the sentence, so the answer is accepted -
+                // but what the owner is shown as the agent's own words must then be the agent's, down to
+                // the spacing. Keeping the judge's version would leave a receipt that is very nearly the
+                // quote, which is the exact thing a receipt exists to rule out.
+                evidence = found;
             }
 
             // ---- label and summary ------------------------------------------------------------
@@ -376,19 +384,23 @@ public static class TurnVerdictContract
     /// has still quoted the sentence - and box-drawing characters are stripped from the EDGES of screen
     /// rows, because a sentence drawn inside a terminal box is the same sentence as the one outside it.
     /// Nothing else is tolerated: one word different is a different sentence.
+    ///
+    /// Returns the SOURCE's own text for the span rather than a yes or no, so the receipt that is stored
+    /// and shown is the agent's characters and not the judge's rendering of them. Null when it is not
+    /// there at all.
     /// </summary>
-    public static bool EvidenceIsVerbatim(TurnVerdictPackage package, string evidence)
+    public static string? FindEvidence(TurnVerdictPackage package, string evidence)
     {
         ArgumentNullException.ThrowIfNull(package);
-        if (string.IsNullOrWhiteSpace(evidence)) return false;
+        if (string.IsNullOrWhiteSpace(evidence)) return null;
 
         var source = package.SourceText;
         if (!string.IsNullOrWhiteSpace(source)
-            && BriefBuilder.FindVerbatim(source, evidence) is not null)
-            return true;
+            && BriefBuilder.FindVerbatim(source, evidence) is { } inReply)
+            return inReply;
 
         var screen = NormalizeScreen(package.ScreenRows);
-        return screen.Length > 0 && BriefBuilder.FindVerbatim(screen, evidence) is not null;
+        return screen.Length == 0 ? null : BriefBuilder.FindVerbatim(screen, evidence);
     }
 
     /// <summary>

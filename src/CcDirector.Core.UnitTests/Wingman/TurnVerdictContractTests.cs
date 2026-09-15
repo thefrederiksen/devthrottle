@@ -214,6 +214,10 @@ public sealed class TurnVerdictContractTests
         var result = TurnVerdictContract.ParseAndValidate(answer, MenuStop(), Model, ObservedAt);
 
         Assert.False(result.Failed, result.FailureReason);
+
+        // What is STORED is the screen's own characters, not the judge's spacing. The receipt is shown to
+        // the owner as the agent's own words, so it has to be them.
+        Assert.Equal("Push the deploy guard to main?", result.Evidence);
     }
 
     [Fact]
