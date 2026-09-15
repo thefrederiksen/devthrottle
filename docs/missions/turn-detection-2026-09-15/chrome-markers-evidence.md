@@ -40,6 +40,21 @@ forty-three cases support rather than as a survey:
 - `Token usage: total=... input=... output=...`
 - The resume banner: `To continue this session, run:` followed by `codex resume <id>`
 
+## Two entries in the shipped list are NOT from this evidence
+
+Added 15 September, on the inspection, which found that two declared markers were exercised by no
+test at all. `auto-accept` and `IDE disconnected` are not in the counts above and never were: the
+shipped list is the rows counted here PLUS the rows the scoring harness's own expression carried,
+and those two came in with the second group. They are real Claude Code interface strings, but this
+corpus recorded no episode in which either one wrongly opened a turn.
+
+They are now each covered by a row of their own in `SelfDescribingRowMarkersTests`, written from the
+agent's interface rather than from a corpus screen, and the test says so. They are the weakest two
+lines in the list and are the first to delete if it is ever cut back. The same test now requires
+every declared marker to be the ONLY reason its row is suppressed, so no entry can be deleted while
+a neighbour on the same physical row keeps the test green - which is how these two came to be
+unexercised in the first place.
+
 ## What this evidence does not establish
 
 It is one machine. Of the repaint-labelled population, one thousand two hundred and ninety-two

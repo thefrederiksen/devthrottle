@@ -97,8 +97,20 @@ machine that produced it can read, which makes the whole comparison unanswerable
 So phase one adds `TurnDetectionShadowLog`, built in exactly the shape of
 `src/CcDirector.Core/Wingman/StateChangeLog.cs`: append-only lines of JSON, one file per
 session, the path resolved through `CcStorage` so `CC_DIRECTOR_ROOT` redirects it under test, a
-single process-wide lock, and failures logged and swallowed so the log can never affect the
-session it observes. It carries its own switch.
+single process-wide lock, and failures logged and swallowed. It carries its own switch.
+
+**Corrected 15 September, on the inspection.** This paragraph used to say the log could never
+affect the session it observes. That was mine and it was too strong: the append is a synchronous
+file write under a shared lock, it has no latency bound, and it ran BEFORE the state decision, so
+a slow filesystem could delay the very decision the row describes. The ruling is to remove the
+hazard rather than bound it - **compute the verdict, apply the state, then append** - and the claim
+the code now supports is the narrower one: the log is appended after the state write and therefore
+cannot delay it. The single process-wide lock stays; at the corrected check rate the contention is
+acceptable and nobody has measured a need for per-file locking.
+
+**The log is bounded on disk**, which it was not. Four megabytes per session file with one rolled
+predecessor kept, and a file nothing has written to for fourteen days is deleted. Both numbers live
+in `TurnDetectionShadowLog` and nowhere else.
 
 One row per check, never per byte. Each row carries the time, the agent, what the row candidate
 decided and the first new row it saw, what the size candidate decided and its magnitude, what
