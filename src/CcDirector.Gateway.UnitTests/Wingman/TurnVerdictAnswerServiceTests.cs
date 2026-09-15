@@ -146,9 +146,10 @@ public sealed class TurnVerdictAnswerServiceTests : IDisposable
 
     private void AssertRefusedAndNothingWritten(TurnVerdictAnswerOutcome outcome, FakeChannel channel, string cause)
     {
+        // The writes FIRST: when a rule is missing, the failure message lists the exact bytes that reached the session.
+        Assert.Empty(channel.Writes);
         Assert.False(outcome.Accepted);
         Assert.Equal(cause, outcome.Code);
-        Assert.Empty(channel.Writes);
         var record = OnlyRecord();
         Assert.Equal(ActivityEventTypes.TurnVerdictAnswerRefused, record.EventType);
         Assert.Equal(cause, record.Cause);
