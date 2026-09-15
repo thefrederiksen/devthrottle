@@ -318,29 +318,6 @@ public sealed class TurnDetectionShadowRetentionTests : IDisposable
     }
 
     [Fact]
-    public void A_reader_can_read_the_file_while_the_log_is_appending_to_it()
-    {
-        // The other direction, and it is a different fact: the test above is about what a foreign
-        // reader permits, this one is about what the LOG permits. A log that shut readers out would
-        // still pass the test above once it retried long enough, and the suite would still fail -
-        // because the reader is the side that threw first.
-        //
-        // The reader is held OPEN ACROSS the append, so the append has to be permitted while a
-        // reader has the file, not merely afterwards.
-        var session = Guid.NewGuid();
-        TurnDetectionShadowLog.Append(session, RowFor(0));
-        var path = Path.Combine(CcStorage.TurnDetectionShadow(), session.ToString("N") + ".jsonl");
-
-        using var reader = new FileStream(
-            path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        TurnDetectionShadowLog.Append(session, RowFor(1));
-
-        using var text = new StreamReader(reader, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
-        var seen = text.ReadToEnd();
-        Assert.Equal(2, seen.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length);
-    }
-
-    [Fact]
     public void An_append_past_the_contention_budget_loses_the_row_and_says_so()
     {
         // THE BOUND IS REAL AND IS NOT PRETENDED AWAY. The retry is bounded because it runs under

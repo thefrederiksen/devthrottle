@@ -113,6 +113,12 @@ public static class TurnDetectionShadowLog
     /// violation outright; the writer that lost it dropped a shadow row nothing ever wrote again,
     /// because the check that produced it had already been taken off the books.
     ///
+    /// WHAT THIS DOES NOT FIX, said plainly: the suite failure itself was the TEST's reader denying
+    /// this writer, and it is fixed in the test by reading in a way that permits a writer. This
+    /// budget is for the readers nobody controls - the owner running Get-Content over a shadow file,
+    /// a scoring script, a scanner - where the only symptom is a measurement that is quietly a few
+    /// rows short.
+    ///
     /// A reader's hold is brief, so a short wait covers it. It is BOUNDED because it runs under the
     /// process-wide lock: an unbounded wait would stall every other session's append behind one
     /// stuck handle. Past the bound the row is still lost and still logged - which is stated here
@@ -230,18 +236,19 @@ public static class TurnDetectionShadowLog
     /// Put one line on the end of the file, in a way that neither locks a reader out nor loses the
     /// row to one.
     ///
-    /// TWO THINGS, AND THEY ARE DIFFERENT. <c>FileShare.ReadWrite | FileShare.Delete</c> is what WE
-    /// permit, so a reader is never shut out while we write and the retention sweep can still move
-    /// or delete the file underneath us. The RETRY is for what THEY permit: a reader that opened
-    /// with FileShare.Read denies our write whatever we ask for, and no share flag of ours can
-    /// change that.
+    /// THE RETRY IS THE WHOLE FIX, and the share mode deliberately is NOT changed. Widening what WE
+    /// permit looks like half the answer and is none of it: a reader that opened with
+    /// FileShare.Read denies our write whatever we ask for, and our own share flags cannot reach
+    /// that. Measured rather than assumed - a guard written to pin a widened share mode passed
+    /// identically with the old append and was deleted rather than kept as decoration. So the open
+    /// stays byte for byte what File.AppendAllText did, and the retry is what survives a reader.
     ///
     /// The byte-order mark goes on only when the file is empty, which is exactly what
     /// File.AppendAllText did before this, so the file on disk is unchanged in shape.
     ///
-    /// A reader may now see a line that is still being written. That is the price of not shutting
-    /// readers out, and it is handled where it belongs: a reader counts only newline-terminated
-    /// lines, so a half-written last row is not a row yet.
+    /// A reader that permits writers may see a line that is still being written - that was already
+    /// true of File.AppendAllText and is not changed here. It is handled where it belongs: a reader
+    /// counts only newline-terminated lines, so a half-written last row is not a row yet.
     /// </summary>
     private static void AppendLine(string path, string line)
     {
@@ -252,8 +259,7 @@ public static class TurnDetectionShadowLog
             try
             {
                 using var stream = new FileStream(
-                    path, FileMode.Append, FileAccess.Write,
-                    FileShare.ReadWrite | FileShare.Delete);
+                    path, FileMode.Append, FileAccess.Write, FileShare.Read);
                 if (stream.Position == 0)
                 {
                     var preamble = Encoding.UTF8.GetPreamble();
