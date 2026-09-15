@@ -76,6 +76,20 @@ def test_Add_PipedSecret_IsSaved_AndNeverEchoed(store):
     assert _audit_lines()[-1]["command"] == "add"
 
 
+def test_Add_WithoutUses_DefaultsToBothLoginAndRun(store):
+    runner.invoke(cli.app, ["add", "web", "--username", "u", "--domains", "example.com", "--agents"],
+                  input=new_secret() + "\n")
+
+    assert store.get("web").uses == ["login", "run"]
+
+
+def test_Help_SaysWhatTheProtectionCovers(plain):
+    text = " ".join(plain(runner.invoke(cli.app, ["--help"]).output).split())
+
+    assert "accidental exposure" in text
+    assert "not against a hostile program running as the same user" in text
+
+
 def test_Add_PipedSecretWithCarriageReturn_IsTrimmed(store):
     secret = new_secret()
 

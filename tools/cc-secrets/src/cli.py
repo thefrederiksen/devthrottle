@@ -39,7 +39,9 @@ if _tools_dir not in sys.path:
 
 app = typer.Typer(
     name="cc-secrets",
-    help="Use a stored password without the model ever seeing it. Agents: list, run, login. Owner: add, remove. Anyone: log.",
+    help="Use a stored password without the model ever seeing it. Agents: list, run, login. Owner: add, remove. Anyone: log. "
+         "It protects against accidental exposure (transcripts, logs, output, screenshots), not against a hostile "
+         "program running as the same user.",
     add_completion=False,
     no_args_is_help=True,
 )

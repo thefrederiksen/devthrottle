@@ -976,6 +976,9 @@ prints a secret, and there is deliberately no `get`.
 The store is one plain JSON file per user per machine (`secrets.json`), protected by user-only file
 permissions. Every use writes a line to `secrets-audit.log`.
 
+It protects against accidental exposure (transcripts, logs, output, screenshots), not against a
+hostile program running as the same user.
+
 ```
 USAGE: cc-secrets [OPTIONS] COMMAND [ARGS]...
 
