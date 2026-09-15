@@ -41,17 +41,15 @@ public static class SpokenPaths
     /// </summary>
     public static readonly IReadOnlyList<SpokenPath> All = new[]
     {
+        // TURN NARRATION IS NOT IN THIS LIST ANY MORE. Since the Wingman-on-every-turn mission it is the "spoken"
+        // field of the turn verdict, registered under SpokenFieldPaths below. The separate terminal-failure
+        // narration went with it: a failure is one of the two shapes the verdict judges. What remains here is
+        // the translator's whole-answer path, which the instructions editor's draft (issue #537) runs through.
         new SpokenPath(
-            "turn narration (WingmanTranslator.TranslateAsync)",
+            "draft narration for edited instructions (WingmanTranslator.TranslateWithAsync)",
             "WingmanTranslator.BuildPrompt",
             language => WingmanTranslator.BuildPrompt(
                 language, WingmanTranslator.FidelityPrompt, "recent context", "an agent reply", "a session")),
-
-        new SpokenPath(
-            "terminal failure narration (WingmanTranslator.TranslateTerminalFailureAsync)",
-            "WingmanTranslator.BuildTerminalFailurePrompt",
-            language => WingmanTranslator.BuildTerminalFailurePrompt(
-                language, "Error: the provider rejected the session credential", "a session")),
 
         new SpokenPath(
             "direct reply (WingmanTranslator.AskDirectAsync)",
@@ -86,6 +84,18 @@ public static class SpokenPaths
     /// </summary>
     public static readonly IReadOnlyList<SpokenPath> SpokenFieldPaths = new[]
     {
+        new SpokenPath(
+            "turn narration: the spoken field of the turn verdict (TurnVerdictService)",
+            "TurnVerdictPrompt.BuildVerdictPrompt",
+            language => TurnVerdictPrompt.BuildVerdictPrompt(
+                language,
+                new Core.Wingman.TurnVerdictPackage
+                {
+                    SessionTitle = "a session",
+                    LatestReply = "an agent reply",
+                    ConversationAvailable = true,
+                })),
+
         new SpokenPath(
             "menu reading, extracted fields (WingmanTranslator.DetectMenuAsync)",
             "WingmanTranslator.BuildMenuDetectPrompt",

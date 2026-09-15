@@ -12,6 +12,7 @@ using CcDirector.Gateway.Discovery;
 using CcDirector.Gateway.Settings;
 using CcDirector.Gateway.Tests.Data;
 using CcDirector.Gateway.Wingman;
+using CcDirector.Gateway.Tests.Wingman;
 using Xunit;
 using CcDirector.Core.Tenancy;
 
@@ -127,33 +128,32 @@ public sealed class WingmanVoiceServiceTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// AN AGENT THAT KEEPS NO CONVERSATION IS JUDGED FROM ITS SCREEN. This used to be the one terminal answer: no
+    /// words could ever be read, so the screen said "Voice unavailable" and the sweep stood down. The verdict does
+    /// not need a conversation - its receipt binds to the screen alone - so the stop is narrated, nothing
+    /// terminal is recorded, and the sweep keeps visiting.
+    /// </summary>
     [Fact]
-    public async Task GenerateAsync_WhenTheAgentKeepsNoConversation_IsTerminal_AndStandsTheSweepDown()
+    public async Task GenerateAsync_WhenTheAgentKeepsNoConversation_IsJudgedFromItsScreen_AndNarrated()
     {
-        // THE CAPABILITY THAT NEARLY WENT WITH THE TUNNEL READ. An agent with no conversation to read used to
-        // answer "unsupported" on the transcript read, which recorded a terminal verdict: the voice screen
-        // said "Voice unavailable" and the sweep stopped spending its small per-cycle budget on a session
-        // that could never produce a narration. Reading the store removed the failing read and, with it, the
-        // only producer of that verdict - such a session would have read as an ordinary quiet wait, forever,
-        // with nothing said anywhere. The Director already pushes the fact, so the store carries it.
+        var director = new TunnelStub();
         var conversation = StoredConversationStub.NoConversationEverKept();
         var dir = Path.Combine(Path.GetTempPath(), "wmvs-terminal-" + Guid.NewGuid().ToString("N"));
         var persistPath = Path.Combine(dir, "voice-sessions.json");
         try
         {
-            var svc = ServiceWithBrainAndTts(new RecordingBrain(), new byte[] { 1, 2, 3 }, persistPath, conversation.Reader);
-            var tunnel = new TunnelStub();
+            var brain = new RecordingBrain();
+            var svc = ServiceWithBrainAndTts(brain, new byte[] { 3 }, persistPath, conversation.Reader);
 
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(tunnel));
+            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
 
-            Assert.Equal(HostedAiState.Unavailable, svc.ReadFailedFor(TenantId.Local, "sid-1"));
-            Assert.True(svc.ShouldSkipSweep(TenantId.Local, "sid-1"));
-            Assert.False(svc.HasVoice(TenantId.Local, "sid-1"));
-            // And NOT the honest-but-wrong "waiting on a prompt" answer, which is what a reader would be told
-            // to keep waiting for.
-            Assert.False(svc.NothingToNarrateFor(TenantId.Local, "sid-1"));
+            Assert.Equal(1, brain.AskCount);
+            Assert.True(svc.HasVoice(TenantId.Local, "sid-1"));
+            Assert.Null(svc.VoiceUnavailableFor(TenantId.Local, "sid-1"));
+            Assert.False(svc.ShouldSkipSweep(TenantId.Local, "sid-1"));
         }
-        finally { try { Directory.Delete(dir, recursive: true); } catch (IOException) { } }
+        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
     }
 
     [Fact]
@@ -372,7 +372,7 @@ public sealed class WingmanVoiceServiceTests : IDisposable
         public Task<AskResult> AskAsync(string prompt, CancellationToken ct = default)
         {
             Interlocked.Increment(ref _askCount);
-            var wrapped = $"{SessionAskRunner.AnswerBeginMarker}\nnarrated spoken text\n{SessionAskRunner.AnswerEndMarker}";
+            var wrapped = FakeTurnVerdictEnvironment.CannotTell("narrated spoken text");
             return Task.FromResult(new AskResult { Text = wrapped, ReplySeconds = 0.1 });
         }
         public Task CancelAsync(CancellationToken ct = default) => Task.CompletedTask;
@@ -445,12 +445,15 @@ public sealed class WingmanVoiceServiceTests : IDisposable
 
     // ---------- "Nothing to narrate": the session is waiting on a prompt, no text reply to read ----------
 
+    /// <summary>
+    /// A STOP WITH NO TEXT REPLY IS STILL NARRATED (ruling 8 of the Wingman-on-every-turn plan: the spoken
+    /// version exists for every owned stop). Before slice C a turn with no text widget recorded "nothing to
+    /// narrate" and asked no model; the verdict now judges that stop like any other, from the screen and the
+    /// turns before it, and plays its spoken section. Only a brand-new session still has nothing to narrate.
+    /// </summary>
     [Fact]
-    public async Task GenerateAsync_NoTextWidget_RecordsNothingToNarrate_NoAudio_NoFailureReason()
+    public async Task GenerateAsync_AStopWithNoTextReply_IsStillJudgedAndNarrated()
     {
-        // The screenshot's session: waiting on a prompt/menu, so the latest turn has no Text widget. The
-        // auto path must record the honest "nothing to narrate" fact (so the Voice screen says so), call
-        // no model, produce no audio, and set NO failure reason - it is not a failure, it is just empty.
         var director = new TunnelStub();
         var conversation = StoredConversationStub.Of(("ToolUse", "running a tool"));
         var dir = Path.Combine(Path.GetTempPath(), "wmvs-nothing-" + Guid.NewGuid().ToString("N"));
@@ -462,10 +465,10 @@ public sealed class WingmanVoiceServiceTests : IDisposable
 
             await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
 
-            Assert.True(svc.NothingToNarrateFor(TenantId.Local, "sid-1"));
-            Assert.False(svc.HasVoice(TenantId.Local, "sid-1"));
-            Assert.Null(svc.VoiceUnavailableFor(TenantId.Local, "sid-1"));   // NOT a failure - no Retrying/ServiceDown
-            Assert.Equal(0, brain.AskCount);                 // nothing to translate, so the model was never called
+            Assert.Equal(1, brain.AskCount);
+            Assert.True(svc.HasVoice(TenantId.Local, "sid-1"));
+            Assert.False(svc.NothingToNarrateFor(TenantId.Local, "sid-1"));
+            Assert.Null(svc.VoiceUnavailableFor(TenantId.Local, "sid-1"));
         }
         finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
     }
@@ -580,25 +583,14 @@ public sealed class WingmanVoiceServiceTests : IDisposable
     // ---------- A FAILED read is not "nothing to say" (issue #2561), and there is no read left to fail ----------
 
     /// <summary>
-    /// THE LESSON, KEPT: a failed read of a session's conversation must never be mistaken for "this session
-    /// has nothing to say". Getting that wrong is issue #2561 - a missing transcript, an unreadable one, a
-    /// parse exception and an agent with no history provider were all recorded as "nothing to narrate", a
-    /// non-failure that is never retried and raises nothing anywhere, and a Pi session observed on 12 August
-    /// sat silent for 48 minutes because of it.
-    ///
-    /// The lesson now holds STRUCTURALLY rather than by a check. The narration reads the conversation the
-    /// Gateway has already stored, so there is no tunnel read left to fail: the five statuses this test used
-    /// to enumerate one by one - no_transcript, no_jsonl, parse_error, empty_history and no_session_id - were
-    /// each a shape of a failed "turns" command, and not one of them can arise any more. There is nothing to
-    /// tell apart, so nothing to tell apart wrongly.
-    ///
-    /// What is left in that space is the one honest waiting state: nothing has been stored for this session
-    /// yet, because the Director has not pushed its turn. That is a WAIT, not a failure and not an attempt.
-    /// So the service must record NEITHER a read failure NOR nothing-to-narrate, must not call the model, and
-    /// must produce no audio - it simply comes back on the next sweep.
+    /// NOTHING STORED IS NO LONGER A REASON NOT TO NARRATE (the Wingman-on-every-turn mission, slice C). Before
+    /// the voice path took its words from the stop's verdict, an empty store meant "the Director has not pushed
+    /// yet - wait", and this test pinned that the wait recorded nothing. The verdict judges the live screen when
+    /// there is no conversation, so the stop is narrated now. None of the old waiting facts - a read failure,
+    /// "nothing to narrate", "that computer cannot send" - is recorded, because none is true of a stop with words.
     /// </summary>
     [Fact]
-    public async Task GenerateAsync_WhenNothingIsStoredYet_RecordsNeitherAReadFailureNorNothingToNarrate()
+    public async Task GenerateAsync_WhenNothingIsStoredYet_JudgesTheScreenAlone_AndNarratesIt()
     {
         var director = new TunnelStub();
         var conversation = StoredConversationStub.NothingStored();
@@ -612,14 +604,12 @@ public sealed class WingmanVoiceServiceTests : IDisposable
             await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
 
             Assert.True(conversation.Reads >= 1);                              // it did look for the words
-            Assert.Null(svc.ReadFailedFor(TenantId.Local, "sid-1"));           // ...and a wait is not a failed read
-            Assert.Null(svc.VoiceUnavailableFor(TenantId.Local, "sid-1"));     // ...so the row carries no reason at all
-            Assert.False(svc.NothingToNarrateFor(TenantId.Local, "sid-1"));    // ...and it is NOT "nothing to say" either
-            // NEGATIVE CONTROL for the too-old arm below: a Director that CAN send simply has not sent
-            // yet, and nothing here may accuse its machine of being out of date.
+            Assert.Equal(1, brain.AskCount);                                   // one verdict, from the screen alone
+            Assert.True(svc.HasVoice(TenantId.Local, "sid-1"));                // and it is played
+            Assert.Null(svc.ReadFailedFor(TenantId.Local, "sid-1"));
+            Assert.Null(svc.VoiceUnavailableFor(TenantId.Local, "sid-1"));
+            Assert.False(svc.NothingToNarrateFor(TenantId.Local, "sid-1"));
             Assert.False(svc.DirectorCannotSendConversationFor(TenantId.Local, "sid-1"));
-            Assert.False(svc.HasVoice(TenantId.Local, "sid-1"));               // nothing to play yet
-            Assert.Equal(0, brain.AskCount);                                   // and nothing to translate, so no spend
         }
         finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
     }
@@ -662,77 +652,14 @@ public sealed class WingmanVoiceServiceTests : IDisposable
         finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
     }
 
-    /// <summary>
-    /// The other direction, so the fix cannot be "say nothing about everything": a conversation that IS
-    /// stored and genuinely contains no text reply is still the honest "nothing to narrate", and still raises
-    /// no failure. This is the state a session waiting on a prompt is actually in, and it must survive the
-    /// move of the conversation from a tunnel read into the Gateway's own store.
-    /// </summary>
-    [Fact]
-    public async Task GenerateAsync_WhenReadSucceedsWithNoText_StillRecordsNothingToNarrate()
-    {
-        var director = new TunnelStub();
-        var conversation = StoredConversationStub.Of(("ToolUse", "running a tool"));
-        var dir = Path.Combine(Path.GetTempPath(), "wmvs-oknotext-" + Guid.NewGuid().ToString("N"));
-        var persistPath = Path.Combine(dir, "voice-sessions.json");
-        try
-        {
-            var brain = new RecordingBrain();
-            var svc = ServiceWithBrainAndTts(brain, new byte[] { 1 }, persistPath, conversation.Reader);
-
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
-
-            Assert.True(svc.NothingToNarrateFor(TenantId.Local, "sid-1"));
-            Assert.Null(svc.VoiceUnavailableFor(TenantId.Local, "sid-1"));   // still NOT a failure
-        }
-        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
-    }
 
     /// <summary>
-    /// A read that answers ends the read-failure state it caused, so the session does not carry a stale
-    /// "voice on its way" forever once the transcript appears. Cleared BEFORE the reply check, because the
-    /// display fold consults the unavailable state ahead of nothing-to-narrate and would otherwise mask it.
-    /// Seeded through NoteReadFailed so the test proves the READ's own state clears - seeding the generic
-    /// NoteRetrying instead would have proved nothing about provenance, which is the point of the split.
+    /// A session with nothing stored yet stays IN the sweep, and when its words arrive the next attempt judges
+    /// them. The screen here is unreadable, and an unreadable screen is never reused by anything but the sweep -
+    /// every unreadable screen hashes the same, so reusing it would play the earlier verdict for the new words.
     /// </summary>
     [Fact]
-    public async Task GenerateAsync_WhenReadRecovers_ClearsTheReadFailureRetrying()
-    {
-        var director = new TunnelStub();
-        var conversation = StoredConversationStub.Of(("ToolUse", "running a tool"));
-        var dir = Path.Combine(Path.GetTempPath(), "wmvs-recover-" + Guid.NewGuid().ToString("N"));
-        var persistPath = Path.Combine(dir, "voice-sessions.json");
-        try
-        {
-            var svc = ServiceWithBrainAndTts(new RecordingBrain(), new byte[] { 1 }, persistPath, conversation.Reader);
-            svc.NoteReadFailed(TenantId.Local, "sid-1", HostedAiState.Retrying);   // left behind by an earlier failed read
-
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
-
-            Assert.Null(svc.ReadFailedFor(TenantId.Local, "sid-1"));
-            Assert.Null(svc.VoiceUnavailableFor(TenantId.Local, "sid-1"));    // nothing else was standing, so the row is clean
-            Assert.True(svc.NothingToNarrateFor(TenantId.Local, "sid-1"));    // and the honest verdict is not masked
-        }
-        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
-    }
-
-
-    /// <summary>
-    /// A session with nothing stored yet must stay IN the sweep, so it narrates the moment its words arrive.
-    ///
-    /// This is the successor to the old "unsupported" case. A tunnel read could answer that the agent exposed
-    /// no conversation history at all, which retrying could never fix, so it took a terminal state - partly so
-    /// the screen stopped promising a narration that was not coming, and partly so such sessions stopped
-    /// starving the sweep's three-generations-a-cycle budget. Neither pressure exists now: a read of the store
-    /// costs nothing and cannot fail, so a session waiting for its first push is simply cheap to ask again.
-    ///
-    /// What must therefore be true, and is what this test pins: the wait never stands the sweep down
-    /// (<see cref="WingmanVoiceService.ShouldSkipSweep"/> stays false), and the session narrates on the very
-    /// next attempt once the Director's push has landed. The alternative - recording something terminal on a
-    /// session that has merely not spoken yet - would be the permanent silence this whole change removes.
-    /// </summary>
-    [Fact]
-    public async Task GenerateAsync_WhenNothingIsStoredYet_DoesNotStandTheSweepDown_AndNarratesOnceTurnsArrive()
+    public async Task GenerateAsync_WhenNothingIsStoredYet_StaysInTheSweep_AndJudgesTheWordsOnceTheyArrive()
     {
         var director = new TunnelStub();
         var conversation = StoredConversationStub.NothingStored();
@@ -743,80 +670,23 @@ public sealed class WingmanVoiceServiceTests : IDisposable
             var brain = new RecordingBrain();
             var svc = ServiceWithBrainAndTts(brain, new byte[] { 1 }, persistPath, conversation.Reader);
 
-            // The turn has ended but the Director has not pushed it yet - the sweep finds nothing to read.
             await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
 
-            Assert.False(svc.ShouldSkipSweep(TenantId.Local, "sid-1"));       // still in the sweep - this is what recovers it
+            Assert.False(svc.ShouldSkipSweep(TenantId.Local, "sid-1"));       // still in the sweep
             Assert.Null(svc.ReadFailedFor(TenantId.Local, "sid-1"));          // nothing terminal, nothing retryable
-            Assert.False(svc.NothingToNarrateFor(TenantId.Local, "sid-1"));
-            Assert.Equal(0, brain.AskCount);
-            Assert.False(svc.HasVoice(TenantId.Local, "sid-1"));
+            Assert.Equal(1, brain.AskCount);
+            var first = Assert.IsType<WingmanVoiceService.VoiceReady>(svc.Get(TenantId.Local, "sid-1"));
+            Assert.Equal("", first.Reply);                                    // nothing of the agent's to quote yet
 
-            // The push lands, and the next sweep of the same session narrates it.
+            // The push lands, and the next attempt judges the stop with its words.
             conversation.Store(("Text", "the reply the Director finally pushed"));
             await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
 
-            Assert.Equal(1, brain.AskCount);
-            Assert.True(svc.HasVoice(TenantId.Local, "sid-1"));
+            Assert.Equal(2, brain.AskCount);
+            var second = Assert.IsType<WingmanVoiceService.VoiceReady>(svc.Get(TenantId.Local, "sid-1"));
+            Assert.Equal("the reply the Director finally pushed", second.Reply);
+            Assert.NotEqual(first.SourceIdentity, second.SourceIdentity);
             Assert.Null(svc.VoiceUnavailableFor(TenantId.Local, "sid-1"));
-        }
-        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
-    }
-
-    /// <summary>
-    /// A conversation that is not there yet must NEVER replace a standing account condition. "Add credit" is
-    /// actionable and certain; a session whose words have not been pushed yet says nothing whatever about the
-    /// account. An early version of the read-failure fix wrote the read's state into the SAME dictionary as
-    /// the account's, so one unreachable tunnel downgraded "Voice needs credit" to "voice on its way" - found
-    /// in review, and the reason the two facts are stored apart.
-    ///
-    /// The pressure is lower now, because a wait records nothing at all, which is the second assertion here.
-    /// The precedence still has to hold, though: whatever the narration path learns on a pass where it has no
-    /// words, the reader must still be told the one thing they can act on.
-    /// </summary>
-    [Fact]
-    public async Task GenerateAsync_WhenNothingIsStoredYet_DoesNotOverwriteAStandingAccountCondition()
-    {
-        var director = new TunnelStub();
-        var conversation = StoredConversationStub.NothingStored();
-        var dir = Path.Combine(Path.GetTempPath(), "wmvs-acct-" + Guid.NewGuid().ToString("N"));
-        var persistPath = Path.Combine(dir, "voice-sessions.json");
-        try
-        {
-            var svc = ServiceWithBrainAndTts(new RecordingBrain(), new byte[] { 1 }, persistPath, conversation.Reader);
-            svc.NoteUnavailableForTest(TenantId.Local, "sid-1", HostedAiState.NeedsCredits);
-
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
-
-            // The account condition still wins: it is the more actionable and the more certain of the two.
-            Assert.Equal(HostedAiState.NeedsCredits, svc.VoiceUnavailableFor(TenantId.Local, "sid-1"));
-            // ...and the wait added nothing of its own to argue with it.
-            Assert.Null(svc.ReadFailedFor(TenantId.Local, "sid-1"));
-        }
-        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
-    }
-
-    /// <summary>
-    /// The mirror: a successful read clears only the READ's own state. A Retrying set by the MODEL leg or the
-    /// speech leg is not evidence a transcript read can speak to, and erasing it flipped the row to "no
-    /// narration yet" for the length of another slow attempt and back again - found in review.
-    /// </summary>
-    [Fact]
-    public async Task GenerateAsync_WhenReadRecovers_DoesNotEraseAModelLegRetrying()
-    {
-        var director = new TunnelStub();
-        var conversation = StoredConversationStub.Of(("ToolUse", "running a tool"));
-        var dir = Path.Combine(Path.GetTempPath(), "wmvs-modelretry-" + Guid.NewGuid().ToString("N"));
-        var persistPath = Path.Combine(dir, "voice-sessions.json");
-        try
-        {
-            var svc = ServiceWithBrainAndTts(new RecordingBrain(), new byte[] { 1 }, persistPath, conversation.Reader);
-            svc.NoteRetrying(TenantId.Local, "sid-1");   // the MODEL leg's own state, on the shared map
-
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
-
-            Assert.Equal(HostedAiState.Retrying, svc.VoiceUnavailableFor(TenantId.Local, "sid-1"));
-            Assert.Null(svc.ReadFailedFor(TenantId.Local, "sid-1"));   // the read's own store is empty - it answered
         }
         finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
     }
@@ -892,6 +762,23 @@ public sealed class WingmanVoiceServiceTests : IDisposable
     /// synthesize -> store) runs without a live model or provider. <paramref name="conversationReader"/> is
     /// what the narration reads its words from; leaving it null is the honest "this Gateway has stored
     /// nothing" case, which is what the tests about waiting want.</summary>
+    /// <summary>
+    /// The verdict seat a generating voice service takes its words from, over a fake world whose judge IS the
+    /// test's brain. Since the Wingman-on-every-turn mission a narration's one model call is the verdict call,
+    /// so every count and every failure these tests stage on the brain lands on the judge.
+    /// </summary>
+    private static TurnVerdictService VerdictsOver(IAgentBrain brain,
+        Func<TenantId, string, CcDirector.Gateway.History.StoredConversation?>? conversationReader)
+    {
+        var env = new FakeTurnVerdictEnvironment
+        {
+            Conversation = sid => conversationReader?.Invoke(TenantId.Local, sid),
+            Judge = async (prompt, ct) => (await brain.AskAsync(prompt, ct)).Text,
+            VoiceSession = _ => true,
+        };
+        return new TurnVerdictService(env);
+    }
+
     private WingmanVoiceService ServiceWithBrainAndTts(IAgentBrain brain, byte[] audio, string persistPath,
         Func<TenantId, string, CcDirector.Gateway.History.StoredConversation?>? conversationReader = null,
         Func<TenantId, string, bool>? directorCannotSendConversation = null)
@@ -903,7 +790,8 @@ public sealed class WingmanVoiceServiceTests : IDisposable
         var http = new HttpClient(new TtsStubHandler(HttpStatusCode.OK, "", audio));
         return new WingmanVoiceService((_, _, _) => Task.FromResult(brain), vault, Settings, persistPath,
             ttsHttpClient: http, conversationReader: conversationReader,
-            directorCannotSendConversation: directorCannotSendConversation);
+            directorCannotSendConversation: directorCannotSendConversation,
+            turnVerdicts: VerdictsOver(brain, conversationReader));
     }
 
     /// <summary>Like <see cref="ServiceWithBrainAndTts"/> but with a caller-supplied speech transport, so a
@@ -917,7 +805,8 @@ public sealed class WingmanVoiceServiceTests : IDisposable
         vault.Set("DEVTHROTTLE_API_KEY", "dt_live_test");
         var http = new HttpClient(handler);
         return new WingmanVoiceService((_, _, _) => Task.FromResult(brain), vault, Settings, persistPath,
-            ttsHttpClient: http, conversationReader: conversationReader);
+            ttsHttpClient: http, conversationReader: conversationReader,
+            turnVerdicts: VerdictsOver(brain, conversationReader));
     }
 
     /// <summary>Gateway Cleanup mission (the cut): GenerateAsync takes a tunnel-only SessionVerbClient. This
@@ -956,12 +845,21 @@ public sealed class WingmanVoiceServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task GenerateAsync_WhenCurrentReplyMatchesCache_SkipsQuietly()
+    public async Task GenerateAsync_WhenTheScreenIsTheOneAlreadyNarrated_SkipsQuietly()
     {
-        // Issue #1322 preserved: when the CURRENT last reply is the EXACT one already narrated, the
-        // turn-end reads the conversation to compare but does NOT regenerate - it never calls the brain,
-        // never re-mints audio, and never flips the session yellow, so a client mid-play is not disturbed.
-        var director = new TunnelStub();
+        // Issue #1322 preserved, with the stop's verdict as the identity. When the screen is the one the stored
+        // verdict was formed on, the next turn-end reuses that verdict - no model call - and because that verdict
+        // is already the narrated one it never re-mints audio and never flips the session yellow, so a client
+        // mid-play is not disturbed.
+        var director = new TunnelStub
+        {
+            ScreenGrid = new CcDirector.Gateway.Contracts.ScreenGridResponse
+            {
+                SessionId = "sid-1",
+                HasGrid = true,
+                Rows = new List<string> { "the same reply", "> " },
+            },
+        };
         var conversation = StoredConversationStub.Of(("Text", "the same reply"));
         var dir = Path.Combine(Path.GetTempPath(), "wmvs-same-" + Guid.NewGuid().ToString("N"));
         var persistPath = Path.Combine(dir, "voice-sessions.json");
@@ -969,16 +867,16 @@ public sealed class WingmanVoiceServiceTests : IDisposable
         {
             var brain = new RecordingBrain();
             var svc = ServiceWithBrainAndTts(brain, new byte[] { 9, 9 }, persistPath, conversation.Reader);
-            svc.StoreReadyAudioForTest(TenantId.Local, "sid-1", "old spoken", "the same reply", new byte[] { 1, 2, 3 });
-            Assert.True(svc.HasVoice(TenantId.Local, "sid-1"));
+            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: false);
+            Assert.Equal(1, brain.AskCount);                                  // control: narrated once
+            var ready = svc.Get(TenantId.Local, "sid-1");
+            Assert.NotNull(ready);
 
             await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
 
-            Assert.Equal(0, brain.AskCount);              // never regenerated
-            Assert.True(conversation.Reads >= 1);         // but it DID read the conversation to compare (identity-aware, not blind)
-            Assert.True(svc.HasVoice(TenantId.Local, "sid-1"));           // the existing clip is untouched
-            Assert.False(svc.IsGenerating(TenantId.Local, "sid-1"));      // and it never flipped the session yellow
-            Assert.Equal(new byte[] { 1, 2, 3 }, svc.GetAudio(TenantId.Local, "sid-1"));   // same original audio, not re-minted
+            Assert.Equal(1, brain.AskCount);                                  // never re-judged
+            Assert.Same(ready, svc.Get(TenantId.Local, "sid-1"));             // the clip is untouched, not re-minted
+            Assert.False(svc.IsGenerating(TenantId.Local, "sid-1"));
         }
         finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort cleanup */ } }
     }
@@ -1524,83 +1422,6 @@ public sealed class WingmanVoiceServiceTests : IDisposable
         return svc;
     }
 
-    /// <summary>
-    /// THE 2026-09-02 WEDGE. Turn-push phases 3a/3b went live on the hosted Gateway while the newest
-    /// RELEASED Director predated the pusher by a fortnight, so the store never filled for anybody. The arm
-    /// above reads an empty store as "the Director has not pushed YET" and comes back on the next sweep -
-    /// correct for a Director that HAS the pusher, and a promise that never ends for one that does not.
-    /// Eleven of the owner's twenty-one sessions sat yellow reading "Voice did not arrive after 3m..22m"
-    /// while those sessions had actually earned a red "Needs you" he could no longer see.
-    ///
-    /// So the service must record the fact the fold turns into "Update DevThrottle", and it must do so
-    /// WITHOUT spending anything and WITHOUT standing the sweep down - re-checking is free, and it is what
-    /// makes the recovery automatic the moment that machine is updated.
-    /// </summary>
-    [Fact]
-    public async Task GenerateAsync_WhenTheOwningDirectorCannotSendConversations_SaysSoInsteadOfWaitingForever()
-    {
-        var director = new TunnelStub();
-        var conversation = StoredConversationStub.NothingStored();
-        var dir = Path.Combine(Path.GetTempPath(), "wmvs-tooold-" + Guid.NewGuid().ToString("N"));
-        var persistPath = Path.Combine(dir, "voice-sessions.json");
-        try
-        {
-            var brain = new RecordingBrain();
-            var svc = ServiceWithBrainAndTts(brain, new byte[] { 1 }, persistPath, conversation.Reader,
-                directorCannotSendConversation: (_, _) => true);
-
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
-
-            Assert.True(svc.DirectorCannotSendConversationFor(TenantId.Local, "sid-1"));   // the fact the screen renders
-            Assert.Equal(0, brain.AskCount);                                               // nothing translated, nothing spent
-            Assert.False(svc.HasVoice(TenantId.Local, "sid-1"));
-            // NOT a read failure. NoteReadFailed(Unavailable) would render through the hosted-AI arm and say
-            // "Voice unavailable" in the shared account-condition voice, for something that is neither the
-            // account's fault nor anything to do with hosted AI.
-            Assert.Null(svc.ReadFailedFor(TenantId.Local, "sid-1"));
-            Assert.Null(svc.VoiceUnavailableFor(TenantId.Local, "sid-1"));
-            // NOT "waiting on a prompt" either - nobody here has read a conversation to know that.
-            Assert.False(svc.NothingToNarrateFor(TenantId.Local, "sid-1"));
-            // And the sweep keeps coming back, so updating that machine restores narration with nobody
-            // touching the Gateway. A skip here would make the recovery need a restart.
-            Assert.False(svc.ShouldSkipSweep(TenantId.Local, "sid-1"));
-        }
-        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
-    }
-
-    /// <summary>
-    /// The marker describes a MACHINE, and machines get updated. Once a conversation actually arrives that
-    /// computer has demonstrated it can send one - whatever it last said about itself on Hello, and whoever
-    /// owns the session by then - so the sentence must come off the screen by itself.
-    /// </summary>
-    [Fact]
-    public async Task DirectorCannotSendMarker_ClearsAsSoonAsAConversationArrives()
-    {
-        var director = new TunnelStub();
-        var empty = StoredConversationStub.NothingStored();
-        var full = StoredConversationStub.Of(("Text", "the reply to narrate"));
-        var updated = false;
-        Func<TenantId, string, CcDirector.Gateway.History.StoredConversation?> reader =
-            (t, sid) => updated ? full.Reader(t, sid) : empty.Reader(t, sid);
-        var dir = Path.Combine(Path.GetTempPath(), "wmvs-tooold-clear-" + Guid.NewGuid().ToString("N"));
-        var persistPath = Path.Combine(dir, "voice-sessions.json");
-        try
-        {
-            var svc = ServiceWithBrainAndTts(new RecordingBrain(), new byte[] { 1 }, persistPath, reader,
-                directorCannotSendConversation: (_, _) => true);
-
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
-            Assert.True(svc.DirectorCannotSendConversationFor(TenantId.Local, "sid-1"));   // control: it was set
-
-            updated = true;   // that computer was updated and pushed its conversation
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
-
-            Assert.True(full.Reads >= 1);
-            Assert.False(svc.DirectorCannotSendConversationFor(TenantId.Local, "sid-1"));
-        }
-        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
-    }
-
     // ---------- The model leg's OWN bounded retry, and the end of the promise (issue #2676) ----------
 
     /// <summary>
@@ -1619,7 +1440,7 @@ public sealed class WingmanVoiceServiceTests : IDisposable
         {
             var n = Interlocked.Increment(ref _askCount);
             if (n <= _failures) throw new TimeoutException("The wingman model call did not answer within 60 seconds.");
-            var wrapped = $"{SessionAskRunner.AnswerBeginMarker}\nnarrated spoken text\n{SessionAskRunner.AnswerEndMarker}";
+            var wrapped = FakeTurnVerdictEnvironment.CannotTell("narrated spoken text");
             return Task.FromResult(new AskResult { Text = wrapped, ReplySeconds = 0.1 });
         }
         public Task CancelAsync(CancellationToken ct = default) => Task.CompletedTask;
@@ -1978,47 +1799,6 @@ public sealed class WingmanVoiceServiceTests : IDisposable
         finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
     }
 
-    /// <summary>
-    /// "Nothing to read aloud" is FRESHER evidence than an old turn's model timeout, so it supersedes the
-    /// abandoned verdict rather than sitting behind it. Found in review: the fold gives abandoned precedence,
-    /// so without this clear a session parked on a prompt would be told the model did not answer.
-    /// </summary>
-    [Fact]
-    public async Task NothingToNarrate_SupersedesAnAbandonedNarration()
-    {
-        var director = new TunnelStub();
-        var withReply = StoredConversationStub.Of(("Text", "the reply to narrate"));
-        var empty = StoredConversationStub.Of(("Prompt", "pick one"));
-        var useEmpty = false;
-        Func<TenantId, string, CcDirector.Gateway.History.StoredConversation?> reader =
-            (t, sid) => useEmpty ? empty.Reader(t, sid) : withReply.Reader(t, sid);
-        var dir = Path.Combine(Path.GetTempPath(), "wmvs-modelnothing-" + Guid.NewGuid().ToString("N"));
-        var persistPath = Path.Combine(dir, "voice-sessions.json");
-        try
-        {
-            var svc = ServiceWithBrainAndTts(new TimingOutBrain(), new byte[] { 5 }, persistPath, reader);
-            svc.UseModelRetryBackoffForTest();   // no rungs: the first non-answer abandons immediately
-
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
-            Assert.True(svc.NarrationAbandonedFor(TenantId.Local, "sid-1"));   // control
-
-            // The session is now parked on a prompt with no text reply.
-            useEmpty = true;
-            await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
-
-            Assert.True(svc.NothingToNarrateFor(TenantId.Local, "sid-1"));
-            Assert.False(svc.NarrationAbandonedFor(TenantId.Local, "sid-1"));
-            // ...so the screen says the honest thing, and does not blame a model that was never asked.
-            var display = VoiceDisplayFold.Fold(
-                voiceMode: true, agentWorking: false, hasAudio: false, generating: false,
-                unavailable: null,
-                nothingToNarrate: svc.NothingToNarrateFor(TenantId.Local, "sid-1"),
-                narrationAbandoned: svc.NarrationAbandonedFor(TenantId.Local, "sid-1"));
-            Assert.Equal("nothingToNarrate", display.Kind);
-        }
-        finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
-    }
-
     // ---------- The rate-limit arm: an answered "not now" gets the same bounded ladder ----------
 
     /// <summary>
@@ -2044,7 +1824,7 @@ public sealed class WingmanVoiceServiceTests : IDisposable
             if (n <= _refusals)
                 throw new WingmanModelRateLimitedException(
                     "The wingman model call failed: 429 TooManyRequests.", _retryAfter);
-            var wrapped = $"{SessionAskRunner.AnswerBeginMarker}\nnarrated spoken text\n{SessionAskRunner.AnswerEndMarker}";
+            var wrapped = FakeTurnVerdictEnvironment.CannotTell("narrated spoken text");
             return Task.FromResult(new AskResult { Text = wrapped, ReplySeconds = 0.1 });
         }
         public Task CancelAsync(CancellationToken ct = default) => Task.CompletedTask;
@@ -2424,7 +2204,7 @@ public sealed class WingmanVoiceServiceTests : IDisposable
             if (_refuse())
                 throw new WingmanModelRateLimitedException(
                     "The wingman model call failed: 429 TooManyRequests.", TimeSpan.FromMinutes(10));
-            var wrapped = $"{SessionAskRunner.AnswerBeginMarker}\nnarrated spoken text\n{SessionAskRunner.AnswerEndMarker}";
+            var wrapped = FakeTurnVerdictEnvironment.CannotTell("narrated spoken text");
             return Task.FromResult(new AskResult { Text = wrapped, ReplySeconds = 0.1 });
         }
         public Task CancelAsync(CancellationToken ct = default) => Task.CompletedTask;
@@ -2580,7 +2360,8 @@ public sealed class WingmanVoiceServiceTests : IDisposable
         vault.Set("OPENAI_API_KEY", "sk-test");
         vault.Set("DEVTHROTTLE_API_KEY", "dt_live_test");
         return new WingmanVoiceService((_, _, _) => Task.FromResult(brain), vault, Settings, persistPath,
-            ttsHttpClient: new HttpClient(handler), conversationReader: conversationReader);
+            ttsHttpClient: new HttpClient(handler), conversationReader: conversationReader,
+            turnVerdicts: VerdictsOver(brain, conversationReader));
     }
 
     /// <summary>
