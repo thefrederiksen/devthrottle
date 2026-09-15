@@ -196,6 +196,17 @@ public static class CcStorage
     public static string StateChanges() => Path.Combine(Base(), "state-changes");
 
     /// <summary>
+    /// The turn-detection shadow verdicts: base/turn-detection-shadow/&lt;sessionId&gt;.jsonl. One row
+    /// per check, recording what each candidate content rule decided against what the old byte rule
+    /// would have done. It is LOCAL on purpose: the activity ledger's rows live on the hosted
+    /// Gateway, where a session key is refused, so a verdict written only there is a number nobody
+    /// on the machine that produced it can read. The caller creates the directory, so this composes
+    /// the path without touching disk, and it resolves per access so CC_DIRECTOR_ROOT redirects it
+    /// under test - for the same reason as <see cref="StateChanges"/>.
+    /// </summary>
+    public static string TurnDetectionShadow() => Path.Combine(Base(), "turn-detection-shadow");
+
+    /// <summary>
     /// The durable activity-event outbox: base/activity-outbox/outbox.jsonl. Delivery state for the
     /// Gateway activity ledger (docs/PLAN-trustworthy-working-start-2026-07-24.md): events wait here,
     /// each minted ONCE with its id and sequence, until the Gateway acknowledges the batch - the Gateway

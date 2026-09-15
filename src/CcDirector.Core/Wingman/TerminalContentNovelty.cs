@@ -285,6 +285,23 @@ internal static class TerminalContentNovelty
 }
 
 /// <summary>
+/// Which content candidate decides whether a settled session opens a turn, or
+/// <see cref="Off"/> for today's rule, where any byte opens it. Off is the shipped default:
+/// turning the rule on is the owner's decision and he wants the shadow numbers first.
+/// </summary>
+internal enum TurnContentRule
+{
+    /// <summary>Any byte at a settled session opens a turn. What the product does today.</summary>
+    Off,
+
+    /// <summary>The row rule. Answers with the row that appeared, which is worth having in a log.</summary>
+    Row,
+
+    /// <summary>The size rule. Cheaper, no marker list, but it cannot say what appeared.</summary>
+    Size,
+}
+
+/// <summary>
 /// One rule that answers "did this screen gain content?". Two implementations exist and the choice
 /// between them is made on live bytes, so everything that consumes a verdict consumes it through
 /// here rather than naming a rule.
