@@ -22,15 +22,14 @@ public interface ITurnVerdictEnvironment
     TurnVerdictSettings Settings(TenantId tenant);
 
     /// <summary>
-    /// Is a live owning session holding this session (the pushed field is still named HasLiveSupervisor)? Answered by resolving roles across the account's WHOLE fresh
-    /// pushed roster - never read off the session's own row, because the push store nulls the role and the
-    /// liveness answer at ingest so that only the Gateway can decide them. A check that read the row directly
-    /// would answer "not held" for every session on the fleet and read every worker.
+    /// The session's facts and whether a live owning session is holding it (the pushed field is still named
+    /// HasLiveSupervisor), both taken from ONE fresh snapshot of the account's pushed roster. The held answer
+    /// is resolved across that WHOLE snapshot - never read off the session's own row, because the push store
+    /// nulls the role and the liveness answer at ingest so that only the Gateway can decide them. A check that
+    /// read the row directly would answer "not held" for every session on the fleet and read every worker.
+    /// One snapshot for both, so the role and the facts can never describe two different moments.
     /// </summary>
-    bool HasLiveSupervisor(TenantId tenant, string sessionId);
-
-    /// <summary>The session as the push store last saw it, or null when it is not in the fresh roster.</summary>
-    SessionDto? ReadSessionFacts(TenantId tenant, string sessionId);
+    TurnVerdictSessionState ReadSessionState(TenantId tenant, string sessionId);
 
     /// <summary>The live screen over the tunnel, or null when it cannot be read. Unreadable is carried as no rows.</summary>
     Task<ScreenGridResponse?> ReadScreenGridAsync(TenantId tenant, string directorId, string sessionId, CancellationToken ct);
@@ -48,7 +47,8 @@ public interface ITurnVerdictEnvironment
     string JudgeModel(TenantId tenant);
 
     /// <summary>Ask the judge ONE question and return its raw answer. Throws on no answer, a rate limit, or an
-    /// unusable provider; the service turns each into a stored failed record.</summary>
+    /// unusable provider; the service turns each into a stored failed record, and so does any other exception
+    /// a verdict request meets.</summary>
     Task<TurnVerdictJudgeAnswer> AskJudgeAsync(TenantId tenant, string prompt, CancellationToken ct);
 
     /// <summary>This session's latest stored verdict in this account, or null.</summary>
@@ -73,6 +73,10 @@ public interface ITurnVerdictEnvironment
     /// <summary>Now, in UTC.</summary>
     DateTime NowUtc();
 }
+
+/// <summary>One snapshot's answer about one session: its facts (null when it is not in the fresh roster) and
+/// whether a live owning session holds it.</summary>
+public sealed record TurnVerdictSessionState(SessionDto? Facts, bool Held);
 
 /// <summary>The judge's raw answer, which model gave it, and how long it took.</summary>
 public sealed record TurnVerdictJudgeAnswer(string Raw, string Model, double ReplySeconds);
@@ -116,7 +120,9 @@ public enum TurnVerdictOutcomeKind
     Reused,
     /// <summary>A free check stood the request down before anything was read or asked.</summary>
     Skipped,
-    /// <summary>The judge was asked and no usable verdict came back. A failed record was stored.</summary>
+    /// <summary>No usable verdict came back - the judge failed, or the request met an exception it did not
+    /// expect. A failed record was stored and the ledger says so. The one case with no stored record is a store
+    /// that itself throws; that is logged, and the ledger event is still written.</summary>
     Failed,
     /// <summary>The session started working while the verdict was being formed. Nothing was stored.</summary>
     Cancelled,
@@ -183,15 +189,19 @@ public sealed record TurnVerdictOutcome
 ///
 /// THE ORDER, and it is the order of cost. Everything that is free is asked before anything is read, and
 /// everything read is read before anything is paid for: the per-session gate (a second stop for a session
-/// already being judged is dropped, never queued); the held check against the whole roster; brand-new,
-/// exited, and the judge switch; the settle delay; ONE screen read and its full-grid hash; reuse when the
-/// hash is the one last judged; the account's ceiling; and only then the package, the call, the validation
-/// and the store.
+/// already being judged is dropped, never queued); ONE roster snapshot, from which an automatic request skips
+/// a session that is held, gone, brand-new, exited or crashed, or Working; the judge switch; the settle delay;
+/// the same snapshot checks again, from a new snapshot, immediately before the read; ONE screen read and its
+/// full-grid hash; reuse when the hash is the one last judged; the conversation and the source it gives; the
+/// provider's own wait; the account's ceiling; and only then the package, the call, the validation and the
+/// store.
 ///
 /// A VERDICT THAT SURVIVES IS NEWER THAN THE LAST WORKING TRANSITION, BY CONSTRUCTION WITHIN THIS PROCESS.
 /// <see cref="OnSessionWorking"/> bumps the session's epoch and invalidates its stored verdicts under the
-/// same gate every store takes, and a store only lands when the epoch it started under is still current. So
-/// an answer that arrives after the session went back to work is discarded rather than written over a live
+/// same gate every store takes. Every flight captures the epoch when it starts, before anything is read, and
+/// both of its arms - the new judgement and the reuse of a stored verdict - store only when that captured
+/// epoch is still current, and return nothing when it is not. So neither an answer that arrives after the
+/// session went back to work nor an old verdict reused across that transition is written over a live
 /// session.
 ///
 /// GAP, NOT PROVEN: THE SUPERVISOR'S KEYSTROKES AND THIS SCREEN READ ARE NOT ORDERED AGAINST EACH OTHER. The
@@ -251,7 +261,7 @@ public sealed class TurnVerdictService : IDisposable
 
     /// <summary>Is a live owning session holding this session? The one held check every narration caller asks,
     /// resolved against the whole roster.</summary>
-    public bool IsHeld(TenantId tenant, string sessionId) => _env.HasLiveSupervisor(tenant, sessionId);
+    public bool IsHeld(TenantId tenant, string sessionId) => _env.ReadSessionState(tenant, sessionId).Held;
 
     /// <summary>This session's latest stored verdict, or null.</summary>
     public TurnVerdictDto? Latest(TenantId tenant, string sessionId) => _env.Latest(tenant, sessionId);
@@ -387,10 +397,13 @@ public sealed class TurnVerdictService : IDisposable
         Func<CancellationToken, Task<ScreenGridResponse?>>? screenReader,
         Func<string, string?, TimeSpan?>? providerHold)
     {
+        // THE EPOCH THIS FLIGHT STANDS ON, captured before anything is read - before the roster, the screen and
+        // the stored verdict. Every store this flight makes, on any arm, lands only while it is still current.
+        var epoch = _epochs.GetOrAdd(key, 0);
         TurnVerdictOutcome outcome;
         try
         {
-            outcome = await JudgeAsync(key, flight.Cts.Token, directorId, observedAt, trigger, screenReader, providerHold).ConfigureAwait(false);
+            outcome = await JudgeAsync(key, flight.Cts.Token, epoch, directorId, observedAt, trigger, screenReader, providerHold).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (flight.Cts.IsCancellationRequested)
         {
@@ -399,14 +412,10 @@ public sealed class TurnVerdictService : IDisposable
         catch (Exception ex)
         {
             // The flight's boundary: it runs on the thread pool for a turn-end callback that has already
-            // returned, so nothing above it can catch. Logged loud and answered as a failure, never as calm.
-            FileLog.Write($"[TurnVerdictService] verdict FAILED: sid={key.SessionId} tenant={key.Tenant.ToLogString()} trigger={trigger}: {ex.Message}");
-            outcome = new TurnVerdictOutcome
-            {
-                Kind = TurnVerdictOutcomeKind.Failed,
-                Failure = TurnVerdictFailureKind.Unavailable,
-                FailureDetail = ex.Message,
-            };
+            // returned, so nothing above it can catch. Logged loud, and answered like every other failure - a
+            // stored failed record and a ledger event - never as calm and never silently.
+            FileLog.Write($"[TurnVerdictService] verdict FAILED: sid={key.SessionId} tenant={key.Tenant.ToLogString()} trigger={trigger}: {ex.GetType().FullName}: {ex.Message}");
+            outcome = FailedAtBoundary(key, epoch, directorId, observedAt, trigger, ex);
         }
         finally
         {
@@ -418,9 +427,64 @@ public sealed class TurnVerdictService : IDisposable
         return outcome;
     }
 
+    /// <summary>
+    /// The failure an exception nobody expected leaves behind: a failed record whose reason is the exception's
+    /// type (its message goes to the log only, because a message can quote a screen), stored under the flight's
+    /// epoch, and a ledger event under <see cref="ActivityCauses.JudgeUnavailable"/>. When the session has
+    /// worked since the flight began nothing is stored and the request is cancelled, exactly as on every other
+    /// arm. The boundary itself must not throw, so a store or ledger write that throws here is logged.
+    /// </summary>
+    private TurnVerdictOutcome FailedAtBoundary(
+        (TenantId Tenant, string SessionId) key, long epoch, string directorId, DateTime observedAt,
+        TurnVerdictTrigger trigger, Exception ex)
+    {
+        var (tenant, sid) = key;
+        var reason = "the verdict could not be formed: " + ex.GetType().FullName;
+        var record = new TurnVerdictDto
+        {
+            VerdictId = Guid.NewGuid().ToString("N"),
+            TurnEndObservedAtUtc = observedAt,
+            ScreenHash = "",
+            ContractVersion = TurnVerdictContract.Version,
+            Failed = true,
+            FailureReason = reason,
+        };
+        try
+        {
+            record.JudgedAtUtc = _env.NowUtc();
+            record.Model = _env.JudgeModel(tenant);
+            if (!StoreIfCurrent(key, epoch, record))
+                return Cancelled(tenant, directorId, sid, trigger, "the session worked before the failed record could be stored");
+        }
+        catch (Exception storeEx)
+        {
+            FileLog.Write($"[TurnVerdictService] the failed record could NOT be stored either: sid={sid} tenant={tenant.ToLogString()}: {storeEx.GetType().FullName}: {storeEx.Message}");
+        }
+
+        try
+        {
+            _env.Record(new TurnVerdictRecord(tenant, directorId ?? "", sid, ActivityEventTypes.TurnVerdictFailed,
+                ActivityCauses.JudgeUnavailable,
+                $"trigger={TriggerWord(trigger)} id={record.VerdictId} model={record.Model} exception={ex.GetType().Name}"));
+        }
+        catch (Exception recordEx)
+        {
+            FileLog.Write($"[TurnVerdictService] the ledger event for a failed verdict could NOT be written: sid={sid}: {recordEx.GetType().FullName}: {recordEx.Message}");
+        }
+
+        return new TurnVerdictOutcome
+        {
+            Kind = TurnVerdictOutcomeKind.Failed,
+            Verdict = record,
+            Failure = TurnVerdictFailureKind.Unavailable,
+            FailureDetail = reason,
+        };
+    }
+
     private async Task<TurnVerdictOutcome> JudgeAsync(
         (TenantId Tenant, string SessionId) key,
         CancellationToken ct,
+        long epoch,
         string directorId,
         DateTime observedAt,
         TurnVerdictTrigger trigger,
@@ -432,23 +496,28 @@ public sealed class TurnVerdictService : IDisposable
         var automatic = trigger != TurnVerdictTrigger.OnDemand;
 
         // ---- the free checks: nothing is read and nothing is paid for until every one of them passes ----
-        // HELD FIRST. A session a live owning session holds is not the owner's to be read, so its screen is never
-        // read and no model is asked about it.
-        if (automatic && _env.HasLiveSupervisor(tenant, sid))
-            return Skip(tenant, directorId, sid, trigger, ActivityCauses.Held);
-
-        var facts = _env.ReadSessionFacts(tenant, sid);
-        if (facts is null && automatic)
-            return Skip(tenant, directorId, sid, trigger, ActivityCauses.SessionNotLive);
-        if (facts is { IsBrandNew: true })
-            return Skip(tenant, directorId, sid, trigger, ActivityCauses.BrandNew);
-        if (automatic && facts is not null && IsExited(facts))
-            return Skip(tenant, directorId, sid, trigger, ActivityCauses.SessionExit);
+        // ONE SNAPSHOT for the role and the facts, so the two cannot describe different moments. HELD FIRST: a
+        // session a live owning session holds is not the owner's to be read, so its screen is never read and no
+        // model is asked about it.
+        var state = _env.ReadSessionState(tenant, sid);
+        if (SessionStateSkipCause(state, automatic) is { } cause)
+            return Skip(tenant, directorId, sid, trigger, cause);
+        var facts = state.Facts;
         if (trigger == TurnVerdictTrigger.TurnEnd && !settings.JudgeEnabled && !_env.IsVoiceSession(tenant, sid))
             return Skip(tenant, directorId, sid, trigger, ActivityCauses.JudgeSwitchOff);
 
         if (trigger == TurnVerdictTrigger.TurnEnd && settings.SettleMs > 0)
             await _env.DelayAsync(TimeSpan.FromMilliseconds(settings.SettleMs), ct).ConfigureAwait(false);
+
+        // RESOLVED AGAIN, after the settle wait and immediately before the read. A session can become held, or
+        // start working, while this request waits; the first answer does not license a read made later.
+        if (automatic)
+        {
+            state = _env.ReadSessionState(tenant, sid);
+            if (SessionStateSkipCause(state, automatic) is { } lateCause)
+                return Skip(tenant, directorId, sid, trigger, lateCause);
+            facts = state.Facts;
+        }
 
         // ---- ONE screen read, and its full-grid hash ----
         var grid = await ReadScreenAsync(tenant, directorId, sid, screenReader, ct).ConfigureAwait(false);
@@ -465,15 +534,15 @@ public sealed class TurnVerdictService : IDisposable
             && string.Equals(latest.ScreenHash, hash, StringComparison.Ordinal)
             && (hash.Length > 0 || trigger == TurnVerdictTrigger.Sweep)
             && (!latest.Failed || trigger == TurnVerdictTrigger.Sweep))
-            return Reuse(key, directorId, trigger, observedAt, latest, hash, rows);
+            return Reuse(key, epoch, ct, directorId, trigger, observedAt, latest, hash, rows);
 
         // The source this stop is judged from, chosen ONCE, over this one screen read.
         var conversation = _env.ReadConversation(tenant, sid)
                            ?? new StoredConversation(false, Array.Empty<TurnWidgetDto>());
         var source = WingmanNarrationSource.Select(conversation.Widgets, rows);
 
-        // THE PROVIDER'S OWN DEADLINE. A caller the provider told to wait - the voice path, after a rate limit it
-        // would not hold a promise across - is not asked about again for this stop until the wait has passed.
+        // THE PROVIDER'S OWN DEADLINE. A caller the provider told to wait - the voice path, after a rate limit on
+        // this stop - is not asked about again for this stop until the wait has passed.
         if (providerHold?.Invoke(hash, source?.Content) is { } wait)
         {
             FileLog.Write($"[TurnVerdictService] sid={sid}: not asking the judge for {wait.TotalSeconds:F0}s more - the provider asked this caller to wait");
@@ -490,7 +559,6 @@ public sealed class TurnVerdictService : IDisposable
             return Skip(tenant, directorId, sid, trigger, ActivityCauses.InFlightCap);
         }
 
-        var epoch = _epochs.GetOrAdd(key, 0);
         _reading[key] = 1;
         try
         {
@@ -599,8 +667,14 @@ public sealed class TurnVerdictService : IDisposable
         }
     }
 
+    /// <param name="epoch">The epoch the flight captured before <paramref name="latest"/> was read. A Working edge
+    /// after that read bumps it, and then this arm stores nothing and returns nothing: the stored verdict
+    /// describes a screen that is gone, and writing it back would restore it over a working session.</param>
+    /// <param name="ct">The flight's token, cancelled by that same Working edge.</param>
     private TurnVerdictOutcome Reuse(
         (TenantId Tenant, string SessionId) key,
+        long epoch,
+        CancellationToken ct,
         string directorId,
         TurnVerdictTrigger trigger,
         DateTime observedAt,
@@ -610,6 +684,7 @@ public sealed class TurnVerdictService : IDisposable
     {
         var (tenant, sid) = key;
         var verdict = latest;
+        ct.ThrowIfCancellationRequested();
 
         // A new stop on an unchanged screen is the same verdict about a later moment: refresh the join key so
         // the turn-log record of THIS stop still pairs with a verdict row.
@@ -617,11 +692,16 @@ public sealed class TurnVerdictService : IDisposable
         {
             var refreshed = Copy(latest);
             refreshed.TurnEndObservedAtUtc = observedAt;
-            if (StoreIfCurrent(key, _epochs.GetOrAdd(key, 0), refreshed)) verdict = refreshed;
+            if (!StoreIfCurrent(key, epoch, refreshed))
+                return Cancelled(tenant, directorId, sid, trigger, "the session worked after its stored verdict was read; that verdict is not reused");
+            verdict = refreshed;
         }
 
         var conversation = _env.ReadConversation(tenant, sid);
         var source = WingmanNarrationSource.Select(conversation?.Widgets, rows);
+
+        if (_epochs.GetOrAdd(key, 0) != epoch)
+            return Cancelled(tenant, directorId, sid, trigger, "the session worked after its stored verdict was read; that verdict is not reused");
 
         _env.Record(new TurnVerdictRecord(tenant, directorId, sid, ActivityEventTypes.TurnVerdictReused,
             ActivityCauses.ScreenUnchanged,
@@ -737,8 +817,27 @@ public sealed class TurnVerdictService : IDisposable
         return string.Equals(verdict.Verdict, TurnVerdictVocabulary.NeededYou, StringComparison.Ordinal) ? "answer" : "nothing";
     }
 
+    /// <summary>
+    /// The skip one roster snapshot decides, or null when the request may go on. Every AUTOMATIC trigger - the
+    /// turn end, a voice session's narration and its re-attempts, the idle sweep - stands down for a session that
+    /// is held, not in the fresh roster, brand-new, exited or crashed, or Working: a Working session's screen
+    /// is a turn in progress, not a stop. A person's own request stands down only for a brand-new session.
+    /// </summary>
+    private static string? SessionStateSkipCause(TurnVerdictSessionState state, bool automatic)
+    {
+        if (automatic && state.Held) return ActivityCauses.Held;
+        if (state.Facts is null) return automatic ? ActivityCauses.SessionNotLive : null;
+        if (state.Facts.IsBrandNew) return ActivityCauses.BrandNew;
+        if (automatic && IsExited(state.Facts)) return ActivityCauses.SessionExit;
+        if (automatic && IsWorking(state.Facts)) return ActivityCauses.WorkingObservation;
+        return null;
+    }
+
     private static bool IsExited(SessionDto s)
         => s.Crashed || string.Equals(s.ActivityState, "Exited", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsWorking(SessionDto s)
+        => string.Equals(s.ActivityState, "Working", StringComparison.OrdinalIgnoreCase);
 
     private static string FailureCause(TurnVerdictFailureKind failure) => failure switch
     {

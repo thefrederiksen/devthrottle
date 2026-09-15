@@ -194,11 +194,18 @@ public sealed class TurnVerdictServiceTests : IDisposable
 
     // ================================================================= the ceiling
 
-    [Fact]
-    public async Task InFlightCeilingReached_TheNextStopIsSkippedAndCounted()
+    [Theory]
+    [InlineData(2)]
+    [InlineData(null)]   // the shipped default, carried from the settings into the service untouched
+    public async Task InFlightCeilingReached_TheNextStopIsSkippedAndCounted(int? ceiling)
     {
         var env = Env();
-        env.Knobs = env.Knobs with { MaxInFlight = 1 };
+        if (ceiling is { } value) env.Knobs = env.Knobs with { MaxInFlight = value };
+        var expected = env.Knobs.MaxInFlight;
+        // A ceiling of one would be satisfied by a service that ignored the setting and stopped at one.
+        Assert.NotEqual(1, expected);
+        if (ceiling is null) Assert.Equal(TurnVerdictSettings.Defaults.MaxInFlight, expected);
+
         var release = new TaskCompletionSource();
         env.Judge = async (_, ct) =>
         {
@@ -207,18 +214,132 @@ public sealed class TurnVerdictServiceTests : IDisposable
         };
         var service = new TurnVerdictService(env);
 
-        var first = service.StartTurnEnd(Signal("sid-a"));
-        Assert.True(await WaitUntil(() => env.JudgeCalls == 1), "the first judgement never reached the judge");
+        var inFlight = Enumerable.Range(0, expected).Select(i => service.StartTurnEnd(Signal($"sid-{i}"))).ToList();
+        Assert.True(await WaitUntil(() => env.JudgeCalls == expected), $"only {env.JudgeCalls} of {expected} judgements reached the judge");
 
-        var second = await service.StartTurnEnd(Signal("sid-b"));
+        var over = await service.StartTurnEnd(Signal("sid-over"));
 
-        Assert.Equal(TurnVerdictOutcomeKind.Skipped, second.Kind);
-        Assert.Equal(ActivityCauses.InFlightCap, second.SkipCause);
+        Assert.Equal(TurnVerdictOutcomeKind.Skipped, over.Kind);
+        Assert.Equal(ActivityCauses.InFlightCap, over.SkipCause);
         Assert.Equal(1, service.CapSkips);
-        Assert.Equal(1, env.JudgeCalls);
+        Assert.Equal(expected, env.JudgeCalls);
 
         release.SetResult();
-        Assert.Equal(TurnVerdictOutcomeKind.Judged, (await first).Kind);
+        foreach (var judgement in inFlight)
+            Assert.Equal(TurnVerdictOutcomeKind.Judged, (await judgement).Kind);
+    }
+
+    // ================================================================= the settle wait and the checks around it
+
+    [Fact]
+    public async Task TheSettleWait_HappensBeforeTheScreenRead_AndTheSessionIsResolvedAgainBetweenThem()
+    {
+        var env = Env();
+        env.Knobs = env.Knobs with { SettleMs = 1500 };
+
+        var outcome = await new TurnVerdictService(env).StartTurnEnd(Signal());
+
+        Assert.Equal(TurnVerdictOutcomeKind.Judged, outcome.Kind);
+        // The wait carries the settings' value, it comes before the one read, and the roster is read again
+        // after it and before the screen.
+        Assert.Equal(new[] { "state", "settle:1500", "state", "screen" }, env.Steps.ToArray());
+    }
+
+    /// <summary>
+    /// The inspector's probe for finding 2, kept as the test. An automatic request for a session whose facts say
+    /// Working was judged: one screen read and one judge call about a turn still in progress.
+    /// </summary>
+    [Theory]
+    [InlineData(TurnVerdictTrigger.Voice)]
+    [InlineData(TurnVerdictTrigger.Sweep)]
+    [InlineData(TurnVerdictTrigger.TurnEnd)]
+    public async Task AnAutomaticRequest_ForASessionThatIsWorking_IsSkipped_WithNoReadAndNoCall(TurnVerdictTrigger trigger)
+    {
+        var env = Env();
+        env.Facts = sid => new SessionDto { SessionId = sid, Agent = "ClaudeCode", ActivityState = "Working" };
+        var service = new TurnVerdictService(env);
+
+        var outcome = trigger == TurnVerdictTrigger.TurnEnd
+            ? await service.StartTurnEnd(Signal())
+            : await service.VerdictForCurrentScreenAsync(Tenant, "dir-1", Sid, trigger);
+
+        AssertSkippedBeforeAnything(env, outcome, ActivityCauses.WorkingObservation);
+    }
+
+    /// <summary>
+    /// The inspector's probe for finding 3, kept as the test. The session was not held when it was first checked
+    /// and was held by the time its screen was read; the turn end was judged anyway, one read and one call.
+    /// Run with no settle wait (the probe's own shape: held changes straight after the first answer) and with one.
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(500)]
+    public async Task ASessionThatBecomesHeldAfterTheFirstCheck_IsSkippedAsHeld_BeforeItsScreenIsRead(int settleMs)
+    {
+        var env = Env();
+        env.Knobs = env.Knobs with { SettleMs = settleMs };
+        env.Held = _ => env.StateReads > 1;   // "not held" to the first snapshot, "held" to every later one
+
+        var outcome = await new TurnVerdictService(env).StartTurnEnd(Signal());
+
+        AssertSkippedBeforeAnything(env, outcome, ActivityCauses.Held);
+        // CONTROL: the first check really did answer "not held" - the request went on to a second snapshot.
+        Assert.Equal(2, env.StateReads);
+        Assert.Equal(settleMs > 0 ? new[] { "state", $"settle:{settleMs}", "state" } : new[] { "state", "state" },
+            env.Steps.ToArray());
+    }
+
+    /// <summary>
+    /// The inspector's probe for finding 4, kept as the test. A Working edge landing just after the stored verdict
+    /// was read used to be reused anyway, and the refreshed copy stored under the NEW epoch - an old verdict
+    /// restored over a session that had gone back to work.
+    /// </summary>
+    [Fact]
+    public async Task WorkingLandingJustAfterTheStoredVerdictIsRead_CancelsTheReuse_AndRestoresNothing()
+    {
+        var env = Env();
+        var service = new TurnVerdictService(env);
+        Assert.Equal(TurnVerdictOutcomeKind.Judged, (await service.StartTurnEnd(Signal())).Kind);
+        Assert.NotNull(env.Latest(Tenant, Sid));   // CONTROL: there is a verdict about this unchanged screen
+
+        env.AfterNextLatest = () => service.OnSessionWorking(Tenant, Sid);
+        var outcome = await service.StartTurnEnd(Signal(at: ObservedAt.AddMinutes(2)));
+
+        Assert.Equal(TurnVerdictOutcomeKind.Cancelled, outcome.Kind);
+        Assert.Null(outcome.Verdict);
+        Assert.Equal(0, env.StoredCount(Tenant, Sid));
+        Assert.Equal(1, env.JudgeCalls);
+        Assert.Contains(env.Records, r => r.EventType == ActivityEventTypes.TurnVerdictCancelled);
+        Assert.DoesNotContain(env.Records, r => r.EventType == ActivityEventTypes.TurnVerdictReused);
+    }
+
+    // ================================================================= an exception nobody expected
+
+    [Fact]
+    public async Task AnExceptionFromTheStore_LeavesAFailedRecordNamingItsType_AndALedgerEvent()
+    {
+        var env = Env();
+        env.NextStoreThrows = new IOException("the database file is locked");
+        var service = new TurnVerdictService(env);
+
+        var outcome = await service.StartTurnEnd(Signal());
+
+        Assert.Equal(TurnVerdictOutcomeKind.Failed, outcome.Kind);
+        Assert.Equal(TurnVerdictFailureKind.Unavailable, outcome.Failure);
+        Assert.False(outcome.HasAcceptedVerdict);
+        Assert.Equal(1, env.JudgeCalls);   // the judge answered; it was the store that threw
+
+        var stored = env.Latest(Tenant, Sid);
+        Assert.NotNull(stored);
+        Assert.True(stored!.Failed);
+        Assert.Equal("", stored.Verdict);
+        Assert.Equal("the verdict could not be formed: System.IO.IOException", stored.FailureReason);
+        Assert.Equal(stored.VerdictId, outcome.Verdict!.VerdictId);
+        Assert.Contains(env.Records, r => r.EventType == ActivityEventTypes.TurnVerdictFailed
+                                          && r.Cause == ActivityCauses.JudgeUnavailable
+                                          && r.Detail.Contains("exception=IOException", StringComparison.Ordinal));
+        Assert.DoesNotContain(env.Records, r => r.EventType == ActivityEventTypes.TurnVerdictJudged);
+        Assert.False(service.IsReading(Tenant, Sid));
     }
 
     // ================================================================= failures never move a row

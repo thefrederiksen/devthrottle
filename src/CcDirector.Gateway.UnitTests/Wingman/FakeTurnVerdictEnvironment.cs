@@ -36,25 +36,45 @@ internal sealed class FakeTurnVerdictEnvironment : ITurnVerdictEnvironment
     public SpokenLanguage LanguageValue = SpokenLanguages.English;
     public string? Custom { get; set; }
 
+    /// <summary>Runs once, the first time <see cref="Latest"/> is read by the seat after being set, and is then
+    /// cleared - so a test can land a Working edge in the gap between the stored-verdict read and what follows.</summary>
+    public Action? AfterNextLatest;
+
+    /// <summary>When set, the next store throws it (once), the way a database fault would.</summary>
+    public Exception? NextStoreThrows;
+
     private int _screenReads;
     private int _judgeCalls;
     private int _invalidations;
+    private int _stateReads;
     public int ScreenReads => _screenReads;
     public int JudgeCalls => _judgeCalls;
     public int Invalidations => _invalidations;
+    /// <summary>How many roster snapshots the seat has taken.</summary>
+    public int StateReads => _stateReads;
     public readonly ConcurrentQueue<string> Prompts = new();
     public readonly ConcurrentQueue<TurnVerdictRecord> Records = new();
+
+    /// <summary>What the seat did, in order: "state" for a roster snapshot, "settle:{milliseconds}" for the
+    /// settle wait, "screen" for a screen read.</summary>
+    public readonly ConcurrentQueue<string> Steps = new();
 
     private readonly object _gate = new();
     private readonly Dictionary<(TenantId, string), List<TurnVerdictDto>> _stored = new();
 
     public TurnVerdictSettings Settings(TenantId tenant) => Knobs;
-    public bool HasLiveSupervisor(TenantId tenant, string sessionId) => Held(sessionId);
-    public SessionDto? ReadSessionFacts(TenantId tenant, string sessionId) => Facts(sessionId);
+
+    public TurnVerdictSessionState ReadSessionState(TenantId tenant, string sessionId)
+    {
+        Interlocked.Increment(ref _stateReads);
+        Steps.Enqueue("state");
+        return new TurnVerdictSessionState(Facts(sessionId), Held(sessionId));
+    }
 
     public Task<ScreenGridResponse?> ReadScreenGridAsync(TenantId tenant, string directorId, string sessionId, CancellationToken ct)
     {
         Interlocked.Increment(ref _screenReads);
+        Steps.Enqueue("screen");
         return Task.FromResult(Screen());
     }
 
@@ -73,14 +93,18 @@ internal sealed class FakeTurnVerdictEnvironment : ITurnVerdictEnvironment
 
     public TurnVerdictDto? Latest(TenantId tenant, string sessionId)
     {
+        TurnVerdictDto? latest;
         lock (_gate)
-            return _stored.TryGetValue((tenant, sessionId), out var rows)
+            latest = _stored.TryGetValue((tenant, sessionId), out var rows)
                 ? rows.OrderByDescending(r => r.JudgedAtUtc).FirstOrDefault()
                 : null;
+        Interlocked.Exchange(ref AfterNextLatest, null)?.Invoke();
+        return latest;
     }
 
     public void Store(TenantId tenant, string sessionId, TurnVerdictDto verdict)
     {
+        if (Interlocked.Exchange(ref NextStoreThrows, null) is { } fault) throw fault;
         lock (_gate)
         {
             if (!_stored.TryGetValue((tenant, sessionId), out var rows)) _stored[(tenant, sessionId)] = rows = new();
@@ -109,6 +133,7 @@ internal sealed class FakeTurnVerdictEnvironment : ITurnVerdictEnvironment
     public Task DelayAsync(TimeSpan delay, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
+        Steps.Enqueue($"settle:{delay.TotalMilliseconds:F0}");
         return Task.CompletedTask;
     }
 

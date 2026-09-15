@@ -49,13 +49,15 @@ internal static class TurnVerdictJudge
 /// </summary>
 internal static class TurnVerdictHeldCheck
 {
-    public static bool HasLiveSupervisor(IReadOnlyList<(string DirectorId, SessionDto Session)> roster, string sessionId)
+    /// <summary>The one session's facts and held answer, both out of this one roster. The roster is the push
+    /// store's deep copy, so stamping roles on it touches nothing the store holds.</summary>
+    public static TurnVerdictSessionState Resolve(IReadOnlyList<(string DirectorId, SessionDto Session)> roster, string sessionId)
     {
         ArgumentNullException.ThrowIfNull(roster);
         var sessions = roster.Select(r => r.Session).Where(s => s is not null).ToList();
         FleetRoleResolver.Stamp(sessions);
-        return sessions.FirstOrDefault(s => string.Equals(s.SessionId, sessionId, StringComparison.Ordinal))
-            ?.HasLiveSupervisor == true;
+        var session = sessions.FirstOrDefault(s => string.Equals(s.SessionId, sessionId, StringComparison.Ordinal));
+        return new TurnVerdictSessionState(session, session?.HasLiveSupervisor == true);
     }
 }
 
@@ -121,11 +123,8 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
 
     public TurnVerdictSettings Settings(TenantId tenant) => _settings(tenant);
 
-    public bool HasLiveSupervisor(TenantId tenant, string sessionId)
-        => TurnVerdictHeldCheck.HasLiveSupervisor(_pushedSessions.SnapshotFresh(tenant, _streamStale), sessionId);
-
-    public SessionDto? ReadSessionFacts(TenantId tenant, string sessionId)
-        => _pushedSessions.TryLocate(tenant, sessionId, _streamStale)?.Session;
+    public TurnVerdictSessionState ReadSessionState(TenantId tenant, string sessionId)
+        => TurnVerdictHeldCheck.Resolve(_pushedSessions.SnapshotFresh(tenant, _streamStale), sessionId);
 
     public async Task<ScreenGridResponse?> ReadScreenGridAsync(TenantId tenant, string directorId, string sessionId, CancellationToken ct)
     {
