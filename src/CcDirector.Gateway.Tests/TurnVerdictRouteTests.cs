@@ -26,6 +26,9 @@ namespace CcDirector.Gateway.Tests;
 ///  - THE TENANT. Two accounts can hold sessions with the SAME id, because a Director mints it. A route that
 ///    read the store without naming its tenant would serve one account the other's verdict, with its label,
 ///    its summary, and the agent's own words.
+///  - EXISTENCE. A session that is not in the caller's account answers 404, and the body is the SAME body an
+///    unknown session gets. A foreign session answering anything else - even an empty 200 - would tell one
+///    account which session ids exist in another, so these rows compare the two answers, not just the status.
 /// </summary>
 public sealed class TurnVerdictRouteTests : IAsyncLifetime
 {
@@ -94,6 +97,11 @@ public sealed class TurnVerdictRouteTests : IAsyncLifetime
         Assert.True(_gateway.SessionKeys.Register(_tenantA, "director-verdict-a", _sharedSessionId,
             GatewaySessionKey.Hash(sessionKey), DateTime.UtcNow.AddHours(1)));
         _sessionKeyInA = Client(sessionKey);
+
+        // THE SESSION IS REALLY IN ACCOUNT A: its Director pushed it, exactly as a live Director's roster push
+        // arrives. Without this the route has no session to find, and every positive control below would be a
+        // 404 - which is the point of the existence rule, and the reason the controls must earn their 200.
+        Push(_tenantA, "director-verdict-a", _sharedSessionId);
     }
 
     public async Task DisposeAsync()
@@ -111,6 +119,25 @@ public sealed class TurnVerdictRouteTests : IAsyncLifetime
         var http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{_gateway.Port}/") };
         http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", bearer);
         return http;
+    }
+
+    private long _pushSequence;
+
+    /// <summary>A Director in <paramref name="tenant"/> pushes a roster holding these sessions, through the
+    /// same registry, connection and snapshot calls the stream ingress makes.</summary>
+    private void Push(TenantId tenant, string directorId, params string[] sessionIds)
+    {
+        _gateway.Registry.RegisterFromStream(directorId, "MACHINE-" + directorId, "soren", "1.0", pid: 4321,
+            startedAt: DateTime.UtcNow, tenant: tenant);
+        _gateway.PushedSessions.RegisterConnection(tenant, directorId, "conn-" + directorId);
+        Assert.True(_gateway.PushedSessions.ApplySnapshot(tenant, directorId, "conn-" + directorId, ++_pushSequence,
+            sessionIds.Select(id => new SessionDto
+            {
+                SessionId = id,
+                Name = id,
+                ActivityState = "Waiting",
+                LastActivityAt = DateTime.UtcNow,
+            }).ToList()));
     }
 
     private static TurnVerdictDto Verdict(string verdictId, string label) => new()
@@ -192,8 +219,23 @@ public sealed class TurnVerdictRouteTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, mine.Status);
         Assert.Equal("tv-a", Root(mine.Body).GetProperty("verdict").GetProperty("verdictId").GetString());
 
-        // The foreign account asks for the SAME session id and is answered with nothing - not with A's
-        // label, A's summary, or the words A's agent typed.
+        // The foreign account asks for A's session id and is told there is no such session - not A's label,
+        // not A's summary, not the words A's agent typed, and not an empty 200 that would confirm the id
+        // exists somewhere.
+        var foreign = await Get(_deviceB, $"sessions/{_sharedSessionId}/turn-verdict");
+        Assert.Equal(HttpStatusCode.NotFound, foreign.Status);
+        Assert.Equal("session_not_found", Root(foreign.Body).GetProperty("code").GetString());
+        Assert.DoesNotContain("tv-a", foreign.Body);
+
+        // INDISTINGUISHABLE FROM AN ID NOBODY HOLDS. If the two answers differed in any byte, the difference
+        // itself would disclose that the id is in use in another account.
+        var unknown = await Get(_deviceB, $"sessions/{Guid.NewGuid()}/turn-verdict");
+        Assert.Equal(unknown.Status, foreign.Status);
+        Assert.Equal(unknown.Body, foreign.Body);
+
+        // And when B's OWN Director holds the same id, B reads its own session - which has no verdict - and
+        // still never A's. This is the store's partition, which the 404 above would otherwise stand in front of.
+        Push(_tenantB, $"director-verdict-b-{_runId}", _sharedSessionId);
         var (status, body) = await Get(_deviceB, $"sessions/{_sharedSessionId}/turn-verdict");
         Assert.Equal(HttpStatusCode.OK, status);
         Assert.Equal(JsonValueKind.Null, Root(body).GetProperty("verdict").ValueKind);
@@ -219,23 +261,48 @@ public sealed class TurnVerdictRouteTests : IAsyncLifetime
             .Select(v => v.GetProperty("verdictId").GetString()).ToList();
         Assert.Equal(new[] { "tv-2", "tv-1" }, ids);
 
+        // The history route follows the same existence rule: a foreign account gets the unknown-session answer,
+        // byte for byte, and none of A's three stops.
         var foreign = await Get(_deviceB, $"sessions/{_sharedSessionId}/turn-verdicts");
-        Assert.Equal(HttpStatusCode.OK, foreign.Status);
-        Assert.Empty(Root(foreign.Body).GetProperty("verdicts").EnumerateArray());
+        Assert.Equal(HttpStatusCode.NotFound, foreign.Status);
+        Assert.Equal("session_not_found", Root(foreign.Body).GetProperty("code").GetString());
+        Assert.DoesNotContain("tv-", foreign.Body);
+        var unknown = await Get(_deviceB, $"sessions/{Guid.NewGuid()}/turn-verdicts");
+        Assert.Equal(unknown.Status, foreign.Status);
+        Assert.Equal(unknown.Body, foreign.Body);
     }
 
     [Fact]
     public async Task A_session_that_has_never_been_judged_answers_a_null_verdict_rather_than_not_found()
     {
         _gateway.TenantSettingsResolver.SetTurnVerdictColourEnabled(_tenantA, true, DateTime.UtcNow);
+        // A session that IS in account A - its Director pushed it - and has simply never stopped to be judged.
+        var neverJudged = Guid.NewGuid().ToString();
+        Push(_tenantA, $"director-verdict-a2-{_runId}", neverJudged);
 
-        var (status, body) = await Get(_deviceA, $"sessions/{Guid.NewGuid()}/turn-verdict");
+        var (status, body) = await Get(_deviceA, $"sessions/{neverJudged}/turn-verdict");
 
         // "Nothing to show" and "this route is not here" are different things to be told, and a client that
         // could not tell them apart would report a working Gateway as broken for every session that has not
         // stopped yet - which is every session on an account whose judging is off.
         Assert.Equal(HttpStatusCode.OK, status);
         Assert.Equal(JsonValueKind.Null, Root(body).GetProperty("verdict").ValueKind);
+    }
+
+    [Fact]
+    public async Task A_session_that_is_not_in_the_callers_own_account_answers_not_found_on_both_routes()
+    {
+        _gateway.TenantSettingsResolver.SetTurnVerdictColourEnabled(_tenantA, true, DateTime.UtcNow);
+        // A well-formed identifier that no Director in account A has ever pushed. It must be the SAME answer
+        // the foreign-account rows above get, or the difference between the two would leak which ids exist.
+        var unknownSid = Guid.NewGuid().ToString();
+
+        foreach (var path in new[] { $"sessions/{unknownSid}/turn-verdict", $"sessions/{unknownSid}/turn-verdicts" })
+        {
+            var (status, body) = await Get(_deviceA, path);
+            Assert.Equal(HttpStatusCode.NotFound, status);
+            Assert.Equal("session_not_found", Root(body).GetProperty("code").GetString());
+        }
     }
 
     [Fact]

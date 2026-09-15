@@ -2979,6 +2979,21 @@ internal static class GatewayEndpoints
                 return Results.Json(new { error = "turn verdicts are not available on this gateway" },
                     statusCode: StatusCodes.Status404NotFound);
 
+            // THE SESSION MUST BE IN THE CALLER'S ACCOUNT, and a session that is not answers exactly what an
+            // unknown session answers. The store read below is already partitioned, so a foreign session
+            // could only ever produce an empty answer - but a 200 with nothing in it for a session id that
+            // belongs to another account, beside a 404 for one that belongs to nobody, would still say which
+            // ids exist elsewhere. So existence is decided first, inside this account, and not answered at
+            // all otherwise.
+            //
+            // It is the SAME rule every session route uses, not a second one: the pushed store, scoped to this
+            // tenant, is what SessionUnavailable consults to decide "no Director in this tenant has pushed
+            // it", and SessionUnavailable writes the 404. Freshness is deliberately ignored here: the verdict
+            // is held on this Gateway, so a session whose Director has merely gone quiet is still this
+            // account's session and its verdict is still readable. There is no read by bare session id.
+            if (pushedSessions?.TryLocateIgnoringFreshness(tenant.Value, sid) is null)
+                return SessionUnavailable(ctx, tenantBoundary, pushedSessions, sid);
+
             var colourOn = tenantSettings.TurnVerdict(tenant.Value).ColourEnabled;
             if (!colourOn && AuthMiddleware.CallingSession(ctx) is not null)
                 return Results.Json(new
@@ -2991,10 +3006,10 @@ internal static class GatewayEndpoints
             if (!history)
             {
                 var latest = turnVerdicts.Latest(tenant.Value, sid);
-                // A session that has never been judged is not an error - it is the ordinary state of every
-                // session on an account whose judge switch is off, and of every session that has not stopped
-                // yet. It answers with a null verdict and says so, rather than 404, so a client can tell
-                // "nothing to show" apart from "this route is not here".
+                // A session of this account that has never been judged is not an error - it is the ordinary
+                // state of every session on an account whose judge switch is off, and of every session that
+                // has not stopped yet. It answers with a null verdict and says so, so a client can tell
+                // "nothing to show" apart from "no such session", which answered 404 above.
                 return Results.Json(new { sessionId = sid, verdict = latest });
             }
 
