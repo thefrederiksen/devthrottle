@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SessionDto } from "../api/client";
-import { classify, contextLine, deletionReason, dotColor, dotHex, effectiveColor, groupByDirector, inBucket, inWaitingOrder, isDeferredHold, isWorking, machineCanBeActedOn, needsYouBadgeCount, pendingDeletion, snoozeCountdown, stateLabel } from "./ordering";
+import { classify, contextLine, deletionReason, dotColor, dotHex, effectiveColor, groupByDirector, inBucket, inWaitingOrder, isDeferredHold, isInCalmBand, isWorking, machineCanBeActedOn, needsYouBadgeCount, pendingDeletion, snoozeCountdown, stateLabel } from "./ordering";
 
 function session(fields: Partial<SessionDto> & { sessionId?: string } = {}): SessionDto {
   return {
@@ -223,6 +223,42 @@ describe("needs-you waiting-line order", () => {
     ];
 
     expect(inWaitingOrder(sessions).map((s) => s.sessionId)).toEqual(["has-stamp", "no-stamp"]);
+  });
+});
+
+describe("the calm band after the waiting line", () => {
+  const needsYou = (id: string, needsYouSince: string) =>
+    session({ sessionId: id, effectiveColor: "red", triageBucket: "needsYou", needsYouSince } as Partial<SessionDto>);
+  const calm = (id: string, effectiveColor: string, createdAt: string) =>
+    session({ sessionId: id, effectiveColor, triageBucket: "active", verdictState: "judged", createdAt } as Partial<SessionDto>);
+
+  it("lists the green and purple judged rows after every red row", () => {
+    const sessions = [
+      calm("done", "green", "2026-07-09T08:00:00Z"),
+      needsYou("red-b", "2026-07-09T10:00:00Z"),
+      calm("carrying", "purple", "2026-07-09T07:00:00Z"),
+      needsYou("red-a", "2026-07-09T09:00:00Z"),
+    ];
+
+    expect(inWaitingOrder(sessions).map((s) => s.sessionId)).toEqual(["red-a", "red-b", "carrying", "done"]);
+  });
+
+  it("leaves out a green row with no verdict, a judged row in any other colour, a row still being read, and a snoozed row", () => {
+    const sessions = [
+      session({ sessionId: "fresh", effectiveColor: "green", triageBucket: "active" }),
+      session({ sessionId: "judged-yellow", effectiveColor: "yellow", triageBucket: "active", verdictState: "judged" } as Partial<SessionDto>),
+      session({ sessionId: "reading", effectiveColor: "green", triageBucket: "active", verdictState: "reading" } as Partial<SessionDto>),
+      session({ sessionId: "snoozed", effectiveColor: "grey", triageBucket: "onHold", verdictState: "judged" } as Partial<SessionDto>),
+    ];
+
+    expect(sessions.filter(isInCalmBand)).toEqual([]);
+    expect(inWaitingOrder(sessions)).toEqual([]);
+  });
+
+  it("does not count a calm row in the needs-you badge", () => {
+    const sessions = [calm("done", "green", "2026-07-09T08:00:00Z"), needsYou("red", "2026-07-09T09:00:00Z")];
+
+    expect(needsYouBadgeCount(sessions)).toBe(1);
   });
 });
 

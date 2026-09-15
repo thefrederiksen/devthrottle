@@ -19,7 +19,7 @@
 // Expanded or collapsed is remembered per crew in this browser (localStorage). The Gateway-owned
 // preference that makes the three surfaces agree is a later step, taken before the Director joins.
 import type { SessionDto } from "../api/client";
-import { inBucket, inDesktopOrder, inWaitingOrder } from "./ordering";
+import { classify, inBucket, inDesktopOrder, inWaitingOrder, isInCalmBand } from "./ordering";
 import { durationFromMs } from "./waiting";
 
 export interface SessionTree {
@@ -199,23 +199,40 @@ export function crewAge(sum: CrewSummary, now: number): string {
   return durationFromMs(Math.max(0, now - sum.sinceMs));
 }
 
-/** One attention section: its heading, and the roots in it. */
+/** One attention section: its heading, the roots in it, and where its calm band starts. */
 export interface AttentionSection {
   key: "needsYou" | "active" | "onHold";
   title: string;
   roots: SessionDto[];
+  /**
+   * The index in roots of the first calm-band row (the rows the Wingman judged a report), listed after every
+   * red row of the needs-you section and not counted in it. Equal to roots.length when there is no band,
+   * which is always so for the other two sections. The rows that need you are roots.slice(0, bandStart), and
+   * a heading counts those.
+   */
+  bandStart: number;
 }
 
+/** The heading over the calm band, one set of words for every surface. */
+export const CALM_BAND_TITLE = "Done or carrying on";
+
 /**
- * The attention order, as sections: "Needs you" as a waiting line (longest wait on top), then
- * "Working" in desktop order, then "Snoozed" in desktop order. Empty sections are omitted. Applied
- * to top-level rows only - pass the tree's roots, never the whole roster.
+ * The attention order, as sections: "Needs you" as a waiting line (longest wait on top) followed by its
+ * calm band, then "Working" in desktop order, then "Snoozed" in desktop order. Empty sections are omitted.
+ * Applied to top-level rows only - pass the tree's roots, never the whole roster.
  */
 export function attentionSections(roots: SessionDto[]): AttentionSection[] {
+  // The waiting line carries the calm band after its reds, so the reds are exactly its leading rows.
+  const waiting = inWaitingOrder(roots);
+  const needsYouCount = waiting.filter((s) => classify(s) === "needsYou").length;
+  // A calm row's bucket is "active", but it is listed in the band and is not working, so it is not listed
+  // under "Working" as well.
+  const active = inBucket(roots.filter((s) => !isInCalmBand(s)), "active");
+  const onHold = inBucket(roots, "onHold");
   const sections: AttentionSection[] = [
-    { key: "needsYou", title: "Needs you", roots: inWaitingOrder(roots) },
-    { key: "active", title: "Working", roots: inBucket(roots, "active") },
-    { key: "onHold", title: "Snoozed", roots: inBucket(roots, "onHold") },
+    { key: "needsYou", title: "Needs you", roots: waiting, bandStart: needsYouCount },
+    { key: "active", title: "Working", roots: active, bandStart: active.length },
+    { key: "onHold", title: "Snoozed", roots: onHold, bandStart: onHold.length },
   ];
   return sections.filter((s) => s.roots.length > 0);
 }

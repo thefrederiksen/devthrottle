@@ -643,6 +643,12 @@ public sealed class GatewayHost : IAsyncDisposable
     private Wingman.TurnVerdictRetentionSweep? _turnVerdictRetentionSweep;
     private System.Threading.Timer? _turnVerdictRetentionTimer;
     private int _turnVerdictRetentionInFlight;
+    // Slice D: the verdict source every fold reads, and the carrying-on clock's sweep, its timer and its overlap guard.
+    private readonly Wingman.TurnVerdictRowSource _turnVerdictRows;
+    private readonly Wingman.TurnVerdictWatchdogSweep _turnVerdictWatchdogSweep;
+    private System.Threading.Timer? _turnVerdictWatchdogTimer;
+    private int _turnVerdictWatchdogInFlight;
+    private static readonly TimeSpan TurnVerdictWatchdogInterval = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan TurnVerdictRetentionInterval = TimeSpan.FromHours(6);
     private static readonly TimeSpan TurnVerdictRetentionStartupDelay = TimeSpan.FromMinutes(7);
 
@@ -1623,7 +1629,10 @@ public sealed class GatewayHost : IAsyncDisposable
                     && _voiceService?.NarrationAbandonedFor(t, sid) == true,
                 voiceWaitingStampFor: (sid, waiting) => _tenantPass.Current is { } t
                     ? _voiceWaitingClock.Stamp(t, sid, waiting)
-                    : null),
+                    : null,
+                // Slice D: the same verdict source the roster folds from, so the desktop is pushed the same colour
+                // and label every browser gets.
+                turnVerdictRows: _turnVerdictRows),
             SendCommandAsync,
             currentScopeKey: () => _tenantPass.Current?.Value);
         // Mission Screen mission (Phase 1b, issue #1405): the mission-WHY store, at a Gateway-side file
@@ -1811,6 +1820,13 @@ public sealed class GatewayHost : IAsyncDisposable
         _turnVerdicts = new Wingman.TurnVerdictStore(_gatewayDb);
         _turnVerdictRetentionSweep = new Wingman.TurnVerdictRetentionSweep(
             _tenantBoundary, TenantRegistry, _tenantContext, _turnVerdicts);
+        // Slice D: the one source every fold reads verdicts through - the roster, the single-session read and the
+        // display push to the desktop - so all three stamp one answer. And the carrying-on clock, on the same
+        // per-tenant seam as the retention above.
+        _turnVerdictRows = new Wingman.TurnVerdictRowSource(
+            _tenantSettingsResolver.TurnVerdict, _turnVerdicts, () => _turnVerdictService);
+        _turnVerdictWatchdogSweep = new Wingman.TurnVerdictWatchdogSweep(
+            _tenantBoundary, TenantRegistry, _tenantContext, EnsureTurnVerdictService);
         // The machine name and the Director version are stamped from the CONNECTION record, not
         // from the pushed session: the pushed machine name is hard-coded empty on every client in
         // the field, and the version has never been on the session payload at all. Reading them
@@ -3356,6 +3372,8 @@ public sealed class GatewayHost : IAsyncDisposable
             governanceAudit: _governanceAudit,
             // The Wingman-on-every-turn mission: the store GET /sessions/{sid}/turn-verdict(s) serve from.
             turnVerdicts: _turnVerdicts,
+            // Slice D: the verdict source the roster and GET /sessions/{sid} fold from.
+            turnVerdictRows: _turnVerdictRows,
             // Issue #2022: the live process diagnostics the About page shows read-only on both surfaces,
             // after the machine settings left the Cockpit Settings page.
             gatewayStartedAtUtc: StartedAtUtc,
@@ -4278,6 +4296,10 @@ public sealed class GatewayHost : IAsyncDisposable
         _turnVerdictRetentionTimer = new System.Threading.Timer(_ => SweepTurnVerdictRetention(), null,
             TurnVerdictRetentionStartupDelay, TurnVerdictRetentionInterval);
         FileLog.Write($"[GatewayHost] turn verdict retention sweep started: every {TurnVerdictRetentionInterval.TotalHours:0}h, retention {Wingman.TurnVerdictStore.RetentionPeriod.TotalDays:0} days");
+        // Slice D: the carrying-on clock. Each tick reads the stored verdicts, so nothing it needs lives only in memory.
+        _turnVerdictWatchdogTimer = new System.Threading.Timer(_ => SweepTurnVerdictWatchdog(), null,
+            TurnVerdictWatchdogInterval, TurnVerdictWatchdogInterval);
+        FileLog.Write($"[GatewayHost] carrying-on clock started: every {TurnVerdictWatchdogInterval.TotalSeconds:0}s");
 
         // The prompt log's retention purge (CR-3b): same footing as the other bounded stores. The window
         // resolves from the deployment mode - hosted is always the product default; self-host may override
@@ -4611,7 +4633,10 @@ public sealed class GatewayHost : IAsyncDisposable
         Func<string, bool>? nothingToNarrateFor = null,
         Func<string, bool>? directorCannotSendConversationFor = null,
         Func<string, bool>? narrationAbandonedFor = null,
-        Func<string, bool, DateTime?>? voiceWaitingStampFor = null)
+        Func<string, bool, DateTime?>? voiceWaitingStampFor = null,
+        // The Wingman-on-every-turn mission, slice D: the same verdict source the roster folds from, so the colour
+        // and the label pushed to the desktop are the ones every browser gets.
+        Wingman.ITurnVerdictRowSource? turnVerdictRows = null)
     {
         foreach (var s in sessions)
         {
@@ -4644,7 +4669,7 @@ public sealed class GatewayHost : IAsyncDisposable
                 narrationAbandoned: narrationAbandonedFor?.Invoke(s.SessionId) ?? false,
                 waitingSince: s.VoiceWaitingSince);
         }
-        Api.GatewayEndpoints.StampFleetRolesAndFold(sessions, sessions, needsYouStampFor, snoozeRegistry, tenant, handRaises);
+        Api.GatewayEndpoints.StampFleetRolesAndFold(sessions, sessions, needsYouStampFor, snoozeRegistry, tenant, handRaises, turnVerdictRows);
     }
 
     /// <summary>
@@ -4791,6 +4816,34 @@ public sealed class GatewayHost : IAsyncDisposable
         finally
         {
             Interlocked.Exchange(ref _turnVerdictRetentionInFlight, 0);
+        }
+    }
+
+    /// <summary>
+    /// The carrying-on clock's timer callback (a boundary - it owns the overlap guard and the try/catch so a failed
+    /// tick never crashes the timer thread). One tick at a time; a skipped tick expires on the next one, fifteen
+    /// seconds later, which the two-minute and ten-minute allowances are indifferent to.
+    /// </summary>
+    private void SweepTurnVerdictWatchdog()
+    {
+        if (Interlocked.CompareExchange(ref _turnVerdictWatchdogInFlight, 1, 0) != 0)
+            return;
+        _ = RunTurnVerdictWatchdogSweepAsync();
+    }
+
+    private async Task RunTurnVerdictWatchdogSweepAsync()
+    {
+        try
+        {
+            await _turnVerdictWatchdogSweep.SweepAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayHost] carrying-on clock tick FAILED: {ex.Message}");
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _turnVerdictWatchdogInFlight, 0);
         }
     }
 
@@ -5085,6 +5138,7 @@ public sealed class GatewayHost : IAsyncDisposable
         _cronTimer = null;
         try { _activityRetentionTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] activity retention timer dispose error: {ex.Message}"); }
         try { _turnVerdictRetentionTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] turn verdict retention timer dispose error: {ex.Message}"); }
+        try { _turnVerdictWatchdogTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] carrying-on clock timer dispose error: {ex.Message}"); }
         try { _promptRetentionTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] prompt-log retention timer dispose error: {ex.Message}"); }
         _promptRetentionTimer = null;
         try { _suggestionSweepTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] dictionary-suggestion timer dispose error: {ex.Message}"); }
@@ -5092,6 +5146,7 @@ public sealed class GatewayHost : IAsyncDisposable
         _sessionHistoryTimer = null;
         _activityRetentionTimer = null;
         _turnVerdictRetentionTimer = null;
+        _turnVerdictWatchdogTimer = null;
         try { _leaseSweepTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] lease sweep timer dispose error: {ex.Message}"); }
         _leaseSweepTimer = null;
         try { _autoDismissTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] auto-dismiss timer dispose error: {ex.Message}"); }

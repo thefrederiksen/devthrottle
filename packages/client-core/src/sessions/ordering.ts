@@ -26,6 +26,10 @@ type GatewayStampedSession = SessionDto & {
   // rides beside it (mirrors the desktop rail's IsPendingDeletion). Optional; false for most sessions.
   pendingDeletion?: boolean | null;
   deletionReason?: string | null;
+  // Where the Wingman is with this row's last stop: "none" | "reading" | "judged" | "failed", stamped by the
+  // Gateway on every fold (the Wingman-on-every-turn mission). The calm band below SELECTS on it and nothing
+  // interprets it. The generated schema does not carry it yet, so it is augmented here like the fields above.
+  verdictState?: string | null;
 };
 
 // The stable "desktop order": honor the owning Director's SortOrder (the user-controlled,
@@ -235,17 +239,34 @@ export function needsYouBadgeCount(sessions: SessionDto[]): number {
 // sorts to the bottom, and createdAt then sessionId break ties so equal waits never jitter between
 // polls. This intentionally ignores the drag-to-reorder desktop SortOrder: the needs-you group is a
 // queue by wait time, not the user's manual arrangement.
+//
+// THE CALM BAND (the Wingman-on-every-turn mission, slice D). After every needs-you row come the rows the
+// Wingman judged a REPORT: the Gateway stamped them green ("Done") or purple ("Carrying on") with verdictState
+// "judged". They keep a place in the attention view, below the reds, and they are not counted - the needs-you
+// heading and needsYouBadgeCount read the stamped bucket, which is "active" for them. Ordered by the same
+// waiting-line rule, so the band does not reshuffle between polls either.
 export function inWaitingOrder(sessions: SessionDto[]): SessionDto[] {
-  return sessions
-    .filter((s) => classify(s) === "needsYou")
-    .sort((a, b) => {
-      const wa = waitingSinceMs(a);
-      const wb = waitingSinceMs(b);
-      if (wa !== wb) return wa - wb;
-      const created = String(a.createdAt ?? "").localeCompare(String(b.createdAt ?? ""));
-      if (created !== 0) return created;
-      return String(a.sessionId ?? "").localeCompare(String(b.sessionId ?? ""));
-    });
+  const needsYou = sessions.filter((s) => classify(s) === "needsYou").sort(byWaitingLine);
+  const calm = sessions.filter(isInCalmBand).sort(byWaitingLine);
+  return [...needsYou, ...calm];
+}
+
+// Is this row in the calm band? Selected by the Gateway's stamped strings and nothing else: a calm colour AND
+// an accepted verdict. A brand-new session is green too, and carries no verdict, so it is not in the band. A
+// snoozed row is grey, so a snooze keeps a row out of the band by the Gateway's own ladder. The C# port is
+// SessionOrdering.IsInCalmBand, and tree-agreement.json holds the two to the same answers.
+export function isInCalmBand(s: SessionDto): boolean {
+  const color = effectiveColor(s);
+  return (color === "green" || color === "purple") && (s as GatewayStampedSession).verdictState === "judged";
+}
+
+function byWaitingLine(a: SessionDto, b: SessionDto): number {
+  const wa = waitingSinceMs(a);
+  const wb = waitingSinceMs(b);
+  if (wa !== wb) return wa - wb;
+  const created = String(a.createdAt ?? "").localeCompare(String(b.createdAt ?? ""));
+  if (created !== 0) return created;
+  return String(a.sessionId ?? "").localeCompare(String(b.sessionId ?? ""));
 }
 
 // The needsYouSince stamp parsed to epoch milliseconds for the waiting-line sort. A missing or
@@ -276,9 +297,9 @@ const COLORS: Record<string, string> = {
   red: "#EF4444", // needs you
   yellow: "#EAB308", // wingman narrating / preparing voice
   orange: "#F97316", // dictation in flight, or a deep dive running
-  green: "#22C55E", // ready - brand-new, parked at its prompt with nothing needed
+  green: "#22C55E", // ready - brand-new with nothing needed, or the Wingman judged the stop done
   blue: "#3B82F6", // working - always
-  purple: "#A855F7", // parked on its own background task
+  purple: "#A855F7", // the Wingman judged that the session is carrying on by itself
   supporting: "#64748B", // issue #815: controlled sub-agent, recessive slate
   error: "#B91C1C", // issue #959: the agent process crashed - deep red, distinct from needs-you red
   // Parked: on hold or exited. ONE grey, on purpose. The Gateway folds both to "grey" and draws no

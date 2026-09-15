@@ -55,7 +55,7 @@ interface Case {
   children: Record<string, string[]>;
   onAnotherMachine?: Record<string, boolean>;
   crews: CrewExpectation[];
-  attention: { key: string; title: string; roots: string[] }[];
+  attention: { key: string; title: string; roots: string[]; bandStart: number }[];
 }
 
 const fixtures = JSON.parse(

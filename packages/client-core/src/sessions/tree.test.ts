@@ -100,6 +100,26 @@ describe("attentionSections", () => {
   it("omits a section with nothing in it", () => {
     expect(attentionSections([s112]).map((g) => g.title)).toEqual(["Working"]);
   });
+
+  it("lists a calm row after the reds in the needs-you section, starts the band there, and does not list it under Working", () => {
+    const done = session({ sessionId: "done", effectiveColor: "green", triageBucket: "active", verdictState: "judged" } as Partial<SessionDto> & { sessionId: string });
+    const sections = attentionSections([s100, done, s103, architect, s112]);
+
+    expect(sections[0].roots.map((s) => s.sessionId)).toEqual(["108", "103", "done"]);
+    // Two need you; the band starts at the third row.
+    expect(sections[0].bandStart).toBe(2);
+    expect(sections[1].roots.map((s) => s.sessionId)).toEqual(["112"]);
+    expect(sections[1].bandStart).toBe(1);
+  });
+
+  it("keeps the needs-you section when only calm rows are in it, with nothing counted", () => {
+    const done = session({ sessionId: "done", effectiveColor: "purple", triageBucket: "active", verdictState: "judged" } as Partial<SessionDto> & { sessionId: string });
+    const sections = attentionSections([done, s112]);
+
+    expect(sections.map((g) => g.title)).toEqual(["Needs you", "Working"]);
+    expect(sections[0].roots.map((s) => s.sessionId)).toEqual(["done"]);
+    expect(sections[0].bandStart).toBe(0);
+  });
 });
 
 describe("expanded state", () => {

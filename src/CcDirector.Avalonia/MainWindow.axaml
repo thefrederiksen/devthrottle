@@ -743,10 +743,19 @@
                                          to the RIGHT edge so it is always visible even if
                                          activity/waiting text grows. -->
                                     <Grid ColumnDefinitions="*,Auto" Margin="0,2,0,0">
-                                        <StackPanel Grid.Column="0" Orientation="Horizontal">
+                                        <!-- A WRAP PANEL, NOT A HORIZONTAL STACK (the Wingman-on-every-turn
+                                             mission, slice D). The label is the Gateway's folded words, and a
+                                             Wingman verdict label runs to eighty characters. A horizontal stack
+                                             measures its children with unlimited width, so a long label was laid
+                                             out on one line and cut off at the rail's edge; in a wrap panel the
+                                             label wraps inside the column and the wait and wake times flow after
+                                             it. SessionRailVerdictLabelRenderTests renders this row at the
+                                             rail's real width with the longest label and fails if it clips. -->
+                                        <WrapPanel Grid.Column="0" Orientation="Horizontal">
                                             <TextBlock Text="{Binding ActivityLabel}"
                                                        Foreground="#888888"
                                                        FontSize="11"
+                                                       TextWrapping="Wrap"
                                                        VerticalAlignment="Center" />
                                             <!-- How long a needs-you session has been waiting,
                                                  so you can triage the most stale one first.
@@ -767,7 +776,7 @@
                                                        FontSize="11"
                                                        Margin="6,0,0,0"
                                                        VerticalAlignment="Center" />
-                                        </StackPanel>
+                                        </WrapPanel>
                                         <Border Grid.Column="1"
                                                 IsVisible="{Binding HasUncommittedChanges}"
                                                 Background="#6B4C00"

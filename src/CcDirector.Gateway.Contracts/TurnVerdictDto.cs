@@ -80,6 +80,12 @@ public sealed class TurnVerdictDto
     /// <summary>The same content for the ear, about thirty seconds, opening with the session title.
     /// Produced for every owned stop; audio is synthesised only when somebody is listening.</summary>
     public string Spoken { get; set; } = "";
+
+    /// <summary>The agent's announced next wake-up (UTC) when the stop's package carried one, else null. The
+    /// carrying-on clock reads it: a "continues-alone" verdict expires two minutes after this moment when it
+    /// is present, and ten minutes after <see cref="JudgedAtUtc"/> when it is not. Carried on the stored
+    /// record, rather than held in memory, so a Gateway restart does not forget a clock that was running.</summary>
+    public DateTime? NextScheduledWakeUtc { get; set; }
 }
 
 /// <summary>The picker on the screen that a "keys" answer selects from.</summary>

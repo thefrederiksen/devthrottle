@@ -758,11 +758,20 @@ every row with one is SUPERVISED, whatever the seat and whatever started it.</p>
     <tr><td>No (scheduled run)</td><td>Waiting / needs-perm</td><td>global colour (fold)</td><td>human, red allowed (owner, 13 September 2026: let them go red)</td></tr>
     <tr><td>Yes</td><td>Waiting / blocked</td><td>global colour (fold)</td><td>everyone: quiet, red suppressed</td></tr>
     <tr><td>Yes</td><td>Waiting OR NeedsManager</td><td>supervisor-facing highlight</td><td>ONLY its supervisor, never the human</td></tr>
+    <tr><td>No</td><td>Waiting, and the Wingman judged the stop a report of finished work, with high confidence</td><td>global colour (fold)</td><td>human, calm: green "Done", with the Wingman's own line as the label. Listed in the second band below the reds; NOT counted in needs you.</td></tr>
+    <tr><td>No</td><td>Waiting, and the Wingman judged that the agent will carry on by itself, with high confidence</td><td>global colour (fold)</td><td>human, calm: purple "Carrying on", with the Wingman's own line as the label. Listed in the second band; NOT counted. Red again, labelled "Said it would continue and did not", when the carrying-on clock runs out.</td></tr>
     <tr><td>Any</td><td>Working</td><td>-</td><td>everyone: blue. Nothing outranks working.</td></tr>
     <tr><td>Any</td><td>Exited / Crashed</td><td>global colour (fold)</td><td>human. Never hidden behind a snoozed label.</td></tr>
   </tbody>
 </table>
 </div>
+
+<p><strong>The two calm rows</strong> (the Wingman-on-every-turn mission, 15 September 2026) apply only to an
+account whose verdict colour switch is on; every other account's rows stay exactly the colour the detector
+made them, whatever the Wingman has stored. A verdict whose confidence is "ambiguous" never calms a row, and
+neither does a refused answer or one still being read. A supervised session is never judged, so it never
+reaches either row. The rule is <span class="file">SessionOrdering.IsCalmVerdict</span>; the ladder position is
+order 7b below.</p>
 
 <p>The seat does not appear in this table any more, and that is the change.</p>
 
@@ -1288,7 +1297,8 @@ screen. This is the full ladder, in order. Read the divider as the whole design.
 <tr><td>4</td><td><span class="dot d-orange"></span>Orange</td><td>Explaining</td><td>A deep dive you asked for is running. (Currently unreachable - defect 11.)</td></tr>
 <tr><td>5</td><td><span class="dot d-yellow"></span>Yellow</td><td>Wingman reading</td><td>The wingman is reading the finished turn. We do not yet know if it needs you.</td></tr>
 <tr><td>6</td><td><span class="dot d-yellow"></span>Yellow</td><td>Preparing voice</td><td>A voice-mode session is generating its spoken summary.</td></tr>
-<tr><td>7</td><td><span class="dot d-purple"></span>Purple</td><td>Background</td><td>Parked on its own background task, not on you. <em>NOTE THE WORD COLLISION: this "Background" is a session running its OWN background task. It is not the same idea as a supervised session at order 3, and neither is the shorthand "background session" - use SUPERVISED for that.</em></td></tr>
+<tr><td>7a</td><td><span class="dot d-yellow"></span>Yellow</td><td>Wingman reading</td><td>The Gateway's turn-verdict seat is forming its verdict about this stop (<code>IsVerdictReading</code>: the row's verdict state is "reading" and the raw colour is red). Only for an account whose verdict colour switch is on. Below both earlier yellows, so a Director briefing and a voice session's missing audio keep their own words.</td></tr>
+<tr><td>7b</td><td><span class="dot d-green"></span>Green / <span class="dot d-purple"></span>Purple</td><td>The Wingman's own line; "Done" / "Carrying on" when it has none</td><td><strong>The calm arm</strong> (the Wingman-on-every-turn mission, 15 September 2026). All four, or the row stays red (<code>IsCalmVerdict</code>): the raw colour is red, the row carries an accepted verdict, its confidence is "high", and the verdict is finished (green) or continues-alone (purple). It keeps its row everywhere, sits in the second band below the reds, and is not counted in needs you. A continues-alone row goes red again, labelled "Said it would continue and did not", when the carrying-on clock runs out: the announced next wake-up plus two minutes, else ten minutes after it was judged. <strong>Purple has one producer, and this is it.</strong> <em>Order 7 used to be a purple "Background" for a session parked on its own background task; its only feed was the Director's switched-off explain service, and it was deleted so that purple means one thing.</em></td></tr>
 <tr><td>8</td><td><span class="dot d-green"></span>Green</td><td>Ready</td><td>Brand new, never took a turn.</td></tr>
 <tr><td>9</td><td><span class="dot d-grey"></span>Grey</td><td>Exited</td><td>The process ended cleanly.</td></tr>
 <tr><td>10</td><td><span class="dot" style="background:#B91C1C"></span>Deep red</td><td>Crashed</td><td>The agent process died unexpectedly - a non-zero exit, or a death mid-turn. Reachable: the fold returns <code>"error"</code> from <code>Exited</code> + <code>Crashed</code>.</td></tr>

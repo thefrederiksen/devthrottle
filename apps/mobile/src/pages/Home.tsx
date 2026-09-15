@@ -9,6 +9,7 @@ import { classify, contextLine, deletionReason, dotHex, inDesktopOrder, isWorkin
 import {
   attentionSections,
   buildSessionTree,
+  CALM_BAND_TITLE,
   crewAge,
   crewSummary,
   crewSummaryLine,
@@ -517,10 +518,22 @@ export function Home() {
         <section className="group" key={section.key}>
           <h2 className={`group-title${section.key === "needsYou" ? " group-title-attention" : ""}`}>{section.title}</h2>
           <ul className="roster">
-            {section.roots.map((s) => (
+            {section.roots.slice(0, section.bandStart).map((s) => (
               <SessionRow key={`${section.key}-${s.sessionId}`} session={s} tree={tree} mark={marks.get(s.sessionId ?? "")} marks={marks} />
             ))}
           </ul>
+          {/* The calm band: the rows the Wingman judged a report, below the reds and not counted in them. Which
+              rows they are is decided in client-core from the Gateway's stamps; this only lays them out. */}
+          {section.bandStart < section.roots.length && (
+            <>
+              <h2 className="group-title">{CALM_BAND_TITLE}</h2>
+              <ul className="roster">
+                {section.roots.slice(section.bandStart).map((s) => (
+                  <SessionRow key={`${section.key}-band-${s.sessionId}`} session={s} tree={tree} mark={marks.get(s.sessionId ?? "")} marks={marks} />
+                ))}
+              </ul>
+            </>
+          )}
         </section>
       ))}
 

@@ -49,9 +49,9 @@
         }
       ],
       "attention": [
-        { "key": "needsYou", "title": "Needs you", "roots": ["108", "103"] },
-        { "key": "active", "title": "Working", "roots": ["112"] },
-        { "key": "onHold", "title": "Snoozed", "roots": ["100"] }
+        { "key": "needsYou", "title": "Needs you", "roots": ["108", "103"], "bandStart": 2 },
+        { "key": "active", "title": "Working", "roots": ["112"], "bandStart": 1 },
+        { "key": "onHold", "title": "Snoozed", "roots": ["100"], "bandStart": 1 }
       ]
     },
     {
@@ -76,9 +76,9 @@
         }
       ],
       "attention": [
-        { "key": "needsYou", "title": "Needs you", "roots": ["7"] },
-        { "key": "active", "title": "Working", "roots": ["106"] },
-        { "key": "onHold", "title": "Snoozed", "roots": ["100"] }
+        { "key": "needsYou", "title": "Needs you", "roots": ["7"], "bandStart": 1 },
+        { "key": "active", "title": "Working", "roots": ["106"], "bandStart": 1 },
+        { "key": "onHold", "title": "Snoozed", "roots": ["100"], "bandStart": 1 }
       ]
     },
     {
@@ -113,7 +113,7 @@
         }
       ],
       "attention": [
-        { "key": "needsYou", "title": "Needs you", "roots": ["108"] }
+        { "key": "needsYou", "title": "Needs you", "roots": ["108"], "bandStart": 1 }
       ]
     },
     {
@@ -147,7 +147,7 @@
         }
       ],
       "attention": [
-        { "key": "active", "title": "Working", "roots": ["a", "b", "112"] }
+        { "key": "active", "title": "Working", "roots": ["a", "b", "112"], "bandStart": 3 }
       ]
     },
     {
@@ -172,7 +172,7 @@
         }
       ],
       "attention": [
-        { "key": "active", "title": "Working", "roots": ["a", "b"] }
+        { "key": "active", "title": "Working", "roots": ["a", "b"], "bandStart": 2 }
       ]
     },
     {
@@ -185,7 +185,7 @@
       "children": {},
       "crews": [],
       "attention": [
-        { "key": "active", "title": "Working", "roots": ["9"] }
+        { "key": "active", "title": "Working", "roots": ["9"], "bandStart": 1 }
       ]
     },
     {
@@ -211,7 +211,7 @@
         }
       ],
       "attention": [
-        { "key": "needsYou", "title": "Needs you", "roots": ["108"] }
+        { "key": "needsYou", "title": "Needs you", "roots": ["108"], "bandStart": 1 }
       ]
     },
     {
@@ -235,7 +235,7 @@
         }
       ],
       "attention": [
-        { "key": "active", "title": "Working", "roots": ["x"] }
+        { "key": "active", "title": "Working", "roots": ["x"], "bandStart": 1 }
       ]
     },
     {
@@ -261,8 +261,8 @@
         }
       ],
       "attention": [
-        { "key": "needsYou", "title": "Needs you", "roots": ["108"] },
-        { "key": "active", "title": "Working", "roots": ["blank", "spaces"] }
+        { "key": "needsYou", "title": "Needs you", "roots": ["108"], "bandStart": 1 },
+        { "key": "active", "title": "Working", "roots": ["blank", "spaces"], "bandStart": 2 }
       ]
     },
     {
@@ -277,7 +277,7 @@
       "children": {},
       "crews": [],
       "attention": [
-        { "key": "needsYou", "title": "Needs you", "roots": ["v", "w", "u"] }
+        { "key": "needsYou", "title": "Needs you", "roots": ["v", "w", "u"], "bandStart": 3 }
       ]
     },
     {
@@ -310,7 +310,7 @@
         }
       ],
       "attention": [
-        { "key": "active", "title": "Working", "roots": ["host"] }
+        { "key": "active", "title": "Working", "roots": ["host"], "bandStart": 1 }
       ]
     },
     {
@@ -334,7 +334,7 @@
         }
       ],
       "attention": [
-        { "key": "active", "title": "Working", "roots": ["  P  "] }
+        { "key": "active", "title": "Working", "roots": ["  P  "], "bandStart": 1 }
       ]
     },
     {
@@ -359,7 +359,7 @@
         }
       ],
       "attention": [
-        { "key": "needsYou", "title": "Needs you", "roots": ["R"] }
+        { "key": "needsYou", "title": "Needs you", "roots": ["R"], "bandStart": 1 }
       ]
     },
     {
@@ -374,7 +374,7 @@
       "children": {},
       "crews": [],
       "attention": [
-        { "key": "needsYou", "title": "Needs you", "roots": ["z", "a", "b"] }
+        { "key": "needsYou", "title": "Needs you", "roots": ["z", "a", "b"], "bandStart": 3 }
       ]
     },
     {
@@ -390,8 +390,28 @@
       "children": {},
       "crews": [],
       "attention": [
-        { "key": "active", "title": "Working", "roots": ["workingFirst", "workingLate"] },
-        { "key": "onHold", "title": "Snoozed", "roots": ["snoozedFirst", "snoozedLate"] }
+        { "key": "active", "title": "Working", "roots": ["workingFirst", "workingLate"], "bandStart": 2 },
+        { "key": "onHold", "title": "Snoozed", "roots": ["snoozedFirst", "snoozedLate"], "bandStart": 2 }
+      ]
+    },
+    {
+      "name": "the calm band: report stops listed after the reds, and not counted",
+      "proves": "a row the Wingman judged a report sits in the needs-you section after every red row in waiting-line order, is not counted by the band start, is not listed under Working as well; an ambiguous report stays red and counted, and a brand-new green row with no verdict is not in the band",
+      "sessions": [
+        { "sessionId": "red-late", "sortOrder": 0, "createdAt": "2026-09-15T09:00:00Z", "activityState": "WaitingForInput", "needsYouSince": "2026-09-15T10:05:00Z", "effectiveColor": "red", "triageBucket": "needsYou" },
+        { "sessionId": "done", "sortOrder": 1, "createdAt": "2026-09-15T08:00:00Z", "activityState": "WaitingForInput", "verdictState": "judged", "turnVerdict": { "verdict": "finished", "confidence": "high", "label": "Pushed the branch" }, "verdictLabel": "Pushed the branch", "effectiveColor": "green", "triageBucket": "active" },
+        { "sessionId": "red-early", "sortOrder": 2, "createdAt": "2026-09-15T09:30:00Z", "activityState": "WaitingForInput", "needsYouSince": "2026-09-15T10:00:00Z", "effectiveColor": "red", "triageBucket": "needsYou" },
+        { "sessionId": "carrying", "sortOrder": 3, "createdAt": "2026-09-15T07:00:00Z", "activityState": "WaitingForPerm", "verdictState": "judged", "turnVerdict": { "verdict": "continues-alone", "confidence": "high", "label": "Waiting on the nightly build" }, "verdictLabel": "Waiting on the nightly build", "effectiveColor": "purple", "triageBucket": "active" },
+        { "sessionId": "ambiguous", "sortOrder": 4, "createdAt": "2026-09-15T06:00:00Z", "activityState": "WaitingForInput", "needsYouSince": "2026-09-15T10:10:00Z", "verdictState": "judged", "turnVerdict": { "verdict": "finished", "confidence": "ambiguous", "label": "Probably finished" }, "verdictLabel": "Probably finished", "effectiveColor": "red", "triageBucket": "needsYou" },
+        { "sessionId": "working", "sortOrder": 5, "createdAt": "2026-09-15T06:30:00Z", "activityState": "Working", "effectiveColor": "blue", "triageBucket": "active" },
+        { "sessionId": "fresh", "sortOrder": 6, "createdAt": "2026-09-15T05:00:00Z", "activityState": "WaitingForInput", "isBrandNew": true, "effectiveColor": "green", "triageBucket": "active" }
+      ],
+      "roots": ["red-late", "done", "red-early", "carrying", "ambiguous", "working", "fresh"],
+      "children": {},
+      "crews": [],
+      "attention": [
+        { "key": "needsYou", "title": "Needs you", "roots": ["red-early", "red-late", "ambiguous", "carrying", "done"], "bandStart": 3 },
+        { "key": "active", "title": "Working", "roots": ["working", "fresh"], "bandStart": 2 }
       ]
     }
   ]

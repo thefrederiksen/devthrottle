@@ -66,11 +66,18 @@ public static class SessionTree
     /// </param>
     public sealed record CrewSummary(int Count, int NeedsYou, int Working, int Stopped, DateTime? Since);
 
-    /// <summary>One attention section: its bucket, its heading, and the roots in it.</summary>
+    /// <summary>One attention section: its bucket, its heading, the roots in it, and where its calm band starts.</summary>
+    /// <param name="BandStart">
+    /// The index in <see cref="Roots"/> of the first row of the calm band - the rows the Wingman judged a report
+    /// (<see cref="SessionOrdering.IsInCalmBand"/>), listed after every red row of the needs-you section and not
+    /// counted in it. Equal to the number of roots when there is no band, which is always so for the other two
+    /// sections. The rows that need you are exactly the first <c>BandStart</c> roots, and a heading counts those.
+    /// </param>
     public sealed record AttentionSection(
         SessionOrdering.TriageBucket Key,
         string Title,
-        IReadOnlyList<SessionDto> Roots);
+        IReadOnlyList<SessionDto> Roots,
+        int BandStart);
 
     /// <summary>
     /// A <see cref="SessionDto.CreatedAt"/> before this instant is not a real creation stamp - it is a
@@ -329,20 +336,20 @@ public static class SessionTree
     {
         var list = roots as IReadOnlyList<SessionDto> ?? roots.ToList();
 
+        // The waiting line carries the calm band after its reds, so the reds are exactly its leading rows.
+        var waiting = SessionOrdering.InWaitingOrder(list);
+        var needsYouCount = waiting.Count(s => SessionOrdering.Classify(s) == SessionOrdering.TriageBucket.NeedsYou);
+        // A calm row's bucket is Active, but it is listed in the band and is not working, so it is not listed
+        // under "Working" as well.
+        var active = SessionOrdering.InBucket(
+            list.Where(s => !SessionOrdering.IsInCalmBand(s)), SessionOrdering.TriageBucket.Active);
+        var onHold = SessionOrdering.InBucket(list, SessionOrdering.TriageBucket.OnHold);
+
         var sections = new[]
         {
-            new AttentionSection(
-                SessionOrdering.TriageBucket.NeedsYou,
-                "Needs you",
-                SessionOrdering.InWaitingOrder(list)),
-            new AttentionSection(
-                SessionOrdering.TriageBucket.Active,
-                "Working",
-                SessionOrdering.InBucket(list, SessionOrdering.TriageBucket.Active)),
-            new AttentionSection(
-                SessionOrdering.TriageBucket.OnHold,
-                "Snoozed",
-                SessionOrdering.InBucket(list, SessionOrdering.TriageBucket.OnHold)),
+            new AttentionSection(SessionOrdering.TriageBucket.NeedsYou, "Needs you", waiting, needsYouCount),
+            new AttentionSection(SessionOrdering.TriageBucket.Active, "Working", active, active.Count),
+            new AttentionSection(SessionOrdering.TriageBucket.OnHold, "Snoozed", onHold, onHold.Count),
         };
 
         return sections.Where(s => s.Roots.Count > 0).ToList();

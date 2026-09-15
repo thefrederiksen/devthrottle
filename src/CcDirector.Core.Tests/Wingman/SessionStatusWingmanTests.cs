@@ -250,7 +250,8 @@ public sealed class SessionStatusWingmanTests
     public void IsBackgroundRunning_no_longer_repaints_the_director_color()
     {
         // A session parked at WaitingForInput is red "needs you". Setting the background-running
-        // verdict no longer paints purple on the Director; the Gateway folds that from the raw fact.
+        // verdict no longer paints purple on the Director, and no colour anywhere reads it now - the Gateway's
+        // background purple was deleted by the Wingman-on-every-turn mission.
         var manager = new SessionManager(new AgentOptions { ClaudePath = TestShell.Path });
         var wingman = new SessionStatusWingman(manager);
         try

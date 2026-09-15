@@ -54,6 +54,9 @@ public interface ITurnVerdictEnvironment
     /// <summary>This session's latest stored verdict in this account, or null.</summary>
     TurnVerdictDto? Latest(TenantId tenant, string sessionId);
 
+    /// <summary>Every session's latest stored verdict in this account, in one read - for the carrying-on clock.</summary>
+    IReadOnlyDictionary<string, TurnVerdictDto> SnapshotLatest(TenantId tenant);
+
     /// <summary>Store one verdict record, accepted or failed.</summary>
     void Store(TenantId tenant, string sessionId, TurnVerdictDto verdict);
 
@@ -598,6 +601,8 @@ public sealed class TurnVerdictService : IDisposable
                 var answer = await _env.AskJudgeAsync(tenant, prompt, ct).ConfigureAwait(false);
                 replySeconds = answer.ReplySeconds;
                 record = TurnVerdictContract.ParseAndValidate(answer.Raw, package, answer.Model, observedAt);
+                // The carrying-on clock's first source travels on the stored record, so it survives a restart.
+                record.NextScheduledWakeUtc = package.NextScheduledWakeUtc;
                 if (record.Failed)
                 {
                     failure = TurnVerdictFailureKind.Refused;
@@ -823,7 +828,56 @@ public sealed class TurnVerdictService : IDisposable
         Options = v.Options,
         Risk = v.Risk,
         Spoken = v.Spoken,
+        NextScheduledWakeUtc = v.NextScheduledWakeUtc,
     };
+
+    /// <summary>
+    /// THE CARRYING-ON CLOCK'S TICK for one account (<see cref="TurnVerdictWatchdog"/>): every stored
+    /// "continues-alone" verdict whose deadline has passed is replaced by a "needed-you" verdict labelled "Said it
+    /// would continue and did not". Returns how many expired.
+    ///
+    /// Only for an account whose colour switch is on - nobody else has a purple row to take back, and a shadow
+    /// record stays the judge's own answer for the grading.
+    ///
+    /// A WORKING TRANSITION STOPS THE CLOCK, AND IT CANNOT LOSE A RACE WITH THIS. The snapshot is read outside the
+    /// gate; each expiry re-reads the session's latest verdict INSIDE the gate <see cref="OnSessionWorking"/>
+    /// invalidates under, and stores only when it is still the same carrying-on verdict and still past its
+    /// deadline. A session that worked in between has no verdict left, and one judged again has a different one.
+    /// </summary>
+    public int ExpireCarryingOn(TenantId tenant)
+    {
+        if (_disposed || !tenant.IsValid) return 0;
+        if (!_env.Settings(tenant).ColourEnabled) return 0;
+
+        var now = _env.NowUtc();
+        var expired = 0;
+        foreach (var (sid, snapshot) in _env.SnapshotLatest(tenant))
+        {
+            if (!TurnVerdictWatchdog.IsExpired(snapshot, now)) continue;
+
+            TurnVerdictDto replacement;
+            lock (_storeGate)
+            {
+                var current = _env.Latest(tenant, sid);
+                if (current is null
+                    || !string.Equals(current.VerdictId, snapshot.VerdictId, StringComparison.Ordinal)
+                    || !TurnVerdictWatchdog.IsExpired(current, now))
+                    continue;
+
+                replacement = TurnVerdictWatchdog.Expire(current, now);
+                _env.Store(tenant, sid, replacement);
+                _knownEmpty.TryRemove((tenant, sid), out _);
+            }
+
+            expired++;
+            _env.Record(new TurnVerdictRecord(tenant, _env.ReadSessionFacts(tenant, sid)?.DirectorId ?? "", sid,
+                ActivityEventTypes.TurnVerdictExpired, ActivityCauses.CarryingOnExpired,
+                $"expired={snapshot.VerdictId} id={replacement.VerdictId}"));
+            FileLog.Write($"[TurnVerdictService] ExpireCarryingOn: sid={sid} tenant={tenant.ToLogString()} said it would continue and did not; verdict {snapshot.VerdictId} replaced by {replacement.VerdictId}");
+        }
+
+        return expired;
+    }
 
     /// <summary>The three-word screen verdict the menu cache has always held, read off the verdict: a picker
     /// the answer selects from is a menu; a stop that needs a person is waiting on an answer; anything else

@@ -172,6 +172,12 @@ public static class TreeAgreement
                 Compare(findings, name, $"attention section '{expected.GetProperty("title").GetString()}'",
                     expected.GetProperty("roots").EnumerateArray().Select(v => v.GetString() ?? "").ToList(),
                     Ids(sections[index].Roots));
+
+                // WHERE THE CALM BAND STARTS, which is also how many of the section's rows need you. Required on
+                // every entry (GetProperty throws on a missing one), so a fixture cannot leave it out and pass.
+                Compare(findings, name, $"attention section '{expected.GetProperty("title").GetString()}' calm band start",
+                    expected.GetProperty("bandStart").GetInt32().ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    sections[index].BandStart.ToString(System.Globalization.CultureInfo.InvariantCulture));
             }
         }
 
