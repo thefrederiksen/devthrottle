@@ -107,3 +107,21 @@ saved turn-review capture.
 
 **The rule switch defaults OFF and the shadow log defaults ON.** That pairing is the point: the
 owner's Director produces the comparison numbers while behaving exactly as it does today.
+
+## Phase log, continued
+
+- 15 September, items one to four built by a Manager and committed as four commits plus a build
+  report. Manager reaped once its worktree was verified clean and everything pushed.
+- The branch was rebased onto origin/main, which had moved on while the work was built. The
+  build report's claim that nothing in the change touches the Gateway was checked against the
+  diff from the true merge base rather than taken on trust, and it holds: nineteen files, all
+  under `CcDirector.Core`, its two test projects, and this mission folder. The Gateway and
+  ControlApi files that appeared in a naive `origin/main..HEAD` diff were main moving forward,
+  not this branch.
+- `CcDirector.Gateway.Tests` still has NO verdict on this change. The machine-wide lock was held
+  by another mission's run with a second run already queued nearly thirty minutes deep, which is
+  the contention issue #1156 describes, observed rather than inferred. It is NOT called green,
+  and it is run immediately before landing - after any inspection fixes, because a run taken
+  before those fixes would describe a tree that no longer exists.
+- An independent Inspector from a different agent family was seated against the rebased branch
+  in its own worktree, with the sharp questions in `inspection-brief.md`.
