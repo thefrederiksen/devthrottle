@@ -78,7 +78,7 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
     private readonly Func<TenantId, TurnVerdictSettings, IAgentBrain> _judgeBrain;
     private readonly Func<TenantId, string> _judgeModel;
     private readonly TurnVerdictStore _store;
-    private readonly TurnVerdictTraceStore _traces;
+    private readonly TurnVerdictTraceWriter _traces;
     private readonly Func<TenantId, SpokenLanguage> _language;
     private readonly Func<string?> _customSpokenRules;
     private readonly Func<TenantId, string, bool> _isVoiceSession;
@@ -99,7 +99,7 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
         Func<TenantId, TurnVerdictSettings, IAgentBrain> judgeBrain,
         Func<TenantId, string> judgeModel,
         TurnVerdictStore store,
-        TurnVerdictTraceStore traces,
+        TurnVerdictTraceWriter traces,
         Func<TenantId, SpokenLanguage> language,
         Func<string?> customSpokenRules,
         Func<TenantId, string, bool> isVoiceSession,
@@ -211,21 +211,9 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
         }
     }
 
-    public void RecordTrace(TenantId tenant, TurnVerdictTrace trace)
-    {
-        if (trace is null) return;
-        try
-        {
-            _traces.Append(tenant, trace);
-        }
-        catch (Exception ex)
-        {
-            // The inspector's record OBSERVES the seat, exactly like the ledger above: a write fault is logged
-            // loudly and never changes a verdict.
-            FileLog.Write($"[GatewayTurnVerdictEnvironment] trace append FAILED for {trace.Outcome} sid={trace.SessionId} " +
-                          $"verdict={trace.VerdictId}: {ex.GetType().FullName}: {ex.Message}");
-        }
-    }
+    /// <summary>Hands the trace to the writer: one non-blocking queue write that cannot throw, so the verdict path
+    /// neither waits for the copy nor sees its faults. The writer logs and counts a drop or a failed write.</summary>
+    public void RecordTrace(TenantId tenant, TurnVerdictTrace trace) => _traces.Enqueue(tenant, trace);
 
     public DateTime NowUtc() => _nowUtc();
 }

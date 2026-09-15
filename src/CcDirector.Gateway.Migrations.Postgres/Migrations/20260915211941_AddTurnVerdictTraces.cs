@@ -24,15 +24,18 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     TurnEndObservedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     Trigger = table.Column<string>(type: "character varying(32)", maxLength: 32, nullable: false),
                     Outcome = table.Column<string>(type: "character varying(32)", maxLength: 32, nullable: false),
-                    VerdictId = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: false),
+                    Cause = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true),
+                    VerdictId = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true),
                     ReplacedVerdictId = table.Column<string>(type: "character varying(64)", maxLength: 64, nullable: true),
                     ReplySeconds = table.Column<double>(type: "double precision", nullable: true),
                     ColourEnabled = table.Column<bool>(type: "boolean", nullable: false),
                     PackageJson = table.Column<string>(type: "text", nullable: true),
+                    PackageOmitted = table.Column<bool>(type: "boolean", nullable: false),
                     Prompt = table.Column<string>(type: "text", nullable: true),
+                    PromptTruncated = table.Column<bool>(type: "boolean", nullable: false),
                     RawReply = table.Column<string>(type: "text", nullable: true),
                     RawReplyTruncated = table.Column<bool>(type: "boolean", nullable: false),
-                    VerdictJson = table.Column<string>(type: "text", nullable: false)
+                    VerdictJson = table.Column<string>(type: "text", nullable: true)
                 },
                 constraints: table =>
                 {

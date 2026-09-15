@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CcDirector.Gateway.Data.Migrations
 {
     [DbContext(typeof(GatewayDbContext))]
-    [Migration("20260915205246_AddTurnVerdictTraces")]
+    [Migration("20260915211923_AddTurnVerdictTraces")]
     partial class AddTurnVerdictTraces
     {
         /// <inheritdoc />
@@ -1802,6 +1802,10 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Cause")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
                     b.Property<bool>("ColourEnabled")
                         .HasColumnType("INTEGER");
 
@@ -1817,8 +1821,14 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<string>("PackageJson")
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("PackageOmitted")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("Prompt")
                         .HasColumnType("TEXT");
+
+                    b.Property<bool>("PromptTruncated")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("RawReply")
                         .HasColumnType("TEXT");
@@ -1850,12 +1860,10 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<string>("VerdictId")
-                        .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("VerdictJson")
-                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.HasKey("TenantId", "TraceId");

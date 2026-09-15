@@ -687,6 +687,8 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>The Wingman inspector's record: every judgement kept whole - package, prompt, raw reply, verdict -
     /// appended by the turn-end seat and never cleared when a session works again. Seven days.</summary>
     private readonly Wingman.TurnVerdictTraceStore _turnVerdictTraces;
+    /// <summary>Writes the inspector's traces off the verdict path, so a verdict never waits for its copy.</summary>
+    private readonly Wingman.TurnVerdictTraceWriter _turnVerdictTraceWriter;
     /// <summary>Which Directors told this Gateway they send conversations (turn-push mission, phase 2).</summary>
     private readonly Streaming.TurnPushCapabilityRegistry _turnPushCapabilities = new();
     private readonly History.SessionHistoryRecorder _sessionHistoryRecorder;
@@ -1822,6 +1824,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // per-tenant worker seam the activity ledger's retention uses.
         _turnVerdicts = new Wingman.TurnVerdictStore(_gatewayDb);
         _turnVerdictTraces = new Wingman.TurnVerdictTraceStore(_gatewayDb);
+        _turnVerdictTraceWriter = new Wingman.TurnVerdictTraceWriter(_turnVerdictTraces.Append);
         _turnVerdictRetentionSweep = new Wingman.TurnVerdictRetentionSweep(
             _tenantBoundary, TenantRegistry, _tenantContext, _turnVerdicts, _turnVerdictTraces);
         // Slice D: the one source every fold reads verdicts through - the roster, the single-session read and the
@@ -2664,7 +2667,7 @@ public sealed class GatewayHost : IAsyncDisposable
             },
             judgeModel: tenant => ResolveWingmanModel(tenant, Wingman.TurnVerdictJudge.Role),
             store: _turnVerdicts,
-            traces: _turnVerdictTraces,
+            traces: _turnVerdictTraceWriter,
             language: _tenantSettingsResolver.SpokenLanguage,
             // The account's own narration instructions replace the verdict's spoken rules only when they differ
             // from the shipped default - the default is already what the verdict prompt says.
@@ -5205,6 +5208,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // ladder holding a token and re-sending into a fleet this process no longer owns.
         try { _sessionSupervisor?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] session supervisor dispose error: {ex.Message}"); }
         try { _turnVerdictService?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] turn verdict dispose error: {ex.Message}"); }
+        try { _turnVerdictTraceWriter.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] turn verdict trace writer dispose error: {ex.Message}"); }
         try { _voiceModeAllSweepTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] voice-mode sweep timer dispose error: {ex.Message}"); }
         _turnEndWatcher = null;
         try { Brain.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] brain dispose error: {ex.Message}"); }

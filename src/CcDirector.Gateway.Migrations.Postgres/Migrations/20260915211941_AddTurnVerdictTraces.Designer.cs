@@ -13,7 +13,7 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CcDirector.Gateway.Migrations.Postgres.Migrations
 {
     [DbContext(typeof(GatewayDbContext))]
-    [Migration("20260915205303_AddTurnVerdictTraces")]
+    [Migration("20260915211941_AddTurnVerdictTraces")]
     partial class AddTurnVerdictTraces
     {
         /// <inheritdoc />
@@ -1840,6 +1840,10 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasColumnType("character varying(64)")
                         .UseCollation("C");
 
+                    b.Property<string>("Cause")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<bool>("ColourEnabled")
                         .HasColumnType("boolean");
 
@@ -1855,8 +1859,14 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<string>("PackageJson")
                         .HasColumnType("text");
 
+                    b.Property<bool>("PackageOmitted")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("Prompt")
                         .HasColumnType("text");
+
+                    b.Property<bool>("PromptTruncated")
+                        .HasColumnType("boolean");
 
                     b.Property<string>("RawReply")
                         .HasColumnType("text");
@@ -1889,12 +1899,10 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("VerdictId")
-                        .IsRequired()
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
                     b.Property<string>("VerdictJson")
-                        .IsRequired()
                         .HasColumnType("text");
 
                     b.HasKey("TenantId", "TraceId");

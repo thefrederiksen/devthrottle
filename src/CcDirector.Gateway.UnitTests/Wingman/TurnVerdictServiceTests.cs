@@ -68,7 +68,7 @@ public sealed class TurnVerdictServiceTests : IDisposable
             judgeBrain: (_, _) => brain,
             judgeModel: _ => FakeTurnVerdictEnvironment.Model,
             store: new TurnVerdictStore(_harness.Open()),
-            traces: new TurnVerdictTraceStore(_harness.Open()),
+            traces: new TurnVerdictTraceWriter((_, _) => { }),
             language: _ => SpokenLanguages.English,
             customSpokenRules: () => null,
             isVoiceSession: (_, _) => false);

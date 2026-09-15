@@ -1,6 +1,8 @@
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Wingman;
 using CcDirector.Gateway.Contracts;
+using CcDirector.Gateway.Pairing;
+using CcDirector.Gateway.Tenancy;
 using CcDirector.Gateway.Tests.Data;
 using CcDirector.Gateway.Wingman;
 using Xunit;
@@ -9,9 +11,9 @@ namespace CcDirector.Gateway.Tests.Wingman;
 
 /// <summary>
 /// The Wingman inspector's record (devthrottle_internal#2029): every judgement kept whole, appended only, read
-/// back newest first, partitioned by account, cut at the raw-reply ceiling, purged at seven days - and above all
-/// NOT cleared when the verdict store invalidates a session, which is the one property the record exists for.
-/// Runs over the real EF store on a throwaway SQLite file.
+/// back newest first, partitioned by account, cut at its ceilings, purged at seven days through the real sweep - and
+/// above all NOT cleared when the verdict store invalidates a session, which is the one property the record exists
+/// for. Runs over the real EF store on a throwaway SQLite file.
 ///
 /// PARKED SUITE. Gateway.UnitTests runs under -Parked.
 ///
@@ -86,12 +88,15 @@ public sealed class TurnVerdictTraceStoreTests : IDisposable
         Assert.Equal(DateTimeKind.Utc, read.RecordedAtUtc.Kind);
         Assert.Equal("turn-end", read.Trigger);
         Assert.Equal(TurnVerdictTraceOutcomes.Refused, read.Outcome);
+        Assert.Null(read.Cause);
         Assert.Equal("verdict-trace-1", read.VerdictId);
         Assert.Equal(3.8, read.ReplySeconds);
         Assert.True(read.ColourEnabled);
         Assert.Equal(written.Prompt, read.Prompt);
+        Assert.False(read.PromptTruncated);
         Assert.Equal(written.RawReply, read.RawReply);
         Assert.False(read.RawReplyTruncated);
+        Assert.False(read.PackageOmitted);
 
         var package = read.Package!;
         Assert.Equal(written.Package!.ScreenRows, package.ScreenRows);
@@ -101,8 +106,8 @@ public sealed class TurnVerdictTraceStoreTests : IDisposable
         Assert.Equal(RecordedAt.AddMinutes(20), package.NextScheduledWakeUtc);
         Assert.Equal(new OwnedSessionCounts(2, 1, 0), package.OwnedSessions);
 
-        Assert.True(read.Verdict.Failed);
-        Assert.Equal(written.Verdict.FailureReason, read.Verdict.FailureReason);
+        Assert.True(read.Verdict!.Failed);
+        Assert.Equal(written.Verdict!.FailureReason, read.Verdict.FailureReason);
     }
 
     [Fact]
@@ -114,7 +119,7 @@ public sealed class TurnVerdictTraceStoreTests : IDisposable
         var verdicts = new TurnVerdictStore(db);
         var traces = new TurnVerdictTraceStore(db);
         var trace = Trace();
-        verdicts.Store(TenantA, "sid-1", trace.Verdict);
+        verdicts.Store(TenantA, "sid-1", trace.Verdict!);
         traces.Append(TenantA, trace);
         traces.Append(TenantA, Trace("trace-2", recordedAt: RecordedAt.AddMinutes(1)));
 
@@ -122,6 +127,31 @@ public sealed class TurnVerdictTraceStoreTests : IDisposable
 
         Assert.Null(verdicts.Latest(TenantA, "sid-1"));
         Assert.Equal(2, traces.History(TenantA, "sid-1").Count);
+    }
+
+    [Fact]
+    public void ASkippedStop_IsKeptWithItsCause_AndNoVerdictAndNoContent()
+    {
+        var store = new TurnVerdictTraceStore(_harness.Open());
+        store.Append(TenantA, new TurnVerdictTrace
+        {
+            TraceId = "skip-1",
+            SessionId = "sid-1",
+            RecordedAtUtc = RecordedAt,
+            TurnEndObservedAtUtc = RecordedAt,
+            Trigger = "turn-end",
+            Outcome = TurnVerdictTraceOutcomes.Skipped,
+            Cause = ActivityCauses.Held,
+        });
+
+        var read = Assert.Single(store.History(TenantA, "sid-1"));
+        Assert.Equal(TurnVerdictTraceOutcomes.Skipped, read.Outcome);
+        Assert.Equal(ActivityCauses.Held, read.Cause);
+        Assert.Null(read.VerdictId);
+        Assert.Null(read.Verdict);
+        Assert.Null(read.Package);
+        Assert.Null(read.Prompt);
+        Assert.Null(read.RawReply);
     }
 
     [Fact]
@@ -155,13 +185,50 @@ public sealed class TurnVerdictTraceStoreTests : IDisposable
     public void ARawReplyOverTheCeiling_IsCut_AndTheCutIsRecorded()
     {
         var store = new TurnVerdictTraceStore(_harness.Open());
-        var huge = new string('x', TurnVerdictTraceStore.MaxRawReplyChars + 10);
+        store.Append(TenantA, Trace(rawReply: new string('x', TurnVerdictTraceStore.MaxRawReplyChars + 10)));
 
-        store.Append(TenantA, Trace(rawReply: huge));
         var read = Assert.Single(store.History(TenantA, "sid-1"));
-
         Assert.Equal(TurnVerdictTraceStore.MaxRawReplyChars, read.RawReply!.Length);
         Assert.True(read.RawReplyTruncated);
+    }
+
+    [Fact]
+    public void APromptOverTheCeiling_IsCut_AndTheCutIsRecorded()
+    {
+        var store = new TurnVerdictTraceStore(_harness.Open());
+        store.Append(TenantA, Trace() with { Prompt = new string('p', TurnVerdictTraceStore.MaxPromptChars + 10) });
+
+        var read = Assert.Single(store.History(TenantA, "sid-1"));
+        Assert.Equal(TurnVerdictTraceStore.MaxPromptChars, read.Prompt!.Length);
+        Assert.True(read.PromptTruncated);
+    }
+
+    [Fact]
+    public void APackageOverTheCeiling_IsOmittedWhole_AndTheOmissionIsRecorded()
+    {
+        var store = new TurnVerdictTraceStore(_harness.Open());
+        var huge = Trace().Package! with { RecentTurns = new string('r', TurnVerdictTraceStore.MaxPackageJsonChars) };
+        store.Append(TenantA, Trace() with { Package = huge });
+
+        var read = Assert.Single(store.History(TenantA, "sid-1"));
+        Assert.Null(read.Package);
+        Assert.True(read.PackageOmitted);
+    }
+
+    [Fact]
+    public void ARefusalReasonOverTheCeiling_IsCutInTheCopy_AndTheCallersVerdictIsNotChanged()
+    {
+        var store = new TurnVerdictTraceStore(_harness.Open());
+        var reason = "unknown verdict word '" + new string('w', TurnVerdictTraceStore.MaxFailureReasonChars * 2) + "'";
+        var trace = Trace();
+        trace.Verdict!.FailureReason = reason;
+
+        store.Append(TenantA, trace);
+
+        var read = Assert.Single(store.History(TenantA, "sid-1"));
+        Assert.StartsWith(reason[..TurnVerdictTraceStore.MaxFailureReasonChars], read.Verdict!.FailureReason);
+        Assert.EndsWith("[cut]", read.Verdict.FailureReason);
+        Assert.Equal(reason, trace.Verdict.FailureReason);
     }
 
     [Fact]
@@ -193,6 +260,24 @@ public sealed class TurnVerdictTraceStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task TheScheduledRetentionSweep_RemovesATraceOlderThanSevenDays_AndKeepsANewOne()
+    {
+        // Through the sweep the host's timer runs, not the store method, so a sweep that forgot the traces fails here.
+        var ctx = new SingleTenantContext();
+        var db = _harness.Open(ctx);
+        var traces = new TurnVerdictTraceStore(db);
+        var sweep = new TurnVerdictRetentionSweep(
+            new HostedTenantBoundary(ctx, new DeviceRegistry()), new TenantRegistry(db), ctx, new TurnVerdictStore(db), traces);
+        var now = DateTime.UtcNow;
+        traces.Append(TenantId.Local, Trace("eight-days-old", recordedAt: now.AddDays(-8)));
+        traces.Append(TenantId.Local, Trace("an-hour-old", recordedAt: now.AddHours(-1)));
+
+        await sweep.SweepAsync();
+
+        Assert.Equal(new[] { "an-hour-old" }, traces.History(TenantId.Local, "sid-1").Select(t => t.TraceId));
+    }
+
+    [Fact]
     public void TheRetentionPeriod_IsTheVerdictsSevenDays()
     {
         Assert.Equal(TimeSpan.FromDays(7), TurnVerdictTraceStore.RetentionPeriod);
@@ -202,6 +287,8 @@ public sealed class TurnVerdictTraceStoreTests : IDisposable
     [Theory]
     [InlineData("id")]
     [InlineData("session")]
+    [InlineData("outcome")]
+    [InlineData("verdict-id")]
     [InlineData("verdict")]
     [InlineData("recorded")]
     [InlineData("observed")]
@@ -212,7 +299,9 @@ public sealed class TurnVerdictTraceStoreTests : IDisposable
         {
             "id" => Trace() with { TraceId = "" },
             "session" => Trace() with { SessionId = "" },
-            "verdict" => Trace() with { VerdictId = "" },
+            "outcome" => Trace() with { Outcome = "" },
+            "verdict-id" => Trace() with { VerdictId = null },
+            "verdict" => Trace() with { Verdict = null },
             "recorded" => Trace() with { RecordedAtUtc = default },
             _ => Trace() with { TurnEndObservedAtUtc = default },
         };

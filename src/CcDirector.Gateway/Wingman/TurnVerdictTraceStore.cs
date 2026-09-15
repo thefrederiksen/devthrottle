@@ -27,6 +27,13 @@ public static class TurnVerdictTraceOutcomes
     public const string Reused = "reused";
     /// <summary>The carrying-on clock ran out and a needed-you verdict replaced the carrying-on one.</summary>
     public const string Expired = "expired";
+    /// <summary>A stop that stood down before anything was read or asked. Its cause says why. No verdict.</summary>
+    public const string Skipped = "skipped";
+    /// <summary>The session worked while the verdict was being formed, so nothing was stored. No verdict.</summary>
+    public const string Cancelled = "cancelled";
+
+    /// <summary>True for the two outcomes that store no verdict record.</summary>
+    public static bool StoresNoVerdict(string outcome) => outcome is Skipped or Cancelled;
 }
 
 /// <summary>
@@ -42,15 +49,18 @@ public sealed record TurnVerdictTrace
     public DateTime TurnEndObservedAtUtc { get; init; }
     public string Trigger { get; init; } = "";
     public string Outcome { get; init; } = "";
-    public string VerdictId { get; init; } = "";
+    public string? Cause { get; init; }
+    public string? VerdictId { get; init; }
     public string? ReplacedVerdictId { get; init; }
     public double? ReplySeconds { get; init; }
     public bool ColourEnabled { get; init; }
     public TurnVerdictPackage? Package { get; init; }
+    public bool PackageOmitted { get; init; }
     public string? Prompt { get; init; }
+    public bool PromptTruncated { get; init; }
     public string? RawReply { get; init; }
     public bool RawReplyTruncated { get; init; }
-    public TurnVerdictDto Verdict { get; init; } = new();
+    public TurnVerdictDto? Verdict { get; init; }
 }
 
 /// <summary>
@@ -64,6 +74,12 @@ public sealed record TurnVerdictTrace
 /// NOTHING HERE IS DELETED WHEN A SESSION WORKS. That is the whole reason this store exists apart from the
 /// verdicts - see <see cref="TurnVerdictTraceEntity"/>. The retention purge is the only thing that removes a
 /// row.
+///
+/// EVERY BULKY FIELD HAS A CEILING, so no one row is unbounded whatever a terminal printed or a judge answered:
+/// the raw reply and the prompt are cut, the package is omitted whole when it is over (cutting JSON would leave
+/// nothing readable), and a refusal reason is cut in this copy. Each cut is recorded, never hidden. The number of
+/// rows is bounded by the fleet's own activity: one per stop, and one per judge call, whose rate the account's
+/// in-flight ceiling and the judge timeout already bound.
 /// </summary>
 public sealed class TurnVerdictTraceStore
 {
@@ -76,12 +92,20 @@ public sealed class TurnVerdictTraceStore
     /// <summary>The default history page when the caller names no count.</summary>
     public const int DefaultHistoryCount = 50;
 
-    /// <summary>
-    /// The ceiling on a stored raw reply, in characters. A well-behaved answer is a few thousand characters;
-    /// this bounds the one that is not, because a judge's answer is not text this Gateway controls. A reply
-    /// over it is cut and the cut is recorded, never hidden.
-    /// </summary>
+    /// <summary>The ceiling on a stored raw reply, in characters. A well-behaved answer is a few thousand; this
+    /// bounds the one that is not, because a judge's answer is not text this Gateway controls.</summary>
     public const int MaxRawReplyChars = 64_000;
+
+    /// <summary>The ceiling on a stored prompt, in characters. The template is about sixteen thousand and the
+    /// package's own fields are capped, so a normal prompt is well under half of this.</summary>
+    public const int MaxPromptChars = 128_000;
+
+    /// <summary>The ceiling on the serialized package, in characters. Over it, the package is omitted whole.</summary>
+    public const int MaxPackageJsonChars = 256_000;
+
+    /// <summary>The ceiling on a refusal reason in this copy of the verdict. The contract can quote the judge's
+    /// own unknown word into its reason, so the reason is as long as the judge chose to make it.</summary>
+    public const int MaxFailureReasonChars = 2_000;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -97,22 +121,34 @@ public sealed class TurnVerdictTraceStore
     }
 
     /// <summary>Append one trace. Insert only: a trace id that already exists is a defect, and throws.</summary>
-    /// <exception cref="ArgumentException">The tenant is invalid, or the trace carries no id, no session,
-    /// no recorded moment, no observed moment, or no verdict id.</exception>
+    /// <exception cref="ArgumentException">The trace carries no id, no session, no outcome, no recorded moment or no
+    /// observed moment; or an outcome that stores a verdict carries no verdict.</exception>
     public void Append(TenantId tenant, TurnVerdictTrace trace)
     {
         ArgumentNullException.ThrowIfNull(trace);
         Require(trace.TraceId, "A trace carries its own id.");
         Require(trace.SessionId, "A trace names the session it is about.");
-        Require(trace.VerdictId, "A trace names the verdict record it stored.");
+        Require(trace.Outcome, "A trace says how the judgement ended.");
+        if (!TurnVerdictTraceOutcomes.StoresNoVerdict(trace.Outcome))
+        {
+            Require(trace.VerdictId, "A trace of a stored verdict names that verdict.");
+            if (trace.Verdict is null)
+                throw new ArgumentException("A trace of a stored verdict carries that verdict.", nameof(trace));
+        }
         if (trace.RecordedAtUtc == default)
             throw new ArgumentException("A trace carries the moment it was recorded.", nameof(trace));
         if (trace.TurnEndObservedAtUtc == default)
             throw new ArgumentException("A trace carries the moment the detector observed the stop.", nameof(trace));
 
-        var raw = trace.RawReply;
-        var truncated = raw is not null && raw.Length > MaxRawReplyChars;
-        if (truncated) raw = raw![..MaxRawReplyChars];
+        var raw = Cut(trace.RawReply, MaxRawReplyChars, out var rawCut);
+        var prompt = Cut(trace.Prompt, MaxPromptChars, out var promptCut);
+        var packageJson = trace.Package is null ? null : JsonSerializer.Serialize(trace.Package, JsonOptions);
+        var packageOmitted = trace.PackageOmitted;
+        if (packageJson is not null && packageJson.Length > MaxPackageJsonChars)
+        {
+            packageJson = null;
+            packageOmitted = true;
+        }
 
         lock (_gate)
         {
@@ -127,15 +163,18 @@ public sealed class TurnVerdictTraceStore
                 TurnEndObservedAtUtc = Utc(trace.TurnEndObservedAtUtc),
                 Trigger = trace.Trigger,
                 Outcome = trace.Outcome,
+                Cause = trace.Cause,
                 VerdictId = trace.VerdictId,
                 ReplacedVerdictId = trace.ReplacedVerdictId,
                 ReplySeconds = trace.ReplySeconds,
                 ColourEnabled = trace.ColourEnabled,
-                PackageJson = trace.Package is null ? null : JsonSerializer.Serialize(trace.Package, JsonOptions),
-                Prompt = trace.Prompt,
+                PackageJson = packageJson,
+                PackageOmitted = packageOmitted,
+                Prompt = prompt,
+                PromptTruncated = promptCut || trace.PromptTruncated,
                 RawReply = raw,
-                RawReplyTruncated = truncated || trace.RawReplyTruncated,
-                VerdictJson = JsonSerializer.Serialize(trace.Verdict, JsonOptions),
+                RawReplyTruncated = rawCut || trace.RawReplyTruncated,
+                VerdictJson = trace.Verdict is null ? null : SerializeVerdict(trace.Verdict),
             });
             ctx.SaveChanges();
         }
@@ -177,6 +216,17 @@ public sealed class TurnVerdictTraceStore
         }
     }
 
+    /// <summary>The verdict as this copy keeps it: whole, except a refusal reason over its ceiling, which is cut in a
+    /// copy so the caller's verdict is never changed.</summary>
+    private static string SerializeVerdict(TurnVerdictDto verdict)
+    {
+        var json = JsonSerializer.Serialize(verdict, JsonOptions);
+        if (verdict.FailureReason is not { Length: > MaxFailureReasonChars }) return json;
+        var copy = JsonSerializer.Deserialize<TurnVerdictDto>(json, JsonOptions)!;
+        copy.FailureReason = copy.FailureReason![..MaxFailureReasonChars] + " [cut]";
+        return JsonSerializer.Serialize(copy, JsonOptions);
+    }
+
     /// <summary>
     /// Read one stored trace back. A row whose JSON cannot be read answers null and is LOGGED with its full key,
     /// the rule <see cref="TurnVerdictStore"/> set for its own rows: a row written by a newer Gateway must not take
@@ -195,15 +245,18 @@ public sealed class TurnVerdictTraceStore
                 TurnEndObservedAtUtc = row.TurnEndObservedAtUtc,
                 Trigger = row.Trigger,
                 Outcome = row.Outcome,
+                Cause = row.Cause,
                 VerdictId = row.VerdictId,
                 ReplacedVerdictId = row.ReplacedVerdictId,
                 ReplySeconds = row.ReplySeconds,
                 ColourEnabled = row.ColourEnabled,
                 Package = row.PackageJson is null ? null : JsonSerializer.Deserialize<TurnVerdictPackage>(row.PackageJson, JsonOptions),
+                PackageOmitted = row.PackageOmitted,
                 Prompt = row.Prompt,
+                PromptTruncated = row.PromptTruncated,
                 RawReply = row.RawReply,
                 RawReplyTruncated = row.RawReplyTruncated,
-                Verdict = JsonSerializer.Deserialize<TurnVerdictDto>(row.VerdictJson, JsonOptions) ?? new TurnVerdictDto(),
+                Verdict = row.VerdictJson is null ? null : JsonSerializer.Deserialize<TurnVerdictDto>(row.VerdictJson, JsonOptions),
             };
         }
         catch (JsonException ex)
@@ -213,6 +266,12 @@ public sealed class TurnVerdictTraceStore
                 + $"sid={row.SessionId}: {ex.Message}");
             return null;
         }
+    }
+
+    private static string? Cut(string? value, int max, out bool cut)
+    {
+        cut = value is not null && value.Length > max;
+        return cut ? value![..max] : value;
     }
 
     private static void Require(string? value, string message)

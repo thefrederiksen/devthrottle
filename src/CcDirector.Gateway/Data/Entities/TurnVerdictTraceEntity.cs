@@ -45,11 +45,15 @@ public sealed class TurnVerdictTraceEntity : TenantScopedEntity
     public string Trigger { get; set; } = "";
 
     /// <summary>How it ended: "judged", "refused", "did-not-answer", "rate-limited", "unavailable",
-    /// "reused" or "expired".</summary>
+    /// "reused", "expired", "skipped" or "cancelled".</summary>
     public string Outcome { get; set; } = "";
 
-    /// <summary>The verdict record this judgement stored.</summary>
-    public string VerdictId { get; set; } = "";
+    /// <summary>Why a stop was skipped or cancelled (a closed activity cause word), or the exception type an
+    /// "unavailable" judgement met. Null otherwise.</summary>
+    public string? Cause { get; set; }
+
+    /// <summary>The verdict record this judgement stored. Null for "skipped" and "cancelled", which store none.</summary>
+    public string? VerdictId { get; set; }
 
     /// <summary>The verdict this one replaced, when it replaced one - the carrying-on verdict an expiry
     /// overwrote. Null otherwise.</summary>
@@ -66,8 +70,15 @@ public sealed class TurnVerdictTraceEntity : TenantScopedEntity
     /// session facts - as serialized <c>TurnVerdictPackage</c> JSON. Null when no package was built.</summary>
     public string? PackageJson { get; set; }
 
-    /// <summary>The exact prompt text sent to the judge. Null when the judge was not asked.</summary>
+    /// <summary>True when a package was built but was over the store's ceiling and was not kept.</summary>
+    public bool PackageOmitted { get; set; }
+
+    /// <summary>The exact prompt text sent to the judge, cut at the store's ceiling. Null when the judge was not
+    /// asked.</summary>
     public string? Prompt { get; set; }
+
+    /// <summary>True when <see cref="Prompt"/> was longer than the ceiling and was cut.</summary>
+    public bool PromptTruncated { get; set; }
 
     /// <summary>The judge's answer exactly as received, cut at the store's ceiling. Null when no answer
     /// arrived.</summary>
@@ -77,6 +88,7 @@ public sealed class TurnVerdictTraceEntity : TenantScopedEntity
     public bool RawReplyTruncated { get; set; }
 
     /// <summary>The verdict record the judgement stored, as serialized <c>TurnVerdictDto</c> JSON - kept
-    /// here too, because the verdict table's copy is deleted when the session works again.</summary>
-    public string VerdictJson { get; set; } = "";
+    /// here too, because the verdict table's copy is deleted when the session works again. Null for "skipped" and
+    /// "cancelled".</summary>
+    public string? VerdictJson { get; set; }
 }

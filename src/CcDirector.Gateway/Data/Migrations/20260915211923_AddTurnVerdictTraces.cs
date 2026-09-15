@@ -23,15 +23,18 @@ namespace CcDirector.Gateway.Data.Migrations
                     TurnEndObservedAtUtc = table.Column<DateTime>(type: "TEXT", nullable: false),
                     Trigger = table.Column<string>(type: "TEXT", maxLength: 32, nullable: false),
                     Outcome = table.Column<string>(type: "TEXT", maxLength: 32, nullable: false),
-                    VerdictId = table.Column<string>(type: "TEXT", maxLength: 64, nullable: false),
+                    Cause = table.Column<string>(type: "TEXT", maxLength: 64, nullable: true),
+                    VerdictId = table.Column<string>(type: "TEXT", maxLength: 64, nullable: true),
                     ReplacedVerdictId = table.Column<string>(type: "TEXT", maxLength: 64, nullable: true),
                     ReplySeconds = table.Column<double>(type: "REAL", nullable: true),
                     ColourEnabled = table.Column<bool>(type: "INTEGER", nullable: false),
                     PackageJson = table.Column<string>(type: "TEXT", nullable: true),
+                    PackageOmitted = table.Column<bool>(type: "INTEGER", nullable: false),
                     Prompt = table.Column<string>(type: "TEXT", nullable: true),
+                    PromptTruncated = table.Column<bool>(type: "INTEGER", nullable: false),
                     RawReply = table.Column<string>(type: "TEXT", nullable: true),
                     RawReplyTruncated = table.Column<bool>(type: "INTEGER", nullable: false),
-                    VerdictJson = table.Column<string>(type: "TEXT", nullable: false)
+                    VerdictJson = table.Column<string>(type: "TEXT", nullable: true)
                 },
                 constraints: table =>
                 {
