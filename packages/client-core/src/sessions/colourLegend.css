@@ -67,6 +67,16 @@
   cursor: pointer;
 }
 
+.colour-legend-status {
+  margin: 8px 0 4px;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.colour-legend-error {
+  color: #ef4444;
+}
+
 .colour-legend-list {
   margin: 0;
   padding: 0;

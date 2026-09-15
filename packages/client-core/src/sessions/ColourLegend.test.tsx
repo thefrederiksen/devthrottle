@@ -1,11 +1,50 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { ColourLegendButton } from "./ColourLegend";
-import { BROKEN_NOTE, COLOUR_LEGEND, VERDICT_NOTE, swatchHex } from "./colourMeanings";
+import { SESSION_COLOURS_PATH } from "./sessionColours";
 
-// The legend as a person meets it: a button, a dialog with every colour in its real pixel, and three ways out.
+// The legend as a person meets it, against a fake Gateway: nothing is read until it is asked for, the Gateway's words
+// and pixels are drawn verbatim, a failed or malformed read says so instead of drawing a partial legend, focus goes in
+// and comes back, and only a press that starts outside the panel closes it.
 
-afterEach(cleanup);
+const LEGEND = {
+  entries: [
+    { colour: "red", hex: "#EF4444", title: "Needs you", means: "Waiting for you.", asksForYou: "Yes" },
+    { colour: "cyan", hex: "#06B6D4", title: "Done", means: "Finished, asks nothing.", asksForYou: "No" },
+    { colour: "green", hex: "#22C55E", title: "Ready", means: "Brand new.", asksForYou: "No" },
+  ],
+  broken: { hex: "#FF00FF", title: "Magenta", means: "Not a state." },
+  verdictNote: "Some colours need the verdicts switched on.",
+};
+
+let calls: string[] = [];
+
+function fakeGateway(status = 200, body: unknown = LEGEND) {
+  calls = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) => {
+      calls.push(url);
+      const text = JSON.stringify(body);
+      return {
+        ok: status >= 200 && status < 300,
+        status,
+        headers: new Headers({ "Content-Type": "application/json" }),
+        json: async () => JSON.parse(text),
+        text: async () => text,
+        clone() {
+          return this;
+        },
+      } as unknown as Response;
+    }),
+  );
+}
+
+beforeEach(() => fakeGateway());
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 // jsdom reports an inline colour as rgb(), so compare in that form.
 function rgb(hex: string): string {
@@ -20,46 +59,60 @@ function openLegend(): HTMLElement {
 }
 
 describe("ColourLegendButton", () => {
-  it("shows no legend until it is asked for", () => {
+  it("shows no legend and asks the Gateway nothing until it is opened", () => {
     render(<ColourLegendButton />);
 
     expect(screen.queryByRole("dialog")).toBeNull();
+    expect(calls).toEqual([]);
   });
 
-  it("lists every colour with its name, its meaning and its own swatch", () => {
+  it("reads the legend from the Gateway and draws its words and pixels verbatim", async () => {
     const dialog = openLegend();
 
-    for (const entry of COLOUR_LEGEND) {
+    await within(dialog).findByText("Waiting for you.");
+    expect(calls).toEqual([SESSION_COLOURS_PATH]);
+    for (const entry of LEGEND.entries) {
       const row = dialog.querySelector(`[data-colour="${entry.colour}"]`) as HTMLElement | null;
-      if (row === null) throw new Error(`the legend has no row for ${entry.colour}`);
+      if (row === null) throw new Error(`the legend drew no row for ${entry.colour}`);
       expect(within(row).getByText(entry.title)).toBeTruthy();
       expect(within(row).getByText(entry.means)).toBeTruthy();
       expect(within(row).getByText(`Asks for you: ${entry.asksForYou}`)).toBeTruthy();
-      const dot = row.querySelector(".colour-legend-dot") as HTMLElement;
-      expect(dot.style.backgroundColor).toBe(rgb(swatchHex(entry)));
+      expect((row.querySelector(".colour-legend-dot") as HTMLElement).style.backgroundColor).toBe(rgb(entry.hex));
     }
+    expect(within(dialog).getByText(LEGEND.broken.means)).toBeTruthy();
+    expect(within(dialog).getByText(LEGEND.verdictNote)).toBeTruthy();
   });
 
-  it("tells a finished session and a brand-new one apart", () => {
+  it("says the read failed, and draws no colours, when the Gateway refuses", async () => {
+    fakeGateway(500, { error: "boom" });
     const dialog = openLegend();
-    const done = dialog.querySelector('[data-colour="cyan"] .colour-legend-dot') as HTMLElement;
-    const ready = dialog.querySelector('[data-colour="green"] .colour-legend-dot') as HTMLElement;
 
-    expect(done.style.backgroundColor).not.toBe(ready.style.backgroundColor);
+    expect(await within(dialog).findByRole("alert")).toBeTruthy();
+    expect(dialog.querySelectorAll(".colour-legend-row")).toHaveLength(0);
   });
 
-  it("explains the magenta sentinel and when the Wingman's colours appear", () => {
+  it("refuses a malformed legend whole rather than drawing it with a gap", async () => {
+    fakeGateway(200, { ...LEGEND, entries: [{ ...LEGEND.entries[0], hex: "" }, LEGEND.entries[1]] });
     const dialog = openLegend();
 
-    expect(within(dialog).getByText(BROKEN_NOTE.means)).toBeTruthy();
-    expect(within(dialog).getByText(VERDICT_NOTE)).toBeTruthy();
+    expect((await within(dialog).findByRole("alert")).textContent).toContain("missing a usable colour for red");
+    expect(dialog.querySelectorAll(".colour-legend-row")).toHaveLength(0);
   });
 
-  it("closes on the Close button", () => {
-    const dialog = openLegend();
-    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+  it("moves focus to Close, keeps it inside on Tab, and returns it to the opener on close", async () => {
+    render(<ColourLegendButton />);
+    const opener = screen.getByRole("button", { name: "What do the colours mean?" });
+    opener.focus();
+    fireEvent.click(opener);
+    const close = within(screen.getByRole("dialog")).getByRole("button", { name: "Close" });
 
-    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(close);
+    fireEvent.keyDown(window, { key: "Tab" });
+    expect(document.activeElement).toBe(close);
+
+    fireEvent.click(close);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(document.activeElement).toBe(opener);
   });
 
   it("closes on Escape", () => {
@@ -69,12 +122,23 @@ describe("ColourLegendButton", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("closes on a tap outside the panel, and stays open on a tap inside it", () => {
+  it("does not close on a drag that starts inside the panel and ends on the backdrop", async () => {
     const dialog = openLegend();
-    fireEvent.click(within(dialog).getByText(COLOUR_LEGEND[0].means));
-    expect(screen.queryByRole("dialog")).not.toBeNull();
+    const backdrop = dialog.parentElement as HTMLElement;
+    const sentence = await within(dialog).findByText("Waiting for you.");
 
-    fireEvent.click(dialog.parentElement as HTMLElement);
+    // What the browser does: the press lands on the sentence, and the click fires on the common ancestor.
+    fireEvent.mouseDown(sentence);
+    fireEvent.click(backdrop);
+
+    expect(screen.queryByRole("dialog")).not.toBeNull();
+  });
+
+  it("closes on a press that starts and ends on the backdrop", () => {
+    const backdrop = openLegend().parentElement as HTMLElement;
+    fireEvent.mouseDown(backdrop);
+    fireEvent.click(backdrop);
+
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 });

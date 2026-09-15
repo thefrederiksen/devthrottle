@@ -4105,6 +4105,10 @@ public sealed class GatewayHost : IAsyncDisposable
             listForMachine: (tenant, machine) => DirectorRestartRequests.List(tenant, machine),
             getOne: (tenant, id) => DirectorRestartRequests.Get(tenant, id));
 
+        // What every session colour means, for the Cockpit's and the phone's colour legend. The words are written
+        // beside the fold that decides the colours (SessionColourLegend), and the clients render them verbatim.
+        Api.SessionColourLegendEndpoints.Map(_app);
+
         // The Cockpit Settings page surface (docs/architecture/gateway/SETTINGS_OWNERSHIP.md):
         // one snapshot GET plus brain-restart and autostart actions. Reads this host directly
         // for status/brain; run mode + autostart come from SettingsHooks (GatewayApp-owned).
