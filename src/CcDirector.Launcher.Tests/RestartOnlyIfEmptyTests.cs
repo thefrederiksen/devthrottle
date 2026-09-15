@@ -534,6 +534,17 @@ public sealed class RestartOnlyIfEmptyTests
     /// The same stand-in, running a NAMED image - a copy of the command interpreter placed where the
     /// installed Director would be. It is what lets the locator certify one claimant as the installed
     /// image and break a tie, which is the only way to reach the resolved-conflict state from outside.
+    ///
+    /// IT DOES NOT RETURN UNTIL THE PROCESS CAN NAME ITS OWN IMAGE. A process that has only just started
+    /// can report an empty image for a moment, and the locator - correctly - refuses to certify a claimant
+    /// that will not say what it is running, which turns a resolved conflict into Ambiguous. Measured on
+    /// 15 September 2026: of 200 helpers started exactly this way and read at once, 10 came back with an
+    /// empty image. That is the intermittent failure the resolved-conflict test showed in continuous
+    /// integration, "Expected: Running, Actual: Ambiguous", with the product behaving as designed.
+    ///
+    /// The wait uses the locator's OWN reader rather than a copy of it, so a change to how production
+    /// reads an image cannot leave this wait checking something else. A helper that never names its image
+    /// fails the test here, loudly, instead of being handed back to race.
     /// </summary>
     private static Process StartIdleHelper(string exePath)
     {
@@ -543,8 +554,27 @@ public sealed class RestartOnlyIfEmptyTests
             CreateNoWindow = true,
             RedirectStandardOutput = true,
         };
-        return Process.Start(psi) ?? throw new InvalidOperationException("could not start a helper process");
+        var process = Process.Start(psi) ?? throw new InvalidOperationException("could not start a helper process");
+
+        var readImage = new DirectorInstanceLocator(Path.GetTempPath()).ReadExecutablePath;
+        var deadline = DateTime.UtcNow + HelperImageReadableTimeout;
+        while (readImage(process).Length == 0)
+        {
+            if (DateTime.UtcNow >= deadline)
+            {
+                try { if (!process.HasExited) process.Kill(entireProcessTree: true); } catch { }
+                process.Dispose();
+                throw new InvalidOperationException(
+                    $"the helper process started from {exePath} never named its own image within "
+                    + $"{HelperImageReadableTimeout.TotalSeconds} seconds, so the locator could not certify it");
+            }
+            Thread.Sleep(25);
+        }
+        return process;
     }
+
+    /// <summary>How long a helper may take to name its own image before the rig gives up on it.</summary>
+    private static readonly TimeSpan HelperImageReadableTimeout = TimeSpan.FromSeconds(10);
 
     /// <summary>
     /// A temporary storage root holding one stand-in Director: a real live process, a real instance
