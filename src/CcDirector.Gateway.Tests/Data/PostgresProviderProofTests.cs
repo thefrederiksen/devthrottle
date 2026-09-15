@@ -1,4 +1,4 @@
-using CcDirector.Core.Tenancy;
+﻿using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Data.Entities;
 using CcDirector.Gateway.Contracts;
@@ -504,6 +504,29 @@ public sealed class PostgresProviderProofTests
             Assert.Equal("needed-you", correction.CorrectedVerdict);
             Assert.Equal("it was asking me to approve the deploy", correction.Note);
             Assert.Equal(observedAt, correction.TurnEndObservedAtUtc);
+
+            // The supersede stamp (slice G) is null on a record that still describes its screen, and is the
+            // third UTC moment on this row - so it is checked on the real provider for the same reason the
+            // other two are: a nullable timestamp that came back shifted, or came back as a local kind, would
+            // make "is this verdict still in force" answer differently on Postgres than on SQLite.
+            Assert.Null(read.SupersededAtUtc);
+        }
+
+        var supersededAt = judgedAt.AddMinutes(5);
+        using (var ctx = NewContext())
+        {
+            var row = ctx.TurnVerdicts.Single(v => v.SessionId == sessionId);
+            row.SupersededAtUtc = supersededAt;
+            ctx.SaveChanges();
+        }
+
+        using (var ctx = NewContext())
+        {
+            var read = ctx.TurnVerdicts.Single(v => v.SessionId == sessionId);
+            Assert.Equal(DateTimeKind.Utc, read.SupersededAtUtc!.Value.Kind);
+            Assert.Equal(supersededAt, read.SupersededAtUtc);
+            // And the record it stamps is untouched: superseding keeps the verdict, which is the whole change.
+            Assert.Equal(json, read.VerdictJson);
         }
 
         // The key completed by a timestamp really is ONE row: re-reading the same (tenant, session, moment)

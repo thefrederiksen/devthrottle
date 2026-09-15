@@ -9,6 +9,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import type { SessionDto } from "../api/client";
 import { VerdictPanel } from "./VerdictPanel";
 import type { TurnVerdict } from "./verdictAnswer";
+import { VERDICT_WORDS } from "./verdictVocabulary";
 
 const SID = "5b0c2e7a-0000-4000-8000-000000000001";
 
@@ -229,13 +230,120 @@ describe("the verdict panel", () => {
     expect(screen.queryByText("Sent to the session.")).toBeNull();
   });
 
-  it("shows the this-is-wrong action, unpressable until slice G wires it", () => {
-    const { rerender } = render(<VerdictPanel sessionId={SID} session={session(verdict())} />);
-    expect((screen.getByRole("button", { name: "This is wrong" }) as HTMLButtonElement).disabled).toBe(true);
+  // ---- "this is wrong": the report that feeds the graded corpus (slice G) --------------------------------
 
-    const reported: string[] = [];
-    rerender(<VerdictPanel sessionId={SID} session={session(verdict())} onReportWrong={(v) => reported.push(v.verdictId)} />);
+  it("shows the this-is-wrong action live, opening the picker rather than sending anything", () => {
+    render(<VerdictPanel sessionId={SID} session={session(verdict())} />);
+
+    const wrong = screen.getByRole("button", { name: "This is wrong" }) as HTMLButtonElement;
+    // It used to be unpressable, waiting for this slice. It is pressable now, and it is not a send: opening the
+    // picker must never be a report, because the word has not been chosen yet.
+    expect(wrong.disabled).toBe(false);
+    expect(screen.queryByLabelText("What should it have said?")).toBeNull();
+
+    fireEvent.click(wrong);
+
+    expect(screen.getByLabelText("What should it have said?")).toBeTruthy();
+    expect(calls).toHaveLength(0);
+  });
+
+  it("offers every word of the shared vocabulary, in the vocabulary's own spelling, with none preselected", () => {
+    render(<VerdictPanel sessionId={SID} session={session(verdict())} />);
     fireEvent.click(screen.getByRole("button", { name: "This is wrong" }));
-    expect(reported).toEqual(["tv-panel-1"]);
+
+    const picker = screen.getByLabelText("What should it have said?") as HTMLSelectElement;
+    const offered = Array.from(picker.options).map((option) => option.value);
+
+    // The placeholder, then the seven words in the vocabulary's order. Nothing prettified, nothing hidden: a word
+    // the Gateway would accept is never missing here, and one it would refuse is never offered.
+    expect(offered).toEqual(["", ...VERDICT_WORDS]);
+    expect(picker.value).toBe("");
+    // ...and nothing can be sent until he chooses one.
+    expect((screen.getByRole("button", { name: "Send the correction" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("sends ONE request naming the verdict, the chosen word and the note, and shows the route's sentence", async () => {
+    fakeGateway(200, { accepted: true, code: "feedback-recorded", reason: "Recorded.", verdictId: "tv-panel-1" });
+    render(<VerdictPanel sessionId={SID} session={session(verdict())} />);
+    fireEvent.click(screen.getByRole("button", { name: "This is wrong" }));
+
+    fireEvent.change(screen.getByLabelText("What should it have said?"), { target: { value: "continues-alone" } });
+    fireEvent.change(screen.getByLabelText("Anything to add (optional)"), {
+      target: { value: "It said it would carry on and it did." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send the correction" }));
+
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0]).toEqual({
+      url: `/sessions/${SID}/turn-verdict/feedback`,
+      method: "POST",
+      body: {
+        verdictId: "tv-panel-1",
+        correctVerdict: "continues-alone",
+        note: "It said it would carry on and it did.",
+      },
+    });
+    expect(await screen.findByText("Recorded.")).toBeTruthy();
+    // The picker closes once the correction is stored - the question has been answered.
+    await waitFor(() => expect(screen.queryByLabelText("What should it have said?")).toBeNull());
+  });
+
+  it("sends an empty note when he adds nothing, rather than inventing one", async () => {
+    fakeGateway(200, { accepted: true, code: "feedback-recorded", reason: "Recorded.", verdictId: "tv-panel-1" });
+    render(<VerdictPanel sessionId={SID} session={session(verdict())} />);
+    fireEvent.click(screen.getByRole("button", { name: "This is wrong" }));
+    fireEvent.change(screen.getByLabelText("What should it have said?"), { target: { value: "cannot-tell" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Send the correction" }));
+
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].body).toEqual({ verdictId: "tv-panel-1", correctVerdict: "cannot-tell", note: "" });
+  });
+
+  it("shows the route's refusal sentence exactly as the route wrote it, and keeps the picker open", async () => {
+    const reason = "That verdict is not one of this session's, so nothing was recorded.";
+    fakeGateway(404, { accepted: false, code: "feedback-verdict-not-found", reason, verdictId: "tv-panel-1" });
+    render(<VerdictPanel sessionId={SID} session={session(verdict())} />);
+    fireEvent.click(screen.getByRole("button", { name: "This is wrong" }));
+    fireEvent.change(screen.getByLabelText("What should it have said?"), { target: { value: "needed-you" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Send the correction" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toBe(reason);
+    // A refusal is shown, never swallowed, and the picker stays open so the report is not lost.
+    expect(screen.getByLabelText("What should it have said?")).toBeTruthy();
+  });
+
+  it("tells a shell that asked, after the correction is stored and never before", async () => {
+    fakeGateway(200, { accepted: true, code: "feedback-recorded", reason: "Recorded.", verdictId: "tv-panel-1" });
+    const told: string[] = [];
+    render(
+      <VerdictPanel
+        sessionId={SID}
+        session={session(verdict())}
+        onReported={(v, word) => told.push(`${v.verdictId}:${word}`)}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "This is wrong" }));
+    fireEvent.change(screen.getByLabelText("What should it have said?"), { target: { value: "finished" } });
+    expect(told).toEqual([]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Send the correction" }));
+
+    await waitFor(() => expect(told).toEqual(["tv-panel-1:finished"]));
+  });
+
+  it("clears a half-written report when the stop changes", () => {
+    const { rerender } = render(<VerdictPanel sessionId={SID} session={session(verdict())} />);
+    fireEvent.click(screen.getByRole("button", { name: "This is wrong" }));
+    fireEvent.change(screen.getByLabelText("What should it have said?"), { target: { value: "needed-you" } });
+
+    // A new stop is a new question, and a word chosen about the last one must never ride to the next.
+    rerender(<VerdictPanel sessionId={SID} session={session(verdict({ verdictId: "tv-panel-2" }))} />);
+
+    expect(screen.queryByLabelText("What should it have said?")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "This is wrong" }));
+    expect((screen.getByLabelText("What should it have said?") as HTMLSelectElement).value).toBe("");
   });
 });

@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
@@ -40,6 +40,11 @@ public sealed class TurnVerdictStore
 
     /// <summary>The default history page when the caller names no count.</summary>
     public const int DefaultHistoryCount = 10;
+
+    /// <summary>The most corrections one administrator read returns, whatever the caller asks for. A day of one
+    /// person's corrections is a handful; a cap that cannot be raised from outside is what stops the read
+    /// becoming a way to walk a whole account's record in one request.</summary>
+    public const int MaxFeedbackPage = 500;
 
     /// <summary>One shared instance: constructing fresh options per call defeats the serializer's caching.</summary>
     private static readonly JsonSerializerOptions VerdictJsonOptions = new();
@@ -100,9 +105,15 @@ public sealed class TurnVerdictStore
             else
             {
                 // The answered moment belongs to a verdict id. A same-moment re-judgement that mints a new id is a
-                // new verdict nobody has answered; one that keeps the id keeps its answer.
+                // new verdict nobody has answered; one that keeps the id keeps its answer. The SUPERSEDE stamp
+                // goes the same way and for the same reason: a new id is a new statement about the screen, so it
+                // is born describing it, while a re-store under the same id is the same statement and keeps
+                // whatever has happened to it since.
                 if (!string.Equals(existing.VerdictId, verdict.VerdictId, StringComparison.Ordinal))
+                {
                     existing.AnsweredAtUtc = null;
+                    existing.SupersededAtUtc = null;
+                }
                 existing.VerdictId = verdict.VerdictId;
                 existing.TurnEndObservedAtUtc = Utc(verdict.TurnEndObservedAtUtc);
                 existing.ScreenHash = verdict.ScreenHash;
@@ -116,16 +127,21 @@ public sealed class TurnVerdictStore
     }
 
     /// <summary>
-    /// This session's most recent judged stop in this tenant, or null when it has never been judged (or
-    /// its verdicts have aged out, or <see cref="Invalidate"/> cleared them). Null is the "no verdict"
-    /// state the roster fold reads as "leave this row exactly as the detector left it".
+    /// This session's most recent judged stop in this tenant that still describes the screen, or null when it
+    /// has never been judged (or its verdicts have aged out, or <see cref="Invalidate"/> superseded them). Null
+    /// is the "no verdict" state the roster fold reads as "leave this row exactly as the detector left it".
+    ///
+    /// A SUPERSEDED RECORD IS NOT THE LATEST ANYTHING. It is kept so the stop can still be examined and reported
+    /// wrong (slice G), and this read answers "what is true now", so it never returns one. That is what makes the
+    /// change from deleting to stamping invisible to every caller asking this question - the roster fold, the
+    /// carrying-on clock, and the answer route's own superseded check all read through here.
     /// </summary>
     public TurnVerdictDto? Latest(TenantId tenant, string sessionId)
     {
         var sid = RequireSessionId(sessionId);
         using var ctx = _db.CreateContext(tenant);
         var row = ctx.TurnVerdicts.AsNoTracking()
-            .Where(v => v.SessionId == sid)
+            .Where(v => v.SessionId == sid && v.SupersededAtUtc == null)
             .OrderByDescending(v => v.JudgedAtUtc)
             .FirstOrDefault();
         return row is null ? null : Deserialize(row);
@@ -139,6 +155,12 @@ public sealed class TurnVerdictStore
     /// to the session in its path, and that join is only testable - and only removable in a revert proof - if
     /// the lookup does not already perform it. The tenant partition is not optional in the same way: the context
     /// is tenant-scoped, so another account's verdict is never found at all.
+    ///
+    /// IT FINDS A SUPERSEDED VERDICT TOO, and that is the whole point of keeping one (slice G). The owner reports
+    /// a verdict wrong AFTER he has answered it, and answering it is what put the session back to work and
+    /// superseded it - a lookup that skipped superseded rows would make the report impossible in exactly the case
+    /// it exists for. Nothing is weakened by that: the answer route refuses on its own <see cref="Latest"/> check,
+    /// which a superseded verdict can never satisfy, so "findable" and "answerable" stay two different questions.
     /// </summary>
     public TurnVerdictLocated? FindById(TenantId tenant, string verdictId)
     {
@@ -184,6 +206,11 @@ public sealed class TurnVerdictStore
     /// This session's judged stops, newest first, capped at <see cref="MaxHistoryCount"/>. The history is
     /// what makes a wrong verdict answerable afterwards - "what did it say about this session all
     /// morning" is not a question one row can answer.
+    ///
+    /// SUPERSEDED RECORDS ARE RETURNED, with <see cref="TurnVerdictDto.SupersededAtUtc"/> stamped from the row, so
+    /// a reader can tell one from a record still in force. This is the read slice G exists to make possible: a
+    /// verdict the owner answers is superseded in the same breath, and before this the whole row was deleted,
+    /// which left nothing here to look at.
     /// </summary>
     public IReadOnlyList<TurnVerdictDto> History(TenantId tenant, string sessionId, int count = DefaultHistoryCount)
     {
@@ -199,7 +226,12 @@ public sealed class TurnVerdictStore
         foreach (var row in rows)
         {
             var dto = Deserialize(row);
-            if (dto is not null) list.Add(dto);
+            if (dto is null) continue;
+            // From the COLUMN, never from the saved answer. The supersede moment is a fact about the record that
+            // was written long after the judge answered, so the serialized answer cannot carry it and a reader
+            // that trusted the JSON would see null on every superseded row.
+            dto.SupersededAtUtc = row.SupersededAtUtc;
+            list.Add(dto);
         }
         return list;
     }
@@ -234,39 +266,148 @@ public sealed class TurnVerdictStore
     /// Both the outer query and the correlated one read through the tenant query filter, so the whole
     /// statement is confined to <see cref="GatewayDbContext.ActiveTenant"/>.
     ///
+    /// SUPERSEDED ROWS ARE EXCLUDED FROM BOTH HALVES, not only the outer one. Filtering just the outer query
+    /// would leave the correlated maximum reading superseded rows, so a session whose newest record had been
+    /// superseded would match nothing at all - which happens to read as "never judged" and is right by accident,
+    /// right up until a live record exists underneath it and is hidden by a maximum it is not allowed to be. Both
+    /// halves ask the same question: the newest record that still describes the screen.
+    ///
     /// Internal, and reached from the tests through InternalsVisibleTo, so the "one query" claim can be
     /// COUNTED against a context carrying a command interceptor rather than asserted in a comment.
     /// </summary>
     internal static List<TurnVerdictEntity> SnapshotLatestCore(GatewayDbContext ctx)
         => ctx.TurnVerdicts.AsNoTracking()
+            .Where(v => v.SupersededAtUtc == null)
             .Where(v => v.JudgedAtUtc == ctx.TurnVerdicts
-                .Where(x => x.SessionId == v.SessionId)
+                .Where(x => x.SessionId == v.SessionId && x.SupersededAtUtc == null)
                 .Max(x => x.JudgedAtUtc))
             .ToList();
 
     /// <summary>
-    /// Forget everything this tenant holds about this session, so its verdict state is NONE again and the
-    /// roster fold leaves the row exactly as the detector left it.
+    /// This session's stored verdicts no longer describe its screen, so its verdict state is NONE again and the
+    /// roster fold leaves the row exactly as the detector left it. Each row is STAMPED with
+    /// <paramref name="supersededAtUtc"/>; none is deleted. Returns how many rows were stamped by this call.
     ///
-    /// Deleting rather than marking is the honest shape: a verdict is a statement about a screen, and the
-    /// reason to invalidate is that the screen the statement was about is gone. Keeping a superseded row
-    /// and remembering not to read it is a second rule to get wrong. Returns how many rows went, so a
-    /// caller can log the fact rather than assume it.
+    /// IT USED TO DELETE, AND THAT IS THE DEFECT SLICE G FIXES. A verdict is a statement about a screen and the
+    /// reason to invalidate it is that the screen is gone - but the moment the owner ANSWERS a red row, the
+    /// session goes back to work and this is called, so the verdict that made the row red was destroyed by the
+    /// act of answering it. On the first live evening the owner watched his own Architect row go red with the
+    /// Wingman's label and found nothing there by the time he looked: the record he would have examined,
+    /// reported wrong, or graded against what he actually did had been deleted in the same breath.
+    ///
+    /// Stamping costs exactly one rule, and it is a rule the readers already wanted: a read that answers "what is
+    /// true NOW" ignores a stamped row (<see cref="Latest"/>, <see cref="SnapshotLatest"/>), and
+    /// <see cref="History"/> returns it. Retention is untouched - <see cref="PurgeOlderThan"/> still cuts on the
+    /// judged moment, so a superseded row ages out on the same seven-day clock as any other and nothing
+    /// accumulates beyond the week the store already keeps.
+    ///
+    /// ALREADY-STAMPED ROWS ARE LEFT ALONE. The first moment is the one that is true: the screen went away when
+    /// it went away, and a session that works, stops and works again must not have its older records re-dated to
+    /// the newest interruption.
     /// </summary>
-    public int Invalidate(TenantId tenant, string sessionId)
+    public int Invalidate(TenantId tenant, string sessionId, DateTime? supersededAtUtc = null)
     {
         var sid = RequireSessionId(sessionId);
+        var stampedAt = Utc(supersededAtUtc ?? DateTime.UtcNow);
         lock (_gate)
         {
             using var ctx = _db.CreateContext(tenant);
-            var rows = ctx.TurnVerdicts.Where(v => v.SessionId == sid).ToList();
+            var rows = ctx.TurnVerdicts.Where(v => v.SessionId == sid && v.SupersededAtUtc == null).ToList();
             if (rows.Count == 0) return 0;
-            ctx.TurnVerdicts.RemoveRange(rows);
+            foreach (var row in rows) row.SupersededAtUtc = stampedAt;
             ctx.SaveChanges();
             FileLog.Write(
-                $"[TurnVerdictStore] Invalidate: sid={sid} tenant={tenant.ToLogString()} removed={rows.Count}");
+                $"[TurnVerdictStore] Invalidate: sid={sid} tenant={tenant.ToLogString()} superseded={rows.Count}");
             return rows.Count;
         }
+    }
+
+    /// <summary>
+    /// Record that a verdict was WRONG, in the words of the person it was about (the Wingman-on-every-turn
+    /// mission, slice G). A second report about the same verdict REPLACES the first - see
+    /// <see cref="TurnVerdictFeedbackEntity"/> for why one person's second opinion about one stop is not two
+    /// facts.
+    ///
+    /// It writes what it is given and checks nothing: whether the verdict exists, belongs to the session being
+    /// answered, and carries a word from the vocabulary are the route's rules, and they are tested where they are
+    /// made. This is the durable write underneath them.
+    /// </summary>
+    public void RecordFeedback(
+        TenantId tenant,
+        string verdictId,
+        string sessionId,
+        DateTime turnEndObservedAtUtc,
+        string correctedVerdict,
+        string? note,
+        DateTime reportedAtUtc)
+    {
+        if (string.IsNullOrWhiteSpace(verdictId))
+            throw new ArgumentException("A verdict id is required.", nameof(verdictId));
+        var sid = RequireSessionId(sessionId);
+        if (string.IsNullOrWhiteSpace(correctedVerdict))
+            throw new ArgumentException("A corrected verdict word is required.", nameof(correctedVerdict));
+
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var existing = ctx.TurnVerdictFeedback.FirstOrDefault(f => f.VerdictId == verdictId);
+            if (existing is null)
+            {
+                ctx.TurnVerdictFeedback.Add(new TurnVerdictFeedbackEntity
+                {
+                    TenantId = ctx.ActiveTenant!,
+                    VerdictId = verdictId,
+                    SessionId = sid,
+                    TurnEndObservedAtUtc = Utc(turnEndObservedAtUtc),
+                    ReportedAtUtc = Utc(reportedAtUtc),
+                    CorrectedVerdict = correctedVerdict,
+                    Note = note,
+                });
+            }
+            else
+            {
+                existing.SessionId = sid;
+                existing.TurnEndObservedAtUtc = Utc(turnEndObservedAtUtc);
+                existing.ReportedAtUtc = Utc(reportedAtUtc);
+                existing.CorrectedVerdict = correctedVerdict;
+                existing.Note = note;
+            }
+
+            ctx.SaveChanges();
+            FileLog.Write(
+                $"[TurnVerdictStore] RecordFeedback: sid={sid} tenant={tenant.ToLogString()} verdict={verdictId} "
+                + $"corrected={correctedVerdict} replaced={existing is not null}");
+        }
+    }
+
+    /// <summary>
+    /// The correction held against this verdict in this tenant, or null when nobody has reported it wrong. For
+    /// the route's own "is this a replacement" answer and for the tests.
+    /// </summary>
+    public TurnVerdictFeedbackEntity? FeedbackFor(TenantId tenant, string verdictId)
+    {
+        if (string.IsNullOrWhiteSpace(verdictId))
+            throw new ArgumentException("A verdict id is required.", nameof(verdictId));
+        using var ctx = _db.CreateContext(tenant);
+        return ctx.TurnVerdictFeedback.AsNoTracking().FirstOrDefault(f => f.VerdictId == verdictId);
+    }
+
+    /// <summary>
+    /// Every correction this tenant holds that was reported at or after <paramref name="sinceUtc"/>, oldest
+    /// first, capped at <paramref name="max"/>. The administrator read serves the labelled corpus from this:
+    /// the daily pull asks each day for what is new and joins each row into the turn log by
+    /// (account, session, observed moment).
+    /// </summary>
+    public IReadOnlyList<TurnVerdictFeedbackEntity> FeedbackSince(TenantId tenant, DateTime sinceUtc, int max)
+    {
+        var cutoff = Utc(sinceUtc);
+        var take = max <= 0 ? MaxFeedbackPage : Math.Min(max, MaxFeedbackPage);
+        using var ctx = _db.CreateContext(tenant);
+        return ctx.TurnVerdictFeedback.AsNoTracking()
+            .Where(f => f.ReportedAtUtc >= cutoff)
+            .OrderBy(f => f.ReportedAtUtc)
+            .Take(take)
+            .ToList();
     }
 
     /// <summary>

@@ -1,4 +1,4 @@
-namespace CcDirector.Gateway.Contracts;
+﻿namespace CcDirector.Gateway.Contracts;
 
 /// <summary>
 /// One judged stop: what the Wingman says this turn end MEANS, with the agent's own words as the
@@ -86,6 +86,18 @@ public sealed class TurnVerdictDto
     /// is present, and ten minutes after <see cref="JudgedAtUtc"/> when it is not. Carried on the stored
     /// record, rather than held in memory, so a Gateway restart does not forget a clock that was running.</summary>
     public DateTime? NextScheduledWakeUtc { get; set; }
+
+    /// <summary>
+    /// When this verdict stopped describing the screen it was formed on (UTC), or null while it still does (the
+    /// Wingman-on-every-turn mission, slice G). The session going back to work sets it.
+    ///
+    /// SERVED ONLY BY THE HISTORY READ, and stamped from the stored row's own column rather than from the saved
+    /// answer - it is a fact about the record, not part of what the judge said. The latest-verdict read and the
+    /// roster fold never return a superseded record at all, so a client that sees this field non-null is looking
+    /// at history. It is here so that history is honest: a superseded record and a live one are different facts,
+    /// and a list that showed them alike would have the reader believe a verdict is in force when it is not.
+    /// </summary>
+    public DateTime? SupersededAtUtc { get; set; }
 
     /// <summary>
     /// "done" or "report" when <see cref="Verdict"/> is "finished", null for every other verdict (owner ruling,

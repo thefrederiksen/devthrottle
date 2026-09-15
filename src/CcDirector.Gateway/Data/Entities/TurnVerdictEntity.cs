@@ -1,4 +1,4 @@
-namespace CcDirector.Gateway.Data.Entities;
+﻿namespace CcDirector.Gateway.Data.Entities;
 
 /// <summary>
 /// One judged stop: what the Wingman said this turn end MEANS, kept per tenant and per session (the
@@ -57,6 +57,21 @@ public sealed class TurnVerdictEntity : TenantScopedEntity
     /// <summary>The whole answer as serialized <c>TurnVerdictDto</c> JSON. The clients render it verbatim,
     /// so it is stored whole rather than spread over columns that would have to be folded back together.</summary>
     public string VerdictJson { get; set; } = "";
+
+    /// <summary>
+    /// When this verdict stopped describing the screen it was formed on (UTC), or null while it still does.
+    ///
+    /// The session going back to work is what sets it: whatever the Wingman said about that stop, the screen it
+    /// said it about is gone. The row is KEPT rather than deleted, which is the change slice G makes and the
+    /// reason it exists - the owner answered a red row, the answer put the session to work, and the verdict that
+    /// made it red was deleted in the same breath, so it could not be examined, reported wrong, or graded against
+    /// what he actually did. A stamp keeps the record and costs the readers one rule: the ones that answer "what
+    /// is true NOW" ignore a stamped row, and the history returns it.
+    ///
+    /// Retention is unchanged and still cuts on <see cref="JudgedAtUtc"/>: a superseded row ages out on the same
+    /// seven-day clock as any other, so nothing accumulates beyond the week the store already keeps.
+    /// </summary>
+    public DateTime? SupersededAtUtc { get; set; }
 
     /// <summary>When the owner's answer to this verdict was written into the session and the Director confirmed
     /// it (UTC). Null until then. Set once, inside the answer route's per-session lock, so an answer that waited

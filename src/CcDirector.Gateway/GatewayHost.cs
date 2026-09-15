@@ -3981,6 +3981,10 @@ public sealed class GatewayHost : IAsyncDisposable
         // The bridge between an administrator's world (emails) and the Gateway's (account ids, Directors).
         // Without it the turn-log switch above can only be addressed for the administrator's OWN fleet.
         AdminAccountLookupEndpoint.Map(_app, TenantRegistry, Registry);
+        // The corrections the Wingman's verdicts were given (the Wingman-on-every-turn mission, slice G). The
+        // labelled corpus lives in another repository and is pulled by a job holding no account credential, so
+        // this is the only path an owner label has out of the database.
+        AdminTurnVerdictFeedbackEndpoint.Map(_app, _turnVerdicts, TenantRegistry);
 
         // "DevThrottle emails me" relay (issue #1318 consumer): POST /account/email. A session or scheduled
         // run passes a subject + body (+ optional attachments); the Gateway injects its own stored account

@@ -81,3 +81,42 @@ export async function answerTurnVerdict(
   const body = (await res.json()) as Partial<TurnVerdictAnswerResult>;
   return { accepted: body.accepted === true, code: body.code ?? "", reason: body.reason ?? "" };
 }
+
+/** What the feedback route did. `reason` is the Gateway's sentence for the owner, shown as it is. */
+export interface TurnVerdictFeedbackResult {
+  accepted: boolean;
+  code: string;
+  reason: string;
+}
+
+/**
+ * POST /sessions/{sid}/turn-verdict/feedback - the owner saying a verdict was WRONG, and which word he thinks was
+ * right. It reaches the labelled corpus as an owner label, which outranks two reviewers agreeing.
+ *
+ * The verdict it names is usually SUPERSEDED by the time this is sent: answering a red row puts the session back
+ * to work, and that is what supersedes it. The route accepts that on purpose - it is the ordinary case, not an
+ * edge - and it is the reason the record is now kept rather than deleted.
+ *
+ * Resolves with the route's answer when the correction was stored. Throws a GatewayError on every refusal; the
+ * route's sentence is on its `serverReason`, and the panel shows it verbatim.
+ */
+export async function reportTurnVerdictWrong(
+  sessionId: string,
+  verdictId: string,
+  correctVerdict: string,
+  note: string,
+  signal?: AbortSignal,
+): Promise<TurnVerdictFeedbackResult> {
+  const sid = encodeURIComponent(sessionId);
+  const res = await gatewayFetch(`/sessions/${sid}/turn-verdict/feedback`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json", ...authHeaders() },
+    body: JSON.stringify({ verdictId, correctVerdict, note }),
+    signal,
+  });
+  if (!res.ok) {
+    throw await GatewayError.from(res, "report that verdict wrong");
+  }
+  const body = (await res.json()) as Partial<TurnVerdictFeedbackResult>;
+  return { accepted: body.accepted === true, code: body.code ?? "", reason: body.reason ?? "" };
+}
