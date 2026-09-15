@@ -42,6 +42,23 @@ public static class Program
             var clientPalette = ClientPalette.Read(repoRoot);
             Console.WriteLine($"Client palette: {clientPalette.Count} names read from {ClientPalette.RelativePath}");
 
+            // THE OWNERSHIP TREE, BEFORE ANYTHING TOUCHES THE NETWORK. It is a pure-function comparison
+            // against the shared answers both languages are measured by, so it needs no fleet and no
+            // token - and running it first means this tool still says something useful on a machine with
+            // no Director configured, instead of throwing at ReadGatewayConfig with the tree unchecked.
+            //
+            // It is not folded into the per-session comparison below and could not be: that one compares
+            // a stamped answer on the wire, and the Gateway does not stamp the tree (a later mission). The
+            // tree's two implementations are held together by the file, not by the roster.
+            var tree = TreeAgreement.Check(repoRoot);
+            Console.WriteLine($"Ownership tree: {tree.Cases} case(s) over {tree.Sessions} session(s) from {TreeAgreement.RelativePath}");
+            foreach (var f in tree.Findings) Console.WriteLine(f.ToString());
+            Console.WriteLine(tree.Findings.Count == 0
+                ? "  PASS - the C# fold answers exactly what the shared file says, on every case."
+                : $"  FAIL ({tree.Findings.Count}) - the C# fold and the shared answers differ.");
+            Console.WriteLine("  The TypeScript half of this agreement is asserted by tree.agreement.test.ts against the");
+            Console.WriteLine("  SAME file, and is NOT run here - a green line above says nothing about the browser fold.");
+
             var (url, token) = ReadGatewayConfig();
             Console.WriteLine($"Gateway: {url}  (token read from config.json; never printed)");
             Console.WriteLine();
@@ -88,7 +105,13 @@ public static class Program
             // that knows an indeterminate finding is not a disagreement. This used to be
             // `findings.Count == 0 ? 0 : 1` right here, which returned "disagreements" for a row the
             // check had merely been unable to read.
-            return AgreementCheck.Summarize(reportRoster, findings).ExitCode;
+            var exitCode = AgreementCheck.Summarize(reportRoster, findings).ExitCode;
+            // A tree disagreement is a real disagreement and must fail the run. It is ORed in here rather
+            // than folded into Summarize because Summarize counts findings per LIVE SESSION, and the tree
+            // check has no live session behind it - its rows are fixtures. Reporting fixture findings under
+            // a per-session denominator would be the "narrow number under the broad name" defect this file
+            // has already paid for twice.
+            return tree.Findings.Count > 0 ? 1 : exitCode;
         }
         catch (Exception ex)
         {

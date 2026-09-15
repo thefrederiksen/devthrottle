@@ -117,6 +117,13 @@ public static class SessionTree
             var sup = SupervisorOf(s);
             // A session that names itself as its own supervisor is malformed; it stays a root rather than
             // vanishing into a loop nobody can expand.
+            //
+            // THE SELF-COMPARISON IS NOT PROVEN AND IS NOT LOAD-BEARING. Deleting it was watched, and NO
+            // test went red: a self-loop is a loop of one, so the promotion pass below reaches exactly the
+            // same answer by a longer road. It is kept because it matches the TypeScript line for line and
+            // because reaching the right answer through the malformed-input path is luck, not design - but
+            // a reader must not take it for a rule the suite is holding down. The rule the suite IS holding
+            // down is the promotion pass.
             if (sup.Length > 0 && ids.Contains(sup) && !string.Equals(sup, IdOf(s), StringComparison.Ordinal))
             {
                 if (childrenOf.TryGetValue(sup, out var kids)) kids.Add(s);

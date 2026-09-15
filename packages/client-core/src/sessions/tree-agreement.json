@@ -1,0 +1,257 @@
+{
+  "what": "THE ONE STATEMENT OF WHAT THE OWNERSHIP TREE ANSWERS, read by both languages.",
+  "why": [
+    "The tree, the descendants, the crew summary and the attention order exist twice: in TypeScript",
+    "(packages/client-core/src/sessions/tree.ts, shipped first) and in C#",
+    "(src/CcDirector.Gateway.Contracts/SessionTree.cs, ported for the Director rail). Two folds of one",
+    "question drift - that is the defect this whole mission exists to stop, so it cannot be the shape of",
+    "its own fix.",
+    "",
+    "So neither implementation owns the answer: this file does. tree.agreement.test.ts runs the",
+    "TypeScript fold over these sessions and asserts these answers; TreeAgreementTests runs the C# fold",
+    "over the same sessions and asserts the same answers, and CcDirector.StateAgreementCheck runs it",
+    "again on every run of the live check. Change either fold on its own and that language goes red;",
+    "change a fold AND this file together and the OTHER language goes red. There is no way to move one",
+    "side quietly.",
+    "",
+    "EACH SESSION CARRIES BOTH ITS RAW FACTS AND THE GATEWAY'S STAMP, because the two folds take",
+    "different input: the browser reads the stamped triageBucket, while the C# calls",
+    "SessionOrdering.Classify and folds the same answer from activityState, onHold and",
+    "hasLiveSupervisor. The C# checker asserts, per session, that the fold it computes equals the stamp",
+    "written here - so a fixture that quietly says two different things about one session is itself a",
+    "finding, and the bridge between the two languages is checked rather than assumed."
+  ],
+  "descendantFormat": "sessionId@directParentId@depth, depth relative to the root it was asked about",
+  "cases": [
+    {
+      "name": "the Rule Factory crew of 2026-09-14, in miniature",
+      "proves": "a crew nests under its Architect, in the owner's drag order, and the standalone sessions stay at the top level",
+      "sessions": [
+        { "sessionId": "100", "sortOrder": 0, "createdAt": "2026-09-14T16:00:00Z", "activityState": "WaitingForInput", "onHold": true, "effectiveColor": "grey", "triageBucket": "onHold" },
+        { "sessionId": "103", "sortOrder": 1, "createdAt": "2026-09-14T16:00:00Z", "activityState": "WaitingForInput", "needsYouSince": "2026-09-14T21:41:13Z", "effectiveColor": "red", "triageBucket": "needsYou" },
+        { "sessionId": "108", "sortOrder": 2, "createdAt": "2026-09-14T16:12:42Z", "activityState": "WaitingForInput", "needsYouSince": "2026-09-14T21:39:20Z", "effectiveColor": "red", "triageBucket": "needsYou" },
+        { "sessionId": "106", "sortOrder": 5, "controllerSessionId": "108", "createdAt": "2026-09-14T17:00:08Z", "activityState": "Working", "effectiveColor": "blue", "triageBucket": "active" },
+        { "sessionId": "102", "sortOrder": 3, "controllerSessionId": "108", "createdAt": "2026-09-14T16:22:01Z", "activityState": "WaitingForInput", "hasLiveSupervisor": true, "effectiveColor": "supporting", "triageBucket": "onHold" },
+        { "sessionId": "101", "sortOrder": 4, "controllerSessionId": "108", "createdAt": "2026-09-14T16:39:20Z", "activityState": "WaitingForInput", "hasLiveSupervisor": true, "effectiveColor": "supporting", "triageBucket": "onHold" },
+        { "sessionId": "112", "sortOrder": 12, "createdAt": "2026-09-14T16:00:00Z", "activityState": "Working", "effectiveColor": "blue", "triageBucket": "active" }
+      ],
+      "roots": ["100", "103", "108", "112"],
+      "children": { "108": ["102", "101", "106"] },
+      "crews": [
+        {
+          "root": "108",
+          "descendants": ["102@108@1", "101@108@1", "106@108@1"],
+          "count": 3, "needsYou": 0, "working": 1, "stopped": 2,
+          "since": "2026-09-14T16:12:42.000Z",
+          "line": "3 under it: 1 working, 2 stopped, 0 need you",
+          "ageAt": "2026-09-14T21:42:00Z",
+          "age": "5h 29m"
+        }
+      ],
+      "attention": [
+        { "title": "Needs you", "roots": ["108", "103"] },
+        { "title": "Working", "roots": ["112"] },
+        { "title": "Snoozed", "roots": ["100"] }
+      ]
+    },
+    {
+      "name": "a dead supervisor surfaces its sessions",
+      "proves": "a child whose supervisor is not in the list is a top-level row, and a surfaced red one is counted and seen",
+      "sessions": [
+        { "sessionId": "100", "sortOrder": 0, "createdAt": "2026-09-14T16:00:00Z", "activityState": "WaitingForInput", "onHold": true, "effectiveColor": "grey", "triageBucket": "onHold" },
+        { "sessionId": "106", "sortOrder": 5, "controllerSessionId": "108", "createdAt": "2026-09-14T17:00:08Z", "activityState": "Working", "effectiveColor": "blue", "triageBucket": "active" },
+        { "sessionId": "7", "sortOrder": 6, "controllerSessionId": "108", "createdAt": "2026-09-14T17:10:00Z", "activityState": "WaitingForInput", "needsYouSince": "2026-09-14T21:00:00Z", "effectiveColor": "red", "triageBucket": "needsYou" }
+      ],
+      "roots": ["100", "106", "7"],
+      "children": {},
+      "crews": [
+        {
+          "root": "106",
+          "descendants": [],
+          "count": 0, "needsYou": 0, "working": 0, "stopped": 0,
+          "since": "2026-09-14T17:00:08.000Z",
+          "line": "0 under it: 0 working, 0 stopped, 0 need you",
+          "ageAt": "2026-09-14T17:00:08Z",
+          "age": "0m"
+        }
+      ],
+      "attention": [
+        { "title": "Needs you", "roots": ["7"] },
+        { "title": "Working", "roots": ["106"] },
+        { "title": "Snoozed", "roots": ["100"] }
+      ]
+    },
+    {
+      "name": "two levels of ownership - an Architect's Manager's Worker",
+      "proves": "ownership goes to any depth, a descendant names the session it is DIRECTLY under, and the crew counts every level",
+      "sessions": [
+        { "sessionId": "108", "sortOrder": 2, "createdAt": "2026-09-14T16:12:42Z", "activityState": "WaitingForInput", "needsYouSince": "2026-09-14T21:39:20Z", "effectiveColor": "red", "triageBucket": "needsYou" },
+        { "sessionId": "M", "sortOrder": 6, "controllerSessionId": "108", "createdAt": "2026-09-14T17:30:00Z", "activityState": "Working", "effectiveColor": "blue", "triageBucket": "active" },
+        { "sessionId": "D", "sortOrder": 7, "controllerSessionId": "M", "createdAt": "2026-09-14T17:40:00Z", "activityState": "WaitingForInput", "hasLiveSupervisor": true, "effectiveColor": "supporting", "triageBucket": "onHold" },
+        { "sessionId": "106", "sortOrder": 5, "controllerSessionId": "108", "createdAt": "2026-09-14T17:00:08Z", "activityState": "Working", "effectiveColor": "blue", "triageBucket": "active" }
+      ],
+      "roots": ["108"],
+      "children": { "108": ["106", "M"], "M": ["D"] },
+      "crews": [
+        {
+          "root": "108",
+          "descendants": ["106@108@1", "M@108@1", "D@M@2"],
+          "count": 3, "needsYou": 0, "working": 2, "stopped": 1,
+          "since": "2026-09-14T16:12:42.000Z",
+          "line": "3 under it: 2 working, 1 stopped, 0 need you",
+          "ageAt": "2026-09-14T21:42:00Z",
+          "age": "5h 29m"
+        },
+        {
+          "root": "M",
+          "descendants": ["D@M@1"],
+          "count": 1, "needsYou": 0, "working": 0, "stopped": 1,
+          "since": "2026-09-14T17:30:00.000Z",
+          "line": "1 under it: 0 working, 1 stopped, 0 need you",
+          "ageAt": "2026-09-14T21:42:00Z",
+          "age": "4h 12m"
+        }
+      ],
+      "attention": [
+        { "title": "Needs you", "roots": ["108"] }
+      ]
+    },
+    {
+      "name": "an ownership loop",
+      "proves": "every member of a loop is promoted to a root, so each renders exactly once instead of both vanishing",
+      "sessions": [
+        { "sessionId": "112", "sortOrder": 12, "createdAt": "2026-09-14T16:00:00Z", "activityState": "Working", "effectiveColor": "blue", "triageBucket": "active" },
+        { "sessionId": "a", "sortOrder": 0, "controllerSessionId": "b", "createdAt": "2026-09-14T16:00:00Z", "activityState": "Working", "effectiveColor": "blue", "triageBucket": "active" },
+        { "sessionId": "b", "sortOrder": 1, "controllerSessionId": "a", "createdAt": "2026-09-14T16:00:00Z", "activityState": "Working", "effectiveColor": "blue", "triageBucket": "active" }
+      ],
+      "roots": ["112", "a", "b"],
+      "children": {},
+      "crews": [
+        {
+          "root": "a",
+          "descendants": [],
+          "count": 0, "needsYou": 0, "working": 0, "stopped": 0,
+          "since": "2026-09-14T16:00:00.000Z",
+          "line": "0 under it: 0 working, 0 stopped, 0 need you",
+          "ageAt": "2026-09-14T16:00:00Z",
+          "age": "0m"
+        },
+        {
+          "root": "b",
+          "descendants": [],
+          "count": 0, "needsYou": 0, "working": 0, "stopped": 0,
+          "since": "2026-09-14T16:00:00.000Z",
+          "line": "0 under it: 0 working, 0 stopped, 0 need you",
+          "ageAt": "2026-09-14T16:00:00Z",
+          "age": "0m"
+        }
+      ],
+      "attention": [
+        { "title": "Working", "roots": ["a", "b", "112"] }
+      ]
+    },
+    {
+      "name": "a loop with a session hanging off it",
+      "proves": "the loop's whole subtree is promoted with it, so nothing under a loop is lost",
+      "sessions": [
+        { "sessionId": "a", "sortOrder": 0, "controllerSessionId": "b", "createdAt": "2026-09-14T16:00:00Z", "activityState": "Working", "effectiveColor": "blue", "triageBucket": "active" },
+        { "sessionId": "b", "sortOrder": 1, "controllerSessionId": "a", "createdAt": "2026-09-14T16:00:00Z", "activityState": "Working", "effectiveColor": "blue", "triageBucket": "active" },
+        { "sessionId": "u", "sortOrder": 2, "controllerSessionId": "b", "createdAt": "2026-09-14T16:30:00Z", "activityState": "Working", "effectiveColor": "blue", "triageBucket": "active" }
+      ],
+      "roots": ["a", "b"],
+      "children": { "b": ["u"] },
+      "crews": [
+        {
+          "root": "b",
+          "descendants": ["u@b@1"],
+          "count": 1, "needsYou": 0, "working": 1, "stopped": 0,
+          "since": "2026-09-14T16:00:00.000Z",
+          "line": "1 under it: 1 working, 0 stopped, 0 need you",
+          "ageAt": "2026-09-14T16:45:00Z",
+          "age": "45m"
+        }
+      ],
+      "attention": [
+        { "title": "Working", "roots": ["a", "b"] }
+      ]
+    },
+    {
+      "name": "a session that names itself as its own supervisor",
+      "proves": "it is a top-level row rather than vanishing into a loop nobody can expand",
+      "sessions": [
+        { "sessionId": "9", "sortOrder": 0, "controllerSessionId": "9", "createdAt": "2026-09-14T16:00:00Z", "activityState": "Working", "effectiveColor": "blue", "triageBucket": "active" }
+      ],
+      "roots": ["9"],
+      "children": {},
+      "crews": [],
+      "attention": [
+        { "title": "Working", "roots": ["9"] }
+      ]
+    },
+    {
+      "name": "a child on another Director",
+      "proves": "the tree is built over the whole list, not per machine, and the row can still say it is elsewhere",
+      "sessions": [
+        { "sessionId": "108", "sortOrder": 2, "directorId": "d1", "machineName": "SOREN_NORTH", "createdAt": "2026-09-14T16:12:42Z", "activityState": "WaitingForInput", "needsYouSince": "2026-09-14T21:39:20Z", "effectiveColor": "red", "triageBucket": "needsYou" },
+        { "sessionId": "R", "sortOrder": 0, "controllerSessionId": "108", "directorId": "d2", "machineName": "SORENLAPTOP", "createdAt": "2026-09-14T17:00:00Z", "activityState": "Working", "effectiveColor": "blue", "triageBucket": "active" },
+        { "sessionId": "106", "sortOrder": 5, "controllerSessionId": "108", "directorId": "d1", "machineName": "SOREN_NORTH", "createdAt": "2026-09-14T17:00:08Z", "activityState": "Working", "effectiveColor": "blue", "triageBucket": "active" }
+      ],
+      "roots": ["108"],
+      "children": { "108": ["R", "106"] },
+      "onAnotherMachine": { "108>R": true, "108>106": false },
+      "crews": [
+        {
+          "root": "108",
+          "descendants": ["R@108@1", "106@108@1"],
+          "count": 2, "needsYou": 0, "working": 2, "stopped": 0,
+          "since": "2026-09-14T16:12:42.000Z",
+          "line": "2 under it: 2 working, 0 stopped, 0 need you",
+          "ageAt": "2026-09-14T21:42:00Z",
+          "age": "5h 29m"
+        }
+      ],
+      "attention": [
+        { "title": "Needs you", "roots": ["108"] }
+      ]
+    },
+    {
+      "name": "a crew whose sessions carry no creation stamp",
+      "proves": "the crew has no age at all rather than being aged from the beginning of time",
+      "sessions": [
+        { "sessionId": "x", "sortOrder": 0, "activityState": "Working", "effectiveColor": "blue", "triageBucket": "active" },
+        { "sessionId": "y", "sortOrder": 1, "controllerSessionId": "x", "activityState": "Working", "effectiveColor": "blue", "triageBucket": "active" }
+      ],
+      "roots": ["x"],
+      "children": { "x": ["y"] },
+      "crews": [
+        {
+          "root": "x",
+          "descendants": ["y@x@1"],
+          "count": 1, "needsYou": 0, "working": 1, "stopped": 0,
+          "since": null,
+          "line": "1 under it: 1 working, 0 stopped, 0 need you",
+          "ageAt": "2026-09-14T21:42:00Z",
+          "age": ""
+        }
+      ],
+      "attention": [
+        { "title": "Working", "roots": ["x"] }
+      ]
+    },
+    {
+      "name": "the waiting line",
+      "proves": "needs-you is ordered by how long each has waited, longest first, and a session with no stamp sorts to the bottom",
+      "sessions": [
+        { "sessionId": "u", "sortOrder": 0, "createdAt": "2026-09-14T16:00:00Z", "activityState": "WaitingForInput", "effectiveColor": "red", "triageBucket": "needsYou" },
+        { "sessionId": "w", "sortOrder": 9, "createdAt": "2026-09-14T16:00:00Z", "activityState": "WaitingForInput", "needsYouSince": "2026-09-14T21:00:00Z", "effectiveColor": "red", "triageBucket": "needsYou" },
+        { "sessionId": "v", "sortOrder": 5, "createdAt": "2026-09-14T16:00:00Z", "activityState": "WaitingForInput", "needsYouSince": "2026-09-14T20:00:00Z", "effectiveColor": "red", "triageBucket": "needsYou" }
+      ],
+      "roots": ["u", "w", "v"],
+      "children": {},
+      "crews": [],
+      "attention": [
+        { "title": "Needs you", "roots": ["v", "w", "u"] }
+      ]
+    }
+  ]
+}
