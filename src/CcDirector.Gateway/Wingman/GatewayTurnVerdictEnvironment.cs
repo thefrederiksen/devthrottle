@@ -78,6 +78,7 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
     private readonly Func<TenantId, TurnVerdictSettings, IAgentBrain> _judgeBrain;
     private readonly Func<TenantId, string> _judgeModel;
     private readonly TurnVerdictStore _store;
+    private readonly TurnVerdictTraceWriter _traces;
     private readonly Func<TenantId, SpokenLanguage> _language;
     private readonly Func<string?> _customSpokenRules;
     private readonly Func<TenantId, string, bool> _isVoiceSession;
@@ -98,6 +99,7 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
         Func<TenantId, TurnVerdictSettings, IAgentBrain> judgeBrain,
         Func<TenantId, string> judgeModel,
         TurnVerdictStore store,
+        TurnVerdictTraceWriter traces,
         Func<TenantId, SpokenLanguage> language,
         Func<string?> customSpokenRules,
         Func<TenantId, string, bool> isVoiceSession,
@@ -113,6 +115,7 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
         _judgeBrain = judgeBrain ?? throw new ArgumentNullException(nameof(judgeBrain));
         _judgeModel = judgeModel ?? throw new ArgumentNullException(nameof(judgeModel));
         _store = store ?? throw new ArgumentNullException(nameof(store));
+        _traces = traces ?? throw new ArgumentNullException(nameof(traces));
         _language = language ?? throw new ArgumentNullException(nameof(language));
         _customSpokenRules = customSpokenRules ?? throw new ArgumentNullException(nameof(customSpokenRules));
         _isVoiceSession = isVoiceSession ?? throw new ArgumentNullException(nameof(isVoiceSession));
@@ -207,6 +210,10 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
             FileLog.Write($"[GatewayTurnVerdictEnvironment] ledger append FAILED for {record.EventType} sid={record.SessionId}: {ex.Message}");
         }
     }
+
+    /// <summary>Hands the trace to the writer: one non-blocking queue write that cannot throw, so the verdict path
+    /// neither waits for the copy nor sees its faults. The writer logs and counts a drop or a failed write.</summary>
+    public void RecordTrace(TenantId tenant, TurnVerdictTrace trace) => _traces.Enqueue(tenant, trace);
 
     public DateTime NowUtc() => _nowUtc();
 }
