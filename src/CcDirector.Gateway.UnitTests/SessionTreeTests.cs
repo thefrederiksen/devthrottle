@@ -263,6 +263,23 @@ public sealed class SessionTreeTests
     }
 
     [Fact]
+    public void SummarizeCrew_CountsAGrandchild_SoACollapsedCrewCannotHideTheLevelBelowIt()
+    {
+        // The counting half of the case above, asserted on its own: the multi-level assertion there runs
+        // first, so it would swallow this symptom if the two shared a test.
+        var architect = Architect();
+        var manager = S("M", 6, controller: "108");
+        var grandchild = S("D", 7, controller: "M", bucket: "supervised");
+
+        var tree = SessionTree.Build(new[] { architect, manager, grandchild });
+        var sum = SessionTree.SummarizeCrew(architect, SessionTree.DescendantsOf(tree, architect).Select(d => d.Session));
+
+        Assert.Equal(2, sum.Count);
+        Assert.Equal(1, sum.Stopped);
+        Assert.Equal("2 under it: 1 working, 1 stopped, 0 need you", SessionTree.CrewSummaryLine(sum));
+    }
+
+    [Fact]
     public void Build_NestsAChildOnAnotherDirectorUnderItsParent_AndTheRowCanSayItIsElsewhere()
     {
         var local = S("108", 2, bucket: "needsYou", needsYouSince: At(21, 39, 20), createdAt: At(16, 12, 42),
