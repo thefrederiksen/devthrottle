@@ -14,6 +14,7 @@ import { QueuePanel } from "./QueuePanel";
 import { ScreenshotsPanel } from "./ScreenshotsPanel";
 import { appendToCompose } from "./composerInsert";
 import { promptDeliveryHistory, promptDeliveryNotice } from "@devthrottle/client-core/sessions/delivery";
+import { VerdictPanel } from "@devthrottle/client-core/sessions/VerdictPanel";
 
 // The selected session's detail region (issue #972): the live terminal (issue #971's TerminalPane,
 // reused verbatim) stacked over the driver action bar and the composer, with a tabbed dock for the
@@ -123,6 +124,10 @@ export function SessionDetail() {
               the session header, driving the shared Gateway calls. */}
           {selected && <SessionMenu session={selected} variant="page" onClosed={() => navigate("/sessions")} />}
         </div>
+
+        {/* What the Wingman read at this stop, and the owner's answer to it (the shared client-core panel; it
+            renders nothing unless the Gateway stamped a judged verdict on this row). */}
+        {selected && <VerdictPanel session={selected} />}
 
         <div className="session-content">
           {/* The terminal is ALWAYS mounted (hidden, not unmounted, when Chat or Voice is active) so its
