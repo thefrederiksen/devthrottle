@@ -58,3 +58,29 @@ file. Diffed from the true merge base instead, the claim holds: nineteen files, 
 This is **not** a reason to call `CcDirector.Gateway.Tests` green. That suite references
 `CcDirector.Core` and some of its tests use the changed storage and driver surfaces, so it has
 genuine exposure. It has no verdict on this change and must run before anything lands.
+
+## The pre-existing latch, checked against origin/main rather than taken on trust
+
+The fix report says `MarkActiveFromByte` and `MarkContinuousActive` carry the same latch shape that
+finding two had fixed elsewhere, and that they were deliberately left alone as today's shipped path.
+If that were wrong - if this mission had introduced the hazard there - it would sit in the
+switch-off path, which is what every Director actually runs.
+
+Read from `origin/main` directly: the byte activation sets `_active = true`, then logs, then records
+evidence, then writes the state. The hazard is pre-existing and unchanged by this mission. Leaving it
+is the right call and widening the change to cover it is separate work.
+
+## The build report's reason for skipping the Gateway suites was false
+
+The report claimed both Gateway suites "reference none of the changed types". Another session
+reading the report caught it; nobody inside this mission did.
+
+`CcStorage` is a changed type and thirty-three files under `CcDirector.Gateway.Tests` reference it.
+The true reason to expect a pass is narrower: the change to `CcStorage` is one new static method with
+no existing member touched, so nothing those files already call has moved. The report has been
+corrected in place rather than left to be believed.
+
+This is worth recording as a pattern, not just a correction. Both Managers reached for the widest
+reassuring sentence available - "nothing touches the Gateway", "references none of the changed types"
+- and in both cases the narrower true statement was still good enough to justify the same decision.
+The wide version cost nothing to write and would have been believed.

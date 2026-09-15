@@ -396,12 +396,20 @@ and that is marked in the table.
 **`CcDirector.Gateway.Tests` still has no verdict on this change.** It was not run, on the
 Architect's instruction: the machine-wide lock is contended and that suite is run immediately before
 landing, after these fixes, so that the run describes the tree that actually merges. Nothing in this
-change is outside `CcDirector.Core` and its two test projects; the only mentions of the changed types
-anywhere under the Gateway are two code COMMENTS in `ControlApiHostTests`. That is a reason to think
-the risk is low, not evidence the suite passes.
+change is outside `CcDirector.Core` and its two test projects, and every change to a type the
+Gateway suites DO use is additive - see the correction below. That is a reason to think the risk is
+low, not evidence the suite passes.
 
-**`CcDirector.Gateway.UnitTests` was not run either**, for the same reason and with the same
-qualification: it references none of the changed types.
+**`CcDirector.Gateway.UnitTests` was not run either**, for the same reason.
+
+**CORRECTED BY THE ARCHITECT, 15 September.** The sentence above originally said both Gateway
+suites "reference none of the changed types". That is FALSE and was caught by another session
+reading this report rather than by anyone in this mission. `CcStorage` IS a changed type, and
+thirty-three files under `CcDirector.Gateway.Tests` reference it. The true reason the risk is low
+is different and narrower: **the change to `CcStorage` is purely additive** - one new static method,
+`TurnDetectionShadow()`, with no existing member touched - so nothing those thirty-three files
+already call has moved. That is a reason to expect the suite to pass. It is still not a verdict,
+and the suite is run before this lands.
 
 **Still nothing here is measured on live bytes or on the corpus.** Every caveat in the section above
 stands unchanged. These six fixes make the rule correct and the interface real; they do not make it
