@@ -1,11 +1,11 @@
-using CcDirector.Core.Tenancy;
+﻿using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Tests.Data;
 using CcDirector.Gateway.Wingman;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
-using System.Data.Common;
+using System.Diagnostics;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests.Wingman;
@@ -194,12 +194,17 @@ public sealed class TurnVerdictStoreTests : IDisposable
         var cutoff = now - TurnVerdictStore.RetentionPeriod;
         store.Store(TenantA, "sid-1", Verdict(cutoff.AddHours(-1), verdictId: "tv-stale"));
         store.Store(TenantA, "sid-1", Verdict(cutoff.AddHours(1), verdictId: "tv-fresh"));
+        // THE BOUNDARY ITSELF. The rule is strictly OLDER than the cutoff, so a row exactly at it survives, and
+        // so does one a second newer. Rows an hour either side cannot tell strict from inclusive deletion.
+        store.Store(TenantA, "sid-1", Verdict(cutoff, verdictId: "tv-at-cutoff"));
+        store.Store(TenantA, "sid-1", Verdict(cutoff.AddSeconds(1), verdictId: "tv-second-newer"));
         store.Store(TenantB, "sid-1", Verdict(cutoff.AddHours(-1), verdictId: "tv-other-account"));
 
         var purged = store.PurgeOlderThan(TenantA, cutoff);
 
         Assert.Equal(1, purged);
-        Assert.Equal(new[] { "tv-fresh" }, store.History(TenantA, "sid-1", 10).Select(v => v.VerdictId));
+        Assert.Equal(new[] { "tv-fresh", "tv-second-newer", "tv-at-cutoff" },
+            store.History(TenantA, "sid-1", 10).Select(v => v.VerdictId));
         Assert.Equal("tv-other-account", store.Latest(TenantB, "sid-1")!.VerdictId);
     }
 
@@ -241,38 +246,74 @@ public sealed class TurnVerdictStoreTests : IDisposable
             store.Store(TenantA, $"sid-{s}", Verdict(t0.AddMinutes(5), verdictId: $"tv-{s}-new"));
         }
 
-        var counter = new CommandCounter();
-        var options = new DbContextOptionsBuilder<GatewayDbContext>()
-            .UseSqlite($"Data Source={_harness.DbPath}")
-            .AddInterceptors(counter)
-            .Options;
-        using var ctx = new GatewayDbContext(options) { ActiveTenant = TenantA.Value };
+        // Counted through the PUBLIC method, so a public implementation that asked once per session fails here
+        // even if it left the one-statement helper untouched. The counter is subscribed only after seeding, and
+        // counts only reader commands on THIS test's database file, so other tests running in parallel and the
+        // twenty writes above cannot reach the number.
+        using var counter = new ReaderCommandCounter(_harness.DbPath);
 
-        var rows = TurnVerdictStore.SnapshotLatestCore(ctx);
+        var snapshot = store.SnapshotLatest(TenantA);
 
-        Assert.Equal(10, rows.Count);
+        Assert.Equal(10, snapshot.Count);
         Assert.Equal(1, counter.Reads);
     }
 
-    /// <summary>Counts the reader commands EF actually issues, so "one query" is measured rather than
-    /// asserted about code somebody read.</summary>
-    private sealed class CommandCounter : DbCommandInterceptor
+    /// <summary>
+    /// Counts the reader commands the framework actually issues against one database file, so "one query" is
+    /// measured rather than asserted about code somebody read.
+    ///
+    /// It listens to the framework's own diagnostic events rather than adding a command interceptor, because
+    /// the public store opens its contexts from the database's pooled factory and there is no seam to add an
+    /// interceptor there - and adding one to production code only so a test can count would be a second path.
+    /// A counter that sees nothing reads zero, which fails the assertion of one: this cannot pass by not
+    /// listening.
+    /// </summary>
+    private sealed class ReaderCommandCounter
+        : IObserver<DiagnosticListener>, IObserver<KeyValuePair<string, object?>>, IDisposable
     {
-        public int Reads;
+        private readonly string _databaseDirectory;
+        private readonly List<IDisposable> _subscriptions = new();
+        private readonly IDisposable _allListeners;
+        private int _reads;
 
-        public override InterceptionResult<DbDataReader> ReaderExecuting(
-            DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result)
+        public ReaderCommandCounter(string dbPath)
         {
-            Reads++;
-            return base.ReaderExecuting(command, eventData, result);
+            // The harness directory name is a fresh identifier per test, so matching on it cannot count
+            // another test's commands.
+            _databaseDirectory = Path.GetFileName(Path.GetDirectoryName(dbPath)!);
+            _allListeners = DiagnosticListener.AllListeners.Subscribe(this);
         }
 
-        public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
-            DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result,
-            CancellationToken cancellationToken = default)
+        public int Reads => Volatile.Read(ref _reads);
+
+        void IObserver<DiagnosticListener>.OnNext(DiagnosticListener listener)
         {
-            Reads++;
-            return base.ReaderExecutingAsync(command, eventData, result, cancellationToken);
+            if (listener.Name != DbLoggerCategory.Name) return;
+            lock (_subscriptions) _subscriptions.Add(listener.Subscribe(this));
+        }
+
+        void IObserver<KeyValuePair<string, object?>>.OnNext(KeyValuePair<string, object?> evt)
+        {
+            if (evt.Key != RelationalEventId.CommandExecuting.Name) return;
+            if (evt.Value is not CommandEventData data || data.ExecuteMethod != DbCommandMethod.ExecuteReader) return;
+            var source = data.Command.Connection?.DataSource ?? "";
+            if (!source.Contains(_databaseDirectory, StringComparison.OrdinalIgnoreCase)) return;
+            Interlocked.Increment(ref _reads);
+        }
+
+        void IObserver<DiagnosticListener>.OnCompleted() { }
+        void IObserver<DiagnosticListener>.OnError(Exception error) { }
+        void IObserver<KeyValuePair<string, object?>>.OnCompleted() { }
+        void IObserver<KeyValuePair<string, object?>>.OnError(Exception error) { }
+
+        public void Dispose()
+        {
+            _allListeners.Dispose();
+            lock (_subscriptions)
+            {
+                foreach (var subscription in _subscriptions) subscription.Dispose();
+                _subscriptions.Clear();
+            }
         }
     }
 }

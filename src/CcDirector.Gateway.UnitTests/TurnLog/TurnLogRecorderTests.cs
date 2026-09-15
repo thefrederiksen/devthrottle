@@ -73,6 +73,9 @@ public sealed class TurnLogRecorderTests
         Assert.Equal("transcript-1", record.Conversation.Generation);
         Assert.True(record.Moment.IsNewTurn);
         Assert.Equal("Working", record.Moment.ActivityStateBefore);
+        // THE JOIN KEY IS THE SIGNAL'S MOMENT, EXACTLY. Presence is not enough: a recorder that stamped its
+        // own clock, or a constant, would still write a value - and would pair this record with no verdict.
+        Assert.Equal(ObservedAt, record.Moment.TurnEndObservedAtUtc);
         Assert.Empty(record.Gaps);
         // Unlabelled, and it must stay that way until a person says otherwise.
         Assert.Null(record.Verdict);
