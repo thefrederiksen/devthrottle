@@ -87,3 +87,23 @@ figures stay in the design document as history and are never quoted as current.
 lasted, whether a submission explained it, the class label, and both screen files by relative
 path AND by content hash. The hashes are what make it a gate: a screen file that changes under
 the manifest is caught rather than silently rescored.
+
+## Ruling: the shadow verdicts go to a local append-only log, not to the activity ledger
+
+The activity ledger's rows live on the hosted Gateway and a session key is refused there - that
+is question five on #2853. A verdict written only to the ledger is a number nobody on the
+machine that produced it can read, which makes the whole comparison unanswerable.
+
+So phase one adds `TurnDetectionShadowLog`, built in exactly the shape of
+`src/CcDirector.Core/Wingman/StateChangeLog.cs`: append-only lines of JSON, one file per
+session, the path resolved through `CcStorage` so `CC_DIRECTOR_ROOT` redirects it under test, a
+single process-wide lock, and failures logged and swallowed so the log can never affect the
+session it observes. It carries its own switch.
+
+One row per check, never per byte. Each row carries the time, the agent, what the row candidate
+decided and the first new row it saw, what the size candidate decided and its magnitude, what
+the old byte rule would have done, and both screen hashes so the pair can be matched back to a
+saved turn-review capture.
+
+**The rule switch defaults OFF and the shadow log defaults ON.** That pairing is the point: the
+owner's Director produces the comparison numbers while behaving exactly as it does today.
