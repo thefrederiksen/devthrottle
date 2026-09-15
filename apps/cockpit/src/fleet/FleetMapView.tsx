@@ -460,7 +460,8 @@ export function FleetMapView() {
       <div className="fmap-legend" aria-hidden="true">
         <LegendDot color="blue" label="Working" />
         <LegendDot color="red" label="Needs you" />
-        <LegendDot color="green" label="Idle" />
+        <LegendDot color="green" label="Ready" />
+        <LegendDot color="cyan" label="Done" />
         <LegendDot color="yellow" label="Wingman reading" />
         <LegendDot color="orange" label="Transcribing" />
         <LegendDot color="supporting" label="Sub-agent" />
@@ -1073,7 +1074,7 @@ function cardTags(s: SessionDto, pivot: Pivot): Array<{ k: string; v: string }> 
 }
 
 function aggregateColors(sessions: SessionDto[]): string[] {
-  const priority = ["red", "orange", "yellow", "blue", "green", "supporting", "grey"];
+  const priority = ["red", "orange", "yellow", "blue", "cyan", "green", "supporting", "grey"];
   const present = new Set(sessions.map((s) => effectiveColor(s)));
   return priority.filter((c) => present.has(c));
 }

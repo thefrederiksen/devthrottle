@@ -124,7 +124,7 @@ describe("the phone roster is the ownership tree", () => {
   });
 
   it("draws the calm band under the reds: its title, and the judged calm row as a card inside it", async () => {
-    const report = session({ sessionId: "130", number: 130, name: "devthrottle - report", sortOrder: 1, activityState: "WaitingForInput", effectiveColor: "green", effectiveColorHex: "#22c55e", stateLabel: "Done - Pushed the branch", triageBucket: "active", verdictState: "judged" } as Partial<SessionDto> & { sessionId: string; name: string });
+    const report = session({ sessionId: "130", number: 130, name: "devthrottle - report", sortOrder: 1, activityState: "WaitingForInput", effectiveColor: "cyan", effectiveColorHex: "#06b6d4", stateLabel: "Done - Pushed the branch", triageBucket: "active", verdictState: "judged" } as Partial<SessionDto> & { sessionId: string; name: string });
     await renderHome([alone, report, architect]);
 
     const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);

@@ -72,6 +72,7 @@ describe("Gateway-stamped session presentation state", () => {
     expect(dotColor("yellow")).toBe("#EAB308");
     expect(dotColor("orange")).toBe("#F97316");
     expect(dotColor("green")).toBe("#22C55E");
+    expect(dotColor("cyan")).toBe("#06B6D4");
     expect(dotColor("blue")).toBe("#3B82F6");
     expect(dotColor("purple")).toBe("#A855F7");
     expect(dotColor("supporting")).toBe("#64748B");
@@ -232,9 +233,9 @@ describe("the calm band after the waiting line", () => {
   const calm = (id: string, effectiveColor: string, createdAt: string) =>
     session({ sessionId: id, effectiveColor, triageBucket: "active", verdictState: "judged", createdAt } as Partial<SessionDto>);
 
-  it("lists the green and purple judged rows after every red row", () => {
+  it("lists the cyan and purple judged rows after every red row", () => {
     const sessions = [
-      calm("done", "green", "2026-07-09T08:00:00Z"),
+      calm("done", "cyan", "2026-07-09T08:00:00Z"),
       needsYou("red-b", "2026-07-09T10:00:00Z"),
       calm("carrying", "purple", "2026-07-09T07:00:00Z"),
       needsYou("red-a", "2026-07-09T09:00:00Z"),
@@ -243,11 +244,13 @@ describe("the calm band after the waiting line", () => {
     expect(inWaitingOrder(sessions).map((s) => s.sessionId)).toEqual(["red-a", "red-b", "carrying", "done"]);
   });
 
-  it("leaves out a green row with no verdict, a judged row in any other colour, a row still being read, and a snoozed row", () => {
+  it("leaves out a green row with or without a verdict, a judged row in any other colour, a row still being read, and a snoozed row", () => {
     const sessions = [
       session({ sessionId: "fresh", effectiveColor: "green", triageBucket: "active" }),
       session({ sessionId: "judged-yellow", effectiveColor: "yellow", triageBucket: "active", verdictState: "judged" } as Partial<SessionDto>),
-      session({ sessionId: "reading", effectiveColor: "green", triageBucket: "active", verdictState: "reading" } as Partial<SessionDto>),
+      // Green is the brand-new "Ready" and never a calm colour (issue #2892), even beside a verdict.
+      session({ sessionId: "judged-green", effectiveColor: "green", triageBucket: "active", verdictState: "judged" } as Partial<SessionDto>),
+      session({ sessionId: "reading", effectiveColor: "cyan", triageBucket: "active", verdictState: "reading" } as Partial<SessionDto>),
       session({ sessionId: "snoozed", effectiveColor: "grey", triageBucket: "onHold", verdictState: "judged" } as Partial<SessionDto>),
     ];
 
@@ -256,7 +259,7 @@ describe("the calm band after the waiting line", () => {
   });
 
   it("does not count a calm row in the needs-you badge", () => {
-    const sessions = [calm("done", "green", "2026-07-09T08:00:00Z"), needsYou("red", "2026-07-09T09:00:00Z")];
+    const sessions = [calm("done", "cyan", "2026-07-09T08:00:00Z"), needsYou("red", "2026-07-09T09:00:00Z")];
 
     expect(needsYouBadgeCount(sessions)).toBe(1);
   });

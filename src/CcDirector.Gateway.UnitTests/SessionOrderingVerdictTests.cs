@@ -52,12 +52,12 @@ public sealed class SessionOrderingVerdictTests
     // ================================================================= the control: every gate satisfied
 
     [Fact]
-    public void EffectiveColor_EveryGateSatisfied_Finished_IsGreenWithTheWingmansLabel_AndNotCounted()
+    public void EffectiveColor_EveryGateSatisfied_Finished_IsCyanWithTheWingmansLabel_AndNotCounted()
     {
         var s = Calm();
 
         Assert.True(SessionOrdering.IsCalmVerdict(s));
-        Assert.Equal("green", SessionOrdering.EffectiveColor(s));
+        Assert.Equal("cyan", SessionOrdering.EffectiveColor(s));
         Assert.Equal(ReportLabel, SessionOrdering.StateLabel(s));
         Assert.Equal(SessionOrdering.TriageBucket.Active, SessionOrdering.Classify(s));
     }
@@ -78,7 +78,7 @@ public sealed class SessionOrderingVerdictTests
     [InlineData("Idle")]
     public void EffectiveColor_EveryRawRedActivity_IsCalmed(string activity)
     {
-        Assert.Equal("green", SessionOrdering.EffectiveColor(Calm(activity: activity)));
+        Assert.Equal("cyan", SessionOrdering.EffectiveColor(Calm(activity: activity)));
     }
 
     // ================================================================= one gate broken at a time
@@ -252,12 +252,30 @@ public sealed class SessionOrderingVerdictTests
     [Fact]
     public void EffectiveColor_CalmVerdictAboveTheBaseColour_ABrandNewRowWithOneReadsTheVerdict()
     {
-        // The base colour's green "Ready" sits below the calm arm, so the verdict's words win where both apply.
+        // The base colour's green "Ready" sits below the calm arm, so the verdict's colour and words win where both apply.
         var s = Calm();
         s.IsBrandNew = true;
 
-        Assert.Equal("green", SessionOrdering.EffectiveColor(s));
+        Assert.Equal("cyan", SessionOrdering.EffectiveColor(s));
         Assert.Equal(ReportLabel, SessionOrdering.StateLabel(s));
+    }
+
+    [Fact]
+    public void EffectiveColor_AFinishedRowAndABrandNewRow_NeverShareAColour()
+    {
+        // Issue #2892: a finished row was painted the brand-new session's green, and read as a new session.
+        var fresh = new SessionDto { SessionId = "fresh", ActivityState = "WaitingForInput", IsBrandNew = true };
+        var finished = Calm();
+
+        // CONTROL: each row really is what it is named, so the inequality below is about the colours.
+        Assert.Equal("Ready", SessionOrdering.StateLabel(fresh));
+        Assert.True(SessionOrdering.IsCalmVerdict(finished));
+
+        Assert.Equal("green", SessionOrdering.EffectiveColor(fresh));
+        Assert.Equal("cyan", SessionOrdering.EffectiveColor(finished));
+        // The pixel too: two names that painted one hex would put the defect straight back on the screen.
+        Assert.NotEqual(SessionColorPalette.HexFor(SessionOrdering.EffectiveColor(fresh)),
+            SessionColorPalette.HexFor(SessionOrdering.EffectiveColor(finished)));
     }
 
     // ================================================================= the label
@@ -300,13 +318,13 @@ public sealed class SessionOrderingVerdictTests
     [Theory]
     [InlineData("done", "Done - " + ReportLabel)]
     [InlineData("report", "Report - " + ReportLabel)]
-    public void StateLabel_FinishedKind_LeadsTheCalmLabel_AndBothKindsAreGreenAndUncounted(string kind, string expected)
+    public void StateLabel_FinishedKind_LeadsTheCalmLabel_AndBothKindsAreCyanAndUncounted(string kind, string expected)
     {
         var s = Calm();
         s.TurnVerdict!.FinishedKind = kind;
 
         Assert.Equal(expected, SessionOrdering.StateLabel(s));
-        Assert.Equal("green", SessionOrdering.EffectiveColor(s));
+        Assert.Equal("cyan", SessionOrdering.EffectiveColor(s));
         Assert.Equal(SessionOrdering.TriageBucket.Active, SessionOrdering.Classify(s));
         Assert.True(SessionOrdering.IsInCalmBand(s));
     }

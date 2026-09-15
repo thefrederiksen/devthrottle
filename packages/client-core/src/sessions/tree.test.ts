@@ -102,7 +102,7 @@ describe("attentionSections", () => {
   });
 
   it("lists a calm row after the reds in the needs-you section, starts the band there, and does not list it under Working", () => {
-    const done = session({ sessionId: "done", effectiveColor: "green", triageBucket: "active", verdictState: "judged" } as Partial<SessionDto> & { sessionId: string });
+    const done = session({ sessionId: "done", effectiveColor: "cyan", triageBucket: "active", verdictState: "judged" } as Partial<SessionDto> & { sessionId: string });
     const sections = attentionSections([s100, done, s103, architect, s112]);
 
     expect(sections[0].roots.map((s) => s.sessionId)).toEqual(["108", "103", "done"]);

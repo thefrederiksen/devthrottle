@@ -26,8 +26,9 @@ public static class SessionColorPalette
     public const string Yellow     = "#EAB308";  // yellow-500   - wingman reading / preparing voice
     public const string Orange     = "#F97316";  // orange-500   - dictation in flight / deep dive
     public const string Green      = "#22C55E";  // green-500    - ready (brand new)
+    public const string Cyan       = "#06B6D4";  // cyan-500     - the Wingman judged the stop finished (issue #2892)
     public const string Blue       = "#3B82F6";  // blue-500     - working
-    public const string Purple     = "#A855F7";  // purple-500   - parked on its own background task
+    public const string Purple     = "#A855F7";  // purple-500   - the Wingman judged it carrying on by itself
     public const string Supporting = "#64748B";  // slate-500    - a live Worker's suppressed red
     public const string Error      = "#B91C1C";  // red-700      - crashed, NOT finished (issue #959)
     public const string Grey       = "#6B7280";  // gray-500     - snoozed, exited, or indeterminate
@@ -56,6 +57,7 @@ public static class SessionColorPalette
         "yellow"     => Yellow,
         "orange"     => Orange,
         "green"      => Green,
+        "cyan"       => Cyan,
         "blue"       => Blue,
         "purple"     => Purple,
         "supporting" => Supporting,
@@ -68,5 +70,5 @@ public static class SessionColorPalette
     /// <summary>True when <paramref name="foldColor"/> is a name this palette knows. A name it does not
     /// know is a bug (it renders the <see cref="Broken"/> sentinel), never a state.</summary>
     public static bool Knows(string? foldColor) => foldColor?.ToLowerInvariant() is
-        "red" or "yellow" or "orange" or "green" or "blue" or "purple" or "supporting" or "error" or "grey" or "unknown";
+        "red" or "yellow" or "orange" or "green" or "cyan" or "blue" or "purple" or "supporting" or "error" or "grey" or "unknown";
 }

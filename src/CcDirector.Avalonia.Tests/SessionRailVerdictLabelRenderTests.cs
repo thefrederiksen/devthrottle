@@ -15,7 +15,7 @@ namespace CcDirector.Avalonia.Tests;
 ///
 /// The desktop gets a verdict as colour and label only, over the display push. Every label the rail showed
 /// before was a word or two ("Needs you", "Working"); a verdict line is up to eighty characters, the cap the
-/// turn-verdict contract puts on it, and a green row's label leads it with "Done - " or "Report - ". The rail is
+/// turn-verdict contract puts on it, and a finished (cyan) row's label leads it with "Done - " or "Report - ". The rail is
 /// 264 pixels wide. So the claim "the desktop shows the label" is a rendered claim, and it is checked by rendering:
 /// MainWindow's real row template, at the rail's real width, carrying the longest label the Gateway can stamp,
 /// with the drawn text measured against the rail's edge.
@@ -42,7 +42,7 @@ public sealed class SessionRailVerdictLabelRenderTests
             new InertBackend(), SessionBackendType.ConPty);
         session.IsBrandNew = false;
         session.CustomName = "Wingman label";
-        session.ApplyGatewayDisplayState("green", LongestLabel, "active", null, null, false);
+        session.ApplyGatewayDisplayState("cyan", LongestLabel, "active", null, null, false);
         var vm = new SessionViewModel(session);
         // CONTROL: the row really carries the label, so a pass below is about the drawing and not an empty row.
         Assert.Equal(LongestLabel, vm.ActivityLabel);

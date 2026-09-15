@@ -24,6 +24,7 @@ public sealed class StatusPaletteTests
     [InlineData("red", "#EF4444")]          // red-500
     [InlineData("blue", "#3B82F6")]         // blue-500
     [InlineData("green", "#22C55E")]        // green-500
+    [InlineData("cyan", "#06B6D4")]         // cyan-500 - finished, never the brand-new green (issue #2892)
     [InlineData("yellow", "#EAB308")]       // yellow-500
     [InlineData("orange", "#F97316")]       // orange-500
     [InlineData("purple", "#A855F7")]       // purple-500
@@ -42,7 +43,7 @@ public sealed class StatusPaletteTests
         // Every hex that a private palette once used for a name the canonical table also names.
         // If one of these ever comes back it means somebody re-hand-rolled a palette.
         var strays = new[] { "#E5484D", "#F44747", "#F14C4C", "#9CA3AF", "#6A6A6A", "#888888", "#5FD08A", "#2B6CB0", "#DCDCAA", "#F59E0B" };
-        var live = new[] { "red", "blue", "green", "yellow", "orange", "purple", "supporting", "error", "grey", "unknown" }
+        var live = new[] { "red", "blue", "green", "cyan", "yellow", "orange", "purple", "supporting", "error", "grey", "unknown" }
             .Select(StatusPalette.HexFor)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 

@@ -241,7 +241,7 @@ export function needsYouBadgeCount(sessions: SessionDto[]): number {
 // queue by wait time, not the user's manual arrangement.
 //
 // THE CALM BAND (the Wingman-on-every-turn mission, slice D). After every needs-you row come the rows the
-// Wingman judged a REPORT: the Gateway stamped them green ("Done") or purple ("Carrying on") with verdictState
+// Wingman judged a REPORT: the Gateway stamped them cyan ("Done") or purple ("Carrying on") with verdictState
 // "judged". They keep a place in the attention view, below the reds, and they are not counted - the needs-you
 // heading and needsYouBadgeCount read the stamped bucket, which is "active" for them. Ordered by the same
 // waiting-line rule, so the band does not reshuffle between polls either.
@@ -252,12 +252,12 @@ export function inWaitingOrder(sessions: SessionDto[]): SessionDto[] {
 }
 
 // Is this row in the calm band? Selected by the Gateway's stamped strings and nothing else: a calm colour AND
-// an accepted verdict. A brand-new session is green too, and carries no verdict, so it is not in the band. A
+// an accepted verdict. A brand-new session is green, which is not a calm colour, so it is not in the band. A
 // snoozed row is grey, so a snooze keeps a row out of the band by the Gateway's own ladder. The C# port is
 // SessionOrdering.IsInCalmBand, and tree-agreement.json holds the two to the same answers.
 export function isInCalmBand(s: SessionDto): boolean {
   const color = effectiveColor(s);
-  return (color === "green" || color === "purple") && (s as GatewayStampedSession).verdictState === "judged";
+  return (color === "cyan" || color === "purple") && (s as GatewayStampedSession).verdictState === "judged";
 }
 
 function byWaitingLine(a: SessionDto, b: SessionDto): number {
@@ -297,7 +297,8 @@ const COLORS: Record<string, string> = {
   red: "#EF4444", // needs you
   yellow: "#EAB308", // wingman narrating / preparing voice
   orange: "#F97316", // dictation in flight, or a deep dive running
-  green: "#22C55E", // ready - brand-new with nothing needed, or the Wingman judged the stop done
+  green: "#22C55E", // ready - brand-new with nothing needed. Never a finished row (issue #2892)
+  cyan: "#06B6D4", // the Wingman judged the stop finished - done, or a report that asks nothing
   blue: "#3B82F6", // working - always
   purple: "#A855F7", // the Wingman judged that the session is carrying on by itself
   supporting: "#64748B", // issue #815: controlled sub-agent, recessive slate

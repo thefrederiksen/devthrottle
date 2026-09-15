@@ -41,9 +41,10 @@ public static class StatusPalette
     public const string Red        = SessionColorPalette.Red;         // red-500      - needs you
     public const string Blue       = SessionColorPalette.Blue;        // blue-500     - working
     public const string Green      = SessionColorPalette.Green;       // green-500    - ready (brand new)
+    public const string Cyan       = SessionColorPalette.Cyan;        // cyan-500     - the Wingman judged the stop finished (issue #2892)
     public const string Yellow     = SessionColorPalette.Yellow;      // yellow-500   - wingman reading / preparing voice
     public const string Orange     = SessionColorPalette.Orange;      // orange-500   - dictation in flight / deep dive
-    public const string Purple     = SessionColorPalette.Purple;      // purple-500   - parked on its own background task
+    public const string Purple     = SessionColorPalette.Purple;      // purple-500   - the Wingman judged it carrying on by itself
     public const string Supporting = SessionColorPalette.Supporting;  // slate-500    - a live Worker's suppressed red
     public const string Error      = SessionColorPalette.Error;       // red-700      - crashed, NOT finished (issue #959)
     public const string Grey       = SessionColorPalette.Grey;        // gray-500     - snoozed, exited, or indeterminate
@@ -72,6 +73,7 @@ public static class StatusPalette
     private static readonly ISolidColorBrush RedBrush        = new SolidColorBrush(Color.Parse(Red));
     private static readonly ISolidColorBrush BlueBrush       = new SolidColorBrush(Color.Parse(Blue));
     private static readonly ISolidColorBrush GreenBrush      = new SolidColorBrush(Color.Parse(Green));
+    private static readonly ISolidColorBrush CyanBrush       = new SolidColorBrush(Color.Parse(Cyan));
     private static readonly ISolidColorBrush YellowBrush     = new SolidColorBrush(Color.Parse(Yellow));
     private static readonly ISolidColorBrush OrangeBrush     = new SolidColorBrush(Color.Parse(Orange));
     private static readonly ISolidColorBrush PurpleBrush     = new SolidColorBrush(Color.Parse(Purple));
@@ -94,6 +96,7 @@ public static class StatusPalette
         "red"        => RedBrush,
         "blue"       => BlueBrush,
         "green"      => GreenBrush,
+        "cyan"       => CyanBrush,
         "yellow"     => YellowBrush,
         "orange"     => OrangeBrush,
         "purple"     => PurpleBrush,
@@ -115,6 +118,7 @@ public static class StatusPalette
         "red"        => Red,
         "blue"       => Blue,
         "green"      => Green,
+        "cyan"       => Cyan,
         "yellow"     => Yellow,
         "orange"     => Orange,
         "purple"     => Purple,
@@ -132,7 +136,7 @@ public static class StatusPalette
     /// the sentinel arm above is a branch a test guarantees cannot fire rather than a silent guess.
     /// </summary>
     public static bool Knows(string? foldColor) => foldColor?.ToLowerInvariant() is
-        "red" or "blue" or "green" or "yellow" or "orange" or "purple" or "supporting" or "error" or "grey" or "unknown";
+        "red" or "blue" or "green" or "cyan" or "yellow" or "orange" or "purple" or "supporting" or "error" or "grey" or "unknown";
 
     /// <summary>
     /// Report a colour name the Gateway emitted and this desktop does not know. Separate from
