@@ -132,6 +132,12 @@
   color: var(--text-dim);
   font-size: 13px;
 }
+/* A checkbox label IS the row's text, not the 120px name column beside an input. Without this it is
+   squeezed into that column and a one-line sentence wraps onto three lines. */
+.settings-field > label.settings-check {
+  width: auto;
+  flex: 1 1 auto;
+}
 .settings-select,
 .settings-input {
   flex: 1;
