@@ -35,6 +35,12 @@ public sealed class LauncherStreamClient : IAsyncDisposable
     private readonly LaunchService _launchService;
     private readonly AppCatalog _appCatalog;
     private readonly FileSearchService _fileSearch;
+    private readonly DirectorUpdateOwner _updates;
+
+    /// <summary>How long director/update waits for the update pass before answering "installing". The quick
+    /// answers - nothing downloaded, sessions running, Director not running - all arrive well inside it; only a
+    /// real install takes longer, and that must not hold the Gateway's request open for minutes.</summary>
+    private static readonly TimeSpan UpdateAnswerWait = TimeSpan.FromSeconds(10);
 
     /// <summary>Query answers are serialised here before they ride back up the stream, using web-style
     /// naming so the documents agents read keep the shape they have always had.</summary>
@@ -62,12 +68,70 @@ public sealed class LauncherStreamClient : IAsyncDisposable
         _launchService = launchService ?? throw new ArgumentNullException(nameof(launchService));
         _appCatalog = appCatalog ?? new AppCatalog();
         _fileSearch = fileSearch ?? new FileSearchService();
+        // THE SAME PASS THE UPDATE LOOP RUNS, NOT A SECOND INSTALL PATH. A separate owner instance is safe
+        // because the swap itself takes the machine-wide BinarySwapLock: whichever pass arrives second holds
+        // with HeldBecauseAnotherSwapIsRunning and touches nothing.
+        _updates = new DirectorUpdateOwner(_supervisor);
     }
 
     /// <summary>True when a Gateway is configured. When false, <see cref="Start"/> is a no-op. Deliberately
     /// NOT gated on <see cref="GatewayConfig.StreamMode"/>: the stream is the only command path to a
     /// launcher, so an off switch here would be an off switch for cross-machine lifecycle itself.</summary>
     public bool IsEnabled => _config.IsEnabled;
+
+    /// <summary>
+    /// director/update (devthrottle_internal#2021): run the update pass now and answer with its decision, or, when
+    /// the pass is still installing after <see cref="UpdateAnswerWait"/>, with the version being installed. The
+    /// pass carries on after the answer; its result is recorded in the updater state and read back by
+    /// director/update-status, and the new version shows up in the Director's own registration.
+    /// </summary>
+    private async Task<LauncherDirectorUpdateReport> UpdateDirectorNowAsync()
+    {
+        if (_updates.PassInProgress)
+        {
+            FileLog.Write("[LauncherStreamClient] director/update: a pass is already running; not starting another");
+            var busy = DescribeDirectorUpdate();
+            busy.AlreadyRunning = true;
+            return busy;
+        }
+
+        var installing = _updates.FindStagedUpdate()?.Version;
+        FileLog.Write($"[LauncherStreamClient] director/update: running the update pass now, staged={installing ?? "(none)"}");
+        var pass = _updates.RunOnceAsync();
+        if (await Task.WhenAny(pass, Task.Delay(UpdateAnswerWait)) == pass)
+        {
+            var decision = await pass;
+            FileLog.Write($"[LauncherStreamClient] director/update: pass finished: {decision}");
+            var done = DescribeDirectorUpdate();
+            done.Finished = true;
+            done.Decision = decision.ToString();
+            return done;
+        }
+
+        FileLog.Write($"[LauncherStreamClient] director/update: still installing {installing ?? "(unknown)"} after {UpdateAnswerWait.TotalSeconds:0}s; answering and letting it finish");
+        _ = pass.ContinueWith(
+            t => FileLog.Write($"[LauncherStreamClient] director/update: pass finished after answering: {t.Result}"),
+            TaskScheduler.Default);
+        var running = DescribeDirectorUpdate();
+        running.InstallingVersion = installing;
+        return running;
+    }
+
+    /// <summary>director/update-status (devthrottle_internal#2022): the facts, read from what the update pass
+    /// already records. Changes nothing.</summary>
+    private LauncherDirectorUpdateReport DescribeDirectorUpdate()
+    {
+        var last = DirectorUpdateOwner.LatestRecordedDecision();
+        return new LauncherDirectorUpdateReport
+        {
+            PassInProgress = _updates.PassInProgress,
+            StagedVersion = _updates.FindStagedUpdate()?.Version,
+            LastDecision = last?.LastApplyDecision,
+            LastDecisionAt = last?.LastApplyDecisionAt,
+            LastVersion = last?.LastApplyVersion,
+            LastDetail = last?.LastApplyDetail,
+        };
+    }
 
     /// <summary>Start dialing the Gateway. Idempotent; inert when <see cref="IsEnabled"/> is false.</summary>
     public void Start()
@@ -241,6 +305,15 @@ public sealed class LauncherStreamClient : IAsyncDisposable
                         JsonSerializer.Serialize(
                             _fileSearch.Search(cmd.Query, cmd.Limit, cmd.TimeoutMilliseconds, CancellationToken.None),
                             JsonOptions));
+
+                // Fleet maintenance: install a downloaded Director update now, and report the update's state.
+                case LauncherCapabilities.DirectorUpdate:
+                    return LauncherCommandResult.OkWithPayload(
+                        JsonSerializer.Serialize(await UpdateDirectorNowAsync(), JsonOptions));
+
+                case LauncherCapabilities.DirectorUpdateStatus:
+                    return LauncherCommandResult.OkWithPayload(
+                        JsonSerializer.Serialize(DescribeDirectorUpdate(), JsonOptions));
 
                 default:
                     // OVER-DECLARATION, AND IT IS OURS, NOT THE CALLER'S. The gate above only ever

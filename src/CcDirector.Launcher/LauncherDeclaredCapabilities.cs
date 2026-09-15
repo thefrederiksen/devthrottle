@@ -46,6 +46,8 @@ internal static class LauncherDeclaredCapabilities
         LauncherCapabilities.Launch,
         LauncherCapabilities.Apps,
         LauncherCapabilities.Files,
+        LauncherCapabilities.DirectorUpdate,
+        LauncherCapabilities.DirectorUpdateStatus,
     };
 
     /// <summary>

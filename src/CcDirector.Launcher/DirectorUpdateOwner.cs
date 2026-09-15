@@ -111,6 +111,28 @@ public sealed class DirectorUpdateOwner
     /// </summary>
     internal string SwapLockName { get; init; } = BinarySwapLock.Name;
 
+    /// <summary>True while a pass is running on this owner (fleet maintenance, devthrottle_internal#2021).</summary>
+    public bool PassInProgress => _oneAtATime.CurrentCount == 0;
+
+    /// <summary>
+    /// The most recently recorded update decision across every updater state file this launcher reads, or null
+    /// when none has ever been recorded. The record outlives the staged update it was about - clearing the staged
+    /// build leaves the decision in place - so this is how "what happened last time" is answered remotely.
+    /// </summary>
+    public static UpdaterState? LatestRecordedDecision()
+    {
+        UpdaterState? latest = null;
+        foreach (var stateFile in UpdaterStateFiles())
+        {
+            if (!File.Exists(stateFile)) continue;
+            var state = UpdaterState.LoadFrom(stateFile);
+            if (state.LastApplyDecisionAt is null) continue;
+            if (latest is null || state.LastApplyDecisionAt > latest.LastApplyDecisionAt)
+                latest = state;
+        }
+        return latest;
+    }
+
     /// <summary>
     /// Decide whether a staged update may be installed right now: only when one is staged AND the
     /// Director holds no sessions, so restarting into the new build cannot interrupt live work.

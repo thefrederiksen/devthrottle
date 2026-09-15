@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { gatewayErrorMessage, type SessionDto } from "@devthrottle/client-core/api/client";
 import {
   getFleetDirectors,
@@ -13,6 +13,9 @@ import { useNow } from "@devthrottle/client-core/polling/useNow";
 import { DataTable, PageHeader, type DataTableColumn } from "../components";
 import { clockLabel, relativeTime } from "./format";
 import { directorPrimaryLabel, directorStatus, epochOf, repoNamesOf } from "./directorsFormat";
+import { getFleetMachines, type FleetMachines } from "@devthrottle/client-core/fleet/machinesClient";
+import { MachinesPanel, VersionPill } from "./MachinesPanel";
+import { versionStateByDirector } from "./machinesFormat";
 
 // The Director registry table (issue #975; rebuilt on the shared DataTable in #1246) - the React view
 // over GET /directors, enriched with live session counts and unreachable flags from the roster
@@ -41,6 +44,24 @@ export function DirectorsView() {
   // Live "last seen" cells re-render off the ONE shared 1-second ticker (issue #1239), not a per-page
   // timer; read the tick time here and hand it to relativeTime.
   const now = useNow();
+
+  // Fleet maintenance (devthrottle_internal#2026): the page has two tabs. Machines (the default) is the Gateway's
+  // GET /machines fold; Directors is the registry table below, whose version column reads the same fold.
+  const [params, setParams] = useSearchParams();
+  const tab = params.get("tab") === "directors" ? "directors" : "machines";
+  const [machines, setMachines] = useState<FleetMachines | null>(null);
+  const [machinesError, setMachinesError] = useState<string | null>(null);
+  const refreshMachines = useCallback(async (signal?: AbortSignal) => {
+    try {
+      setMachines(await getFleetMachines(signal));
+      setMachinesError(null);
+    } catch (err) {
+      if (signal?.aborted === true) return;
+      setMachinesError(gatewayErrorMessage(err));
+    }
+  }, []);
+  useVisiblePolling(refreshMachines, POLL_MS);
+  const versionStates = useMemo(() => versionStateByDirector(machines), [machines]);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -163,12 +184,19 @@ export function DirectorsView() {
       },
       {
         key: "version",
-        header: "Version",
-        width: "120px",
-        className: "dmono",
+        header: machines?.newestRelease.version ? `Version (newest ${machines.newestRelease.version})` : "Version",
+        width: "220px",
         sortable: true,
-        sortValue: (d) => d.version ?? "",
-        render: (d) => d.version ?? "-",
+        // Behind first, so sorting by version answers "which ones need updating".
+        sortValue: (d) => `${versionStates.get(d.directorId.toLowerCase())?.behind === true ? "0" : "1"}${d.version ?? ""}`,
+        render: (d) => {
+          const state = versionStates.get(d.directorId.toLowerCase());
+          return (
+            <>
+              <span className="dmono">{d.version ?? "-"}</span> {state !== undefined && <VersionPill state={state} />}
+            </>
+          );
+        },
       },
       {
         key: "lastseen",
@@ -184,19 +212,44 @@ export function DirectorsView() {
         ),
       },
     ],
-    [statusOf, sessionCount, now],
+    [statusOf, sessionCount, now, versionStates, machines],
   );
 
   return (
     <div className="dpage">
       <PageHeader
         title="Directors"
-        subtitle={`${directors.length} registered director${directors.length === 1 ? "" : "s"} across the fleet. Click a row for the full registration and its sessions.`}
+        subtitle={
+          tab === "machines"
+            ? "Every machine, its launcher and the Directors on it - which are behind, and what can be updated from here."
+            : `${directors.length} registered director${directors.length === 1 ? "" : "s"} across the fleet. Click a row for the full registration and its sessions.`
+        }
       />
 
-      {lastError !== null && <div className="dpage-error">{lastError}</div>}
+      <div className="fm-tabs" role="tablist" aria-label="Directors view">
+        {(["machines", "directors"] as const).map((t) => (
+          <button
+            key={t}
+            type="button"
+            role="tab"
+            aria-selected={tab === t}
+            className={`fm-tab${tab === t ? " active" : ""}`}
+            onClick={() => setParams(t === "machines" ? {} : { tab: t }, { replace: true })}
+          >
+            {t === "machines"
+              ? `Machines${machines === null ? "" : ` (${machines.machines.length})`}`
+              : `Directors (${directors.length})`}
+          </button>
+        ))}
+      </div>
 
-      {lastRefresh !== null && (
+      {tab === "machines" && (
+        <MachinesPanel view={machines} error={machinesError} onChanged={() => void refreshMachines()} />
+      )}
+
+      {tab === "directors" && lastError !== null && <div className="dpage-error">{lastError}</div>}
+
+      {tab === "directors" && lastRefresh !== null && (
         <DataTable<FleetDirector>
           columns={columns}
           rows={directors}
