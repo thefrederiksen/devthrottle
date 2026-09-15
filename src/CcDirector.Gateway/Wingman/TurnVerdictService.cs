@@ -883,7 +883,7 @@ public sealed class TurnVerdictService : IDisposable
             }
 
             expired++;
-            _env.Record(new TurnVerdictRecord(tenant, _env.ReadSessionFacts(tenant, sid)?.DirectorId ?? "", sid,
+            _env.Record(new TurnVerdictRecord(tenant, _env.ReadSessionState(tenant, sid).Facts?.DirectorId ?? "", sid,
                 ActivityEventTypes.TurnVerdictExpired, ActivityCauses.CarryingOnExpired,
                 $"expired={snapshot.VerdictId} id={replacement.VerdictId}"));
             FileLog.Write($"[TurnVerdictService] ExpireCarryingOn: sid={sid} tenant={tenant.ToLogString()} said it would continue and did not; verdict {snapshot.VerdictId} replaced by {replacement.VerdictId}");
