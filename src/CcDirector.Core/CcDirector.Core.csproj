@@ -23,6 +23,11 @@
          behind the machine-wide Gateway test lock). Same tests, same access, one assembly over. -->
     <InternalsVisibleTo Include="CcDirector.Gateway.UnitTests" />
     <InternalsVisibleTo Include="TerminalTest" />
+    <!-- The corpus scorer (work item five of turn detection phase one). It has to construct the
+         REAL TerminalContentNovelty rules through ITerminalNoveltyRule and ITerminalSizeRule,
+         because a rule scored by a re-implementation proves nothing about the rule that ships.
+         Both of those are internal, so the scorer needs the same access the tests have. -->
+    <InternalsVisibleTo Include="CcDirector.TurnRuleScorer" />
   </ItemGroup>
 
   <ItemGroup>
