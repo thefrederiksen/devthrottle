@@ -44,7 +44,7 @@ public static class StatusPalette
     public const string Cyan       = SessionColorPalette.Cyan;        // cyan-500     - the Wingman judged the stop finished (issue #2892)
     public const string Yellow     = SessionColorPalette.Yellow;      // yellow-500   - wingman reading / preparing voice
     public const string Orange     = SessionColorPalette.Orange;      // orange-500   - dictation in flight / deep dive
-    public const string Purple     = SessionColorPalette.Purple;      // purple-500   - parked on its own background task
+    public const string Purple     = SessionColorPalette.Purple;      // purple-500   - the Wingman judged it carrying on by itself
     public const string Supporting = SessionColorPalette.Supporting;  // slate-500    - a live Worker's suppressed red
     public const string Error      = SessionColorPalette.Error;       // red-700      - crashed, NOT finished (issue #959)
     public const string Grey       = SessionColorPalette.Grey;        // gray-500     - snoozed, exited, or indeterminate

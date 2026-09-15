@@ -28,7 +28,7 @@ public static class SessionColorPalette
     public const string Green      = "#22C55E";  // green-500    - ready (brand new)
     public const string Cyan       = "#06B6D4";  // cyan-500     - the Wingman judged the stop finished (issue #2892)
     public const string Blue       = "#3B82F6";  // blue-500     - working
-    public const string Purple     = "#A855F7";  // purple-500   - parked on its own background task
+    public const string Purple     = "#A855F7";  // purple-500   - the Wingman judged it carrying on by itself
     public const string Supporting = "#64748B";  // slate-500    - a live Worker's suppressed red
     public const string Error      = "#B91C1C";  // red-700      - crashed, NOT finished (issue #959)
     public const string Grey       = "#6B7280";  // gray-500     - snoozed, exited, or indeterminate

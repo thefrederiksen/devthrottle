@@ -90,7 +90,7 @@ public sealed class TurnVerdictDto
     /// <summary>
     /// "done" or "report" when <see cref="Verdict"/> is "finished", null for every other verdict (owner ruling,
     /// 2026-09-15): the agent says the work is complete, or it is only informing the owner and asks nothing. Both
-    /// are green, in the same band and uncounted; the row's label leads with "Done" or "Report". A verdict stored
+    /// are cyan (never the brand-new green, issue #2892), in the same band and uncounted; the row's label leads with "Done" or "Report". A verdict stored
     /// before the field existed carries null.
     /// </summary>
     public string? FinishedKind { get; set; }
