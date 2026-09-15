@@ -84,7 +84,7 @@ export function TurnVerdictCard() {
         </label>
       </div>
       <p className="settings-hint">
-        One model call per stop, on your account&apos;s included thinking model. The answer is kept for seven
+        One model call per stop, on the included fast model recorded on the charter. The answer is kept for seven
         days with the session&apos;s own words as the receipt, so you can always see what it read.
       </p>
 
