@@ -185,6 +185,29 @@ public sealed class TerminalStateDetector : IDisposable
     /// </summary>
     internal TurnContentRule ContentRule => _contentRule;
 
+    /// <summary>
+    /// The settling window this detector is actually running, and its cap. A test seam for the same
+    /// reason ContentRule is one: the named constants were pinned and the CONSTRUCTOR'S USE of them
+    /// was not, so a detector built with 401 milliseconds and four seconds hard-coded passed every
+    /// test in the repository. Every behaviour test injects its own timings, so nothing else can
+    /// see what a production detector took.
+    /// </summary>
+    internal TimeSpan SettleCheckDelayInUse => _settleCheckDelay;
+
+    /// <summary>The cap this detector is running. See <see cref="SettleCheckDelayInUse"/>.</summary>
+    internal TimeSpan MaxSettleCheckDeferralInUse => _maxSettleCheckDeferral;
+
+    /// <summary>
+    /// Is a content check armed for this session right now? A test-only read, and it exists to tell
+    /// two different facts apart that look identical from the shadow directory: a check that is
+    /// scheduled and has not fired yet (the row is LATE) and no check at all (the row will NEVER be
+    /// written). A test that waits for a row and times out cannot distinguish those from the files
+    /// on disk, because a directory holding exactly the baseline rows is the same observation in
+    /// both cases.
+    /// </summary>
+    internal bool HasPendingCheck(Guid sessionId)
+        => _watchers.TryGetValue(sessionId, out var watcher) && watcher.HasPendingCheck;
+
     public void Start()
     {
         if (_started) return;
@@ -279,9 +302,19 @@ public sealed class TerminalStateDetector : IDisposable
         private readonly IReadOnlyCollection<string> _chromeMarkers;
         private readonly System.Threading.Timer _contentCheckTimer;
 
-        // The two candidates, held as INTERFACES and never as functions. Both are asked on every
-        // check - the one that is authoritative decides, and the other is written down beside it -
-        // so the rule work item five scores is the rule the Director ran.
+        // The two candidates, held as INTERFACES and never as functions, so the rule work item five
+        // scores is the rule the Director ran.
+        //
+        // ON A COMPARABLE FRAME BOTH ARE ASKED: the authoritative one decides and the other is
+        // written down beside it. AN AMBIGUOUS FRAME ASKS NEITHER - it short-circuits to the
+        // conservative open, with both verdicts true and the magnitude zero, and the log says which
+        // kind of ambiguity it was. That is correct and is not an omission: a frame is ambiguous
+        // because the screen could not be read at all, or because there is no settled screen to
+        // compare it against, and neither is a question a content rule can answer. Asking a rule to
+        // compare an empty list against an empty list would produce a verdict shaped like a
+        // measurement and meaning nothing. A comment here used to claim both candidates are asked
+        // on EVERY check; an inspection demonstrated the first ambiguous check asking neither, and
+        // the claim is corrected rather than the behaviour.
         private readonly ITerminalNoveltyRule _rowRule;
         private readonly ITerminalSizeRule _sizeRule;
 
@@ -295,14 +328,26 @@ public sealed class TerminalStateDetector : IDisposable
         // Consecutive faulted checks. Reset by any check that completes. See RestorePendingCheck.
         private int _checkFailures;
 
-        /// <summary>How many times running a check may fault before its burst is dropped rather
-        /// than retried. A retry loop on a permanent fault would spin a core; one lost turn is the
-        /// smaller failure, and it is written to the log rather than passing in silence.</summary>
-        private const int MaxCheckFailures = 3;
+        /// <summary>
+        /// How many times a faulted check's burst may be PUT BACK. The name says retries rather
+        /// than failures because the old one was off by one in every direction: at three it read
+        /// as "three faults end it", while the code compared with greater-than and so ended on the
+        /// FOURTH consecutive fault. The comment, the log line and the build report all repeated
+        /// the wrong number. Counted here: faults one, two and three restore the burst; fault four
+        /// stops retrying.
+        ///
+        /// It is bounded because the original check's deadline is already in the past, so an
+        /// unbounded retry would fire with no delay and spin a core. What happens when the bound is
+        /// exceeded is NOT a drop - see <see cref="RestorePendingCheck"/>.
+        /// </summary>
+        private const int MaxCheckRetries = 3;
 
         // The same "a check is armed" fact as _checkScheduled, readable WITHOUT taking the lock, so
         // the hot path on an already-working session pays one volatile read rather than a lock.
         private int _checkPending;
+
+        /// <summary>See TerminalStateDetector.HasPendingCheck - a test-only read of that flag.</summary>
+        internal bool HasPendingCheck => Volatile.Read(ref _checkPending) != 0;
 
         // The screen body captured at the last flip to settled, and its normalized hash - the "before"
         // side of the bounded evidence an unexplained wake records. Touched only on the PTY producer
@@ -499,17 +544,72 @@ public sealed class TerminalStateDetector : IDisposable
             ScheduleContentCheck(bytes.Length);
         }
 
-        /// <summary>Today's activation, kept intact so the switch-off path is byte for byte.</summary>
+        /// <summary>
+        /// Today's activation, kept intact so the switch-off path is byte for byte.
+        ///
+        /// A FAULT NO LONGER LEAVES THE SESSION BLUE FOR EVER. The fault this fixes is OLDER than
+        /// the content rule - it is on origin/main, and this is the path every Director runs while
+        /// the switch ships off. Session.SetActivityState assigns Working and only THEN calls its
+        /// subscribers, so a subscriber that throws leaves the session in Working with the exception
+        /// escaping mid-write. The latch stayed set, the quiet timer was never armed, and every
+        /// later byte took the already-active branch and armed nothing: permanently blue, with
+        /// nothing left that could bring it back.
+        ///
+        /// THE ARM IS THE PART THAT CLOSES IT, which is why it sits in a finally. Arming on every
+        /// byte is what this method always meant to do; the fault was that a throw skipped it.
+        ///
+        /// The latch release is conditional and that is deliberate - see
+        /// <see cref="ReleaseLatchIfNothingWasWritten"/>. Clearing it unconditionally would close
+        /// nothing here: OnQuietCore's first line returns unless the latch is set, so a cleared
+        /// latch plus an armed timer is a countdown that fires into nothing, and the session stays
+        /// Working exactly as before. That was measured, not assumed.
+        /// </summary>
         private void MarkActiveFromByte(long byteCount)
         {
-            if (!_active)
+            try
             {
+                if (_active) return;
                 _active = true;
-                FileLog.Write($"[TerminalStateDetector] {_session.Id} terminal=ACTIVE (byte) | hook={_session.ActivityState}");
-                RecordUnexplainedWakeEvidence(byteCount, "byte");
-                if (_driveState) _session.ApplyTerminalActivityState(ActivityState.Working);
+                try
+                {
+                    FileLog.Write($"[TerminalStateDetector] {_session.Id} terminal=ACTIVE (byte) | hook={_session.ActivityState}");
+                    RecordUnexplainedWakeEvidence(byteCount, "byte");
+                    if (_driveState) _session.ApplyTerminalActivityState(ActivityState.Working);
+                }
+                catch
+                {
+                    ReleaseLatchIfNothingWasWritten();
+                    throw;
+                }
             }
-            ArmQuietTimer(); // restart the idle countdown on every byte
+            finally
+            {
+                ArmQuietTimer(); // restart the idle countdown on every byte, fault or no fault
+            }
+        }
+
+        /// <summary>
+        /// Put the active latch back after a faulted wake - BUT ONLY IF THE SESSION IS NOT SITTING
+        /// IN WORKING.
+        ///
+        /// The condition is the whole of it, and it is not caution. Session.SetActivityState assigns
+        /// Working and THEN calls its subscribers, so a subscriber that throws leaves the session in
+        /// Working with the exception escaping from the middle of the write. That session now owes a
+        /// settle, and the only thing that can deliver one is the quiet timer - which returns
+        /// immediately unless this latch is set (see OnQuietCore's first line). Clearing the latch
+        /// there would swap one stuck-blue session for another: no later byte could restore it and
+        /// the countdown would fire into nothing.
+        ///
+        /// A fault BEFORE the state write is the opposite case. Nothing was written, the session is
+        /// still red, and the latch is a lie that makes every later byte take the already-active
+        /// branch - so it goes back.
+        ///
+        /// Reading the session's state is the only signal that separates the two, because the throw
+        /// itself cannot say how far the write got.
+        /// </summary>
+        private void ReleaseLatchIfNothingWasWritten()
+        {
+            if (_session.ActivityState != ActivityState.Working) _active = false;
         }
 
         /// <summary>
@@ -697,11 +797,16 @@ public sealed class TerminalStateDetector : IDisposable
             bool rowOpens;
             bool sizeOpens;
             int changed;
+            int threshold;
             if (ambiguous)
             {
                 rowOpens = true;
                 sizeOpens = true;
                 changed = 0;
+                // No verdict was taken, so there is no verdict to read a threshold from. What goes
+                // in the log is the threshold the rule DECLARES it would have used, which is why
+                // that property is still on the interface.
+                threshold = _sizeRule.Threshold;
             }
             else
             {
@@ -709,8 +814,14 @@ public sealed class TerminalStateDetector : IDisposable
                 // comparison repeated here: the rule that decides is the rule work item five
                 // scores, and the magnitude written down is the one this verdict was taken from.
                 rowOpens = _rowRule.GainedContent(settled, current, _chromeMarkers, out firstNewRow);
-                sizeOpens = _sizeRule.GainedContent(settled, current, _chromeMarkers, out _);
-                changed = _sizeRule.Measure(settled, current);
+
+                // ONE CALL, not three. The verdict, the magnitude and the threshold arrive together
+                // so they cannot describe different measurements - which three separate calls could,
+                // and an inspection demonstrated that they were not required to agree.
+                var size = _sizeRule.Evaluate(settled, current);
+                sizeOpens = size.Opens;
+                changed = size.Magnitude;
+                threshold = size.Threshold;
             }
 
             bool submitted = _session.LastSubmissionAtUtc is DateTime submittedAt
@@ -728,7 +839,7 @@ public sealed class TerminalStateDetector : IDisposable
                 RowEvidence: ambiguousReason ?? firstNewRow,
                 SizeRuleOpens: sizeOpens,
                 ChangedCharacters: changed,
-                SizeThreshold: _sizeRule.Threshold,
+                SizeThreshold: threshold,
                 SettledHash: _settledBodyHash,
                 CurrentHash: ambiguous ? null : Activity.ActivityEvidence.BodyHash(string.Join("\n", current)),
                 Bytes: bytes,
@@ -751,17 +862,34 @@ public sealed class TerminalStateDetector : IDisposable
         ///
         /// IT IS BOUNDED, because a fault that repeats would otherwise retry forever - and the
         /// deadline of the original check is already in the past, so each retry would fire
-        /// immediately and spin. After <see cref="MaxCheckFailures"/> consecutive failures the
-        /// burst is dropped and said so in the log: one lost turn is a smaller failure than a
-        /// session pinning a core.
+        /// immediately and spin. After <see cref="MaxCheckRetries"/> restores - that is, on the
+        /// FOURTH consecutive fault - the burst is not put back again.
+        ///
+        /// AND THEN THE TURN OPENS. It used to be dropped, which built the exact failure this whole
+        /// design forbids: a one-burst reply whose check faulted four times had no pending check and
+        /// no later byte to make one, so the session sat red for ever. A rule that cannot decide
+        /// must never decide against the user. Falling back to today's behaviour - a byte reached a
+        /// settled session, so the turn opens - is always available and is the conservative
+        /// direction: the cost of a wrong open is a blue session that settles again a quiet window
+        /// later, and the cost of a wrong drop is work that sits red until someone looks at it.
+        ///
+        /// The failure count is deliberately NOT reset here. While the fault persists every later
+        /// burst takes this same path and opens the turn immediately, which is precisely today's
+        /// byte rule; the first check that completes resets the count in OnContentCheckCore.
+        ///
+        /// With the rule OFF there is nothing to open: the byte already flipped the session on the
+        /// way in and this check only observes, so the switch-off path stays byte for byte.
         /// </summary>
         private void RestorePendingCheck(long bytes)
         {
             if (Volatile.Read(ref _disposed) != 0) return;
 
-            if (Interlocked.Increment(ref _checkFailures) > MaxCheckFailures)
+            int faults = Interlocked.Increment(ref _checkFailures);
+            if (faults > MaxCheckRetries)
             {
-                FileLog.Write($"[TerminalStateDetector] {_session.Id} content check failed {MaxCheckFailures} times running; dropping the burst of {bytes} bytes");
+                FileLog.Write($"[TerminalStateDetector] {_session.Id} content check faulted {faults} times running; opening the turn on the burst of {bytes} bytes rather than retrying it again");
+                if (_contentRule != TurnContentRule.Off)
+                    MarkActiveFromContent(bytes, $"(the content check faulted {faults} times running)");
                 return;
             }
 
@@ -799,12 +927,17 @@ public sealed class TerminalStateDetector : IDisposable
             // before this method existed; this adds one more thread to a latch that was already
             // loose.
             //
-            // A FAULT AFTER THE LATCH UNLATCHES IT AGAIN. Setting it and then throwing left the
-            // session red AND latched active, after which every later byte took the already-active
-            // branch and scheduled nothing: permanently red with no way back. (A comment here used
-            // to claim the worst outcome of the loose latch was a duplicate Working write. It was
-            // false - the state write, the evidence call and the timer arm all follow the latch and
-            // any of them can throw - and it is deleted rather than softened.)
+            // A FAULT AFTER THE LATCH PUTS IT BACK - but only when nothing was written, see
+            // ReleaseLatchIfNothingWasWritten. Setting it and then throwing left the session red AND
+            // latched active, after which every later byte took the already-active branch and
+            // scheduled nothing: permanently red with no way back. (A comment here used to claim the
+            // worst outcome of the loose latch was a duplicate Working write. It was false - the
+            // state write, the evidence call and the timer arm all follow the latch and any of them
+            // can throw - and it is deleted rather than softened.)
+            //
+            // The unconditional release this used to do was itself wrong in the other direction: a
+            // subscriber that throws AFTER the session is in Working leaves a session that needs a
+            // settle, and only the latch lets the quiet timer deliver one.
             if (_active) return;
             _active = true;
             try
@@ -821,12 +954,19 @@ public sealed class TerminalStateDetector : IDisposable
 
                 RecordUnexplainedWakeEvidence(byteCount, _continuousIdle ? "body" : "content");
                 if (_driveState) _session.ApplyTerminalActivityState(ActivityState.Working);
-                ArmQuietTimer();
             }
             catch
             {
-                _active = false;
+                ReleaseLatchIfNothingWasWritten();
                 throw;
+            }
+            finally
+            {
+                // Armed whatever happened, for the same reason as the byte path: a session already
+                // written into Working needs a countdown running or nothing will settle it. This
+                // used to sit inside the try, where a faulting state write skipped it and left the
+                // recovery entirely to the check retry.
+                ArmQuietTimer();
             }
         }
 
@@ -840,19 +980,38 @@ public sealed class TerminalStateDetector : IDisposable
             return "\"" + flat + "\"";
         }
 
-        /// <summary>Body changed (or an ambiguous frame): flag Working and re-arm the idle timer
-        /// from now. The quiet confirmation in OnQuietCore measures silence from this moment.</summary>
+        /// <summary>
+        /// Body changed (or an ambiguous frame): flag Working and re-arm the idle timer from now.
+        /// The quiet confirmation in OnQuietCore measures silence from this moment.
+        ///
+        /// Carries the same latch release and the same guaranteed arm as MarkActiveFromByte, and
+        /// for the same reason: this is the switch-off path for an agent whose idle terminal never
+        /// goes byte-silent, it is on origin/main, and a state-change subscriber that throws left
+        /// the session latched Working with no countdown running.
+        /// </summary>
         private void MarkContinuousActive()
         {
-            _session.StampBodyActivity();
-            if (!_active)
+            try
             {
+                _session.StampBodyActivity();
+                if (_active) return;
                 _active = true;
-                FileLog.Write($"[TerminalStateDetector] {_session.Id} terminal=ACTIVE (body) | hook={_session.ActivityState}");
-                RecordUnexplainedWakeEvidence(byteCount: 0, "body");
-                if (_driveState) _session.ApplyTerminalActivityState(ActivityState.Working);
+                try
+                {
+                    FileLog.Write($"[TerminalStateDetector] {_session.Id} terminal=ACTIVE (body) | hook={_session.ActivityState}");
+                    RecordUnexplainedWakeEvidence(byteCount: 0, "body");
+                    if (_driveState) _session.ApplyTerminalActivityState(ActivityState.Working);
+                }
+                catch
+                {
+                    ReleaseLatchIfNothingWasWritten();
+                    throw;
+                }
             }
-            ArmQuietTimer();
+            finally
+            {
+                ArmQuietTimer();
+            }
         }
 
         /// <summary>

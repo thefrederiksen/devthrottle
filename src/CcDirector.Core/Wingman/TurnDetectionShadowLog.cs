@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
 
@@ -30,6 +31,21 @@ namespace CcDirector.Core.Wingman;
 /// supports: a synchronous write under a shared lock has no latency bound, so "cannot affect the
 /// session" was never true of an append that ran first. Append failures are logged and swallowed.
 ///
+/// THE LOCK IS PROCESS-WIDE AND THAT IS ENOUGH, for a reason worth writing down because an
+/// inspection correctly pointed out that a process-wide lock does not exclude a second process. Two
+/// Director processes never share this directory at all. Every path here is resolved through
+/// <c>CcStorage</c>, whose root is the CC_DIRECTOR_ROOT environment variable whenever that variable
+/// is set, and it is set PER DIRECTOR INSTANCE. Checked rather than assumed on 15 September 2026:
+/// five instance roots existed side by side under the per-user data directory
+/// (default, devthrottledemo, slot-1, slot-5, slot-7), the running session's own variable read the
+/// first of them, and CcStorage.TurnDetectionShadow composes this directory under that root. So
+/// each Director has its OWN shadow directory and there is no shared file for two processes to race
+/// over. The per-session filename is a SECOND, independent reason - a session belongs to exactly one
+/// Director process - rather than the only one.
+///
+/// Neither of those is a claim about the lock. The lock serialises the threads inside ONE process,
+/// which is all it is claimed to do; the file comment used to imply it covered more.
+///
 /// IT IS BOUNDED ON DISK. A log with no bound, on a machine running a fleet all day, is a disk leak;
 /// the two numbers that bound it are <see cref="DefaultMaxFileBytes"/> and
 /// <see cref="DefaultMaxFileAgeDays"/>, and they live here rather than scattered across call sites.
@@ -41,9 +57,17 @@ public static class TurnDetectionShadowLog
 
     /// <summary>
     /// THE RETENTION BOUND, PART ONE: how large one session's file may get before it is rolled over.
-    /// A session therefore costs at most twice this on disk - the live file and one rolled
-    /// predecessor - and the oldest rows are the ones that go, because the interesting rows are the
-    /// recent ones. At roughly four hundred bytes a row this is about ten thousand checks.
+    ///
+    /// STATED HONESTLY, BECAUSE THE ALGORITHM IS NOT TIGHTER THAN THIS. The size is tested BEFORE
+    /// the next record is appended, so a live file may reach this bound PLUS AT MOST ONE RECORD, and
+    /// a file rolled at that moment preserves the same overshoot. The cost per session is therefore
+    /// twice this plus at most two records, not twice this exactly. The alternative - serialise the
+    /// record, measure it, then decide - buys a tighter number nothing needs at the price of a second
+    /// measurement that can disagree with the first. One record is roughly four hundred bytes against
+    /// a four megabyte bound.
+    ///
+    /// The oldest rows are the ones that go, because the interesting rows are the recent ones. At
+    /// roughly four hundred bytes a row this is about ten thousand checks.
     /// </summary>
     public const long DefaultMaxFileBytes = 4L * 1024 * 1024;
 
@@ -146,7 +170,21 @@ public static class TurnDetectionShadowLog
             {
                 Directory.CreateDirectory(Root);
                 var path = Path.Combine(Root, sessionId.ToString("N") + ".jsonl");
-                RotateIfOversized(path);
+
+                // A FAILED ROLLOVER MUST NEVER COST THE ROW. Rotation used to sit inside the outer
+                // try, so a File.Move that threw skipped the append entirely and the observation was
+                // gone - visible only in FileLog, never in the shadow file the whole comparison is
+                // read from. An oversized file is a far smaller harm than a missing observation, so
+                // the append goes ahead regardless and the failure is said out loud.
+                try
+                {
+                    RotateIfOversized(path);
+                }
+                catch (Exception ex)
+                {
+                    FileLog.Write($"[TurnDetectionShadowLog] rollover failed for {Path.GetFileName(path)}: {ex.Message}; appending to the oversized file rather than losing the row");
+                }
+
                 File.AppendAllText(path, JsonSerializer.Serialize(record, Json) + "\n", Encoding.UTF8);
                 SweepAgedFiles();
             }
@@ -174,11 +212,39 @@ public static class TurnDetectionShadowLog
     }
 
     /// <summary>
-    /// Delete the files nothing has written to for <see cref="MaxFileAgeDays"/>. It names what to
-    /// DELETE rather than what to keep: only this directory, only the extension this log writes,
-    /// and only a file whose last write time - read now, not cached - is past the bound. A file it
-    /// cannot delete is reported with its path and tried again next time, because a bound nobody
-    /// can see fail is a bound nobody checks.
+    /// The two file-name shapes this log writes, and the ONLY two the sweep will ever delete: a
+    /// thirty-two character lower-case hexadecimal session id, optionally followed by the rolled
+    /// predecessor's <c>.1</c>, then <c>.jsonl</c>. Anchored at both ends and case-sensitive,
+    /// because what is being asked is not "does this look like one of ours" but "is this exactly a
+    /// name this writer produces".
+    /// </summary>
+    private static readonly Regex OwnedFileName =
+        new(@"^[0-9a-f]{32}(\.1)?\.jsonl$", RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    /// <summary>
+    /// True when this file name is one this log can prove it wrote. <see cref="Append"/> composes
+    /// the live name as <c>sessionId.ToString("N") + ".jsonl"</c> and
+    /// <see cref="RotateIfOversized"/> composes the predecessor by inserting <c>.1</c>, so those two
+    /// shapes are the complete inventory of what this type creates.
+    /// </summary>
+    internal static bool IsOwnedFileName(string fileName) => OwnedFileName.IsMatch(fileName);
+
+    /// <summary>
+    /// Delete the files nothing has written to for <see cref="MaxFileAgeDays"/>.
+    ///
+    /// IT ENUMERATES WHAT TO DELETE AND NEVER WHAT TO SKIP. It used to delete on age alone from
+    /// every <c>*.jsonl</c> in the directory, and an inspection demonstrated the consequence: it
+    /// dropped an aged <c>owner-notes.jsonl</c> into the shadow directory and the very next append
+    /// deleted it. An extension is a DENY boundary - it rules some things out - and a deny boundary
+    /// is not proof of ownership. The test now is positive: the name must be exactly a shape this
+    /// writer produces (see <see cref="OwnedFileName"/>), the directory must be this one, and the
+    /// last write time - read now, not cached - must be past the bound.
+    ///
+    /// ANYTHING IT DOES NOT RECOGNISE IS LEFT ALONE AND SAID SO, ONCE. Silence would make a
+    /// directory quietly filling with files this log will never touch indistinguishable from a
+    /// directory doing exactly what it should; one line per sweep says which. A file it cannot
+    /// delete is reported with its path and tried again next time, because a bound nobody can see
+    /// fail is a bound nobody checks.
     /// </summary>
     private static void SweepAgedFiles()
     {
@@ -187,18 +253,29 @@ public static class TurnDetectionShadowLog
         _lastSweepUtc = now;
 
         var cutoff = now - TimeSpan.FromDays(MaxFileAgeDays);
-        foreach (var file in Directory.EnumerateFiles(Root, "*.jsonl"))
+        int strangers = 0;
+        foreach (var file in Directory.EnumerateFiles(Root))
         {
+            var name = Path.GetFileName(file);
+            if (!IsOwnedFileName(name))
+            {
+                strangers++;
+                continue;
+            }
+
             if (File.GetLastWriteTimeUtc(file) >= cutoff) continue;
             try
             {
                 File.Delete(file);
-                FileLog.Write($"[TurnDetectionShadowLog] retention: deleted {Path.GetFileName(file)}");
+                FileLog.Write($"[TurnDetectionShadowLog] retention: deleted {name}");
             }
             catch (Exception ex)
             {
                 FileLog.Write($"[TurnDetectionShadowLog] retention: could not delete {file}: {ex.Message}");
             }
         }
+
+        if (strangers > 0)
+            FileLog.Write($"[TurnDetectionShadowLog] retention: left {strangers} file(s) in {Root} alone - this log did not write them and does not delete them");
     }
 }

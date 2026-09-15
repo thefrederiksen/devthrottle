@@ -343,15 +343,38 @@ internal interface ITerminalNoveltyRule
 /// </summary>
 internal interface ITerminalSizeRule : ITerminalNoveltyRule
 {
-    /// <summary>The threshold this rule takes its verdict at. Written into the log beside it.</summary>
+    /// <summary>
+    /// The threshold this rule takes its verdict at, as a declared property of the rule rather than
+    /// of any one verdict. It is here for exactly one caller: the row written for an AMBIGUOUS
+    /// frame, where the rule is deliberately not asked at all and so there is no verdict to read a
+    /// threshold from. Every row that carries a real verdict takes all three numbers from
+    /// <see cref="Evaluate"/> instead.
+    /// </summary>
     int Threshold { get; }
 
     /// <summary>
-    /// How much text changed, whatever the verdict was. The same measurement the verdict is taken
-    /// from, so a row in the log and the decision beside it can never describe different functions.
+    /// THE WHOLE VERDICT IN ONE ANSWER: does this open, by how much, and against what threshold.
+    ///
+    /// It replaces three separate calls - GainedContent, then Measure, then Threshold - and it
+    /// replaces them because three calls can disagree. An inspection demonstrated the hazard with a
+    /// rule whose answers were gathered one at a time: the magnitude written into the log was not
+    /// required to be the magnitude the verdict was taken from, and nothing but an unenforced
+    /// convention stopped a later candidate from drifting. One call cannot contradict itself.
     /// </summary>
-    int Measure(IReadOnlyList<string>? settledBody, IReadOnlyList<string>? currentBody);
+    SizeVerdict Evaluate(IReadOnlyList<string>? settledBody, IReadOnlyList<string>? currentBody);
 }
+
+/// <summary>
+/// One size rule's complete answer about one pair of screens: what it decided, the magnitude it
+/// decided it from, the threshold it decided it against, and the line for the log. All four come
+/// out of a single call, so the number written down is by construction the number ruled on.
+/// </summary>
+/// <param name="Opens">True when the rule says the conversation gained content.</param>
+/// <param name="Magnitude">How much text changed, whatever the verdict was. Recorded on every row
+/// so work item five can re-choose the threshold from the log rather than re-running anything.</param>
+/// <param name="Threshold">The threshold this verdict was taken at.</param>
+/// <param name="Evidence">The line for the log, or null when nothing was gained.</param>
+internal readonly record struct SizeVerdict(bool Opens, int Magnitude, int Threshold, string? Evidence);
 
 /// <summary>The row rule behind <see cref="ITerminalNoveltyRule"/>.</summary>
 internal sealed class RowNoveltyRule : ITerminalNoveltyRule
@@ -386,9 +409,23 @@ internal sealed class ChangedSizeRule : ITerminalSizeRule
 
     public int Threshold => _threshold;
 
-    public int Measure(IReadOnlyList<string>? settledBody, IReadOnlyList<string>? currentBody)
-        => TerminalContentNovelty.ChangedCharacters(settledBody, currentBody);
+    /// <summary>
+    /// The measurement and the comparison, together, once. Everything else on this rule is a view
+    /// of this one answer.
+    /// </summary>
+    public SizeVerdict Evaluate(IReadOnlyList<string>? settledBody, IReadOnlyList<string>? currentBody)
+    {
+        int changed = TerminalContentNovelty.ChangedCharacters(settledBody, currentBody);
+        bool opens = changed >= _threshold;
+        return new SizeVerdict(opens, changed, _threshold, opens ? $"changed {changed} characters" : null);
+    }
 
+    /// <summary>
+    /// The novelty-interface view of <see cref="Evaluate"/>, so the size candidate can still be
+    /// scored beside the row candidate through one interface. It delegates rather than repeating
+    /// the comparison: a second copy of "changed >= threshold" is exactly the drift the verdict
+    /// record exists to remove.
+    /// </summary>
     public bool GainedContent(
         IReadOnlyList<string> settledBody,
         IReadOnlyList<string> currentBody,
@@ -396,14 +433,9 @@ internal sealed class ChangedSizeRule : ITerminalSizeRule
         out string? evidence)
     {
         _ = chromeMarkers;
-        int changed = Measure(settledBody, currentBody);
-        if (changed < _threshold)
-        {
-            evidence = null;
-            return false;
-        }
-        evidence = $"changed {changed} characters";
-        return true;
+        var verdict = Evaluate(settledBody, currentBody);
+        evidence = verdict.Evidence;
+        return verdict.Opens;
     }
 }
 

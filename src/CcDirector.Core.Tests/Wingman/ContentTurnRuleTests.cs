@@ -604,6 +604,165 @@ public sealed class ContentTurnRuleTests : IDisposable
         }
     }
 
+    // ------------------------------------------------------------------------------------------
+    // A check that keeps faulting must fall back to today's rule, never drop the turn
+    // ------------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task A_check_that_faults_past_the_retry_bound_opens_the_turn_rather_than_losing_it()
+    {
+        // The retry bound was invented to stop a spin and it built the exact failure this design
+        // forbids. Past the bound the burst was DROPPED: a one-burst reply then had no pending
+        // check and no later byte to make one, and the session sat red for ever. An inspection
+        // demonstrated it with a rule that faulted on every call - four attempted checks, and the
+        // session still WaitingForInput with nothing left to ask again.
+        //
+        // A rule that cannot decide must never decide against the user. Past the bound the turn
+        // OPENS, which is today's behaviour and always available: the cost of a wrong open is a
+        // blue session that settles again a quiet window later, and the cost of a wrong drop is
+        // work that sits red until somebody happens to look at it.
+        TurnDetectionShadowLog.Enabled = true;
+        var rule = new StubRule(opens: true) { ThrowAlways = true };
+        var (session, backend, detector) = Start(TurnContentRule.Row, rowRule: rule);
+        using (detector)
+        {
+            await SettleWithABody(session, backend);
+
+            var working = NextTransitionTo(session, ActivityState.Working);
+
+            // ONE burst and nothing after it, exactly as in the inspection's probe.
+            backend.Write(Encoding.UTF8.GetBytes("All nine call sites now go through one helper.\r\n> "));
+
+            Assert.True(await working.Task.WaitAsync(TimeSpan.FromSeconds(10)),
+                "a check that faulted past the retry bound lost the burst, so the turn never opened");
+
+            // And it really did exhaust the bound rather than opening on the first fault - the
+            // retries are what make this the LAST resort rather than the first.
+            Assert.True(rule.Calls > 1,
+                $"the turn opened after only {rule.Calls} attempt(s); the burst must be retried before the fallback");
+        }
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // A faulted state write must not leave the session blue for ever - on EITHER shipped path
+    // ------------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task A_faulted_state_write_on_the_byte_path_does_not_leave_the_session_stuck_working()
+    {
+        // THE SWITCH-OFF PATH, which is what every Director runs today - this fault is on
+        // origin/main and is older than the content rule. Session.SetActivityState assigns Working
+        // and THEN calls its subscribers, so a subscriber that throws escapes from the middle of
+        // the write. The byte callback swallowed it, the quiet timer was never armed, and the
+        // active latch stayed set - so every later byte took the already-active branch and armed
+        // nothing. Permanently blue, with nothing left that could bring it back.
+        TurnDetectionShadowLog.Enabled = true;
+        int throwsLeft = 0;
+        var (session, backend, detector) = Start(
+            TurnContentRule.Off,
+            beforeDetector: (_, newState) =>
+            {
+                if (newState == ActivityState.Working && Interlocked.Decrement(ref throwsLeft) >= 0)
+                    throw new InvalidOperationException("a subscriber faulted during the state write");
+            });
+        using (detector)
+        {
+            await SettleWithABody(session, backend);
+
+            Volatile.Write(ref throwsLeft, 1);
+            var red = NextTransitionTo(session, ActivityState.WaitingForInput);
+
+            // ONE burst. Nothing arrives afterwards to rescue it.
+            backend.Write(Encoding.UTF8.GetBytes("All nine call sites now go through one helper.\r\n> "));
+
+            Assert.True(await red.Task.WaitAsync(TimeSpan.FromSeconds(10)),
+                "the session never came back to red, so the faulted write left it latched Working");
+        }
+    }
+
+    [Fact]
+    public async Task A_faulted_state_write_on_the_body_path_does_not_leave_the_session_stuck_working()
+    {
+        // The same fault on the other shipped activation path: an agent whose idle terminal never
+        // goes byte-silent (Grok) is woken by a BODY change rather than by a byte, through a
+        // different method with its own copy of the latch-then-write order.
+        TurnDetectionShadowLog.Enabled = true;
+        int throwsLeft = 0;
+        var (session, backend, detector) = Start(
+            TurnContentRule.Off,
+            agent: AgentKind.Grok,
+            beforeDetector: (_, newState) =>
+            {
+                if (newState == ActivityState.Working && Interlocked.Decrement(ref throwsLeft) >= 0)
+                    throw new InvalidOperationException("a subscriber faulted during the state write");
+            });
+        using (detector)
+        {
+            await SettleWithABody(session, backend);
+
+            Volatile.Write(ref throwsLeft, 1);
+            var red = NextTransitionTo(session, ActivityState.WaitingForInput);
+
+            // Past the body-check throttle, and a real body change rather than a footer frame.
+            await Task.Delay(TimeSpan.FromMilliseconds(600));
+            backend.Write(Encoding.UTF8.GetBytes("\r\nAll nine call sites now go through one helper.\r\n> "));
+
+            Assert.True(await red.Task.WaitAsync(TimeSpan.FromSeconds(10)),
+                "the session never came back to red, so the faulted write left it latched Working");
+        }
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // The size rule is asked ONCE, so its verdict and its numbers cannot disagree
+    // ------------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task The_size_verdict_and_its_numbers_come_from_one_call()
+    {
+        // The detector used to gather the verdict, the magnitude and the threshold from three
+        // separate calls, and an inspection pointed out that nothing REQUIRED the number written
+        // into the log to be the number the verdict was taken from. The rule here answers with a
+        // different magnitude every time it is asked, alternating above and below its own
+        // threshold: a detector that asks twice writes a row that contradicts itself.
+        TurnDetectionShadowLog.Enabled = true;
+        var size = new DriftingSizeRule();
+        var (session, backend, detector) = Start(TurnContentRule.Size, sizeRule: size);
+        using (detector)
+        {
+            await SettleWithABody(session, backend);
+
+            int before = size.Calls;
+            int baseline = CountShadowRows(session.Id);
+            backend.Write(Encoding.UTF8.GetBytes("Update installed - restart to apply\r\n> "));
+
+            var row = await WaitForShadowRowAfter(session.Id, baseline, detector);
+
+            bool opens = row.GetProperty("SizeRuleOpens").GetBoolean();
+            int magnitude = row.GetProperty("ChangedCharacters").GetInt32();
+            int threshold = row.GetProperty("SizeThreshold").GetInt32();
+
+            Assert.Equal(magnitude >= threshold, opens);
+            Assert.Equal(1, size.Calls - before);
+        }
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // The detector the product builds runs the timings the product ships
+    // ------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void A_detector_built_the_way_the_product_builds_one_runs_the_shipped_timings()
+    {
+        // The named constants were pinned; the CONSTRUCTOR'S USE of them was not. An inspection
+        // substituted 401 milliseconds and four seconds in the constructor, left both constants
+        // alone, and all 102 focused tests stayed green - because every behaviour test injects its
+        // own timings and nothing else could see what a production detector took.
+        using var detector = new TerminalStateDetector(_manager, driveState: false);
+
+        Assert.Equal(TerminalStateDetector.SettleCheckDelay, detector.SettleCheckDelayInUse);
+        Assert.Equal(TerminalStateDetector.MaxSettleCheckDeferral, detector.MaxSettleCheckDeferralInUse);
+    }
+
     /// <summary>A candidate that always answers the same way, so the test can tell whether the
     /// detector asked it at all.</summary>
     private sealed class StubRule : ITerminalNoveltyRule
@@ -621,6 +780,10 @@ public sealed class ContentTurnRuleTests : IDisposable
         /// burst it was asked about survives the fault.</summary>
         internal bool ThrowOnNextCall { get; set; }
 
+        /// <summary>Throw on EVERY call, which is what a permanent fault looks like - a screen read
+        /// that cannot succeed rather than one that raced.</summary>
+        internal bool ThrowAlways { get; set; }
+
         public string Name => "stub";
         internal int Calls => Volatile.Read(ref _calls);
 
@@ -629,6 +792,8 @@ public sealed class ContentTurnRuleTests : IDisposable
             IReadOnlyCollection<string> chromeMarkers, out string? evidence)
         {
             Interlocked.Increment(ref _calls);
+            if (ThrowAlways)
+                throw new InvalidOperationException("the rule faults on every call");
             if (ThrowOnNextCall)
             {
                 ThrowOnNextCall = false;
@@ -646,6 +811,7 @@ public sealed class ContentTurnRuleTests : IDisposable
     {
         private readonly bool _opens;
         private readonly int _magnitude;
+        private int _calls;
 
         internal StubSizeRule(int threshold, int magnitude, bool opens)
         {
@@ -656,16 +822,56 @@ public sealed class ContentTurnRuleTests : IDisposable
 
         public string Name => "stub-size";
         public int Threshold { get; }
+        internal int Calls => Volatile.Read(ref _calls);
 
-        public int Measure(IReadOnlyList<string>? settledBody, IReadOnlyList<string>? currentBody)
-            => _magnitude;
+        public SizeVerdict Evaluate(IReadOnlyList<string>? settledBody, IReadOnlyList<string>? currentBody)
+        {
+            Interlocked.Increment(ref _calls);
+            return new SizeVerdict(_opens, _magnitude, Threshold,
+                _opens ? $"changed {_magnitude} characters" : null);
+        }
 
         public bool GainedContent(
             IReadOnlyList<string> settledBody, IReadOnlyList<string> currentBody,
             IReadOnlyCollection<string> chromeMarkers, out string? evidence)
         {
-            evidence = _opens ? $"changed {_magnitude} characters" : null;
-            return _opens;
+            var verdict = Evaluate(settledBody, currentBody);
+            evidence = verdict.Evidence;
+            return verdict.Opens;
+        }
+    }
+
+    /// <summary>
+    /// A size candidate whose magnitude CHANGES on every call, alternating above and below its own
+    /// threshold. It exists to make a detector that asks more than once contradict itself: the
+    /// verdict would come from one measurement and the number written into the log from another,
+    /// and the row would say "this opened" beside a magnitude under the threshold. A rule asked
+    /// exactly once cannot produce that row whatever it answers.
+    /// </summary>
+    private sealed class DriftingSizeRule : ITerminalSizeRule
+    {
+        private int _calls;
+
+        public string Name => "drifting-size";
+        public int Threshold => 100;
+        internal int Calls => Volatile.Read(ref _calls);
+
+        public SizeVerdict Evaluate(IReadOnlyList<string>? settledBody, IReadOnlyList<string>? currentBody)
+        {
+            // 400, then 4, then 400, then 4 ... the first answer opens and the second does not.
+            int magnitude = Interlocked.Increment(ref _calls) % 2 == 1 ? 400 : 4;
+            bool opens = magnitude >= Threshold;
+            return new SizeVerdict(opens, magnitude, Threshold,
+                opens ? $"changed {magnitude} characters" : null);
+        }
+
+        public bool GainedContent(
+            IReadOnlyList<string> settledBody, IReadOnlyList<string> currentBody,
+            IReadOnlyCollection<string> chromeMarkers, out string? evidence)
+        {
+            var verdict = Evaluate(settledBody, currentBody);
+            evidence = verdict.Evidence;
+            return verdict.Opens;
         }
     }
 
@@ -759,13 +965,19 @@ public sealed class ContentTurnRuleTests : IDisposable
     /// wrong check. Both of the failures this helper was written twice for looked like production
     /// defects and were this.
     /// </summary>
-    private static async Task<JsonElement> WaitForShadowRowAfter(Guid sessionId, int baseline)
+    private static async Task<JsonElement> WaitForShadowRowAfter(
+        Guid sessionId, int baseline, TerminalStateDetector? detector = null)
     {
         var path = ShadowPath(sessionId);
-        // Fifteen seconds, not five. These tests drive the detector'"'"'s REAL timers, and a check that
+        // Fifteen seconds, not five. These tests drive the detector's REAL timers, and a check that
         // is merely late under load is not the same fact as a row that was never written - a five
         // second deadline turned the first into the second about once in fifteen runs when a build
         // was running beside the suite. What is asserted is unchanged: the row must appear.
+        //
+        // The longer wait changes no production behaviour and diagnoses nothing on its own - it
+        // only makes the flake less likely. That is a tolerance change, and it was once written up
+        // as though it had settled the question. The POSITIVE SIGNAL below is what actually
+        // separates the two facts.
         var deadline = DateTime.UtcNow.AddSeconds(15);
         while (DateTime.UtcNow < deadline)
         {
@@ -775,15 +987,31 @@ public sealed class ContentTurnRuleTests : IDisposable
             await Task.Delay(25);
         }
 
-        // An empty result must read as a broken instrument, never as a clean run - so the
-        // failure carries what WAS in the directory, which is the difference between "the check
-        // never ran" and "the row went somewhere else".
+        // An empty result must read as a broken instrument, never as a clean run - so the failure
+        // carries what WAS in the directory, which is the difference between "the check never ran"
+        // and "the row went somewhere else".
         var dir = Path.GetDirectoryName(path)!;
         var present = Directory.Exists(dir)
             ? string.Join(", ", Directory.GetFiles(dir).Select(f => $"{Path.GetFileName(f)}:{new FileInfo(f).Length}b"))
             : "(the directory does not exist)";
+
+        // THE ONE FACT THE DIRECTORY CANNOT CARRY. A target file holding exactly the baseline rows
+        // is the same observation whether the row is LATE or will NEVER be written, so the file
+        // listing alone can never tell them apart - an inspection made that point and it was right.
+        // A check that is still armed at the deadline is a positive signal unique to "late": the
+        // callback is scheduled and has not fired. No check armed, and no row, means nothing is
+        // going to write one.
+        //
+        // Callers that do not pass the detector get the honest version of that sentence rather than
+        // a guess.
+        var lateness = detector is null
+            ? "no detector was handed to this helper, so late and never CANNOT be told apart here"
+            : detector.HasPendingCheck(sessionId)
+                ? "a check IS still armed for this session, so the row is LATE rather than absent"
+                : "NO check is armed for this session, so no row will ever be written for this burst";
+
         throw new Xunit.Sdk.XunitException(
-            $"no shadow row was written past row {baseline} in {path}; the directory holds {present}");
+            $"no shadow row was written past row {baseline} in {path}; the directory holds {present}; {lateness}");
     }
 
     private static string[] ShadowRows(Guid sessionId)

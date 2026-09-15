@@ -122,6 +122,17 @@ public sealed class TurnDetectionShadowRetentionTests : IDisposable
         Assert.Equal(4L * 1024 * 1024, TurnDetectionShadowLog.DefaultMaxFileBytes);
         Assert.Equal(14, TurnDetectionShadowLog.DefaultMaxFileAgeDays);
         Assert.Equal(TimeSpan.FromHours(1), TurnDetectionShadowLog.DefaultSweepInterval);
+
+        // AND THE VALUES THE PRODUCT ACTUALLY CONSUMES. The three constants above were pinned and
+        // the LIVE fields initialised from them were not, so an inspection left every constant
+        // alone, put five megabytes, fifteen days and two hours into the live properties instead,
+        // and every focused test stayed green - the behaviour tests all overwrite these before they
+        // run. These assertions read them where nothing has moved them: the values below are
+        // whatever the type initialiser produced, restored by this class's Dispose after every test
+        // that changes them, and this class's constructor does not touch them.
+        Assert.Equal(TurnDetectionShadowLog.DefaultMaxFileBytes, TurnDetectionShadowLog.MaxFileBytes);
+        Assert.Equal(TurnDetectionShadowLog.DefaultMaxFileAgeDays, TurnDetectionShadowLog.MaxFileAgeDays);
+        Assert.Equal(TurnDetectionShadowLog.DefaultSweepInterval, TurnDetectionShadowLog.SweepInterval);
     }
 
     [Fact]
@@ -139,6 +150,145 @@ public sealed class TurnDetectionShadowRetentionTests : IDisposable
             TurnDetectionShadowLog.ResolveEnabled(
                 Environment.GetEnvironmentVariable(TurnDetectionShadowLog.EnabledVariable)),
             TurnDetectionShadowLog.InitialEnabled);
+
+        // AND THE SHIPPED PROPERTY REALLY STARTS FROM THAT RESOLVER. The resolver was pinned and
+        // the field initialised from it was not, so an inspection changed Enabled's initialiser to
+        // a bare false, left ResolveEnabled and InitialEnabled alone, and every focused test stayed
+        // green - because every test that cares sets Enabled itself. _shadowWasEnabled is read in
+        // this class's constructor BEFORE it turns the log on, and every test in this collection
+        // restores what it found, so what is compared here is the value the type initialiser
+        // produced.
+        Assert.Equal(TurnDetectionShadowLog.InitialEnabled, _shadowWasEnabled);
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // The sweep deletes only what it can prove it wrote
+    // ------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void The_sweep_leaves_alone_an_aged_file_this_log_did_not_write()
+    {
+        // THE DESTRUCTIVE BOUNDARY, which nothing tested. The sweep enumerated every *.jsonl in the
+        // directory and deleted on age alone, and an inspection demonstrated the consequence: it
+        // dropped an aged owner-notes.jsonl into the shadow directory and the very next append
+        // deleted it. An extension rules some things out; it is not proof of ownership.
+        //
+        // Both directions in one test on purpose. A sweep that deleted nothing at all would pass
+        // the first assertion, so the owned file next to it has to still go.
+        TurnDetectionShadowLog.MaxFileAgeDays = 14;
+        TurnDetectionShadowLog.SweepInterval = TimeSpan.Zero; // sweep on this append
+        Directory.CreateDirectory(CcStorage.TurnDetectionShadow());
+
+        var stranger = Path.Combine(CcStorage.TurnDetectionShadow(), "owner-notes.jsonl");
+        Aged(stranger);
+
+        var ours = Path.Combine(CcStorage.TurnDetectionShadow(), Guid.NewGuid().ToString("N") + ".jsonl");
+        Aged(ours);
+
+        var oursRolled = Path.Combine(
+            CcStorage.TurnDetectionShadow(), Guid.NewGuid().ToString("N") + ".1.jsonl");
+        Aged(oursRolled);
+
+        TurnDetectionShadowLog.Append(Guid.NewGuid(), RowFor(1));
+
+        Assert.True(File.Exists(stranger),
+            "the sweep deleted a file this log never wrote; an extension is a deny boundary, not ownership");
+        Assert.False(File.Exists(ours), "an aged file this log DID write was kept, so the bound does nothing");
+        Assert.False(File.Exists(oursRolled), "the rolled predecessor shape must age out as well");
+    }
+
+    [Theory]
+    // The two shapes Append and RotateIfOversized compose, and nothing else.
+    [InlineData("0123456789abcdef0123456789abcdef.jsonl", true)]
+    [InlineData("0123456789abcdef0123456789abcdef.1.jsonl", true)]
+    [InlineData("owner-notes.jsonl", false)]
+    [InlineData("0123456789abcdef0123456789abcdef.jsonl.bak", false)]
+    [InlineData("0123456789abcdef0123456789abcde.jsonl", false)]            // thirty-one characters
+    [InlineData("0123456789abcdef0123456789abcdefa.jsonl", false)]          // thirty-three
+    [InlineData("0123456789ABCDEF0123456789ABCDEF.jsonl", false)]           // this writer emits lower case
+    [InlineData("0123456789abcdef0123456789abcdef.2.jsonl", false)]         // only ONE predecessor is kept
+    [InlineData("notes-0123456789abcdef0123456789abcdef.jsonl", false)]     // anchored at the start
+    public void The_owned_name_shapes_are_exactly_the_two_this_log_writes(string name, bool owned)
+    {
+        Assert.Equal(owned, TurnDetectionShadowLog.IsOwnedFileName(name));
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // The rollover: a failure must not cost the row, and the bound is stated honestly
+    // ------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void A_rollover_that_cannot_happen_still_writes_the_row()
+    {
+        // Rotation used to share the append's one broad try, so a File.Move that threw skipped the
+        // append entirely: the observation was gone, and only a healthy FileLog sink showed it. An
+        // oversized file is a far smaller harm than a missing observation.
+        //
+        // The failure is made real rather than mocked - a DIRECTORY sits where the rolled
+        // predecessor would go, so File.Move cannot succeed, while the live file stays perfectly
+        // writable.
+        TurnDetectionShadowLog.MaxFileBytes = 200;
+        TurnDetectionShadowLog.SweepInterval = TimeSpan.FromDays(1);
+        var session = Guid.NewGuid();
+        Directory.CreateDirectory(CcStorage.TurnDetectionShadow());
+
+        var live = Path.Combine(CcStorage.TurnDetectionShadow(), session.ToString("N") + ".jsonl");
+        var rolled = Path.Combine(CcStorage.TurnDetectionShadow(), session.ToString("N") + ".1.jsonl");
+
+        TurnDetectionShadowLog.Append(session, RowFor(0));
+        Assert.True(new FileInfo(live).Length >= TurnDetectionShadowLog.MaxFileBytes,
+            "the live file must be past the size bound, or no rollover would be attempted");
+        int before = File.ReadAllLines(live).Length;
+
+        Directory.CreateDirectory(rolled); // File.Move onto a directory cannot succeed
+
+        TurnDetectionShadowLog.Append(session, RowFor(1));
+
+        Assert.Equal(before + 1, File.ReadAllLines(live).Length);
+    }
+
+    [Fact]
+    public void A_live_file_can_pass_the_size_bound_by_at_most_one_record()
+    {
+        // THE BOUND STATED HONESTLY RATHER THAN THE ALGORITHM TIGHTENED. The size is tested BEFORE
+        // the next record is appended, so a file that was inside the bound can end an append
+        // outside it. The forty-row test happens to finish under its own small bound and therefore
+        // proves nothing about this; an inspection pointed that out, and the answer is to say what
+        // the algorithm really guarantees instead of pretending it guarantees more.
+        TurnDetectionShadowLog.MaxFileBytes = 1_000;
+        TurnDetectionShadowLog.SweepInterval = TimeSpan.FromDays(1);
+        var session = Guid.NewGuid();
+
+        var live = Path.Combine(CcStorage.TurnDetectionShadow(), session.ToString("N") + ".jsonl");
+        var rolled = Path.Combine(CcStorage.TurnDetectionShadow(), session.ToString("N") + ".1.jsonl");
+
+        long longestRecord = 0;
+        long biggestBeforeAnyRollover = 0;
+        for (int i = 0; i < 40 && !File.Exists(rolled); i++)
+        {
+            long was = File.Exists(live) ? new FileInfo(live).Length : 0;
+            TurnDetectionShadowLog.Append(session, RowFor(i));
+            if (File.Exists(rolled)) break;
+
+            long now = new FileInfo(live).Length;
+            longestRecord = Math.Max(longestRecord, now - was);
+            biggestBeforeAnyRollover = Math.Max(biggestBeforeAnyRollover, now);
+        }
+
+        Assert.True(biggestBeforeAnyRollover > TurnDetectionShadowLog.MaxFileBytes,
+            $"the live file never passed the bound ({biggestBeforeAnyRollover} bytes against "
+            + $"{TurnDetectionShadowLog.MaxFileBytes}), so this test is not measuring the overshoot it claims to");
+
+        Assert.True(biggestBeforeAnyRollover <= TurnDetectionShadowLog.MaxFileBytes + longestRecord,
+            $"the overshoot was {biggestBeforeAnyRollover - TurnDetectionShadowLog.MaxFileBytes} bytes against a "
+            + $"longest record of {longestRecord}; the documented bound is the maximum plus AT MOST ONE record");
+    }
+
+    /// <summary>Write a file and stamp it past the age bound.</summary>
+    private static void Aged(string path)
+    {
+        File.WriteAllText(path, "{}\n");
+        File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddDays(-(TurnDetectionShadowLog.MaxFileAgeDays + 1)));
     }
 
     private static TurnDetectionShadowLog.Record RowFor(int i) => new(

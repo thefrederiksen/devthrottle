@@ -298,17 +298,47 @@ public sealed class TerminalContentNoveltyTests
     }
 
     [Fact]
-    public void The_size_rules_magnitude_is_the_measurement_its_verdict_was_taken_from()
+    public void The_size_rule_answers_the_verdict_the_magnitude_and_the_threshold_in_ONE_call()
     {
-        // The interface promise: the number written into the log comes from the same object that
-        // ruled on it, so the two can never describe different functions.
+        // The interface promise, and it used to be weaker than it read. The verdict, the magnitude
+        // and the threshold were three separate calls, so nothing REQUIRED the number written into
+        // the log to be the number the verdict was taken from - an inspection pointed out that only
+        // an unenforced convention held them together, and a later candidate could drift apart
+        // while every test stayed green. One call cannot contradict itself.
         var current = SettledPlus("  The migration completed with warnings.");
         var rule = TerminalContentNovelty.SizeRule(10);
 
-        int magnitude = rule.Measure(SettledScreen, current);
-        Assert.Equal(TerminalContentNovelty.ChangedCharacters(SettledScreen, current), magnitude);
-        Assert.True(rule.GainedContent(SettledScreen, current, System.Array.Empty<string>(), out var evidence));
-        Assert.Equal($"changed {magnitude} characters", evidence);
+        var verdict = rule.Evaluate(SettledScreen, current);
+
+        Assert.Equal(TerminalContentNovelty.ChangedCharacters(SettledScreen, current), verdict.Magnitude);
+        Assert.Equal(10, verdict.Threshold);
+        Assert.Equal(verdict.Magnitude >= verdict.Threshold, verdict.Opens);
+        Assert.True(verdict.Opens);
+        Assert.Equal($"changed {verdict.Magnitude} characters", verdict.Evidence);
+
+        // And the novelty-interface view is the same answer rather than a second comparison.
+        Assert.Equal(
+            verdict.Opens,
+            rule.GainedContent(SettledScreen, current, System.Array.Empty<string>(), out var evidence));
+        Assert.Equal(verdict.Evidence, evidence);
+    }
+
+    [Fact]
+    public void A_size_rule_that_holds_reports_its_magnitude_and_no_evidence()
+    {
+        // The other direction, because a verdict record that only ever came back open would satisfy
+        // the test above. The magnitude is recorded whatever the verdict was - that is what lets
+        // work item five re-choose the threshold from the log rather than re-running anything.
+        var current = SettledPlus("  ok");
+        var rule = TerminalContentNovelty.SizeRule(10_000);
+
+        var verdict = rule.Evaluate(SettledScreen, current);
+
+        Assert.False(verdict.Opens);
+        Assert.Equal(10_000, verdict.Threshold);
+        Assert.Equal(TerminalContentNovelty.ChangedCharacters(SettledScreen, current), verdict.Magnitude);
+        Assert.True(verdict.Magnitude > 0, "the magnitude must be recorded even when the rule holds");
+        Assert.Null(verdict.Evidence);
     }
 
     [Fact]
