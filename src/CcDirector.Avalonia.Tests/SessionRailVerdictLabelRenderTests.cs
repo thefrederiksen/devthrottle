@@ -14,23 +14,28 @@ namespace CcDirector.Avalonia.Tests;
 /// THE WINGMAN'S LABEL IS DRAWN WHOLE ON THE DESKTOP RAIL (the Wingman-on-every-turn mission, slice D).
 ///
 /// The desktop gets a verdict as colour and label only, over the display push. Every label the rail showed
-/// before was a word or two ("Needs you", "Working"); a verdict label is up to eighty characters, the cap the
-/// turn-verdict contract puts on it. The rail is 264 pixels wide. So the claim "the desktop shows the label" is
-/// a rendered claim, and it is checked by rendering: MainWindow's real row template, at the rail's real width,
-/// carrying the longest label the Gateway can stamp, with the drawn text measured against the rail's edge.
+/// before was a word or two ("Needs you", "Working"); a verdict line is up to eighty characters, the cap the
+/// turn-verdict contract puts on it, and a green row's label leads it with "Done - " or "Report - ". The rail is
+/// 264 pixels wide. So the claim "the desktop shows the label" is a rendered claim, and it is checked by rendering:
+/// MainWindow's real row template, at the rail's real width, carrying the longest label the Gateway can stamp,
+/// with the drawn text measured against the rail's edge.
 /// </summary>
 public sealed class SessionRailVerdictLabelRenderTests
 {
     /// <summary>The first column of MainWindow.axaml's MainLayoutGrid - the width the rail opens at.</summary>
     private const double RealRailWidth = 264;
 
-    /// <summary>Exactly eighty characters: the contract's cap on a verdict label, so the longest the rail can get.</summary>
-    private const string LongestLabel = "The pull request is open and the branch is pushed; nothing is waiting on you now";
+    /// <summary>Exactly eighty characters: the contract's cap on a verdict label.</summary>
+    private const string LongestVerdictLine = "The pull request is open and the branch is pushed; nothing is waiting on you now";
+
+    /// <summary>The longest label the fold can stamp: the longer of the two leading words, then the longest line.</summary>
+    private const string LongestLabel = "Report - " + LongestVerdictLine;
 
     [AvaloniaFact]
     public void TheLongestVerdictLabel_IsDrawnWhole_InsideTheRailWidth()
     {
-        Assert.Equal(80, LongestLabel.Length);
+        Assert.Equal(80, LongestVerdictLine.Length);
+        Assert.Equal(89, LongestLabel.Length);
 
         var session = new Session(
             Guid.NewGuid(), @"C:\test\repo", @"C:\test\repo", null,
@@ -69,7 +74,7 @@ public sealed class SessionRailVerdictLabelRenderTests
                 $"a drawn line of the label is {line.Width:F0} pixels inside a {label.Bounds.Width:F0} pixel block");
         // And the lines together carry every character of the label: it wrapped, it was not trimmed. At least,
         // not exactly: the layout counts one end-of-paragraph character on its last line, so a whole label measures
-        // 81 here, and a trimmed one would measure less than 80.
+        // one more than its length here, and a trimmed one would measure less than its length.
         Assert.True(lines.Sum(l => l.Length) >= LongestLabel.Length,
             $"the label's lines carry {lines.Sum(l => l.Length)} characters of its {LongestLabel.Length}, so part of it was trimmed");
         Assert.True(lines.Count > 1, "the longest label fitted on one line, so this test no longer exercises wrapping");
