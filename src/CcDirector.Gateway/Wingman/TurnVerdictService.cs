@@ -844,8 +844,11 @@ public sealed class TurnVerdictService : IDisposable
     /// "continues-alone" verdict whose deadline has passed is replaced by a "needed-you" verdict labelled "Said it
     /// would continue and did not". Returns how many expired.
     ///
-    /// Only for an account whose colour switch is on - nobody else has a purple row to take back, and a shadow
-    /// record stays the judge's own answer for the grading.
+    /// For every account whose JUDGE switch is on, whether or not its colour switch is (the Architect's ruling on
+    /// slice D, decision 5 reversed). A shadow account's stored verdicts are what the product would have shown,
+    /// so its purple must expire exactly like a live one; a purple that never expires overstates "carrying on" in
+    /// every grading report. What reaches a screen does not change: the row stamp still reads the colour switch.
+    /// The judge's own answer is never overwritten either way - the expiry is a new, later record.
     ///
     /// A WORKING TRANSITION STOPS THE CLOCK, AND IT CANNOT LOSE A RACE WITH THIS. The snapshot is read outside the
     /// gate; each expiry re-reads the session's latest verdict INSIDE the gate <see cref="OnSessionWorking"/>
@@ -855,7 +858,7 @@ public sealed class TurnVerdictService : IDisposable
     public int ExpireCarryingOn(TenantId tenant)
     {
         if (_disposed || !tenant.IsValid) return 0;
-        if (!_env.Settings(tenant).ColourEnabled) return 0;
+        if (!_env.Settings(tenant).JudgeEnabled) return 0;
 
         var now = _env.NowUtc();
         var expired = 0;

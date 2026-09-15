@@ -166,17 +166,63 @@ public sealed class TurnVerdictWatchdogTests
     }
 
     [Fact]
-    public void ExpireCarryingOn_ColourSwitchOff_ReadsNothingAndExpiresNothing()
+    public void ExpireCarryingOn_JudgeSwitchOff_ReadsNothingAndExpiresNothing()
     {
         var now = JudgedAt.AddHours(2);
         var env = ColourOnEnv(() => now);
-        env.Knobs = env.Knobs with { ColourEnabled = false };
+        env.Knobs = env.Knobs with { JudgeEnabled = false, ColourEnabled = false };
         env.Store(Tenant, "s1", CarryingOn());
         var service = new TurnVerdictService(env);
 
         Assert.Equal(0, service.ExpireCarryingOn(Tenant));
         Assert.Equal(0, env.SnapshotReads);
         Assert.Equal(TurnVerdictVocabulary.ContinuesAlone, env.Latest(Tenant, "s1")!.Verdict);
+    }
+
+    /// <summary>
+    /// THE CLOCK FOLLOWS THE JUDGE SWITCH, NOT THE COLOUR SWITCH (decision 5 reversed). A shadow account - judge on,
+    /// colour off - stores what the product would have shown, so its carrying-on verdict must run out on exactly
+    /// the live account's clock. Three accounts, one stored carrying-on verdict each, one clock: live (both
+    /// switches on), shadow (judge on, colour off), and a control with the judge switch off.
+    /// </summary>
+    [Fact]
+    public void ExpireCarryingOn_AShadowAccount_ExpiresOnTheLiveAccountsClock_AndAJudgeOffAccountDoesNot()
+    {
+        var now = JudgedAt;
+        var live = ColourOnEnv(() => now);
+        var shadow = ColourOnEnv(() => now);
+        shadow.Knobs = shadow.Knobs with { JudgeEnabled = true, ColourEnabled = false };
+        var control = ColourOnEnv(() => now);
+        control.Knobs = control.Knobs with { JudgeEnabled = false, ColourEnabled = false };
+        var accounts = new[] { live, shadow, control };
+        foreach (var env in accounts) env.Store(Tenant, "s1", CarryingOn());
+        var services = accounts.Select(env => new TurnVerdictService(env)).ToArray();
+
+        // A second before the deadline nobody has run out.
+        now = JudgedAt.AddMinutes(10).AddSeconds(-1);
+        Assert.Equal(new[] { 0, 0, 0 }, services.Select(s => s.ExpireCarryingOn(Tenant)));
+
+        // At the deadline the live account and the shadow account both run out, on the same tick.
+        now = JudgedAt.AddMinutes(10);
+        Assert.Equal(new[] { 1, 1, 0 }, services.Select(s => s.ExpireCarryingOn(Tenant)));
+
+        foreach (var env in new[] { live, shadow })
+        {
+            var latest = env.Latest(Tenant, "s1")!;
+            Assert.Equal(TurnVerdictVocabulary.NeededYou, latest.Verdict);
+            Assert.Equal("Said it would continue and did not", latest.Label);
+            Assert.Equal(now, latest.JudgedAtUtc);
+            Assert.Equal(new[] { TurnVerdictVocabulary.NeededYou, TurnVerdictVocabulary.ContinuesAlone },
+                env.StoredRows(Tenant, "s1").Select(r => r.Verdict));
+            Assert.Contains(env.Records, r => r.EventType == ActivityEventTypes.TurnVerdictExpired
+                                              && r.Cause == ActivityCauses.CarryingOnExpired && r.SessionId == "s1");
+        }
+
+        // The control account's judge switch is off: its stored verdict is untouched and nothing was recorded.
+        Assert.Equal(TurnVerdictVocabulary.ContinuesAlone, control.Latest(Tenant, "s1")!.Verdict);
+        Assert.Single(control.StoredRows(Tenant, "s1"));
+        Assert.DoesNotContain(control.Records, r => r.EventType == ActivityEventTypes.TurnVerdictExpired);
+        Assert.Equal(0, control.SnapshotReads);
     }
 
     [Fact]
