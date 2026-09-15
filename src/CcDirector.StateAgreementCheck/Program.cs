@@ -100,7 +100,7 @@ public static class Program
                                       "everything below describes the SECOND read, which is where these findings were confirmed.");
             }
 
-            Report(reportRoster, findings);
+            Report(reportRoster, findings, tree);
             // The exit decision is AgreementCheck.Summary.ExitCode - bound, tested, and the only place
             // that knows an indeterminate finding is not a disagreement. This used to be
             // `findings.Count == 0 ? 0 : 1` right here, which returned "disagreements" for a row the
@@ -124,7 +124,8 @@ public static class Program
         }
     }
 
-    private static void Report(IReadOnlyList<SessionDto> roster, IReadOnlyList<AgreementCheck.Finding> findings)
+    private static void Report(IReadOnlyList<SessionDto> roster, IReadOnlyList<AgreementCheck.Finding> findings,
+        TreeAgreement.Result tree)
     {
         Console.WriteLine(new string('-', 78));
         foreach (var row in roster)
@@ -193,6 +194,17 @@ public static class Program
         Console.WriteLine($"CHECK RESULTS, over {sum.LiveSessions} live session(s):");
         foreach (var check in sum.AllChecks)
             Console.WriteLine($"  {check.Name.PadRight(44, '.')} {check.Line}");
+        // THE TREE'S VERDICT IS REPEATED HERE, BESIDE THE OTHERS, and it names its own scope.
+        //
+        // Without this line the headline above reads "N disagreement(s) over M live session(s)" and can
+        // say ZERO while the run exits 1 on a tree finding printed forty lines earlier - a true half
+        // printed without its qualifier, which is the shape of every reporting defect this file has
+        // already paid for. It is NOT counted into that headline's number, because that number is per
+        // live session and the tree's rows are fixtures: the two denominators are different questions.
+        Console.WriteLine($"  {"the ownership tree, C# versus the shared file".PadRight(44, '.')} " +
+                          (tree.Findings.Count == 0
+                              ? $"PASS over {tree.Cases} fixture case(s) - NOT over the live fleet, and NOT the browser fold"
+                              : $"FAIL ({tree.Findings.Count}) over {tree.Cases} fixture case(s)"));
         if (sum.AllChecks.Any(c => c.NotGraded > 0))
         {
             Console.WriteLine();
