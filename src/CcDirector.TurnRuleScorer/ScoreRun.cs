@@ -34,8 +34,9 @@ internal static class ScoreRun
         var misses = new List<CorpusMiss>();
         var unknownDrivers = new SortedSet<string>(StringComparer.Ordinal);
 
-        int screens = 0, noAnchor = 0, singleAnchor = 0, severalAnchors = 0;
+        int screens = 0, noAnchor = 0, singleAnchor = 0, severalAnchors = 0, emptyScreens = 0;
         int scored = 0;
+        var emptyPairs = new Dictionary<(string Agent, string Label), int>();
 
         foreach (var wake in paired)
         {
@@ -45,12 +46,23 @@ internal static class ScoreRun
             foreach (var rows in new[] { before!.Rows, after!.Rows })
             {
                 screens++;
+                if (rows.Count == 0) emptyScreens++;
                 switch (ScreenBodySplit.ConfidenceOf(rows))
                 {
                     case ScreenBodySplit.Confidence.NoAnchor: noAnchor++; break;
                     case ScreenBodySplit.Confidence.SingleAnchor: singleAnchor++; break;
                     default: severalAnchors++; break;
                 }
+            }
+
+            // An empty capture is not a corpus miss - the file is there and it hashes to the pinned
+            // value, so the corpus is intact. It is the absence of evidence, and it is counted
+            // rather than dropped: dropping it would be quietly choosing which pinned pairs count.
+            if (before.Rows.Count == 0 || after.Rows.Count == 0)
+            {
+                var emptyKey = (wake.AgentLabel, wake.Label);
+                emptyPairs.TryGetValue(emptyKey, out var seen);
+                emptyPairs[emptyKey] = seen + 1;
             }
 
             var settledBody = ScreenBodySplit.Body(before.Rows);
@@ -78,6 +90,12 @@ internal static class ScoreRun
             PairsScored: scored,
             Misses: misses,
             BodySplit: new BodySplitCensus(screens, noAnchor, singleAnchor, severalAnchors),
+            EmptyScreens: emptyScreens,
+            PairsTouchingAnEmptyScreen: emptyPairs
+                .Select(e => new EmptyScreenPairs(e.Key.Agent, e.Key.Label, e.Value))
+                .OrderBy(e => e.Agent, StringComparer.Ordinal)
+                .ThenBy(e => e.Label, StringComparer.Ordinal)
+                .ToList(),
             UnknownDrivers: unknownDrivers.ToList(),
             Tallies: tallies);
     }

@@ -45,6 +45,17 @@ internal sealed record BodySplitCensus(int Screens, int NoAnchor, int SingleAnch
     internal int Ambiguous => NoAnchor + SeveralAnchors;
 }
 
+/// <summary>
+/// How many pairs carried a screen with NO ROWS AT ALL, for one agent and one class.
+///
+/// THIS IS THE ABSENCE OF EVIDENCE, NOT A VERDICT, and it has to be printed beside the scores
+/// because it does not look like absence in a table. A pair whose screens are both empty scores as
+/// "gained nothing" for every candidate and as "opened" for the old byte rule, which reads exactly
+/// like a rule suppressing a real reply. In this corpus it is not a rounding detail: it is the
+/// WHOLE of two agents' populations.
+/// </summary>
+internal sealed record EmptyScreenPairs(string Agent, string Label, int Pairs);
+
 /// <summary>Everything one run of the scorer established. Printing is a separate concern.</summary>
 internal sealed record ScoreReport(
     string ManifestPath,
@@ -54,5 +65,7 @@ internal sealed record ScoreReport(
     int PairsScored,
     IReadOnlyList<CorpusMiss> Misses,
     BodySplitCensus BodySplit,
+    int EmptyScreens,
+    IReadOnlyList<EmptyScreenPairs> PairsTouchingAnEmptyScreen,
     IReadOnlyList<string> UnknownDrivers,
     IReadOnlyList<Tally> Tallies);

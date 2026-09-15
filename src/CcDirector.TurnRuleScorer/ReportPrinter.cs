@@ -26,6 +26,7 @@ internal static class ReportPrinter
         WriteCaveats(output);
         WriteCorpus(report, output);
         WriteBodySplit(report, output);
+        WriteEmptyScreens(report, output);
         WriteMisses(report, output);
 
         var candidates = CandidateOrder(report);
@@ -41,6 +42,7 @@ internal static class ReportPrinter
             var forAgent = report.Tallies.Where(t => t.Agent == agent).ToList();
             output.WriteLine();
             output.WriteLine($"AGENT: {agent}");
+            WriteEmptyWarning(report, agent, forAgent, output);
             WriteTable(forAgent, candidates, output);
         }
 
@@ -123,6 +125,47 @@ internal static class ReportPrinter
             }
             if (group.Count() > 20) output.WriteLine($"    ... and {group.Count() - 20} more");
         }
+    }
+
+    private static void WriteEmptyScreens(ScoreReport report, TextWriter output)
+    {
+        if (report.EmptyScreens == 0) return;
+
+        int pairs = report.PairsTouchingAnEmptyScreen.Sum(e => e.Pairs);
+        output.WriteLine();
+        output.WriteLine("EMPTY CAPTURES - THE ABSENCE OF EVIDENCE, NOT A VERDICT");
+        output.WriteLine($"  screens with no rows at all  {report.EmptyScreens,8}");
+        output.WriteLine($"  pairs touching one           {pairs,8}");
+        output.WriteLine("  A pair whose screens are empty scores as 'gained nothing' for every candidate");
+        output.WriteLine("  and as 'opened' for the old byte rule, which in a table is indistinguishable");
+        output.WriteLine("  from a rule suppressing a real reply. It is neither. The capture is empty.");
+        output.WriteLine("  These pairs are still counted, because dropping them would be choosing which");
+        output.WriteLine("  pinned pairs count; they are named here so no row below is misread.");
+        foreach (var group in report.PairsTouchingAnEmptyScreen)
+        {
+            output.WriteLine($"    {group.Agent} / {group.Label}: {group.Pairs}");
+        }
+    }
+
+    /// <summary>
+    /// Said at the top of an agent's own table, where it cannot be missed: how much of THIS agent's
+    /// population is empty captures. When it is all of it, the table below establishes nothing
+    /// about that agent whatsoever, and saying so in the census alone is not enough - a reader who
+    /// scrolls to the agent they care about would never see it.
+    /// </summary>
+    private static void WriteEmptyWarning(ScoreReport report, string agent, IReadOnlyList<Tally> forAgent, TextWriter output)
+    {
+        int empty = report.PairsTouchingAnEmptyScreen.Where(e => e.Agent == agent).Sum(e => e.Pairs);
+        if (empty == 0) return;
+
+        // Every candidate saw every pair, so one candidate's pair count is this agent's population.
+        int pairs = forAgent.Where(t => t.Candidate == ScoreRun.ByteRuleName).Sum(t => t.Pairs);
+        output.WriteLine(empty >= pairs
+            ? $"  WARNING: ALL {pairs} of this agent's pairs carry an empty capture. Nothing below is"
+            : $"  WARNING: {empty} of this agent's {pairs} pairs carry an empty capture, so part of what is");
+        output.WriteLine(empty >= pairs
+            ? "  evidence about this agent - it is evidence that nothing was saved."
+            : "  below is the absence of a capture rather than a verdict about the rule.");
     }
 
     /// <summary>
