@@ -963,6 +963,47 @@ public sealed class ContentTurnRuleTests : IDisposable
         }
     }
 
+    // ------------------------------------------------------------------------------------------
+    // The reader these tests poll with must not fight the writer they are watching
+    // ------------------------------------------------------------------------------------------
+
+    [Fact]
+    public void The_row_reader_does_not_shut_the_writer_out()
+    {
+        // This helper is polled every twenty-five milliseconds for up to fifteen seconds while the
+        // detector appends to the same file. File.ReadAllLines opens permitting other READERS and
+        // denying WRITERS, so the append lost the race, failed inside the log where the failure is
+        // swallowed, and the row was gone for good. That failed the full Core suite on
+        // 15 September 2026, in both directions.
+        //
+        // The holder here opens exactly as the log's append does, so a reader that shuts writers
+        // out fails here with the reported sharing violation.
+        var session = Guid.NewGuid();
+        var path = ShadowPath(session);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, "{}\n");
+
+        using var writer = new FileStream(
+            path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
+
+        Assert.Single(ShadowRows(session));
+    }
+
+    [Fact]
+    public void A_half_written_row_is_not_counted_as_a_row()
+    {
+        // Sharing the file with a live writer is what the fix above buys, and it has a price: the
+        // last line can be half written. Counted as a row it would satisfy a caller waiting for a
+        // NEW row and then fail to parse as JSON - a green wait followed by an unrelated-looking
+        // crash. Only a newline-terminated line is a row.
+        var session = Guid.NewGuid();
+        var path = ShadowPath(session);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, "{\"Rule\":\"row\"}\n{\"Rule\":\"ro");
+
+        Assert.Single(ShadowRows(session));
+    }
+
     private static string ShadowPath(Guid sessionId)
         => Path.Combine(CcStorage.TurnDetectionShadow(), sessionId.ToString("N") + ".jsonl");
 
@@ -1050,10 +1091,43 @@ public sealed class ContentTurnRuleTests : IDisposable
         return $"; consecutive check faults now {faults}, and the last fault seen was {last ?? "(none recorded)"}";
     }
 
+    /// <summary>
+    /// The rows in one session's shadow file, read in a way that does not fight the writer.
+    ///
+    /// NEVER File.ReadAllLines. That opens the file permitting other READERS and denying WRITERS,
+    /// and this helper is polled every twenty-five milliseconds for up to fifteen seconds while the
+    /// detector is appending to the very same file. Whichever side lost that race failed, and the
+    /// two failures look nothing alike: the reader threw the sharing violation outright, while the
+    /// writer's failure was swallowed inside the log and the row was gone for good - the check that
+    /// produced it had already been taken off the books, so nothing ever wrote it again. That is
+    /// what failed the full Core suite twice on 15 September 2026, once in each direction.
+    ///
+    /// ONLY NEWLINE-TERMINATED LINES COUNT. Sharing the file with a live writer means the last line
+    /// can be half written, and half a row is not a row: counted as one it would satisfy a caller
+    /// waiting for a new row and then fail to parse as JSON.
+    /// </summary>
     private static string[] ShadowRows(Guid sessionId)
     {
         var path = ShadowPath(sessionId);
         if (!File.Exists(path)) return Array.Empty<string>();
-        return File.ReadAllLines(path).Where(l => !string.IsNullOrWhiteSpace(l)).ToArray();
+
+        string text;
+        using (var stream = new FileStream(
+                   path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+        using (var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true))
+        {
+            text = reader.ReadToEnd();
+        }
+
+        var rows = new List<string>();
+        int start = 0;
+        for (int i = 0; i < text.Length; i++)
+        {
+            if (text[i] != '\n') continue;
+            var row = text[start..i].Trim();
+            if (row.Length > 0) rows.Add(row);
+            start = i + 1;
+        }
+        return rows.ToArray();
     }
 }

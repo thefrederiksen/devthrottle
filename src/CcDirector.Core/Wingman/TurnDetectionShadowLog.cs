@@ -31,6 +31,12 @@ namespace CcDirector.Core.Wingman;
 /// supports: a synchronous write under a shared lock has no latency bound, so "cannot affect the
 /// session" was never true of an append that ran first. Append failures are logged and swallowed.
 ///
+/// READING ONE OF THESE FILES MUST NOT COST A ROW, AND IT USED TO. The append opened the file in a
+/// way that denied concurrent readers, and every ordinary reader opens in a way that denies
+/// concurrent writers, so whichever lost the race failed. The reader's failure was loud; the
+/// writer's was swallowed, and the row was gone for good because the check that produced it had
+/// already been taken off the books. See <see cref="AppendContentionBudget"/>.
+///
 /// THE LOCK IS PROCESS-WIDE AND THAT IS ENOUGH, for a reason worth writing down because an
 /// inspection correctly pointed out that a process-wide lock does not exclude a second process. Two
 /// Director processes never share this directory at all. Every path here is resolved through
@@ -91,6 +97,31 @@ public static class TurnDetectionShadowLog
 
     /// <summary>The live sweep interval.</summary>
     internal static TimeSpan SweepInterval { get; set; } = DefaultSweepInterval;
+
+    /// <summary>
+    /// HOW LONG AN APPEND KEEPS TRYING WHEN SOMETHING ELSE HAS THE FILE OPEN.
+    ///
+    /// These files exist to be READ - that is the whole reason the verdicts are written locally
+    /// rather than to the hosted Gateway. And reading one used to cost a row, because the ordinary
+    /// way to read a file on Windows (File.ReadAllLines, Get-Content, a scoring script, a backup or
+    /// antivirus scan) opens it in a way that permits other readers and DENIES writers. The append
+    /// then failed, and that failure is swallowed - so the act of looking at the measurement
+    /// silently thinned it, with nothing on screen to say so.
+    ///
+    /// Observed rather than reasoned about: on 15 September 2026 the full Core suite failed twice on
+    /// exactly this, once in each direction. The reader that lost the race threw the sharing
+    /// violation outright; the writer that lost it dropped a shadow row nothing ever wrote again,
+    /// because the check that produced it had already been taken off the books.
+    ///
+    /// A reader's hold is brief, so a short wait covers it. It is BOUNDED because it runs under the
+    /// process-wide lock: an unbounded wait would stall every other session's append behind one
+    /// stuck handle. Past the bound the row is still lost and still logged - which is stated here
+    /// rather than wished away.
+    /// </summary>
+    internal static TimeSpan AppendContentionBudget { get; set; } = TimeSpan.FromMilliseconds(500);
+
+    /// <summary>How long to wait between attempts inside <see cref="AppendContentionBudget"/>.</summary>
+    internal static TimeSpan AppendRetryPause { get; set; } = TimeSpan.FromMilliseconds(15);
 
     private static readonly object Gate = new();
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = false };
@@ -185,13 +216,58 @@ public static class TurnDetectionShadowLog
                     FileLog.Write($"[TurnDetectionShadowLog] rollover failed for {Path.GetFileName(path)}: {ex.Message}; appending to the oversized file rather than losing the row");
                 }
 
-                File.AppendAllText(path, JsonSerializer.Serialize(record, Json) + "\n", Encoding.UTF8);
+                AppendLine(path, JsonSerializer.Serialize(record, Json) + "\n");
                 SweepAgedFiles();
             }
         }
         catch (Exception ex)
         {
             FileLog.Write($"[TurnDetectionShadowLog] append failed for {sessionId}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Put one line on the end of the file, in a way that neither locks a reader out nor loses the
+    /// row to one.
+    ///
+    /// TWO THINGS, AND THEY ARE DIFFERENT. <c>FileShare.ReadWrite | FileShare.Delete</c> is what WE
+    /// permit, so a reader is never shut out while we write and the retention sweep can still move
+    /// or delete the file underneath us. The RETRY is for what THEY permit: a reader that opened
+    /// with FileShare.Read denies our write whatever we ask for, and no share flag of ours can
+    /// change that.
+    ///
+    /// The byte-order mark goes on only when the file is empty, which is exactly what
+    /// File.AppendAllText did before this, so the file on disk is unchanged in shape.
+    ///
+    /// A reader may now see a line that is still being written. That is the price of not shutting
+    /// readers out, and it is handled where it belongs: a reader counts only newline-terminated
+    /// lines, so a half-written last row is not a row yet.
+    /// </summary>
+    private static void AppendLine(string path, string line)
+    {
+        var payload = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetBytes(line);
+        var deadline = DateTime.UtcNow + AppendContentionBudget;
+        while (true)
+        {
+            try
+            {
+                using var stream = new FileStream(
+                    path, FileMode.Append, FileAccess.Write,
+                    FileShare.ReadWrite | FileShare.Delete);
+                if (stream.Position == 0)
+                {
+                    var preamble = Encoding.UTF8.GetPreamble();
+                    stream.Write(preamble, 0, preamble.Length);
+                }
+                stream.Write(payload, 0, payload.Length);
+                return;
+            }
+            catch (IOException) when (DateTime.UtcNow < deadline)
+            {
+                // Somebody has it open and does not permit writers. Their hold is brief; ours is
+                // bounded. Past the deadline the exception escapes to Append, which logs it.
+                Thread.Sleep(AppendRetryPause);
+            }
         }
     }
 

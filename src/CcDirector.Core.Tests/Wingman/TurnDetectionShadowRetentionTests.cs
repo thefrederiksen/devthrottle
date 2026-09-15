@@ -1,3 +1,4 @@
+using System.Text;
 using CcDirector.Core.Storage;
 using CcDirector.Core.Wingman;
 using Xunit;
@@ -282,6 +283,98 @@ public sealed class TurnDetectionShadowRetentionTests : IDisposable
         Assert.True(biggestBeforeAnyRollover <= TurnDetectionShadowLog.MaxFileBytes + longestRecord,
             $"the overshoot was {biggestBeforeAnyRollover - TurnDetectionShadowLog.MaxFileBytes} bytes against a "
             + $"longest record of {longestRecord}; the documented bound is the maximum plus AT MOST ONE record");
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // Reading the log must not cost a row, and writing it must not shut a reader out
+    // ------------------------------------------------------------------------------------------
+
+    [Fact]
+    public async Task A_reader_holding_the_file_does_not_cost_a_row()
+    {
+        // THE DEFECT THAT FAILED THE FULL CORE SUITE. These files exist to be read, and every
+        // ordinary way of reading a file on Windows - File.ReadAllLines, Get-Content, a scoring
+        // script, a scanner - opens it permitting other readers and DENYING writers. The append then
+        // failed, and that failure is swallowed, so the row was gone for good and nothing said so.
+        // The check that produced it had already been taken off the books, so no retry existed.
+        //
+        // The reader here opens EXACTLY as File.ReadAllLines does, which is what makes this the
+        // reported failure rather than a similar-looking one.
+        var session = Guid.NewGuid();
+        TurnDetectionShadowLog.Append(session, RowFor(0));
+        var path = Path.Combine(CcStorage.TurnDetectionShadow(), session.ToString("N") + ".jsonl");
+
+        var reader = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var letGo = Task.Run(async () =>
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(120));
+            reader.Dispose();
+        });
+
+        TurnDetectionShadowLog.Append(session, RowFor(1));
+        await letGo.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(2, ReadRows(path).Length);
+    }
+
+    [Fact]
+    public void A_reader_can_read_the_file_while_the_log_is_appending_to_it()
+    {
+        // The other direction, and it is a different fact: the test above is about what a foreign
+        // reader permits, this one is about what the LOG permits. A log that shut readers out would
+        // still pass the test above once it retried long enough, and the suite would still fail -
+        // because the reader is the side that threw first.
+        //
+        // The reader is held OPEN ACROSS the append, so the append has to be permitted while a
+        // reader has the file, not merely afterwards.
+        var session = Guid.NewGuid();
+        TurnDetectionShadowLog.Append(session, RowFor(0));
+        var path = Path.Combine(CcStorage.TurnDetectionShadow(), session.ToString("N") + ".jsonl");
+
+        using var reader = new FileStream(
+            path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        TurnDetectionShadowLog.Append(session, RowFor(1));
+
+        using var text = new StreamReader(reader, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+        var seen = text.ReadToEnd();
+        Assert.Equal(2, seen.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length);
+    }
+
+    [Fact]
+    public void An_append_past_the_contention_budget_loses_the_row_and_says_so()
+    {
+        // THE BOUND IS REAL AND IS NOT PRETENDED AWAY. The retry is bounded because it runs under
+        // the process-wide lock, so a handle nobody releases must not stall every other session's
+        // append behind it. Past the bound the row IS lost - that is the honest residual, and a test
+        // that only proved the happy direction would leave the reader believing otherwise.
+        var was = TurnDetectionShadowLog.AppendContentionBudget;
+        try
+        {
+            TurnDetectionShadowLog.AppendContentionBudget = TimeSpan.FromMilliseconds(60);
+            var session = Guid.NewGuid();
+            TurnDetectionShadowLog.Append(session, RowFor(0));
+            var path = Path.Combine(CcStorage.TurnDetectionShadow(), session.ToString("N") + ".jsonl");
+
+            using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                TurnDetectionShadowLog.Append(session, RowFor(1));
+            }
+
+            Assert.Single(ReadRows(path));
+        }
+        finally
+        {
+            TurnDetectionShadowLog.AppendContentionBudget = was;
+        }
+    }
+
+    /// <summary>Read the rows without denying the writer - see ContentTurnRuleTests.ShadowRows.</summary>
+    private static string[] ReadRows(string path)
+    {
+        using var stream = new FileStream(
+            path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+        return reader.ReadToEnd().Split('\n', StringSplitOptions.RemoveEmptyEntries);
     }
 
     /// <summary>Write a file and stamp it past the age bound.</summary>
