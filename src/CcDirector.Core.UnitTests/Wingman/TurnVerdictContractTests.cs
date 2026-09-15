@@ -574,22 +574,128 @@ public sealed class TurnVerdictContractTests
     }
 
     [Fact]
-    public void ParseAndValidate_OptionsExplicitlyNull_IsNoOptionsAndAccepted()
+    public void ParseAndValidate_OptionsExplicitlyNull_Rejected()
     {
-        // The control: JSON null is the judge saying there are none, which is the ordinary shape of a
-        // report, and it is a different thing from an object where a list belongs.
+        // This test used to pin the opposite, on the reading that null is the judge saying there are
+        // none. The shape does not offer that reading: options is declared an array and, unlike menu,
+        // never a nullable one, so null is simply not a list. Accepting it was the same silent repair as
+        // accepting an object where a list belongs, one step quieter - and this input carries a perfectly
+        // good receipt, which is exactly what makes it easy to wave through.
         var answer = Answer(
             verdict: TurnVerdictVocabulary.Finished,
             evidence: "Nothing is needed from you - I will stop here.",
             label: "Retention sweep done",
             risk: "none",
-            optionsRaw: null,
             optionsNull: true);
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, ReportStop(), Model, ObservedAt);
+
+        Assert.True(result.Failed);
+        Assert.Contains("not a list", result.FailureReason);
+    }
+
+    [Fact]
+    public void ParseAndValidate_OptionsAbsentAltogether_IsNoOptionsAndAccepted()
+    {
+        // The control, and the only way an answer says there are none: leave the field out. This is the
+        // ordinary shape of a report, and it must stay accepted or every report would refuse.
+        var answer = AnswerWithoutOptions(
+            verdict: TurnVerdictVocabulary.Finished,
+            evidence: "Nothing is needed from you - I will stop here.",
+            label: "Retention sweep done",
+            risk: "none");
 
         var result = TurnVerdictContract.ParseAndValidate(answer, ReportStop(), Model, ObservedAt);
 
         Assert.False(result.Failed, result.FailureReason);
         Assert.Empty(result.Options);
+    }
+
+    // ================================================== an option is never cut, in either half
+
+    [Fact]
+    public void ParseAndValidate_OverLongOptionKey_RejectedRatherThanCut()
+    {
+        // The key is the words on the button. Cut, it is a different action from the one the judge
+        // offered, and the owner presses it believing the short version.
+        var answer = Answer(
+            verdict: TurnVerdictVocabulary.NeededYou,
+            evidence: "Push the deploy guard to main?",
+            label: "Push the deploy guard to main?",
+            risk: "irreversible",
+            answerVia: "reply",
+            options: new object[]
+            {
+                new
+                {
+                    key = "Push it now" + new string('x', TurnVerdictContract.MaxOptionKeyChars),
+                    send = "yes",
+                    recommended = false,
+                    note = "Puts the guard live.",
+                },
+                new { key = "Leave it", send = "no", recommended = false, note = "Nothing changes." },
+            });
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, MenuStop(), Model, ObservedAt);
+
+        Assert.True(result.Failed);
+        Assert.Contains("a shortened action", result.FailureReason);
+    }
+
+    [Fact]
+    public void ParseAndValidate_OverLongOptionNote_RejectedRatherThanCut()
+    {
+        // The note is the consequence. "deletes the rows older than seven days, and the backup" cut to
+        // "deletes the rows older than seven days" is a different promise, and the owner cannot ask the
+        // button what the rest of it said.
+        var answer = Answer(
+            verdict: TurnVerdictVocabulary.NeededYou,
+            evidence: "Push the deploy guard to main?",
+            label: "Push the deploy guard to main?",
+            risk: "irreversible",
+            answerVia: "reply",
+            options: new object[]
+            {
+                new
+                {
+                    key = "Push it now",
+                    send = "yes",
+                    recommended = false,
+                    note = "Puts the guard live, " + new string('y', TurnVerdictContract.MaxOptionNoteChars),
+                },
+                new { key = "Leave it", send = "no", recommended = false, note = "Nothing changes." },
+            });
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, MenuStop(), Model, ObservedAt);
+
+        Assert.True(result.Failed);
+        Assert.Contains("a shortened consequence", result.FailureReason);
+    }
+
+    [Fact]
+    public void ParseAndValidate_OptionAtTheBound_IsKeptWholeAndNotCut()
+    {
+        // The control for both tests above, and the one that catches a cut that merely moved: an option
+        // exactly at each bound is accepted, and what is STORED is the whole string the judge wrote.
+        var key = new string('k', TurnVerdictContract.MaxOptionKeyChars);
+        var note = new string('n', TurnVerdictContract.MaxOptionNoteChars);
+        var answer = Answer(
+            verdict: TurnVerdictVocabulary.NeededYou,
+            evidence: "Push the deploy guard to main?",
+            label: "Push the deploy guard to main?",
+            risk: "irreversible",
+            answerVia: "reply",
+            options: new object[]
+            {
+                new { key, send = "yes", recommended = false, note },
+                new { key = "Leave it", send = "no", recommended = false, note = "Nothing changes." },
+            });
+
+        var result = TurnVerdictContract.ParseAndValidate(answer, MenuStop(), Model, ObservedAt);
+
+        Assert.False(result.Failed, result.FailureReason);
+        Assert.Equal(key, result.Options[0].Key);
+        Assert.Equal(note, result.Options[0].Note);
     }
 
     [Fact]
@@ -931,6 +1037,31 @@ public sealed class TurnVerdictContractTests
     /// the judge is pretending to have said; null means the field is absent from the object entirely,
     /// which is a different thing from present and empty.
     /// </summary>
+    /// <summary>
+    /// The same canned answer with the "options" field LEFT OUT of the object entirely. Absent and
+    /// present-but-null are different JSON and the contract treats them differently, so a test that
+    /// means "absent" cannot be written with the helper above.
+    /// </summary>
+    private static string AnswerWithoutOptions(
+        string verdict,
+        string evidence,
+        string label,
+        string risk)
+    {
+        var fields = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["verdict"] = verdict,
+            ["evidence"] = evidence,
+            ["label"] = label,
+            ["risk"] = risk,
+            ["confidence"] = "high",
+            ["answerVia"] = "reply",
+            ["summary"] = "The retention sweep is done and the test covers it.",
+            ["spoken"] = "Retention timer. The sweep is done and nothing is needed from you.",
+        };
+        return JsonSerializer.Serialize(fields);
+    }
+
     private static string Answer(
         string verdict,
         string evidence,
@@ -958,7 +1089,8 @@ public sealed class TurnVerdictContractTests
             ["agentRecommends"] = agentRecommends,
         };
         // optionsRaw writes whatever is given where the list belongs - an object, a number, a string -
-        // so a malformed shape can be tested. optionsNull writes an explicit JSON null there.
+        // so a malformed shape can be tested. optionsNull writes an explicit JSON null there, which is
+        // NOT the same as leaving the field out: see AnswerWithoutOptions for that.
         if (optionsRaw is not null) fields["options"] = optionsRaw;
         if (optionsNull) fields["options"] = null;
         if (risk is not null) fields["risk"] = risk;

@@ -69,12 +69,21 @@ public static class TurnVerdictContract
     /// <summary>A menu question. This contract's own cap.</summary>
     public const int MaxMenuQuestionChars = 200;
 
-    /// <summary>An option's label. This contract's own cap, matching the existing brief contract.</summary>
+    /// <summary>An option's label - the words on the button. This contract's own bound, matching the
+    /// existing brief contract. An option over it is REFUSED rather than cut: see the note below, which
+    /// applies to both halves of an option.</summary>
     public const int MaxOptionKeyChars = 60;
 
     /// <summary>An option's note: at most eighteen words in the frozen contract, which this holds as a
-    /// character bound because words are not mechanically countable without inventing a word rule.</summary>
-    public const int MaxOptionNoteChars = 140;
+    /// character bound because words are not mechanically countable without inventing a word rule.
+    ///
+    /// AN OPTION IS NEVER CUT. The key is the action and the note is its consequence, and a shortened
+    /// consequence is a different promise: "deletes the rows older than seven days, and the backup"
+    /// becomes "deletes the rows older than seven days", which is a button the owner presses believing
+    /// something the judge did not say. The prose fields are cut because a reader who wants more can
+    /// open the session; an option is pressed, once, and cannot be asked what the rest of it said. Over
+    /// the bound the whole answer is refused, exactly as an over-long receipt is.</summary>
+    public const int MaxOptionNoteChars = 200;
 
     /// <summary>A sanity bound on how many ways of answering one stop may carry. This contract's own:
     /// an unbounded array reaches a screen and a database. Beyond it the answer is REFUSED rather than
@@ -453,15 +462,20 @@ public static class TurnVerdictContract
     private static OptionsResult ReadOptions(JsonElement root)
     {
         var options = new List<TurnVerdictOptionDto>();
-        // Absent, or explicitly null: there are no options, which is the ordinary shape of a report.
-        if (!root.TryGetProperty("options", out var array) || array.ValueKind == JsonValueKind.Null)
+        // ABSENT is the only way to say there are none, and it is the ordinary shape of a report.
+        if (!root.TryGetProperty("options", out var array))
             return new OptionsResult(options, null);
-        // Present and not a list: the answer is malformed, and reading it as "no options" would turn a
-        // broken answer into a calm-looking one with nothing for the owner to press.
+
+        // Present and not a list - and an explicit null is not a list. The frozen shape declares options
+        // an array and, unlike menu, never a nullable one, so there is no reading of null that this file
+        // is entitled to choose. Round two of this contract let null through as "no options"; that was
+        // the same silent repair as reading an object that way, one step quieter, and a malformed answer
+        // that happens to carry a good receipt is still a malformed answer.
         if (array.ValueKind != JsonValueKind.Array)
             return new OptionsResult(options,
-                "options is present but is not a list; a malformed answer is thrown away whole rather than "
-                + "read as an answer that offered nothing");
+                $"options is present but is not a list (it is {array.ValueKind}); the shape declares an "
+                + "array and never a null, so a malformed answer is thrown away whole rather than read as "
+                + "an answer that offered nothing");
 
         foreach (var element in array.EnumerateArray())
         {
@@ -475,13 +489,27 @@ public static class TurnVerdictContract
                     $"the option '{key}' has nothing to send; an option that cannot be sent is not an "
                     + "option, and dropping it would silently turn a choice into a single button");
 
+            // Neither half of an option is ever cut. See MaxOptionNoteChars for why.
+            if (key.Length > MaxOptionKeyChars)
+                return new OptionsResult(options,
+                    $"an option's key is {key.Length} characters, over the {MaxOptionKeyChars} character "
+                    + "bound; it is the words on the button and it is not cut, because a shortened action "
+                    + "is a different action");
+
+            var note = Str(element, "note");
+            if (note.Length > MaxOptionNoteChars)
+                return new OptionsResult(options,
+                    $"the option '{key}' has a note of {note.Length} characters, over the "
+                    + $"{MaxOptionNoteChars} character bound; it is the consequence of pressing the button "
+                    + "and it is not cut, because a shortened consequence is a different promise");
+
             options.Add(new TurnVerdictOptionDto
             {
-                Key = key.Length > MaxOptionKeyChars ? key[..MaxOptionKeyChars] : key,
+                Key = key,
                 Send = send,
                 Recommended = element.TryGetProperty("recommended", out var recommended)
                     && recommended.ValueKind == JsonValueKind.True,
-                Note = Cap(Str(element, "note"), MaxOptionNoteChars),
+                Note = note,
             });
         }
 
