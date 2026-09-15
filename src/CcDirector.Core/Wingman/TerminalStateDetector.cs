@@ -70,20 +70,29 @@ public sealed class TerminalStateDetector : IDisposable
     }
 
     /// <summary>
-    /// The environment variable that turns the content rule on, and says which candidate is
-    /// authoritative. Unset, <c>0</c> or anything unrecognised means OFF, which is the shipped
-    /// default: turning it on is the owner's decision and he wants the shadow numbers first.
+    /// The environment variable that chooses the content rule. UNSET MEANS THE ROW RULE, which is
+    /// the shipped default: the owner turned it on by default on 15 September 2026, over the earlier
+    /// plan to ship it off and wait for shadow numbers first. Set it to <c>off</c> to go back to the
+    /// byte rule on one Director - that is the escape hatch, and the main reason this variable exists
+    /// now - or to <c>size</c> to run the other candidate.
     /// </summary>
     public const string ContentRuleVariable = "CC_DIRECTOR_CONTENT_TURN_RULE";
 
     /// <summary>
     /// Which content candidate decides whether a settled session opens a turn.
-    /// <see cref="TurnContentRule.Off"/> is today's rule: any byte opens it.
+    /// <see cref="TurnContentRule.Off"/> is the byte rule: any byte opens it.
+    ///
+    /// AN UNRECOGNISED VALUE MEANS OFF, NOT THE DEFAULT. With the row rule on by default, the only
+    /// reason to set this variable is to move AWAY from the default, and the likeliest reason is that
+    /// the rule is misbehaving and someone is turning it off. A misspelt "off" that silently left the
+    /// rule running would defeat the one job the escape hatch has, so anything this cannot read falls
+    /// to the byte rule - the direction that can open a turn early but never lose one.
     /// </summary>
     internal static TurnContentRule ResolveContentRule(string? value) =>
         (value ?? "").Trim().ToLowerInvariant() switch
         {
-            "1" or "row" => TurnContentRule.Row,
+            "" => TurnContentRule.Row,
+            "1" or "row" or "on" or "true" or "yes" => TurnContentRule.Row,
             "size" => TurnContentRule.Size,
             _ => TurnContentRule.Off,
         };
@@ -637,9 +646,10 @@ public sealed class TerminalStateDetector : IDisposable
         /// Today's activation, kept intact so the switch-off path is byte for byte.
         ///
         /// A FAULT NO LONGER LEAVES THE SESSION BLUE FOR EVER. The fault this fixes is OLDER than
-        /// the content rule - it is on origin/main, and this is the path every Director runs while
-        /// the switch ships off. Session.SetActivityState assigns Working and only THEN calls its
-        /// subscribers, so a subscriber that throws leaves the session in Working with the exception
+        /// the content rule - it is on origin/main, and this is the path a Director runs whenever the
+        /// switch is set to off, the escape hatch if the row rule misbehaves. Session.SetActivityState
+        /// assigns Working and only THEN calls its subscribers, so a subscriber that throws leaves the
+        /// session in Working with the exception
         /// escaping mid-write. The latch stayed set, the quiet timer was never armed, and every
         /// later byte took the already-active branch and armed nothing: permanently blue, with
         /// nothing left that could bring it back.
@@ -1173,7 +1183,7 @@ public sealed class TerminalStateDetector : IDisposable
             // that a locked snapshot nobody reads is waste. It is now taken on EVERY settle,
             // because the content rule needs it whether that producer exists or not, and a session
             // that settled without one would otherwise have no "before" to compare against and
-            // would open a turn on the next byte exactly as it does today - silently, and only for
+            // would open a turn on the next byte exactly as the byte rule does - silently, and only for
             // some sessions. The cost is one locked snapshot per SETTLE, which happens at most once
             // per turn, not per byte.
             if (TryReadScreenBodyRows(out var settledRows))

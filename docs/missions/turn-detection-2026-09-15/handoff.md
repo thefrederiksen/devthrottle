@@ -293,3 +293,32 @@ The general lesson, written down because it is the second time this mission has 
 ruling that names a MECHANISM rather than an OUTCOME can be faithfully followed into a defect. The
 outcome I wanted was "a fault can never leave the session in a state nothing recovers from". Had I
 ruled that, the mechanism would have followed from it.
+
+## OWNER'S RULING, 15 September 2026: the row rule is ON by default
+
+**This supersedes the brief's instruction that the switch ships off.** The earlier rulings in this
+file that say the rule ships off and waits for shadow numbers are history, not current.
+
+The owner's words, when asked whether to turn the rule on by default for v2.2.0: "Yes, I want to
+turn on by default." The reasoning he was given, so a later seat does not re-litigate it: shipping
+it off meant v2.2.0 changed nothing anyone could feel and the benefit waited a whole further release;
+the downside is bounded, because four inspection rounds established that the worst case is a turn
+opening a second late, never a turn lost; and it is reversible per Director.
+
+**Why the ROW candidate and not size:** work item five scored the shipped rule objects against all
+4,328 pinned pairs with zero hash misses. The row rule holds 93.8 percent of short-unexplained wakes
+red and still opens 229 of 231 long ones; the size rule at its shipped threshold of 200 holds only
+88.9 percent. The row rule also reports WHICH row changed, so a wrong call can be read back, and its
+definition is the one the published measurement used, where the size threshold is our own reading of
+a reviewer's undeposited script. Stated limit, unchanged: the body split is a guess on 80.7 percent
+of those screens, so the corpus has not scored exactly what ships.
+
+**How it works now:** `CC_DIRECTOR_CONTENT_TURN_RULE` unset means the row rule. `off` (or `0`,
+`false`, `no`) restores the byte rule on that Director - the escape hatch. `size` runs the other
+candidate. A value it cannot read means OFF, deliberately: with the rule on by default the variable
+exists to move away from the default, most likely to turn a misbehaving rule off, and a misspelt
+"off" must never leave it running.
+
+**The shadow log stays ON.** Each row still records what the byte rule would have done beside what
+the running rule did, so the live comparison remains answerable - against the rule that is actually
+running rather than one that is switched off.

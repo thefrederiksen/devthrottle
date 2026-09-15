@@ -295,12 +295,13 @@ internal static class TerminalContentNovelty
 
 /// <summary>
 /// Which content candidate decides whether a settled session opens a turn, or
-/// <see cref="Off"/> for today's rule, where any byte opens it. Off is the shipped default:
-/// turning the rule on is the owner's decision and he wants the shadow numbers first.
+/// <see cref="Off"/> for the byte rule, where any byte opens it. <see cref="Row"/> is the shipped
+/// default: the owner turned it on by default on 15 September 2026. Off is the escape hatch.
 /// </summary>
 internal enum TurnContentRule
 {
-    /// <summary>Any byte at a settled session opens a turn. What the product does today.</summary>
+    /// <summary>Any byte at a settled session opens a turn. What the product did before the content
+    /// rule, and what a Director does when the switch is set to off.</summary>
     Off,
 
     /// <summary>The row rule. Answers with the row that appeared, which is worth having in a log.</summary>
