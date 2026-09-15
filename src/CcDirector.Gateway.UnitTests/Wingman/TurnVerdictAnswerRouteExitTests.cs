@@ -92,4 +92,27 @@ public sealed class TurnVerdictAnswerRouteExitTests : IDisposable
         Assert.Equal(TenantId.Local, line.Tenant);
         Assert.Equal(sid, line.SessionId);
     }
+
+    /// <summary>
+    /// The inspection's round 2 finding 2: a Gateway with no answer service returned before the account resolved and
+    /// wrote nothing. It now resolves the account and writes <c>answer-unavailable</c> through the ledger writer the
+    /// route is given for exactly this exit.
+    /// </summary>
+    [Fact]
+    public async Task AGatewayWithNoAnswerService_IsRefusedAfterTheAccountResolves_AndWritesItsCauseWord()
+    {
+        var sid = Guid.NewGuid().ToString();
+
+        var result = await GatewayEndpoints.AnswerTurnVerdictAsync(new DefaultHttpContext(), sid,
+            SelfHostBoundary(), turnVerdictAnswers: null, tenantSettings: null, _registry,
+            pushedSessions: null, streamStale: TimeSpan.FromSeconds(30), owners: null, sendCommand: null, wingmanTranslator: null,
+            turnVerdictLedger: _records.Record);
+
+        Assert.Equal(StatusCodes.Status404NotFound, Status(result));
+        var line = OnlyLine();
+        Assert.Equal(ActivityEventTypes.TurnVerdictAnswerRefused, line.EventType);
+        Assert.Equal(ActivityCauses.AnswerUnavailable, line.Cause);
+        Assert.Equal(TenantId.Local, line.Tenant);
+        Assert.Equal(sid, line.SessionId);
+    }
 }

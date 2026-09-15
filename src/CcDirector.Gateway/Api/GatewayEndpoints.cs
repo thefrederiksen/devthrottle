@@ -251,7 +251,10 @@ internal static class GatewayEndpoints
         Wingman.ITurnVerdictRowSource? turnVerdictRows = null,
         // Slice E: the one write path for a verdict's options. Null leaves POST /sessions/{sid}/turn-verdict/answer
         // answering 404, exactly as the read routes do without the store.
-        Wingman.TurnVerdictAnswerService? turnVerdictAnswers = null)
+        Wingman.TurnVerdictAnswerService? turnVerdictAnswers = null,
+        // Slice E round 3: the turn-verdict ledger writer, handed to the answer route on its own so that the one exit a
+        // missing answer service leaves still writes its cause word. Production passes the same writer the service uses.
+        Action<Wingman.TurnVerdictRecord>? turnVerdictLedger = null)
     {
         // The old issue #1188 "session lock" (423 Locked on human input while a PENDING dictation record
         // existed) was removed deliberately (issue #1308). This is a single-operator tool: a collision
@@ -3040,7 +3043,7 @@ internal static class GatewayEndpoints
         // AnswerTurnVerdictAsync, which holds the handler so each of those exits is testable without a booted host.
         app.MapPost("/sessions/{sid}/turn-verdict/answer", (HttpContext ctx, string sid)
             => AnswerTurnVerdictAsync(ctx, sid, tenantBoundary, turnVerdictAnswers, tenantSettings, registry,
-                pushedSessions, streamStaleResolved, owners, sendCommand, wingmanTranslator));
+                pushedSessions, streamStaleResolved, owners, sendCommand, wingmanTranslator, turnVerdictLedger));
 
         // Deliver a prompt down the tunnel and, when asked, wait for the session to go idle and return what
         // it printed. Extracted from POST /sessions/{sid}/prompt by the Remove-the-network-port mission's
@@ -5462,9 +5465,9 @@ internal static class GatewayEndpoints
     /// EVERY EXIT AFTER THE ACCOUNT RESOLVES WRITES ONE LEDGER LINE, and that is true by construction: the invalid
     /// session id and the missing settings store record their cause word, and everything from the session lookup on
     /// runs inside one recorder, so a throw anywhere in it is recorded too - as a refusal while nothing can have been
-    /// sent, and as unconfirmed once the answer service has been asked. The one exit before the account is a Gateway
-    /// built without the answer service: it has no turn verdicts and no ledger writer for them, nothing about the
-    /// request can change that, and there is nothing to record it through.
+    /// sent, and as unconfirmed once the answer service has been asked. A Gateway built without the answer service
+    /// resolves the account first too, and writes <c>answer-unavailable</c> straight to the turn-verdict ledger, since
+    /// there is no service to refuse through. The only exit before the account is a request that has no account.
     /// </summary>
     internal static async Task<IResult> AnswerTurnVerdictAsync(
         HttpContext ctx,
@@ -5477,19 +5480,28 @@ internal static class GatewayEndpoints
         TimeSpan streamStale,
         SessionOwnerCache? owners,
         DirectorCommandRouter.SendDirectorCommandAsync? sendCommand,
-        Wingman.WingmanTranslator? wingmanTranslator)
+        Wingman.WingmanTranslator? wingmanTranslator,
+        Action<Wingman.TurnVerdictRecord>? turnVerdictLedger = null)
     {
         FileLog.Write($"[GatewayEndpoints] POST turn-verdict/answer: sid={sid}");
-        if (turnVerdictAnswers is null)
-            return Results.Json(new { error = "turn verdicts are not available on this gateway" },
-                statusCode: StatusCodes.Status404NotFound);
-
         var tenant = ResolveReadTenant(ctx, tenantBoundary);
         if (tenant is null)
             return Results.Json(new { error = "no tenant is bound to this request" },
                 statusCode: StatusCodes.Status403Forbidden);
 
         // ---- from here on, every exit writes one ledger line ----
+        if (turnVerdictAnswers is null)
+        {
+            // No answer service to refuse through, so the refusal goes straight to the turn-verdict ledger, in the shape
+            // the service writes its own refusals.
+            if (turnVerdictLedger is not null)
+                turnVerdictLedger(new Wingman.TurnVerdictRecord(tenant.Value, "gateway", sid,
+                    ActivityEventTypes.TurnVerdictAnswerRefused, ActivityCauses.AnswerUnavailable, "verdict=none"));
+            else
+                FileLog.Write($"[GatewayEndpoints] POST turn-verdict/answer: sid={sid} REFUSED {ActivityCauses.AnswerUnavailable} and NOT RECORDED - this Gateway was built with neither the answer service nor the turn-verdict ledger");
+            return Results.Json(new { error = "turn verdicts are not available on this gateway" },
+                statusCode: StatusCodes.Status404NotFound);
+        }
         if (!Guid.TryParse(sid, out _))
         {
             turnVerdictAnswers.RefuseBeforeLookup(tenant.Value, "gateway", sid, "", StatusCodes.Status400BadRequest,

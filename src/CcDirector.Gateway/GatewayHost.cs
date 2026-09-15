@@ -3388,6 +3388,8 @@ public sealed class GatewayHost : IAsyncDisposable
             // Slice E: the one write path for a verdict's options, recording into the same ledger the seat does.
             turnVerdictAnswers: new Wingman.TurnVerdictAnswerService(new Wingman.TurnVerdictAnswerRecords(
                 _turnVerdicts, record => EnsureTurnVerdictEnvironment().Record(record))),
+            // Slice E round 3: the same ledger writer, for the answer route's refusal when the service is missing.
+            turnVerdictLedger: record => EnsureTurnVerdictEnvironment().Record(record),
             // Issue #2022: the live process diagnostics the About page shows read-only on both surfaces,
             // after the machine settings left the Cockpit Settings page.
             gatewayStartedAtUtc: StartedAtUtc,
