@@ -87,6 +87,10 @@ public sealed class HostedInferenceBrain : IAgentBrain
         _log = log ?? FileLog.Write;
     }
 
+    /// <summary>The deadline one round trip on this brain is held to. Read by the test that pins the turn
+    /// verdict judge to its measured thirty seconds rather than to <see cref="DefaultCallTimeout"/>.</summary>
+    internal TimeSpan CallTimeout => _callTimeout;
+
     /// <summary>Stateless - there is no agent-internal session.</summary>
     public string? SessionId => null;
 
