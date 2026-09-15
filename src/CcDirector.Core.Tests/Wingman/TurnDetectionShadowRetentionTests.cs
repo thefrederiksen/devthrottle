@@ -345,13 +345,56 @@ public sealed class TurnDetectionShadowRetentionTests : IDisposable
         }
     }
 
-    /// <summary>Read the rows without denying the writer - see ContentTurnRuleTests.ShadowRows.</summary>
+    [Fact]
+    public void A_half_written_last_row_is_not_counted_by_the_row_reader()
+    {
+        // The helper below shares the file with a live writer - that is the whole point of it - and
+        // the price of sharing is that the last line can be half written. Half a row is not a row:
+        // counted as one it would satisfy a caller polling for a NEW row and then fail to parse as
+        // JSON, which is a green wait followed by an unrelated-looking crash. ContentTurnRuleTests
+        // .ShadowRows refuses to count it, and the helper below points at that one for its
+        // discipline, so it has to keep the same rule or the cross-reference is a false claim.
+        var path = Path.Combine(CcStorage.TurnDetectionShadow(), Guid.NewGuid().ToString("N") + ".jsonl");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, "{\"Rule\":\"row\"}\n{\"Rule\":\"ro");
+
+        Assert.Single(ReadRows(path));
+    }
+
+    /// <summary>
+    /// The rows in one shadow file, read under the same two disciplines as
+    /// ContentTurnRuleTests.ShadowRows - and both of them are load bearing.
+    ///
+    /// THE OPEN PERMITS WRITERS, so reading while the log appends does not shut the writer out. A
+    /// denied append is swallowed inside the log and the row is gone for good, which is how this
+    /// reader's sibling failed the full Core suite on 15 September 2026.
+    ///
+    /// ONLY NEWLINE-TERMINATED LINES COUNT. Sharing the file with a live writer means the last line
+    /// can be half written, and half a row is not a row: counted as one it would satisfy a caller
+    /// waiting for a new row and then fail to parse as JSON. Splitting on the newline does NOT give
+    /// that - it hands back an unterminated tail as though it were a row - so the walk below
+    /// consumes a line only when it reaches that line's newline.
+    /// </summary>
     private static string[] ReadRows(string path)
     {
-        using var stream = new FileStream(
-            path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        using var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
-        return reader.ReadToEnd().Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        string text;
+        using (var stream = new FileStream(
+                   path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+        using (var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true))
+        {
+            text = reader.ReadToEnd();
+        }
+
+        var rows = new List<string>();
+        int start = 0;
+        for (int i = 0; i < text.Length; i++)
+        {
+            if (text[i] != '\n') continue;
+            var row = text[start..i].Trim();
+            if (row.Length > 0) rows.Add(row);
+            start = i + 1;
+        }
+        return rows.ToArray();
     }
 
     /// <summary>Write a file and stamp it past the age bound.</summary>

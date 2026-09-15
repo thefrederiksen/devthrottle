@@ -401,9 +401,10 @@ public sealed class TerminalStateDetector : IDisposable
         /// <summary>See TerminalStateDetector.LastByteDisposition.</summary>
         internal string? LastByteDisposition => Volatile.Read(ref _lastByteDisposition);
 
-        // Which branch the last burst took. One reference store of a shared constant per burst,
-        // written beside work that already arms a timer on the same path, so it is not a cost the
-        // "a working session pays nothing" claim has to account for.
+        // Which branch the last burst took. One reference store of a shared constant per burst - no
+        // allocation, no lock, no input or output, on every branch that stamps it whether or not
+        // that branch arms anything - so it is not a cost the "a working session pays nothing" claim
+        // has to account for.
         private string? _lastByteDisposition;
 
         /// <summary>See TerminalStateDetector.CheckFaultState.</summary>

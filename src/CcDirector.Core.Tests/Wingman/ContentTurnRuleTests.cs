@@ -976,8 +976,11 @@ public sealed class ContentTurnRuleTests : IDisposable
         // swallowed, and the row was gone for good. That failed the full Core suite on
         // 15 September 2026, in both directions.
         //
-        // The holder here opens exactly as the log's append does, so a reader that shuts writers
-        // out fails here with the reported sharing violation.
+        // The holder here takes a WRITE handle on the file, the same mode and access the log's
+        // append takes. Its share mode is deliberately WIDER than the append's - the append permits
+        // readers only - so that a reader which permits writers still gets in and only a reader
+        // that shuts writers out is refused. That live write handle is what the assertion tests
+        // against, and a reader that denies writers meets it with the reported sharing violation.
         var session = Guid.NewGuid();
         var path = ShadowPath(session);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);

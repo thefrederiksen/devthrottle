@@ -784,7 +784,7 @@ The detector's own diagnostic reads were committed first, so no revert could eat
 | `ShadowRows` back to `File.ReadAllLines` | `A_half_written_row_is_not_counted_as_a_row` | `Assert.Single() Failure: The collection contained 2 items` - the second item being the half-written fragment |
 | `Append` back to `File.AppendAllText` | `A_reader_holding_the_file_does_not_cost_a_row` | `Assert.Equal() Failure: Values differ` - one row on disk where two were appended. Red on all three runs |
 
-Controls in every case: the other twenty-four tests in `ContentTurnRuleTests` and the other nineteen
+Controls in every case: the other twenty-four tests in `ContentTurnRuleTests` and the other seventeen
 in `TurnDetectionShadowRetentionTests` stayed green, so each revert moved only its own test.
 
 `An_append_past_the_contention_budget_loses_the_row_and_says_so` is the fourth, and it asserts the
@@ -819,3 +819,110 @@ arrive. It is green both before and after the fix by design - it pins the bound,
   releases cannot stall every other session's append behind it, and the bound's cost - a lost row -
   is pinned by a test.
 - **Nothing here was exercised against live terminal bytes.** Unchanged from the earlier rounds.
+
+---
+
+# Round four - the four sentence-level findings
+
+Round four of the inspection returned AGREE. Nothing below reopens the verdict. Three of the four
+were false sentences sitting next to code that contradicts them, which is the defect this mission's
+own standard names: an unproven claim in a comment is worse than no comment, because the next reader
+spends their scepticism somewhere else. The fourth was arithmetic in this report.
+
+## Finding one - the false "exactly" in the reader test
+
+`src/CcDirector.Core.Tests/Wingman/ContentTurnRuleTests.cs`, in
+`The_row_reader_does_not_shut_the_writer_out`. The comment said the holder "opens exactly as the
+log's append does". It does not: the holder opens `FileMode.Append, FileAccess.Write,
+FileShare.ReadWrite | FileShare.Delete`, while the log's append opens `FileShare.Read`
+(`TurnDetectionShadowLog.AppendLine`). Mode and access match; the share mode does not.
+
+**The sentence was corrected, not the test.** The inspection measured that the test's discriminating
+power is unaffected - a holder carrying the append's real `FileShare.Read` passes the fixed reader
+and reddens the reverted one identically - so the code was already right and only the claim about it
+was wrong. The comment now says what is actually load bearing: the holder takes a live WRITE handle,
+its share mode is deliberately wider than the append's so that a reader permitting writers still
+gets in, and a reader that shuts writers out is the only one refused.
+
+**How I know:** the two share modes are read off the two files, four lines apart in the diff. The
+test is unchanged, and `The_row_reader_does_not_shut_the_writer_out` is green in the focused run
+below.
+
+## Finding two - the justification false on four branches
+
+`src/CcDirector.Core/Wingman/TerminalStateDetector.cs`, the comment on `_lastByteDisposition`. It
+justified the stamp by saying it is "written beside work that already arms a timer on the same path".
+On the suppressed, brand-new, already-active-with-no-body-change and settled-nothing-armed branches
+that is untrue - the stamp is the only added work there and nothing is armed.
+
+The COST CLAIM survives and stays. What was replaced is the reason given for it, with one that holds
+on every branch: the stamp is one reference store of a shared constant, with no allocation, no lock
+and no input or output, on every branch that stamps it whether or not that branch arms anything.
+
+**How I know:** the new reason makes no claim about arming, so the four branches the inspection named
+cannot falsify it. It is a comment change only - no behaviour moved, and the file's diff is the four
+comment lines and nothing else.
+
+## Finding three - the retention helper did not follow the discipline its comment pointed at
+
+`src/CcDirector.Core.Tests/Wingman/TurnDetectionShadowRetentionTests.cs`. `ReadRows` cross-referenced
+`ContentTurnRuleTests.ShadowRows` for not denying the writer, but read with
+`Split('\n', StringSplitOptions.RemoveEmptyEntries)`, which COUNTS a non-newline-terminated last line
+- exactly the half-written row the helper it points at refuses to count. No committed test was
+exposed, because both existing uses follow appends that either fully landed or never landed at all.
+A future poll through this helper against a live writer would have inherited a hazard the
+cross-reference says it does not have.
+
+**This is the one finding that touched code, and it is a test helper only.** `ReadRows` now walks the
+text and consumes a line only when it reaches that line's newline, the same rule as `ShadowRows`, and
+its summary says both disciplines outright instead of pointing at another file for them.
+
+**The test was written first and watched failing.** `A_half_written_last_row_is_not_counted_by_the_row_reader`
+writes a file whose last line has no newline and asserts one row. Against the old `Split` helper it
+failed with:
+
+```
+Assert.Single() Failure: The collection contained 2 items
+Collection: ["{\"Rule\":\"row\"}", "{\"Rule\":\"ro"]
+```
+
+- the fragment counted as a row, which is the hazard itself. `DOTNET_EXIT=1` on that run, read from
+`dotnet` with the log redirected to a file. After the helper change the same test passes.
+
+**No test was exposed by the change.** Both existing callers still see the counts they asserted:
+`A_reader_holding_the_file_does_not_cost_a_row` still reads two rows and
+`An_append_past_the_contention_budget_loses_the_row_and_says_so` still reads one. Both are green in
+the focused run below, so the narrower rule did not move them.
+
+## Finding four - the count slip in this report
+
+The revert-table note said "the other nineteen in `TurnDetectionShadowRetentionTests` stayed green".
+The class ran 19 cases in total at that point, 2 of them new, so the others were 17. Corrected to
+seventeen. The `ContentTurnRuleTests` figure - 24 others of 26 - was right and is untouched.
+
+Arithmetic, not a proof claim: the reverts and their controls are unchanged. For the record, the
+class now runs 20 cases, because finding three added one.
+
+## The gate
+
+- Focused, both classes named explicitly because they live in the parked `CcDirector.Core.Tests`:
+  `DOTNET_EXIT=0`, 46 passed, 0 failed, 0 skipped, 19 seconds. That is 26 in `ContentTurnRuleTests`
+  and 20 in `TurnDetectionShadowRetentionTests` - one more than round four measured, the new test.
+- `.\scripts\test-local.ps1`: `TEST_LOCAL_EXIT=0`, all eight projects reporting `outcome=Completed`,
+  1,753 cases, 0 failed, 0 skipped.
+- Every run redirected to a file and the exit code read from `dotnet` or the script, never through a
+  pipe.
+
+## What is NOT proved by this round
+
+- **The Gateway suites still have no verdict**, for the same reason as the earlier rounds: the
+  mandate excluded a full `-Parked` run while the Gateway lock is unwinnable on this machine today
+  (issue #2862). This round narrows that gap rather than widening it - the only product file it
+  touches is `TerminalStateDetector.cs`, and the change there is four comment lines, so no Gateway
+  behaviour can have moved.
+- **Findings one and two are claims about code, checked by reading the code.** No test can pin a
+  comment. What can be said is that neither sentence now asserts anything the inspection showed to be
+  false, and neither change moved a line of behaviour.
+- **The residuals round four listed are untouched** - a row lost past the budget leaves evidence only
+  in `FileLog`, a torn-write retry can poison the last line on a full disk, and the five hundred
+  millisecond budget is still a judgement rather than a measurement.
