@@ -155,6 +155,25 @@ public sealed class TurnVerdictTraceStoreTests : IDisposable
     }
 
     [Fact]
+    public void AGapRowForATraceThatWasNeverWritten_IsKept_WithItsCauseAndNoContent()
+    {
+        var store = new TurnVerdictTraceStore(_harness.Open());
+        var lost = Trace("never-written");
+
+        store.Append(TenantA, TurnVerdictTraceStore.GapFor(lost, TurnVerdictTraceWriter.QueueFullCause));
+
+        var read = Assert.Single(store.History(TenantA, "sid-1"));
+        Assert.Equal(TurnVerdictTraceOutcomes.Lost, read.Outcome);
+        Assert.Equal($"{TurnVerdictTraceWriter.QueueFullCause}:{TurnVerdictTraceOutcomes.Refused}", read.Cause);
+        Assert.Equal(lost.TurnEndObservedAtUtc, read.TurnEndObservedAtUtc);
+        Assert.Equal(lost.VerdictId, read.VerdictId);
+        Assert.Null(read.Verdict);
+        Assert.Null(read.Package);
+        Assert.Null(read.Prompt);
+        Assert.Null(read.RawReply);
+    }
+
+    [Fact]
     public void History_IsNewestFirst_OneSessionOnly_AndNeverMoreThanTheCeiling()
     {
         var store = new TurnVerdictTraceStore(_harness.Open());

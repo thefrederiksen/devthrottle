@@ -689,6 +689,8 @@ public sealed class GatewayHost : IAsyncDisposable
     private readonly Wingman.TurnVerdictTraceStore _turnVerdictTraces;
     /// <summary>Writes the inspector's traces off the verdict path, so a verdict never waits for its copy.</summary>
     private readonly Wingman.TurnVerdictTraceWriter _turnVerdictTraceWriter;
+    /// <summary>How long shutdown waits for queued traces to be written before the database is disposed.</summary>
+    private static readonly TimeSpan TurnVerdictTraceDrainTimeout = TimeSpan.FromSeconds(5);
     /// <summary>Which Directors told this Gateway they send conversations (turn-push mission, phase 2).</summary>
     private readonly Streaming.TurnPushCapabilityRegistry _turnPushCapabilities = new();
     private readonly History.SessionHistoryRecorder _sessionHistoryRecorder;
@@ -5208,7 +5210,17 @@ public sealed class GatewayHost : IAsyncDisposable
         // ladder holding a token and re-sending into a fleet this process no longer owns.
         try { _sessionSupervisor?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] session supervisor dispose error: {ex.Message}"); }
         try { _turnVerdictService?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] turn verdict dispose error: {ex.Message}"); }
-        try { _turnVerdictTraceWriter.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] turn verdict trace writer dispose error: {ex.Message}"); }
+        // DRAIN the inspector's traces before the database below is disposed, so a clean restart does not lose the ones
+        // already queued. Bounded, so a database that will not take writes cannot hold shutdown: past the bound the
+        // traces still queued are lost, and that is logged. A verdict flight the service cancelled just above can still
+        // be unwinding; a trace it hands in after this point is refused by the closed writer and logged there.
+        try
+        {
+            var drain = _turnVerdictTraceWriter.CompleteAsync();
+            if (await Task.WhenAny(drain, Task.Delay(TurnVerdictTraceDrainTimeout)).ConfigureAwait(false) != drain)
+                FileLog.Write($"[GatewayHost] turn verdict traces did not finish writing within {TurnVerdictTraceDrainTimeout.TotalSeconds:0}s; the traces still queued are lost");
+        }
+        catch (Exception ex) { FileLog.Write($"[GatewayHost] turn verdict trace writer drain error: {ex.Message}"); }
         try { _voiceModeAllSweepTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] voice-mode sweep timer dispose error: {ex.Message}"); }
         _turnEndWatcher = null;
         try { Brain.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] brain dispose error: {ex.Message}"); }

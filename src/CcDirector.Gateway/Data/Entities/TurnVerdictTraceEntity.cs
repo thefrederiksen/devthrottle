@@ -45,7 +45,7 @@ public sealed class TurnVerdictTraceEntity : TenantScopedEntity
     public string Trigger { get; set; } = "";
 
     /// <summary>How it ended: "judged", "refused", "did-not-answer", "rate-limited", "unavailable",
-    /// "reused", "expired", "skipped" or "cancelled".</summary>
+    /// "reused", "expired", "skipped", "cancelled" or "lost" (a gap row for a trace that was never written).</summary>
     public string Outcome { get; set; } = "";
 
     /// <summary>Why a stop was skipped or cancelled (a closed activity cause word), or the exception type an

@@ -31,9 +31,12 @@ public static class TurnVerdictTraceOutcomes
     public const string Skipped = "skipped";
     /// <summary>The session worked while the verdict was being formed, so nothing was stored. No verdict.</summary>
     public const string Cancelled = "cancelled";
+    /// <summary>A trace that was never written - dropped from a full queue, or its write failed. A gap row: its cause
+    /// says why and names the outcome that was lost, and it carries no content.</summary>
+    public const string Lost = "lost";
 
-    /// <summary>True for the two outcomes that store no verdict record.</summary>
-    public static bool StoresNoVerdict(string outcome) => outcome is Skipped or Cancelled;
+    /// <summary>True for the outcomes whose row carries no verdict record of its own.</summary>
+    public static bool StoresNoVerdict(string outcome) => outcome is Skipped or Cancelled or Lost;
 }
 
 /// <summary>
@@ -77,9 +80,13 @@ public sealed record TurnVerdictTrace
 ///
 /// EVERY BULKY FIELD HAS A CEILING, so no one row is unbounded whatever a terminal printed or a judge answered:
 /// the raw reply and the prompt are cut, the package is omitted whole when it is over (cutting JSON would leave
-/// nothing readable), and a refusal reason is cut in this copy. Each cut is recorded, never hidden. The number of
-/// rows is bounded by the fleet's own activity: one per stop, and one per judge call, whose rate the account's
-/// in-flight ceiling and the judge timeout already bound.
+/// nothing readable), and a refusal reason is cut in this copy. Each cut is recorded, never hidden.
+///
+/// THERE IS NO CEILING ON HOW MANY ROWS AN ACCOUNT HAS, and that is a ruling rather than an oversight. The table
+/// holds one row per stop and one per judge call, so it grows with the fleet's own activity, and seven days bounds
+/// how long any of it stays. A per-account cap would have to choose which stops of a busy day to throw away - the
+/// busiest day being the one a person most wants to inspect - and the verdict table it sits beside has no cap
+/// either. What bounds a row is its ceilings; what bounds the table is the account's fleet and the week.
 /// </summary>
 public sealed class TurnVerdictTraceStore
 {
@@ -123,6 +130,8 @@ public sealed class TurnVerdictTraceStore
     /// <summary>Append one trace. Insert only: a trace id that already exists is a defect, and throws.</summary>
     /// <exception cref="ArgumentException">The trace carries no id, no session, no outcome, no recorded moment or no
     /// observed moment; or an outcome that stores a verdict carries no verdict.</exception>
+    /// <remarks>The ceilings are applied here too, so a caller that did not go through the writer cannot store more
+    /// than a row may hold.</remarks>
     public void Append(TenantId tenant, TurnVerdictTrace trace)
     {
         ArgumentNullException.ThrowIfNull(trace);
@@ -140,15 +149,7 @@ public sealed class TurnVerdictTraceStore
         if (trace.TurnEndObservedAtUtc == default)
             throw new ArgumentException("A trace carries the moment the detector observed the stop.", nameof(trace));
 
-        var raw = Cut(trace.RawReply, MaxRawReplyChars, out var rawCut);
-        var prompt = Cut(trace.Prompt, MaxPromptChars, out var promptCut);
-        var packageJson = trace.Package is null ? null : JsonSerializer.Serialize(trace.Package, JsonOptions);
-        var packageOmitted = trace.PackageOmitted;
-        if (packageJson is not null && packageJson.Length > MaxPackageJsonChars)
-        {
-            packageJson = null;
-            packageOmitted = true;
-        }
+        trace = ApplyCeilings(trace);
 
         lock (_gate)
         {
@@ -168,12 +169,12 @@ public sealed class TurnVerdictTraceStore
                 ReplacedVerdictId = trace.ReplacedVerdictId,
                 ReplySeconds = trace.ReplySeconds,
                 ColourEnabled = trace.ColourEnabled,
-                PackageJson = packageJson,
-                PackageOmitted = packageOmitted,
-                Prompt = prompt,
-                PromptTruncated = promptCut || trace.PromptTruncated,
-                RawReply = raw,
-                RawReplyTruncated = rawCut || trace.RawReplyTruncated,
+                PackageJson = trace.Package is null ? null : JsonSerializer.Serialize(trace.Package, JsonOptions),
+                PackageOmitted = trace.PackageOmitted,
+                Prompt = trace.Prompt,
+                PromptTruncated = trace.PromptTruncated,
+                RawReply = trace.RawReply,
+                RawReplyTruncated = trace.RawReplyTruncated,
                 VerdictJson = trace.Verdict is null ? null : SerializeVerdict(trace.Verdict),
             });
             ctx.SaveChanges();
@@ -214,6 +215,52 @@ public sealed class TurnVerdictTraceStore
             ctx.SaveChanges();
             return stale.Count;
         }
+    }
+
+    /// <summary>
+    /// The trace cut to what one row may hold: the raw reply and the prompt cut, a package over its ceiling omitted
+    /// whole, each cut flagged. Returns the same instance when nothing is over. Applied by the writer BEFORE a trace is
+    /// queued, so a waiting trace never holds more than its row will, and again by <see cref="Append"/>.
+    /// </summary>
+    public static TurnVerdictTrace ApplyCeilings(TurnVerdictTrace trace)
+    {
+        ArgumentNullException.ThrowIfNull(trace);
+        var raw = Cut(trace.RawReply, MaxRawReplyChars, out var rawCut);
+        var prompt = Cut(trace.Prompt, MaxPromptChars, out var promptCut);
+        var packageTooLarge = trace.Package is not null
+            && JsonSerializer.Serialize(trace.Package, JsonOptions).Length > MaxPackageJsonChars;
+        if (!rawCut && !promptCut && !packageTooLarge) return trace;
+        return trace with
+        {
+            RawReply = raw,
+            RawReplyTruncated = trace.RawReplyTruncated || rawCut,
+            Prompt = prompt,
+            PromptTruncated = trace.PromptTruncated || promptCut,
+            Package = packageTooLarge ? null : trace.Package,
+            PackageOmitted = trace.PackageOmitted || packageTooLarge,
+        };
+    }
+
+    /// <summary>
+    /// The gap row for a trace that was never written: the same session, stop and trigger, the verdict it named, the
+    /// outcome that was lost in its cause, and no content.
+    /// </summary>
+    public static TurnVerdictTrace GapFor(TurnVerdictTrace lost, string cause)
+    {
+        ArgumentNullException.ThrowIfNull(lost);
+        return new TurnVerdictTrace
+        {
+            TraceId = Guid.NewGuid().ToString("N"),
+            SessionId = lost.SessionId,
+            DirectorId = lost.DirectorId,
+            RecordedAtUtc = lost.RecordedAtUtc,
+            TurnEndObservedAtUtc = lost.TurnEndObservedAtUtc,
+            Trigger = lost.Trigger,
+            Outcome = TurnVerdictTraceOutcomes.Lost,
+            Cause = $"{cause}:{lost.Outcome}",
+            VerdictId = lost.VerdictId,
+            ColourEnabled = lost.ColourEnabled,
+        };
     }
 
     /// <summary>The verdict as this copy keeps it: whole, except a refusal reason over its ceiling, which is cut in a

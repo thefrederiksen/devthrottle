@@ -62,7 +62,11 @@ internal sealed class FakeTurnVerdictEnvironment : ITurnVerdictEnvironment
     private readonly object _gate = new();
     private readonly Dictionary<(TenantId, string), List<TurnVerdictDto>> _stored = new();
 
-    public TurnVerdictSettings Settings(TenantId tenant) => Knobs;
+    /// <summary>When set, answers every settings read in place of <see cref="Knobs"/> - so a test can flip a switch, or
+    /// make the read throw, in the middle of a flight.</summary>
+    public Func<TurnVerdictSettings>? SettingsOverride;
+
+    public TurnVerdictSettings Settings(TenantId tenant) => SettingsOverride?.Invoke() ?? Knobs;
 
     public TurnVerdictSessionState ReadSessionState(TenantId tenant, string sessionId)
     {

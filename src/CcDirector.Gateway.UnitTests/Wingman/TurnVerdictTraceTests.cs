@@ -157,6 +157,67 @@ public sealed class TurnVerdictTraceTests : IDisposable
         Assert.Equal(FinishedAnswer, trace.RawReply);
     }
 
+    [Fact]
+    public async Task ACancelledTrace_CarriesItsOwnStopsMoment_EvenWhenALaterStopIsObservedBeforeTheCancellationLands()
+    {
+        // Found in review: the cancellation looked up "the latest observed stop" again, after the session had moved on,
+        // and stamped the old stop's screen and answer with the new stop's moment.
+        var env = Env();
+        var release = new TaskCompletionSource();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        env.Judge = async (_, _) =>
+        {
+            entered.TrySetResult();
+            await release.Task;
+            return FinishedAnswer;
+        };
+        var service = new TurnVerdictService(env);
+
+        var pending = service.StartTurnEnd(Signal());
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        service.OnSessionWorking(Tenant, Sid);
+        var later = ObservedAt.AddMinutes(3);
+        var second = await service.StartTurnEnd(Signal(later));
+        Assert.Equal(ActivityCauses.AlreadyJudging, second.SkipCause);
+        release.SetResult();
+
+        Assert.Equal(TurnVerdictOutcomeKind.Cancelled, (await pending.WaitAsync(TimeSpan.FromSeconds(5))).Kind);
+
+        // One trace: the already-judging stop records nothing of its own, so one stop never has two outcomes.
+        var trace = Assert.Single(env.Traces);
+        Assert.Equal(TurnVerdictTraceOutcomes.Cancelled, trace.Outcome);
+        Assert.Equal(ObservedAt, trace.TurnEndObservedAtUtc);
+    }
+
+    [Fact]
+    public async Task ACancellation_TracesUnderTheSettingsItsFlightStartedWith_AndCompletes_EvenWhenASettingsReadWouldNowThrow()
+    {
+        // Found in review: the cancellation read the settings again; a throw there escaped the flight's boundary and
+        // left every joined caller waiting forever, and a switch flipped mid-flight changed what was recorded.
+        var env = Env();
+        var release = new TaskCompletionSource();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        env.Judge = async (_, _) =>
+        {
+            entered.TrySetResult();
+            await release.Task;
+            return FinishedAnswer;
+        };
+        var service = new TurnVerdictService(env);
+
+        var pending = service.StartTurnEnd(Signal());
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        env.SettingsOverride = () => throw new InvalidOperationException("the settings store is unreachable");
+        service.OnSessionWorking(Tenant, Sid);
+        release.SetResult();
+
+        var outcome = await pending.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(TurnVerdictOutcomeKind.Cancelled, outcome.Kind);
+        var trace = Assert.Single(env.Traces);
+        Assert.Equal(TurnVerdictTraceOutcomes.Cancelled, trace.Outcome);
+        Assert.Equal(FinishedAnswer, trace.RawReply);
+    }
+
     // ================================================================= a stop that stood down
 
     [Fact]

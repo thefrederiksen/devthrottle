@@ -258,6 +258,13 @@ public sealed class TurnVerdictService : IDisposable
         public string? Prompt;
         public string? RawReply;
         public double? ReplySeconds;
+
+        // THE STOP AND THE SETTINGS THIS FLIGHT STANDS ON, captured when it starts. A cancellation or a boundary failure
+        // is handled after the session has moved on, so it must neither look up "the latest observed stop" again (by
+        // then it can be a later stop) nor read the settings again (the read can fail there, and a switch flipped
+        // mid-flight must not change what this flight records). Settings stays null until the flight has read them.
+        public DateTime ObservedAt;
+        public TurnVerdictSettings? Settings;
     }
 
     // The per-session gate. Presence means a verdict is being formed for this session right now.
@@ -439,31 +446,45 @@ public sealed class TurnVerdictService : IDisposable
         // THE EPOCH THIS FLIGHT STANDS ON, captured before anything is read - before the roster, the screen and
         // the stored verdict. Every store this flight makes, on any arm, lands only while it is still current.
         var epoch = _epochs.GetOrAdd(key, 0);
-        TurnVerdictOutcome outcome;
+        flight.ObservedAt = observedAt;
+        TurnVerdictOutcome? outcome = null;
         try
         {
-            outcome = await JudgeAsync(key, flight, epoch, directorId, observedAt, trigger, screenReader, providerHold, mayAskJudge).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (flight.Cts.IsCancellationRequested)
-        {
-            outcome = Cancelled(key.Tenant, directorId, key.SessionId, trigger, "the session started working while its verdict was being formed", flight);
-        }
-        catch (Exception ex)
-        {
-            // The flight's boundary: it runs on the thread pool for a turn-end callback that has already
-            // returned, so nothing above it can catch. Logged loud, and answered like every other failure - a
-            // stored failed record and a ledger event - never as calm and never silently.
-            FileLog.Write($"[TurnVerdictService] verdict FAILED: sid={key.SessionId} tenant={key.Tenant.ToLogString()} trigger={trigger}: {ex.GetType().FullName}: {ex.Message}");
-            outcome = FailedAtBoundary(key, flight, epoch, directorId, observedAt, trigger, ex);
+            try
+            {
+                outcome = await JudgeAsync(key, flight, epoch, directorId, observedAt, trigger, screenReader, providerHold, mayAskJudge).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (flight.Cts.IsCancellationRequested)
+            {
+                outcome = Cancelled(key.Tenant, directorId, key.SessionId, trigger, "the session started working while its verdict was being formed", flight);
+            }
+            catch (Exception ex)
+            {
+                // The flight's boundary: it runs on the thread pool for a turn-end callback that has already
+                // returned, so nothing above it can catch. Logged loud, and answered like every other failure - a
+                // stored failed record and a ledger event - never as calm and never silently.
+                FileLog.Write($"[TurnVerdictService] verdict FAILED: sid={key.SessionId} tenant={key.Tenant.ToLogString()} trigger={trigger}: {ex.GetType().FullName}: {ex.Message}");
+                outcome = FailedAtBoundary(key, flight, epoch, directorId, observedAt, trigger, ex);
+            }
+            finally
+            {
+                _inFlight.TryRemove(new KeyValuePair<(TenantId, string), Flight>(key, flight));
+            }
         }
         finally
         {
-            _inFlight.TryRemove(new KeyValuePair<(TenantId, string), Flight>(key, flight));
+            // EVERY CALLER JOINED TO THIS FLIGHT IS RELEASED, whatever happened above. If a handler itself threw, the
+            // joined callers receive that fault instead of waiting on a result that will never be set.
+            if (outcome is null)
+                flight.Done.TrySetException(new InvalidOperationException(
+                    $"[TurnVerdictService] the verdict flight for sid={key.SessionId} ended without an outcome; see the log for the fault"));
+            else
+                flight.Done.TrySetResult(outcome);
+            flight.Cts.Dispose();
         }
 
-        flight.Done.TrySetResult(outcome);
-        flight.Cts.Dispose();
-        return outcome;
+        // Reaching here means an arm above assigned the outcome; a handler that threw left through the finally instead.
+        return outcome!;
     }
 
     /// <summary>
@@ -505,8 +526,9 @@ public sealed class TurnVerdictService : IDisposable
             // The evidence the flight had gathered before the exception - when the judge had already answered and it
             // was the store that threw, that is the prompt and the whole answer, which is exactly what is needed to see
             // what was lost. The exception's type is the cause; its message stays in the log, as the record's does.
-            var settings = _env.Settings(tenant);
-            if (settings.JudgeEnabled)
+            // The settings the flight read when it started - null when the exception came before that read, and then
+            // there is nothing to say whether this account is traced, so nothing is.
+            if (flight.Settings is { JudgeEnabled: true } settings)
                 _env.RecordTrace(tenant, WithEvidence(NewTrace(sid, directorId, trigger, TurnVerdictTraceOutcomes.Unavailable, record,
                     settings.ColourEnabled), flight) with { Cause = ex.GetType().Name });
         }
@@ -549,6 +571,7 @@ public sealed class TurnVerdictService : IDisposable
         var (tenant, sid) = key;
         var ct = flight.Cts.Token;
         var settings = _env.Settings(tenant);
+        flight.Settings = settings;
         var automatic = trigger != TurnVerdictTrigger.OnDemand;
 
         // ---- the free checks: nothing is read and nothing is paid for until every one of them passes ----
@@ -557,10 +580,10 @@ public sealed class TurnVerdictService : IDisposable
         // model is asked about it.
         var state = _env.ReadSessionState(tenant, sid);
         if (SessionStateSkipCause(state, automatic) is { } cause)
-            return Skip(tenant, directorId, sid, trigger, cause);
+            return Skip(tenant, directorId, sid, trigger, cause, settings, observedAt);
         var facts = state.Facts;
         if (trigger == TurnVerdictTrigger.TurnEnd && !settings.JudgeEnabled && !_env.IsVoiceSession(tenant, sid))
-            return Skip(tenant, directorId, sid, trigger, ActivityCauses.JudgeSwitchOff);
+            return Skip(tenant, directorId, sid, trigger, ActivityCauses.JudgeSwitchOff, settings, observedAt);
 
         if (trigger == TurnVerdictTrigger.TurnEnd && settings.SettleMs > 0)
             await _env.DelayAsync(TimeSpan.FromMilliseconds(settings.SettleMs), ct).ConfigureAwait(false);
@@ -571,7 +594,7 @@ public sealed class TurnVerdictService : IDisposable
         {
             state = _env.ReadSessionState(tenant, sid);
             if (SessionStateSkipCause(state, automatic) is { } lateCause)
-                return Skip(tenant, directorId, sid, trigger, lateCause);
+                return Skip(tenant, directorId, sid, trigger, lateCause, settings, observedAt);
             facts = state.Facts;
         }
 
@@ -598,7 +621,7 @@ public sealed class TurnVerdictService : IDisposable
         if (!mayAskJudge)
         {
             FileLog.Write($"[TurnVerdictService] sid={sid}: no reusable verdict for this {(hash.Length == 0 ? "unreadable" : "readable")} screen, and this caller may not ask the judge - skipped");
-            return Skip(tenant, directorId, sid, trigger, ActivityCauses.ReattemptNeverJudges);
+            return Skip(tenant, directorId, sid, trigger, ActivityCauses.ReattemptNeverJudges, settings, observedAt);
         }
 
         // The source this stop is judged from, chosen ONCE, over this one screen read.
@@ -611,7 +634,7 @@ public sealed class TurnVerdictService : IDisposable
         if (providerHold?.Invoke(hash, source?.Content) is { } wait)
         {
             FileLog.Write($"[TurnVerdictService] sid={sid}: not asking the judge for {wait.TotalSeconds:F0}s more - the provider asked this caller to wait");
-            return Skip(tenant, directorId, sid, trigger, ActivityCauses.RateLimited);
+            return Skip(tenant, directorId, sid, trigger, ActivityCauses.RateLimited, settings, observedAt);
         }
 
         // ---- the account's ceiling ----
@@ -621,7 +644,7 @@ public sealed class TurnVerdictService : IDisposable
         {
             Interlocked.Decrement(ref load.Value);
             Interlocked.Increment(ref _capSkips);
-            return Skip(tenant, directorId, sid, trigger, ActivityCauses.InFlightCap);
+            return Skip(tenant, directorId, sid, trigger, ActivityCauses.InFlightCap, settings, observedAt);
         }
 
         _reading[key] = 1;
@@ -783,7 +806,8 @@ public sealed class TurnVerdictService : IDisposable
             var refreshed = Copy(latest);
             refreshed.TurnEndObservedAtUtc = observedAt;
             if (!StoreIfCurrent(key, epoch, refreshed))
-                return Cancelled(tenant, directorId, sid, trigger, "the session worked after its stored verdict was read; that verdict is not reused");
+                return Cancelled(tenant, directorId, sid, trigger, "the session worked after its stored verdict was read; that verdict is not reused",
+                settings: settings, observedAt: observedAt);
             verdict = refreshed;
         }
 
@@ -791,7 +815,8 @@ public sealed class TurnVerdictService : IDisposable
         var source = WingmanNarrationSource.Select(conversation?.Widgets, rows);
 
         if (_epochs.GetOrAdd(key, 0) != epoch)
-            return Cancelled(tenant, directorId, sid, trigger, "the session worked after its stored verdict was read; that verdict is not reused");
+            return Cancelled(tenant, directorId, sid, trigger, "the session worked after its stored verdict was read; that verdict is not reused",
+                settings: settings, observedAt: observedAt);
 
         // A reuse is a STOP only on the turn-end path. The voice path and the sweep come past an unchanged screen
         // over and over, and a trace for each pass would bury the stops under the passes.
@@ -857,17 +882,18 @@ public sealed class TurnVerdictService : IDisposable
     /// record". The voice path and the sweep come past the same sessions over and over, so their skips stay in the
     /// ledger only. A judge switch that is off leaves no trace: nothing is ever traced for such an account.
     /// </summary>
-    private TurnVerdictOutcome Skip(TenantId tenant, string directorId, string sid, TurnVerdictTrigger trigger, string cause)
+    /// <param name="settings">The settings the flight read, and <paramref name="observedAt"/> the stop it stands on. A
+    /// skip given neither leaves no trace - that is the already-judging skip in <see cref="StartTurnEnd"/>, whose stop is
+    /// recorded by the flight already running for it, so a trace here would give one stop two outcomes.</param>
+    private TurnVerdictOutcome Skip(TenantId tenant, string directorId, string sid, TurnVerdictTrigger trigger, string cause,
+        TurnVerdictSettings? settings = null, DateTime? observedAt = null)
     {
         _env.Record(new TurnVerdictRecord(tenant, directorId ?? "", sid, ActivityEventTypes.TurnVerdictSkipped,
             cause, $"trigger={TriggerWord(trigger)}"));
-        if (trigger == TurnVerdictTrigger.TurnEnd && cause != ActivityCauses.JudgeSwitchOff && tenant.IsValid)
-        {
-            var settings = _env.Settings(tenant);
-            if (settings.JudgeEnabled)
-                _env.RecordTrace(tenant, NewUnjudgedTrace(tenant, sid, directorId, trigger, TurnVerdictTraceOutcomes.Skipped,
-                    cause, settings.ColourEnabled));
-        }
+        if (trigger == TurnVerdictTrigger.TurnEnd && cause != ActivityCauses.JudgeSwitchOff
+            && settings is { JudgeEnabled: true } && observedAt is { } stop)
+            _env.RecordTrace(tenant, NewUnjudgedTrace(sid, directorId, trigger, TurnVerdictTraceOutcomes.Skipped,
+                cause, stop, settings.ColourEnabled));
         return new TurnVerdictOutcome { Kind = TurnVerdictOutcomeKind.Skipped, SkipCause = cause };
     }
 
@@ -876,21 +902,26 @@ public sealed class TurnVerdictService : IDisposable
     /// trace, and so does any request whose judge had already been asked - that is a paid answer the row never showed,
     /// and the inspector keeps the prompt and the answer beside the cancellation.
     /// </summary>
+    /// <remarks>
+    /// NOTHING HERE IS LOOKED UP AGAIN. The stop and the settings come from the flight (or, on the reuse arm, from the
+    /// caller that already holds them): by the time a cancellation is handled the session has moved on, so "the latest
+    /// observed stop" can be a later stop, and a settings read can fail or see a switch flipped mid-flight. A
+    /// cancellation that reaches here before the flight read its settings leaves no trace.
+    /// </remarks>
     private TurnVerdictOutcome Cancelled(TenantId tenant, string directorId, string sid, TurnVerdictTrigger trigger, string why,
-        Flight? flight = null)
+        Flight? flight = null, TurnVerdictSettings? settings = null, DateTime? observedAt = null)
     {
         FileLog.Write($"[TurnVerdictService] cancelled sid={sid} tenant={tenant.ToLogString()}: {why}");
         _env.Record(new TurnVerdictRecord(tenant, directorId ?? "", sid, ActivityEventTypes.TurnVerdictCancelled,
             ActivityCauses.WorkingObservation, $"trigger={TriggerWord(trigger)}"));
-        if ((trigger == TurnVerdictTrigger.TurnEnd || flight?.Prompt is not null) && tenant.IsValid)
+        var traceSettings = flight?.Settings ?? settings;
+        var stop = flight is not null ? flight.ObservedAt : observedAt;
+        if ((trigger == TurnVerdictTrigger.TurnEnd || flight?.Prompt is not null)
+            && traceSettings is { JudgeEnabled: true } && stop is { } observed && observed != default)
         {
-            var settings = _env.Settings(tenant);
-            if (settings.JudgeEnabled)
-            {
-                var trace = NewUnjudgedTrace(tenant, sid, directorId, trigger, TurnVerdictTraceOutcomes.Cancelled,
-                    ActivityCauses.WorkingObservation, settings.ColourEnabled);
-                _env.RecordTrace(tenant, flight is null ? trace : WithEvidence(trace, flight));
-            }
+            var trace = NewUnjudgedTrace(sid, directorId, trigger, TurnVerdictTraceOutcomes.Cancelled,
+                ActivityCauses.WorkingObservation, observed, traceSettings.ColourEnabled);
+            _env.RecordTrace(tenant, flight is null ? trace : WithEvidence(trace, flight));
         }
         return new TurnVerdictOutcome { Kind = TurnVerdictOutcomeKind.Cancelled };
     }
@@ -1069,19 +1100,18 @@ public sealed class TurnVerdictService : IDisposable
         Verdict = verdict,
     };
 
-    /// <summary>A trace for a request that stored no verdict - a skip or a cancellation. It carries the moment the
-    /// detector last observed a stop for this session, and no verdict.</summary>
-    private TurnVerdictTrace NewUnjudgedTrace(TenantId tenant, string sid, string? directorId, TurnVerdictTrigger trigger,
-        string outcome, string cause, bool colourEnabled)
+    /// <summary>A trace for a request that stored no verdict - a skip or a cancellation - stamped with the stop the
+    /// request stood on, and no verdict.</summary>
+    private TurnVerdictTrace NewUnjudgedTrace(string sid, string? directorId, TurnVerdictTrigger trigger,
+        string outcome, string cause, DateTime observedAt, bool colourEnabled)
     {
-        var now = _env.NowUtc();
         return new TurnVerdictTrace
         {
             TraceId = Guid.NewGuid().ToString("N"),
             SessionId = sid,
             DirectorId = directorId ?? "",
-            RecordedAtUtc = now,
-            TurnEndObservedAtUtc = _lastObserved.TryGetValue((tenant, sid), out var seen) ? seen : now,
+            RecordedAtUtc = _env.NowUtc(),
+            TurnEndObservedAtUtc = observedAt,
             Trigger = TriggerWord(trigger),
             Outcome = outcome,
             Cause = cause,
