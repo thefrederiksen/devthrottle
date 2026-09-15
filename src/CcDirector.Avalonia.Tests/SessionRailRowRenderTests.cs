@@ -52,8 +52,11 @@ public sealed class SessionRailRowRenderTests
     /// </summary>
     private const double RealRailWidth = 264;
 
+    /// <summary>The width the plain render helper opens at, wide enough that nothing is squeezed.</summary>
+    private const double RenderWidth = 300;
+
     /// <summary>Render these view models through MainWindow's own SessionList item template.</summary>
-    private static ListBox Render(params SessionViewModel[] rows) => RenderAt(300, rows);
+    private static ListBox Render(params SessionViewModel[] rows) => RenderAt(RenderWidth, rows);
 
     private static ListBox RenderAt(double width, params SessionViewModel[] rows)
     {
@@ -247,6 +250,69 @@ public sealed class SessionRailRowRenderTests
         Assert.True(rows.Count > 1,
             $"forty squares were laid out on {rows.Count} row(s) at {RealRailWidth} pixels - they are " +
             "being clipped or overflowing rather than wrapping, and sessions are being lost");
+    }
+
+    /// <summary>
+    /// A ROW ALREADY ON THE SCREEN FOLLOWS ITS NEXT STAMP. Every other test in this file stamps the row
+    /// BEFORE the first render, which is the one case where the change notifications in
+    /// <c>SessionViewModel.ApplyRailRow</c> do not matter at all - the bindings read the values on their
+    /// way up, notified or not. Deleting all twelve of those notifications left the whole shipped suite
+    /// green, which made the half of that method the slice added for exactly this purpose a guard
+    /// nothing held down.
+    ///
+    /// In production, stamping before the first render is the case that never happens. <c>RebuildRail</c>
+    /// re-stamps rows that are ALREADY DRAWN - every fifteen seconds to tick the crew age, and on every
+    /// roster change - and the fast path deliberately keeps the same containers, so nothing else would
+    /// move the drawn row. Without the notifications the rail would go silently stale: yesterday's
+    /// counts, yesterday's age, a chevron pointing the wrong way, and no sign at all that it had stopped
+    /// following.
+    /// </summary>
+    [AvaloniaFact]
+    public void ARowAlreadyOnTheScreen_FollowsItsNextStamp_RatherThanKeepingThePreviousTicksWords()
+    {
+        var crew = Vm("Architect");
+        crew.ApplyRailRow(0, hasCrew: true, isExpanded: false,
+            "2 under it: 2 working, 0 stopped, 0 need you", "5h 29m", Squares(2), "", false);
+
+        var list = Render(crew);
+        Assert.Contains("2 under it: 2 working, 0 stopped, 0 need you", VisibleText(list));
+        Assert.Equal("5h 29m", VisibleText(list).Single(t => t.EndsWith("29m", StringComparison.Ordinal)));
+        Assert.Equal(2, DrawnCrewSquares(list));
+
+        // The tick: a third session joined the crew and stopped, and the age moved on.
+        crew.ApplyRailRow(0, hasCrew: true, isExpanded: false,
+            "3 under it: 2 working, 1 stopped, 0 need you", "5h 44m", Squares(3), "", false);
+        Relayout(list);
+
+        var ticked = VisibleText(list);
+        Assert.Contains("3 under it: 2 working, 1 stopped, 0 need you", ticked);
+        Assert.Contains("5h 44m", ticked);
+        Assert.DoesNotContain("2 under it: 2 working, 0 stopped, 0 need you", ticked);
+        Assert.DoesNotContain("5h 29m", ticked);
+        Assert.Equal(3, DrawnCrewSquares(list));
+
+        // The parts that APPEAR AND DISAPPEAR follow the stamp too, not only the words: opening the crew
+        // must take the crew line off a row that is already drawn and turn its chevron down.
+        crew.ApplyRailRow(0, hasCrew: true, isExpanded: true,
+            "3 under it: 2 working, 1 stopped, 0 need you", "5h 44m", Squares(3), "", false);
+        Relayout(list);
+
+        Assert.DoesNotContain(VisibleText(list), t => t.Contains("under it"));
+        Assert.Equal(0, DrawnCrewSquares(list));
+        Assert.Equal("down", ChevronDirection(list));
+    }
+
+    /// <summary>
+    /// Run the layout again over a list that is already on the screen, the way the rail's next tick
+    /// reaches a row that never left it. This is NOT a re-render: the same containers stay, so anything
+    /// that changes has to arrive through a change notification.
+    /// </summary>
+    private static void Relayout(ListBox list)
+    {
+        Dispatcher.UIThread.RunJobs();
+        list.Measure(new Size(RenderWidth, 700));
+        list.Arrange(new Rect(0, 0, RenderWidth, 700));
+        Dispatcher.UIThread.RunJobs();
     }
 
     // ===== A child is indented, behind a guide line, further at each level =====
