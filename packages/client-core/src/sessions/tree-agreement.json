@@ -312,6 +312,30 @@
       "attention": [
         { "title": "Working", "roots": ["host"] }
       ]
+    },
+    {
+      "name": "a session whose OWN id arrives padded",
+      "proves": "a fold keys its map on the session's own id trimmed, not as it arrived, so a padded parent is still found by a child that names it plainly",
+      "sessions": [
+        { "sessionId": "  P  ", "sortOrder": 0, "createdAt": "2026-09-14T16:00:00Z", "activityState": "Working", "effectiveColor": "blue", "triageBucket": "active" },
+        { "sessionId": "kid", "sortOrder": 1, "controllerSessionId": "P", "createdAt": "2026-09-14T16:30:00Z", "activityState": "Working", "effectiveColor": "blue", "triageBucket": "active" }
+      ],
+      "roots": ["  P  "],
+      "children": { "  P  ": ["kid"] },
+      "crews": [
+        {
+          "root": "  P  ",
+          "descendants": ["kid@  P  @1"],
+          "count": 1, "needsYou": 0, "working": 1, "stopped": 0,
+          "since": "2026-09-14T16:00:00.000Z",
+          "line": "1 under it: 1 working, 0 stopped, 0 need you",
+          "ageAt": "2026-09-14T16:45:00Z",
+          "age": "45m"
+        }
+      ],
+      "attention": [
+        { "title": "Working", "roots": ["  P  "] }
+      ]
     }
   ]
 }

@@ -151,6 +151,24 @@ public sealed class SessionTreeTests
     }
 
     [Fact]
+    public void Build_ASessionWhoseOwnIdArrivesPadded_IsStillFoundByAChildThatNamesItPlainly()
+    {
+        // The other half of the trimming rule, and the half nothing was holding: the fixtures normalised a
+        // padded SUPERVISOR id, so removing the trim from the session's OWN id left everything green. The
+        // parent would then be keyed under "  P  " while the child asks for "P", and the child would
+        // silently become a top-level row instead of nesting.
+        var parent = S("  P  ", 0);
+        var child = S("kid", 1, controller: "P");
+
+        var tree = SessionTree.Build(new[] { parent, child });
+
+        Assert.Equal(new[] { "  P  " }, Ids(tree.Roots));
+        Assert.Equal(new[] { "kid" }, Ids(SessionTree.ChildrenOf(tree, parent)));
+        Assert.Equal(new[] { "kid@1" },
+            SessionTree.DescendantsOf(tree, parent).Select(d => $"{d.Session.SessionId}@{d.Depth}").ToArray());
+    }
+
+    [Fact]
     public void AnEmptyList_ProducesAnEmptyTree_AnEmptyCrewAndNoSections()
     {
         var tree = SessionTree.Build(Array.Empty<SessionDto>());
