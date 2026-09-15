@@ -323,6 +323,13 @@ body {
   padding: 0 2px;
 }
 
+/* The "What do the colours mean?" link under the ordering toggle (client-core/sessions/colourLegend.css
+   styles the button and the legend; this only places it). */
+.roster-legend-btn {
+  align-self: flex-start;
+  margin: 0 2px;
+}
+
 .roster-view-btn {
   flex: 1;
   padding: 5px 8px;

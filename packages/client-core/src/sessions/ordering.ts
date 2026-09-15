@@ -312,6 +312,11 @@ const COLORS: Record<string, string> = {
   unknown: "#6B7280", // indeterminate activity state (e.g. an unrecognized state) - rendered gray like grey
 };
 
+// Every colour name the palette knows, for the colour legend's coverage check (colourMeanings.test.ts).
+export function paletteNames(): string[] {
+  return Object.keys(COLORS);
+}
+
 export function dotColor(color: string): string {
   const value = COLORS[color];
   if (!value) throw new Error(`Unknown Gateway effectiveColor '${color}'.`);
@@ -322,7 +327,7 @@ export function dotColor(color: string): string {
 // StatusPalette.Broken. NOT a state: it is what a session dot paints when the Gateway did not stamp a
 // usable hex, and it is deliberately unmissable and impossible to mistake for a real colour (grey MEANS
 // snoozed/exited, so a fallback to grey would be an affirmative lie that the session is parked).
-const BROKEN_HEX = "#FF00FF";
+export const BROKEN_HEX = "#FF00FF";
 // A #RGB or #RRGGBB hex, the only shapes the canonical palette emits.
 const HEX_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, cleanup } from "@testing-library/react";
+import { render, cleanup, fireEvent, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type { SessionDto } from "@devthrottle/client-core/api/client";
 
@@ -129,5 +129,16 @@ describe("Attention first - the Needs you waiting line", () => {
     renderAttention([unstamped, needsYou("waiting", "2026-07-26T09:50:00Z", 2)]);
 
     expect(needsYouRowOrder()).toEqual(["waiting", "unstamped"]);
+  });
+});
+
+describe("the colour legend on the roster rail", () => {
+  it("offers the legend under the ordering toggle, and opens it", () => {
+    cleanup();
+    renderAttention([needsYou("waiting", "2026-07-26T09:50:00Z", 1)]);
+
+    fireEvent.click(screen.getByRole("button", { name: "What do the colours mean?" }));
+
+    expect(screen.getByRole("dialog", { name: "What the colours mean" })).toBeTruthy();
   });
 });

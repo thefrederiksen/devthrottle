@@ -37,6 +37,7 @@ import { machinePortLabel } from "@devthrottle/client-core/fleet/directorEndpoin
 import { isDataStale } from "@devthrottle/client-core/fleet/directorPresentation";
 import { useNow, waitingLabel } from "@devthrottle/client-core/sessions/waiting";
 import { useNow as useSharedNow } from "@devthrottle/client-core/polling/useNow";
+import { ColourLegendButton } from "@devthrottle/client-core/sessions/ColourLegend";
 import {
   reachabilityFor,
   reachabilityLastSeen,
@@ -120,6 +121,9 @@ export function SessionRoster({ sessions, directors, portByDirector, selectedId,
           Attention first
         </button>
       </div>
+
+      {/* What the dots mean. The same shared legend the phone roster mounts. */}
+      <ColourLegendButton className="roster-legend-btn" />
 
       {/* The fleet-wide voice switch (issue #1765): one button turns voice mode on for every session,
           or off again, so a person leaving their desk can put the whole fleet on voice and take it back

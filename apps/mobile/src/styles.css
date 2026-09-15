@@ -4985,6 +4985,13 @@ a.banner-btn {
 .order-label {
   flex: 0 0 auto;
 }
+/* The "What do the colours mean?" link under the order switch (client-core/sessions/colourLegend.css styles the
+   button and the legend; this only places it). */
+.legend-row {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0 0 2px;
+}
 .order-switch {
   display: flex;
   margin-left: auto;
