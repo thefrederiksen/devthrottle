@@ -25,6 +25,19 @@ from src.storefile import UserOnlyFile  # noqa: E402
 
 _ANSI_STYLE = re.compile(r"\x1b\[[0-9;]*m")
 
+MACOS_REFUSED = ("cc-secrets refuses to run on macOS until its access control lists are checked (review of pull "
+                 "request 2891), so only the test proving that refusal runs here")
+
+
+def pytest_collection_modifyitems(config, items):
+    """On macOS every test that uses the store would only show the refusal again. Skip them, saying why, and
+    run the tests that prove the refusal itself."""
+    if sys.platform != "darwin":
+        return
+    for item in items:
+        if not item.name.startswith("test_MacOS_"):
+            item.add_marker(pytest.mark.skip(reason=MACOS_REFUSED))
+
 
 def new_secret() -> str:
     """A secret unique to this test run, so a hit can only come from this run."""

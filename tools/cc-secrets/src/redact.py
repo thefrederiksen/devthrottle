@@ -129,8 +129,12 @@ def variants_for(secret: str, username: str = "") -> List[str]:
 
 
 def output_encodings() -> List[str]:
-    """The encodings a command's output may be in on this machine, most likely first."""
-    names = ["utf-8", "utf-16-le", "utf-16-be"]
+    """The encodings a command's output may be in on this machine, most likely first.
+
+    Windows-1252 is on the list on every system, not only on Windows: output written in it - a file or a
+    program from a Windows machine - reaches a Linux or macOS command too, and on the Linux continuous
+    integration runner a secret printed that way was not removed."""
+    names = ["utf-8", "utf-16-le", "utf-16-be", "cp1252"]
     if sys.platform == "win32":
         import ctypes
 
