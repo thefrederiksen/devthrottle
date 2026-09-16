@@ -148,8 +148,7 @@ def _rows_or_exit(payload: Any, what: str, id_key: str, id_camel: str,
         if not isinstance(row, dict):
             _answer_error(f"the Gateway's {what} list has a row that is not an object (row {index + 1}).")
         for camel, pascal in ((id_camel, id_key),) + also_required:
-            value = row.get(camel, row.get(pascal))
-            if not isinstance(value, str) or not value.strip():
+            if not _is_name(_value(row, camel, pascal)):
                 _answer_error(
                     f"the Gateway returned a {what} with no {camel} (row {index + 1}). "
                     "This tool will not list what it cannot name or place."
@@ -157,8 +156,65 @@ def _rows_or_exit(payload: Any, what: str, id_key: str, id_camel: str,
     return payload
 
 
+# The kind of value each displayed field must hold, exactly as the Gateway's DTO serializes it
+# (DirectorDto, LauncherDto). A value of any other kind is refused, never shown as a guess or a blank.
+_STRING = "a string"
+_NUMBER = "a whole number"
+_STRING_OR_NULL = "a string or null"
+
+
+def _value(row: Dict[str, Any], camel: str, pascal: str) -> Any:
+    return row[camel] if camel in row else row.get(pascal)
+
+
+def _is_name(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _kind_ok(value: Any, kind: str) -> bool:
+    if kind == _NUMBER:
+        return isinstance(value, int) and not isinstance(value, bool)
+    if kind == _STRING_OR_NULL and value is None:
+        return True
+    return isinstance(value, str)
+
+
+def _displayed_or_exit(rows: List[Dict[str, Any]], what: str,
+                       spec: Tuple[Tuple[str, str, str], ...]) -> None:
+    """Every displayed field of every row is present and of the kind the Gateway's DTO sends.
+
+    A field that is absent, or holds another kind of value, would otherwise be printed as a blank or as
+    Python's rendering of whatever arrived - an answer that looks read but was not."""
+    for index, row in enumerate(rows):
+        for camel, pascal, kind in spec:
+            present = camel in row or pascal in row
+            value = _value(row, camel, pascal)
+            if not present or not _kind_ok(value, kind):
+                shown = "missing" if not present else f"{type(value).__name__} {value!r}"
+                _answer_error(
+                    f"the Gateway returned a {what} whose {camel} is {shown}, not {kind} (row {index + 1}). "
+                    "--json shows the raw rows."
+                )
+
+
+_DIRECTOR_DISPLAYED = (
+    ("displayName", "DisplayName", _STRING),
+    ("version", "Version", _STRING),
+    ("pid", "Pid", _NUMBER),
+    ("user", "User", _STRING),
+    ("startedAt", "StartedAt", _STRING),
+    ("lastSeen", "LastSeen", _STRING_OR_NULL),
+)
+_LAUNCHER_DISPLAYED = (
+    ("version", "Version", _STRING),
+    ("pid", "Pid", _NUMBER),
+    ("startedAt", "StartedAt", _STRING),
+    ("lastSeenAt", "LastSeenAt", _STRING),
+)
+
+
 def _text(row: Dict[str, Any], camel: str, pascal: str) -> Optional[str]:
-    value = row.get(camel, row.get(pascal))
+    value = _value(row, camel, pascal)
     return None if value is None else str(value)
 
 
@@ -181,42 +237,74 @@ def _write(blocks: List[str]) -> None:
 
 def _machine_states(launchers: List[Dict[str, Any]]) -> Tuple[List[str], List[str]]:
     """Each launcher's plain state, from the Gateway's Machines view, and the names of the machines that
-    view reports with no launcher. Fails loudly on anything unknown."""
+    view reports with no launcher. Fails loudly on anything unknown.
+
+    Every entry the view returns is checked, not only the ones matched to a launcher: an entry that is
+    skipped is a machine turned into silence, and on a fleet with no launchers that silence reads as
+    "No machines are registered"."""
     view = _get_or_exit("machines")
     machines = view.get("machines") if isinstance(view, dict) else None
     if not isinstance(machines, list):
         _answer_error("the Gateway's machines view has no list of machines, so no machine state can be shown.")
-    reach_by_name: Dict[str, Any] = {}
+    reach_by_name: Dict[str, str] = {}
+    name_by_key: Dict[str, str] = {}
     no_launcher: List[str] = []
     for index, entry in enumerate(machines):
         # A row that cannot be named is refused, never skipped: skipping it turns a machine into silence.
         name = entry.get("machine") if isinstance(entry, dict) else None
-        if not isinstance(name, str) or not name.strip():
+        if not _is_name(name):
             _answer_error(
                 f"the Gateway's machines view has an entry with no machine name (entry {index + 1}). "
                 "This tool will not list what it cannot name."
             )
-        reach_by_name[name.lower()] = entry.get("reach")
-        if entry.get("reach") == _NO_LAUNCHER_REACH:
+        reach = entry.get("reach")
+        if reach != _NO_LAUNCHER_REACH and (not isinstance(reach, str) or reach not in _MACHINE_STATE_FOR_REACH):
+            shown = "missing" if reach is None else repr(reach)
+            _answer_error(
+                f"machine {name} has a launcher reach that is {shown}; this tool knows only "
+                f"{', '.join(_MACHINE_STATE_FOR_REACH)} and {_NO_LAUNCHER_REACH}. "
+                "If the Gateway has added one, update cc-devthrottle; --json shows the raw rows."
+            )
+        # The Gateway folds one entry per machine, ignoring case; a second one leaves the state undecided.
+        key = name.lower()
+        if key in reach_by_name:
+            _answer_error(f"the Gateway's machines view lists machine {name} more than once (entry {index + 1}).")
+        reach_by_name[key] = reach
+        name_by_key[key] = name
+        if reach == _NO_LAUNCHER_REACH:
             no_launcher.append(name)
+
+    listed = set()
     states = []
     for row in launchers:
         name = gateway.field(row, "machineName", "MachineName")
-        if name.lower() not in reach_by_name:
+        key = name.lower()
+        if key not in reach_by_name:
             _answer_error(
                 f"the Gateway's machines view does not include {name}, so its state is unknown. "
                 "The machine may have registered a moment ago; run the command again."
             )
-        reach = reach_by_name[name.lower()]
-        state = _MACHINE_STATE_FOR_REACH.get(reach) if isinstance(reach, str) else None
+        if key in listed:
+            _answer_error(f"the Gateway's launcher list names machine {name} more than once.")
+        listed.add(key)
+        state = _MACHINE_STATE_FOR_REACH.get(reach_by_name[key])
         if state is None:
-            shown = "missing" if reach is None else repr(reach)
+            # Both answers are read from one launcher registry, so a listed launcher the view calls
+            # NoLauncher is a contradiction, not a state.
             _answer_error(
-                f"machine {name} has a launcher reach that is {shown}; this tool knows only "
-                f"{', '.join(_MACHINE_STATE_FOR_REACH)}. "
-                "If the Gateway has added one, update cc-devthrottle; --json shows the raw rows."
+                f"machine {name} has a launcher reach that is {_NO_LAUNCHER_REACH!r}, yet the Gateway lists "
+                "its launcher. Run the command again; --json shows the raw rows."
             )
         states.append(state)
+
+    # The view is folded from that same registry, so a launcher it reports that the list did not is a
+    # machine this list would silently leave out.
+    for key, reach in reach_by_name.items():
+        if reach != _NO_LAUNCHER_REACH and key not in listed:
+            _answer_error(
+                f"the Gateway's machines view reports a launcher on {name_by_key[key]}, but its launcher list "
+                "does not include it. The launcher may have stopped a moment ago; run the command again."
+            )
     return states, no_launcher
 
 
@@ -248,6 +336,7 @@ def list_machines(json_output: bool, *, state: Optional[str] = None, fields: Opt
         print(json.dumps([r for r, _ in rows], indent=2))
         return
 
+    _displayed_or_exit(launchers, "machine", _LAUNCHER_DISPLAYED)
     records = [
         {
             "name": gateway.field(r, "machineName", "MachineName"),
@@ -296,7 +385,7 @@ def _machine_list_help(any_rows: bool, filtered: bool, chosen_fields: List[str])
 
 def _director_states(directors: List[Dict[str, Any]]) -> List[str]:
     """Each Director's state, as the Gateway folded it into the roster envelope. Fails loudly on anything
-    missing or unknown."""
+    missing or unknown - in every entry the roster returns, not only the ones matched to a Director."""
     envelope = _get_or_exit("sessions?envelope=true")
     reach = envelope.get("directors") if isinstance(envelope, dict) else None
     if not isinstance(reach, list):
@@ -304,10 +393,25 @@ def _director_states(directors: List[Dict[str, Any]]) -> List[str]:
             "the Gateway's roster answer has no list of Director states, so no Director state can be shown. "
             "--json shows the raw rows."
         )
-    state_by_id: Dict[str, Any] = {}
-    for entry in reach:
-        if isinstance(entry, dict) and isinstance(entry.get("directorId"), str):
-            state_by_id[entry["directorId"].lower()] = entry.get("state")
+    state_by_id: Dict[str, str] = {}
+    for index, entry in enumerate(reach):
+        did = entry.get("directorId") if isinstance(entry, dict) else None
+        if not _is_name(did):
+            _answer_error(
+                f"the Gateway's roster has a Director state with no directorId (entry {index + 1}), "
+                "so it cannot be matched to a Director. --json shows the raw rows."
+            )
+        state = entry.get("state")
+        if not isinstance(state, str) or state not in DIRECTOR_STATES:
+            shown = "missing" if state is None else repr(state)
+            _answer_error(
+                f"Director {did} has a state that is {shown}; this tool knows only "
+                f"{', '.join(DIRECTOR_STATES)}. "
+                "If the Gateway has added one, update cc-devthrottle; --json shows the raw rows."
+            )
+        if did.lower() in state_by_id:
+            _answer_error(f"the Gateway's roster gives Director {did} more than one state (entry {index + 1}).")
+        state_by_id[did.lower()] = state
     states = []
     for row in directors:
         did = gateway.field(row, "directorId", "DirectorId")
@@ -316,15 +420,7 @@ def _director_states(directors: List[Dict[str, Any]]) -> List[str]:
                 f"the Gateway's roster does not include a state for Director {did}. "
                 "It may have registered a moment ago; run the command again."
             )
-        state = state_by_id[did.lower()]
-        if state not in DIRECTOR_STATES:
-            shown = "missing" if state is None else repr(state)
-            _answer_error(
-                f"Director {did} has a state that is {shown}; this tool knows only "
-                f"{', '.join(DIRECTOR_STATES)}. "
-                "If the Gateway has added one, update cc-devthrottle; --json shows the raw rows."
-            )
-        states.append(state)
+        states.append(state_by_id[did.lower()])
     return states
 
 
@@ -377,6 +473,7 @@ def list_directors(
         print(json.dumps([r for r, _ in rows], indent=2))
         return
 
+    _displayed_or_exit(directors, "Director", _DIRECTOR_DISPLAYED)
     records = [
         {
             "id": gateway.field(r, "directorId", "DirectorId"),

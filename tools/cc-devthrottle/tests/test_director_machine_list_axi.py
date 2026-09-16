@@ -453,6 +453,116 @@ def test_director_list_Cli_RowWithNoMachineName_ExitsOneOnEveryPath(serve, bad, 
     assert result.stdout == ""
 
 
+DIRECTOR_PATHS = [
+    ["director", "list"],
+    ["director", "list", "--state", "online"],
+    ["director", "list", "--state", "online", "--json"],
+]
+
+
+@pytest.mark.parametrize("bad_entry", [
+    {"state": "online"},
+    {"directorId": "", "state": "online"},
+    {"directorId": 5, "state": "online"},
+    "d9",
+    None,
+])
+@pytest.mark.parametrize("args", DIRECTOR_PATHS)
+def test_director_list_Cli_RosterEntryWithNoDirectorId_ExitsOne(serve, bad_entry, args):
+    # An entry that cannot be matched used to be skipped silently.
+    envelope = _envelope(DIRECTORS, DIRECTOR_STATES)
+    envelope["directors"].append(bad_entry)
+    serve({"directors": DIRECTORS, "sessions?envelope=true": envelope})
+
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert "Director state with no directorId (entry 7)" in result.stderr
+
+
+@pytest.mark.parametrize("state, named", [(None, "missing"), ("sleeping", "'sleeping'"), (["online"], "['online']")])
+@pytest.mark.parametrize("args", DIRECTOR_PATHS)
+def test_director_list_Cli_UnmatchedRosterEntryWithBadState_ExitsOne(serve, state, named, args):
+    # Every entry the roster returns is checked, not only the ones matched to a listed Director.
+    envelope = _envelope(DIRECTORS, DIRECTOR_STATES)
+    entry = {"directorId": "d9-not-listed"}
+    if state is not None:
+        entry["state"] = state
+    envelope["directors"].append(entry)
+    serve({"directors": DIRECTORS, "sessions?envelope=true": envelope})
+
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert "Director d9-not-listed has a state that is " + named in result.stderr
+
+
+@pytest.mark.parametrize("args", DIRECTOR_PATHS)
+def test_director_list_Cli_RosterGivesTwoStates_ExitsOne(serve, args):
+    envelope = _envelope(DIRECTORS, DIRECTOR_STATES)
+    envelope["directors"].append({"directorId": DIRECTORS[0]["directorId"].upper(), "state": "offline"})
+    serve({"directors": DIRECTORS, "sessions?envelope=true": envelope})
+
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert "more than one state (entry 7)" in result.stderr
+
+
+@pytest.mark.parametrize("field, value, shown", [
+    ("displayName", None, "NoneType None"),
+    ("displayName", 3, "int 3"),
+    ("version", None, "NoneType None"),
+    ("pid", "11288", "str '11288'"),
+    ("pid", False, "bool False"),
+    ("user", None, "NoneType None"),
+    ("startedAt", 20260916, "int 20260916"),
+    ("lastSeen", 1.5, "float 1.5"),
+    ("displayName", ..., "missing"),
+    ("lastSeen", ..., "missing"),
+])
+@pytest.mark.parametrize("args", [["director", "list"], ["director", "list", "--machine", "SOREN_NORTH"],
+                                  ["director", "list", "--state", "online", "--fields", "id"]])
+def test_director_list_Cli_DisplayedFieldOfTheWrongKind_ExitsOne(serve, field, value, shown, args):
+    bad = dict(DIRECTORS[5])
+    if value is ...:
+        del bad[field]
+    else:
+        bad[field] = value
+    _serve_directors(serve, DIRECTORS[:-1] + [bad])
+
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert f"whose {field} is {shown}" in result.stderr
+    assert "(row 6)" in result.stderr
+
+
+def test_director_list_Cli_LastSeenNull_IsListed(serve):
+    # DirectorDto.LastSeen is nullable: null is an answer, not a malformed row.
+    directors = DIRECTORS[:-1] + [dict(DIRECTORS[5], lastSeen=None)]
+    _serve_directors(serve, directors)
+
+    result = runner.invoke(app, ["director", "list", "--fields", "id,last-seen"])
+
+    assert result.exit_code == 0
+    assert parse_list(result.stdout, "directors")[1][5] == {"id": DIRECTORS[5]["directorId"], "last-seen": None}
+
+
+def test_director_list_Cli_DisplayedFieldOfTheWrongKindWithJson_RowsUnchanged(serve):
+    directors = DIRECTORS[:-1] + [dict(DIRECTORS[5], pid=None)]
+    _serve_directors(serve, directors)
+
+    result = runner.invoke(app, ["director", "list", "--machine", "SOREN_NORTH", "--json"])
+
+    assert result.exit_code == 0
+    assert result.stdout == json.dumps([directors[1], directors[2], directors[5]], indent=2) + "\n"
+
+
 def test_director_list_Cli_GatewayError_ExitsOneWithAsciiMessage(monkeypatch):
     def fail(path):
         raise machine_ops.gateway.GatewayError("Cannot reach the Gateway at S\u00d8REN")
@@ -794,7 +904,7 @@ def test_machine_list_Cli_UnknownOrMissingReach_ExitsOneNamingIt(serve, reach, n
 
     assert result.exit_code == 1
     assert named in result.stderr
-    assert "old-box" in result.stderr
+    assert "old-box" in result.stderr.lower()
     assert result.stdout == ""
 
 
@@ -848,6 +958,123 @@ def test_machine_list_Cli_RowWithNoName_ExitsOne(serve, bad):
     assert result.exit_code == 1
     assert "row 5" in result.stderr
     assert result.stdout == ""
+
+
+MACHINE_PATHS = [
+    ["machine", "list"],
+    ["machine", "list", "--state", "online"],
+    ["machine", "list", "--state", "online", "--json"],
+]
+
+
+@pytest.mark.parametrize("bad_reach, named", [(None, "missing"), ("Sleeping", "'Sleeping'"), (7, "7")])
+@pytest.mark.parametrize("launchers", [[], LAUNCHERS])
+@pytest.mark.parametrize("args", MACHINE_PATHS)
+def test_machine_list_Cli_UnmatchedViewEntryWithBadReach_ExitsOneOnEveryPath(serve, bad_reach, named, launchers, args):
+    # Re-check 2's reproduction: a view entry with no launcher and no known reach used to vanish, so a
+    # fleet with no launchers answered "count: 0 ... No machines are registered", and --json answered [].
+    view = _machines_view(launchers, MACHINE_REACH[:len(launchers)])
+    entry = {"machine": "BUILD-BOX"}
+    if bad_reach is not None:
+        entry["reach"] = bad_reach
+    view["machines"].append(entry)
+    serve({"launchers": launchers, "machines": view})
+
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert "machine BUILD-BOX has a launcher reach that is " + named in result.stderr
+
+
+@pytest.mark.parametrize("args", MACHINE_PATHS)
+def test_machine_list_Cli_ViewNamesAMachineTwice_ExitsOne(serve, args):
+    view = _machines_view(LAUNCHERS, MACHINE_REACH)
+    view["machines"].append({"machine": "sorenlaptop", "reach": "NotConnected"})
+    serve({"launchers": LAUNCHERS, "machines": view})
+
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert "lists machine sorenlaptop more than once" in result.stderr
+
+
+@pytest.mark.parametrize("args", MACHINE_PATHS)
+def test_machine_list_Cli_LauncherListedTwice_ExitsOne(serve, args):
+    launchers = LAUNCHERS + [_launcher("sorenlaptop")]
+    serve({"launchers": launchers, "machines": _machines_view(LAUNCHERS, MACHINE_REACH)})
+
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert "names machine sorenlaptop more than once" in result.stderr
+
+
+@pytest.mark.parametrize("launchers", [[], LAUNCHERS])
+@pytest.mark.parametrize("args", MACHINE_PATHS)
+def test_machine_list_Cli_ViewReportsALauncherTheListLacks_ExitsOne(serve, launchers, args):
+    # Both answers come from one launcher registry; a launcher only the view knows would be left out.
+    view = _machines_view(launchers, MACHINE_REACH[:len(launchers)])
+    view["machines"].append({"machine": "BUILD-BOX", "reach": "NotConnected"})
+    serve({"launchers": launchers, "machines": view})
+
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert "reports a launcher on BUILD-BOX" in result.stderr
+
+
+@pytest.mark.parametrize("field, value, shown", [
+    ("version", None, "NoneType None"),
+    ("version", 2, "int 2"),
+    ("pid", "8920", "str '8920'"),
+    ("pid", True, "bool True"),
+    ("pid", None, "NoneType None"),
+    ("startedAt", None, "NoneType None"),
+    ("lastSeenAt", {"at": 1}, "dict {'at': 1}"),
+    ("lastSeenAt", ..., "missing"),
+])
+@pytest.mark.parametrize("args", [["machine", "list"], ["machine", "list", "--state", "too-old"],
+                                  ["machine", "list", "--fields", "name"]])
+def test_machine_list_Cli_DisplayedFieldOfTheWrongKind_ExitsOne(serve, field, value, shown, args):
+    # Every plain row is read in full, so a field of the wrong kind is refused, never printed as a guess.
+    bad = _launcher("old-box")
+    if value is ...:
+        del bad[field]
+    else:
+        bad[field] = value
+    _serve_machines(serve, LAUNCHERS[:-1] + [bad])
+
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert f"whose {field} is {shown}" in result.stderr
+    assert "(row 4)" in result.stderr
+
+
+def test_machine_list_Cli_DisplayedFieldOfTheWrongKindWithJson_RowsUnchanged(serve):
+    # --json reads no displayed field: it carries the Gateway's rows exactly, whatever they hold.
+    launchers = LAUNCHERS[:-1] + [_launcher("old-box", pid=None)]
+    _serve_machines(serve, launchers)
+
+    result = runner.invoke(app, ["machine", "list", "--state", "too-old", "--json"])
+
+    assert result.exit_code == 0
+    assert result.stdout == json.dumps([launchers[-1]], indent=2) + "\n"
+
+
+def test_machine_list_Cli_PascalCaseRows_ReadTheSame(serve):
+    launchers = [{"MachineName": "old-box", "Pid": 1, "Version": "2.4.0", "StartedAt": "s", "LastSeenAt": "l"}]
+    serve({"launchers": launchers, "machines": {"machines": [{"machine": "OLD-BOX", "reach": "NotStreamCapable"}]}})
+
+    result = runner.invoke(app, ["machine", "list"])
+
+    assert result.exit_code == 0
+    assert parse_list(result.stdout, "machines")[1] == [{"name": "old-box", "state": "too-old", "version": "2.4.0"}]
 
 
 # ---------------------------------------------------------------------------------------------------
