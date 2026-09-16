@@ -16,11 +16,15 @@
 //             queued with the host's reason, and sending again carries only it.
 //   claim I - malformed or foreign messages are ignored whole.
 //   claim J - a reload straight after the host pushes a status and a reply loses neither.
-//   claim K - a reload brings back the half-typed note, an unqueued choice and comment, and the scroll.
+//   claim K - a reload brings back the half-typed note, a choice and comment edited AFTER an answer was
+//             queued (the newer edit wins), and the scroll position.
 //   claim L - with no host, Send shows the exact payload and sends nothing.
-//   claim M - a report's own scripts and event handlers do not run, and a message without the token is refused.
-//   claim N - when a link takes the frame to another page, that page's messages are refused and the host
-//             stops pushing to the frame.
+//   claim M - a report's own scripts, event handlers and token-snooping observer do not run even behind a
+//             decoy "<head>" in a comment; its CSS cannot hide the notes interface; and anything but a
+//             token-bearing ready on the window is refused.
+//   claim N - when a link takes the frame to another page, that page gets nothing the host pushes - even in
+//             the window before its load event, while the host still thinks it is connected - and its
+//             forged ready and send are refused.
 //
 // This proves the SCRIPT against a TEST HOST (index.html). It is not the Cockpit, the phone or the
 // Director - those hosts are phases 3 and 4 - and nothing here reaches a Gateway.
@@ -53,6 +57,13 @@ function serve() {
       if (path === "/dev-report-notes.js") {
         res.writeHead(200, { "content-type": contentTypes[".js"] });
         res.end(await readFile(scriptPath));
+        return;
+      }
+      // An image that takes five seconds, so a page holding it has not fired load for five seconds.
+      if (path === "/slow.png") {
+        await new Promise((r) => setTimeout(r, 5000));
+        res.writeHead(404, { "content-type": "text/plain" });
+        res.end("slow");
         return;
       }
       // The report opened as a plain page, with the script but no host around it.
@@ -248,44 +259,57 @@ async function main() {
       `resend=${JSON.stringify(resend.payload.items.map((i) => i.id))} queuedAfterConfirm=${JSON.stringify(queuedEnd)}`,
     );
 
-    // ---- claim I: malformed and foreign messages change nothing.
+    // ---- claim I: malformed and foreign messages change nothing - sent down the real port, and on the window.
     await page.evaluate(() => {
-      const f = document.getElementById("report").contentWindow;
-      f.postMessage({ channel: "devthrottle.dev-report", version: 1, type: "status", payload: { updates: [{ id: "n1", status: "delivered" }] } }, "*");
-      f.postMessage({ channel: "someone-else", version: 1, type: "status", payload: { updates: [{ id: "n1", status: "x", statusLabel: "FOREIGN" }] } }, "*");
-      f.postMessage({ channel: "devthrottle.dev-report", version: 2, type: "reply", payload: { reply: { id: "r9", text: "WRONG VERSION", at: "" } } }, "*");
-      f.postMessage({ channel: "devthrottle.dev-report", version: 1, type: "wipe", payload: {} }, "*");
+      const f = { postMessage: (d) => window.__hostSendRaw(d) };
+      document.getElementById("report").contentWindow.postMessage({ channel: "devthrottle.dev-report", version: 1, type: "reply", payload: { reply: { id: "w1", text: "ON THE WINDOW", at: "" } } }, "*");
+      f.postMessage({ channel: "devthrottle.dev-report", version: 1, type: "status", payload: { updates: [{ id: "n1", status: "delivered" }] } });
+      f.postMessage({ channel: "someone-else", version: 1, type: "status", payload: { updates: [{ id: "n1", status: "x", statusLabel: "FOREIGN" }] } });
+      f.postMessage({ channel: "devthrottle.dev-report", version: 2, type: "reply", payload: { reply: { id: "r9", text: "WRONG VERSION", at: "" } } });
+      f.postMessage({ channel: "devthrottle.dev-report", version: 1, type: "wipe", payload: {} });
     });
     await page.waitForTimeout(500);
     const afterJunk = (await text(frame, "sent")) + (await text(frame, "replies"));
     check(
       "I: malformed, foreign and unknown messages are ignored",
-      afterJunk.includes("Held - delivered when the agent finishes its turn") && !afterJunk.includes("FOREIGN") && !afterJunk.includes("WRONG VERSION"),
+      afterJunk.includes("Held - delivered when the agent finishes its turn") && !afterJunk.includes("FOREIGN") &&
+        !afterJunk.includes("WRONG VERSION") && !afterJunk.includes("ON THE WINDOW"),
       JSON.stringify(afterJunk.slice(0, 200)),
     );
 
-    // ---- claim K: reload keeps the half-typed note, an unqueued choice and comment, and the scroll position.
+    // ---- claim K: reload keeps the half-typed note, an answer edited after queueing, and the scroll position.
     await frame.locator("[data-drn=pick]").click();
     await frame.locator("#explain").click();
     await frame.locator("[data-drn=composer-text]").pressSequentially("half typed");
     await frame.locator("input[name=rerun][value=tonight]").check();
+    await frame.locator("[data-drn=queue-answer]").click();
+    await frame.locator("input[name=rerun][value=tomorrow]").check();
     await frame.locator("textarea[data-dev-report-comment]").fill("half an answer");
     await reportFrame(page).evaluate(() => window.scrollTo(0, 300));
     await page.waitForTimeout(700);
     await reloadAndWait(page);
     await waitFor("the draft to come back", async () => (await frame.locator("[data-drn=composer-text]").inputValue()) === "half typed");
-    const restored = await reportFrame(page).evaluate(() => ({
+    const restored = await reportFrame(page).evaluate(() => {
+      const inUi = (sel) => {
+        for (const h of document.querySelectorAll("[data-dev-report-ui]")) {
+          const found = h.shadowRoot && h.shadowRoot.querySelector(sel);
+          if (found) return found;
+        }
+        return null;
+      };
+      return {
       scrollY: window.scrollY,
-      draft: document.querySelector("[data-drn=composer-text]").value,
-      where: document.querySelector("[data-drn=composer-where]").textContent,
-      tonightChecked: document.querySelector("input[name=rerun][value=tonight]").checked,
+      draft: inUi("[data-drn=composer-text]").value,
+      where: inUi("[data-drn=composer-where]").textContent,
+      tomorrowChecked: document.querySelector("input[name=rerun][value=tomorrow]").checked,
       comment: document.querySelector("textarea[data-dev-report-comment]").value,
-    }));
+      };
+    });
     evidence.steps.afterReload = restored;
     check(
-      "K: after a reload the half-typed note, the unqueued choice and comment, and the scroll position come back",
+      "K: after a reload the half-typed note, the answer edited after queueing (not the queued one), and the scroll position come back",
       restored.scrollY === 300 && restored.draft === "half typed" && restored.where.includes("Gateway failures") &&
-        restored.tonightChecked && restored.comment === "half an answer",
+        restored.tomorrowChecked && restored.comment === "half an answer",
       JSON.stringify(restored).slice(0, 300),
     );
 
@@ -295,11 +319,12 @@ async function main() {
     await plain.click("[data-drn=queue-answer]");
     await plain.click("[data-drn=toggle]");
     await plain.click("[data-drn=send]");
-    const plainResult = await plain.evaluate(() => ({
-      payloadVisible: !document.querySelector("[data-drn=payload-box]").hasAttribute("hidden"),
-      payload: document.querySelector("[data-drn=payload]").textContent,
-      queued: document.querySelector("[data-drn=queued]").textContent,
-    }));
+    // Playwright locators reach into the tray's shadow root; page queries would not.
+    const plainResult = {
+      payloadVisible: await plain.locator("[data-drn=payload]").isVisible(),
+      payload: await plain.locator("[data-drn=payload]").textContent(),
+      queued: await plain.locator("[data-drn=queued]").textContent(),
+    };
     await plain.screenshot({ path: join(here, "evidence-no-host-payload.png") });
     const shown = JSON.parse(plainResult.payload || "null");
     evidence.steps.noHost = { payloadShown: shown, queued: plainResult.queued };
@@ -310,7 +335,7 @@ async function main() {
       JSON.stringify(shown),
     );
 
-    // ---- claim M: a hostile report's scripts do not run, and a tokenless message is refused.
+    // ---- claim M: a hostile report's scripts, handler and CSS get nowhere; only a token-bearing ready counts.
     const hostile = await browser.newPage({ viewport: { width: 1600, height: 900 } });
     await hostile.goto(`${base}/?report=hostile-report.html`);
     await waitFor("the hostile report's page to connect", () => hostile.evaluate(() => window.__isConnected()));
@@ -319,48 +344,71 @@ async function main() {
     const ran = await hostileFrame.evaluate(() => ({
       script: document.documentElement.getAttribute("data-hostile-script-ran"),
       handler: document.documentElement.getAttribute("data-hostile-handler-ran"),
-      readRestore: document.documentElement.getAttribute("data-hostile-read-restore"),
-      trayPresent: document.querySelector("[data-drn=send]") !== null,
+      snoopedToken: document.documentElement.getAttribute("data-hostile-token"),
+      readMessage: document.documentElement.getAttribute("data-hostile-read-message"),
       tokenAttributeLeft: document.querySelector("[data-dev-report-token]") !== null,
     }));
+    const hf = hostile.frameLocator("#report");
+    const visible = {
+      trayToggle: await hf.locator("[data-drn=toggle]").isVisible(),
+      queueAnswer: await hf.locator("[data-drn=queue-answer]").isVisible(),
+    };
     // Something that does get to run in the frame - here the proof driver, standing in for a script the
-    // policy failed to stop - posts a forged send with no token and one with a wrong token.
+    // policy failed to stop - posts on the window: a send, and a ready with no token but with a port.
     await hostileFrame.evaluate(() => {
       parent.postMessage({ channel: "devthrottle.dev-report", version: 1, type: "send", payload: { items: [] } }, "*");
-      parent.postMessage({ channel: "devthrottle.dev-report", version: 1, type: "send", token: "0".repeat(32), payload: { items: [] } }, "*");
+      const ch = new MessageChannel();
+      parent.postMessage({ channel: "devthrottle.dev-report", version: 1, type: "ready", payload: { questionIds: [] } }, "*", [ch.port2]);
     });
     await hostile.waitForTimeout(500);
     const hostileHost = await hostile.evaluate(() => ({
       accepted: window.__received.map((m) => m.type),
-      refused: window.__refused.map((m) => `${m.type}:${m.token === undefined ? "no token" : "wrong token"}`),
+      refused: window.__refused.map((r) => `${r.type}:${r.why}`),
     }));
-    evidence.steps.hostileReport = { ran, host: hostileHost };
+    await hostile.screenshot({ path: join(here, "evidence-hostile-report.png") });
+    evidence.steps.hostileReport = { ran, visible, host: hostileHost };
     check(
-      "M: a report's own script and event handler do not run, only the injected script does, and tokenless or wrong-token messages are refused",
-      ran.script === null && ran.handler === null && ran.readRestore === null && ran.trayPresent && !ran.tokenAttributeLeft &&
-        !hostileHost.accepted.includes("send") &&
-        JSON.stringify(hostileHost.refused) === JSON.stringify(["send:no token", "send:wrong token"]),
+      "M: a report's script, handler and token snooping do not run behind a decoy head, its CSS cannot hide the tray, and only a token-bearing ready is taken",
+      ran.script === null && ran.handler === null && ran.snoopedToken === null && ran.readMessage === null && !ran.tokenAttributeLeft &&
+        visible.trayToggle && visible.queueAnswer &&
+        JSON.stringify(hostileHost.accepted) === '["ready"]' &&
+        JSON.stringify(hostileHost.refused) === JSON.stringify(["send:only ready comes on the window", "ready:no token"]),
       JSON.stringify(evidence.steps.hostileReport),
     );
 
-    // ---- claim N: a link takes the frame elsewhere; that page is not trusted and gets nothing.
-    await hostile.frameLocator("#report").locator("#away").click();
-    await waitFor("the frame to reach the other page", async () => (await hostile.evaluate(() => window.__unexpectedLoads)) === 1);
+    // ---- claim N: a link takes the frame elsewhere. Push BEFORE that page's load event, while the host still
+    // believes it is connected - the window the second review found - and check the page got nothing.
+    await hf.locator("#away").click();
+    await waitFor("the other page's script to run", () => reportFrame(hostile).evaluate(() => document.body.getAttribute("data-evil-ran") === "yes"));
+    const beforeLoad = await hostile.evaluate(() => ({ unexpectedLoads: window.__unexpectedLoads, connected: window.__isConnected() }));
+    const pushedBeforeLoad = await hostile.evaluate(() =>
+      window.__hostSend("reply", { reply: { id: "r1", text: "PRIVATE REPLY", at: "" } }));
     await hostile.waitForTimeout(800);
-    const pushed = await hostile.evaluate(() => window.__hostSend("reply", { reply: { id: "r1", text: "PRIVATE REPLY", at: "" } }));
-    await hostile.waitForTimeout(300);
-    const evilGot = await reportFrame(hostile).evaluate(() => document.body.getAttribute("data-evil-got-message"));
+    const gotBeforeLoad = await reportFrame(hostile).evaluate(() => ({
+      window: document.body.getAttribute("data-evil-got-message"),
+      port: document.body.getAttribute("data-evil-got-port-message"),
+    }));
+    await waitFor("the other page's load event", async () => (await hostile.evaluate(() => window.__unexpectedLoads)) === 1, 20000);
+    const pushedAfterLoad = await hostile.evaluate(() =>
+      window.__hostSend("reply", { reply: { id: "r2", text: "PRIVATE REPLY 2", at: "" } }));
+    await hostile.waitForTimeout(500);
     const afterNavigation = await hostile.evaluate(() => ({
       connected: window.__isConnected(),
       accepted: window.__received.map((m) => m.type),
-      refused: window.__refused.map((m) => `${m.type}:${m.token === undefined ? "no token" : "wrong token"}`),
+      refused: window.__refused.map((r) => `${r.type}:${r.why}`),
     }));
-    evidence.steps.navigatedAway = { ...afterNavigation, pushAccepted: pushed, evilGot };
+    const gotAfterLoad = await reportFrame(hostile).evaluate(() => ({
+      window: document.body.getAttribute("data-evil-got-message"),
+      port: document.body.getAttribute("data-evil-got-port-message"),
+    }));
+    evidence.steps.navigatedAway = { beforeLoad, pushedBeforeLoad, gotBeforeLoad, pushedAfterLoad, afterNavigation, gotAfterLoad };
     check(
-      "N: after the frame navigates away, the other page's messages are refused and the host pushes nothing to it",
-      !afterNavigation.connected && pushed === false && evilGot === null &&
-        afterNavigation.accepted.filter((t) => t === "send").length === 0 &&
-        afterNavigation.refused.includes("ready:no token") && afterNavigation.refused.includes("send:wrong token"),
+      "N: the page a link navigates to receives nothing pushed before or after its load event, and its forged ready and send are refused",
+      beforeLoad.unexpectedLoads === 0 && beforeLoad.connected === true &&
+        gotBeforeLoad.window === null && gotBeforeLoad.port === null &&
+        !afterNavigation.connected && pushedAfterLoad === false && gotAfterLoad.window === null && gotAfterLoad.port === null &&
+        JSON.stringify(afterNavigation.accepted) === '["ready"]' &&
+        afterNavigation.refused.includes("ready:no token") && afterNavigation.refused.includes("send:only ready comes on the window"),
       JSON.stringify(evidence.steps.navigatedAway),
     );
   } catch (err) {

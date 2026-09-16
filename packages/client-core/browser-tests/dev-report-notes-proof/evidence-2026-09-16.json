@@ -17,7 +17,7 @@
           "rerun"
         ]
       },
-      "token": "8431794e2e57c87711be96199a9ff621"
+      "token": "af32469577c0e8be73f655517293a873"
     },
     "sendPayloadTheHostGot": {
       "channel": "devthrottle.dev-report",
@@ -48,7 +48,7 @@
           }
         ]
       },
-      "token": "8431794e2e57c87711be96199a9ff621"
+      "token": "af32469577c0e8be73f655517293a873"
     },
     "reloadRightAfterPushes": {
       "sent": "Table cell - row \"Gateway\", column \"Failures\": \"42\"Forty-two failures cannot be right - the suite has twelve tests.Held - delivered when the agent finishes its turn",
@@ -72,13 +72,13 @@
           }
         ]
       },
-      "token": "405495491abe9007517c11372e38975a"
+      "token": "37f867d40bfa9287797c911fa2fdbb56"
     },
     "afterReload": {
       "scrollY": 300,
       "draft": "half typed",
       "where": "\"The Gateway failures all come from one fixture that could not reach its database\"",
-      "tonightChecked": true,
+      "tomorrowChecked": true,
       "comment": "half an answer"
     },
     "noHost": {
@@ -106,33 +106,51 @@
       "ran": {
         "script": null,
         "handler": null,
-        "readRestore": null,
-        "trayPresent": true,
+        "snoopedToken": null,
+        "readMessage": null,
         "tokenAttributeLeft": false
+      },
+      "visible": {
+        "trayToggle": true,
+        "queueAnswer": true
       },
       "host": {
         "accepted": [
           "ready"
         ],
         "refused": [
-          "send:no token",
-          "send:wrong token"
+          "send:only ready comes on the window",
+          "ready:no token"
         ]
       }
     },
     "navigatedAway": {
-      "connected": false,
-      "accepted": [
-        "ready"
-      ],
-      "refused": [
-        "send:no token",
-        "send:wrong token",
-        "ready:no token",
-        "send:wrong token"
-      ],
-      "pushAccepted": false,
-      "evilGot": null
+      "beforeLoad": {
+        "unexpectedLoads": 0,
+        "connected": true
+      },
+      "pushedBeforeLoad": true,
+      "gotBeforeLoad": {
+        "window": null,
+        "port": null
+      },
+      "pushedAfterLoad": false,
+      "afterNavigation": {
+        "connected": false,
+        "accepted": [
+          "ready"
+        ],
+        "refused": [
+          "send:only ready comes on the window",
+          "ready:no token",
+          "ready:no token",
+          "send:only ready comes on the window"
+        ]
+      },
+      "gotAfterLoad": {
+        "window": null,
+        "port": null
+      }
     }
   },
   "passed": [
@@ -146,10 +164,10 @@
     "J: a reload straight after the host's status and reply keeps both",
     "H: statuses and the reply show verbatim; a refused item stays queued with the reason and is the only thing sent again",
     "I: malformed, foreign and unknown messages are ignored",
-    "K: after a reload the half-typed note, the unqueued choice and comment, and the scroll position come back",
+    "K: after a reload the half-typed note, the answer edited after queueing (not the queued one), and the scroll position come back",
     "L: with no host, Send shows the exact send message and keeps the queue",
-    "M: a report's own script and event handler do not run, only the injected script does, and tokenless or wrong-token messages are refused",
-    "N: after the frame navigates away, the other page's messages are refused and the host pushes nothing to it"
+    "M: a report's script, handler and token snooping do not run behind a decoy head, its CSS cannot hide the tray, and only a token-bearing ready is taken",
+    "N: the page a link navigates to receives nothing pushed before or after its load event, and its forged ready and send are refused"
   ],
   "failed": []
 }

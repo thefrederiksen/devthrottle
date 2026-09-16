@@ -14,12 +14,13 @@
   A TEST host - it stands in for the Cockpit, the phone and the Director, which do not show reports yet
   (phases 3 and 4). It does what CONTRACT.md section 4 says a host MUST do, and nothing more:
     - shows the report in <iframe sandbox="allow-scripts"> with NO allow-same-origin,
-    - puts a Content-Security-Policy at the top of the report's head, so only the script it injects runs,
-    - injects the ONE note-taking script with a fresh nonce and a fresh token on every load,
-    - drops any message that is not from its frame or does not carry the current token,
-    - treats a frame load it did not cause as the end of the token,
-    - answers a token-bearing ready with restore (the state it saved from the last state-changed),
-    - records what it accepted and what it refused, for the proof driver to read.
+    - builds the frame's document itself: its own head FIRST, holding the Content-Security-Policy and the
+      note-taking script with a fresh nonce and token, and only then the report's bytes - it never searches
+      the report text for a place to insert anything,
+    - accepts exactly one thing on the window: a ready from its frame that carries the current token and a
+      message port; everything else, both ways, goes over that port,
+    - closes the port on any frame load it did not cause,
+    - records what it accepted and refused, for the proof driver to read.
   Which report it shows is the ?report= query parameter (default sample-report.html).
 -->
 <iframe id="report" sandbox="allow-scripts" title="Dev report"></iframe>
@@ -30,7 +31,7 @@
   var saved = { queued: [], sent: [], replies: [], draft: null, answerDrafts: [], scroll: { x: 0, y: 0 } };
   var parts = null;
   var token = "";
-  var connected = false;
+  var port = null;
   var expectingLoad = false;
   window.__received = [];
   window.__refused = [];
@@ -46,31 +47,51 @@
     return Array.prototype.map.call(bytes, function (b) { return ("0" + b.toString(16)).slice(-2); }).join("");
   }
 
-  // Returns false, and sends nothing, when the frame is not showing the report this host loaded.
+  function closePort() {
+    if (port) port.close();
+    port = null;
+  }
+
+  // Returns false, and sends nothing, when there is no port to the report this host loaded.
   function send(type, payload) {
-    if (!connected) return false;
-    frame.contentWindow.postMessage({ channel: CHANNEL, version: 1, type: type, payload: payload }, "*");
+    if (!port) return false;
+    port.postMessage({ channel: CHANNEL, version: 1, type: type, payload: payload });
     return true;
   }
   window.__hostSend = send;
-  window.__isConnected = function () { return connected; };
+  // For the proof only: put an arbitrary (possibly malformed) message on the port.
+  window.__hostSendRaw = function (data) {
+    if (!port) return false;
+    port.postMessage(data);
+    return true;
+  };
+  window.__isConnected = function () { return port !== null; };
+
+  function refuse(data, why) {
+    window.__refused.push({ type: data && data.type, why: why });
+    log("refused " + (data && data.type) + " (" + why + ")");
+  }
 
   window.addEventListener("message", function (event) {
     if (event.source !== frame.contentWindow) return;
     var data = event.data;
     if (!data || data.channel !== CHANNEL || data.version !== 1) return;
-    if (!token || data.token !== token) {
-      window.__refused.push(data);
-      log("refused " + data.type + " (token " + (data.token === undefined ? "missing" : "wrong") + ")");
-      return;
-    }
+    if (data.type !== "ready") return refuse(data, "only ready comes on the window");
+    if (!token || data.token !== token) return refuse(data, data.token === undefined ? "no token" : "wrong token");
+    if (!event.ports || event.ports.length !== 1) return refuse(data, "no port");
+    token = ""; // one ready per load
+    closePort();
+    port = event.ports[0];
+    port.onmessage = function (e) {
+      var m = e.data;
+      if (!m || m.channel !== CHANNEL || m.version !== 1) return;
+      window.__received.push(m);
+      log(m.type);
+      if (m.type === "state-changed") saved = m.payload.state;
+    };
     window.__received.push(data);
-    log(data.type);
-    if (data.type === "ready") {
-      connected = true;
-      send("restore", { state: saved });
-    }
-    if (data.type === "state-changed") saved = data.payload.state;
+    log("ready");
+    send("restore", { state: saved });
   });
 
   frame.addEventListener("load", function () {
@@ -79,24 +100,22 @@
       return;
     }
     token = "";
-    connected = false;
+    closePort();
     window.__unexpectedLoads++;
-    log("the frame loaded something this host did not put there - token forgotten");
+    log("the frame loaded something this host did not put there - port closed");
   });
 
   function load() {
     var nonce = random();
     token = random();
-    connected = false;
-    var policy = "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'nonce-" + nonce +
-      "'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'\">";
-    var script = "<script nonce=\"" + nonce + "\" data-dev-report-token=\"" + token + "\">" + parts.script + "<\/script>";
-    var html = parts.report;
-    var head = /<head[^>]*>/i.exec(html);
-    html = head ? html.slice(0, head.index + head[0].length) + policy + html.slice(head.index + head[0].length) : policy + html;
-    html = html.replace(/<\/body>/i, function () { return script + "</body>"; });
+    closePort();
+    var head = "<!doctype html><html><head>" +
+      "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'nonce-" + nonce +
+      "'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'\">" +
+      "<script nonce=\"" + nonce + "\" data-dev-report-token=\"" + token + "\">" + parts.script + "<\/script>" +
+      "</head>";
     expectingLoad = true;
-    frame.srcdoc = html;
+    frame.srcdoc = head + parts.report;
   }
 
   // Reloading the frame is what an app does when the agent edits the report: the page starts over with

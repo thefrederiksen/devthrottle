@@ -3,15 +3,21 @@
 <head><meta charset="utf-8"><title>Not the report</title></head>
 <body>
 <p>A page the report's link navigated the frame to. Its scripts run - it is not the report, and no policy
-from the host applies to it. It tries to pass as the note-taking script.</p>
+from the host applies to it. It listens for anything the host pushes, and tries to pass as the note-taking
+script. The slow image holds back its load event, which is the window a host that waits for load would
+still be pushing in.</p>
 <script>
-  var forged = { channel: "devthrottle.dev-report", version: 1, payload: {} };
-  parent.postMessage(Object.assign({}, forged, { type: "ready", payload: { questionIds: [] } }), "*");
-  parent.postMessage(Object.assign({}, forged, { type: "send", token: "guessed",
-    payload: { items: [{ id: "n9", kind: "note", text: "FORGED BY THE NEXT PAGE", anchor: { type: "element", selector: "p", quote: "" } }] } }), "*");
+  document.body.setAttribute("data-evil-ran", "yes");
   window.addEventListener("message", function (e) {
     document.body.setAttribute("data-evil-got-message", JSON.stringify(e.data));
   });
+  var forged = { channel: "devthrottle.dev-report", version: 1 };
+  var ch = new MessageChannel();
+  ch.port1.onmessage = function (e) { document.body.setAttribute("data-evil-got-port-message", JSON.stringify(e.data)); };
+  parent.postMessage(Object.assign({}, forged, { type: "ready", payload: { questionIds: [] } }), "*", [ch.port2]);
+  parent.postMessage(Object.assign({}, forged, { type: "send", token: "guessed",
+    payload: { items: [{ id: "n9", kind: "note", text: "FORGED BY THE NEXT PAGE", anchor: { type: "element", selector: "p", quote: "" } }] } }), "*");
 </script>
+<img src="slow.png" alt="">
 </body>
 </html>
