@@ -799,10 +799,13 @@ help[5]:
   shown, a line says how many of the listed missions have no why set.
 - **Filters** apply to `--json` as well. `--json` asks the Gateway exactly what it always asked
   (`--state` is passed through), and `--name` narrows that same bare array.
-- An unknown state or field exits 2 and lists the valid values. A row that is not an object, or a
-  mission with no id, no name, or a state other than active, complete or removed, exits 1 rather
-  than being listed, filtered out or guessed at. `--json` without `--name` prints the Gateway's answer
-  as it came; `--json --name` checks every row before narrowing it.
+- An unknown state or field exits 2 and lists the valid values. Every row is checked in full before
+  anything is filtered or shown, and a broken one exits 1 rather than being listed, filtered out or
+  shown blank: a row that is not an object; a mission with no id, an id another row already has, or
+  no name or a blank one (the Gateway refuses a blank name); a state other than active, complete or
+  removed; a why that is missing or not text (an empty why is "unset", and is flagged); or a
+  why-updated, state-changed or run that is missing, blank, or neither text nor null. `--json`
+  without `--name` prints the Gateway's answer as it came; `--json --name` checks every row first.
 - **An empty answer says so**: `count: 0`, or `count: 0 of N total` with the filter that matched
   nothing named on the next line.
 
@@ -839,8 +842,14 @@ help[5]:
 - **Filters** (`--enabled` or `--disabled`, `--machine`) combine, and apply to `--json` as the same
   bare array, narrowed. `--machine` ignores case. With no filter, `--json` prints exactly what the
   Gateway returned.
-- An answer from the Gateway with no list of jobs, a schedule with no id, or one whose enabled flag
-  is not true or false exits 1 - it is never reported as "no schedules".
+- An answer from the Gateway with no list of jobs exits 1 - it is never reported as "no schedules".
+  Every schedule is checked in full before anything is filtered or shown, whichever fields are asked
+  for, and a broken one exits 1 rather than being listed, filtered out or shown blank: no id, or an id
+  another row already has; an enabled flag that is not true or false; any field missing or of the
+  wrong kind; a blank name, time zone, target machine or repo path (the Gateway refuses each); a kind
+  other than recurring or oneOff; no cron expression on a recurring schedule or no run-at time on a
+  one-off; or a notify policy other than none, always or failure. With no filter, `--json` prints the
+  rows as the Gateway sent them.
 - **An empty answer says so**: `count: 0`, or `count: 0 of N total` when a filter matched nothing.
 
 ### Message Send

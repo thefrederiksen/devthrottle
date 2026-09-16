@@ -224,11 +224,28 @@ def _ascii_text(block: str) -> str:
     return block if block.isascii() else axi_output.escape_ascii(block)
 
 
+def _bad_job(job_id: Any, what: str) -> None:
+    """Refuse a schedule the Gateway would never send, naming it and what is wrong with it."""
+    print(
+        f"Error: the Gateway returned schedule {axi_output.format_value(job_id)} with {what}. "
+        "--json shows the raw rows.",
+        file=sys.stderr,
+    )
+    raise typer.Exit(1)
+
+
+def _describe(value: Any) -> str:
+    return "null" if value is None else f"a {type(value).__name__}"
+
+
 def _check_jobs(jobs: List[Any]) -> None:
     """A schedule with no id cannot be named by any verb, one whose enabled flag is not true or false
     cannot be counted, and one with no target machine cannot be filtered by machine - the Gateway
     refuses to store any of them. Each is a broken answer from the Gateway, and fails loudly rather
-    than dropping out of a filtered list."""
+    than dropping out of a filtered list. Two rows with one id are refused too: the id is what every
+    other verb addresses. Every other field listed in _JOB_READERS must be present and of the kind the
+    Gateway stores."""
+    seen = set()
     for index, job in enumerate(jobs):
         job_id = job.get("id") if isinstance(job, dict) else None
         if not isinstance(job_id, str) or not job_id.strip():
@@ -238,21 +255,18 @@ def _check_jobs(jobs: List[Any]) -> None:
                 file=sys.stderr,
             )
             raise typer.Exit(1)
+        if job_id in seen:
+            _bad_job(job_id, f"an id that an earlier row already has (row {index + 1})")
+        seen.add(job_id)
         machine = _job_machine(job)
         if not isinstance(machine, str) or not machine.strip():
-            print(
-                f"Error: the Gateway returned schedule {axi_output.format_value(job_id)} with no target "
-                "machine; every schedule must have one. --json shows the raw rows.",
-                file=sys.stderr,
-            )
-            raise typer.Exit(1)
+            _bad_job(job_id, "no target machine; every schedule must have one")
         if not isinstance(job.get("enabled"), bool):
-            print(
-                f"Error: the Gateway returned schedule {axi_output.format_value(job_id)} with enabled "
-                f"{job.get('enabled')!r}; it must be true or false. --json shows the raw rows.",
-                file=sys.stderr,
-            )
-            raise typer.Exit(1)
+            _bad_job(job_id, f"enabled {job.get('enabled')!r}; it must be true or false")
+        # Every other field is checked here too, before any filter runs, so a broken row fails on every
+        # path that reads the rows - never only when its field happens to be on screen.
+        for field in SCHEDULE_LIST_FIELDS:
+            _JOB_READERS[field](job)
 
 
 def _job_machine(job: Dict[str, Any]) -> Optional[str]:
@@ -260,32 +274,87 @@ def _job_machine(job: Dict[str, Any]) -> Optional[str]:
     return target.get("machine") if isinstance(target, dict) else None
 
 
-def _job_text(value: Any) -> Optional[str]:
-    return None if value is None else str(value)
+def _job_field(
+    job: Dict[str, Any], key: str, *, nullable: bool, blank_ok: bool, within: Optional[str] = None
+) -> Optional[str]:
+    """The value of one schedule field, checked where it is read.
+
+    The Gateway always sends every field of CronJobDto (it serializes nulls), so a missing key is a
+    broken answer, never an empty value. Null is accepted only where the DTO is nullable, and blank
+    text only where the Gateway's own write check allows it. `within` names the nested object
+    (`action`) the key lives in.
+    """
+    label = f"{within}.{key}" if within else key
+    record = job
+    if within is not None:
+        record = job.get(within)
+        if not isinstance(record, dict):
+            _bad_job(job["id"], f"{within} {_describe(record) if within in job else 'missing'}; it must be an object")
+    if key not in record:
+        _bad_job(job["id"], f"no {label}")
+    value = record[key]
+    if value is None:
+        if nullable:
+            return None
+        _bad_job(job["id"], f"{label} null; it is always text")
+    if not isinstance(value, str):
+        _bad_job(job["id"], f"{label} {_describe(value)}; it must be {'text or null' if nullable else 'text'}")
+    if not blank_ok and not value.strip():
+        _bad_job(job["id"], f"a blank {label}; the Gateway never stores one")
+    return value
 
 
-def _job_record(job: Dict[str, Any]) -> Dict[str, object]:
-    """Every field `schedule list` can show, for one schedule. Ids and names are never shortened."""
-    action = job.get("action") or {}
-    if not isinstance(action, dict):
-        action = {}
-    return {
-        "id": job["id"],
-        "name": _job_text(job.get("name")),
-        "enabled": "yes" if job["enabled"] else "no",
-        "next-run": _job_text(job.get("nextRunUtc")),
-        "machine": _job_text(_job_machine(job)),
-        "kind": _job_text(job.get("scheduleKind")),
-        "cron": _job_text(job.get("cronExpression")),
-        "run-at": _job_text(job.get("runAt")),
-        "time-zone": _job_text(job.get("timeZoneId")),
-        "work-list": _job_text(action.get("workListName")),
-        "path": _job_text(action.get("repoPath")),
-        "last-fired": _job_text(job.get("lastFiredUtc")),
-        "last-status": _job_text(job.get("lastStatus")),
-        "notify": _job_text(job.get("notifyOn")),
-        "created": _job_text(job.get("createdUtc")),
-    }
+def _job_kind(job: Dict[str, Any]) -> str:
+    """The schedule kind as sent. The Gateway accepts recurring or oneOff, ignoring case and spaces."""
+    kind = _job_field(job, "scheduleKind", nullable=False, blank_ok=False)
+    if kind.strip().lower() not in (SCHEDULE_RECURRING.lower(), SCHEDULE_ONE_OFF.lower()):
+        _bad_job(job["id"], f"scheduleKind {axi_output.format_value(kind)}; "
+                            f"this tool knows only {SCHEDULE_RECURRING} and {SCHEDULE_ONE_OFF}")
+    return kind
+
+
+def _job_timing(job: Dict[str, Any], key: str, needed_by: str) -> Optional[str]:
+    """The cron expression or the run-at time: nullable, but required by the kind that uses it."""
+    needed = _job_kind(job).strip().lower() == needed_by.lower()
+    return _job_field(job, key, nullable=not needed, blank_ok=not needed)
+
+
+def _job_notify(job: Dict[str, Any]) -> str:
+    """The notify policy. The Gateway normalizes it on every write to one of the three it knows."""
+    notify = _job_field(job, "notifyOn", nullable=False, blank_ok=False)
+    if notify not in NOTIFY_CHOICES:
+        _bad_job(job["id"], f"notifyOn {axi_output.format_value(notify)}; "
+                            f"this tool knows only {', '.join(NOTIFY_CHOICES)}")
+    return notify
+
+
+# How each `schedule list` field is read from a CronJobDto (origin/main, CcDirector.Gateway.Contracts),
+# with the Gateway's write check (CronSchedule.Validate) deciding which text may be blank. _check_jobs
+# runs every reader on every row before any filtering, after checking the id, enabled flag and machine.
+_JOB_READERS = {
+    "id": lambda j: j["id"],
+    "name": lambda j: _job_field(j, "name", nullable=False, blank_ok=False),
+    "enabled": lambda j: "yes" if j["enabled"] else "no",
+    "next-run": lambda j: _job_field(j, "nextRunUtc", nullable=True, blank_ok=False),
+    "machine": _job_machine,
+    "kind": _job_kind,
+    "cron": lambda j: _job_timing(j, "cronExpression", SCHEDULE_RECURRING),
+    "run-at": lambda j: _job_timing(j, "runAt", SCHEDULE_ONE_OFF),
+    "time-zone": lambda j: _job_field(j, "timeZoneId", nullable=False, blank_ok=False),
+    # A seed job may carry an empty work list name; the Gateway requires a seed or a work list, not both.
+    "work-list": lambda j: _job_field(j, "workListName", nullable=True, blank_ok=True, within="action"),
+    "path": lambda j: _job_field(j, "repoPath", nullable=False, blank_ok=False, within="action"),
+    "last-fired": lambda j: _job_field(j, "lastFiredUtc", nullable=True, blank_ok=False),
+    "last-status": lambda j: _job_field(j, "lastStatus", nullable=True, blank_ok=True),
+    "notify": _job_notify,
+    "created": lambda j: _job_field(j, "createdUtc", nullable=False, blank_ok=False),
+}
+
+
+def _job_record(job: Dict[str, Any], chosen_fields: List[str]) -> Dict[str, object]:
+    """The fields `schedule list` shows, for one schedule, each checked as it is read. Ids and names
+    are never shortened."""
+    return {f: _JOB_READERS[f](job) for f in chosen_fields}
 
 
 def _matches_machine(job: Dict[str, Any], machine: str) -> bool:
@@ -330,7 +399,7 @@ def list_jobs(
         print(json.dumps(rows if filtered else jobs, indent=2))
         return
 
-    records = [_job_record(job) for job in rows]
+    records = [_job_record(job, chosen_fields) for job in rows]
     on = sum(1 for job in rows if job["enabled"])
     # No rows means no breakdown at all: the helper refuses an empty one, and "count: 0" says it all.
     breakdown = [(label, n) for label, n in (("enabled", on), ("disabled", len(rows) - on)) if n] or None

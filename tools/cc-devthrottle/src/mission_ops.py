@@ -279,13 +279,31 @@ def _mission_state(mission: Dict[str, Any]) -> str:
     return raw
 
 
+def _bad_mission(mid: Any, what: str, row: Optional[int] = None) -> None:
+    """Refuse a mission row the Gateway would never send, naming the mission and what is wrong with it."""
+    where = f" (row {row})" if row is not None else ""
+    print(
+        f"Error: the Gateway returned mission {mid} with {what}{where}. "
+        "This tool will not list it as if it were sound; --json shows the raw rows.",
+        file=sys.stderr,
+    )
+    raise typer.Exit(1)
+
+
+def _describe(value: Any) -> str:
+    return "null" if value is None else f"a {type(value).__name__}"
+
+
 def _require_mission_rows(missions: List[Any]) -> None:
     """Every row must be a mission this tool can name: an object with a mission id and a name.
 
-    A row that is not an object, or has no id or no name, is a broken answer and fails loudly. Filtering
+    A row that is not an object, a mission with no id or no name, a mission whose name is blank (the
+    Gateway refuses a blank name on create and on rename), or a mission with any other field missing or
+    of the wrong kind is a broken answer and fails loudly. Filtering
     it would silently drop a Gateway row, and rendering it would crash or show a mission nobody can
-    address. An empty-string name is still a name - it reads back as itself.
+    address. Two rows with one id are refused too: the id is what every other verb addresses.
     """
+    seen = set()
     for index, mission in enumerate(missions):
         row = index + 1
         if not isinstance(mission, dict):
@@ -303,6 +321,9 @@ def _require_mission_rows(missions: List[Any]) -> None:
                 file=sys.stderr,
             )
             raise typer.Exit(1)
+        if mid.lower() in seen:
+            _bad_mission(mid, "an id that an earlier row already has", row)
+        seen.add(mid.lower())
         name = mission.get("missionName", mission.get("MissionName"))
         if not isinstance(name, str):
             print(
@@ -311,34 +332,66 @@ def _require_mission_rows(missions: List[Any]) -> None:
                 file=sys.stderr,
             )
             raise typer.Exit(1)
+        if not name.strip():
+            _bad_mission(mid, "a blank mission name; the Gateway never stores one", row)
+        # Every other field is checked here too, before any filter runs, so a broken row fails on every
+        # path that reads the rows - never only when its field happens to be on screen.
+        _mission_state(mission)
+        for field in _CHECKED_MISSION_FIELDS:
+            _MISSION_READERS[field](mission)
 
 
-def _text_or_none(mission: Dict[str, Any], *names: str) -> Optional[str]:
-    """The value under the first key present, as text; None only when no key is present or it is null.
-    An empty string stays the empty string, so it reads back as itself."""
-    for name in names:
-        if name in mission:
-            value = mission[name]
-            return None if value is None else str(value)
-    return None
+def _mission_text(mission: Dict[str, Any], names: tuple, *, nullable: bool, blank_ok: bool) -> Optional[str]:
+    """The value of one mission field, checked where it is read.
+
+    The Gateway always sends every field of MissionDto, so a missing key is a broken answer, never an
+    empty value. Null is accepted only where the DTO is nullable, and blank text only where it means
+    something (an empty why is the owner's "unset").
+    """
+    mid = mission.get("missionId", mission.get("MissionId"))
+    key = next((name for name in names if name in mission), None)
+    if key is None:
+        _bad_mission(mid, f"no {names[0]}")
+    value = mission[key]
+    if value is None:
+        if nullable:
+            return None
+        _bad_mission(mid, f"{names[0]} null; it is always text")
+    if not isinstance(value, str):
+        expected = "text or null" if nullable else "text"
+        _bad_mission(mid, f"{names[0]} {_describe(value)}; it must be {expected}")
+    if not blank_ok and not value.strip():
+        _bad_mission(mid, f"a blank {names[0]}; the Gateway never sends one")
+    return value
 
 
-def _mission_record(mission: Dict[str, Any], state: str) -> Dict[str, object]:
-    """Every field `mission list` can show, for one mission. Ids and names are never shortened."""
-    return {
-        "id": mission.get("missionId", mission.get("MissionId")),
-        "name": _text_or_none(mission, "missionName", "MissionName"),
-        "state": state,
-        "why": _text_or_none(mission, "why", "Why"),
-        "why-updated": _text_or_none(mission, "whyUpdatedAt", "WhyUpdatedAt"),
-        "state-changed": _text_or_none(mission, "stateChangedAt", "StateChangedAt"),
-        "run": _text_or_none(mission, "workflowRunId", "WorkflowRunId"),
-    }
+# How each `mission list` field is read from a MissionDto (origin/main, CcDirector.Gateway.Contracts).
+# MissionName, Why and State are non-nullable strings; the three others are nullable. The id and name are
+# checked by _require_mission_rows itself and the state by _mission_state, so they are read as checked.
+_MISSION_READERS = {
+    "id": lambda m: m.get("missionId", m.get("MissionId")),
+    "name": lambda m: m.get("missionName", m.get("MissionName")),
+    "why": lambda m: _mission_text(m, ("why", "Why"), nullable=False, blank_ok=True),
+    "why-updated": lambda m: _mission_text(m, ("whyUpdatedAt", "WhyUpdatedAt"), nullable=True, blank_ok=False),
+    "state-changed": lambda m: _mission_text(
+        m, ("stateChangedAt", "StateChangedAt"), nullable=True, blank_ok=False
+    ),
+    "run": lambda m: _mission_text(m, ("workflowRunId", "WorkflowRunId"), nullable=True, blank_ok=False),
+}
+
+
+_CHECKED_MISSION_FIELDS = ("why", "why-updated", "state-changed", "run")
+
+
+def _mission_record(mission: Dict[str, Any], state: str, chosen_fields: List[str]) -> Dict[str, object]:
+    """The fields `mission list` shows, for one mission, each checked as it is read. Ids and names are
+    never shortened."""
+    return {f: state if f == "state" else _MISSION_READERS[f](mission) for f in chosen_fields}
 
 
 def _matches_name(mission: Dict[str, Any], name: str) -> bool:
     """--name matches any part of the mission name, ignoring case."""
-    return name.strip().lower() in (_text_or_none(mission, "missionName", "MissionName") or "").lower()
+    return name.strip().lower() in mission.get("missionName", mission.get("MissionName")).lower()
 
 
 def list_missions(
@@ -374,7 +427,7 @@ def list_missions(
             print(f"Error: {err}", file=sys.stderr)
             raise typer.Exit(1)
         if name is not None:
-            # Filtering reads every row, so every row is checked first; the unfiltered answer is not.
+            # Filtering reads the rows, so every row is checked in full first; the unfiltered answer is not.
             _require_mission_rows(missions)
             missions = [m for m in missions if _matches_name(m, name)]
         # Plain print, not console.print: Rich wraps long values when stdout is not a terminal.
@@ -400,7 +453,7 @@ def list_missions(
         if (wanted is None or st == wanted) and (name is None or _matches_name(m, name))
     ]
 
-    records = [_mission_record(m, st) for m, st in rows]
+    records = [_mission_record(m, st, chosen_fields) for m, st in rows]
     # No rows means no breakdown at all: the helper refuses an empty one, and "count: 0" says it all.
     breakdown = [(s, n) for s in MISSION_STATES if (n := sum(1 for _, st in rows if st == s))] or None
     blocks = [
@@ -423,7 +476,7 @@ def list_missions(
     elif "why" not in chosen_fields:
         # A mission with no WHY is FLAGGED, not hidden - the same rule the Cockpit card follows. A
         # mission whose reason nobody wrote down is the thing worth noticing in this list.
-        unset = sum(1 for m, _ in rows if not (_text_or_none(m, "why", "Why") or "").strip())
+        unset = sum(1 for m, _ in rows if not _MISSION_READERS["why"](m).strip())
         if unset:
             noun = "mission has" if unset == 1 else "missions have"
             blocks.append(f"{unset} of these {noun} no why set.")

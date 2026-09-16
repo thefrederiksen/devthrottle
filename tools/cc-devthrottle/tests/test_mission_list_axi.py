@@ -51,7 +51,8 @@ def _mission(mid, name, state, why="", why_at="2026-09-16T11:21:56.6053801+00:00
 
 
 # Every state, with the names that break a naive list: a comma, quotes, non-ASCII, a name far longer
-# than any table column, leading whitespace, and a name that is the empty string.
+# than any table column, leading whitespace, and a name that is the word null. A blank name is not here:
+# the Gateway never stores one, and the list refuses it (see the broken-answer tests).
 MISSIONS = [
     _mission("aaaaaaaa-1111-4111-8111-000000000001", "URGENT - Recorder must capture all day, no cutoff", "active",
              why="The owner lost a day of audio.", run="bbbbbbbb-2222-4222-8222-000000000001"),
@@ -62,7 +63,7 @@ MISSIONS = [
              "Mentor on the Gateway - the weekly mentor report runs inside the Gateway, for every tenant",
              "active", why="Every tenant gets a report."),
     _mission("aaaaaaaa-1111-4111-8111-000000000005", "  padded  ", "removed", changed_at="2026-09-12T19:30:00+00:00"),
-    _mission("aaaaaaaa-1111-4111-8111-000000000006", "", "active"),
+    _mission("aaaaaaaa-1111-4111-8111-000000000006", "null", "active"),
 ]
 ACTIVE = [MISSIONS[i] for i in (0, 1, 3, 5)]
 
@@ -128,8 +129,8 @@ def test_list_missions_DefaultOutput_EveryIdNameAndStateReadBackExactly(serve, c
     _check_recoverable(out, ACTIVE)
     fields, records = parse_list(out, "missions")
     assert fields == ["id", "name", "state"]
-    # Pinned independently: the empty name survives as the empty string, not as no name.
-    assert records[-1]["name"] == ""
+    # Pinned independently: the name "null" survives as that text, not as no name.
+    assert records[-1]["name"] == "null"
 
 
 def test_list_missions_All_EveryMissionInEveryStateReadsBack(serve, capsys):
@@ -584,3 +585,140 @@ def test_mission_list_Cli_BlankName_ExitsTwo(serve):
 
     assert result.exit_code == 2
     assert "--name needs a value" in result.stderr
+
+
+# ---------------------------------------------------------------------------------------------------
+# Every field is checked where it is read (re-check 2). The Gateway always sends every MissionDto field
+# and refuses a blank name, so a missing key, a wrong kind or a blank name is a broken answer - never an
+# empty value. Every path that reads the rows refuses it; the unfiltered --json prints it as sent.
+# ---------------------------------------------------------------------------------------------------
+
+_MISSING = object()
+
+
+def _orphan(**changes):
+    orphan = _mission("aaaaaaaa-1111-4111-8111-000000000009", "orphan", "active")
+    for key, value in changes.items():
+        if value is _MISSING:
+            del orphan[key]
+        else:
+            orphan[key] = value
+    return orphan
+
+
+@pytest.mark.parametrize("args", FILTERED_PATHS)
+@pytest.mark.parametrize("blank", ["", "   ", "\t"])
+def test_mission_list_Cli_BlankName_ExitsOneOnEveryPath(monkeypatch, args, blank):
+    _serve_raw(monkeypatch, MISSIONS + [_orphan(missionName=blank)])
+
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 1
+    assert "aaaaaaaa-1111-4111-8111-000000000009 with a blank mission name" in result.stderr
+    assert "(row 7)" in result.stderr
+    assert result.stdout == ""
+
+
+@pytest.mark.parametrize("args", [["mission", "list", "--name", "orphan", "--json"],
+                                  ["mission", "list", "--name", "orphan"]])
+def test_mission_list_Cli_InspectionReproduction_BlankNameIsNotFilteredAway(monkeypatch, args):
+    # The inspection's own case: the only mission has an empty name, and the filter used to drop it
+    # silently - `[]` on --json and `count: 0 of 1 total` on the plain list.
+    _serve_raw(monkeypatch, [{"missionId": "m1", "missionName": "", "state": "active", "why": "reason",
+                              "whyUpdatedAt": None, "stateChangedAt": None, "workflowRunId": None}])
+
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 1
+    assert "mission m1 with a blank mission name" in result.stderr
+    assert result.stdout == ""
+
+
+BROKEN_FIELDS = [
+    ("why", _MISSING, "no why"),
+    ("why", None, "why null"),
+    ("why", 3, "why a int"),
+    ("whyUpdatedAt", _MISSING, "no whyUpdatedAt"),
+    ("whyUpdatedAt", 1757000000, "whyUpdatedAt a int"),
+    ("whyUpdatedAt", "", "a blank whyUpdatedAt"),
+    ("whyUpdatedAt", "  ", "a blank whyUpdatedAt"),
+    ("stateChangedAt", _MISSING, "no stateChangedAt"),
+    ("stateChangedAt", {}, "stateChangedAt a dict"),
+    ("stateChangedAt", "", "a blank stateChangedAt"),
+    ("workflowRunId", _MISSING, "no workflowRunId"),
+    ("workflowRunId", True, "workflowRunId a bool"),
+    ("workflowRunId", "", "a blank workflowRunId"),
+    ("state", _MISSING, "state missing"),
+    ("state", "paused", "state paused"),
+    ("state", 1, "state 1"),
+]
+
+
+@pytest.mark.parametrize("args", FILTERED_PATHS)
+@pytest.mark.parametrize("key, value, said", BROKEN_FIELDS)
+def test_mission_list_Cli_BrokenField_ExitsOneOnEveryPath(monkeypatch, args, key, value, said):
+    # Every path that reads the rows, whether or not the field is on screen: the default fields, a
+    # filtered list, and a filtered --json.
+    _serve_raw(monkeypatch, MISSIONS + [_orphan(**{key: value})])
+
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 1
+    assert "aaaaaaaa-1111-4111-8111-000000000009" in result.stderr
+    assert said in result.stderr
+    assert "Traceback" not in result.stderr
+    assert result.stdout == ""
+
+
+@pytest.mark.parametrize("key, value, said", [f for f in BROKEN_FIELDS if f[0] != "state"])
+def test_mission_list_Cli_BrokenFieldAskedFor_ExitsOne(monkeypatch, key, value, said):
+    # The same row, with the field asked for by --fields: still refused, never shown blank.
+    _serve_raw(monkeypatch, MISSIONS + [_orphan(**{key: value})])
+
+    result = runner.invoke(app, ["mission", "list", "--fields", ",".join(mission_ops.MISSION_LIST_FIELDS)])
+
+    assert result.exit_code == 1
+    assert said in result.stderr
+    assert result.stdout == ""
+
+
+@pytest.mark.parametrize("args", FILTERED_PATHS)
+def test_mission_list_Cli_NullsWhereTheDtoAllowsThemAndAnEmptyWhy_AreListed(monkeypatch, args):
+    # The positive control: explicit null where MissionDto is nullable, and the empty why that means
+    # "unset", are a sound mission.
+    orphan = _orphan(why="", whyUpdatedAt=None, stateChangedAt=None, workflowRunId=None)
+    _serve_raw(monkeypatch, [orphan])
+
+    result = runner.invoke(app, args + (["--fields", "id,why,why-updated,state-changed,run"]
+                                        if "--json" not in args else []))
+
+    assert result.exit_code == 0, result.stderr
+    if "--json" in args:
+        assert json.loads(result.stdout) == [orphan]
+    else:
+        _, records = parse_list(result.stdout, "missions")
+        assert records == [{"id": orphan["missionId"], "why": "", "why-updated": None,
+                            "state-changed": None, "run": None}]
+
+
+@pytest.mark.parametrize("args", FILTERED_PATHS)
+@pytest.mark.parametrize("twin", ["aaaaaaaa-1111-4111-8111-000000000002", "AAAAAAAA-1111-4111-8111-000000000002"])
+def test_mission_list_Cli_TwoRowsWithOneId_ExitsOne(monkeypatch, args, twin):
+    _serve_raw(monkeypatch, MISSIONS + [_orphan(missionId=twin)])
+
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 1
+    assert "an id that an earlier row already has (row 7)" in result.stderr
+    assert result.stdout == ""
+
+
+@pytest.mark.parametrize("key, value, said", BROKEN_FIELDS + [("missionName", "", "")])
+def test_mission_list_Cli_JsonUnfiltered_BrokenFieldStaysTheRawAnswer(monkeypatch, key, value, said):
+    rows = MISSIONS + [_orphan(**{key: value})]
+    _serve_raw(monkeypatch, rows)
+
+    result = runner.invoke(app, ["mission", "list", "--json"])
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == rows

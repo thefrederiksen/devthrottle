@@ -67,7 +67,8 @@ def _job(job_id, name, enabled, *, machine="SOREN_NORTH", kind="recurring", cron
 
 
 # Both enabled states, with the names that break a naive list: a comma, quotes, non-ASCII, a name far
-# longer than any table column, leading whitespace, no name at all, and the empty string.
+# longer than any table column, leading whitespace, and names that look like other values. No name and
+# a blank name are not here: the Gateway never stores either, and the list refuses both.
 JOBS = [
     _job("cj_1a10c4", "SmartScreen + winget follow-up, then report", False, kind="oneOff", cron=None,
          run_at="2026-09-09 09:47", next_run=None),
@@ -75,13 +76,13 @@ JOBS = [
          last_fired="2026-09-15T07:00:01Z", notify="always", created="2026-08-20T09:30:00Z"),
     _job("cj_4056ec", "S\u00f8ren's caf\u00e9 \u2014 \U0001f680 check-in", True, machine="devthrottle-mac-mini",
          repo="/Users/soren/ReposFred/devthrottle", last_status="skipped-overlap", last_fired=None,
-         notify="never"),
+         notify="none"),
     _job("cj_91da7b", "Morning dictionary suggestions email (stopgap until issue 2074) for every account",
          False, machine="DEVTHROTTLE_2", work_list="nightly", cron="30 6 * * *", last_status=None,
          next_run="2026-09-17T10:30:00Z"),
     _job("cj_9dedee", "  padded  ", True, work_list="weekly review"),
-    _job("cj_c536b9", None, True),
-    _job("cj_e22337", "", False, kind="oneOff", cron=None, run_at="2026-10-01 18:00"),
+    _job("cj_c536b9", "null", True),
+    _job("cj_e22337", "0", False, kind="oneOff", cron=None, run_at="2026-10-01 18:00"),
 ]
 ENABLED = ["no", "yes", "yes", "no", "yes", "yes", "no"]
 
@@ -145,7 +146,7 @@ def test_list_jobs_DefaultOutput_EveryIdNameAndEnabledReadBackExactly(serve, cap
     assert fields == ["id", "name", "enabled", "next-run"]
     # Pinned independently of the check's own mapping.
     assert [r["enabled"] for r in records] == ENABLED
-    assert [r["name"] for r in records][5:] == [None, ""]
+    assert [r["name"] for r in records][5:] == ["null", "0"]
     assert records[0]["next-run"] is None
     assert records[1]["next-run"] == "2026-09-21T11:00:00Z"
 
@@ -514,3 +515,163 @@ def test_schedule_list_Cli_BlankMachine_ExitsTwo(serve):
 
     assert result.exit_code == 2
     assert "--machine needs a value" in result.stderr
+
+
+# ---------------------------------------------------------------------------------------------------
+# Every field is checked where it is read (re-check 2). The Gateway serializes every CronJobDto field and
+# its write check refuses a blank name, time zone or repo path, so a missing key, a wrong kind, or a
+# value it would never store is a broken answer - never an empty value. Every path that reads the rows
+# refuses it; the unfiltered --json prints it as sent.
+# ---------------------------------------------------------------------------------------------------
+
+_MISSING = object()
+
+READ_PATHS = [["schedule", "list"],
+              ["schedule", "list", "--fields", ",".join(schedule_ops.SCHEDULE_LIST_FIELDS)],
+              ["schedule", "list", "--machine", "SOREN_NORTH"],
+              ["schedule", "list", "--disabled"],
+              ["schedule", "list", "--machine", "SOREN_NORTH", "--json"],
+              ["schedule", "list", "--enabled", "--json"]]
+
+
+def _broken(changes, **job_args):
+    orphan = _job("cj_0rphan", "orphan", True, **job_args)
+    for path, value in changes.items():
+        record, key = (orphan["action"], path[len("action."):]) if path.startswith("action.") else (orphan, path)
+        if value is _MISSING:
+            del record[key]
+        else:
+            record[key] = value
+    return orphan
+
+
+ONE_OFF = {"kind": "oneOff", "cron": None, "run_at": "2026-10-01 18:00", "next_run": None}
+
+# (field, value, job arguments, what the error names)
+BROKEN_JOB_FIELDS = [
+    ("name", _MISSING, {}, "no name"),
+    ("name", None, {}, "name null"),
+    ("name", "", {}, "a blank name"),
+    ("name", "   ", {}, "a blank name"),
+    ("name", 5, {}, "name a int"),
+    ("nextRunUtc", _MISSING, {}, "no nextRunUtc"),
+    ("nextRunUtc", 5, {}, "nextRunUtc a int"),
+    ("nextRunUtc", "", {}, "a blank nextRunUtc"),
+    ("scheduleKind", _MISSING, {}, "no scheduleKind"),
+    ("scheduleKind", None, {}, "scheduleKind null"),
+    ("scheduleKind", "", {}, "a blank scheduleKind"),
+    ("scheduleKind", "weekly", {}, "scheduleKind weekly"),
+    ("scheduleKind", ["recurring"], {}, "scheduleKind a list"),
+    ("cronExpression", _MISSING, {}, "no cronExpression"),
+    ("cronExpression", None, {}, "cronExpression null"),
+    ("cronExpression", "", {}, "a blank cronExpression"),
+    ("cronExpression", 7, {}, "cronExpression a int"),
+    ("cronExpression", _MISSING, ONE_OFF, "no cronExpression"),
+    ("cronExpression", 7, ONE_OFF, "cronExpression a int"),
+    ("runAt", _MISSING, {}, "no runAt"),
+    ("runAt", 7, {}, "runAt a int"),
+    ("runAt", None, ONE_OFF, "runAt null"),
+    ("runAt", " ", ONE_OFF, "a blank runAt"),
+    ("timeZoneId", _MISSING, {}, "no timeZoneId"),
+    ("timeZoneId", None, {}, "timeZoneId null"),
+    ("timeZoneId", "", {}, "a blank timeZoneId"),
+    ("timeZoneId", 0, {}, "timeZoneId a int"),
+    ("action", _MISSING, {}, "action missing; it must be an object"),
+    ("action", None, {}, "action null; it must be an object"),
+    ("action", "D:\\repo", {}, "action a str; it must be an object"),
+    ("action.workListName", _MISSING, {}, "no action.workListName"),
+    ("action.workListName", 3, {}, "action.workListName a int"),
+    ("action.repoPath", _MISSING, {}, "no action.repoPath"),
+    ("action.repoPath", None, {}, "action.repoPath null"),
+    ("action.repoPath", "", {}, "a blank action.repoPath"),
+    ("action.repoPath", 3, {}, "action.repoPath a int"),
+    ("lastFiredUtc", _MISSING, {}, "no lastFiredUtc"),
+    ("lastFiredUtc", "", {}, "a blank lastFiredUtc"),
+    ("lastFiredUtc", False, {}, "lastFiredUtc a bool"),
+    ("lastStatus", _MISSING, {}, "no lastStatus"),
+    ("lastStatus", 200, {}, "lastStatus a int"),
+    ("notifyOn", _MISSING, {}, "no notifyOn"),
+    ("notifyOn", None, {}, "notifyOn null"),
+    ("notifyOn", "", {}, "a blank notifyOn"),
+    ("notifyOn", "never", {}, "notifyOn never"),
+    ("notifyOn", "Always", {}, "notifyOn Always"),
+    ("createdUtc", _MISSING, {}, "no createdUtc"),
+    ("createdUtc", None, {}, "createdUtc null"),
+    ("createdUtc", "", {}, "a blank createdUtc"),
+    ("createdUtc", 1, {}, "createdUtc a int"),
+]
+
+
+@pytest.mark.parametrize("args", READ_PATHS)
+@pytest.mark.parametrize("field, value, job_args, said", BROKEN_JOB_FIELDS)
+def test_schedule_list_Cli_BrokenField_ExitsOneOnEveryPath(serve, args, field, value, job_args, said):
+    serve(JOBS + [_broken({field: value}, **job_args)])
+
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 1
+    assert "schedule cj_0rphan with " + said in result.stderr
+    assert "Traceback" not in result.stderr
+    assert result.stdout == ""
+
+
+def test_schedule_list_Cli_InspectionReproductions_ExitOne(serve):
+    # The inspection's own cases: no name on the default list, no next run on the default list, and no
+    # action behind --fields id,path,work-list.
+    for field, args in (("name", ["schedule", "list"]), ("nextRunUtc", ["schedule", "list"]),
+                        ("action", ["schedule", "list", "--fields", "id,path,work-list"])):
+        serve([_broken({field: _MISSING})])
+        result = runner.invoke(app, args)
+        assert result.exit_code == 1, field
+        assert result.stdout == "", field
+
+
+# What the Gateway can store and that must still list: nulls where CronJobDto is nullable, the timing
+# field the kind does not use left null or blank, an empty work list beside a seed, an empty last
+# status, and a kind in any case with spaces (CronSchedule compares it ignoring both).
+SOUND_JOB_VARIANTS = [
+    ({"nextRunUtc": None, "lastFiredUtc": None, "lastStatus": None, "action.workListName": None}, {}),
+    ({"runAt": ""}, {}),
+    ({"cronExpression": ""}, ONE_OFF),
+    ({"action.workListName": "", "lastStatus": ""}, {}),
+    ({"scheduleKind": " Recurring "}, {}),
+    ({"scheduleKind": "ONEOFF"}, ONE_OFF),
+]
+
+
+@pytest.mark.parametrize("args", READ_PATHS)
+@pytest.mark.parametrize("changes, job_args", SOUND_JOB_VARIANTS)
+def test_schedule_list_Cli_ValuesTheGatewayStores_AreListedAsSent(serve, args, changes, job_args):
+    job = _broken(changes, **job_args)
+    serve([job])
+
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 0, result.stderr
+    if "--json" in args:
+        assert json.loads(result.stdout) == [job]
+    elif "--fields" in args:
+        _, records = parse_list(result.stdout, "schedules")
+        assert records == [{f: LIST_KEYS[f](job) for f in schedule_ops.SCHEDULE_LIST_FIELDS}]
+
+
+@pytest.mark.parametrize("args", READ_PATHS)
+def test_schedule_list_Cli_TwoRowsWithOneId_ExitsOne(serve, args):
+    serve(JOBS + [_job("cj_33022a", "twin", True)])
+
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 1
+    assert "schedule cj_33022a with an id that an earlier row already has (row 8)" in result.stderr
+    assert result.stdout == ""
+
+
+@pytest.mark.parametrize("field, value, job_args, said", BROKEN_JOB_FIELDS)
+def test_schedule_list_Cli_JsonUnfiltered_BrokenFieldStaysTheRawAnswer(serve, field, value, job_args, said):
+    jobs = JOBS + [_broken({field: value}, **job_args)]
+    serve(jobs)
+
+    result = runner.invoke(app, ["schedule", "list", "--json"])
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == jobs

@@ -48,8 +48,11 @@ def flowed(text: str) -> str:
 ACTIVE_ID = "aaaaaaaa-1111-2222-3333-444444444444"
 DONE_ID = "cccccccc-5555-6666-7777-888888888888"
 
-ACTIVE = {"missionId": ACTIVE_ID, "missionName": "Release 2.0.0", "state": "active", "why": "ship it"}
-DONE = {"missionId": DONE_ID, "missionName": "Remove the network port", "state": "complete", "why": ""}
+# Every field the Gateway's MissionDto carries, as it sends them: `mission list` refuses a row missing one.
+ACTIVE = {"missionId": ACTIVE_ID, "missionName": "Release 2.0.0", "state": "active", "why": "ship it",
+          "whyUpdatedAt": "2026-09-01T07:00:00+00:00", "stateChangedAt": None, "workflowRunId": None}
+DONE = {"missionId": DONE_ID, "missionName": "Remove the network port", "state": "complete", "why": "",
+        "whyUpdatedAt": None, "stateChangedAt": "2026-09-02T07:00:00+00:00", "workflowRunId": None}
 
 
 @pytest.fixture
