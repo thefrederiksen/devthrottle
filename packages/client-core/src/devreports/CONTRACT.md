@@ -32,6 +32,10 @@ names or headings, so a report can look however it likes.
 "Right after" is about the ORDER OF THE MARKERS, not about the HTML between them: the check reads the
 markers in document order and does not judge untagged content in between.
 
+A report has no `<script>` elements and no inline event handlers (`onclick=`, `onerror=` and so on). Every
+host blocks them (section 4), so the check refuses them rather than let the owner open a page that
+silently does less than its author meant.
+
 Markers a browser would not treat as elements do not count: inside HTML comments, inside `<script>`,
 `<style>`, `<template>`, `<textarea>`, `<title>`, `<xmp>`, `<iframe>`, `<noembed>`, `<noframes>` and
 `<noscript>`, and anywhere after `<plaintext>`.

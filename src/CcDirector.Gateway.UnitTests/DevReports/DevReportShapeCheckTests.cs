@@ -238,10 +238,18 @@ public sealed class DevReportShapeCheckTests
     // --- the reader ------------------------------------------------------------------------------------
 
     [Fact]
-    public void Check_MarkersInCommentsScriptsAndTemplates_DoNotCount()
+    public void Check_ReportWithAScript_Fails()
+        => AssertFailsWith(Report(tail: "<script>parent.postMessage({}, '*');</script>"), "1 <script> element(s)");
+
+    [Fact]
+    public void Check_ReportWithAnInlineEventHandler_Fails()
+        => AssertFailsWith(Report(tail: "<img src=\"x.png\" onerror=\"alert(1)\">"), "onerror on <img>");
+
+    [Fact]
+    public void Check_MarkersInCommentsStylesAndTemplates_DoNotCount()
     {
         var hidden = "<!-- <section data-dev-report=\"summary\"></section> -->" +
-                     "<script>var s = '<section data-dev-report=\"summary\">';</script>" +
+                     "<style>/* <section data-dev-report=\"summary\"> */</style>" +
                      "<template><section data-dev-report=\"detail\"></section></template>" +
                      "<textarea><section data-dev-report=\"summary\"></textarea>";
         var verdict = DevReportShapeCheck.Check(Report(afterHeader: hidden));

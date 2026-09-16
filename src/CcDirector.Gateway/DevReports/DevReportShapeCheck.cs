@@ -78,6 +78,7 @@ internal static class DevReportShapeCheck
         var status = CheckCounts(kinds, sections, errors);
         CheckOrder(kinds, errors);
         CheckQuestions(tags, sections, html, errors);
+        CheckNoScripts(tags, errors);
 
         FileLog.Write($"[DevReportShapeCheck] Check: {sections.Count} section markers, {errors.Count} errors, status={status ?? "(none)"}");
         return new DevReportShapeVerdict(errors, status);
@@ -315,6 +316,27 @@ internal static class DevReportShapeCheck
                 errors.Add($"The question \"{Label(questions[i])}\" has {recommendedCounts[i]} recommended options. Mark " +
                            "exactly one option with data-recommended.");
             }
+        }
+    }
+
+    // Every host blocks a report's own scripts (CONTRACT.md section 4), so a script or an inline event handler
+    // in a report is dead code that would leave the owner looking at a broken page. Say so at publish time.
+    private static void CheckNoScripts(List<Tag> tags, List<string> errors)
+    {
+        var scripts = tags.Count(t => t.Name == "script");
+        if (scripts > 0)
+        {
+            errors.Add($"The report has {scripts} <script> element(s). Scripts do not run in a dev report - remove " +
+                       "them and draw what they would have drawn as HTML, CSS or inline SVG.");
+        }
+        var handlers = tags
+            .SelectMany(t => t.Attributes.Keys.Where(k => k.StartsWith("on", StringComparison.Ordinal) && k.Length > 2)
+                .Select(k => $"{k} on <{t.Name}>"))
+            .ToList();
+        if (handlers.Count > 0)
+        {
+            errors.Add($"The report has {handlers.Count} inline event handler(s) ({string.Join(", ", handlers.Take(3))}). " +
+                       "They do not run in a dev report - remove them.");
         }
     }
 
