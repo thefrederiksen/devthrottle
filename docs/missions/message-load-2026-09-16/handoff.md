@@ -132,3 +132,11 @@ combined "siblings may talk" widening turns it red (5 tests).
   the deleted steward tests). Far more than the "about 16" in the note above: most are Windows path and
   shim tests, worktree reaper, lifecycle signal and mutation-pin tests. None touched by this slice.
 - cc-devthrottle tests: all passed (1738 on the rebased tree); shared contract and output helper: 124 passed.
+
+## Report channel failed (16 September 2026)
+
+`cc-devthrottle session raise "slice 1 pushed"` was REFUSED by the live hosted Gateway: "a session key may
+not call POST /sessions/<id>/needs-manager". The session key guard has no entry for `needs-manager`, so the
+report channel this mission relies on does not work for any agent today. No message was sent instead
+(mission rule). This note and the pushed branch are the report. Worth a fix in slice 1 or its own change:
+add `needs-manager` to `SessionKeyGuard` with a test.
