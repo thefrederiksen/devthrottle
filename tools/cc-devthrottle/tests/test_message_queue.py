@@ -279,3 +279,17 @@ def test_the_action_catalogue_lists_inbox_and_not_ask():
     assert not any("message ask" in a["command"] for a in _ACTIONS)
     send = next(a for a in _ACTIONS if a["id"] == "message-send")
     assert "queued" in send["description"]
+
+
+def test_inbox_all_help_says_it_returns_the_last_24_hours_and_why(plain):
+    # Inspection 1, ruling 4: the Gateway returns every message read in the last 24 hours, so a read whose
+    # answer was lost can be recovered. The help must say both halves.
+    result = runner.invoke(app, ["message", "inbox", "--help"])
+
+    assert result.exit_code == 0
+    # The help is drawn in a bordered box, so a sentence wraps across border characters; drop them first.
+    out = " ".join(plain(result.output).replace("|", " ").replace("\u2502", " ").split())
+    assert "every message you read in the last 24 hours" in out
+    assert "read was lost" in out
+    inbox = next(a for a in _ACTIONS if a["id"] == "message-inbox")
+    assert "last 24 hours" in inbox["description"]

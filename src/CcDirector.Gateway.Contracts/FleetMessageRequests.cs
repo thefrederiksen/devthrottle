@@ -113,7 +113,8 @@ public sealed class FleetInboxResponse
     /// <summary>The messages that were unread, oldest first, in full.</summary>
     public List<FleetInboxMessageDto> Unread { get; set; } = new();
 
-    /// <summary>Messages read earlier, newest first - only when the caller asked with <c>all=true</c>.</summary>
+    /// <summary>Every message read earlier in the last 24 hours, newest first - only when the caller asked with
+    /// <c>all=true</c>. This is how a read whose answer was lost is recovered.</summary>
     public List<FleetInboxMessageDto> Recent { get; set; } = new();
 }
 

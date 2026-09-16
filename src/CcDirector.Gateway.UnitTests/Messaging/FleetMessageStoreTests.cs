@@ -137,6 +137,58 @@ public sealed class FleetMessageStoreTests : IDisposable
     }
 
     [Fact]
+    public void Recent_returns_every_message_read_in_the_last_day_with_no_count_cap()
+    {
+        // Inspection 1, ruling 4. The first cut returned the latest 20, so a read whose answer was lost could be
+        // pushed out of reach by later reads. Thirty messages, each read on its own, all come back.
+        var store = NewStore();
+        for (var i = 0; i < 30; i++)
+        {
+            var at = T0.AddMinutes(i * 2);
+            store.TryEnqueue(TenantA, Draft(Manager, WorkerA, $"message {i}"), at, Hour, Allow);
+            store.ReadInbox(TenantA, WorkerA, at.AddMinutes(1), false);
+        }
+
+        var read = store.ReadInbox(TenantA, WorkerA, T0.AddHours(2), includeRecent: true);
+
+        Assert.Equal(30, read.Recent.Count);
+        Assert.Equal("message 29", read.Recent[0].Text);
+        Assert.Equal("message 0", read.Recent[29].Text);
+    }
+
+    [Fact]
+    public void Recent_stops_at_24_hours_since_the_read()
+    {
+        // The window is measured from when the message was READ, not when it was written: a message written
+        // long ago and read a minute ago is exactly the lost read this exists to recover.
+        var store = NewStore();
+        store.TryEnqueue(TenantA, Draft(Manager, WorkerA, "written three days before it was read"), T0.AddDays(-3), Hour, Allow);
+        var readAt = T0.AddMinutes(1);
+        store.ReadInbox(TenantA, WorkerA, readAt, false);
+
+        var atBoundary = store.ReadInbox(TenantA, WorkerA, readAt.AddHours(24), includeRecent: true);
+        var pastBoundary = store.ReadInbox(TenantA, WorkerA, readAt.AddHours(24).AddMinutes(1), includeRecent: true);
+
+        Assert.Single(atBoundary.Recent);
+        Assert.Empty(pastBoundary.Recent);
+    }
+
+    [Fact]
+    public void The_service_reads_back_with_the_products_24_hour_window()
+    {
+        var clock = T0;
+        var service = new FleetMessageService(NewStore(), clock: () => clock);
+        service.Send(TenantA, Party(Manager), Party(WorkerA), "lost read", FleetMessageKinds.Message);
+        service.ReadInbox(TenantA, WorkerA, false);
+
+        clock = T0.AddHours(23).AddMinutes(59);
+        Assert.Equal("lost read", Assert.Single(service.ReadInbox(TenantA, WorkerA, includeRecent: true).Recent).Text);
+
+        clock = T0.AddHours(24).AddMinutes(1);
+        Assert.Empty(service.ReadInbox(TenantA, WorkerA, includeRecent: true).Recent);
+    }
+
+    [Fact]
     public void A_refused_decision_writes_nothing()
     {
         var store = NewStore();

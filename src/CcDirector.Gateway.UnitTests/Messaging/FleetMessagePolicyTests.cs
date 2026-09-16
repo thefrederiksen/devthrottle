@@ -59,6 +59,7 @@ public sealed class FleetMessagePolicyTests
         Assert.Equal(TimeSpan.FromMinutes(5), Limits.RingGrace);
         Assert.Equal(3, Limits.StuckAfterRings);
         Assert.Equal(TimeSpan.FromDays(30), Limits.Retention);
+        Assert.Equal(TimeSpan.FromHours(24), Limits.RecentReadWindow);
     }
 
     // ---------- Rule 1: only your supervisor and your own workers ----------

@@ -120,7 +120,7 @@ public sealed class FleetMessageService
     /// </summary>
     public FleetInboxResponse ReadInbox(TenantId tenant, string sessionId, bool includeRecent)
     {
-        var read = _store.ReadInbox(tenant, sessionId, _clock(), includeRecent);
+        var read = _store.ReadInbox(tenant, sessionId, _clock(), includeRecent, _limits.RecentReadWindow);
         FileLog.Write($"[FleetMessageService] ReadInbox: sid={Short(sessionId)} unread={read.Unread.Count} recent={read.Recent.Count} ids=[{string.Join(",", read.Unread.Select(m => m.MessageId))}]");
         return new FleetInboxResponse
         {

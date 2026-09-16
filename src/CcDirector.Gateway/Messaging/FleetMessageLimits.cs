@@ -31,6 +31,12 @@ public sealed record FleetMessageLimits
     /// <summary>How long a message is kept after it was written. Thirty days, matching the activity ledger.</summary>
     public TimeSpan Retention { get; init; } = TimeSpan.FromDays(30);
 
+    /// <summary>How far back <c>message inbox --all</c> reaches for messages already read (inspection 1,
+    /// ruling 4). Reading marks a message read before its text has reached the reader, so a read whose answer
+    /// was lost must be recoverable; every message read inside this window comes back, however many there are.
+    /// </summary>
+    public TimeSpan RecentReadWindow { get; init; } = TimeSpan.FromHours(24);
+
     /// <summary>The longest message text accepted. A message is read from the inbox, never typed, so it may
     /// be long - but not unbounded.</summary>
     public int MaxTextLength { get; init; } = 16_000;
