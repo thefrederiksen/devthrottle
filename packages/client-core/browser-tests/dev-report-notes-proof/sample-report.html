@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sample dev report - gate run</title>
+<style>
+  body { margin: 0; font-family: 'Segoe UI', system-ui, sans-serif; color: #16181D; background: #FFFFFF; line-height: 1.5; }
+  main { max-width: 900px; margin: 0 auto; padding: 24px 16px 320px; }
+  section { border-top: 1px solid #E6E8EC; padding: 20px 0; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #E6E8EC; }
+  .chip { display: inline-block; padding: 2px 10px; border-radius: 999px; background: #FFF4D6; color: #9A6700; font-weight: 600; font-size: 13px; }
+  label { display: block; padding: 6px 0; }
+</style>
+</head>
+<body>
+<main>
+  <!-- data-dev-report="summary" inside a comment must not count as a section. -->
+  <header data-dev-report="header" data-dev-report-status="waiting-on-you">
+    <h1>Gate run - 16 September 2026</h1>
+    <span class="chip">Waiting on you</span>
+  </header>
+
+  <section data-dev-report="summary" id="summary">
+    <h2>Executive summary</h2>
+    <p>The local gate ran 1,634 tests. One suite failed on the Gateway; the rest passed.</p>
+  </section>
+
+  <section data-dev-report="questions" id="questions">
+    <h2>Questions for you</h2>
+    <div data-dev-report-question="rerun" data-dev-report-question-text="Should the failed suite be rerun tonight?">
+      <h3>Should the failed suite be rerun tonight?</h3>
+      <label><input type="radio" name="rerun" value="tonight" data-recommended> Rerun tonight - costs 20 minutes of machine time</label>
+      <label><input type="radio" name="rerun" value="tomorrow"> Wait for tomorrow - nothing is blocked</label>
+      <textarea data-dev-report-comment placeholder="Anything to add (optional)"></textarea>
+    </div>
+  </section>
+
+  <section data-dev-report="detail" id="results-section">
+    <h2>1. Results</h2>
+    <table id="results">
+      <thead><tr><th>Suite</th><th>Tests</th><th>Failures</th></tr></thead>
+      <tbody>
+        <tr><td>Core.UnitTests</td><td>812</td><td>0</td></tr>
+        <tr><td>Gateway</td><td>12</td><td>42</td></tr>
+        <tr><td>Director</td><td>810</td><td>0</td></tr>
+      </tbody>
+    </table>
+    <p id="explain">The Gateway failures all come from one fixture that could not reach its database.</p>
+  </section>
+
+  <section data-dev-report="detail" id="diagram">
+    <h2>2. Where the run went</h2>
+    <svg viewBox="0 0 400 80" width="400" height="80" role="img" aria-label="Run path">
+      <g data-label="Local gate"><rect x="10" y="20" width="120" height="40" fill="#EAF3FB"></rect><text x="20" y="45">Local gate</text></g>
+      <g data-label="Gateway suite"><rect x="200" y="20" width="160" height="40" fill="#FDECEC"></rect><text x="210" y="45">Gateway suite</text></g>
+    </svg>
+  </section>
+
+  <section data-dev-report="evidence" id="evidence">
+    <h2>Evidence, and what is not proven</h2>
+    <p>Not proven: whether the database outage was the only cause.</p>
+  </section>
+</main>
+</body>
+</html>
