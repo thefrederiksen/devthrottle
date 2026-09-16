@@ -723,8 +723,37 @@ def test_run_UncommittedEditDuringReview_HandedBackAndFullyRerunAfterCommit(worl
     assert [s["role"] for s in world.spawned] == ["Reviewer", "Reviewer", "Verifier"]
 
 
-def test_start_UntrackedFileOnly_NotADirtyTree(world, capsys):
-    (world.work / "intent-draft.md").write_text("scratch\n", encoding="ascii")
+def test_run_UntrackedFileTheChangeNeeds_StopsTheRun(world, capsys):
+    # Round 3 finding 1: an untracked file would pass the checks but be missing from the merge.
+    (world.work / "helper.py").write_text("x\n", encoding="ascii")
+    code, out = run_cli("start", "--intent", str(world.intent), capsys=capsys)
+    assert code != 0 and out["code"] == "dirty-tree"
+
+
+def test_run_UntrackedFileAppearsDuringReview_HandedBack(world, capsys):
+    real_wait = world.wait_for_output
+
+    def wait_while_file_appears(sid, output, *args, **kwargs):
+        (world.work / "helper.py").write_text("x\n", encoding="ascii")
+        return real_wait(sid, output, *args, **kwargs)
+
+    engine.fleet.wait_for_output = wait_while_file_appears
+    world.outputs["Reviewer"].append(review())
+    code, out = ship_to_merge(world, capsys)
+    assert out["state"] == "waiting-on-author" and "untracked" in out["next_step"], out
+    assert world.prs == {}
+
+
+def test_run_IgnoredFile_DoesNotStopTheRun(world, capsys):
+    git(world.work, "switch", "main")
+    (world.work / ".gitignore").write_text("build/\n", encoding="ascii")
+    git(world.work, "add", ".gitignore")
+    git(world.work, "commit", "-m", "ignore build")
+    git(world.work, "push")
+    git(world.work, "switch", "feature")
+    git(world.work, "rebase", "main")
+    (world.work / "build").mkdir()
+    (world.work / "build" / "out.txt").write_text("x\n", encoding="ascii")
     world.outputs["Reviewer"].append(review())
     code, out = run_cli("start", "--intent", str(world.intent), capsys=capsys)
     assert out["state"] == "working", out
@@ -763,7 +792,8 @@ def test_run_ReviewerRewordsDecidedFinding_MatchesDecisionIdAndOwnerIsNotAskedAg
     code, out = ship_to_merge(world, capsys)
     assert out["state"] == "merged", out
     brief = [s for s in world.spawned if s["role"] == "Reviewer"][-1]["brief"].read_text()
-    assert 'D1: owner chose KEEP - "Missing error handling"' in brief
+    closed_part = brief.split("CLOSED by the owner", 1)[1]
+    assert 'D1: "Missing error handling" in app.py' in closed_part
     assert "reviewer matched" in world.prs[2]["body"] and "decision D1" in world.prs[2]["body"]
 
 
@@ -778,6 +808,54 @@ def test_run_SameAsDecisionPointingAtAFixDecision_NotSuppressed(world, capsys):
     run_cli("continue", capsys=capsys)
     code, out = run_cli("wait", "--seconds", "5", capsys=capsys)
     assert out["state"] == "waiting-on-owner" and "r2-F1" in out["next_step"], out
+
+
+def test_reviewer_brief_FixDecision_ListedAsMustBeFixedNotClosed(world, capsys):
+    # Round 3 finding 2: a reviewer told a fix decision is closed would skip a broken repair.
+    first = finding("F1", "Settings route is broken", action="ask-owner")
+    world.outputs["Reviewer"] += [review(first), review()]
+    ship_to_merge(world, capsys)
+    run_cli("respond", "r1-F1", "--fix", capsys=capsys)
+    (world.work / "app.py").write_text("x = 6\n", encoding="ascii")
+    git(world.work, "commit", "-am", "attempt")
+    run_cli("continue", capsys=capsys)
+    brief = [s for s in world.spawned if s["role"] == "Reviewer"][-1]["brief"].read_text()
+    closed_part, _, fix_part = brief.partition("MUST BE FIXED")
+    assert "Settings route is broken" in fix_part
+    assert "Settings route is broken" not in closed_part
+    assert "CLOSED" not in brief
+
+
+def test_reviewer_brief_UncertainMatch_ToldToReportNormally(world, capsys):
+    # Round 3 finding 3: only a certain match may carry same_as_decision.
+    first = finding("F1", "Missing error handling", action="ask-owner", severity="warning")
+    world.outputs["Reviewer"] += [review(first), review()]
+    ship_to_merge(world, capsys)
+    world.outputs["Verifier"].append(GO)
+    run_cli("respond", "r1-F1", "--keep", capsys=capsys)
+    run_cli("wait", "--seconds", "5", capsys=capsys)
+    (world.work / "app.py").write_text("x = 8\n", encoding="ascii")
+    git(world.work, "commit", "-am", "more")
+    world.prs[1]["state"] = "MERGED"
+    ship_to_merge(world, capsys)
+    brief = [s for s in world.spawned if s["role"] == "Reviewer"][-1]["brief"].read_text()
+    assert "CERTAIN" in brief and "If you are not certain it is the same, report" in brief
+
+
+@pytest.mark.parametrize("path", ["website/src/keys/vault.js", "website/src/crypto/keyring.js",
+                                  "website/src/keys/store.js", "src/key/loader.py",
+                                  "src/auth/session.ts", "api/_lib/api-keys.js"])
+def test_sensitive_path_KeyAndAuthCode_High(path):
+    # Round 3 finding 4, checked against the pilot repository's own configuration.
+    import risk
+    assert risk.sensitive_path(path)
+
+
+@pytest.mark.parametrize("path", ["docs/authoring.md", "website/src/pages/Pricing.jsx",
+                                  "src/tokenizer.py", "docs/monkeys.md"])
+def test_sensitive_path_OrdinaryNames_NotHigh(path):
+    import risk
+    assert not risk.sensitive_path(path)
 
 
 def test_validate_review_BadSameAsDecision_Rejected():

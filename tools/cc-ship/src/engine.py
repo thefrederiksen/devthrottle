@@ -105,9 +105,10 @@ def _worktree_dirty(run: dict) -> dict | None:
     run["session"] = None
     run["phase"] = "dirty"
     return _set(run, WAITING_ON_AUTHOR,
-                "The worktree has uncommitted changes to tracked files. What is reviewed and "
-                "verified must be exactly what ships. Commit them (every step then runs again "
-                "on the new commit) or discard them, then run: cc-ship continue")
+                "The worktree has uncommitted or untracked files. What is reviewed and verified "
+                "must be exactly what ships. Commit them (every step then runs again on the new "
+                "commit) or remove them (keep notes such as intent.md outside the worktree), "
+                "then run: cc-ship continue")
 
 
 def _head_moved(run: dict) -> str | None:
@@ -189,8 +190,9 @@ def start(cwd: Path, intent_file: Path, title: str | None) -> dict:
         raise ShipError("on-main", f"You are on {branch}. cc-ship ships a branch, never main.",
                         "Commit your change on a branch: git switch -c <name>, then cc-ship start again.")
     if not gitops.is_clean(repo):
-        raise ShipError("dirty-tree", "The worktree has uncommitted changes.",
-                        "Commit (or remove) every change, then run cc-ship start again.")
+        raise ShipError("dirty-tree", "The worktree has uncommitted or untracked files.",
+                        "Commit or remove every change, then run cc-ship start again. Keep "
+                        "intent.md outside the worktree (for example in your scratch folder).")
     if not intent_file.is_file():
         raise ShipError("no-intent", f"The intent file {intent_file} does not exist.",
                         "Write intent.md in the owner's words: goal, constraints, what was ruled "

@@ -24,18 +24,28 @@ def reviewer_brief(
     first_reviewed_head: str | None,
 ) -> str:
     rules = "\n".join(f"- {r}" for r in repo_rules) or "- (none declared)"
-    if decisions:
-        listed = "\n".join(
-            f"  - {d['id']}: owner chose {d['decision'].upper()} - \"{d['title']}\" in "
-            f"{d['file'] or '(whole change)'}: {d['sequence']}" + (f" (owner: {d['note']})" if d['note'] else "")
-            for d in decisions)
-        decisions_line = (
-            "- The owner has already decided these. A decided finding is CLOSED: do not raise "
-            "it again. If something you find is the same problem as one of them, even in other "
-            "words, leave it out; if you are not sure, report it with \"same_as_decision\" set "
-            "to that id (for example \"D1\"):\n" + listed)
-    else:
-        decisions_line = "- There are no recorded owner decisions on this branch yet."
+    def describe(d: dict) -> str:
+        note = f" (owner: {d['note']})" if d["note"] else ""
+        return (f"  - {d['id']}: \"{d['title']}\" in {d['file'] or '(whole change)'}: "
+                f"{d['sequence']}{note}")
+
+    closed = [d for d in decisions if d["decision"] in ("keep", "drop")]
+    to_fix = [d for d in decisions if d["decision"] == "fix"]
+    parts = []
+    if closed:
+        parts.append(
+            "- CLOSED by the owner (he kept or dropped these). Do not raise them again. Only "
+            "when you are CERTAIN a finding is the same failing behaviour as one of them may "
+            "you report it with \"same_as_decision\" set to its id (for example \"D1\"); it "
+            "is then recorded, not asked again. If you are not certain it is the same, report "
+            "it normally without that field, so the owner can see it:\n"
+            + "\n".join(describe(d) for d in closed))
+    if to_fix:
+        parts.append(
+            "- The owner said these MUST BE FIXED. Check that each one really is fixed; if it "
+            "is not, report it again as a finding (never with same_as_decision):\n"
+            + "\n".join(describe(d) for d in to_fix))
+    decisions_line = "\n".join(parts) or "- There are no recorded owner decisions on this branch yet."
     rereview = ""
     if first_reviewed_head:
         rereview = f"""

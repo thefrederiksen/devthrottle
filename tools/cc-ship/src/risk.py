@@ -32,6 +32,8 @@ SENSITIVE_WORDS = {
     "auth", "authn", "authz", "authentication", "authorization", "oauth", "login", "signin",
     "signup", "password", "passwords", "credential", "credentials", "secret", "secrets",
     "apikey", "apikeys", "token", "tokens", "jwt", "tenant", "tenants", "rls",
+    "key", "keys", "keyring", "keystore", "keychain", "crypto", "cryptography",
+    "encrypt", "encryption", "decrypt", "hmac", "signing", "vault",
     "migration", "migrations", "schema", "schemas",
 }
 SENSITIVE_PAIRS = {("api", "key"), ("api", "keys"), ("sign", "in"), ("sign", "up")}

@@ -63,9 +63,10 @@ def head(repo: Path) -> str:
 
 
 def is_clean(repo: Path) -> bool:
-    """No uncommitted change to a tracked file. Untracked files never ship, so they
-    do not count (an intent.md or a tool's scratch folder is not a change)."""
-    return run(repo, "status", "--porcelain", "--untracked-files=no").out.strip() == ""
+    """Nothing uncommitted at all, untracked files included: a file the checks or the
+    verifier can use but that is not committed would pass here and be missing from the
+    merge. Ignored files do not count. Keep intent.md outside the worktree."""
+    return run(repo, "status", "--porcelain").out.strip() == ""
 
 
 def rebase_in_progress(repo: Path) -> bool:
