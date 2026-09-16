@@ -91,6 +91,15 @@ public sealed class WingmanTranslator
     /// words (issue #537) - the thing carrying them. A replaced prompt dropped both. The contract is
     /// now appended after whatever instructions are active, by <see cref="BuildPrompt"/>, so it cannot
     /// be edited away.
+    ///
+    /// v10 (the Wingman-on-every-turn mission, slice J) makes this the prompt of the NARRATION CALL, the model call
+    /// a stop somebody is listening to gets beside its verdict (<see cref="NarrationCall"/>). Three changes and no
+    /// others. The session title rule is gone: the name is put in front in code (<c>SpokenForEar.Assemble</c>), as
+    /// it is for the judge's spoken text. The shape is handed in from the judge's own <c>answerVia</c>, so a forced
+    /// picker is read as a menu from the judge's decision and never from this prompt's guess. And the aim is about
+    /// forty five seconds, roughly 700 characters, because slice I measured the thirty second aim as the reason the
+    /// judge's spoken field kept only the headline; the code cuts at 900. "Read in full when asked" is still a rule
+    /// here, but the 900 cut binds it too: the answer carries no signal the code could raise the cut on.
     /// </summary>
     internal const string FidelityPrompt = """
         You are the wingman: you turn a coding agent's written reply into words a person
@@ -98,21 +107,23 @@ public sealed class WingmanTranslator
         Say the LEAST you can while leaving the listener knowing everything that would change
         what they think or do next. Brevity is the GOAL; keeping the answer true is the
         CONSTRAINT. They are LISTENING, not reading, so say it the way a person would explain
-        it out loud, and lead with the point. AIM FOR ABOUT THIRTY SECONDS OUT LOUD: two to
-        four sentences, roughly 500 characters. That is how long a person will actually listen
-        to a summary of one turn - it is not a technical limit, and going past it is the most
-        common way to fail this job. A short reply needs less; never stretch one to fill it.
-        Every extra sentence is a cost you must justify, not a budget you may spend. Rules:
-        - OPEN WITH THE SESSION TITLE, then go straight into the summary. The session's title
-          is given below. Your first words are that title - the listener usually cannot see
-          the screen, so they need to know WHICH session is talking before they hear anything
-          else. The title is the ONE thing allowed before the point; it is not preamble. Say
-          ONLY the title: do not describe the session, do not say what it is working on, and
-          do not wrap it in words like "the session ... says". Speak it for the ear like any
-          other text - drop the punctuation instead of voicing it, so "devthrottle - mobile"
-          becomes "devthrottle mobile" and "Banya/Yibo - WebSocket voice mode (architect)"
-          becomes "Banya Yibo, WebSocket voice mode, architect". If no session title is given
-          below, skip this rule and lead with the point.
+        it out loud, and lead with the point. AIM FOR ABOUT FORTY FIVE SECONDS OUT LOUD:
+        roughly 700 characters. That is how long a person will actually listen to a summary of
+        one turn, and anything past 900 characters is cut off before it is spoken. A short
+        reply needs less; never stretch one to fill it. Every extra sentence is a cost you must
+        justify, not a budget you may spend. Rules:
+        - DO NOT SAY THE SESSION'S NAME. It is spoken in front of your words by the product, so
+          start straight with the point.
+        - THE SHAPE OF THE STOP IS DECIDED FOR YOU. A judge has already read the screen, and its
+          decision is given below as "how the person answers". Follow it; never decide for
+          yourself whether the screen shows a menu.
+          When the person answers with KEYS, the session is waiting on a menu that only a button
+          press can answer. Open by saying the session is waiting on a menu, then read the menu's
+          question and its choices as the judge gave them, say which one is recommended and why,
+          and end by telling the person to press a button on the phone to choose.
+          When the person answers with a REPLY, retell the reply faithfully by the rules below:
+          lead with the ask, say which option is recommended and why, and do not read out the
+          rest of the options.
         - BE SHORT. Lead with the single most important thing first - the answer, the result,
           or the ask - in your opening sentence, then add only what is needed to understand
           it, and STOP. If removing a sentence would not change what the listener knows or
@@ -196,7 +207,7 @@ public sealed class WingmanTranslator
     /// instructions is shown that the recommended default changed and can switch to it. The content
     /// hash is the real identity; this is the human-facing label.
     /// </summary>
-    public const string DefaultInstructionsVersion = "9";
+    public const string DefaultInstructionsVersion = "10";
 
     private readonly Func<TenantId, WingmanModelRole, CancellationToken, Task<IAgentBrain>> _brainProvider;
     private readonly Func<TenantId, SpokenLanguage> _languageFor;

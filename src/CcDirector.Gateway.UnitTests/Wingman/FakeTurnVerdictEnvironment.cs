@@ -104,6 +104,30 @@ internal sealed class FakeTurnVerdictEnvironment : ITurnVerdictEnvironment
         return new TurnVerdictJudgeAnswer(raw, Model, 0.2);
     }
 
+    /// <summary>
+    /// The narration call's answer (slice J). By default it answers with NO WORDS, which the product treats as a
+    /// failed call that leaves the judge's text in place - so every test written before the narration call existed
+    /// still describes what a listener hears when that call gives nothing. A test about the call sets this.
+    /// </summary>
+    public Func<string, CancellationToken, Task<string>> Narrator = (_, _) => Task.FromResult("");
+
+    private int _narratorCalls;
+    /// <summary>How many narration calls were made. Never counted as judge calls.</summary>
+    public int NarratorCalls => _narratorCalls;
+    /// <summary>The prompt of each narration call, in order.</summary>
+    public readonly ConcurrentQueue<string> NarratorPrompts = new();
+    /// <summary>The deadline passed on each narration call, in order.</summary>
+    public readonly ConcurrentQueue<TimeSpan> NarratorTimeouts = new();
+
+    public async Task<TurnVerdictJudgeAnswer> AskNarratorAsync(TenantId tenant, string prompt, TimeSpan timeout, CancellationToken ct)
+    {
+        Interlocked.Increment(ref _narratorCalls);
+        NarratorPrompts.Enqueue(prompt);
+        NarratorTimeouts.Enqueue(timeout);
+        var raw = await Narrator(prompt, ct).ConfigureAwait(false);
+        return new TurnVerdictJudgeAnswer(raw, Model, 0.3);
+    }
+
     public TurnVerdictDto? Latest(TenantId tenant, string sessionId)
     {
         TurnVerdictDto? latest;

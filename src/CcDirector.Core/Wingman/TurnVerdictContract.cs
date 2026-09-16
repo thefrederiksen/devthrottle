@@ -965,8 +965,11 @@ public static class TurnVerdictContract
     ///
     /// A single unbroken run longer than the whole bound has no boundary to cut at. The hard bound then
     /// stands, because an empty field says less to the reader than a cut one.
+    ///
+    /// Public because the narration call (slice J) cuts its text with this same rule and the same bound as the
+    /// spoken section, so the two narrations a listener can hear for one stop are cut alike.
     /// </summary>
-    private static string CapAtWordBoundary(string value, int max)
+    public static string CapAtWordBoundary(string value, int max)
     {
         if (value.Length <= max) return value;
 

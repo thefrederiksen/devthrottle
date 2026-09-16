@@ -220,6 +220,13 @@ public sealed class WingmanVoiceService
         /// more matched the calm "voice on its way" sentence forever.
         /// </summary>
         public readonly ConcurrentDictionary<string, byte> NarrationAbandoned = new();
+
+        /// <summary>
+        /// sid -> the verdict id this session's narration call (slice J) was last claimed for. A stop makes the call
+        /// at most once: the turn end, the sweep, a speech re-attempt and explain all claim here first, and only the
+        /// first claim for a verdict id makes the call. Keyed on the verdict id exactly as the clip is.
+        /// </summary>
+        public readonly ConcurrentDictionary<string, string> NarrationCallClaimedFor = new(StringComparer.Ordinal);
     }
 
     private readonly WingmanTranslator _translator;
@@ -1556,9 +1563,85 @@ public sealed class WingmanVoiceService
                     // outcomes nobody enumerated (a 200 carrying an empty body).
                     MarkAbandonedIfNothingPending(state, sid);
             }
+
+            // THE NARRATION CALL (slice J), for a voice session only, and only after the judge's words are stored:
+            // the phone has something to play while the second call runs. The reading window ends first, because
+            // the stop HAS been read - the call only improves what is already playable.
+            if (IsVoiceSession(tenant, sid) && TryClaimNarrationCall(state, sid, verdict.VerdictId))
+            {
+                if (showReadingWindow) EndGenerating(tenant, sid);
+                // Captured AFTER the judge's clip was stored: storing a clip ends the turn's retry state and moves
+                // the epoch on, so the epoch from before the store would call this very stop superseded.
+                await RunNarrationCallAsync(tenant, sid, outcome, CurrentTurnEpoch(state, sid), ct);
+            }
             return true;
         }
         finally { if (showReadingWindow) EndGenerating(tenant, sid); }
+    }
+
+    /// <summary>
+    /// Claim this stop's narration call. True for the first claim of a verdict id on a session, false for every later
+    /// one - so the turn end, the sweep, a speech re-attempt and explain never make the call twice for one stop.
+    /// </summary>
+    private static bool TryClaimNarrationCall(TenantVoiceState state, string sid, string verdictId)
+    {
+        if (string.IsNullOrWhiteSpace(verdictId)) return false;
+        while (true)
+        {
+            if (state.NarrationCallClaimedFor.TryGetValue(sid, out var claimed))
+            {
+                if (string.Equals(claimed, verdictId, StringComparison.Ordinal)) return false;
+                if (state.NarrationCallClaimedFor.TryUpdate(sid, verdictId, claimed)) return true;
+            }
+            else if (state.NarrationCallClaimedFor.TryAdd(sid, verdictId))
+            {
+                return true;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Make one stop's narration call and, when it answers, replace the clip for that verdict id with its words. The
+    /// judge's text stays when the call fails, and it also stays when the stop has moved on while the call ran - a new
+    /// turn, or a newer verdict's clip - because the narration then describes a stop nobody is listening to any more.
+    /// The menu sentence is NOT appended: the narration ends with its own press-a-button sentence when the judge said
+    /// the stop is a menu. Never throws for a failed call; the failure is logged by the verdict service.
+    /// </summary>
+    private async Task RunNarrationCallAsync(TenantId tenant, string sid, TurnVerdictOutcome outcome, long turnEpoch, CancellationToken ct)
+    {
+        var state = StateFor(tenant);
+        var verdict = outcome.Verdict!;
+        var result = await RequireVerdicts().NarrateAsync(tenant, sid, outcome, ct);
+        if (result.Spoken is null)
+        {
+            FileLog.Write($"[WingmanVoiceService] sid={sid} verdict={verdict.VerdictId}: narration call gave no words ({result.FailureDetail}) - the judge's text stays");
+            return;
+        }
+        if (CurrentTurnEpoch(state, sid) != turnEpoch
+            || (state.Ready.TryGetValue(sid, out var current)
+                && !string.Equals((current.SourceIdentity ?? current.Reply)?.Trim(), verdict.VerdictId, StringComparison.Ordinal)))
+        {
+            FileLog.Write($"[WingmanVoiceService] sid={sid} verdict={verdict.VerdictId}: narration call answered after the stop moved on - not stored");
+            return;
+        }
+
+        var spoken = Speech.SpokenForEar.Assemble(_sessionTitleResolver?.Invoke(tenant, sid), result.Spoken);
+        await StoreSpokenAsync(tenant, sid, spoken, outcome.SourceText ?? "", ct,
+            sourceIdentity: verdict.VerdictId, sourceKind: verdict.PackageKind, markAsVoiceSession: false);
+        FileLog.Write($"[WingmanVoiceService] sid={sid} verdict={verdict.VerdictId}: narration call text {(HasVoice(tenant, sid) ? "is ready" : "produced no audio")}, spokenLen={spoken.Length}");
+    }
+
+    /// <summary>The explain path's narration calls, which run past the request that started them. Tests wait on them.</summary>
+    private readonly ConcurrentDictionary<Task, byte> _narrationCalls = new();
+
+    /// <summary>Wait for every narration call explain has started. For tests; the product never waits on them.</summary>
+    internal async Task WaitForNarrationCallsAsync()
+    {
+        while (_narrationCalls.Keys.ToArray() is { Length: > 0 } running)
+        {
+            await Task.WhenAll(running);
+            await Task.Delay(1);   // the removal is a continuation; let it run
+        }
     }
 
     /// <summary>A failed outcome whose record still carries the judge's spoken text - a refusal of readable JSON.
@@ -1672,6 +1755,16 @@ public sealed class WingmanVoiceService
             SetNothingToNarrate(tenant, sid, false);
             await StoreSpokenAsync(tenant, sid, spokenNow, outcome.SourceText ?? "", CancellationToken.None,
                 sourceIdentity: verdict.VerdictId, sourceKind: verdict.PackageKind, markAsVoiceSession: markAsVoiceSession);
+            // THE NARRATION CALL (slice J): a person asked, so the stop gets one unless one was already made for this
+            // verdict id. The judge's words are stored and returned now; the call runs Gateway-owned past this request
+            // and replaces the clip when it answers, so the phone is never left waiting on a second model call.
+            if (TryClaimNarrationCall(StateFor(tenant), sid, verdict.VerdictId))
+            {
+                var epoch = CurrentTurnEpoch(StateFor(tenant), sid);
+                var call = Task.Run(() => RunNarrationCallAsync(tenant, sid, outcome, epoch, CancellationToken.None));
+                _narrationCalls[call] = 1;
+                _ = call.ContinueWith(done => _narrationCalls.TryRemove(done, out _), TaskScheduler.Default);
+            }
             FileLog.Write($"[WingmanVoiceService] narrate-on-request sid={sid}: {outcome.Kind} verdict={verdict.VerdictId} kind={verdict.PackageKind} spokenLen={spokenNow.Length} voiceSession={IsVoiceSession(tenant, sid)}");
             return new StopNarration(outcome.SourceText ?? "", spokenNow, outcome.ReplySeconds,
                 Retrying: false, NothingYet: false, Error: null, VerdictId: verdict.VerdictId, PackageKind: verdict.PackageKind);
