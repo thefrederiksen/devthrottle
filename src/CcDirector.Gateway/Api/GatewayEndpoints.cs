@@ -3057,7 +3057,7 @@ internal static class GatewayEndpoints
 
         app.MapPost("/sessions/{sid}/turn-verdict/feedback", (HttpContext ctx, string sid)
             => ReportTurnVerdictWrongAsync(ctx, sid, tenantBoundary, turnVerdictFeedback, tenantSettings,
-                pushedSessions));
+                pushedSessions, turnVerdictLedger));
 
         // Deliver a prompt down the tunnel and, when asked, wait for the session to go idle and return what
         // it printed. Extracted from POST /sessions/{sid}/prompt by the Remove-the-network-port mission's
@@ -5635,9 +5635,13 @@ internal static class GatewayEndpoints
     /// device key, the person, reaches the route in both states: the shadow is a rule about the product's own
     /// automation acting on an unproven verdict, never about the owner examining one.
     ///
-    /// NOTHING IS WRITTEN TO THE ACTIVITY LEDGER, and that is deliberate. The ledger records acts that leave the
-    /// Gateway; a correction writes a durable row carrying its own moment, word and note, which is the record. See
-    /// <see cref="Contracts.TurnVerdictFeedbackCodes"/>.
+    /// AN ACCEPTED CORRECTION WRITES NO LEDGER LINE AND EVERY REFUSAL WRITES ONE. The accepted one needs none: it
+    /// writes a durable row carrying its own moment, word and note, and that row is the record. A refusal writes
+    /// nothing anywhere - so before this, the only trace that somebody tried to correct a verdict and was turned
+    /// away was a log file, which is not a record anybody queries. Every exit below that refuses writes one line
+    /// under <see cref="ActivityEventTypes.TurnVerdictFeedbackRefused"/>, with the same closed word the owner was
+    /// shown as its cause. The ONE exit that cannot is the unbound tenant: a ledger line is written into an
+    /// account, and that exit is the one where there is no account to write it into.
     /// </summary>
     internal static async Task<IResult> ReportTurnVerdictWrongAsync(
         HttpContext ctx,
@@ -5645,7 +5649,8 @@ internal static class GatewayEndpoints
         Tenancy.HostedTenantBoundary tenantBoundary,
         Wingman.TurnVerdictFeedbackService? turnVerdictFeedback,
         Settings.TenantSettingsResolver? tenantSettings,
-        Streaming.PushedSessionStore? pushedSessions)
+        Streaming.PushedSessionStore? pushedSessions,
+        Action<Wingman.TurnVerdictRecord>? turnVerdictLedger = null)
     {
         FileLog.Write($"[GatewayEndpoints] POST turn-verdict/feedback: sid={sid}");
 
@@ -5663,11 +5668,29 @@ internal static class GatewayEndpoints
             return Results.Json(new { error = "no tenant is bound to this request" },
                 statusCode: StatusCodes.Status403Forbidden);
 
+        // ---- from here on, every refusal writes one ledger line ----
+        // The Director is named "gateway": this route reaches no Director at all, and naming the owning one would
+        // be a fact nobody observed. The detail carries the verdict the request named, and never the note.
+        void Refused(string cause, string verdictId)
+        {
+            if (turnVerdictLedger is not null)
+                turnVerdictLedger(new Wingman.TurnVerdictRecord(tenant.Value, "gateway", sid,
+                    ActivityEventTypes.TurnVerdictFeedbackRefused, cause,
+                    $"verdict={(string.IsNullOrEmpty(verdictId) ? "none" : verdictId)}"));
+            else
+                FileLog.Write($"[GatewayEndpoints] POST turn-verdict/feedback: sid={sid} REFUSED {cause} and NOT RECORDED - this Gateway was built with no turn-verdict ledger");
+        }
+
         if (!Guid.TryParse(sid, out _))
+        {
+            Refused(ActivityCauses.FeedbackInvalidSessionId, "");
             return Results.Json(new { error = "invalid session id format" },
                 statusCode: StatusCodes.Status400BadRequest);
+        }
 
         if (turnVerdictFeedback is null || tenantSettings is null)
+        {
+            Refused(ActivityCauses.FeedbackUnavailable, "");
             return Results.Json(new TurnVerdictFeedbackResponse
             {
                 Accepted = false,
@@ -5675,12 +5698,21 @@ internal static class GatewayEndpoints
                 Reason = "This gateway holds no turn verdicts, so there is nothing to report wrong.",
                 VerdictId = "",
             }, statusCode: StatusCodes.Status404NotFound);
+        }
 
         if (pushedSessions?.TryLocateIgnoringFreshness(tenant.Value, sid) is null)
+        {
+            // One cause for both answers the locator produces - the 404 for a session nobody pushed and the 503
+            // for one whose Director has gone quiet. The report was refused and nothing was recorded either way,
+            // and which of the two it was is on the answer the caller got.
+            Refused(ActivityCauses.FeedbackSessionNotFound, "");
             return SessionUnavailable(ctx, tenantBoundary, pushedSessions, sid);
+        }
 
         var callingSession = AuthMiddleware.CallingSession(ctx);
         if (!tenantSettings.TurnVerdict(tenant.Value).ColourEnabled && callingSession is not null)
+        {
+            Refused(ActivityCauses.FeedbackShadowRecord, "");
             return Results.Json(new TurnVerdictFeedbackResponse
             {
                 Accepted = false,
@@ -5689,6 +5721,7 @@ internal static class GatewayEndpoints
                        + "wrong until the account turns the verdict colours on, so nothing was recorded.",
                 VerdictId = "",
             }, statusCode: StatusCodes.Status403Forbidden);
+        }
 
         TurnVerdictFeedbackRequest? req;
         try
@@ -5698,6 +5731,7 @@ internal static class GatewayEndpoints
         catch (Exception ex) when (ex is JsonException or InvalidOperationException)
         {
             FileLog.Write($"[GatewayEndpoints] POST turn-verdict/feedback: sid={sid} unreadable body: {ex.Message}");
+            Refused(ActivityCauses.FeedbackMalformed, "");
             return Results.Json(new TurnVerdictFeedbackResponse
             {
                 Accepted = false,
@@ -5707,7 +5741,13 @@ internal static class GatewayEndpoints
             }, statusCode: StatusCodes.Status400BadRequest);
         }
 
-        return Answer(turnVerdictFeedback.Report(tenant.Value, sid, req));
+        // THE SERVICE OWN REFUSALS go to the ledger under the SAME word the owner was shown, taken from the
+        // outcome rather than decided again here - so a rule added to the service reaches the ledger without this
+        // route learning about it. FeedbackCodesAreLedgerCausesTests is what makes taking it safe: it fails if a
+        // refusal code is ever spelled differently from its ledger cause, or gains no cause at all.
+        var reported = turnVerdictFeedback.Report(tenant.Value, sid, req);
+        if (!reported.Accepted) Refused(reported.Code, reported.VerdictId);
+        return Answer(reported);
     }
 
     private static IResult SessionUnavailable(

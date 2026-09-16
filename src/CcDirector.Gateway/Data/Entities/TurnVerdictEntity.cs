@@ -93,9 +93,14 @@ public sealed class TurnVerdictEntity : TenantScopedEntity
 /// and then corrects the correction means the second one; two rows would make the corpus have to guess
 /// which, and a corpus that guesses is worse than one that is smaller.
 ///
-/// NOTHING WRITES THIS TABLE YET. That is deliberate and is stated here as a gap rather than left to be
-/// inferred from an empty table: slice B creates the schema and nothing else, so an empty table in a
-/// running Gateway is the expected state until slice G lands, not evidence that reporting is broken.
+/// WHAT WRITES IT: <c>POST /sessions/{sid}/turn-verdict/feedback</c>, through
+/// <c>TurnVerdictFeedbackService</c>, and nothing else. The schema landed in slice B and stood empty until
+/// slice G wired that route, so an empty table is now the state of an account where nobody has corrected a
+/// verdict rather than a stage of the build.
+///
+/// A ROW LIVES AS LONG AS THE VERDICT IT IS ABOUT. The retention sweep purges verdicts on their judged moment
+/// and then removes every correction whose verdict is gone, so a correction is never left pointing at a stop
+/// the Gateway no longer holds.
 /// </summary>
 public sealed class TurnVerdictFeedbackEntity : TenantScopedEntity
 {

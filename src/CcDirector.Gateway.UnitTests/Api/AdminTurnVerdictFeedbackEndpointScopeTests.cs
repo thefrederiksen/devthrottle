@@ -81,6 +81,18 @@ public sealed class AdminTurnVerdictFeedbackEndpointScopeTests : IDisposable
         return (bool)value!.GetType().GetProperty("truncated")!.GetValue(value)!;
     }
 
+    /// <summary>The cursor the answer carries, as the two query parameters that continue the page, or null when
+    /// the answer says there is nothing after it.</summary>
+    private static string? CursorQueryOf(IResult result)
+    {
+        var value = result.GetType().GetProperty("Value")?.GetValue(result);
+        var cursor = value!.GetType().GetProperty("cursor")?.GetValue(value);
+        if (cursor is null) return null;
+        var at = (DateTime)cursor.GetType().GetProperty("reported_at_utc")!.GetValue(cursor)!;
+        var verdict = cursor.GetType().GetProperty("verdict_id")!.GetValue(cursor)!.ToString();
+        return $"after={Uri.EscapeDataString(at.ToString("O"))}&after_verdict={Uri.EscapeDataString(verdict!)}";
+    }
+
     private void Correct(TurnVerdictStore store, TenantId tenant, string verdictId, string word, DateTime at)
         => store.RecordFeedback(tenant, verdictId, "sid-" + verdictId, at.AddSeconds(-12), word, "a note", at);
 
@@ -209,5 +221,109 @@ public sealed class AdminTurnVerdictFeedbackEndpointScopeTests : IDisposable
         var authorized = AdminTurnVerdictFeedbackEndpoint.Handle(
             Authorized($"account={tenant.Value}&since=2026-09-01T00:00:00Z"), store, tenants);
         Assert.Equal("tv-gated", Field(Assert.Single(RowsOf(authorized)), "verdict_id"));
+    }
+
+    // ---------- Paging: the cap is a page size, not a ceiling on what can be read ----------
+
+    /// <summary>
+    /// EXACTLY ONE PAGE IS NOT TRUNCATED. The old rule called a page truncated whenever it FILLED - so an
+    /// account holding exactly the cap was reported incomplete for ever, and the daily pull, which stops on
+    /// truncation and writes nothing, would never have written that account a single correction. Truncation is
+    /// a fact about the row AFTER the page, so it takes reading one row more than the page serves.
+    /// </summary>
+    [Fact]
+    public void Exactly_one_page_of_corrections_is_complete_and_carries_no_cursor()
+    {
+        var tenants = new TenantRegistry(Db);
+        var tenant = tenants.MintOrLookupBySubject("subject-exact", "exact@example.com");
+        var store = new TurnVerdictStore(Db);
+        var at = new DateTime(2026, 9, 15, 20, 0, 0, DateTimeKind.Utc);
+        for (var i = 0; i < TurnVerdictStore.MaxFeedbackPage; i++)
+            Correct(store, tenant, $"tv-{i:D4}", TurnVerdictVocabulary.NeededYou, at.AddSeconds(i));
+
+        var page = AdminTurnVerdictFeedbackEndpoint.Handle(
+            Authorized($"account={tenant.Value}&since=2026-09-01T00:00:00Z"), store, tenants);
+
+        Assert.Equal(TurnVerdictStore.MaxFeedbackPage, RowsOf(page).Count);
+        Assert.False(TruncatedOf(page), "a page holding exactly the cap holds everything and must not be called short");
+        Assert.Null(CursorQueryOf(page));
+    }
+
+    /// <summary>
+    /// ONE ROW MORE THAN A PAGE IS PAGED, not lost. Two requests, the second continuing from the cursor the
+    /// first handed back, and between them every row exactly once - which is what the daily pull now does.
+    /// </summary>
+    [Fact]
+    public void A_row_beyond_the_page_is_served_by_following_the_cursor()
+    {
+        var tenants = new TenantRegistry(Db);
+        var tenant = tenants.MintOrLookupBySubject("subject-page-two", "pagetwo@example.com");
+        var store = new TurnVerdictStore(Db);
+        var at = new DateTime(2026, 9, 15, 20, 0, 0, DateTimeKind.Utc);
+        const int total = TurnVerdictStore.MaxFeedbackPage + 1;
+        for (var i = 0; i < total; i++)
+            Correct(store, tenant, $"tv-{i:D4}", TurnVerdictVocabulary.NeededYou, at.AddSeconds(i));
+
+        var first = AdminTurnVerdictFeedbackEndpoint.Handle(
+            Authorized($"account={tenant.Value}&since=2026-09-01T00:00:00Z"), store, tenants);
+        Assert.Equal(TurnVerdictStore.MaxFeedbackPage, RowsOf(first).Count);
+        Assert.True(TruncatedOf(first), "a read with a row beyond its page must say so");
+
+        var cursor = CursorQueryOf(first);
+        Assert.NotNull(cursor);
+
+        var second = AdminTurnVerdictFeedbackEndpoint.Handle(
+            Authorized($"account={tenant.Value}&since=2026-09-01T00:00:00Z&{cursor}"), store, tenants);
+        Assert.False(TruncatedOf(second), "the last page must not ask the caller to come back again");
+        Assert.Null(CursorQueryOf(second));
+
+        var served = RowsOf(first).Concat(RowsOf(second)).Select(r => Field(r, "verdict_id")).ToList();
+        Assert.Equal(total, served.Count);
+        Assert.Equal(total, served.Distinct(StringComparer.Ordinal).Count());
+        Assert.Equal(Enumerable.Range(0, total).Select(i => $"tv-{i:D4}"), served);
+    }
+
+    /// <summary>
+    /// THE IDENTIFIER IN THE CURSOR EARNS ITS PLACE. Corrections stamped with the SAME moment are what a
+    /// moment-only cursor cannot page: it either serves the whole group again or walks past the rest of it.
+    /// Here every row shares one instant, and the two pages still hold each row exactly once.
+    /// </summary>
+    [Fact]
+    public void Corrections_sharing_one_moment_page_without_repeating_or_losing_a_row()
+    {
+        var tenants = new TenantRegistry(Db);
+        var tenant = tenants.MintOrLookupBySubject("subject-same-moment", "moment@example.com");
+        var store = new TurnVerdictStore(Db);
+        var at = new DateTime(2026, 9, 15, 20, 0, 0, DateTimeKind.Utc);
+        for (var i = 0; i < 6; i++)
+            Correct(store, tenant, $"tv-{i:D2}", TurnVerdictVocabulary.NeededYou, at);
+
+        var first = AdminTurnVerdictFeedbackEndpoint.Handle(
+            Authorized($"account={tenant.Value}&since=2026-09-01T00:00:00Z&max=4"), store, tenants);
+        Assert.True(TruncatedOf(first));
+        var second = AdminTurnVerdictFeedbackEndpoint.Handle(
+            Authorized($"account={tenant.Value}&since=2026-09-01T00:00:00Z&max=4&{CursorQueryOf(first)}"), store, tenants);
+
+        var served = RowsOf(first).Concat(RowsOf(second)).Select(r => Field(r, "verdict_id")).ToList();
+        Assert.Equal(new[] { "tv-00", "tv-01", "tv-02", "tv-03", "tv-04", "tv-05" }, served);
+        Assert.False(TruncatedOf(second));
+    }
+
+    /// <summary>Half a cursor is refused rather than quietly served page one again - a caller sending one half
+    /// believes it is continuing, and would silently read the same rows for ever.</summary>
+    [Theory]
+    [InlineData("after=2026-09-15T20:00:00Z")]
+    [InlineData("after_verdict=tv-1")]
+    public void Half_a_cursor_is_refused(string half)
+    {
+        var tenants = new TenantRegistry(Db);
+        var tenant = tenants.MintOrLookupBySubject("subject-half", "half@example.com");
+        var store = new TurnVerdictStore(Db);
+        Correct(store, tenant, "tv-1", TurnVerdictVocabulary.NeededYou, new DateTime(2026, 9, 15, 20, 0, 0, DateTimeKind.Utc));
+
+        var result = AdminTurnVerdictFeedbackEndpoint.Handle(
+            Authorized($"account={tenant.Value}&since=2026-09-01T00:00:00Z&{half}"), store, tenants);
+
+        Assert.Equal(StatusCodes.Status400BadRequest, StatusOf(result));
     }
 }

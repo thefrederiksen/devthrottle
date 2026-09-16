@@ -46,13 +46,16 @@ public sealed class TurnVerdictFeedbackResponse
 /// <summary>
 /// The closed outcome words the feedback route answers with.
 ///
-/// THEY ARE NOT <see cref="ActivityCauses"/> CONSTANTS, and that is deliberate rather than an oversight. An
-/// activity cause is a word the ledger is written under, and the ledger records acts that reach OUT of the
-/// Gateway - the answer route writes one on every exit because its whole subject is bytes going into somebody's
-/// terminal. A correction reaches nothing: it writes one row in our own table, and that row IS the record, with
-/// the moment, the word and the note on it. Adding words to the ledger's validated vocabulary for an act that
-/// leaves its own durable evidence would be ceremony, so the outcome words live here, beside the response they
-/// are carried on.
+/// THEY LIVE HERE, BESIDE THE RESPONSE THEY ARE CARRIED ON, and each REFUSAL word is spelled identically to an
+/// <see cref="ActivityCauses"/> constant, because the route writes one ledger line on every refusal under that
+/// same word - one word for one idea, rather than one spelling for the owner and another for the record.
+/// <c>FeedbackCodesAreLedgerCausesTests</c> fails if the two ever differ.
+///
+/// <see cref="Recorded"/> is the one with no cause beside it, and that is the point rather than an omission: an
+/// accepted correction writes a durable row carrying its own moment, word and note, and that row IS the record.
+/// A refusal writes nothing anywhere, which is why it is the half that needs the ledger. The inspection found
+/// that gap - authorisation and refusal outcomes sitting outside the operational record entirely, visible only
+/// in a log file.
 /// </summary>
 public static class TurnVerdictFeedbackCodes
 {

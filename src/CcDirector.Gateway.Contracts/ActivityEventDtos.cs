@@ -214,6 +214,12 @@ public static class ActivityEventTypes
     /// written is not known. Kept apart from a refusal, which is a promise that nothing was sent.</summary>
     public const string TurnVerdictAnswerUnconfirmed = "turn-verdict-answer-unconfirmed";
 
+    /// <summary>A report that a verdict was WRONG was refused, and nothing was recorded - the cause says why.
+    /// There is no matching "accepted" event on purpose: an accepted correction writes its own durable row,
+    /// carrying its moment, its word and its note, and that row IS the record. A REFUSAL writes nothing
+    /// anywhere, so without this line the only trace of one would be a log file.</summary>
+    public const string TurnVerdictFeedbackRefused = "turn-verdict-feedback-refused";
+
     /// <summary>Every legal event type, for validation.</summary>
     public static readonly IReadOnlyList<string> All = new[]
     {
@@ -223,6 +229,7 @@ public static class ActivityEventTypes
         SupervisorEscalated, SupervisorStoodDown,
         TurnVerdictJudged, TurnVerdictReused, TurnVerdictFailed, TurnVerdictSkipped, TurnVerdictCancelled,
         TurnVerdictExpired, TurnVerdictAnswered, TurnVerdictAnswerRefused, TurnVerdictAnswerUnconfirmed,
+        TurnVerdictFeedbackRefused,
     };
 }
 
@@ -401,6 +408,35 @@ public static class ActivityCauses
     /// shadow rule from.</summary>
     public const string AnswerUnavailable = "answer-unavailable";
 
+    // ---- Why a report that a verdict was wrong was refused (the Wingman-on-every-turn mission, slice G).
+    // THESE ARE THE SAME WORDS THE ROUTE ANSWERS WITH - each one is spelled identically to its
+    // TurnVerdictFeedbackCodes constant, so the sentence the owner was shown and the line in the ledger carry
+    // one word for one idea rather than two spellings of it. FeedbackCodesAreLedgerCausesTests fails if a code
+    // gains no cause here. Only refusals are listed: an accepted correction is a durable row of its own.
+
+    /// <summary>A report named no verdict, no corrected word, or could not be read at all.</summary>
+    public const string FeedbackMalformed = "feedback-malformed";
+
+    /// <summary>A report named a verdict this account does not hold, or one of another of its sessions.</summary>
+    public const string FeedbackVerdictNotFound = "feedback-verdict-not-found";
+
+    /// <summary>A report's corrected word is not one of the shared vocabulary's words.</summary>
+    public const string FeedbackUnknownVerdict = "feedback-unknown-verdict";
+
+    /// <summary>A session key tried to report while the account's verdict colours are off, so its verdicts are
+    /// a shadow record. The reads refuse a session key in that state for the same reason.</summary>
+    public const string FeedbackShadowRecord = "feedback-shadow-record";
+
+    /// <summary>The feedback route could not act because this Gateway holds no verdict store, or no settings to
+    /// read the account's shadow rule from.</summary>
+    public const string FeedbackUnavailable = "feedback-unavailable";
+
+    /// <summary>A report named a session that is not in the caller's account, or does not exist.</summary>
+    public const string FeedbackSessionNotFound = "feedback-session-not-found";
+
+    /// <summary>A report's path named a session id that is not a session id at all.</summary>
+    public const string FeedbackInvalidSessionId = "feedback-invalid-session-id";
+
     /// <summary>Every legal cause, for validation.</summary>
     public static readonly IReadOnlyList<string> All = new[]
     {
@@ -414,6 +450,8 @@ public static class ActivityCauses
         OwnerAnswered, AnswerMalformed, AnswerSessionNotFound, AnswerShadowRecord, AnswerVerdictNotFound, AnswerVerdictFailed,
         AnswerVerdictSuperseded, AnswerSelectionRefused, AnswerScreenUnreadable, AnswerScreenChanged,
         AnswerNeverSent, AnswerUnanswered, AnswerAlreadyAnswered, AnswerInvalidSessionId, AnswerUnavailable,
+        FeedbackMalformed, FeedbackVerdictNotFound, FeedbackUnknownVerdict, FeedbackShadowRecord,
+        FeedbackUnavailable, FeedbackSessionNotFound, FeedbackInvalidSessionId,
     };
 }
 

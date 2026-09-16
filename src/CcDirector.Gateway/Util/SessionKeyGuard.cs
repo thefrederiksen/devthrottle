@@ -251,6 +251,15 @@ public static class SessionKeyGuard
             // function on a method and a path and cannot see a tenant's settings; the two halves add up there.
             if (s.Length == 4 && s[0] == "sessions" && s[2] == "turn-verdict" && s[3] == "feedback") return true;
 
+            // THE ADMINISTRATOR READ OF THOSE CORRECTIONS IS A DIFFERENT SURFACE AND IS NOT HERE:
+            // GET /gateway/admin/turn-verdict-feedback serves the daily corpus pull, which is a server with no
+            // device key, and it is gated on the administrator service token by the endpoint itself - the same
+            // gate the administrator turn-log switch and account lookup carry. It is named here rather than left
+            // to the default deny so this census says which administrator routes exist and that a session key
+            // reaches none of them; SessionKeyGuardTests asserts the refusal by name. A session key that could
+            // call it would read every account's corrections, which is the opposite of what a session credential
+            // is for.
+
             // A message to the agent's own team (the fanout the fleet's "message send all" uses), and the
             // team-resolving front door onto it - which is what the command line actually calls, because
             // working out who is on the team is the Gateway's ruling to make, not the caller's.

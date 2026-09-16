@@ -59,6 +59,34 @@ function fakeGateway(status: number, body: Record<string, unknown>) {
 
 const SENT = { accepted: true, code: "owner-answered", reason: "Sent to the session.", verdictId: "tv-panel-1" };
 
+/** A fake Gateway that answers each route in its own words, for the journeys that make more than one call - the
+ *  history read that finds a superseded verdict, and then the correction sent about it. */
+function fakeGatewayByRoute(routes: { match: string; status: number; body: Record<string, unknown> }[]) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({
+        url,
+        method: init?.method ?? "GET",
+        body: init?.body === undefined ? undefined : JSON.parse(String(init.body)),
+      });
+      const route = routes.find((r) => url.includes(r.match));
+      if (route === undefined) throw new Error(`the test fake has no answer for ${url}`);
+      return new Response(JSON.stringify(route.body), {
+        status: route.status,
+        headers: { "Content-Type": "application/json" },
+      });
+    }),
+  );
+}
+
+/** The history read, answering with the newest record - superseded, as it is by the time the owner looks. */
+const HISTORY = (v: TurnVerdict | null) => ({
+  match: "/turn-verdicts",
+  status: 200,
+  body: { sessionId: SID, verdicts: v === null ? [] : [v] },
+});
+
 beforeEach(() => {
   calls = [];
 });
@@ -81,12 +109,89 @@ describe("the verdict panel", () => {
     expect(calls[0].url).toBe(`/sessions/${SID}/turn-verdict/answer`);
   });
 
-  it("renders nothing for a row that carries no judged verdict", () => {
+  // ASSERTION CHANGED IN ROUND 2, and the old one is the defect it was pinning: it said a row carrying no judged
+  // verdict renders nothing FULL STOP, which is exactly how the owner lost the reporting control the moment he
+  // answered. What is true now is narrower and is what this asserts - nothing is rendered when the row carries
+  // none AND the history holds none either.
+  it("renders nothing when the row carries no judged verdict and the history holds none", async () => {
+    fakeGatewayByRoute([HISTORY(null)]);
     const { container, rerender } = render(<VerdictPanel sessionId={SID} session={session(null)} />);
+    await waitFor(() => expect(calls).toHaveLength(1));
     expect(container.innerHTML).toBe("");
-    // A failed or reading row may carry a record; only "judged" is an answer to show.
+
+    // A failed or reading row is not an answer to show either, and the same history read decides it.
     rerender(<VerdictPanel sessionId={SID} session={session(verdict(), "failed")} />);
-    expect(container.innerHTML).toBe("");
+    await waitFor(() => expect(container.innerHTML).toBe(""));
+  });
+
+  // ---- The record a session left behind (slice G, round 2) ----
+
+  it("shows the last verdict from the history, collapsed, when the row carries none", async () => {
+    const past = verdict({ verdictId: "tv-superseded", supersededAtUtc: "2026-09-16T01:00:00Z" });
+    fakeGatewayByRoute([HISTORY(past)]);
+
+    render(<VerdictPanel sessionId={SID} session={session(null)} />);
+
+    // The read is the history one, and it is made once.
+    await waitFor(() => expect(screen.getByText("Apply the migration now?")).toBeTruthy());
+    expect(calls).toHaveLength(1);
+    expect(calls[0].method).toBe("GET");
+    expect(calls[0].url).toContain(`/sessions/${SID}/turn-verdicts`);
+
+    // COLLAPSED: the receipt is there and closed, where a live stop shows it open.
+    const receipt = screen.getByText("Claude Code said").closest("details");
+    expect(receipt?.hasAttribute("open")).toBe(false);
+
+    // ONLY "This is wrong" is live. The options are not offered at all: the screen this was formed on has moved
+    // on, so a button that pretended to answer it would be a button the route refuses.
+    expect(screen.getByRole("button", { name: "This is wrong" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Yes, apply it" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "No, leave it" })).toBeNull();
+    expect(screen.getByLabelText("Wingman verdict, superseded")).toBeTruthy();
+  });
+
+  it("reports the superseded verdict wrong, naming the id the history gave it", async () => {
+    const past = verdict({ verdictId: "tv-superseded", supersededAtUtc: "2026-09-16T01:00:00Z" });
+    fakeGatewayByRoute([
+      HISTORY(past),
+      {
+        match: "/turn-verdict/feedback",
+        status: 200,
+        body: {
+          accepted: true,
+          code: "feedback-recorded",
+          reason: "Recorded. This stop will be graded against your word, not the Wingman's.",
+          verdictId: "tv-superseded",
+        },
+      },
+    ]);
+
+    render(<VerdictPanel sessionId={SID} session={session(null)} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "This is wrong" })).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "This is wrong" }));
+    fireEvent.change(screen.getByLabelText("What should it have said?"), { target: { value: "finished" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send the correction" }));
+
+    await waitFor(() => expect(calls).toHaveLength(2));
+    expect(calls[1].method).toBe("POST");
+    expect(calls[1].url).toContain(`/sessions/${SID}/turn-verdict/feedback`);
+    expect(calls[1].body).toEqual({ verdictId: "tv-superseded", correctVerdict: "finished", note: "" });
+    await waitFor(() =>
+      expect(screen.getByText("Recorded. This stop will be graded against your word, not the Wingman's.")).toBeTruthy(),
+    );
+  });
+
+  it("shows the history read's own refusal rather than rendering nothing", async () => {
+    fakeGatewayByRoute([
+      { match: "/turn-verdicts", status: 403, body: { error: "this account's turn verdicts are a shadow record" } },
+    ]);
+
+    render(<VerdictPanel sessionId={SID} session={session(null)} />);
+
+    // "The read was refused" and "this session was never judged" are different facts, and the panel must not
+    // render them the same way.
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("shadow record"));
   });
 
   it("shows the receipt expanded, the label and the summary, verbatim", () => {

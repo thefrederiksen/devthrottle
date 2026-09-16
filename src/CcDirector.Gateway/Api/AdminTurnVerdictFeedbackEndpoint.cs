@@ -13,8 +13,17 @@ namespace CcDirector.Gateway.Api;
 /// mission, slice G):
 ///
 ///   GET /gateway/admin/turn-verdict-feedback?account=&lt;id&gt;&amp;since=2026-09-15T00:00:00Z&amp;max=500
+///     [&amp;after=&lt;moment&gt;&amp;after_verdict=&lt;id&gt;]
 ///     -> { rows: [ { account, session_id, verdict_id, corrected_verdict, note, turn_end_observed_at_utc,
-///                    reported_at_utc } ], truncated }
+///                    reported_at_utc } ], truncated, cursor }
+///
+/// IT PAGES, and the caller is expected to follow the pages. One request answers at most <c>max</c> rows, in
+/// (reported moment, verdict id) order; <c>truncated</c> is true only when a row BEYOND that page exists, and
+/// then <c>cursor</c> carries the last served row's moment and identifier to hand back as <c>after</c> and
+/// <c>after_verdict</c>. A busy day is therefore complete in several requests rather than incomplete in one.
+/// Before this, a page that merely FILLED the cap was called truncated and carried no way to continue, so an
+/// account with exactly one page of corrections was reported incomplete for ever, and one with more than a page
+/// could not be read past the first: the daily pull stops on truncation and wrote nothing in either case.
 ///
 /// WHY IT EXISTS. A correction is only worth making if it reaches the labelled corpus, and the corpus lives in
 /// the internal repository, pulled down once a day by a job with no account credential on this Gateway. The
@@ -110,21 +119,51 @@ internal static class AdminTurnVerdictFeedbackEndpoint
             max = Math.Min(asked, TurnVerdictStore.MaxFeedbackPage);
         }
 
-        var tenant = new TenantId(account);
-        var rows = verdicts.FeedbackSince(tenant, since, max);
+        // THE CURSOR, and it is both halves or neither. A page continues from the last row of the page before
+        // it, named by its reported moment AND its verdict id, because the moment alone is not unique and a
+        // caller that moved only the moment forward would either repeat a row stamped with it or lose one. A
+        // caller that sends one half has a cursor it thinks it is using and is not, so it is refused rather
+        // than quietly served page one again.
+        var afterText = ctx.Request.Query["after"].ToString();
+        var afterVerdict = ctx.Request.Query["after_verdict"].ToString();
+        if (string.IsNullOrWhiteSpace(afterText) != string.IsNullOrWhiteSpace(afterVerdict))
+            return Results.BadRequest(new { error = "a cursor is both halves: send after and after_verdict together, exactly as the cursor on the previous page carried them" });
 
-        // TRUNCATION IS SAID OUT LOUD. A page that silently stopped at the cap would have the caller record a
-        // day as complete when it is not, and a corpus that quietly acquires holes is worse than one that is
-        // plainly short - the holes land exactly where the busy days are.
-        var truncated = rows.Count >= max;
+        DateTime? after = null;
+        if (!string.IsNullOrWhiteSpace(afterText))
+        {
+            if (!DateTime.TryParse(afterText, null, System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal, out var parsed))
+                return Results.BadRequest(new { error = "after must be a moment in time, for example 2026-09-15T00:00:00Z" });
+            after = parsed;
+        }
+
+        var tenant = new TenantId(account);
+
+        // ONE ROW MORE THAN THE PAGE. Whether there is another row is a question about the row AFTER the page,
+        // and asking it any other way guesses: a full page was read as truncated before this, so an account
+        // with exactly one page of corrections was reported incomplete for ever and the pull, which stops on
+        // truncation, wrote nothing at all. The probe row is read and dropped; it is never served.
+        var page = verdicts.FeedbackSince(tenant, since, max + 1, after, string.IsNullOrWhiteSpace(afterVerdict) ? null : afterVerdict);
+        var truncated = page.Count > max;
+        var rows = truncated ? page.Take(max).ToList() : page;
+
+        // THE CURSOR IS THE LAST ROW OF THIS PAGE, and it is present only when there is another page - a
+        // cursor beside a complete answer is an invitation to ask again for nothing.
+        var last = truncated ? rows[^1] : null;
+
         FileLog.Write(
-            $"[AdminTurnVerdictFeedbackEndpoint] served account={account} since={since:O} rows={rows.Count} truncated={truncated}");
+            $"[AdminTurnVerdictFeedbackEndpoint] served account={account} since={since:O} after={(after is null ? "none" : after.Value.ToString("O"))} rows={rows.Count} truncated={truncated}");
 
         return Results.Json(new
         {
             account,
             since_utc = since,
             truncated,
+            cursor = last is null ? null : new
+            {
+                reported_at_utc = last.ReportedAtUtc,
+                verdict_id = last.VerdictId,
+            },
             rows = rows.Select(r => new
             {
                 account = r.TenantId,

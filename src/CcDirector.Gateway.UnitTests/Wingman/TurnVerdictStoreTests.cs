@@ -442,6 +442,58 @@ public sealed class TurnVerdictStoreTests : IDisposable
         Assert.Equal("tv-other-account", store.Latest(TenantB, "sid-1")!.VerdictId);
     }
 
+    /// <summary>
+    /// A CORRECTION GOES WITH THE VERDICT IT IS ABOUT, and the failing shape is the ordinary one rather than a
+    /// contrived edge: a correction is always REPORTED after the stop it corrects, so cutting the two on their
+    /// own clocks leaves every recent correction about an old stop pointing at a row that is gone. Here the
+    /// verdict is a day past the cutoff and the correction was made this morning - under the old rule the
+    /// verdict went and the correction stayed, which is exactly what the store comment denied.
+    /// </summary>
+    [Fact]
+    public void A_correction_is_purged_with_its_verdict_even_when_it_was_reported_since()
+    {
+        var store = NewStore();
+        var now = new DateTime(2026, 9, 14, 10, 0, 0, DateTimeKind.Utc);
+        var cutoff = now - TurnVerdictStore.RetentionPeriod;
+        var stale = Verdict(cutoff.AddHours(-1), verdictId: "tv-stale");
+        var fresh = Verdict(cutoff.AddHours(1), verdictId: "tv-fresh");
+        store.Store(TenantA, "sid-1", stale);
+        store.Store(TenantA, "sid-2", fresh);
+
+        // Both corrections are made NOW - well inside the window - about stops on either side of the cutoff.
+        store.RecordFeedback(TenantA, "tv-stale", "sid-1", stale.TurnEndObservedAtUtc,
+            Core.Wingman.TurnVerdictVocabulary.NeededYou, "that was never done", now);
+        store.RecordFeedback(TenantA, "tv-fresh", "sid-2", fresh.TurnEndObservedAtUtc,
+            Core.Wingman.TurnVerdictVocabulary.Finished, "it had finished", now);
+
+        var purged = store.PurgeOlderThan(TenantA, cutoff);
+
+        // One verdict and the one correction about it.
+        Assert.Equal(2, purged);
+        Assert.Null(store.FeedbackFor(TenantA, "tv-stale"));
+        // POSITIVE CONTROL: the correction about the verdict that SURVIVED is untouched, so the sweep is
+        // following the rows rather than emptying the table.
+        Assert.NotNull(store.FeedbackFor(TenantA, "tv-fresh"));
+        Assert.Empty(store.History(TenantA, "sid-1", 10));
+        Assert.Single(store.History(TenantA, "sid-2", 10));
+    }
+
+    /// <summary>A correction whose verdict was never held at all is an orphan too, and goes on the next sweep -
+    /// the rule is "no verdict, no correction", not "no verdict of a certain age".</summary>
+    [Fact]
+    public void A_correction_whose_verdict_is_not_held_is_swept_even_with_nothing_else_to_do()
+    {
+        var store = NewStore();
+        var now = new DateTime(2026, 9, 14, 10, 0, 0, DateTimeKind.Utc);
+        store.RecordFeedback(TenantA, "tv-never-stored", "sid-1", now.AddSeconds(-12),
+            Core.Wingman.TurnVerdictVocabulary.NeededYou, null, now);
+
+        var purged = store.PurgeOlderThan(TenantA, now - TurnVerdictStore.RetentionPeriod);
+
+        Assert.Equal(1, purged);
+        Assert.Null(store.FeedbackFor(TenantA, "tv-never-stored"));
+    }
+
     [Fact]
     public void The_snapshot_answers_one_latest_verdict_per_session()
     {

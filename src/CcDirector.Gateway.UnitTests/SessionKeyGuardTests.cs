@@ -351,6 +351,13 @@ public sealed class SessionKeyGuardTests
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict/feedback/again")]
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdicts/feedback")]
     [InlineData("POST", "/machines/SOREN_NORTH/turn-verdict/answer")]
+    // The ADMINISTRATOR read of the corrections (the Wingman-on-every-turn mission, slice G). It is gated on
+    // the administrator service token by the endpoint itself, and it serves ONE named account's corrections to
+    // the daily corpus pull - so a session key reaching it would be a session credential reading an operator
+    // surface. Named here rather than left to the default deny, so the census says the route exists and that
+    // this guard refuses it.
+    [InlineData("GET", "/gateway/admin/turn-verdict-feedback")]
+    [InlineData("POST", "/gateway/admin/turn-verdict-feedback")]
     // Somebody else's Director process lifecycle on another machine.
     [InlineData("POST", "/machines/SOREN_NORTH/director/stop")]
     [InlineData("POST", "/machines/SOREN_NORTH/director/restart")]

@@ -293,8 +293,10 @@ public sealed class GatewayDbContext : DbContext
     /// days.</summary>
     public DbSet<TurnVerdictEntity> TurnVerdicts => Set<TurnVerdictEntity>();
 
-    /// <summary>One report that a verdict was wrong (<c>turn_verdict_feedback</c>). The schema lands with
-    /// the verdict table so the pair needs one migration; nothing writes it until slice G of that mission.</summary>
+    /// <summary>One report that a verdict was wrong (<c>turn_verdict_feedback</c>). The schema lands with the
+    /// verdict table so the pair needs one migration; slice G of that mission wired the route that writes it -
+    /// <c>POST /sessions/{sid}/turn-verdict/feedback</c>, the one writer. Each row is kept for as long as the
+    /// verdict it corrects, and the retention sweep removes it when that verdict goes.</summary>
     public DbSet<TurnVerdictFeedbackEntity> TurnVerdictFeedback => Set<TurnVerdictFeedbackEntity>();
 
     /// <summary>One judgement the Wingman made, kept whole for the inspector (<c>turn_verdict_traces</c>,

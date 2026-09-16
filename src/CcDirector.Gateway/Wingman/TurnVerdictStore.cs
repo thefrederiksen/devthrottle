@@ -394,26 +394,64 @@ public sealed class TurnVerdictStore
 
     /// <summary>
     /// Every correction this tenant holds that was reported at or after <paramref name="sinceUtc"/>, oldest
-    /// first, capped at <paramref name="max"/>. The administrator read serves the labelled corpus from this:
-    /// the daily pull asks each day for what is new and joins each row into the turn log by
+    /// first, at most <paramref name="take"/> of them. The administrator read serves the labelled corpus from
+    /// this: the daily pull asks each day for what is new and joins each row into the turn log by
     /// (account, session, observed moment).
+    ///
+    /// THE ORDER IS (reported moment, verdict id) AND NOT THE MOMENT ALONE, because the moment alone is not
+    /// unique - two corrections can carry the same instant - and a page boundary that falls inside a group of
+    /// equal moments would either repeat rows or skip them. The identifier is byte-ordinal on both providers
+    /// (the Postgres column carries the C collation), so the two databases page in the same order.
+    ///
+    /// <paramref name="afterReportedAtUtc"/> with <paramref name="afterVerdictId"/> CONTINUES a page: only rows
+    /// strictly after that pair in the same order are returned. That is the whole reason a cursor exists rather
+    /// than the caller moving <paramref name="sinceUtc"/> forward - a moment cannot say "and the rest of the
+    /// rows stamped with it".
+    ///
+    /// The caller may ask for one row MORE than the page it means to serve, to find out whether another row
+    /// exists without serving it; the ceiling here allows exactly that one probe row and no more.
     /// </summary>
-    public IReadOnlyList<TurnVerdictFeedbackEntity> FeedbackSince(TenantId tenant, DateTime sinceUtc, int max)
+    public IReadOnlyList<TurnVerdictFeedbackEntity> FeedbackSince(
+        TenantId tenant,
+        DateTime sinceUtc,
+        int take,
+        DateTime? afterReportedAtUtc = null,
+        string? afterVerdictId = null)
     {
         var cutoff = Utc(sinceUtc);
-        var take = max <= 0 ? MaxFeedbackPage : Math.Min(max, MaxFeedbackPage);
+        var rows = take <= 0 ? MaxFeedbackPage : Math.Min(take, MaxFeedbackPage + 1);
         using var ctx = _db.CreateContext(tenant);
-        return ctx.TurnVerdictFeedback.AsNoTracking()
-            .Where(f => f.ReportedAtUtc >= cutoff)
+        var query = ctx.TurnVerdictFeedback.AsNoTracking().Where(f => f.ReportedAtUtc >= cutoff);
+
+        if (afterReportedAtUtc is { } afterAt && !string.IsNullOrEmpty(afterVerdictId))
+        {
+            var at = Utc(afterAt);
+            var id = afterVerdictId;
+            query = query.Where(f => f.ReportedAtUtc > at
+                || (f.ReportedAtUtc == at && string.Compare(f.VerdictId, id) > 0));
+        }
+
+        return query
             .OrderBy(f => f.ReportedAtUtc)
-            .Take(take)
+            .ThenBy(f => f.VerdictId)
+            .Take(rows)
             .ToList();
     }
 
     /// <summary>
-    /// Remove this tenant's judged stops older than <paramref name="cutoffUtc"/>. Called once per tenant by
-    /// <see cref="TurnVerdictRetentionSweep"/>. Corrections go with them: a correction about a stop that is
-    /// no longer held is a label with nothing to label.
+    /// Remove this tenant's judged stops older than <paramref name="cutoffUtc"/>, and every correction whose
+    /// verdict is no longer held. Called once per tenant by <see cref="TurnVerdictRetentionSweep"/>.
+    ///
+    /// THE CORRECTION GOES WITH ITS VERDICT, and that is a join rather than a second clock. It used to be a
+    /// second clock - corrections were cut on their OWN reported moment - and the two clocks do not agree: a
+    /// correction is always reported after the stop it is about, so a verdict judged seven days and one minute
+    /// ago is purged while a correction made about it this morning stays, pointing at a row that is gone. The
+    /// inspection found the comment above claiming otherwise while the code did that. Now the verdicts are cut
+    /// on the judged moment and the corrections follow the rows, so a correction can only outlive its verdict
+    /// by the length of one sweep.
+    ///
+    /// Two writes rather than one: the orphan question is asked of the DATABASE after the stale verdicts are
+    /// really gone, so a row deleted in this same sweep counts as gone rather than as still present.
     /// </summary>
     public int PurgeOlderThan(TenantId tenant, DateTime cutoffUtc)
     {
@@ -422,12 +460,22 @@ public sealed class TurnVerdictStore
         {
             using var ctx = _db.CreateContext(tenant);
             var stale = ctx.TurnVerdicts.Where(v => v.JudgedAtUtc < cutoff).ToList();
-            var staleFeedback = ctx.TurnVerdictFeedback.Where(f => f.ReportedAtUtc < cutoff).ToList();
-            if (stale.Count == 0 && staleFeedback.Count == 0) return 0;
-            ctx.TurnVerdicts.RemoveRange(stale);
-            ctx.TurnVerdictFeedback.RemoveRange(staleFeedback);
-            ctx.SaveChanges();
-            return stale.Count + staleFeedback.Count;
+            if (stale.Count > 0)
+            {
+                ctx.TurnVerdicts.RemoveRange(stale);
+                ctx.SaveChanges();
+            }
+
+            var orphaned = ctx.TurnVerdictFeedback
+                .Where(f => !ctx.TurnVerdicts.Any(v => v.VerdictId == f.VerdictId))
+                .ToList();
+            if (orphaned.Count > 0)
+            {
+                ctx.TurnVerdictFeedback.RemoveRange(orphaned);
+                ctx.SaveChanges();
+            }
+
+            return stale.Count + orphaned.Count;
         }
     }
 

@@ -132,6 +132,15 @@ public sealed class TurnVerdictFeedbackRouteTests : IDisposable
     private static TurnVerdictFeedbackResponse BodyOf(IResult result)
         => Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.JsonHttpResult<TurnVerdictFeedbackResponse>>(result).Value!;
 
+    /// <summary>The ledger the route writes its refusals to, collected. A list rather than a seam with rules in
+    /// it: the whole question these tests ask is what was written, so a double that decided anything would be
+    /// the thing under test.</summary>
+    private static (Action<TurnVerdictRecord> Write, List<TurnVerdictRecord> Lines) Ledger()
+    {
+        var lines = new List<TurnVerdictRecord>();
+        return (lines.Add, lines);
+    }
+
     [Fact]
     public async Task A_report_on_a_session_of_this_account_is_recorded()
     {
@@ -266,5 +275,123 @@ public sealed class TurnVerdictFeedbackRouteTests : IDisposable
         Assert.Equal(expected.Code, body.Code);
         Assert.Equal(expected.Reason, body.Reason);
         Assert.Contains("not-a-turn-end", body.Reason);
+    }
+
+    // ---------- The ledger: an accepted correction is its own record, a refusal was nobody's ----------
+
+    /// <summary>
+    /// THE AUTHORISATION REFUSAL IS IN THE RECORD. A session key reporting while the account's colours are off is
+    /// refused and nothing is stored anywhere - so before this line the only trace that the product's own
+    /// automation tried to correct a shadow verdict was a log file, which is not a record anybody queries. The
+    /// cause is the same closed word the caller was answered with.
+    /// </summary>
+    [Fact]
+    public async Task A_session_key_refused_by_the_shadow_rule_leaves_one_ledger_line()
+    {
+        var store = NewStore();
+        store.Store(Account, Sid, Verdict("tv-1"));
+        var ledger = Ledger();
+
+        var result = await GatewayEndpoints.ReportTurnVerdictWrongAsync(
+            Request(new { verdictId = "tv-1", correctVerdict = TurnVerdictVocabulary.NeededYou }, asSessionKey: true),
+            Sid, SelfHostBoundary(), new TurnVerdictFeedbackService(store), Settings(colourOn: false),
+            PushedHolding(Sid), ledger.Write);
+
+        Assert.Equal(StatusCodes.Status403Forbidden, Status(result));
+        var line = Assert.Single(ledger.Lines);
+        Assert.Equal(ActivityEventTypes.TurnVerdictFeedbackRefused, line.EventType);
+        Assert.Equal(ActivityCauses.FeedbackShadowRecord, line.Cause);
+        // The same word the owner was shown, so the answer and the record cannot be read as two outcomes.
+        Assert.Equal(BodyOf(result).Code, line.Cause);
+        Assert.Equal(Sid, line.SessionId);
+        Assert.Equal(Account, line.Tenant);
+    }
+
+    /// <summary>A word the vocabulary does not hold is refused with its OWN cause, not a general one - the record
+    /// has to say which rule turned the report away or it cannot be counted.</summary>
+    [Fact]
+    public async Task An_unknown_verdict_word_leaves_one_ledger_line_under_its_own_cause()
+    {
+        var store = NewStore();
+        store.Store(Account, Sid, Verdict("tv-1"));
+        var ledger = Ledger();
+
+        var result = await GatewayEndpoints.ReportTurnVerdictWrongAsync(
+            Request(new { verdictId = "tv-1", correctVerdict = "nearly-finished" }),
+            Sid, SelfHostBoundary(), new TurnVerdictFeedbackService(store), Settings(colourOn: true),
+            PushedHolding(Sid), ledger.Write);
+
+        Assert.Equal(StatusCodes.Status400BadRequest, Status(result));
+        var line = Assert.Single(ledger.Lines);
+        Assert.Equal(ActivityEventTypes.TurnVerdictFeedbackRefused, line.EventType);
+        Assert.Equal(ActivityCauses.FeedbackUnknownVerdict, line.Cause);
+        Assert.Equal(BodyOf(result).Code, line.Cause);
+        // The verdict the request named travels with the line; the note the person typed never does.
+        Assert.Equal("verdict=tv-1", line.Detail);
+        Assert.Null(store.FeedbackFor(Account, "tv-1"));
+    }
+
+    /// <summary>
+    /// THE CONTROL, and it is the half that keeps the rule honest: an ACCEPTED correction writes no ledger line,
+    /// because it writes a durable row carrying its own moment, word and note. A test that only watched refusals
+    /// would pass on a route that wrote a line for everything.
+    /// </summary>
+    [Fact]
+    public async Task An_accepted_correction_writes_the_row_and_no_ledger_line()
+    {
+        var store = NewStore();
+        store.Store(Account, Sid, Verdict("tv-1"));
+        var ledger = Ledger();
+
+        var result = await GatewayEndpoints.ReportTurnVerdictWrongAsync(
+            Request(new { verdictId = "tv-1", correctVerdict = TurnVerdictVocabulary.NeededYou, note = "it asked me" }),
+            Sid, SelfHostBoundary(), new TurnVerdictFeedbackService(store), Settings(colourOn: true),
+            PushedHolding(Sid), ledger.Write);
+
+        Assert.Equal(StatusCodes.Status200OK, Status(result));
+        Assert.Empty(ledger.Lines);
+        Assert.NotNull(store.FeedbackFor(Account, "tv-1"));
+    }
+
+    /// <summary>Every other refusal the handler itself decides also leaves exactly one line, each under its own
+    /// cause - so "every refusal is recorded" is a sentence about all of them rather than the two above.</summary>
+    [Fact]
+    public async Task The_handlers_other_refusals_each_leave_one_line_under_their_own_cause()
+    {
+        var store = NewStore();
+        store.Store(Account, Sid, Verdict("tv-1"));
+
+        var badPath = Ledger();
+        await GatewayEndpoints.ReportTurnVerdictWrongAsync(
+            Request(new { verdictId = "tv-1", correctVerdict = TurnVerdictVocabulary.NeededYou }),
+            "not-a-session-id", SelfHostBoundary(), new TurnVerdictFeedbackService(store), Settings(colourOn: true),
+            PushedHolding(Sid), badPath.Write);
+        Assert.Equal(ActivityCauses.FeedbackInvalidSessionId, Assert.Single(badPath.Lines).Cause);
+
+        var noService = Ledger();
+        await GatewayEndpoints.ReportTurnVerdictWrongAsync(
+            Request(new { verdictId = "tv-1", correctVerdict = TurnVerdictVocabulary.NeededYou }),
+            Sid, SelfHostBoundary(), null, Settings(colourOn: true), PushedHolding(Sid), noService.Write);
+        Assert.Equal(ActivityCauses.FeedbackUnavailable, Assert.Single(noService.Lines).Cause);
+
+        var unknownSession = Ledger();
+        await GatewayEndpoints.ReportTurnVerdictWrongAsync(
+            Request(new { verdictId = "tv-1", correctVerdict = TurnVerdictVocabulary.NeededYou }),
+            Guid.NewGuid().ToString(), SelfHostBoundary(), new TurnVerdictFeedbackService(store),
+            Settings(colourOn: true), PushedHolding(Sid), unknownSession.Write);
+        Assert.Equal(ActivityCauses.FeedbackSessionNotFound, Assert.Single(unknownSession.Lines).Cause);
+
+        var unreadable = Ledger();
+        await GatewayEndpoints.ReportTurnVerdictWrongAsync(
+            RawRequest("{ this is not json"), Sid, SelfHostBoundary(), new TurnVerdictFeedbackService(store),
+            Settings(colourOn: true), PushedHolding(Sid), unreadable.Write);
+        Assert.Equal(ActivityCauses.FeedbackMalformed, Assert.Single(unreadable.Lines).Cause);
+
+        var notThisSession = Ledger();
+        await GatewayEndpoints.ReportTurnVerdictWrongAsync(
+            Request(new { verdictId = "tv-no-such-verdict", correctVerdict = TurnVerdictVocabulary.NeededYou }),
+            Sid, SelfHostBoundary(), new TurnVerdictFeedbackService(store), Settings(colourOn: true),
+            PushedHolding(Sid), notThisSession.Write);
+        Assert.Equal(ActivityCauses.FeedbackVerdictNotFound, Assert.Single(notThisSession.Lines).Cause);
     }
 }

@@ -102,3 +102,14 @@
 .verdict-report-note {
   resize: vertical;
 }
+/* The record a session left behind (slice G, round 2): the row carries no verdict any more, so the panel is
+   showing the LAST thing the Wingman said rather than what the session is waiting on. It reads as quieter than a
+   live stop on purpose - it asks nothing and the only control on it is "This is wrong". */
+.verdict-panel-past {
+  opacity: 0.85;
+}
+.verdict-superseded {
+  margin: 0;
+  font-size: 12px;
+  opacity: 0.8;
+}

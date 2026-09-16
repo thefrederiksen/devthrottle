@@ -282,4 +282,61 @@ public sealed class TurnVerdictFeedbackRouteHostedTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
         Assert.Equal(TurnVerdictFeedbackCodes.Malformed, Root(body).GetProperty("code").GetString());
     }
+
+    /// <summary>
+    /// THE OWNER JOURNEY, END TO END OVER REAL ROUTES (slice G, round 2). The inspector found that the panel
+    /// could only ever show a verdict the ROW carries, and that answering is precisely what takes it off the row:
+    /// the answer marks the verdict, the session goes back to work, and the working edge supersedes it. So the
+    /// ordinary journey - answer, then realise it was wrong - could never reach the feedback route at all.
+    ///
+    /// This is that journey against a booted host: after the answer and the supersede, the LATEST read answers
+    /// with no verdict (which is why the row shows none), the HISTORY read still carries the record with its
+    /// supersede stamp (which is where the panel now gets it), and the feedback route accepts a correction naming
+    /// that superseded id.
+    ///
+    /// WHAT IS SIMULATED AND WHAT IS NOT: the two store calls the answer route and the working edge make are made
+    /// directly, because writing the answer itself needs a Director on the tunnel to take the bytes. Everything
+    /// after that is the real routes over HTTP with the owner's own device key.
+    /// </summary>
+    [Fact]
+    public async Task An_answered_and_superseded_verdict_is_still_readable_and_still_reportable()
+    {
+        _gateway.TenantSettingsResolver.SetTurnVerdictColourEnabled(_tenantA, true, DateTime.UtcNow);
+        _gateway.TurnVerdicts.Store(_tenantA, _sessionId, Verdict("tv-answered-then-wrong"));
+
+        // The answer: the route marks the verdict answered, and the session going back to work supersedes it.
+        Assert.True(_gateway.TurnVerdicts.MarkAnswered(_tenantA, "tv-answered-then-wrong", DateTime.UtcNow));
+        Assert.Equal(1, _gateway.TurnVerdicts.Invalidate(_tenantA, _sessionId, DateTime.UtcNow));
+
+        // The row carries nothing now - this is the read the roster and the session view fold from.
+        var latest = await _deviceA.GetAsync($"sessions/{_sessionId}/turn-verdict");
+        Assert.Equal(HttpStatusCode.OK, latest.StatusCode);
+        var latestBody = Root(await latest.Content.ReadAsStringAsync());
+        Assert.Equal(JsonValueKind.Null, latestBody.GetProperty("verdict").ValueKind);
+
+        // The history still has it, stamped as superseded - this is the read the panel falls back to.
+        var history = await _deviceA.GetAsync($"sessions/{_sessionId}/turn-verdicts?count=1");
+        Assert.Equal(HttpStatusCode.OK, history.StatusCode);
+        var rows = Root(await history.Content.ReadAsStringAsync()).GetProperty("verdicts");
+        Assert.Equal(1, rows.GetArrayLength());
+        var record = rows[0];
+        Assert.Equal("tv-answered-then-wrong", record.GetProperty("verdictId").GetString());
+        Assert.NotEqual(JsonValueKind.Null, record.GetProperty("supersededAtUtc").ValueKind);
+
+        // And the correction the panel sends about it is accepted, naming the id the history gave.
+        var (status, body) = await Post(_deviceA, _sessionId, new
+        {
+            verdictId = record.GetProperty("verdictId").GetString(),
+            correctVerdict = TurnVerdictVocabulary.Finished,
+            note = "it had finished - it was telling me, not asking",
+        });
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal(TurnVerdictFeedbackCodes.Recorded, Root(body).GetProperty("code").GetString());
+        var stored = _gateway.TurnVerdicts.FeedbackFor(_tenantA, "tv-answered-then-wrong");
+        Assert.NotNull(stored);
+        Assert.Equal(TurnVerdictVocabulary.Finished, stored!.CorrectedVerdict);
+        // The record it corrects is untouched by the correction - evidence that gets edited is not evidence.
+        Assert.Single(_gateway.TurnVerdicts.History(_tenantA, _sessionId, 10));
+    }
 }
