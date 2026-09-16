@@ -30,9 +30,20 @@ export interface VerdictPanelProps {
   session: SessionDto;
   /** The "this is wrong" action. Slice G wires it; until then the action is shown and cannot be pressed. */
   onReportWrong?: (verdict: TurnVerdict) => void;
+  /**
+   * Render for a screen with no height to spare: the receipt starts COLLAPSED instead of expanded.
+   *
+   * It exists for the phone's Chat tab, where the receipt is the agent's last reply and the agent's last
+   * reply is also the top of the conversation immediately below - so expanded, the panel spent the
+   * scarcest space on that screen restating what the reader could already see. Nothing is removed and the
+   * summary line still says whose words they are; it is one tap to open.
+   *
+   * The default is false, so the Cockpit and the phone's other screens are unchanged.
+   */
+  compact?: boolean;
 }
 
-export function VerdictPanel({ sessionId, session, onReportWrong }: VerdictPanelProps) {
+export function VerdictPanel({ sessionId, session, onReportWrong, compact = false }: VerdictPanelProps) {
   const row = session as TurnVerdictRow;
   const verdict = row.verdictState === "judged" ? row.turnVerdict ?? null : null;
   const verdictId = verdict?.verdictId ?? "";
@@ -85,7 +96,7 @@ export function VerdictPanel({ sessionId, session, onReportWrong }: VerdictPanel
       )}
 
       {verdict.evidence && (
-        <details className="verdict-receipt" open>
+        <details className="verdict-receipt" open={!compact}>
           <summary>{agentName} said</summary>
           <blockquote className="verdict-evidence">{verdict.evidence}</blockquote>
         </details>
