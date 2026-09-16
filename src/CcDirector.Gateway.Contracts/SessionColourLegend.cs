@@ -28,27 +28,18 @@ public static class SessionColourLegend
     /// <summary>The route that serves <see cref="Build"/>.</summary>
     public const string Route = "/gateway/session-colours";
 
-    /// <summary>How a sentence's alternatives relate to each other.</summary>
-    public enum Relation
-    {
-        /// <summary>Exactly one of them is true of any session - rendered "a, b, or c".</summary>
-        OneOf,
-
-        /// <summary>All of them are true at once - rendered "a, b, and c".</summary>
-        AllOf,
-    }
-
     /// <summary>
     /// One colour's sentence, as structure rather than prose.
     /// </summary>
     /// <param name="Opening">The claim the sentence opens with.</param>
-    /// <param name="Alternatives">The cases, each a claim. Empty when the sentence has none.</param>
-    /// <param name="How">Whether the alternatives are cases of one another (OneOf) or all true together (AllOf).</param>
+    /// <param name="Alternatives">The cases, each a claim, each an ALTERNATIVE to the others - rendered "a, b, or c".
+    /// There is deliberately no "all of these" relation: it was never validated, so declaring it would have rendered
+    /// "and" over two states a session cannot be in at once (the fifth review's counterexample). A sentence that needs
+    /// "and" must add it WITH a test that proves one session satisfies every part.</param>
     /// <param name="Trailing">Further claims, each its own sentence after the first.</param>
     public sealed record Sentence(
         string Opening,
         IReadOnlyList<string> Alternatives,
-        Relation How = Relation.OneOf,
         IReadOnlyList<string>? Trailing = null)
     {
         /// <summary>Every claim in the sentence, in the order a person reads them.</summary>
@@ -61,10 +52,9 @@ public static class SessionColourLegend
             var text = Opening;
             if (Alternatives.Count > 0)
             {
-                var last = How == Relation.OneOf ? ", or " : ", and ";
                 var cases = Alternatives.Count == 1
                     ? Alternatives[0]
-                    : string.Join(", ", Alternatives.Take(Alternatives.Count - 1)) + last + Alternatives[^1];
+                    : string.Join(", ", Alternatives.Take(Alternatives.Count - 1)) + ", or " + Alternatives[^1];
                 text += ": " + cases;
             }
             foreach (var trailing in Trailing ?? Array.Empty<string>()) text += ". " + trailing;
@@ -80,8 +70,7 @@ public static class SessionColourLegend
         {
             Hex = SessionColorPalette.Broken,
             Title = "Magenta",
-            Means = "Not a state. The screen received a colour it does not understand - usually the Gateway and this " +
-                    "app on different versions. Reload, and report it if it stays.",
+            Means = string.Join(" ", BrokenClaims.Concat(BrokenAdvice).Select(c => c + ".")),
         },
         VerdictNote = string.Join(" ", NoteClaims.Select(c => c + ".")),
     };
@@ -91,6 +80,27 @@ public static class SessionColourLegend
     /// decides: it used to name the Wingman's yellow as well, and that was false - a Director's briefing paints the
     /// same yellow with the same words whatever the switch says.
     /// </summary>
+    /// <summary>
+    /// What the magenta note ASSERTS. Each has an executable check in the test, exactly like a colour's claims: the
+    /// note used to be free prose, and "Magenta means the session is working." would have passed every test and
+    /// reached the screen (the fifth review's second counterexample).
+    /// </summary>
+    public static readonly IReadOnlyList<string> BrokenClaims =
+    [
+        "Not a state",
+        "The screen received a colour this app does not understand",
+    ];
+
+    /// <summary>
+    /// What the magenta note ADVISES. Advice cannot be executed - there is no fact to fold - so the test holds it to
+    /// the only rule that can be checked: it may not talk about what a session is doing. Anything that does is a claim
+    /// and needs a check.
+    /// </summary>
+    public static readonly IReadOnlyList<string> BrokenAdvice =
+    [
+        "Usually the Gateway and this app are on different versions - reload, and report it if it stays",
+    ];
+
     public static readonly IReadOnlyList<string> NoteClaims =
     [
         "Done and Carrying on appear only when the Wingman's verdicts are switched on for your account",

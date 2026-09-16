@@ -18,9 +18,13 @@ namespace CcDirector.Gateway.Tests;
 ///   5. The joining words still carried meaning (", " where the fold means ", or ") and the verdict note was free
 ///      prose ("Blue also needs that switch" would have shipped).
 ///
-/// So: a sentence is structure, not prose. This file demands a session for EVERY claim, proves the alternatives of a
-/// OneOf really are DIFFERENT SITUATIONS, checks the rendered words are exactly what the structure produces, and
-/// demands an executable check for every claim the verdict note makes.
+///   6. The "all of these" relation was never validated (declaring it would render "and" over exclusive states), and
+///      the magenta note was still free prose ("Magenta means the session is working." would have shipped).
+///
+/// So: a sentence is structure, not prose. This file demands a session for EVERY claim, proves a sentence's
+/// alternatives really are DIFFERENT SITUATIONS, checks the rendered words are exactly what the structure produces,
+/// demands an executable check for every claim in BOTH notes, and holds the one piece of advice - which cannot be
+/// executed - to saying nothing about what a session is doing.
 /// </summary>
 public sealed class SessionColourLegendTests
 {
@@ -155,6 +159,30 @@ public sealed class SessionColourLegendTests
         }
     }
 
+    /// <summary>What a claim of the magenta note promises, executed. Throws for a claim with no check.</summary>
+    private static void CheckBrokenClaim(string claim)
+    {
+        switch (claim)
+        {
+            case "Not a state":
+                // No colour the fold can emit paints this pixel, so it can never be mistaken for one.
+                foreach (var colour in FoldColours)
+                    Assert.NotEqual(SessionColorPalette.Broken, SessionColorPalette.HexFor(colour));
+                return;
+
+            case "The screen received a colour this app does not understand":
+                // A name outside the vocabulary is what produces it - that is the whole mechanism.
+                Assert.False(SessionColorPalette.Knows("teal-ish"));
+                Assert.Equal(SessionColorPalette.Broken, SessionColorPalette.HexFor("teal-ish"));
+                return;
+
+            default:
+                throw new InvalidOperationException(
+                    $"the magenta note claims \"{claim}\" and nothing here executes it. It is read verbatim by every " +
+                    "client, so a sentence added to it without a check is prose in front of the owner.");
+        }
+    }
+
     private static SessionDto Unstamped(SessionDto session)
     {
         session.VerdictState = VerdictStates.None;
@@ -222,7 +250,7 @@ public sealed class SessionColourLegendTests
         foreach (var entry in SessionColourLegend.Build().Entries)
         {
             var sentence = SessionColourLegend.SentenceFor(entry.Colour)!;
-            if (sentence.How != SessionColourLegend.Relation.OneOf || sentence.Alternatives.Count < 2) continue;
+            if (sentence.Alternatives.Count < 2) continue;
 
             var fingerprints = sentence.Alternatives
                 .Select(a => Facts(PromiseFor(entry.Colour, a).Session))
@@ -344,12 +372,38 @@ public sealed class SessionColourLegendTests
     }
 
     [Fact]
-    public void TheBrokenNote_IsTheSentinel_AndNoRealColour()
+    public void TheBrokenNote_IsItsClaimsAndItsAdvice_AndEveryClaimIsExecuted()
     {
         var legend = SessionColourLegend.Build();
 
         Assert.Equal(SessionColorPalette.Broken, legend.Broken.Hex);
-        Assert.DoesNotContain(legend.Entries, e => string.Equals(e.Hex, SessionColorPalette.Broken, StringComparison.OrdinalIgnoreCase));
+        // The words a person reads are exactly the claims and the advice, so the note cannot grow a sentence nobody
+        // checks - round 5 found "Magenta means the session is working." would have shipped.
+        Assert.Equal(
+            string.Join(" ", SessionColourLegend.BrokenClaims.Concat(SessionColourLegend.BrokenAdvice).Select(c => c + ".")),
+            legend.Broken.Means);
+        Assert.NotEmpty(SessionColourLegend.BrokenClaims);
+
+        foreach (var claim in SessionColourLegend.BrokenClaims) CheckBrokenClaim(claim);
+    }
+
+    [Fact]
+    public void TheBrokenNotesAdvice_SaysNothingAboutWhatASessionIsDoing()
+    {
+        // Advice cannot be executed - there is no fact to fold - so it is held to the one rule that can be checked.
+        // Anything that talks about a session's state is a CLAIM and needs a check, which is what makes this the
+        // tripwire for the counterexample: "Magenta means the session is working." trips on "working".
+        var stateWords = new[]
+        {
+            "working", "needs you", "red", "blue", "cyan", "purple", "green", "yellow", "orange", "grey", "slate",
+            "snoozed", "exited", "crashed", "ready", "done", "carrying on", "finished", "transcribing", "supervised",
+        };
+
+        foreach (var advice in SessionColourLegend.BrokenAdvice)
+            foreach (var word in stateWords)
+                Assert.True(advice.IndexOf(word, StringComparison.OrdinalIgnoreCase) < 0,
+                    $"the magenta note's advice says \"{advice}\", and \"{word}\" is a statement about what a session " +
+                    "is doing - that is a claim, and a claim needs a check");
     }
 
     // ================================================================= coverage and shape
