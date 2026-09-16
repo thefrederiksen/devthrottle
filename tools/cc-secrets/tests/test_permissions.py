@@ -94,13 +94,24 @@ def test_ExistingFolderThatIsAlreadyPrivate_IsAdopted(tmp_path, monkeypatch):
     assert _permissions_snapshot(folder) == before
 
 
+def _remove_every_direct_grant(path):
+    # /inheritance:r drops inherited entries only, and /grant:r does not replace a direct grant whose inheritance
+    # flags differ - it adds a second one beside it. On the Windows continuous integration runner a new file or
+    # folder already carries direct grants (SYSTEM, and this user with inheritance), so every identity, this user
+    # included, is removed before the test grants what it means to.
+    _icacls(str(path), "/inheritance:r")
+    for sid in {sid for _, sid in permissions.windows_access_list(path)[1] if sid}:
+        _icacls(str(path), "/remove", f"*{sid}")
+
+
 def _folder_granted_to_this_user_only(tmp_path, name, grant):
     folder = tmp_path / name
     folder.mkdir()
     user = permissions.current_user_sid()
-    _icacls(str(folder), "/inheritance:r", "/grant:r", f"*{user}:{grant}")
-    for sid in {sid for _, sid in permissions.windows_access_list(folder)[1] if sid and sid != user}:
-        _icacls(str(folder), "/remove", f"*{sid}")
+    _remove_every_direct_grant(folder)
+    _icacls(str(folder), "/grant", f"*{user}:{grant}")
+    entries = permissions.windows_access_entries(folder)[1]
+    assert len(entries) == 1 and entries[0][2] == user, f"test setup left other grants: {entries}"
     return folder
 
 
@@ -159,8 +170,9 @@ def test_Windows_AdoptedFolderWithAnInheritableGrant_SavesAndReadsBack(tmp_path,
 def test_Windows_FileWithAnEmptyAccessList_IsNotPrivate(tmp_path):
     locked_out = tmp_path / "locked-out.txt"
     locked_out.write_text("x", encoding="utf-8")
-    _icacls(str(locked_out), "/inheritance:r")
+    _remove_every_direct_grant(locked_out)
     try:
+        assert permissions.windows_access_list(locked_out)[1] == [], "test setup left grants on the file"
         assert "empty access list" in (permissions.file_problem(locked_out) or "")
     finally:
         _icacls(str(locked_out), "/reset")
