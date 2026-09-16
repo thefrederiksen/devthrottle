@@ -853,13 +853,33 @@ you asked for without saying which half.
 USAGE: cc-devthrottle director list [OPTIONS]
 
 OPTIONS:
-  --json -j  Output raw JSON.
+  --json -j        Output raw JSON: every field, a bare array. Filters still apply.
+  --state TEXT     Only these states, comma separated: online, wobbly, offline, stopped.
+  --machine TEXT   Only Directors on this machine.
+  --fields TEXT    Fields to show. Default: id,name,machine,state.
+                   Valid: id, name, machine, state, version, pid, user, started, last-seen.
 ```
 
-Lists every Director this account is running, on every machine: its name, its machine, and its
-Director id. Prefer the **id** when handing a target to another agent - it survives a rename and
-cannot collide with a second Director sharing a display name. A Director's own toolbar has a Copy
-button that puts those same three facts on the clipboard, for pasting to an agent.
+```
+count: 4 (online 3, offline 1)
+directors[4]{id,name,machine,state}:
+  136af82d-29d5-43bc-9f4b-6783bb1111da,SORENLAPTOP,SORENLAPTOP,online
+  61640aab-061d-4d2d-a91e-2160d16cec00,DevThrottle_2,SOREN_NORTH,online
+  6d4523e2-ed03-4ae6-ac1c-71d00a37bad1,DevThrottle_1,SOREN_NORTH,offline
+  4fbad29d-6baa-4cdd-bbee-cef6b0b50978,devthrottle-mac-mini,devthrottle-mac-mini,online
+help[4]:
+  cc-devthrottle director list --state offline
+  ...
+```
+
+Lists every Director this account is running, on every machine: its id, its name, its machine, and
+its state. The state is the Gateway's own verdict (the one the Fleet Map shows); a state this tool does
+not know fails with exit code 1 rather than being guessed. `--json` without a filter prints exactly
+what the Gateway sent. Ids and names are never shortened; an unnamed Director shows its machine name.
+
+Prefer the **id** when handing a target to another agent - it survives a rename and cannot collide
+with a second Director sharing a display name. A Director's own toolbar has a Copy button that puts
+its name, machine and id on the clipboard, for pasting to an agent.
 
 ### Skill Commands
 
