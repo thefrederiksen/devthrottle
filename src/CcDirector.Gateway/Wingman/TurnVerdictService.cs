@@ -329,6 +329,11 @@ public sealed class TurnVerdictService : IDisposable
     private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), byte> _knownEmpty = new();
 
     private readonly object _storeGate = new();
+
+    /// <summary>Test seam: runs, with the session id, the moment an ending judgement has closed its joined list and
+    /// before it writes a single joined row - the point issue #2905's two windows opened at. Null in production.</summary>
+    internal Action<string>? OnJoinedListClosedForTests;
+
     private long _capSkips;
     private volatile bool _disposed;
 
@@ -366,27 +371,35 @@ public sealed class TurnVerdictService : IDisposable
 
         var key = (signal.Tenant, signal.SessionId);
         _lastObserved[key] = signal.ObservedAtUtc;
+        return TakeGateOrJoin(key, signal);
+    }
 
+    /// <summary>
+    /// Take this session's gate, or join the judgement that holds it. On the ordinary path both happen synchronously,
+    /// before this returns - the property <see cref="OnTurnEnd"/> promises a voice narration started right after it.
+    ///
+    /// THE ONE PATH THAT WAITS (issue #2905): the judgement holding the gate has closed its joined list and is writing
+    /// what joined it. It stays on the gate until those rows are written - that is what keeps a shutdown wait covering
+    /// them and keeps a newer judgement for this session from handing in a row first - so this stop can neither join
+    /// it nor take the gate yet. It waits for that judgement to finish, which always happens after it has left the
+    /// gate, and then tries again. Nothing gives up and nothing is dropped. What this path does not do is stamp the
+    /// stop "reading" before returning: it has no gate to pair the stamp with until the wait is over.
+    /// </summary>
+    private Task<TurnVerdictOutcome> TakeGateOrJoin((TenantId Tenant, string SessionId) key, TurnEndSignal signal)
+    {
         var flight = new Flight();
-        for (var attempt = 0; !_inFlight.TryAdd(key, flight); attempt++)
+        while (!_inFlight.TryAdd(key, flight))
         {
+            // The judgement holding the gate left it between the two lines; take it on the next pass.
+            if (!_inFlight.TryGetValue(key, out var running)) continue;
+
             // A JUDGEMENT IS ALREADY RUNNING FOR THIS SESSION. This stop asks nothing of its own, and it is handed to
             // that judgement, which records it when it ends (see Flight.TryJoin).
-            if (_inFlight.TryGetValue(key, out var running) && running.TryJoin(signal.ObservedAtUtc))
-            {
-                flight.Cts.Dispose();
+            flight.Cts.Dispose();
+            if (running.TryJoin(signal.ObservedAtUtc))
                 return Task.FromResult(JoinedOutcome(signal));
-            }
 
-            // That judgement has closed its list and is ending, so take the gate instead. Bounded at three tries, and
-            // then the stop is logged rather than left to spin.
-            if (attempt >= 2)
-            {
-                flight.Cts.Dispose();
-                FileLog.Write($"[TurnVerdictService] trace NOT KEPT (could not take or join the gate in three tries): " +
-                              $"outcome={TurnVerdictTraceOutcomes.Joined} sid={signal.SessionId} observed={signal.ObservedAtUtc:O}");
-                return Task.FromResult(JoinedOutcome(signal));
-            }
+            return TakeGateAfterEndingAsync(key, running, signal);
         }
 
         // ADMITTED AFTER SHUTDOWN BEGAN? Found in review: a caller could pass the disposed check above, pause, and add
@@ -422,6 +435,17 @@ public sealed class TurnVerdictService : IDisposable
         var state = firstState;
         return Task.Run(() => RunFlightAsync(key, flight, signal.DirectorId, signal.ObservedAtUtc,
             TurnVerdictTrigger.TurnEnd, screenReader: null, providerHold: null, mayAskJudge: true, firstState: state));
+    }
+
+    /// <summary>The waiting path of <see cref="TakeGateOrJoin"/>: wait for the ending judgement to finish, then take
+    /// the gate or join whoever took it first. A judgement always leaves the gate before it completes
+    /// <see cref="Flight.Done"/>, so the retry never finds the same judgement again.</summary>
+    private async Task<TurnVerdictOutcome> TakeGateAfterEndingAsync((TenantId Tenant, string SessionId) key, Flight ending, TurnEndSignal signal)
+    {
+        FileLog.Write($"[TurnVerdictService] OnTurnEnd: sid={signal.SessionId} arrived as the judgement it would join was ending; waiting for it to finish");
+        // A judgement that ended in a fault has still finished; its fault belongs to its own callers, not to this stop.
+        await Task.WhenAny(ending.Done.Task).ConfigureAwait(false);
+        return await TakeGateOrJoin(key, signal).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -640,14 +664,19 @@ public sealed class TurnVerdictService : IDisposable
                 // BEFORE the gate is released, so it can never clear the stamp of the next flight, which is set only after
                 // that flight takes the gate.
                 _reading.TryRemove(key, out _);
-                // THE GATE IS RELEASED BEFORE THE JOINED STOPS ARE WRITTEN, and that order is the whole protocol. Found in
-                // review: writing first closed this flight's list while the flight still held the gate, so a stop arriving
-                // in between could neither join this flight nor take the gate, and was lost. Released first, an arriving
-                // stop either joins this flight while its list is still open, or takes the gate itself on its next try.
-                _inFlight.TryRemove(new KeyValuePair<(TenantId, string), Flight>(key, flight));
-                // The stops that joined this flight while it ran, recorded by the flight itself - never by a background
-                // task nobody tracks, and never out of order.
-                WriteJoinedTraces(key, flight, directorId);
+                // THE JOINED STOPS ARE WRITTEN WHILE THIS FLIGHT STILL HOLDS THE GATE, then the gate is released, then Done
+                // completes in the outer finally (issue #2905). Held while writing, a shutdown that begins now still finds
+                // this flight and waits for it, and no newer judgement for this session can start and hand in a row first.
+                // A stop arriving after the list closed can neither join nor take the gate yet, so it waits for Done and
+                // then takes the gate (see TakeGateOrJoin) - it is not lost, which is what the earlier ordering fixed.
+                try
+                {
+                    WriteJoinedTraces(key, flight, directorId);
+                }
+                finally
+                {
+                    _inFlight.TryRemove(new KeyValuePair<(TenantId, string), Flight>(key, flight));
+                }
             }
         }
         finally
@@ -1128,6 +1157,7 @@ public sealed class TurnVerdictService : IDisposable
     private void WriteJoinedTraces((TenantId Tenant, string SessionId) key, Flight flight, string directorId)
     {
         var joined = flight.TakeJoined();
+        OnJoinedListClosedForTests?.Invoke(key.SessionId);
         if (joined.Count == 0) return;
         foreach (var observedAt in joined)
         {
@@ -1153,12 +1183,19 @@ public sealed class TurnVerdictService : IDisposable
     private TurnVerdictOutcome StandDownAfterDispose((TenantId Tenant, string SessionId) key, Flight flight, string directorId)
     {
         var standDown = new TurnVerdictOutcome { Kind = TurnVerdictOutcomeKind.Skipped, SkipCause = ActivityCauses.Unknown };
-        flight.Done.TrySetResult(standDown);
-        _inFlight.TryRemove(new KeyValuePair<(TenantId, string), Flight>(key, flight));
         // A STOP MAY ALREADY HAVE JOINED THIS FLIGHT - found in review: another turn end can attach to it in the moment
         // between this flight taking the gate and this check. The flight never ran, so it never read its settings, and
-        // each joined stop is logged rather than traced; what must not happen is that it is neither.
-        WriteJoinedTraces(key, flight, directorId);
+        // each joined stop is logged rather than traced; what must not happen is that it is neither. The same order as a
+        // flight that ran: joined stops first, then the gate, then Done - so a stop waiting on Done finds the gate free.
+        try
+        {
+            WriteJoinedTraces(key, flight, directorId);
+        }
+        finally
+        {
+            _inFlight.TryRemove(new KeyValuePair<(TenantId, string), Flight>(key, flight));
+            flight.Done.TrySetResult(standDown);
+        }
         flight.Cts.Dispose();
         FileLog.Write($"[TurnVerdictService] a verdict request arrived as the service was shutting down and stood down: sid={key.SessionId}");
         return standDown;
@@ -1409,7 +1446,8 @@ public sealed class TurnVerdictService : IDisposable
     /// <summary>
     /// Wait for every judgement in flight to finish - for shutdown, after <see cref="Dispose"/> has cancelled them, so a
     /// cancelled judgement hands in its trace before the trace writer is closed. Answers false when the timeout passed
-    /// first. A flight that ended in a fault counts as finished.
+    /// first. A flight that ended in a fault counts as finished. A flight writes every row it owes - its own and the
+    /// stops that joined it - before it leaves the gate, so a flight this does not find has nothing left to hand in.
     /// </summary>
     public async Task<bool> WaitForFlightsAsync(TimeSpan timeout)
     {

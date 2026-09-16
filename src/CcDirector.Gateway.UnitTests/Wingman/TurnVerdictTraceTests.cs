@@ -321,6 +321,133 @@ public sealed class TurnVerdictTraceTests : IDisposable
         Assert.Equal(TurnVerdictOutcomeKind.Cancelled, (await pending).Kind);
     }
 
+    /// <summary>A judgement blocked inside its judge until <paramref name="release"/> completes, with a trace writer over
+    /// the real store and a clock that moves one second per read, so the store's newest-first order is the order the
+    /// rows were handed in.</summary>
+    private (FakeTurnVerdictEnvironment Env, TurnVerdictTraceStore Store, TurnVerdictTraceWriter Writer) StoreBacked(
+        TaskCompletionSource release, TaskCompletionSource entered)
+    {
+        var store = new TurnVerdictTraceStore(_harness.Open());
+        var writer = new TurnVerdictTraceWriter(store.Append);
+        var env = Env();
+        env.TraceWriter = writer;
+        var start = DateTime.UtcNow;
+        var ticks = 0;
+        env.Clock = () => start.AddSeconds(Interlocked.Increment(ref ticks));
+        var judgeCalls = 0;
+        env.Judge = async (_, _) =>
+        {
+            if (Interlocked.Increment(ref judgeCalls) == 1)
+            {
+                entered.TrySetResult();
+                await release.Task;
+            }
+            return FinishedAnswer;
+        };
+        return (env, store, writer);
+    }
+
+    [Fact]
+    public async Task AShutdownBeginningAsTheEndingJudgementClosesItsJoinedList_StillWaitsForIt_AndTheJoinedRowIsWritten()
+    {
+        // Issue #2905, window one. The judgement used to leave the gate BEFORE writing the stops that joined it, so a
+        // shutdown starting between the two found no judgement to wait for, closed the writer, and the joined row was
+        // refused - logged and counted, never written.
+        //
+        // THE SHUTDOWN BEGINS AT THE EXACT POINT, not near it: from the seam that runs once the ending judgement has closed
+        // its joined list and before it writes a row - where the old ordering had already left the gate. It runs the
+        // host's own sequence there (cancel, wait for the flights, close the writer). When the wait finds nothing it
+        // returns at once and the writer closes before the row is handed in; that is the old defect, reached every run.
+        var release = new TaskCompletionSource();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var (env, store, writer) = StoreBacked(release, entered);
+        using var writerScope = writer;
+        var service = new TurnVerdictService(env);
+
+        Task<bool>? flightsFinished = null;
+        Task? writerClosed = null;
+        service.OnJoinedListClosedForTests = closedSid =>
+        {
+            if (flightsFinished is not null) return;
+            service.Dispose();
+            flightsFinished = service.WaitForFlightsAsync(TimeSpan.FromSeconds(5));
+            writerClosed = flightsFinished.IsCompleted
+                ? writer.CompleteAsync()
+                : flightsFinished.ContinueWith(done => writer.CompleteAsync(), TaskScheduler.Default).Unwrap();
+        };
+
+        var first = service.StartTurnEnd(Signal());
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var later = ObservedAt.AddMinutes(1);
+        Assert.Equal(ActivityCauses.AlreadyJudging, (await service.StartTurnEnd(Signal(later))).SkipCause);
+
+        release.SetResult();
+        await first.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.NotNull(flightsFinished);
+        Assert.True(await flightsFinished!.WaitAsync(TimeSpan.FromSeconds(5)), "the shutdown wait timed out");
+        await writerClosed!.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(0, writer.Dropped);
+        var history = store.History(Tenant, Sid);
+        var joined = Assert.Single(history, t => t.Outcome == TurnVerdictTraceOutcomes.Joined);
+        Assert.Equal(later, joined.TurnEndObservedAtUtc);
+        Assert.Single(history, t => t.Outcome == TurnVerdictTraceOutcomes.Judged);
+        Assert.Equal(2, history.Count);
+    }
+
+    [Fact]
+    public async Task ANewJudgementForTheSameSession_CannotHandInItsRowBeforeTheEndingJudgementsJoinedRow_AsStoredOrderShows()
+    {
+        // Issue #2905, window two. Once the gate was released and before the joined rows were written, a new judgement for
+        // the same session could start and finish - a held session skips with no model call at all - and hand in its row
+        // first. RecordedAtUtc is stamped at hand-over and the history reads newest first, so the older stop read newer.
+        //
+        // THE NEW STOP ARRIVES AT THE EXACT POINT: from the seam that runs once the ending judgement has closed its joined
+        // list and before it stamps a row. If that stop takes the gate there - its roster read happens on this thread when
+        // it does, which is how the seam tells - the seam waits for it to finish, so its row is handed in first, every run.
+        // If it cannot take the gate, it must wait for the ending judgement, and the seam does not wait for it.
+        var release = new TaskCompletionSource();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var (env, store, writer) = StoreBacked(release, entered);
+        using var writerScope = writer;
+        var service = new TurnVerdictService(env);
+
+        var joinedAt = ObservedAt.AddMinutes(1);
+        var heldAt = ObservedAt.AddMinutes(2);
+        Task<TurnVerdictOutcome>? arriving = null;
+        var tookTheGateInTheWindow = false;
+        service.OnJoinedListClosedForTests = closedSid =>
+        {
+            if (arriving is not null) return;
+            env.Held = heldSid => true;
+            var readsBefore = env.StateReads;
+            arriving = service.StartTurnEnd(Signal(heldAt));
+            tookTheGateInTheWindow = env.StateReads != readsBefore;
+            if (tookTheGateInTheWindow)
+                arriving.WaitAsync(TimeSpan.FromSeconds(5)).GetAwaiter().GetResult();
+        };
+
+        var first = service.StartTurnEnd(Signal());
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(ActivityCauses.AlreadyJudging, (await service.StartTurnEnd(Signal(joinedAt))).SkipCause);
+
+        release.SetResult();
+        Assert.Equal(TurnVerdictOutcomeKind.Judged, (await first.WaitAsync(TimeSpan.FromSeconds(5))).Kind);
+        Assert.NotNull(arriving);
+        var held = await arriving!.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(ActivityCauses.Held, held.SkipCause);
+        await writer.CompleteAsync().WaitAsync(TimeSpan.FromSeconds(10));
+
+        // Newest first, from the store: the held stop, then the stop that joined, then the judgement it joined.
+        var history = store.History(Tenant, Sid);
+        Assert.Equal(
+            new[] { TurnVerdictTraceOutcomes.Skipped, TurnVerdictTraceOutcomes.Joined, TurnVerdictTraceOutcomes.Judged },
+            history.Select(t => t.Outcome).ToArray());
+        Assert.Equal(heldAt, history[0].TurnEndObservedAtUtc);
+        Assert.Equal(joinedAt, history[1].TurnEndObservedAtUtc);
+        Assert.False(tookTheGateInTheWindow, "the new stop took the gate while the ending judgement still owed its joined row");
+    }
+
     [Fact]
     public async Task ACancellation_TracesUnderTheSettingsItsFlightStartedWith_AndCompletes_EvenWhenASettingsReadWouldNowThrow()
     {
