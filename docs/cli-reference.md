@@ -659,7 +659,7 @@ help[4]:
 USAGE: cc-devthrottle [OPTIONS] COMMAND [ARGS]...
 
 COMMANDS:
-  actions          List agent-discoverable actions.
+  actions          List the actions an agent can discover, with their commands.
   session list     List every session in the fleet.
   session whoami   Show this session's own fleet identity.
   session rename   Rename a session, defaulting to the current session.
@@ -687,6 +687,27 @@ COMMANDS:
 
 OPTIONS:
   --version -v
+```
+
+`cc-devthrottle actions` prints every action as a list, `actions[N]{id,command,changes-state}`,
+with the full command on each row; `--json` is unchanged.
+
+**After a change, and on an error.** In the schedule, workflow, skill, settings, setup, email,
+diag, autostart and browser groups, a command that changes something ends its plain output with
+`help[N]:` lines naming what to run next. A value appears in those lines only when the command's
+own result supplied it; otherwise it is a placeholder such as `<schedule-id>`. An error is written
+to standard error as `Error: ...`, followed by `help[N]:` lines, and the command exits non-zero:
+2 for a flag or argument to fix, 1 otherwise (setup and autostart keep the setup engine's own exit
+code). `workflow delete` and `skill delete` without `--yes` refuse when there is no terminal to ask
+on, instead of prompting. `--json` output is unchanged, and the raw text of `skill get` and
+`workflow instructions` gets nothing added.
+
+```
+$ cc-devthrottle schedule disable cj_abc123
+Disabled nightly (cj_abc123).
+help[2]:
+  cc-devthrottle schedule enable cj_abc123
+  cc-devthrottle schedule delete cj_abc123
 ```
 
 ```
