@@ -233,6 +233,9 @@ public sealed class SessionKeyGuardTests
     // judged, and whether the verdicts reach its screens. Both say how the product BEHAVES.
     [InlineData("PUT", "/gateway/turn-verdict-judge")]
     [InlineData("PUT", "/gateway/turn-verdict-colour")]
+    // The account's Fleet Manager mark: read it, and set or clear it (both are the one PUT).
+    [InlineData("GET", "/gateway/fleet-manager")]
+    [InlineData("PUT", "/gateway/fleet-manager")]
     // Handovers: list, read one, write one, remove one. Moving a session needs the first three.
     [InlineData("GET", "/directors/d-1/handovers")]
     [InlineData("GET", "/directors/d-1/handovers/content")]
@@ -337,6 +340,10 @@ public sealed class SessionKeyGuardTests
     [InlineData("DELETE", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdicts")]
     [InlineData("POST", "/gateway/turn-verdict-judge")]
     [InlineData("DELETE", "/gateway/turn-verdict-colour")]
+    // Clearing the Fleet Manager mark is a PUT with a null id, so no other verb is a route there.
+    [InlineData("POST", "/gateway/fleet-manager")]
+    [InlineData("DELETE", "/gateway/fleet-manager")]
+    [InlineData("PUT", "/gateway/fleet-manager/anything")]
     // And nothing hung off a verdict path later is reachable by accident - the allow matches a length
     // of exactly three segments.
     [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict/options")]

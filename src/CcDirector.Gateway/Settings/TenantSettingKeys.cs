@@ -178,6 +178,15 @@ public static class TenantSettingKeys
     /// stays exactly the colour the detector made it.</summary>
     public const string TurnVerdictColourEnabled = "turn_verdict_colour_enabled";
 
+    /// <summary>
+    /// WHICH SESSION IS THIS ACCOUNT'S FLEET MANAGER, as that session's id - Fleet Manager mission. There is
+    /// exactly one per account, and this is the mark that says which: the Wingman judges the sessions that
+    /// session directly owns, and the session list pins it first. No operator global default and no default
+    /// value - an account with no row has no Fleet Manager. The workflow a session is seated on never stands
+    /// in for this mark, because that seat is inherited.
+    /// </summary>
+    public const string FleetManagerSessionId = "fleet_manager_session_id";
+
     /// <summary>Every key this resolver serves, for validation and enumeration.</summary>
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -188,5 +197,6 @@ public static class TenantSettingKeys
         SessionSupervisorEnabled, SessionSupervisorFirstRetrySeconds, SessionSupervisorRetryCadenceMinutes,
         SessionSupervisorMaxLongRetries, SessionSupervisorModelFallbackEnabled,
         TurnVerdictJudgeEnabled, TurnVerdictColourEnabled,
+        FleetManagerSessionId,
     };
 }

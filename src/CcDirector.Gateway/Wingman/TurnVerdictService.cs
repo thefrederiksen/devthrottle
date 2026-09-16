@@ -86,10 +86,13 @@ public interface ITurnVerdictEnvironment
     /// that threw would land in the flight's exception boundary. Production hands the trace to
     /// <see cref="TurnVerdictTraceWriter"/>, whose enqueue can do neither.
     ///
-    /// A HELD SESSION IS TRACED ONLY WHEN A PERSON ASKS. Every automatic request skips a held session before its
-    /// screen is read, so its trace carries a cause and no content. A person pressing Explain on a held session is
-    /// judged - that is the on-demand rule - and its trace keeps what the judge was given, because the person asked
-    /// to see exactly that and it belongs to the same account.
+    /// A HELD SESSION IS TRACED ONLY WHEN A PERSON ASKS - OR WHEN THE ACCOUNT'S FLEET MANAGER HOLDS IT. Every automatic request
+    /// skips a session that is held for judging before its screen is read, so its trace carries a cause and no
+    /// content. A person pressing Explain on a held session is judged - that is the on-demand rule - and its trace
+    /// keeps what the judge was given, because the person asked to see exactly that and it belongs to the same
+    /// account. A session the account's Fleet Manager holds is judged automatically on its turn end and snooze
+    /// expiry (owner ruling, 2026-09-16), so its trace keeps its content the same way; it is the same account's
+    /// session.
     /// </summary>
     void RecordTrace(TenantId tenant, TurnVerdictTrace trace);
 
@@ -107,9 +110,20 @@ public interface ITurnVerdictEnvironment
     DateTime NowUtc();
 }
 
-/// <summary>One snapshot's answer about one session: its facts (null when it is not in the fresh roster) and
-/// whether a live owning session holds it.</summary>
-public sealed record TurnVerdictSessionState(SessionDto? Facts, bool Held);
+/// <summary>One snapshot's answer about one session: its facts (null when it is not in the fresh roster), whether
+/// a live owning session holds it, and whether that direct owner is the account's Fleet Manager.</summary>
+/// <param name="Held">A live owning session holds this one. HELD FOR NARRATION: the Wingman never reads a held
+/// session aloud to the owner, whoever holds it.</param>
+/// <param name="OwnedByFleetManager">The live owner is the session the account has marked as its Fleet Manager
+/// (only ever true when <paramref name="Held"/> is). Such a session is still judged automatically and its verdict
+/// stored under its own id, so it is not <see cref="HeldForJudging"/>. Carrying that verdict to the Fleet Manager
+/// is step 4 of the Fleet Manager mission and is not done here.</param>
+public sealed record TurnVerdictSessionState(SessionDto? Facts, bool Held, bool OwnedByFleetManager = false)
+{
+    /// <summary>HELD FOR JUDGING: the automatic turn verdict stands down. Every held session except one a Fleet
+    /// Manager owns (owner ruling, 2026-09-16).</summary>
+    public bool HeldForJudging => Held && !OwnedByFleetManager;
+}
 
 /// <summary>The judge's raw answer, which model gave it, and how long it took.</summary>
 public sealed record TurnVerdictJudgeAnswer(string Raw, string Model, double ReplySeconds);
@@ -229,8 +243,10 @@ public sealed record TurnVerdictOutcome
 /// session's stop costs exactly one model call.
 ///
 /// WHAT IT NEVER DOES. It never decides whether a stop happened (the detector does), never types into a
-/// session, never snoozes or closes one, never reads a session a live owning session is holding, and never keeps
-/// a verdict across a Working transition.
+/// session, never snoozes or closes one, never reads a session a live owning session is holding - except that a
+/// turn end or a snooze expiry of a session the account's Fleet Manager holds IS judged and its verdict stored
+/// (owner ruling, 2026-09-16; carrying it to the Fleet Manager is step 4, not built here); it is still never
+/// narrated - and never keeps a verdict across a Working transition.
 ///
 /// THE ORDER, and it is the order of cost. Everything that is free is asked before anything is read, and
 /// everything read is read before anything is paid for: the per-session gate (a second stop for a session
@@ -471,7 +487,9 @@ public sealed class TurnVerdictService : IDisposable
     public bool IsReading(TenantId tenant, string sessionId) => _reading.ContainsKey((tenant, sessionId));
 
     /// <summary>Is a live owning session holding this session? The one held check every narration caller asks,
-    /// resolved against the whole roster.</summary>
+    /// resolved against the whole roster. HELD FOR NARRATION: true for a session the account's Fleet Manager holds
+    /// too, so the Wingman never reads it aloud to the owner. The automatic judgement asks
+    /// <see cref="TurnVerdictSessionState.HeldForJudging"/> instead.</summary>
     public bool IsHeld(TenantId tenant, string sessionId) => _env.ReadSessionState(tenant, sessionId).Held;
 
     /// <summary>This session's latest stored verdict, or null.</summary>
@@ -599,7 +617,7 @@ public sealed class TurnVerdictService : IDisposable
         try
         {
             firstState = _env.ReadSessionState(signal.Tenant, signal.SessionId);
-            if (WillJudgeAutomatic(signal.Tenant, signal.SessionId, firstState))
+            if (WillJudgeAutomatic(signal.Tenant, signal.SessionId, firstState, TurnVerdictTrigger.TurnEnd))
                 _reading[key] = 1;
         }
         catch (Exception ex)
@@ -668,7 +686,7 @@ public sealed class TurnVerdictService : IDisposable
         try
         {
             firstState = _env.ReadSessionState(tenant, sessionId);
-            reading = WillJudgeAutomatic(tenant, sessionId, firstState);
+            reading = WillJudgeAutomatic(tenant, sessionId, firstState, TurnVerdictTrigger.SnoozeExpiry);
             if (reading) _reading[key] = 1;
         }
         catch (Exception ex)
@@ -968,11 +986,12 @@ public sealed class TurnVerdictService : IDisposable
         //
         // ONE SNAPSHOT for the role and the facts, so the two cannot describe different moments. HELD FIRST: a
         // session a live owning session holds is not the owner's to be read, so its screen is never read and no
-        // model is asked about it.
+        // model is asked about it - unless the account's Fleet Manager holds it and this is a turn end or a snooze
+        // expiry, when it is judged and stored (see SessionStateSkipCause).
         // A turn end hands in the snapshot its synchronous check already took, so the roster is read once for that
         // check and not twice.
         var state = firstState ?? _env.ReadSessionState(tenant, sid);
-        if (SessionStateSkipCause(state, automatic) is { } cause)
+        if (SessionStateSkipCause(state, trigger) is { } cause)
             return Skip(tenant, directorId, sid, trigger, cause, settings, observedAt);
         var facts = state.Facts;
         // THE JUDGE SWITCH binds the two triggers nobody is waiting on: the detector's turn end, and a snooze
@@ -990,7 +1009,7 @@ public sealed class TurnVerdictService : IDisposable
         if (automatic)
         {
             state = _env.ReadSessionState(tenant, sid);
-            if (SessionStateSkipCause(state, automatic) is { } lateCause)
+            if (SessionStateSkipCause(state, trigger) is { } lateCause)
                 return Skip(tenant, directorId, sid, trigger, lateCause, settings, observedAt);
             facts = state.Facts;
         }
@@ -1670,10 +1689,19 @@ public sealed class TurnVerdictService : IDisposable
     /// turn end, a voice session's narration and its re-attempts, the idle sweep - stands down for a session that
     /// is held, not in the fresh roster, brand-new, exited or crashed, or Working: a Working session's screen
     /// is a turn in progress, not a stop. A person's own request stands down only for a brand-new session.
+    ///
+    /// WHICH "HELD" DEPENDS ON THE TRIGGER (owner ruling, 2026-09-16). The two triggers that only JUDGE - the turn
+    /// end and the snooze expiry - ask <see cref="TurnVerdictSessionState.HeldForJudging"/>, so a session the
+    /// account's Fleet Manager holds is judged. The two that exist to NARRATE - a voice session's narration and the
+    /// idle sweep - ask <see cref="TurnVerdictSessionState.Held"/>, so that session is never read aloud to the owner.
     /// </summary>
-    private static string? SessionStateSkipCause(TurnVerdictSessionState state, bool automatic)
+    private static string? SessionStateSkipCause(TurnVerdictSessionState state, TurnVerdictTrigger trigger)
     {
-        if (automatic && state.Held) return ActivityCauses.Held;
+        var automatic = trigger != TurnVerdictTrigger.OnDemand;
+        var held = trigger is TurnVerdictTrigger.TurnEnd or TurnVerdictTrigger.SnoozeExpiry
+            ? state.HeldForJudging
+            : state.Held;
+        if (automatic && held) return ActivityCauses.Held;
         if (state.Facts is null) return automatic ? ActivityCauses.SessionNotLive : null;
         if (state.Facts.IsBrandNew) return ActivityCauses.BrandNew;
         if (automatic && IsExited(state.Facts)) return ActivityCauses.SessionExit;
@@ -1692,9 +1720,9 @@ public sealed class TurnVerdictService : IDisposable
     /// again, properly, inside its own boundary - so a stop this answers yes for and the flight then skips shows
     /// reading only until the flight exits.
     /// </summary>
-    private bool WillJudgeAutomatic(TenantId tenant, string sid, TurnVerdictSessionState state)
+    private bool WillJudgeAutomatic(TenantId tenant, string sid, TurnVerdictSessionState state, TurnVerdictTrigger trigger)
     {
-        if (SessionStateSkipCause(state, automatic: true) is not null) return false;
+        if (SessionStateSkipCause(state, trigger) is not null) return false;
         var settings = _env.Settings(tenant);
         if (!settings.JudgeEnabled && !_env.IsVoiceSession(tenant, sid)) return false;
         var load = _tenantLoad.TryGetValue(tenant, out var box) ? Volatile.Read(ref box.Value) : 0;

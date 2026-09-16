@@ -669,6 +669,7 @@ COMMANDS:
   mission list     List the missions on the Gateway, active ones by default.
   message send     Send a message to one session, or broadcast with all.
   message ask      Ask one session a question and print its answer.
+  fleet-manager    Show, set, or clear which session is this account's one Fleet Manager.
   skill list       List every skill in the fleet library.
   skill get        Print a skill in full, ready to follow.
   skill pull       Pull a skill into a directory for editing.
@@ -851,6 +852,27 @@ help[5]:
   one-off; or a notify policy other than none, always or failure. With no filter, `--json` prints the
   rows as the Gateway sent them.
 - **An empty answer says so**: `count: 0`, or `count: 0 of N total` when a filter matched nothing.
+
+### Fleet Manager
+
+```
+USAGE: cc-devthrottle fleet-manager show [--json]
+       cc-devthrottle fleet-manager set [SESSION] [--json]
+       cc-devthrottle fleet-manager clear [--json]
+
+ARGUMENTS:
+  SESSION  The session to mark: its number, an id prefix, or its name. Omit to mark this session.
+```
+
+An account has exactly one Fleet Manager, and this is the mark that says which session it is. It is
+held on the Gateway (`GET` and `PUT /gateway/fleet-manager`). The Wingman judges the turn ends of the
+sessions that session directly owns; every other session with a live owner is left alone. The
+workflow a session is seated on never makes it the Fleet Manager, and a marked session that another
+session owns is not treated as one while that ownership stands.
+
+`set` replaces any earlier mark. `clear` removes it. `show` prints the full id and the name, or
+`fleet-manager: none`. `--json` prints `{"sessionId": "<id>"}`, or `{"sessionId": null}` when there is
+no mark.
 
 ### Message Send
 
