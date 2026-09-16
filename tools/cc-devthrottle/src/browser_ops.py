@@ -197,18 +197,21 @@ def start_browser(target: str, json_output: bool) -> None:
     status = gateway.field(dto, "statusLabel", "StatusLabel")
     bu_name = gateway.field(dto, "buName", "BuName")
     bu_url = gateway.field(dto, "buCdpUrl", "BuCdpUrl")
-    attach_line = _attach_line(bname)
     axi_cli.write_lines(
-        f'Started "{bname}" ({status}). Attach the harness with:',
-        f"  {attach_line}",
+        f'Started "{bname}" ({status}). Attach the harness in Bash or zsh with:',
+        f"  {_eval_attach_line(bname)}",
         f"    BU_NAME={bu_name}",
         f"    BU_CDP_URL={bu_url}",
     )
-    axi_cli.print_next([attach_line, f"cc-devthrottle browser stop {_name_arg(bname)}"])
+    # The next step must work in any shell, so it is the attach command itself - never an `eval` or
+    # `export` line, which PowerShell does not have.
+    axi_cli.print_next(
+        [f"cc-devthrottle browser attach {_name_arg(bname)}", f"cc-devthrottle browser stop {_name_arg(bname)}"]
+    )
 
 
-def _attach_line(name: object) -> str:
-    """The line that points the harness at a started browser. The name sits in single quotes inside
+def _eval_attach_line(name: object) -> str:
+    """The Bash or zsh line that points the harness at a started browser. The name sits in single quotes inside
     double quotes, so it is written in only when `_name_arg` would write it AND it holds no single
     quote; otherwise the line carries the placeholder."""
     safe = isinstance(name, str) and _name_arg(name) == f'"{name}"' and "'" not in name

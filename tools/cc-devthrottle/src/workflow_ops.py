@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import socket
 import sys
 from pathlib import Path
@@ -35,13 +34,15 @@ if _tools_dir not in sys.path:
 
 from cc_shared import gateway  # noqa: E402
 
-from . import axi_cli  # noqa: E402
+from . import axi_cli, bundle_swap  # noqa: E402
 
 TIMEOUT_SECONDS = 15
 WORKFLOW_JSON = "workflow.json"
 INSTRUCTIONS_MD = "instructions.md"
 HELPERS_DIR = "helpers"
 HASH_SIDECAR = ".workflow-hash"
+# The entries of a pulled or cached workflow directory this command writes, and so may replace.
+_OWNED_ENTRIES = (WORKFLOW_JSON, INSTRUCTIONS_MD, HELPERS_DIR, HASH_SIDECAR)
 
 console = Console()
 err_console = Console(stderr=True)
@@ -501,29 +502,70 @@ def pull_workflow(workflow_id: str, directory: str, version: Optional[int]) -> N
     axi_cli.print_next([f"cc-devthrottle workflow push {_ref(workflow_id)} --dir {_dir_arg(directory)}"])
 
 
-def _pulled_files(detail: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """The version's helper files, refused unless the Gateway sent them as an explicit list.
+def _checked_bundle(detail: Any) -> Dict[str, Any]:
+    """Check the WHOLE version detail before anything on disk is touched.
 
-    A pull deletes every local helper the version does not carry, so an answer that omits `files`
-    must never be read as "no helpers": that would wipe the directory on a partial answer. An
-    explicit empty list is the only way to say "no helpers"."""
-    files = detail.get("files")
-    if not isinstance(files, list):
-        raise GatewayError("the Gateway's answer did not list the version's helper files, so nothing was written.")
-    for entry in files:
+    A pull or a cache refresh replaces the local helpers with the version's, so a partial or broken
+    answer must be refused outright rather than read as "empty": a helper with no content would
+    become an empty file, missing instructions an empty instructions.md, and a missing list a wiped
+    helpers directory. Every helper must carry a safe bare name and text content; the instructions
+    and the bundle hash must be present."""
+
+    def refuse(what: str) -> GatewayError:
+        return GatewayError(f"the Gateway's answer {what}, so nothing was written.")
+
+    if not isinstance(detail, dict):
+        raise refuse("was not a workflow version")
+    instructions = detail.get("instructionsMarkdown")
+    if not isinstance(instructions, str):
+        raise refuse("did not include the workflow's instructions")
+    content_hash = detail.get("contentHash")
+    if not isinstance(content_hash, str) or not content_hash:
+        raise refuse("did not include the version's content hash")
+    entries = detail.get("files")
+    if not isinstance(entries, list):
+        raise refuse("did not list the version's helper files")
+
+    files: List[Dict[str, str]] = []
+    seen = set()
+    for entry in entries:
         if not isinstance(entry, dict) or not isinstance(entry.get("fileName"), str):
-            raise GatewayError("the Gateway's answer lists a helper file with no name, so nothing was written.")
-    return files
+            raise refuse("lists a helper file with no name")
+        name = _safe_file_name(entry["fileName"])
+        if name.lower() in seen:
+            raise refuse(f"lists the helper file '{name}' twice")
+        seen.add(name.lower())
+        content = entry.get("content")
+        if not isinstance(content, str):
+            raise refuse(f"has no content for the helper file '{name}'")
+        try:
+            content.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise refuse(f"has content for '{name}' that cannot be written as UTF-8 ({exc})") from exc
+        files.append({"fileName": name, "content": content})
+    return {"instructions": instructions, "contentHash": content_hash, "files": files}
+
+
+def _write_bundle(root: Path, bundle: Dict[str, Any]) -> None:
+    """Write checked instructions, helpers and hash sidecar into an empty directory."""
+    _write_exact(root / INSTRUCTIONS_MD, bundle["instructions"])
+    if bundle["files"]:
+        helpers = root / HELPERS_DIR
+        helpers.mkdir()
+        for f in bundle["files"]:
+            _write_exact(helpers / f["fileName"], f["content"])
+    (root / HASH_SIDECAR).write_text(bundle["contentHash"], encoding="utf-8")
 
 
 def _write_pulled(target: Path, workflow_id: str, detail: Dict[str, Any]) -> None:
-    """Write one pulled version into `target`. Every helper file name is checked BEFORE anything is
-    written, so an unsafe name from the Gateway leaves the directory as it was."""
-    files = _pulled_files(detail)
-    for f in files:
-        _safe_file_name(f["fileName"])
+    """Write one pulled version into `target`. The whole answer is checked BEFORE anything is
+    written, and the new files replace the old ones in one swap, so a bad answer or a failed write
+    leaves the directory exactly as it was.
 
-    target.mkdir(parents=True, exist_ok=True)
+    The helpers directory mirrors the SERVER: a helper another author deleted on the Gateway must
+    not survive locally and be resurrected by the next push. Files in `target` this command does not
+    own are left alone."""
+    bundle = _checked_bundle(detail)
     metadata = {
         "id": detail.get("workflowId", workflow_id),
         "name": detail.get("name", ""),
@@ -533,18 +575,12 @@ def _write_pulled(target: Path, workflow_id: str, detail: Dict[str, Any]) -> Non
         "steps": detail.get("steps") or [],
         "outcomeCriteria": detail.get("outcomeCriteria") or [],
     }
-    (target / WORKFLOW_JSON).write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
-    _write_exact(target / INSTRUCTIONS_MD, detail.get("instructionsMarkdown") or "")
-    # The helpers directory mirrors the SERVER exactly: clear it first, so a helper another author
-    # deleted on the Gateway does not survive locally and get resurrected by the next push.
-    helpers = target / HELPERS_DIR
-    if helpers.is_dir():
-        shutil.rmtree(helpers)
-    if files:
-        helpers.mkdir()
-        for f in files:
-            _write_exact(helpers / _safe_file_name(f["fileName"]), f.get("content") or "")
-    (target / HASH_SIDECAR).write_text(detail.get("contentHash", ""), encoding="utf-8")
+
+    def build(staging: Path) -> None:
+        (staging / WORKFLOW_JSON).write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+        _write_bundle(staging, bundle)
+
+    bundle_swap.replace_directory(target, build, _OWNED_ENTRIES)
 
 
 def _read_directory(workflow_id: str, directory: str, note: Optional[str]) -> Dict[str, Any]:
@@ -899,14 +935,13 @@ def materialize_workflow(workflow_id: str, version: Optional[int]) -> None:
     local_app_data = os.environ.get("LOCALAPPDATA") or str(Path.home() / ".local" / "share")
     root = Path(local_app_data) / "cc-director" / "workflows" / workflow_id / str(version)
     hash_file = root / HASH_SIDECAR
-    expected = detail.get("contentHash", "")
-    files = detail.get("files") or []
     try:
-        for f in files:
-            _safe_file_name(f["fileName"])
+        bundle = _checked_bundle(detail)
     except GatewayError as ex:
         _fail(str(ex), [f"cc-devthrottle workflow show {_ref(workflow_id)} --version {version}"])
         return
+    expected = bundle["contentHash"]
+    files = bundle["files"]
 
     # The sidecar alone is not proof the bundle is intact - every listed file must actually exist,
     # or a deleted/half-written cache would be reported as materialized forever.
@@ -921,16 +956,7 @@ def materialize_workflow(workflow_id: str, version: Optional[int]) -> None:
         lines.append(f"Already materialized: {root}")
     else:
         try:
-            root.mkdir(parents=True, exist_ok=True)
-            _write_exact(root / INSTRUCTIONS_MD, detail.get("instructionsMarkdown") or "")
-            helpers = root / HELPERS_DIR
-            if helpers.is_dir():
-                shutil.rmtree(helpers)
-            if files:
-                helpers.mkdir()
-                for f in files:
-                    _write_exact(helpers / _safe_file_name(f["fileName"]), f.get("content") or "")
-            hash_file.write_text(expected, encoding="utf-8")
+            bundle_swap.replace_directory(root, lambda staging: _write_bundle(staging, bundle), _OWNED_ENTRIES)
         except OSError as ex:
             _fail(
                 f"could not write the workflow cache at {root}: {ex}",

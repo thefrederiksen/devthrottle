@@ -702,8 +702,12 @@ setup engine behind setup and autostart fails, whose own exit code is kept in th
 or argument to fix is a usage error, written like every other usage error in the tool (the Usage
 line, the valid options, and `help[1]` naming the command's `--help`), and exits 2. `workflow
 delete` and `skill delete` without `--yes` refuse with a usage error when there is no terminal to
-ask on, instead of prompting. `workflow pull` and `skill pull` write nothing unless the Gateway
-lists the version's files explicitly. `--json` output is unchanged, and the raw text of `skill get` and
+ask on, instead of prompting. `workflow pull`, `skill pull`, `workflow materialize` and the file
+cache behind `skill get` change nothing on disk unless the Gateway's whole answer is complete - an
+explicit files list, a safe name and decodable content for every file, the body, and the content
+hash - and they write the new files beside the old ones and swap them in, so a failure part way
+leaves the old files as they were. After `browser start`, the next step is `browser attach`, which
+works in any shell; the `eval` line in its output is the Bash or zsh form. `--json` output is unchanged, and the raw text of `skill get` and
 `workflow instructions` gets nothing added.
 
 ```

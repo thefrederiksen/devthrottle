@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import socket
 import sys
 from pathlib import Path
@@ -53,7 +52,7 @@ if _tools_dir not in sys.path:
 
 from cc_shared import gateway  # noqa: E402
 
-from . import axi_cli  # noqa: E402
+from . import axi_cli, bundle_swap  # noqa: E402
 
 TIMEOUT_SECONDS = 15
 SKILL_JSON = "skill.json"
@@ -350,45 +349,75 @@ def _read_exact(path: Path) -> str:
         return handle.read()
 
 
-def _clear_supporting_files(root: Path) -> None:
-    """Remove every supporting file and empty directory under `root`, keeping only the body and this
-    command's own bookkeeping. A pull must mirror the server, and an additive write would let a file
-    somebody deleted on the Gateway live on locally and be pushed straight back."""
-    keep = {SKILL_JSON, HASH_SIDECAR, SKILL_MD}
-    for path in sorted(root.rglob("*"), key=lambda p: len(p.parts), reverse=True):
-        if path.is_file() and path.relative_to(root).as_posix() not in keep:
-            path.unlink()
-        elif path.is_dir() and not any(path.iterdir()):
-            path.rmdir()
+def _checked_bundle(detail: Any) -> Dict[str, Any]:
+    """Check the WHOLE version detail before anything on disk is touched, and return it decoded.
 
-
-def _write_skill_file(root: Path, entry: Dict[str, Any]) -> Path:
-    """Write one supporting file under `root` at its own relative path, creating the directories it
-    needs, decoding base64 content, and setting the executable bit where the platform has one."""
+    A pull or a cache refresh replaces the local files with the version's, so a partial or broken
+    answer must be refused outright rather than read as "empty": a file with no content would
+    become an empty file, a missing body an empty SKILL.md, and a missing list a wiped directory.
+    Every entry must carry a safe relative path and content that decodes; the body and the bundle
+    hash must be present."""
     import base64
+    import binascii
+
+    def refuse(what: str) -> GatewayError:
+        return GatewayError(f"the Gateway's answer {what}, so nothing was written.")
+
+    if not isinstance(detail, dict):
+        raise refuse("was not a skill version")
+    body = detail.get("bodyMarkdown")
+    if not isinstance(body, str):
+        raise refuse("did not include the skill's body")
+    content_hash = detail.get("contentHash")
+    if not isinstance(content_hash, str) or not content_hash:
+        raise refuse("did not include the version's content hash")
+    entries = detail.get("files")
+    if not isinstance(entries, list):
+        raise refuse("did not list the version's supporting files")
+
+    files: List[Dict[str, Any]] = []
+    seen = set()
+    for entry in entries:
+        if not isinstance(entry, dict) or not isinstance(entry.get("fileName"), str):
+            raise refuse("lists a supporting file with no name")
+        relative = _safe_relative_path(entry["fileName"])
+        if relative.lower() in seen:
+            raise refuse(f"lists the supporting file '{relative}' twice")
+        seen.add(relative.lower())
+        content = entry.get("content")
+        if not isinstance(content, str):
+            raise refuse(f"has no content for the supporting file '{relative}'")
+        encoding = (entry.get("encoding") or "utf8").strip().lower()
+        try:
+            if encoding == "base64":
+                data = base64.b64decode(content, validate=True)
+            elif encoding == "utf8":
+                data = content.encode("utf-8")
+            else:
+                raise GatewayError(
+                    f"the Gateway sent file '{relative}' with an encoding this command does not know "
+                    f"('{encoding}'), so nothing was written. Upgrade cc-devthrottle."
+                )
+        except (binascii.Error, UnicodeEncodeError) as exc:
+            raise refuse(f"has content for '{relative}' that does not decode ({exc})") from exc
+        files.append({"fileName": relative, "data": data, "executable": bool(entry.get("executable"))})
+    return {"body": body, "contentHash": content_hash, "files": files}
+
+
+def _write_bundle_files(root: Path, files: List[Dict[str, Any]]) -> None:
+    """Write checked supporting files under `root` at their own relative paths, setting the
+    executable bit where the platform has one."""
     import stat
 
-    relative = _safe_relative_path(entry["fileName"])
-    target = root / Path(relative)
-    target.parent.mkdir(parents=True, exist_ok=True)
-
-    encoding = (entry.get("encoding") or "utf8").strip().lower()
-    if encoding == "base64":
-        target.write_bytes(base64.b64decode(entry.get("content") or "", validate=True))
-    elif encoding == "utf8":
-        _write_exact(target, entry.get("content") or "")
-    else:
-        raise GatewayError(
-            f"the Gateway sent file '{relative}' with an encoding this command does not know "
-            f"('{encoding}'). Upgrade cc-devthrottle."
-        )
-
-    # Windows has no executable bit; on Linux and macOS a bundled script the skill tells an agent to
-    # run is useless without it.
-    if entry.get("executable") and os.name != "nt":
-        mode = target.stat().st_mode
-        target.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-    return target
+    for entry in files:
+        target = root / Path(entry["fileName"])
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(entry["data"])
+        # Windows has no executable bit; on Linux and macOS a bundled script the skill tells an agent
+        # to run is useless without it.
+        if entry["executable"] and os.name != "nt":
+            mode = target.stat().st_mode
+            target.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
 
 
 def _read_tree(root: Path, executable_paths: List[str]) -> List[Dict[str, Any]]:
@@ -546,9 +575,8 @@ def _materialize(skill_id: str, version: int, detail: Dict[str, Any]) -> List[Pa
     fetched, never a substitute for fetching - `get_skill` always resolves the version from the
     Gateway first.
     """
-    files = detail.get("files") or []
-    for f in files:
-        _safe_relative_path(f["fileName"])
+    bundle = _checked_bundle(detail)
+    files = bundle["files"]
 
     local_app_data = os.environ.get("LOCALAPPDATA") or str(Path.home() / ".local" / "share")
     versions_root = Path(local_app_data) / "cc-director" / "skills" / skill_id
@@ -560,7 +588,7 @@ def _materialize(skill_id: str, version: int, detail: Dict[str, Any]) -> List[Pa
     # The hash sidecar sits BESIDE the directory, not inside it: inside, it would be a file the skill
     # did not put there, and it could collide with one the skill did.
     hash_file = versions_root / f"{version}.hash"
-    expected = detail.get("contentHash", "")
+    expected = bundle["contentHash"]
 
     intact = (
         hash_file.is_file()
@@ -569,12 +597,14 @@ def _materialize(skill_id: str, version: int, detail: Dict[str, Any]) -> List[Pa
         and all((root / Path(f["fileName"])).is_file() for f in files)
     )
     if not intact:
-        if root.is_dir():
-            shutil.rmtree(root)
-        root.mkdir(parents=True, exist_ok=True)
-        _write_exact(root / SKILL_MD, detail.get("bodyMarkdown") or "")
-        for f in files:
-            _write_skill_file(root, f)
+        def build(staging: Path) -> None:
+            _write_exact(staging / SKILL_MD, bundle["body"])
+            _write_bundle_files(staging, files)
+
+        # A stale sidecar must not vouch for a half-replaced directory, so it goes first.
+        if hash_file.is_file():
+            hash_file.unlink()
+        bundle_swap.replace_directory(root, build)
         hash_file.write_text(expected, encoding="utf-8")
 
     return [root / Path(f["fileName"]) for f in files]
@@ -691,33 +721,15 @@ def pull_skill(skill_id: str, directory: str, version: Optional[int]) -> None:
     axi_cli.print_next([f"cc-devthrottle skill push {_ref(skill_id)} --dir {_dir_arg(directory)}"])
 
 
-def _pulled_files(detail: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """The version's supporting files, refused unless the Gateway sent them as an explicit list.
-
-    A pull deletes every local supporting file the version does not carry, so an answer that omits
-    `files` must never be read as "no files": that would wipe the directory on a partial answer. An
-    explicit empty list is the only way to say "no supporting files"."""
-    files = detail.get("files")
-    if not isinstance(files, list):
-        raise GatewayError(
-            "the Gateway's answer did not list the version's supporting files, so nothing was written."
-        )
-    for entry in files:
-        if not isinstance(entry, dict) or not isinstance(entry.get("fileName"), str):
-            raise GatewayError(
-                "the Gateway's answer lists a supporting file with no name, so nothing was written."
-            )
-    return files
-
-
 def _write_pulled(target: Path, skill_id: str, detail: Dict[str, Any]) -> None:
-    """Write one pulled version into `target`. Every file path is checked BEFORE anything is written,
-    so an unsafe path from the Gateway leaves the directory as it was."""
-    files = _pulled_files(detail)
-    for entry in files:
-        _safe_relative_path(entry["fileName"])
+    """Write one pulled version into `target`. The whole answer is checked BEFORE anything is
+    written, and the new files replace the old ones in one swap, so a bad answer or a failed write
+    leaves the directory exactly as it was.
 
-    target.mkdir(parents=True, exist_ok=True)
+    The directory mirrors the SERVER: a supporting file another author deleted on the Gateway must
+    not survive locally and be resurrected by the next push, so every existing entry is replaced."""
+    bundle = _checked_bundle(detail)
+    files = bundle["files"]
     metadata = {
         "id": detail.get("skillId", skill_id),
         "name": detail.get("name", ""),
@@ -732,18 +744,16 @@ def _write_pulled(target: Path, skill_id: str, detail: Dict[str, Any]) -> None:
         # Which files are executable. On Windows this list IS the answer, because the filesystem has
         # no bit to read; on Linux and macOS the bit on disk wins and this is a record of what was
         # pulled.
-        "executable": sorted(f["fileName"] for f in files if f.get("executable")),
+        "executable": sorted(f["fileName"] for f in files if f["executable"]),
     }
-    (target / SKILL_JSON).write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
-    _write_exact(target / SKILL_MD, detail.get("bodyMarkdown") or "")
 
-    # The directory mirrors the SERVER exactly: every supporting file this pull did not write is
-    # removed first, so a file another author deleted on the Gateway does not survive locally and get
-    # resurrected by the next push. Only OUR bookkeeping files and the body are spared.
-    _clear_supporting_files(target)
-    for entry in files:
-        _write_skill_file(target, entry)
-    (target / HASH_SIDECAR).write_text(detail.get("contentHash", ""), encoding="utf-8")
+    def build(staging: Path) -> None:
+        (staging / SKILL_JSON).write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+        _write_exact(staging / SKILL_MD, bundle["body"])
+        _write_bundle_files(staging, files)
+        (staging / HASH_SIDECAR).write_text(bundle["contentHash"], encoding="utf-8")
+
+    bundle_swap.replace_directory(target, build)
 
 
 def _read_directory(skill_id: str, directory: str, note: Optional[str]) -> Dict[str, Any]:

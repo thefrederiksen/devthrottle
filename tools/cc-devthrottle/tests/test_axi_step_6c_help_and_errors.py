@@ -509,7 +509,8 @@ class TestWorkflowMutations:
 
     def test_pull_refuses_an_unsafe_helper_name_before_writing_anything(self, workflow_client, tmp_path):
         workflow_client.get_version_detail.return_value = {
-            "version": 2, "files": [{"fileName": "ok.sh", "content": "x"}, {"fileName": "../evil", "content": "x"}],
+            "version": 2, "instructionsMarkdown": "x", "contentHash": "h",
+            "files": [{"fileName": "ok.sh", "content": "x"}, {"fileName": "../evil", "content": "x"}],
         }
         target = tmp_path / "pulled"
         stderr = _assert_error(
@@ -520,7 +521,9 @@ class TestWorkflowMutations:
         assert not target.exists()
 
     def test_pull_into_a_file_is_an_error_not_a_traceback(self, workflow_client, tmp_path):
-        workflow_client.get_version_detail.return_value = {"version": 2, "files": []}
+        workflow_client.get_version_detail.return_value = {
+            "version": 2, "instructionsMarkdown": "x", "contentHash": "h", "files": [],
+        }
         blocker = tmp_path / "a-file"
         blocker.write_text("x")
         stderr = _assert_error(
@@ -542,7 +545,8 @@ class TestWorkflowMutations:
     def test_materialize_refuses_an_unsafe_helper_name(self, workflow_client, tmp_path, monkeypatch):
         monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
         workflow_client.get_version_detail.return_value = {
-            "version": 3, "status": "published", "files": [{"fileName": "a/b", "content": "x"}],
+            "version": 3, "status": "published", "instructionsMarkdown": "x", "contentHash": "h",
+            "files": [{"fileName": "a/b", "content": "x"}],
         }
         _assert_error(
             runner.invoke(app, ["workflow", "materialize", "my-flow", "--version", "3"]),
@@ -619,14 +623,17 @@ class TestSkillMutations:
         skill_client.delete.assert_not_called()
 
     def test_pull_with_an_unsafe_directory_name_uses_the_placeholder(self, skill_client, tmp_path):
-        skill_client.get_version_detail.return_value = {"version": 1, "status": "published", "files": []}
+        skill_client.get_version_detail.return_value = {
+            "version": 1, "status": "published", "bodyMarkdown": "x", "contentHash": "h", "files": [],
+        }
         target = tmp_path / "it's $HOME"
         result = runner.invoke(app, ["skill", "pull", "my-skill", "--dir", str(target), "--version", "1"])
         _assert_plain_with_help(result, 'cc-devthrottle skill push my-skill --dir "<dir>"')
 
     def test_pull_refuses_an_unsafe_path_before_writing_anything(self, skill_client, tmp_path):
         skill_client.get_version_detail.return_value = {
-            "version": 1, "files": [{"fileName": "ok.md", "content": "x"}, {"fileName": "/etc/x", "content": "x"}],
+            "version": 1, "bodyMarkdown": "x", "contentHash": "h",
+            "files": [{"fileName": "ok.md", "content": "x"}, {"fileName": "/etc/x", "content": "x"}],
         }
         target = tmp_path / "pulled"
         _assert_error(
@@ -641,7 +648,7 @@ class TestSkillMutations:
         skill_client.get_body.return_value = "# Body\n"
         skill_client.get_version_detail.return_value = {
             "files": [{"fileName": "bin/tool", "content": "!!not base64!!", "encoding": "base64"}],
-            "contentHash": "h",
+            "bodyMarkdown": "# Body\n", "contentHash": "h",
         }
         result = runner.invoke(app, ["skill", "get", "my-skill"])
         assert result.exit_code == 1
@@ -996,18 +1003,27 @@ class TestBrowser:
     def test_start_names_the_attach_line(self, browsers):
         result = runner.invoke(app, ["browser", "start", "Center Consulting"])
         assert "BU_CDP_URL=http://127.0.0.1:9310" in result.stdout
+        assert "Attach the harness in Bash or zsh with:" in result.stdout
+        assert "  eval \"$(cc-devthrottle browser attach 'Center Consulting')\"" in result.stdout.split("\n")
         _assert_plain_with_help(
             result,
-            "eval \"$(cc-devthrottle browser attach 'Center Consulting')\"",
+            'cc-devthrottle browser attach "Center Consulting"',
             'cc-devthrottle browser stop "Center Consulting"',
         )
+
+    def test_start_next_steps_hold_no_shell_only_line(self, browsers):
+        # PowerShell has neither `eval` nor `export`, so a next step using them cannot be followed there.
+        result = runner.invoke(app, ["browser", "start", "Center Consulting"])
+        help_block = result.stdout[result.stdout.index("help["):]
+        assert "eval" not in help_block and "export" not in help_block and "$(" not in help_block
 
     def test_start_with_a_quote_in_the_name_uses_the_placeholder(self, browsers):
         browsers["answer"] = dict(_BROWSER, name="Soren's")
         result = runner.invoke(app, ["browser", "start", "center-consulting"])
+        assert "  eval \"$(cc-devthrottle browser attach '<name>')\"" in result.stdout.split("\n")
         _assert_plain_with_help(
             result,
-            "eval \"$(cc-devthrottle browser attach '<name>')\"",
+            'cc-devthrottle browser attach "Soren\'s"',
             'cc-devthrottle browser stop "Soren\'s"',
         )
 
@@ -1283,7 +1299,9 @@ class TestEveryCommandLineIsSafe:
             assert "touch pwned" not in line, line
 
     def test_skill_pull_sentence_uses_the_placeholder_for_an_unsafe_directory(self, skill_client, tmp_path):
-        skill_client.get_version_detail.return_value = {"version": 1, "status": "published", "files": []}
+        skill_client.get_version_detail.return_value = {
+            "version": 1, "status": "published", "bodyMarkdown": "x", "contentHash": "h", "files": [],
+        }
         target = tmp_path / "it's $HOME"
         result = runner.invoke(app, ["skill", "pull", "my-skill", "--dir", str(target), "--version", "1"])
         assert result.exit_code == 0, result.stderr
@@ -1292,7 +1310,9 @@ class TestEveryCommandLineIsSafe:
             assert "$HOME" not in line, line
 
     def test_workflow_pull_sentence_uses_the_placeholder_for_an_unsafe_directory(self, workflow_client, tmp_path):
-        workflow_client.get_version_detail.return_value = {"version": 2, "status": "published", "files": []}
+        workflow_client.get_version_detail.return_value = {
+            "version": 2, "status": "published", "instructionsMarkdown": "x", "contentHash": "h", "files": [],
+        }
         target = tmp_path / "it's $HOME"
         result = runner.invoke(app, ["workflow", "pull", "my-flow", "--dir", str(target), "--version", "2"])
         assert result.exit_code == 0, result.stderr
@@ -1312,3 +1332,296 @@ class TestEveryCommandLineIsSafe:
         assert result.stdout.count(f"cc-devthrottle {group} enable <{group}-id>") == 2
         for line in lines:
             assert "touch pwned" not in line, line
+
+
+# ---------------------------------------------------------------------------------------------------
+# Re-check fixes (pull request 2962): a writer that replaces local files checks the WHOLE answer
+# first, and swaps the new files in only once they are all on disk.
+# ---------------------------------------------------------------------------------------------------
+
+# Answers that are wrong somewhere other than the files list itself. Each one used to be written as
+# an empty file, an empty body, or a half-deleted directory.
+_BROKEN_BUNDLES = [
+    pytest.param({"files": [{"fileName": "support.txt"}]}, id="entry-without-content"),
+    pytest.param({"files": [{"fileName": "support.txt", "content": None}]}, id="entry-with-null-content"),
+    pytest.param({"files": [{"fileName": "support.txt", "content": 7}]}, id="entry-with-number-content"),
+    pytest.param({"files": [], "body": None}, id="empty-list-without-body"),
+    pytest.param({"files": [], "body": 5}, id="empty-list-with-number-body"),
+    pytest.param({"files": [], "contentHash": None}, id="without-hash"),
+    pytest.param({"files": [], "contentHash": ""}, id="with-empty-hash"),
+    pytest.param(
+        {"files": [{"fileName": "a.txt", "content": "x"}, {"fileName": "A.txt", "content": "y"}]},
+        id="same-file-twice",
+    ),
+    pytest.param(
+        {"files": [{"fileName": "a.txt", "content": "x"}, {"fileName": "../evil", "content": "y"}]},
+        id="unsafe-name-after-a-good-one",
+    ),
+]
+
+# Skill files may be base64; content that does not decode must be refused before anything moves.
+_BROKEN_SKILL_ONLY = [
+    pytest.param(
+        {"files": [{"fileName": "a.bin", "content": "!!not base64!!", "encoding": "base64"}]},
+        id="invalid-base64",
+    ),
+    pytest.param(
+        {"files": [{"fileName": "a.bin", "content": "QUJD", "encoding": "rot13"}]}, id="unknown-encoding"
+    ),
+]
+
+
+def _skill_detail(broken: dict) -> dict:
+    detail = {
+        "skillId": "my-skill", "version": 1, "status": "published", "bodyMarkdown": "new body",
+        "contentHash": "new-hash",
+    }
+    detail.update({k: v for k, v in broken.items() if k != "body"})
+    if "body" in broken:
+        detail["bodyMarkdown"] = broken["body"]
+        if broken["body"] is None:
+            del detail["bodyMarkdown"]
+    if detail.get("contentHash") is None:
+        detail.pop("contentHash", None)
+    return detail
+
+
+def _workflow_detail(broken: dict) -> dict:
+    detail = {
+        "workflowId": "my-flow", "version": 2, "status": "published", "instructionsMarkdown": "new body",
+        "contentHash": "new-hash",
+    }
+    detail.update({k: v for k, v in broken.items() if k != "body"})
+    if "body" in broken:
+        detail["instructionsMarkdown"] = broken["body"]
+        if broken["body"] is None:
+            del detail["instructionsMarkdown"]
+    if detail.get("contentHash") is None:
+        detail.pop("contentHash", None)
+    return detail
+
+
+def _snapshot(root: Path) -> dict:
+    return {p.relative_to(root).as_posix(): p.read_bytes() for p in sorted(root.rglob("*")) if p.is_file()}
+
+
+def _no_leftovers(parent: Path) -> None:
+    left = [p.name for p in parent.iterdir() if ".incoming-" in p.name or ".outgoing-" in p.name]
+    assert left == [], left
+
+
+def _assert_refused(stderr: str) -> None:
+    # An unsafe path keeps its own long-standing message; every other broken answer says it wrote nothing.
+    assert "nothing was written" in stderr or "unsafe file path" in stderr or "unsafe helper file name" in stderr, stderr
+
+
+class TestReplacingFilesChecksTheWholeAnswerFirst:
+    @pytest.mark.parametrize("broken", _BROKEN_BUNDLES + _BROKEN_SKILL_ONLY)
+    def test_skill_pull_keeps_the_old_bytes(self, skill_client, tmp_path, broken):
+        target = tmp_path / "pulled"
+        _existing_skill(target)
+        before = _snapshot(target)
+        skill_client.get_version_detail.return_value = _skill_detail(broken)
+        stderr = _assert_error(
+            runner.invoke(app, ["skill", "pull", "my-skill", "--dir", str(target), "--version", "1"]),
+            "cc-devthrottle skill show my-skill --version 1",
+        )
+        _assert_refused(stderr)
+        assert _snapshot(target) == before
+        _no_leftovers(tmp_path)
+
+    @pytest.mark.parametrize("broken", _BROKEN_BUNDLES)
+    def test_workflow_pull_keeps_the_old_bytes(self, workflow_client, tmp_path, broken):
+        target = tmp_path / "pulled"
+        _existing_workflow(target)
+        before = _snapshot(target)
+        workflow_client.get_version_detail.return_value = _workflow_detail(broken)
+        stderr = _assert_error(
+            runner.invoke(app, ["workflow", "pull", "my-flow", "--dir", str(target), "--version", "2"]),
+            "cc-devthrottle workflow show my-flow --version 2",
+        )
+        _assert_refused(stderr)
+        assert _snapshot(target) == before
+        _no_leftovers(tmp_path)
+
+    @pytest.mark.parametrize("broken", _BROKEN_BUNDLES + _PARTIAL_FILES)
+    def test_workflow_materialize_keeps_the_cached_helpers(self, workflow_client, tmp_path, monkeypatch, broken):
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        cache = tmp_path / "cc-director" / "workflows" / "my-flow" / "2"
+        _existing_workflow(cache)
+        before = _snapshot(cache)
+        workflow_client.get_version_detail.return_value = _workflow_detail(broken)
+        stderr = _assert_error(
+            runner.invoke(app, ["workflow", "materialize", "my-flow", "--version", "2"]),
+            "cc-devthrottle workflow show my-flow --version 2",
+        )
+        _assert_refused(stderr)
+        assert _snapshot(cache) == before
+        _no_leftovers(cache.parent)
+
+    @pytest.mark.parametrize("broken", _BROKEN_BUNDLES + _BROKEN_SKILL_ONLY + _PARTIAL_FILES)
+    def test_skill_cache_keeps_the_cached_files(self, skill_client, tmp_path, monkeypatch, broken):
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        versions = tmp_path / "cc-director" / "skills" / "my-skill"
+        cache = versions / "7"
+        _existing_skill(cache)
+        (versions / "7.hash").write_text("old-hash")
+        before = _snapshot(versions)
+        skill_client.get_skill.return_value = {"version": 7, "fileCount": 1}
+        skill_client.get_body.return_value = "# Body\n"
+        skill_client.get_version_detail.return_value = _skill_detail(broken)
+        result = runner.invoke(app, ["skill", "get", "my-skill"])
+        assert result.exit_code == 1
+        _assert_refused(result.stderr)
+        assert _snapshot(versions) == before
+        _no_leftovers(versions)
+
+    def test_skill_pull_that_fails_while_writing_keeps_the_old_bytes(self, skill_client, tmp_path, monkeypatch):
+        from src import skill_ops
+
+        target = tmp_path / "pulled"
+        _existing_skill(target)
+        before = _snapshot(target)
+        real = skill_ops._write_bundle_files
+
+        def half_then_fail(root, files):
+            real(root, files[:1])
+            raise OSError("disk full")
+
+        monkeypatch.setattr(skill_ops, "_write_bundle_files", half_then_fail)
+        skill_client.get_version_detail.return_value = _skill_detail(
+            {"files": [{"fileName": "a.txt", "content": "x"}, {"fileName": "b.txt", "content": "y"}]}
+        )
+        stderr = _assert_error(
+            runner.invoke(app, ["skill", "pull", "my-skill", "--dir", str(target), "--version", "1"]),
+            'cc-devthrottle skill pull my-skill --dir "<writable-dir>"',
+        )
+        assert "disk full" in stderr
+        assert _snapshot(target) == before
+        _no_leftovers(tmp_path)
+
+    def test_workflow_materialize_that_fails_while_writing_keeps_the_cached_helpers(
+        self, workflow_client, tmp_path, monkeypatch
+    ):
+        from src import workflow_ops
+
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        cache = tmp_path / "cc-director" / "workflows" / "my-flow" / "2"
+        _existing_workflow(cache)
+        before = _snapshot(cache)
+        real = workflow_ops._write_exact
+
+        def fail_on_helper(path, text):
+            if path.parent.name == workflow_ops.HELPERS_DIR:
+                raise OSError("disk full")
+            real(path, text)
+
+        monkeypatch.setattr(workflow_ops, "_write_exact", fail_on_helper)
+        workflow_client.get_version_detail.return_value = _workflow_detail(
+            {"files": [{"fileName": "new.sh", "content": "echo new"}]}
+        )
+        stderr = _assert_error(
+            runner.invoke(app, ["workflow", "materialize", "my-flow", "--version", "2"]),
+            "cc-devthrottle workflow instructions my-flow --version 2",
+        )
+        assert "disk full" in stderr
+        assert _snapshot(cache) == before
+
+    def test_workflow_pull_replaces_only_what_it_owns(self, workflow_client, tmp_path):
+        from src import workflow_ops
+
+        target = tmp_path / "pulled"
+        _existing_workflow(target)
+        (target / "notes.md").write_text("mine")
+        workflow_client.get_version_detail.return_value = _workflow_detail(
+            {"files": [{"fileName": "new.sh", "content": "echo new"}]}
+        )
+        result = runner.invoke(app, ["workflow", "pull", "my-flow", "--dir", str(target), "--version", "2"])
+        assert result.exit_code == 0, result.stderr
+        assert (target / "notes.md").read_text() == "mine"
+        assert sorted(p.name for p in (target / workflow_ops.HELPERS_DIR).iterdir()) == ["new.sh"]
+        assert (target / workflow_ops.INSTRUCTIONS_MD).read_text() == "new body"
+        assert (target / workflow_ops.HASH_SIDECAR).read_text() == "new-hash"
+        _no_leftovers(tmp_path)
+
+    def test_skill_pull_with_base64_writes_the_decoded_bytes(self, skill_client, tmp_path):
+        target = tmp_path / "pulled"
+        _existing_skill(target)
+        skill_client.get_version_detail.return_value = _skill_detail(
+            {"files": [{"fileName": "bin/a.bin", "content": "AAEC", "encoding": "base64"}]}
+        )
+        result = runner.invoke(app, ["skill", "pull", "my-skill", "--dir", str(target), "--version", "1"])
+        assert result.exit_code == 0, result.stderr
+        assert (target / "bin" / "a.bin").read_bytes() == b"\x00\x01\x02"
+        assert not (target / "support.txt").exists()
+        _no_leftovers(tmp_path)
+
+
+class TestBundleSwap:
+    def test_a_failed_move_puts_the_old_entries_back(self, tmp_path, monkeypatch):
+        import os
+
+        from src import bundle_swap
+
+        target = tmp_path / "t"
+        target.mkdir()
+        (target / "a.txt").write_text("old a")
+        (target / "b.txt").write_text("old b")
+        real = os.replace
+        calls = []
+
+        def fail_on_first_move_in(src, dst):
+            calls.append((src, dst))
+            if Path(dst).parent == target.resolve() and ".incoming-" in Path(src).parent.name:
+                raise OSError("rename failed")
+            real(src, dst)
+
+        monkeypatch.setattr(bundle_swap.os, "replace", fail_on_first_move_in)
+
+        def build(staging):
+            (staging / "a.txt").write_text("new a")
+
+        with pytest.raises(OSError, match="rename failed"):
+            bundle_swap.replace_directory(target, build)
+        assert _snapshot(target) == {"a.txt": b"old a", "b.txt": b"old b"}
+        assert calls, "the move was never attempted"
+        _no_leftovers(tmp_path)
+
+    def test_a_failed_move_after_some_moved_in_removes_them(self, tmp_path, monkeypatch):
+        from src import bundle_swap
+
+        target = tmp_path / "t"
+        target.mkdir()
+        (target / "a.txt").write_text("old a")
+        real = bundle_swap.os.replace
+        moved_in = []
+
+        def fail_on_second_move_in(src, dst):
+            if Path(dst).parent == target.resolve() and ".incoming-" in Path(src).parent.name:
+                moved_in.append(dst)
+                if len(moved_in) == 2:
+                    raise OSError("rename failed")
+            real(src, dst)
+
+        monkeypatch.setattr(bundle_swap.os, "replace", fail_on_second_move_in)
+
+        def build(staging):
+            (staging / "a.txt").write_text("new a")
+            (staging / "z").mkdir()
+            (staging / "z" / "n.txt").write_text("new z")
+
+        with pytest.raises(OSError, match="rename failed"):
+            bundle_swap.replace_directory(target, build)
+        assert _snapshot(target) == {"a.txt": b"old a"}
+        _no_leftovers(tmp_path)
+
+    def test_build_may_not_write_an_entry_it_does_not_own(self, tmp_path):
+        from src import bundle_swap
+
+        target = tmp_path / "t"
+        target.mkdir()
+        (target / "keep.txt").write_text("keep")
+        with pytest.raises(ValueError, match="does not own"):
+            bundle_swap.replace_directory(target, lambda s: (s / "keep.txt").write_text("x"), ["other"])
+        assert (target / "keep.txt").read_text() == "keep"
+        _no_leftovers(tmp_path)
