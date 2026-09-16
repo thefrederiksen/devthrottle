@@ -1002,25 +1002,49 @@ def session_list(
 
 @repo_app.command("list")
 def repo_list(
-    json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
-    dirty: bool = typer.Option(False, "--dirty", help="Only repositories with uncommitted work."),
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output raw JSON: every field, a bare array. Filters still apply."
+    ),
+    dirty: bool = typer.Option(False, "--dirty", help="Only repositories with uncommitted work (same as --state dirty)."),
+    state: str = typer.Option(None, "--state", help="Only these states, comma separated: dirty, clean."),
+    repo: str = typer.Option(None, "--repo", help="Only this repository: its folder name or full path."),
+    machine: str = typer.Option(None, "--machine", help="Only repositories on this machine."),
+    fields: str = typer.Option(
+        None,
+        "--fields",
+        help="Fields to show, comma separated. Default: name,path,machine,state. "
+        "Valid: name, path, machine, state, branch, uncommitted, ahead, behind, behind-main, worktrees, "
+        "safe-to-reap, worktree-bytes, provider, org, remote, director, provisional.",
+    ),
 ) -> None:
-    """List the fleet's repositories with their state and worktree summary."""
+    """List the fleet's repositories: name, full path, machine and state."""
     from .repo_ops import list_repositories
 
-    list_repositories(json_output, dirty_only=dirty)
+    list_repositories(json_output, dirty_only=dirty, state=state, repo=repo, machine=machine, fields=fields)
 
 
 @worktree_app.command("list")
 def worktree_list(
-    json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
-    repo: str = typer.Option(None, "--repo", help="Only worktrees of this repository."),
-    state: str = typer.Option(None, "--state", help="Filter: safe-to-reap, in-use, or needs-attention."),
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output raw JSON: every field, a bare array. Filters still apply."
+    ),
+    repo: str = typer.Option(None, "--repo", help="Only worktrees of this repository: its folder name or full path."),
+    state: str = typer.Option(
+        None, "--state", help="Only these states, comma separated: needs-attention, in-use, safe-to-reap, verifying."
+    ),
+    machine: str = typer.Option(None, "--machine", help="Only worktrees on this machine."),
+    fields: str = typer.Option(
+        None,
+        "--fields",
+        help="Fields to show, comma separated. Default: path,repo,machine,state. "
+        "Valid: path, repo, machine, state, branch, reason, sessions, bytes, last-activity, repo-path, "
+        "director, data-age, provisional.",
+    ),
 ) -> None:
-    """List the fleet's worktrees: verdicts, sizes, and which session is in each."""
+    """List the fleet's worktrees: full path, repository, machine and state."""
     from .repo_ops import list_worktrees
 
-    list_worktrees(json_output, repo=repo, state=state)
+    list_worktrees(json_output, repo=repo, state=state, machine=machine, fields=fields)
 
 
 @machine_app.command("list")
