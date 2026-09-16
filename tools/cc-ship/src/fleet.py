@@ -5,10 +5,12 @@ fleet exactly the way any other session does and needs no credentials of its own
 
 A spawned session has FINISHED only when BOTH are true:
   - the output file it was told to write exists, and
-  - the session has been SEEN flagged done (pendingDeletion). Leaving the fleet list
-    counts only after the flag was seen: the Director keeps a flagged session listed
-    for 30 seconds, far longer than one poll, so a real finish is always observed
-    with its flag. A session that vanishes without that is a crash, output or not.
+  - the session has said it is done: it was SEEN flagged done (pendingDeletion), or it
+    wrote its done marker (<output>.done), which the brief has it write only after its
+    `session done` command succeeded. The marker matters because the Director reaps a
+    flagged session 30 seconds later, and nobody may be polling in that window (the
+    author runs `cc-ship wait` when it chooses). A session that vanishes with neither
+    is a crash, output or not.
 A session that leaves the fleet list without the flag, or is reported crashed, has
 FAILED. A session that was seen working and then sits idle with no output
 and no done flag has STALLED - for example it stopped on an error it could not get
@@ -127,6 +129,11 @@ def stop_session(session_id: str, reason: str) -> str:
     return _run(["session", "stop", session_id, "--reason", reason])
 
 
+def done_marker(output: Path) -> Path:
+    """The file a session writes after `session done` succeeded (see the module note)."""
+    return output.with_name(output.name + ".done")
+
+
 @dataclass
 class WaitResult:
     outcome: str  # FINISHED, CRASHED, STALLED or TIMED_OUT
@@ -172,10 +179,13 @@ def wait_for_output(
     back on the next call, or a stalled session would never be recognised.
     """
 
-    def output_ready() -> bool:
-        if not output.exists():
+    def fresh(path: Path) -> bool:
+        if not path.exists():
             return False
-        return written_after is None or output.stat().st_mtime > written_after
+        return written_after is None or path.stat().st_mtime > written_after
+
+    def output_ready() -> bool:
+        return fresh(output)
 
     observations: list[dict] = []
     deadline = time.monotonic() + timeout_seconds
@@ -188,8 +198,9 @@ def wait_for_output(
     while True:
         row = find_session(session_id)
         ready = output_ready()
+        watch["seen_done"] = (watch["seen_done"] or fresh(done_marker(output))
+                              or bool(row and row.get("pendingDeletion")))
         outcome, reason = classify(ready, row, watch["seen_done"])
-        watch["seen_done"] = watch["seen_done"] or bool(row and row.get("pendingDeletion"))
         if outcome is None and row is not None:
             if row["activityState"] == "Working":
                 watch["seen_working"], watch["idle_since"] = True, None

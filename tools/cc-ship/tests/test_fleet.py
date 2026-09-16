@@ -171,3 +171,48 @@ def test_wait_for_output_NeverSeenWorkingForFiveMinutes_Stalled(tmp_path, monkey
     assert result.outcome == fleet.STALLED
     assert "never seen working" in result.reason
     assert clock[0] - watch["started"] >= fleet.NEVER_WORKED_SECONDS
+
+
+def test_wait_for_output_ReapedBeforeAnyPollButMarkerWritten_Finished(tmp_path, monkeypatch, clock):
+    # Live, 2026-09-16: a reviewer wrote its review, flagged itself done and was reaped
+    # while the author was not inside cc-ship wait; it was wrongly called a crash.
+    out = tmp_path / "review.json"
+    out.write_text("{}", encoding="ascii")
+    fleet.done_marker(out).write_text("done", encoding="ascii")
+    monkeypatch.setattr(fleet, "find_session", lambda sid: None)
+    result = fleet.wait_for_output("s1", out, 60, poll_seconds=10)
+    assert result.outcome == fleet.FINISHED
+
+
+def test_wait_for_output_OutputButNoMarkerAndGone_StillCrashed(tmp_path, monkeypatch, clock):
+    out = tmp_path / "review.json"
+    out.write_text("{}", encoding="ascii")
+    monkeypatch.setattr(fleet, "find_session", lambda sid: None)
+    result = fleet.wait_for_output("s1", out, 60, poll_seconds=10)
+    assert result.outcome == fleet.CRASHED
+
+
+def test_wait_for_output_MarkerFromBeforeCorrection_DoesNotCount(tmp_path, monkeypatch, clock):
+    out = tmp_path / "review.json"
+    fleet.done_marker(out).write_text("done", encoding="ascii")
+    out.write_text("{}", encoding="ascii")
+    later = max(out.stat().st_mtime, fleet.done_marker(out).stat().st_mtime) + 60
+    monkeypatch.setattr(fleet, "find_session", lambda sid: None)
+    result = fleet.wait_for_output("s1", out, 60, poll_seconds=10, written_after=later)
+    assert result.outcome == fleet.CRASHED
+
+
+def test_briefs_EverySessionWritesItsMarkerAfterSessionDone(tmp_path):
+    import briefs
+    out = tmp_path / "review-r1.json"
+    text = briefs.reviewer_brief(repo=tmp_path, base="a", head="b", intent=tmp_path / "i.md",
+                                 diff=tmp_path / "d.patch", decisions=[], output=out,
+                                 repo_rules=[], first_reviewed_head=None)
+    done_at = text.index("cc-devthrottle session done")
+    assert text.index(str(fleet.done_marker(out))) > done_at
+    fix = briefs.correction_brief(out, ["x"], 1, "reviewer")
+    assert str(fleet.done_marker(out)) in fix
+    verify_out = tmp_path / "verify.json"
+    vtext = briefs.verifier_brief(repo=tmp_path, intent=tmp_path / "i.md", preview_url=None,
+                                  browser_state=None, evidence_dir=tmp_path, output=verify_out)
+    assert str(fleet.done_marker(verify_out)) in vtext

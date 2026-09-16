@@ -346,6 +346,7 @@ def _step_review(run: dict) -> dict:
         repo_rules=cfg.rules, first_reviewed_head=run["first_reviewed_head"],
     ), encoding="utf-8")
     output.unlink(missing_ok=True)
+    fleet.done_marker(output).unlink(missing_ok=True)
     _spawn(run, "Reviewer", agent, brief, output)
     run["review_round"] = rnd
     if run["first_reviewed_head"] is None:
@@ -525,6 +526,7 @@ def _step_verify(run: dict) -> bool:
     folder = _folder(run)
     output = folder / "verify.json"
     output.unlink(missing_ok=True)
+    fleet.done_marker(output).unlink(missing_ok=True)
     preview_url = None
     state_file = None
     if cfg.surface == "vercel-preview" and not docs_only:
@@ -603,6 +605,7 @@ def _handle_session_result(run: dict, result: fleet.WaitResult) -> dict:
         return advance(run)
     if result.outcome in (fleet.CRASHED, fleet.STALLED):
         if session["replaced"]:
+            run["session"] = None
             return _fail(run, ShipError(
                 "session-failed",
                 f"The {role.lower()} failed twice ({result.reason}).",
@@ -614,6 +617,7 @@ def _handle_session_result(run: dict, result: fleet.WaitResult) -> dict:
         # One replacement (issue 2935, "Run state"). The partial output of the failed
         # session is removed so only the replacement's file can count.
         output.unlink(missing_ok=True)
+        fleet.done_marker(output).unlink(missing_ok=True)
         if role == "Verifier":
             run["phase"] = "verify"
             run["session"] = None
@@ -646,6 +650,7 @@ def _handle_session_result(run: dict, result: fleet.WaitResult) -> dict:
             raise err
         session["corrections"] += 1
         fleet.clear_done_flag(session["id"])
+        fleet.done_marker(output).unlink(missing_ok=True)
         fix = _folder(run) / f"correction-{role.lower()}-r{run['review_round']}-{session['corrections']}.md"
         fix.write_text(briefs.correction_brief(output, problems, session["corrections"],
                                                role.lower()),
