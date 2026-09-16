@@ -2,8 +2,9 @@
 
 Issue: #2940 (child of #2936). Branch: `mission/dev-reports`. Built, proven, and reviewed twice by an
 independent reviewer from a different agent family (`REVIEW-phase-1.md`), then inspected
-(`INSPECTION-phase-1.md`). Every finding of all three is fixed, and each fix has a test that was watched
-failing without it.
+(`INSPECTION-phase-1.md`), then re-inspected (`INSPECTION-phase-1-round-2.md`). Every finding is fixed. Every
+code fix has a regression test that was watched failing without it; two hygiene fixes (the private path and
+the attribution, inspection findings 5 and 6) have no regression test and were verified by inspection only.
 
 ## Ruling 8: report scripts are blocked
 
@@ -40,14 +41,15 @@ lavish-axi by Kun Chen.
 
 **The shape check** - `src/CcDirector.Gateway/DevReports/DevReportShapeCheck.cs`. Pure static class, no
 endpoint. Every error is a sentence an agent can act on; the status is returned. One header with an
-allowed status, first; one summary right after, with words, not hidden; one questions section right
-after, not hidden, with questions or exactly one no-questions element with words; at least one detail
-section; evidence optional and last; no section inside another; each question not nested, valid unique id,
+allowed status, first; one summary right after, with words, without the hidden attribute; one questions
+section right after, without the hidden attribute, with questions or exactly one no-questions element with
+words; at least one detail section; evidence optional and last; no section inside another; each question not nested, valid unique id,
 two or more options inside it sharing one radio name no other radio uses, exactly one recommended; no loose
 options; no scripts, no inline event handlers in the live document. Since the inspection (ruling 9) it
 parses the report with AngleSharp, a real HTML5 parser, after the host's head and with scripting on, and
-judges the document a browser builds. It is guidance for agents, not the security boundary: it does not
-evaluate stylesheets, and the host policy of ruling 8 is what stops a report acting for the owner.
+judges the document a browser builds; a marker on an element a browser never renders does not count, and
+text a browser does not draw is not words. It judges structure, not CSS. It is guidance for agents, not the
+security boundary: the host policy of ruling 8 is what stops a report acting for the owner.
 
 ## What is proven, and how
 
@@ -56,11 +58,13 @@ evaluate stylesheets, and the host policy of ruling 8 is what stops a report act
   revisions and ids, message validation, the page (preselection, notes, no-host Send, nested questions,
   length limits including an overlong question text, `__proto__`, answer drafts, tray out of reach of
   report CSS, markup that copies flags, and the inspection's two-name radio payload).
-- **Shape check tests** - `DevReportShapeCheckTests.cs`, 69 tests: a good report and the browser proof's
+- **Shape check tests** - `DevReportShapeCheckTests.cs`, 82 tests: a good report and the browser proof's
   sample report pass, and every rule has a report breaking only that rule, including every bypass either
   review named (plaintext, `</scripture`, nested template, the text-only elements, detached options,
   nesting, unclosed elements, `&nbsp;`-only and implicitly closed no-questions text, scripts, handlers),
-  and every inspection payload (both commented-template payloads, hidden and empty sections, radio names).
+  and every inspection payload (both commented-template payloads, hidden and empty sections, radio names,
+  and round 2's unrendered header and detail markers and SVG-description summary), plus a report at the 10
+  megabyte publish limit checked in bounded time.
 - **Watched failing.** Pre-review guards (rowspan shift, deep validation, evidence last); all 12 first-review
   checker tests against the pre-review checker; option ownership, the refused branch and the comment length
   check each turn only their own test red. In the browser: without saving state after a push, claim J fails;
@@ -90,9 +94,9 @@ evaluate stylesheets, and the host policy of ruling 8 is what stops a report act
 - **CSS can still obstruct.** A report can lay something over the tray or hide the whole page; it cannot
   hide the tray by name or act for the owner. Accepted as visibly broken, not silently hostile.
 - **Phone touch behaviour** - text selection and tapping on a real phone were not driven.
-- **The shape check does not evaluate stylesheets.** A section hidden by a CSS rule, rather than the
-  `hidden` attribute or an inline `display: none`, still passes; a test records that on purpose. No timing
-  benchmark was run on a 10 megabyte report. It does not check summary length.
+- **The shape check does not judge CSS.** A section hidden by a style - an inline `style` attribute or a
+  stylesheet rule, rather than the `hidden` attribute - still passes; a test records that on purpose. It does
+  not check summary length.
 - **Parked Gateway suites.** `CcDirector.Gateway.UnitTests` was run in full after the inspection fixes:
   4,884 passed, 2 skipped, 8 failed, all "Failed to connect to 127.0.0.1:55432" in
   `HostedSchemaRefusesAnUnownedRowTests`, a PostgreSQL only `-Parked` starts. `-Parked` was not run; nothing
@@ -121,5 +125,28 @@ All six fixed on this branch:
 4. **Question text is sent whole or not at all.** No cut before the length check, for the explicit text or
    the heading. Proof: with the old cut back, the overlong and long-heading tests go red.
 5. **No private path in the proof.** Playwright comes from `PLAYWRIGHT_PATH` or ordinary resolution; missing,
-   the run stops with FAIL and the instruction (watched: exit 1 with the message).
-6. **Attribution removed** from this report.
+   the run stops with FAIL and the instruction (watched: exit 1 with the message). **No regression test:**
+   verified by inspection only. The missing-package run proves the failure message, not that putting the
+   private fallback back would be caught.
+6. **Attribution removed** from the phase documents. **No regression test:** verified by inspection only.
+
+## Inspection, round 2
+
+`INSPECTION-phase-1-round-2.md`: 4 medium, 1 low. All five closed:
+
+1. **An unrendered element is not a section.** A `<template>`, `<noscript>`, `<style>`, `<script>`, anything
+   the parser puts in the head (such as `<meta>`), or anything inside one, never counts as a section marker or
+   as the no-questions element. Proof: with that filter removed, the header, detail and no-questions tests go
+   red (8 cases).
+2. **Styles are not judged** (Architect ruling for this round). The inline `display:none` rule and its promise
+   in the contract are gone; the `hidden` attribute rule stays. The class comment and the contract say plainly
+   that styles can hide a section and the check does not try to detect it; a test records a stylesheet rule,
+   an inline `display:none` and the inspection's `display:/**/none` all passing. Closed by removing a promise,
+   so there is no revert proof.
+3. **Undrawn SVG text is not words.** SVG `desc`, `title` and `metadata` do not count toward the summary's
+   words. Proof: with the old rule back, the `desc` and `metadata` cases go red (`title` was already covered).
+4. **The radio-name check is linear.** Names are counted once for the whole document. A report at the 10
+   megabyte publish limit (49,202 questions) is checked in 1.6 to 2.2 seconds, Release and Debug, under a
+   30 second bound. Proof: with the old per-question scan back, a 3 megabyte report took 89 seconds and the
+   test went red; the fixed check took 1 second on it.
+5. **This report** now says which fixes have a regression test and which were verified by inspection only.

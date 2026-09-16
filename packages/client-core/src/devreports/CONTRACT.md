@@ -46,12 +46,17 @@ script sees in the page.
 
 - Sections do not contain other sections. A section left unclosed usually ends up holding the next one,
   and the check says so.
-- The executive summary has words in it, and neither the summary nor the questions section is hidden by
-  the `hidden` attribute or an inline `display: none`, on itself or on an element around it.
+- A marker on an element a browser never renders does not count: a `<template>`, `<noscript>`, `<style>`
+  or `<script>` element, anything the parser puts in the head (such as `<meta>`), or anything inside one.
+- The executive summary has words in it, and neither the summary nor the questions section carries the
+  `hidden` attribute, on itself or on an element around it. Text a browser does not draw - in scripts,
+  styles, and SVG `<desc>`, `<title>` and `<metadata>` - is not words.
+
+**The check judges structure, not CSS.** Styles - an inline `style` attribute or a stylesheet rule - can hide
+a section, and the check does not try to detect it. So it cannot promise the owner sees every section.
 
 **The check is guidance, not the security boundary.** It tells the agent at publish time that the report is
-the wrong shape. It does not evaluate stylesheets, so it cannot promise the owner sees every section; what
-stops a report acting for the owner is the host's policy in section 4.
+the wrong shape. What stops a report acting for the owner is the host's policy in section 4.
 
 ### The questions section
 
