@@ -118,6 +118,18 @@ public sealed class WorkflowEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task The_fleet_manager_instructions_are_fetched_and_are_not_empty()
+    {
+        var response = await _http.GetAsync("gateway/workflows/fleet-manager/instructions");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var instructions = await response.Content.ReadAsStringAsync();
+        Assert.False(string.IsNullOrWhiteSpace(instructions),
+            "The fleet-manager workflow is served with empty instructions.");
+        Assert.Contains("# How the Fleet Manager works", instructions);
+    }
+
+    [Fact]
     public async Task The_persisted_catalog_adds_its_fields_without_touching_the_legacy_shape()
     {
         // Workflows mission, phase 1: the catalog is served from the persisted store. The legacy

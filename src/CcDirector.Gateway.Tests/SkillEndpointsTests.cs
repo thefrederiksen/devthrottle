@@ -92,6 +92,18 @@ public sealed class SkillEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task The_fleet_manager_body_is_fetched_and_is_not_empty()
+    {
+        var response = await _http.GetAsync("gateway/skills/fleet-manager/body");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("text/markdown", response.Content.Headers.ContentType!.MediaType);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.False(string.IsNullOrWhiteSpace(body), "The fleet-manager skill is served with an empty body.");
+        Assert.Contains("# The Fleet Manager's commands", body);
+    }
+
+    [Fact]
     public async Task An_unknown_skill_is_a_clean_not_found()
     {
         var response = await _http.GetAsync("gateway/skills/no-such-skill/body");

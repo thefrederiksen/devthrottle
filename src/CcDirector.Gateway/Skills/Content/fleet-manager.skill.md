@@ -17,7 +17,7 @@ Say the gaps plainly; never act as if a missing piece exists.
 | --- | --- |
 | The Wingman's reading of each stop | Built. On every session row, in `session list --json`. |
 | The Wingman reading the sessions YOU own | Being built. Until it is, a session you own may carry no reading - treat that as "cannot tell" and read the session yourself. |
-| Being told when a session you own stops | Not built. Today a session you start tells you with `session report` when its turn ends, so put that in every set of instructions. Between reports, read `session workers`. |
+| Being told when a session you own stops | Being built: the Gateway will tell you at the end of each of their turns. Until it is, read `session workers` and `session list --json` when you need to know. Never ask a session to report to you instead - see "Messages are rare" below. |
 | Outcome records (Ready, Finding, Decision) that stay open until answered | Not built. Keep your open items in a file (below) and read it at every start. |
 | One digest command for the start of a conversation | Not built. Use the routine below. |
 | Handing an existing session over to you | Not built. Say so when they ask. |
@@ -59,16 +59,18 @@ In each row's `turnVerdict`:
 
 ## Starting a session you own
 
-Write the instructions to a file first - **The owner's intent** (their words, unchanged) and **Build
-notes** (yours) - and end the build notes with: "When your turn ends, run
-`cc-devthrottle session report \"<one or two sentences>\"`."
+Give the session its WHOLE task at the start, so it never has to be told anything more. Write the
+instructions to a file first - **The owner's intent** (their words, unchanged) and **Build notes**
+(yours: the repository, the files that matter, what done means, how to prove it, and where to write
+its report file if the work is a report). Do NOT ask it to run `session report` at the end of its
+turns: the Wingman reads every stop, and the Gateway's end-of-turn events tell you it stopped.
 
 ```
 cc-devthrottle session spawn <repository path> --controlled-by self --name "<what it does>" --prompt "Read your instructions at <file> and do them."
 cc-devthrottle session spawn <repository path> --controlled-by self --name "<what it does>" --machine <computer> --prompt "..."
 ```
 
-- `--controlled-by self` makes the session yours: it is quiet for the owner and reports to you.
+- `--controlled-by self` makes the session yours: it is quiet for the owner, and its stops come to you.
   Never start their work as `--standalone`; that hands it back to them.
 - `--machine` starts it on another computer; if no Director runs there, one is started. A computer
   that is off fails loudly - tell them, never retry somewhere else.
@@ -82,31 +84,49 @@ cc-devthrottle mission create "<Mission name> - <why, in a few words>"
 cc-devthrottle session spawn <repository path> --controlled-by self --mission <mission id> --role Architect --name "<Mission name> - Architect" --prompt "Read your brief at <file>. Conduct: cc-devthrottle workflow instructions mission."
 ```
 
-The brief says the WHY first, in the owner's words, then the work, then what is out of scope. Tell
-them in one line that you opened it. The Architect then runs the Mission; you watch the Architect,
+What the brief must hold is set by the mission conduct (`cc-devthrottle workflow instructions
+mission`), not here; put the owner's words in it unchanged. Tell them in one line that you opened it. The Architect then runs the Mission; you watch the Architect,
 not its sessions.
+
+## Messages are rare
+
+Every word sent into a session interrupts it. The owner has ruled that this must be rare.
+
+- The whole task goes in the spawn prompt. Nothing routine is sent afterwards.
+- You never ask a session what it did. You read it (below).
+- You never ask a session to report to you. The Wingman's reading and the Gateway's end-of-turn
+  events tell you what happened.
+- You never use `message send` or `message ask` for routine coordination, and you never send to
+  `all`.
+- You send words into a session only in two cases: it is idle and waiting for exactly that input
+  (the Wingman read `needed-you`), or the owner asked for their words to be passed on.
 
 ## Answering a session
 
 ```
 cc-devthrottle session prompt <session> "<their words, exactly>"
-cc-devthrottle message send <session> "<a note from you>"
 ```
 
-- `session prompt` types exactly the text into the session, as if the owner typed it. Use it for
-  their answers and for the Wingman's options when `answerVia` is `reply`.
+- `session prompt` types exactly the text into the session, as if the owner typed it. Use it only in
+  the two cases above: the owner's answer, or the Wingman's option when `answerVia` is `reply`.
 - When `answerVia` is `keys` the session is showing a menu. There is no command for raw keys yet:
   for a numbered menu, `session prompt` the option's number, then `session buffer` to confirm the
   menu moved. If it did not, bring it to the owner - never guess at keys.
-- `message send` is framed as coming from you. Use it for your own instructions to a session.
 
 ## Reading a session yourself
 
-Only when the Wingman cannot tell, or a session is stuck and needs a person:
+This is how you learn what a session did - never by asking it.
 
 ```
+cc-devthrottle session workers
 cc-devthrottle session buffer <session>
+git -C <its copy of the repository> log --oneline <its base>..HEAD
 ```
+
+- `session workers` and `session list --json` say what state each one is in.
+- Its commits, its pull request and its report file say what it produced.
+- Read its screen (`session buffer`) only when the Wingman cannot tell, or the session is stuck and
+  needs a person.
 
 ## Snooze, close, stop
 

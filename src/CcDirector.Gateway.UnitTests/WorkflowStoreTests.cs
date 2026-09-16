@@ -76,12 +76,25 @@ public sealed class WorkflowStoreTests : IDisposable
         _ = new WorkflowStore(_h.Open());
 
         using var ctx = _h.Open().CreateContext();
-        foreach (var id in new[] { "mission", "standalone", "standalone-with-review" })
+        foreach (var id in new[] { "mission", "standalone", "standalone-with-review", "fleet-manager" })
         {
             var version = ctx.WorkflowVersions.Single(v => v.WorkflowId == id);
             Assert.Equal(BuiltInWorkflows.InstructionsFor(id), version.InstructionsMarkdown);
             Assert.Equal(WorkflowVersionStatus.Published, version.Status);
         }
+    }
+
+    [Fact]
+    public void Every_built_in_ships_a_non_empty_instruction_body()
+    {
+        // The comparison above cannot see an empty resource: the shipped body and the stored row would
+        // both be empty, and an empty conduct would be served silently to every seat.
+        var ids = BuiltInWorkflows.All().Select(w => w.Id).ToArray();
+        Assert.Contains("fleet-manager", ids);
+
+        foreach (var id in ids)
+            Assert.False(string.IsNullOrWhiteSpace(BuiltInWorkflows.InstructionsFor(id)),
+                $"Built-in workflow '{id}' ships an empty instruction body.");
     }
 
     [Fact]

@@ -95,6 +95,19 @@ public sealed class SkillStoreTests : IDisposable
     }
 
     [Fact]
+    public void Every_built_in_ships_a_non_empty_body()
+    {
+        // The comparison above cannot see an empty resource: the shipped body and the stored row would
+        // both be empty, and every session's briefing would point at a skill that says nothing.
+        var ids = BuiltInSkills.All().Select(s => s.Id).ToArray();
+        Assert.Contains("fleet-manager", ids);
+
+        foreach (var id in ids)
+            Assert.False(string.IsNullOrWhiteSpace(BuiltInSkills.BodyFor(id)),
+                $"Built-in skill '{id}' ships an empty body.");
+    }
+
+    [Fact]
     public void Changed_shipped_content_republishes_as_the_next_version_and_supersedes_the_old()
     {
         var db = _h.Open();
