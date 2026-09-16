@@ -157,7 +157,8 @@ past it. Drive it with playwright-cli, using this browser session name:
     playwright-cli -s={browser_session} close
 
 If a page shows a Vercel sign-in screen instead of the site, that scenario is
-untested with the reason "preview sign-in bypass did not work" - never a pass.
+untested with the reason "preview sign-in bypass did not work" - never a pass - and if
+you could not get into the preview at all, the verdict is "inconclusive".
 Never print, copy or move the browser state file.
 """
     else:
@@ -185,8 +186,10 @@ actually does - and try each one on the real product.
 - "untested" is honest and costs nothing. A guessed pass costs everything. When you did
   not run a scenario, say so, with a "reason" naming what was missing.
 - "live" is true only when you drove the real product for that scenario.
-- Verdict: any fail means "no-go"; "no-surface" only when every scenario is untested and
-  not live; "inconclusive" when you ran things but cannot tell; otherwise "go".
+- Verdict: any fail means "no-go"; "no-surface" only when there is genuinely nothing to
+  run and every scenario is untested and not live; "inconclusive" when a surface exists
+  but you could not drive it, or you ran things but cannot tell; "go" only when at least
+  one scenario passed live and none failed.
 
 ## Your output
 

@@ -82,9 +82,11 @@ def validate_review(data: dict) -> list[str]:
         for key in ("id", "title", "file", "sequence", "remedy"):
             if not _text(f.get(key)):
                 problems.append(f"{where}'{key}' must be a non-empty string")
-        if f.get("id") in seen:
-            problems.append(f"{where}'id' {f.get('id')!r} is used twice")
-        seen.add(f.get("id"))
+        finding_id = f.get("id")
+        if isinstance(finding_id, str):
+            if finding_id in seen:
+                problems.append(f"{where}'id' {finding_id!r} is used twice")
+            seen.add(finding_id)
         line = f.get("line")
         if line is not None and (not isinstance(line, int) or isinstance(line, bool) or line < 1):
             problems.append(f"{where}'line' must be a positive whole number or null")
@@ -136,6 +138,11 @@ def validate_verify(data: dict) -> list[str]:
     results = [s.get("result") for s in scenarios if isinstance(s, dict)]
     if "fail" in results and verdict != "no-go":
         problems.append("a failed scenario forces verdict 'no-go'")
+    live_passes = [s for s in scenarios
+                   if isinstance(s, dict) and s.get("result") == "pass" and s.get("live") is True]
+    if verdict == "go" and not live_passes:
+        problems.append("verdict 'go' needs at least one scenario that passed live; "
+                        "use 'inconclusive' when a surface exists but could not be driven")
     if verdict == "no-surface" and not all(
         isinstance(s, dict) and s.get("result") == "untested" and s.get("live") is False
         for s in scenarios

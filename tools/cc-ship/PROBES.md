@@ -110,7 +110,19 @@ warnings, all fixed with a regression test each:
 - The derived bypass cookie file stayed on disk. It is now removed when the verifier
   ends, whatever the outcome.
 
-Each fix was reverted to confirm its test fails, then restored.
+A fresh Codex session re-inspected the fixes. It confirmed the four were fixed and found
+two more errors and one warning, also fixed with regression tests:
+
+- `go` was accepted with nothing run live (for example, a verifier that could not get
+  past the preview sign-in). Now `go` needs at least one live pass, and a surface that
+  exists but could not be driven is `inconclusive`.
+- A finding whose `id` was a list crashed the checker instead of returning a problem,
+  which would have broken the correction turn.
+- The cookie file could still outlive a failure between its creation and the cleanup.
+  Creating and removing it is now one `with` block. The live verifier probe was rerun
+  through it (45 s, three live passes) and left no cookie file behind.
+
+Each fix, in both rounds, was reverted to confirm its test fails, then restored.
 
 ## Setup a machine needs before cc-ship runs there
 

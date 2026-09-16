@@ -38,24 +38,18 @@ def main() -> None:
     url = preview.find_preview_url("thefrederiksen/devthrottle_internal", sha)
     if url is None:
         raise SystemExit(f"no successful preview for {sha}")
-    state = work / "browser-state.json"
-    preview.write_bypass_state(url, state)
-
     output = work / "verify.json"
     brief = work / "brief-verify.md"
-    brief.write_text(briefs.verifier_brief(
-        repo=repo, intent=intent, preview_url=url, browser_state=state,
-        evidence_dir=evidence, output=output,
-    ), encoding="ascii")
-
     started = time.monotonic()
-    try:
+    with preview.bypass_state(url, work / "browser-state.json") as state:
+        brief.write_text(briefs.verifier_brief(
+            repo=repo, intent=intent, preview_url=url, browser_state=state,
+            evidence_dir=evidence, output=output,
+        ), encoding="ascii")
         session_id = fleet.spawn_session(
             repo, agent, os.environ["CC_SESSION_ID"], "cc-ship - Verifier - probe preview", brief
         )
         result = fleet.wait_for_output(session_id, output, 900, poll_seconds=5)
-    finally:
-        preview.remove_bypass_state(state)
     record = {"session_id": session_id, "outcome": result.outcome, "reason": result.reason,
               "seconds": round(time.monotonic() - started), "preview": url,
               "evidence_files": sorted(p.name for p in evidence.iterdir())}

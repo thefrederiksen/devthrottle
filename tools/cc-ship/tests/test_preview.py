@@ -92,8 +92,27 @@ def test_find_preview_url_LatestSuccess_ReturnsUrl(monkeypatch):
     assert preview.find_preview_url("o/r", "abc") == "https://ok"
 
 
-def test_remove_bypass_state_Existing_Deleted(tmp_path):
+def _fake_cookie_run(args, **_kwargs):
+    return subprocess.CompletedProcess(args, 0, stdout="set-cookie: _vercel_jwt=abc; Path=/\r\n",
+                                       stderr="")
+
+
+def test_bypass_state_FailureInsideBlock_FileRemoved(creds, tmp_path, monkeypatch):
+    # Inspection finding 4 / re-inspection finding 3: the cookie never outlives the verifier.
+    creds.write_text(f"{preview.SECRET_NAME}={SECRET}\n", encoding="ascii")
+    monkeypatch.setattr(preview.subprocess, "run", _fake_cookie_run)
     state = tmp_path / "browser-state.json"
-    state.write_text("{}", encoding="ascii")
-    preview.remove_bypass_state(state)
+    with pytest.raises(OSError):
+        with preview.bypass_state("https://x-preview.vercel.app", state) as path:
+            assert path.exists()
+            raise OSError("disk full while writing the brief")
+    assert not state.exists()
+
+
+def test_bypass_state_NormalExit_FileRemoved(creds, tmp_path, monkeypatch):
+    creds.write_text(f"{preview.SECRET_NAME}={SECRET}\n", encoding="ascii")
+    monkeypatch.setattr(preview.subprocess, "run", _fake_cookie_run)
+    state = tmp_path / "browser-state.json"
+    with preview.bypass_state("https://x-preview.vercel.app", state):
+        pass
     assert not state.exists()

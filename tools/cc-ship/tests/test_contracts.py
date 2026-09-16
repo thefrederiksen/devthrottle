@@ -139,3 +139,24 @@ def test_validate_verify_UntestedButLive_Rejected():
     scenario = _scenario(result="untested", live=True, evidence="", reason="x")
     problems = contracts.validate_verify({"verdict": "go", "scenarios": [scenario]})
     assert any("cannot be live" in p for p in problems)
+
+
+def test_validate_review_ListAsFindingId_ReturnsProblemNotException():
+    # Re-inspection finding 2: an unhashable id must not crash the correction path.
+    review = _review()
+    review["findings"][0]["id"] = ["F1"]
+    assert any("'id'" in p for p in contracts.validate_review(review))
+
+
+def test_validate_verify_GoWithNothingRunLive_Rejected():
+    # Re-inspection finding 1: the verifier could not get past the preview sign-in.
+    scenario = _scenario(result="untested", live=False, evidence="",
+                         reason="preview sign-in bypass did not work")
+    problems = contracts.validate_verify({"verdict": "go", "scenarios": [scenario]})
+    assert any("at least one scenario that passed live" in p for p in problems)
+
+
+def test_validate_verify_InconclusiveWithNothingRunLive_IsValid():
+    scenario = _scenario(result="untested", live=False, evidence="",
+                         reason="preview sign-in bypass did not work")
+    assert contracts.validate_verify({"verdict": "inconclusive", "scenarios": [scenario]}) == []

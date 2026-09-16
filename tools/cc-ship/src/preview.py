@@ -13,6 +13,8 @@ import os
 import subprocess
 import sys
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -101,10 +103,20 @@ def write_bypass_state(url: str, state_file: Path) -> None:
     }
     # The cookie is itself a bypass credential. The run folder lives in the user's own
     # profile (per-user access on Windows); chmod narrows it further on macOS.
-    # Callers remove it with remove_bypass_state as soon as the verifier ends.
+    # Callers use bypass_state(), which removes it however the verifier ends.
     state_file.write_text(json.dumps(state), encoding="ascii")
     state_file.chmod(0o600)
 
 
 def remove_bypass_state(state_file: Path) -> None:
     state_file.unlink(missing_ok=True)
+
+
+@contextmanager
+def bypass_state(url: str, state_file: Path) -> Iterator[Path]:
+    """The bypass state file exists exactly for the body of the with-block."""
+    try:
+        write_bypass_state(url, state_file)
+        yield state_file
+    finally:
+        remove_bypass_state(state_file)
