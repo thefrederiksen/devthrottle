@@ -279,7 +279,7 @@ def test_actions_json_is_unchanged():
     pinned = _ACTIONS_JSON_BEFORE.read_text(encoding="utf-8")
     # The pin itself must be the real payload, not an empty file that anything would match.
     actions = json.loads(pinned)["actions"]
-    assert len(actions) == 83
+    assert len(actions) == 86
     assert {"session-list", "schedule-create", "browser-start"} <= {a["id"] for a in actions}
 
     result = runner.invoke(app, ["actions", "--json"])

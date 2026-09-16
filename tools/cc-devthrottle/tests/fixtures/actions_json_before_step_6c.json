@@ -996,6 +996,32 @@
       "args": []
     },
     {
+      "id": "fleet-manager-show",
+      "description": "Show which session this account has marked as its one Fleet Manager, or none.",
+      "command": "cc-devthrottle fleet-manager show",
+      "mutatesState": false,
+      "args": []
+    },
+    {
+      "id": "fleet-manager-set",
+      "description": "Mark a session as this account's one Fleet Manager, replacing any earlier mark. With no session, marks the session running the command.",
+      "command": "cc-devthrottle fleet-manager set [<session>]",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "session",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "fleet-manager-clear",
+      "description": "Remove this account's Fleet Manager mark.",
+      "command": "cc-devthrottle fleet-manager clear",
+      "mutatesState": true,
+      "args": []
+    },
+    {
       "id": "browser-list",
       "description": "List this machine's drivable browser profiles (name, browser, status, account).",
       "command": "cc-devthrottle browser list --json",

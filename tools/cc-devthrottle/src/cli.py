@@ -92,7 +92,7 @@ schedule_app = typer.Typer(
 )
 workflow_app = typer.Typer(
     cls=AxiGroup,
-    help="Read and author fleet Workflows: shared conduct on the Gateway.",
+    help="Read and author the fleet's shared Workflows on the Gateway.",
     add_completion=False,
     no_args_is_help=True,
 )
@@ -112,7 +112,7 @@ email_app = typer.Typer(
 )
 diag_app = typer.Typer(
     cls=AxiGroup,
-    help="Run network diagnostics: direct or relayed paths, speed results.",
+    help="Run network diagnostics: direct or relayed, and speed.",
     add_completion=False,
     no_args_is_help=True,
 )
@@ -2046,7 +2046,7 @@ def workflow_main(
         help="Override the Gateway base URL.",
     ),
 ) -> None:
-    """Read and author fleet Workflows: shared conduct on the Gateway."""
+    """Read and author the fleet's shared Workflows on the Gateway."""
     workflow_ops.set_gateway_override(gateway)
 
 
