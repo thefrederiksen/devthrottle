@@ -321,7 +321,7 @@ def get(repo_path: str, holder: str, pool_size: int) -> dict:
         return _lease_view(pool, name, tip, reused=False)
 
 
-def return_slot(target: str, lease: str | None, repo_opt: str | None) -> dict:
+def return_slot(target: str, lease: str, repo_opt: str | None) -> dict:
     home = state_home()
     with machine_lock(home):
         repo, name = resolve_target(home, target, repo_opt)
@@ -330,7 +330,7 @@ def return_slot(target: str, lease: str | None, repo_opt: str | None) -> dict:
         if entry["state"] == FREE:
             raise ToolError("not-in-use", f"{name} is already free; there is nothing to return",
                             [f"cc-worktrees list --repo {repo}"])
-        if lease is not None and entry["lease"] != lease:
+        if not lease or entry["lease"] != lease:
             raise ToolError("lease-mismatch",
                             f"{name} is no longer held under that lease; nothing was changed",
                             [f"cc-worktrees list --repo {repo}"])
@@ -341,7 +341,7 @@ def return_slot(target: str, lease: str | None, repo_opt: str | None) -> dict:
             view = _slot_view(pool, name)
             raise ToolError("held", f"{name} was not returned and is held: {reason}",
                             [f"git -C {entry['path']} status",
-                             f"cc-worktrees return {entry['path']}" + (f" --lease {entry['lease']}" if entry["lease"] else "")],
+                             f"cc-worktrees return {entry['path']} --lease {entry['lease']}"],
                             exit_code=EXIT_HELD, details=view)
         pool.set(name, FREE, None, None, None)
         pool.save()

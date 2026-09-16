@@ -21,8 +21,9 @@ Pooled git worktrees. A worktree is only reset when its work has provably landed
   {PROG} get --repo <path> --holder <text> [--pool-size N]
       Hand out a free worktree (reset to the remote default branch, build output kept),
       or create a new slot beside the repository while under the pool size (default {pool.DEFAULT_POOL_SIZE}).
-  {PROG} return <path-or-slot> [--lease <id>] [--repo <path>]
+  {PROG} return <path-or-slot> --lease <id> [--repo <path>]
       Check that the work landed. Landed: reset and free. Otherwise: held, with the reason.
+      The lease from get or lease is required: without it nobody can say the holder let go.
   {PROG} list [--repo <path>] [--fields a,b]
       Every slot: slot, state (free, in-use, held), holder, reason.
   {PROG} lease <path-or-slot> --holder <text> [--reclaim-held] [--repo <path>]
@@ -77,7 +78,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = add("return", "check the work landed, then free it or hold it")
     p.add_argument("target", help="the worktree path or slot name (wt01)")
-    p.add_argument("--lease", help="the lease id from get; refused if it no longer matches")
+    p.add_argument("--lease", required=True, help="the lease id from get or lease; refused if it no longer matches")
     p.add_argument("--repo", help="the repository, when target is a slot name")
 
     p = add("list", "list every slot")

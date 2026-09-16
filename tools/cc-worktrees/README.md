@@ -13,7 +13,7 @@ Runs from a checkout with Python 3.11 or newer and git. No third-party packages.
 
 ```
 python tools/cc-worktrees/main.py get --repo <path> --holder <text> [--pool-size N]
-python tools/cc-worktrees/main.py return <path-or-slot> [--lease <id>] [--repo <path>]
+python tools/cc-worktrees/main.py return <path-or-slot> --lease <id> [--repo <path>]
 python tools/cc-worktrees/main.py list [--repo <path>] [--fields a,b]
 python tools/cc-worktrees/main.py lease <path-or-slot> --holder <text> [--reclaim-held] [--repo <path>]
 python tools/cc-worktrees/main.py destroy <path-or-slot> [--yes] [--allow-held] [--allow-in-use] [--repo <path>]
@@ -26,7 +26,7 @@ Every command takes `--json` and `--help`, and never prompts.
 | Command | What it does |
 |---|---|
 | `get` | Hands out the first free slot after proving it landed and resetting it to the freshly fetched default branch. With no free slot and fewer slots than `--pool-size` (default 4), creates a new one at `<repo-parent>/<repo-name>.worktrees/wtNN` on a detached HEAD at the remote default branch. Returns the slot, path and lease id. A free slot that fails the check becomes held and is skipped. |
-| `return` | Runs the landed-work check. Landed: reset (`git read-tree --reset -u` then `git clean -fd`, no `-x`, so ignored build output stays) and free. Not landed or cannot tell: held with the reason, nothing reset. A `--lease` that no longer matches is refused and changes nothing. |
+| `return` | Runs the landed-work check. Landed: reset (`git read-tree --reset -u` then `git clean -fd`, no `-x`, so ignored build output stays) and free. Not landed or cannot tell: held with the reason, nothing reset. `--lease` is required: a return without it is a usage error (exit 2), and a lease that no longer matches is refused; neither changes anything. |
 | `list` | Every slot with its state (`free`, `in-use`, `held`), holder and reason. `--fields` picks from `repo,slot,path,state,holder,reason,updated`. |
 | `lease` | Takes one specific free slot (checked and reset like `get`). A held slot only with `--reclaim-held`, which takes it as it is, without a reset. |
 | `destroy` | Dry run by default: says what it would remove. `--yes` removes it with `git worktree remove` (never `--force`, so git itself refuses a worktree with modified or untracked files). A held slot needs `--allow-held`, an in-use slot `--allow-in-use`. One slot per call; there is no destroy-all. |
@@ -46,7 +46,7 @@ A worktree is reset only when all of these are positively proven, in this order:
 4. Every commit reachable from HEAD that is on no `origin` branch is either the same patch as a
    commit in the default branch (`git cherry`, which recognises a rebase), or the files HEAD changed
    since it split from the default branch are identical in the default branch tip (a squash merge).
-5. The caller's lease matches, when given.
+5. The caller's lease matches. The lease is required, because without it the tool has no evidence the holder let go.
 
 Any failure - including a fetch that fails for an unreachable remote, bad credentials or an expired
 token - holds the worktree with a plain reason such as `1 commit is on no remote (newest ...)`,

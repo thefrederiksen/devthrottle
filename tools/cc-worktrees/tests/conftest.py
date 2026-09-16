@@ -84,8 +84,8 @@ class World:
     default_branch: str
     created_branches: list[str] = field(default_factory=list)
 
-    def run(self, *args: str, cwd: Path | None = None) -> Result:
-        env = {**os.environ, **GIT_ENV, "CC_WORKTREES_HOME": str(self.home)}
+    def run(self, *args: str, cwd: Path | None = None, env_extra: dict | None = None) -> Result:
+        env = {**os.environ, **GIT_ENV, "CC_WORKTREES_HOME": str(self.home), **(env_extra or {})}
         proc = subprocess.run([sys.executable, str(MAIN), *args], cwd=str(cwd or self.tmp), env=env,
                               capture_output=True, text=True)
         return Result(proc.returncode, proc.stdout, proc.stderr)
@@ -110,6 +110,23 @@ class World:
         name = f"cc-worktrees-test/{uuid.uuid4().hex[:12]}"
         self.created_branches.append(name)
         return name
+
+    def state_file(self) -> Path:
+        files = list((self.home / "pools").glob("*.json"))
+        assert len(files) == 1, f"expected one pool state file, found {files}"
+        return files[0]
+
+    def push_from_other_clone(self, files: dict[str, str], message: str, force_add: bool = False) -> Path:
+        """Land a commit on the default branch from a second clone, the way someone else would."""
+        other = self.second_clone()
+        for name, content in files.items():
+            path = other / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8", newline="\n")
+            git(other, "add", *(["-f"] if force_add else []), "--", name)
+        git(other, "commit", "-q", "-m", message)
+        git(other, "push", "-q", "origin", self.default_branch)
+        return other
 
     def second_clone(self) -> Path:
         """Another clone of the remote, standing in for work landed from somewhere else."""
