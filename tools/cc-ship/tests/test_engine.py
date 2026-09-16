@@ -412,18 +412,39 @@ def test_run_VerifyNoGo_BackToAuthorThenFullReReview(world, capsys):
     assert [s["role"] for s in world.spawned] == ["Reviewer", "Verifier", "Reviewer", "Verifier"]
 
 
-def test_run_DocsOnlyChange_ProceedsWithNoSurface(world, capsys):
+DOCS_NO_SURFACE = {"verdict": "no-surface", "scenarios": [
+    {"name": "notes.md", "result": "untested", "live": False, "evidence": "",
+     "reason": "Nothing to run live: documents only"}]}
+
+
+def _make_docs_only(world):
+    git(world.work, "reset", "-q", "--hard", "HEAD~1")
     (world.work / "notes.md").write_text("hello\n", encoding="ascii")
     git(world.work, "add", ".")
-    git(world.work, "reset", "-q", "--soft", "HEAD~1")
-    git(world.work, "restore", "--staged", "app.py")
-    git(world.work, "checkout", "app.py")
     git(world.work, "commit", "-m", "docs only")
+
+
+def test_run_DocsOnlyChange_StillVerifiedBySeparateSessionThenMerges(world, capsys):
+    # Review finding 3 (pull request 2949): the verifier always runs, even for documents.
+    _make_docs_only(world)
     world.outputs["Reviewer"].append(review())
+    world.outputs["Verifier"].append(DOCS_NO_SURFACE)
     code, out = ship_to_merge(world, capsys)
     assert out["state"] == "merged", out
     assert "Nothing to run live: documents only" in world.prs[1]["body"]
-    assert [s["role"] for s in world.spawned] == ["Reviewer"]
+    assert [s["role"] for s in world.spawned] == ["Reviewer", "Verifier"]
+    verifier_brief = world.spawned[1]["brief"].read_text(encoding="utf-8")
+    assert "touches only documents" in verifier_brief
+
+
+def test_run_NoneSurfaceHonestNoSurface_Accepted(world, capsys):
+    # Review finding 2: with surface 'none' nothing was supplied, so no-surface can be true.
+    world.outputs["Reviewer"].append(review())
+    world.outputs["Verifier"].append(DOCS_NO_SURFACE)
+    code, out = ship_to_merge(world, capsys)
+    run = runstore.load(out["run"])
+    assert run["steps"]["verify"] == "completed", out
+    assert world.prompts == []  # no correction turn was needed
 
 
 def test_output_IsAsciiEvenWhenTheReviewerWritesUnicode(world, capsys):
@@ -507,3 +528,169 @@ def test_cli_Help_ListsEveryCommand(capsys):
     text.encode("ascii")
     for command in ("start", "wait", "continue", "respond", "status", "abort"):
         assert f"cc-ship {command}" in text
+
+
+# ------------------------------------------------------------------ review of pull request 2949
+
+def test_run_CommitDuringReview_WholeRoundRunsAgainOnTheNewHead(world, capsys):
+    # Finding 1: what ships must be exactly what was checked, reviewed and verified.
+    real_wait = world.wait_for_output
+    committed = []
+
+    def wait_while_author_commits(sid, output, *args, **kwargs):
+        if not committed:
+            (world.work / "app.py").write_text("x = 9\n", encoding="ascii")
+            git(world.work, "commit", "-am", "sneaky")
+            committed.append(git(world.work, "rev-parse", "HEAD"))
+        return real_wait(sid, output, *args, **kwargs)
+
+    engine.fleet.wait_for_output = wait_while_author_commits
+    world.outputs["Reviewer"] += [review(), review()]
+    world.outputs["Verifier"].append(GO)
+    code, out = ship_to_merge(world, capsys)
+    assert out["state"] == "merged", out
+    assert [s["role"] for s in world.spawned] == ["Reviewer", "Reviewer", "Verifier"]
+    assert world.spawned[0]["id"] in world.stopped
+    assert world.prs[1]["head"] == committed[0]
+    run = runstore.load(out["run"])
+    assert run["review_head"] == run["verify_head"] == run["checks_head"] == committed[0]
+
+
+def test_run_MergeSucceededButRunNotSaved_ContinueReconciles(world, capsys, monkeypatch):
+    # Finding 4: the irreversible step is reconciled, never repeated.
+    world.outputs["Reviewer"].append(review())
+    world.outputs["Verifier"].append(GO)
+    real_merged = engine._merged
+    monkeypatch.setattr(engine, "_merged", lambda run: (_ for _ in ()).throw(KeyboardInterrupt()))
+    with pytest.raises(KeyboardInterrupt):
+        cli.main(["start", "--intent", str(world.intent)])
+        cli.main(["wait", "--seconds", "5"])
+    capsys.readouterr()
+    monkeypatch.setattr(engine, "_merged", real_merged)
+    assert world.merged == [1]
+    code, out = run_cli("continue", capsys=capsys)
+    assert out["state"] == "merged", out
+    assert world.merged == [1]  # not merged a second time
+
+
+def test_run_VerifierReapedBeforeCorrection_CookieRemoved(world, capsys, monkeypatch):
+    # Finding 5: a failure while correcting a verifier never leaves the cookie behind.
+    _set_main_config(world, dict(SHIP_YAML, verify={"surface": "vercel-preview"}))
+    monkeypatch.setattr(engine.preview, "find_preview_url", lambda slug, sha: "https://p.vercel.app")
+    monkeypatch.setattr(engine.preview, "write_bypass_state", lambda url, path: path.write_text("{}"))
+    monkeypatch.setattr(engine.gitops, "push_branch", lambda repo, branch: None)
+
+    def reaped(sid):
+        raise fleet.FleetError("session not found")
+
+    monkeypatch.setattr(engine.fleet, "clear_done_flag", reaped)
+    world.outputs["Reviewer"].append(review())
+    world.outputs["Verifier"].append({"verdict": "go"})
+    code, out = ship_to_merge(world, capsys)
+    assert code != 0 and out["state"] == "failed"
+    assert not list((Path(out["folder"]) if "folder" in out else
+                     runstore.runs_root()).rglob("browser-state.json"))
+
+
+def test_run_SimilarButDifferentFinding_GoesToTheOwnerAgain(world, capsys):
+    # Finding 6: a kept finding only suppresses the SAME finding.
+    first = dict(finding("F1", "Missing error handling", action="ask-owner", severity="warning"),
+                 sequence="path A")
+    world.outputs["Reviewer"].append(review(first))
+    ship_to_merge(world, capsys)
+    world.outputs["Verifier"].append(GO)
+    run_cli("respond", "r1-F1", "--keep", capsys=capsys)
+    run_cli("wait", "--seconds", "5", capsys=capsys)
+
+    (world.work / "app.py").write_text("x = 7\n", encoding="ascii")
+    git(world.work, "commit", "-am", "more")
+    world.prs[1]["state"] = "MERGED"
+    second = dict(first, sequence="path B")
+    world.outputs["Reviewer"].append(review(second))
+    code, out = ship_to_merge(world, capsys)
+    assert out["state"] == "waiting-on-owner", out
+    assert "looks like" in out["next_step"] and "sequence differs" in out["next_step"]
+
+
+def test_run_NonAsciiRepositoryPath_BriefsStillWritten(tmp_path, world, capsys, monkeypatch):
+    # Finding 7: brief files carry paths, so they are UTF-8; only terminal output is ASCII.
+    moved = world.tmp / "w\u00f8rk"
+    world.work.rename(moved)
+    world.work = moved
+    monkeypatch.chdir(moved)
+    world.outputs["Reviewer"].append(review())
+    world.outputs["Verifier"].append(GO)
+    code, out = ship_to_merge(world, capsys)
+    assert out["state"] == "merged", out
+
+
+def test_advance_UnexpectedError_SavedAsFailedAndContinueRecovers(world, capsys, monkeypatch):
+    # Finding 7: an unexpected error never strands the run in 'working'.
+    real = engine.briefs.reviewer_brief
+    monkeypatch.setattr(engine.briefs, "reviewer_brief",
+                        lambda **kw: (_ for _ in ()).throw(RuntimeError("boom")))
+    code, out = run_cli("start", "--intent", str(world.intent), capsys=capsys)
+    assert code != 0 and out["state"] == "failed"
+    assert runstore.load(out["run"])["failure"]["code"] == "internal-error"
+    monkeypatch.setattr(engine.briefs, "reviewer_brief", real)
+    world.outputs["Reviewer"].append(review())
+    world.outputs["Verifier"].append(GO)
+    run_cli("continue", capsys=capsys)
+    code, out = run_cli("wait", "--seconds", "5", capsys=capsys)
+    assert out["state"] == "merged", out
+
+
+def test_risk_AuthoringDocument_NotHigh(world, capsys):
+    # Finding 8: no built-in name guesses.
+    git(world.work, "reset", "-q", "--hard", "HEAD~1")
+    (world.work / "docs").mkdir()
+    (world.work / "docs" / "authoring.md").write_text("how to write\n", encoding="ascii")
+    git(world.work, "add", ".")
+    git(world.work, "commit", "-m", "docs")
+    world.outputs["Reviewer"].append(review())
+    world.outputs["Verifier"].append(DOCS_NO_SURFACE)
+    code, out = ship_to_merge(world, capsys)
+    assert out["risk"] == "low" and out["state"] == "merged", out
+
+
+def _three_failed_rounds(world, capsys):
+    bug = finding("F1", "x is wrong")
+    world.outputs["Reviewer"] += [review(bug)] * 4
+    ship_to_merge(world, capsys)
+    for value in (10, 11, 12):
+        (world.work / "app.py").write_text(f"x = {value}\n", encoding="ascii")
+        git(world.work, "commit", "-am", f"try {value}")
+        run_cli("continue", capsys=capsys)
+        code, out = run_cli("wait", "--seconds", "5", capsys=capsys)
+    return out
+
+
+def test_run_FixLimit_ParksAndContinueCannotOverride(world, capsys):
+    # Finding 9: only the owner's recorded call moves past the limit.
+    out = _three_failed_rounds(world, capsys)
+    assert out["state"] == "waiting-on-owner" and out["phase"] == "fix-limit", out
+    code, out = run_cli("continue", capsys=capsys)
+    assert code != 0 and out["code"] == "fix-limit"
+    code, out = run_cli("continue", "--owner-allows-another-round", capsys=capsys)
+    assert code == 2
+
+
+def test_run_FixLimitOwnerSaysFix_ExactlyOneMoreRound(world, capsys):
+    _three_failed_rounds(world, capsys)
+    world.outputs["Reviewer"].append(review(finding("F1", "x is wrong")))
+    code, out = run_cli("respond", "fix-limit", "--fix", "--note", "one more", capsys=capsys)
+    assert out["state"] == "waiting-on-author", out
+    (world.work / "app.py").write_text("x = 13\n", encoding="ascii")
+    git(world.work, "commit", "-am", "try 13")
+    run_cli("continue", capsys=capsys)
+    code, out = run_cli("wait", "--seconds", "5", capsys=capsys)
+    assert out["phase"] == "fix-limit", out  # the fourth failure parks again
+
+
+def test_run_FixLimitOwnerKeeps_ShipsAsHighRisk(world, capsys):
+    _three_failed_rounds(world, capsys)
+    world.outputs["Verifier"].append(GO)
+    run_cli("respond", "fix-limit", "--keep", "--note", "ship it", capsys=capsys)
+    code, out = run_cli("wait", "--seconds", "5", capsys=capsys)
+    assert out["state"] == "waiting-on-owner" and out["risk"] == "high", out
+    assert "OWNER KEPT: Fix-round limit reached" in world.prs[1]["body"]

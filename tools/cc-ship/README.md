@@ -22,23 +22,24 @@ and exit non-zero. Output is ASCII. Unknown flags fail.
 |---|---|
 | Start | Refuses a dirty tree, main, an empty intent, a second open run, or a branch with nothing to ship |
 | Sync | `git fetch`, rebase onto origin/main. A conflict stops the run with the files named |
+| (any step) | What ships is exactly what was checked, reviewed and verified: if HEAD moves during a run, every step runs again on the new head |
 | Local checks | The commands in `.ship.yaml` **from origin/main**. A failure goes back to the author with the output |
 | Review | A fresh session of another agent family reads the diff, `intent.md` and the owner's decisions, and writes `review-rN.json`. Invalid files get at most two correction turns |
-| Fix | `auto-fix` findings go to the author: commit, `cc-ship continue`, and a **new** reviewer reviews the whole change. At most 3 rounds, then the owner decides |
-| Owner calls | `ask-owner` findings park the run (`waiting-on-owner`). The author relays them word for word and ends its turn. `cc-ship respond` records each answer; a kept or dropped finding is never raised again on the branch |
-| Verify | A separate session drives the real product and writes `verify.json` plus screenshots. A documents-only change needs no verifier ("Nothing to run live: documents only") |
+| Fix | `auto-fix` findings go to the author: commit, `cc-ship continue`, and a **new** reviewer reviews the whole change. After 3 rounds the run parks and the owner decides with `cc-ship respond fix-limit --fix` (exactly one more round), `--keep` (ship as is, findings recorded as kept) or `--drop` |
+| Owner calls | `ask-owner` findings park the run (`waiting-on-owner`). The author relays them word for word and ends its turn. `cc-ship respond` records each answer. A kept or dropped finding is never raised again on the branch; one that only looks like it (same file and title, different failing sequence) goes to the owner again, marked as similar |
+| Verify | A separate session always verifies. It drives the real product and writes `verify.json` plus screenshots. For a documents-only change it confirms there is nothing to run ("Nothing to run live: documents only") |
 | Risk | The highest of the reviewer's level and the rules below |
 | Pull request | Push, publish evidence to the `ship-evidence` branch, open or update the pull request with the fixed body and the attestation line |
-| Merge | Low or medium risk, every step completed, verdict go or documents-only, no FAILED check: squash-merge that exact head and delete the branch. Otherwise the pull request is parked for the owner. Pending or missing checks never delay anything |
+| Merge | Low or medium risk, every step completed, verdict go or documents-only, no FAILED check: squash-merge that exact head and delete the branch. Otherwise the pull request is parked for the owner. Pending or missing checks never delay anything. If an earlier attempt merged but did not record it, `cc-ship continue` finds the merge instead of repeating it |
 
 States: `working`, `waiting-on-author`, `waiting-on-owner`, `failed`, `merged`,
 `aborted`. On `waiting-on-owner` the author tells the owner and **ends its turn**.
 
 ## Risk
 
-High: a `risk.high_paths` match; any path containing `migration`, `auth`, `tenant`,
-`secret`, `credential`, `apikey` or `api_key`, or ending in `.sql`; verify verdict
-`inconclusive`; the owner kept an error-severity finding.
+High: a `risk.high_paths` match (declare schema, migration, authentication, key and
+tenant code there - cc-ship does not guess from names); verify verdict `inconclusive`;
+the owner kept an error-severity finding.
 At least medium: more than 400 changed lines; more than one fix round; an untested
 scenario on a change that has something to run; more than 150 deleted lines.
 

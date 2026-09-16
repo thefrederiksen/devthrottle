@@ -942,8 +942,8 @@ Take a finished change from the author session to merged on origin/main: indepen
 |---|---|
 | `cc-ship start --intent <file> [--title <text>]` | Open a run for this branch and go as far as possible |
 | `cc-ship wait [--seconds N]` | Block (up to 480 seconds) while a spawned session works |
-| `cc-ship continue [--owner-allows-another-round]` | Resume after fixing findings or a failed step |
-| `cc-ship respond <id> --fix\|--keep\|--drop [--note <text>]` | Record the owner's call on one finding |
+| `cc-ship continue` | Resume after fixing findings or a failed step |
+| `cc-ship respond <id> --fix\|--keep\|--drop [--note <text>]` | Record the owner's call on one finding, or on `fix-limit` |
 | `cc-ship status [--json]` | The run's one state and the next step |
 | `cc-ship abort` | End the run and stop its sessions; the branch is left alone |
 

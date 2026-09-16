@@ -37,7 +37,7 @@ PREVIEW_LIMIT_SECONDS = 20 * 60
 CHECK_TIMEOUT_SECONDS = 30 * 60
 MAX_FIX_ROUNDS = 3
 MAX_CORRECTIONS = 2
-MAIN_BRANCHES = ("main", "master")
+MAIN_BRANCHES = ("main",)
 
 AUTHOR_FAMILY_DEFAULT_REVIEWER = {"ClaudeCode": "Codex"}
 
@@ -60,8 +60,28 @@ def _set(run: dict, state: str, next_step: str, failure: dict | None = None) -> 
     return run
 
 
+def _drop_verifier(run: dict, reason: str) -> None:
+    """The bypass cookie exists only while a verifier works. Every end of a verifier,
+    and every failure, comes through here."""
+    session = run.get("session")
+    if session and session["role"] == "Verifier":
+        _stop_session_quietly(session["id"], reason)
+        run["session"] = None
+    preview.remove_bypass_state(_folder(run) / "browser-state.json")
+
+
 def _fail(run: dict, err: ShipError) -> dict:
+    _drop_verifier(run, "cc-ship: the run failed")
     return _set(run, FAILED, err.help, err.as_dict())
+
+
+def internal_error(exc: Exception) -> ShipError:
+    return ShipError("internal-error", f"{type(exc).__name__}: {exc}",
+                     "This is a cc-ship defect; report it with the run folder. "
+                     "After the cause is fixed, run: cc-ship continue")
+
+
+HEAD_KEYS = (("checked", "checks_head"), ("reviewed", "review_head"), ("verified", "verify_head"))
 
 
 def _reset_round(run: dict) -> None:
@@ -69,6 +89,31 @@ def _reset_round(run: dict) -> None:
     run["steps"] = {step: PENDING for step in runstore.STEPS}
     run["verify"] = None
     run["risk"] = None
+    run["preview_wait"] = None
+    for _, key in HEAD_KEYS:
+        run[key] = None
+
+
+def _head_moved(run: dict) -> str | None:
+    """What was checked, reviewed and verified must be exactly what ships."""
+    head = gitops.head(_repo(run))
+    for label, key in HEAD_KEYS:
+        if run.get(key) and run[key] != head:
+            return f"HEAD moved to {head[:12]} after {run[key][:12]} was {label}"
+    return None
+
+
+def _restart_round(run: dict, why: str) -> None:
+    """New commits during a run: every step runs again on the new head."""
+    session = run.get("session")
+    if session:
+        _stop_session_quietly(session["id"], "cc-ship: HEAD moved; the round restarts")
+    _drop_verifier(run, "cc-ship: HEAD moved")
+    run["session"] = None
+    if run["history"]:
+        run["history"][-1]["notes"].append(f"{why}; every step ran again.")
+    _reset_round(run)
+    runstore.save(run)
 
 
 def _session_name(run: dict, role: str) -> str:
@@ -188,6 +233,8 @@ def advance(run: dict) -> dict:
         return _fail(run, err)
     except (fleet.FleetError, preview.PreviewError) as exc:
         return _fail(run, as_ship_error(exc))
+    except Exception as exc:  # saved as failed so continue has a way forward
+        return _fail(run, internal_error(exc))
 
 
 def as_ship_error(exc: Exception) -> ShipError:
@@ -220,6 +267,7 @@ def _step_sync(run: dict) -> None:
 def _step_checks(run: dict) -> bool:
     repo = _repo(run)
     cfg = config.load_from_main(repo)
+    run["checks_head"] = gitops.head(repo)
     if not cfg.checks:
         run["steps"]["checks"] = SKIPPED
         run["phase"] = "review"
@@ -257,6 +305,10 @@ def _step_review(run: dict) -> dict:
     repo = _repo(run)
     cfg = config.load_from_main(repo)
     agent = _reviewer_agent(run, cfg)
+    moved = _head_moved(run)
+    if moved:
+        _restart_round(run, moved)
+        return advance(run)
     rnd = run["review_round"] + 1
     head = gitops.head(repo)
     base = gitops.merge_base(repo)
@@ -270,7 +322,7 @@ def _step_review(run: dict) -> dict:
         repo=repo, base=base, head=head, intent=folder / "intent.md", diff=diff,
         decisions=decision_log if decision_log.exists() else None, output=output,
         repo_rules=cfg.rules, first_reviewed_head=run["first_reviewed_head"],
-    ), encoding="ascii")
+    ), encoding="utf-8")
     output.unlink(missing_ok=True)
     _spawn(run, "Reviewer", agent, brief, output)
     run["review_round"] = rnd
@@ -286,17 +338,22 @@ def _finding_id(rnd: int, finding: dict) -> str:
 
 def _review_done(run: dict, review: dict) -> dict:
     rnd = run["review_round"]
-    closed = decisions.closed_keys(run["slug"], run["branch"])
+    closed_exact, closed_similar = decisions.closed(run["slug"], run["branch"])
     open_findings, notes, suppressed = [], [], []
     for f in review["findings"]:
         key = decisions.finding_key(f)
-        if key in closed:
+        if decisions.exact_key(f) in closed_exact:
             suppressed.append(f["title"])
             continue
         action = contracts.finding_action(f)
         entry = {"id": _finding_id(rnd, f), "key": key, "title": f["title"], "file": f["file"],
                  "line": f.get("line"), "sequence": f["sequence"], "remedy": f["remedy"],
                  "severity": f["severity"], "action": action, "answer": None}
+        similar = closed_similar.get(key)
+        if similar:
+            entry["similar_to"] = (f"looks like \"{similar['title']}\", which the owner chose to "
+                                   f"{similar['decision']} on {similar['at']}, but the failing "
+                                   "sequence differs")
         if action == "note":
             notes.append(f["title"])
         else:
@@ -336,19 +393,24 @@ def owner_message(run: dict) -> str:
         where = f"{f['file']}:{f['line']}" if f.get("line") else f["file"]
         lines += [f"[{f['id']}] {f['title']} ({f['severity']}, {where})",
                   f"  What happens: {f['sequence']}",
-                  f"  Reviewer suggests: {f['remedy']}", ""]
+                  f"  Reviewer suggests: {f['remedy']}"]
+        if f.get("similar_to"):
+            lines.append(f"  Note: this {f['similar_to']}.")
+        lines.append("")
     return "\n".join(lines)
 
 
 def _send_to_author(run: dict, to_fix: list[dict]) -> dict:
     run["to_fix"] = to_fix
-    if run["fix_rounds"] >= MAX_FIX_ROUNDS and not run.get("extra_round_allowed"):
+    if run["fix_rounds"] >= run.get("fix_round_limit", MAX_FIX_ROUNDS):
         run["phase"] = "fix-limit"
         return _set(run, WAITING_ON_OWNER,
                     f"{run['fix_rounds']} fix rounds have not settled this change. Tell the owner, "
-                    "list the findings below, and end your turn. Only if he says to try again, run: "
-                    "cc-ship continue --owner-allows-another-round\n"
-                    + "\n".join(f"- {f['title']} ({f['file']})" for f in to_fix))
+                    "list the findings below word for word, and end your turn. Record his call "
+                    "with one of: cc-ship respond fix-limit --fix (one more round) | --keep (ship "
+                    "the code as it is; the findings are recorded as kept) | --drop (the findings "
+                    "are wrong) [--note \"his words\"]\n"
+                    + "\n".join(f"- {f['title']} ({f['file']}): {f['sequence']}" for f in to_fix))
     run["history"][-1]["pending_fix"] = [[f["key"], f["title"]] for f in to_fix]
     run["phase"] = "fix"
     run["fix_head"] = gitops.head(_repo(run))
@@ -362,7 +424,28 @@ def _send_to_author(run: dict, to_fix: list[dict]) -> dict:
     return _set(run, WAITING_ON_AUTHOR, "\n".join(lines))
 
 
+def _respond_fix_limit(run: dict, decision: str, note: str) -> dict:
+    limit_finding = {"title": "Fix-round limit reached", "file": "", "severity": "",
+                     "sequence": f"after {run['fix_rounds']} fix rounds"}
+    decisions.record(run["slug"], run["branch"], run["id"], limit_finding, decision, note)
+    if decision == "fix":
+        run["fix_round_limit"] = run["fix_rounds"] + 1
+        return _send_to_author(run, run["to_fix"])
+    for finding in run["to_fix"]:
+        decisions.record(run["slug"], run["branch"], run["id"], finding, decision, note)
+    run["findings"] = []
+    run["steps"]["review"] = COMPLETED
+    run["phase"] = "verify"
+    _set(run, WORKING, "")
+    return advance(run)
+
+
 def respond(run: dict, finding_id: str, decision: str, note: str) -> dict:
+    if run["phase"] == "fix-limit" and run["state"] == WAITING_ON_OWNER:
+        if finding_id != "fix-limit":
+            raise ShipError("unknown-finding", "The run is waiting on the owner's fix-limit call.",
+                            "Use: cc-ship respond fix-limit --fix|--keep|--drop")
+        return _respond_fix_limit(run, decision, note)
     if run["phase"] != "owner":
         raise ShipError("nothing-to-answer", "This run is not waiting on the owner for findings.",
                         "Run: cc-ship status")
@@ -386,6 +469,7 @@ def respond(run: dict, finding_id: str, decision: str, note: str) -> dict:
         return _send_to_author(run, to_fix)
     run["steps"]["review"] = COMPLETED
     run["phase"] = "verify"
+    _set(run, WORKING, "")
     return advance(run)
 
 
@@ -393,6 +477,10 @@ def respond(run: dict, finding_id: str, decision: str, note: str) -> dict:
 
 def _step_verify(run: dict) -> bool:
     repo = _repo(run)
+    moved = _head_moved(run)
+    if moved:
+        _restart_round(run, moved)
+        return True
     cfg = config.load_from_main(repo)
     head = gitops.head(repo)
     changed = gitops.changed_files(repo, gitops.merge_base(repo), head)
@@ -400,20 +488,15 @@ def _step_verify(run: dict) -> bool:
         run["steps"]["verify"] = SKIPPED
         run["phase"] = "pr"
         return True
-    if config.is_docs_only(changed, cfg):
-        run["verify"] = {"verdict": "no-surface", "docs_only": True, "scenarios": [{
-            "name": "Documents only", "result": "untested", "live": False, "evidence": "",
-            "reason": "Nothing to run live: documents only"}]}
-        run["steps"]["verify"] = COMPLETED
-        run["phase"] = "pr"
-        return True
+    docs_only = config.is_docs_only(changed, cfg)
+    run["verify_docs_only"] = docs_only
 
     folder = _folder(run)
     output = folder / "verify.json"
     output.unlink(missing_ok=True)
     preview_url = None
     state_file = None
-    if cfg.surface == "vercel-preview":
+    if cfg.surface == "vercel-preview" and not docs_only:
         if run.get("preview_wait") is None:
             gitops.push_branch(repo, run["branch"])
             run["preview_wait"] = {"head": head, "since": time.time()}
@@ -432,12 +515,14 @@ def _step_verify(run: dict) -> bool:
         state_file = folder / "browser-state.json"
         preview.write_bypass_state(preview_url, state_file)
     run["preview_wait"] = None
-    run["verify_surface"] = preview_url is not None or cfg.surface == "none"
+    # Only a supplied preview is a known surface; with none, 'no-surface' may be honest.
+    run["verify_surface"] = preview_url is not None
     brief = folder / "brief-verify.md"
     brief.write_text(briefs.verifier_brief(
         repo=repo, intent=folder / "intent.md", preview_url=preview_url,
         browser_state=state_file, evidence_dir=folder / "evidence", output=output,
-    ), encoding="ascii")
+        docs_only=docs_only,
+    ), encoding="utf-8")
     try:
         _spawn(run, "Verifier", cfg.verifier_agent, brief, output)
     except Exception:
@@ -450,8 +535,9 @@ def _step_verify(run: dict) -> bool:
 
 
 def _verify_done(run: dict, verify: dict) -> dict:
-    run["session"] = None
-    preview.remove_bypass_state(_folder(run) / "browser-state.json")
+    _drop_verifier(run, "cc-ship: verifier finished")
+    if run.get("verify_docs_only") and verify["verdict"] == "no-surface":
+        verify["docs_only"] = True
     run["verify"] = verify
     if verify["verdict"] == "no-go":
         failing = [s for s in verify["scenarios"] if s["result"] == "fail"]
@@ -476,11 +562,13 @@ def _handle_session_result(run: dict, result: fleet.WaitResult) -> dict:
     session = run["session"]
     role = session["role"]
     output = Path(session["output"])
+    moved = _head_moved(run)
+    if moved:
+        _restart_round(run, moved)
+        _set(run, WORKING, f"{moved}; the round restarts from the beginning.")
+        return advance(run)
     if result.outcome in (fleet.CRASHED, fleet.STALLED):
-        if role == "Verifier":
-            preview.remove_bypass_state(_folder(run) / "browser-state.json")
         if session["replaced"]:
-            run["session"] = None
             return _fail(run, ShipError(
                 "session-failed",
                 f"The {role.lower()} failed twice ({result.reason}).",
@@ -488,6 +576,7 @@ def _handle_session_result(run: dict, result: fleet.WaitResult) -> dict:
             ))
         if result.outcome == fleet.STALLED:
             _stop_session_quietly(session["id"], "cc-ship: stalled without output")
+        _drop_verifier(run, "cc-ship: verifier failed")
         # One replacement (issue 2935, "Run state"). The partial output of the failed
         # session is removed so only the replacement's file can count.
         output.unlink(missing_ok=True)
@@ -510,8 +599,7 @@ def _handle_session_result(run: dict, result: fleet.WaitResult) -> dict:
                     else contracts.validate_verify(data, bool(run.get("verify_surface"))))
     if problems:
         if session["corrections"] >= MAX_CORRECTIONS:
-            if role == "Verifier":
-                preview.remove_bypass_state(_folder(run) / "browser-state.json")
+            _drop_verifier(run, "cc-ship: invalid output")
             run["session"] = None
             err = ShipError(
                 "invalid-output",
@@ -527,7 +615,7 @@ def _handle_session_result(run: dict, result: fleet.WaitResult) -> dict:
         fix = _folder(run) / f"correction-{role.lower()}-r{run['review_round']}-{session['corrections']}.md"
         fix.write_text(briefs.correction_brief(output, problems, session["corrections"],
                                                role.lower()),
-                       encoding="ascii")
+                       encoding="utf-8")
         session["written_after"] = time.time()
         session["watch"] = {"seen_working": session["watch"].get("seen_working", False)}
         fleet.prompt_session(session["id"], f"Read the file {fix} and follow it exactly.")
@@ -553,8 +641,7 @@ def wait(run: dict, slice_seconds: float = WAIT_SLICE_SECONDS) -> dict:
         age = time.time() - session["started"]
         if age > SESSION_LIMIT_SECONDS:
             _stop_session_quietly(session["id"], "cc-ship: took too long")
-            if session["role"] == "Verifier":
-                preview.remove_bypass_state(_folder(run) / "browser-state.json")
+            _drop_verifier(run, "cc-ship: took too long")
             run["session"] = None
             return _fail(run, ShipError(
                 "session-timeout",
@@ -573,8 +660,10 @@ def wait(run: dict, slice_seconds: float = WAIT_SLICE_SECONDS) -> dict:
             break
         try:
             _handle_session_result(run, result)
-        except (ShipError, fleet.FleetError, preview.PreviewError) as exc:
-            err = as_ship_error(exc)
+        except Exception as exc:
+            err = (as_ship_error(exc) if isinstance(exc, (ShipError, fleet.FleetError,
+                                                          preview.PreviewError))
+                   else internal_error(exc))
             if run["state"] != FAILED:
                 _fail(run, err)
             raise err from exc
@@ -590,6 +679,10 @@ def _owner_kept_errors(run: dict) -> list[str]:
 
 def _step_pr(run: dict) -> None:
     repo = _repo(run)
+    moved = _head_moved(run)
+    if moved:
+        _restart_round(run, moved)
+        return
     cfg = config.load_from_main(repo)
     head = gitops.head(repo)
     base = gitops.merge_base(repo)
@@ -645,6 +738,16 @@ def _park_reasons(run: dict) -> list[str]:
 def _step_merge(run: dict) -> dict:
     repo = _repo(run)
     pr = run["pr"]
+    state = github.pr_state(run["slug"], pr["number"])
+    if state["state"] == "MERGED":  # merged by an earlier attempt that did not finish
+        return _merged(run)
+    if state["state"] == "CLOSED":
+        raise ShipError("pr-closed", f"{pr['url']} was closed without merging.",
+                        "Ask the owner; then cc-ship abort, or reopen it and cc-ship continue")
+    moved = _head_moved(run)
+    if moved:
+        _restart_round(run, moved)
+        return advance(run)
     failed = github.failed_checks(run["slug"], pr["number"])
     if failed:
         run["phase"] = "fix"
@@ -689,11 +792,15 @@ def _merged(run: dict) -> dict:
 
 # --------------------------------------------------------------------------- continue / abort
 
-def resume(run: dict, owner_allows_another_round: bool = False) -> dict:
+def resume(run: dict) -> dict:
     state, phase = run["state"], run["phase"]
+    if run.get("session") is None:
+        preview.remove_bypass_state(_folder(run) / "browser-state.json")
     if state == WORKING:
-        raise ShipError("still-working", "A session is still working on this run.",
-                        "Run: cc-ship wait")
+        if run.get("session") or phase == "preview":
+            raise ShipError("still-working", "A session is still working on this run.",
+                            "Run: cc-ship wait")
+        return advance(run)  # an earlier cc-ship stopped between two steps
     if state == WAITING_ON_OWNER:
         if phase == "owner":
             raise ShipError("owner-pending", "The owner has not answered every finding yet.",
@@ -708,15 +815,8 @@ def resume(run: dict, owner_allows_another_round: bool = False) -> dict:
             raise ShipError("still-parked", f"{run['pr']['url']} is still waiting for the owner.",
                             "End your turn; run cc-ship continue after he has merged it.")
         if phase == "fix-limit":
-            if not owner_allows_another_round:
-                raise ShipError("fix-limit", "The fix-round limit was reached; only the owner can "
-                                             "allow another round.",
-                                "Only if he said so: cc-ship continue --owner-allows-another-round")
-            run["extra_round_allowed"] = True
-            run["history"].append({"round": run["review_round"], "agent": "owner", "session": "",
-                                   "found": 0, "notes": ["Owner allowed another fix round."],
-                                   "suppressed": [], "pending_fix": [], "fixed_next_round": []})
-            return _send_to_author(run, run["to_fix"])
+            raise ShipError("fix-limit", "The fix-round limit was reached; the owner decides.",
+                            run["next_step"])
     if state == WAITING_ON_AUTHOR:
         if phase == "fix":
             if gitops.head(_repo(run)) == run.get("fix_head"):

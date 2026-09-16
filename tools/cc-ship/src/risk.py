@@ -26,14 +26,11 @@ class RiskInputs:
 
 def compute(inputs: RiskInputs, cfg: config.ShipConfig) -> dict:
     raised: list[tuple[str, str]] = []
+    # Schema, migration, authentication, key and tenant code are declared per
+    # repository in .ship.yaml risk.high_paths; a name guess misfires ("authoring").
     high_hits = [f for f in inputs.changed_files if config.matches(f, cfg.high_paths)]
-    builtin_hits = [f for f in inputs.changed_files
-                    if config.matches(f, config.BUILT_IN_HIGH_PATTERNS)]
     if high_hits:
         raised.append(("high", f"touches a high-risk path: {', '.join(high_hits[:5])}"))
-    if builtin_hits:
-        raised.append(("high", "touches schema, migration, authentication, key or tenant code: "
-                               + ", ".join(builtin_hits[:5])))
     if inputs.verdict == "inconclusive":
         raised.append(("high", "the verifier's verdict was inconclusive"))
     if inputs.owner_kept_errors:

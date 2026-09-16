@@ -30,12 +30,6 @@ FILE_NAME = ".ship.yaml"
 AGENTS = ("ClaudeCode", "Codex", "Gemini", "OpenCode", "Grok", "Copilot", "Pi")
 SURFACES = ("vercel-preview", "none", "skip")
 
-# Always high, in every repository (issue 2935, "Risk").
-BUILT_IN_HIGH_PATTERNS = (
-    "*migration*", "*.sql", "*auth*", "*tenant*", "*secret*", "*credential*", "*apikey*", "*api_key*",
-)
-
-
 @dataclass
 class ShipConfig:
     checks: list[str]

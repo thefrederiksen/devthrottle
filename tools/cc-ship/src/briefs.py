@@ -138,9 +138,19 @@ def verifier_brief(
     browser_state: Path | None,
     evidence_dir: Path,
     output: Path,
+    docs_only: bool = False,
 ) -> str:
     browser_session = f"verify-{output.parent.name}"
-    if preview_url and browser_state:
+    if docs_only:
+        surface = """## The live surface
+
+This change touches only documents. There is nothing to run live. Confirm that from the
+diff (git diff origin/main...HEAD --stat). If it is true, record one scenario per changed
+document as untested, not live, with the reason "Nothing to run live: documents only",
+and the verdict "no-surface". If the change does contain something that runs, say so in
+a scenario and use the verdict "inconclusive".
+"""
+    elif preview_url and browser_state:
         surface = f"""## The live surface
 
 A preview of this exact change is deployed at:

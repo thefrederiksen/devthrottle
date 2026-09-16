@@ -103,7 +103,8 @@ def write_bypass_state(url: str, state_file: Path) -> None:
     }
     # The cookie is itself a bypass credential. The run folder lives in the user's own
     # profile (per-user access on Windows); chmod narrows it further on macOS.
-    # Callers use bypass_state(), which removes it however the verifier ends.
+    # It must never outlive the verifier: the engine removes it on every verifier end
+    # and every failure; the probe uses bypass_state().
     state_file.write_text(json.dumps(state), encoding="ascii")
     state_file.chmod(0o600)
 

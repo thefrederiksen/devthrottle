@@ -23,10 +23,18 @@ def log_path(slug: str, branch: str) -> Path:
     return runstore.ship_root() / "decisions" / safe_repo / f"{safe_branch}.jsonl"
 
 
+def _words(value: object) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", str(value or "").lower()).strip()
+
+
 def finding_key(finding: dict) -> str:
-    """Stable across review rounds: the reviewer's ids (F1, F2) are not."""
-    title = re.sub(r"[^a-z0-9]+", " ", str(finding.get("title", "")).lower()).strip()
-    return f"{finding.get('file', '')}::{title}"
+    """The same place and title: a SIMILAR finding. Never enough to suppress one."""
+    return f"{finding.get('file', '')}::{_words(finding.get('title'))}"
+
+
+def exact_key(finding: dict) -> str:
+    """The same place, title and failing sequence: the SAME owner call."""
+    return f"{finding_key(finding)}::{_words(finding.get('sequence'))}"
 
 
 def read(slug: str, branch: str) -> list[dict]:
@@ -39,7 +47,9 @@ def read(slug: str, branch: str) -> list[dict]:
 def record(slug: str, branch: str, run_id: str, finding: dict, decision: str, note: str) -> dict:
     entry = {
         "at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        "finding": finding_key(finding),
+        "finding": exact_key(finding),
+        "similar": finding_key(finding),
+        "sequence": finding.get("sequence", ""),
         "title": finding.get("title", ""),
         "file": finding.get("file", ""),
         "severity": finding.get("severity", ""),
@@ -54,7 +64,11 @@ def record(slug: str, branch: str, run_id: str, finding: dict, decision: str, no
     return entry
 
 
-def closed_keys(slug: str, branch: str) -> set[str]:
-    """Findings the owner kept or dropped. A 'fix' decision is closed once fixed and
-    re-reviewed, which the next review round shows; it is not filtered here."""
-    return {d["finding"] for d in read(slug, branch) if d["decision"] in ("keep", "drop")}
+def closed(slug: str, branch: str) -> tuple[set[str], dict[str, dict]]:
+    """(exact keys the owner kept or dropped, similar key -> that decision).
+
+    Only an exact match is suppressed. A finding that merely looks like a decided one
+    goes to the owner again, marked as similar, because it may be a different defect.
+    A 'fix' decision closes once the fix is re-reviewed, so it is not listed here."""
+    done = [d for d in read(slug, branch) if d["decision"] in ("keep", "drop")]
+    return {d["finding"] for d in done}, {d.get("similar", ""): d for d in done}

@@ -86,7 +86,7 @@ def build(*, run: dict, intent: str, changed: list[str], added: int, deleted: in
              f"{len(changed)} files, +{added} -{deleted}."]
     lines += [f"- {_cell(s)}" for s in subjects]
     shown = changed[:15]
-    lines.append("Files: " + ", ".join(f"`{f}`" for f in shown)
+    lines.append("Files: " + ", ".join(f"`{_cell(f)}`" for f in shown)
                  + (f" and {len(changed) - len(shown)} more" if len(changed) > len(shown) else ""))
     lines.append("")
     lines += testing_section(run["verify"], run["steps"]["verify"], checks,

@@ -80,7 +80,3 @@ def delete_remote_branch(slug: str, branch: str) -> None:
                         f"The pull request merged but deleting {branch} failed: {proc.stderr.strip()}",
                         f"Delete it by hand: git push origin --delete {branch}")
 
-
-def remote_branch_exists(slug: str, branch: str) -> bool:
-    proc = _gh(["api", f"repos/{slug}/branches/{branch}"], check=False)
-    return proc.returncode == 0
