@@ -123,6 +123,8 @@ public sealed class HostedPerAccountSettingsServeTests : IAsyncLifetime
         ("PUT", "gateway/daily-report",             "{\"cadence\":\"off\"}"),
         ("GET", "gateway/mentor-report",            null),
         ("PUT", "gateway/mentor-report",            "{\"enabled\":false}"),
+        ("GET", "gateway/fleet-manager",            null),
+        ("PUT", "gateway/fleet-manager",            "{\"sessionId\":\"77777777-7777-7777-7777-777777777777\"}"),
         ("GET", "gateway/injected-text",            null),
         ("PUT", "gateway/injected-text",            "{\"use_yours\":true,\"yours\":\"words for one account only\"}"),
         // Issue #1360: these three setters REFUSE any id that is not a devthrottle/ included
@@ -258,6 +260,43 @@ public sealed class HostedPerAccountSettingsServeTests : IAsyncLifetime
 
         Assert.Equal(System.Net.HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal(before, await ReadBool(_httpA, "gateway/mentor-report", "enabled"));
+    }
+
+    /// <summary>
+    /// ISOLATED - the account's Fleet Manager mark. One account marks a session; the other still has none. The
+    /// id goes in upper case and comes back in the canonical lower case every roster row carries, and a null id
+    /// clears the mark.
+    /// </summary>
+    [Fact]
+    public async Task Fleet_manager_marked_by_one_tenant_is_invisible_to_another_and_clears_with_null()
+    {
+        (await OwnerSettingsRoutes.SendAsync(_httpA, "PUT", "gateway/fleet-manager",
+            "{\"sessionId\":\"ABCDEFAB-1234-4321-ABCD-ABCDEFABCDEF\"}")).EnsureSuccessStatusCode();
+
+        Assert.Equal("abcdefab-1234-4321-abcd-abcdefabcdef", await ReadString(_httpA, "gateway/fleet-manager", "sessionId"));
+        Assert.Null(await ReadString(_httpB, "gateway/fleet-manager", "sessionId"));
+
+        (await OwnerSettingsRoutes.SendAsync(_httpA, "PUT", "gateway/fleet-manager", "{\"sessionId\":null}"))
+            .EnsureSuccessStatusCode();
+
+        Assert.Null(await ReadString(_httpA, "gateway/fleet-manager", "sessionId"));
+    }
+
+    /// <summary>A body with no "sessionId", or one that is not a session id, is REFUSED and changes nothing -
+    /// it is never read as a clear.</summary>
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("{\"sessionId\":\"fleet-manager\"}")]
+    [InlineData("{\"sessionId\":42}")]
+    public async Task Fleet_manager_write_without_a_session_id_is_refused_and_changes_nothing(string body)
+    {
+        (await OwnerSettingsRoutes.SendAsync(_httpA, "PUT", "gateway/fleet-manager",
+            "{\"sessionId\":\"12121212-3434-5656-7878-909090909090\"}")).EnsureSuccessStatusCode();
+
+        var response = await OwnerSettingsRoutes.SendAsync(_httpA, "PUT", "gateway/fleet-manager", body);
+
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("12121212-3434-5656-7878-909090909090", await ReadString(_httpA, "gateway/fleet-manager", "sessionId"));
     }
 
     /// <summary>ISOLATED - the text-to-speech voice. A picks a distinctive voice; B is unaffected.</summary>

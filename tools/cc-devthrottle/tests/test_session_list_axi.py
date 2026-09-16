@@ -275,6 +275,51 @@ def test_list_sessions_RepoFilter_MatchesFolderNameOrFullPath(serve, capsys, rep
     assert [r["id"] for r in records] == [FLEET[i]["sessionId"] for i in (0, 2, 4, 5, 6)]
 
 
+# Two repositories whose full paths differ only in case. On a filesystem that minds case they are two
+# different repositories, so a full-path filter must tell them apart; their folder names are the same
+# word, so a folder-name filter (which ignores case) finds both.
+UNIX_CASE_PAIR = [
+    _row("e1e1e1e1-1111-4111-8111-000000000001", "upper", bucket="active", repo="/home/A/proj"),
+    _row("e1e1e1e1-1111-4111-8111-000000000002", "lower", bucket="active", repo="/home/a/proj"),
+    _row("e1e1e1e1-1111-4111-8111-000000000003", "windows", bucket="active", repo=r"C:\Repos\Proj"),
+]
+
+
+@pytest.mark.parametrize("repo,expected", [
+    ("/home/A/proj", [0]),
+    ("/home/a/proj", [1]),
+    ("/HOME/A/PROJ", []),
+    ("/home/A/proj/", []),
+    ("proj", [0, 1, 2]),
+    ("PROJ", [0, 1, 2]),
+])
+def test_list_sessions_RepoFilter_UnixFullPath_MatchesExactly(serve, capsys, repo, expected):
+    serve(UNIX_CASE_PAIR)
+
+    session_ops.list_sessions(json_output=False, repo=repo)
+
+    _, records = parse_list(capsys.readouterr().out, "sessions")
+    assert [r["id"] for r in records] == [UNIX_CASE_PAIR[i]["sessionId"] for i in expected]
+
+
+@pytest.mark.parametrize("repo", [r"C:\Repos\Proj", r"c:\repos\proj", "C:/Repos/Proj", "c:/REPOS/proj/"])
+def test_list_sessions_RepoFilter_WindowsFullPath_IgnoresCaseAndSlashes(serve, capsys, repo):
+    serve(UNIX_CASE_PAIR)
+
+    session_ops.list_sessions(json_output=False, repo=repo)
+
+    _, records = parse_list(capsys.readouterr().out, "sessions")
+    assert [r["id"] for r in records] == [UNIX_CASE_PAIR[2]["sessionId"]]
+
+
+def test_list_sessions_RepoFilter_UnixFullPath_JsonMatchesExactly(serve, capsys):
+    serve(UNIX_CASE_PAIR)
+
+    session_ops.list_sessions(json_output=True, repo="/home/a/proj")
+
+    assert json.loads(capsys.readouterr().out) == [UNIX_CASE_PAIR[1]]
+
+
 def test_list_sessions_MachineFilter_IgnoresCase(serve, capsys):
     serve(FLEET)
 
@@ -514,3 +559,36 @@ def test_session_list_Cli_UnknownBucket_ExitsOneNamingIt(serve):
     assert "'somethingNew'" in result.stderr
     assert "d2a4069f-1111-4111-8111-000000000007" in result.stderr
     assert result.stdout == ""
+
+
+# ---------------------------------------------------------------------------------------------------
+# Inspection fixes: a backslash in a macOS or Linux folder name, and the root of a Windows drive
+# ---------------------------------------------------------------------------------------------------
+
+POSIX_BACKSLASH_ID = "d2a4069f-1111-4111-8111-00000000000b"
+DRIVE_ROOT_ID = "d2a4069f-1111-4111-8111-00000000000c"
+
+
+def _repo_ids(args):
+    result = runner.invoke(app, ["session", "list", "--json", *args])
+    assert result.exit_code == 0, result.output
+    return [s["sessionId"] for s in json.loads(result.stdout)]
+
+
+def test_session_list_Cli_PosixFolderWithABackslash_IsItsOwnName(serve):
+    # The inspection's reproduction: /home/a\b is the folder a\b, not the folder b inside a.
+    serve([_row(POSIX_BACKSLASH_ID, "posix", bucket="active", repo="/home/a\\b")])
+
+    assert _repo_ids(["--repo", "a\\b"]) == [POSIX_BACKSLASH_ID]
+    assert _repo_ids(["--repo", "b"]) == []
+    assert session_ops._repo_name("/home/a\\b") == "a\\b"
+    assert session_ops._repo_name(r"D:\ReposFred\a") == "a"
+
+
+def test_session_list_Cli_DriveRelativeFilter_DoesNotMatchTheDriveRoot(serve):
+    serve([_row(DRIVE_ROOT_ID, "root", bucket="active", repo="C:\\")])
+
+    assert _repo_ids(["--repo", "C:"]) == []
+    assert _repo_ids(["--repo", "C:\\"]) == [DRIVE_ROOT_ID]
+    assert _repo_ids(["--repo", "c:/"]) == [DRIVE_ROOT_ID]
+    assert session_ops._repo_name("C:\\") == "C:\\"

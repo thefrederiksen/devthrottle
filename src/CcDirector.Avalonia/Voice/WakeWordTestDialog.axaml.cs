@@ -1,5 +1,6 @@
 using System;
 using System.Text;
+using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Media;
@@ -41,6 +42,23 @@ public partial class WakeWordTestDialog : Window
     private bool _listening;
     private int _emittedCount;
 
+    // Set on the interface thread the moment the window closes. The close handler disposes only the published
+    // recorder, so a start that was still waiting on the device query when the window closed must see this and
+    // build nothing - or dispose what it built - because no later close will ever come for it.
+    private bool _closed;
+
+    /// <summary>
+    /// TEST SEAM: resolves the default microphone's name in place of the Windows query, so a test can hold the
+    /// query while the window closes (inspection six, finding 3). Null in production.
+    /// </summary>
+    internal Func<Task<string>>? DescribeDefaultDeviceForTests;
+
+    /// <summary>
+    /// TEST SEAM: builds the recorder from the resolved device name in place of a real microphone. Null in
+    /// production.
+    /// </summary>
+    internal Func<string, BatchDictationRecorder>? RecorderFactoryForTests;
+
     public WakeWordTestDialog(AgentOptions options)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
@@ -59,7 +77,11 @@ public partial class WakeWordTestDialog : Window
         _debounceTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(DebounceMs) };
         _debounceTimer.Tick += OnDebounceTick;
 
-        Closed += (_, _) => _ = OnClosedAsync();
+        Closed += (_, _) =>
+        {
+            _closed = true;
+            _ = OnClosedAsync();
+        };
     }
 
     // ===== listen lifecycle =================================================
@@ -96,9 +118,31 @@ public partial class WakeWordTestDialog : Window
         BatchDictationRecorder? recorder = null;
         try
         {
-            recorder = new BatchDictationRecorder(_options);
+            // The device name is a Windows query; resolve it off the interface thread (issue #2929).
+            var description = DescribeDefaultDeviceForTests is null
+                ? await Task.Run(() => MicDevices.DescribeDevice(MicDevices.DefaultDeviceNumber))
+                : await DescribeDefaultDeviceForTests();
+            // The window can close while the query runs. Its close handler has already run and found no
+            // recorder, so a microphone opened now would have no owner left to stop it (inspection six, finding 3).
+            if (_closed)
+            {
+                FileLog.Write("[WakeWordTestDialog] window closed during the device query; no microphone opened");
+                return;
+            }
+            recorder = RecorderFactoryForTests is null
+                ? new BatchDictationRecorder(_options, MicDevices.DefaultDeviceNumber, description)
+                : RecorderFactoryForTests(description);
             recorder.OnAudioBands += OnAudioBands;
             await recorder.StartAsync("default");
+            // Same for a close that lands while the microphone starts: this start owns the recorder until it is
+            // published, so it stops it here.
+            if (_closed)
+            {
+                FileLog.Write("[WakeWordTestDialog] window closed while the microphone started; stopping it");
+                recorder.OnAudioBands -= OnAudioBands;
+                await recorder.DisposeAsync();
+                return;
+            }
             _recorder = recorder;
             _listening = true;
             StopButton.IsEnabled = true;

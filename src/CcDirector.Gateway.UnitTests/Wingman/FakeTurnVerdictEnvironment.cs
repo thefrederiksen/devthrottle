@@ -174,10 +174,24 @@ internal sealed class FakeTurnVerdictEnvironment : ITurnVerdictEnvironment
     /// particular trace write and act while it is held.</summary>
     public Action<TurnVerdictTrace>? BeforeRecordTrace;
 
+    /// <summary>When set, every trace is also handed to this real writer, exactly as the production environment hands it
+    /// over - so a test can assert what reached the store, and a closed writer refuses it as it would at shutdown.</summary>
+    public TurnVerdictTraceWriter? TraceWriter;
+
     public void RecordTrace(TenantId tenant, TurnVerdictTrace trace)
     {
         BeforeRecordTrace?.Invoke(trace);
         Traces.Enqueue(trace);
+        TraceWriter?.Enqueue(tenant, trace);
+    }
+
+    /// <summary>Every trace the seat could not hand in, with its cause, in order.</summary>
+    public readonly ConcurrentQueue<(TurnVerdictTrace Trace, string Cause)> NotKept = new();
+
+    public void TraceNotKept(TenantId tenant, TurnVerdictTrace trace, string cause)
+    {
+        NotKept.Enqueue((trace, cause));
+        TraceWriter?.NotKept(trace, cause);
     }
 
     /// <summary>The seat's clock. Replace it to move time without waiting.</summary>

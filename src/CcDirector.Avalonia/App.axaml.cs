@@ -130,6 +130,11 @@ public partial class App : Application
                     // purge-drift, repair-broken. Runs OFF the UI thread and fire-and-forget so it NEVER
                     // gates or delays boot (failures only log), gated by tools.autoUpdate.enabled.
                     StartToolReconcile(selfUpdateApplied);
+
+                    // Create the standby Director slot if it is missing (issue #2945). It never updates an
+                    // existing slot; each Director updates itself. After the health mark on purpose: an
+                    // unproven build is never copied into the standby.
+                    StartStandbySlotProvisioning();
                 }
                 catch (Exception ex)
                 {
@@ -578,6 +583,30 @@ public partial class App : Application
         {
             var layout = CcDirector.Setup.Engine.InstallLayout.Default();
             await CcDirector.Setup.Engine.ToolAutoUpdateTrigger.RunIfEnabledAsync(layout, trigger);
+        });
+    }
+
+    /// <summary>
+    /// Create the standby Director slot in the background when it is missing (issue #2945). Off the UI
+    /// thread and fire-and-forget: copying the executable must never delay boot. A held pass is retried
+    /// until the slot exists; the retry loop is the boundary and logs every failure itself.
+    /// </summary>
+    private static void StartStandbySlotProvisioning()
+    {
+        FileLog.Write("[App] StartStandbySlotProvisioning: scheduling background standby slot passes");
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var interval = CcDirector.Setup.Engine.StandbySlotProvisioner.RetryInterval;
+                var outcome = await CcDirector.Setup.Engine.StandbySlotProvisioner.ForThisProcess()
+                    .RunUntilSettledAsync(ct => Task.Delay(interval, ct), CancellationToken.None);
+                FileLog.Write($"[App] Standby slot settled: {outcome?.Decision.ToString() ?? "(cancelled)"} - {outcome?.Detail}");
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[App] Standby slot provisioning FAILED: {ex}");
+            }
         });
     }
 

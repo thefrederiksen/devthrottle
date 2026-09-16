@@ -156,6 +156,54 @@ public sealed class TurnVerdictVoiceMergeTests : IDisposable
     }
 
     [Fact]
+    public async Task ExplainPressedWhileAStopIsQueuedBehindAClosingJudgement_NarratesTheQueuedStopsVerdict_NotTheEndingOnes()
+    {
+        // Issue #2905, round 2 inspection, finding 1. Explain awaited the ending judgement's completion and was handed that
+        // judgement's words, although the stop on the screen was the one queued behind it and was about to be judged by the
+        // successor.
+        //
+        // REACHED AT THE EXACT POINT: from the seam that runs once the ending judgement has closed its joined list, the
+        // screen moves on, a new stop arrives and queues behind it, and Explain is pressed - all while that judgement still
+        // holds the gate.
+        const string firstSpoken = "The retention sweep. The first stop is finished.";
+        const string secondSpoken = "The retention sweep. The second stop needs nothing either.";
+        var rig = Build();
+        var screen = Screen(Sid, ReplyText, "> ");
+        rig.Env.Screen = () => screen;
+        rig.Env.Conversation = _ => Reply("push it", ReplyText);
+        var judgeCalls = 0;
+        rig.Env.Judge = (_, _) => Task.FromResult(Interlocked.Increment(ref judgeCalls) == 1
+            ? FakeTurnVerdictEnvironment.Finished(ReplyText, firstSpoken)
+            : FakeTurnVerdictEnvironment.Finished("I have also written the release notes.", secondSpoken));
+        var route = RouteServing("dir-1", () => screen);
+
+        Task<TurnVerdictOutcome>? queued = null;
+        Task<WingmanVoiceService.StopNarration>? explain = null;
+        var queuedAndUnansweredWhenPressed = false;
+        rig.Verdicts.OnJoinedListClosedForTests = _ =>
+        {
+            if (queued is not null) return;
+            screen = Screen(Sid, "I have also written the release notes.", "> ");
+            rig.Env.Conversation = _ => Reply("and the notes?", "I have also written the release notes.");
+            queued = rig.Verdicts.StartTurnEnd(Signal(ObservedAt.AddMinutes(1)));
+            explain = rig.Voice.NarrateStopOnRequestAsync(Tenant, Sid, route, markAsVoiceSession: false);
+            queuedAndUnansweredWhenPressed = !queued.IsCompleted && !explain.IsCompleted;
+        };
+
+        Assert.Equal(TurnVerdictOutcomeKind.Judged, (await rig.Verdicts.StartTurnEnd(Signal(ObservedAt)).WaitAsync(TimeSpan.FromSeconds(5))).Kind);
+        Assert.NotNull(explain);
+        Assert.True(queuedAndUnansweredWhenPressed, "Explain was not pressed while the stop was queued behind the ending judgement");
+
+        var narration = await explain!.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(TurnVerdictOutcomeKind.Judged, (await queued!.WaitAsync(TimeSpan.FromSeconds(5))).Kind);
+        Assert.Null(narration.Error);
+        Assert.Contains("second stop", narration.Spoken);
+        Assert.DoesNotContain("first stop", narration.Spoken);
+        Assert.Equal(rig.Env.Latest(Tenant, Sid)!.VerdictId, narration.VerdictId);
+        Assert.Equal(2, rig.Env.JudgeCalls);   // one call per stop: Explain asked nothing of its own
+    }
+
+    [Fact]
     public async Task ExplainOnANonVoiceSession_PlaysTheVerdict_StaysNonVoice_AndItsNextStopSynthesisesNothing()
     {
         var rig = Build();

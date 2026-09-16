@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import typer
 from rich import box
@@ -26,7 +26,10 @@ _tools_dir = str(Path(__file__).resolve().parent.parent.parent)
 if _tools_dir not in sys.path:
     sys.path.insert(0, _tools_dir)
 
+from cc_shared import axi_output  # noqa: E402
 from cc_shared import gateway  # noqa: E402
+
+from . import usage_errors  # noqa: E402
 
 console = Console()
 
@@ -60,75 +63,461 @@ def _size(size: Any) -> str:
     return str(count)
 
 
-def list_machines(json_output: bool) -> None:
-    """Every machine this account can search and start things on."""
-    rows: List[Dict[str, Any]] = _call("launchers") or []
+# --- machine list and director list (AXI standard, docs/axi-standard.md; issue #2922) ---
+#
+# Both render through the shared output helper, the same way `session list` does: a count line with a
+# breakdown by state, the list with full names and ids, and help[] lines. `--json` prints exactly what
+# the Gateway sent when no filter is given, and a filter narrows the same bare array.
+#
+# RENDER, NEVER RULE. Neither state is decided here. A Director's state is the one the Gateway folds
+# into the roster envelope for the Fleet Map (online, wobbly, offline, stopped); a machine's state is the
+# launcher reach the Gateway folds into its Machines view. This only names that verdict in one word, and
+# a value this tool does not know fails loudly instead of being guessed.
+
+# A machine's plain state, in the order the count line lists them, and the Gateway reach each names.
+# `machine list` lists the machines that have a launcher, so the Gateway's fourth reach, NoLauncher (a
+# Director on a machine with no launcher), can never be a row's state: those machines are counted in one
+# line after the list instead, and a launcher row the Gateway calls NoLauncher fails loudly as unknown.
+MACHINE_STATES = ("online", "offline", "too-old")
+_MACHINE_STATE_FOR_REACH = {
+    "Connected": "online",
+    "NotConnected": "offline",
+    "NotStreamCapable": "too-old",
+}
+_NO_LAUNCHER_REACH = "NoLauncher"
+
+MACHINE_LIST_FIELDS = ("name", "state", "version", "pid", "started", "last-seen")
+MACHINE_LIST_DEFAULT_FIELDS = ("name", "state", "version")
+
+# A Director's state, exactly as the Gateway names it (DirectorReachabilityDto), in count-line order.
+DIRECTOR_STATES = ("online", "wobbly", "offline", "stopped")
+
+DIRECTOR_LIST_FIELDS = ("id", "name", "machine", "state", "version", "pid", "user", "started", "last-seen")
+DIRECTOR_LIST_DEFAULT_FIELDS = ("id", "name", "machine", "state")
+
+
+_usage_error = usage_errors.usage_error
+
+
+def _answer_error(message: str) -> None:
+    """The Gateway's answer cannot be listed truthfully. Exit 1; --json never prints half an answer."""
+    print(f"Error: {axi_output.escape_ascii(message)}", file=sys.stderr)
+    raise typer.Exit(1)
+
+
+def _get_or_exit(path: str) -> Any:
+    try:
+        payload = gateway.get_json(path)
+    except gateway.GatewayError as err:
+        _answer_error(str(err))
+    if isinstance(payload, dict) and payload.get("error"):
+        _answer_error(str(payload["error"]))
+    return payload
+
+
+def _parse_states(requested: Optional[str], valid: Tuple[str, ...]) -> Optional[List[str]]:
+    """Turn a `--state` value (one state, or several separated by commas) into a list, or exit 2."""
+    if requested is None:
+        return None
+    names = [part.strip() for part in requested.split(",")]
+    unknown = [name for name in names if name not in valid]
+    if unknown:
+        listed = ", ".join("'" + axi_output.escape_ascii(name) + "'" for name in unknown)
+        _usage_error(f"unknown --state value {listed}. Valid states: {', '.join(valid)}")
+    return names
+
+
+def _check_usage(json_output: bool, fields: Optional[str], valid: Tuple[str, ...],
+                 default: Tuple[str, ...]) -> List[str]:
+    # Usage errors come before the fetch: a bad flag is the caller's to fix, whatever the fleet holds.
+    if json_output and fields is not None:
+        _usage_error("--fields does not apply to --json, which always carries every field. Drop one of them.")
+    return usage_errors.parse_fields(fields, valid, default)
+
+
+def _rows_or_exit(payload: Any, what: str, id_key: str, id_camel: str,
+                  also_required: Tuple[Tuple[str, str], ...] = ()) -> List[Dict[str, Any]]:
+    """The Gateway's list, checked. Absent is not empty, and a row with no identifier cannot be named.
+
+    `also_required` names further (camelCase, PascalCase) fields every row must carry as a non-blank
+    string - a row missing one would otherwise be silently dropped by a filter on that field."""
+    if not isinstance(payload, list):
+        shown = "nothing" if payload is None else f"a {type(payload).__name__}"
+        _answer_error(f"the Gateway's {what} list answer was not a list (got {shown}).")
+    for index, row in enumerate(payload):
+        if not isinstance(row, dict):
+            _answer_error(f"the Gateway's {what} list has a row that is not an object (row {index + 1}).")
+        for camel, pascal in ((id_camel, id_key),) + also_required:
+            if not _is_name(_value(row, camel, pascal)):
+                _answer_error(
+                    f"the Gateway returned a {what} with no {camel} (row {index + 1}). "
+                    "This tool will not list what it cannot name or place."
+                )
+    return payload
+
+
+# The kind of value each displayed field must hold, exactly as the Gateway's DTO serializes it
+# (DirectorDto, LauncherDto). A value of any other kind is refused, never shown as a guess or a blank.
+_STRING = "a string"
+_NUMBER = "a whole number"
+_STRING_OR_NULL = "a string or null"
+
+
+def _value(row: Dict[str, Any], camel: str, pascal: str) -> Any:
+    return row[camel] if camel in row else row.get(pascal)
+
+
+def _is_name(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _kind_ok(value: Any, kind: str) -> bool:
+    if kind == _NUMBER:
+        return isinstance(value, int) and not isinstance(value, bool)
+    if kind == _STRING_OR_NULL and value is None:
+        return True
+    return isinstance(value, str)
+
+
+def _displayed_or_exit(rows: List[Dict[str, Any]], what: str,
+                       spec: Tuple[Tuple[str, str, str], ...]) -> None:
+    """Every displayed field of every row is present and of the kind the Gateway's DTO sends.
+
+    A field that is absent, or holds another kind of value, would otherwise be printed as a blank or as
+    Python's rendering of whatever arrived - an answer that looks read but was not."""
+    for index, row in enumerate(rows):
+        for camel, pascal, kind in spec:
+            present = camel in row or pascal in row
+            value = _value(row, camel, pascal)
+            if not present or not _kind_ok(value, kind):
+                shown = "missing" if not present else f"{type(value).__name__} {value!r}"
+                _answer_error(
+                    f"the Gateway returned a {what} whose {camel} is {shown}, not {kind} (row {index + 1}). "
+                    "--json shows the raw rows."
+                )
+
+
+_DIRECTOR_DISPLAYED = (
+    ("displayName", "DisplayName", _STRING),
+    ("version", "Version", _STRING),
+    ("pid", "Pid", _NUMBER),
+    ("user", "User", _STRING),
+    ("startedAt", "StartedAt", _STRING),
+    ("lastSeen", "LastSeen", _STRING_OR_NULL),
+)
+_LAUNCHER_DISPLAYED = (
+    ("version", "Version", _STRING),
+    ("pid", "Pid", _NUMBER),
+    ("startedAt", "StartedAt", _STRING),
+    ("lastSeenAt", "LastSeenAt", _STRING),
+)
+
+
+def _text(row: Dict[str, Any], camel: str, pascal: str) -> Optional[str]:
+    value = _value(row, camel, pascal)
+    return None if value is None else str(value)
+
+
+def _count_line(states: List[str], order: Tuple[str, ...], total: Optional[int]) -> str:
+    # No rows means no breakdown at all: the helper refuses an empty one, and "count: 0" says it all.
+    breakdown = [(name, n) for name in order if (n := states.count(name))] or None
+    return axi_output.format_count(len(states), total=total, breakdown=breakdown)
+
+
+def _note(text: str) -> str:
+    """A free-text note or caution for plain output, escaped so it is always one physical line of printable
+    ASCII - a newline or tab in a name the Gateway sent must not split it."""
+    return axi_output.escape_ascii(text)
+
+
+def _write(blocks: List[str]) -> None:
+    # Every block is already rendered: lists and help by the shared helper, notes through _note.
+    axi_output.write_blocks(sys.stdout, *blocks)
+
+
+def _machine_states(launchers: List[Dict[str, Any]]) -> Tuple[List[str], List[str]]:
+    """Each launcher's plain state, from the Gateway's Machines view, and the names of the machines that
+    view reports with no launcher. Fails loudly on anything unknown.
+
+    Every entry the view returns is checked, not only the ones matched to a launcher: an entry that is
+    skipped is a machine turned into silence, and on a fleet with no launchers that silence reads as
+    "No machines are registered"."""
+    view = _get_or_exit("machines")
+    machines = view.get("machines") if isinstance(view, dict) else None
+    if not isinstance(machines, list):
+        _answer_error("the Gateway's machines view has no list of machines, so no machine state can be shown.")
+    reach_by_name: Dict[str, str] = {}
+    name_by_key: Dict[str, str] = {}
+    no_launcher: List[str] = []
+    for index, entry in enumerate(machines):
+        # A row that cannot be named is refused, never skipped: skipping it turns a machine into silence.
+        name = entry.get("machine") if isinstance(entry, dict) else None
+        if not _is_name(name):
+            _answer_error(
+                f"the Gateway's machines view has an entry with no machine name (entry {index + 1}). "
+                "This tool will not list what it cannot name."
+            )
+        reach = entry.get("reach")
+        if reach != _NO_LAUNCHER_REACH and (not isinstance(reach, str) or reach not in _MACHINE_STATE_FOR_REACH):
+            shown = "missing" if reach is None else repr(reach)
+            _answer_error(
+                f"machine {name} has a launcher reach that is {shown}; this tool knows only "
+                f"{', '.join(_MACHINE_STATE_FOR_REACH)} and {_NO_LAUNCHER_REACH}. "
+                "If the Gateway has added one, update cc-devthrottle; --json shows the raw rows."
+            )
+        # The Gateway folds one entry per machine, ignoring case; a second one leaves the state undecided.
+        key = name.lower()
+        if key in reach_by_name:
+            _answer_error(f"the Gateway's machines view lists machine {name} more than once (entry {index + 1}).")
+        reach_by_name[key] = reach
+        name_by_key[key] = name
+        if reach == _NO_LAUNCHER_REACH:
+            no_launcher.append(name)
+
+    listed = set()
+    states = []
+    for row in launchers:
+        name = gateway.field(row, "machineName", "MachineName")
+        key = name.lower()
+        if key not in reach_by_name:
+            _answer_error(
+                f"the Gateway's machines view does not include {name}, so its state is unknown. "
+                "The machine may have registered a moment ago; run the command again."
+            )
+        if key in listed:
+            _answer_error(f"the Gateway's launcher list names machine {name} more than once.")
+        listed.add(key)
+        state = _MACHINE_STATE_FOR_REACH.get(reach_by_name[key])
+        if state is None:
+            # Both answers are read from one launcher registry, so a listed launcher the view calls
+            # NoLauncher is a contradiction, not a state.
+            _answer_error(
+                f"machine {name} has a launcher reach that is {_NO_LAUNCHER_REACH!r}, yet the Gateway lists "
+                "its launcher. Run the command again; --json shows the raw rows."
+            )
+        states.append(state)
+
+    # The view is folded from that same registry, so a launcher it reports that the list did not is a
+    # machine this list would silently leave out.
+    for key, reach in reach_by_name.items():
+        if reach != _NO_LAUNCHER_REACH and key not in listed:
+            _answer_error(
+                f"the Gateway's machines view reports a launcher on {name_by_key[key]}, but its launcher list "
+                "does not include it. The launcher may have stopped a moment ago; run the command again."
+            )
+    return states, no_launcher
+
+
+def _no_launcher_line(names: List[str]) -> str:
+    """One plain line for the machines that run a Director but no launcher, which this list cannot show."""
+    if len(names) == 1:
+        head = f"1 more machine has a Director but no launcher, so it is not listed: {names[0]}."
+    else:
+        head = (f"{len(names)} more machines have a Director but no launcher, so they are not listed: "
+                f"{', '.join(names)}.")
+    return _note(head + " See them with: cc-devthrottle director list")
+
+
+def list_machines(json_output: bool, *, state: Optional[str] = None, fields: Optional[str] = None) -> None:
+    """Every machine this account can search and start things on, optionally narrowed by state."""
+    chosen_fields = _check_usage(json_output, fields, MACHINE_LIST_FIELDS, MACHINE_LIST_DEFAULT_FIELDS)
+    wanted = _parse_states(state, MACHINE_STATES)
+
+    launchers = _rows_or_exit(_get_or_exit("launchers"), "machine", "MachineName", "machineName")
+    filtered = wanted is not None
+    if json_output and not filtered:
+        # Exactly what the Gateway sent: an unfiltered --json never depends on the state lookup.
+        print(json.dumps(launchers, indent=2))
+        return
+
+    states, no_launcher = _machine_states(launchers)
+    rows = [(r, st) for r, st in zip(launchers, states) if wanted is None or st in wanted]
     if json_output:
-        print(json.dumps(rows, indent=2))
+        print(json.dumps([r for r, _ in rows], indent=2))
         return
 
+    _displayed_or_exit(launchers, "machine", _LAUNCHER_DISPLAYED)
+    records = [
+        {
+            "name": gateway.field(r, "machineName", "MachineName"),
+            "state": st,
+            "version": _text(r, "version", "Version"),
+            "pid": _text(r, "pid", "Pid"),
+            "started": _text(r, "startedAt", "StartedAt"),
+            "last-seen": _text(r, "lastSeenAt", "LastSeenAt"),
+        }
+        for r, st in rows
+    ]
+    blocks = [
+        _count_line([st for _, st in rows], MACHINE_STATES, len(launchers) if filtered else None),
+        axi_output.render_list("machines", chosen_fields, records),
+    ]
     if not rows:
-        console.print(
-            "No machines are registered. A machine appears here once cc-launcher is running on it "
-            "and has registered with the Gateway."
+        if filtered and launchers:
+            blocks.append(_note("No machine matches the filter."))
+        else:
+            blocks.append(_note(
+                "No machines are registered. A machine appears here once cc-launcher is running on it "
+                "and has registered with the Gateway."
+            ))
+    if no_launcher:
+        blocks.append(_no_launcher_line(no_launcher))
+    blocks.append(axi_output.format_help(_machine_list_help(bool(rows), filtered, chosen_fields)))
+    _write(blocks)
+
+
+def _machine_list_help(any_rows: bool, filtered: bool, chosen_fields: List[str]) -> List[str]:
+    """Concrete next commands. Runtime values are placeholders, never guessed."""
+    if not any_rows:
+        if filtered:
+            return ["cc-devthrottle machine list", "cc-devthrottle machine list --help"]
+        return ["cc-devthrottle director list", "cc-devthrottle machine list --help"]
+    commands = []
+    if not filtered:
+        commands.append("cc-devthrottle machine list --state offline")
+    if list(chosen_fields) == list(MACHINE_LIST_DEFAULT_FIELDS):
+        commands.append("cc-devthrottle machine list --fields " + ",".join(MACHINE_LIST_FIELDS))
+    commands.append("cc-devthrottle director list --machine <name>")
+    commands.append('cc-devthrottle machine apps <name> "<query>"')
+    commands.append("cc-devthrottle machine restart-capability <name>")
+    return commands
+
+
+def _director_states(directors: List[Dict[str, Any]]) -> List[str]:
+    """Each Director's state, as the Gateway folded it into the roster envelope. Fails loudly on anything
+    missing or unknown - in every entry the roster returns, not only the ones matched to a Director."""
+    envelope = _get_or_exit("sessions?envelope=true")
+    reach = envelope.get("directors") if isinstance(envelope, dict) else None
+    if not isinstance(reach, list):
+        _answer_error(
+            "the Gateway's roster answer has no list of Director states, so no Director state can be shown. "
+            "--json shows the raw rows."
         )
-        return
+    state_by_id: Dict[str, str] = {}
+    for index, entry in enumerate(reach):
+        did = entry.get("directorId") if isinstance(entry, dict) else None
+        if not _is_name(did):
+            _answer_error(
+                f"the Gateway's roster has a Director state with no directorId (entry {index + 1}), "
+                "so it cannot be matched to a Director. --json shows the raw rows."
+            )
+        state = entry.get("state")
+        if not isinstance(state, str) or state not in DIRECTOR_STATES:
+            shown = "missing" if state is None else repr(state)
+            _answer_error(
+                f"Director {did} has a state that is {shown}; this tool knows only "
+                f"{', '.join(DIRECTOR_STATES)}. "
+                "If the Gateway has added one, update cc-devthrottle; --json shows the raw rows."
+            )
+        if did.lower() in state_by_id:
+            _answer_error(f"the Gateway's roster gives Director {did} more than one state (entry {index + 1}).")
+        state_by_id[did.lower()] = state
+    states = []
+    for row in directors:
+        did = gateway.field(row, "directorId", "DirectorId")
+        if did.lower() not in state_by_id:
+            _answer_error(
+                f"the Gateway's roster does not include a state for Director {did}. "
+                "It may have registered a moment ago; run the command again."
+            )
+        states.append(state_by_id[did.lower()])
+    return states
 
-    table = Table(show_header=True, header_style="bold", box=box.ASCII)
-    for column in ("MACHINE", "PORT", "ADDRESS", "VERSION", "LAST SEEN"):
-        table.add_column(column)
-    for row in rows:
-        table.add_row(
-            str(gateway.field(row, "machineName", "MachineName") or "-"),
-            str(gateway.field(row, "port", "Port") or "-"),
-            str(gateway.field(row, "networkAddress", "NetworkAddress") or "(same machine)"),
-            str(gateway.field(row, "version", "Version") or "-"),
-            str(gateway.field(row, "lastSeenUtc", "LastSeenUtc") or "-"),
-        )
-    console.print(table)
-    console.print(f"{len(rows)} machines")
+
+def _director_name(row: Dict[str, Any]) -> str:
+    # An unnamed instance is shown by its machine name, exactly as the Director's own toolbar does and as
+    # DirectorDto documents - the alternative is a blank name in the list you pick a Director from.
+    # The name itself is shown exactly as registered, never trimmed or shortened.
+    display = gateway.field(row, "displayName", "DisplayName")
+    return display if display.strip() else gateway.field(row, "machineName", "MachineName")
 
 
-def list_directors(json_output: bool) -> None:
+def list_directors(
+    json_output: bool,
+    *,
+    state: Optional[str] = None,
+    machine: Optional[str] = None,
+    fields: Optional[str] = None,
+) -> None:
     """Every Director this account is running, on every machine - and how to name one.
 
-    A machine can appear several times: each named Director instance registers its own row. The NAME
-    column is what a person reads; the DIRECTOR ID is what `session spawn --director` should carry,
-    because it survives a rename and cannot collide with a second Director called the same thing.
+    A machine can appear several times: each named Director instance registers its own row. The name is
+    what a person reads; the id is what `session spawn --director` should carry, because it survives a
+    rename and cannot collide with a second Director called the same thing.
     """
-    rows: List[Dict[str, Any]] = _call("directors") or []
+    chosen_fields = _check_usage(json_output, fields, DIRECTOR_LIST_FIELDS, DIRECTOR_LIST_DEFAULT_FIELDS)
+    wanted = _parse_states(state, DIRECTOR_STATES)
+    if machine is not None and not machine.strip():
+        _usage_error("--machine needs a value.")
+
+    # Every row must carry its machine, or --machine would silently drop it and answer "none".
+    directors = _rows_or_exit(_get_or_exit("directors"), "Director", "DirectorId", "directorId",
+                              also_required=(("machineName", "MachineName"),))
+    filtered = wanted is not None or machine is not None
+    if json_output and not filtered:
+        # Exactly what the Gateway sent: an unfiltered --json never depends on the state lookup.
+        print(json.dumps(directors, indent=2))
+        return
+
+    # The state is looked up only where it is needed, so --machine --json does not depend on it either.
+    need_states = not json_output or wanted is not None
+    states = _director_states(directors) if need_states else [""] * len(directors)
+    wanted_machine = machine.strip().lower() if machine is not None else None
+    rows = [
+        (r, st)
+        for r, st in zip(directors, states)
+        if (wanted is None or st in wanted)
+        and (wanted_machine is None or gateway.field(r, "machineName", "MachineName").lower() == wanted_machine)
+    ]
     if json_output:
-        print(json.dumps(rows, indent=2))
+        print(json.dumps([r for r, _ in rows], indent=2))
         return
 
+    _displayed_or_exit(directors, "Director", _DIRECTOR_DISPLAYED)
+    records = [
+        {
+            "id": gateway.field(r, "directorId", "DirectorId"),
+            "name": _director_name(r),
+            "machine": _text(r, "machineName", "MachineName"),
+            "state": st,
+            "version": _text(r, "version", "Version"),
+            "pid": _text(r, "pid", "Pid"),
+            "user": _text(r, "user", "User"),
+            "started": _text(r, "startedAt", "StartedAt"),
+            "last-seen": _text(r, "lastSeen", "LastSeen"),
+        }
+        for r, st in rows
+    ]
+    blocks = [
+        _count_line([st for _, st in rows], DIRECTOR_STATES, len(directors) if filtered else None),
+        axi_output.render_list("directors", chosen_fields, records),
+    ]
     if not rows:
-        console.print(
-            "No Directors are registered. A Director appears here once it is running and has "
-            "connected to the Gateway."
-        )
-        return
+        if filtered and directors:
+            blocks.append(_note("No Director matches the filter."))
+        else:
+            blocks.append(_note(
+                "No Directors are registered. A Director appears here once it is running and has "
+                "connected to the Gateway."
+            ))
+    blocks.append(axi_output.format_help(_director_list_help(bool(rows), filtered, chosen_fields)))
+    _write(blocks)
 
-    table = Table(show_header=True, header_style="bold", box=box.ASCII)
-    table.add_column("NAME")
-    table.add_column("MACHINE")
-    # The id is the whole point of this table - it is what you paste into --director - so it WRAPS
-    # rather than truncating. An ellipsised GUID looks like a value and is not one: pasting it fails
-    # at the far end with "no Director ... is registered", which reads as a fleet problem.
-    table.add_column("DIRECTOR ID", overflow="fold", no_wrap=False)
-    table.add_column("VERSION")
-    for row in rows:
-        machine_name = str(gateway.field(row, "machineName", "MachineName") or "-")
-        # An unnamed instance falls back to its machine name, exactly as the Director's own toolbar
-        # does - the alternative is a blank cell in the column you pick a Director from.
-        name = str(gateway.field(row, "displayName", "DisplayName") or "").strip() or machine_name
-        table.add_row(
-            name,
-            machine_name,
-            str(gateway.field(row, "directorId", "DirectorId") or "-"),
-            str(gateway.field(row, "version", "Version") or "-"),
-        )
-    console.print(table)
-    console.print(f"{len(rows)} Directors")
+
+def _director_list_help(any_rows: bool, filtered: bool, chosen_fields: List[str]) -> List[str]:
+    """Concrete next commands. Runtime values are placeholders, never guessed."""
+    if not any_rows:
+        if filtered:
+            return ["cc-devthrottle director list", "cc-devthrottle director list --help"]
+        return ["cc-devthrottle machine list", "cc-devthrottle director list --help"]
+    commands = []
+    if not filtered:
+        commands.append("cc-devthrottle director list --state offline")
+    if list(chosen_fields) == list(DIRECTOR_LIST_DEFAULT_FIELDS):
+        commands.append("cc-devthrottle director list --fields " + ",".join(DIRECTOR_LIST_FIELDS))
+    commands.append("cc-devthrottle session spawn <repo> --director <id> --controlled-by self")
+    commands.append("cc-devthrottle session list --machine <machine>")
+    return commands
 
 
 def list_apps(machine: str, query: Optional[str], limit: int, json_output: bool) -> None:

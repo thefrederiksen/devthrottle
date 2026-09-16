@@ -538,6 +538,10 @@ public static class SessionKeyGuard
         // is the line this whole set is drawn on.
         "gateway/turn-verdict-judge" => true,
         "gateway/turn-verdict-colour" => true,
+        // Which session is the account's Fleet Manager. It says which session's Workers the Wingman judges -
+        // how the product behaves - and admits nobody: the mark names a session already inside the account.
+        // The Fleet Manager sets it through the command line, so a session key must reach it.
+        "gateway/fleet-manager" => true,
         _ => false,
     };
 

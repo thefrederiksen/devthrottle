@@ -48,8 +48,11 @@ def flowed(text: str) -> str:
 ACTIVE_ID = "aaaaaaaa-1111-2222-3333-444444444444"
 DONE_ID = "cccccccc-5555-6666-7777-888888888888"
 
-ACTIVE = {"missionId": ACTIVE_ID, "missionName": "Release 2.0.0", "state": "active", "why": "ship it"}
-DONE = {"missionId": DONE_ID, "missionName": "Remove the network port", "state": "complete", "why": ""}
+# Every field the Gateway's MissionDto carries, as it sends them: `mission list` refuses a row missing one.
+ACTIVE = {"missionId": ACTIVE_ID, "missionName": "Release 2.0.0", "state": "active", "why": "ship it",
+          "whyUpdatedAt": "2026-09-01T07:00:00+00:00", "stateChangedAt": None, "workflowRunId": None}
+DONE = {"missionId": DONE_ID, "missionName": "Remove the network port", "state": "complete", "why": "",
+        "whyUpdatedAt": None, "stateChangedAt": "2026-09-02T07:00:00+00:00", "workflowRunId": None}
 
 
 @pytest.fixture
@@ -172,8 +175,11 @@ def test_the_gateways_note_is_printed_verbatim(monkeypatch, capsys):
 def test_list_is_active_only_by_default(wired, capsys):
     mission_ops.list_missions(json_output=False)
 
-    assert wired["listed_states"] == [None]
+    # The plain list asks for every mission, so it can count what the default view leaves out, and
+    # then shows only the active ones.
+    assert wired["listed_states"] == ["all"]
     out = flowed(capsys.readouterr().out)
+    assert "count: 1 of 2 total (active 1)" in out
     assert "Release 2.0.0" in out
     assert "Remove the network port" not in out
 
@@ -197,7 +203,7 @@ def test_a_mission_with_no_why_is_flagged_not_blank(wired, capsys):
 
 def test_an_empty_filtered_list_says_which_list_is_empty(monkeypatch, capsys):
     monkeypatch.setattr(mission_ops.MissionClient, "__init__", lambda self, base_url=None: None)
-    monkeypatch.setattr(mission_ops.MissionClient, "list_all", lambda self, state=None: [])
+    monkeypatch.setattr(mission_ops.MissionClient, "list_all", lambda self, state=None: [ACTIVE])
 
     mission_ops.list_missions(json_output=False, state="removed")
 

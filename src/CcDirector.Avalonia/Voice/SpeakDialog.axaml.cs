@@ -102,7 +102,48 @@ public partial class SpeakDialog : Window
     /// close guards removed. That is a test that cannot fail, which is worse than no test.
     /// Null in production, where the recorder is constructed directly.
     /// </summary>
-    internal Func<int, Task<BatchDictationRecorder>>? RecorderFactoryForTests;
+    internal Func<MicDevice, Task<BatchDictationRecorder>>? RecorderFactoryForTests;
+
+    /// <summary>
+    /// TEST SEAM: plays the ready cue in place of the speakers, receiving the "playback finished" and
+    /// "playback failed" callbacks, so a test can prove the dialog hands the cue's outcome to the recorder it
+    /// was played into (issue #2925, ruling L1) without an audio device. Null in production, where
+    /// <see cref="DesktopAudioCue"/> plays.
+    /// </summary>
+    internal Action<Action?, Action<string>?>? ReadyCueForTests;
+
+    /// <summary>
+    /// TEST SEAMS for the device queries (issue #2929): resolve the saved microphone name to a device
+    /// number and its display name, and list the devices for the selector. Both run OFF the interface thread; a test holds
+    /// them at a barrier to prove the dialog shows GETTING READY and opens the microphone without waiting
+    /// for the list. Null in production, where <see cref="MicDevices"/> answers.
+    /// </summary>
+    internal Func<MicDevice>? ResolveMicForTests;
+    internal Func<IReadOnlyList<MicDevice>>? EnumerateMicsForTests;
+
+    /// <summary>TEST SEAM: the saved microphone name, in place of reading config.json. Null in production.</summary>
+    internal Func<string?>? PersistedMicNameForTests;
+
+    // Inspection two, finding 3: device resolution can outlast the GETTING READY window. While it is
+    // outstanding these say so, so the timeout can name what it was waiting for. Set and read on the
+    // interface thread, except the saved name, which the background resolution writes.
+    private bool _resolvingSavedMic;
+    private long _resolveStartedAt;
+    private volatile string? _savedMicBeingResolved;
+
+    /// <summary>
+    /// TEST SEAM for the start-time history (issue #2928): receives each measured start (device name,
+    /// milliseconds) in place of writing it to config.json. Null in production.
+    /// </summary>
+    internal Action<string, int>? RecordMicStartForTests;
+
+    /// <summary>TEST SEAM: fires the GETTING READY backstop now, as its timer does after six seconds with no
+    /// audio. The headless test platform does not run dispatcher timers.</summary>
+    internal void RaiseReadyTimeoutForTests() => OnReadyTimeout();
+
+    // When the user asked for the current microphone (open, Resume, or a device switch), as a Stopwatch
+    // timestamp. Handed to each recorder so its first-audio log line can say how long the click waited.
+    private long _micRequestedAt;
 
     // The accumulated, dictionary-corrected transcript across every checkpointed
     // segment so far. Grows on each Pause / commit-from-recording. Never populated
@@ -115,7 +156,15 @@ public partial class SpeakDialog : Window
     // the user via the mic selector. _suppressMicChange guards the programmatic
     // selection we make while populating the ComboBox from firing a restart.
     private int _selectedDeviceNumber = MicDevices.DefaultDeviceNumber;
+    // The selected device's display name, resolved off the interface thread with the number (issue #2929) and
+    // handed to every recorder, so building one never queries Windows on the interface thread.
+    private string _selectedDeviceDescription = "";
     private bool _suppressMicChange;
+
+    // Typical wake-up figures measured while this dialog is open, by device name (inspection three, finding 2).
+    // The selector's list is read once at opening, so a figure recorded afterwards is shown by refreshing that
+    // entry - and kept here so a list that arrives after the measurement still carries it.
+    private readonly Dictionary<string, int> _measuredStartMs = new(StringComparer.Ordinal);
 
     /// <summary>
     /// The text the user accepted (dictionary-corrected). Null if cancelled.
@@ -225,6 +274,7 @@ public partial class SpeakDialog : Window
 
     private async Task OnDialogOpenedAsync()
     {
+        _micRequestedAt = System.Diagnostics.Stopwatch.GetTimestamp();
         _t0 = DateTime.UtcNow;
         _timer.Start();
         _eqTimer.Start();
@@ -250,14 +300,44 @@ public partial class SpeakDialog : Window
                 return;
             }
 
-            // Resolve the saved mic choice to a current device index BEFORE the
-            // first capture starts, so we record from the right device from the
-            // very first frame. Then show the device list in the selector.
-            _selectedDeviceNumber = MicDevices.ResolveByName(LoadPersistedMicName());
-            PopulateMicSelector();
-            // Show GETTING READY immediately (responsive), then open the mic. The flip
-            // to RECORDING + ready cue happens later, when real audio actually arrives.
+            // Show GETTING READY immediately (responsive). The device queries behind it - the saved
+            // choice resolved to a device number, and the list for the selector - cost 57 to 243 ms
+            // per open on the interface thread (issue #2929), so both now run in the background.
             SwitchToConnecting();
+
+            // Resolve the saved mic choice to a current device number BEFORE the first capture
+            // starts, so we record from the right device from the very first frame. The list is only
+            // for the selector: start it at the same time and fill the selector whenever it arrives,
+            // never holding the microphone for it.
+            _resolvingSavedMic = true;
+            _resolveStartedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+            var resolveTask = Task.Run(ResolveSavedMic);
+            var devicesTask = Task.Run(EnumerateMics);
+            _ = FillMicSelectorWhenListedAsync(devicesTask, resolveTask);
+
+            // The window can close during this await; StartNewServiceAsync refuses to build a recorder then.
+            MicDevice resolved;
+            try
+            {
+                resolved = await resolveTask;
+            }
+            finally
+            {
+                _resolvingSavedMic = false;
+            }
+
+            // The ready window can run out while resolution is still outstanding. The dialog is then already
+            // showing the failure, and a microphone opened now would record into it until it closes.
+            if (_stage != Stage.Connecting)
+            {
+                FileLog.Write($"[SpeakDialog] microphone resolved after the dialog left GETTING READY (stage={_stage}); "
+                    + "not opening it");
+                return;
+            }
+            _selectedDeviceNumber = resolved.Number;
+            _selectedDeviceDescription = resolved.Name;
+
+            // Open the mic now. The flip to RECORDING + ready cue happens later, when real audio arrives.
             await StartNewServiceAsync();
         }
         catch (Exception ex)
@@ -301,13 +381,14 @@ public partial class SpeakDialog : Window
         }
 
         var svc = RecorderFactoryForTests is null
-            ? new BatchDictationRecorder(_options, _selectedDeviceNumber)
-            : await RecorderFactoryForTests(_selectedDeviceNumber);
+            ? new BatchDictationRecorder(_options, _selectedDeviceNumber, _selectedDeviceDescription)
+            : await RecorderFactoryForTests(new MicDevice(_selectedDeviceNumber, _selectedDeviceDescription));
         svc.OnAudioBands += OnAudioBands;
         svc.OnInputRms += OnInputRms;
         svc.OnCaptureStarted += OnServiceCaptureStarted;
         svc.OnCaptureLive += OnServiceCaptureLive;
         svc.OnTranscriptionProgress += OnServiceTranscriptionProgress;
+        svc.RequestedAtTimestamp = _micRequestedAt;
         try
         {
             await svc.StartAsync("default");
@@ -346,16 +427,59 @@ public partial class SpeakDialog : Window
         catch (Exception ex) { FileLog.Write($"[SpeakDialog] dispose error: {ex.Message}"); }
     }
 
-    /// <summary>Fill the mic selector with available devices and select the active one.</summary>
-    private void PopulateMicSelector()
+    private MicDevice ResolveSavedMic()
     {
-        var devices = MicDevices.Enumerate();
+        var saved = PersistedMicNameForTests is not null ? PersistedMicNameForTests() : LoadPersistedMicName();
+        _savedMicBeingResolved = saved ?? "(Windows default)";
+        return ResolveMicForTests is not null ? ResolveMicForTests() : MicDevices.ResolveWithDescription(saved);
+    }
+
+    private IReadOnlyList<MicDevice> EnumerateMics()
+    {
+        var devices = EnumerateMicsForTests is not null ? EnumerateMicsForTests() : MicDevices.Enumerate();
+        // Each device's measured wake-up time, for the selector (issue #2928). Read in the background with
+        // the list, from the same config file the persisted choice lives in.
+        return MicStartTimes.Decorate(devices, MicStartTimes.Read(CcDirectorConfigService.ReadRaw()));
+    }
+
+    /// <summary>
+    /// Wait for the background device list and fill the selector with it on the interface thread. A
+    /// failure to list devices leaves the selector empty and is logged; it never stops the recording,
+    /// which does not depend on the list.
+    /// </summary>
+    private async Task FillMicSelectorWhenListedAsync(Task<IReadOnlyList<MicDevice>> devicesTask, Task<MicDevice> resolveTask)
+    {
+        IReadOnlyList<MicDevice> devices;
+        int recordingFrom;
+        try
+        {
+            devices = await devicesTask;
+            // The selection marks the device being recorded from, so wait for that to be known too.
+            // Read from the task, not the field: this continuation can run before the opening path's.
+            recordingFrom = (await resolveTask).Number;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SpeakDialog] listing microphones FAILED, selector left empty: {ex.Message}");
+            return;
+        }
+        if (_closed) return;
+        PopulateMicSelector(devices, recordingFrom);
+        FileLog.Write($"[SpeakDialog] microphone selector filled: {devices.Count} entries");
+    }
+
+    /// <summary>Fill the mic selector with available devices and select the active one.</summary>
+    private void PopulateMicSelector(IReadOnlyList<MicDevice> devices, int selectedDeviceNumber)
+    {
+        devices = devices
+            .Select(d => _measuredStartMs.TryGetValue(d.Name, out var ms) ? d with { TypicalStartMs = ms } : d)
+            .ToList();
         _suppressMicChange = true;
         MicSelector.ItemsSource = devices;
         int idx = 0;
         for (int i = 0; i < devices.Count; i++)
         {
-            if (devices[i].Number == _selectedDeviceNumber) { idx = i; break; }
+            if (devices[i].Number == selectedDeviceNumber) { idx = i; break; }
         }
         MicSelector.SelectedIndex = idx;
         _suppressMicChange = false;
@@ -375,7 +499,7 @@ public partial class SpeakDialog : Window
             // Windows-default entry is stored as empty so it keeps tracking the
             // OS default rather than pinning to whatever it maps to today.
             PersistMicName(device.Number == MicDevices.DefaultDeviceNumber ? null : device.Name);
-            await ChangeDeviceAsync(device.Number);
+            await ChangeDeviceAsync(device);
         }
         catch (Exception ex)
         {
@@ -389,12 +513,15 @@ public partial class SpeakDialog : Window
     /// service and starts a fresh one on the new device. The current segment's
     /// audio is discarded (mixing two devices' audio into one clip is not
     /// meaningful), but the already-accumulated transcript from earlier segments
-    /// is kept. The new segment's capture restarts the segment timer.
+    /// is kept. The new segment's capture restarts the segment timer. The device's name comes from the list
+    /// that was enumerated in the background - no device query runs here on the interface thread (issue #2929).
     /// </summary>
-    private async Task ChangeDeviceAsync(int deviceNumber)
+    private async Task ChangeDeviceAsync(MicDevice device)
     {
-        _selectedDeviceNumber = deviceNumber;
-        FileLog.Write($"[SpeakDialog] ChangeDevice: {deviceNumber} ({MicDevices.DescribeDevice(deviceNumber)})");
+        _micRequestedAt = System.Diagnostics.Stopwatch.GetTimestamp();
+        _selectedDeviceNumber = device.Number;
+        _selectedDeviceDescription = device.Name;
+        FileLog.Write($"[SpeakDialog] ChangeDevice: {device.Number} ({device.Name})");
         await DisposeServiceAsync();
         // Fresh device = fresh segment capture and fresh segment timer origin. Show
         // GETTING READY until the new device delivers audio, then flip + cue.
@@ -525,6 +652,13 @@ public partial class SpeakDialog : Window
     /// sound ever precedes real audio. Arrives on NAudio's worker thread. Guarded on
     /// the Connecting stage so it is a no-op if the state has already moved on (e.g. a
     /// mic switch mid-warmup) - and the recorder raises it only once regardless.
+    ///
+    /// The microphone is open while the cue plays, so the cue is recorded (issue #2925). The recorder is
+    /// told the cue was handed to the device, so a Send inside the cue keeps capturing until the device
+    /// reports an outcome. Only a report that the cue FINISHED lets the recorder search its audio for the
+    /// cue and blank what it finds (ruling L1); a failure report, or none, blanks nothing. The recorder is captured here, not read later, so a cue that finishes
+    /// after a mic switch or a background Send still reaches the recorder it was played into (a stopped or
+    /// disposed recorder ignores it).
     /// </summary>
     private void OnServiceCaptureLive()
     {
@@ -534,8 +668,86 @@ public partial class SpeakDialog : Window
             _readyTimeout.Stop();
             _t0 = DateTime.UtcNow;
             SwitchToRecording();
-            _audioCue.PlayReady();
+            var recorder = _service;
+            if (recorder is null)
+            {
+                FileLog.Write("[SpeakDialog] capture live with no published recorder; the cue will not be blanked");
+                PlayReadyCue(null, null);
+                return;
+            }
+            recorder.NoteReadyCuePlaying();
+            PlayReadyCue(recorder.NoteReadyCueFinished, recorder.NoteReadyCueFailed);
+            RecordMicStart(recorder);
         });
+    }
+
+    /// <summary>
+    /// Add this start's measured wake-up time to the device's history (issue #2928), in the background -
+    /// it is a config file write and must not hold the interface thread at the moment recording begins.
+    /// A failure to save is logged; it never touches the recording.
+    /// </summary>
+    private void RecordMicStart(BatchDictationRecorder recorder)
+    {
+        if (recorder.StartToFirstAudioMs is not { } ms || string.IsNullOrWhiteSpace(recorder.DeviceDescription))
+        {
+            FileLog.Write("[SpeakDialog] capture live without a measured start time; nothing recorded for the selector");
+            return;
+        }
+        var device = recorder.DeviceDescription!;
+        if (RecordMicStartForTests is not null)
+        {
+            RecordMicStartForTests(device, ms);
+            return;
+        }
+        _ = Task.Run(() =>
+        {
+            int typicalMs;
+            try { typicalMs = MicStartTimes.Record(device, ms); }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[SpeakDialog] recording the microphone start time FAILED: {ex.Message}");
+                return;
+            }
+            Dispatcher.UIThread.Post(() => ShowMeasuredStartTime(device, typicalMs));
+        });
+    }
+
+    /// <summary>
+    /// Show a just-recorded typical start time in the open selector (inspection three, finding 2): that
+    /// device's entry is replaced with one carrying the new figure, the current selection is kept, and the
+    /// change is suppressed so it never switches the microphone. If the list has not arrived yet the figure
+    /// is kept and applied when it does.
+    /// </summary>
+    private void ShowMeasuredStartTime(string device, int typicalMs)
+    {
+        if (_closed) return;
+        _measuredStartMs[device] = typicalMs;
+        if (MicSelector.ItemsSource is not IReadOnlyList<MicDevice> devices)
+        {
+            FileLog.Write($"[SpeakDialog] measured start for \"{device}\" ({typicalMs} ms) kept until the selector is filled");
+            return;
+        }
+        if (!devices.Any(d => d.Name == device))
+        {
+            FileLog.Write($"[SpeakDialog] measured start for \"{device}\" ({typicalMs} ms): no selector entry by that name");
+            return;
+        }
+        var selectedIndex = MicSelector.SelectedIndex;
+        _suppressMicChange = true;
+        MicSelector.ItemsSource = devices
+            .Select(d => d.Name == device ? d with { TypicalStartMs = typicalMs } : d)
+            .ToList();
+        MicSelector.SelectedIndex = selectedIndex;
+        _suppressMicChange = false;
+        FileLog.Write($"[SpeakDialog] selector entry for \"{device}\" now shows typicalMs={typicalMs}");
+    }
+
+    private void PlayReadyCue(Action? onPlaybackFinished, Action<string>? onPlaybackFailed)
+    {
+        if (ReadyCueForTests is not null)
+            ReadyCueForTests(onPlaybackFinished, onPlaybackFailed);
+        else
+            _audioCue.PlayReady(onPlaybackFinished, onPlaybackFailed);
     }
 
     /// <summary>
@@ -549,6 +761,26 @@ public partial class SpeakDialog : Window
         _readyTimeout.Stop();
         if (_stage != Stage.Connecting) return;
         FileLog.Write("[SpeakDialog] microphone delivered no audio within the ready window");
+        // One per-start line with the device and the timings (issue #2928), for the start most in need of it.
+        if (_resolvingSavedMic)
+        {
+            // The microphone was never asked to start: finding which device it is took the whole window.
+            var elapsedMs = (int)Math.Round(System.Diagnostics.Stopwatch.GetElapsedTime(_resolveStartedAt).TotalMilliseconds);
+            FileLog.Write($"[SpeakDialog] ready window ran out while the saved microphone was still being resolved: "
+                + $"elapsedMs={elapsedMs}, savedDevice=\"{_savedMicBeingResolved ?? "(not read yet)"}\"");
+        }
+        else if (_service is { } recorder)
+        {
+            recorder.LogNoAudioWithinReadyWindow();
+        }
+        else
+        {
+            // The recorder never finished starting, so it cannot speak for itself; the dialog knows the device
+            // it asked for and when the user clicked.
+            var clickMs = (int)Math.Round(System.Diagnostics.Stopwatch.GetElapsedTime(_micRequestedAt).TotalMilliseconds);
+            FileLog.Write($"[BatchDictationRecorder] no first audio: device=\"{_selectedDeviceDescription}\", "
+                + $"clickToTimeoutMs={clickMs}, startRecordingToTimeoutMs=unknown");
+        }
         SwitchToFailed("The microphone did not start capturing. Check that it is connected, "
             + "not muted, and that DevThrottle is allowed to use it, then try again.");
     }
@@ -740,6 +972,7 @@ public partial class SpeakDialog : Window
     private async Task ResumeAsync()
     {
         FileLog.Write("[SpeakDialog] ResumeAsync");
+        _micRequestedAt = System.Diagnostics.Stopwatch.GetTimestamp();
 
         // Re-seed the accumulator from the (possibly edited) text box so new
         // speech appends onto the edited text rather than the pre-edit transcript.

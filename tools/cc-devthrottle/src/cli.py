@@ -13,12 +13,14 @@ from . import __version__
 from . import browser_ops
 from . import diag_ops
 from . import email_ops
+from . import fleet_manager_ops
 from . import mission_ops
 from . import schedule_ops
 from . import settings_ops
 from . import setup_ops
 from . import skill_ops
 from . import workflow_ops
+from .usage_errors import AxiGroup
 from .session_ops import (
     ask_session,
     compact_session,
@@ -34,6 +36,7 @@ from .session_ops import (
     rename_session,
     set_session_role,
     selftest as run_selftest,
+    show_live_state,
     send_message,
     spawn_session,
     stop_session,
@@ -42,63 +45,83 @@ from .session_ops import (
 )
 
 app = typer.Typer(
+    cls=AxiGroup,
     name="cc-devthrottle",
     help="Unified DevThrottle command-line surface.",
     add_completion=False,
-    no_args_is_help=True,
+    # With no arguments the tool shows live state, not the help (docs/axi-standard.md, principle 8).
+    invoke_without_command=True,
 )
-session_app = typer.Typer(help="Manage running sessions.", add_completion=False)
-repo_app = typer.Typer(help="List the fleet's repositories.", add_completion=False)
-worktree_app = typer.Typer(help="List the fleet's worktrees and who is in them.", add_completion=False)
+session_app = typer.Typer(cls=AxiGroup, help="Manage running sessions.", add_completion=False)
+repo_app = typer.Typer(cls=AxiGroup, help="List the fleet's repositories.", add_completion=False)
+worktree_app = typer.Typer(cls=AxiGroup, help="List the fleet's worktrees and who is in them.", add_completion=False)
 machine_app = typer.Typer(
+    cls=AxiGroup,
     help="Search and start applications on another computer.",
     add_completion=False,
     no_args_is_help=True,
 )
 director_app = typer.Typer(
+    cls=AxiGroup,
     help="List the Directors this account is running, on every machine.",
     add_completion=False,
     no_args_is_help=True,
 )
 mission_app = typer.Typer(
+    cls=AxiGroup,
     help="Create and list Missions (the unit of work sessions attach to).",
     add_completion=False,
     no_args_is_help=True,
 )
-message_app = typer.Typer(help="Send messages between sessions.", add_completion=False)
+message_app = typer.Typer(cls=AxiGroup, help="Send messages between sessions.", add_completion=False)
+fleet_manager_app = typer.Typer(
+    cls=AxiGroup,
+    help="Show, set, or clear which session is this account's one Fleet Manager.",
+    add_completion=False,
+    no_args_is_help=True,
+)
 settings_app = typer.Typer(
+    cls=AxiGroup,
     help="Read and write CC Director settings.", add_completion=False, no_args_is_help=True
 )
 schedule_app = typer.Typer(
+    cls=AxiGroup,
     help="Manage Gateway schedules.", add_completion=False, no_args_is_help=True
 )
 workflow_app = typer.Typer(
+    cls=AxiGroup,
     help="Read and author fleet Workflows (cross-agent conduct stored on the Gateway).",
     add_completion=False,
     no_args_is_help=True,
 )
 skill_app = typer.Typer(
+    cls=AxiGroup,
     help="Read and author fleet Skills (central capabilities held on the Gateway, fetched on use).",
     add_completion=False,
     no_args_is_help=True,
 )
 setup_app = typer.Typer(
+    cls=AxiGroup,
     help="Install, update, and repair DevThrottle.", add_completion=False, no_args_is_help=True
 )
 email_app = typer.Typer(
+    cls=AxiGroup,
     help="Send email to the account owner.", add_completion=False, no_args_is_help=True
 )
 diag_app = typer.Typer(
+    cls=AxiGroup,
     help="Run network diagnostics (Tailscale direct-vs-relay, speed results).",
     add_completion=False,
     no_args_is_help=True,
 )
 autostart_app = typer.Typer(
+    cls=AxiGroup,
     help="Start the Gateway at login (issue #2022): on | off | status.",
     add_completion=False,
     no_args_is_help=True,
 )
 browser_app = typer.Typer(
+    cls=AxiGroup,
     # The verb stays "browser": it is the resource name agents already hold, in the actions registry
     # and in the attach command baked into the fold. The HELP says "profile", which is what the thing
     # actually is - a dedicated signed-in profile inside Chrome or Edge, not a browser we installed.
@@ -113,6 +136,7 @@ app.add_typer(machine_app, name="machine")
 app.add_typer(director_app, name="director")
 app.add_typer(mission_app, name="mission")
 app.add_typer(message_app, name="message")
+app.add_typer(fleet_manager_app, name="fleet-manager")
 app.add_typer(settings_app, name="settings")
 app.add_typer(schedule_app, name="schedule")
 app.add_typer(workflow_app, name="workflow")
@@ -823,6 +847,30 @@ _ACTIONS = [
         "args": [],
     },
     {
+        "id": "fleet-manager-show",
+        "description": "Show which session this account has marked as its one Fleet Manager, or none.",
+        "command": "cc-devthrottle fleet-manager show",
+        "mutatesState": False,
+        "args": [],
+    },
+    {
+        "id": "fleet-manager-set",
+        "description": (
+            "Mark a session as this account's one Fleet Manager, replacing any earlier mark. "
+            "With no session, marks the session running the command."
+        ),
+        "command": "cc-devthrottle fleet-manager set [<session>]",
+        "mutatesState": True,
+        "args": [{"name": "session", "required": False}],
+    },
+    {
+        "id": "fleet-manager-clear",
+        "description": "Remove this account's Fleet Manager mark.",
+        "command": "cc-devthrottle fleet-manager clear",
+        "mutatesState": True,
+        "args": [],
+    },
+    {
         "id": "browser-list",
         "description": "List this machine's drivable browser profiles (name, browser, status, account).",
         "command": "cc-devthrottle browser list --json",
@@ -950,11 +998,14 @@ def browser_remove(
 
 @app.callback()
 def main(
+    ctx: typer.Context,
     version: bool = typer.Option(
         False, "--version", "-v", callback=_version_callback, is_eager=True, help="Show version."
     ),
 ) -> None:
     """Unified DevThrottle command-line surface."""
+    if ctx.invoked_subcommand is None:
+        show_live_state()
 
 
 @app.command()
@@ -997,45 +1048,92 @@ def session_list(
 
 @repo_app.command("list")
 def repo_list(
-    json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
-    dirty: bool = typer.Option(False, "--dirty", help="Only repositories with uncommitted work."),
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output raw JSON: every field, a bare array. Filters still apply."
+    ),
+    dirty: bool = typer.Option(False, "--dirty", help="Only repositories with uncommitted work (same as --state dirty)."),
+    state: str = typer.Option(None, "--state", help="Only these states, comma separated: dirty, clean."),
+    repo: str = typer.Option(None, "--repo", help="Only this repository: its folder name or full path."),
+    machine: str = typer.Option(None, "--machine", help="Only repositories on this machine."),
+    fields: str = typer.Option(
+        None,
+        "--fields",
+        help="Fields to show, comma separated. Default: name,path,machine,state. "
+        "Valid: name, path, machine, state, branch, uncommitted, ahead, behind, behind-main, worktrees, "
+        "safe-to-reap, worktree-bytes, provider, org, remote, director, provisional.",
+    ),
 ) -> None:
-    """List the fleet's repositories with their state and worktree summary."""
+    """List the fleet's repositories: name, full path, machine and state."""
     from .repo_ops import list_repositories
 
-    list_repositories(json_output, dirty_only=dirty)
+    list_repositories(json_output, dirty_only=dirty, state=state, repo=repo, machine=machine, fields=fields)
 
 
 @worktree_app.command("list")
 def worktree_list(
-    json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
-    repo: str = typer.Option(None, "--repo", help="Only worktrees of this repository."),
-    state: str = typer.Option(None, "--state", help="Filter: safe-to-reap, in-use, or needs-attention."),
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output raw JSON: every field, a bare array. Filters still apply."
+    ),
+    repo: str = typer.Option(None, "--repo", help="Only worktrees of this repository: its folder name or full path."),
+    state: str = typer.Option(
+        None, "--state", help="Only these states, comma separated: needs-attention, in-use, safe-to-reap, verifying."
+    ),
+    machine: str = typer.Option(None, "--machine", help="Only worktrees on this machine."),
+    fields: str = typer.Option(
+        None,
+        "--fields",
+        help="Fields to show, comma separated. Default: path,repo,machine,state. "
+        "Valid: path, repo, machine, state, branch, reason, sessions, bytes, last-activity, repo-path, "
+        "director, data-age, provisional.",
+    ),
 ) -> None:
-    """List the fleet's worktrees: verdicts, sizes, and which session is in each."""
+    """List the fleet's worktrees: full path, repository, machine and state."""
     from .repo_ops import list_worktrees
 
-    list_worktrees(json_output, repo=repo, state=state)
+    list_worktrees(json_output, repo=repo, state=state, machine=machine, fields=fields)
 
 
 @machine_app.command("list")
 def machine_list(
-    json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output raw JSON: every field, a bare array. Filters still apply."
+    ),
+    state: str = typer.Option(
+        None, "--state", help="Only these states, comma separated: online, offline, too-old."
+    ),
+    fields: str = typer.Option(
+        None,
+        "--fields",
+        help="Fields to show, comma separated. Default: name,state,version. "
+        "Valid: name, state, version, pid, started, last-seen.",
+    ),
 ) -> None:
-    """List the computers you can search and start applications on."""
+    """List the computers you can search and start applications on: name, state and launcher version."""
     from .machine_ops import list_machines
 
-    list_machines(json_output)
+    list_machines(json_output, state=state, fields=fields)
 
 
 @director_app.command("list")
 def director_list(
-    json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output raw JSON: every field, a bare array. Filters still apply."
+    ),
+    state: str = typer.Option(
+        None, "--state", help="Only these states, comma separated: online, wobbly, offline, stopped."
+    ),
+    machine: str = typer.Option(None, "--machine", help="Only Directors on this machine."),
+    fields: str = typer.Option(
+        None,
+        "--fields",
+        help="Fields to show, comma separated. Default: id,name,machine,state. "
+        "Valid: id, name, machine, state, version, pid, user, started, last-seen.",
+    ),
 ) -> None:
     """List every Director this account is running, with the id to pass to 'session spawn --director'."""
     from .machine_ops import list_directors
 
-    list_directors(json_output)
+    list_directors(json_output, state=state, machine=machine, fields=fields)
 
 
 @machine_app.command("apps")
@@ -1527,6 +1625,33 @@ def spawn(
     )
 
 
+@fleet_manager_app.command("show")
+def fleet_manager_show(
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output JSON: {\"sessionId\": <id or null>}."),
+) -> None:
+    """Show which session is this account's Fleet Manager, or none."""
+    fleet_manager_ops.show(json_output)
+
+
+@fleet_manager_app.command("set")
+def fleet_manager_set(
+    session: Optional[str] = typer.Argument(
+        None, help="The session to mark: its number, an id prefix, or its name. Omit to mark this session."
+    ),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output JSON: {\"sessionId\": <id>}."),
+) -> None:
+    """Mark a session as this account's one Fleet Manager, replacing any earlier mark."""
+    fleet_manager_ops.set_mark(session, json_output)
+
+
+@fleet_manager_app.command("clear")
+def fleet_manager_clear(
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output JSON: {\"sessionId\": null}."),
+) -> None:
+    """Remove this account's Fleet Manager mark."""
+    fleet_manager_ops.clear(json_output)
+
+
 @mission_app.command("create")
 def mission_create(
     name: str = typer.Argument(..., help="Human-friendly name for the Mission."),
@@ -1537,7 +1662,9 @@ def mission_create(
 
 @mission_app.command("list")
 def mission_list(
-    json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output raw JSON: every field, a bare array. Filters still apply."
+    ),
     show_all: bool = typer.Option(
         False,
         "--all",
@@ -1548,11 +1675,22 @@ def mission_list(
     state: Optional[str] = typer.Option(
         None,
         "--state",
-        help="Show only this state: active, complete, or removed. Overrides --all.",
+        help="Show only this state: active, complete, removed, or all. Overrides --all.",
+    ),
+    name: Optional[str] = typer.Option(
+        None, "--name", help="Only missions whose name contains this text, ignoring case."
+    ),
+    fields: Optional[str] = typer.Option(
+        None,
+        "--fields",
+        help="Fields to show, comma separated. Default: id,name,state. "
+        "Valid: id, name, state, why, why-updated, state-changed, run.",
     ),
 ) -> None:
-    """List the Missions on the Gateway (active ones by default)."""
-    mission_ops.list_missions(json_output, state=state or ("all" if show_all else None))
+    """List the Missions on the Gateway (active ones by default): id, name and state."""
+    mission_ops.list_missions(
+        json_output, state=state or ("all" if show_all else None), name=name, fields=fields
+    )
 
 
 @mission_app.command("rename")
@@ -2045,10 +2183,23 @@ def workflow_delete(
 
 @schedule_app.command("list")
 def schedule_list(
-    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output raw JSON: every field, a bare array. Filters still apply."
+    ),
+    enabled: Optional[bool] = typer.Option(
+        None, "--enabled/--disabled", help="Only enabled schedules, or only disabled ones."
+    ),
+    machine: Optional[str] = typer.Option(None, "--machine", help="Only schedules that run on this machine."),
+    fields: Optional[str] = typer.Option(
+        None,
+        "--fields",
+        help="Fields to show, comma separated. Default: id,name,enabled,next-run. "
+        "Valid: id, name, enabled, next-run, machine, kind, cron, run-at, time-zone, work-list, path, "
+        "last-fired, last-status, notify, created.",
+    ),
 ) -> None:
-    """List every schedule on the Gateway."""
-    schedule_ops.list_jobs(json_output)
+    """List every schedule on the Gateway: id, name, whether it is enabled, and its next run."""
+    schedule_ops.list_jobs(json_output, enabled=enabled, machine=machine, fields=fields)
 
 
 @schedule_app.command("get")

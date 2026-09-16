@@ -147,9 +147,9 @@ public sealed class MicAudioCapture : IAudioMeterSource, IAudioCaptureDiagnostic
     private TaskCompletionSource<bool>? _stoppedSignal;
 
     /// <summary>
-    /// Name of the capture device this instance reads from. Resolved once at
-    /// construction (a UI-thread boundary) and cached, so reads from the Core
-    /// dictation pipeline are a simple field access that cannot throw.
+    /// Name of the capture device this instance reads from. Handed in by the caller, which resolved it
+    /// off the interface thread together with the device number (issue #2929), so constructing a capture
+    /// never queries Windows and reads from the Core dictation pipeline are a field access that cannot throw.
     /// See <see cref="IAudioSource.Description"/>.
     /// </summary>
     public string Description => _description;
@@ -169,10 +169,18 @@ public sealed class MicAudioCapture : IAudioMeterSource, IAudioCaptureDiagnostic
     /// Windows default capture device rather than the fixed device 0 that
     /// NAudio's <c>WaveInEvent</c> would otherwise use.
     /// </param>
-    public MicAudioCapture(int deviceNumber = MicDevices.DefaultDeviceNumber, int bufferMilliseconds = 50)
+    /// <param name="description">
+    /// The device's display name, from <see cref="MicDevices.DescribeDevice"/> or the enumerated list, resolved
+    /// by the caller OFF the interface thread. The constructor must not query devices itself: for the Windows
+    /// default that is an MMDeviceEnumerator call, and the Speak dialog builds its recorder on the interface
+    /// thread while it shows GETTING READY.
+    /// </param>
+    public MicAudioCapture(int deviceNumber, string description, int bufferMilliseconds = 50)
     {
+        if (string.IsNullOrWhiteSpace(description))
+            throw new ArgumentException("A resolved device description is required.", nameof(description));
         _deviceNumber = deviceNumber;
-        _description = MicDevices.DescribeDevice(deviceNumber);
+        _description = description;
         _waveIn = new WaveInEvent
         {
             DeviceNumber = deviceNumber,
@@ -227,7 +235,7 @@ public sealed class MicAudioCapture : IAudioMeterSource, IAudioCaptureDiagnostic
     /// <summary>
     /// Stop capture and return only AFTER NAudio has delivered its final buffered
     /// audio - the trailing words the user just spoke. WaveInEvent keeps capturing
-    /// for up to one buffer (<see cref="MicAudioCapture(int,int)"/>'s
+    /// for up to one buffer (<see cref="MicAudioCapture(int,string,int)"/>'s
     /// bufferMilliseconds) after StopRecording, raises the last
     /// <see cref="OnAudioChunk"/> events on its worker thread, and only then fires
     /// RecordingStopped. Awaiting that event is what guarantees the whole tail is in

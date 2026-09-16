@@ -246,6 +246,12 @@ class TestCount:
     def test_format_count_EmptyAfterFilter_SaysZeroOfTotal(self):
         assert format_count(0, total=26) == "count: 0 of 26 total"
 
+    def test_format_count_FilterOnEmptySource_SaysPlainZero(self):
+        assert format_count(0, total=0) == "count: 0"
+
+    def test_format_count_FilterOnEmptySourceWithBreakdown_SaysPlainZero(self):
+        assert format_count(0, total=0, breakdown=[("offline", 0)]) == "count: 0 (offline 0)"
+
     def test_format_count_BreakdownDoesNotAddUp_Raises(self):
         with pytest.raises(ValueError):
             format_count(5, breakdown=[("ready", 2)])

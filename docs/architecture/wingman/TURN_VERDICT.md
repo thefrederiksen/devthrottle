@@ -242,19 +242,19 @@ changes, and a stale line number is visibly stale where a wrong sentence about a
 
 | Step | What | Line |
 |---|---|---|
-| 1 | The account settings, read once for the whole flight | 753 |
-| 1 | The held, live, brand-new, exited and working checks | 784 |
-| 1 | The judge switch - the only place in the flight it can stand a request down | 792 |
-| 1 | The settle wait | 795 |
-| 1 | The held, live, brand-new, exited and working checks again, for an automatic request - not the switch | 801-802 |
-| 2 | The screen read | 808 |
-| 3 | The reuse check | 813 |
-| 4 | The speech re-attempt refusal | 827 |
-| 5 | The conversation read | 834 |
-| 6 | The provider deadline | 840 |
-| 6 | The account ceiling | 849 |
-| 7 | The model call | 881 |
-| - | The switch's one later use: whether the inspector's trace is written, after the store | 936 |
+| 1 | The account settings, read once for the whole flight | 770 |
+| 1 | The held, live, brand-new, exited and working checks | 801 |
+| 1 | The judge switch - the only place in the flight it can stand a request down | 809 |
+| 1 | The settle wait | 812 |
+| 1 | The held, live, brand-new, exited and working checks again, for an automatic request - not the switch | 818-819 |
+| 2 | The screen read | 825 |
+| 3 | The reuse check | 830 |
+| 4 | The speech re-attempt refusal | 844 |
+| 5 | The conversation read | 851 |
+| 6 | The provider deadline | 857 |
+| 6 | The account ceiling | 866 |
+| 7 | The model call | 898 |
+| - | The switch's one later use: whether the inspector's trace is written, after the store | 953 |
 
 ### Three earlier versions of this section were wrong
 
@@ -288,6 +288,16 @@ Notes on individual steps, which add reasons and do not change the order or the 
   session's own row. The push store nulls the role at ingest, so a check that read the row would
   answer "not held" for every session on the fleet and read every worker. Held, live, brand-new,
   exited and working are one function, `SessionStateSkipCause`, over one snapshot.
+  **Held has two answers (owner ruling, 2026-09-16).** Held for narration is "a live owning session
+  holds this one", and the voice narration and the idle sweep read it. Held for judging is the same
+  EXCEPT when that direct owner is the account's Fleet Manager: the turn end and the snooze expiry
+  then judge the session and store its verdict under its own id. It is still never narrated
+  automatically - a person pressing Explain can still narrate any held session, as before - and the
+  fold still parks it for the owner. Carrying the verdict to the Fleet Manager is step 4 of the Fleet
+  Manager mission and is not built yet. The Fleet Manager is the ONE session the account has marked
+  (tenant setting `fleet_manager_session_id`, `PUT /gateway/fleet-manager`,
+  `cc-devthrottle fleet-manager set|clear|show`), and only while no session owns it; the workflow a
+  session is seated on never decides it. The rule is `FleetManagerSessions.IsFleetManager`.
 - **The judge switch** binds only the two triggers nobody is waiting on: the detector's turn end, and
   a snooze expiry with a stop nothing has judged. A voice session is judged whatever the switch says,
   because its narration IS the verdict's spoken section, and a person's own request is not automatic

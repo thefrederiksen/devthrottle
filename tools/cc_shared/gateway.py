@@ -351,6 +351,10 @@ def patch_json(path: str, body: dict, timeout: float = 30) -> Any:
     return _request("PATCH", path, body, timeout=timeout)
 
 
+def put_json(path: str, body: dict, timeout: float = 30) -> Any:
+    return _request("PUT", path, body, timeout=timeout)
+
+
 def delete(path: str, timeout: float = 30) -> Any:
     return _request("DELETE", path, None, timeout=timeout)
 
