@@ -25,13 +25,13 @@ public sealed class WorkflowStoreTests : IDisposable
     public void Dispose() => _h.Dispose();
 
     [Fact]
-    public void Seeds_the_three_built_ins_in_shipped_order()
+    public void Seeds_the_four_built_ins_in_shipped_order()
     {
         var store = new WorkflowStore(_h.Open());
 
         var workflows = store.ListPublished();
 
-        Assert.Equal(new[] { "mission", "standalone", "standalone-with-review" },
+        Assert.Equal(new[] { "mission", "standalone", "standalone-with-review", "fleet-manager" },
             workflows.Select(w => w.Id).ToArray());
         Assert.All(workflows, w =>
         {
@@ -52,11 +52,11 @@ public sealed class WorkflowStoreTests : IDisposable
         var store = new WorkflowStore(_h.Open());
 
         var workflows = store.ListPublished();
-        Assert.Equal(3, workflows.Count);
+        Assert.Equal(4, workflows.Count);
         Assert.All(workflows, w => Assert.Equal(1, w.Version));
 
         using var ctx = _h.Open().CreateContext();
-        Assert.Equal(3, ctx.WorkflowVersions.Count());
+        Assert.Equal(4, ctx.WorkflowVersions.Count());
     }
 
     [Fact]

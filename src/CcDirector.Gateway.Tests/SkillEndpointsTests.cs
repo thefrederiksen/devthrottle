@@ -61,7 +61,7 @@ public sealed class SkillEndpointsTests : IAsyncLifetime
         var body = await _http.GetFromJsonAsync<JsonObject>("gateway/skills");
 
         var ids = body!["skills"]!.AsArray().Select(s => (string?)s!["id"]).ToArray();
-        Assert.Equal(new[] { "dev-throttle", "fleet-comms", "move-session", "terminology" }, ids);
+        Assert.Equal(new[] { "dev-throttle", "fleet-comms", "move-session", "terminology", "fleet-manager" }, ids);
     }
 
     [Fact]

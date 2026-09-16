@@ -51,7 +51,7 @@ public sealed class SkillStoreTests : IDisposable
 
         var skills = store.ListPublished();
 
-        Assert.Equal(new[] { "dev-throttle", "fleet-comms", "move-session", "terminology" },
+        Assert.Equal(new[] { "dev-throttle", "fleet-comms", "move-session", "terminology", "fleet-manager" },
             skills.Select(s => s.Id).ToArray());
         Assert.All(skills, s =>
         {
@@ -73,11 +73,11 @@ public sealed class SkillStoreTests : IDisposable
         var store = new SkillStore(_h.Open());
 
         var skills = store.ListPublished();
-        Assert.Equal(4, skills.Count);
+        Assert.Equal(5, skills.Count);
         Assert.All(skills, s => Assert.Equal(1, s.Version));
 
         using var ctx = _h.Open().CreateContext();
-        Assert.Equal(4, ctx.SkillVersions.Count());
+        Assert.Equal(5, ctx.SkillVersions.Count());
     }
 
     [Fact]
@@ -86,7 +86,7 @@ public sealed class SkillStoreTests : IDisposable
         _ = new SkillStore(_h.Open());
 
         using var ctx = _h.Open().CreateContext();
-        foreach (var id in new[] { "dev-throttle", "fleet-comms", "move-session", "terminology" })
+        foreach (var id in new[] { "dev-throttle", "fleet-comms", "move-session", "terminology", "fleet-manager" })
         {
             var version = ctx.SkillVersions.Single(v => v.SkillId == id);
             Assert.Equal(BuiltInSkills.BodyFor(id), version.BodyMarkdown);
