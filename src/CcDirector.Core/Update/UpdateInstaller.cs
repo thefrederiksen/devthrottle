@@ -230,8 +230,8 @@ public static class UpdateInstaller
         // (and the running version unchanged) and rolls back to the .old backup.
         var versionBeingInstalled = UpdaterState.Load().StagedVersion;
 
-        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS())
-            throw new PlatformNotSupportedException("Auto-update is only supported on Windows and macOS.");
+        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS() && !OperatingSystem.IsLinux())
+            throw new PlatformNotSupportedException("Auto-update is only supported on Windows, macOS and Linux.");
         Swap(targetPath);
 
         // Clear the staged marker BEFORE relaunching so the freshly-installed build

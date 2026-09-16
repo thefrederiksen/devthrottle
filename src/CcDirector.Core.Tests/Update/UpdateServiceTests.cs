@@ -36,9 +36,17 @@ public class UpdateServiceTests
     }
 
     [Fact]
-    public void AssetNameFor_Linux_ReturnsNull()
+    public void AssetNameFor_LinuxX64_ReturnsExecutable()
     {
-        Assert.Null(UpdateService.AssetNameFor(OSPlatform.Linux, Architecture.X64));
+        // Every release publishes cc-director-linux-x64. This returned null, so a Linux Director never
+        // checked for an update at all.
+        Assert.Equal("cc-director-linux-x64", UpdateService.AssetNameFor(OSPlatform.Linux, Architecture.X64));
+    }
+
+    [Fact]
+    public void AssetNameFor_LinuxArm64_ReturnsNull()
+    {
+        Assert.Null(UpdateService.AssetNameFor(OSPlatform.Linux, Architecture.Arm64));
     }
 
     // ---- TryParseTag ------------------------------------------------------
