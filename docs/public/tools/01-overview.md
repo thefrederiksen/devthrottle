@@ -4,7 +4,7 @@ The DevThrottle installer puts nine command-line tools on your PATH. They are th
 
 The repository holds more `cc-*` tools than these. They build from source for development but are not installed, so they are not documented here.
 
-Every tool answers `--help` with its full command list. The complete generated help for each one is in [docs/cli-reference.md](../../cli-reference.md), and the website documentation is at https://devthrottle.com/docs/cli/overview.
+Every tool answers `--help` with its full command list. A longer reference with selected help for each tool is in [docs/cli-reference.md](../../cli-reference.md), and the website documentation is at https://devthrottle.com/docs/cli/overview.
 
 | Tool | What it does | What it needs |
 |------|--------------|---------------|
@@ -13,7 +13,7 @@ Every tool answers `--help` with its full command list. The complete generated h
 | cc-word | Markdown to Word, and Word back to Markdown, with themes | Nothing |
 | cc-gmail | Gmail: read, search, send, labels, calendar, contacts | A one-time `auth` |
 | cc-outlook | Outlook: read, search, send, attachments, folders, calendar | A one-time `auth` |
-| cc-image | Describe an image, read the text in it, resize and convert | `DEVTHROTTLE_API_KEY` for describe and ocr |
+| cc-image | Describe an image, read the text in it, resize and convert | `DEVTHROTTLE_API_KEY` for describe and ocr on the default engine |
 | cc-vault | Personal vault: contacts, tasks, goals, ideas, documents, with search | A model key for search and ask |
 | cc-secrets | Use a stored password without the model ever seeing it | Entries you add by hand |
 | cc-devthrottle | The fleet: sessions, messages, missions, workflows, skills, schedules, setup | A DevThrottle session for the fleet commands |
@@ -71,7 +71,7 @@ cc-image convert image.png -o image.webp
 cc-image info photo.png
 ```
 
-`describe` and `ocr` run through the DevThrottle API and need `DEVTHROTTLE_API_KEY`. `describe` on a folder catalogs every image to JSON and CSV. `resize`, `convert` and `info` run locally with no key.
+By default `describe` and `ocr` run through the DevThrottle API and need `DEVTHROTTLE_API_KEY`; `--engine` picks another engine. `describe` on a folder catalogs every image to JSON and CSV. `resize`, `convert` and `info` run locally with no key.
 
 ---
 
@@ -105,8 +105,8 @@ cc-secrets log
 - `add`, `remove` and `list --all` are for you and are refused inside a DevThrottle session. `add` reads the password from a hidden prompt or from a pipe, never from an argument. Git Bash cannot hide typing, so a typed password is refused there; piping works.
 - `run` supplies the password on standard input (the default), in one environment variable (`--via env`), or through an askpass helper (`--via askpass`), and returns the output with the password removed.
 - `login` fills and submits the login form in a Director-owned browser profile, only on an address the entry allows, and only inside a DevThrottle session.
-- `log` shows the audit log: time, entry, session, machine, command, outcome. Never a password.
-- The store is a plain JSON file private to your user: `%LOCALAPPDATA%\cc-director\secrets` on Windows, `~/.cc-director/secrets` on Linux. On macOS the tool refuses to run for now.
+- `log` shows the audit log: time, entry, session, command, outcome and detail (`--json` adds the machine). Never a password.
+- The store is a plain JSON file private to your user: `%LOCALAPPDATA%\cc-director\secrets` on Windows, `~/.cc-director/secrets` on Linux. On macOS the store is not supported yet, so no entry can be added or used there.
 
 The full guide, including the limits, is at https://devthrottle.com/docs/cli/secrets.
 
