@@ -291,7 +291,8 @@ Notes on individual steps, which add reasons and do not change the order or the 
   **Held has two answers (owner ruling, 2026-09-16).** Held for narration is "a live owning session
   holds this one", and the voice narration and the idle sweep read it. Held for judging is the same
   EXCEPT when that direct owner is the account's Fleet Manager: the turn end and the snooze expiry
-  then judge the session and store its verdict under its own id. It is still never narrated, and the
+  then judge the session and store its verdict under its own id. It is still never narrated
+  automatically - a person pressing Explain can still narrate any held session, as before - and the
   fold still parks it for the owner. Carrying the verdict to the Fleet Manager is step 4 of the Fleet
   Manager mission and is not built yet. The Fleet Manager is the ONE session the account has marked
   (tenant setting `fleet_manager_session_id`, `PUT /gateway/fleet-manager`,

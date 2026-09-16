@@ -269,7 +269,8 @@ Notes on individual steps, which add reasons and do not change the order or the 
   answer "not held" for every session on the fleet. A session held by the account's Fleet Manager (the
   one session the account has marked with `cc-devthrottle fleet-manager set`) is the one exception for
   the turn end and the snooze expiry: it is judged and its verdict stored under its own id, and it is
-  still never narrated to the owner or shown to him as needing him (owner ruling, 2026-09-16).
+  never narrated to the owner automatically and never shown to him as needing him (owner ruling,
+  2026-09-16). A person pressing Explain can still narrate any held session, as before.
   Carrying that verdict to the Fleet Manager is step 4 of the Fleet Manager mission and is not built
   yet.
 - **The judge switch** binds only the two triggers nobody is waiting on: the detector's turn end, and

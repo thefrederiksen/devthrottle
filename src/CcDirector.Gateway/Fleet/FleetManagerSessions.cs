@@ -9,7 +9,8 @@ namespace CcDirector.Gateway.Fleet;
 /// THE MARK IS THE ACCOUNT'S, NOT THE SESSION'S. There is exactly one Fleet Manager per account, and the
 /// account says which session it is: one session id per tenant, stored as the
 /// <c>fleet_manager_session_id</c> tenant setting and set or cleared through <c>PUT /gateway/fleet-manager</c>
-/// (<c>cc-devthrottle fleet-manager set|clear</c>). This is the same mark the session list pins first.
+/// (<c>cc-devthrottle fleet-manager set|clear</c>). The session list does not read this mark yet; a later step of
+/// the Fleet Manager mission makes the list pin the marked session first.
 ///
 /// THE WORKFLOW SEAT DOES NOT DECIDE IDENTITY. A seat on the <c>fleet-manager</c> workflow is inherited - a
 /// session spawned under a controller inherits its mission, and a mission spawn with no explicit run is seated
