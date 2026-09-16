@@ -495,7 +495,7 @@ public sealed class TurnVerdictService : IDisposable
             return Task.FromResult(new TurnVerdictOutcome { Kind = TurnVerdictOutcomeKind.Skipped, SkipCause = ActivityCauses.Unknown });
 
         var key = (signal.Tenant, signal.SessionId);
-        if (!_disposed) _lastObserved[key] = signal.ObservedAtUtc;
+        _lastObserved[key] = signal.ObservedAtUtc;
         return TakeGateOrJoin(key, signal);
     }
 

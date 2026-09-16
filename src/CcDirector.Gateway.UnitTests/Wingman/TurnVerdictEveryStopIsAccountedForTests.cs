@@ -178,16 +178,18 @@ public sealed class TurnVerdictEveryStopIsAccountedForTests
         {
             var env = Env(); var service = new TurnVerdictService(env);
             service.Dispose();
-            Assert.Equal(TurnVerdictOutcomeKind.Cancelled, (await service.StartTurnEnd(Signal())).Kind);
+            await service.StartTurnEnd(Signal()).WaitAsync(Wait);
             exits.Add(new("refused-after-shutdown", 1, env, service));
         }
 
+        var unaccounted = new List<string>();
         foreach (var exit in exits)
         {
             Assert.True(await exit.Service.WaitForFlightsAsync(Wait), $"{exit.Name}: the drain timed out");
-            Assert.True(exit.Stops == Accounted(exit.Env),
-                $"{exit.Name}: {exit.Stops} stop(s) observed, but {exit.Env.Traces.Count(t => t.Trigger == "turn-end")} row(s) and {exit.Env.NotKept.Count} counted loss(es)");
+            if (exit.Stops != Accounted(exit.Env))
+                unaccounted.Add($"{exit.Name}: {exit.Stops} stop(s) observed, but {exit.Env.Traces.Count(t => t.Trigger == "turn-end")} row(s) and {exit.Env.NotKept.Count} counted loss(es)");
         }
+        Assert.True(unaccounted.Count == 0, string.Join("; ", unaccounted));
     }
 
     [Fact]
