@@ -756,9 +756,11 @@ public sealed class TurnVerdictService : IDisposable
 
         // THE BOUNDARY, IN THE ORDER THE CODE RUNS IT. A read means the session's screen or its stored
         // conversation; the pushed roster and the verdict store are consulted as well and are not counted.
-        // 1. The checks that read neither: held, live, not brand new, not exited, not working, and the
-        //    judge switch; then, for a turn end, the settle wait, and for an automatic request the same
-        //    checks again. A stop refused here costs NO reads.
+        // 1. The checks that read neither: held, live, not brand new, not exited, not working; then the
+        //    judge switch, checked ONCE in the flight, before the settle wait. Then, for a turn end, the
+        //    settle wait. Then, for an automatic request, the held, live, brand-new, exited and working
+        //    checks again - but NOT the switch, so a switch turned off during a flight does not stop that
+        //    flight. A stop refused here costs NO reads.
         // 2. The screen read, and its one full-grid hash.
         // 3. The reuse check: a stored verdict formed on the same hash is reused and the judge is not
         //    asked. A stop answered here costs ONE read.

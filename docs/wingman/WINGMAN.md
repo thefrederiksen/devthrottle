@@ -237,9 +237,11 @@ describe it differently:
 ```
 THE BOUNDARY, IN THE ORDER THE CODE RUNS IT. A read means the session's screen or its stored
 conversation; the pushed roster and the verdict store are consulted as well and are not counted.
-1. The checks that read neither: held, live, not brand new, not exited, not working, and the
-   judge switch; then, for a turn end, the settle wait, and for an automatic request the same
-   checks again. A stop refused here costs NO reads.
+1. The checks that read neither: held, live, not brand new, not exited, not working; then the
+   judge switch, checked ONCE in the flight, before the settle wait. Then, for a turn end, the
+   settle wait. Then, for an automatic request, the held, live, brand-new, exited and working
+   checks again - but NOT the switch, so a switch turned off during a flight does not stop that
+   flight. A stop refused here costs NO reads.
 2. The screen read, and its one full-grid hash.
 3. The reuse check: a stored verdict formed on the same hash is reused and the judge is not
    asked. A stop answered here costs ONE read.
@@ -250,9 +252,11 @@ conversation; the pushed roster and the verdict store are consulted as well and 
 7. The model call.
 ```
 
-**Two earlier versions of this section were wrong, both about cost.** The first said nothing was read
-until every check passed. The second grouped the speech re-attempt refusal with the checks after BOTH
-reads, when it comes before the conversation is read and costs one. The code was right both times.
+**Three earlier versions of this section were wrong.** The first said nothing was read until every
+check passed. The second grouped the speech re-attempt refusal with the checks after BOTH reads, when
+it comes before the conversation is read and costs one. The third said the judge switch was checked
+again after the settle wait; it is checked once, before it, so a switch turned off during a flight
+does not stop that flight. The code was right all three times.
 
 **The real boundary is step 6.** A stop refused there has cost two reads and no model call, and that
 is deliberate: the expensive, rate-limited, chargeable thing is the model, and step 6 is what stands in
@@ -266,8 +270,11 @@ Notes on individual steps, which add reasons and do not change the order or the 
 - **The judge switch** binds only the two triggers nobody is waiting on: the detector's turn end, and
   a snooze expiry with a stop nothing has judged. A voice session is judged whatever the switch says,
   because somebody is listening to it, and a person's own request is not automatic at all.
-- **The checks run again after the settle wait** because a session can become held, or start working,
-  while the request waits, and the first answer does not license a read made later.
+- **The held, live, brand-new, exited and working checks run again after the settle wait; the judge
+  switch does not.** A session can become held, or start working, while the request waits, and the
+  first answer does not license a read made later. The switch is taken from the account settings read
+  when the flight starts and is not looked at again, so turning it off stops the NEXT flight, not one
+  already waiting or reading.
 - **The screen is read before the reuse check because the reuse check needs it**: it compares the hash
   of this screen to the hash a stored verdict was formed on. A screen read placed after step 6 would
   buy nothing and would cost every reusable stop a model call. An unreadable screen hashes to the empty

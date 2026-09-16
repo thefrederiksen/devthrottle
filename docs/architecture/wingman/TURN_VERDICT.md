@@ -219,9 +219,11 @@ differently:
 ```
 THE BOUNDARY, IN THE ORDER THE CODE RUNS IT. A read means the session's screen or its stored
 conversation; the pushed roster and the verdict store are consulted as well and are not counted.
-1. The checks that read neither: held, live, not brand new, not exited, not working, and the
-   judge switch; then, for a turn end, the settle wait, and for an automatic request the same
-   checks again. A stop refused here costs NO reads.
+1. The checks that read neither: held, live, not brand new, not exited, not working; then the
+   judge switch, checked ONCE in the flight, before the settle wait. Then, for a turn end, the
+   settle wait. Then, for an automatic request, the held, live, brand-new, exited and working
+   checks again - but NOT the switch, so a switch turned off during a flight does not stop that
+   flight. A stop refused here costs NO reads.
 2. The screen read, and its one full-grid hash.
 3. The reuse check: a stored verdict formed on the same hash is reused and the judge is not
    asked. A stop answered here costs ONE read.
@@ -240,19 +242,21 @@ changes, and a stale line number is visibly stale where a wrong sentence about a
 
 | Step | What | Line |
 |---|---|---|
-| 1 | The held, live, brand-new, exited and working checks | 782 |
-| 1 | The judge switch | 790 |
-| 1 | The settle wait | 793 |
-| 1 | The same checks again, for an automatic request | 799-800 |
-| 2 | The screen read | 806 |
-| 3 | The reuse check | 811 |
-| 4 | The speech re-attempt refusal | 825 |
-| 5 | The conversation read | 832 |
-| 6 | The provider deadline | 838 |
-| 6 | The account ceiling | 847 |
-| 7 | The model call | 879 |
+| 1 | The account settings, read once for the whole flight | 753 |
+| 1 | The held, live, brand-new, exited and working checks | 784 |
+| 1 | The judge switch - the only place in the flight it can stand a request down | 792 |
+| 1 | The settle wait | 795 |
+| 1 | The held, live, brand-new, exited and working checks again, for an automatic request - not the switch | 801-802 |
+| 2 | The screen read | 808 |
+| 3 | The reuse check | 813 |
+| 4 | The speech re-attempt refusal | 827 |
+| 5 | The conversation read | 834 |
+| 6 | The provider deadline | 840 |
+| 6 | The account ceiling | 849 |
+| 7 | The model call | 881 |
+| - | The switch's one later use: whether the inspector's trace is written, after the store | 936 |
 
-### Two earlier versions of this section were wrong, both about cost
+### Three earlier versions of this section were wrong
 
 The first said "nothing is read and nothing is paid for until every check passes". Steps 3, 4 and 6
 all come after the screen read, so a reader who believed it would have concluded that a stop refused
@@ -260,9 +264,16 @@ by the account ceiling had read nothing. It had read the screen and the conversa
 
 The second fixed that and then filed the speech re-attempt refusal with the checks that come after
 BOTH reads, at a cost of two. It comes before the conversation is read and costs one - the table
-above shows it at line 825, before the conversation read at line 832.
+above shows it at line 827, before the conversation read at line 834.
 
-The code was right both times. Both errors were in the sentence beside it.
+The third put the order and the costs right, and then said "the same checks again" after a list that
+included the judge switch. The switch is not checked again. It is checked once, before the settle
+wait, from settings read when the flight starts; after the wait only the held, live, brand-new,
+exited and working checks run a second time. So a switch turned off during a flight does not stop
+that flight, and a reader who believed the third version would have expected it to.
+
+The code was right all three times. All three errors were in the sentence beside it, and the third
+was written from a description of the code rather than from the code.
 
 ### Why the boundary is where it is
 
@@ -281,9 +292,13 @@ Notes on individual steps, which add reasons and do not change the order or the 
   a snooze expiry with a stop nothing has judged. A voice session is judged whatever the switch says,
   because its narration IS the verdict's spoken section, and a person's own request is not automatic
   at all.
-- **The checks run again after the settle wait** (600 milliseconds by default) because a session can
-  become held, or start working, while the request waits, and the first answer does not license a read
-  made later.
+- **The held, live, brand-new, exited and working checks run again after the settle wait** (600
+  milliseconds by default); **the judge switch does not.** A session can become held, or start
+  working, while the request waits, and the first answer does not license a read made later. The
+  switch is taken from the account settings read when the flight starts and is not looked at again,
+  so turning it off stops the NEXT flight, not one already waiting or reading. The one later use of
+  the switch in the flight decides only whether the inspector's trace is written after the verdict
+  is stored, and it reads that same early copy.
 - **The screen is read before the reuse check because the reuse check needs it**: it compares the hash
   of this screen to the hash a stored verdict was formed on, and has no answer without it. A screen
   read placed after step 6 would buy nothing and would cost every reusable stop a model call. An
