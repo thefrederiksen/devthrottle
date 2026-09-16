@@ -54,20 +54,9 @@ export interface VerdictPanelProps {
   /** Told after a correction is stored, when a shell wants to react to one. The panel does the reporting itself -
    *  it lives in client-core so both surfaces get the same action, and a shell that passes nothing still has it. */
   onReported?: (verdict: TurnVerdict, correctVerdict: string) => void;
-  /**
-   * Render for a screen with no height to spare: the receipt starts COLLAPSED instead of expanded.
-   *
-   * It exists for the phone's Chat tab, where the receipt is the agent's last reply and the agent's last
-   * reply is also the top of the conversation immediately below - so expanded, the panel spent the
-   * scarcest space on that screen restating what the reader could already see. Nothing is removed and the
-   * summary line still says whose words they are; it is one tap to open.
-   *
-   * The default is false, so the Cockpit and the phone's other screens are unchanged.
-   */
-  compact?: boolean;
 }
 
-export function VerdictPanel({ sessionId, session, onReported, compact = false }: VerdictPanelProps) {
+export function VerdictPanel({ sessionId, session, onReported }: VerdictPanelProps) {
   const row = session as TurnVerdictRow;
   const live = row.verdictState === "judged" ? row.turnVerdict ?? null : null;
   const [past, setPast] = useState<TurnVerdict | null>(null);
@@ -207,12 +196,9 @@ export function VerdictPanel({ sessionId, session, onReported, compact = false }
       )}
 
       {verdict.evidence && (
-        /* TWO REASONS TO START IT CLOSED, and they are different reasons. `compact` is the phone's Chat tab,
-            where the receipt quotes the agent's last reply and that reply is also the top of the conversation
-            immediately below. `!answerable` is a record read out of the history: the session has moved on, and
-            what is being shown is what the Wingman SAID rather than what it is waiting on. Either one closes
-            it; it is one tap to open, and nothing is removed. */
-        <details className="verdict-receipt" open={answerable && !compact}>
+        /* STARTS CLOSED for a record read out of the history: the session has moved on, and what is being
+            shown is what the Wingman SAID rather than what it is waiting on. One tap to open; nothing removed. */
+        <details className="verdict-receipt" open={answerable}>
           <summary>{agentName} said</summary>
           <blockquote className="verdict-evidence">{verdict.evidence}</blockquote>
         </details>
