@@ -118,6 +118,10 @@ public static class SessionKeyGuard
                 case "machines":
                 case "missions":
                 case "gateway/about":
+                // What the session colours mean - the same words the Cockpit and the phone show. An agent that
+                // can read a roster should be able to say what a row's colour means rather than guess it, and
+                // the answer is the same for every account: it reads no tenant's data at all.
+                case "gateway/session-colours":
                 case "gateway/snooze-presets":
                 case "gateway/skills":
                 case "gateway/workflows":

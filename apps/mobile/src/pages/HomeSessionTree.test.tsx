@@ -261,3 +261,14 @@ describe("the phone roster is the ownership tree", () => {
     expect(screen.queryByRole("button", { name: /Expand/ })).toBeNull();
   });
 });
+
+describe("the colour legend on the phone roster", () => {
+  it("offers the legend under the order switch, and opens it", async () => {
+    await renderHome([alone, architect]);
+
+    fireEvent.click(screen.getByRole("button", { name: "What do the colours mean?" }));
+
+    expect(screen.getByRole("dialog", { name: "What the colours mean" })).toBeTruthy();
+    expect(rule(".legend-row")).toContain("display: flex");
+  });
+});

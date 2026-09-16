@@ -45,6 +45,7 @@ public sealed class SessionKeyGuardTests
     [InlineData("GET", "/missions/m-123")]
     [InlineData("GET", "/cron/jobs")]
     [InlineData("GET", "/cron/jobs/cj_abc")]
+    [InlineData("GET", "/gateway/session-colours")]
     [InlineData("GET", "/gateway/snooze-presets")]
     [InlineData("GET", "/gateway/skills")]
     [InlineData("GET", "/gateway/skills/move-session")]
