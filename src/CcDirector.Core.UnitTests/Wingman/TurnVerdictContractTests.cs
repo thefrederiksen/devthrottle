@@ -1631,12 +1631,19 @@ public sealed class TurnVerdictContractTests
         // Before this, the two were pinned equal, so a prompt-only revision could not be stamped at all
         // without renaming a file the grader reads. That is the coupling being broken, deliberately, and
         // the half that protects the grader is kept exactly as strict.
+        // THE FULL STAMP IS PINNED, and the first version of this test did not pin it. It derived `major`
+        // FROM Version and then asserted Version started with it, which is true of every possible value -
+        // a check that cannot fail. The inspector proved it by setting Version back to "v2" with the
+        // revised prompt still in place; the test stayed green, so the wording revision it exists to force
+        // would have shipped unstamped. Pinning the literal is what makes the next revision deliberate.
+        Assert.Equal("v2.1", TurnVerdictContract.Version);
+
         var major = TurnVerdictContract.Version.Split('.')[0];
         Assert.Equal("v2", major);
         Assert.EndsWith($"/turn-verdict-{major}.txt", TurnVerdictContract.PromptResourcePath);
         Assert.EndsWith($".turn-verdict-{major}.txt", TurnVerdictContract.PromptResourceName);
-        // A stamp that never moves is a stamp that says nothing, so it must still be at least the major.
-        Assert.StartsWith(major, TurnVerdictContract.Version, StringComparison.Ordinal);
+        // NOT re-asserting that Version starts with `major`: `major` is a prefix of Version by
+        // construction, so that assertion could never fail and reads as a guard while being none.
     }
 
     [Fact]
