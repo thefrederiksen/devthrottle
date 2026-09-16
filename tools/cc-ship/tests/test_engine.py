@@ -476,6 +476,8 @@ def test_run_VerifierEvidence_PublishedToShipEvidenceBranchAndLinked(world, caps
     assert listed == f"runs/{out['run']}/shot.png"
     commit = git(origin, "rev-parse", "ship-evidence")
     assert f"[shot.png](https://github.com/o/r/blob/{commit}/runs/{out['run']}/shot.png)" in world.prs[1]["body"]
+    assert (f"All evidence (1 files): [{out['run']}](https://github.com/o/r/tree/{commit}/runs/{out['run']})"
+            in world.prs[1]["body"])
     # The evidence branch shares no history with main: it never merges.
     assert subprocess.run(["git", "-C", str(origin), "merge-base", "main", "ship-evidence"],
                           capture_output=True).returncode != 0

@@ -36,6 +36,11 @@ TIMED_OUT = "timed-out"
 # no done flag before it counts as stalled (it ended its turn without doing the job).
 STALL_SECONDS = 90
 
+# A session that has not been seen working this long after it was spawned never got
+# going (for example the agent stopped at once on a usage-limit screen) and is stalled
+# too. Prompt delivery takes seconds; five minutes is far beyond it.
+NEVER_WORKED_SECONDS = 300
+
 
 class FleetError(RuntimeError):
     """A fleet command failed; the message carries the command's own output."""
@@ -162,8 +167,8 @@ def wait_for_output(
     so a correction turn is only finished once the file has been rewritten.
 
     watch carries what has been observed across separate calls (cc-ship waits in
-    slices of a few minutes, in separate processes): seen_working, seen_done and
-    idle_since (a time.time() value). It is updated in place; pass the same dict
+    slices of a few minutes, in separate processes): seen_working, seen_done,
+    idle_since and started (time.time() values; started defaults to the first call). It is updated in place; pass the same dict
     back on the next call, or a stalled session would never be recognised.
     """
 
@@ -179,6 +184,7 @@ def wait_for_output(
     watch.setdefault("seen_working", False)
     watch.setdefault("seen_done", False)
     watch.setdefault("idle_since", None)
+    watch.setdefault("started", time.time())
     while True:
         row = find_session(session_id)
         ready = output_ready()
@@ -187,6 +193,12 @@ def wait_for_output(
         if outcome is None and row is not None:
             if row["activityState"] == "Working":
                 watch["seen_working"], watch["idle_since"] = True, None
+            elif (not watch["seen_working"] and not ready and not row.get("pendingDeletion")
+                  and time.time() - watch["started"] >= NEVER_WORKED_SECONDS):
+                screen = session_screen(session_id)[-800:]
+                outcome = STALLED
+                reason = (f"session was never seen working in {NEVER_WORKED_SECONDS}s after it "
+                          f"was spawned; its screen ends: {screen}")
             elif watch["seen_working"] and not ready and not row.get("pendingDeletion"):
                 watch["idle_since"] = watch["idle_since"] or time.time()
                 if time.time() - watch["idle_since"] >= STALL_SECONDS:

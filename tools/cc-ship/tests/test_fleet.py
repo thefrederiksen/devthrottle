@@ -84,10 +84,10 @@ def test_wait_for_output_WorkedThenIdleWithNoOutput_Stalled(tmp_path, monkeypatc
 
 
 def test_wait_for_output_IdleBeforeEverWorking_NotStalled(tmp_path, monkeypatch, clock):
-    # A session waits for its first prompt before it works; that idle time is not a stall.
+    # A session waits for its first prompt before it works; a short idle start is not a stall.
     fake = _FakeFleet([_row("WaitingForInput")] * 50)
     monkeypatch.setattr(fleet, "find_session", fake.find)
-    result = fleet.wait_for_output("s1", tmp_path / "out.json", 300, poll_seconds=10)
+    result = fleet.wait_for_output("s1", tmp_path / "out.json", 120, poll_seconds=10)
     assert result.outcome == fleet.TIMED_OUT
 
 
@@ -159,3 +159,15 @@ def test_wait_for_output_StallSpansSeparateCalls_Stalled(tmp_path, monkeypatch, 
     assert first.outcome == fleet.TIMED_OUT
     second = fleet.wait_for_output("s1", tmp_path / "out.json", 60, poll_seconds=10, watch=watch)
     assert second.outcome == fleet.STALLED
+
+
+def test_wait_for_output_NeverSeenWorkingForFiveMinutes_Stalled(tmp_path, monkeypatch, clock):
+    # Live, 2026-09-16: three reviewers stopped at once on a usage-limit screen, went idle
+    # before any poll saw them working, and would have waited out the 45-minute limit.
+    watch = {"started": clock[0]}
+    fake = _FakeFleet([_row("WaitingForInput")] * 100)
+    monkeypatch.setattr(fleet, "find_session", fake.find)
+    result = fleet.wait_for_output("s1", tmp_path / "out.json", 3600, poll_seconds=10, watch=watch)
+    assert result.outcome == fleet.STALLED
+    assert "never seen working" in result.reason
+    assert clock[0] - watch["started"] >= fleet.NEVER_WORKED_SECONDS

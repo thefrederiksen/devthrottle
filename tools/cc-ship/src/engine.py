@@ -158,7 +158,8 @@ def _spawn(run: dict, role: str, agent: str, brief: Path, output: Path) -> None:
     record = {
         "role": role, "id": session_id, "name": name, "agent": agent,
         "brief": str(brief), "output": str(output), "started": time.time(),
-        "corrections": 0, "replaced": False, "written_after": None, "watch": {},
+        "corrections": 0, "replaced": False, "written_after": None,
+        "watch": {"started": time.time()},
     }
     run["session"] = record
     run["sessions"].append({k: record[k] for k in ("role", "id", "name", "agent")})
@@ -650,7 +651,9 @@ def _handle_session_result(run: dict, result: fleet.WaitResult) -> dict:
                                                role.lower()),
                        encoding="utf-8")
         session["written_after"] = time.time()
-        session["watch"] = {"seen_working": session["watch"].get("seen_working", False)}
+        # A correction is a new turn: the clock for "never got going" starts again.
+        session["watch"] = {"seen_working": session["watch"].get("seen_working", False),
+                            "started": time.time()}
         fleet.prompt_session(session["id"], f"Read the file {fix} and follow it exactly.")
         return _set(run, WORKING, f"The {role.lower()}'s file was invalid; it is correcting it "
                                   f"({session['corrections']} of {MAX_CORRECTIONS}). Run: cc-ship wait")

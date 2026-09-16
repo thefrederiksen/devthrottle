@@ -36,6 +36,9 @@ def testing_section(verify: dict | None, step_state: str, checks: list[str],
                     evidence = evidence.replace(name, f"[{name}]({url})")
             lines.append(f"| {_cell(s['name'])} | {s['result'].upper()} | "
                          f"{'yes' if s['live'] else 'no'} | {evidence} |")
+    if links:
+        folder = next(iter(links.values())).rsplit("/", 1)[0].replace("/blob/", "/tree/", 1)
+        lines.append(f"\nAll evidence ({len(links)} files): [{folder.split('/runs/', 1)[1]}]({folder})")
     lines.append("")
     if checks_state == "skipped":
         lines.append("Local checks: SKIPPED - .ship.yaml on main declares none")
