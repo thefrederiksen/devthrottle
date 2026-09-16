@@ -21,7 +21,7 @@ All JSON. Errors are `{ "error": "<sentence>", "code": "<code>" }` plus extra fi
 
 | Verb and path | Body | Answer |
 |---|---|---|
-| `POST /sessions/{sid}/dev-reports` | `{ "key": "<stable report key>", "html": "<the file>" }` | 200 `{ "report": ReportSummary, "created": bool }`; 422 `{ code: "shape_check_failed", errors: [..] }`; 413 `{ code: "report_too_large" }` over 10 MB of UTF-8 |
+| `POST /sessions/{sid}/dev-reports` | `{ "key": "<stable report key>", "html": "<the file>" }` | 200 `{ "report": ReportSummary, "created": bool }`; 422 `{ code: "shape_check_failed", errors: [..] }`; 413 `{ error: "This report is <N> bytes. A dev report can be at most 10485760 bytes (10 megabytes).", code: "report_too_large", bytes: N, limitBytes: 10485760 }` when the UTF-8 HTML is over 10,485,760 bytes (exactly that many is allowed) |
 | `GET /sessions/{sid}/dev-reports` | - | 200 `{ "count": n, "reports": [ReportSummary] }` newest update first |
 | `GET /sessions/{sid}/dev-reports/{reportId}` | - | 200 `ReportDetail`; 404 |
 | `POST /sessions/{sid}/dev-reports/{reportId}/replies` | `{ "text": "..." }` | 200 `{ "reply": Reply }`; 404; 400 empty or over 20000 characters |
