@@ -108,6 +108,47 @@ public sealed class LauncherDiscoveryTests : IDisposable
     }
 
     [Fact]
+    public void Write_ThenRead_RoundTripsTheSignalsTheLauncherArmed()
+    {
+        // The fact that makes "can this launcher be told anything" answerable on a platform where
+        // nothing can be asked directly. It travels as NAMES rather than a flag, so a reader can check
+        // them against the names it computes for its own storage root - a launcher serving somebody
+        // else's root is registered, alive, and completely unreachable.
+        var path = Path.Combine(_dir, "launcher.json");
+
+        LauncherDiscovery.Write("2.3.0", "tray",
+            autostartChecked: true, autostartRegistered: true, autostartFailure: null, path,
+            commandSignals: ["signal-shutdown-ROOTKEY", "signal-restart-director-ROOTKEY"]);
+        var fact = LauncherDiscovery.Read(path);
+
+        Assert.Equal(["signal-shutdown-ROOTKEY", "signal-restart-director-ROOTKEY"], fact.CommandSignals);
+    }
+
+    [Fact]
+    public void Read_NoCommandSignalsField_IsEmpty_NotAnError()
+    {
+        // Every launcher built before this field existed. It is a real answer - that launcher declared
+        // nothing - and it must read as an empty list rather than as a broken file, because "declares
+        // nothing" is precisely the build the Director is entitled to replace.
+        var fact = LauncherDiscovery.Read(PathFor("""{"pid": 4242, "version": "2.1.0"}"""));
+
+        Assert.True(fact.Installed);
+        Assert.Empty(fact.CommandSignals);
+        Assert.Null(fact.Error);
+    }
+
+    [Fact]
+    public void Read_MalformedCommandSignalEntries_AreSkipped_NotReadAsNames()
+    {
+        // A name nothing could ever match would read as a launcher serving a different root. Blank and
+        // non-string entries are dropped; the real names beside them survive.
+        var fact = LauncherDiscovery.Read(PathFor(
+            """{"pid": 4242, "commandSignals": ["real-signal", "", 7, null, "  "]}"""));
+
+        Assert.Equal(["real-signal"], fact.CommandSignals);
+    }
+
+    [Fact]
     public void IsRunning_OwnProcess_IsTrue()
     {
         var path = Path.Combine(_dir, "launcher.json");

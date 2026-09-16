@@ -70,9 +70,14 @@ public sealed class LauncherCore : IAsyncDisposable
         // The registration this process writes about itself - the launcher's only local surface now,
         // and what the installer's readiness wait and the Director's update fold read. Written before
         // the Gateway is attempted: a launcher with no Gateway configured is still a healthy launcher.
+        //
+        // It carries the signals ARMED JUST ABOVE, which is why the arming happens first. That is the
+        // fact that makes this launcher's command surface observable on a platform where nothing can
+        // be asked directly - see LauncherDiscovery.Write.
         _registrationState = (userInterfaceState, written: true);
         LauncherDiscovery.Write(_version, userInterfaceState,
-            AutostartChecked, AutostartRegistered, AutostartFailure);
+            AutostartChecked, AutostartRegistered, AutostartFailure,
+            commandSignals: ArmedLifecycleSignals);
 
         // One instance of each query service for the Gateway command stream.
         var appCatalog = new AppCatalog();
@@ -144,23 +149,28 @@ public sealed class LauncherCore : IAsyncDisposable
     /// </summary>
     private void StartLifecycleSignals(Func<Task> requestShutdownAsync, DirectorSupervisor directorSupervisor)
     {
+        var armed = new List<string>();
         try
         {
+            var shutdownName = CcDirector.Core.Lifecycle.LifecycleSignalNames.LauncherShutdown();
             _shutdownSignal = CcDirector.Core.Lifecycle.LifecycleSignal.Listen(
-                CcDirector.Core.Lifecycle.LifecycleSignalNames.LauncherShutdown(),
+                shutdownName,
                 () =>
                 {
                     FileLog.Write("[LauncherCore] quit requested by lifecycle signal");
                     requestShutdownAsync().GetAwaiter().GetResult();
                 });
+            armed.Add(shutdownName);
 
+            var restartName = CcDirector.Core.Lifecycle.LifecycleSignalNames.LauncherRestartDirector();
             _restartDirectorSignal = CcDirector.Core.Lifecycle.LifecycleSignal.Listen(
-                CcDirector.Core.Lifecycle.LifecycleSignalNames.LauncherRestartDirector(),
+                restartName,
                 () =>
                 {
                     FileLog.Write("[LauncherCore] Director restart requested by lifecycle signal");
                     directorSupervisor.RestartAsync().GetAwaiter().GetResult();
                 });
+            armed.Add(restartName);
 
             FileLog.Write("[LauncherCore] lifecycle signals listening for root key "
                           + CcDirector.Core.Lifecycle.LifecycleSignalNames.RootKey());
@@ -168,11 +178,31 @@ public sealed class LauncherCore : IAsyncDisposable
         catch (Exception ex)
         {
             // Loud, and NOT fatal - a launcher that refused to start because it could not be quit
-            // remotely would be a launcher nobody could remove.
+            // remotely would be a launcher nobody could remove. What DID arm is still returned, so the
+            // registration describes the half-working launcher this now is rather than claiming both.
             FileLog.Write($"[LauncherCore] lifecycle signals FAILED to start: {ex.Message}. This launcher cannot "
                           + "be quit or asked to restart the Director from outside itself.");
         }
+
+        ArmedLifecycleSignals = armed;
     }
+
+    /// <summary>
+    /// The lifecycle signals this process actually ARMED, named exactly as it armed them. Empty until
+    /// <see cref="StartLifecycleSignals"/> has run, and empty afterwards when arming failed.
+    ///
+    /// ONE FACT, TWO READERS, AND THEY MUST NOT BE TWO FACTS. The registration file publishes it so a
+    /// Director can tell whether this launcher may be swapped
+    /// (<see cref="CcDirector.Core.Configuration.LauncherDiscovery.Write"/>), and the Gateway
+    /// declaration publishes it so the Cockpit can tell whether a restart may be sent
+    /// (<see cref="LauncherDeclaredCapabilities"/>). Those are the same question asked by two callers,
+    /// and answering it twice from two pieces of code is how they come to disagree.
+    ///
+    /// A NAME IS ADDED ONLY AFTER ITS LISTENER IS CONSTRUCTED, so this is evidence rather than an
+    /// intention: a partial failure reports exactly what works, and every reader is entitled to treat
+    /// an entry here as a listener that was armed.
+    /// </summary>
+    public static IReadOnlyList<string> ArmedLifecycleSignals { get; private set; } = [];
 
     public async ValueTask DisposeAsync() => await StopAsync();
 
@@ -225,7 +255,8 @@ public sealed class LauncherCore : IAsyncDisposable
 
         if (_registrationState is { } reg)
             LauncherDiscovery.Write(ReadVersion(), reg.UserInterfaceState,
-                AutostartChecked, AutostartRegistered, AutostartFailure);
+                AutostartChecked, AutostartRegistered, AutostartFailure,
+                commandSignals: ArmedLifecycleSignals);
     }
 
     /// <summary>
@@ -288,18 +319,26 @@ public sealed class LauncherCore : IAsyncDisposable
     /// <summary>
     /// Periodic machine-tier auto-update (managed mode only). Two separate jobs, in this order:
     ///
-    ///   1. The LAUNCHER's own update: check for a newer Launcher and, if found, launch the detached
-    ///      self-update helper (it raises the shutdown lifecycle signal -> swap -> relaunch -> health ->
-    ///      auto-rollback). Windows only, as it has always been.
+    ///   1. The LAUNCHER's own update. STAGED ON EVERY PLATFORM - download, verify, put it where the
+    ///      Director looks. Applied HERE only on Windows, by launching the detached self-update helper
+    ///      (it raises the shutdown lifecycle signal -> swap -> relaunch -> health -> auto-rollback),
+    ///      because on Windows a locked executable needs something outside itself to replace it.
+    ///      Elsewhere the staged build is left for the Director to install, which is the better job for
+    ///      it: the Director is already running, is not the file being replaced, and can witness the
+    ///      result.
     ///   2. The DIRECTOR's update, which the launcher now owns (issue #1033): if one is staged and the
     ///      Director has no sessions running, stop it, swap the build, start it, and confirm the new
     ///      version answers - rolling back if it does not. On BOTH platforms, because the reason the
     ///      Director cannot do this for itself has nothing to do with which operating system it is on.
     ///
-    /// The Director's job is deliberately outside the Windows-only branch above it. Putting it inside
-    /// would have quietly left every Mac exactly where it was: staging updates that nothing ever
-    /// installed. Both jobs are governed by the same auto-update switch the Director used to read, so a
-    /// machine with auto-update turned off is still left alone. Failures only log.
+    /// THE WHOLE OF JOB 1 USED TO SIT BEHIND AN IsWindows GATE, and that is the defect this shape
+    /// replaces: a Mac never looked for a launcher release, so there was never anything staged, so the
+    /// Director had nothing to install, so NO LAUNCHER ON A MAC EVER UPDATED ITSELF - it kept whatever
+    /// the last installer run left behind while its Director updated every week. What is genuinely
+    /// Windows-only is the detached helper, and now only that is.
+    ///
+    /// Both jobs are governed by the same auto-update switch the Director used to read, so a machine
+    /// with auto-update turned off is still left alone. Failures only log.
     /// </summary>
     public static async Task RunUpdateLoopAsync(CancellationToken ct)
     {
@@ -318,18 +357,38 @@ public sealed class LauncherCore : IAsyncDisposable
         {
             var cfg = AutoUpdateConfig.Load(layout);
             TimeSpan? shortRetry = null;
-            if (cfg.Enabled && OperatingSystem.IsWindows())
+            if (cfg.Enabled)
             {
                 try
                 {
                     var source = new ReleaseSource();
                     var release = await source.FetchLatestAsync(ct);
                     notReady.Reset();
-                    var version = await new LauncherUpdater(layout).CheckStageAndLaunchAsync(release, source, ct);
-                    if (version is not null)
+
+                    // STAGE ON EVERY PLATFORM; APPLY WHERE THIS PROCESS CAN. The download, the hash
+                    // check and the copy are the same everywhere, and this whole block used to sit
+                    // behind an IsWindows gate - so a Mac never even looked, and there was never
+                    // anything for its Director to install. That is why no launcher on a Mac has ever
+                    // updated itself.
+                    var updater = new LauncherUpdater(layout);
+                    if (OperatingSystem.IsWindows())
                     {
-                        FileLog.Write($"[LauncherCore] launched Launcher self-update to {version}; this process will be asked to exit");
-                        return; // the detached helper raises the shutdown signal, swaps, and relaunches us
+                        var version = await updater.CheckStageAndLaunchAsync(release, source, ct);
+                        if (version is not null)
+                        {
+                            FileLog.Write($"[LauncherCore] launched Launcher self-update to {version}; this process will be asked to exit");
+                            return; // the detached helper raises the shutdown signal, swaps, and relaunches us
+                        }
+                    }
+                    else
+                    {
+                        // Staged and left. The Director installs it - it is already running, it is not
+                        // the file being replaced, and it can witness the new build afterwards, which
+                        // is more than this process could do for itself.
+                        var staged = await updater.StageAsync(release, source, ct);
+                        if (staged is not null)
+                            FileLog.Write($"[LauncherCore] staged Launcher {staged.Value.Version} at "
+                                          + $"{staged.Value.StagedPath}; the Director installs it when it can witness the result");
                     }
                 }
                 // Published but incomplete is NOT a failure, and it must not be logged as one: the

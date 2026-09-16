@@ -77,9 +77,9 @@ public class LauncherHealthProbeTests : IDisposable
     [Fact]
     public void Certifies_RequiresOkAndIdentity()
     {
-        Assert.True(LauncherHealthProbe.Certifies(new LauncherHealth(true, "1.7.4", 1), "1.7.4"));
-        Assert.False(LauncherHealthProbe.Certifies(new LauncherHealth(true, "1.7.1", 1), "1.7.4"));
-        Assert.False(LauncherHealthProbe.Certifies(new LauncherHealth(false, "1.7.4", 1), "1.7.4"));
+        Assert.True(LauncherHealthProbe.Certifies(new LauncherHealth(true, "1.7.4", 1, []), "1.7.4"));
+        Assert.False(LauncherHealthProbe.Certifies(new LauncherHealth(true, "1.7.1", 1, []), "1.7.4"));
+        Assert.False(LauncherHealthProbe.Certifies(new LauncherHealth(false, "1.7.4", 1, []), "1.7.4"));
         Assert.False(LauncherHealthProbe.Certifies(null, "1.7.4"));
     }
 }

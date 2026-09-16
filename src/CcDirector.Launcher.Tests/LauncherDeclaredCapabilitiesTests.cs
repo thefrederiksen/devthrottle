@@ -152,10 +152,29 @@ public sealed class LauncherDeclaredCapabilitiesTests
         for (var i = 0; i < 10; i++)
         {
             var declaration = LauncherDeclaredCapabilities.Describe();
-            if (OperatingSystem.IsWindows())
-                Assert.False(declaration.RestartSignalArmed);   // asked, and nothing is listening here
-            else
-                Assert.Null(declaration.RestartSignalArmed);    // this platform cannot be asked at all
+
+            // Nothing in this test process has armed the signal, so the answer is NO on every
+            // platform. It used to be null off Windows - "cannot be asked" - which travelled all the
+            // way to the Gateway and made every Mac report its restart capability as unknown for ever.
+            // The question is now put to the process that actually knows: this one.
+            Assert.False(declaration.RestartSignalArmed);
         }
+    }
+
+    /// <summary>
+    /// The declaration answers from what THIS PROCESS ARMED when the platform cannot be asked - and it
+    /// is the same fact the registration file publishes, not a second opinion about it.
+    ///
+    /// Two callers ask "can this launcher be told anything": a Director deciding whether to swap it, and
+    /// the Cockpit deciding whether to offer a restart. Answering that from two places is how they come
+    /// to disagree, which is why both read
+    /// <see cref="CcDirector.Launcher.LauncherCore.ArmedLifecycleSignals"/>.
+    /// </summary>
+    [Fact]
+    public void An_unarmed_launcher_declares_no_restart_signal_and_that_is_a_NO_not_an_unknown()
+    {
+        // LauncherCore has not run in this process, so nothing is armed - the honest answer is no.
+        Assert.Empty(CcDirector.Launcher.LauncherCore.ArmedLifecycleSignals);
+        Assert.False(LauncherDeclaredCapabilities.Describe().RestartSignalArmed);
     }
 }

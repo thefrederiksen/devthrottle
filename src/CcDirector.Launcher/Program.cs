@@ -217,6 +217,10 @@ public static class Program
         var result = BinarySwapLock.RunExclusivelyAsync<SelfUpdateResult>(
             work: () => new LauncherSelfUpdate().ApplyAsync(
             target, stagedSelf, version,
+            // This helper is the WINDOWS route and only ever runs there - it exists because a Windows
+            // executable is locked while it runs, which is the whole reason a separate process has to
+            // perform the swap. So it states the Windows order rather than asking the platform.
+            order: LauncherSwapOrder.StopThenPlaceThenStart,
             stopLauncher: () =>
             {
                 // A named lifecycle signal, not a post to the launcher's own web interface.

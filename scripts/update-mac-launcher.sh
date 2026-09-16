@@ -3,16 +3,22 @@
 # update-mac-launcher.sh — Bring a Mac's cc-launcher up to a release, and make it actually take effect.
 #
 # WHY THIS EXISTS
-#   On macOS the launcher never updates itself. Its updater asks for the Windows asset by name and
-#   stages to a path ending in ".exe", and its only caller is gated to Windows, so the Mac launcher
-#   asset is built and published in every release and nothing but the installer consumes it. A Mac
-#   therefore keeps whatever launcher its last installer run left behind, for ever, while the Director
-#   updates itself every week. On the owner's machine that gap reached five releases: Director 2.0.7
-#   against launcher 1.9.10.
+#   HISTORICALLY: on macOS the launcher never updated itself. Its updater asked for the Windows asset
+#   by name and staged to a path ending in ".exe", its only caller was gated to Windows, and the
+#   Director refused to install a launcher whose command surface it could not observe - which on Unix
+#   it never could. So the Mac launcher asset was built and published in every release and nothing but
+#   the installer consumed it. A Mac kept whatever launcher its last installer run left behind, for
+#   ever, while the Director updated itself every week. That gap reached five releases twice: Director
+#   2.0.7 against launcher 1.9.10, and later 2.3.0 against 2.1.0.
 #
-#   That matters more than a version number, because the launcher is what installs the DIRECTOR's
-#   update. A fix to the update path ships inside the launcher, so a Mac running an old launcher keeps
-#   the old behaviour no matter how many Director releases are cut.
+#   THAT IS FIXED IN THE PRODUCT. A launcher now states in its registration which lifecycle signals it
+#   armed, so the Director can certify a swap on any platform; the update is staged everywhere and the
+#   swap follows this script's own order on macOS - replace the file, then kickstart the launch agent.
+#   A Mac on a launcher old enough to declare nothing is still swapped, because "cannot be commanded"
+#   is the state that machinery exists to replace. So no Mac needs this script to stay current.
+#
+#   IT IS KEPT FOR THE CASES THE AUTOMATIC PATH DOES NOT COVER: pinning a machine to a SPECIFIC
+#   release, a machine whose Director is not running to do the installing, and recovering one by hand.
 #
 #   The setup command line does the download and the swap correctly. It does NOT restart the launcher,
 #   so the new binary sits on disk while the old process keeps running - the update looks done and has

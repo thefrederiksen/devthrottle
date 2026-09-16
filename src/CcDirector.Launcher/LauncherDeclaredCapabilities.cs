@@ -99,11 +99,7 @@ internal static class LauncherDeclaredCapabilities
             ServingRootKey = LifecycleSignalNames.RootKey(),
             ServingRootIsInstanceHome = InstanceContext.LooksLikeAnInstanceHome(InstanceContext.SharedRoot),
 
-            // ASKED, NEVER RAISED. HasListener opens the named handle and closes it; raising the signal
-            // instead would restart this launcher's Director as a side effect of describing itself. It is
-            // a tri-state: null means the platform cannot be asked, and that null travels all the way to
-            // the verdict rather than being flattened into a yes or a no here.
-            RestartSignalArmed = LifecycleSignal.HasListener(LifecycleSignalNames.LauncherRestartDirector()),
+            RestartSignalArmed = RestartSignalArmedNow(),
         };
 
         FileLog.Write($"[LauncherDeclaredCapabilities] declaring {declaration.Commands.Count} capabilities; "
@@ -111,6 +107,33 @@ internal static class LauncherDeclaredCapabilities
                       + $"rootIsInstanceHome={declaration.ServingRootIsInstanceHome}, "
                       + $"restartSignalArmed={Describe(declaration.RestartSignalArmed)}");
         return declaration;
+    }
+
+    /// <summary>
+    /// Is this launcher's restart signal armed right now?
+    ///
+    /// ASKED, NEVER RAISED. HasListener opens the named handle and closes it; raising the signal instead
+    /// would restart this launcher's Director as a side effect of describing itself.
+    ///
+    /// WHERE THE KERNEL CAN BE ASKED, IT IS THE ANSWER. On Windows a named event is a real object and
+    /// its yes or no is a live fact, stronger than anything this process can claim about itself.
+    ///
+    /// WHERE IT CANNOT, THIS PROCESS ANSWERS - because it is the only one that can. On Unix the signal
+    /// is a request file the listener polls: there is no handle to open, and HasListener returns null.
+    /// That null used to travel all the way to the verdict, so EVERY MAC AND EVERY LINUX MACHINE
+    /// reported its restart capability as unknown for ever - not because anything was wrong with it, but
+    /// because the question was put to something that could not see the answer. This process armed the
+    /// listener; <see cref="LauncherCore.ArmedLifecycleSignals"/> is what it armed.
+    ///
+    /// THE ANSWER STAYS A TRI-STATE AND THE NULL STAYS MEANINGFUL, one layer out: a launcher too old to
+    /// send this field at all still arrives at the Gateway as null, and the Gateway is right to call
+    /// that unknown. What is gone is a null that meant "nobody asked the one process that knows".
+    /// </summary>
+    private static bool? RestartSignalArmedNow()
+    {
+        var name = LifecycleSignalNames.LauncherRestartDirector();
+        if (LifecycleSignal.HasListener(name) is bool kernelAnswer) return kernelAnswer;
+        return LauncherCore.ArmedLifecycleSignals.Contains(name, StringComparer.Ordinal);
     }
 
     private static string Describe(bool? armed) => armed switch

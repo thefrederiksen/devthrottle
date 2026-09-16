@@ -5,7 +5,20 @@ using CcDirector.Core.Utilities;
 namespace CcDirector.Setup.Engine;
 
 /// <summary>Whether the launcher's local command surface - the named lifecycle signal it listens on -
-/// is there, is absent, or cannot be observed at all on this platform.</summary>
+/// is there or is absent.</summary>
+///
+/// <remarks>
+/// THIS USED TO HAVE A THIRD MEMBER, <c>NotObservable</c>, AND ITS REMOVAL IS THE FIX. On Unix a
+/// lifecycle signal is a request file the listener polls, so nothing could be asked whether a listener
+/// exists - the reading came back "cannot be observed", <see cref="LauncherUpdateOwner"/> refused to
+/// swap a launcher it could never certify, and NO LAUNCHER ON A MAC OR A LINUX BOX HAS EVER UPDATED
+/// ITSELF. The refusal was right; what was missing was evidence.
+///
+/// The evidence now comes from the only process that has it: the launcher states in its registration
+/// which signals it armed (<see cref="CcDirector.Core.Configuration.LauncherDiscovery.Write"/>). That
+/// is answerable on every platform, so there is no longer a question this type cannot answer, and a
+/// member for one would be a state nothing can produce and a refusal branch nothing can reach.
+/// </remarks>
 public enum LauncherCommandSurface
 {
     /// <summary>A listener answers for the launcher's restart-the-Director signal. This launcher can be told things.</summary>
@@ -13,9 +26,6 @@ public enum LauncherCommandSurface
 
     /// <summary>Nothing is listening. A launcher build that predates the command surface reads as this, and so does one whose signals failed to start.</summary>
     Absent,
-
-    /// <summary>This platform cannot be asked. See <see cref="LifecycleSignal.HasListener"/> - a Unix listener leaves nothing to consult.</summary>
-    NotObservable,
 }
 
 /// <summary>
@@ -33,20 +43,14 @@ public sealed record LauncherWitnessReading(
     /// not evidence of anything - the failure this exists to catch looks exactly like a healthy
     /// launcher from the outside.
     ///
-    /// NOT OBSERVABLE IS NOT WITNESSED, AND THAT IS THE DELIBERATE ANSWER. This first accepted
-    /// <see cref="LauncherCommandSurface.NotObservable"/> on the reasoning that a Unix listener cannot
-    /// be observed at all, so refusing there would refuse for ever. But accepting it means that on
-    /// Unix a live registration ALONE passes - which is precisely the liveness-only proof this class
-    /// exists to forbid, reintroduced on the one platform where nobody would notice. A witness that
-    /// cannot fail on a platform is not a witness on that platform.
+    /// A LIVE REGISTRATION ALONE MUST NEVER PASS, ON ANY PLATFORM. That is the liveness-only proof
+    /// this class exists to forbid, and the temptation to make an exception for Unix - where the
+    /// listener could not be observed - would have reintroduced it on the one platform where nobody
+    /// would notice. A witness that cannot fail on a platform is not a witness on that platform.
     ///
-    /// So the boolean stays honest and the CALLER carries the consequence:
-    /// <see cref="LauncherUpdateOwner"/> refuses to swap a launcher at all where the surface cannot be
-    /// observed, and says so, rather than installing a build it could never certify and rolling it
-    /// back three minutes later. Concretely: the Director's ownership of the launcher's update is
-    /// WINDOWS-ONLY until the launcher publishes its own capability - a fact the launcher could state
-    /// about itself in its registration, which would make this observable everywhere and is the right
-    /// fix when Phase 0 is extended beyond Windows.
+    /// The exception is no longer needed, because the surface is now answerable everywhere: the
+    /// launcher states the signals it armed and this witness checks them against the name it computes
+    /// itself. See <see cref="LauncherCommandSurface"/>.
     /// </summary>
     public bool Witnessed => Registered && ProcessAlive && CommandSurface == LauncherCommandSurface.Present;
 }
@@ -129,12 +133,7 @@ public sealed class LauncherWitness
         var path = string.IsNullOrWhiteSpace(RegistrationPath) ? RegistrationPathFor(_sharedRoot) : RegistrationPath;
         var health = LauncherHealthProbe.ReadRegistration(path, ProcessIsAlive);
 
-        var surface = HasListener(CommandSignalName) switch
-        {
-            true => LauncherCommandSurface.Present,
-            false => LauncherCommandSurface.Absent,
-            null => LauncherCommandSurface.NotObservable,
-        };
+        var surface = ResolveCommandSurface(health);
 
         if (health is null)
             return new LauncherWitnessReading(false, false, 0, null, surface,
@@ -148,13 +147,52 @@ public sealed class LauncherWitness
             _ when surface == LauncherCommandSurface.Absent =>
                 $"launcher {version} is running as process {health.Pid} but nothing is listening for "
                 + $"{CommandSignalName}, so it cannot be told anything",
-            _ when surface == LauncherCommandSurface.NotObservable =>
-                $"launcher {version} is running as process {health.Pid}; whether it is listening for "
-                + $"{CommandSignalName} cannot be observed on this platform",
             _ => $"launcher {version} is running as process {health.Pid} and is listening for {CommandSignalName}",
         };
 
         return new LauncherWitnessReading(true, health.Ok, health.Pid, health.Version, surface, detail);
+    }
+
+    /// <summary>
+    /// Is a launcher listening for this root's restart signal - answered from whichever evidence this
+    /// platform actually has?
+    ///
+    /// WINDOWS ASKS THE KERNEL, AND THAT STAYS AUTHORITATIVE. A named event either exists in this logon
+    /// session or it does not. It is a live fact, read at this instant from outside the launcher, and
+    /// nothing the launcher claims about itself can be better than that. So where the kernel answers,
+    /// its answer is the answer - including its NO, which must never be talked round by a declaration
+    /// the launcher wrote at startup and may have outlived.
+    ///
+    /// EVERYWHERE ELSE, THE LAUNCHER'S OWN DECLARATION. On Unix the signal is a request file the
+    /// listener polls: there is no listener registry, so nothing outside the launcher can see it. The
+    /// process that armed the listener is the only one that knows, and it now says so in its
+    /// registration. That is weaker evidence than a kernel handle - it is a claim made at startup
+    /// rather than a fact observed now - but it is the same strength of claim in one respect that
+    /// matters: it is falsified by the pid being dead, which <see cref="LauncherWitnessReading.Witnessed"/>
+    /// checks separately, and a crashed launcher's file is left behind with a pid that no longer runs.
+    ///
+    /// AND IT IS STRONGER THAN THE KERNEL CHECK IN ONE RESPECT. The named-event check proves SOMETHING
+    /// in this logon session is listening on that name. It cannot prove it is the launcher this witness
+    /// is reading about. The declaration is written by that exact process, and the name is compared
+    /// with the name computed HERE from the shared root - so a launcher that armed its signals for a
+    /// different storage root reads as Absent, which is what it is. That is the 2026-09-06 failure
+    /// described in the class comment, and it is the one this can catch and Windows cannot.
+    ///
+    /// AN EMPTY DECLARATION IS A REAL ANSWER, NOT A MISSING ONE. A launcher that armed nothing, and a
+    /// launcher built before it said anything, both read Absent - and Absent is not a refusal. It means
+    /// "this launcher cannot be told anything", which is exactly the build <see cref="LauncherUpdateOwner"/>
+    /// exists to replace. The old build is therefore swapped, and the new one - which declares - is what
+    /// the health check then has to witness. No machine needs a manual step to join in.
+    /// </summary>
+    private LauncherCommandSurface ResolveCommandSurface(LauncherHealth? health)
+    {
+        if (HasListener(CommandSignalName) is bool kernelAnswer)
+            return kernelAnswer ? LauncherCommandSurface.Present : LauncherCommandSurface.Absent;
+
+        return health is not null
+               && health.CommandSignals.Contains(CommandSignalName, StringComparer.Ordinal)
+            ? LauncherCommandSurface.Present
+            : LauncherCommandSurface.Absent;
     }
 
     /// <summary>

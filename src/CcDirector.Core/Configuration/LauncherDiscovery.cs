@@ -11,7 +11,13 @@ namespace CcDirector.Core.Configuration;
 /// process that wrote it. Whether that process is STILL running is a separate question - ask
 /// <see cref="LauncherDiscovery.IsRunning"/> - because a crashed launcher leaves its file behind.
 /// </summary>
-public sealed record LauncherFact(bool Installed, int? Pid, string? Version, string? Error);
+/// <param name="CommandSignals">
+/// The lifecycle signals this launcher ARMED, named exactly as it armed them. Empty means either a
+/// launcher that armed nothing - the failure that makes a launcher unreachable - or one built before
+/// it said. See <see cref="LauncherDiscovery.Write"/> for why this is recorded at all.
+/// </param>
+public sealed record LauncherFact(
+    bool Installed, int? Pid, string? Version, string? Error, IReadOnlyList<string> CommandSignals);
 
 /// <summary>
 /// Reads and writes the launcher registration file
@@ -21,7 +27,8 @@ public sealed record LauncherFact(bool Installed, int? Pid, string? Version, str
 /// so an agent or the Gateway could dial the launcher's loopback REST interface. That interface is gone;
 /// the launcher listens on nothing. The file is now the launcher twin of the Director's instance
 /// registration: the fact the RUNNING PROCESS writes about itself - {pid, version, startedAtUtc,
-/// userInterface, autostart state} - written on startup, rewritten when the autostart state changes, and
+/// userInterface, autostart state, the lifecycle signals it armed} - written on startup, rewritten
+/// when the autostart state changes, and
 /// deleted on clean shutdown. It is how anything local (the Director's update fold, the installer's
 /// readiness wait, the self-update helper) answers "is a launcher up, and WHICH process is it?" without a
 /// socket. Reader and writer live in one class so the field names cannot drift apart.
@@ -44,7 +51,7 @@ public static class LauncherDiscovery
     {
         path ??= DefaultPath;
         if (!File.Exists(path))
-            return new LauncherFact(Installed: false, Pid: null, Version: null, Error: null);
+            return new LauncherFact(Installed: false, Pid: null, Version: null, Error: null, CommandSignals: []);
 
         string json;
         try
@@ -54,7 +61,8 @@ public static class LauncherDiscovery
         catch (IOException ex)
         {
             FileLog.Write($"[LauncherDiscovery] Read FAILED (file present but unreadable): {path}: {ex.Message}");
-            return new LauncherFact(Installed: true, Pid: null, Version: null, Error: $"launcher.json unreadable: {ex.Message}");
+            return new LauncherFact(Installed: true, Pid: null, Version: null,
+                Error: $"launcher.json unreadable: {ex.Message}", CommandSignals: []);
         }
 
         try
@@ -62,6 +70,7 @@ public static class LauncherDiscovery
             using var doc = JsonDocument.Parse(json);
             int? pid = null;
             string? version = null;
+            var signals = new List<string>();
             foreach (var property in doc.RootElement.EnumerateObject())
             {
                 if (property.Name.Equals("pid", StringComparison.OrdinalIgnoreCase)
@@ -71,15 +80,30 @@ public static class LauncherDiscovery
                 else if (property.Name.Equals("version", StringComparison.OrdinalIgnoreCase)
                     && property.Value.ValueKind == JsonValueKind.String)
                     version = property.Value.GetString();
+                else if (property.Name.Equals("commandSignals", StringComparison.OrdinalIgnoreCase)
+                    && property.Value.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var element in property.Value.EnumerateArray())
+                    {
+                        // Only strings, and only non-blank ones. A malformed entry is skipped rather
+                        // than read as a signal name nothing could ever match.
+                        if (element.ValueKind != JsonValueKind.String) continue;
+                        var name = element.GetString();
+                        if (!string.IsNullOrWhiteSpace(name)) signals.Add(name);
+                    }
+                }
             }
             return pid is null
-                ? new LauncherFact(Installed: true, Pid: null, Version: version, Error: "launcher.json has no pid field")
-                : new LauncherFact(Installed: true, Pid: pid, Version: version, Error: null);
+                ? new LauncherFact(Installed: true, Pid: null, Version: version,
+                    Error: "launcher.json has no pid field", CommandSignals: signals)
+                : new LauncherFact(Installed: true, Pid: pid, Version: version,
+                    Error: null, CommandSignals: signals);
         }
         catch (JsonException ex)
         {
             FileLog.Write($"[LauncherDiscovery] Read: corrupt launcher.json at {path}: {ex.Message}");
-            return new LauncherFact(Installed: true, Pid: null, Version: null, Error: $"launcher.json unparsable: {ex.Message}");
+            return new LauncherFact(Installed: true, Pid: null, Version: null,
+                Error: $"launcher.json unparsable: {ex.Message}", CommandSignals: []);
         }
     }
 
@@ -111,8 +135,29 @@ public static class LauncherDiscovery
     /// Write the registration for the CURRENT process. Called by the launcher on startup and again
     /// whenever the autostart state changes, so the file always describes the running launcher.
     /// </summary>
+    /// <param name="commandSignals">
+    /// The lifecycle signals this process ARMED, named exactly as it armed them - the fact that makes
+    /// "can this launcher be commanded" answerable on a platform that cannot be asked directly.
+    ///
+    /// WHY THE LAUNCHER HAS TO SAY THIS ABOUT ITSELF. On Windows a named signal is a kernel object, so
+    /// anything can ask whether a listener exists. On Unix the signal is a request FILE the listener
+    /// polls: there is no listener registry, and the absence of a request file says nothing at all
+    /// about whether anybody is watching for one. The only process that KNOWS is this one, so it
+    /// states it. That is what lets the Director install a launcher update on a Mac at all - before
+    /// this, it correctly refused, because a swap it could not certify would be rolled back and the
+    /// build pinned.
+    ///
+    /// THE NAMES ARE WRITTEN IN FULL, NOT AS A BOOLEAN, and that is the point. A launcher that armed
+    /// signals for a DIFFERENT storage root is registered, alive and completely unreachable from this
+    /// one - the 2026-09-06 failure described in LauncherWitness. A yes/no flag would say "commandable"
+    /// about exactly that launcher. A name can be compared with the name the reader computes, so it
+    /// cannot.
+    ///
+    /// Empty is a true and useful answer: this launcher armed nothing, and cannot be told anything.
+    /// </param>
     public static void Write(string version, string userInterfaceState,
-        bool autostartChecked, bool autostartRegistered, string? autostartFailure, string? path = null)
+        bool autostartChecked, bool autostartRegistered, string? autostartFailure, string? path = null,
+        IReadOnlyList<string>? commandSignals = null)
     {
         path ??= DefaultPath;
         try
@@ -136,6 +181,7 @@ public static class LauncherDiscovery
                 autostartOk = autostartChecked ? autostartFailure is null && autostartRegistered : (bool?)null,
                 autostartRegistered = autostartChecked ? autostartRegistered : (bool?)null,
                 autostartFailure,
+                commandSignals = commandSignals ?? [],
             }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
             File.WriteAllText(path, json);
             FileLog.Write($"[LauncherDiscovery] registration written: {path} (pid={Environment.ProcessId}, version={version})");

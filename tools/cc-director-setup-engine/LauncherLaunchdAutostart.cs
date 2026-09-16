@@ -201,6 +201,41 @@ public static class LauncherLaunchdAutostart
     }
 
 
+    /// <summary>
+    /// Stop and restart the launch agent, so a launcher build that has just been REPLACED on disk
+    /// becomes the one that is running.
+    ///
+    /// WITHOUT THIS THE SWAP IS INVISIBLE. The replaced file sits on disk while the old process keeps
+    /// running - Unix hands a running process the inode it started from, so it neither notices nor
+    /// cares that the path now points somewhere else - and the machine goes on serving the old build
+    /// until the next login. The update looks done and has not happened.
+    ///
+    /// KICKSTART, NOT A STOP FOLLOWED BY A START. KeepAlive is SuccessfulExit=false, so a launcher that
+    /// exits CLEANLY is deliberately not respawned: a stop on its own would leave the machine with no
+    /// launcher at all until the user logs in again. <c>kickstart -k</c> is the one operation that both
+    /// ends the running instance and starts the replacement, performed by the supervisor that owns the
+    /// job rather than raced against it.
+    ///
+    /// IT RETURNS WHETHER THE REQUEST WAS ACCEPTED, NEVER WHETHER THE NEW BUILD IS ANY GOOD. launchd
+    /// also throttles respawns to roughly ten seconds, so a check made immediately after this returns
+    /// finds nothing and means nothing. The caller's health check is what decides.
+    /// </summary>
+    [SupportedOSPlatform("macos")]
+    public static bool Kickstart()
+    {
+        try
+        {
+            var (exit, text) = ProcessRunner.Run("/bin/launchctl", $"kickstart -k gui/{UserId()}/{Label}");
+            EngineLog.Write($"[LauncherLaunchdAutostart] kickstart -k -> exit={exit} {Trim(text)}");
+            return exit == 0;
+        }
+        catch (Exception ex)
+        {
+            EngineLog.Write($"[LauncherLaunchdAutostart] kickstart FAILED: {ex.Message}");
+            return false;
+        }
+    }
+
     /// <summary>Whether launchd currently has the agent loaded in this user's gui domain.</summary>
     [SupportedOSPlatform("macos")]
     public static bool IsLoaded()
