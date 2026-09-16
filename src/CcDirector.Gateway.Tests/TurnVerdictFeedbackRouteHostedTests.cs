@@ -36,6 +36,9 @@ public sealed class TurnVerdictFeedbackRouteHostedTests : IAsyncLifetime
 
     private GatewayHost _gateway = null!;
     private HttpClient _deviceA = null!;
+    /// <summary>Account A's own device key. A Director connects to the tunnel WITH IT, which is what binds its
+    /// connection to that account - the owner journey below needs a real Director on the other end.</summary>
+    private string _deviceKeyA = "";
     private HttpClient _deviceB = null!;
     private HttpClient _sessionKeyInA = null!;
     private TenantId _tenantA;
@@ -75,6 +78,7 @@ public sealed class TurnVerdictFeedbackRouteHostedTests : IAsyncLifetime
         Assert.True(_gateway.TenantBoundary.IsHosted, "The harness must be running the HOSTED tenant boundary.");
         Assert.NotEqual(_tenantA.Value, _tenantB.Value);
 
+        _deviceKeyA = a.DeviceKey;
         _deviceA = Client(a.DeviceKey);
         _deviceB = Client(b.DeviceKey);
 
@@ -284,38 +288,120 @@ public sealed class TurnVerdictFeedbackRouteHostedTests : IAsyncLifetime
     }
 
     /// <summary>
-    /// THE OWNER JOURNEY, END TO END OVER REAL ROUTES (slice G, round 2). The inspector found that the panel
-    /// could only ever show a verdict the ROW carries, and that answering is precisely what takes it off the row:
-    /// the answer marks the verdict, the session goes back to work, and the working edge supersedes it. So the
-    /// ordinary journey - answer, then realise it was wrong - could never reach the feedback route at all.
+    /// THE OWNER JOURNEY, END TO END, ACROSS THE REAL SEAMS (slice G; rebuilt in round 3 on the inspector's
+    /// finding). The first version of this test reached its state by calling the store directly - MarkAnswered
+    /// and Invalidate - which proved the STORE behaves and said nothing about the product. It would have stayed
+    /// green on the day the push stopped superseding.
     ///
-    /// This is that journey against a booted host: after the answer and the supersede, the LATEST read answers
-    /// with no verdict (which is why the row shows none), the HISTORY read still carries the record with its
-    /// supersede stamp (which is where the panel now gets it), and the feedback route accepts a correction naming
-    /// that superseded id.
+    /// Nothing here is arranged through the back door. In order:
     ///
-    /// WHAT IS SIMULATED AND WHAT IS NOT: the two store calls the answer route and the working edge make are made
-    /// directly, because writing the answer itself needs a Director on the tunnel to take the bytes. Everything
-    /// after that is the real routes over HTTP with the owner's own device key.
+    ///  1. THE ANSWER GOES THROUGH THE ANSWER ROUTE, over HTTP with the owner's device key, to a Director that
+    ///     is really on the tunnel: the route reads that Director's screen, compares it with the one the verdict
+    ///     was formed on, writes the option's bytes, and only then marks the verdict answered.
+    ///  2. THE SESSION GOES BACK TO WORK THROUGH THE PUSH - a real delta carrying Working, which is what the
+    ///     turn-end watcher reads and what makes the verdict service supersede the stored verdict. No call to
+    ///     Invalidate anywhere in this test.
+    ///  3. The LATEST read then answers with no verdict, which is why the row carries none.
+    ///  4. The HISTORY read still carries the record, stamped superseded - where the panel now gets it.
+    ///  5. The FEEDBACK route accepts a correction naming that superseded verdict id.
+    ///
+    /// That chain is the whole slice: the owner answers a row and must still be able to report the verdict that
+    /// made it red. Every link is a real seam, so a break anywhere along it turns this red.
     /// </summary>
     [Fact]
-    public async Task An_answered_and_superseded_verdict_is_still_readable_and_still_reportable()
+    public async Task The_owner_answers_a_row_and_can_still_report_the_verdict_that_made_it_red()
     {
         _gateway.TenantSettingsResolver.SetTurnVerdictColourEnabled(_tenantA, true, DateTime.UtcNow);
-        _gateway.TurnVerdicts.Store(_tenantA, _sessionId, Verdict("tv-answered-then-wrong"));
 
-        // The answer: the route marks the verdict answered, and the session going back to work supersedes it.
-        Assert.True(_gateway.TurnVerdicts.MarkAnswered(_tenantA, "tv-answered-then-wrong", DateTime.UtcNow));
-        Assert.Equal(1, _gateway.TurnVerdicts.Invalidate(_tenantA, _sessionId, DateTime.UtcNow));
+        // The session's screen, and the verdict formed on it. The hash is computed with the product's own
+        // helper, so the answer route's screen compare is really compared rather than waved through.
+        var screenRows = new List<string>
+        {
+            "I have written the migration.",
+            "Apply it to the local database now?",
+            "  1. Yes, apply it",
+            "  2. No, leave it",
+        };
+        var screenHash = Wingman.WingmanScreenVerdictCache.HashRows(screenRows);
+        var sid = Guid.NewGuid().ToString();
 
-        // The row carries nothing now - this is the read the roster and the session view fold from.
-        var latest = await _deviceA.GetAsync($"sessions/{_sessionId}/turn-verdict");
+        await using var director = await FakeTunnelDirector.StartAsync(
+            _gateway, _deviceKeyA, "director-fb-tunnel", "MFA",
+            dispatch: cmd => cmd.Verb switch
+            {
+                // The live screen, unchanged since the verdict was formed on it.
+                "screen-grid" => FakeTunnelDirector.Ok(new ScreenGridResponse
+                {
+                    SessionId = sid,
+                    Rows = screenRows,
+                    CursorRow = screenRows.Count - 1,
+                    CursorCol = 0,
+                    CursorVisible = true,
+                    HasGrid = true,
+                }),
+                // The write the answer carries. Accepted, as a Director accepts one it really typed.
+                "prompt" => FakeTunnelDirector.Ok(new PromptResponse
+                {
+                    Accepted = true,
+                    SentAt = DateTime.UtcNow,
+                    ActivityState = "Working",
+                }),
+                _ => DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, $"unexpected verb {cmd.Verb}"),
+            });
+
+        await director.PushSnapshotAsync(new SessionDto
+        {
+            SessionId = sid,
+            Name = "the migration session",
+            ActivityState = "WaitingForInput",
+            LastActivityAt = DateTime.UtcNow,
+        });
+
+        var verdict = Verdict("tv-answered-then-wrong");
+        verdict.ScreenHash = screenHash;
+        verdict.Verdict = TurnVerdictVocabulary.NeededYou;
+        verdict.FinishedKind = null;
+        verdict.Label = "Apply the migration now?";
+        verdict.Evidence = "Apply it to the local database now?";
+        verdict.AnswerVia = "keys";
+        verdict.Menu = new TurnVerdictMenuDto { Question = "Apply the migration now?", SelectionMode = "single", Submit = "" };
+        verdict.Options = new List<TurnVerdictOptionDto>
+        {
+            new() { Key = "Yes, apply it", Send = "1", Recommended = true, Note = "Changes the local database." },
+            new() { Key = "No, leave it", Send = "2", Recommended = false, Note = "Nothing changes." },
+        };
+        _gateway.TurnVerdicts.Store(_tenantA, sid, verdict);
+
+        // ---- 1. THE ANSWER, through the real route ----
+        var answer = await _deviceA.PostAsJsonAsync($"sessions/{sid}/turn-verdict/answer",
+            new { verdictId = "tv-answered-then-wrong", optionIndexes = new[] { 0 } });
+        var answerBody = await answer.Content.ReadAsStringAsync();
+        _out.WriteLine($"POST answer -> {(int)answer.StatusCode}: {answerBody}");
+        Assert.Equal(HttpStatusCode.OK, answer.StatusCode);
+        Assert.True(Root(answerBody).GetProperty("accepted").GetBoolean(), answerBody);
+        // The bytes really went to the Director over the tunnel, and the record says the verdict was answered.
+        Assert.Equal("prompt", director.LastCommand?.Verb);
+        Assert.NotNull(_gateway.TurnVerdicts.FindById(_tenantA, "tv-answered-then-wrong")!.AnsweredAtUtc);
+        // CONTROL: before the session works, the verdict is still the row's own.
+        Assert.NotNull(_gateway.TurnVerdicts.Latest(_tenantA, sid));
+
+        // ---- 2. THE SESSION GOES BACK TO WORK, through the push that carries it ----
+        await director.PushDeltaAsync(new SessionDto
+        {
+            SessionId = sid,
+            Name = "the migration session",
+            ActivityState = "Working",
+            LastActivityAt = DateTime.UtcNow,
+        });
+
+        // ---- 3. The row carries nothing now: the read the roster and the session view fold from ----
+        var latest = await _deviceA.GetAsync($"sessions/{sid}/turn-verdict");
         Assert.Equal(HttpStatusCode.OK, latest.StatusCode);
         var latestBody = Root(await latest.Content.ReadAsStringAsync());
         Assert.Equal(JsonValueKind.Null, latestBody.GetProperty("verdict").ValueKind);
 
-        // The history still has it, stamped as superseded - this is the read the panel falls back to.
-        var history = await _deviceA.GetAsync($"sessions/{_sessionId}/turn-verdicts?count=1");
+        // ---- 4. The history still has it, stamped superseded: the read the panel falls back to ----
+        var history = await _deviceA.GetAsync($"sessions/{sid}/turn-verdicts?count=1");
         Assert.Equal(HttpStatusCode.OK, history.StatusCode);
         var rows = Root(await history.Content.ReadAsStringAsync()).GetProperty("verdicts");
         Assert.Equal(1, rows.GetArrayLength());
@@ -323,8 +409,8 @@ public sealed class TurnVerdictFeedbackRouteHostedTests : IAsyncLifetime
         Assert.Equal("tv-answered-then-wrong", record.GetProperty("verdictId").GetString());
         Assert.NotEqual(JsonValueKind.Null, record.GetProperty("supersededAtUtc").ValueKind);
 
-        // And the correction the panel sends about it is accepted, naming the id the history gave.
-        var (status, body) = await Post(_deviceA, _sessionId, new
+        // ---- 5. And the correction the panel sends about it is accepted ----
+        var (status, body) = await Post(_deviceA, sid, new
         {
             verdictId = record.GetProperty("verdictId").GetString(),
             correctVerdict = TurnVerdictVocabulary.Finished,
@@ -337,6 +423,6 @@ public sealed class TurnVerdictFeedbackRouteHostedTests : IAsyncLifetime
         Assert.NotNull(stored);
         Assert.Equal(TurnVerdictVocabulary.Finished, stored!.CorrectedVerdict);
         // The record it corrects is untouched by the correction - evidence that gets edited is not evidence.
-        Assert.Single(_gateway.TurnVerdicts.History(_tenantA, _sessionId, 10));
+        Assert.Single(_gateway.TurnVerdicts.History(_tenantA, sid, 10));
     }
 }
