@@ -101,6 +101,24 @@ public sealed class FleetMessageStoreTests : IDisposable
     }
 
     [Fact]
+    public void An_id_spelled_differently_by_the_roster_and_the_key_is_one_inbox()
+    {
+        var store = NewStore();
+        store.TryEnqueue(TenantA, Draft(Manager, " " + WorkerA.ToUpperInvariant() + " ", "for A"), T0, Hour, Allow);
+
+        Assert.Equal(1, store.CountUnread(TenantA, WorkerA));
+        var m = Assert.Single(store.ReadInbox(TenantA, WorkerA, T0, false).Unread);
+        Assert.Equal(WorkerA, m.RecipientSessionId);
+
+        // The sender's history is found whatever case the sender is named in.
+        FleetMessageHistory seen = default;
+        store.TryEnqueue(TenantA, Draft(Manager.ToUpperInvariant(), WorkerA, "probe"), T0.AddMinutes(1), Hour,
+            h => { seen = h; return new(FleetMessageOutcome.RefusedText, "x"); });
+        Assert.Equal(1, seen.SentBySenderInWindow);
+        Assert.Equal(T0, seen.LastSentToRecipientUtc);
+    }
+
+    [Fact]
     public void Recent_returns_earlier_read_messages_newest_first_and_changes_nothing()
     {
         var store = NewStore();

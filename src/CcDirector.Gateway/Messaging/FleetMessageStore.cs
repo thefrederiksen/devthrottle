@@ -106,8 +106,8 @@ public sealed class FleetMessageStore
             {
                 TenantId = ctx.ActiveTenant!,
                 MessageId = Guid.NewGuid().ToString("N"),
-                RecipientSessionId = draft.RecipientSessionId.Trim(),
-                SenderSessionId = string.IsNullOrWhiteSpace(draft.SenderSessionId) ? null : draft.SenderSessionId.Trim(),
+                RecipientSessionId = Id(draft.RecipientSessionId)!,
+                SenderSessionId = Id(draft.SenderSessionId),
                 SenderName = draft.SenderName,
                 SenderMachine = draft.SenderMachine,
                 Kind = draft.Kind,
@@ -124,8 +124,8 @@ public sealed class FleetMessageStore
     private static FleetMessageHistory ReadHistory(
         GatewayDbContext ctx, FleetMessageDraft draft, string hash, DateTime now, TimeSpan senderWindow)
     {
-        var sender = string.IsNullOrWhiteSpace(draft.SenderSessionId) ? null : draft.SenderSessionId.Trim();
-        var recipient = draft.RecipientSessionId.Trim();
+        var sender = Id(draft.SenderSessionId);
+        var recipient = Id(draft.RecipientSessionId)!;
         if (sender is null)
         {
             // A system notice has no sender, so it has no rate history. It can still repeat itself: a notice
@@ -160,7 +160,7 @@ public sealed class FleetMessageStore
     {
         if (string.IsNullOrWhiteSpace(recipientSessionId))
             throw new ArgumentException("An inbox belongs to a session.", nameof(recipientSessionId));
-        var recipient = recipientSessionId.Trim();
+        var recipient = Id(recipientSessionId)!;
         var now = Utc(nowUtc);
 
         lock (_gate)
@@ -188,7 +188,7 @@ public sealed class FleetMessageStore
     /// <summary>How many messages wait unread in one session's inbox. Reads, changes nothing.</summary>
     public int CountUnread(TenantId tenant, string recipientSessionId)
     {
-        var recipient = (recipientSessionId ?? "").Trim();
+        var recipient = Id(recipientSessionId) ?? "";
         using var ctx = _db.CreateContext(tenant);
         return ctx.FleetMessages.Count(m => m.RecipientSessionId == recipient && m.ReadAtUtc == null);
     }
@@ -213,6 +213,14 @@ public sealed class FleetMessageStore
             return old.Count;
         }
     }
+
+    /// <summary>
+    /// One spelling of a session id. The recipient's id arrives from the roster and the reader's from its session
+    /// key; a Director writes both as lower-case identifiers today, but an inbox keyed on two spellings of one id
+    /// would hold messages its owner can never read, so every id is trimmed and lower-cased on the way in.
+    /// </summary>
+    private static string? Id(string? sessionId) =>
+        string.IsNullOrWhiteSpace(sessionId) ? null : sessionId.Trim().ToLowerInvariant();
 
     private static DateTime Utc(DateTime value) =>
         value.Kind == DateTimeKind.Utc ? value : value.ToUniversalTime();
