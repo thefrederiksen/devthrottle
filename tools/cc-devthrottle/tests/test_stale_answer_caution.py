@@ -77,7 +77,7 @@ history_cli = _load_tool_cli("cc-history", "cc_history_pkg")
 
 def _row():
     return {"sessionId": SESSION_ID, "name": "worker", "machineName": "MACHINE_A",
-            "repoPath": r"D:\repo", "activityState": "Working"}
+            "repoPath": r"D:\repo", "activityState": "Working", "triageBucket": "active"}
 
 
 @pytest.fixture

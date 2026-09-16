@@ -44,7 +44,7 @@ def fleet(monkeypatch):
 
 def _row():
     return {"sessionId": SESSION_ID, "name": "worker", "machineName": "MACHINE_A",
-            "repoPath": r"D:\repo", "activityState": "Working"}
+            "repoPath": r"D:\repo", "activityState": "Working", "triageBucket": "active"}
 
 
 # ===== the caveat itself: three states, and absent is not complete =====
