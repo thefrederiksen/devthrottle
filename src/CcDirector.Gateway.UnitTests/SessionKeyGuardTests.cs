@@ -58,12 +58,16 @@ public sealed class SessionKeyGuardTests
     // Workspaces (issue #2722): the named set of seats a drain captures and a restore reads.
     [InlineData("GET", "/gateway/workspaces")]
     [InlineData("GET", "/gateway/workspaces/director-restart-2026-09-06")]
+    // The calling session's own message inbox (the Message Load mission).
+    [InlineData("GET", "/fleet/inbox")]
     public void The_read_side_of_the_agent_route_set_is_allowed(string method, string path)
         => Assert.True(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} should be allowed");
 
     [Theory]
-    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/prompt")]
-    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/interrupt")]
+    // A queued message into another session's inbox (the Message Load mission). Who may be written to is the
+    // route's ruling, because it needs the roster; the guard only lets the request reach it.
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/message")]
+    [InlineData("POST", "/fleet/broadcast")]
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/hold")]
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/role")]
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/mission")]
@@ -81,7 +85,6 @@ public sealed class SessionKeyGuardTests
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict/feedback")]
     [InlineData("DELETE", "/sessions/11111111-1111-1111-1111-111111111111/request-deletion")]
     [InlineData("PATCH", "/sessions/11111111-1111-1111-1111-111111111111")]
-    [InlineData("POST", "/fanout")]
     [InlineData("POST", "/missions")]
     // The third verb on a record a session key can already create and read: rename it, set its WHY,
     // and end it (complete / removed) or reopen it. An agent that can open a mission but can never
@@ -99,6 +102,46 @@ public sealed class SessionKeyGuardTests
     [InlineData("DELETE", "/gateway/workspaces/director-restart-2026-09-06")]
     public void The_action_side_of_the_agent_route_set_is_allowed(string method, string path)
         => Assert.True(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} should be allowed");
+
+    // ---------- No agent types into a session (the Message Load mission, ruling 17) ----------
+    //
+    // These four were on the ALLOWED list above until 16 September 2026. Each put keystrokes into a running
+    // session, and each was a way round the inbox. They are refused with a sentence that names the queued
+    // message, because an agent told only "may not call POST /sessions/x/prompt" does not learn what to do.
+
+    [Theory]
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/prompt")]
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/interrupt")]
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/escape")]
+    [InlineData("POST", "/fanout")]
+    // Case is folded before matching, as ASP.NET routing folds it; an upper-cased path is the same route.
+    [InlineData("POST", "/Sessions/11111111-1111-1111-1111-111111111111/PROMPT")]
+    [InlineData("post", "/fanout/")]
+    public void Typing_into_a_session_is_refused_with_the_queued_message_named(string method, string path)
+    {
+        var verdict = SessionKeyGuard.Check(method, path);
+        Assert.False(verdict.Allowed, $"{method} {path} must be refused to a session key");
+        Assert.Equal(AgentInputRefusal.Typing, verdict.Reason);
+        Assert.Contains("cc-devthrottle message send", verdict.Reason);
+    }
+
+    [Theory]
+    // The shapes beside the refused ones stay as they were: a plain compaction (its continue prompt is refused
+    // by the route, which can read the body), a queued message, and a GET of the buffer.
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/compact-context")]
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/message")]
+    [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/buffer")]
+    public void The_neighbours_of_the_refused_input_routes_are_unchanged(string method, string path)
+        => Assert.True(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} should still be allowed");
+
+    [Fact]
+    public void Reading_another_sessions_inbox_by_id_is_not_a_route_a_session_key_reaches()
+    {
+        // The inbox has no session id in its path on purpose. A shape that named one would let a key read - and
+        // so acknowledge - someone else's messages; if such a route is ever added it is refused until classified.
+        Assert.False(SessionKeyGuard.Check("GET", "/fleet/inbox/11111111-1111-1111-1111-111111111111").Allowed);
+        Assert.False(SessionKeyGuard.Check("POST", "/fleet/inbox").Allowed);
+    }
 
     // ---------- The routes the SHIPPED CLIENTS actually call ----------
     //
