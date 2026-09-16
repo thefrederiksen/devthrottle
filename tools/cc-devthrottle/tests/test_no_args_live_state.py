@@ -107,6 +107,32 @@ def test_no_args_InsideSession_FullIdNameAndStateReadBackExactly(serve):
     assert records == [{"id": MY_ID, "name": MY_NAME, "state": "working", "repo": "devthrottle-axi-noargs"}]
 
 
+OWN_STATES = [
+    ("needs-you", {"bucket": "needsYou"}),
+    ("working", {"bucket": "active", "activity": "Working"}),
+    ("ready", {"bucket": "active", "activity": "WaitingForInput"}),
+    ("snoozed", {"bucket": "onHold"}),
+    ("crashed", {"bucket": "needsYou", "crashed": True}),
+]
+
+
+@pytest.mark.parametrize("state,row_state", OWN_STATES, ids=[s for s, _ in OWN_STATES])
+def test_no_args_InsideSession_EveryOwnState_ReadBackExactly(serve, state, row_state):
+    # One case per state, so a renderer that prints a constant state for this session fails four of them.
+    own_id = f"dddddddd-0000-4000-8000-{OWN_STATES.index((state, row_state)):012d}"
+    own_name = f"AXI Tools - Worker - own {state}, Søren"
+    others = [s for s in FLEET if s["sessionId"] != MY_ID]
+    serve(others + [_row(own_id, own_name, **row_state)], session_id=own_id)
+
+    result = _invoke([])
+
+    assert result.exit_code == 0
+    assert result.stdout.isascii()
+    fields, records = parse_list(result.stdout, "session")
+    assert fields == ["id", "name", "state", "repo"]
+    assert records == [{"id": own_id, "name": own_name, "state": state, "repo": "devthrottle"}]
+
+
 def test_recoverability_check_OldNoArgumentOutput_Fails(no_fetch):
     # Before #2922 the tool printed its help screen with no arguments; `--help` still prints exactly
     # that, and no session can be read back out of it.
