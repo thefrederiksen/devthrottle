@@ -1,4 +1,4 @@
-using CcDirector.Core.Tenancy;
+﻿using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Briefing;
 using CcDirector.Gateway.Contracts;
@@ -184,19 +184,33 @@ public sealed class TurnVerdictRowStampTests : IDisposable
         Assert.Equal("red", Get(rows, "finished").EffectiveColor);
     }
 
+    /// <summary>
+    /// THE SLICE G ROW, on the fold: after a Working transition the row is stamped "none" and the latest read
+    /// answers nothing, WHILE THE HISTORY STILL HOLDS THE VERDICT. Both halves are asserted here together on
+    /// purpose - the fold going quiet is what the owner sees, and the record surviving is what lets him say the
+    /// verdict was wrong afterwards. Before slice G the second half was false and nothing noticed, because every
+    /// test only ever asked the first.
+    /// </summary>
     [Fact]
-    public void Fold_AVerdictInvalidatedByWork_LeavesTheReservedRowWithNone()
+    public void Fold_AVerdictSupersededByWork_StampsNoneWhileTheHistoryKeepsTheVerdict()
     {
         var rows = SixRowsWithFiveVerdictsStored();
         var source = new CountingRows(Store);
         Fold(rows, source, Account);
         Assert.Equal(VerdictStates.Judged, Get(rows, "finished").VerdictState);
+        var judged = Get(rows, "finished").TurnVerdict!.VerdictId;
 
         Store.Invalidate(Account, "finished");
         Fold(rows, source, Account);
 
         Assert.Equal(VerdictStates.None, Get(rows, "finished").VerdictState);
+        Assert.Null(Get(rows, "finished").TurnVerdict);
         Assert.Equal("red", Get(rows, "finished").EffectiveColor);
+        Assert.Null(Store.Latest(Account, "finished"));
+
+        var history = Store.History(Account, "finished", 10);
+        Assert.Equal(judged, Assert.Single(history).VerdictId);
+        Assert.NotNull(history[0].SupersededAtUtc);
     }
 
     [Fact]

@@ -118,6 +118,18 @@ public sealed class FakeTunnelDirector : IAsyncDisposable
     public Task PushSnapshotAsync(params SessionDto[] sessions) =>
         _conn.InvokeAsync("PushSnapshot", ++_sequence, sessions);
 
+    /// <summary>
+    /// Push ONE session delta, the way a Director reports a single session changing. Each call bumps the
+    /// sequence.
+    ///
+    /// IT IS NOT A ONE-SESSION SNAPSHOT, and the difference is the point of having it: the turn-end watcher is
+    /// fed from the ACCEPTED DELTA and from nowhere else on this path, so a Working transition - the edge that
+    /// ends a turn and supersedes a stored verdict - only happens when a delta carries it. A test that pushed a
+    /// snapshot instead would change the roster and raise no edge at all.
+    /// </summary>
+    public Task PushDeltaAsync(SessionDto session) =>
+        _conn.InvokeAsync("PushDelta", ++_sequence, session);
+
     /// <summary>Serialize a verb result body the way the real Director cores do.</summary>
     public static DirectorCommandResult Ok(object body) =>
         DirectorCommandResult.Success(JsonSerializer.Serialize(body, WebJson));

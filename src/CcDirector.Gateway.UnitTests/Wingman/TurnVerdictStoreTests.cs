@@ -193,21 +193,207 @@ public sealed class TurnVerdictStoreTests : IDisposable
         Assert.Single(store.SnapshotLatest(TenantA));
     }
 
+    /// <summary>
+    /// THE SLICE G CHANGE, AND THE ONE ROW THAT WOULD HAVE CAUGHT THE DEFECT. Invalidate used to DELETE, so the
+    /// moment the owner answered a red row the session went back to work, its verdict vanished, and the record he
+    /// would have examined or reported wrong was gone. Now it stamps: the "what is true now" reads answer nothing,
+    /// and the history still holds the verdict, in full.
+    /// </summary>
     [Fact]
-    public void Invalidate_puts_the_session_back_to_no_verdict_and_leaves_every_other_session_alone()
+    public void Invalidate_supersedes_rather_than_deleting_so_the_history_still_holds_the_verdict()
     {
         var store = NewStore();
         var t0 = new DateTime(2026, 9, 14, 10, 0, 0, DateTimeKind.Utc);
         store.Store(TenantA, "sid-1", Verdict(t0));
         store.Store(TenantA, "sid-1", Verdict(t0.AddMinutes(1), verdictId: "tv-2"));
         store.Store(TenantA, "sid-2", Verdict(t0, verdictId: "tv-other"));
+        var supersededAt = t0.AddMinutes(2);
 
-        var removed = store.Invalidate(TenantA, "sid-1");
+        var superseded = store.Invalidate(TenantA, "sid-1", supersededAt);
 
-        Assert.Equal(2, removed);
+        Assert.Equal(2, superseded);
+        // The row is back to "no verdict" for every read that answers what is true NOW.
         Assert.Null(store.Latest(TenantA, "sid-1"));
-        Assert.Empty(store.History(TenantA, "sid-1", 10));
+        Assert.False(store.SnapshotLatest(TenantA).ContainsKey("sid-1"));
+        // And the record is still there, in full, with the moment it stopped describing the screen.
+        var history = store.History(TenantA, "sid-1", 10);
+        Assert.Equal(2, history.Count);
+        Assert.Equal(new[] { "tv-2", "tv-1" }, history.Select(v => v.VerdictId).ToArray());
+        Assert.All(history, v => Assert.Equal(supersededAt, v.SupersededAtUtc));
+        Assert.All(history, v => Assert.Equal(DateTimeKind.Utc, v.SupersededAtUtc!.Value.Kind));
+        // The agent's own words survive too - a record kept with its contents emptied would answer nothing.
+        Assert.Equal("I have finished the migration and pushed it.", history[0].Evidence);
+        // Every other session is untouched, exactly as before.
         Assert.Equal("tv-other", store.Latest(TenantA, "sid-2")!.VerdictId);
+    }
+
+    /// <summary>
+    /// The report the whole slice exists for: the owner answers a red row, the answer puts the session to work
+    /// and supersedes the verdict, and only THEN does he say it was wrong. A lookup that skipped superseded rows
+    /// would refuse almost every real report, so this is the row that keeps the find and the answer apart.
+    /// </summary>
+    [Fact]
+    public void A_superseded_verdict_is_still_findable_by_id_so_it_can_be_reported_wrong()
+    {
+        var store = NewStore();
+        var t0 = new DateTime(2026, 9, 14, 10, 0, 0, DateTimeKind.Utc);
+        store.Store(TenantA, "sid-1", Verdict(t0, verdictId: "tv-answered-then-wrong"));
+
+        store.Invalidate(TenantA, "sid-1", t0.AddMinutes(1));
+
+        var found = store.FindById(TenantA, "tv-answered-then-wrong");
+        Assert.NotNull(found);
+        Assert.Equal("sid-1", found!.SessionId);
+        // ...while the question the answer route asks - is this the latest verdict? - says no, so a superseded
+        // verdict is findable and never answerable.
+        Assert.Null(store.Latest(TenantA, "sid-1"));
+    }
+
+    /// <summary>
+    /// A session that works, stops and works again must not have its older records re-dated to the newest
+    /// interruption: the screen went away when it went away. A second invalidate reports zero, because zero rows
+    /// were stamped by it.
+    /// </summary>
+    [Fact]
+    public void A_second_invalidate_leaves_the_first_moment_standing_and_stamps_nothing()
+    {
+        var store = NewStore();
+        var t0 = new DateTime(2026, 9, 14, 10, 0, 0, DateTimeKind.Utc);
+        store.Store(TenantA, "sid-1", Verdict(t0));
+        var first = t0.AddMinutes(1);
+
+        Assert.Equal(1, store.Invalidate(TenantA, "sid-1", first));
+        Assert.Equal(0, store.Invalidate(TenantA, "sid-1", t0.AddMinutes(30)));
+
+        Assert.Equal(first, store.History(TenantA, "sid-1", 10).Single().SupersededAtUtc);
+    }
+
+    /// <summary>
+    /// The next stop is judged and the row lights up again. This is the case the snapshot's correlated maximum
+    /// gets wrong if only its outer half filters: the superseded row is NEWER than the live one, so a maximum
+    /// taken over every row would hide the live verdict behind a record that is not allowed to be the latest.
+    /// </summary>
+    [Fact]
+    public void A_verdict_stored_after_a_supersede_is_the_latest_again_in_both_reads()
+    {
+        var store = NewStore();
+        var t0 = new DateTime(2026, 9, 14, 10, 0, 0, DateTimeKind.Utc);
+        store.Store(TenantA, "sid-1", Verdict(t0, verdictId: "tv-old"));
+        store.Invalidate(TenantA, "sid-1", t0.AddMinutes(1));
+
+        store.Store(TenantA, "sid-1", Verdict(t0.AddMinutes(2), verdictId: "tv-new"));
+
+        Assert.Equal("tv-new", store.Latest(TenantA, "sid-1")!.VerdictId);
+        Assert.Equal("tv-new", store.SnapshotLatest(TenantA)["sid-1"].VerdictId);
+        Assert.Null(store.Latest(TenantA, "sid-1")!.SupersededAtUtc);
+        Assert.Equal(2, store.History(TenantA, "sid-1", 10).Count);
+    }
+
+    /// <summary>
+    /// The snapshot is the ROSTER's read, so the case above has to hold there for one session while another
+    /// account's sessions are in the same table. Here the superseded row is the newest for its session and the
+    /// session must drop out of the snapshot entirely rather than appear with a verdict nobody may act on.
+    /// </summary>
+    [Fact]
+    public void The_snapshot_drops_a_session_whose_only_records_are_superseded()
+    {
+        var store = NewStore();
+        var t0 = new DateTime(2026, 9, 14, 10, 0, 0, DateTimeKind.Utc);
+        store.Store(TenantA, "sid-gone", Verdict(t0, verdictId: "tv-gone"));
+        store.Store(TenantA, "sid-live", Verdict(t0, verdictId: "tv-live"));
+
+        store.Invalidate(TenantA, "sid-gone", t0.AddMinutes(1));
+
+        var snapshot = store.SnapshotLatest(TenantA);
+        Assert.False(snapshot.ContainsKey("sid-gone"));
+        Assert.Equal("tv-live", snapshot["sid-live"].VerdictId);
+    }
+
+    /// <summary>
+    /// Retention is untouched by the change: a superseded row ages out on the same seven-day clock as any other,
+    /// so nothing accumulates beyond the week the store already keeps. Without this, "stop deleting" would read
+    /// as "keep forever".
+    /// </summary>
+    [Fact]
+    public void A_superseded_row_still_ages_out_on_the_seven_day_clock()
+    {
+        var store = NewStore();
+        var old = new DateTime(2026, 9, 1, 10, 0, 0, DateTimeKind.Utc);
+        store.Store(TenantA, "sid-1", Verdict(old, verdictId: "tv-old"));
+        store.Invalidate(TenantA, "sid-1", old.AddMinutes(1));
+        Assert.Single(store.History(TenantA, "sid-1", 10));
+
+        var purged = store.PurgeOlderThan(TenantA, old.AddDays(7));
+
+        Assert.Equal(1, purged);
+        Assert.Empty(store.History(TenantA, "sid-1", 10));
+    }
+
+    // ---------------------------------------------------------------- the corrections
+
+    /// <summary>
+    /// One correction per verdict, and the second REPLACES the first: one person correcting one stop twice means
+    /// the second one, and two rows would make the corpus decide which.
+    /// </summary>
+    [Fact]
+    public void A_second_correction_about_one_verdict_replaces_the_first()
+    {
+        var store = NewStore();
+        var t0 = new DateTime(2026, 9, 15, 10, 0, 0, DateTimeKind.Utc);
+        var observed = t0.AddSeconds(-12);
+
+        store.RecordFeedback(TenantA, "tv-1", "sid-1", observed,
+            Core.Wingman.TurnVerdictVocabulary.NeededYou, "It was asking me something.", t0);
+        store.RecordFeedback(TenantA, "tv-1", "sid-1", observed,
+            Core.Wingman.TurnVerdictVocabulary.ContinuesAlone, "No - it said it would carry on.", t0.AddMinutes(5));
+
+        var row = store.FeedbackFor(TenantA, "tv-1");
+        Assert.NotNull(row);
+        Assert.Equal(Core.Wingman.TurnVerdictVocabulary.ContinuesAlone, row!.CorrectedVerdict);
+        Assert.Equal("No - it said it would carry on.", row.Note);
+        Assert.Equal(t0.AddMinutes(5), row.ReportedAtUtc);
+        // The join key into the turn log survives the replacement.
+        Assert.Equal(observed, row.TurnEndObservedAtUtc);
+        Assert.Single(store.FeedbackSince(TenantA, t0.AddDays(-1), 100));
+    }
+
+    /// <summary>
+    /// The corrections are partitioned by account like everything else here, and the same verdict id in two
+    /// accounts is two different corrections. A Director mints the session id, so this shape is real.
+    /// </summary>
+    [Fact]
+    public void One_account_can_neither_read_nor_overwrite_anothers_correction()
+    {
+        var store = NewStore();
+        var t0 = new DateTime(2026, 9, 15, 10, 0, 0, DateTimeKind.Utc);
+
+        store.RecordFeedback(TenantA, "tv-shared", "shared-sid", t0.AddSeconds(-12),
+            Core.Wingman.TurnVerdictVocabulary.NeededYou, "account A's reading", t0);
+        store.RecordFeedback(TenantB, "tv-shared", "shared-sid", t0.AddSeconds(-12),
+            Core.Wingman.TurnVerdictVocabulary.Finished, "account B's reading", t0);
+
+        Assert.Equal(Core.Wingman.TurnVerdictVocabulary.NeededYou, store.FeedbackFor(TenantA, "tv-shared")!.CorrectedVerdict);
+        Assert.Equal(Core.Wingman.TurnVerdictVocabulary.Finished, store.FeedbackFor(TenantB, "tv-shared")!.CorrectedVerdict);
+        Assert.Single(store.FeedbackSince(TenantA, t0.AddDays(-1), 100));
+    }
+
+    /// <summary>
+    /// The administrator read asks for what is new since it last asked, oldest first, and never more than the
+    /// cap. A pull that walked the whole table every day would grow with the account.
+    /// </summary>
+    [Fact]
+    public void The_corrections_read_is_cut_by_the_moment_reported_and_answers_oldest_first()
+    {
+        var store = NewStore();
+        var t0 = new DateTime(2026, 9, 15, 10, 0, 0, DateTimeKind.Utc);
+        store.RecordFeedback(TenantA, "tv-1", "sid-1", t0, Core.Wingman.TurnVerdictVocabulary.NeededYou, null, t0);
+        store.RecordFeedback(TenantA, "tv-2", "sid-1", t0, Core.Wingman.TurnVerdictVocabulary.Finished, null, t0.AddHours(2));
+        store.RecordFeedback(TenantA, "tv-3", "sid-1", t0, Core.Wingman.TurnVerdictVocabulary.CannotTell, null, t0.AddHours(4));
+
+        var since = store.FeedbackSince(TenantA, t0.AddHours(1), 100);
+
+        Assert.Equal(new[] { "tv-2", "tv-3" }, since.Select(f => f.VerdictId).ToArray());
+        Assert.Equal(new[] { "tv-2" }, store.FeedbackSince(TenantA, t0.AddHours(1), 1).Select(f => f.VerdictId).ToArray());
     }
 
     [Fact]
@@ -254,6 +440,58 @@ public sealed class TurnVerdictStoreTests : IDisposable
         Assert.Equal(new[] { "tv-fresh", "tv-second-newer", "tv-at-cutoff" },
             store.History(TenantA, "sid-1", 10).Select(v => v.VerdictId));
         Assert.Equal("tv-other-account", store.Latest(TenantB, "sid-1")!.VerdictId);
+    }
+
+    /// <summary>
+    /// A CORRECTION GOES WITH THE VERDICT IT IS ABOUT, and the failing shape is the ordinary one rather than a
+    /// contrived edge: a correction is always REPORTED after the stop it corrects, so cutting the two on their
+    /// own clocks leaves every recent correction about an old stop pointing at a row that is gone. Here the
+    /// verdict is a day past the cutoff and the correction was made this morning - under the old rule the
+    /// verdict went and the correction stayed, which is exactly what the store comment denied.
+    /// </summary>
+    [Fact]
+    public void A_correction_is_purged_with_its_verdict_even_when_it_was_reported_since()
+    {
+        var store = NewStore();
+        var now = new DateTime(2026, 9, 14, 10, 0, 0, DateTimeKind.Utc);
+        var cutoff = now - TurnVerdictStore.RetentionPeriod;
+        var stale = Verdict(cutoff.AddHours(-1), verdictId: "tv-stale");
+        var fresh = Verdict(cutoff.AddHours(1), verdictId: "tv-fresh");
+        store.Store(TenantA, "sid-1", stale);
+        store.Store(TenantA, "sid-2", fresh);
+
+        // Both corrections are made NOW - well inside the window - about stops on either side of the cutoff.
+        store.RecordFeedback(TenantA, "tv-stale", "sid-1", stale.TurnEndObservedAtUtc,
+            Core.Wingman.TurnVerdictVocabulary.NeededYou, "that was never done", now);
+        store.RecordFeedback(TenantA, "tv-fresh", "sid-2", fresh.TurnEndObservedAtUtc,
+            Core.Wingman.TurnVerdictVocabulary.Finished, "it had finished", now);
+
+        var purged = store.PurgeOlderThan(TenantA, cutoff);
+
+        // One verdict and the one correction about it.
+        Assert.Equal(2, purged);
+        Assert.Null(store.FeedbackFor(TenantA, "tv-stale"));
+        // POSITIVE CONTROL: the correction about the verdict that SURVIVED is untouched, so the sweep is
+        // following the rows rather than emptying the table.
+        Assert.NotNull(store.FeedbackFor(TenantA, "tv-fresh"));
+        Assert.Empty(store.History(TenantA, "sid-1", 10));
+        Assert.Single(store.History(TenantA, "sid-2", 10));
+    }
+
+    /// <summary>A correction whose verdict was never held at all is an orphan too, and goes on the next sweep -
+    /// the rule is "no verdict, no correction", not "no verdict of a certain age".</summary>
+    [Fact]
+    public void A_correction_whose_verdict_is_not_held_is_swept_even_with_nothing_else_to_do()
+    {
+        var store = NewStore();
+        var now = new DateTime(2026, 9, 14, 10, 0, 0, DateTimeKind.Utc);
+        store.RecordFeedback(TenantA, "tv-never-stored", "sid-1", now.AddSeconds(-12),
+            Core.Wingman.TurnVerdictVocabulary.NeededYou, null, now);
+
+        var purged = store.PurgeOlderThan(TenantA, now - TurnVerdictStore.RetentionPeriod);
+
+        Assert.Equal(1, purged);
+        Assert.Null(store.FeedbackFor(TenantA, "tv-never-stored"));
     }
 
     [Fact]

@@ -1,4 +1,4 @@
-using CcDirector.Core.Tenancy;
+﻿using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Briefing;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Speech;
@@ -308,7 +308,11 @@ public sealed class TurnVerdictServiceTests : IDisposable
 
         Assert.Equal(TurnVerdictOutcomeKind.Cancelled, outcome.Kind);
         Assert.Null(outcome.Verdict);
-        Assert.Equal(0, env.StoredCount(Tenant, Sid));
+        // Nothing is RESTORED over a session that has gone back to work - the live count is what says so. Since
+        // slice G the record itself survives the Working edge (superseded, not deleted), so the history count
+        // stays at one and only the live count may be zero.
+        Assert.Equal(0, env.LiveCount(Tenant, Sid));
+        Assert.Equal(1, env.StoredCount(Tenant, Sid));
         Assert.Equal(1, env.JudgeCalls);
         Assert.Contains(env.Records, r => r.EventType == ActivityEventTypes.TurnVerdictCancelled);
         Assert.DoesNotContain(env.Records, r => r.EventType == ActivityEventTypes.TurnVerdictReused);
@@ -439,8 +443,12 @@ public sealed class TurnVerdictServiceTests : IDisposable
         Assert.False(service.IsReading(Tenant, Sid));
         var outcome = await pending.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal(TurnVerdictOutcomeKind.Cancelled, outcome.Kind);
+        // SLICE G: the row goes back to no verdict, and the RECORD SURVIVES. It used to be deleted here, which is
+        // why the owner could watch his own row go red with the Wingman's label and find nothing there by the time
+        // he looked: answering the row is what makes the session work, and working is what reaches this line.
         Assert.Null(env.Latest(Tenant, Sid));
-        Assert.Equal(0, env.StoredCount(Tenant, Sid));
+        Assert.Equal(0, env.LiveCount(Tenant, Sid));
+        Assert.Equal(1, env.StoredCount(Tenant, Sid));
         Assert.Contains(env.Records, r => r.EventType == ActivityEventTypes.TurnVerdictCancelled);
     }
 

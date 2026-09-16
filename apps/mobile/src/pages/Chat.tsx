@@ -140,9 +140,12 @@ export function Chat() {
       <DictationStatusStrip sessionId={sessionId} />
 
       {/* What the Wingman read at this stop, and the owner's answer to it - the shared client-core panel, fed
-          from the same roster poll as the snooze state. It renders nothing unless the row carries a judged verdict.
-          The hook hands over only THIS route's row, and the panel answers with THIS route's session id. With no row
-          to act on - a read pending, failed or missing this session - there is no panel, only the reason. */}
+          from the same roster poll as the snooze state. THIS SHELL DECIDES NOTHING ABOUT WHAT IT SHOWS: it hands
+          over this route's row and this route's session id, and the panel owns the rest - whether there is
+          anything to show at all, what is shown, and which of its controls are live. A shell that knew when the
+          panel would render would be a second answer to a question the panel already answers, and the two would
+          drift. With no row to hand over - a read pending, failed or missing this session - there is nothing to
+          mount, only the reason. */}
       {manage.session && sessionId && (
         // compact: the receipt is the agent's last reply, which is ALSO the top of the conversation
         // directly below - so expanded it spent the phone's scarcest resource restating what the

@@ -125,8 +125,9 @@ export function SessionDetail() {
           {selected && <SessionMenu session={selected} variant="page" onClosed={() => navigate("/sessions")} />}
         </div>
 
-        {/* What the Wingman read at this stop, and the owner's answer to it (the shared client-core panel; it
-            renders nothing unless the Gateway stamped a judged verdict on this row). */}
+        {/* What the Wingman read at this stop, and the owner's answer to it - the shared client-core panel.
+            THIS SHELL DECIDES NOTHING ABOUT WHAT IT SHOWS: it hands over the selected row and this route's
+            session id, and the panel owns whether there is anything to show and what is live on it. */}
         {selected && sessionId && <VerdictPanel sessionId={sessionId} session={selected} />}
 
         <div className="session-content">

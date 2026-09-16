@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Text.Json;
 using CcDirector.AgentBrain;
 using CcDirector.Core.Tenancy;
@@ -62,6 +62,11 @@ internal sealed class FakeTurnVerdictEnvironment : ITurnVerdictEnvironment
     private readonly object _gate = new();
     private readonly Dictionary<(TenantId, string), List<TurnVerdictDto>> _stored = new();
 
+    /// <summary>The verdict ids this fake has SUPERSEDED, by (account, session, verdict) - the real store's
+    /// <c>SupersededAtUtc</c> column in the shape a fake needs. Slice G made Invalidate stamp rather than delete,
+    /// and a fake that still deleted would let a test pass against behaviour the product no longer has.</summary>
+    private readonly HashSet<(TenantId, string, string)> _superseded = new();
+
     /// <summary>When set, answers every settings read in place of <see cref="Knobs"/> - so a test can flip a switch, or
     /// make the read throw, in the middle of a flight.</summary>
     public Func<TurnVerdictSettings>? SettingsOverride;
@@ -100,7 +105,8 @@ internal sealed class FakeTurnVerdictEnvironment : ITurnVerdictEnvironment
         TurnVerdictDto? latest;
         lock (_gate)
             latest = _stored.TryGetValue((tenant, sessionId), out var rows)
-                ? rows.OrderByDescending(r => r.JudgedAtUtc).FirstOrDefault()
+                ? rows.Where(r => !_superseded.Contains((tenant, sessionId, r.VerdictId)))
+                      .OrderByDescending(r => r.JudgedAtUtc).FirstOrDefault()
                 : null;
         Interlocked.Exchange(ref AfterNextLatest, null)?.Invoke();
         return latest;
@@ -114,22 +120,40 @@ internal sealed class FakeTurnVerdictEnvironment : ITurnVerdictEnvironment
             if (!_stored.TryGetValue((tenant, sessionId), out var rows)) _stored[(tenant, sessionId)] = rows = new();
             rows.RemoveAll(r => r.JudgedAtUtc == verdict.JudgedAtUtc);
             rows.Add(verdict);
+            // A new verdict id is a new statement about the screen, so it is born describing it - the store's own
+            // rule when a same-moment re-judgement mints a new id.
+            _superseded.Remove((tenant, sessionId, verdict.VerdictId));
         }
     }
 
+    /// <summary>Slice G: SUPERSEDES rather than deleting, exactly as <c>TurnVerdictStore.Invalidate</c> does, and
+    /// returns how many rows this call stamped. Already-stamped rows are left alone.</summary>
     public int Invalidate(TenantId tenant, string sessionId)
     {
         Interlocked.Increment(ref _invalidations);
         lock (_gate)
         {
-            if (!_stored.Remove((tenant, sessionId), out var rows)) return 0;
-            return rows.Count;
+            if (!_stored.TryGetValue((tenant, sessionId), out var rows)) return 0;
+            var stamped = 0;
+            foreach (var row in rows)
+                if (_superseded.Add((tenant, sessionId, row.VerdictId))) stamped++;
+            return stamped;
         }
     }
 
+    /// <summary>Every record held for this session, superseded or not - the history.</summary>
     public int StoredCount(TenantId tenant, string sessionId)
     {
         lock (_gate) return _stored.TryGetValue((tenant, sessionId), out var rows) ? rows.Count : 0;
+    }
+
+    /// <summary>How many of this session's records still describe its screen.</summary>
+    public int LiveCount(TenantId tenant, string sessionId)
+    {
+        lock (_gate)
+            return _stored.TryGetValue((tenant, sessionId), out var rows)
+                ? rows.Count(r => !_superseded.Contains((tenant, sessionId, r.VerdictId)))
+                : 0;
     }
 
     public bool IsVoiceSession(TenantId tenant, string sessionId) => VoiceSession(sessionId);
@@ -172,8 +196,12 @@ internal sealed class FakeTurnVerdictEnvironment : ITurnVerdictEnvironment
         Interlocked.Increment(ref _snapshotReads);
         lock (_gate)
             return _stored
-                .Where(kv => kv.Key.Item1.Equals(tenant) && kv.Value.Count > 0)
-                .ToDictionary(kv => kv.Key.Item2, kv => kv.Value.OrderByDescending(r => r.JudgedAtUtc).First(), StringComparer.Ordinal);
+                .Where(kv => kv.Key.Item1.Equals(tenant))
+                .Select(kv => (Session: kv.Key.Item2, Latest: kv.Value
+                    .Where(r => !_superseded.Contains((tenant, kv.Key.Item2, r.VerdictId)))
+                    .OrderByDescending(r => r.JudgedAtUtc).FirstOrDefault()))
+                .Where(x => x.Latest is not null)
+                .ToDictionary(x => x.Session, x => x.Latest!, StringComparer.Ordinal);
     }
 
     /// <summary>Every stored record for this session, newest first.</summary>

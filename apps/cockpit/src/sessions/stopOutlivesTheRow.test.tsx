@@ -35,6 +35,13 @@ const stopSessionMock = vi.fn();
 // roster, the menu and the restart panel reach for while they render.
 vi.mock("@devthrottle/client-core/api/client", () => ({
   gatewayErrorMessage: (err: unknown) => String(err),
+  // The verdict panel asks the Gateway what it last said about a row that carries no verdict (slice G,
+  // round 2), so this boundary now has to answer that read as well. It answers what the real Gateway
+  // answers for a session nobody has judged - an empty history - which is what every row here is.
+  authHeaders: () => ({}),
+  GatewayError: class GatewayError extends Error {},
+  gatewayFetch: () => Promise.resolve(new Response(JSON.stringify({ verdicts: [] }), {
+    status: 200, headers: { "Content-Type": "application/json" } })),
   setVoiceModeAllSessions: vi.fn(async () => ({ changed: 0, skipped: 0 })),
   stopSession: (...args: unknown[]) => stopSessionMock(...args),
   holdSession: () => Promise.resolve({ onHold: false, pending: false }),

@@ -3045,6 +3045,20 @@ internal static class GatewayEndpoints
             => AnswerTurnVerdictAsync(ctx, sid, tenantBoundary, turnVerdictAnswers, tenantSettings, registry,
                 pushedSessions, streamStaleResolved, owners, sendCommand, wingmanTranslator, turnVerdictLedger));
 
+        // REPORT A JUDGED STOP WRONG (the Wingman-on-every-turn mission, slice G). The owner says which word he
+        // thinks was right; it is stored against the verdict and reaches the labelled corpus as an OWNER LABEL,
+        // which outranks two reviewers agreeing. It writes one row in our own table and reaches nothing outside
+        // the Gateway - so unlike the answer route beside it, there is no Director, no screen and no lock.
+        //
+        // Built here from the store rather than taken as another parameter: the whole service is the store plus
+        // the rules, so a Gateway that has the store can serve this and one that has not answers 404 exactly as
+        // the reads do.
+        var turnVerdictFeedback = turnVerdicts is null ? null : new Wingman.TurnVerdictFeedbackService(turnVerdicts);
+
+        app.MapPost("/sessions/{sid}/turn-verdict/feedback", (HttpContext ctx, string sid)
+            => ReportTurnVerdictWrongAsync(ctx, sid, tenantBoundary, turnVerdictFeedback, tenantSettings,
+                pushedSessions, turnVerdictLedger));
+
         // Deliver a prompt down the tunnel and, when asked, wait for the session to go idle and return what
         // it printed. Extracted from POST /sessions/{sid}/prompt by the Remove-the-network-port mission's
         // phase 2 so the new POST /sessions/{sid}/message shares ONE delivery path with it: a message is a
@@ -5601,6 +5615,139 @@ internal static class GatewayEndpoints
                     $"The answer failed before anything was sent, so nothing was sent: {ex.Message}"), verdictId);
             return Answer(turnVerdictAnswers.RecordUnconfirmed(tenant.Value, directorId, sid, verdictId, ex.Message), verdictId);
         }
+    }
+
+    /// <summary>
+    /// <c>POST /sessions/{sid}/turn-verdict/feedback</c>, the handler (the Wingman-on-every-turn mission, slice G).
+    /// Held here rather than inline so every exit can be driven by a test with no booted host.
+    ///
+    /// WHAT THIS HANDLER OWNS, and what it does not. It owns only what a REQUEST carries: the account it is bound
+    /// to, the session's existence inside that account, the shadow rule, and reading the body. Which verdict may
+    /// be corrected and with what word is <see cref="Wingman.TurnVerdictFeedbackService"/>'s, tested there.
+    ///
+    /// EXISTENCE IS DECIDED EXACTLY AS THE READ ROUTES DECIDE IT, freshness ignored: the verdict is held on this
+    /// Gateway, so a session whose Director has merely gone quiet is still this account's session and its stop is
+    /// still reportable. A session of another account answers precisely what an unknown session answers, so the
+    /// route never says which ids exist elsewhere.
+    ///
+    /// THE SHADOW RULE, the reads' rule applied to this write. While an account's colours are off its verdicts are
+    /// a shadow record that a session key may not read - so a session key may not report one wrong either. A
+    /// device key, the person, reaches the route in both states: the shadow is a rule about the product's own
+    /// automation acting on an unproven verdict, never about the owner examining one.
+    ///
+    /// AN ACCEPTED CORRECTION WRITES NO LEDGER LINE AND EVERY REFUSAL WRITES ONE. The accepted one needs none: it
+    /// writes a durable row carrying its own moment, word and note, and that row is the record. A refusal writes
+    /// nothing anywhere - so before this, the only trace that somebody tried to correct a verdict and was turned
+    /// away was a log file, which is not a record anybody queries. Every exit below that refuses writes one line
+    /// under <see cref="ActivityEventTypes.TurnVerdictFeedbackRefused"/>, with the same closed word the owner was
+    /// shown as its cause. The ONE exit that cannot is the unbound tenant: a ledger line is written into an
+    /// account, and that exit is the one where there is no account to write it into.
+    /// </summary>
+    internal static async Task<IResult> ReportTurnVerdictWrongAsync(
+        HttpContext ctx,
+        string sid,
+        Tenancy.HostedTenantBoundary tenantBoundary,
+        Wingman.TurnVerdictFeedbackService? turnVerdictFeedback,
+        Settings.TenantSettingsResolver? tenantSettings,
+        Streaming.PushedSessionStore? pushedSessions,
+        Action<Wingman.TurnVerdictRecord>? turnVerdictLedger = null)
+    {
+        FileLog.Write($"[GatewayEndpoints] POST turn-verdict/feedback: sid={sid}");
+
+        IResult Answer(Wingman.TurnVerdictFeedbackOutcome outcome)
+            => Results.Json(new TurnVerdictFeedbackResponse
+            {
+                Accepted = outcome.Accepted,
+                Code = outcome.Code,
+                Reason = outcome.Reason,
+                VerdictId = outcome.VerdictId,
+            }, statusCode: outcome.StatusCode);
+
+        var tenant = ResolveReadTenant(ctx, tenantBoundary);
+        if (tenant is null)
+            return Results.Json(new { error = "no tenant is bound to this request" },
+                statusCode: StatusCodes.Status403Forbidden);
+
+        // ---- from here on, every refusal writes one ledger line ----
+        // The Director is named "gateway": this route reaches no Director at all, and naming the owning one would
+        // be a fact nobody observed. The detail carries the verdict the request named, and never the note.
+        void Refused(string cause, string verdictId)
+        {
+            if (turnVerdictLedger is not null)
+                turnVerdictLedger(new Wingman.TurnVerdictRecord(tenant.Value, "gateway", sid,
+                    ActivityEventTypes.TurnVerdictFeedbackRefused, cause,
+                    $"verdict={(string.IsNullOrEmpty(verdictId) ? "none" : verdictId)}"));
+            else
+                FileLog.Write($"[GatewayEndpoints] POST turn-verdict/feedback: sid={sid} REFUSED {cause} and NOT RECORDED - this Gateway was built with no turn-verdict ledger");
+        }
+
+        if (!Guid.TryParse(sid, out _))
+        {
+            Refused(ActivityCauses.FeedbackInvalidSessionId, "");
+            return Results.Json(new { error = "invalid session id format" },
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        if (turnVerdictFeedback is null || tenantSettings is null)
+        {
+            Refused(ActivityCauses.FeedbackUnavailable, "");
+            return Results.Json(new TurnVerdictFeedbackResponse
+            {
+                Accepted = false,
+                Code = TurnVerdictFeedbackCodes.Unavailable,
+                Reason = "This gateway holds no turn verdicts, so there is nothing to report wrong.",
+                VerdictId = "",
+            }, statusCode: StatusCodes.Status404NotFound);
+        }
+
+        if (pushedSessions?.TryLocateIgnoringFreshness(tenant.Value, sid) is null)
+        {
+            // One cause for both answers the locator produces - the 404 for a session nobody pushed and the 503
+            // for one whose Director has gone quiet. The report was refused and nothing was recorded either way,
+            // and which of the two it was is on the answer the caller got.
+            Refused(ActivityCauses.FeedbackSessionNotFound, "");
+            return SessionUnavailable(ctx, tenantBoundary, pushedSessions, sid);
+        }
+
+        var callingSession = AuthMiddleware.CallingSession(ctx);
+        if (!tenantSettings.TurnVerdict(tenant.Value).ColourEnabled && callingSession is not null)
+        {
+            Refused(ActivityCauses.FeedbackShadowRecord, "");
+            return Results.Json(new TurnVerdictFeedbackResponse
+            {
+                Accepted = false,
+                Code = TurnVerdictFeedbackCodes.ShadowRecord,
+                Reason = "This account's turn verdicts are a shadow record, and a session key may not report one "
+                       + "wrong until the account turns the verdict colours on, so nothing was recorded.",
+                VerdictId = "",
+            }, statusCode: StatusCodes.Status403Forbidden);
+        }
+
+        TurnVerdictFeedbackRequest? req;
+        try
+        {
+            req = await ctx.Request.ReadFromJsonAsync<TurnVerdictFeedbackRequest>(CancellationToken.None);
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+        {
+            FileLog.Write($"[GatewayEndpoints] POST turn-verdict/feedback: sid={sid} unreadable body: {ex.Message}");
+            Refused(ActivityCauses.FeedbackMalformed, "");
+            return Results.Json(new TurnVerdictFeedbackResponse
+            {
+                Accepted = false,
+                Code = TurnVerdictFeedbackCodes.Malformed,
+                Reason = "The report could not be read, so nothing was recorded.",
+                VerdictId = "",
+            }, statusCode: StatusCodes.Status400BadRequest);
+        }
+
+        // THE SERVICE OWN REFUSALS go to the ledger under the SAME word the owner was shown, taken from the
+        // outcome rather than decided again here - so a rule added to the service reaches the ledger without this
+        // route learning about it. FeedbackCodesAreLedgerCausesTests is what makes taking it safe: it fails if a
+        // refusal code is ever spelled differently from its ledger cause, or gains no cause at all.
+        var reported = turnVerdictFeedback.Report(tenant.Value, sid, req);
+        if (!reported.Accepted) Refused(reported.Code, reported.VerdictId);
+        return Answer(reported);
     }
 
     private static IResult SessionUnavailable(

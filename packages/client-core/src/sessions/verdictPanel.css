@@ -75,3 +75,41 @@
   display: flex;
   justify-content: flex-end;
 }
+/* "This is wrong" (slice G): the closed-word picker and the optional note. Full width on both surfaces - the
+   phone has no room for a side-by-side and the two shells must show the same card. */
+.verdict-report {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.verdict-report-label {
+  font-size: 12px;
+  opacity: 0.8;
+}
+.verdict-report-word,
+.verdict-report-note {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+.verdict-report-note {
+  resize: vertical;
+}
+/* The record a session left behind (slice G, round 2): the row carries no verdict any more, so the panel is
+   showing the LAST thing the Wingman said rather than what the session is waiting on. It reads as quieter than a
+   live stop on purpose - it asks nothing and the only control on it is "This is wrong". */
+.verdict-panel-past {
+  opacity: 0.85;
+}
+.verdict-superseded {
+  margin: 0;
+  font-size: 12px;
+  opacity: 0.8;
+}

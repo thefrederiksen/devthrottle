@@ -1,4 +1,4 @@
-namespace CcDirector.Gateway.Data.Entities;
+﻿namespace CcDirector.Gateway.Data.Entities;
 
 /// <summary>
 /// One judged stop: what the Wingman said this turn end MEANS, kept per tenant and per session (the
@@ -58,6 +58,21 @@ public sealed class TurnVerdictEntity : TenantScopedEntity
     /// so it is stored whole rather than spread over columns that would have to be folded back together.</summary>
     public string VerdictJson { get; set; } = "";
 
+    /// <summary>
+    /// When this verdict stopped describing the screen it was formed on (UTC), or null while it still does.
+    ///
+    /// The session going back to work is what sets it: whatever the Wingman said about that stop, the screen it
+    /// said it about is gone. The row is KEPT rather than deleted, which is the change slice G makes and the
+    /// reason it exists - the owner answered a red row, the answer put the session to work, and the verdict that
+    /// made it red was deleted in the same breath, so it could not be examined, reported wrong, or graded against
+    /// what he actually did. A stamp keeps the record and costs the readers one rule: the ones that answer "what
+    /// is true NOW" ignore a stamped row, and the history returns it.
+    ///
+    /// Retention is unchanged and still cuts on <see cref="JudgedAtUtc"/>: a superseded row ages out on the same
+    /// seven-day clock as any other, so nothing accumulates beyond the week the store already keeps.
+    /// </summary>
+    public DateTime? SupersededAtUtc { get; set; }
+
     /// <summary>When the owner's answer to this verdict was written into the session and the Director confirmed
     /// it (UTC). Null until then. Set once, inside the answer route's per-session lock, so an answer that waited
     /// behind an accepted one finds the verdict answered and sends nothing: one verdict, one activation, whatever
@@ -78,9 +93,14 @@ public sealed class TurnVerdictEntity : TenantScopedEntity
 /// and then corrects the correction means the second one; two rows would make the corpus have to guess
 /// which, and a corpus that guesses is worse than one that is smaller.
 ///
-/// NOTHING WRITES THIS TABLE YET. That is deliberate and is stated here as a gap rather than left to be
-/// inferred from an empty table: slice B creates the schema and nothing else, so an empty table in a
-/// running Gateway is the expected state until slice G lands, not evidence that reporting is broken.
+/// WHAT WRITES IT: <c>POST /sessions/{sid}/turn-verdict/feedback</c>, through
+/// <c>TurnVerdictFeedbackService</c>, and nothing else. The schema landed in slice B and stood empty until
+/// slice G wired that route, so an empty table is now the state of an account where nobody has corrected a
+/// verdict rather than a stage of the build.
+///
+/// A ROW LIVES AS LONG AS THE VERDICT IT IS ABOUT. The retention sweep purges verdicts on their judged moment
+/// and then removes every correction whose verdict is gone, so a correction is never left pointing at a stop
+/// the Gateway no longer holds.
 /// </summary>
 public sealed class TurnVerdictFeedbackEntity : TenantScopedEntity
 {

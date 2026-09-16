@@ -239,6 +239,27 @@ public static class SessionKeyGuard
             // Matched as one literal four-segment shape, so nothing hung off it later is reachable by accident.
             if (s.Length == 4 && s[0] == "sessions" && s[2] == "turn-verdict" && s[3] == "answer") return true;
 
+            // REPORT a judged stop wrong (slice G). Its own literal four-segment shape, listed beside the answer
+            // rather than folded into a "turn-verdict/{anything}" prefix, for the reason the reads are listed as
+            // two literals: an allow list that widens by pattern stops being an allow list, and the next word
+            // hung off this path has to be classified here before anything can reach it.
+            //
+            // It is narrower than the answer beside it: it writes one row of our own record and reaches nothing
+            // outside the Gateway - no bytes, no screen, no session. Whether the route SERVES a session key is
+            // still the route's decision and not this one: while an account's colours are off its verdicts are a
+            // shadow record and the route refuses a session key, exactly as the reads do. A guard is a pure
+            // function on a method and a path and cannot see a tenant's settings; the two halves add up there.
+            if (s.Length == 4 && s[0] == "sessions" && s[2] == "turn-verdict" && s[3] == "feedback") return true;
+
+            // THE ADMINISTRATOR READ OF THOSE CORRECTIONS IS A DIFFERENT SURFACE AND IS NOT HERE:
+            // GET /gateway/admin/turn-verdict-feedback serves the daily corpus pull, which is a server with no
+            // device key, and it is gated on the administrator service token by the endpoint itself - the same
+            // gate the administrator turn-log switch and account lookup carry. It is named here rather than left
+            // to the default deny so this census says which administrator routes exist and that a session key
+            // reaches none of them; SessionKeyGuardTests asserts the refusal by name. A session key that could
+            // call it would read every account's corrections, which is the opposite of what a session credential
+            // is for.
+
             // A message to the agent's own team (the fanout the fleet's "message send all" uses), and the
             // team-resolving front door onto it - which is what the command line actually calls, because
             // working out who is on the team is the Gateway's ruling to make, not the caller's.

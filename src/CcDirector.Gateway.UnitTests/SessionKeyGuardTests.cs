@@ -72,8 +72,13 @@ public sealed class SessionKeyGuardTests
     // Mission "Stop a session", Ruling 4: any session may stop any other in the same account, because the
     // stop carries a reason and is audited. Ruling 6: and the polite flag comes off the way it went on.
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/stop")]
-    // Answer a judged stop - the one write path for a verdict's options, and the one four-segment session POST.
+    // Answer a judged stop - the one write path for a verdict's options.
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict/answer")]
+    // Report a judged stop WRONG (the Wingman-on-every-turn mission, slice G). Narrower than the answer beside
+    // it: it writes one row of our own record and reaches nothing outside the Gateway. Whether the route SERVES
+    // a session key is still the route's own decision - while the account's colours are off its verdicts are a
+    // shadow record and the route refuses one, exactly as the reads do.
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict/feedback")]
     [InlineData("DELETE", "/sessions/11111111-1111-1111-1111-111111111111/request-deletion")]
     [InlineData("PATCH", "/sessions/11111111-1111-1111-1111-111111111111")]
     [InlineData("POST", "/fanout")]
@@ -335,15 +340,24 @@ public sealed class SessionKeyGuardTests
     // And nothing hung off a verdict path later is reachable by accident - the allow matches a length
     // of exactly three segments.
     [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict/options")]
-    // The answer route is ONE literal shape. Its verb is POST; its neighbours are not it; and a fifth segment,
-    // the plural path, or another last word (the "this is wrong" route slice G will add) is refused until
-    // somebody classifies it here.
+    // The answer and feedback routes are TWO literal shapes. Their verb is POST; their neighbours are not them;
+    // and a fifth segment, the plural path, or a third last word is refused until somebody classifies it here.
     [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict/answer")]
     [InlineData("PUT", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict/answer")]
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict/answer/again")]
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdicts/answer")]
-    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict/feedback")]
+    [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict/feedback")]
+    [InlineData("PUT", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict/feedback")]
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict/feedback/again")]
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdicts/feedback")]
     [InlineData("POST", "/machines/SOREN_NORTH/turn-verdict/answer")]
+    // The ADMINISTRATOR read of the corrections (the Wingman-on-every-turn mission, slice G). It is gated on
+    // the administrator service token by the endpoint itself, and it serves ONE named account's corrections to
+    // the daily corpus pull - so a session key reaching it would be a session credential reading an operator
+    // surface. Named here rather than left to the default deny, so the census says the route exists and that
+    // this guard refuses it.
+    [InlineData("GET", "/gateway/admin/turn-verdict-feedback")]
+    [InlineData("POST", "/gateway/admin/turn-verdict-feedback")]
     // Somebody else's Director process lifecycle on another machine.
     [InlineData("POST", "/machines/SOREN_NORTH/director/stop")]
     [InlineData("POST", "/machines/SOREN_NORTH/director/restart")]

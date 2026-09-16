@@ -39,6 +39,7 @@ internal static class TurnVerdictDtoCopy
             Risk = v.Risk,
             Spoken = v.Spoken,
             NextScheduledWakeUtc = v.NextScheduledWakeUtc,
+            SupersededAtUtc = v.SupersededAtUtc,
             FinishedKind = v.FinishedKind,
         };
     }

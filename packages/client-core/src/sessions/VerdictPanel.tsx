@@ -1,6 +1,13 @@
 import { useEffect, useState } from "react";
 import { GatewayError, gatewayErrorMessage, type SessionDto } from "../api/client";
-import { answerTurnVerdict, type TurnVerdict, type TurnVerdictRow } from "./verdictAnswer";
+import {
+  answerTurnVerdict,
+  readLatestJudgedStop,
+  reportTurnVerdictWrong,
+  type TurnVerdict,
+  type TurnVerdictRow,
+} from "./verdictAnswer";
+import { VERDICT_WORDS } from "./verdictVocabulary";
 import "./verdictPanel.css";
 
 // ---- The verdict panel: what the Wingman read at this stop, and the owner's answer to it ----------------
@@ -9,7 +16,23 @@ import "./verdictPanel.css";
 // session screen; the desktop does not mount it (the Director wire carries colour and label only).
 //
 // In order: the risk, when there is one; the receipt - the agent's own words, open; the label; the summary;
-// the options as buttons wired to the answer route; and "this is wrong", which slice G wires.
+// the options as buttons wired to the answer route; and "this is wrong", wired by slice G to the feedback route.
+//
+// A ROW THAT CARRIES NO VERDICT STILL SHOWS THE LAST ONE, from the history read, COLLAPSED and with only "This
+// is wrong" live. This is the ordinary journey rather than an edge: answering a red row is what puts the session
+// back to work, working is what supersedes the verdict, and the row then carries none - so a panel that rendered
+// nothing at that moment took the reporting control away at exactly the moment the owner thinks "that was never
+// a question, it was telling me it was done". The answer buttons are NOT offered on that record: the screen it
+// was formed on has moved on, so its options no longer mean what they meant, and the answer route would refuse
+// them anyway. What is still true about a superseded verdict is what it SAID, which is what a correction is
+// about.
+//
+// "THIS IS WRONG" OPENS A PICKER OF THE CLOSED WORDS, and the words are the vocabulary's own spellings - see
+// verdictVocabulary.ts for why that list is here at all and what stops it drifting from the Gateway's. The panel
+// does not decide which correction is plausible, does not pre-select one, and does not hide a word because the
+// Wingman would not have said it. The verdict being corrected is usually SUPERSEDED by the time the report is
+// sent - answering a red row is what puts the session back to work, and that is what supersedes it - which is
+// exactly why slice G stopped deleting those records.
 //
 // THE CLIENT IS DUMB. Everything shown is the Gateway's stamp, verbatim. The panel never decides whether an
 // option is still safe to press: the answer route re-reads the screen, compares it with the one the verdict
@@ -28,8 +51,9 @@ export interface VerdictPanelProps {
    *  renders nothing, so a remembered row can never answer from another session's screen. */
   sessionId: string;
   session: SessionDto;
-  /** The "this is wrong" action. Slice G wires it; until then the action is shown and cannot be pressed. */
-  onReportWrong?: (verdict: TurnVerdict) => void;
+  /** Told after a correction is stored, when a shell wants to react to one. The panel does the reporting itself -
+   *  it lives in client-core so both surfaces get the same action, and a shell that passes nothing still has it. */
+  onReported?: (verdict: TurnVerdict, correctVerdict: string) => void;
   /**
    * Render for a screen with no height to spare: the receipt starts COLLAPSED instead of expanded.
    *
@@ -43,9 +67,12 @@ export interface VerdictPanelProps {
   compact?: boolean;
 }
 
-export function VerdictPanel({ sessionId, session, onReportWrong, compact = false }: VerdictPanelProps) {
+export function VerdictPanel({ sessionId, session, onReported, compact = false }: VerdictPanelProps) {
   const row = session as TurnVerdictRow;
-  const verdict = row.verdictState === "judged" ? row.turnVerdict ?? null : null;
+  const live = row.verdictState === "judged" ? row.turnVerdict ?? null : null;
+  const [past, setPast] = useState<TurnVerdict | null>(null);
+  const [pastRefusal, setPastRefusal] = useState<string | null>(null);
+  const verdict = live ?? past;
   const verdictId = verdict?.verdictId ?? "";
   const agentName = (session.agentToolDisplay ?? "").trim() || "Agent tool not reported";
 
@@ -54,14 +81,74 @@ export function VerdictPanel({ sessionId, session, onReportWrong, compact = fals
   const [refusal, setRefusal] = useState<string | null>(null);
   const [sent, setSent] = useState<string | null>(null);
 
-  // A new stop is a new question: nothing picked, answered or refused carries over from the last one.
+  const [reporting, setReporting] = useState(false);
+  const [correctWord, setCorrectWord] = useState("");
+  const [note, setNote] = useState("");
+  const [reportBusy, setReportBusy] = useState(false);
+  const [reportRefusal, setReportRefusal] = useState<string | null>(null);
+  const [reported, setReported] = useState<string | null>(null);
+
+  // A new stop is a new question: nothing picked, answered, refused or reported carries over from the last one.
   useEffect(() => {
     setPicked([]);
     setRefusal(null);
     setSent(null);
+    setReporting(false);
+    setCorrectWord("");
+    setNote("");
+    setReportRefusal(null);
+    setReported(null);
   }, [sessionId, verdictId]);
 
-  if (verdict === null || row.sessionId !== sessionId) return null;
+  // THE HISTORY READ, and only when the row carries nothing. A row with a live verdict is already the newest
+  // record, so asking again would be a request per render for an answer the roster has. A failed read is SHOWN
+  // rather than swallowed: "the read was refused" and "this session was never judged" are different facts, and a
+  // panel that rendered nothing for both would hide the first behind the second.
+  useEffect(() => {
+    if (live !== null || row.sessionId !== sessionId) {
+      setPast(null);
+      setPastRefusal(null);
+      return;
+    }
+    const abort = new AbortController();
+    let current = true;
+    setPastRefusal(null);
+    readLatestJudgedStop(sessionId, abort.signal)
+      .then((found) => {
+        if (current) setPast(found);
+      })
+      .catch((err) => {
+        if (abort.signal.aborted || !current) return;
+        setPast(null);
+        setPastRefusal(
+          err instanceof GatewayError && err.serverReason
+            ? err.serverReason
+            : gatewayErrorMessage(err, "read what the Wingman said about this session"),
+        );
+      });
+    return () => {
+      current = false;
+      abort.abort();
+    };
+  }, [sessionId, live, row.sessionId]);
+
+  if (row.sessionId !== sessionId) return null;
+
+  if (verdict === null) {
+    if (pastRefusal === null) return null;
+    return (
+      <section className="verdict-panel" aria-label="Wingman verdict">
+        <div className="verdict-refusal" role="alert">
+          {pastRefusal}
+        </div>
+      </section>
+    );
+  }
+
+  // Everything the answer route needs is true only of a verdict the ROW carries. A record read out of the
+  // history describes a screen that has moved on, so the panel offers no answer on it - one decision, made
+  // here, rather than a condition on each control below.
+  const answerable = live !== null;
 
   const menu = verdict.menu ?? null;
   const options = verdict.options ?? [];
@@ -87,8 +174,32 @@ export function VerdictPanel({ sessionId, session, onReportWrong, compact = fals
   const toggle = (index: number) =>
     setPicked((cur) => (cur.includes(index) ? cur.filter((i) => i !== index) : [...cur, index]));
 
+  const report = async () => {
+    if (reportBusy || !sessionId || correctWord === "") return;
+    setReportBusy(true);
+    setReportRefusal(null);
+    setReported(null);
+    try {
+      const result = await reportTurnVerdictWrong(sessionId, verdict.verdictId, correctWord, note);
+      setReported(result.reason);
+      setReporting(false);
+      onReported?.(verdict, correctWord);
+    } catch (err) {
+      setReportRefusal(
+        err instanceof GatewayError && err.serverReason
+          ? err.serverReason
+          : gatewayErrorMessage(err, "report that verdict wrong"),
+      );
+    } finally {
+      setReportBusy(false);
+    }
+  };
+
   return (
-    <section className="verdict-panel" aria-label="Wingman verdict">
+    <section
+      className={`verdict-panel${answerable ? "" : " verdict-panel-past"}`}
+      aria-label={answerable ? "Wingman verdict" : "Wingman verdict, superseded"}
+    >
       {verdict.risk && verdict.risk !== "none" && (
         <div className="verdict-risk" role="note">
           Risk: {verdict.risk}
@@ -96,7 +207,12 @@ export function VerdictPanel({ sessionId, session, onReportWrong, compact = fals
       )}
 
       {verdict.evidence && (
-        <details className="verdict-receipt" open={!compact}>
+        /* TWO REASONS TO START IT CLOSED, and they are different reasons. `compact` is the phone's Chat tab,
+            where the receipt quotes the agent's last reply and that reply is also the top of the conversation
+            immediately below. `!answerable` is a record read out of the history: the session has moved on, and
+            what is being shown is what the Wingman SAID rather than what it is waiting on. Either one closes
+            it; it is one tap to open, and nothing is removed. */
+        <details className="verdict-receipt" open={answerable && !compact}>
           <summary>{agentName} said</summary>
           <blockquote className="verdict-evidence">{verdict.evidence}</blockquote>
         </details>
@@ -105,9 +221,9 @@ export function VerdictPanel({ sessionId, session, onReportWrong, compact = fals
       <div className="verdict-label">{verdict.label}</div>
       {verdict.summary && <p className="verdict-summary">{verdict.summary}</p>}
 
-      {menu?.question && <div className="verdict-question">{menu.question}</div>}
+      {answerable && menu?.question && <div className="verdict-question">{menu.question}</div>}
 
-      {options.length > 0 && (
+      {answerable && options.length > 0 && (
         <ul className="verdict-options">
           {options.map((option, index) => (
             <li className="verdict-option" key={index}>
@@ -127,7 +243,7 @@ export function VerdictPanel({ sessionId, session, onReportWrong, compact = fals
         </ul>
       )}
 
-      {multiple && options.length > 0 && (
+      {answerable && multiple && options.length > 0 && (
         <button
           type="button"
           className="verdict-send"
@@ -138,7 +254,7 @@ export function VerdictPanel({ sessionId, session, onReportWrong, compact = fals
         </button>
       )}
 
-      {parkedReply && (
+      {answerable && parkedReply && (
         <button type="button" className="verdict-send" disabled={busy} onClick={() => void send([])}>
           Send the typed reply
         </button>
@@ -156,16 +272,79 @@ export function VerdictPanel({ sessionId, session, onReportWrong, compact = fals
         </div>
       )}
 
+      {!answerable && (
+        <p className="verdict-superseded" role="note">
+          This session has gone back to work, so this is the last thing the Wingman said about it rather than
+          what it is waiting on now. It can still be reported wrong.
+        </p>
+      )}
+
       <div className="verdict-actions">
         <button
           type="button"
           className="verdict-wrong"
-          disabled={onReportWrong === undefined}
-          onClick={() => onReportWrong?.(verdict)}
+          aria-expanded={reporting}
+          disabled={reportBusy}
+          onClick={() => setReporting((open) => !open)}
         >
           This is wrong
         </button>
       </div>
+
+      {reporting && (
+        <div className="verdict-report">
+          <label className="verdict-report-label" htmlFor={`verdict-correct-${verdict.verdictId}`}>
+            What should it have said?
+          </label>
+          <select
+            id={`verdict-correct-${verdict.verdictId}`}
+            className="verdict-report-word"
+            value={correctWord}
+            disabled={reportBusy}
+            onChange={(event) => setCorrectWord(event.target.value)}
+          >
+            <option value="">Choose a verdict</option>
+            {VERDICT_WORDS.map((word) => (
+              <option key={word} value={word}>
+                {word}
+              </option>
+            ))}
+          </select>
+
+          <label className="verdict-report-label" htmlFor={`verdict-note-${verdict.verdictId}`}>
+            Anything to add (optional)
+          </label>
+          <textarea
+            id={`verdict-note-${verdict.verdictId}`}
+            className="verdict-report-note"
+            value={note}
+            rows={2}
+            disabled={reportBusy}
+            onChange={(event) => setNote(event.target.value)}
+          />
+
+          <button
+            type="button"
+            className="verdict-send"
+            disabled={reportBusy || correctWord === ""}
+            onClick={() => void report()}
+          >
+            Send the correction
+          </button>
+        </div>
+      )}
+
+      {reportBusy && <div className="verdict-busy" role="status">Recording...</div>}
+      {reportRefusal !== null && (
+        <div className="verdict-refusal" role="alert">
+          {reportRefusal}
+        </div>
+      )}
+      {reported !== null && (
+        <div className="verdict-sent" role="status">
+          {reported}
+        </div>
+      )}
     </section>
   );
 }

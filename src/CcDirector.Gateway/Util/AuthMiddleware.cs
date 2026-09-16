@@ -1,4 +1,4 @@
-using CcDirector.Core.Utilities;
+﻿using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Cockpit;
 using CcDirector.Gateway.Pairing;
@@ -199,6 +199,13 @@ internal static class AuthMiddleware
         // session or terminal content, only an account id, the email already recorded at mint time, and the
         // machines.
         Api.AdminAccountLookupEndpoint.Path,
+        // The administrator read of the corrections people made to the Wingman's verdicts (the
+        // Wingman-on-every-turn mission, slice G), exempt for the same reason and behind the same gate: the
+        // daily corpus pull is a job with no device key on this Gateway. It names ONE account - a blank one is
+        // refused rather than read as the fleet - and it returns one closed verdict word, two moments, two
+        // identifiers and the note the person typed. No screen, no reply, no label, no summary: the line the
+        // turn-log switch draws holds here too, so an exempted route cannot dredge a terminal out of an account.
+        Api.AdminTurnVerdictFeedbackEndpoint.Path,
     };
 
     /// <summary>

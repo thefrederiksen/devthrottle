@@ -39,6 +39,10 @@ export interface TurnVerdict {
   options: TurnVerdictOption[];
   risk: string;
   failed?: boolean;
+  /** When this verdict stopped describing the screen it was formed on, or null/absent while it still does. Only
+   *  the history read ever carries it: the latest read and the roster fold never return a superseded record at
+   *  all, so a verdict with this set came from the history. */
+  supersededAtUtc?: string | null;
 }
 
 /** The stamped row fields the panel reads, augmented onto the generated session type. */
@@ -80,4 +84,72 @@ export async function answerTurnVerdict(
   }
   const body = (await res.json()) as Partial<TurnVerdictAnswerResult>;
   return { accepted: body.accepted === true, code: body.code ?? "", reason: body.reason ?? "" };
+}
+
+/** What the feedback route did. `reason` is the Gateway's sentence for the owner, shown as it is. */
+export interface TurnVerdictFeedbackResult {
+  accepted: boolean;
+  code: string;
+  reason: string;
+}
+
+/**
+ * POST /sessions/{sid}/turn-verdict/feedback - the owner saying a verdict was WRONG, and which word he thinks was
+ * right. It reaches the labelled corpus as an owner label, which outranks two reviewers agreeing.
+ *
+ * The verdict it names is usually SUPERSEDED by the time this is sent: answering a red row puts the session back
+ * to work, and that is what supersedes it. The route accepts that on purpose - it is the ordinary case, not an
+ * edge - and it is the reason the record is now kept rather than deleted.
+ *
+ * Resolves with the route's answer when the correction was stored. Throws a GatewayError on every refusal; the
+ * route's sentence is on its `serverReason`, and the panel shows it verbatim.
+ */
+export async function reportTurnVerdictWrong(
+  sessionId: string,
+  verdictId: string,
+  correctVerdict: string,
+  note: string,
+  signal?: AbortSignal,
+): Promise<TurnVerdictFeedbackResult> {
+  const sid = encodeURIComponent(sessionId);
+  const res = await gatewayFetch(`/sessions/${sid}/turn-verdict/feedback`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json", ...authHeaders() },
+    body: JSON.stringify({ verdictId, correctVerdict, note }),
+    signal,
+  });
+  if (!res.ok) {
+    throw await GatewayError.from(res, "report that verdict wrong");
+  }
+  const body = (await res.json()) as Partial<TurnVerdictFeedbackResult>;
+  return { accepted: body.accepted === true, code: body.code ?? "", reason: body.reason ?? "" };
+}
+
+/**
+ * GET /sessions/{sid}/turn-verdicts?count=1 - the newest judged stop this session has, SUPERSEDED OR NOT.
+ *
+ * This is the read that keeps a correction reachable. Answering a red row is what puts the session back to work,
+ * and working is what supersedes the verdict - so by the time the owner thinks "that was never a question", the
+ * row carries no verdict any more and the latest read answers null. The history keeps it, which is what slice G
+ * stopped deleting, and the panel reports it wrong from here.
+ *
+ * Resolves with the newest record, or null when this session has never been judged. Throws a GatewayError when
+ * the read itself was refused, so a failure is never read as "nothing to show".
+ */
+export async function readLatestJudgedStop(
+  sessionId: string,
+  signal?: AbortSignal,
+): Promise<TurnVerdict | null> {
+  const sid = encodeURIComponent(sessionId);
+  const res = await gatewayFetch(`/sessions/${sid}/turn-verdicts?count=1`, {
+    method: "GET",
+    headers: { Accept: "application/json", ...authHeaders() },
+    signal,
+  });
+  if (!res.ok) {
+    throw await GatewayError.from(res, "read what the Wingman said about this session");
+  }
+  const body = (await res.json()) as { verdicts?: TurnVerdict[] | null };
+  const rows = body.verdicts ?? [];
+  return rows.length > 0 ? rows[0] : null;
 }
