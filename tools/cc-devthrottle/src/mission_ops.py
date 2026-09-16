@@ -245,7 +245,9 @@ def create_mission(name: str) -> None:
             ["cc-devthrottle mission list"],
         )
 
-    label = _field(resp, "missionName", "MissionName") or name
+    label = axi_cli.confirmed(
+        resp, ("missionName", "MissionName"), f"creating mission {mid}", ["cc-devthrottle mission list"],
+    )
     console.print(f"[green]Created[/green] mission ({axi_cli.shown(label)}).")
     console.print(f"id: {mid}")
     axi_cli.print_next([
@@ -533,11 +535,24 @@ def _patch_mission(mission_query: str, body: Dict[str, Any], command_name: str) 
         )
 
     # The changed mission is what every report below names; an answer without it cannot say what happened.
-    if not _patched_mission(resp):
+    changed = _patched_mission(resp)
+    what = f"{command_name} mission {mission_id}"
+    check = ["cc-devthrottle mission list --all"]
+    if not changed:
         axi_cli.fail(
-            f"the Gateway's answer to {command_name} mission {mission_id} did not include the mission, "
-            "so whether it changed is unknown.",
-            ["cc-devthrottle mission list --all"],
+            f"the Gateway's answer to {what} did not include the mission, so whether it changed is unknown.",
+            check,
+        )
+    # Every value the command reports is read from the returned mission, so each one asked for must be
+    # there and must be what was asked: the id of this mission, and the new name or state.
+    axi_cli.confirmed(
+        changed, ("missionId", "MissionId"), what, check,
+        accept=lambda v: isinstance(v, str) and v.lower() == mission_id.lower(),
+    )
+    for key, wanted in body.items():
+        axi_cli.confirmed(
+            changed, (key, key[:1].upper() + key[1:]), what, check,
+            accept=lambda v, wanted=wanted: isinstance(v, str) and v.strip() == str(wanted).strip(),
         )
     resp["_before"] = mission
     return resp
@@ -570,7 +585,7 @@ def rename_mission(mission_query: str, new_name: str) -> None:
 
     resp = _patch_mission(mission_query, {"missionName": new_name}, "rename")
     before = _field(resp.get("_before", {}), "missionName", "MissionName") or "(unnamed)"
-    after = _field(_patched_mission(resp), "missionName", "MissionName") or new_name.strip()
+    after = _field(_patched_mission(resp), "missionName", "MissionName")
     mid = _field(resp.get("_before", {}), "missionId", "MissionId")
 
     # NAME THE OLD NAME. A rename that reports only the new one hides which mission moved, which is
@@ -589,7 +604,7 @@ def end_mission(mission_query: str, state: str) -> None:
     resp = _patch_mission(mission_query, {"state": state}, "complete" if state == "complete" else "remove")
     mission = _patched_mission(resp)
     name = _field(mission, "missionName", "MissionName") or "(unnamed)"
-    mid = _field(mission, "missionId", "MissionId") or _field(resp["_before"], "missionId", "MissionId")
+    mid = _field(mission, "missionId", "MissionId")
 
     verb = "Completed" if state == "complete" else "Removed"
     console.print(f"[green]{verb}[/green] mission {axi_cli.shown(name)} ({mid}).")
@@ -610,7 +625,7 @@ def reopen_mission(mission_query: str) -> None:
     resp = _patch_mission(mission_query, {"state": "active"}, "reopen")
     mission = _patched_mission(resp)
     name = _field(mission, "missionName", "MissionName") or "(unnamed)"
-    mid = _field(mission, "missionId", "MissionId") or _field(resp["_before"], "missionId", "MissionId")
+    mid = _field(mission, "missionId", "MissionId")
     console.print(f"[green]Reopened[/green] mission {axi_cli.shown(name)} ({mid}). It is back in the default list.")
     _print_patch_note(resp)
     axi_cli.print_next([
@@ -686,10 +701,33 @@ def _apply_mission(session_id: str, mission_id: Optional[str]) -> Dict[str, Any]
             "the Gateway's answer was not a mission change, so whether the session moved is unknown."
         )
     session = resp.get("session", resp.get("Session"))
-    if isinstance(session, dict):
-        for key in ("workflowId", "WorkflowId", "workflowVersion", "WorkflowVersion"):
-            if key in session and key not in resp:
-                resp[key] = session[key]
+    # The returned session row is the confirmation: it must be this session, now carrying the mission
+    # asked for - or none, on a detach. {} or a row without the session says nothing happened.
+    what = "attach" if mission_id else "detach"
+    if not isinstance(session, dict):
+        raise gateway.GatewayError(
+            f"the Gateway's answer to the {what} did not include the session, so whether it moved is unknown."
+        )
+    returned_sid = session.get("sessionId", session.get("SessionId"))
+    if not isinstance(returned_sid, str) or returned_sid.lower() != session_id.lower():
+        raise gateway.GatewayError(
+            f"the Gateway's answer to the {what} named session {returned_sid!r}, not {session_id}, "
+            "so whether the session moved is unknown."
+        )
+    returned_mid = session.get("missionId", session.get("MissionId"))
+    if mission_id and not (isinstance(returned_mid, str) and returned_mid.lower() == mission_id.lower()):
+        raise gateway.GatewayError(
+            f"the Gateway's answer to the attach gave the session mission {returned_mid!r}, not {mission_id}, "
+            "so the session was not attached."
+        )
+    if not mission_id and returned_mid:
+        raise gateway.GatewayError(
+            f"the Gateway's answer to the detach still gives the session mission {returned_mid}, "
+            "so the session was not detached."
+        )
+    for key in ("workflowId", "WorkflowId", "workflowVersion", "WorkflowVersion"):
+        if key in session and key not in resp:
+            resp[key] = session[key]
     return resp
 
 

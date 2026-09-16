@@ -773,6 +773,15 @@ def launch(machine: str, app: Optional[str], path: Optional[str], args: Optional
             [f"cc-devthrottle machine apps {axi_cli.bare(machine, '<machine>')}"],
         )
 
+    # The Gateway relays the launch and answers with the launcher's own status (a RelayResult). That
+    # status is the only word that the launcher took the request: an answer without a success status -
+    # {} included - cannot be reported as started.
+    axi_cli.confirmed(
+        payload, ("relayStatus", "RelayStatus"), f"starting {what} on {machine}",
+        [f"cc-devthrottle machine apps {axi_cli.bare(machine, '<machine>')}"],
+        accept=lambda v: isinstance(v, int) and not isinstance(v, bool) and 200 <= v < 300,
+    )
+
     if json_output:
         print(json.dumps(payload, indent=2))
         return

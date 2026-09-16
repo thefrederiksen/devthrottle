@@ -1159,8 +1159,10 @@ OPTIONS:
   --timeout-ms INTEGER  How long the ask step waits for the responder (default 25000)
 ```
 
-Spawns two throwaway sessions, lists them, sends to one, asks the other, tears them down, and prints
-PASS/FAIL.
+Spawns two throwaway sessions, lists them, sends to one, asks the other, flags both for deletion, and
+prints PASS/FAIL. The last check passes when the Director accepts both deletion flags. The sessions
+stay listed until the Director removes them, after its 30-second grace period, on its next 30-second
+reaper sweep.
 
 ### Settings
 

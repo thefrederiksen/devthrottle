@@ -63,6 +63,18 @@ UNRELATED = {"sessionId": "sess-elsewhere", "name": "Something else entirely"}
 ROSTER = [ARCHITECT, MANAGER, WORKER_ONE, WORKER_TWO, UNRELATED]
 
 
+def _gateway_answer(flat):
+    """The Gateway's MissionAttachResultDto for a flat description: the session row (its id and the
+    mission it now carries) under `session`, and everything else beside it."""
+    answer = {k: v for k, v in flat.items() if k not in ("sessionId", "missionId", "missionName", "applied")}
+    answer["session"] = {
+        "sessionId": flat["sessionId"],
+        "missionId": flat.get("missionId"),
+        "missionName": flat.get("missionName"),
+    }
+    return answer
+
+
 @pytest.fixture
 def wired(monkeypatch):
     """Stub the Gateway mission list, the fleet roster, and the Director post; record every call."""
@@ -74,14 +86,14 @@ def wired(monkeypatch):
         m = re.fullmatch(r"sessions/([^/]+)/mission", path)
         assert m, f"unexpected path {path}"
         calls.append({"toSessionId": m.group(1), **body})
-        return {
+        return _gateway_answer({
             "applied": True,
             "sessionId": m.group(1),
             "missionId": body.get("missionId"),
             "missionName": "Release 1.9.4" if body.get("missionId") else None,
             "previousMissionId": OTHER_MISSION_ID,
             "previousMissionName": "Voice cleanup",
-        }
+        })
 
     # list_all now takes a state filter (missions can be completed or removed); the resolver asks
     # for "all" so an ended mission can still be renamed or reopened.
@@ -178,7 +190,7 @@ def test_detaching_a_session_that_had_no_mission_says_nothing_changed(monkeypatc
     monkeypatch.setattr(session_ops.gateway, "get_fleet", lambda: (list(ROSTER), True, None, None))
     monkeypatch.setattr(
         session_ops.gateway, "post_json",
-        lambda path, body, timeout=30: {"applied": True, "sessionId": path.split("/")[1]},
+        lambda path, body, timeout=30: _gateway_answer({"applied": True, "sessionId": path.split("/")[1]}),
     )
 
     mission_ops.detach_session("sess-manager")
@@ -217,8 +229,8 @@ def test_a_remote_attach_still_reports_the_mission_it_left(monkeypatch, capsys, 
     monkeypatch.setattr(
         session_ops.gateway, "post_json",
         # The relay response: applied, but carrying no previous attachment.
-        lambda path, body, timeout=30: {"applied": True, "sessionId": path.split("/")[1],
-                                        "missionId": body.get("missionId")},
+        lambda path, body, timeout=30: _gateway_answer({"applied": True, "sessionId": path.split("/")[1],
+                                                         "missionId": body.get("missionId")}),
     )
 
     mission_ops.attach_session("sess-manager", MISSION_ID, with_children=False)
@@ -244,7 +256,7 @@ def _wire(monkeypatch, response):
     monkeypatch.setattr(mission_ops.MissionClient, "__init__", lambda self, base_url=None: None)
     monkeypatch.setattr(session_ops.gateway, "get_fleet", lambda: (list(ROSTER), True, None, None))
     monkeypatch.setattr(
-        session_ops.gateway, "post_json", lambda path, body, timeout=30: dict(response)
+        session_ops.gateway, "post_json", lambda path, body, timeout=30: _gateway_answer(response)
     )
 
 

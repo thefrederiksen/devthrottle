@@ -590,6 +590,31 @@ def whoami() -> None:
 _CHECK_SESSION = ["cc-devthrottle session list", axi_cli.CHECK_GATEWAY]
 
 
+def _is_true(value: Any) -> bool:
+    return value is True
+
+
+def _is_false(value: Any) -> bool:
+    return value is False
+
+
+def _same_session(sid: str) -> Any:
+    """Accepts the answer's session id only when it is the session the change was sent to."""
+    return lambda value: isinstance(value, str) and value.lower() == sid.lower()
+
+
+def _accepted_or_fail(resp: Any, what: str, next_commands: List[str]) -> None:
+    """A prompt-shaped answer (accepted, error) must say accepted: true. A refusal is reported in the
+    Gateway's own words; an answer with no verdict at all is reported as unknown."""
+    if isinstance(resp, dict) and resp.get("accepted", resp.get("Accepted")) is False:
+        err = resp.get("error") or resp.get("Error")
+        axi_cli.fail(
+            f"{what} was not accepted: {err}" if err else f"{what} was not accepted, and the Gateway gave no reason.",
+            next_commands,
+        )
+    axi_cli.confirmed(resp, ("accepted", "Accepted"), what, next_commands, accept=_is_true)
+
+
 def rename_session(target: Optional[str], new_name: str) -> Dict[str, Any]:
     """Rename a target session, defaulting to the current session."""
     name = new_name.strip()
@@ -606,14 +631,11 @@ def rename_session(target: Optional[str], new_name: str) -> Dict[str, Any]:
     except gateway.GatewayError as err:
         axi_cli.fail(f"could not rename session {sid}: {err}", _CHECK_SESSION)
 
-    if not isinstance(resp, dict):
-        axi_cli.fail(
-            f"the Gateway did not return the renamed session {sid}, so whether the rename happened is unknown.",
-            _CHECK_SESSION,
-        )
-
-    actual = gateway.field(resp, "name", "Name") or name
-    actual_sid = gateway.field(resp, "sessionId", "SessionId") or sid
+    # The answer is the renamed row. Both values are read from it, never from what was asked: an answer
+    # without them - {} included - cannot say the rename happened.
+    what = f"the rename of session {sid}"
+    actual_sid = axi_cli.confirmed(resp, ("sessionId", "SessionId"), what, _CHECK_SESSION, accept=_same_session(sid))
+    actual = axi_cli.confirmed(resp, ("name", "Name"), what, _CHECK_SESSION)
     console.print(f'[green]Renamed[/green] {actual_sid} to "{axi_cli.shown(actual)}".')
     axi_cli.print_next([
         "cc-devthrottle session list",
@@ -640,6 +662,10 @@ def prompt_session(target: str, text: str, no_submit: bool = False) -> Dict[str,
         )
     except gateway.GatewayError as err:
         axi_cli.fail(f"could not send the prompt to session {sid}: {err}", _CHECK_SESSION)
+    # A 200 can still carry accepted: false - a menu on the screen blocks typing - so the verdict is read.
+    _accepted_or_fail(resp, f"the prompt to session {sid}", [
+        f"cc-devthrottle session buffer {axi_cli.bare(sid, '<session-id>')}", *_CHECK_SESSION,
+    ])
     console.print(f"[green]Sent[/green] prompt to {sid}.")
     axi_cli.print_next([
         f"cc-devthrottle session buffer {axi_cli.bare(sid, '<session-id>')}",
@@ -655,6 +681,9 @@ def interrupt_session(target: Optional[str]) -> Dict[str, Any]:
         resp = gateway.post_json(f"sessions/{sid}/interrupt")
     except gateway.GatewayError as err:
         axi_cli.fail(f"could not interrupt session {sid}: {err}", _CHECK_SESSION)
+    _accepted_or_fail(resp, f"the interrupt of session {sid}", [
+        f"cc-devthrottle session buffer {axi_cli.bare(sid, '<session-id>')}", *_CHECK_SESSION,
+    ])
     console.print(f"[green]Interrupted[/green] {sid}.")
     axi_cli.print_next([
         f"cc-devthrottle session buffer {axi_cli.bare(sid, '<session-id>')}",
@@ -694,7 +723,19 @@ def hold_session(target: Optional[str], release: bool = False, minutes: Optional
 
     # READ STRAIGHT OFF THE DICT: gateway.field stringifies, and str(False) is "False", which is truthy -
     # so a hold that was applied at once would have been reported as queued.
-    pending = isinstance(resp, dict) and resp.get("pending", resp.get("Pending")) is True
+    # The answer says where the hold now stands: onHold, and pending for a hold that waits for the turn
+    # to end. A release is confirmed by onHold: false; a hold by onHold: true or pending: true.
+    what = f"the {'release' if release else 'hold'} of session {sid}"
+    on_hold = axi_cli.confirmed(
+        resp, ("onHold", "OnHold"), what, _CHECK_SESSION, accept=lambda v: isinstance(v, bool),
+    )
+    pending = resp.get("pending", resp.get("Pending")) is True
+    if release == (on_hold or pending):
+        axi_cli.fail(
+            f"the Gateway's answer to {what} says onHold is {str(on_hold).lower()} and pending is "
+            f"{str(pending).lower()}, so the session was not {'released' if release else 'held'}.",
+            _CHECK_SESSION,
+        )
     if release:
         console.print(f"[green]Released[/green] {sid} - no longer held.")
         axi_cli.print_next([
@@ -751,6 +792,10 @@ def raise_hand(reason: Optional[str], target: Optional[str] = None, clear: bool 
     except gateway.GatewayError as err:
         what = "lower the hand of" if clear else "raise the hand of"
         axi_cli.fail(f"could not {what} session {sid}: {err}", _CHECK_SESSION)
+
+    change = f"{'lowering' if clear else 'raising'} the hand of session {sid}"
+    axi_cli.confirmed(resp, ("sessionId", "SessionId"), change, _CHECK_SESSION, accept=_same_session(sid))
+    axi_cli.confirmed(resp, ("raised", "Raised"), change, _CHECK_SESSION, accept=_is_false if clear else _is_true)
 
     target_flag = f" --target {axi_cli.bare(sid, '<session-id>')}" if target is not None and target.strip() else ""
     if clear:
@@ -950,7 +995,13 @@ def compact_session(target: Optional[str], continue_prompt: Optional[str]) -> Di
             [f"cc-devthrottle session buffer {axi_cli.bare(sid, '<session-id>')}"],
         )
 
-    body = resp if isinstance(resp, dict) else {}
+    # submitted is the Director's word that the compaction was sent at all; without it nothing happened
+    # that this can report, not even "submitted".
+    axi_cli.confirmed(
+        resp, ("submitted", "Submitted"), f"compacting session {sid}",
+        [f"cc-devthrottle session buffer {axi_cli.bare(sid, '<session-id>')}"], accept=_is_true,
+    )
+    body = resp
     detail = gateway.field(body, "detail", "Detail")
     # Read the flag as a BOOLEAN, not through gateway.field: that helper stringifies, and str(False) is
     # "False" - a truthy string. Routed through it, a compaction nobody watched would be announced as
@@ -1026,14 +1077,18 @@ def set_session_role(target: Optional[str], role: Optional[str]) -> Dict[str, An
             [f"cc-devthrottle session role {axi_cli.bare(sid, '<session-id>')} <Standalone|Manager|Worker|Architect|none>", *_CHECK_SESSION],
         )
 
-    if not isinstance(resp, dict):
+    # The answer is the session's row. Its id says the row is this session; its explicitRole must be the
+    # role asked for, or absent when the role was cleared. An answer without the id - {} included - would
+    # otherwise read as "Role cleared", whatever was asked.
+    what = f"setting the role of session {sid}"
+    actual_sid = axi_cli.confirmed(resp, ("sessionId", "SessionId"), what, _CHECK_SESSION, accept=_same_session(sid))
+    explicit = gateway.field(resp, "explicitRole", "ExplicitRole")
+    if explicit.lower() != wanted.lower():
         axi_cli.fail(
-            f"the Gateway did not return the role of session {sid}, so whether it changed is unknown.",
+            f"the Gateway's answer to {what} gave the explicit role {explicit or 'none'}, not "
+            f"{wanted or 'none'}, so the role was not changed as asked.",
             _CHECK_SESSION,
         )
-
-    actual_sid = gateway.field(resp, "sessionId", "SessionId") or sid
-    explicit = gateway.field(resp, "explicitRole", "ExplicitRole")
     # Only the explicit role is reported: Worker/Manager derivation needs the fleet-wide spawn graph, which
     # lives in the Gateway, so the effective role is read from `session list`, not returned here.
     if explicit:
@@ -1061,13 +1116,17 @@ def mark_done(target: Optional[str], reason: Optional[str]) -> Dict[str, Any]:
         resp = gateway.post_json(f"sessions/{sid}/request-deletion", body)
     except gateway.GatewayError as err:
         axi_cli.fail(f"could not flag session {sid} for deletion: {err}", _CHECK_SESSION)
+    axi_cli.confirmed(
+        resp, ("pendingDeletion", "PendingDeletion"), f"flagging session {sid} for deletion",
+        _CHECK_SESSION, accept=_is_true,
+    )
 
     console.print(
         f"[green]Marked[/green] {sid} for deletion; "
         "the Director will reap it shortly."
     )
     axi_cli.print_next([f"cc-devthrottle session done {axi_cli.bare(sid, '<session-id>')} --undo", "cc-devthrottle session list"])
-    return resp if isinstance(resp, dict) else {}
+    return resp
 
 
 def undo_done(target: Optional[str], reason: Optional[str] = None) -> Dict[str, Any]:
@@ -1101,6 +1160,10 @@ def undo_done(target: Optional[str], reason: Optional[str] = None) -> Dict[str, 
         # Plain text to standard error: the server's sentence can quote a path or a fragment of another
         # session's output, and a token shaped like [/tmp/x] once raised MarkupError from this branch.
         axi_cli.fail(f"could not clear the deletion flag on session {sid}: {err}", _CHECK_SESSION)
+    axi_cli.confirmed(
+        resp, ("pendingDeletion", "PendingDeletion"), f"clearing the deletion flag on session {sid}",
+        _CHECK_SESSION, accept=_is_false,
+    )
 
     console.print(
         f"[green]Cleared[/green] {sid} is no longer marked for deletion.", soft_wrap=True
@@ -1456,11 +1519,11 @@ def ask_session(target: str, question: str, timeout_ms: int) -> None:
             [f"cc-devthrottle session buffer {axi_cli.bare(target_sid, '<session-id>')}"],
         )
 
-    if not isinstance(resp, dict):
-        axi_cli.fail(
-            f"the Gateway's answer for session {target_sid} was not an answer object, so no reply can be shown.",
-            [f"cc-devthrottle session buffer {axi_cli.bare(target_sid, '<session-id>')}"],
-        )
+    # The question was delivered only if the answer says accepted: true, and the wait happened only if
+    # it names how the wait ended. Without both, "(the target produced no output)" would be a guess.
+    ask_next = [f"cc-devthrottle session buffer {axi_cli.bare(target_sid, '<session-id>')}"]
+    _accepted_or_fail(resp, f"the question to session {target_sid}", ask_next)
+    axi_cli.confirmed(resp, ("waitStatus", "WaitStatus"), f"the question to session {target_sid}", ask_next)
     answer = gateway.field(resp, "output", "Output").strip()
     name = gateway.field(chosen, "name", "Name") or gateway.short_id(target_sid)
     console.print(f"[dim]-- answer from {axi_cli.shown(name)} ({target_sid}) --[/dim]")
@@ -1860,6 +1923,14 @@ def _runs_on_windows() -> bool:
     return sys.platform.startswith("win")
 
 
+#: When a flagged throwaway actually leaves the roster, read from SessionManager on the Director: a
+#: 30-second grace period, then the next 30-second reaper sweep. Printed, never waited for.
+SELFTEST_REMOVAL_NOTE = (
+    "the Director removes them after its 30-second grace period, on its next reaper sweep "
+    "(every 30 seconds), so within about a minute"
+)
+
+
 def selftest(timeout_ms: int) -> None:
     """Run the fleet messaging self-test against the local Director."""
     # The responder sessions are Windows command prompts (cmd /k prompt ...), and they start on THIS
@@ -1925,22 +1996,33 @@ def selftest(timeout_ms: int) -> None:
     except gateway.GatewayError as err:
         record("fleet messaging reachable", False, str(err))
     finally:
+        # request-deletion, not a hard DELETE: that is the verb an agent credential may call, and it is
+        # what `session done` uses. What this can check at once is that each flag was ACCEPTED - the
+        # Director answers pendingDeletion: true. Removal from the roster is not immediate and is not
+        # checked here: the Director keeps a flagged session for its grace period and removes it on its
+        # next reaper sweep (SessionManager.DeletionGraceMs and DeletionReaperIntervalMs, 30 seconds
+        # each), so a roster read a second later still lists both, correctly.
+        flagged = 0
+        wanted = 0
         for sid in (responder, recipient):
-            if sid:
-                try:
-                    # request-deletion, not a hard DELETE: that is the verb an agent credential may
-                    # call, and it is what `session done` uses. The reaper removes the session within
-                    # about a minute, which is why the check below allows for a grace period.
-                    gateway.post_json(f"sessions/{sid}/request-deletion", {})
-                except gateway.GatewayError as err:
-                    record(f"flag throwaway {sid} for deletion", False, str(err))
-        try:
-            time.sleep(1)
-            remaining = _fleet_ids()
-            leaked = [s for s in (responder, recipient) if s and s in remaining]
-            record("throwaway sessions cleaned up", not leaked, "" if not leaked else f"leaked {len(leaked)}")
-        except gateway.GatewayError as err:
-            record("throwaway sessions cleaned up", False, str(err))
+            if not sid:
+                continue
+            wanted += 1
+            try:
+                resp = gateway.post_json(f"sessions/{sid}/request-deletion", {})
+            except gateway.GatewayError as err:
+                record(f"flag throwaway {sid} for deletion", False, str(err))
+                continue
+            if isinstance(resp, dict) and resp.get("pendingDeletion", resp.get("PendingDeletion")) is True:
+                flagged += 1
+            else:
+                record(f"flag throwaway {sid} for deletion", False, "the answer did not say pendingDeletion: true")
+        if wanted:
+            record(
+                "throwaway sessions flagged for deletion",
+                flagged == wanted,
+                f"{flagged}/{wanted} accepted; {SELFTEST_REMOVAL_NOTE}",
+            )
 
     passed = sum(1 for _, ok, _ in results if ok)
     total = len(results)

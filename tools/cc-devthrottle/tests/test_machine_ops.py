@@ -171,7 +171,8 @@ def test_launch_by_name_posts_the_application_to_the_right_machine(monkeypatch):
     def fake_post(path, body, timeout=30):
         captured["path"] = path
         captured["body"] = body
-        return {"ok": True}
+        # The Gateway's RelayResult (MachineEndpoints.cs): the launcher's status and its answer as text.
+        return {"machine": "SOREN_NORTH", "verb": "launch", "relayStatus": 200, "payload": "{}"}
 
     monkeypatch.setattr(machine_ops.gateway, "post_json", fake_post)
 

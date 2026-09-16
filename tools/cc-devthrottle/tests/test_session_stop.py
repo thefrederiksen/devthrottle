@@ -486,7 +486,7 @@ def delete_stub(monkeypatch):
 
 
 def test_undo_calls_the_cancel_route_for_this_session_and_needs_no_reason(delete_stub, plain):
-    calls = delete_stub({"cancelled": True})
+    calls = delete_stub({"pendingDeletion": False})
 
     result = runner.invoke(app, ["session", "done", "--undo"])
 
@@ -496,7 +496,7 @@ def test_undo_calls_the_cancel_route_for_this_session_and_needs_no_reason(delete
 
 
 def test_undo_takes_an_explicit_target_too(delete_stub):
-    calls = delete_stub({"cancelled": True})
+    calls = delete_stub({"pendingDeletion": False})
 
     result = runner.invoke(app, ["session", "done", SESSION_ID, "--undo"])
 
@@ -508,7 +508,7 @@ def test_undo_does_not_post_a_deletion_request(delete_stub, monkeypatch):
     # The two directions share a route name, and confusing them would be catastrophic in the one
     # direction that matters: an --undo that FLAGGED the session would delete the very session the
     # caller was rescuing.
-    delete_stub({"cancelled": True})
+    delete_stub({"pendingDeletion": False})
 
     def must_not_post(path, body=None, timeout=30):
         raise AssertionError(f"--undo posted to {path} instead of clearing the flag")
@@ -523,7 +523,7 @@ def test_undo_does_not_post_a_deletion_request(delete_stub, monkeypatch):
 def test_undo_with_a_reason_is_refused_rather_than_silently_dropping_it(delete_stub, plain):
     # The decision, stated: --undo with --reason is a contradiction, and it is refused. Dropping the
     # reason would let the caller believe something was recorded that never was.
-    calls = delete_stub({"cancelled": True})
+    calls = delete_stub({"pendingDeletion": False})
 
     result = runner.invoke(app, ["session", "done", "--undo", "--reason", "changed my mind"])
 
@@ -542,7 +542,7 @@ def test_plain_done_still_flags_the_session(monkeypatch, plain):
     monkeypatch.setattr(
         session_ops.gateway,
         "post_json",
-        lambda path, body=None, timeout=30: posted.append((path, body)) or {},
+        lambda path, body=None, timeout=30: posted.append((path, body)) or {"pendingDeletion": True},
     )
 
     result = runner.invoke(app, ["session", "done", "--reason", "finished"])

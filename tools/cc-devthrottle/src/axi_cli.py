@@ -17,7 +17,8 @@ Two things every command in a group that uses this module does the same way:
 The API, in full: `bare` and `quoted` (a value, or a placeholder, for any command-looking line),
 `ascii_text` (free text made one line of ASCII), `shown` (a value made safe inside a Rich
 `console.print` line), `write_lines` and `print_next` (standard output), `warn` (standard error, no
-exit), `fail` (exit 1), `usage_error` (exit 2), `help_for`, `confirm_or_fail`, `CHECK_GATEWAY`
+exit), `fail` (exit 1), `usage_error` (exit 2), `help_for`, `confirm_or_fail`, `confirmed` (a value
+read from the Gateway's answer to a change, or exit 1 when the answer does not carry it), `CHECK_GATEWAY`
 (the next step for a failed Gateway call when nothing more specific is known), and
 `FIELDS_WITH_JSON` (the one refusal of `--fields` given with `--json`, used by every list command).
 
@@ -43,7 +44,7 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
-from typing import NoReturn, Sequence
+from typing import Any, Callable, NoReturn, Optional, Sequence
 
 import typer
 from rich.markup import escape as _markup_escape
@@ -152,6 +153,43 @@ def fail(message: str, next_commands: Sequence[str], *, label: str = "Error:") -
         axi_output.format_help(list(next_commands)),
     )
     raise typer.Exit(1)
+
+
+def confirmed(
+    answer: Any,
+    keys: Sequence[str],
+    what: str,
+    next_commands: Sequence[str],
+    *,
+    accept: Optional[Callable[[Any], bool]] = None,
+) -> Any:
+    """The value the Gateway's answer to a change gives under the first of `keys` - the proof it happened.
+
+    A change is reported from what the Gateway ANSWERED, never from what was asked. An answer that is
+    not an object, that lacks every one of `keys`, or whose value `accept` rejects cannot say the change
+    happened - `{}` included - so the command exits 1 saying so, rather than printing the requested
+    value back as if the Gateway had confirmed it. `what` names the change ("the rename of session X").
+    Without `accept`, a missing value, None and a blank string are all unconfirmed.
+    """
+    value = None
+    found = False
+    if isinstance(answer, dict):
+        for key in keys:
+            if key in answer and answer[key] is not None:
+                value, found = answer[key], True
+                break
+    if accept is None:
+        ok = found and not (isinstance(value, str) and not value.strip())
+    else:
+        ok = found and accept(value)
+    if not ok:
+        shown_value = "nothing" if not found else repr(value)
+        fail(
+            f"the Gateway's answer to {what} gave {shown_value} for {keys[0]}, so whether it changed "
+            "is unknown. Check before trying again.",
+            next_commands,
+        )
+    return value
 
 
 def usage_error(message: str) -> NoReturn:

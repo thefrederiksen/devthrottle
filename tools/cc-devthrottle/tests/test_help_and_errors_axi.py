@@ -54,7 +54,7 @@ MISSION = {"missionId": MID, "missionName": "AXI", "state": "active"}
 OTHER_MISSION = {"missionId": OTHER_MID, "missionName": "AXI two", "state": "active"}
 
 STOP_ANSWER = {"verdict": "stopped", "headline": f"stopped {SID}", "details": ["worktree is clean"]}
-LAUNCH_ANSWER = {"started": True, "processId": 4242}
+LAUNCH_ANSWER = {"machine": "MAC", "verb": "launch", "relayStatus": 200, "payload": "{\"started\":true}"}
 RESTART_ANSWER = {
     "id": "req-1", "title": "Restart MAC", "askedBySentence": "Asked by a session.",
     "liveSessionsSentence": "2 sessions are live.", "expiresAtUtc": "2026-09-16T20:00:00Z",
@@ -63,23 +63,27 @@ RESTART_ANSWER = {
 
 
 def _default_answers():
+    # The shapes the Gateway on origin/main answers with (GatewayEndpoints.cs, MachineEndpoints.cs,
+    # SessionWriteExecutor.cs): each change is confirmed from these fields, never from what was asked.
     return {
         ("PATCH", f"sessions/{SID}"): {"sessionId": SID, "name": "new name"},
         ("POST", f"sessions/{SID}/prompt"): {"accepted": True},
-        ("POST", f"sessions/{SID}/interrupt"): {},
-        ("POST", f"sessions/{SID}/hold"): {"pending": False},
-        ("POST", f"sessions/{SID}/needs-manager"): {},
+        ("POST", f"sessions/{SID}/interrupt"): {"accepted": True},
+        ("POST", f"sessions/{SID}/hold"): lambda body: {"onHold": body["onHold"], "pending": False},
+        ("POST", f"sessions/{SID}/needs-manager"): lambda body: {"sessionId": SID, "raised": body["raised"]},
         ("POST", f"sessions/{PARENT}/message"): {"accepted": True},
-        ("POST", f"sessions/{SID}/message"): {"accepted": True, "output": "the answer"},
+        ("POST", f"sessions/{SID}/message"): {"accepted": True, "output": "the answer", "waitStatus": "idle"},
         ("POST", "fleet/broadcast"): {"results": [{"sessionId": SID}, {"sessionId": PARENT}]},
-        ("POST", f"sessions/{SID}/compact-context"): {"compactionObserved": True, "detail": "Done."},
+        ("POST", f"sessions/{SID}/compact-context"): {"submitted": True, "compactionObserved": True, "detail": "Done."},
         ("POST", f"sessions/{SID}/role"): {"sessionId": SID, "explicitRole": "Worker"},
-        ("POST", f"sessions/{SID}/request-deletion"): {},
-        ("DELETE", f"sessions/{SID}/request-deletion"): {},
+        ("POST", f"sessions/{SID}/request-deletion"): {"pendingDeletion": True},
+        ("DELETE", f"sessions/{SID}/request-deletion"): {"pendingDeletion": False},
         ("POST", f"sessions/{SID}/stop"): STOP_ANSWER,
         ("POST", f"directors/{DIRECTOR}/sessions"): {"sessionId": NEW, "name": "spawned"},
-        ("POST", f"sessions/{SID}/mission"): {"session": {"sessionId": SID}, "previousMissionId": OTHER_MID,
-                                              "previousMissionName": "AXI two"},
+        ("POST", f"sessions/{SID}/mission"): lambda body: {
+            "session": {"sessionId": SID, "missionId": body.get("missionId")},
+            "previousMissionId": OTHER_MID, "previousMissionName": "AXI two",
+        },
         ("POST", "machines/MAC/launch"): LAUNCH_ANSWER,
         ("POST", "machines/MAC/director/restart-requests"): RESTART_ANSWER,
         ("GET", "directors"): [{"directorId": DIRECTOR, "displayName": "Mac", "machineName": "MAC"}],
@@ -95,6 +99,7 @@ class FakeGateway:
         self.roster = (ROSTER, True, None, None)
         self.missions = [MISSION, OTHER_MISSION]
         self.mission_patch = None  # None: echo the mission back
+        self.mission_create = None  # None: the created mission
 
     def _answer(self, method, path, body):
         self.calls.append((method, path, body))
@@ -104,6 +109,8 @@ class FakeGateway:
         answer = self.answers[key]
         if isinstance(answer, Exception):
             raise answer
+        if callable(answer):
+            return answer(body)
         return answer
 
     def get_fleet(self):
@@ -128,6 +135,8 @@ def gw(monkeypatch):
 
     def create(self, name):
         fake.calls.append(("POST", "missions", name))
+        if fake.mission_create is not None:
+            return fake.mission_create
         return dict(MISSION, missionName=name)
 
     def patch(self, mission_id, body):
@@ -314,7 +323,7 @@ def test_textLines_AreNeverWrappedAtTheConsoleWidth(gw, monkeypatch, plain):
 def test_sessionHold_PendingFalse_ReportsHeldNotQueued(gw, monkeypatch, plain):
     # The Gateway sends pending as a boolean. Read through gateway.field it became the string "False",
     # which is truthy, so every immediate hold was reported as queued.
-    gw.answers[("POST", f"sessions/{SID}/hold")] = {"pending": False}
+    gw.answers[("POST", f"sessions/{SID}/hold")] = {"onHold": True, "pending": False}
 
     result = _run(["session", "hold", SID], None, monkeypatch)
 
@@ -324,7 +333,7 @@ def test_sessionHold_PendingFalse_ReportsHeldNotQueued(gw, monkeypatch, plain):
 
 
 def test_sessionHold_PendingTrue_ReportsQueued(gw, monkeypatch, plain):
-    gw.answers[("POST", f"sessions/{SID}/hold")] = {"pending": True}
+    gw.answers[("POST", f"sessions/{SID}/hold")] = {"onHold": False, "pending": True}
 
     result = _run(["session", "hold", SID], None, monkeypatch)
 
@@ -355,7 +364,7 @@ def test_sessionRole_Cleared_OffersToSetOne(gw, monkeypatch):
 
 def test_missionDetach_NotAttached_SaysNothingChangedAndOffersAttach(gw, monkeypatch):
     gw.roster = ([dict(ROSTER[1])], True, None, None)
-    gw.answers[("POST", f"sessions/{PARENT}/mission")] = {"session": {"sessionId": PARENT}}
+    gw.answers[("POST", f"sessions/{PARENT}/mission")] = {"session": {"sessionId": PARENT, "missionId": None}}
 
     result = _run(["mission", "detach", PARENT], None, monkeypatch)
 
@@ -541,7 +550,7 @@ ERRORS = [
     ("ask gateway", ["message", "ask", SID, "q"], None, _set(**{f"POST sessions/{SID}/message": _raise("timed out")}),
      FAILURE, ["timed out", f"cc-devthrottle session buffer {SID}"]),
     ("ask no answer object", ["message", "ask", SID, "q"], None, _set(**{f"POST sessions/{SID}/message": None}),
-     FAILURE, ["not an answer", f"cc-devthrottle session buffer {SID}"]),
+     FAILURE, ["gave nothing for accepted", f"cc-devthrottle session buffer {SID}"]),
     ("mission create blank", ["mission", "create", " "], None, None, USAGE, ["blank", "mission create"]),
     ("mission rename blank", ["mission", "rename", MID, " "], None, None, USAGE, ["blank", "mission rename"]),
     ("mission blank query", ["mission", "complete", " "], None, None, USAGE, ["no mission was named", "mission list"]),
@@ -652,7 +661,7 @@ def test_error_UsageErrorsSendNothing(gw, monkeypatch):
 
 def test_missionAttach_PartialFailure_ReportsEachAndExitsOne(gw, monkeypatch, plain):
     gw.roster = ([ROSTER[1], dict(ROSTER[0], controllerSessionId=PARENT)], True, None, None)
-    gw.answers[("POST", f"sessions/{PARENT}/mission")] = {"session": {"sessionId": PARENT}}
+    gw.answers[("POST", f"sessions/{PARENT}/mission")] = {"session": {"sessionId": PARENT, "missionId": MID}}
     gw.answers[("POST", f"sessions/{SID}/mission")] = _raise("director offline")
 
     result = _run(["mission", "attach", PARENT, MID, "--with-children"], None, monkeypatch)
@@ -778,6 +787,158 @@ def test_restartCapability_DeclaredCommandsNotAList_IsAnError(gw, monkeypatch):
     assert "declaredCommands" in result.stderr and "--json" in result.stderr
 
 
+# ===== every change is confirmed from the Gateway's answer ======================================
+#
+# One row per mutating command in session, message, mission and machine (repo, worktree and director
+# have none), each with an answer that does not confirm the change: {} and, where the answer has more
+# than one field to read, a partial or contrary one. Each must exit 1 with the reason on standard error
+# and print nothing on standard output that reads as success - never the requested value echoed back.
+
+
+def _mission_patch(answer):
+    def apply(fake):
+        fake.mission_patch = answer
+    return apply
+
+
+def _mission_create(answer):
+    def apply(fake):
+        fake.mission_create = answer
+    return apply
+
+
+UNCONFIRMED = [
+    # (id, argv, env, arrange, text that must be in standard error)
+    ("rename empty", ["session", "rename", SID, "new name"], None,
+     _set(**{f"PATCH sessions/{SID}": {}}), "gave nothing for sessionId"),
+    ("rename no name", ["session", "rename", SID, "new name"], None,
+     _set(**{f"PATCH sessions/{SID}": {"sessionId": SID}}), "gave nothing for name"),
+    ("rename other session", ["session", "rename", SID, "new name"], None,
+     _set(**{f"PATCH sessions/{SID}": {"sessionId": PARENT, "name": "new name"}}), "for sessionId"),
+    ("prompt empty", ["session", "prompt", SID, "hello"], None,
+     _set(**{f"POST sessions/{SID}/prompt": {}}), "gave nothing for accepted"),
+    ("prompt refused", ["session", "prompt", SID, "hello"], None,
+     _set(**{f"POST sessions/{SID}/prompt": {"accepted": False, "error": "a menu is open"}}),
+     "was not accepted: a menu is open"),
+    ("interrupt empty", ["session", "interrupt", SID], None,
+     _set(**{f"POST sessions/{SID}/interrupt": {}}), "gave nothing for accepted"),
+    ("report empty", ["session", "report", "did it"], AS_SID,
+     _set(**{f"POST sessions/{PARENT}/message": {}}), "did not accept"),
+    ("raise empty", ["session", "raise", "which?"], AS_SID,
+     _set(**{f"POST sessions/{SID}/needs-manager": {}}), "gave nothing for sessionId"),
+    ("raise not raised", ["session", "raise", "which?"], AS_SID,
+     _set(**{f"POST sessions/{SID}/needs-manager": {"sessionId": SID, "raised": False}}), "False for raised"),
+    ("raise clear still raised", ["session", "raise", "--clear"], AS_SID,
+     _set(**{f"POST sessions/{SID}/needs-manager": {"sessionId": SID, "raised": True}}), "True for raised"),
+    ("hold empty", ["session", "hold", SID], None,
+     _set(**{f"POST sessions/{SID}/hold": {}}), "gave nothing for onHold"),
+    ("hold not held", ["session", "hold", SID], None,
+     _set(**{f"POST sessions/{SID}/hold": {"onHold": False, "pending": False}}), "was not held"),
+    ("release still held", ["session", "hold", SID, "--release"], None,
+     _set(**{f"POST sessions/{SID}/hold": {"onHold": True, "pending": False}}), "was not released"),
+    ("compact empty", ["session", "compact", SID], None,
+     _set(**{f"POST sessions/{SID}/compact-context": {}}), "gave nothing for submitted"),
+    ("compact not submitted", ["session", "compact-continue", SID], None,
+     _set(**{f"POST sessions/{SID}/compact-context": {"submitted": False, "detail": "busy"}}),
+     "False for submitted"),
+    ("role empty", ["session", "role", SID, "Worker"], None,
+     _set(**{f"POST sessions/{SID}/role": {}}), "gave nothing for sessionId"),
+    ("role not set", ["session", "role", SID, "Worker"], None,
+     _set(**{f"POST sessions/{SID}/role": {"sessionId": SID, "explicitRole": None}}),
+     "gave the explicit role none, not Worker"),
+    ("role not cleared", ["session", "role", SID, "none"], None,
+     _set(**{f"POST sessions/{SID}/role": {"sessionId": SID, "explicitRole": "Worker"}}),
+     "gave the explicit role Worker, not none"),
+    ("stop empty", ["session", "stop", SID, "--reason", "done"], None,
+     _set(**{f"POST sessions/{SID}/stop": {}}), "returned nothing that says what happened"),
+    ("done empty", ["session", "done", SID], None,
+     _set(**{f"POST sessions/{SID}/request-deletion": {}}), "gave nothing for pendingDeletion"),
+    ("done not flagged", ["session", "done", SID], None,
+     _set(**{f"POST sessions/{SID}/request-deletion": {"pendingDeletion": False}}), "False for pendingDeletion"),
+    ("undo empty", ["session", "done", SID, "--undo"], None,
+     _set(**{f"DELETE sessions/{SID}/request-deletion": {}}), "gave nothing for pendingDeletion"),
+    ("undo still flagged", ["session", "done", SID, "--undo"], None,
+     _set(**{f"DELETE sessions/{SID}/request-deletion": {"pendingDeletion": True}}), "True for pendingDeletion"),
+    ("spawn empty", ["session", "spawn", "/repos/x", "--controlled-by", "self", "--name", "n", "--mission", "none"],
+     AS_SID, _set(**{f"POST directors/{DIRECTOR}/sessions": {}}), "did not return a session id"),
+    ("send empty", ["message", "send", SID, "hello"], None,
+     _set(**{f"POST sessions/{SID}/message": {}}), "did not accept"),
+    ("send all empty", ["message", "send", "all", "hello"], AS_SID,
+     _set(**{"POST fleet/broadcast": {}}), "did not accept"),
+    ("ask empty", ["message", "ask", SID, "which?"], None,
+     _set(**{f"POST sessions/{SID}/message": {}}), "gave nothing for accepted"),
+    ("ask no wait", ["message", "ask", SID, "which?"], None,
+     _set(**{f"POST sessions/{SID}/message": {"accepted": True, "output": "x"}}), "gave nothing for waitStatus"),
+    ("mission create empty", ["mission", "create", "AXI"], None,
+     _mission_create({}), "did not return a mission id"),
+    ("mission create no name", ["mission", "create", "AXI"], None,
+     _mission_create({"missionId": MID}), "gave nothing for missionName"),
+    ("mission rename empty", ["mission", "rename", MID, "AXI renamed"], None,
+     _mission_patch({}), "did not include the mission"),
+    ("mission rename no name", ["mission", "rename", MID, "AXI renamed"], None,
+     _mission_patch({"mission": {"missionId": MID}}), "gave nothing for missionName"),
+    ("mission rename old name", ["mission", "rename", MID, "AXI renamed"], None,
+     _mission_patch({"mission": dict(MISSION)}), "'AXI' for missionName"),
+    ("mission rename other id", ["mission", "rename", MID, "AXI renamed"], None,
+     _mission_patch({"mission": dict(OTHER_MISSION, missionName="AXI renamed")}), "for missionId"),
+    ("mission complete no state", ["mission", "complete", MID], None,
+     _mission_patch({"mission": {"missionId": MID, "missionName": "AXI"}}), "gave nothing for state"),
+    ("mission remove wrong state", ["mission", "remove", MID], None,
+     _mission_patch({"mission": dict(MISSION)}), "'active' for state"),
+    ("mission reopen empty", ["mission", "reopen", MID], None,
+     _mission_patch({}), "did not include the mission"),
+    ("mission reopen no id", ["mission", "reopen", MID], None,
+     _mission_patch({"mission": {"missionName": "AXI", "state": "active"}}), "gave nothing for missionId"),
+    ("mission attach empty", ["mission", "attach", SID, MID], None,
+     _set(**{f"POST sessions/{SID}/mission": {}}), "did not include the session"),
+    ("mission attach no mission", ["mission", "attach", SID, MID], None,
+     _set(**{f"POST sessions/{SID}/mission": {"session": {"sessionId": SID}}}), "gave the session mission None"),
+    ("mission attach other session", ["mission", "attach", SID, MID], None,
+     _set(**{f"POST sessions/{SID}/mission": {"session": {"sessionId": PARENT, "missionId": MID}}}),
+     f"named session '{PARENT}'"),
+    ("mission detach empty", ["mission", "detach", SID], None,
+     _set(**{f"POST sessions/{SID}/mission": {}}), "did not include the session"),
+    ("mission detach still attached", ["mission", "detach", SID], None,
+     _set(**{f"POST sessions/{SID}/mission": {"session": {"sessionId": SID, "missionId": MID}}}),
+     "still gives the session mission"),
+    ("launch empty", ["machine", "launch", "MAC", "--app", "Chrome"], None,
+     _set(**{"POST machines/MAC/launch": {}}), "gave nothing for relayStatus"),
+    ("launch no status", ["machine", "launch", "MAC", "--app", "Chrome", "--json"], None,
+     _set(**{"POST machines/MAC/launch": {"machine": "MAC", "verb": "launch", "payload": ""}}),
+     "gave nothing for relayStatus"),
+    ("restart-request empty", ["machine", "restart-request", "MAC", "--reason", "update"], None,
+     _set(**{"POST machines/MAC/director/restart-requests": {}}), "carried no request id"),
+]
+
+
+@pytest.mark.parametrize("label,argv,env,arrange,expected", UNCONFIRMED, ids=[u[0] for u in UNCONFIRMED])
+def test_mutation_AnswerDoesNotConfirmTheChange_ExitsOneWithoutClaimingIt(
+    gw, monkeypatch, plain, label, argv, env, arrange, expected
+):
+    arrange(gw)
+
+    result = _run(argv, env, monkeypatch)
+
+    assert result.exit_code == 1, result.output
+    stderr = " ".join(plain(result.stderr).split())
+    assert expected in stderr, stderr
+    assert "help[" in result.stderr
+    # Nothing on standard output reads as a completed change: no help[] block, and no success word.
+    assert "help[" not in result.stdout, result.stdout
+    for word in ("Renamed", "Sent", "Interrupted", "Delivered", "Hand up", "Hand down", "Held", "Released",
+                 "Compact", "Role set", "Role cleared", "Marked", "Cleared", "Opened", "Created",
+                 "Completed", "Removed", "Reopened", "Attached", "Detached", "Started", "REQUESTED"):
+        assert word not in result.stdout, result.stdout
+
+
+def test_mutation_EveryChangingCommandHasAnUnconfirmedAnswerTest():
+    """Every command in MUTATIONS (the full list of changing commands in scope) has a row above."""
+    firsts = {u[1][0] + " " + u[1][1] for u in UNCONFIRMED}
+    for label, argv, _, _ in MUTATIONS:
+        command = f"{argv[0]} {argv[1]}"
+        assert command in firsts, f"{label} has no unconfirmed-answer test"
+
+
 # ===== selftest ==================================================================================
 
 
@@ -793,31 +954,25 @@ def test_selftest_NotWindows_RefusesBeforeSpawningAnything(gw, monkeypatch):
     assert gw.calls == []
 
 
-def test_selftest_Windows_NamesAndOwnsItsThrowawaysAtBirthAndEndsWithHelp(gw, monkeypatch):
+RESPONDER, RECIPIENT = NEW, "0e0e0e0e-aaaa-bbbb-cccc-dddddddddddd"
+
+
+def _selftest_gateway(gw, monkeypatch, deletion_answer):
+    """Both throwaways spawn, both messages land, and the roster KEEPS listing both after they are
+    flagged - as the real Director does for its 30-second grace period and until its next reaper sweep."""
     monkeypatch.setattr(session_ops, "_runs_on_windows", lambda: True)
     monkeypatch.setattr(session_ops.time, "sleep", lambda seconds: None)
-    responder, recipient = NEW, "0e0e0e0e-aaaa-bbbb-cccc-dddddddddddd"
-    spawned = iter([{"sessionId": responder}, {"sessionId": recipient}])
-    rosters = iter([
-        ([{"sessionId": responder}, {"sessionId": recipient}], True, None, None),
-        ([], True, None, None),
-    ])
-    gw.roster = None
-    monkeypatch.setattr(session_ops.gateway, "get_fleet", lambda: next(rosters))
-    gw.answers[("POST", f"directors/{DIRECTOR}/sessions")] = None
-    gw.answers[("POST", f"sessions/{recipient}/message")] = {"accepted": True}
-    gw.answers[("POST", f"sessions/{responder}/message")] = {"output": "FLEETPONG>"}
-    gw.answers[("POST", f"sessions/{recipient}/request-deletion")] = {}
-    gw.answers[("POST", f"sessions/{responder}/request-deletion")] = {}
-    original = gw._answer
+    spawned = iter([{"sessionId": RESPONDER}, {"sessionId": RECIPIENT}])
+    gw.roster = ([{"sessionId": RESPONDER}, {"sessionId": RECIPIENT}], True, None, None)
+    gw.answers[("POST", f"directors/{DIRECTOR}/sessions")] = lambda body: next(spawned)
+    gw.answers[("POST", f"sessions/{RECIPIENT}/message")] = {"accepted": True}
+    gw.answers[("POST", f"sessions/{RESPONDER}/message")] = {"output": "FLEETPONG>"}
+    gw.answers[("POST", f"sessions/{RECIPIENT}/request-deletion")] = deletion_answer
+    gw.answers[("POST", f"sessions/{RESPONDER}/request-deletion")] = deletion_answer
 
-    def answer(method, path, body):
-        if path == f"directors/{DIRECTOR}/sessions":
-            gw.calls.append((method, path, body))
-            return next(spawned)
-        return original(method, path, body)
 
-    monkeypatch.setattr(gw, "_answer", answer)
+def test_selftest_Windows_NamesAndOwnsItsThrowawaysAtBirthAndEndsWithHelp(gw, monkeypatch, plain):
+    _selftest_gateway(gw, monkeypatch, {"pendingDeletion": True})
 
     result = _run(["selftest"], AS_SID, monkeypatch)
 
@@ -829,6 +984,35 @@ def test_selftest_Windows_NamesAndOwnsItsThrowawaysAtBirthAndEndsWithHelp(gw, mo
     assert _help_block(result.stdout)[1] == [
         "cc-devthrottle session list", 'cc-devthrottle message send <session-id> "<message>"'
     ]
+
+
+def test_selftest_Windows_FlaggedSessionsStillListed_PassesOnTheAcceptedFlags(gw, monkeypatch, plain):
+    # The inspection's reproduction: every step succeeds and the roster still lists both flagged
+    # sessions, because the Director keeps them through its grace period. That is not a leak.
+    _selftest_gateway(gw, monkeypatch, {"pendingDeletion": True})
+
+    result = _run(["selftest"], AS_SID, monkeypatch)
+
+    assert result.exit_code == 0, result.output
+    out = " ".join(plain(result.stdout).split())
+    assert "PASS throwaway sessions flagged for deletion - 2/2 accepted;" in out
+    # Removal is stated with its interval, never claimed.
+    assert "30-second grace period, on its next reaper sweep (every 30 seconds)" in out
+    assert "cleaned up" not in out and "FAIL" not in out
+    assert "5/5 checks passed" in out
+
+
+@pytest.mark.parametrize("answer", [{}, {"pendingDeletion": False}, None])
+def test_selftest_Windows_DeletionNotConfirmed_IsAFailure(gw, monkeypatch, plain, answer):
+    _selftest_gateway(gw, monkeypatch, answer)
+
+    result = _run(["selftest"], AS_SID, monkeypatch)
+
+    assert result.exit_code == 1
+    out = " ".join(plain(result.stdout).split())
+    assert "FAIL throwaway sessions flagged for deletion - 0/2 accepted" in out
+    assert "did not say pendingDeletion: true" in out
+    assert RESPONDER in result.stderr and RECIPIENT in result.stderr
 
 
 def test_selftest_Windows_AFailedCheckIsAnErrorNamingTheLeftovers(gw, monkeypatch):
