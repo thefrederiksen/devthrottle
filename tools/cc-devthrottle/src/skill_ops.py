@@ -349,14 +349,25 @@ def _read_exact(path: Path) -> str:
         return handle.read()
 
 
-def _checked_bundle(detail: Any) -> Dict[str, Any]:
+#: Paths a skill directory's own writers produce. A supporting file may not use one, at any letter
+#: case, because it would overwrite that file - or the file would overwrite it - on a disk that
+#: ignores case, and a push skips these names so the file could never round-trip anyway.
+_RESERVED_PATHS = (SKILL_MD, SKILL_JSON, HASH_SIDECAR, bundle_swap.WORK_DIR)
+
+#: The authored text fields of a version detail, all written to skill.json and pushed back.
+_REQUIRED_TEXT = ("skillId", "status", "name", "summary", "bodyMarkdown", "contentHash")
+_OPTIONAL_TEXT = ("license", "compatibility", "allowedTools")
+
+
+def _checked_bundle(detail: Any, skill_id: str, version: int) -> Dict[str, Any]:
     """Check the WHOLE version detail before anything on disk is touched, and return it decoded.
 
-    A pull or a cache refresh replaces the local files with the version's, so a partial or broken
-    answer must be refused outright rather than read as "empty": a file with no content would
-    become an empty file, a missing body an empty SKILL.md, and a missing list a wiped directory.
-    Every entry must carry a safe relative path and content that decodes; the body and the bundle
-    hash must be present."""
+    A pull or a cache refresh replaces the local files with the version's, and a later push sends
+    skill.json back, so a partial or broken answer must be refused outright rather than read as
+    "empty": a file with no content would become an empty file, a missing body an empty SKILL.md, a
+    missing list a wiped directory, and a missing name or summary an emptied skill on the next push.
+    Every field the Gateway's version detail carries and these writers use must be present with its
+    own type; the answer must be for the skill and version that were asked for."""
     import base64
     import binascii
 
@@ -365,29 +376,56 @@ def _checked_bundle(detail: Any) -> Dict[str, Any]:
 
     if not isinstance(detail, dict):
         raise refuse("was not a skill version")
-    body = detail.get("bodyMarkdown")
-    if not isinstance(body, str):
-        raise refuse("did not include the skill's body")
-    content_hash = detail.get("contentHash")
-    if not isinstance(content_hash, str) or not content_hash:
-        raise refuse("did not include the version's content hash")
+    for field in _REQUIRED_TEXT:
+        if not isinstance(detail.get(field), str):
+            raise refuse(f"did not include the skill version's '{field}' as text")
+    if not detail["contentHash"]:
+        raise refuse("had an empty 'contentHash'")
+    for field in _OPTIONAL_TEXT:
+        if field not in detail or not (detail[field] is None or isinstance(detail[field], str)):
+            raise refuse(f"did not include the skill version's '{field}' as text or null")
+    if detail["skillId"].strip().lower() != skill_id.strip().lower():
+        raise refuse(f"was for skill '{detail['skillId']}', not the '{skill_id}' that was asked for")
+    answered = detail.get("version")
+    if not isinstance(answered, int) or isinstance(answered, bool) or answered != version:
+        raise refuse(f"was for version {answered!r}, not the version {version} that was asked for")
+    triggers = detail.get("triggers")
+    if not isinstance(triggers, list) or not all(isinstance(t, str) for t in triggers):
+        raise refuse("did not include the skill version's 'triggers' as a list of text")
+    standard_metadata = detail.get("metadata")
+    if not isinstance(standard_metadata, dict) or not all(
+        isinstance(v, str) for v in standard_metadata.values()
+    ):
+        raise refuse("did not include the skill version's 'metadata' as a map of text")
     entries = detail.get("files")
     if not isinstance(entries, list):
         raise refuse("did not list the version's supporting files")
 
+    reserved = {p.lower() for p in _RESERVED_PATHS}
     files: List[Dict[str, Any]] = []
     seen = set()
     for entry in entries:
         if not isinstance(entry, dict) or not isinstance(entry.get("fileName"), str):
             raise refuse("lists a supporting file with no name")
         relative = _safe_relative_path(entry["fileName"])
-        if relative.lower() in seen:
+        folded = relative.lower()
+        if folded.split("/")[0] in reserved:
+            raise refuse(
+                f"lists a supporting file '{relative}' at a path the skill's own files use "
+                f"({', '.join(_RESERVED_PATHS)})"
+            )
+        if folded in seen:
             raise refuse(f"lists the supporting file '{relative}' twice")
-        seen.add(relative.lower())
+        seen.add(folded)
         content = entry.get("content")
         if not isinstance(content, str):
             raise refuse(f"has no content for the supporting file '{relative}'")
-        encoding = (entry.get("encoding") or "utf8").strip().lower()
+        encoding = entry.get("encoding")
+        if not isinstance(encoding, str):
+            raise refuse(f"has no encoding for the supporting file '{relative}'")
+        if not isinstance(entry.get("executable"), bool):
+            raise refuse(f"does not say whether the supporting file '{relative}' is executable")
+        encoding = encoding.strip().lower()
         try:
             if encoding == "base64":
                 data = base64.b64decode(content, validate=True)
@@ -400,8 +438,29 @@ def _checked_bundle(detail: Any) -> Dict[str, Any]:
                 )
         except (binascii.Error, UnicodeEncodeError) as exc:
             raise refuse(f"has content for '{relative}' that does not decode ({exc})") from exc
-        files.append({"fileName": relative, "data": data, "executable": bool(entry.get("executable"))})
-    return {"body": body, "contentHash": content_hash, "files": files}
+        files.append({"fileName": relative, "data": data, "executable": entry["executable"]})
+
+    # A path that is both a file and the folder of another file cannot be written.
+    for name in seen:
+        parts = name.split("/")
+        for depth in range(1, len(parts)):
+            if "/".join(parts[:depth]) in seen:
+                raise refuse(f"lists '{'/'.join(parts[:depth])}' as a file and as a folder")
+    return {
+        "body": detail["bodyMarkdown"],
+        "contentHash": detail["contentHash"],
+        "files": files,
+        "metadata": {
+            "id": detail["skillId"],
+            "name": detail["name"],
+            "summary": detail["summary"],
+            "triggers": list(triggers),
+            "license": detail["license"],
+            "compatibility": detail["compatibility"],
+            "allowedTools": detail["allowedTools"],
+            "metadata": dict(standard_metadata),
+        },
+    }
 
 
 def _write_bundle_files(root: Path, files: List[Dict[str, Any]]) -> None:
@@ -443,7 +502,7 @@ def _read_tree(root: Path, executable_paths: List[str]) -> List[Dict[str, Any]]:
         if not path.is_file():
             continue
         relative = path.relative_to(root).as_posix()
-        if relative in skipped:
+        if relative in skipped or relative.split("/")[0] == bundle_swap.WORK_DIR:
             continue
         data = path.read_bytes()
         entry: Dict[str, Any] = {"fileName": relative}
@@ -463,15 +522,21 @@ def _read_tree(root: Path, executable_paths: List[str]) -> List[Dict[str, Any]]:
     return files
 
 
-def _pick_authoring_version(versions: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """The version an author edits next: the draft when one exists, else the published head."""
-    for row in versions:
-        if (row.get("status") or "").lower() == "draft":
-            return row
-    for row in versions:
-        if (row.get("status") or "").lower() == "published":
-            return row
+def _pick_authoring_version(versions: List[Dict[str, Any]]) -> Optional[int]:
+    """The version number an author edits next: the draft when one exists, else the published head."""
+    for wanted in ("draft", "published"):
+        for row in versions:
+            if not isinstance(row, dict) or not isinstance(row.get("status"), str):
+                raise GatewayError("the Gateway listed a skill version with no status.")
+            if row["status"].lower() == wanted:
+                return _version_number(row.get("version"), "listed a skill version")
     return None
+
+
+def _version_number(value: Any, what: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        raise GatewayError(f"the Gateway {what} without a valid version number (got {value!r}).")
+    return value
 
 
 # ---- commands -------------------------------------------------------------------------------------
@@ -528,11 +593,18 @@ def get_skill(skill_id: str, version: Optional[int]) -> None:
         detail: Optional[Dict[str, Any]] = None
         if version is None:
             head = client.get_skill(skill_id)
-            version = int(head["version"])
-            file_count = int(head.get("fileCount") or 0)
+            if not isinstance(head, dict):
+                raise GatewayError("the Gateway's answer was not a skill.")
+            version = _version_number(head.get("version"), "described the skill")
+            file_count = head.get("fileCount")
+            if not isinstance(file_count, int) or isinstance(file_count, bool) or file_count < 0:
+                # Absent is not "no files": an agent would be told nothing about files it needs.
+                raise GatewayError(
+                    f"the Gateway did not say how many supporting files the skill has (got {file_count!r})."
+                )
         else:
             detail = client.get_version_detail(skill_id, version)
-            file_count = len(detail.get("files") or [])
+            file_count = len(_checked_bundle(detail, skill_id, version)["files"])
         body = client.get_body(skill_id, version)
     except GatewayError as ex:
         _fail(str(ex), [_FIND_A_SKILL, f"cc-devthrottle skill versions {_ref(skill_id)}"])
@@ -575,7 +647,7 @@ def _materialize(skill_id: str, version: int, detail: Dict[str, Any]) -> List[Pa
     fetched, never a substitute for fetching - `get_skill` always resolves the version from the
     Gateway first.
     """
-    bundle = _checked_bundle(detail)
+    bundle = _checked_bundle(detail, skill_id, version)
     files = bundle["files"]
 
     local_app_data = os.environ.get("LOCALAPPDATA") or str(Path.home() / ".local" / "share")
@@ -590,6 +662,8 @@ def _materialize(skill_id: str, version: int, detail: Dict[str, Any]) -> List[Pa
     hash_file = versions_root / f"{version}.hash"
     expected = bundle["contentHash"]
 
+    # An interrupted refresh is put right before the directory is judged.
+    bundle_swap.recover(root)
     intact = (
         hash_file.is_file()
         and hash_file.read_text(encoding="utf-8").strip() == expected
@@ -601,11 +675,15 @@ def _materialize(skill_id: str, version: int, detail: Dict[str, Any]) -> List[Pa
             _write_exact(staging / SKILL_MD, bundle["body"])
             _write_bundle_files(staging, files)
 
-        # A stale sidecar must not vouch for a half-replaced directory, so it goes first.
-        if hash_file.is_file():
-            hash_file.unlink()
-        bundle_swap.replace_directory(root, build)
-        hash_file.write_text(expected, encoding="utf-8")
+        def forget_old_hash() -> None:
+            # The old sidecar vouches for the old files, so it stays until they have all moved out;
+            # a refresh that fails before then leaves it, and the old files, exactly as they were.
+            hash_file.unlink(missing_ok=True)
+
+        bundle_swap.replace_directory(root, build, before_commit=forget_old_hash)
+        partial = versions_root / f"{version}.hash.tmp"
+        partial.write_text(expected, encoding="utf-8")
+        os.replace(partial, hash_file)
 
     return [root / Path(f["fileName"]) for f in files]
 
@@ -694,7 +772,7 @@ def pull_skill(skill_id: str, directory: str, version: Optional[int]) -> None:
                     [f"cc-devthrottle skill versions {_ref(skill_id)}", _FIND_A_SKILL],
                 )
                 return
-            version = int(picked["version"])
+            version = picked
         detail = client.get_version_detail(skill_id, version)
     except GatewayError as ex:
         _fail(str(ex), [_FIND_A_SKILL, f"cc-devthrottle skill versions {_ref(skill_id)}"])
@@ -702,7 +780,7 @@ def pull_skill(skill_id: str, directory: str, version: Optional[int]) -> None:
 
     target = Path(directory)
     try:
-        _write_pulled(target, skill_id, detail)
+        _write_pulled(target, skill_id, version, detail)
     except GatewayError as ex:
         _fail(str(ex), [f"cc-devthrottle skill show {_ref(skill_id)} --version {version}"])
         return
@@ -715,37 +793,27 @@ def pull_skill(skill_id: str, directory: str, version: Optional[int]) -> None:
         return
 
     axi_cli.write_lines(
-        f"Pulled '{skill_id}' v{version} ({detail.get('status')}) into {target.resolve()}",
+        f"Pulled '{skill_id}' v{version} ({detail['status']}) into {target.resolve()}",
         f"Edit the files, then push with: cc-devthrottle skill push {_ref(skill_id)} --dir {_dir_arg(directory)}",
     )
     axi_cli.print_next([f"cc-devthrottle skill push {_ref(skill_id)} --dir {_dir_arg(directory)}"])
 
 
-def _write_pulled(target: Path, skill_id: str, detail: Dict[str, Any]) -> None:
+def _write_pulled(target: Path, skill_id: str, version: int, detail: Dict[str, Any]) -> None:
     """Write one pulled version into `target`. The whole answer is checked BEFORE anything is
     written, and the new files replace the old ones in one swap, so a bad answer or a failed write
     leaves the directory exactly as it was.
 
     The directory mirrors the SERVER: a supporting file another author deleted on the Gateway must
     not survive locally and be resurrected by the next push, so every existing entry is replaced."""
-    bundle = _checked_bundle(detail)
+    bundle = _checked_bundle(detail, skill_id, version)
     files = bundle["files"]
-    metadata = {
-        "id": detail.get("skillId", skill_id),
-        "name": detail.get("name", ""),
-        "summary": detail.get("summary", ""),
-        "triggers": detail.get("triggers") or [],
-        # The Agent Skills standard's own frontmatter, carried so a pulled skill can be pushed back
-        # without losing what its author wrote.
-        "license": detail.get("license"),
-        "compatibility": detail.get("compatibility"),
-        "allowedTools": detail.get("allowedTools"),
-        "metadata": detail.get("metadata") or {},
-        # Which files are executable. On Windows this list IS the answer, because the filesystem has
-        # no bit to read; on Linux and macOS the bit on disk wins and this is a record of what was
-        # pulled.
-        "executable": sorted(f["fileName"] for f in files if f["executable"]),
-    }
+    # Every authored field, including the Agent Skills standard's own frontmatter, so a pulled skill
+    # can be pushed back without losing what its author wrote.
+    metadata = dict(bundle["metadata"])
+    # Which files are executable. On Windows this list IS the answer, because the filesystem has no
+    # bit to read; on Linux and macOS the bit on disk wins and this is a record of what was pulled.
+    metadata["executable"] = sorted(f["fileName"] for f in files if f["executable"])
 
     def build(staging: Path) -> None:
         (staging / SKILL_JSON).write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
@@ -760,6 +828,8 @@ def _read_directory(skill_id: str, directory: str, note: Optional[str]) -> Dict[
     source = Path(directory)
     if not source.is_dir():
         raise GatewayError(f"directory not found: {source}")
+    # A pull that was interrupted is put right first, so a push never sends a half-replaced skill.
+    bundle_swap.recover(source)
 
     metadata: Dict[str, Any] = {}
     metadata_path = source / SKILL_JSON
@@ -843,17 +913,27 @@ def push_skill(skill_id: str, directory: str, note: Optional[str], force: bool =
         )
         return
 
-    new_hash = result.get("contentHash", "")
-    if new_hash:
-        try:
-            (Path(directory) / HASH_SIDECAR).write_text(new_hash, encoding="utf-8")
-        except OSError as exc:
-            _fail(
-                f"the draft WAS updated on the Gateway (v{result.get('version')}), but the local "
-                f"hash sidecar could not be written: {exc}. Resynchronize before the next push.",
-                [f"cc-devthrottle skill pull {_ref(skill_id)} --dir {_dir_arg(directory)}"],
-            )
-            return
+    if not isinstance(result, dict):
+        result = {}
+    new_hash = result.get("contentHash")
+    if not isinstance(new_hash, str) or not new_hash:
+        # The old sidecar no longer matches the draft, so the next push would be refused as stale.
+        _fail(
+            f"the draft WAS saved on the Gateway (v{result.get('version')}), but its answer did not "
+            f"include the new content hash, so {HASH_SIDECAR} could not be updated. Pull before the "
+            "next push.",
+            [f"cc-devthrottle skill pull {_ref(skill_id)} --dir {_dir_arg(directory)}"],
+        )
+        return
+    try:
+        (Path(directory) / HASH_SIDECAR).write_text(new_hash, encoding="utf-8")
+    except OSError as exc:
+        _fail(
+            f"the draft WAS updated on the Gateway (v{result.get('version')}), but the local "
+            f"hash sidecar could not be written: {exc}. Resynchronize before the next push.",
+            [f"cc-devthrottle skill pull {_ref(skill_id)} --dir {_dir_arg(directory)}"],
+        )
+        return
     axi_cli.write_lines(
         f"{verb} draft v{result.get('version')} of '{skill_id}'. "
         "No agent sees it until it publishes: "

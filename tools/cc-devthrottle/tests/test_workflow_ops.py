@@ -427,11 +427,11 @@ class TestWebAppFallthroughAnswer:
 class TestAuthoringVersionPick:
     def test_draft_wins_over_published(self):
         rows = [{"version": 3, "status": "published"}, {"version": 4, "status": "draft"}]
-        assert workflow_ops._pick_authoring_version(rows)["version"] == 4
+        assert workflow_ops._pick_authoring_version(rows) == 4
 
     def test_published_when_no_draft(self):
         rows = [{"version": 3, "status": "published"}, {"version": 2, "status": "superseded"}]
-        assert workflow_ops._pick_authoring_version(rows)["version"] == 3
+        assert workflow_ops._pick_authoring_version(rows) == 3
 
     def test_none_when_empty(self):
         assert workflow_ops._pick_authoring_version([]) is None

@@ -320,15 +320,21 @@ def _read_exact(path: Path) -> str:
         return handle.read()
 
 
-def _pick_authoring_version(versions: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """The version an author edits next: the draft when one exists, else the published head."""
-    for row in versions:
-        if (row.get("status") or "").lower() == "draft":
-            return row
-    for row in versions:
-        if (row.get("status") or "").lower() == "published":
-            return row
+def _pick_authoring_version(versions: List[Dict[str, Any]]) -> Optional[int]:
+    """The version number an author edits next: the draft when one exists, else the published head."""
+    for wanted in ("draft", "published"):
+        for row in versions:
+            if not isinstance(row, dict) or not isinstance(row.get("status"), str):
+                raise GatewayError("the Gateway listed a workflow version with no status.")
+            if row["status"].lower() == wanted:
+                return _version_number(row.get("version"), "listed a workflow version")
     return None
+
+
+def _version_number(value: Any, what: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        raise GatewayError(f"the Gateway {what} without a valid version number (got {value!r}).")
+    return value
 
 
 # ---- commands -------------------------------------------------------------------------------------
@@ -475,7 +481,7 @@ def pull_workflow(workflow_id: str, directory: str, version: Optional[int]) -> N
                     [f"cc-devthrottle workflow versions {_ref(workflow_id)}", _FIND_A_WORKFLOW],
                 )
                 return
-            version = int(picked["version"])
+            version = picked
         detail = client.get_version_detail(workflow_id, version)
     except GatewayError as ex:
         _fail(str(ex), [_FIND_A_WORKFLOW, f"cc-devthrottle workflow versions {_ref(workflow_id)}"])
@@ -483,7 +489,7 @@ def pull_workflow(workflow_id: str, directory: str, version: Optional[int]) -> N
 
     target = Path(directory)
     try:
-        _write_pulled(target, workflow_id, detail)
+        _write_pulled(target, workflow_id, version, detail)
     except GatewayError as ex:
         _fail(str(ex), [f"cc-devthrottle workflow show {_ref(workflow_id)} --version {version}"])
         return
@@ -495,33 +501,68 @@ def pull_workflow(workflow_id: str, directory: str, version: Optional[int]) -> N
         return
 
     axi_cli.write_lines(
-        f"Pulled '{workflow_id}' v{version} ({detail.get('status')}) into {target.resolve()}",
+        f"Pulled '{workflow_id}' v{version} ({detail['status']}) into {target.resolve()}",
         "Edit the files, then push with: "
         f"cc-devthrottle workflow push {_ref(workflow_id)} --dir {_dir_arg(directory)}",
     )
     axi_cli.print_next([f"cc-devthrottle workflow push {_ref(workflow_id)} --dir {_dir_arg(directory)}"])
 
 
-def _checked_bundle(detail: Any) -> Dict[str, Any]:
+#: The authored text fields of a version detail. All of them are written to workflow.json and
+#: pushed back, so an omitted one would empty that field on the Gateway at the next push.
+_REQUIRED_TEXT = (
+    "workflowId", "status", "name", "summary", "whenToUse", "humanCheckpoint",
+    "instructionsMarkdown", "contentHash",
+)
+_STEP_TEXT = ("name", "description", "doer", "done")
+_CRITERION_TEXT = ("criterionId", "description")
+
+
+def _checked_bundle(detail: Any, workflow_id: str, version: int) -> Dict[str, Any]:
     """Check the WHOLE version detail before anything on disk is touched.
 
-    A pull or a cache refresh replaces the local helpers with the version's, so a partial or broken
-    answer must be refused outright rather than read as "empty": a helper with no content would
-    become an empty file, missing instructions an empty instructions.md, and a missing list a wiped
-    helpers directory. Every helper must carry a safe bare name and text content; the instructions
-    and the bundle hash must be present."""
+    A pull or a cache refresh replaces the local helpers with the version's, and a later push sends
+    workflow.json back, so a partial or broken answer must be refused outright rather than read as
+    "empty": a helper with no content would become an empty file, missing instructions an empty
+    instructions.md, a missing list a wiped helpers directory, and a missing name or step list an
+    emptied workflow on the next push. Every field the Gateway's version detail carries and these
+    writers use must be present with its own type; the answer must be for the workflow and version
+    that were asked for."""
 
     def refuse(what: str) -> GatewayError:
         return GatewayError(f"the Gateway's answer {what}, so nothing was written.")
 
+    def records(field: str, text: tuple, optional: str) -> List[Dict[str, Any]]:
+        rows = detail.get(field)
+        if not isinstance(rows, list):
+            raise refuse(f"did not include the workflow version's '{field}' as a list")
+        for index, row in enumerate(rows):
+            if (
+                not isinstance(row, dict)
+                or not all(isinstance(row.get(key), str) for key in text)
+                or optional not in row
+                or not (row[optional] is None or isinstance(row[optional], str))
+            ):
+                raise refuse(
+                    f"has an entry {index + 1} in '{field}' without all of "
+                    f"{', '.join(text + (optional,))}"
+                )
+        return [{key: row[key] for key in text + (optional,)} for row in rows]
+
     if not isinstance(detail, dict):
         raise refuse("was not a workflow version")
-    instructions = detail.get("instructionsMarkdown")
-    if not isinstance(instructions, str):
-        raise refuse("did not include the workflow's instructions")
-    content_hash = detail.get("contentHash")
-    if not isinstance(content_hash, str) or not content_hash:
-        raise refuse("did not include the version's content hash")
+    for field in _REQUIRED_TEXT:
+        if not isinstance(detail.get(field), str):
+            raise refuse(f"did not include the workflow version's '{field}' as text")
+    if not detail["contentHash"]:
+        raise refuse("had an empty 'contentHash'")
+    if detail["workflowId"].strip().lower() != workflow_id.strip().lower():
+        raise refuse(f"was for workflow '{detail['workflowId']}', not the '{workflow_id}' that was asked for")
+    answered = detail.get("version")
+    if not isinstance(answered, int) or isinstance(answered, bool) or answered != version:
+        raise refuse(f"was for version {answered!r}, not the version {version} that was asked for")
+    steps = records("steps", _STEP_TEXT, "reviewer")
+    criteria = records("outcomeCriteria", _CRITERION_TEXT, "proofHint")
     entries = detail.get("files")
     if not isinstance(entries, list):
         raise refuse("did not list the version's helper files")
@@ -531,6 +572,7 @@ def _checked_bundle(detail: Any) -> Dict[str, Any]:
     for entry in entries:
         if not isinstance(entry, dict) or not isinstance(entry.get("fileName"), str):
             raise refuse("lists a helper file with no name")
+        # A helper is a bare name inside helpers/, so it cannot reach the files beside that folder.
         name = _safe_file_name(entry["fileName"])
         if name.lower() in seen:
             raise refuse(f"lists the helper file '{name}' twice")
@@ -543,7 +585,20 @@ def _checked_bundle(detail: Any) -> Dict[str, Any]:
         except UnicodeEncodeError as exc:
             raise refuse(f"has content for '{name}' that cannot be written as UTF-8 ({exc})") from exc
         files.append({"fileName": name, "content": content})
-    return {"instructions": instructions, "contentHash": content_hash, "files": files}
+    return {
+        "instructions": detail["instructionsMarkdown"],
+        "contentHash": detail["contentHash"],
+        "files": files,
+        "metadata": {
+            "id": detail["workflowId"],
+            "name": detail["name"],
+            "summary": detail["summary"],
+            "whenToUse": detail["whenToUse"],
+            "humanCheckpoint": detail["humanCheckpoint"],
+            "steps": steps,
+            "outcomeCriteria": criteria,
+        },
+    }
 
 
 def _write_bundle(root: Path, bundle: Dict[str, Any]) -> None:
@@ -557,7 +612,7 @@ def _write_bundle(root: Path, bundle: Dict[str, Any]) -> None:
     (root / HASH_SIDECAR).write_text(bundle["contentHash"], encoding="utf-8")
 
 
-def _write_pulled(target: Path, workflow_id: str, detail: Dict[str, Any]) -> None:
+def _write_pulled(target: Path, workflow_id: str, version: int, detail: Dict[str, Any]) -> None:
     """Write one pulled version into `target`. The whole answer is checked BEFORE anything is
     written, and the new files replace the old ones in one swap, so a bad answer or a failed write
     leaves the directory exactly as it was.
@@ -565,16 +620,8 @@ def _write_pulled(target: Path, workflow_id: str, detail: Dict[str, Any]) -> Non
     The helpers directory mirrors the SERVER: a helper another author deleted on the Gateway must
     not survive locally and be resurrected by the next push. Files in `target` this command does not
     own are left alone."""
-    bundle = _checked_bundle(detail)
-    metadata = {
-        "id": detail.get("workflowId", workflow_id),
-        "name": detail.get("name", ""),
-        "summary": detail.get("summary", ""),
-        "whenToUse": detail.get("whenToUse", ""),
-        "humanCheckpoint": detail.get("humanCheckpoint", ""),
-        "steps": detail.get("steps") or [],
-        "outcomeCriteria": detail.get("outcomeCriteria") or [],
-    }
+    bundle = _checked_bundle(detail, workflow_id, version)
+    metadata = bundle["metadata"]
 
     def build(staging: Path) -> None:
         (staging / WORKFLOW_JSON).write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
@@ -587,6 +634,8 @@ def _read_directory(workflow_id: str, directory: str, note: Optional[str]) -> Di
     source = Path(directory)
     if not source.is_dir():
         raise GatewayError(f"Directory not found: {source}")
+    # A pull that was interrupted is put right first, so a push never sends a half-replaced workflow.
+    bundle_swap.recover(source)
 
     metadata: Dict[str, Any] = {}
     metadata_path = source / WORKFLOW_JSON
@@ -667,17 +716,27 @@ def push_workflow(workflow_id: str, directory: str, note: Optional[str], force: 
         )
         return
 
-    new_hash = result.get("contentHash", "")
-    if new_hash:
-        try:
-            (Path(directory) / HASH_SIDECAR).write_text(new_hash, encoding="utf-8")
-        except OSError as exc:
-            _fail(
-                f"The draft WAS updated on the Gateway (v{result.get('version')}), but the local "
-                f"hash sidecar could not be written: {exc}. Resynchronize before the next push.",
-                [f"cc-devthrottle workflow pull {_ref(workflow_id)} --dir {_dir_arg(directory)}"],
-            )
-            return
+    if not isinstance(result, dict):
+        result = {}
+    new_hash = result.get("contentHash")
+    if not isinstance(new_hash, str) or not new_hash:
+        # The old sidecar no longer matches the draft, so the next push would be refused as stale.
+        _fail(
+            f"The draft WAS saved on the Gateway (v{result.get('version')}), but its answer did not "
+            f"include the new content hash, so {HASH_SIDECAR} could not be updated. Pull before the "
+            "next push.",
+            [f"cc-devthrottle workflow pull {_ref(workflow_id)} --dir {_dir_arg(directory)}"],
+        )
+        return
+    try:
+        (Path(directory) / HASH_SIDECAR).write_text(new_hash, encoding="utf-8")
+    except OSError as exc:
+        _fail(
+            f"The draft WAS updated on the Gateway (v{result.get('version')}), but the local "
+            f"hash sidecar could not be written: {exc}. Resynchronize before the next push.",
+            [f"cc-devthrottle workflow pull {_ref(workflow_id)} --dir {_dir_arg(directory)}"],
+        )
+        return
     axi_cli.write_lines(
         f"{verb} draft v{result.get('version')} of '{workflow_id}'. "
         "Nothing changes for the fleet until it publishes: "
@@ -914,14 +973,21 @@ def materialize_workflow(workflow_id: str, version: Optional[int]) -> None:
         client = _client()
         if version is None:
             head = client.get_workflow(workflow_id)
-            version = int(head["version"])
+            if not isinstance(head, dict):
+                raise GatewayError("the Gateway's answer was not a workflow.")
+            version = _version_number(head.get("version"), "described the workflow")
         detail = client.get_version_detail(workflow_id, version)
     except GatewayError as ex:
         _fail(str(ex), [_FIND_A_WORKFLOW, f"cc-devthrottle workflow versions {_ref(workflow_id)}"])
         return
 
-    status = (detail.get("status") or "").lower()
-    if status == "draft":
+    try:
+        bundle = _checked_bundle(detail, workflow_id, version)
+    except GatewayError as ex:
+        _fail(str(ex), [f"cc-devthrottle workflow show {_ref(workflow_id)} --version {version}"])
+        return
+    # Checked above: an omitted status is refused rather than read as "not a draft".
+    if detail["status"].lower() == "draft":
         _fail(
             f"Version {version} of '{workflow_id}' is a draft. Only published history can be "
             "materialized - publish it first.",
@@ -935,14 +1001,18 @@ def materialize_workflow(workflow_id: str, version: Optional[int]) -> None:
     local_app_data = os.environ.get("LOCALAPPDATA") or str(Path.home() / ".local" / "share")
     root = Path(local_app_data) / "cc-director" / "workflows" / workflow_id / str(version)
     hash_file = root / HASH_SIDECAR
-    try:
-        bundle = _checked_bundle(detail)
-    except GatewayError as ex:
-        _fail(str(ex), [f"cc-devthrottle workflow show {_ref(workflow_id)} --version {version}"])
-        return
     expected = bundle["contentHash"]
     files = bundle["files"]
 
+    try:
+        # An interrupted refresh is put right before the cache is judged.
+        bundle_swap.recover(root)
+    except OSError as ex:
+        _fail(
+            f"could not repair the workflow cache at {root}: {ex}",
+            [f"cc-devthrottle workflow instructions {_ref(workflow_id)} --version {version}"],
+        )
+        return
     # The sidecar alone is not proof the bundle is intact - every listed file must actually exist,
     # or a deleted/half-written cache would be reported as materialized forever.
     intact = (
