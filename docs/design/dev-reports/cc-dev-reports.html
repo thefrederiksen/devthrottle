@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cc-dev-reports design</title>
+<style>
+  :root {
+    --page: #FFFFFF;
+    --band: #F5F6F8;
+    --border: #E6E8EC;
+    --border-strong: #D5D8DE;
+    --ink: #16181D;
+    --ink-muted: #5A616B;
+    --ink-faint: #8A909A;
+    --accent: #0066B8;
+    --accent-hover: #005BA4;
+    --accent-tint: #EAF3FB;
+    --ok: #1A7F37;
+    --ok-tint: #E5F3E9;
+    --warn: #9A6700;
+    --warn-tint: #FFF4D6;
+    --bad: #DC2626;
+    --bad-tint: #FDECEC;
+    --font: 'Segoe UI Variable Text', 'Segoe UI', Inter, system-ui, sans-serif;
+    --font-display: 'Segoe UI Variable Display', 'Segoe UI', Inter, system-ui, sans-serif;
+    --mono: 'Cascadia Mono', Consolas, ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--page); color-scheme: light; }
+  body { margin: 0; background: var(--page); color: var(--ink); font-family: var(--font); font-size: 16px; line-height: 1.55; }
+  main { max-width: 980px; margin: 0 auto; padding: 32px 16px 96px; }
+  h1, h2, h3 { font-family: var(--font-display); letter-spacing: -.015em; line-height: 1.15; }
+  h1 { font-size: clamp(30px, 4.4vw, 44px); margin: 6px 0 10px; text-wrap: balance; }
+  h2 { font-size: clamp(22px, 3vw, 30px); margin: 0 0 14px; }
+  h3 { font-size: 18px; margin: 22px 0 8px; }
+  p { margin: 0 0 12px; }
+  a { color: var(--accent); }
+  code { font-family: var(--mono); font-size: .9em; background: var(--band); border: 1px solid var(--border); border-radius: 5px; padding: 0 5px; overflow-wrap: anywhere; }
+  .eyebrow { font-size: 12.5px; text-transform: uppercase; letter-spacing: .14em; color: var(--ink-faint); }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px 18px; color: var(--ink-muted); font-size: 14px; }
+  .chip { display: inline-block; font-size: 12.5px; font-weight: 600; padding: 2px 10px; border-radius: 999px; background: var(--band); color: var(--ink-muted); border: 1px solid var(--border); white-space: nowrap; }
+  .chip.wait { background: var(--warn-tint); color: var(--warn); border-color: #F1D48A; }
+  .chip.ok { background: var(--ok-tint); color: var(--ok); border-color: #B7DFC2; }
+  .chip.blue { background: var(--accent-tint); color: var(--accent); border-color: #C9DEF2; }
+  .chip.bad { background: var(--bad-tint); color: var(--bad); border-color: #F5C2C2; }
+
+  .reading-guide { margin: 18px 0 0; padding: 10px 14px; border-left: 3px solid var(--accent); background: var(--accent-tint); font-size: 14.5px; color: var(--ink); }
+
+  section { padding: 34px 0; border-top: 1px solid var(--border); min-width: 0; }
+  section.top { border-top: 2px solid var(--ink); }
+  .section-no { color: var(--ink-faint); font-weight: 600; margin-right: 6px; }
+
+  /* Executive summary */
+  .summary { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; margin: 0; padding: 0; list-style: none; }
+  .summary li { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 14px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .summary li:last-child { border-bottom: 0; }
+  .summary b.k { font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-faint); padding-top: 2px; }
+  @media (max-width: 600px) { .summary li { grid-template-columns: minmax(0, 1fr); gap: 2px; } }
+
+  /* Questions */
+  .q { border: 1px solid var(--border-strong); border-radius: 12px; padding: 18px 18px 16px; margin: 0 0 16px; min-width: 0; }
+  .q-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 12px; }
+  .q-head h3 { margin: 0; }
+  .q-why { color: var(--ink-muted); font-size: 15px; margin: 6px 0 12px; }
+  .opts { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .opt { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 10px; align-items: start; padding: 10px 12px; border: 1px solid var(--border); border-radius: 9px; cursor: pointer; }
+  .opt:hover { border-color: var(--border-strong); background: #FAFBFC; }
+  .opt input { margin-top: 4px; accent-color: var(--accent); }
+  .opt:has(input:checked) { border-color: var(--accent); background: var(--accent-tint); }
+  .opt .t { font-weight: 600; }
+  .opt .d { color: var(--ink-muted); font-size: 14.5px; }
+  .rec { font-size: 11.5px; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: .08em; margin-left: 6px; }
+  .q textarea { width: 100%; margin-top: 10px; min-height: 44px; font: inherit; font-size: 14.5px; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: 8px; resize: vertical; }
+  .q-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
+  button { font: inherit; font-weight: 700; font-size: 14.5px; border-radius: 10px; padding: 9px 18px; cursor: pointer; border: 1px solid transparent; }
+  button.primary { background: var(--accent); color: #FFFFFF; }
+  button.primary:hover { background: var(--accent-hover); }
+  button.quiet { background: var(--band); color: var(--ink); border-color: var(--border); }
+  button:focus-visible { outline: 3px solid rgba(0, 102, 184, .45); outline-offset: 2px; }
+  .state { font-size: 13.5px; color: var(--ink-muted); }
+
+  .tray { margin-top: 20px; padding: 16px; border-radius: 12px; background: var(--band); border: 1px solid var(--border); }
+  .tray pre { white-space: pre-wrap; overflow-wrap: anywhere; font-family: var(--mono); font-size: 13.5px; margin: 10px 0; background: #FFFFFF; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; min-height: 42px; }
+  .note { font-size: 13.5px; color: var(--ink-muted); }
+
+  /* Figures */
+  figure { margin: 18px 0 8px; }
+  figure svg { width: 100%; height: auto; display: block; }
+  figure.wide { overflow-x: auto; }
+  @media (max-width: 720px) { figure.wide svg { min-width: 680px; } figure.wide figcaption { position: sticky; left: 0; } }
+  figcaption { font-size: 14px; color: var(--ink-muted); margin-top: 8px; }
+
+  /* Tables */
+  .table-wrap { overflow-x: auto; margin: 12px 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 15px; }
+  th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--border); }
+  th { font-size: 12.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-faint); font-weight: 600; border-bottom: 1px solid var(--border-strong); }
+  td:first-child { font-weight: 600; }
+
+  .cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  @media (max-width: 720px) { .cols { grid-template-columns: minmax(0, 1fr); } }
+  .card { border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; min-width: 0; }
+  .card h3 { margin-top: 0; }
+  .card ul { margin: 0; padding-left: 18px; }
+  .card li { margin: 4px 0; }
+
+  ol.phases { counter-reset: ph; list-style: none; padding: 0; margin: 0; }
+  ol.phases li { counter-increment: ph; display: grid; grid-template-columns: 38px minmax(0, 1fr); gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+  ol.phases li::before { content: counter(ph); display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: var(--accent-tint); color: var(--accent); font-weight: 700; }
+  ol.phases li:last-child { border-bottom: 0; }
+
+  .evidence { font-size: 14.5px; }
+  footer { color: var(--ink-faint); font-size: 13px; margin-top: 30px; }
+</style>
+<style>
+  .decisions { width: 100%; }
+  .decisions td:first-child { white-space: nowrap; }
+</style>
+</head>
+<body>
+<main>
+
+<header>
+  <div class="eyebrow">Dev report - design</div>
+  <h1>cc-dev-reports: answer the agent inside the report</h1>
+  <div class="meta">
+    <span>16 September 2026</span>
+    <span>Tracking issue: <a href="https://github.com/thefrederiksen/devthrottle/issues/2936">#2936</a></span>
+    <span class="chip ok">Decided - ready to build</span>
+    <span class="chip">Nothing built yet</span>
+  </div>
+  <p class="reading-guide"><b>How to read this:</b> the summary and the questions section are all you need. Stop there. Everything after is detail for whoever builds it.</p>
+</header>
+
+<!-- ================= EXECUTIVE SUMMARY ================= -->
+<section class="top" id="summary">
+  <h2>Executive summary</h2>
+  <ul class="summary">
+    <li><b class="k">What</b><span><b>cc-dev-reports</b>: every report an agent writes for its owner is one HTML file. The owner reads it in the Director, the Cockpit or the phone, <b>and answers inside the page</b>. Notes and answers go straight into the session that wrote it.</span></li>
+    <li><b class="k">Why</b><span>Today a report is answered by typing in chat ("the third row of the second table is wrong"). Here the owner clicks the row and types. Decisions become buttons.</span></li>
+    <li><b class="k">Shape</b><span>Every report has the same top: <b>summary first, questions second</b>, detail after. A simple report is finished in the first screen.</span></li>
+    <li><b class="k">Credit</b><span>The idea comes from <a href="https://github.com/kunchenguid/lavish-axi">lavish-axi</a> by Kun Chen (MIT licence), which we tried on Windows 11. We take its in-page notes, the reply shown in the page, notes that are never lost, and its report-writing guides. We leave its local web server, its endless waiting command and its network defaults.</span></li>
+    <li><b class="k">How</b><span>One shared script inside the page does the note-taking. The Gateway keeps each report and its conversation. The three apps only display it. One tool (<code>cc-dev-reports</code>) and one skill (<code>dev-reports</code>) teach every agent in every repo to use it.</span></li>
+    <li><b class="k">Build</b><span>Five phases, each usable on its own. Cockpit and phone come first; phase 3 is the first point where the owner answers from the phone.</span></li>
+  </ul>
+</section>
+
+<!-- ================= QUESTIONS ================= -->
+<section id="questions">
+  <h2>Questions for you</h2>
+  <p><span class="chip ok">No questions</span> Nothing is needed from you. All four questions were answered by the owner on 16 September 2026, each with the recommended option, and the decisions are written into this document:</p>
+  <div class="table-wrap">
+    <table class="decisions">
+      <thead><tr><th>Question</th><th>Decision</th><th>Where it applies</th></tr></thead>
+      <tbody>
+        <tr><td>Which app first?</td><td>Cockpit and phone first, Director second. One web viewer serves both.</td><td><a href="#phases">Build order</a></td></tr>
+        <tr><td>Notes sent while the agent is working?</td><td>Held until the agent's turn ends, then delivered. Never interrupts.</td><td><a href="#loop">The loop</a></td></tr>
+        <tr><td>An agent's own built-in page publishing?</td><td>Never used for dev reports. A rule in the owner's global agent instructions, plus the skill.</td><td><a href="#tool">Tool and skill</a></td></tr>
+        <tr><td>Who can open and answer a report?</td><td>Only the owner of the session, in version one.</td><td><a href="#surfaces">Three apps</a></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note">This section is how every finished report looks: when there is nothing to ask, it still appears and says so, so a missing section never reads as "no questions". While questions are open, each one sits here with its options, the recommendation preselected, and a Queue answer button.</p>
+</section>
+
+<!-- ================= DETAIL ================= -->
+<section id="loop">
+  <h2><span class="section-no">1</span>The loop</h2>
+  <p>The whole feature is one circle. The agent never waits for the owner: answers arrive in the session like any other prompt. <b>If the agent is in the middle of a turn, the notes are held and delivered when the turn ends</b>, and the report shows "delivered when the agent finishes".</p>
+  <figure class="wide">
+    <svg viewBox="0 0 900 300" role="img" aria-labelledby="loop-title">
+      <title id="loop-title">The report loop from agent to owner and back</title>
+      <defs>
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5A616B"/></marker>
+      </defs>
+      <g id="node-write"><title>Agent writes report.html</title>
+        <rect x="20" y="40" width="190" height="70" rx="12" fill="#FFFFFF" stroke="#D5D8DE"/>
+        <text x="115" y="70" text-anchor="middle" font-size="16" font-weight="700" fill="#16181D">Agent writes</text>
+        <text x="115" y="92" text-anchor="middle" font-size="14" fill="#5A616B">report.html</text></g>
+      <g id="node-open"><title>cc-dev-reports open publishes it</title>
+        <rect x="260" y="40" width="190" height="70" rx="12" fill="#FFFFFF" stroke="#D5D8DE"/>
+        <text x="355" y="70" text-anchor="middle" font-size="16" font-weight="700" fill="#16181D">cc-dev-reports open</text>
+        <text x="355" y="92" text-anchor="middle" font-size="14" fill="#5A616B">publishes to the Gateway</text></g>
+      <g id="node-view"><title>The owner reads it in any of the three apps</title>
+        <rect x="500" y="40" width="380" height="70" rx="12" fill="#EAF3FB" stroke="#0066B8"/>
+        <text x="690" y="70" text-anchor="middle" font-size="16" font-weight="700" fill="#0066B8">Owner reads and answers inside it</text>
+        <text x="690" y="92" text-anchor="middle" font-size="14" fill="#16181D">Director - Cockpit - phone</text></g>
+      <g id="node-deliver"><title>Notes are delivered to the session as a prompt when its turn ends</title>
+        <rect x="500" y="200" width="380" height="70" rx="12" fill="#FFFFFF" stroke="#D5D8DE"/>
+        <text x="690" y="230" text-anchor="middle" font-size="16" font-weight="700" fill="#16181D">Notes arrive in the session</text>
+        <text x="690" y="252" text-anchor="middle" font-size="14" fill="#5A616B">as a prompt, after the current turn</text></g>
+      <g id="node-fix"><title>Agent edits the file and replies</title>
+        <rect x="140" y="200" width="310" height="70" rx="12" fill="#FFFFFF" stroke="#D5D8DE"/>
+        <text x="295" y="230" text-anchor="middle" font-size="16" font-weight="700" fill="#16181D">Agent edits, runs reply</text>
+        <text x="295" y="252" text-anchor="middle" font-size="14" fill="#5A616B">page reloads, reply shows beside it</text></g>
+      <path d="M210 75 H255" stroke="#5A616B" stroke-width="2" marker-end="url(#arr)" fill="none"/>
+      <path d="M450 75 H495" stroke="#5A616B" stroke-width="2" marker-end="url(#arr)" fill="none"/>
+      <path d="M690 110 V195" stroke="#5A616B" stroke-width="2" marker-end="url(#arr)" fill="none"/>
+      <path d="M500 235 H455" stroke="#5A616B" stroke-width="2" marker-end="url(#arr)" fill="none"/>
+      <path d="M295 200 C295 150, 520 150, 560 115" stroke="#5A616B" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#arr)" fill="none"/>
+    </svg>
+    <figcaption>The dashed line is the second round: the edited page and the reply appear wherever the owner is reading.</figcaption>
+  </figure>
+  <p>What a note carries, as seen in the lavish-axi trial: the text typed, the exact place in the page, the quoted text, and for a table the row and column names. The agent never has to guess what "this" means. Answers to questions carry the question and the chosen option.</p>
+</section>
+
+<section id="shape">
+  <h2><span class="section-no">2</span>The report shape</h2>
+  <p>Every dev report follows one order. The skill teaches it and <code>cc-dev-reports open</code> checks it.</p>
+  <div class="cols">
+    <figure style="margin:0">
+      <svg viewBox="0 0 320 400" role="img" aria-labelledby="shape-title">
+        <title id="shape-title">The fixed order of a dev report</title>
+        <rect x="10" y="10" width="300" height="380" rx="14" fill="#FFFFFF" stroke="#D5D8DE"/>
+        <g id="shape-header"><title>Header: title, date, status</title>
+          <rect x="30" y="28" width="260" height="36" rx="6" fill="#F5F6F8"/>
+          <text x="44" y="51" font-size="13" font-weight="700" fill="#16181D">Header and status</text></g>
+        <g id="shape-summary"><title>Executive summary, one screen at most</title>
+          <rect x="30" y="76" width="260" height="84" rx="6" fill="#EAF3FB" stroke="#0066B8"/>
+          <text x="44" y="102" font-size="14" font-weight="700" fill="#0066B8">1. Executive summary</text>
+          <text x="44" y="124" font-size="12" fill="#16181D">six lines at most</text></g>
+        <g id="shape-questions"><title>Questions for you, each with a recommendation</title>
+          <rect x="30" y="172" width="260" height="84" rx="6" fill="#EAF3FB" stroke="#0066B8"/>
+          <text x="44" y="198" font-size="14" font-weight="700" fill="#0066B8">2. Questions for you</text>
+          <text x="44" y="220" font-size="12" fill="#16181D">recommendation preselected</text></g>
+        <line x1="30" y1="272" x2="290" y2="272" stroke="#DC2626" stroke-dasharray="4 4"/>
+        <text x="290" y="288" text-anchor="end" font-size="11" fill="#DC2626">the owner can stop reading here</text>
+        <g id="shape-detail"><title>Detail sections, numbered</title>
+          <rect x="30" y="298" width="260" height="36" rx="6" fill="#F5F6F8"/>
+          <text x="44" y="321" font-size="13" fill="#5A616B">3+. Detail sections</text></g>
+        <g id="shape-evidence"><title>Evidence and what is not proven</title>
+          <rect x="30" y="342" width="260" height="36" rx="6" fill="#F5F6F8"/>
+          <text x="44" y="365" font-size="13" fill="#5A616B">Last: evidence, not proven</text></g>
+      </svg>
+    </figure>
+    <div class="card">
+      <h3>The rules</h3>
+      <ul>
+        <li><b>Summary, then questions, always at the top.</b> Nothing goes above them.</li>
+        <li>If there are no questions, the section still appears and says <b>"No questions - nothing needed from you."</b></li>
+        <li>Every question names the decision, the options with their cost, and <b>one recommendation, preselected</b>.</li>
+        <li>Once answered, the agent <b>removes the question</b> and writes the decision into the body. Old questions never pile up.</li>
+        <li>The status line says what the report is waiting for: <span class="chip wait">Waiting on you</span> <span class="chip blue">Agent working</span> <span class="chip ok">Done</span>.</li>
+        <li>Pictures instead of paragraphs where a picture is clearer: hand-drawn SVG with a label on every part, so the owner can click the exact box they mean.</li>
+        <li>The last section says plainly what is <b>not</b> proven.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="surfaces">
+  <h2><span class="section-no">3</span>One mechanism, three apps</h2>
+  <p>Only the note-taking script is written once. Each app shows the report in a locked-down frame, adds the script, and passes notes to the Gateway. Session content already travels this way: the phone's Terminal and Chat tabs show sessions that run on a Director. <b>In version one only the owner of the session can open or answer its reports.</b></p>
+  <figure class="wide">
+    <svg viewBox="0 0 900 330" role="img" aria-labelledby="arch-title">
+      <title id="arch-title">How a report reaches the three apps and how notes return</title>
+      <defs>
+        <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5A616B"/></marker>
+      </defs>
+      <g id="arch-session"><title>The session on a Director machine</title>
+        <rect x="20" y="120" width="200" height="90" rx="12" fill="#FFFFFF" stroke="#D5D8DE"/>
+        <text x="120" y="155" text-anchor="middle" font-size="16" font-weight="700" fill="#16181D">Session</text>
+        <text x="120" y="178" text-anchor="middle" font-size="13" fill="#5A616B">writes and publishes</text></g>
+      <g id="arch-gateway"><title>Gateway keeps the report, notes and replies</title>
+        <rect x="320" y="100" width="230" height="130" rx="12" fill="#EAF3FB" stroke="#0066B8"/>
+        <text x="435" y="140" text-anchor="middle" font-size="16" font-weight="700" fill="#0066B8">Gateway</text>
+        <text x="435" y="165" text-anchor="middle" font-size="13" fill="#16181D">report record:</text>
+        <text x="435" y="185" text-anchor="middle" font-size="13" fill="#16181D">HTML, notes, replies</text></g>
+      <g id="arch-director"><title>Director report pane</title>
+        <rect x="660" y="20" width="220" height="70" rx="12" fill="#FFFFFF" stroke="#D5D8DE"/>
+        <text x="770" y="52" text-anchor="middle" font-size="15" font-weight="700" fill="#16181D">Director</text>
+        <text x="770" y="72" text-anchor="middle" font-size="13" fill="#5A616B">pane beside the session</text></g>
+      <g id="arch-cockpit"><title>Cockpit report view</title>
+        <rect x="660" y="130" width="220" height="70" rx="12" fill="#FFFFFF" stroke="#D5D8DE"/>
+        <text x="770" y="162" text-anchor="middle" font-size="15" font-weight="700" fill="#16181D">Cockpit</text>
+        <text x="770" y="182" text-anchor="middle" font-size="13" fill="#5A616B">Reports tab</text></g>
+      <g id="arch-phone"><title>Phone report view</title>
+        <rect x="660" y="240" width="220" height="70" rx="12" fill="#FFFFFF" stroke="#D5D8DE"/>
+        <text x="770" y="272" text-anchor="middle" font-size="15" font-weight="700" fill="#16181D">Phone</text>
+        <text x="770" y="292" text-anchor="middle" font-size="13" fill="#5A616B">full screen, notes sheet</text></g>
+      <path d="M220 150 H315" stroke="#5A616B" stroke-width="2" marker-end="url(#arr2)" fill="none"/>
+      <text x="268" y="140" text-anchor="middle" font-size="12" fill="#5A616B">report</text>
+      <path d="M315 185 H225" stroke="#0066B8" stroke-width="2" marker-end="url(#arr2)" fill="none"/>
+      <text x="268" y="203" text-anchor="middle" font-size="12" fill="#0066B8">notes</text>
+      <path d="M550 130 L655 60" stroke="#5A616B" stroke-width="2" marker-end="url(#arr2)" marker-start="url(#arr2)" fill="none"/>
+      <path d="M550 165 H655" stroke="#5A616B" stroke-width="2" marker-end="url(#arr2)" marker-start="url(#arr2)" fill="none"/>
+      <path d="M550 200 L655 270" stroke="#5A616B" stroke-width="2" marker-end="url(#arr2)" marker-start="url(#arr2)" fill="none"/>
+    </svg>
+    <figcaption>Blue is the part that matters: notes return to the one session that wrote the report.</figcaption>
+  </figure>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>App</th><th>How the report shows</th><th>What exists today</th></tr></thead>
+      <tbody>
+        <tr><td>Cockpit (<code>apps/cockpit</code>)</td><td>A Reports tab on the session, report in a locked-down frame. <b>Built first.</b></td><td><span class="chip">not checked</span> whether any report view exists.</td></tr>
+        <tr><td>Phone (<code>apps/mobile</code>)</td><td>Report full screen; the conversation is a sheet pulled up from the bottom. <b>Built first</b>, sharing the Cockpit's viewer.</td><td>Follows the Cockpit build.</td></tr>
+        <tr><td>Director (<code>src/CcDirector.Avalonia</code>)</td><td>A pane beside the session, using WebView2. Built second.</td><td>An HTML viewer exists (<code>HtmlViewerControl</code>). It opens a local file and has no way to add the script or send notes back. <span class="chip ok">checked in code</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="tool">
+  <h2><span class="section-no">4</span>The tool and the skill</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td><code>cc-dev-reports</code></td><td>With nothing else: this session's open reports and how many notes are waiting.</td></tr>
+        <tr><td><code>cc-dev-reports open &lt;file&gt;</code></td><td>Checks the shape (summary and questions at the top), publishes the report for this session, prints where to view it. Run again after every edit.</td></tr>
+        <tr><td><code>cc-dev-reports reply "&lt;text&gt;"</code></td><td>Shows the agent's answer in the report's conversation.</td></tr>
+        <tr><td><code>cc-dev-reports notes &lt;file&gt;</code></td><td>Shows notes already delivered, if the agent needs them again.</td></tr>
+        <tr><td><code>cc-dev-reports guide [kind]</code></td><td>Writing guidance: plan, comparison, table, diagram, decision.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>The tool follows <a href="../../axi-standard.md">our AXI standard</a>: compact output, a <code>next_step</code> line on every answer, and errors with a code and a fix. An unknown flag is an error, and no command ever waits forever.</p>
+  <p><b>The skill <code>dev-reports</code></b> says: any page written for the owner to read or answer is a dev report; run <code>cc-dev-reports guide</code> before writing one; summary and questions go at the top; open it with <code>cc-dev-reports open</code>. <b>An agent never uses its own built-in way of publishing pages to a vendor's website for a dev report.</b> That rule also goes into the owner's global agent instructions, because a skill alone does not reliably override an agent's built-in behaviour.</p>
+</section>
+
+<section id="borrowed">
+  <h2><span class="section-no">5</span>What we take from lavish-axi, and what we leave</h2>
+  <div class="cols">
+    <div class="card">
+      <h3><span class="chip ok">Take</span></h3>
+      <ul>
+        <li>Notes pinned to an element, text or table cell, with human labels</li>
+        <li>Questions answered with buttons; one Queue per question, nothing sent until the owner says so</li>
+        <li>"Queued" shown separately from "sent"</li>
+        <li>The agent's reply shown in the page</li>
+        <li>Reload after an edit keeps the reader's place and any half-typed note</li>
+        <li>Notes kept until delivered</li>
+        <li>A locked-down frame around agent-written HTML</li>
+        <li>Report-writing guides, rewritten for our reports</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3><span class="chip bad">Leave</span></h3>
+      <ul>
+        <li>A web server on each PC. The Gateway and our apps replace it</li>
+        <li>A command that waits for feedback with no end</li>
+        <li>Phone access by opening the review server to a private network without sign-in</li>
+        <li>Usage analytics</li>
+        <li>Publishing to a third-party host</li>
+        <li>Editable diagram whiteboards. Maybe later; not needed for reports</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="phases">
+  <h2><span class="section-no">6</span>Build order</h2>
+  <ol class="phases">
+    <li><div><b>The note-taking script and the report shape.</b> Works on a plain file in a browser. Includes the shape check.</div></li>
+    <li><div><b>The Gateway report record and delivery into the session.</b> Publish, store, hold notes until the turn ends, deliver as a prompt, reply. Owner-only access.</div></li>
+    <li><div><b>Cockpit and phone viewer.</b> First point where the owner answers from the phone.</div></li>
+    <li><div><b>Director pane</b>, built on the existing HTML viewer.</div></li>
+    <li><div><b>The tool, the skill and the global instruction rule</b> rolled out to every repo. The tool exists from phase 2; this is when it becomes the default everywhere.</div></li>
+  </ol>
+</section>
+
+<section id="risks">
+  <h2><span class="section-no">7</span>Risks</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Risk</th><th>What we do about it</th></tr></thead>
+      <tbody>
+        <tr><td>Agent-written pages run their own scripts</td><td>Always a locked-down frame with no access to the app around it. Tested before anything else ships.</td></tr>
+        <tr><td>Notes land in the middle of a turn</td><td>Held until the turn ends (decided).</td></tr>
+        <tr><td>Agents keep using their own page publishing</td><td>The skill plus the global instruction rule (decided); <code>open</code> is the only path the skill describes.</td></tr>
+        <tr><td>Large reports with screenshots</td><td>A size limit on publish, with a clear error rather than a silent cut.</td></tr>
+        <tr><td>A report outlives its session</td><td>Reports stay readable; sending is refused with "this session has ended".</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="evidence" class="evidence">
+  <h2><span class="section-no">8</span>Evidence, and what is not proven</h2>
+  <h3>Proven</h3>
+  <ul>
+    <li>lavish-axi 0.1.69 was run on Windows 11 against one of our HTML QA reports: a note on a table cell and a chat message reached the agent with the row and column names, and the agent's reply appeared in the page.</li>
+    <li>The Director uses WebView2 and has <code>HtmlViewerControl</code>, which opens a local HTML file (<code>src/CcDirector.Avalonia/Controls/HtmlViewerControl.axaml.cs</code>).</li>
+    <li>The report-writing rules here draw on the lavish-axi plan, input, comparison and diagram guides.</li>
+  </ul>
+  <h3>Not proven</h3>
+  <ul>
+    <li>How the Gateway stores and forwards report files. Not designed yet; phase 2.</li>
+    <li>That the Director's viewer can host a locked-down frame and pass messages out. WebView2 can; our code does not do it yet.</li>
+    <li>Whether the Cockpit or phone already has anything like a report view. Not checked.</li>
+  </ul>
+</section>
+
+<footer>Design sources: DevThrottle colours and type; report structure from the lavish-axi guides by Kun Chen (MIT). Credit for AXI: <a href="https://axi.md">axi.md</a>.</footer>
+</main>
+</body>
+</html>
