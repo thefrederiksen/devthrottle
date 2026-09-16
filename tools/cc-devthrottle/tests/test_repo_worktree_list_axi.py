@@ -493,7 +493,7 @@ def test_list_repositories_GatewayError_ExitsOneOnStderr(serve, capsys, monkeypa
 
 
 @pytest.mark.parametrize("broken, named", [
-    ({"isClean": None}, "isClean that is missing"),
+    ({"isClean": None}, "isClean that is null"),
     ({"isClean": "yes"}, "isClean that is 'yes'"),
     ({"name": ""}, "no repository name"),
     ({"path": None}, "no repository path"),
@@ -763,7 +763,7 @@ def test_worktree_list_Cli_UnknownState_ExitsOneNamingIt(serve):
 
 
 @pytest.mark.parametrize("broken, named", [
-    ({"state": None}, "state that is missing"),
+    ({"state": None}, "state that is null"),
     ({"path": ""}, "no worktree path"),
     ({"repoName": None}, "no repository name"),
     ({"sessionLabels": "one session"}, "sessionLabels should be a list"),
@@ -793,3 +793,274 @@ def test_list_worktrees_AnswerIsNotAList_ExitsOne(serve, capsys):
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "no list of worktrees" in captured.err
+
+
+# ---------------------------------------------------------------------------------------------------
+# Inspection fixes: every field read is checked before any filter, on every path but unfiltered --json
+# ---------------------------------------------------------------------------------------------------
+
+_MISSING = object()
+
+# Each field these two commands read, with values the Gateway never sends: the key left out, the wrong
+# kind, and a value outside what RepoStatusDto / FleetWorktreeDto can carry.
+BAD_REPO_FIELDS = [
+    ("name", _MISSING), ("name", ""), ("name", 5),
+    ("path", _MISSING), ("path", None), ("path", "  "),
+    ("machineName", _MISSING), ("machineName", None),
+    ("isClean", _MISSING), ("isClean", None), ("isClean", "yes"),
+    ("branch", _MISSING), ("branch", None), ("branch", 3),
+    ("uncommittedCount", _MISSING), ("uncommittedCount", None), ("uncommittedCount", "3"),
+    ("uncommittedCount", -1), ("uncommittedCount", True), ("uncommittedCount", 1.5),
+    ("aheadCount", _MISSING), ("aheadCount", -1),
+    ("behindCount", _MISSING), ("behindCount", -1),
+    ("behindMainCount", _MISSING), ("behindMainCount", None), ("behindMainCount", -2),
+    ("worktreeCount", _MISSING), ("worktreeCount", None), ("worktreeCount", -1),
+    ("worktreesSafeToReap", _MISSING), ("worktreesSafeToReap", None), ("worktreesSafeToReap", "1"),
+    ("worktreeBytes", _MISSING), ("worktreeBytes", None), ("worktreeBytes", -5),
+    ("provider", _MISSING), ("provider", None), ("provider", "Bitbucket"),
+    ("org", _MISSING), ("org", 5),
+    ("remoteUrl", _MISSING), ("remoteUrl", []),
+    ("directorId", _MISSING), ("directorId", ""), ("directorId", None),
+    ("provisional", _MISSING), ("provisional", None), ("provisional", "false"),
+]
+
+BAD_WORKTREE_FIELDS = [
+    ("repoName", _MISSING), ("repoName", None),
+    ("repoPath", _MISSING), ("repoPath", None), ("repoPath", ""),
+    ("machineName", _MISSING), ("machineName", ""),
+    ("directorId", _MISSING), ("directorId", None),
+    ("path", _MISSING), ("path", ""),
+    ("branch", _MISSING), ("branch", 7),
+    ("state", _MISSING), ("state", None), ("state", "somethingNew"), ("state", "Safe-To-Reap"),
+    ("reason", _MISSING), ("reason", None),
+    ("sessionLabels", _MISSING), ("sessionLabels", None), ("sessionLabels", "one"), ("sessionLabels", [1]),
+    ("sizeBytes", _MISSING), ("sizeBytes", "big"), ("sizeBytes", -1), ("sizeBytes", 1.5),
+    ("lastActivityUtc", _MISSING), ("lastActivityUtc", "yesterday"), ("lastActivityUtc", 5),
+    ("dataAgeSeconds", _MISSING), ("dataAgeSeconds", None), ("dataAgeSeconds", -1),
+    ("dataAgeSeconds", "4"), ("dataAgeSeconds", True),
+    ("provisional", _MISSING), ("provisional", None),
+]
+
+# The three paths that read the rows. The filter is one the broken row would NOT match, so a row that
+# is filtered out before it is checked shows up as a false "no match".
+REPO_PATHS = [
+    ("plain", {}),
+    ("filtered", {"machine": "NO_SUCH_MACHINE"}),
+    ("filtered-json", {"machine": "NO_SUCH_MACHINE", "json_output": True}),
+]
+
+
+def _broken(row, key, value):
+    row = dict(row)
+    if value is _MISSING:
+        del row[key]
+    else:
+        row[key] = value
+    return row
+
+
+def _assert_exits_one(call, capsys, named):
+    with pytest.raises(typer.Exit) as exc:
+        call()
+    assert exc.value.exit_code == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert named in captured.err
+    assert captured.err.isascii()
+
+
+@pytest.mark.parametrize("path_name, kwargs", REPO_PATHS)
+@pytest.mark.parametrize("key, value", BAD_REPO_FIELDS)
+def test_list_repositories_FieldTheGatewayNeverSends_ExitsOneOnEveryPath(serve, capsys, key, value, path_name, kwargs):
+    serve(repositories=REPOS + [_broken(_repo("broken", "/x/broken", clean=True), key, value)])
+    kwargs = {"json_output": False, **kwargs}
+
+    _assert_exits_one(lambda: repo_ops.list_repositories(**kwargs), capsys, key)
+
+
+@pytest.mark.parametrize("path_name, kwargs", REPO_PATHS)
+@pytest.mark.parametrize("key, value", BAD_WORKTREE_FIELDS)
+def test_list_worktrees_FieldTheGatewayNeverSends_ExitsOneOnEveryPath(serve, capsys, key, value, path_name, kwargs):
+    serve(worktrees=WORKTREES + [_broken(_worktree("/x/broken", "broken", "/x", "safe-to-reap"), key, value)])
+    kwargs = {"json_output": False, **kwargs}
+
+    _assert_exits_one(lambda: repo_ops.list_worktrees(**kwargs), capsys, key)
+
+
+def test_list_repositories_InspectionReproduction_NoMachineName_IsNotANoMatch(serve, capsys):
+    row = {"name": "sample", "path": "/repos/sample", "isClean": True}
+    serve(repositories=[row])
+
+    for json_output in (False, True):
+        _assert_exits_one(
+            lambda: repo_ops.list_repositories(json_output, machine="host"), capsys, "machineName"
+        )
+
+
+@pytest.mark.parametrize("path_name, kwargs", REPO_PATHS)
+@pytest.mark.parametrize("extra, named", [
+    ({"worktreeCount": 2, "worktreesSafeToReap": 3}, "worktreesSafeToReap (3) is more than worktreeCount (2)"),
+    ({"provisional": True, "worktreesSafeToReap": 1}, "the Gateway serves it as 0"),
+])
+def test_list_repositories_CountsThatContradict_ExitOneOnEveryPath(serve, capsys, extra, named, path_name, kwargs):
+    serve(repositories=REPOS + [_repo("broken", "/x/broken", clean=True, **extra)])
+    kwargs = {"json_output": False, **kwargs}
+
+    _assert_exits_one(lambda: repo_ops.list_repositories(**kwargs), capsys, named)
+
+
+@pytest.mark.parametrize("path_name, kwargs", REPO_PATHS)
+@pytest.mark.parametrize("state, provisional", [("verifying", False), ("safe-to-reap", True)])
+def test_list_worktrees_StateThatContradictsProvisional_ExitsOneOnEveryPath(
+        serve, capsys, state, provisional, path_name, kwargs):
+    serve(worktrees=WORKTREES + [_worktree("/x/broken", "broken", "/x", state, provisional=provisional)])
+    kwargs = {"json_output": False, **kwargs}
+
+    _assert_exits_one(
+        lambda: repo_ops.list_worktrees(**kwargs), capsys, "verifying exactly when provisional is true"
+    )
+
+
+def test_list_repositories_InspectionReproduction_NoCounts_NotSummedAsZero(serve, capsys):
+    row = _repo("sample", "/repos/sample", clean=True)
+    del row["worktreeCount"]
+    del row["worktreesSafeToReap"]
+    serve(repositories=[row])
+
+    _assert_exits_one(lambda: repo_ops.list_repositories(False), capsys, "worktreeCount")
+
+
+def test_list_repositories_JsonUnfilteredWithBrokenRow_StillTheRawAnswer(serve, capsys):
+    answer = REPOS + [_broken(_repo("broken", "/x/broken", clean=True), "worktreeCount", _MISSING)]
+    serve(repositories=answer)
+
+    repo_ops.list_repositories(json_output=True)
+
+    assert capsys.readouterr().out == json.dumps(answer, indent=2) + "\n"
+
+
+def test_list_worktrees_JsonUnfilteredWithBrokenRow_StillTheRawAnswer(serve, capsys):
+    answer = WORKTREES + [_broken(_worktree("/x/broken", "broken", "/x", "safe-to-reap"), "sessionLabels", None)]
+    serve(worktrees=answer)
+
+    repo_ops.list_worktrees(json_output=True)
+
+    assert capsys.readouterr().out == json.dumps(answer, indent=2) + "\n"
+
+
+def test_list_repositories_EveryNullOrEdgeValueTheGatewaySends_Lists(serve, capsys):
+    row = _repo("edge", "/x/edge", clean=True, org=None, remoteUrl=None, provider="None", branch="",
+                behindMainCount=-1, worktreeCount=0, worktreesSafeToReap=0, worktreeBytes=0)
+    provisional = _repo("verifying", "/x/verifying", clean=False, provisional=True, worktreesSafeToReap=0)
+    serve(repositories=[row, provisional])
+
+    repo_ops.list_repositories(json_output=False, fields=",".join(repo_ops.REPO_LIST_FIELDS))
+
+    out = capsys.readouterr().out
+    _, records = parse_list(out, "repositories")
+    assert [r["name"] for r in records] == ["edge", "verifying"]
+    assert "worktrees in these repositories: 2, safe to reap: 0" in out
+
+
+def test_list_worktrees_EveryNullOrEdgeValueTheGatewaySends_Lists(serve, capsys):
+    row = _worktree("/x/edge", "edge", "/x", "in-use", branch=None, size=None, reason="",
+                    lastActivityUtc=None, dataAgeSeconds=0)
+    unzoned = _worktree("/x/unzoned", "edge", "/x", "needs-attention", lastActivityUtc="2026-09-06T15:47:11")
+    serve(worktrees=[row, unzoned])
+
+    repo_ops.list_worktrees(json_output=False, fields=",".join(repo_ops.WORKTREE_LIST_FIELDS))
+
+    _, records = parse_list(capsys.readouterr().out, "worktrees")
+    assert [r["path"] for r in records] == ["/x/edge", "/x/unzoned"]
+
+
+def test_list_worktrees_PascalCaseRows_ReadTheSame(serve, capsys):
+    pascal = [{k[0].upper() + k[1:]: v for k, v in row.items()} for row in WORKTREES]
+    serve(worktrees=pascal)
+
+    repo_ops.list_worktrees(json_output=False)
+
+    _check_worktrees_recoverable(capsys.readouterr().out, WORKTREES)
+
+
+# ---------------------------------------------------------------------------------------------------
+# Inspection fixes: a full path ignores case and slash direction only for a Windows path
+# ---------------------------------------------------------------------------------------------------
+
+LINUX_UPPER = "/home/A/proj"
+LINUX_LOWER = "/home/a/proj"
+
+
+@pytest.mark.parametrize("row_path, wanted, expected", [
+    # The inspection's two Linux paths are two repositories.
+    (LINUX_UPPER, LINUX_UPPER, True),
+    (LINUX_UPPER, LINUX_LOWER, False),
+    (LINUX_LOWER, LINUX_UPPER, False),
+    (LINUX_LOWER, LINUX_LOWER, True),
+    ("/Users/soren/ReposFred/devthrottle", "/users/soren/reposfred/devthrottle", False),
+    # A Windows path ignores case and slash direction, whichever way the caller wrote it.
+    (r"D:\ReposFred\devthrottle", "d:/reposfred/DEVTHROTTLE", True),
+    (r"D:\ReposFred\devthrottle", "D:\\ReposFred\\devthrottle\\", True),
+    ("C:/ReposFred/cc-director", r"c:\reposfred\CC-DIRECTOR", True),
+    (r"\\server\share\Repo", "//SERVER/share/repo", True),
+    (r"D:\ReposFred\devthrottle", r"D:\ReposFred\other", False),
+])
+def test_path_matches_WindowsOnlyIgnoresCaseAndSlashes(row_path, wanted, expected):
+    assert repo_ops.path_matches(row_path, wanted) is expected
+
+
+@pytest.mark.parametrize("path, expected", [
+    (r"D:\ReposFred", True), ("c:/repos", True), ("C:", True), (r"\\server\share", True),
+    (LINUX_UPPER, False), ("/Users/soren/C:/odd", False), ("relative/path", False),
+])
+def test_is_windows_path_DriveLetterOrBackslash(path, expected):
+    assert repo_ops.is_windows_path(path) is expected
+
+
+def test_repo_list_Cli_LinuxPathsDifferingByCase_AreDistinct(serve):
+    upper = _repo("proj", LINUX_UPPER, clean=True, machine="linux-box")
+    lower = _repo("proj", LINUX_LOWER, clean=False, machine="linux-box")
+    serve(repositories=[upper, lower])
+
+    for wanted, expected in ((LINUX_UPPER, upper), (LINUX_LOWER, lower)):
+        result = runner.invoke(app, ["repo", "list", "--repo", wanted, "--json"])
+        assert result.exit_code == 0
+        assert json.loads(result.stdout) == [expected]
+        text = runner.invoke(app, ["repo", "list", "--repo", wanted])
+        _, records = parse_list(text.stdout, "repositories")
+        assert [r["path"] for r in records] == [wanted]
+
+
+def test_repo_list_Cli_FolderNameStillIgnoresCase(serve):
+    upper = _repo("proj", LINUX_UPPER, clean=True, machine="linux-box")
+    lower = _repo("proj", LINUX_LOWER, clean=False, machine="linux-box")
+    serve(repositories=[upper, lower])
+
+    result = runner.invoke(app, ["repo", "list", "--repo", "PROJ", "--json"])
+
+    assert json.loads(result.stdout) == [upper, lower]
+
+
+def test_worktree_list_Cli_LinuxRepoPathsDifferingByCase_AreDistinct(serve):
+    upper = _worktree("/home/A/proj-wt", "proj", LINUX_UPPER, "in-use", machine="linux-box")
+    lower = _worktree("/home/a/proj-wt", "proj", LINUX_LOWER, "in-use", machine="linux-box")
+    serve(worktrees=[upper, lower])
+
+    for wanted, expected in ((LINUX_UPPER, upper), (LINUX_LOWER, lower)):
+        result = runner.invoke(app, ["worktree", "list", "--repo", wanted, "--json"])
+        assert result.exit_code == 0
+        assert json.loads(result.stdout) == [expected]
+        text = runner.invoke(app, ["worktree", "list", "--repo", wanted])
+        _, records = parse_list(text.stdout, "worktrees")
+        assert [r["path"] for r in records] == [expected["path"]]
+
+
+def test_list_repositories_LinuxPathsDifferingByCase_AreNotCalledRepeats(serve, capsys):
+    serve(repositories=[
+        _repo("proj", LINUX_UPPER, clean=True, machine="linux-box"),
+        _repo("proj", LINUX_LOWER, clean=True, machine="linux-box", director=DIRECTOR_B),
+    ])
+
+    repo_ops.list_repositories(json_output=False)
+
+    assert "repeated:" not in capsys.readouterr().out
