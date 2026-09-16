@@ -298,31 +298,48 @@ def check(worktree: Path, repo: Path, tip: RemoteTip | None, recorded_gitdir: st
     return Checked(tip, head, gitdir, ReflogMark(len(entries), entries[0] if entries else None))
 
 
-def reset(worktree: Path, repo: Path, checked: Checked) -> None:
-    """Reset a worktree whose work was just proven landed to `target`, keeping ignored files.
-
-    Takes git's own HEAD.lock first, so no commit, checkout or rebase can move HEAD while it runs,
-    then re-checks HEAD and cleanliness under that lock. Raises NotLanded with the reason if the
-    worktree changed, or if the reset fails (for example a file locked by another process).
-    """
-    target, expected_head = checked.tip.commit, checked.head
-    head_path = checked.gitdir / "HEAD"
-    lock_path = head_path.with_name(head_path.name + ".lock")
+def _take_head_lock(checked: Checked, action: str) -> tuple[int, Path]:
+    lock_path = checked.gitdir / "HEAD.lock"
     try:
         fd = os.open(lock_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
     except FileExistsError as ex:
-        raise NotLanded(f"reset refused: {lock_path.name} exists, another git command is running") from ex
+        raise NotLanded(f"{action} refused: {lock_path.name} exists, another git command is running") from ex
     except OSError as ex:
-        raise NotLanded(f"reset refused: cannot lock HEAD: {ex.strerror}") from ex
+        raise NotLanded(f"{action} refused: cannot lock HEAD: {ex.strerror}") from ex
+    return fd, lock_path
+
+
+def _recheck_under_lock(worktree: Path, repo: Path, checked: Checked) -> None:
+    """With HEAD.lock held nothing can commit, check out or rebase. Everything the check proved must
+    still be exactly as it was."""
+    if not same_path(require_bound(worktree, repo, str(checked.gitdir)), checked.gitdir):
+        raise NotLanded("the worktree's git metadata changed after the check")
+    if head_commit(worktree) != checked.head:
+        raise NotLanded("HEAD moved after the check")
+    if reflog_mark(worktree) != checked.reflog:
+        raise NotLanded("the HEAD reflog changed after the check")
+    require_clean(worktree)
+
+
+def _drop_lock(lock_path: Path) -> None:
+    try:
+        os.remove(lock_path)
+    except FileNotFoundError:
+        pass
+
+
+def reset(worktree: Path, repo: Path, checked: Checked) -> None:
+    """Reset a worktree whose work was just proven landed to the checked remote tip, keeping ignored files.
+
+    Takes git's own HEAD.lock first, so no commit, checkout or rebase can move HEAD while it runs,
+    then re-checks everything under that lock. Raises NotLanded with the reason if the worktree
+    changed, or if the reset fails (for example a file locked by another process).
+    """
+    target = checked.tip.commit
+    fd, lock_path = _take_head_lock(checked, "reset")
     committed = False
     try:
-        if not same_path(require_bound(worktree, repo, str(checked.gitdir)), checked.gitdir):
-            raise NotLanded("the worktree's git metadata changed after the check")
-        if head_commit(worktree) != expected_head:
-            raise NotLanded("HEAD moved after the check")
-        if reflog_mark(worktree) != checked.reflog:
-            raise NotLanded("the HEAD reflog changed after the check")
-        require_clean(worktree)
+        _recheck_under_lock(worktree, repo, checked)
         try:
             gitrun.run(worktree, "read-tree", "--reset", "-u", target)
             # No -x: ignored build output stays, which is the point of a pool.
@@ -333,13 +350,34 @@ def reset(worktree: Path, repo: Path, checked: Checked) -> None:
         os.fsync(fd)
         os.close(fd)
         fd = -1
-        os.replace(lock_path, head_path)
+        os.replace(lock_path, checked.gitdir / "HEAD")
         committed = True
     finally:
         if fd != -1:
             os.close(fd)
         if not committed:
-            try:
-                os.remove(lock_path)
-            except FileNotFoundError:
-                pass
+            _drop_lock(lock_path)
+
+
+def remove(worktree: Path, repo: Path, checked: Checked) -> None:
+    """Remove a worktree whose work was just proven landed, re-checked under HEAD.lock so nothing can
+    commit between the check and the removal. `git worktree remove` is never forced: git itself still
+    refuses a worktree with modified or untracked files."""
+    fd, lock_path = _take_head_lock(checked, "destroy")
+    removed = False
+    try:
+        _recheck_under_lock(worktree, repo, checked)
+        # The lock file stays on disk and is removed with the worktree's record; it only has to be
+        # closed so that removal can delete it.
+        os.close(fd)
+        fd = -1
+        try:
+            gitrun.run(repo, "worktree", "remove", str(worktree))
+        except GitError as ex:
+            raise NotLanded(f"not removed: {ex.short()}") from ex
+        removed = True
+    finally:
+        if fd != -1:
+            os.close(fd)
+        if not removed:
+            _drop_lock(lock_path)

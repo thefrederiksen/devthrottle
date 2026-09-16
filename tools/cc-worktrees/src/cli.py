@@ -29,6 +29,7 @@ Pooled git worktrees. A worktree is only reset when its work has provably landed
   {PROG} lease <path-or-slot> --holder <text> [--reclaim-held] [--repo <path>]
       Take a specific free slot. A held slot only with --reclaim-held (it is not reset).
   {PROG} destroy <path-or-slot> [--yes] [--allow-held] [--allow-in-use] [--repo <path>]
+      Checks the work landed now, whatever the state says; unproven means held (exit 3), no flag skips it.
       Dry run unless --yes. Refuses a held or in-use slot without its flag. One slot at a time.
 
 A slot is reset only when: nothing uncommitted or untracked, the remote was fetched just now, the

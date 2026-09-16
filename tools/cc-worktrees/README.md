@@ -29,7 +29,7 @@ Every command takes `--json` and `--help`, and never prompts.
 | `return` | Runs the landed-work check. Landed: reset (`git read-tree --reset -u` then `git clean -fd`, no `-x`, so ignored build output stays) and free. Not landed or cannot tell: held with the reason, nothing reset. `--lease` is required: a return without it is a usage error (exit 2), and a lease that no longer matches is refused; neither changes anything. |
 | `list` | Every slot with its state (`free`, `in-use`, `held`), holder and reason. `--fields` picks from `repo,slot,path,state,holder,reason,updated`. |
 | `lease` | Takes one specific free slot (checked and reset like `get`). A held slot only with `--reclaim-held`, which takes it as it is, without a reset. |
-| `destroy` | Dry run by default: says what it would remove. `--yes` removes it with `git worktree remove` (never `--force`, so git itself refuses a worktree with modified or untracked files). A held slot needs `--allow-held`, an in-use slot `--allow-in-use`. One slot per call; there is no destroy-all. |
+| `destroy` | Runs the full landed-work check at that moment, whatever the recorded state says - a free slot is only free as of its last check - and refuses (exit 3, held, with the reason) unless it passes. No flag skips that check. Dry run by default: says what it would remove. `--yes` removes it with `git worktree remove` under `HEAD.lock` (never `--force`, so git itself refuses a worktree with modified or untracked files). A held slot also needs `--allow-held`, an in-use slot `--allow-in-use`. A slot whose directory is gone cannot be checked, so it is refused too. One slot per call; there is no destroy-all. |
 
 A slot is named `wt01` (with `--repo`, or the repository of the current directory) or by its path.
 

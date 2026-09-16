@@ -513,6 +513,8 @@ def lease_slot(target: str, holder: str, reclaim_held: bool, repo_opt: str | Non
 
 
 def destroy_slot(target: str, yes: bool, allow_held: bool, allow_in_use: bool, repo_opt: str | None) -> dict:
+    """Remove one slot. The landed check runs NOW, whatever the state says: a free slot is only free as
+    of its last check, and anyone can have committed in it since. No flag skips that check."""
     home = state_home()
     with machine_lock(home):
         repo, name = resolve_target(home, target, repo_opt)
@@ -520,21 +522,30 @@ def destroy_slot(target: str, yes: bool, allow_held: bool, allow_in_use: bool, r
         entry = pool.entry(name)
         if entry["state"] == IN_USE and not allow_in_use:
             raise ToolError("in-use", f"{name} is in use by {entry['holder']}; not destroyed",
-                            [f"cc-worktrees return {entry['path']}"])
+                            [f"cc-worktrees return {entry['path']} --lease <lease>"])
         if entry["state"] == HELD and not allow_held:
             raise ToolError("held", f"{name} is held ({entry['reason']}); not destroyed",
                             [f"cc-worktrees destroy {name} --repo {repo} --allow-held"])
         path = Path(entry["path"])
+
+        def refuse(reason: str) -> ToolError:
+            _hold(pool, name, reason)
+            pool.save()
+            return ToolError("held", f"{name} was not destroyed and is held: {reason}",
+                             [f"git -C {path} status", f"git -C {path} log --oneline -5"], exit_code=EXIT_HELD,
+                             details={**_slot_view(pool, name), "dry_run": not yes, "removed": False})
+
+        try:
+            checked = landed.check(path, repo, None, entry["gitdir"], _mark(entry))
+        except NotLanded as ex:
+            raise refuse(str(ex)) from ex
         view = {**_slot_view(pool, name), "dry_run": not yes, "removed": False}
         if not yes:
             return view
-        if path.exists():
-            try:
-                # Never --force: git refuses a worktree with modified or untracked files.
-                gitrun.run(repo, "worktree", "remove", str(path))
-            except GitError as ex:
-                raise ToolError("destroy-failed", f"{name} was not removed: {ex.short()}",
-                                [f"git -C {path} status"]) from ex
+        try:
+            landed.remove(path, repo, checked)
+        except NotLanded as ex:
+            raise refuse(str(ex)) from ex
         del pool.slots[name]
         pool.save()
         view["removed"] = True
