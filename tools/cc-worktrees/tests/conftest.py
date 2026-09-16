@@ -117,7 +117,10 @@ class World:
         return files[0]
 
     def push_from_other_clone(self, files: dict[str, str], message: str, force_add: bool = False) -> Path:
-        """Land a commit on the default branch from a second clone, the way someone else would."""
+        """Land a commit on the default branch from a second clone, the way someone else would.
+
+        Local remote only: a hosted run pushes only to throwaway branches it creates and deletes."""
+        assert self.kind == "local", "a hosted testbed's default branch is never pushed to by a test"
         other = self.second_clone()
         for name, content in files.items():
             path = other / name

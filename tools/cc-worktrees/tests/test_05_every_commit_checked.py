@@ -14,7 +14,10 @@ from conftest import commit_file, git
 EXIT_HELD = 3
 
 
-def test_intermediate_commit_is_held_when_the_final_files_match_the_default_branch(world):
+def test_intermediate_commit_is_held_when_the_final_files_match_the_default_branch(local_world):
+    # Local remote only: the scenario needs a commit landed on the DEFAULT branch, and a hosted run
+    # may push only to throwaway branches it creates and deletes.
+    world = local_world
     got = world.get()
     path = Path(got["path"])
     name = f"x-{got['lease'][:6]}.txt"
