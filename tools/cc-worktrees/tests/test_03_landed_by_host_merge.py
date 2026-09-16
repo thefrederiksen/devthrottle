@@ -90,7 +90,9 @@ def test_partly_landed_work_is_held(local_world):
 
     other = w.second_clone()
     git(other, "fetch", "-q", str(w.repo), landed_sha)
-    git(other, "cherry-pick", landed_sha)
+    # -x: a different commit id for the same patch. A plain pick on the same parent in the same second
+    # recreates the identical commit, which is then on the remote and not a stray commit at all.
+    git(other, "cherry-pick", "-x", landed_sha)
     git(other, "push", "-q", "origin", w.default_branch)
 
     res = w.run("return", got["path"], "--lease", got["lease"], "--json")
