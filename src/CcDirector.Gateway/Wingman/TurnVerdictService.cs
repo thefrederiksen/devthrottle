@@ -93,6 +93,16 @@ public interface ITurnVerdictEnvironment
     /// </summary>
     void RecordTrace(TenantId tenant, TurnVerdictTrace trace);
 
+    /// <summary>
+    /// A stop's trace that the seat itself cannot hand in - nothing can say whether this account is traced, because no
+    /// judgement for the session read its settings, or building the trace failed. Logged and COUNTED with the losses the
+    /// writer already counts, so a stop observed by the seat is always either a row or a counted loss, never only a log
+    /// line. Production passes it to <see cref="TurnVerdictTraceWriter.NotKept"/>.
+    ///
+    /// IT MUST NOT BLOCK AND MUST NOT THROW, for the same reasons as <see cref="RecordTrace"/>.
+    /// </summary>
+    void TraceNotKept(TenantId tenant, TurnVerdictTrace trace, string cause);
+
     /// <summary>Now, in UTC.</summary>
     DateTime NowUtc();
 }
@@ -259,8 +269,16 @@ public sealed class TurnVerdictService : IDisposable
     private sealed class Flight
     {
         public readonly CancellationTokenSource Cts = new();
-        public readonly TaskCompletionSource<TurnVerdictOutcome> Done =
+
+        // TWO COMPLETIONS, AND THEY ARE NOT THE SAME THING (issue #2905, round 3). Outcome is this judgement's RESULT, and
+        // it is the answer only for a stop this judgement covered - its own, or one that joined it while its list was
+        // open. Done is the DRAIN signal: it completes once this flight has written every row it owes and left the gate,
+        // and only the shutdown drain waits on it. A caller that wants a verdict never waits on Done, and never on the
+        // Outcome of a flight whose list had closed before it arrived - a stop queued behind that flight is covered by the
+        // successor, so it waits on that queued stop's own completion (see CoverageLocked).
+        public readonly TaskCompletionSource<TurnVerdictOutcome> Outcome =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public readonly TaskCompletionSource Done = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         // THE EVIDENCE THIS FLIGHT HAS GATHERED, for the Wingman inspector's trace. Held on the flight rather than
         // in locals so that an arm reached from OUTSIDE the judgement - a cancellation, or an exception caught at the
@@ -327,6 +345,23 @@ public sealed class TurnVerdictService : IDisposable
                 foreach (var stop in stops) _joined.Add(stop.Signal.ObservedAtUtc);
         }
 
+        /// <summary>
+        /// The completion that carries the verdict for the session's CURRENT screen, for a caller that wants its words
+        /// while this flight holds the gate: this flight's own result while its list is open (it covers the screen), the
+        /// NEWEST queued stop's own completion once the list is closed and a stop is waiting (the successor covers it, not
+        /// this flight), and this flight's result when the list is closed and nobody is waiting. Null when this flight has
+        /// already left the gate, so the caller looks at the gate again.
+        /// </summary>
+        public Task<TurnVerdictOutcome>? Coverage()
+        {
+            lock (Sync)
+            {
+                if (_leftGate) return null;
+                if (_closedToJoins && _line.Count > 0) return _line[^1].Covered.Task;
+                return Outcome.Task;
+            }
+        }
+
         /// <summary>Close the list and take what it holds. Called once, by the flight, as it ends.</summary>
         public IReadOnlyList<DateTime> TakeJoined()
         {
@@ -355,12 +390,33 @@ public sealed class TurnVerdictService : IDisposable
 
     private enum Attach { Joined, Queued, Left }
 
-    /// <summary>A stop waiting in a flight's line, and the answer its caller is waiting on.</summary>
+    /// <summary>A stop waiting in a flight's line, and its two answers.</summary>
     private sealed class QueuedStop
     {
         public QueuedStop(TurnEndSignal signal) => Signal = signal;
         public TurnEndSignal Signal { get; }
+
+        /// <summary>What the turn-end caller that queued this stop is answered: the successor's result for the head of the
+        /// line, the "already judging" skip for a stop that joined it, or the cancellation at shutdown.</summary>
         public TaskCompletionSource<TurnVerdictOutcome> Result { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>The verdict of the judgement that actually covered this stop - the successor's result, whether this
+        /// stop is its head or joined it - or the cancellation at shutdown. A caller asking for the current screen's verdict
+        /// while this stop is the newest in line waits on this.</summary>
+        public TaskCompletionSource<TurnVerdictOutcome> Covered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>Answer both at once - the stop was cancelled, or its judgement faulted.</summary>
+        public void Answer(TurnVerdictOutcome outcome)
+        {
+            Result.TrySetResult(outcome);
+            Covered.TrySetResult(outcome);
+        }
+
+        public void Fault(Exception ex)
+        {
+            Result.TrySetException(ex);
+            Covered.TrySetException(ex);
+        }
     }
 
     // The per-session gate. Presence means a verdict is being formed for this session right now.
@@ -391,6 +447,16 @@ public sealed class TurnVerdictService : IDisposable
     /// <summary>Test seam: runs, with the session id, the moment an ending judgement has left the gate - replaced by its
     /// successor or removed - and before it completes <see cref="Flight.Done"/>. Null in production.</summary>
     internal Action<string>? OnLeftGateForTests;
+
+    /// <summary>Test seam: runs, with the session id, inside admission - after a request has found the service not
+    /// disposed and before it is registered on the gate (issue #2905, round 3). Null in production.</summary>
+    internal Action<string>? OnAdmissionCheckedForTests;
+
+    // ADMISSION AND DISPOSAL ARE ONE STEP EACH, UNDER THIS LOCK (issue #2905, round 3). A request reads _disposed and
+    // registers itself - takes the gate, joins the judgement holding it, or queues behind it - without releasing this
+    // lock, and Dispose flips _disposed under it. So a request is either registered before disposal, where the shutdown
+    // drain finds it, or refused after it and recorded as cancelled at shutdown. Nothing is awaited inside it.
+    private readonly object _admission = new();
 
     private long _capSkips;
     private volatile bool _disposed;
@@ -424,12 +490,53 @@ public sealed class TurnVerdictService : IDisposable
     public Task<TurnVerdictOutcome> StartTurnEnd(TurnEndSignal signal)
     {
         ArgumentNullException.ThrowIfNull(signal);
-        if (_disposed || !signal.Tenant.IsValid || string.IsNullOrEmpty(signal.SessionId))
+        // Not a stop the seat can attribute to an account or a session, so there is nothing to trace it under.
+        if (!signal.Tenant.IsValid || string.IsNullOrEmpty(signal.SessionId))
             return Task.FromResult(new TurnVerdictOutcome { Kind = TurnVerdictOutcomeKind.Skipped, SkipCause = ActivityCauses.Unknown });
 
         var key = (signal.Tenant, signal.SessionId);
-        _lastObserved[key] = signal.ObservedAtUtc;
+        if (!_disposed) _lastObserved[key] = signal.ObservedAtUtc;
         return TakeGateOrJoin(key, signal);
+    }
+
+    private enum Admitted { Refused, TookGate, Joined, Queued }
+
+    /// <summary>
+    /// ONE STEP: the shutdown check and the registration, under <see cref="_admission"/>. Refused when the service is
+    /// disposed; otherwise registered - the gate taken with <paramref name="flight"/>, or this stop joined to the judgement
+    /// holding it, or queued behind that judgement. A judgement found already leaving the gate is looked past; it replaces
+    /// or removes its entry in the same step it marks itself gone, so the next look finds the gate changed.
+    /// </summary>
+    private Admitted Admit((TenantId Tenant, string SessionId) key, Flight flight, TurnEndSignal? signal, out QueuedStop? queued,
+        out Task<TurnVerdictOutcome>? coverage)
+    {
+        queued = null;
+        coverage = null;
+        lock (_admission)
+        {
+            if (_disposed) return Admitted.Refused;
+            OnAdmissionCheckedForTests?.Invoke(key.SessionId);
+            while (true)
+            {
+                if (_inFlight.TryAdd(key, flight)) return Admitted.TookGate;
+                if (!_inFlight.TryGetValue(key, out var running)) continue;
+                // A request that is not a stop (the voice path, the sweep, a snooze expiry) does not attach to the line. It
+                // is handed the completion that will carry the verdict for the current screen - never the Done of the
+                // flight it found - and decides for itself what to do with it.
+                if (signal is null)
+                {
+                    coverage = running.Coverage();
+                    if (coverage is null) continue;
+                    return Admitted.Joined;
+                }
+                switch (running.JoinOrQueue(signal, out queued))
+                {
+                    case Attach.Joined: return Admitted.Joined;
+                    case Attach.Queued: return Admitted.Queued;
+                    default: continue;
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -448,29 +555,24 @@ public sealed class TurnVerdictService : IDisposable
     private Task<TurnVerdictOutcome> TakeGateOrJoin((TenantId Tenant, string SessionId) key, TurnEndSignal signal)
     {
         var flight = new Flight();
-        while (!_inFlight.TryAdd(key, flight))
+        switch (Admit(key, flight, signal, out var queued, out _))
         {
-            // The judgement holding the gate left it between the two lines; take it on the next pass.
-            if (!_inFlight.TryGetValue(key, out var running)) continue;
-
-            // A JUDGEMENT IS ALREADY RUNNING FOR THIS SESSION. This stop asks nothing of its own, and it is handed to
-            // that judgement, which records it when it ends - or, once its list is closed, queues behind it.
-            switch (running.JoinOrQueue(signal, out var queued))
-            {
-                case Attach.Joined:
-                    flight.Cts.Dispose();
-                    return Task.FromResult(JoinedOutcome(signal));
-                case Attach.Queued:
-                    flight.Cts.Dispose();
-                    FileLog.Write($"[TurnVerdictService] OnTurnEnd: sid={signal.SessionId} arrived as the judgement it would join was ending; queued behind it");
-                    return queued!.Result.Task;
-                default:
-                    // That judgement had already replaced or removed itself; look at the gate again.
-                    continue;
-            }
+            case Admitted.Refused:
+                // Observed, and refused because shutdown has begun: recorded through the one door like every other stop.
+                flight.Cts.Dispose();
+                return Task.FromResult(CancelledAtShutdown(key, signal, settings: null));
+            case Admitted.Joined:
+                // A JUDGEMENT IS ALREADY RUNNING FOR THIS SESSION. This stop asks nothing of its own; that judgement
+                // records it when it ends.
+                flight.Cts.Dispose();
+                return Task.FromResult(JoinedOutcome(signal));
+            case Admitted.Queued:
+                flight.Cts.Dispose();
+                FileLog.Write($"[TurnVerdictService] OnTurnEnd: sid={signal.SessionId} arrived as the judgement it would join was ending; queued behind it");
+                return queued!.Result.Task;
+            default:
+                return StartAdmittedTurnEnd(key, flight, signal);
         }
-
-        return StartAdmittedTurnEnd(key, flight, signal);
     }
 
     /// <summary>
@@ -479,23 +581,12 @@ public sealed class TurnVerdictService : IDisposable
     /// </summary>
     private Task<TurnVerdictOutcome> StartAdmittedTurnEnd((TenantId Tenant, string SessionId) key, Flight flight, TurnEndSignal signal)
     {
-        // ADMITTED AFTER SHUTDOWN BEGAN? Found in review: a caller could pass the disposed check above, pause, and add
-        // its flight after Dispose had cancelled the flights and shutdown had waited for them - and then read the store and
-        // the screen after the database was gone. Dispose sets the flag BEFORE it looks at the flights, and this looks at
-        // the flag AFTER the flight is added, so one of the two always sees the other. A late one stands down here,
-        // releasing anybody who joined it in the meantime.
+        // SHUTDOWN BEGAN AFTER THIS STOP WAS REGISTERED. Admission is one step with disposal, so the drain is already
+        // waiting for this flight; nothing more is read or asked. The stop was observed before shutdown, so it is
+        // recorded as cancelled at shutdown - under the settings of the flight that handed it the gate, when there was
+        // one that read them - and anybody who joined or queued in the meantime is released the same way.
         if (_disposed)
-        {
-            // A stop handed the gate was observed before shutdown began, under the settings of the flight that handed
-            // it over, so it leaves a cancelled row rather than only a stand-down line.
-            if (flight.HandedOver)
-            {
-                var cancelled = CancelledAtShutdown(key, signal, flight.HandedOverSettings);
-                StandDownAfterDispose(key, flight, signal.DirectorId);
-                return Task.FromResult(cancelled);
-            }
-            return Task.FromResult(StandDownAfterDispose(key, flight, signal.DirectorId));
-        }
+            return Task.FromResult(StandDownAfterDispose(key, flight, signal.DirectorId, signal));
 
         FileLog.Write($"[TurnVerdictService] OnTurnEnd: sid={signal.SessionId} tenant={signal.Tenant.ToLogString()} newTurn={signal.IsNewTurn}");
 
@@ -552,19 +643,23 @@ public sealed class TurnVerdictService : IDisposable
 
         var key = (tenant, sessionId);
         var flight = new Flight();
-        if (!_inFlight.TryAdd(key, flight))
+        switch (Admit(key, flight, signal: null, out _, out _))
         {
-            // A JUDGEMENT IS ALREADY BEING FORMED for this session, which is the answer this expiry wanted: one
-            // model call per stop, and it is already being paid for. Whether the row shows yellow is that
-            // judgement's to say, so this reports what IT has stamped rather than stamping anything itself.
-            flight.Cts.Dispose();
-            return IsReading(tenant, sessionId);
+            case Admitted.Refused:
+                flight.Cts.Dispose();
+                return false;
+            case Admitted.Joined:
+                // A JUDGEMENT IS ALREADY BEING FORMED for this session, which is the answer this expiry wanted: one
+                // model call per stop, and it is already being paid for. Whether the row shows yellow is that
+                // judgement's to say, so this reports what IT has stamped rather than stamping anything itself.
+                flight.Cts.Dispose();
+                return IsReading(tenant, sessionId);
         }
 
-        // Admitted after shutdown began - see StartTurnEnd for why the flag is read again after the add.
+        // Registered before disposal, and shutdown began since - see StartAdmittedTurnEnd. Not a stop, so no trace.
         if (_disposed)
         {
-            StandDownAfterDispose(key, flight, directorId);
+            StandDownAfterDispose(key, flight, directorId, stop: null);
             return false;
         }
 
@@ -632,29 +727,34 @@ public sealed class TurnVerdictService : IDisposable
         var key = (tenant, sessionId);
         for (var attempt = 0; attempt < 3; attempt++)
         {
-            if (_inFlight.TryGetValue(key, out var existing))
-            {
-                var joined = await existing.Done.Task.WaitAsync(ct).ConfigureAwait(false);
-                // A turn-end judgement that stood down for a reason that binds only the turn-end path - this
-                // account's ceiling, or its judge switch - is not an answer for somebody who is listening. Nor is a
-                // speech re-attempt that stood down because it may not ask the judge: that binds the re-attempt only.
-                if (!(joined.Kind == TurnVerdictOutcomeKind.Skipped
-                      && joined.SkipCause is ActivityCauses.InFlightCap or ActivityCauses.JudgeSwitchOff or ActivityCauses.ReattemptNeverJudges))
-                    return joined;
-                continue;
-            }
-
             var flight = new Flight();
-            if (!_inFlight.TryAdd(key, flight))
+            switch (Admit(key, flight, signal: null, out _, out var coverage))
             {
-                flight.Cts.Dispose();
-                continue;   // somebody else took the gate between the two lines above - join them next pass
+                case Admitted.Refused:
+                    flight.Cts.Dispose();
+                    throw new ObjectDisposedException(nameof(TurnVerdictService));
+                case Admitted.Joined:
+                {
+                    flight.Cts.Dispose();
+                    // THE VERDICT OF THE JUDGEMENT THAT COVERS THE CURRENT SCREEN (issue #2905, round 3): the running
+                    // judgement's own result while its list is open, or - once it is ending with a stop queued behind it -
+                    // that newest queued stop's own completion, which its successor sets. Never the ending judgement's
+                    // result for a stop it did not judge.
+                    var joined = await coverage!.WaitAsync(ct).ConfigureAwait(false);
+                    // A turn-end judgement that stood down for a reason that binds only the turn-end path - this
+                    // account's ceiling, or its judge switch - is not an answer for somebody who is listening. Nor is a
+                    // speech re-attempt that stood down because it may not ask the judge: that binds the re-attempt only.
+                    if (!(joined.Kind == TurnVerdictOutcomeKind.Skipped
+                          && joined.SkipCause is ActivityCauses.InFlightCap or ActivityCauses.JudgeSwitchOff or ActivityCauses.ReattemptNeverJudges))
+                        return joined;
+                    continue;
+                }
             }
 
-            // Admitted after shutdown began - see StartTurnEnd for why the flag is read again after the add.
+            // Registered before disposal, and shutdown began since - see StartAdmittedTurnEnd. Not a stop, so no trace.
             if (_disposed)
             {
-                StandDownAfterDispose(key, flight, directorId);
+                StandDownAfterDispose(key, flight, directorId, stop: null);
                 throw new ObjectDisposedException(nameof(TurnVerdictService));
             }
 
@@ -751,10 +851,11 @@ public sealed class TurnVerdictService : IDisposable
             // EVERY CALLER JOINED TO THIS FLIGHT IS RELEASED, whatever happened above. If a handler itself threw, the
             // joined callers receive that fault instead of waiting on a result that will never be set.
             if (outcome is null)
-                flight.Done.TrySetException(new InvalidOperationException(
+                flight.Outcome.TrySetException(new InvalidOperationException(
                     $"[TurnVerdictService] the verdict flight for sid={key.SessionId} ended without an outcome; see the log for the fault"));
             else
-                flight.Done.TrySetResult(outcome);
+                flight.Outcome.TrySetResult(outcome);
+            flight.Done.TrySetResult();
             flight.Cts.Dispose();
         }
 
@@ -796,21 +897,15 @@ public sealed class TurnVerdictService : IDisposable
             FileLog.Write($"[TurnVerdictService] the failed record could NOT be stored either: sid={sid} tenant={tenant.ToLogString()}: {storeEx.GetType().FullName}: {storeEx.Message}");
         }
 
-        try
-        {
-            // The evidence the flight had gathered before the exception - when the judge had already answered and it
-            // was the store that threw, that is the prompt and the whole answer, which is exactly what is needed to see
-            // what was lost. The exception's type is the cause; its message stays in the log, as the record's does.
-            // The settings the flight read when it started - null when the exception came before that read, and then
-            // there is nothing to say whether this account is traced, so nothing is.
-            if (flight.Settings is { JudgeEnabled: true } settings)
-                _env.RecordTrace(tenant, WithEvidence(NewTrace(sid, directorId, trigger, TurnVerdictTraceOutcomes.Unavailable, record,
-                    settings.ColourEnabled), flight) with { Cause = ex.GetType().Name });
-        }
-        catch (Exception traceEx)
-        {
-            FileLog.Write($"[TurnVerdictService] the trace for a failed verdict could NOT be written: sid={sid}: {traceEx.GetType().FullName}: {traceEx.Message}");
-        }
+        // The evidence the flight had gathered before the exception - when the judge had already answered and it was the
+        // store that threw, that is the prompt and the whole answer, which is exactly what is needed to see what was lost.
+        // The exception's type is the cause; its message stays in the log, as the record's does. Under the settings the
+        // flight read when it started - and when the exception came before that read, a STOP is still owed its row, so the
+        // door counts it as lost; a request that is not a stop never reached the judge and owes nothing.
+        if (flight.Settings is not null || trigger == TurnVerdictTrigger.TurnEnd)
+            TraceStop(tenant, sid, TriggerWord(trigger), TurnVerdictTraceOutcomes.Unavailable, observedAt, flight.Settings,
+                colour => WithEvidence(NewTrace(sid, directorId, trigger, TurnVerdictTraceOutcomes.Unavailable, record, colour), flight)
+                    with { Cause = ex.GetType().Name });
 
         try
         {
@@ -1029,9 +1124,9 @@ public sealed class TurnVerdictService : IDisposable
             // THE INSPECTOR'S RECORD, written for exactly what was stored: the package the judge was given, the
             // prompt it was asked, its answer as received, and how long it took. An answer the contract refused is
             // kept with the raw reply that failed - that is the case the record exists for.
-            if (settings.JudgeEnabled)
-                _env.RecordTrace(tenant, NewTrace(sid, directorId, trigger, TraceOutcome(record, failure), record,
-                    settings.ColourEnabled) with
+            var judgedOutcome = TraceOutcome(record, failure);
+            TraceStop(tenant, sid, TriggerWord(trigger), judgedOutcome, record.TurnEndObservedAtUtc, settings,
+                colour => NewTrace(sid, directorId, trigger, judgedOutcome, record, colour) with
                 {
                     ReplySeconds = rawReply is null ? null : replySeconds,
                     Package = package,
@@ -1122,9 +1217,9 @@ public sealed class TurnVerdictService : IDisposable
 
         // A reuse is a STOP only on the turn-end path. The voice path and the sweep come past an unchanged screen
         // over and over, and a trace for each pass would bury the stops under the passes.
-        if (trigger == TurnVerdictTrigger.TurnEnd && settings.JudgeEnabled)
-            _env.RecordTrace(tenant, NewTrace(sid, directorId, trigger, TurnVerdictTraceOutcomes.Reused, verdict,
-                settings.ColourEnabled));
+        if (trigger == TurnVerdictTrigger.TurnEnd)
+            TraceStop(tenant, sid, TriggerWord(trigger), TurnVerdictTraceOutcomes.Reused, verdict.TurnEndObservedAtUtc, settings,
+                colour => NewTrace(sid, directorId, trigger, TurnVerdictTraceOutcomes.Reused, verdict, colour));
 
         _env.Record(new TurnVerdictRecord(tenant, directorId, sid, ActivityEventTypes.TurnVerdictReused,
             ActivityCauses.ScreenUnchanged,
@@ -1185,25 +1280,19 @@ public sealed class TurnVerdictService : IDisposable
     /// ledger only. A judge switch that is off leaves no trace: nothing is ever traced for such an account.
     /// </summary>
     /// <param name="settings">The settings the flight read, and <paramref name="observedAt"/> the stop it stands on. A
-    /// skip given neither leaves no trace of its own - that is the already-judging skip, which <see cref="Joined"/>
-    /// traces under its own outcome.</param>
+    /// skip given no stop leaves no trace of its own - that is the already-judging skip, whose row the judgement it
+    /// joined writes under its own outcome.</param>
     private TurnVerdictOutcome Skip(TenantId tenant, string directorId, string sid, TurnVerdictTrigger trigger, string cause,
         TurnVerdictSettings? settings = null, DateTime? observedAt = null)
     {
         _env.Record(new TurnVerdictRecord(tenant, directorId ?? "", sid, ActivityEventTypes.TurnVerdictSkipped,
             cause, $"trigger={TriggerWord(trigger)}"));
-        if (trigger == TurnVerdictTrigger.TurnEnd && cause != ActivityCauses.JudgeSwitchOff
-            && settings is { JudgeEnabled: true } && observedAt is { } stop)
-            _env.RecordTrace(tenant, NewUnjudgedTrace(sid, directorId, trigger, TurnVerdictTraceOutcomes.Skipped,
-                cause, stop, settings.ColourEnabled));
+        if (trigger == TurnVerdictTrigger.TurnEnd && cause != ActivityCauses.JudgeSwitchOff && observedAt is { } stop)
+            TraceStop(tenant, sid, TriggerWord(trigger), TurnVerdictTraceOutcomes.Skipped, stop, settings,
+                colour => NewUnjudgedTrace(sid, directorId, trigger, TurnVerdictTraceOutcomes.Skipped, cause, stop, colour));
         return new TurnVerdictOutcome { Kind = TurnVerdictOutcomeKind.Skipped, SkipCause = cause };
     }
 
-    /// <summary>
-    /// The session worked while its verdict was being formed, so nothing was stored. A STOP that was cancelled leaves a
-    /// trace, and so does any request whose judge had already been asked - that is a paid answer the row never showed,
-    /// and the inspector keeps the prompt and the answer beside the cancellation.
-    /// </summary>
     /// <summary>
     /// The outcome for a stop that joined a judgement already running for its session: the ledger records it stood
     /// down under "already judging", and one model call still serves the stop. The TRACE for it is written by the
@@ -1216,37 +1305,26 @@ public sealed class TurnVerdictService : IDisposable
     /// The stops that joined this flight, recorded as it ends - with the settings it read at its start, so nothing is
     /// read on the turn-end handler, and inside the flight itself, so shutdown waits for this work like any other part
     /// of the judgement. Found in review: as a background task it could be dropped at shutdown and could record two
-    /// stops out of order.
-    ///
-    /// A flight that never got as far as reading its settings cannot say whether this account is traced, so its joined
-    /// stops are logged instead - the ruling <see cref="TurnVerdictTraceWriter"/> states for a trace that cannot be kept.
+    /// stops out of order. Each goes through <see cref="TraceStop"/>, so a flight that never read its settings leaves a
+    /// counted loss per stop.
     /// </summary>
     /// <param name="stoodDown">The flight never ran because the service was shutting down. Its joined stops were then never
-    /// served by any judgement, so a flight handed the gate traces them as cancelled at shutdown, under the settings of the
-    /// flight that handed it over.</param>
+    /// served by any judgement, so they are recorded as cancelled at shutdown, under the settings of the flight that handed
+    /// this one the gate when there was one that read them.</param>
     private void WriteJoinedTraces((TenantId Tenant, string SessionId) key, Flight flight, string directorId, bool stoodDown)
     {
         var joined = flight.TakeJoined();
         OnJoinedListClosedForTests?.Invoke(key.SessionId);
-        if (joined.Count == 0) return;
         foreach (var observedAt in joined)
         {
-            try
+            if (stoodDown)
             {
-                if (stoodDown && flight.HandedOverSettings is { } handedOver)
-                    CancelledAtShutdown(key, new TurnEndSignal(key.SessionId, directorId, key.Tenant, observedAt, IsNewTurn: true), handedOver);
-                else if (flight.Settings is { JudgeEnabled: true } settings)
-                    _env.RecordTrace(key.Tenant, NewUnjudgedTrace(key.SessionId, directorId, TurnVerdictTrigger.TurnEnd,
-                        TurnVerdictTraceOutcomes.Joined, ActivityCauses.AlreadyJudging, observedAt, settings.ColourEnabled));
-                else if (flight.Settings is null)
-                    FileLog.Write($"[TurnVerdictService] trace NOT KEPT (the judgement it joined never read its settings): " +
-                                  $"outcome={TurnVerdictTraceOutcomes.Joined} sid={key.SessionId} observed={observedAt:O}");
+                CancelledAtShutdown(key, new TurnEndSignal(key.SessionId, directorId, key.Tenant, observedAt, IsNewTurn: true), flight.HandedOverSettings);
+                continue;
             }
-            catch (Exception ex)
-            {
-                FileLog.Write($"[TurnVerdictService] trace NOT KEPT (recording a joined stop failed): outcome={TurnVerdictTraceOutcomes.Joined} " +
-                              $"sid={key.SessionId} observed={observedAt:O}: {ex.GetType().FullName}: {ex.Message}");
-            }
+            TraceStop(key.Tenant, key.SessionId, TriggerWord(TurnVerdictTrigger.TurnEnd), TurnVerdictTraceOutcomes.Joined, observedAt, flight.Settings,
+                colour => NewUnjudgedTrace(key.SessionId, directorId, TurnVerdictTrigger.TurnEnd,
+                    TurnVerdictTraceOutcomes.Joined, ActivityCauses.AlreadyJudging, observedAt, colour));
         }
     }
 
@@ -1262,7 +1340,7 @@ public sealed class TurnVerdictService : IDisposable
     ///   exactly as a stop that took the gate itself.
     /// - A LINE, ONCE SHUTDOWN HAS BEGUN: nothing more will be judged, so each queued stop is written as cancelled at
     ///   shutdown while this flight still holds the gate - the drain is still waiting for it - and the line is looked at
-    ///   again, because a stop that passed the shutdown check just before it was set can still be queuing.
+    ///   again, because a stop admitted just before disposal can still be queuing.
     ///
     /// Done completes only after this returns, in the caller.
     /// </summary>
@@ -1317,32 +1395,43 @@ public sealed class TurnVerdictService : IDisposable
             {
                 var settings = flight.Settings ?? flight.HandedOverSettings;
                 foreach (var stop in line)
-                    stop.Result.TrySetResult(CancelledAtShutdown(key, stop.Signal, settings));
+                {
+                    try { stop.Answer(CancelledAtShutdown(key, stop.Signal, settings)); }
+                    catch (Exception ex) { stop.Fault(ex); }
+                }
                 continue;
             }
 
             FileLog.Write($"[TurnVerdictService] sid={key.SessionId}: the gate is handed to the next stop in line; {line.Length - 1} more join it");
             foreach (var stop in line.Skip(1))
             {
+                // COVERED BY THE SUCCESSOR, so its verdict is the successor's result - not this flight's (round 3).
+                var joiner = stop;
+                successor!.Outcome.Task.ContinueWith(run =>
+                {
+                    if (run.IsFaulted) joiner.Covered.TrySetException(run.Exception!.InnerExceptions);
+                    else joiner.Covered.TrySetResult(run.Result);
+                }, TaskContinuationOptions.ExecuteSynchronously);
                 try { stop.Result.TrySetResult(JoinedOutcome(stop.Signal)); }
                 catch (Exception ex) { stop.Result.TrySetException(ex); }
             }
             var head = line[0];
             StartAdmittedTurnEnd(key, successor!, head.Signal).ContinueWith(run =>
             {
-                if (run.IsFaulted) head.Result.TrySetException(run.Exception!.InnerExceptions);
-                else if (run.IsCanceled) head.Result.TrySetCanceled();
-                else head.Result.TrySetResult(run.Result);
+                if (run.IsFaulted) head.Fault(run.Exception!.GetBaseException());
+                else if (run.IsCanceled) { head.Result.TrySetCanceled(); head.Covered.TrySetCanceled(); }
+                else head.Answer(run.Result);
             }, TaskContinuationOptions.ExecuteSynchronously);
             return;
         }
     }
 
     /// <summary>
-    /// A stop that was observed before shutdown and will not be judged because the service is shutting down. It still
-    /// leaves a row: a cancelled trace under <see cref="ActivityCauses.Shutdown"/>, handed to the trace writer while the
-    /// writer is open - and a writer that refuses it logs and counts it, per stop. A stop whose settings were never read
-    /// cannot say whether this account is traced, so it is logged instead, per stop. Never throws.
+    /// A stop that was observed and will not be judged because the service is shutting down - queued behind an ending
+    /// judgement, handed the gate as shutdown began, registered just before disposal, or refused just after it. It
+    /// leaves a cancelled trace under <see cref="ActivityCauses.Shutdown"/> through <see cref="TraceStop"/>: a row when
+    /// the writer takes it, and a counted loss when the writer refuses it or no judgement read the settings. Never throws
+    /// on its own account; the environment's trace calls are bound not to throw.
     /// </summary>
     private TurnVerdictOutcome CancelledAtShutdown((TenantId Tenant, string SessionId) key, TurnEndSignal signal, TurnVerdictSettings? settings)
     {
@@ -1357,50 +1446,48 @@ public sealed class TurnVerdictService : IDisposable
             FileLog.Write($"[TurnVerdictService] the ledger event for a stop cancelled at shutdown could NOT be written: sid={key.SessionId}: {ex.GetType().FullName}: {ex.Message}");
         }
 
-        try
-        {
-            if (settings is { JudgeEnabled: true })
-                _env.RecordTrace(key.Tenant, NewUnjudgedTrace(key.SessionId, signal.DirectorId, TurnVerdictTrigger.TurnEnd,
-                    TurnVerdictTraceOutcomes.Cancelled, ActivityCauses.Shutdown, signal.ObservedAtUtc, settings.ColourEnabled));
-            else if (settings is null)
-                FileLog.Write($"[TurnVerdictService] trace NOT KEPT (no judgement for this session read its settings before shutdown): " +
-                              $"outcome={TurnVerdictTraceOutcomes.Cancelled} sid={key.SessionId} observed={signal.ObservedAtUtc:O}");
-        }
-        catch (Exception ex)
-        {
-            FileLog.Write($"[TurnVerdictService] trace NOT KEPT (recording a stop cancelled at shutdown failed): outcome={TurnVerdictTraceOutcomes.Cancelled} " +
-                          $"sid={key.SessionId} observed={signal.ObservedAtUtc:O}: {ex.GetType().FullName}: {ex.Message}");
-        }
+        TraceStop(key.Tenant, key.SessionId, TriggerWord(TurnVerdictTrigger.TurnEnd), TurnVerdictTraceOutcomes.Cancelled, signal.ObservedAtUtc, settings,
+            colour => NewUnjudgedTrace(key.SessionId, signal.DirectorId, TurnVerdictTrigger.TurnEnd,
+                TurnVerdictTraceOutcomes.Cancelled, ActivityCauses.Shutdown, signal.ObservedAtUtc, colour));
         return new TurnVerdictOutcome { Kind = TurnVerdictOutcomeKind.Cancelled };
     }
 
-    /// <summary>A flight admitted after <see cref="Dispose"/> began: anybody who joined it is released with a skip, and
-    /// any stop that attached to it is drained, and it leaves the gate without reading or asking anything.</summary>
-    private TurnVerdictOutcome StandDownAfterDispose((TenantId Tenant, string SessionId) key, Flight flight, string directorId)
+    /// <summary>A flight registered before <see cref="Dispose"/> and reached after it: nothing is read or asked. Its own
+    /// stop, when it is one, is cancelled at shutdown; anybody who joined or queued behind it is recorded the same way; then
+    /// it leaves the gate and completes.</summary>
+    /// <param name="stop">The turn-end stop this flight was started for, or null for a request that is not a stop.</param>
+    private TurnVerdictOutcome StandDownAfterDispose((TenantId Tenant, string SessionId) key, Flight flight, string directorId, TurnEndSignal? stop)
     {
-        var standDown = new TurnVerdictOutcome { Kind = TurnVerdictOutcomeKind.Skipped, SkipCause = ActivityCauses.Unknown };
-        // A STOP MAY ALREADY HAVE JOINED THIS FLIGHT - found in review: another turn end can attach to it in the moment
-        // between this flight taking the gate and this check - or queued behind it. The same order as a flight that ran:
-        // joined stops first, then the line, then the gate, then Done. A flight that took the gate itself never read its
-        // settings, so its joined stops are logged rather than traced; what must not happen is that a stop is neither.
+        var outcome = new TurnVerdictOutcome { Kind = TurnVerdictOutcomeKind.Skipped, SkipCause = ActivityCauses.Unknown };
         try
         {
-            LeaveGate(key, flight, directorId, stoodDown: true);
+            if (stop is not null)
+                outcome = CancelledAtShutdown(key, stop, flight.HandedOverSettings);
         }
         finally
         {
-            flight.Done.TrySetResult(standDown);
+            // A STOP MAY ALREADY HAVE JOINED THIS FLIGHT, or queued behind it, in the moment between its registration and
+            // this check. The same order as a flight that ran: joined stops first, then the line, then the gate, then Done.
+            try
+            {
+                LeaveGate(key, flight, directorId, stoodDown: true);
+            }
+            finally
+            {
+                flight.Outcome.TrySetResult(outcome);
+                flight.Done.TrySetResult();
+            }
         }
         flight.Cts.Dispose();
-        FileLog.Write($"[TurnVerdictService] a verdict request arrived as the service was shutting down and stood down: sid={key.SessionId}");
-        return standDown;
+        FileLog.Write($"[TurnVerdictService] a verdict request reached the gate as the service was shutting down and stood down: sid={key.SessionId}");
+        return outcome;
     }
 
     /// <remarks>
     /// NOTHING HERE IS LOOKED UP AGAIN. The stop and the settings come from the flight (or, on the reuse arm, from the
     /// caller that already holds them): by the time a cancellation is handled the session has moved on, so "the latest
-    /// observed stop" can be a later stop, and a settings read can fail or see a switch flipped mid-flight. A
-    /// cancellation that reaches here before the flight read its settings leaves no trace.
+    /// observed stop" can be a later stop, and a settings read can fail or see a switch flipped mid-flight. A stop
+    /// cancelled before its flight read its settings is a counted loss, through <see cref="TraceStop"/>.
     /// </remarks>
     private TurnVerdictOutcome Cancelled(TenantId tenant, string directorId, string sid, TurnVerdictTrigger trigger, string why,
         Flight? flight = null, TurnVerdictSettings? settings = null, DateTime? observedAt = null)
@@ -1411,14 +1498,66 @@ public sealed class TurnVerdictService : IDisposable
         var traceSettings = flight?.Settings ?? settings;
         var stop = flight is not null ? flight.ObservedAt : observedAt;
         if ((trigger == TurnVerdictTrigger.TurnEnd || flight?.Prompt is not null)
-            && traceSettings is { JudgeEnabled: true } && stop is { } observed && observed != default)
-        {
-            var trace = NewUnjudgedTrace(sid, directorId, trigger, TurnVerdictTraceOutcomes.Cancelled,
-                ActivityCauses.WorkingObservation, observed, traceSettings.ColourEnabled);
-            _env.RecordTrace(tenant, flight is null ? trace : WithEvidence(trace, flight));
-        }
+            && stop is { } observed && observed != default)
+            TraceStop(tenant, sid, TriggerWord(trigger), TurnVerdictTraceOutcomes.Cancelled, observed, traceSettings, colour =>
+            {
+                var trace = NewUnjudgedTrace(sid, directorId, trigger, TurnVerdictTraceOutcomes.Cancelled,
+                    ActivityCauses.WorkingObservation, observed, colour);
+                return flight is null ? trace : WithEvidence(trace, flight);
+            });
         return new TurnVerdictOutcome { Kind = TurnVerdictOutcomeKind.Cancelled };
     }
+
+    /// <summary>The cause a stop's trace is counted lost under when no judgement for its session read the settings.</summary>
+    internal const string SettingsNeverReadCause = "no judgement for this session read its settings";
+
+    /// <summary>
+    /// THE ONE DOOR EVERY TRACE LEAVES THE SEAT THROUGH (issue #2905, round 3). Nothing else in this service calls
+    /// <see cref="ITurnVerdictEnvironment.RecordTrace"/> or <see cref="ITurnVerdictEnvironment.TraceNotKept"/>, and nothing
+    /// in this service logs a trace as not kept - the writer does that, and counts it. The rule, decided once, here:
+    ///
+    /// - SETTINGS SAY THE JUDGE SWITCH IS OFF: nothing is owed. Nothing is ever traced for such an account.
+    /// - NO SETTINGS: nothing can say whether this account is traced, so the trace is COUNTED AS LOST with that cause. The
+    ///   settings are not read here - at shutdown the read can fail or reach a database being disposed, and a switch read
+    ///   now would not be the one the stop was observed under.
+    /// - OTHERWISE: the trace is built and handed to the writer, which keeps it or logs and counts it. Building or handing
+    ///   it over that throws is counted as lost with the exception's type.
+    /// </summary>
+    /// <param name="build">Builds the trace, given whether the account's colour switch is on.</param>
+    private void TraceStop(TenantId tenant, string sid, string trigger, string outcome, DateTime observedAt,
+        TurnVerdictSettings? settings, Func<bool, TurnVerdictTrace> build)
+    {
+        if (settings is { JudgeEnabled: false }) return;
+        if (settings is null)
+        {
+            _env.TraceNotKept(tenant, LostTrace(sid, trigger, outcome, observedAt), SettingsNeverReadCause);
+            return;
+        }
+
+        TurnVerdictTrace trace;
+        try
+        {
+            trace = build(settings.ColourEnabled);
+        }
+        catch (Exception ex)
+        {
+            _env.TraceNotKept(tenant, LostTrace(sid, trigger, outcome, observedAt), "building the trace failed: " + ex.GetType().FullName + ": " + ex.Message);
+            return;
+        }
+        _env.RecordTrace(tenant, trace);
+    }
+
+    /// <summary>What a counted loss is described by: the session, the stop and the outcome. Built without the environment,
+    /// so describing a loss cannot fail.</summary>
+    private static TurnVerdictTrace LostTrace(string sid, string trigger, string outcome, DateTime observedAt) => new()
+    {
+        TraceId = Guid.NewGuid().ToString("N"),
+        SessionId = sid,
+        RecordedAtUtc = DateTime.UtcNow,
+        TurnEndObservedAtUtc = observedAt,
+        Trigger = trigger,
+        Outcome = outcome,
+    };
 
     private TurnVerdictDto FailedRecord(TurnVerdictPackage package, TenantId tenant, DateTime observedAt, string reason)
         => new()
@@ -1498,8 +1637,10 @@ public sealed class TurnVerdictService : IDisposable
 
             expired++;
             var expiredDirectorId = _env.ReadSessionState(tenant, sid).Facts?.DirectorId ?? "";
-            _env.RecordTrace(tenant, NewTrace(sid, expiredDirectorId, ClockTrigger, TurnVerdictTraceOutcomes.Expired,
-                replacement, settings.ColourEnabled) with { ReplacedVerdictId = snapshot.VerdictId });
+            var expiredVerdict = replacement;
+            TraceStop(tenant, sid, ClockTrigger, TurnVerdictTraceOutcomes.Expired, expiredVerdict.TurnEndObservedAtUtc, settings,
+                colour => NewTrace(sid, expiredDirectorId, ClockTrigger, TurnVerdictTraceOutcomes.Expired, expiredVerdict, colour)
+                    with { ReplacedVerdictId = snapshot.VerdictId });
             _env.Record(new TurnVerdictRecord(tenant, expiredDirectorId, sid,
                 ActivityEventTypes.TurnVerdictExpired, ActivityCauses.CarryingOnExpired,
                 $"expired={snapshot.VerdictId} id={replacement.VerdictId}"));
@@ -1662,8 +1803,13 @@ public sealed class TurnVerdictService : IDisposable
 
     public void Dispose()
     {
-        if (_disposed) return;
-        _disposed = true;
+        // One step with admission: a request registered before this is in the gate the loop below cancels and the drain
+        // waits for; a request after it is refused and recorded as cancelled at shutdown.
+        lock (_admission)
+        {
+            if (_disposed) return;
+            _disposed = true;
+        }
         foreach (var flight in _inFlight.Values)
         {
             try { flight.Cts.Cancel(); } catch (ObjectDisposedException) { }

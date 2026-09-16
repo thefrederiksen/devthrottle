@@ -23,7 +23,7 @@ namespace CcDirector.Gateway.Wingman;
 /// written to that same database cannot be promised either. An earlier version tried: the marker needed its own
 /// retry, its own ceiling and its own place in the queue, and review found a new way to lose each one. So the loss
 /// is written where it can be: the Gateway log names the session, the stop's moment and the outcome of every trace
-/// that was not kept, and <see cref="Dropped"/>, <see cref="Failed"/> and <see cref="Abandoned"/> count them.
+/// that was not kept, and <see cref="Dropped"/>, <see cref="Failed"/>, <see cref="Abandoned"/> and <see cref="Lost"/> count them.
 ///
 /// ONE LIMIT THIS CANNOT REMOVE, stated rather than hidden: a write already inside the database call when shutdown
 /// gives up waiting cannot be recalled. It finishes or fails on its own, possibly against a database being disposed
@@ -49,6 +49,7 @@ public sealed class TurnVerdictTraceWriter : IDisposable
     private long _failed;
     private long _written;
     private long _abandonedCount;
+    private long _lost;
 
     /// <param name="append">Writes one trace. Production passes <see cref="TurnVerdictTraceStore.Append"/>.</param>
     public TurnVerdictTraceWriter(Action<TenantId, TurnVerdictTrace> append)
@@ -93,6 +94,22 @@ public sealed class TurnVerdictTraceWriter : IDisposable
         FileLog.Write($"[TurnVerdictTraceWriter] trace NOT KEPT (queue full or closing): outcome={trace.Outcome} " +
                       $"sid={trace.SessionId} observed={trace.TurnEndObservedAtUtc:O} dropped={Dropped}");
         return false;
+    }
+
+    /// <summary>Traces the verdict seat could not hand in at all - see <see cref="NotKept"/>.</summary>
+    public long Lost => Interlocked.Read(ref _lost);
+
+    /// <summary>
+    /// A trace the verdict seat could not offer to the queue: no judgement for the session read its settings, so nothing
+    /// can say whether the account is traced, or building the trace failed. It is the same kind of loss as a drop, so it
+    /// is logged and counted HERE, beside the others, and the seat never logs a loss of its own. Never blocks, never throws.
+    /// </summary>
+    public void NotKept(TurnVerdictTrace trace, string cause)
+    {
+        if (trace is null) return;
+        Interlocked.Increment(ref _lost);
+        FileLog.Write($"[TurnVerdictTraceWriter] trace NOT KEPT ({cause}): outcome={trace.Outcome} " +
+                      $"sid={trace.SessionId} observed={trace.TurnEndObservedAtUtc:O} lost={Lost}");
     }
 
     /// <summary>Stop taking traces and wait until every queued trace has been written. For shutdown and tests.</summary>

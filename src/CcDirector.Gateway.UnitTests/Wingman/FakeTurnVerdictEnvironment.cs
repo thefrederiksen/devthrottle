@@ -185,6 +185,15 @@ internal sealed class FakeTurnVerdictEnvironment : ITurnVerdictEnvironment
         TraceWriter?.Enqueue(tenant, trace);
     }
 
+    /// <summary>Every trace the seat could not hand in, with its cause, in order.</summary>
+    public readonly ConcurrentQueue<(TurnVerdictTrace Trace, string Cause)> NotKept = new();
+
+    public void TraceNotKept(TenantId tenant, TurnVerdictTrace trace, string cause)
+    {
+        NotKept.Enqueue((trace, cause));
+        TraceWriter?.NotKept(trace, cause);
+    }
+
     /// <summary>The seat's clock. Replace it to move time without waiting.</summary>
     public Func<DateTime> Clock = () => DateTime.UtcNow;
     public DateTime NowUtc() => Clock();
