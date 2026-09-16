@@ -325,7 +325,7 @@ public static class VoiceDisplayFold
     /// <summary>The terminal verdict, in one place so the two arms that reach it cannot word it differently.</summary>
     private static VoiceDisplay GaveUpDisplay(string? waited) => new()
     {
-        Kind = "gaveUp",
+        Kind = VoiceDisplayKinds.GaveUp,
         Tone = "red",
         Label = waited is null ? "Voice did not arrive" : $"Voice did not arrive after {waited}",
         Message = "This turn's narration has not been produced. The Gateway is still trying, "
@@ -358,7 +358,7 @@ public static class VoiceDisplayFold
     /// </summary>
     private static VoiceDisplay NotNarratedDisplay(string? waited) => new()
     {
-        Kind = "notNarrated",
+        Kind = VoiceDisplayKinds.NotNarrated,
         Tone = "red",
         Label = "Turn not narrated",
         Message = "This turn has no narration, and nothing further is scheduled to make one. "

@@ -82,3 +82,20 @@ public sealed class VoiceDisplay
     /// </summary>
     public string? VoiceFallbackNotice { get; set; }
 }
+
+/// <summary>
+/// The <see cref="VoiceDisplay.Kind"/> values that other folds ask about by name, in ONE place so a rule
+/// and the fold that produces it cannot spell the same state two ways.
+///
+/// Only the kinds a rule outside <c>VoiceDisplayFold</c> actually reads are named here. The rest stay as
+/// that fold's own literals: a constant nobody asks for is a second name for one idea, which is the thing
+/// this file exists to prevent.
+/// </summary>
+public static class VoiceDisplayKinds
+{
+    /// <summary>Nothing arrived inside the give-up window. Automatic attempts continue; the PROMISE is over.</summary>
+    public const string GaveUp = "gaveUp";
+
+    /// <summary>The narration was abandoned: the model leg did not answer and nothing further is scheduled.</summary>
+    public const string NotNarrated = "notNarrated";
+}

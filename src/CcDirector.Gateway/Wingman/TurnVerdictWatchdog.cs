@@ -1,4 +1,4 @@
-using CcDirector.Core.Wingman;
+﻿using CcDirector.Core.Wingman;
 using CcDirector.Gateway.Contracts;
 
 namespace CcDirector.Gateway.Wingman;
@@ -65,10 +65,20 @@ public static class TurnVerdictWatchdog
     private static DateTime Later(DateTime start, DateTime? other)
         => other is { } o && o > start ? o : start;
 
+    /// <summary>The spoken lead for an expired carrying-on verdict - the correction, first and plainly.</summary>
+    public const string ExpiredSpokenLead = "It said it would continue, and it did not.";
+
     /// <summary>
     /// The verdict stored in place of an expired carrying-on one: "needed-you", the expiry label, the original
-    /// receipt, the same stop and screen, judged now. Nothing the original offered as an answer is carried - it
+    /// receipt, the same stop and screen, judged now. Nothing the original offered as an ANSWER is carried - it
     /// said the session needed nothing, which is exactly what turned out to be wrong.
+    ///
+    /// ITS DESCRIPTION IS CARRIED, and that distinction is the point. The original verdict held two different
+    /// things: a claim about what would happen next (falsified - dropped) and an account of what the session was
+    /// DOING (still true - kept). Dropping both left the spoken line as nine fixed words, and on 2026-09-16 the
+    /// owner heard exactly that and nothing else: a two-second clip saying a session had stalled, with no way to
+    /// tell which one or what it had been doing. Voice narrates the Wingman's output (owner's ruling,
+    /// 2026-09-15), so when the Wingman's output is content-free the narration is too.
     /// </summary>
     public static TurnVerdictDto Expire(TurnVerdictDto original, DateTime nowUtc)
     {
@@ -93,7 +103,12 @@ public static class TurnVerdictWatchdog
             Menu = null,
             Options = new List<TurnVerdictOptionDto>(),
             Risk = TurnVerdictVocabulary.RiskNone,
-            Spoken = "It said it would continue, and it did not.",
+            // The correction leads, because it is the part that is news. What the session had said follows it,
+            // marked as a past claim by "It had said" so the sentence cannot be heard as the stalled session
+            // still asserting it - the failure mode of simply concatenating the two.
+            Spoken = string.IsNullOrWhiteSpace(original.Summary)
+                ? ExpiredSpokenLead
+                : $"{ExpiredSpokenLead} It had said: {original.Summary}",
             NextScheduledWakeUtc = null,
             FinishedKind = null,
         };

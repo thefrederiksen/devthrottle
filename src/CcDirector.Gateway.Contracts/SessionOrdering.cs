@@ -147,6 +147,19 @@ public static class SessionOrdering
             ? s.VerdictLabel
             : null;
 
+    /// <summary>
+    /// The voice fold's own headline for a row whose narration is not coming, or null when this row's voice
+    /// is fine, absent, or still promising one.
+    ///
+    /// Null-safe by necessity, not by caution: <see cref="SessionDto.VoiceDisplay"/> is null on every
+    /// Director-local response, so this must answer "no voice words" there rather than assume a shape.
+    /// </summary>
+    private static string? VoiceGaveUpLabel(SessionDto s) =>
+        s.VoiceDisplay is { Kind: VoiceDisplayKinds.GaveUp or VoiceDisplayKinds.NotNarrated } v
+        && !string.IsNullOrWhiteSpace(v.Label)
+            ? v.Label
+            : null;
+
     // GAP 5: THE GATEWAY'S VOICE WINDOW NEEDS NO RULE HERE - IsVoicePreparing BELOW ALREADY IS IT.
     //
     // The Gateway used to get its voice-mode yellow by WRITING s.BriefingState = "Briefing" onto the row
@@ -270,9 +283,36 @@ public static class SessionOrdering
         var waiting = string.Equals(state, "WaitingForInput", StringComparison.OrdinalIgnoreCase)
                    || string.Equals(state, "WaitingForPerm", StringComparison.OrdinalIgnoreCase);
         if (!waiting) return false;
+        // THE HOLD ENDS WHEN THE PROMISE DOES (owner's amendment, 2026-09-15).
+        //
+        // The hold exists to promise a narration is coming, and it is right for as long as one is. When
+        // this row's own voice verdict says none is coming, there is no promise left to keep and the
+        // session falls through to its base colour - red - so it asks for the owner like any other stopped
+        // session, and NeedsYouSince starts running.
+        //
+        // READ, NOT RE-DERIVED. VoiceDisplayFold already answered this question for this row, against a
+        // real clock, under its own tests. Asking it again here - from VoiceWaitingSince and a threshold -
+        // would be a second answer to one question, and this file's history is made of those. It also keeps
+        // this fold CLOCK-FREE, which is why every rule in it can be tested at any instant.
+        //
+        // WHAT THIS AMENDS. The 2026-07-19 ruling was "in voice mode the user must NEVER see red until the
+        // voice is available", and the summary above still describes the wedge it feared as prevented by
+        // "giving voice a terminal gave-up state". That state was built - VoiceDisplayFold.GaveUpAfter, three
+        // minutes - and it was wired to the WORDS and never to the DOT, so the sentence was true of the label
+        // and false of the colour. On 2026-09-16 a session sat yellow for 48 minutes carrying the label
+        // "Voice did not arrive after 48m" while its raw fact was red. The owner's amendment, that day:
+        // "make sure that all sessions get close to 'need you' if transcription fails".
+        //
+        // NARROW. Only the two verdicts that report NOTHING IS COMING end the hold. Every calm verdict -
+        // preparing, retrying, notReady - still holds yellow, so nothing flashes red in the gaps between
+        // attempts, which is what the 2026-07-19 ruling was protecting. nothingToNarrate still holds, because
+        // a session parked on a menu was never going to be narrated and that is not a voice failure. The
+        // blocked and serviceDown verdicts still hold, because they already carry an actionable sentence of
+        // their own and "needs you" would replace it with a symptom.
+        if (s.VoiceDisplay is { Kind: VoiceDisplayKinds.GaveUp or VoiceDisplayKinds.NotNarrated })
+            return false;
         // Yellow while generating OR while there is simply no audio yet - held across the gaps between
-        // attempts, until VoiceAudioReady flips true. See the summary for why this is not the 2026-07-08
-        // wedge: a permanently failing voice is a reliability bug to fix at the source, not a color to hide.
+        // attempts, until VoiceAudioReady flips true, or until the verdict above ends the promise.
         return s.VoiceGenerating || !s.VoiceAudioReady;
     }
 
@@ -629,7 +669,12 @@ public static class SessionOrdering
             // the ask, an ambiguous report that stayed red, or the carrying-on clock's "Said it would continue
             // and did not". A row with no accepted verdict - never judged, refused, or an account whose colour
             // switch is off - still reads "Needs you".
-            "red" => JudgedLabel(s) ?? "Needs you",
+            // A red row whose VOICE gave up keeps the fold's own words - "Voice did not arrive after 48m",
+            // "Turn not narrated" - rather than a bare "Needs you". Going red is what makes the owner look;
+            // these words are what tell him WHY he is being asked by a session he was promised he would hear
+            // instead. Below JudgedLabel on purpose: when the Wingman managed to say what the session needs,
+            // that is the more useful sentence, and a failed narration is the reason he is reading it at all.
+            "red" => JudgedLabel(s) ?? VoiceGaveUpLabel(s) ?? "Needs you",
             "grey" => "Exited",              // Phase 2.3: an exited session's grey base (see RawActivityColor)
             "error" => "Crashed",            // issue #959: died, not finished - never reads as a clean "Exited"
             _ => "Idle",
