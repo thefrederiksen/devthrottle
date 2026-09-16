@@ -361,3 +361,14 @@ failing with the fix reverted or mutated, then restored and seen green. Item 5 (
 - The read-loss interval itself is unchanged, by ruling.
 - `scripts/test-local.ps1` not run (no PowerShell on the Mac); suites run directly. Command line tests ran in
   a scratch environment with the declared dependencies.
+
+## Architect ruling on inspection 3 (16 September 2026) - slice 1 lands
+
+Verdict PASS for merge. The one low finding (a concurrent read can make the recovery count and page
+disagree; it cannot mark a row twice or leave one unread) is accepted as-is: the 200-row bound holds
+and the metadata is advisory. The four `FleetSpawnOriginTests` failures fail identically on
+origin/main (local RawCli create on this Mac) and are not this slice's.
+
+Slice 1 is landed by the Architect as one squash-merged pull request. After the merge the mission
+branch is reset to origin/main and slice 2 (the doorbell) starts from there. The mission record in
+this folder lands with it.
