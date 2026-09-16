@@ -353,12 +353,17 @@ public static class ActivityCauses
     /// <summary>This account already has as many judgements in flight as its ceiling allows.</summary>
     public const string InFlightCap = "in-flight-cap";
 
-    /// <summary>A judgement for this same session is already in flight, so a second stop is not queued.</summary>
+    /// <summary>A judgement for this same session is already in flight, so a second stop joins it and asks the judge
+    /// nothing of its own.</summary>
     public const string AlreadyJudging = "already-judging";
 
     /// <summary>A voice narration's speech re-attempt found no verdict it could reuse. A re-attempt never asks the
     /// judge, so it gives up for that stop instead of making a second model call for it.</summary>
     public const string ReattemptNeverJudges = "reattempt-never-judges";
+
+    /// <summary>A stop was waiting for this session's judgement when the Gateway began shutting down, so it was never
+    /// judged. It still leaves a cancelled row under this cause.</summary>
+    public const string Shutdown = "shutdown";
 
     /// <summary>A "continues-alone" verdict passed its carrying-on deadline - the announced next wake-up plus two
     /// minutes, or ten minutes after it was judged - with no Working transition in between.</summary>
@@ -471,7 +476,7 @@ public static class ActivityCauses
         TransientTransport, RateLimited, ContextFull, NonRecoverable, UnclassifiedFault,
         MenuOwnsScreen, RetryCeiling,
         JudgeAnswered, ScreenUnchanged, JudgeDidNotAnswer, JudgeRefused, JudgeUnavailable,
-        Held, BrandNew, JudgeSwitchOff, InFlightCap, AlreadyJudging, ReattemptNeverJudges, CarryingOnExpired,
+        Held, BrandNew, JudgeSwitchOff, InFlightCap, AlreadyJudging, ReattemptNeverJudges, Shutdown, CarryingOnExpired,
         SnoozeNothingNew, SnoozeVerdictRules, SnoozeReJudgeRequested, SnoozeReadInFlight,
         OwnerAnswered, AnswerMalformed, AnswerSessionNotFound, AnswerShadowRecord, AnswerVerdictNotFound, AnswerVerdictFailed,
         AnswerVerdictSuperseded, AnswerSelectionRefused, AnswerScreenUnreadable, AnswerScreenChanged,

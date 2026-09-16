@@ -224,5 +224,8 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
     /// neither waits for the copy nor sees its faults. The writer logs and counts a drop or a failed write.</summary>
     public void RecordTrace(TenantId tenant, TurnVerdictTrace trace) => _traces.Enqueue(tenant, trace);
 
+    /// <summary>A trace the seat could not hand in at all: logged and counted by the writer, with the other losses.</summary>
+    public void TraceNotKept(TenantId tenant, TurnVerdictTrace trace, string cause) => _traces.NotKept(trace, cause);
+
     public DateTime NowUtc() => _nowUtc();
 }
