@@ -5048,6 +5048,38 @@ internal static class GatewayEndpoints
     }
 
     /// <summary>
+    /// ONE ACCOUNT'S WHOLE ROSTER, FOLDED - what the roster route serves before its filters, for a reader that
+    /// needs every session's folded state at once (the Fleet Manager's digest).
+    ///
+    /// It reads what the Gateway LAST KNEW for every Director in the account, as the roster does - a machine that
+    /// has gone quiet keeps its sessions - and runs the same <see cref="StampFleetRolesAndFold"/> over the whole
+    /// set, so a session's label and bucket here are the ones its roster row carries. The needs-you clock is
+    /// not driven, for the reason GET /sessions/{sid} gives: it belongs to the roster read.
+    /// </summary>
+    internal static IReadOnlyList<SessionDto> FoldedAccountRoster(
+        DirectorRegistry registry, Streaming.PushedSessionStore? pushedSessions, TenantId tenant,
+        Snooze.SnoozeRegistry? snoozeRegistry, Fleet.HandRaiseRegistry? handRaises,
+        Wingman.ITurnVerdictRowSource? turnVerdictRows, Wingman.SnoozeExpiryReJudge? snoozeExpiry)
+    {
+        var fleet = new List<SessionDto>();
+        if (pushedSessions is null) return fleet;
+        foreach (var d in registry.ListDirectors(tenant))
+        {
+            foreach (var s in pushedSessions.GetLastKnown(tenant, d.DirectorId).Sessions)
+            {
+                if (string.IsNullOrEmpty(s.SessionId)) continue;
+                s.DirectorId = d.DirectorId;
+                s.MachineName = d.MachineName;
+                fleet.Add(s);
+            }
+        }
+        StampFleetRolesAndFold(fleet, fleet, needsYouStampFor: null, snoozeRegistry: snoozeRegistry,
+            tenant: tenant, handRaises: handRaises, turnVerdictRows: turnVerdictRows,
+            snoozeExpiry: snoozeExpiry, snoozeRosterSessionIds: SnoozeRosterIds(fleet));
+        return fleet;
+    }
+
+    /// <summary>
     /// Resolve a request's tenant for a session READ (Hosted Multi-Tenancy, session-serving PR1). Null means
     /// the caller must be DENIED (403): on the hosted Gateway an authenticated request whose device key has no
     /// bound tenant is refused, NEVER served the Local partition (which would be a wrong-tenant read waiting to

@@ -200,6 +200,34 @@ public sealed class SessionKeyGuardTests
         => Assert.False(SessionKeyGuard.Check(method, path).Allowed,
             $"{method} {path} is not a routed workspace shape and must not be authorized");
 
+    // The Fleet Manager mission, step 3: the Fleet Manager is a session, and files, answers and reads its
+    // records with its own key.
+    [Theory]
+    [InlineData("GET", "/gateway/fleet-manager/outcomes")]
+    [InlineData("POST", "/gateway/fleet-manager/outcomes")]
+    [InlineData("GET", "/gateway/fleet-manager/outcomes/5b1c2d3e-0000-4000-8000-000000000001")]
+    [InlineData("POST", "/gateway/fleet-manager/outcomes/5b1c2d3e-0000-4000-8000-000000000001/answer")]
+    [InlineData("GET", "/gateway/fleet-manager/preferences")]
+    [InlineData("POST", "/gateway/fleet-manager/preferences")]
+    [InlineData("DELETE", "/gateway/fleet-manager/preferences/5b1c2d3e-0000-4000-8000-000000000002")]
+    [InlineData("GET", "/gateway/fleet-manager/digest")]
+    public void The_fleet_manager_routes_are_allowed(string method, string path)
+        => Assert.True(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} should be allowed");
+
+    // Only the shapes the Gateway maps, each with its own verb. A word hung off the prefix later is refused
+    // until somebody classifies it.
+    [Theory]
+    [InlineData("GET", "/gateway/fleet-manager")]
+    [InlineData("DELETE", "/gateway/fleet-manager/outcomes/5b1c2d3e-0000-4000-8000-000000000001")]
+    [InlineData("PUT", "/gateway/fleet-manager/outcomes/5b1c2d3e-0000-4000-8000-000000000001")]
+    [InlineData("GET", "/gateway/fleet-manager/outcomes/5b1c2d3e-0000-4000-8000-000000000001/answer")]
+    [InlineData("POST", "/gateway/fleet-manager/outcomes/5b1c2d3e-0000-4000-8000-000000000001/reopen")]
+    [InlineData("DELETE", "/gateway/fleet-manager/preferences")]
+    [InlineData("POST", "/gateway/fleet-manager/digest")]
+    [InlineData("GET", "/gateway/fleet-manager/purge")]
+    public void Fleet_manager_shapes_the_gateway_does_not_route_stay_refused(string method, string path)
+        => Assert.False(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} should be refused");
+
     [Fact]
     public void Restarting_a_Director_is_still_refused_even_though_capturing_its_fleet_is_not()
     {

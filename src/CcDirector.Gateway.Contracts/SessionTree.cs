@@ -256,6 +256,27 @@ public static class SessionTree
             StringComparison.Ordinal);
     }
 
+    /// <summary>The crew word for a session that needs a person.</summary>
+    public const string CrewStateNeedsYou = "needs-you";
+
+    /// <summary>The crew word for a session that is not stopped.</summary>
+    public const string CrewStateWorking = "working";
+
+    /// <summary>The crew word for a session that has stopped and is quiet (parked, or supervised and done).</summary>
+    public const string CrewStateStopped = "stopped";
+
+    /// <summary>
+    /// ONE session's word in its crew line: <see cref="CrewStateNeedsYou"/>, <see cref="CrewStateWorking"/> or
+    /// <see cref="CrewStateStopped"/>. The crew line counts these words, and the Fleet Manager's digest prints
+    /// them per session, so the two cannot disagree about what a session under someone is doing.
+    /// </summary>
+    public static string CrewState(SessionDto s) => SessionOrdering.Classify(s) switch
+    {
+        SessionOrdering.TriageBucket.NeedsYou => CrewStateNeedsYou,
+        SessionOrdering.TriageBucket.OnHold => CrewStateStopped,
+        _ => CrewStateWorking,
+    };
+
     /// <summary>
     /// The crew summary for a collapsed row. Pass EVERY session under the root -
     /// <c>DescendantsOf(tree, root).Select(d =&gt; d.Session)</c> - not just the direct children: a crew
@@ -266,9 +287,9 @@ public static class SessionTree
     {
         var kids = crew as IReadOnlyList<SessionDto> ?? crew.ToList();
 
-        var needsYou = kids.Count(s => SessionOrdering.Classify(s) == SessionOrdering.TriageBucket.NeedsYou);
-        var working = kids.Count(s => SessionOrdering.Classify(s) == SessionOrdering.TriageBucket.Active);
-        var stopped = kids.Count(s => SessionOrdering.Classify(s) == SessionOrdering.TriageBucket.OnHold);
+        var needsYou = kids.Count(s => CrewState(s) == CrewStateNeedsYou);
+        var working = kids.Count(s => CrewState(s) == CrewStateWorking);
+        var stopped = kids.Count(s => CrewState(s) == CrewStateStopped);
 
         DateTime? since = null;
         foreach (var s in kids.Prepend(root))

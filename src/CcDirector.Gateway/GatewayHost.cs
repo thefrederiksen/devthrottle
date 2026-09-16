@@ -4033,6 +4033,20 @@ public sealed class GatewayHost : IAsyncDisposable
         // this is the only path an owner label has out of the database.
         AdminTurnVerdictFeedbackEndpoint.Map(_app, _turnVerdicts, TenantRegistry);
 
+        // The Fleet Manager's stored news, its standing preferences, and its start-of-conversation digest (the
+        // Fleet Manager mission, step 3). Account-scoped client routes under /gateway, gated by the host-wide
+        // middleware; each shape a session key may call is listed in SessionKeyGuard.
+        FleetManagerEndpoints.Map(_app,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            outcomes: new Fleet.FleetOutcomeStore(_gatewayDb),
+            preferences: new Fleet.FleetPreferenceStore(_gatewayDb),
+            digest: new FleetDigestSources(
+                FoldedRoster: tenant => GatewayEndpoints.FoldedAccountRoster(Registry, PushedSessions, tenant,
+                    _snoozeRegistry, _handRaises, _turnVerdictRows, _snoozeExpiry),
+                SessionInAccount: (tenant, sid) => PushedSessions.TryLocateIgnoringFreshness(tenant, sid) is not null,
+                LatestVerdict: (tenant, sid) => _turnVerdicts.Latest(tenant, sid),
+                VerdictColourOn: tenant => _tenantSettingsResolver.TurnVerdict(tenant).ColourEnabled));
+
         // "DevThrottle emails me" relay (issue #1318 consumer): POST /account/email. A session or scheduled
         // run passes a subject + body (+ optional attachments); the Gateway injects its own stored account
         // token and forwards to the cloud primitive (POST /api/v1/account/notify-owner, devthrottle_internal

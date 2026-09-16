@@ -667,6 +667,10 @@ COMMANDS:
   session report   Tell the session that owns you what you did, at the end of your turn.
   director list    List every Director this account runs, with the id --director accepts.
   mission list     List the missions on the Gateway, active ones by default.
+  fleet digest     Everything the Fleet Manager reads at the start of a conversation.
+  fleet ready      File a Ready record (also: fleet finding, fleet decision).
+  fleet outcomes   List the account's outcome records (also: fleet show, fleet answer).
+  fleet prefer     Keep a standing preference (also: fleet preferences, fleet forget).
   message send     Queue a message for your supervisor or a worker ('all' for every worker).
   message inbox    Read your unread messages in full, which marks them read.
   fleet-manager    Show, set, or clear which session is this account's one Fleet Manager.
@@ -1089,6 +1093,53 @@ what the Gateway sent. Ids and names are never shortened; an unnamed Director sh
 Prefer the **id** when handing a target to another agent - it survives a rename and cannot collide
 with a second Director sharing a display name. A Director's own toolbar has a Copy button that puts
 its name, machine and id on the clipboard, for pasting to an agent.
+
+### Fleet Manager
+
+The Fleet Manager's stored news, the owner's standing preferences, and the one digest it reads at the
+start of every conversation. All of it is kept on the Gateway and belongs to the account, so a
+restarted or moved Fleet Manager reads back exactly what the old one filed. A record stays open until
+it is answered, and an answer is final.
+
+Output follows the AXI standard (`docs/axi-standard.md`): a count line, rows with full ids and names,
+`count: 0` when there is nothing, and `help[]` lines naming the next command. A value that is not
+plain text is written as a JSON string. `--json` prints the Gateway's answer, with every filter
+applied. A wrong closed value (`--risk`, `--checks`, `--status`, `--kind`) exits 2 and names the valid
+values. `--session` takes a session id, id prefix, number, or exact name. `ID` takes a full record id
+or the start of one.
+
+```
+USAGE: cc-devthrottle fleet digest [--session <id>] [--json]
+USAGE: cc-devthrottle fleet ready "<title>" --pr <link> --risk low|medium|high
+         --checks passed|failed|none --tested "<how>" --reviewed-by "<who>"
+         --change "<one sentence for a user>" [--session <id>] [--json]
+USAGE: cc-devthrottle fleet finding "<title>" --answer "<answer>" [--reason "<why>"]
+         [--link <url> ...] [--session <id>] [--json]
+USAGE: cc-devthrottle fleet decision "<title>" --question "<q>" --option "<a>" --option "<b>"
+         [--recommend "<a>"] [--why "<why>"] [--session <id>] [--json]
+USAGE: cc-devthrottle fleet outcomes [--status open|answered|all] [--kind ready|finding|decision]
+         [--count/-n 1-200] [--json]
+USAGE: cc-devthrottle fleet show ID [--json]
+USAGE: cc-devthrottle fleet answer ID "<the owner's words, exactly>" [--json]
+USAGE: cc-devthrottle fleet prefer "<preference, verbatim>" [--json]
+USAGE: cc-devthrottle fleet preferences [--json]
+USAGE: cc-devthrottle fleet forget ID [--json]
+```
+
+`fleet digest` defaults to this session (`CC_SESSION_ID`). It prints whether the session is the
+Fleet Manager, the account's open records, the sessions this session owns (each with its state -
+`needs-you`, `working` or `stopped` - and the Wingman's latest reading), and the standing
+preferences. Any session may run it. While an account's Wingman readings are still a shadow record,
+they are left out for a session key and the digest says so.
+
+`fleet outcomes` lists the open records by default, newest first. A filter that matches nothing says
+how many records there are in all.
+
+A decision's answer need not be one of its options; the record says whether it was.
+
+Gateway routes: `/gateway/fleet-manager/outcomes` (GET, POST), `/outcomes/{id}` (GET),
+`/outcomes/{id}/answer` (POST, 409 when already answered), `/preferences` (GET, POST),
+`/preferences/{id}` (DELETE), `/digest?session=<id>` (GET).
 
 ### Skill Commands
 
