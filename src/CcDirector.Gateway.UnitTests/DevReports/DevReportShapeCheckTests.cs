@@ -276,7 +276,6 @@ public sealed class DevReportShapeCheckTests
 
     [Theory]
     [InlineData("<section data-dev-report=\"summary\" hidden><p>Summary.</p></section>")]
-    [InlineData("<section data-dev-report=\"summary\" style=\"color: red; DISPLAY : none !important\"><p>Summary.</p></section>")]
     [InlineData("<div hidden><section data-dev-report=\"summary\"><p>Summary.</p></section></div>")]
     public void Check_HiddenSummary_Fails(string summary)
         => AssertFailsWith(Report(summary: false, afterHeader: summary), "executive summary is hidden");
@@ -292,9 +291,24 @@ public sealed class DevReportShapeCheckTests
         AssertFailsWith(html, "questions section is hidden");
     }
 
+    [Theory]
+    [InlineData("<svg><desc>Words nobody sees.</desc></svg>")]
+    [InlineData("<svg><title>Words nobody sees.</title></svg>")]
+    [InlineData("<svg><metadata>Words nobody sees.</metadata></svg>")]
+    public void Check_SummaryWhoseOnlyWordsAreSvgDescriptions_Fails(string body)
+    {
+        // Inspection round 2, finding 3: SVG desc, title and metadata are not drawn, so their text is not words.
+        var summary = $"<section data-dev-report=\"summary\">{body}</section>";
+        AssertFailsWith(Report(summary: false, afterHeader: summary), "executive summary is empty");
+    }
+
     [Fact]
-    public void Check_QuestionsSectionHiddenByInlineStyle_Fails()
-        => AssertFailsWith(Report().Replace("<section data-dev-report=\"questions\">", "<section data-dev-report=\"questions\" style=\"display:none\">"), "questions section is hidden");
+    public void Check_SummaryWithDrawnSvgText_Passes()
+    {
+        var summary = "<section data-dev-report=\"summary\"><svg><desc>Chart.</desc><text>Words on the page.</text></svg></section>";
+        var verdict = DevReportShapeCheck.Check(Report(summary: false, afterHeader: summary));
+        Assert.True(verdict.Passed, string.Join("\n", verdict.Errors));
+    }
 
     [Theory]
     [InlineData("<section data-dev-report=\"summary\"></section>")]
@@ -303,12 +317,20 @@ public sealed class DevReportShapeCheckTests
     public void Check_SummaryWithNoWords_Fails(string summary)
         => AssertFailsWith(Report(summary: false, afterHeader: summary), "executive summary is empty");
 
-    [Fact]
-    public void Check_SectionHiddenOnlyByAStylesheet_Passes_BecauseTheCheckIsGuidance()
+    [Theory]
+    [InlineData("<style>[data-dev-report=summary] { display: none }</style>", null)]
+    [InlineData(null, "style=\"display:none\"")]
+    [InlineData(null, "style=\"display:/**/none\"")]
+    public void Check_SectionHiddenByStyles_Passes_BecauseTheCheckDoesNotJudgeCss(string? stylesheet, string? inlineStyle)
     {
-        // The check does not evaluate stylesheets; the host policy is the boundary, not this check. Recorded so
-        // nobody reads the hidden-section rule as more than it is.
-        var html = Report(tail: "<style>[data-dev-report=summary] { display: none }</style>");
+        // Architect ruling, inspection round 2: the check judges structure, not CSS. Styles - a stylesheet rule or
+        // an inline style attribute - can hide a section and the check does not try to detect it; the host policy
+        // is the boundary. Recorded so nobody reads the hidden-section rule as more than it is.
+        var html = Report(tail: stylesheet);
+        if (inlineStyle is not null)
+        {
+            html = html.Replace("<section data-dev-report=\"summary\">", $"<section data-dev-report=\"summary\" {inlineStyle}>");
+        }
         Assert.True(DevReportShapeCheck.Check(html).Passed);
     }
 
@@ -411,6 +433,66 @@ public sealed class DevReportShapeCheckTests
     [InlineData("noscript")]
     public void Check_MarkersInsideOtherTextOnlyElements_DoNotCount(string element)
         => AssertFailsWith($"<{element}>{Report()}</{element}>", "has no header");
+
+    [Theory]
+    [InlineData("<template data-dev-report=\"header\" data-dev-report-status=\"done\">Report</template>")]
+    [InlineData("<noscript data-dev-report=\"header\" data-dev-report-status=\"done\">Report</noscript>")]
+    [InlineData("<meta data-dev-report=\"header\" data-dev-report-status=\"done\">")]
+    [InlineData("<style data-dev-report=\"header\" data-dev-report-status=\"done\"></style>")]
+    public void Check_UnrenderedElementAsTheHeader_DoesNotCount(string header)
+    {
+        // Inspection round 2, finding 1: the element itself, not only what is inside it, must be rendered. A meta
+        // is also moved into the head by the parser.
+        var html = Report().Replace(
+            "<header data-dev-report=\"header\" data-dev-report-status=\"waiting-on-you\"><h1>Report</h1></header>", header);
+        Assert.Contains(header, html);
+        AssertFailsWith(html, "has no header");
+    }
+
+    [Theory]
+    [InlineData("template")]
+    [InlineData("noscript")]
+    [InlineData("style")]
+    public void Check_UnrenderedElementAsTheDetail_DoesNotCount(string element)
+    {
+        var detail = $"<{element} data-dev-report=\"detail\">Detail.</{element}>";
+        AssertFailsWith(Report(detail: false, evidence: false, tail: detail), "has no detail section");
+    }
+
+    [Fact]
+    public void Check_UnrenderedNoQuestionsElement_DoesNotCount()
+    {
+        var body = "<noscript data-dev-report-no-questions>No questions - nothing needed from you.</noscript>";
+        AssertFailsWith(Report(questionsBody: body), "questions section is empty");
+    }
+
+    [Fact]
+    public void Check_ReportAtThePublishLimit_IsCheckedInBoundedTime()
+    {
+        // Inspection round 2, finding 4: the radio-name check scanned every radio once per question, so a valid
+        // report grew quadratically (37.5 s for 10,000 questions). A report at the 10 MB publish limit (mission
+        // ruling 6), all questions (49,202 of them), is the worst valid case. Measured on the development machine
+        // on 2026-09-16: 1.6 to 2.1 s in Release, 1.6 to 2.2 s in Debug. The 30 s bound leaves wide headroom for a
+        // slow or busy machine; the quadratic check took 37.5 s on a report a fifth this size.
+        var body = new System.Text.StringBuilder();
+        var i = 0;
+        while (body.Length < 10 * 1024 * 1024 - 1024)
+        {
+            body.Append($"<div data-dev-report-question=\"q{i}\"><h3>Question {i}?</h3>")
+                .Append($"<label><input type=\"radio\" name=\"q{i}\" value=\"yes\" data-recommended> Yes</label>")
+                .Append($"<label><input type=\"radio\" name=\"q{i}\" value=\"no\"> No</label></div>");
+            i++;
+        }
+        var html = Report(questionsBody: body.ToString());
+
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var verdict = DevReportShapeCheck.Check(html);
+        clock.Stop();
+
+        Assert.True(verdict.Passed, string.Join("\n", verdict.Errors.Take(5)));
+        Assert.True(clock.Elapsed < System.TimeSpan.FromSeconds(30),
+            $"Checking a {html.Length:N0}-character report with {i:N0} questions took {clock.Elapsed.TotalSeconds:F1} s.");
+    }
 
     [Fact]
     public void Check_UppercaseAttributesSingleQuotesAndUnquotedValues_AreRead()

@@ -32,9 +32,16 @@ internal sealed record DevReportShapeVerdict(IReadOnlyList<string> Errors, strin
 /// left unclosed ends where a browser ends it. "Inside" is DOM containment - the same rule the note-taking
 /// script uses in the page.
 ///
+/// An element a browser never renders - a template, anything the parser puts in the head, a noscript, a style,
+/// or the text of an SVG desc, title or metadata - is not a section marker and its text is not words, because
+/// the owner never sees it.
+///
+/// IT CHECKS STRUCTURE, NOT CSS. Styles - an inline style attribute or a stylesheet rule - can hide a section,
+/// and this check does not try to detect it (inspection round 2: every CSS rule it judged, a CSS parser could
+/// read differently). Only the hidden attribute, which is structure, is judged.
+///
 /// THIS CHECK IS GUIDANCE, NOT THE SECURITY BOUNDARY. It tells an agent at publish time that its report is
-/// the wrong shape or carries scripts that will not run. It does not evaluate stylesheets, so a section hidden
-/// by a CSS rule still passes. What keeps a report from acting for the owner is the host policy of
+/// the wrong shape or carries scripts that will not run. What keeps a report from acting for the owner is the host policy of
 /// CONTRACT.md section 4 (mission ruling 8), which every host applies whatever this check said.
 /// </summary>
 internal static class DevReportShapeCheck
@@ -54,8 +61,12 @@ internal static class DevReportShapeCheck
     // the report is parsed in the same place in the document as in the frame.
     private const string HostHead = "<!doctype html><html><head></head>";
 
-    // Elements whose text a reader does not see as part of the page.
-    private static readonly string[] UnreadTextElements = ["script", "style", "noscript", "title", "template"];
+    // Elements a browser never renders, in any namespace: neither they nor anything inside them is on the page.
+    private static readonly string[] UnrenderedElements =
+        ["head", "base", "link", "meta", "script", "style", "noscript", "title", "template"];
+
+    // SVG elements whose text is description for tools, not drawn (SVG 2, "desc", "title" and "metadata").
+    private static readonly string[] UnrenderedSvgElements = ["desc", "title", "metadata"];
 
     /// <summary>Checks a report's HTML and returns every problem found, not just the first.</summary>
     public static DevReportShapeVerdict Check(string html)
@@ -73,7 +84,8 @@ internal static class DevReportShapeCheck
             errors.Add($"data-dev-report=\"{Kind(unknown)}\" is not a section this " +
                        $"check knows. Use one of: {string.Join(", ", SectionKinds)}.");
         }
-        sections = sections.Where(s => SectionKinds.Contains(Kind(s))).ToList();
+        // A marker the browser never renders cannot stand in for a section the owner must see.
+        sections = sections.Where(s => SectionKinds.Contains(Kind(s)) && !IsUnrenderedOrInsideOne(s)).ToList();
         var kinds = sections.Select(Kind).ToList();
 
         var status = CheckCounts(kinds, sections, errors);
@@ -221,8 +233,8 @@ internal static class DevReportShapeCheck
         var summary = summaries[0];
         if (IsHidden(summary))
         {
-            errors.Add("The executive summary is hidden (the hidden attribute or an inline display:none on it or on " +
-                       "an element around it). The owner reads it first - remove that.");
+            errors.Add("The executive summary is hidden (the hidden attribute on it or on an element around it). " +
+                       "The owner reads it first - remove that.");
         }
         else if (!HasWords(summary))
         {
@@ -241,8 +253,8 @@ internal static class DevReportShapeCheck
         var section = questionsMarkers[0];
         if (IsHidden(section))
         {
-            errors.Add("The questions section is hidden (the hidden attribute or an inline display:none on it or on " +
-                       "an element around it). The owner must see it, even when it says there are no questions - remove that.");
+            errors.Add("The questions section is hidden (the hidden attribute on it or on an element around it). The " +
+                       "owner must see it, even when it says there are no questions - remove that.");
         }
 
         var allQuestions = document.QuerySelectorAll("[data-dev-report-question]").ToList();
@@ -253,7 +265,8 @@ internal static class DevReportShapeCheck
         }
         var questions = allQuestions.Where(q => section.Contains(q)).ToList();
 
-        var noQuestions = section.QuerySelectorAll("[data-dev-report-no-questions]").ToList();
+        var noQuestions = section.QuerySelectorAll("[data-dev-report-no-questions]")
+            .Where(e => !IsUnrenderedOrInsideOne(e)).ToList();
         if (questions.Count == 0 && noQuestions.Count == 0)
         {
             errors.Add("The questions section is empty. When there are no questions it must say so: add an element " +
@@ -330,6 +343,23 @@ internal static class DevReportShapeCheck
             list.Add(radio);
         }
 
+        // Which questions use each radio name (null for a radio in no question), counted once for the whole
+        // document so the per-question check is a lookup, not a scan (inspection round 2, finding 4).
+        var ownersByName = new Dictionary<string, HashSet<IElement?>>(StringComparer.Ordinal);
+        foreach (var (radio, owner) in radios)
+        {
+            var name = radio.GetAttribute("name");
+            if (string.IsNullOrEmpty(name))
+            {
+                continue;
+            }
+            if (!ownersByName.TryGetValue(name, out var owners))
+            {
+                ownersByName[name] = owners = [];
+            }
+            owners.Add(owner);
+        }
+
         foreach (var q in questions.Where(usable.Contains))
         {
             var own = options.TryGetValue(q, out var list) ? list : [];
@@ -344,7 +374,7 @@ internal static class DevReportShapeCheck
                 errors.Add($"The question \"{Label(q)}\" has {recommended} recommended options. Mark " +
                            "exactly one option with data-recommended.");
             }
-            CheckRadioGroup(q, own, radios, errors);
+            CheckRadioGroup(q, own, ownersByName, errors);
         }
     }
 
@@ -352,7 +382,7 @@ internal static class DevReportShapeCheck
     // with different names can all be checked at once, and options sharing a name with another question
     // uncheck each other - either way the page no longer shows one answer per question.
     private static void CheckRadioGroup(IElement question, List<IElement> own,
-        List<(IElement Radio, IElement? Owner)> allRadios, List<string> errors)
+        Dictionary<string, HashSet<IElement?>> ownersByName, List<string> errors)
     {
         if (own.Count == 0)
         {
@@ -374,7 +404,8 @@ internal static class DevReportShapeCheck
             return;
         }
         var name = names[0];
-        if (allRadios.Any(r => r.Owner != question && r.Radio.GetAttribute("name") == name))
+        var owners = ownersByName[name];
+        if (owners.Count > 1 || !owners.Contains(question))
         {
             errors.Add($"The name \"{name}\" of the options of the question \"{Label(question)}\" is also used by a radio " +
                        "option outside that question. Use a name that belongs to this question only.");
@@ -406,13 +437,13 @@ internal static class DevReportShapeCheck
         }
     }
 
-    /// <summary>True when the element, or an element around it, carries the hidden attribute or an inline
-    /// display:none. Stylesheet rules are not evaluated (see the class comment).</summary>
+    /// <summary>True when the element, or an element around it, carries the hidden attribute. Styles are not
+    /// judged (see the class comment).</summary>
     private static bool IsHidden(IElement element)
     {
         for (var e = element; e is not null; e = e.ParentElement)
         {
-            if (e.HasAttribute("hidden") || HasInlineDisplayNone(e))
+            if (e.HasAttribute("hidden"))
             {
                 return true;
             }
@@ -420,24 +451,18 @@ internal static class DevReportShapeCheck
         return false;
     }
 
-    private static bool HasInlineDisplayNone(IElement element)
+    private static bool IsUnrendered(IElement element)
     {
-        var style = element.GetAttribute("style");
-        if (string.IsNullOrEmpty(style))
+        var name = element.LocalName.ToLowerInvariant();
+        return UnrenderedElements.Contains(name) ||
+               (element.NamespaceUri == NamespaceNames.SvgUri && UnrenderedSvgElements.Contains(name));
+    }
+
+    private static bool IsUnrenderedOrInsideOne(IElement element)
+    {
+        for (var e = element; e is not null; e = e.ParentElement)
         {
-            return false;
-        }
-        foreach (var declaration in style.Split(';'))
-        {
-            var colon = declaration.IndexOf(':');
-            if (colon < 0)
-            {
-                continue;
-            }
-            var property = declaration[..colon].Trim();
-            var value = declaration[(colon + 1)..].Replace("!important", "", StringComparison.OrdinalIgnoreCase).Trim();
-            if (property.Equals("display", StringComparison.OrdinalIgnoreCase) &&
-                value.Equals("none", StringComparison.OrdinalIgnoreCase))
+            if (IsUnrendered(e))
             {
                 return true;
             }
@@ -447,7 +472,8 @@ internal static class DevReportShapeCheck
 
     /// <summary>True when the element's text, as a reader would see it, has a character that is not white
     /// space. The parser has already decoded character references, so a no-break space alone is still empty;
-    /// text in scripts, styles and hidden descendants does not count.</summary>
+    /// text in elements a browser never renders (scripts, styles, SVG descriptions) and in descendants with the
+    /// hidden attribute does not count.</summary>
     private static bool HasWords(IElement element)
     {
         foreach (var node in element.ChildNodes)
@@ -457,8 +483,7 @@ internal static class DevReportShapeCheck
                 return true;
             }
             if (node is IElement child &&
-                !UnreadTextElements.Contains(child.LocalName.ToLowerInvariant()) &&
-                !child.HasAttribute("hidden") && !HasInlineDisplayNone(child) &&
+                !IsUnrendered(child) && !child.HasAttribute("hidden") &&
                 HasWords(child))
             {
                 return true;
