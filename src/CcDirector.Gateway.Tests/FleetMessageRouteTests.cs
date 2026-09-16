@@ -456,4 +456,33 @@ public sealed class FleetMessageRouteTests : IAsyncLifetime
         var create = Assert.Single(_commands, c => c.Verb == "create");
         Assert.Equal(_stranger, JsonSerializer.Deserialize<NewSessionRequest>(create.PayloadJson, Web)!.ControllerSessionId);
     }
+
+    // =========================================================================================
+    // A session raises its own hand, and only its own (inspection 1, ruling 3)
+    // =========================================================================================
+
+    [Fact]
+    public async Task A_session_key_may_raise_its_own_hand()
+    {
+        // `session raise` is this mission's report channel. The live Gateway refused it to every agent until ruling 3.
+        var r = await _asWorkerA.PostAsJsonAsync($"sessions/{_workerA}/needs-manager", new { raised = true, reason = "slice 1 fix round pushed" });
+
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        var body = await Body(r);
+        Assert.True(body.GetProperty("raised").GetBoolean());
+        Assert.Equal("slice 1 fix round pushed", S(body, "reason"));
+        Assert.Empty(VerbsSent());
+    }
+
+    [Fact]
+    public async Task A_session_key_may_not_raise_another_sessions_hand()
+    {
+        var r = await _asWorkerA.PostAsJsonAsync($"sessions/{_workerB}/needs-manager", new { raised = true, reason = "speaking for B" });
+
+        Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
+        Assert.Equal(
+            "a session may raise only its own hand: run cc-devthrottle session raise from inside the session that " +
+            "needs its supervisor",
+            S(await Body(r), "error"));
+    }
 }

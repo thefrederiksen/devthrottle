@@ -73,6 +73,9 @@ public sealed class SessionKeyGuardTests
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/mission")]
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/request-deletion")]
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/compact-context")]
+    // `session raise` (issue #2662). Refused to every agent until the Message Load mission's inspection 1, ruling 3;
+    // whose hand may be raised is the route's check.
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/needs-manager")]
     // Mission "Stop a session", Ruling 4: any session may stop any other in the same account, because the
     // stop carries a reason and is audited. Ruling 6: and the polite flag comes off the way it went on.
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/stop")]

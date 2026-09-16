@@ -23,6 +23,11 @@ namespace CcDirector.Gateway.Api;
 
 internal static class GatewayEndpoints
 {
+    /// <summary>Why a session key may not raise a hand on another session's row.</summary>
+    internal const string NeedsManagerNotYours =
+        "a session may raise only its own hand: run cc-devthrottle session raise from inside the session that " +
+        "needs its supervisor";
+
     /// <summary>
     /// Web-shaped options for the few places this file has to READ a JSON body a Director produced. The
     /// Director serializes verb results web-shaped (camelCase), so a default-cased reader would silently
@@ -2717,8 +2722,19 @@ internal static class GatewayEndpoints
         //
         // THE REASON IS REQUIRED. A hand up with no words tells a supervisor almost nothing and turns this
         // into the "notice me" ping the roles design specifically rejects - messages are for CONTENT.
+        //
+        // A SESSION KEY RAISES ONLY ITS OWN HAND (the Message Load mission, inspection 1, ruling 3). A hand raised
+        // on another session's row would put words in that session's mouth on its supervisor's roster.
         app.MapPost("/sessions/{sid}/needs-manager", async (HttpContext ctx, string sid, NeedsManagerRequest req, CancellationToken ct) =>
         {
+            var raiser = AuthMiddleware.CallingSession(ctx);
+            if (raiser is not null
+                && !(Guid.TryParse(sid, out var raisedFor) && raisedFor == raiser.SessionId))
+            {
+                FileLog.Write($"[GatewayEndpoints] needs-manager REFUSED sid={sid}: the session key belongs to {raiser.SessionId}");
+                return Results.Json(new { error = NeedsManagerNotYours }, statusCode: StatusCodes.Status403Forbidden);
+            }
+
             var (director, session) = await LocateSessionForRequestAsync(ctx, tenantBoundary, registry, sid, pushedSessions, streamStaleResolved, owners);
             if (session is null || director is null)
                 return SessionUnavailable(ctx, tenantBoundary, pushedSessions, sid);
@@ -2749,7 +2765,10 @@ internal static class GatewayEndpoints
             var raise = handRaises.Raise(reqTenant.Value, sid, reason);
             FileLog.Write($"[GatewayEndpoints] needs-manager RAISED sid={sid}: {reason}");
             return Results.Ok(new { sessionId = sid, raised = true, reason = raise.Reason, raisedAt = raise.RaisedAtUtc });
-        }).RequireAuthorization();
+            // NO .RequireAuthorization() here. It was the only route that carried it, and the Gateway registers no
+            // ASP.NET authorization middleware - AuthMiddleware authenticates every route - so the marker made this
+            // route answer 500 on every Gateway (found in the Message Load mission's slice 1 fix round).
+        });
 
         app.MapPost("/sessions/{sid}/hold", async (HttpContext ctx, string sid, HoldRequest req, CancellationToken ct) =>
         {

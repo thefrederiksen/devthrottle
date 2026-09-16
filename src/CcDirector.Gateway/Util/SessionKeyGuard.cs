@@ -279,6 +279,11 @@ public static class SessionKeyGuard
                     case "mission":
                     case "request-deletion":
                     case "compact-context":
+                    // RAISE A HAND to your supervisor (`session raise`, issue #2662). It was missing from this list,
+                    // so every agent's raise was refused, and it is the report channel of the Message Load mission
+                    // (inspection 1, ruling 3). A key may raise only its OWN hand; the route checks that, because a
+                    // guard never reads the id segment.
+                    case "needs-manager":
                     // STOP a session, now (mission "Stop a session", Ruling 4: any session may stop any
                     // other in the same account, and there is no parent-child restriction). The reason is
                     // what makes this affordable, and the reason requirement lives on the ROUTE, not here:
