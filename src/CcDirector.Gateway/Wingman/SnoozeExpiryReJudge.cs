@@ -144,23 +144,18 @@ public sealed class SnoozeExpiryReJudge
     /// </summary>
     private sealed class Watch
     {
-        public Watch(bool expired, DateTime? armedSeenAtUtc, DateTime? armedUntilUtc, bool nothingNew, string directorId)
+        public Watch(bool expired, DateTime? armedSeenAtUtc, DateTime? armedUntilUtc, bool nothingNew)
         {
             Expired = expired;
             ArmedSeenAtUtc = armedSeenAtUtc;
             ArmedUntilUtc = armedUntilUtc;
             NothingNew = nothingNew;
-            DirectorId = directorId;
         }
 
         public bool Expired { get; }
         public DateTime? ArmedSeenAtUtc { get; }
         public DateTime? ArmedUntilUtc { get; }
         public bool NothingNew { get; }
-
-        /// <summary>Which Director owned the session when this was last observed. Kept HERE because the prune
-        /// needs it after the session has left the roster, when its row no longer exists to be asked.</summary>
-        public string DirectorId { get; }
     }
 
     private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), Watch> _watch = new();
@@ -201,7 +196,7 @@ public sealed class SnoozeExpiryReJudge
         ArgumentNullException.ThrowIfNull(rows);
         ArgumentNullException.ThrowIfNull(holds);
 
-        PruneToRoster(tenant, rosterUniverse);
+        PruneToRoster(tenant, rosterUniverse ?? rows);
 
         foreach (var s in rows)
         {
@@ -226,7 +221,7 @@ public sealed class SnoozeExpiryReJudge
                     var sameClock = previous is { Expired: false, ArmedUntilUtc: DateTime was } && was == deadline;
                     if (!sameClock)
                     {
-                        var armed = new Watch(false, nowUtc, deadline, false, s.DirectorId ?? "");
+                        var armed = new Watch(false, nowUtc, deadline, false);
                         if (previous is null) _watch.TryAdd(key, armed);
                         else _watch.TryUpdate(key, armed, previous);
                     }
@@ -273,12 +268,12 @@ public sealed class SnoozeExpiryReJudge
                 var stillNothingNew = watch.NothingNew && outcome == SnoozeExpiryOutcome.NothingNew;
                 s.SnoozeEndedNothingNew = stillNothingNew;
                 if (stillNothingNew != watch.NothingNew)
-                    _watch.TryUpdate(key, new Watch(true, watch.ArmedSeenAtUtc, watch.ArmedUntilUtc, stillNothingNew, s.DirectorId ?? ""), watch);
+                    _watch.TryUpdate(key, new Watch(true, watch.ArmedSeenAtUtc, watch.ArmedUntilUtc, stillNothingNew), watch);
                 return;
             }
 
             // THE EDGE. Nobody acts until the swap is won.
-            var next = new Watch(true, armedAt, until, outcome == SnoozeExpiryOutcome.NothingNew, s.DirectorId ?? "");
+            var next = new Watch(true, armedAt, until, outcome == SnoozeExpiryOutcome.NothingNew);
             var won = watch is null ? _watch.TryAdd(key, next) : _watch.TryUpdate(key, next, watch);
             if (!won) continue;   // another fold took this expiry; go round and hold with whatever it decided
 
@@ -328,44 +323,36 @@ public sealed class SnoozeExpiryReJudge
     };
 
     /// <summary>
-    /// DROP WHAT THE ROSTER NO LONGER HAS, so this memory is bounded by the account's sessions and not by how
-    /// long the Gateway has been up. A session that vanished while its snooze was expired used to leave one entry
-    /// behind for the life of the process, and those accumulate (the inspector's second note on pull request
-    /// 2899, upheld by the Architect).
+    /// PRUNE TO THE ROSTER, UNCONDITIONALLY. A watch entry for a session that is not in the roster has nothing to
+    /// watch, so it goes - whatever else is or is not in that roster. This memory is then bounded by the account's
+    /// sessions and never by how long the Gateway has been up; a session that vanished while its snooze was
+    /// expired used to leave one entry behind for the life of the process, and those accumulate (the inspector's
+    /// second note on pull request 2899).
     ///
-    /// IT PRUNES ONLY WHAT THE CALLER CAN VOUCH FOR, and that restriction is the whole safety of it. This runs on
-    /// every fold, and a fold is NOT always the whole account: a Director's snapshot push carries that Director's
-    /// sessions, and a roster read filtered by machine carries those machines' Directors. Absence from a PARTIAL
-    /// set is not evidence a session is gone - and dropping a live session's entry silently disarms ruling 10 for
-    /// it, because its expiry then finds no armed observation and rules nothing at all. So the prune is scoped to
-    /// the DIRECTORS this universe actually contains: every caller passes each Director's sessions whole or not at
-    /// all, which makes "this Director's session is missing" mean it really has gone. A Director absent from the
-    /// universe keeps everything it owns.
+    /// AN EMPTY ROSTER IS A ROSTER, and it is the case worth naming because it is the one an earlier version got
+    /// wrong. "The account has no sessions this fold" prunes everything for the account. There is no early return
+    /// for it, no floor of one session per Director, and nothing kept because the Director it belonged to happens
+    /// to be absent too - each of those was a condition that let the memory grow, which is exactly what this
+    /// exists to stop.
     ///
-    /// AN UNREACHABLE MACHINE IS NOT AN ABSENT ONE. The roster serves what the Gateway last knew, always - an
-    /// offline Director's sessions are still on it - so a quiet machine prunes nothing. That is the same caution
-    /// the snooze registry's own PruneNotLive takes, and for the same reason.
+    /// THE COST, ACCEPTED BY THE ARCHITECT ON 2026-09-16 AND WRITTEN HERE SO IT READS AS CHOSEN RATHER THAN
+    /// MISSED. A session can leave the roster and come back - a Director that went quiet for a poll, a filtered
+    /// read, a machine that restarted. If its snooze had already expired, the returning session is observed
+    /// afresh, and it can be judged ONE more time. That is one read landing on the same colour it already had:
+    /// the judge is asked about the current screen and answers about the current screen. The alternative was a
+    /// condition on when to prune, and every condition of that kind is a way for this dictionary to keep an entry
+    /// nobody can account for. A bounded memory is worth an occasional repeated read.
     /// </summary>
-    private void PruneToRoster(TenantId tenant, IReadOnlyList<SessionDto>? rosterUniverse)
+    private void PruneToRoster(TenantId tenant, IReadOnlyList<SessionDto> roster)
     {
-        if (rosterUniverse is null || rosterUniverse.Count == 0) return;
-
         var present = new HashSet<string>(StringComparer.Ordinal);
-        var directors = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var s in rosterUniverse)
-        {
-            if (string.IsNullOrEmpty(s.SessionId)) continue;
-            present.Add(s.SessionId);
-            directors.Add(s.DirectorId ?? "");
-        }
+        foreach (var s in roster)
+            if (!string.IsNullOrEmpty(s.SessionId)) present.Add(s.SessionId);
 
         foreach (var key in _watch.Keys)
         {
             if (key.Tenant != tenant || present.Contains(key.SessionId)) continue;
-            // WHICH DIRECTOR OWNED IT is remembered on the watch itself, because by the time the session is gone
-            // the row that carried its director id has gone with it.
-            if (_watch.TryGetValue(key, out var held) && directors.Contains(held.DirectorId))
-                _watch.TryRemove(new KeyValuePair<(TenantId, string), Watch>(key, held));
+            _watch.TryRemove(key, out _);
         }
     }
 }
@@ -386,10 +373,9 @@ public static class SnoozeExpiryRowStamp
     /// <param name="holds">The fold's ONE snooze snapshot. Never a second read.</param>
     /// <param name="tenant">The account the rows belong to. Null or invalid stamps false.</param>
     /// <param name="nowUtc">The fold's single moment.</param>
-    /// <param name="rosterUniverse">The fold's ROLE UNIVERSE - every session of every Director this fold covers,
-    /// unfiltered. The watch prunes against it, so its memory is bounded by the account's sessions rather than by
-    /// the life of the process. Null prunes nothing, which is what a caller that cannot vouch for a whole Director
-    /// must pass.</param>
+    /// <param name="rosterUniverse">The fold's ROLE UNIVERSE - every session this fold covers, unfiltered - which
+    /// is what the watch prunes to. Null means the rows themselves ARE the roster, which is what a caller with no
+    /// separate universe is saying.</param>
     public static void Stamp(
         IReadOnlyList<SessionDto> rows,
         SnoozeExpiryReJudge? watch,

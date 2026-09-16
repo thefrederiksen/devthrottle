@@ -593,13 +593,32 @@ public sealed class SnoozeExpiryReJudgeTests : IDisposable
     }
 
     [Fact]
-    public void ASessionWhoseDirectorIsNotInThisFold_KeepsItsWatchEntry()
+    public void TheSoleSessionOfADirector_IsPrunedByAnEmptyRoster()
     {
-        // THE PRUNE ONLY ACTS ON WHAT THE FOLD CAN VOUCH FOR, and this is the test that makes that mean something.
-        // A fold is not always the whole account: a Director's snapshot push carries that Director's sessions, and
-        // a roster read filtered by machine carries those machines' Directors. Absence from a PARTIAL set is not
-        // evidence a session has gone - and dropping a live session's entry would silently disarm ruling 10 for
-        // it, because its expiry would then find no armed observation and rule nothing at all.
+        // THE INSPECTOR'S OWN PROBE, and the case an earlier version of this prune got wrong three ways at once:
+        // it kept the LAST session of a Director, it kept EVERY session of a Director that had gone, and on an
+        // EMPTY roster it did nothing at all. Each of those was a condition, and every condition of that kind is
+        // a way for the memory to keep an entry nobody can account for.
+        //
+        // AN EMPTY ROSTER IS A ROSTER. A watch for a session that is not in the roster has nothing to watch.
+        Snoozes.Snooze("s1", Deadline, "dir-1");
+        var watch = NewWatch();
+        var rows = new Rows(Store);
+        var row = Row("s1");
+
+        Fold(watch, rows, new[] { row }, Armed.AddSeconds(1));
+        Assert.Equal(1, watch.Watching);
+
+        Fold(watch, rows, Array.Empty<SessionDto>(), Armed.AddSeconds(2));
+
+        Assert.Equal(0, watch.Watching);
+    }
+
+    [Fact]
+    public void EverySessionOfADirectorThatHasGone_IsPruned()
+    {
+        // The other shape of the same defect: a whole Director leaving at once. Its sessions are not in the
+        // roster, so its entries go - there is no "keep it, its Director is not here to vouch for it".
         Snoozes.Snooze("s1", Deadline, "dir-1");
         Snoozes.Snooze("s2", Deadline, "dir-2");
         var watch = NewWatch();
@@ -611,10 +630,38 @@ public sealed class SnoozeExpiryReJudgeTests : IDisposable
         Fold(watch, rows, new[] { one, two }, Armed.AddSeconds(1));
         Assert.Equal(2, watch.Watching);
 
-        // Only dir-1 pushed this time. dir-2 said nothing, which is not the same as dir-2 having nothing.
+        // dir-2 is gone from the account's roster, and it took its only session with it.
         Fold(watch, rows, new[] { one }, Armed.AddSeconds(2));
 
-        Assert.Equal(2, watch.Watching);
+        Assert.Equal(1, watch.Watching);
+    }
+
+    [Fact]
+    public void ASessionThatComesBackAfterItsExpiry_IsObservedAfresh_AndMayBeJudgedOnceMore()
+    {
+        // THE ACCEPTED COST OF PRUNING UNCONDITIONALLY, asserted rather than left as a sentence in a comment, so
+        // that what was chosen is visible and a later change that quietly alters it has to come through here.
+        //
+        // A session can leave the roster and come back - a Director quiet for a poll, a filtered read, a machine
+        // that restarted. Its entry went with it, so the returning session is a clock nobody has seen: this
+        // Gateway cannot say what happened while the snooze ran, so it claims nothing, which is the honest and
+        // the safe direction. The row keeps the red it had, exactly as it does after a Gateway restart.
+        var (watch, rows, row) = ArmedAndObserved();
+        Store.Store(Account, "s1", Verdict("", "", Armed.AddMinutes(5), failed: true));
+
+        Fold(watch, rows, new[] { row }, AfterExpiry);
+        Assert.Equal(new[] { "s1" }, _reads);
+
+        // It leaves the roster entirely, then comes back.
+        Fold(watch, rows, Array.Empty<SessionDto>(), AfterExpiry.AddMinutes(1));
+        Assert.Equal(0, watch.Watching);
+
+        Fold(watch, rows, new[] { row }, AfterExpiry.AddMinutes(2));
+
+        // Seen afresh, with no observation of when the snooze was armed - so nothing is claimed about the quiet
+        // and nothing is asked a second time on THIS fold.
+        Assert.False(row.SnoozeEndedNothingNew);
+        Assert.Equal(new[] { "s1" }, _reads);
     }
 
     [Fact]
