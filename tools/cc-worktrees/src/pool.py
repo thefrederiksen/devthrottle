@@ -1,6 +1,7 @@
 """The worktree pool: state on disk, and the get / return / lease / destroy / list operations.
 
-One JSON state file per repository, all under one machine-wide lock, written atomically. A slot is
+One JSON state file per repository, all under one machine-wide lock, written atomically. The
+network is never touched under that lock: each repository's fetch has a lock of its own. A slot is
 free, in-use or held. Anything the state cannot vouch for is held, never free.
 
 Portions adapted from treehouse (https://github.com/kunchenguid/treehouse), internal/pool/pool.go,
@@ -27,7 +28,7 @@ import landed
 from errors import EXIT_HELD, EXIT_POOL_FULL, ToolError
 from gitrun import GitError
 from landed import NotLanded
-from statelock import machine_lock
+from statelock import file_lock, machine_lock
 
 HOME_ENV = "CC_WORKTREES_HOME"
 STATE_VERSION = 2
@@ -400,16 +401,35 @@ def _new_lease() -> str:
     return uuid.uuid4().hex
 
 
+def _fetch(home: Path, repo: Path) -> tuple[landed.RemoteTip | None, str | None]:
+    """Fetch the remote OUTSIDE the machine-wide lock, under a lock for this repository only, so a slow
+    or hanging remote holds up commands for this repository and nothing else.
+
+    Nothing is decided here. The caller re-reads the pool under the machine-wide lock and runs the
+    whole landed check against what was fetched. Between the two, tracking refs can only be moved by
+    another fetch, which records the remote as it is at a later moment; no local change is trusted
+    from before the lock.
+    """
+    with file_lock(repo_lock_file(home, repo), "the fetch lock for this repository"):
+        try:
+            return landed.fetch_default(repo), None
+        except NotLanded as ex:
+            return None, str(ex)
+
+
+def repo_lock_file(home: Path, repo: Path) -> Path:
+    return home / "fetch-locks" / f"{pool_file(home, repo).stem}.lock"
+
+
 def get(repo_path: str, holder: str, pool_size: int) -> dict:
     home = state_home()
     repo = main_repo_root(repo_path)
+    tip, fetch_reason = _fetch(home, repo)
+    if tip is None:
+        raise ToolError("cannot-fetch", f"no worktree handed out: {fetch_reason}",
+                        [f"git -C {repo} fetch origin"])
     with machine_lock(home):
         pool = load(home, repo)
-        try:
-            tip = landed.fetch_default(repo)
-        except NotLanded as ex:
-            raise ToolError("cannot-fetch", f"no worktree handed out: {ex}",
-                            [f"git -C {repo} fetch origin"]) from ex
         for name in sorted(n for n, e in pool.slots.items() if e["state"] == FREE):
             ready, reason = _reset_to_tip(pool, name, tip)
             if ready is None:
@@ -444,7 +464,7 @@ def get(repo_path: str, holder: str, pool_size: int) -> dict:
             gitdir = landed.require_bound(path, repo, None)
             mark = landed.reflog_mark(path)
         except NotLanded as ex:
-            pool.slots[name] = {**_lost_entry(path, f"created, but not proven sound: {ex}")}
+            pool.slots[name] = _lost_entry(path, f"created, but not proven sound: {ex}")
             pool.save()
             raise ToolError("create-failed", f"{name} was created but is held: {ex}",
                             [f"cc-worktrees list --repo {repo}"]) from ex
@@ -455,28 +475,39 @@ def get(repo_path: str, holder: str, pool_size: int) -> dict:
         return _lease_view(pool, name, tip, reused=False)
 
 
+def _require_lease(pool: Pool, name: str, lease: str) -> dict:
+    entry = pool.entry(name)
+    if entry["state"] == FREE:
+        raise ToolError("not-in-use", f"{name} is already free; there is nothing to return",
+                        [f"cc-worktrees list --repo {pool.repo}"])
+    if not lease or entry["lease"] != lease:
+        raise ToolError("lease-mismatch",
+                        f"{name} is no longer held under that lease; nothing was changed",
+                        [f"cc-worktrees list --repo {pool.repo}"])
+    return entry
+
+
 def return_slot(target: str, lease: str, repo_opt: str | None) -> dict:
     home = state_home()
     with machine_lock(home):
         repo, name = resolve_target(home, target, repo_opt)
+        # Refuse a wrong lease before waiting on the network. It is checked again below.
+        _require_lease(load(home, repo), name, lease)
+    tip, fetch_reason = _fetch(home, repo)
+    with machine_lock(home):
         pool = load(home, repo)
-        entry = pool.entry(name)
-        if entry["state"] == FREE:
-            raise ToolError("not-in-use", f"{name} is already free; there is nothing to return",
-                            [f"cc-worktrees list --repo {repo}"])
-        if not lease or entry["lease"] != lease:
-            raise ToolError("lease-mismatch",
-                            f"{name} is no longer held under that lease; nothing was changed",
-                            [f"cc-worktrees list --repo {repo}"])
-        ready, reason = _reset_to_tip(pool, name, None)
+        entry = _require_lease(pool, name, lease)
+        if tip is None:
+            ready, reason = None, fetch_reason
+        else:
+            ready, reason = _reset_to_tip(pool, name, tip)
         if ready is None:
             _hold(pool, name, reason)
             pool.save()
-            view = _slot_view(pool, name)
             raise ToolError("held", f"{name} was not returned and is held: {reason}",
                             [f"git -C {entry['path']} status",
                              f"cc-worktrees return {entry['path']} --lease {entry['lease']}"],
-                            exit_code=EXIT_HELD, details=view)
+                            exit_code=EXIT_HELD, details=_slot_view(pool, name))
         pool.set(name, FREE, None, None, None)
         pool.save()
         return {**_slot_view(pool, name), "base": ready.branch, "commit": ready.commit}
@@ -497,10 +528,19 @@ def lease_slot(target: str, holder: str, reclaim_held: bool, repo_opt: str | Non
                                 [f"cc-worktrees lease {name} --repo {repo} --holder <holder> --reclaim-held"])
             pool.set(name, IN_USE, holder, _new_lease(), None)
             pool.save()
-            view = {**_slot_view(pool, name), "lease": pool.slots[name]["lease"], "reused": True,
+            return {**_slot_view(pool, name), "lease": pool.slots[name]["lease"], "reused": True,
                     "base": None, "commit": None}
-            return view
-        ready, reason = _reset_to_tip(pool, name, None)
+    tip, fetch_reason = _fetch(home, repo)
+    with machine_lock(home):
+        pool = load(home, repo)
+        entry = pool.entry(name)
+        if entry["state"] != FREE:
+            raise ToolError("changed", f"{name} became {entry['state']} while the remote was fetched; nothing was done",
+                            [f"cc-worktrees list --repo {repo}"])
+        if tip is None:
+            ready, reason = None, fetch_reason
+        else:
+            ready, reason = _reset_to_tip(pool, name, tip)
         if ready is None:
             pool.set(name, HELD, None, None, reason)
             pool.save()
@@ -512,20 +552,28 @@ def lease_slot(target: str, holder: str, reclaim_held: bool, repo_opt: str | Non
         return _lease_view(pool, name, ready, reused=True)
 
 
+def _destroy_allowed(pool: Pool, name: str, allow_held: bool, allow_in_use: bool) -> dict:
+    entry = pool.entry(name)
+    if entry["state"] == IN_USE and not allow_in_use:
+        raise ToolError("in-use", f"{name} is in use by {entry['holder']}; not destroyed",
+                        [f"cc-worktrees return {entry['path']} --lease <lease>"])
+    if entry["state"] == HELD and not allow_held:
+        raise ToolError("held", f"{name} is held ({entry['reason']}); not destroyed",
+                        [f"cc-worktrees destroy {name} --repo {pool.repo} --allow-held"])
+    return entry
+
+
 def destroy_slot(target: str, yes: bool, allow_held: bool, allow_in_use: bool, repo_opt: str | None) -> dict:
     """Remove one slot. The landed check runs NOW, whatever the state says: a free slot is only free as
     of its last check, and anyone can have committed in it since. No flag skips that check."""
     home = state_home()
     with machine_lock(home):
         repo, name = resolve_target(home, target, repo_opt)
+        _destroy_allowed(load(home, repo), name, allow_held, allow_in_use)
+    tip, fetch_reason = _fetch(home, repo)
+    with machine_lock(home):
         pool = load(home, repo)
-        entry = pool.entry(name)
-        if entry["state"] == IN_USE and not allow_in_use:
-            raise ToolError("in-use", f"{name} is in use by {entry['holder']}; not destroyed",
-                            [f"cc-worktrees return {entry['path']} --lease <lease>"])
-        if entry["state"] == HELD and not allow_held:
-            raise ToolError("held", f"{name} is held ({entry['reason']}); not destroyed",
-                            [f"cc-worktrees destroy {name} --repo {repo} --allow-held"])
+        entry = _destroy_allowed(pool, name, allow_held, allow_in_use)
         path = Path(entry["path"])
 
         def refuse(reason: str) -> ToolError:
@@ -535,8 +583,10 @@ def destroy_slot(target: str, yes: bool, allow_held: bool, allow_in_use: bool, r
                              [f"git -C {path} status", f"git -C {path} log --oneline -5"], exit_code=EXIT_HELD,
                              details={**_slot_view(pool, name), "dry_run": not yes, "removed": False})
 
+        if tip is None:
+            raise refuse(fetch_reason)
         try:
-            checked = landed.check(path, repo, None, entry["gitdir"], _mark(entry))
+            checked = landed.check(path, repo, tip, entry["gitdir"], _mark(entry))
         except NotLanded as ex:
             raise refuse(str(ex)) from ex
         view = {**_slot_view(pool, name), "dry_run": not yes, "removed": False}

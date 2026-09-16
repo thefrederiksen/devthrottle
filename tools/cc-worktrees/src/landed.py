@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import gitrun
+from errors import ToolError
 from gitrun import GitError
 
 REMOTE = "origin"
@@ -41,10 +42,30 @@ def cannot_verify(detail: str) -> NotLanded:
     return NotLanded(f"cannot verify: {detail}")
 
 
-def fetch_default(cwd: Path) -> RemoteTip:
-    """Read the default branch from the remote, then fetch every remote branch just now."""
+NETWORK_TIMEOUT_ENV = "CC_WORKTREES_NETWORK_TIMEOUT"
+DEFAULT_NETWORK_TIMEOUT_SECONDS = 120.0
+
+
+def network_timeout() -> float:
+    raw = os.environ.get(NETWORK_TIMEOUT_ENV)
+    if raw is None:
+        return DEFAULT_NETWORK_TIMEOUT_SECONDS
     try:
-        listing = gitrun.out(cwd, "ls-remote", "--symref", REMOTE, "HEAD")
+        value = float(raw)
+    except ValueError:
+        value = 0.0
+    if not value > 0:
+        raise ToolError("bad-setting", f"{NETWORK_TIMEOUT_ENV}={raw!r} is not a number of seconds above 0",
+                        [f"Unset {NETWORK_TIMEOUT_ENV}, or set it to e.g. 120"])
+    return value
+
+
+def fetch_default(cwd: Path) -> RemoteTip:
+    """Read the default branch from the remote, then fetch every remote branch just now. Both calls
+    give up after the network timeout: a remote that does not answer is "cannot verify"."""
+    timeout = network_timeout()
+    try:
+        listing = gitrun.run(cwd, "ls-remote", "--symref", REMOTE, "HEAD", timeout=timeout).stdout.strip()
     except GitError as ex:
         raise cannot_verify(ex.short()) from ex
     branch = None
@@ -64,7 +85,7 @@ def fetch_default(cwd: Path) -> RemoteTip:
     # otherwise count a commit as "on a remote branch" after the remote threw that branch away.
     try:
         gitrun.run(cwd, "fetch", "--prune", "--no-tags", REMOTE,
-                   f"+refs/heads/*:refs/remotes/{REMOTE}/*")
+                   f"+refs/heads/*:refs/remotes/{REMOTE}/*", timeout=timeout)
     except GitError as ex:
         raise cannot_verify(ex.short()) from ex
 
@@ -278,12 +299,12 @@ class Checked:
     reflog: ReflogMark  # the HEAD reflog as it stood when checked
 
 
-def check(worktree: Path, repo: Path, tip: RemoteTip | None, recorded_gitdir: str | None,
+def check(worktree: Path, repo: Path, tip: RemoteTip, recorded_gitdir: str | None,
           mark: ReflogMark | None) -> Checked:
     """Prove the worktree's work landed, at this moment. Raises NotLanded with the plain reason.
 
     Checked: HEAD's commits, and every commit the HEAD reflog gained since `mark` (None: all of them).
-    Pass `tip` only when the remote was fetched moments ago by the same command.
+    `tip` must come from a fetch made moments ago by the same command.
     """
     if not worktree.is_dir():
         raise NotLanded("the worktree directory is missing")
@@ -292,8 +313,6 @@ def check(worktree: Path, repo: Path, tip: RemoteTip | None, recorded_gitdir: st
     head = head_commit(worktree)
     entries = reflog_entries(worktree)
     since = reflog_commits_since(entries, mark)
-    if tip is None:
-        tip = fetch_default(worktree)
     require_commits_landed(worktree, tip, [head, *(c for c in since if c != head)])
     return Checked(tip, head, gitdir, ReflogMark(len(entries), entries[0] if entries else None))
 

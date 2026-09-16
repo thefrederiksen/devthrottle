@@ -1,4 +1,5 @@
-"""One machine-wide lock around every read and write of pool state.
+"""File locks: one machine-wide lock around every read and write of pool state, and one lock per
+repository around its fetch, so the network never runs under the machine-wide lock.
 
 Portions adapted from treehouse (https://github.com/kunchenguid/treehouse), internal/pool/lock_*.go
 and state.go. Copyright (c) 2026 kunchenguid. MIT License - see THIRD_PARTY_NOTICES.md.
@@ -36,10 +37,14 @@ else:
         fcntl.flock(fd, fcntl.LOCK_UN)
 
 
+def machine_lock(home: Path, timeout: float = LOCK_TIMEOUT_SECONDS):
+    return file_lock(home / "lock", "the pool lock", timeout)
+
+
 @contextmanager
-def machine_lock(home: Path, timeout: float = LOCK_TIMEOUT_SECONDS) -> Iterator[None]:
-    home.mkdir(parents=True, exist_ok=True)
-    fd = os.open(home / "lock", os.O_RDWR | os.O_CREAT, 0o644)
+def file_lock(path: Path, what: str, timeout: float = LOCK_TIMEOUT_SECONDS) -> Iterator[None]:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
     try:
         deadline = time.monotonic() + timeout
         while True:
@@ -49,7 +54,7 @@ def machine_lock(home: Path, timeout: float = LOCK_TIMEOUT_SECONDS) -> Iterator[
             except OSError:
                 if time.monotonic() >= deadline:
                     raise ToolError("lock-timeout",
-                                    f"another cc-worktrees command held the pool lock for {int(timeout)} seconds",
+                                    f"another cc-worktrees command held {what} for {int(timeout)} seconds",
                                     ["Run the command again once the other cc-worktrees command has finished"])
                 time.sleep(0.1)
         try:

@@ -68,7 +68,10 @@ Any failure - including a fetch that fails for an unreachable remote, bad creden
 token - holds the worktree with a plain reason such as `1 commit is on no remote: <commit>`,
 `2 uncommitted changes`, or `cannot verify: <git's error>`. Every git call runs with
 `GIT_TERMINAL_PROMPT=0` and `GCM_INTERACTIVE=never`, so a credential problem fails at once instead of
-waiting at a prompt.
+waiting at a prompt. The two network calls, `ls-remote` and `fetch`, are stopped after 120 seconds
+(`CC_WORKTREES_NETWORK_TIMEOUT` sets another number of seconds); a timeout holds the worktree as
+`cannot verify: timed out after N seconds`. Only the git process the tool started is stopped. A remote
+helper that git itself started may keep running until its own network call ends.
 
 Immediately before the reset the tool takes `HEAD.lock` in the worktree's git directory and re-checks
 the `.git` binding, HEAD, the reflog and cleanliness under it.
@@ -94,9 +97,13 @@ The tool never kills a process, never deletes a branch, and never pushes, merges
 ## State
 
 One JSON file per repository pool under `pools/`, all guarded by one machine-wide lock file (an OS
-lock: `msvcrt.locking` on Windows, `flock` elsewhere), written to a temp file and replaced. The lock
-is held for the whole command, including the fetch, so commands for different repositories wait for
-each other.
+lock: `msvcrt.locking` on Windows, `flock` elsewhere), written to a temp file and replaced.
+
+The network is never touched under the machine-wide lock. A command fetches first, under a lock for
+that repository only (`fetch-locks/`), then takes the machine-wide lock, reads the state again and runs
+the whole landed check against what it fetched. A slow remote therefore holds up commands for its own
+repository and nothing else. Between the fetch and the check, the tracking refs can only be changed by
+another fetch, which records the remote as it is later; nothing local is trusted from before the lock.
 
 Location: `%LOCALAPPDATA%\cc-worktrees` on Windows, `~/Library/Application Support/cc-worktrees` on
 macOS, `$XDG_DATA_HOME/cc-worktrees` or `~/.local/share/cc-worktrees` elsewhere. Set

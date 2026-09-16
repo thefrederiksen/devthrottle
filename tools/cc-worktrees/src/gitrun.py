@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import tempfile
 from pathlib import Path
 
 # A credential problem must fail at once as "cannot verify", never sit waiting at a prompt.
@@ -30,15 +31,31 @@ class GitError(Exception):
         return text if len(text) <= 200 else text[:197] + "..."
 
 
-def run(cwd: Path | str, *args: str, check: bool = True) -> subprocess.CompletedProcess:
+def run(cwd: Path | str, *args: str, check: bool = True, timeout: float | None = None) -> subprocess.CompletedProcess:
+    """Run git. With `timeout`, a git that has not finished by then is stopped and GitError is raised,
+    whatever `check` says: a timeout is never an answer.
+
+    Output goes to temporary files, not pipes. A remote helper git started can outlive git itself, and
+    on Windows it would hold a pipe open and make the wait for output as long as the hang.
+    """
     env = {**os.environ, **_NO_PROMPT_ENV}
-    proc = subprocess.run(["git", *args], cwd=str(cwd), env=env, capture_output=True,
-                          stdin=subprocess.DEVNULL)
-    stdout = proc.stdout.decode("utf-8", errors="replace")
-    stderr = proc.stderr.decode("utf-8", errors="replace")
-    result = subprocess.CompletedProcess(proc.args, proc.returncode, stdout, stderr)
-    if check and proc.returncode != 0:
-        raise GitError(list(args), proc.returncode, stderr)
+    with tempfile.TemporaryFile() as out_file, tempfile.TemporaryFile() as err_file:
+        proc = subprocess.Popen(["git", *args], cwd=str(cwd), env=env, stdin=subprocess.DEVNULL,
+                                stdout=out_file, stderr=err_file)
+        try:
+            code = proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            # Our own git child, started a moment ago by this call; nothing else is touched.
+            proc.kill()
+            proc.wait()
+            raise GitError(list(args), -1, f"timed out after {timeout:g} seconds") from None
+        out_file.seek(0)
+        err_file.seek(0)
+        stdout = out_file.read().decode("utf-8", errors="replace")
+        stderr = err_file.read().decode("utf-8", errors="replace")
+    result = subprocess.CompletedProcess(proc.args, code, stdout, stderr)
+    if check and code != 0:
+        raise GitError(list(args), code, stderr)
     return result
 
 
