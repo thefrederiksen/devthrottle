@@ -5638,6 +5638,8 @@ internal static class GatewayEndpoints
 
             // THE SHADOW RULE, the read routes' rule applied to the write: while the account's colours are off its
             // verdicts are a shadow record, and a session key - the product's own automation - may not act on one.
+            // SessionKeyGuard now refuses every session key on this route before it runs (the Message Load mission,
+            // inspection 1: answering types into the session), so this line is a second wall, not the first.
             var callingSession = AuthMiddleware.CallingSession(ctx);
             if (!tenantSettings.TurnVerdict(tenant.Value).ColourEnabled && callingSession is not null)
                 return Answer(turnVerdictAnswers.RefuseBeforeLookup(tenant.Value, directorId, sid, verdictId,

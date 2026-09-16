@@ -20,7 +20,8 @@ public static class AgentInputRefusal
         "To reach a session you started, or the session that started you, send a queued message: " +
         "cc-devthrottle message send <session> \"<text>\" - it is read when that session is free.";
 
-    /// <summary>A session key asked to type into, interrupt or escape a session, or to fan a prompt out.</summary>
+    /// <summary>A session key asked to type into, interrupt or escape a session, to fan a prompt out, or to
+    /// answer a judged stop (which types the verdict's option into the session).</summary>
     public const string Typing =
         "An agent may not type into, interrupt or escape another session: only the owner does that, from his " +
         "own screens. " + Instead;
@@ -69,7 +70,9 @@ public static class AgentInputRefusal
 /// Prompt, interrupt, escape and the raw fan-out were on the allowed side until then. Every one of them put
 /// keystrokes into a session mid-turn, and the owner ordered that stopped: an agent now reaches another
 /// session only through a queued message, and only a session it started or the one that started it. These
-/// four are refused by <see cref="IsAgentInput"/> with a sentence that says so.
+/// four are refused by <see cref="IsAgentInput"/> with a sentence that says so, and so is the fifth found by the
+/// first inspection of that mission: answering a judged stop, which types the verdict's chosen option into the
+/// session exactly as a prompt would.
 ///
 /// WHAT CHANGED, AND WHY THIS PARAGRAPH WAS REWRITTEN RATHER THAN AMENDED. Phase 1b refused the whole
 /// <c>/directors</c> surface bar two sub-paths, and said so here in prose. The owner's ruling reverses that
@@ -139,13 +142,20 @@ public static class SessionKeyGuard
     /// that sends one prompt to many sessions. All four were open to a session key until the Message Load
     /// mission, and each is a way round the inbox - a gate with a side door is not a gate. The owner's own
     /// screens reach them with a device key, which this guard never sees, so they are unchanged for him.
-    /// Compact-and-continue is the fifth such path; it shares its route with a plain compaction, so the route
+    ///
+    /// ANSWERING A JUDGED STOP is the fifth (inspection 1 of the Message Load mission, ruling 1). The route sends
+    /// the verdict's chosen option into the session through the same prompt channel, so an agent that could call
+    /// it could type into another session whenever a verdict was live. It is matched as its one literal
+    /// four-segment shape; the feedback route beside it writes only our own record and stays allowed.
+    ///
+    /// Compact-and-continue is the sixth such path; it shares its route with a plain compaction, so the route
     /// refuses it where it can read the body.
     /// </summary>
     private static bool IsAgentInput(string verb, string[] s)
     {
         if (verb != "POST") return false;
         if (s.Length == 3 && s[0] == "sessions" && s[2] is "prompt" or "interrupt" or "escape") return true;
+        if (s.Length == 4 && s[0] == "sessions" && s[2] == "turn-verdict" && s[3] == "answer") return true;
         return s.Length == 1 && s[0] == "fanout";
     }
 
@@ -280,20 +290,17 @@ public static class SessionKeyGuard
                 return false;
             }
 
-            // ANSWER a judged stop: the one server-owned write path for a verdict's options (the
-            // Wingman-on-every-turn mission, slice E). No wider than "prompt" above - it writes into one session
-            // of the caller's own account, and strictly narrower, because the bytes are the verdict's own options
-            // and the route refuses them unless the live screen is still the one the verdict was formed on.
-            // Matched as one literal four-segment shape, so nothing hung off it later is reachable by accident.
-            if (s.Length == 4 && s[0] == "sessions" && s[2] == "turn-verdict" && s[3] == "answer") return true;
+            // ANSWERING a judged stop is NOT here: it types the verdict's option into the session, so it is agent
+            // input and IsAgentInput refuses it above (the Message Load mission, inspection 1). It was on this list
+            // from the Wingman-on-every-turn mission, slice E, until 16 September 2026.
 
-            // REPORT a judged stop wrong (slice G). Its own literal four-segment shape, listed beside the answer
-            // rather than folded into a "turn-verdict/{anything}" prefix, for the reason the reads are listed as
-            // two literals: an allow list that widens by pattern stops being an allow list, and the next word
-            // hung off this path has to be classified here before anything can reach it.
+            // REPORT a judged stop wrong (slice G). Its own literal four-segment shape, rather than a
+            // "turn-verdict/{anything}" prefix, for the reason the reads are listed as two literals: an allow
+            // list that widens by pattern stops being an allow list, and the next word hung off this path has to
+            // be classified here before anything can reach it.
             //
-            // It is narrower than the answer beside it: it writes one row of our own record and reaches nothing
-            // outside the Gateway - no bytes, no screen, no session. Whether the route SERVES a session key is
+            // It writes one row of our own record and reaches nothing outside the Gateway - no bytes, no screen,
+            // no session. Whether the route SERVES a session key is
             // still the route's decision and not this one: while an account's colours are off its verdicts are a
             // shadow record and the route refuses a session key, exactly as the reads do. A guard is a pure
             // function on a method and a path and cannot see a tenant's settings; the two halves add up there.

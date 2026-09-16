@@ -76,10 +76,8 @@ public sealed class SessionKeyGuardTests
     // Mission "Stop a session", Ruling 4: any session may stop any other in the same account, because the
     // stop carries a reason and is audited. Ruling 6: and the polite flag comes off the way it went on.
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/stop")]
-    // Answer a judged stop - the one write path for a verdict's options.
-    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict/answer")]
-    // Report a judged stop WRONG (the Wingman-on-every-turn mission, slice G). Narrower than the answer beside
-    // it: it writes one row of our own record and reaches nothing outside the Gateway. Whether the route SERVES
+    // Report a judged stop WRONG (the Wingman-on-every-turn mission, slice G). It writes one row of our own
+    // record and reaches nothing outside the Gateway. (Answering one is refused - see the agent input set below.) Whether the route SERVES
     // a session key is still the route's own decision - while the account's colours are off its verdicts are a
     // shadow record and the route refuses one, exactly as the reads do.
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict/feedback")]
@@ -114,6 +112,10 @@ public sealed class SessionKeyGuardTests
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/interrupt")]
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/escape")]
     [InlineData("POST", "/fanout")]
+    // Answering a judged stop types the verdict's option into the session (inspection 1, ruling 1). It was on
+    // the allowed list above until the slice 1 fix round.
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict/answer")]
+    [InlineData("POST", "/Sessions/11111111-1111-1111-1111-111111111111/Turn-Verdict/ANSWER/")]
     // Case is folded before matching, as ASP.NET routing folds it; an upper-cased path is the same route.
     [InlineData("POST", "/Sessions/11111111-1111-1111-1111-111111111111/PROMPT")]
     [InlineData("post", "/fanout/")]
@@ -131,6 +133,9 @@ public sealed class SessionKeyGuardTests
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/compact-context")]
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/message")]
     [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/buffer")]
+    // Reporting a judged stop wrong writes only our own record, and reading a verdict types nothing.
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict/feedback")]
+    [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict")]
     public void The_neighbours_of_the_refused_input_routes_are_unchanged(string method, string path)
         => Assert.True(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} should still be allowed");
 
