@@ -897,6 +897,11 @@ public sealed class GatewayHost : IAsyncDisposable
     // The turn-verdict seat (the Wingman-on-every-turn mission, slice C). Built once, shared by the turn-end
     // boundary, the voice narration and the explain route, so one stop is one judgement whoever asks first.
     private Wingman.TurnVerdictService? _turnVerdictService;
+    // The Fleet Manager's events (the Fleet Manager mission, step 4): the store the routes and the digest read, and
+    // the service that records a stop or a death of a session a Fleet Manager owns and delivers it at the Fleet
+    // Manager's turn-end boundary.
+    private Fleet.FleetManagerEventStore? _fleetManagerEventStore;
+    private Fleet.FleetManagerEventService? _fleetManagerEvents;
     // Voice mode is a standing intent, not a one-time action: a tenant that is in voice mode wants EVERY one
     // of its sessions narrating, including the ones that do not exist yet. This timer is how that intent
     // reaches them - it walks each tenant that has voice mode on and switches on any session that is not a
@@ -1852,6 +1857,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // per-tenant worker seam the activity ledger's retention uses.
         _turnVerdicts = new Wingman.TurnVerdictStore(_gatewayDb);
         _turnVerdictTraces = new Wingman.TurnVerdictTraceStore(_gatewayDb);
+        _fleetManagerEventStore = new Fleet.FleetManagerEventStore(_gatewayDb);
         _turnVerdictRetentionSweep = new Wingman.TurnVerdictRetentionSweep(
             _tenantBoundary, TenantRegistry, _tenantContext, _turnVerdicts, _turnVerdictTraces);
         // The Message Load mission: the fleet message inbox, the one service that decides and writes a send, and
@@ -2962,6 +2968,19 @@ public sealed class GatewayHost : IAsyncDisposable
             catch (Exception ex) { FileLog.Write($"[GatewayHost] turn-log retention sweep FAILED: {ex.Message}"); }
         }, null, TimeSpan.FromMinutes(5), TimeSpan.FromHours(6));
 
+        _fleetManagerEvents = new Fleet.FleetManagerEventService(_fleetManagerEventStore!,
+            new Fleet.GatewayFleetManagerEventEnvironment(PushedSessions, _streamStaleAfter,
+                route: (tenant, directorId) =>
+                {
+                    var director = Registry.Get(tenant, directorId);
+                    if (director is null) return null;
+                    Api.DirectorCommandRouter.SendDirectorCommandAsync sendCommand = SendCommandAsync;
+                    return new Api.SessionVerbClient(director, sendCommand);
+                },
+                verdictsShown: tenant => _tenantSettingsResolver.TurnVerdict(tenant).ColourEnabled,
+                mark: _tenantSettingsResolver.FleetManagerSessionId,
+                enterTenantScope: tenant => _tenantBoundary.EnterScope(tenant)));
+
         _turnEndWatcher = new TurnEndWatcher(
             onTurnEnd: signal =>
             {
@@ -2990,15 +3009,21 @@ public sealed class GatewayHost : IAsyncDisposable
                 // on a background task. The gate it takes here is SYNCHRONOUS, so the voice refresh further down
                 // joins this judgement instead of asking the model a second time. NOT ORDERED against the session
                 // supervisor or the rules launcher below - see the gap written on TurnVerdictService.
+                Task<Wingman.TurnVerdictOutcome>? verdict = null;
                 try
                 {
                     using (_tenantBoundary.EnterScope(tenant))
-                        _turnVerdictService?.OnTurnEnd(signal);
+                        verdict = _turnVerdictService?.StartTurnEnd(signal);
                 }
                 catch (Exception ex)
                 {
                     FileLog.Write($"[GatewayHost] turn-end verdict FAILED: sid={signal.SessionId}: {ex.Message}");
                 }
+
+                // The Fleet Manager's events (step 4), the ONE hook: a stop of a session a Fleet Manager owns is
+                // recorded once the reading above is stored, and a Fleet Manager's own turn end is where what it is
+                // owed is delivered. Fire and forget; it never throws.
+                _fleetManagerEvents?.OnTurnEnd(signal, verdict);
 
                 // Governance capture (issue #1771, spine item 3): record this session's cumulative spend at
                 // turn-end from the pushed roster snapshot. Runs for EVERY session (not just voice), and is
@@ -3096,7 +3121,10 @@ public sealed class GatewayHost : IAsyncDisposable
             },
             // Gateway Cleanup mission, Phase 2: under stream mode the catch-up / reconcile reads the push
             // store instead of HTTP-pulling each Director's session list (no dial).
-            pushedSessions: PushedSessions);
+            pushedSessions: PushedSessions,
+            // The Fleet Manager's events (step 4): a session a Fleet Manager owns has exited or crashed. The watcher
+            // is where every feed's state transitions meet and are taken once, so this is raised once per exit.
+            onSessionExited: (tenant, sid, _) => _fleetManagerEvents?.OnSessionExited(tenant, sid));
         // First tick = the startup catch-up sweep; then the 15s reconcile poll for
         // Directors that never push (file-discovered locals, old builds).
         _turnEndWatcher.Start();
@@ -4060,9 +4088,11 @@ public sealed class GatewayHost : IAsyncDisposable
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             outcomes: new Fleet.FleetOutcomeStore(_gatewayDb),
             preferences: new Fleet.FleetPreferenceStore(_gatewayDb),
+            events: _fleetManagerEventStore!,
             digest: new FleetDigestSources(
                 FoldedRoster: tenant => GatewayEndpoints.FoldedAccountRoster(Registry, PushedSessions, tenant,
-                    _snoozeRegistry, _handRaises, _turnVerdictRows, _snoozeExpiry),
+                    _snoozeRegistry, _handRaises, _turnVerdictRows, _snoozeExpiry,
+                    _tenantSettingsResolver.FleetManagerSessionId),
                 SessionInAccount: (tenant, sid) => PushedSessions.TryLocateIgnoringFreshness(tenant, sid) is not null,
                 LatestVerdict: (tenant, sid) => _turnVerdicts.Latest(tenant, sid),
                 FormerFleetManagers: tenant => FleetManagerMarks.List(tenant).Select(m => m.SessionId).ToList()),
@@ -5407,6 +5437,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // ladder holding a token and re-sending into a fleet this process no longer owns.
         try { _sessionSupervisor?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] session supervisor dispose error: {ex.Message}"); }
         try { _turnVerdictService?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] turn verdict dispose error: {ex.Message}"); }
+        try { _fleetManagerEvents?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] fleet manager events dispose error: {ex.Message}"); }
         // THE INSPECTOR'S TRACES, in the order that keeps them: first the verdict flights the service just cancelled are
         // let finish, so each hands in its cancelled trace while the writer still takes them; then the writer is drained
         // before the database below is disposed. Both waits are bounded, so a stuck judge or a database that will not

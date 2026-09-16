@@ -469,7 +469,8 @@ public static class SessionKeyGuard
 
     /// <summary>
     /// The Fleet Manager shapes under <c>/gateway/fleet-manager</c> (the Fleet Manager mission, step 3): the
-    /// stored news (Ready, Finding, Decision), the owner's standing preferences, and the digest.
+    /// stored news (Ready, Finding, Decision), the owner's standing preferences, the digest, and (step 4) the
+    /// events about sessions a Fleet Manager owns and their acknowledgement.
     ///
     /// A session key reaches these because the Fleet Manager IS a session: it files a record the moment
     /// something is ready, answers it with the owner's words, and reads the digest at the start of every
@@ -500,6 +501,11 @@ public static class SessionKeyGuard
                 return s.Length == 4 && verb == "DELETE";
             case "digest":
                 return s.Length == 3 && read;
+            case "events":
+                // /gateway/fleet-manager/events - list the events about sessions a Fleet Manager owns.
+                if (s.Length == 3) return read;
+                // /gateway/fleet-manager/events/ack - acknowledge them.
+                return s.Length == 4 && s[3] == "ack" && verb == "POST";
             default:
                 return false;
         }

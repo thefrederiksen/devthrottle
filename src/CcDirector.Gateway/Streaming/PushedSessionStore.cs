@@ -381,6 +381,7 @@ public sealed class PushedSessionStore
     {
         session.SessionRole = null;
         session.HasLiveSupervisor = false;
+        session.OwnedByFleetManager = false;
     }
 
     /// <summary>Apply a remove/tombstone: drop one session from the Director's set.</summary>

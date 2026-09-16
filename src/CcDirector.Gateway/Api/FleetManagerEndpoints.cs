@@ -68,6 +68,8 @@ internal enum FleetManagerAction
 ///   POST   /gateway/fleet-manager/preferences              -> 201
 ///   DELETE /gateway/fleet-manager/preferences/{id}
 ///   GET    /gateway/fleet-manager/digest?session=&lt;id&gt;
+///   GET    /gateway/fleet-manager/events                   ?status=unacknowledged|all &amp;count=   (step 4)
+///   POST   /gateway/fleet-manager/events/ack               { ids: [...] } or { all: true }
 ///
 /// AUTH. These sit under the non-public <c>/gateway/...</c> prefix, so the host-wide middleware demands a
 /// device key or a session key before a handler runs, and <see cref="SessionKeyGuard"/> lists each shape a
@@ -106,11 +108,13 @@ internal static class FleetManagerEndpoints
         FleetOutcomeStore outcomes,
         FleetPreferenceStore preferences,
         FleetDigestSources digest,
-        FleetManagerAccess access)
+        FleetManagerAccess access,
+        FleetManagerEventStore events)
     {
         ArgumentNullException.ThrowIfNull(resolveTenant);
         ArgumentNullException.ThrowIfNull(outcomes);
         ArgumentNullException.ThrowIfNull(preferences);
+        ArgumentNullException.ThrowIfNull(events);
         ArgumentNullException.ThrowIfNull(digest);
         ArgumentNullException.ThrowIfNull(access);
 
@@ -131,9 +135,13 @@ internal static class FleetManagerEndpoints
             => DeletePreference(ctx, id, resolveTenant, access, preferences));
 
         app.MapGet(Prefix + "/digest", (HttpContext ctx)
-            => Digest(ctx, resolveTenant, access, outcomes, preferences, digest));
+            => Digest(ctx, resolveTenant, access, outcomes, preferences, digest, events));
 
-        FileLog.Write($"[FleetManagerEndpoints] mapped {Prefix}/outcomes, /preferences and /digest");
+        app.MapGet(Prefix + "/events", (HttpContext ctx) => ListEvents(ctx, resolveTenant, events));
+        app.MapPost(Prefix + "/events/ack",
+            (Func<HttpContext, Task<IResult>>)(ctx => AcknowledgeEventsAsync(ctx, resolveTenant, events)));
+
+        FileLog.Write($"[FleetManagerEndpoints] mapped {Prefix}/outcomes, /preferences, /digest and /events");
     }
 
     // ---- outcomes ----------------------------------------------------------------------------------------
@@ -344,6 +352,94 @@ internal static class FleetManagerEndpoints
         }
     }
 
+    // ---- events ------------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// The account's events about sessions a Fleet Manager owns, oldest first. Default: the unacknowledged ones.
+    /// The Wingman's readings are served, as the digest serves them.
+    /// </summary>
+    internal static IResult ListEvents(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant,
+        FleetManagerEventStore store)
+    {
+        FileLog.Write($"[FleetManagerEndpoints] ListEvents: query={ctx.Request.QueryString}");
+        try
+        {
+            if (resolveTenant(ctx) is not { } tenant) return NoTenant();
+            var q = ctx.Request.Query;
+            var status = q.TryGetValue("status", out var s) ? s.ToString() : FleetManagerEventStore.StatusUnacknowledged;
+            var count = FleetManagerEventStore.DefaultCount;
+            if (q.TryGetValue("count", out var c) && !int.TryParse(c.ToString(), out count))
+                return BadRequest($"count '{c}' is not a whole number between 1 and {FleetManagerEventStore.MaxCount}");
+
+            var rows = store.List(tenant, status, count).ToList();
+            FileLog.Write($"[FleetManagerEndpoints] ListEvents: returned={rows.Count}");
+            return Results.Json(new FleetManagerEventListDto { Count = rows.Count, Events = rows });
+        }
+        catch (ArgumentException ex)
+        {
+            FileLog.Write($"[FleetManagerEndpoints] ListEvents refused: {ex.Message}");
+            return BadRequest(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[FleetManagerEndpoints] ListEvents FAILED: {ex.Message}");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Acknowledge events by id, or every unacknowledged one. All or nothing: an id that is not this account's
+    /// event is refused by name (404) and nothing is changed.
+    /// </summary>
+    internal static async Task<IResult> AcknowledgeEventsAsync(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant,
+        FleetManagerEventStore store)
+    {
+        FileLog.Write("[FleetManagerEndpoints] AcknowledgeEvents");
+        try
+        {
+            if (resolveTenant(ctx) is not { } tenant) return NoTenant();
+            var (body, error) = await ReadBodyAsync<FleetManagerEventAckRequest>(ctx);
+            if (error is not null) return error;
+
+            var ids = new List<Guid>();
+            foreach (var raw in body!.Ids ?? new List<string>())
+            {
+                if (!Guid.TryParse(raw, out var id)) return BadId(raw ?? "");
+                ids.Add(id);
+            }
+
+            var result = store.Acknowledge(tenant, ids, body.All, DateTime.UtcNow);
+            if (result.Status == FleetManagerEventAckStatus.NotFound)
+            {
+                var missing = string.Join(", ", result.Missing);
+                return Results.Json(new
+                {
+                    error = $"no event {missing} in this account; nothing was acknowledged. "
+                          + $"List them with GET {Prefix}/events?status=all",
+                    missing = result.Missing.Select(m => m.ToString()).ToList(),
+                }, statusCode: StatusCodes.Status404NotFound);
+            }
+
+            FileLog.Write($"[FleetManagerEndpoints] AcknowledgeEvents: acknowledged={result.Acknowledged.Count}, already={result.AlreadyAcknowledged}");
+            return Results.Json(new FleetManagerEventAckDto
+            {
+                Acknowledged = result.Acknowledged.Count,
+                AlreadyAcknowledged = result.AlreadyAcknowledged,
+                Ids = result.Acknowledged.Select(id => id.ToString()).ToList(),
+            });
+        }
+        catch (ArgumentException ex)
+        {
+            FileLog.Write($"[FleetManagerEndpoints] AcknowledgeEvents refused: {ex.Message}");
+            return BadRequest(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[FleetManagerEndpoints] AcknowledgeEvents FAILED: {ex.Message}");
+            throw;
+        }
+    }
+
     // ---- digest ------------------------------------------------------------------------------------------
 
     /// <summary>
@@ -373,7 +469,7 @@ internal static class FleetManagerEndpoints
     /// </summary>
     internal static IResult Digest(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant,
         FleetManagerAccess access, FleetOutcomeStore outcomes, FleetPreferenceStore preferences,
-        FleetDigestSources sources)
+        FleetDigestSources sources, FleetManagerEventStore events)
     {
         var sid = ctx.Request.Query.TryGetValue("session", out var raw) ? raw.ToString().Trim() : "";
         FileLog.Write($"[FleetManagerEndpoints] Digest: session={sid}");
@@ -448,11 +544,13 @@ internal static class FleetManagerEndpoints
                     Stopped = owned.Count(o => o.State == SessionTree.CrewStateStopped),
                     Total = owned.Count,
                 },
+                Events = events.Unacknowledged(tenant).ToList(),
             };
 
             FileLog.Write($"[FleetManagerEndpoints] Digest: session={sid}, caller={caller.Role}, "
                           + $"isFleetManager={answer.IsFleetManager}, open={open.Count}, openCounted={counts.Total}, "
-                          + $"managers={managers.Count}, owned={owned.Count}, preferences={answer.Preferences.Count}");
+                          + $"managers={managers.Count}, owned={owned.Count}, preferences={answer.Preferences.Count}, "
+                          + $"events={answer.Events.Count}");
             return Results.Json(answer);
         }
         catch (ArgumentException ex)

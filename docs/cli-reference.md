@@ -664,13 +664,15 @@ COMMANDS:
   session whoami   Show this session's own fleet identity.
   session rename   Rename a session, defaulting to the current session.
   session spawn    Open a new session - here, on another computer, or on one named Director.
-  session report   Tell the session that owns you what you did, at the end of your turn.
+  session report   Tell the session that owns you what you did, at the end of your turn
+                   (sends nothing when a Fleet Manager owns you: the Gateway tells it).
   director list    List every Director this account runs, with the id --director accepts.
   mission list     List the missions on the Gateway, active ones by default.
   fleet digest     Everything the Fleet Manager reads at the start of a conversation.
   fleet ready      File a Ready record (also: fleet finding, fleet decision).
   fleet outcomes   List the account's outcome records (also: fleet show, fleet answer).
   fleet prefer     Keep a standing preference (also: fleet preferences, fleet forget).
+  fleet events     List the stops and deaths of sessions the Fleet Manager owns (also: fleet ack).
   message send     Queue a message for your supervisor or a worker ('all' for every worker).
   message inbox    Read your unread messages in full, which marks them read.
   fleet-manager    Show, set, or clear which session is this account's one Fleet Manager.
@@ -1096,8 +1098,8 @@ its name, machine and id on the clipboard, for pasting to an agent.
 
 ### Fleet Manager
 
-The Fleet Manager's stored news, the owner's standing preferences, and the one digest it reads at the
-start of every conversation. All of it is kept on the Gateway and belongs to the account, so a
+The Fleet Manager's stored news, the owner's standing preferences, the one digest it reads at the
+start of every conversation, and the events about the sessions it owns. All of it is kept on the Gateway and belongs to the account, so a
 restarted or moved Fleet Manager reads back exactly what the old one filed. A record stays open until
 it is answered, and an answer is final.
 
@@ -1124,6 +1126,9 @@ USAGE: cc-devthrottle fleet answer ID "<the owner's words, exactly>" [--json]
 USAGE: cc-devthrottle fleet prefer "<preference, verbatim>" [--json]
 USAGE: cc-devthrottle fleet preferences [--json]
 USAGE: cc-devthrottle fleet forget ID [--json]
+USAGE: cc-devthrottle fleet events [--all] [--count/-n 1-200] [--json]
+USAGE: cc-devthrottle fleet ack ID [ID ...] [--json]
+USAGE: cc-devthrottle fleet ack --all [--json]
 ```
 
 WHO MAY RUN THEM. Only the account's marked Fleet Manager session (`cc-devthrottle fleet-manager
@@ -1156,9 +1161,25 @@ the Fleet Manager, or two Gateway instances - exactly one answer is kept, and th
 (409, `already_answered`). The record keeps who answered (`answeredByRole`: `owner` or
 `fleet-manager`). A decision's answer need not be one of its options; the record says whether it was.
 
+`fleet events` lists the events about sessions a Fleet Manager owns - a `stop` (with the Wingman's
+reading of it, or why there is none) or a `died` (exited or crashed) - oldest first. By default only
+the unacknowledged ones; `--all` includes acknowledged ones. The Gateway also delivers them to the
+Fleet Manager itself: one prompt, starting `[Fleet Manager events]`, typed only when the Fleet
+Manager is idle (at its own turn end, or a few seconds after an event arrives while it is already
+idle). An event is never sent twice to the same Fleet Manager session; a new Fleet Manager session is
+sent whatever the old one did not acknowledge. `fleet ack` takes full ids or the start of each, or
+`--all`; if one id is not an event of this account nothing is acknowledged. `fleet digest` lists the
+unacknowledged events too.
+
+`session report` from a session a Fleet Manager owns sends nothing and says so: the Gateway tells the
+Fleet Manager. Whether the owner is a Fleet Manager is the roster row's `ownedByFleetManager`, which
+the Gateway works out.
+
 Gateway routes: `/gateway/fleet-manager/outcomes` (GET, POST), `/outcomes/{id}` (GET),
 `/outcomes/{id}/answer` (POST, 409 when already answered), `/preferences` (GET, POST),
-`/preferences/{id}` (DELETE), `/digest?session=<id>` (GET). `GET /outcomes` takes `status`, `kind`,
+`/preferences/{id}` (DELETE), `/digest?session=<id>` (GET),
+`/events?status=unacknowledged|all&count=` (GET), `/events/ack` (POST `{ ids: [...] }` or
+`{ all: true }`, 404 naming any unknown id). `GET /outcomes` takes `status`, `kind`,
 `count` and `cursor`, and answers `count` (this page), `total` (every match, counted by the Gateway),
 `hasMore`, `nextCursor` (null on the last page) and `outcomes`. A cursor the Gateway did not issue is
 refused with 400. A refused caller gets 403 with

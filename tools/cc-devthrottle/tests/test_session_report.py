@@ -238,3 +238,28 @@ def test_session_workers_shows_no_hand_for_a_worker_that_is_not_asking(monkeypat
     # The control: the row IS listed, so an empty list cannot pass - but its hand is down, so nothing
     # is asked for, and the reason that outlived the lowered hand is not shown as a need.
     assert records == [{"id": WORKER, "name": "wkr", "state": "snoozed", "hand": "down", "need": None}]
+
+
+def test_a_session_a_fleet_manager_owns_sends_nothing_and_says_the_gateway_tells_it(monkeypatch, sent):
+    """The Gateway delivers this session's stop to its Fleet Manager at that session's own turn end, so a
+    report would only interrupt it with the same news. The Gateway says who the owner is; nothing here
+    decides it."""
+    worker = dict(_worker(), ownedByFleetManager=True)
+    monkeypatch.setattr(session_ops, "_get_fleet", _fleet(worker, PARENT_ROW))
+
+    result = runner.invoke(app, ["session", "report", "Fixed the auth bug; tests green."])
+
+    assert result.exit_code == 0, result.output
+    assert sent == {}
+    assert "Nothing sent: a Fleet Manager owns you" in result.output
+    assert "next turn end" in result.output
+
+
+def test_an_owner_the_gateway_does_not_call_a_fleet_manager_still_gets_the_report(monkeypatch, sent):
+    worker = dict(_worker(), ownedByFleetManager=False)
+    monkeypatch.setattr(session_ops, "_get_fleet", _fleet(worker, PARENT_ROW))
+
+    result = runner.invoke(app, ["session", "report", "Done."])
+
+    assert result.exit_code == 0, result.output
+    assert sent["path"] == f"sessions/{PARENT}/message"

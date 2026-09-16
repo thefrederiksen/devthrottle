@@ -760,6 +760,75 @@ namespace CcDirector.Gateway.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FleetManagerEventEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("AcknowledgedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AddressedTo")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool?>("Crashed")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("DeliveredAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DeliveredTo")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("DeliveryCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("NoVerdictReason")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SessionId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SessionName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("VerdictId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("VerdictJson")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "SessionId");
+
+                    b.HasIndex("TenantId", "AcknowledgedAtUtc", "CreatedAtUtc");
+
+                    b.ToTable("fleet_manager_events", (string)null);
+                });
+
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FleetManagerMarkEntity", b =>
                 {
                     b.Property<Guid>("Id")

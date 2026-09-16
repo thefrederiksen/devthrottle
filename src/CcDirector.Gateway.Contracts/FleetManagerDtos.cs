@@ -224,4 +224,8 @@ public sealed class FleetDigestDto
 
     public FleetOutcomeCounts OutcomeCounts { get; set; } = new();
     public FleetOwnedSessionCounts OwnedSessionCounts { get; set; } = new();
+
+    /// <summary>Every event about a session a Fleet Manager owns that is not yet acknowledged, delivered or not,
+    /// oldest first - so a Fleet Manager starting a conversation sees them all (step 4).</summary>
+    public List<FleetManagerEventDto> Events { get; set; } = new();
 }

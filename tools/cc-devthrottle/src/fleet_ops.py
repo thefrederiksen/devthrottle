@@ -1,5 +1,6 @@
-"""The Fleet Manager's commands: stored news (Ready, Finding, Decision), standing preferences, and the
-one digest it reads at the start of every conversation (the Fleet Manager mission, step 3).
+"""The Fleet Manager's commands: stored news (Ready, Finding, Decision), standing preferences, the
+one digest it reads at the start of every conversation (the Fleet Manager mission, step 3), and the
+events about sessions it owns - each stop or death, kept until it is acknowledged (step 4).
 
 Everything is kept on the Gateway, under /gateway/fleet-manager, and belongs to the account - so a
 restarted or moved Fleet Manager reads back exactly what the old one filed.
@@ -30,6 +31,7 @@ KINDS = ("ready", "finding", "decision")
 STATUSES = ("open", "answered", "all")
 RISKS = ("low", "medium", "high")
 CHECKS = ("passed", "failed", "none")
+EVENT_KINDS = ("stop", "died")
 
 _GUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 _PLAIN = re.compile(r"^[A-Za-z0-9 _./:@+()'?!;=<>#%&*~^|\[\]{}$-]*$")
@@ -401,6 +403,96 @@ def forget_preference(given: str, json_output: bool) -> None:
     _out(f"forgot: {pid}")
 
 
+# ---- events -----------------------------------------------------------------------------------------
+
+
+def _event_verdict(e: Dict[str, Any]) -> List[Any]:
+    """The verdict word and its label for one event row: the reading, or why there is none."""
+    if e.get("kind") == "died":
+        return ["crashed" if e.get("crashed") else "exited", None]
+    if e.get("verdictWithheld"):
+        return ["withheld", "this account's readings are still a shadow record"]
+    v = e.get("verdict")
+    if not v:
+        return ["none", e.get("noVerdictReason")]
+    if v.get("failed"):
+        return ["failed", v.get("failureReason")]
+    return [v.get("verdict"), v.get("label")]
+
+
+def _events_table(rows: List[Dict[str, Any]]) -> None:
+    _table("events", ["id", "kind", "sessionId", "name", "verdict", "label", "deliveredTo", "acknowledged"],
+           [[e.get("id"), e.get("kind"), e.get("sessionId"), e.get("sessionName"), *_event_verdict(e),
+             e.get("deliveredTo"), "yes" if e.get("acknowledgedAtUtc") else "no"] for e in rows])
+
+
+def _counts_by_event_kind(rows: List[Dict[str, Any]]) -> str:
+    return ", ".join(f"{k} {sum(1 for e in rows if e.get('kind') == k)}" for k in EVENT_KINDS)
+
+
+def list_events(show_all: bool, count: int, json_output: bool) -> None:
+    """The events about sessions a Fleet Manager owns, oldest first. Default: the unacknowledged ones."""
+    if count < 1 or count > 200:
+        _fail(f"--count must be between 1 and 200, got {count}", code=2)
+    status = "all" if show_all else "unacknowledged"
+    answer = _call(gateway.get_json, f"{PREFIX}/events?{urllib.parse.urlencode({'status': status, 'count': str(count)})}")
+    if json_output:
+        _print_json(answer)
+        return
+
+    rows = answer.get("events", [])
+    if not rows:
+        if show_all:
+            _out("count: 0")
+            _help([])
+        else:
+            total = _call(gateway.get_json, f"{PREFIX}/events?status=all&count=200").get("count", 0)
+            _out(f"count: 0 of {total} total (status unacknowledged)")
+            _help(["cc-devthrottle fleet events --all"] if total else [])
+        return
+
+    _out(f"count: {len(rows)} ({_counts_by_event_kind(rows)}) status: {status}")
+    _events_table(rows)
+    first = next((e for e in rows if not e.get("acknowledgedAtUtc")), rows[0])
+    _help([
+        f"cc-devthrottle session buffer {first.get('sessionId')}",
+        f"cc-devthrottle fleet ack {first.get('id')}",
+    ])
+
+
+def acknowledge_events(given: Optional[List[str]], ack_all: bool, json_output: bool) -> None:
+    """Acknowledge events by id (or the start of one), or every unacknowledged one with --all."""
+    named = [g for g in (given or []) if g is not None]
+    if ack_all and named:
+        _fail("give event ids or --all, not both", code=2)
+    if not ack_all and not named:
+        _fail("give the event ids to acknowledge, or --all; list them with cc-devthrottle fleet events", code=2)
+
+    if ack_all:
+        body: Dict[str, Any] = {"all": True}
+    else:
+        listed: Optional[List[Dict[str, Any]]] = None
+        ids = []
+        for g in named:
+            if _GUID.match(g.strip()):
+                ids.append(g.strip().lower())
+                continue
+            if listed is None:
+                listed = _call(gateway.get_json, f"{PREFIX}/events?status=all&count=200").get("events", [])
+            ids.append(_resolve_id(g, listed, "event", "cc-devthrottle fleet events --all"))
+        body = {"ids": ids}
+
+    answer = _call(gateway.post_json, f"{PREFIX}/events/ack", body)
+    if json_output:
+        _print_json(answer)
+        return
+    acked = answer.get("ids", [])
+    _out(f"acknowledged: {answer.get('acknowledged', len(acked))}")
+    _out(f"alreadyAcknowledged: {answer.get('alreadyAcknowledged', 0)}")
+    _out(f"ids[{len(acked)}]: {','.join(acked)}")
+    _help(["cc-devthrottle fleet events"])
+
+
 # ---- digest -----------------------------------------------------------------------------------------
 
 
@@ -448,7 +540,14 @@ def digest(session: Optional[str], json_output: bool) -> None:
     if prefs:
         _print_preferences(prefs)
 
+    events = d.get("events", [])
+    _out(f"events: {len(events)} unacknowledged")
+    if events:
+        _events_table(events)
+
     hints = []
+    if events:
+        hints.append(f"cc-devthrottle fleet ack {events[0].get('id')}")
     if outcomes:
         hints.append(f"cc-devthrottle fleet show {outcomes[0].get('id')}")
     if owned:

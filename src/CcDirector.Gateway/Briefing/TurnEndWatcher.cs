@@ -76,6 +76,8 @@ public sealed class TurnEndWatcher : IDisposable
     // right partition; the director id is carried for the tunnel reach.
     private readonly Action<TenantId, string, string> _onSessionWorking;
     private readonly TimeSpan _interval;
+    // (tenant, sessionId, directorId): a session this watcher had seen alive has moved to Exited. Optional.
+    private readonly Action<TenantId, string, string>? _onSessionExited;
     // MTR-10 Gap C: keyed by (tenant, sessionId), never the bare session id. Two accounts can run sessions with
     // the SAME id; a bare key let one tenant's last-seen state suppress - or fabricate - the other tenant's
     // Working -> Waiting transition (and so its voice refresh / stale-cache clear). The owning tenant is
@@ -90,13 +92,18 @@ public sealed class TurnEndWatcher : IDisposable
     /// push store instead of HTTP-pulling it, so the watcher no longer dials the Director. A Director that
     /// never pushes (stream mode off / file-discovered legacy) is still pulled over HTTP, byte-identical.</param>
     /// <param name="streamStale">Freshness window for the push store read; defaults to the roster's window.</param>
+    /// <param name="onSessionExited">Raised once when a session this watcher had already seen in another state
+    /// moves to Exited - by the same feed that takes the transition, so two racing feeds raise it once. A session
+    /// FIRST seen already exited (a Gateway restart) does not raise it: that exit is not news.</param>
     public TurnEndWatcher(
         Action<TurnEndSignal> onTurnEnd,
         Action<TenantId, string, string> onSessionWorking,
         TimeSpan? reconcileInterval = null,
         PushedSessionStore? pushedSessions = null,
-        TimeSpan? streamStale = null)
+        TimeSpan? streamStale = null,
+        Action<TenantId, string, string>? onSessionExited = null)
     {
+        _onSessionExited = onSessionExited;
         _pushedSessions = pushedSessions;
         _streamStale = streamStale ?? TimeSpan.FromSeconds(Core.Configuration.GatewayConfig.DefaultStreamStaleAfterSeconds);
         _onTurnEnd = onTurnEnd ?? throw new ArgumentNullException(nameof(onTurnEnd));
@@ -163,6 +170,12 @@ public sealed class TurnEndWatcher : IDisposable
                 hadPrev = false;
             }
             break;
+        }
+
+        if (activityState == "Exited")
+        {
+            if (hadPrev && prev != "Exited") _onSessionExited?.Invoke(tenant, sessionId, directorId);
+            return;
         }
 
         if (IsWorking(activityState))

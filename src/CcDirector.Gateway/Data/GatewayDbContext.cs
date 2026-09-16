@@ -334,6 +334,10 @@ public sealed class GatewayDbContext : DbContext
     /// <summary>Every session this account has ever marked as its Fleet Manager (<c>fleet_manager_marks</c>), so
     /// the digest still finds the sessions an earlier Fleet Manager started. Only ever added to.</summary>
     public DbSet<FleetManagerMarkEntity> FleetManagerMarks => Set<FleetManagerMarkEntity>();
+    /// <summary>The events about sessions a Fleet Manager owns (<c>fleet_manager_events</c>, step 4): one stop or
+    /// death per row, kept until the Fleet Manager acknowledges it.</summary>
+    public DbSet<FleetManagerEventEntity> FleetManagerEvents => Set<FleetManagerEventEntity>();
+
 
     /// <summary>Per-tenant setting overrides (<c>tenant_settings</c>, issue #2017) - the per-tenant home the
     /// AI / voice / car-mode / notification settings needed before they could be served on the hosted Gateway.
@@ -897,6 +901,20 @@ public sealed class GatewayDbContext : DbContext
             b.HasIndex(e => new { e.TenantId, e.SessionId }).IsUnique();
         });
 
+        modelBuilder.Entity<FleetManagerEventEntity>(b =>
+        {
+            b.ToTable("fleet_manager_events");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.Kind).HasMaxLength(16);
+            b.Property(e => e.SessionId).HasMaxLength(64);
+            b.Property(e => e.AddressedTo).HasMaxLength(64);
+            b.Property(e => e.DeliveredTo).HasMaxLength(64);
+            b.Property(e => e.VerdictId).HasMaxLength(64);
+            // "The account's unacknowledged events, oldest first" is the read every delivery and every digest makes.
+            b.HasIndex(e => new { e.TenantId, e.AcknowledgedAtUtc, e.CreatedAtUtc });
+            b.HasIndex(e => new { e.TenantId, e.SessionId });
+        });
+
         modelBuilder.Entity<SessionHistoryEntity>(b =>
         {
             b.ToTable("session_history");
@@ -1316,6 +1334,7 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<FleetOutcomeEntity>(modelBuilder);
         ApplyTenantScope<FleetPreferenceEntity>(modelBuilder);
         ApplyTenantScope<FleetManagerMarkEntity>(modelBuilder);
+        ApplyTenantScope<FleetManagerEventEntity>(modelBuilder);
 
         ApplyCommonSubsetConventions(modelBuilder);
 
@@ -1405,6 +1424,11 @@ public sealed class GatewayDbContext : DbContext
             modelBuilder.Entity<FleetOutcomeEntity>().Property(e => e.Status).UseCollation("C");
             // fleet_manager_marks: the session id is an exact key the unique index and the digest compare on.
             modelBuilder.Entity<FleetManagerMarkEntity>().Property(e => e.SessionId).UseCollation("C");
+            // fleet_manager_events: the kind and the session ids are compared byte-ordinally for the same reason.
+            modelBuilder.Entity<FleetManagerEventEntity>().Property(e => e.Kind).UseCollation("C");
+            modelBuilder.Entity<FleetManagerEventEntity>().Property(e => e.SessionId).UseCollation("C");
+            modelBuilder.Entity<FleetManagerEventEntity>().Property(e => e.DeliveredTo).UseCollation("C");
+            modelBuilder.Entity<FleetManagerEventEntity>().Property(e => e.VerdictId).UseCollation("C");
             // Known-repository lookups use these normalized values as exact indexed predicates. Pin both
             // to byte-ordinal equality so SQLite and Postgres select the same bounded candidate set.
             modelBuilder.Entity<KnownRepositoryEntity>().Property(e => e.MachineKey).UseCollation("C");

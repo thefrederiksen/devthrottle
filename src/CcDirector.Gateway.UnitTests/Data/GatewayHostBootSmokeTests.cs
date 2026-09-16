@@ -32,6 +32,9 @@ public sealed class GatewayHostBootSmokeTests
     // The Message Load mission's inbox, which landed on main first; the step 3 pair must sort after it.
     private const string FleetMessagesPostgresMigration = "20260916195948_AddFleetMessages";
     private const string FleetMessagesSqliteMigration = "20260916195943_AddFleetMessages";
+    // Step 4's events.
+    private const string FleetManagerEventsPostgresMigration = "20260916192001_AddFleetManagerEvents";
+    private const string FleetManagerEventsSqliteMigration = "20260916191951_AddFleetManagerEvents";
 
     /// <summary>A Fact that skips itself unless the runtime Postgres selector CC_GATEWAY_DB_CONNECTION is set
     /// to a non-blank value, so CI never reaches out to the hosted database and never needs the secret.</summary>
@@ -70,6 +73,7 @@ public sealed class GatewayHostBootSmokeTests
         Assert.Contains(InitialPostgresMigration, migrations);
         Assert.Contains(FleetManagerOutcomesPostgresMigration, migrations);
         Assert.Contains(FleetManagerMarkHistoryPostgresMigration, migrations);
+        Assert.Contains(FleetManagerEventsPostgresMigration, migrations);
     }
 
     /// <summary>
@@ -106,6 +110,7 @@ public sealed class GatewayHostBootSmokeTests
         // A PRESENCE, so an empty read cannot pass: the step 3 pair is in both lists.
         Assert.Contains(FleetManagerOutcomesSqliteMigration, sqliteAll);
         Assert.Contains(FleetManagerMarkHistorySqliteMigration, sqliteAll);
+        Assert.Contains(FleetManagerEventsSqliteMigration, sqliteAll);
         Assert.Contains("AddFleetManagerMarkHistory", sqliteSince);
 
         Assert.Equal(sqliteSince.OrderBy(n => n, StringComparer.Ordinal), postgresSince.OrderBy(n => n, StringComparer.Ordinal));

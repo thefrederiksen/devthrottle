@@ -46,7 +46,30 @@ class FakeGateway:
         self.outcomes = []
         self.preferences = []
         self.digest = None
+        self.events = []
         self.calls = []
+
+    def add_event(self, kind, session_id, name, acknowledged=False, **extra):
+        event = {
+            "id": str(uuid.uuid4()),
+            "kind": kind,
+            "sessionId": session_id,
+            "sessionName": name,
+            "addressedTo": ME,
+            "crashed": None if kind == "stop" else False,
+            "verdict": None,
+            "noVerdictReason": None,
+            "verdictWithheld": False,
+            "createdAtUtc": "2026-09-16T12:00:00Z",
+            "deliveredAtUtc": None,
+            "deliveredTo": None,
+            "deliveryCount": 0,
+            "acknowledgedAtUtc": "2026-09-16T12:10:00Z" if acknowledged else None,
+        }
+        event.update(extra)
+        # Oldest first, as the route answers.
+        self.events.append(event)
+        return event
 
     def add(self, kind, title, status="open", created="2026-09-16T12:00:00Z", **extra):
         record = {
@@ -99,6 +122,11 @@ class FakeGateway:
             raise shared_gateway.GatewayError(f"no outcome {oid} in this account", status=404)
         if route == "gateway/fleet-manager/preferences":
             return {"count": len(self.preferences), "preferences": self.preferences}
+        if route == "gateway/fleet-manager/events":
+            status = query.get("status", "unacknowledged")
+            rows = [e for e in self.events if status == "all" or not e["acknowledgedAtUtc"]]
+            rows = rows[: int(query.get("count", "50"))]
+            return {"count": len(rows), "events": rows}
         if route == "gateway/fleet-manager/digest":
             assert self.digest is not None, "the test did not set a digest"
             return dict(self.digest, sessionId=query["session"])
@@ -126,6 +154,21 @@ class FakeGateway:
                     "createdBy": ME}
             self.preferences.append(pref)
             return pref
+        if path == "gateway/fleet-manager/events/ack":
+            if body.get("all"):
+                chosen = [e for e in self.events if not e["acknowledgedAtUtc"]]
+                already = 0
+            else:
+                missing = [i for i in body["ids"] if i not in {e["id"] for e in self.events}]
+                if missing:
+                    raise shared_gateway.GatewayError(
+                        f"no event {', '.join(missing)} in this account; nothing was acknowledged", status=404)
+                named = [e for e in self.events if e["id"] in body["ids"]]
+                chosen = [e for e in named if not e["acknowledgedAtUtc"]]
+                already = len(named) - len(chosen)
+            for e in chosen:
+                e["acknowledgedAtUtc"] = "2026-09-16T12:20:00Z"
+            return {"acknowledged": len(chosen), "alreadyAcknowledged": already, "ids": [e["id"] for e in chosen]}
         raise AssertionError(f"unexpected POST {path}")
 
     def delete(self, path, timeout=30):
@@ -597,12 +640,132 @@ def test_digest_json_is_the_gateways_answer(gw):
     assert json.loads(result.output) == dict(gw.digest, sessionId=ME)
 
 
+# ---- events -----------------------------------------------------------------------------------------
+
+
+READING = {
+    "verdictId": "v-1", "failed": False, "verdict": "needed-you",
+    "label": 'Asks, "publish now?"', "evidence": "Shall I publish?",
+}
+
+
+def test_every_event_reads_back_exactly_from_the_default_output(gw):
+    made = [gw.add_event("stop", WORKER, name, verdict=dict(READING)) for name in AWKWARD_TITLES]
+    made.append(gw.add_event("stop", WORKER, "switch off", noVerdictReason="this account's Wingman judge switch is off"))
+    made.append(gw.add_event("died", WORKER, "crashed one", crashed=True, deliveredTo=ME))
+
+    result = runner.invoke(app, ["fleet", "events"])
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines()[0] == f"count: {len(made)} (stop {len(made) - 1}, died 1) status: unacknowledged"
+    n, rows = read_table(result.output, "events")
+    assert n == len(made)
+    assert [r["id"] for r in rows] == [e["id"] for e in made]
+    assert [r["name"] for r in rows] == [e["sessionName"] for e in made]
+    assert all(r["sessionId"] == WORKER for r in rows)
+    assert rows[0]["verdict"] == "needed-you" and rows[0]["label"] == 'Asks, "publish now?"'
+    assert rows[-2]["verdict"] == "none" and rows[-2]["label"] == "this account's Wingman judge switch is off"
+    assert (rows[-1]["kind"], rows[-1]["verdict"], rows[-1]["deliveredTo"], rows[-1]["acknowledged"]) == (
+        "died", "crashed", ME, "no")
+    assert f"cc-devthrottle fleet ack {made[0]['id']}" in result.output
+
+
+def test_events_json_is_the_gateways_answer_with_the_filter_applied(gw):
+    gw.add_event("stop", WORKER, "open one")
+    gw.add_event("stop", WORKER, "done one", acknowledged=True)
+
+    default = json.loads(runner.invoke(app, ["fleet", "events", "--json"]).output)
+    everything = json.loads(runner.invoke(app, ["fleet", "events", "--all", "--json"]).output)
+
+    assert [e["sessionName"] for e in default["events"]] == ["open one"]
+    assert default["count"] == 1
+    assert [e["sessionName"] for e in everything["events"]] == ["open one", "done one"]
+    assert gw.calls[-1][1] == "gateway/fleet-manager/events?status=all&count=50"
+
+
+def test_no_open_events_says_count_zero_and_how_many_there_are_in_all(gw):
+    gw.add_event("stop", WORKER, "done one", acknowledged=True)
+
+    result = runner.invoke(app, ["fleet", "events"])
+
+    assert result.exit_code == 0
+    assert result.output.splitlines()[0] == "count: 0 of 1 total (status unacknowledged)"
+    assert "cc-devthrottle fleet events --all" in result.output
+
+
+def test_no_events_at_all_says_count_zero(gw):
+    result = runner.invoke(app, ["fleet", "events", "--all"])
+
+    assert result.exit_code == 0
+    assert result.output.strip() == "count: 0"
+
+
+def test_ack_accepts_the_start_of_an_id_and_says_what_it_did(gw):
+    first = gw.add_event("stop", WORKER, "one")
+    second = gw.add_event("stop", WORKER, "two")
+
+    result = runner.invoke(app, ["fleet", "ack", first["id"][:8], second["id"]])
+
+    assert result.exit_code == 0, result.output
+    assert gw.calls[-1] == ("POST", "gateway/fleet-manager/events/ack", {"ids": [first["id"], second["id"]]})
+    assert "acknowledged: 2" in result.output
+    assert f"ids[2]: {first['id']},{second['id']}" in result.output
+
+
+def test_ack_all_acknowledges_every_open_event(gw):
+    gw.add_event("stop", WORKER, "one")
+    gw.add_event("died", WORKER, "two")
+
+    result = runner.invoke(app, ["fleet", "ack", "--all"])
+
+    assert result.exit_code == 0, result.output
+    assert gw.calls[-1] == ("POST", "gateway/fleet-manager/events/ack", {"all": True})
+    assert "acknowledged: 2" in result.output
+
+
+@pytest.mark.parametrize("args, message", [
+    (["fleet", "ack"], "give the event ids to acknowledge, or --all"),
+    (["fleet", "ack", "--all", "abc"], "give event ids or --all, not both"),
+    (["fleet", "events", "--count", "0"], "--count must be between 1 and 200"),
+])
+def test_ack_and_events_usage_errors_exit_2_and_send_nothing(gw, args, message):
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 2
+    assert message in result.output
+    assert not [c for c in gw.calls if c[0] == "POST"]
+
+
+def test_ack_an_unknown_id_fails_with_the_gateways_reason_and_changes_nothing(gw):
+    known = gw.add_event("stop", WORKER, "one")
+    unknown = str(uuid.uuid4())
+
+    result = runner.invoke(app, ["fleet", "ack", known["id"], unknown])
+
+    assert result.exit_code == 1
+    assert f"no event {unknown} in this account; nothing was acknowledged" in result.output
+    assert known["acknowledgedAtUtc"] is None
+
+
+def test_digest_lists_the_unacknowledged_events(gw):
+    event = gw.add_event("stop", WORKER, "Docs - fix the typo", verdict=dict(READING))
+    gw.digest = _digest(events=[event])
+
+    result = runner.invoke(app, ["fleet", "digest"])
+
+    assert "events: 1 unacknowledged" in result.output
+    _, rows = read_table(result.output, "events")
+    assert rows[0]["id"] == event["id"]
+    assert f"cc-devthrottle fleet ack {event['id']}" in result.output
+
+
 # ---- the whole surface ------------------------------------------------------------------------------
 
 
 def test_every_fleet_output_is_ascii(gw):
     for title in AWKWARD_TITLES:
         gw.add("ready", title)
+        gw.add_event("stop", WORKER, title)
     gw.digest = _digest(outcomes=list(gw.outcomes))
     runner.invoke(app, ["fleet", "prefer", "café — stage drafts"])
 
@@ -612,6 +775,7 @@ def test_every_fleet_output_is_ascii(gw):
         runner.invoke(app, ["fleet", "show", gw.outcomes[0]["id"]]).output,
         runner.invoke(app, ["fleet", "preferences"]).output,
         runner.invoke(app, ["fleet", "digest"]).output,
+        runner.invoke(app, ["fleet", "events", "--all"]).output,
     ]
     for out in outputs:
         assert out.isascii(), out
@@ -624,4 +788,5 @@ def test_the_fleet_commands_are_discoverable_through_actions():
     assert {
         "fleet-digest", "fleet-ready", "fleet-finding", "fleet-decision", "fleet-outcomes",
         "fleet-show", "fleet-answer", "fleet-prefer", "fleet-preferences", "fleet-forget",
+        "fleet-events", "fleet-ack",
     } <= ids

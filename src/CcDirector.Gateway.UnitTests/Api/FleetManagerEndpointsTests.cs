@@ -53,6 +53,7 @@ public sealed class FleetManagerEndpointsTests : IDisposable
     private readonly TurnVerdictStore _verdicts;
     private readonly FleetManagerMarkHistory _marks;
     private readonly Dictionary<TenantId, string?> _marked = new() { [TenantA] = FleetManager, [TenantB] = null };
+    private readonly FleetManagerEventStore _events;
 
     public FleetManagerEndpointsTests()
     {
@@ -62,6 +63,7 @@ public sealed class FleetManagerEndpointsTests : IDisposable
         _preferences = new FleetPreferenceStore(_harness.Open());
         _verdicts = new TurnVerdictStore(_harness.Open());
         _marks = new FleetManagerMarkHistory(_harness.Open());
+        _events = new FleetManagerEventStore(_harness.Open());
         SeedFleet();
     }
 
@@ -141,7 +143,7 @@ public sealed class FleetManagerEndpointsTests : IDisposable
 
     private IResult Digest(TenantId? tenant, string? caller, string session)
         => FleetManagerEndpoints.Digest(Request(tenant, caller, query: "session=" + session),
-            ResolveTenant, Access(), _outcomes, _preferences, Sources());
+            ResolveTenant, Access(), _outcomes, _preferences, Sources(), _events);
 
     private async Task<FleetOutcomeDto> FileAsync(TenantId tenant, FleetOutcomeFileRequest request, string caller = FleetManager)
     {
@@ -702,9 +704,115 @@ public sealed class FleetManagerEndpointsTests : IDisposable
     public void Digest_MissingOrMalformedSession_Is400(string query, string expected)
     {
         var result = FleetManagerEndpoints.Digest(Request(TenantA, Owner, query: query),
-            ResolveTenant, Access(), _outcomes, _preferences, Sources());
+            ResolveTenant, Access(), _outcomes, _preferences, Sources(), _events);
 
         Assert.Equal(StatusCodes.Status400BadRequest, Status(result));
         Assert.StartsWith(expected, (string)Field(result, "error")!);
+    }
+
+    // ---- events (step 4) ---------------------------------------------------------------------------------
+
+    private FleetManagerEventDto Stop(TenantId tenant, string sid, TurnVerdictDto? verdict = null)
+        => _events.Enqueue(tenant, new FleetManagerEventDraft(FleetManagerEventStore.KindStop, sid, "a session " + sid,
+            FleetManager, Verdict: verdict, NoVerdictReason: verdict is null ? "this account's Wingman judge switch is off" : null),
+            DateTime.UtcNow)!;
+
+    private FleetManagerEventListDto Events(TenantId tenant, string query = "", string? caller = Owner)
+    {
+        var result = FleetManagerEndpoints.ListEvents(Request(tenant, caller, query: query), ResolveTenant, _events);
+        Assert.Equal(StatusCodes.Status200OK, Status(result));
+        return Body<FleetManagerEventListDto>(result);
+    }
+
+    private async Task<IResult> AckAsync(TenantId tenant, object body)
+        => await FleetManagerEndpoints.AcknowledgeEventsAsync(Request(tenant, FleetManager, body), ResolveTenant, _events);
+
+    [Fact]
+    public async Task Ack_RemovesTheEventFromTheDigestAndFromTheDefaultList_ButAllStillShowsIt()
+    {
+        var first = Stop(TenantA, OwnedStopped, Verdict("verdict-a"));
+        var second = Stop(TenantA, OwnedWorking);
+
+        var before = Body<FleetDigestDto>(Digest(TenantA, FleetManager, FleetManager));
+        Assert.Equal(new[] { first.Id, second.Id }, before.Events.Select(e => e.Id));
+        Assert.Equal("Shall I publish the change now?", before.Events[0].Verdict!.Evidence);
+
+        var result = await AckAsync(TenantA, new { ids = new[] { first.Id } });
+
+        Assert.Equal(StatusCodes.Status200OK, Status(result));
+        var ack = Body<FleetManagerEventAckDto>(result);
+        Assert.Equal(1, ack.Acknowledged);
+        Assert.Equal(new[] { first.Id }, ack.Ids);
+        var after = Body<FleetDigestDto>(Digest(TenantA, FleetManager, FleetManager));
+        Assert.Equal(new[] { second.Id }, after.Events.Select(e => e.Id));
+        Assert.Equal(new[] { second.Id }, Events(TenantA).Events.Select(e => e.Id));
+        var all = Events(TenantA, "status=all");
+        Assert.Equal(2, all.Count);
+        Assert.NotNull(all.Events.Single(e => e.Id == first.Id).AcknowledgedAtUtc);
+    }
+
+    [Fact]
+    public async Task Ack_All_AcknowledgesEveryOpenEvent_AndCountsTheOnesAlreadyDone()
+    {
+        Stop(TenantA, OwnedStopped);
+        Stop(TenantA, OwnedWorking);
+        Stop(TenantB, OtherAccountSession);
+
+        var ack = Body<FleetManagerEventAckDto>(await AckAsync(TenantA, new { all = true }));
+
+        Assert.Equal(2, ack.Acknowledged);
+        Assert.Equal(0, Events(TenantA).Count);
+        Assert.Equal(1, Events(TenantB).Count);
+    }
+
+    [Fact]
+    public async Task AnotherAccount_CannotReadOrAcknowledge_AndAMixedAckChangesNothing()
+    {
+        var mine = Stop(TenantA, OwnedStopped, Verdict("verdict-mine"));
+
+        Assert.Equal(0, Events(TenantB, "status=all").Count);
+
+        var foreign = await AckAsync(TenantB, new { ids = new[] { mine.Id } });
+        Assert.Equal(StatusCodes.Status404NotFound, Status(foreign));
+        Assert.Contains(mine.Id, (string)Field(foreign, "error")!);
+
+        // One good id and one unknown: refused by name, and the good one is NOT acknowledged.
+        var unknown = Guid.NewGuid().ToString();
+        var mixed = await AckAsync(TenantA, new { ids = new[] { mine.Id, unknown } });
+        Assert.Equal(StatusCodes.Status404NotFound, Status(mixed));
+        Assert.Contains(unknown, (string)Field(mixed, "error")!);
+        Assert.Equal(new[] { mine.Id }, Events(TenantA).Events.Select(e => e.Id));
+    }
+
+    [Theory]
+    [InlineData("{}", "give the event ids to acknowledge, or all: true")]
+    [InlineData("{\"ids\":[\"abc\"]}", "'abc' is not an id")]
+    [InlineData("{\"all\":true,\"ids\":[\"5b1c2d3e-0000-4000-8000-000000000001\"]}", "give either ids or all, not both")]
+    public async Task Ack_BadBody_Is400(string body, string expected)
+    {
+        var result = await AckAsync(TenantA, body);
+
+        Assert.Equal(StatusCodes.Status400BadRequest, Status(result));
+        Assert.StartsWith(expected, (string)Field(result, "error")!);
+    }
+
+    [Fact]
+    public void ListEvents_BadStatus_Is400NamingTheValidValues()
+    {
+        var result = FleetManagerEndpoints.ListEvents(Request(TenantA, Owner, query: "status=open"), ResolveTenant, _events);
+
+        Assert.Equal(StatusCodes.Status400BadRequest, Status(result));
+        Assert.Equal("status 'open' is not valid; use one of: unacknowledged, all", Field(result, "error"));
+    }
+
+    /// <summary>The reading is served to the Fleet Manager whatever the colour switch says, as the digest is.</summary>
+    [Fact]
+    public void ListEvents_TheFleetManager_IsServedTheReading()
+    {
+        Stop(TenantA, OwnedStopped, Verdict("verdict-event"));
+
+        var asSession = Assert.Single(Events(TenantA, caller: FleetManager).Events);
+
+        Assert.Equal("verdict-event", asSession.Verdict!.VerdictId);
     }
 }
