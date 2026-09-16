@@ -638,6 +638,23 @@ nothing - the remove-the-network-port mission deleted its HTTP surface.
 
 Unified DevThrottle command surface for fleet, session, and message management.
 
+Run with no arguments, it shows live state instead of the help (`--help` still shows the help):
+this session's full id, name, state and repository (or `session: none - ...` outside a session),
+the fleet count by state, how many sessions need the owner, and the next commands. If the Gateway
+cannot be reached it exits 1 and says why.
+
+```
+session[1]{id,name,state,repo}:
+  2e7b6504-4fc2-44bd-9bb3-cebcccba554b,AXI Tools - Worker - no-args live state,working,devthrottle-axi-noargs
+count: 35 (needs-you 8, working 13, ready 10, snoozed 4)
+needs-you: 8
+help[4]:
+  cc-devthrottle session list --state needs-you
+  cc-devthrottle session list
+  cc-devthrottle session spawn <repo> --controlled-by self
+  cc-devthrottle --help
+```
+
 ```
 USAGE: cc-devthrottle [OPTIONS] COMMAND [ARGS]...
 
