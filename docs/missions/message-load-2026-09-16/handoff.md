@@ -307,3 +307,57 @@ Verdict FAIL for merge; both highs from inspection 1 confirmed closed. Rulings:
 
 Then the touched suites, each guard watched failing, this note updated, commit, push,
 `session raise "fix round 2 pushed"`, stop.
+
+## Slice 1 fix round 2 (16 September 2026)
+
+Four commits on `mission/message-load`, one per ruling, on top of `078d5f65`. Each guard was watched
+failing with the fix reverted or mutated, then restored and seen green. Item 5 (restore) untouched.
+
+### What changed, per item
+
+1. **Recovery read bounded** (`2067164b`). `FleetMessageLimits.RecentReadCap = 200`. `FleetMessageStore.ReadInbox`
+   reads the recent rows BEFORE the store lock, untracked (`AsNoTracking`), counts the whole window, and takes
+   the newest 200; `FleetInboxRead` carries `RecentTotal` and `RecentTruncated`. `FleetInboxResponse` gains
+   `recentTotal` and `truncated` (a route test pins both names on the wire). `message inbox --all` prints
+   "earlier: showing 200 of N read in the last 24 hours" when truncated, "earlier: N read before" otherwise.
+   Tests: 201 read rows return 200, total 201, truncated, newest first; exactly 200 return 200, not truncated;
+   a plain read reports 0 and not truncated; the 200 pinned in the limits literal test. Red, each alone:
+   `.Take(cap)` removed (201-row test, 201 rows came back); truncation never reported (201-row test,
+   `Assert.True`); cap default 201 (literal pin and 201-row test); command line truncation line removed
+   (the truncated-output test).
+2. **Read-loss interval stated** (`65f43cd2`). The store's `ReadInbox` comment has a "KNOWN GAP, ACCEPTED"
+   paragraph (marked read before the response is built; recoverable with `--all` for 24 hours, only by
+   asking). The `--all` help, the action catalogue entry and the `read_inbox` docstring say the same. No
+   behaviour change. The existing help test now asserts "at most 200", "marks messages read before their
+   text reaches you" and "only for 24 hours after that read"; red with the previous help text.
+3. **`none` pinned on both sides** (`8631ff98`). `SpawnOriginTests.The_user_owned_spelling_is_the_literal_the_command_line_sends`
+   asserts `UserOwned == "none"` and that a body carrying the literal `"none"` is accepted;
+   `test_spawn_ops.py::test_standalone_sends_the_literal_the_gateway_recognises` asserts the command line
+   sends `"none"`. Each comment names the other. Red: `UserOwned = "user"` turned the new test (and the
+   existing case-insensitive test) red; the command line sending `"user"` turned the new test and three
+   existing ones red.
+4. **Empty broadcast exits 1** (`ae06ae3f`). `_report_broadcast` with no results prints
+   "Not queued: no workers to send to." (plus the Gateway's warning when there is one) and exits 1.
+   `test_send_all_with_no_workers_says_so_and_succeeds` became `..._says_so_and_fails` (exit 1), plus a
+   no-warning case. Red on both with the old code (exit 0).
+
+### Test totals (Mac, this tree, 16 September 2026)
+
+- Gateway unit tests: 4986 total, 4971 passed, 8 skipped, **7 failed - the same 7 Mac-only failures named
+  in earlier rounds** (WorkListStorePersistence 1, RuleCandidateFilter 1, CronJobStore 1,
+  SessionCommandExecutorLiveness 3, RulePrimitives 1). No new failure.
+- Gateway route tests, filter `FleetMessage|SpawnOrigin|FleetSpawnOrigin`: 42 total, 38 passed, **4 failed -
+  the existing `FleetSpawnOriginTests` local-create failures** already listed (they fail on origin/main).
+- cc-devthrottle tests: 1745 passed (1741 before, plus 4 new).
+
+### What is NOT proven
+
+- The bound is proven on SQLite only; the `Count` plus `Take` query did not run against PostgreSQL. No
+  schema change.
+- No load test: the cap bounds rows per request (200 times 16,000 characters at most), it does not rate-limit
+  repeated `--all` reads.
+- Reading the recent rows before the lock means a read racing another read of the same inbox may leave out
+  rows that the other read marked a moment earlier; `--all` again returns them.
+- The read-loss interval itself is unchanged, by ruling.
+- `scripts/test-local.ps1` not run (no PowerShell on the Mac); suites run directly. Command line tests ran in
+  a scratch environment with the declared dependencies.
