@@ -153,6 +153,24 @@ def test_every_group_UnknownCommand_ExitsTwoAndListsEveryCommand(path, group):
     assert _listed(text, "Valid options") == _options(group)
 
 
+NEEDS_A_COMMAND = [
+    (path, group) for path, group in GROUPS if not group.no_args_is_help and not group.invoke_without_command
+]
+
+
+def test_groups_that_need_a_command_AreFound():
+    assert [" ".join(path) for path, _ in NEEDS_A_COMMAND] == ["session", "repo", "worktree", "message"]
+
+
+@pytest.mark.parametrize("path,group", NEEDS_A_COMMAND, ids=[_label(p) for p, _ in NEEDS_A_COMMAND])
+def test_every_group_that_needs_a_command_NoCommand_ExitsTwoAndListsEveryCommand(path, group):
+    result = _invoke(path)
+
+    text = _assert_plain_usage_error(result, path)
+    assert text.splitlines()[0] == "Error: Missing command."
+    assert _listed(text, "Valid commands") == _commands(group)
+
+
 def _required(command):
     return [param for param in command.params if param.required]
 
