@@ -1,4 +1,6 @@
 using System.Text.RegularExpressions;
+using AngleSharp.Dom;
+using AngleSharp.Html.Parser;
 using CcDirector.Core.Utilities;
 
 namespace CcDirector.Gateway.DevReports;
@@ -23,18 +25,17 @@ internal sealed record DevReportShapeVerdict(IReadOnlyList<string> Errors, strin
 /// The Gateway owns this ruling (mission ruling 4): the command line tool and the apps show the verdict,
 /// they never re-derive it.
 ///
-/// HOW IT READS THE PAGE. Not with a full HTML parser: it scans tags in document order, reads attributes,
-/// and pairs each start tag with its end tag by name. It skips comments and the contents of elements a
-/// browser treats as text (script, style, textarea, title, xmp, iframe, noembed, noframes, noscript) and
-/// template, and stops at plaintext, after which a browser renders everything as text. The scan is one
-/// pass with no backtracking regular expression, and options are merged into questions in one further
-/// pass, so the question checks do not rescan the page per question.
+/// HOW IT READS THE PAGE (mission ruling 9). With AngleSharp, a real HTML5 parser, after the same head the
+/// host writes (CONTRACT.md section 4, rule 2) and with scripting enabled, as in the report's frame. Every
+/// check is made on the document a browser builds from those bytes: markers in comments, in text-only
+/// elements, in template content or after plaintext are not elements, so they do not count, and an element
+/// left unclosed ends where a browser ends it. "Inside" is DOM containment - the same rule the note-taking
+/// script uses in the page.
 ///
-/// "Inside" is decided by the element's own start and end tags: a question is inside the questions section
-/// when it sits between that section's start and end tags, and an option belongs to the question whose
-/// start and end tags surround it - the same rule the note-taking script uses in the page. So the questions
-/// section, each question and the no-questions element must each be closed with their own end tag, and a
-/// question may not contain another question.
+/// THIS CHECK IS GUIDANCE, NOT THE SECURITY BOUNDARY. It tells an agent at publish time that its report is
+/// the wrong shape or carries scripts that will not run. It does not evaluate stylesheets, so a section hidden
+/// by a CSS rule still passes. What keeps a report from acting for the owner is the host policy of
+/// CONTRACT.md section 4 (mission ruling 8), which every host applies whatever this check said.
 /// </summary>
 internal static class DevReportShapeCheck
 {
@@ -47,15 +48,14 @@ internal static class DevReportShapeCheck
     public static readonly IReadOnlyList<string> Statuses = ["waiting-on-you", "agent-working", "done"];
 
     private static readonly string[] SectionKinds = [Header, Summary, Questions, Detail, Evidence];
-    // Elements whose content a browser does not parse as markup (plus template, whose content is not part of
-    // the document). A marker written inside one of them is text, so it does not count.
-    private static readonly string[] SkippedContentTags =
-        ["script", "style", "template", "textarea", "title", "xmp", "iframe", "noembed", "noframes", "noscript"];
-    private static readonly string[] VoidTags =
-        ["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"];
     private static readonly Regex QuestionId = new("^[A-Za-z0-9_-]+$", RegexOptions.CultureInvariant);
 
-    private sealed record Tag(string Name, Dictionary<string, string> Attributes, int Position, int StartTagEnd, int? EndTagPosition);
+    // What the host writes before the report's bytes (CONTRACT.md section 4, rule 2), without its script, so
+    // the report is parsed in the same place in the document as in the frame.
+    private const string HostHead = "<!doctype html><html><head></head>";
+
+    // Elements whose text a reader does not see as part of the page.
+    private static readonly string[] UnreadTextElements = ["script", "style", "noscript", "title", "template"];
 
     /// <summary>Checks a report's HTML and returns every problem found, not just the first.</summary>
     public static DevReportShapeVerdict Check(string html)
@@ -63,28 +63,33 @@ internal static class DevReportShapeCheck
         ArgumentNullException.ThrowIfNull(html);
         FileLog.Write($"[DevReportShapeCheck] Check: {html.Length} characters");
 
-        var tags = ReadTags(html);
+        var parser = new HtmlParser(new HtmlParserOptions { IsScripting = true });
+        using var document = parser.ParseDocument(HostHead + html);
         var errors = new List<string>();
 
-        var sections = tags.Where(t => t.Attributes.ContainsKey("data-dev-report")).ToList();
-        foreach (var unknown in sections.Where(s => !SectionKinds.Contains(s.Attributes["data-dev-report"])))
+        var sections = document.QuerySelectorAll("[data-dev-report]").ToList();
+        foreach (var unknown in sections.Where(s => !SectionKinds.Contains(Kind(s))))
         {
-            errors.Add($"data-dev-report=\"{unknown.Attributes["data-dev-report"]}\" is not a section this " +
+            errors.Add($"data-dev-report=\"{Kind(unknown)}\" is not a section this " +
                        $"check knows. Use one of: {string.Join(", ", SectionKinds)}.");
         }
-        sections = sections.Where(s => SectionKinds.Contains(s.Attributes["data-dev-report"])).ToList();
-        var kinds = sections.Select(s => s.Attributes["data-dev-report"]).ToList();
+        sections = sections.Where(s => SectionKinds.Contains(Kind(s))).ToList();
+        var kinds = sections.Select(Kind).ToList();
 
         var status = CheckCounts(kinds, sections, errors);
         CheckOrder(kinds, errors);
-        CheckQuestions(tags, sections, html, errors);
-        CheckNoScripts(tags, errors);
+        CheckNesting(sections, errors);
+        CheckSummary(sections, errors);
+        CheckQuestions(document, sections, errors);
+        CheckNoScripts(document, errors);
 
         FileLog.Write($"[DevReportShapeCheck] Check: {sections.Count} section markers, {errors.Count} errors, status={status ?? "(none)"}");
         return new DevReportShapeVerdict(errors, status);
     }
 
-    private static string? CheckCounts(List<string> kinds, List<Tag> sections, List<string> errors)
+    private static string Kind(IElement section) => section.GetAttribute("data-dev-report") ?? "";
+
+    private static string? CheckCounts(List<string> kinds, List<IElement> sections, List<string> errors)
     {
         string? status = null;
         var headerCount = kinds.Count(k => k == Header);
@@ -99,8 +104,9 @@ internal static class DevReportShapeCheck
         }
         else
         {
-            var header = sections.First(s => s.Attributes["data-dev-report"] == Header);
-            if (!header.Attributes.TryGetValue("data-dev-report-status", out var value))
+            var header = sections.First(s => Kind(s) == Header);
+            var value = header.GetAttribute("data-dev-report-status");
+            if (value is null)
             {
                 errors.Add("The header has no status. Add data-dev-report-status to it, set to one of: " +
                            $"{string.Join(", ", Statuses)}.");
@@ -190,32 +196,64 @@ internal static class DevReportShapeCheck
         }
     }
 
-    private static void CheckQuestions(List<Tag> tags, List<Tag> sections, string html, List<string> errors)
+    // A section that is not closed before the next one begins ends up containing it in the browser, so the
+    // page no longer says where one section stops. Refuse it rather than guess which was meant.
+    private static void CheckNesting(List<IElement> sections, List<string> errors)
     {
-        var questionsMarkers = sections.Where(s => s.Attributes["data-dev-report"] == Questions).ToList();
+        foreach (var inner in sections)
+        {
+            var outer = inner.ParentElement?.Closest("[data-dev-report]");
+            if (outer is not null && SectionKinds.Contains(Kind(outer)))
+            {
+                errors.Add($"The {Words(Kind(inner))} is inside the {Words(Kind(outer))}. Sections may not contain " +
+                           $"other sections - close the {Words(Kind(outer))} before the next one starts.");
+            }
+        }
+    }
+
+    private static void CheckSummary(List<IElement> sections, List<string> errors)
+    {
+        var summaries = sections.Where(s => Kind(s) == Summary).ToList();
+        if (summaries.Count != 1)
+        {
+            return; // CheckCounts already said what is wrong.
+        }
+        var summary = summaries[0];
+        if (IsHidden(summary))
+        {
+            errors.Add("The executive summary is hidden (the hidden attribute or an inline display:none on it or on " +
+                       "an element around it). The owner reads it first - remove that.");
+        }
+        else if (!HasWords(summary))
+        {
+            errors.Add("The executive summary is empty. Write the summary in it, in words.");
+        }
+    }
+
+    private static void CheckQuestions(IDocument document, List<IElement> sections, List<string> errors)
+    {
+        var questionsMarkers = sections.Where(s => Kind(s) == Questions).ToList();
         if (questionsMarkers.Count != 1)
         {
             return; // CheckCounts already said what is wrong; judging questions against no section says nothing more.
         }
 
         var section = questionsMarkers[0];
-        if (section.EndTagPosition is null)
+        if (IsHidden(section))
         {
-            errors.Add($"The questions section (<{section.Name} data-dev-report=\"questions\">) has no closing </{section.Name}> tag. " +
-                       "Close it, so it is clear which questions are inside it.");
-            return;
+            errors.Add("The questions section is hidden (the hidden attribute or an inline display:none on it or on " +
+                       "an element around it). The owner must see it, even when it says there are no questions - remove that.");
         }
-        bool InSection(Tag t) => t.Position > section.Position && t.Position < section.EndTagPosition;
 
-        var allQuestions = tags.Where(t => t.Attributes.ContainsKey("data-dev-report-question")).ToList();
-        foreach (var outside in allQuestions.Where(q => !InSection(q)))
+        var allQuestions = document.QuerySelectorAll("[data-dev-report-question]").ToList();
+        foreach (var outside in allQuestions.Where(q => !section.Contains(q)))
         {
-            errors.Add($"The question \"{outside.Attributes["data-dev-report-question"]}\" is outside the questions " +
+            errors.Add($"The question \"{Label(outside)}\" is outside the questions " +
                        "section. Move it inside the element marked data-dev-report=\"questions\".");
         }
-        var questions = allQuestions.Where(InSection).ToList();
+        var questions = allQuestions.Where(q => section.Contains(q)).ToList();
 
-        var noQuestions = tags.Where(t => InSection(t) && t.Attributes.ContainsKey("data-dev-report-no-questions")).ToList();
+        var noQuestions = section.QuerySelectorAll("[data-dev-report-no-questions]").ToList();
         if (questions.Count == 0 && noQuestions.Count == 0)
         {
             errors.Add("The questions section is empty. When there are no questions it must say so: add an element " +
@@ -230,28 +268,18 @@ internal static class DevReportShapeCheck
         {
             errors.Add($"The questions section has {noQuestions.Count} no-questions elements. It needs exactly one.");
         }
-        else if (noQuestions.Count == 1)
+        else if (noQuestions.Count == 1 && !HasWords(noQuestions[0]))
         {
-            var marker = noQuestions[0];
-            if (marker.EndTagPosition is null)
-            {
-                errors.Add($"The no-questions element (<{marker.Name} data-dev-report-no-questions>) has no closing " +
-                           $"</{marker.Name}> tag. Close it around its words.");
-            }
-            else if (!HasVisibleText(html, marker.StartTagEnd, marker.EndTagPosition.Value, stopAtParagraphClosers: marker.Name == "p"))
-            {
-                errors.Add("The no-questions element is empty. It must say so in words, for example " +
-                           "\"No questions - nothing needed from you.\"");
-            }
+            errors.Add("The no-questions element is empty. It must say so in words, for example " +
+                       "\"No questions - nothing needed from you.\"");
         }
 
         var seen = new HashSet<string>(StringComparer.Ordinal);
-        var usable = new List<int>();
+        var usable = new HashSet<IElement>();
         var allUsable = true;
-        for (var i = 0; i < questions.Count; i++)
+        foreach (var q in questions)
         {
-            var q = questions[i];
-            var id = q.Attributes["data-dev-report-question"];
+            var id = q.GetAttribute("data-dev-report-question") ?? "";
             if (!QuestionId.IsMatch(id))
             {
                 errors.Add($"The question id \"{id}\" is not allowed. Use only letters, digits, - and _.");
@@ -261,82 +289,115 @@ internal static class DevReportShapeCheck
                 errors.Add($"The question id \"{id}\" is used more than once. Every question needs its own id.");
             }
 
-            if (q.EndTagPosition is null)
+            var outer = q.ParentElement?.Closest("[data-dev-report-question]");
+            if (outer is not null)
             {
-                errors.Add($"The question \"{Label(q)}\" (<{q.Name}>) has no closing </{q.Name}> tag. Close it, so it is " +
-                           "clear which options belong to it.");
+                errors.Add($"The question \"{Label(q)}\" is nested inside the question \"{Label(outer)}\". " +
+                           "Questions may not contain other questions - close each question before the next one starts.");
                 allUsable = false;
+                // The question around it comes first in document order, so it is already in the set; a question
+                // holding a nested one cannot be judged on its options either.
+                usable.Remove(outer);
                 continue;
             }
-            // Questions are in document order, so if any later question starts inside this one, the next does.
-            if (i + 1 < questions.Count && questions[i + 1].Position < q.EndTagPosition)
-            {
-                errors.Add($"The question \"{Label(questions[i + 1])}\" is nested inside the question \"{Label(q)}\". " +
-                           "Questions may not contain other questions.");
-                allUsable = false;
-                continue;
-            }
-            usable.Add(i);
+            usable.Add(q);
         }
 
-        // One merge of the radio options (in document order) into the usable questions (in document order, not
-        // overlapping), instead of a scan of the whole page per question.
-        var optionCounts = new int[questions.Count];
-        var recommendedCounts = new int[questions.Count];
-        var u = 0;
-        foreach (var radio in tags.Where(t => IsRadio(t) && InSection(t)))
+        // Every radio in the document, with the question that owns it (the nearest question around it), so a
+        // group name can be checked against the options of every other question too.
+        var radios = document.QuerySelectorAll("input").Where(IsRadio)
+            .Select(r => (Radio: r, Owner: r.ParentElement?.Closest("[data-dev-report-question]")))
+            .ToList();
+
+        var options = new Dictionary<IElement, List<IElement>>();
+        foreach (var (radio, owner) in radios.Where(r => section.Contains(r.Radio)))
         {
-            while (u < usable.Count && questions[usable[u]].EndTagPosition < radio.Position)
-            {
-                u++;
-            }
-            var owner = u < usable.Count && questions[usable[u]].Position < radio.Position ? usable[u] : -1;
-            if (owner < 0)
+            if (owner is null || !section.Contains(owner))
             {
                 // A question that could not be judged already has an error; its options would only repeat it.
                 if (allUsable)
                 {
-                    var value = radio.Attributes.TryGetValue("value", out var v) ? v : "(no value)";
+                    var value = radio.GetAttribute("value") ?? "(no value)";
                     errors.Add($"The radio option \"{value}\" in the questions section is not inside any question. Move it " +
                                "inside the element marked data-dev-report-question it belongs to.");
                 }
                 continue;
             }
-            optionCounts[owner]++;
-            if (radio.Attributes.ContainsKey("data-recommended"))
+            if (!options.TryGetValue(owner, out var list))
             {
-                recommendedCounts[owner]++;
+                options[owner] = list = [];
             }
+            list.Add(radio);
         }
 
-        foreach (var i in usable)
+        foreach (var q in questions.Where(usable.Contains))
         {
-            if (optionCounts[i] < 2)
+            var own = options.TryGetValue(q, out var list) ? list : [];
+            if (own.Count < 2)
             {
-                errors.Add($"The question \"{Label(questions[i])}\" has {optionCounts[i]} option(s). Give it at least two " +
+                errors.Add($"The question \"{Label(q)}\" has {own.Count} option(s). Give it at least two " +
                            "<input type=\"radio\"> options inside it.");
             }
-            if (recommendedCounts[i] != 1)
+            var recommended = own.Count(r => r.HasAttribute("data-recommended"));
+            if (recommended != 1)
             {
-                errors.Add($"The question \"{Label(questions[i])}\" has {recommendedCounts[i]} recommended options. Mark " +
+                errors.Add($"The question \"{Label(q)}\" has {recommended} recommended options. Mark " +
                            "exactly one option with data-recommended.");
             }
+            CheckRadioGroup(q, own, radios, errors);
+        }
+    }
+
+    // The browser lets only one radio in a GROUP be checked, and a group is a name. Options of one question
+    // with different names can all be checked at once, and options sharing a name with another question
+    // uncheck each other - either way the page no longer shows one answer per question.
+    private static void CheckRadioGroup(IElement question, List<IElement> own,
+        List<(IElement Radio, IElement? Owner)> allRadios, List<string> errors)
+    {
+        if (own.Count == 0)
+        {
+            return;
+        }
+        var unnamed = own.Count(r => string.IsNullOrEmpty(r.GetAttribute("name")));
+        if (unnamed > 0)
+        {
+            errors.Add($"The question \"{Label(question)}\" has {unnamed} option(s) with no name. Give every option in " +
+                       "the question the same name=\"...\", used by no other question.");
+            return;
+        }
+        var names = own.Select(r => r.GetAttribute("name")!).Distinct(StringComparer.Ordinal).ToList();
+        if (names.Count > 1)
+        {
+            errors.Add($"The options of the question \"{Label(question)}\" use {names.Count} different names " +
+                       $"({string.Join(", ", names.Select(n => $"\"{n}\""))}). Give every option in the question one " +
+                       "name, so the browser lets only one of them be checked.");
+            return;
+        }
+        var name = names[0];
+        if (allRadios.Any(r => r.Owner != question && r.Radio.GetAttribute("name") == name))
+        {
+            errors.Add($"The name \"{name}\" of the options of the question \"{Label(question)}\" is also used by a radio " +
+                       "option outside that question. Use a name that belongs to this question only.");
         }
     }
 
     // Every host blocks a report's own scripts (CONTRACT.md section 4), so a script or an inline event handler
     // in a report is dead code that would leave the owner looking at a broken page. Say so at publish time.
-    private static void CheckNoScripts(List<Tag> tags, List<string> errors)
+    // Template content is not in the live document, so it is not counted - it cannot run until a script
+    // clones it, and no script of the report runs.
+    private static void CheckNoScripts(IDocument document, List<string> errors)
     {
-        var scripts = tags.Count(t => t.Name == "script");
+        var elements = document.All.ToList();
+        var scripts = elements.Count(e => string.Equals(e.LocalName, "script", StringComparison.OrdinalIgnoreCase));
         if (scripts > 0)
         {
             errors.Add($"The report has {scripts} <script> element(s). Scripts do not run in a dev report - remove " +
                        "them and draw what they would have drawn as HTML, CSS or inline SVG.");
         }
-        var handlers = tags
-            .SelectMany(t => t.Attributes.Keys.Where(k => k.StartsWith("on", StringComparison.Ordinal) && k.Length > 2)
-                .Select(k => $"{k} on <{t.Name}>"))
+        var handlers = elements
+            .SelectMany(e => e.Attributes
+                .Where(a => a.Name.Length > 2 && a.Name.StartsWith("on", StringComparison.OrdinalIgnoreCase))
+                .Select(a => $"{a.Name} on <{e.LocalName}>"))
             .ToList();
         if (handlers.Count > 0)
         {
@@ -345,52 +406,75 @@ internal static class DevReportShapeCheck
         }
     }
 
-    private static string Label(Tag question)
+    /// <summary>True when the element, or an element around it, carries the hidden attribute or an inline
+    /// display:none. Stylesheet rules are not evaluated (see the class comment).</summary>
+    private static bool IsHidden(IElement element)
     {
-        var id = question.Attributes["data-dev-report-question"];
+        for (var e = element; e is not null; e = e.ParentElement)
+        {
+            if (e.HasAttribute("hidden") || HasInlineDisplayNone(e))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static bool HasInlineDisplayNone(IElement element)
+    {
+        var style = element.GetAttribute("style");
+        if (string.IsNullOrEmpty(style))
+        {
+            return false;
+        }
+        foreach (var declaration in style.Split(';'))
+        {
+            var colon = declaration.IndexOf(':');
+            if (colon < 0)
+            {
+                continue;
+            }
+            var property = declaration[..colon].Trim();
+            var value = declaration[(colon + 1)..].Replace("!important", "", StringComparison.OrdinalIgnoreCase).Trim();
+            if (property.Equals("display", StringComparison.OrdinalIgnoreCase) &&
+                value.Equals("none", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>True when the element's text, as a reader would see it, has a character that is not white
+    /// space. The parser has already decoded character references, so a no-break space alone is still empty;
+    /// text in scripts, styles and hidden descendants does not count.</summary>
+    private static bool HasWords(IElement element)
+    {
+        foreach (var node in element.ChildNodes)
+        {
+            if (node is IText text && text.Data.Any(ch => !char.IsWhiteSpace(ch)))
+            {
+                return true;
+            }
+            if (node is IElement child &&
+                !UnreadTextElements.Contains(child.LocalName.ToLowerInvariant()) &&
+                !child.HasAttribute("hidden") && !HasInlineDisplayNone(child) &&
+                HasWords(child))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static string Label(IElement question)
+    {
+        var id = question.GetAttribute("data-dev-report-question") ?? "";
         return id.Length == 0 ? "(no id)" : id;
     }
 
-    // Start tags that close an open <p> in a browser. Text after one of them is not the paragraph's text,
-    // whatever end tag comes later.
-    private static readonly string[] ParagraphClosers =
-        ["address", "article", "aside", "blockquote", "details", "dialog", "div", "dl", "fieldset", "figcaption",
-         "figure", "footer", "form", "h1", "h2", "h3", "h4", "h5", "h6", "header", "hgroup", "hr", "main", "menu",
-         "nav", "ol", "p", "pre", "section", "table", "ul"];
-
-    /// <summary>True when the element's own text, as a reader would see it, has a character that is not
-    /// white space. Character references are decoded first, so &amp;nbsp; alone is still empty. For a
-    /// paragraph, reading stops at the first start tag a browser would close the paragraph on.</summary>
-    private static bool HasVisibleText(string html, int from, int to, bool stopAtParagraphClosers)
-    {
-        var text = new System.Text.StringBuilder();
-        var i = from;
-        while (i < to)
-        {
-            var c = html[i];
-            if (c != '<')
-            {
-                text.Append(c);
-                i++;
-                continue;
-            }
-            var nameStart = i + 1;
-            var nameEnd = nameStart;
-            while (nameEnd < to && IsNameChar(html[nameEnd])) nameEnd++;
-            if (stopAtParagraphClosers && nameEnd > nameStart &&
-                ParagraphClosers.Contains(html.Substring(nameStart, nameEnd - nameStart).ToLowerInvariant()))
-            {
-                break;
-            }
-            var close = html.IndexOf('>', i);
-            i = close < 0 || close >= to ? to : close + 1;
-        }
-        return System.Net.WebUtility.HtmlDecode(text.ToString()).Any(ch => !char.IsWhiteSpace(ch));
-    }
-
-    private static bool IsRadio(Tag t)
-        => t.Name == "input" && t.Attributes.TryGetValue("type", out var type) &&
-           string.Equals(type.Trim(), "radio", StringComparison.OrdinalIgnoreCase);
+    private static bool IsRadio(IElement e)
+        => string.Equals((e.GetAttribute("type") ?? "").Trim(), "radio", StringComparison.OrdinalIgnoreCase);
 
     private static string Words(string kind) => kind switch
     {
@@ -401,182 +485,4 @@ internal static class DevReportShapeCheck
         Evidence => "evidence section",
         _ => kind,
     };
-
-    // ---------------------------------------------------------------------------------------------------
-    // The tag scanner
-    // ---------------------------------------------------------------------------------------------------
-
-    /// <summary>Reads every start tag in document order, and gives each non-void one the position of its
-    /// matching end tag when it has one. Matching is by tag name with a stack per name, which is right for
-    /// the elements a report puts markers on (section, div, header, p) as long as each is closed; an element
-    /// left for the browser to close implicitly has no end position, and the checks that need one say so.</summary>
-    private static List<Tag> ReadTags(string html)
-    {
-        var tags = new List<Tag>();
-        var open = new Dictionary<string, Stack<int>>(StringComparer.Ordinal);
-        var i = 0;
-        var n = html.Length;
-        while (i < n)
-        {
-            var lt = html.IndexOf('<', i);
-            if (lt < 0 || lt + 1 >= n) break;
-
-            if (string.CompareOrdinal(html, lt, "<!--", 0, 4) == 0)
-            {
-                var close = html.IndexOf("-->", lt + 4, StringComparison.Ordinal);
-                i = close < 0 ? n : close + 3;
-                continue;
-            }
-
-            var next = html[lt + 1];
-            if (next == '/')
-            {
-                var nameEnd = lt + 2;
-                while (nameEnd < n && IsNameChar(html[nameEnd])) nameEnd++;
-                var endName = html.Substring(lt + 2, nameEnd - lt - 2).ToLowerInvariant();
-                if (endName.Length > 0 && open.TryGetValue(endName, out var openOfName) && openOfName.Count > 0)
-                {
-                    var index = openOfName.Pop();
-                    tags[index] = tags[index] with { EndTagPosition = lt };
-                }
-                var closeEnd = html.IndexOf('>', lt + 1);
-                i = closeEnd < 0 ? n : closeEnd + 1;
-                continue;
-            }
-            if (next == '!' || next == '?')
-            {
-                var close = html.IndexOf('>', lt + 1);
-                i = close < 0 ? n : close + 1;
-                continue;
-            }
-            if (!char.IsAsciiLetter(next))
-            {
-                i = lt + 1;
-                continue;
-            }
-
-            var p = lt + 1;
-            while (p < n && IsNameChar(html[p])) p++;
-            var name = html.Substring(lt + 1, p - lt - 1).ToLowerInvariant();
-
-            var attributes = new Dictionary<string, string>(StringComparer.Ordinal);
-            while (p < n)
-            {
-                while (p < n && IsSpace(html[p])) p++;
-                if (p >= n) break;
-                if (html[p] == '>') { p++; break; }
-                if (html[p] == '/') { p++; continue; }
-
-                var nameStart = p;
-                while (p < n && !IsSpace(html[p]) && html[p] != '>' && html[p] != '/' && html[p] != '=') p++;
-                if (p == nameStart) { p++; continue; }
-                var attrName = html.Substring(nameStart, p - nameStart).ToLowerInvariant();
-
-                var q = p;
-                while (q < n && IsSpace(html[q])) q++;
-                var value = "";
-                if (q < n && html[q] == '=')
-                {
-                    q++;
-                    while (q < n && IsSpace(html[q])) q++;
-                    if (q < n && (html[q] == '"' || html[q] == '\''))
-                    {
-                        var quote = html[q];
-                        var close = html.IndexOf(quote, q + 1);
-                        var stop = close < 0 ? n : close;
-                        value = html.Substring(q + 1, stop - q - 1);
-                        p = close < 0 ? n : close + 1;
-                    }
-                    else
-                    {
-                        var valueStart = q;
-                        while (q < n && !IsSpace(html[q]) && html[q] != '>') q++;
-                        value = html.Substring(valueStart, q - valueStart);
-                        p = q;
-                    }
-                }
-                // HTML keeps the FIRST of a repeated attribute; so does this.
-                attributes.TryAdd(attrName, System.Net.WebUtility.HtmlDecode(value));
-            }
-
-            if (name == "plaintext")
-            {
-                // A browser renders everything after <plaintext> as text, to the end of the page. Nothing after it counts.
-                break;
-            }
-
-            tags.Add(new Tag(name, attributes, lt, p, null));
-            if (!VoidTags.Contains(name))
-            {
-                if (!open.TryGetValue(name, out var openOfName))
-                {
-                    open[name] = openOfName = new Stack<int>();
-                }
-                openOfName.Push(tags.Count - 1);
-            }
-            i = p;
-
-            // As in a browser, a trailing slash does not close these: <script/> still opens a script. Their
-            // content is text up to an end tag whose name is followed by a space, / or > - so "</scripture"
-            // inside a script does not end it.
-            if (SkippedContentTags.Contains(name))
-            {
-                var end = FindRawTextEnd(html, name, i);
-                if (end < 0)
-                {
-                    break;
-                }
-                i = end;
-            }
-        }
-        return tags;
-    }
-
-    private static int FindRawTextEnd(string html, string name, int from)
-    {
-        if (name == "template")
-        {
-            return FindTemplateEnd(html, from);
-        }
-        var at = from;
-        while (true)
-        {
-            var close = html.IndexOf("</" + name, at, StringComparison.OrdinalIgnoreCase);
-            if (close < 0) return -1;
-            var after = close + 2 + name.Length;
-            if (after >= html.Length || IsSpace(html[after]) || html[after] == '/' || html[after] == '>')
-            {
-                return close;
-            }
-            at = close + 1;
-        }
-    }
-
-    // Templates nest: the content of <template><template></template> ... </template> runs to the OUTER end tag.
-    private static int FindTemplateEnd(string html, int from)
-    {
-        var depth = 1;
-        var at = from;
-        while (true)
-        {
-            var lt = html.IndexOf('<', at);
-            if (lt < 0) return -1;
-            var closing = lt + 1 < html.Length && html[lt + 1] == '/';
-            var nameStart = closing ? lt + 2 : lt + 1;
-            if (string.Compare(html, nameStart, "template", 0, 8, StringComparison.OrdinalIgnoreCase) == 0)
-            {
-                var after = nameStart + 8;
-                if (after >= html.Length || IsSpace(html[after]) || html[after] == '/' || html[after] == '>')
-                {
-                    depth += closing ? -1 : 1;
-                    if (depth == 0) return lt;
-                }
-            }
-            at = lt + 1;
-        }
-    }
-
-    private static bool IsNameChar(char c) => char.IsAsciiLetterOrDigit(c) || c == '-' || c == ':';
-
-    private static bool IsSpace(char c) => c is ' ' or '\t' or '\n' or '\r' or '\f';
 }

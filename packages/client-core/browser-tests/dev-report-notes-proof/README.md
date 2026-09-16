@@ -9,8 +9,17 @@ node run-proof.mjs
 ```
 
 It prints PASS or FAIL per claim, exits non-zero on any failure, and writes `evidence-<date>.json` plus
-screenshots beside it. Playwright is loaded from the global `@playwright/cli` install; set
-`PLAYWRIGHT_PATH` to point elsewhere.
+screenshots beside it.
+
+Playwright is not a dependency of this repository, so tell the proof where it is. It loads Playwright from
+`PLAYWRIGHT_PATH` when that is set, and otherwise by ordinary Node module resolution from this directory.
+With a global `@playwright/cli` install:
+
+```
+PLAYWRIGHT_PATH="$(npm root -g)/@playwright/cli/node_modules/playwright" node run-proof.mjs
+```
+
+When neither finds Playwright the run stops with FAIL and this instruction; it does not look anywhere else.
 
 ## What is real and what is not
 

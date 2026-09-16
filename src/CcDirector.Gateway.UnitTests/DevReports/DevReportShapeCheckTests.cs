@@ -225,15 +225,91 @@ public sealed class DevReportShapeCheckTests
     }
 
     [Fact]
-    public void Check_UnclosedQuestion_Fails()
-        => AssertFailsWith(Report(questionsBody: Question.Replace("</div>", "")), "has no closing </div> tag");
+    public void Check_UnclosedQuestionFollowedByAnother_IsJudgedAsTheBrowserNestsIt()
+    {
+        // A browser does not close a div at the next div: the second question ends up inside the first, and so
+        // do its options. The check reads the page the browser builds, so it says so.
+        var unclosed = Question.Replace("</div>", "") + Question.Replace("rerun", "second");
+        AssertFailsWith(Report(questionsBody: unclosed), "\"second\" is nested inside the question \"rerun\"");
+    }
 
     [Fact]
-    public void Check_UnclosedQuestionsSection_Fails()
+    public void Check_UnclosedQuestionAtTheEndOfTheSection_IsClosedByTheSectionAndPasses()
+    {
+        var verdict = DevReportShapeCheck.Check(Report(questionsBody: Question.Replace("</div>", "")));
+        Assert.True(verdict.Passed, string.Join("\n", verdict.Errors));
+    }
+
+    [Fact]
+    public void Check_UnclosedQuestionsSection_SwallowsTheNextSectionAndFails()
     {
         var html = Report(questions: false, detail: false, evidence: false) +
-                   "<section data-dev-report=\"questions\">" + Question + "<section data-dev-report=\"detail\"></section>";
-        AssertFailsWith(html, "questions section (<section data-dev-report=\"questions\">) has no closing");
+                   "<section data-dev-report=\"questions\">" + Question + "<section data-dev-report=\"detail\"><p>Detail.</p></section>";
+        AssertFailsWith(html, "detail section is inside the questions section");
+    }
+
+    // --- the radio group of each question ------------------------------------------------------------
+
+    [Fact]
+    public void Check_OptionsOfOneQuestionWithDifferentNames_Fails()
+    {
+        // Inspection finding 2: two names make two groups, so the browser lets both options be checked and the
+        // recommended one stays checked when the owner clicks the other.
+        var twoNames = "<div data-dev-report-question=\"pick\"><h3>Pick?</h3>" +
+                       "<label><input type=\"radio\" name=\"first\" value=\"first\"> First</label>" +
+                       "<label><input type=\"radio\" name=\"second\" value=\"recommended\" data-recommended> Second</label></div>";
+        AssertFailsWith(Report(questionsBody: twoNames), "\"pick\" use 2 different names (\"first\", \"second\")");
+    }
+
+    [Fact]
+    public void Check_OptionWithNoName_Fails()
+        => AssertFailsWith(Report(questionsBody: Question.Replace("name=\"rerun\" value=\"no\"", "value=\"no\"")), "\"rerun\" has 1 option(s) with no name");
+
+    [Fact]
+    public void Check_TwoQuestionsSharingOneName_Fails()
+    {
+        var shared = Question + Question.Replace("data-dev-report-question=\"rerun\"", "data-dev-report-question=\"other\"");
+        AssertFailsWith(Report(questionsBody: shared), "name \"rerun\" of the options of the question \"rerun\" is also used");
+    }
+
+    // --- what the owner can see ------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData("<section data-dev-report=\"summary\" hidden><p>Summary.</p></section>")]
+    [InlineData("<section data-dev-report=\"summary\" style=\"color: red; DISPLAY : none !important\"><p>Summary.</p></section>")]
+    [InlineData("<div hidden><section data-dev-report=\"summary\"><p>Summary.</p></section></div>")]
+    public void Check_HiddenSummary_Fails(string summary)
+        => AssertFailsWith(Report(summary: false, afterHeader: summary), "executive summary is hidden");
+
+    [Fact]
+    public void Check_HiddenSummaryAndQuestionsSection_Fails()
+    {
+        // Inspection finding 3: the payload with both sections hidden passed.
+        var html = Report()
+            .Replace("<section data-dev-report=\"summary\">", "<section data-dev-report=\"summary\" hidden>")
+            .Replace("<section data-dev-report=\"questions\">", "<section data-dev-report=\"questions\" hidden>");
+        AssertFailsWith(html, "executive summary is hidden");
+        AssertFailsWith(html, "questions section is hidden");
+    }
+
+    [Fact]
+    public void Check_QuestionsSectionHiddenByInlineStyle_Fails()
+        => AssertFailsWith(Report().Replace("<section data-dev-report=\"questions\">", "<section data-dev-report=\"questions\" style=\"display:none\">"), "questions section is hidden");
+
+    [Theory]
+    [InlineData("<section data-dev-report=\"summary\"></section>")]
+    [InlineData("<section data-dev-report=\"summary\"><p> &nbsp; </p></section>")]
+    [InlineData("<section data-dev-report=\"summary\"><style>p { color: red }</style><p hidden>Hidden words.</p></section>")]
+    public void Check_SummaryWithNoWords_Fails(string summary)
+        => AssertFailsWith(Report(summary: false, afterHeader: summary), "executive summary is empty");
+
+    [Fact]
+    public void Check_SectionHiddenOnlyByAStylesheet_Passes_BecauseTheCheckIsGuidance()
+    {
+        // The check does not evaluate stylesheets; the host policy is the boundary, not this check. Recorded so
+        // nobody reads the hidden-section rule as more than it is.
+        var html = Report(tail: "<style>[data-dev-report=summary] { display: none }</style>");
+        Assert.True(DevReportShapeCheck.Check(html).Passed);
     }
 
     // --- then the detail --------------------------------------------------------------------------------
@@ -259,6 +335,34 @@ public sealed class DevReportShapeCheckTests
     [Fact]
     public void Check_ReportWithAnInlineEventHandler_Fails()
         => AssertFailsWith(Report(tail: "<img src=\"x.png\" onerror=\"alert(1)\">"), "onerror on <img>");
+
+    [Fact]
+    public void Check_ScriptInsideSvg_Fails()
+        => AssertFailsWith(Report(tail: "<svg><script>parent.postMessage({}, '*');</script></svg>"), "1 <script> element(s)");
+
+    [Fact]
+    public void Check_ScriptAfterATemplateWithACommentedStartTag_Fails()
+    {
+        // Inspection finding 1, second payload: the scanner read "<template>" inside the comment as a nested
+        // template and skipped to the end of the file, missing a script the browser runs.
+        AssertFailsWith(Report(tail: "<template><!-- <template> --></template><script>parent.postMessage({}, '*');</script>"), "1 <script> element(s)");
+    }
+
+    [Fact]
+    public void Check_ScriptInsideTemplateContent_IsNotInTheLiveDocument()
+    {
+        var verdict = DevReportShapeCheck.Check(Report(tail: "<template><script>parent.postMessage({}, '*');</script><img onerror=\"x()\"></template>"));
+        Assert.True(verdict.Passed, string.Join("\n", verdict.Errors));
+    }
+
+    [Fact]
+    public void Check_MarkersInsideATemplateWithACommentedEndTag_DoNotCount()
+    {
+        // Inspection finding 1, first payload: the scanner read "</template>" inside the comment as the end of
+        // the inner template and counted markers that are inert content of the outer one.
+        var html = "<template><template><!-- </template> --></template>" + Report() + "</template>";
+        AssertFailsWith(html, "has no header");
+    }
 
     [Fact]
     public void Check_MarkersInCommentsStylesAndTemplates_DoNotCount()
@@ -312,7 +416,7 @@ public sealed class DevReportShapeCheckTests
     public void Check_UppercaseAttributesSingleQuotesAndUnquotedValues_AreRead()
     {
         var html = "<HEADER DATA-DEV-REPORT='header' data-dev-report-status=done></HEADER>" +
-                   "<section data-dev-report=summary></section>" +
+                   "<section data-dev-report=summary>Summary.</section>" +
                    "<section data-dev-report = 'questions'><p data-dev-report-no-questions>None.</p></section>" +
                    "<section data-dev-report=\"detail\"></section>";
         var verdict = DevReportShapeCheck.Check(html);

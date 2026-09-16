@@ -17,7 +17,7 @@
           "rerun"
         ]
       },
-      "token": "af32469577c0e8be73f655517293a873"
+      "token": "87702f07eeb817fadf0c68630663fde8"
     },
     "sendPayloadTheHostGot": {
       "channel": "devthrottle.dev-report",
@@ -48,7 +48,7 @@
           }
         ]
       },
-      "token": "af32469577c0e8be73f655517293a873"
+      "token": "87702f07eeb817fadf0c68630663fde8"
     },
     "reloadRightAfterPushes": {
       "sent": "Table cell - row \"Gateway\", column \"Failures\": \"42\"Forty-two failures cannot be right - the suite has twelve tests.Held - delivered when the agent finishes its turn",
@@ -72,7 +72,7 @@
           }
         ]
       },
-      "token": "37f867d40bfa9287797c911fa2fdbb56"
+      "token": "fdf214d0ef27bf24eda3e3fee423ec72"
     },
     "afterReload": {
       "scrollY": 300,

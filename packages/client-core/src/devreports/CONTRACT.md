@@ -36,14 +36,22 @@ A report has no `<script>` elements and no inline event handlers (`onclick=`, `o
 host blocks them (section 4), so the check refuses them rather than let the owner open a page that
 silently does less than its author meant.
 
-Markers a browser would not treat as elements do not count: inside HTML comments, inside `<script>`,
-`<style>`, `<template>`, `<textarea>`, `<title>`, `<xmp>`, `<iframe>`, `<noembed>`, `<noframes>` and
-`<noscript>` (a `<template>` runs to its own end tag, past any template nested in it), and anywhere after
-`<plaintext>`.
+The check reads the report the way a browser does: it parses it with an HTML5 parser, after the head the
+host writes (section 4, rule 2) and with scripting on, and judges the document that results. So markers a
+browser would not make into elements do not count - inside comments, inside text-only elements such as
+`<style>`, `<textarea>` or `<noscript>`, inside `<template>` content, or after `<plaintext>` - and a script
+or handler counts only when it is in the live document, not in template content. An element left unclosed
+ends where a browser ends it. "Inside" means inside in that document, which is also what the note-taking
+script sees in the page.
 
-"Inside" is decided by an element's own start and end tags, and the note-taking script uses the same rule
-in the page. So the questions section, every question and the no-questions element must each be closed
-with their own end tag, and the check says so when one is not.
+- Sections do not contain other sections. A section left unclosed usually ends up holding the next one,
+  and the check says so.
+- The executive summary has words in it, and neither the summary nor the questions section is hidden by
+  the `hidden` attribute or an inline `display: none`, on itself or on an element around it.
+
+**The check is guidance, not the security boundary.** It tells the agent at publish time that the report is
+the wrong shape. It does not evaluate stylesheets, so it cannot promise the owner sees every section; what
+stops a report acting for the owner is the host's policy in section 4.
 
 ### The questions section
 
@@ -68,7 +76,10 @@ with their own end tag, and the check says so when one is not.
 ```
 
 - **Options** are `<input type="radio">` elements inside the question element (not inside a question nested
-  in it, which the check refuses anyway). At least two. The option's label
+  in it, which the check refuses anyway). At least two. **Every option in a question shares one `name`, and
+  no radio outside that question uses it** - the browser lets only one radio of a name be checked, and that
+  is what keeps one answer per question. The script also keeps at most one option of a question checked
+  itself, so the answer it queues is always the option the owner last picked. The option's label
   is the text of its `<label>` (wrapping, or pointed at by `for=`); without a label, its `value`.
 - **The recommendation** is `data-recommended` on exactly one option. The script checks it when the page
   loads, so the recommendation is preselected.
@@ -77,11 +88,14 @@ with their own end tag, and the check says so when one is not.
 - **A comment box** is optional: a `<textarea data-dev-report-comment>` inside the question.
 - **The Queue button** is added by the script, one per question. An author never writes it.
 
-The shape check enforces: at least two options, exactly one `data-recommended`, unique ids, no nesting,
-no option outside a question, and exactly one no-questions element whose own text has words in it (a character reference such as `&nbsp;` alone is not words, and text after a block element that would close a `<p>` is not the paragraph's).
+The shape check enforces: at least two options, exactly one `data-recommended`, one shared `name` per
+question used by no other radio, unique ids, no nesting, no option outside a question, and exactly one
+no-questions element whose own text has words in it (a character reference such as `&nbsp;` alone is not
+words, and text after a block element that would close a `<p>` is not the paragraph's).
 
-Every text the script sends is at most 20000 characters. The script sets `maxlength` on the comment box
-and says so, rather than queueing, when a comment or the question's own markup is longer.
+Every text the script sends is at most 20000 characters. The script sets `maxlength` on the comment box,
+and says so rather than queueing when a comment, the question text or an option's value is longer. The
+question text is sent whole or not at all - never shortened.
 
 ### What can be noted
 

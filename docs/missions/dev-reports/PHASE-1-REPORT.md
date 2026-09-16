@@ -1,7 +1,7 @@
 # Dev Reports - phase 1 report: the note-taking script and the shape check
 
-Issue: #2940 (child of #2936). Branch: `mission/dev-reports`. Built, proven, and reviewed twice by a Codex
-session (`REVIEW-phase-1.md`). Every finding of both passes is fixed, and each fix has a test that was
+Issue: #2940 (child of #2936). Branch: `mission/dev-reports`. Built, proven, and reviewed twice by an independent
+reviewer from a different agent family (`REVIEW-phase-1.md`). Every finding of both passes is fixed, and each fix has a test that was
 watched failing without it.
 
 ## Ruling 8: report scripts are blocked

@@ -642,11 +642,14 @@
     return { head: describeAnchor(item.anchor), body: item.text };
   }
 
+  // The whole question text, never cut short: the Queue button checks its length and declines to queue a
+  // question that is too long, so the answer never carries different words from the ones the owner read.
   function questionText(q) {
     var explicit = q.getAttribute("data-dev-report-question-text");
-    if (explicit && cleanText(explicit)) return cleanText(explicit, MAX_STRING);
+    if (explicit && cleanText(explicit)) return cleanText(explicit);
     var heading = q.querySelector("h1,h2,h3,h4,h5,h6");
-    if (heading && textOf(heading)) return textOf(heading);
+    var headingText = heading ? cleanText(heading.innerText != null && heading.innerText !== "" ? heading.innerText : heading.textContent) : "";
+    if (headingText) return headingText;
     return q.getAttribute("data-dev-report-question");
   }
 
@@ -1006,12 +1009,22 @@
     questions.forEach(function (q) {
       var id = q.getAttribute("data-dev-report-question");
       var radios = radiosIn(q);
-      var anyChecked = radios.some(function (r) { return r.checked; });
-      if (!anyChecked) {
-        radios.forEach(function (r) {
-          if (r.hasAttribute("data-recommended")) r.checked = true;
+      // One answer per question, whatever the radio names say. The shape check requires one shared name, but
+      // a page with two names lets the browser keep two options checked, and then the answer queued would be
+      // whichever came last rather than the one the owner clicked. So the question keeps at most one checked
+      // option itself: at start the recommendation (or the first checked), and after that the owner's choice.
+      var checkedAtStart = radios.filter(function (r) { return r.checked; });
+      var keep = checkedAtStart.filter(function (r) { return r.hasAttribute("data-recommended"); })[0] ||
+        checkedAtStart[0] ||
+        radios.filter(function (r) { return r.hasAttribute("data-recommended"); })[0] ||
+        null;
+      radios.forEach(function (r) { r.checked = r === keep; });
+      radios.forEach(function (r) {
+        r.addEventListener("change", function () {
+          if (!r.checked) return;
+          radios.forEach(function (other) { if (other !== r) other.checked = false; });
         });
-      }
+      });
       var rowRoot = shadowHost(doc);
       uiRoots.push(rowRoot.host);
       var row = el(doc, "div", { "class": "drn-row" });
@@ -1050,7 +1063,8 @@
         };
         var tooLong = [];
         if (answer.comment.length > MAX_STRING) tooLong.push("the comment");
-        if (answer.optionValue.length > MAX_STRING || answer.question.length > MAX_STRING) tooLong.push("the question's markup");
+        if (answer.question.length > MAX_STRING) tooLong.push("the question text");
+        if (answer.optionValue.length > MAX_STRING) tooLong.push("the option's value");
         if (answer.questionId.length > MAX_STRING) tooLong.push("the question id");
         if (tooLong.length) {
           stateText.textContent = "Not queued: " + tooLong.join(" and ") + " is longer than " + MAX_STRING + " characters.";

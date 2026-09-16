@@ -433,6 +433,52 @@ describe("the page", () => {
     expect(ui("[data-drn=question-state]")!.textContent).toContain("the comment is longer than 20000 characters");
   });
 
+  it("queues the option the owner clicked even when the options do not share one radio name", () => {
+    // Inspection finding 2: with two names the browser kept the recommendation checked beside the owner's
+    // click, and the answer queued was the recommendation.
+    document.body.innerHTML = `
+      <div data-dev-report-question="pick" data-dev-report-question-text="Pick one">
+        <label><input type="radio" name="first" value="first"> First</label>
+        <label><input type="radio" name="second" value="recommended" data-recommended> Second</label>
+      </div>`;
+    const page = api.start({ window });
+    const [first, second] = Array.from(document.querySelectorAll<HTMLInputElement>("input[type=radio]"));
+    expect([first.checked, second.checked]).toEqual([false, true]);
+    first.click();
+    expect([first.checked, second.checked]).toEqual([true, false]);
+    click(ui("[data-question-id=pick]")!);
+    expect(page.model.snapshot().queued[0]).toMatchObject({ questionId: "pick", optionValue: "first", optionLabel: "First" });
+  });
+
+  it("keeps only one option checked at start when the markup checks several", () => {
+    document.body.innerHTML = `
+      <div data-dev-report-question="pick">
+        <label><input type="radio" name="a" value="a" checked> A</label>
+        <label><input type="radio" name="b" value="b" checked data-recommended> B</label>
+      </div>`;
+    api.start({ window });
+    const checked = Array.from(document.querySelectorAll<HTMLInputElement>("input[type=radio]")).map((r) => r.checked);
+    expect(checked).toEqual([false, true]);
+  });
+
+  it("says an overlong question text is too long and does not queue a shortened copy", () => {
+    // Inspection finding 4: the text was cut to 20000 characters before the length check, so it queued.
+    document.body.innerHTML = report.replace('data-dev-report-question-text="When should we deploy?"', `data-dev-report-question-text="${"q".repeat(20001)}"`);
+    const page = api.start({ window });
+    click(ui("[data-drn=queue-answer]")!);
+    expect(page.model.snapshot().queued).toEqual([]);
+    expect(ui("[data-drn=question-state]")!.textContent).toContain("the question text is longer than 20000 characters");
+  });
+
+  it("queues a heading question text longer than a quote in full", () => {
+    // Inspection finding 4: a heading was cut to 240 characters, so the answer carried different words.
+    const long = "Why ".repeat(100).trim() + "?";
+    document.body.innerHTML = report.replace(' data-dev-report-question-text="When should we deploy?"', "").replace("<label>", `<h3>${long}</h3><label>`);
+    const page = api.start({ window });
+    click(ui("[data-drn=queue-answer]")!);
+    expect(page.model.snapshot().queued[0]).toMatchObject({ question: long });
+  });
+
   it("gives a question with the id __proto__ its state line like any other", () => {
     // Review finding 11.
     document.body.innerHTML = report.split('"deploy"').join('"__proto__"');

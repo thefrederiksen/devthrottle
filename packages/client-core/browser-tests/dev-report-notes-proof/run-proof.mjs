@@ -38,10 +38,22 @@ import { dirname, join, extname } from "node:path";
 import { createRequire } from "node:module";
 
 const requireCjs = createRequire(import.meta.url);
-const PLAYWRIGHT_PATH =
-  process.env.PLAYWRIGHT_PATH ||
-  "C:/Users/soren/AppData/Roaming/npm/node_modules/@playwright/cli/node_modules/playwright";
-const { chromium } = requireCjs(PLAYWRIGHT_PATH);
+// Playwright is not a dependency of this repository. It is loaded from PLAYWRIGHT_PATH when that is set, and
+// otherwise by ordinary module resolution from this directory; when neither finds it, the run stops and says
+// how to point it at an install (see README.md).
+const playwrightTarget = process.env.PLAYWRIGHT_PATH || "playwright";
+let chromium;
+try {
+  ({ chromium } = requireCjs(playwrightTarget));
+} catch (err) {
+  console.error(
+    `[dev-report-proof] FAIL: cannot load Playwright from "${playwrightTarget}" (${err.code || err.message}).\n` +
+      "[dev-report-proof] Set PLAYWRIGHT_PATH to the playwright package directory of an install, for example\n" +
+      "[dev-report-proof]   PLAYWRIGHT_PATH=<npm global root>/@playwright/cli/node_modules/playwright node run-proof.mjs\n" +
+      "[dev-report-proof] (npm root -g prints the global root), or install playwright where Node resolves it from here."
+  );
+  process.exit(1);
+}
 
 const here = dirname(fileURLToPath(import.meta.url));
 const scriptPath = join(here, "../../src/devreports/dev-report-notes.js");
