@@ -174,6 +174,12 @@ jobs:
       fail-fast: false
       matrix:
         os: [windows-latest, macos-latest, ubuntu-latest]
+        # `latest` installs whatever is current. `floor` installs EXACTLY the lowest versions
+        # tools/cc-devthrottle/pyproject.toml declares, so the lower bound is tested rather than
+        # promised: a green run on current packages says nothing about the oldest ones the package
+        # still allows. Keep the pins below equal to the pyproject floors - raising one without
+        # the other brings the untested range back.
+        dependencies: [latest, floor]
 
     steps:
       - uses: actions/checkout@v5
@@ -183,8 +189,17 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install test dependencies
+      - name: Install test dependencies (latest)
+        if: matrix.dependencies == 'latest'
         run: python -m pip install --upgrade pip pytest typer rich requests
+
+      # Click 8.2.1 is the first release whose CliRunner always captures stderr separately and
+      # flushes it (8.2.0 captured it but could return it empty); the tests read result.stderr.
+      # Typer 0.16.1 is the first release that supports Click 8.2 without printing extra output
+      # for no_args_is_help, which cc-devthrottle's command groups use.
+      - name: Install test dependencies (declared floor)
+        if: matrix.dependencies == 'floor'
+        run: python -m pip install --upgrade pip pytest "typer==0.16.1" "click==8.2.1" "rich==13.0.0" "requests==2.31.0"
 
       # The shipped-tool contract: registry/pyproject name agreement, console-script entry points,
       # ASCII-only shipped source, and the Rich ASCII patches.
