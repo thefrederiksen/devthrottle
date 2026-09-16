@@ -138,7 +138,8 @@ def _connection(incoming):
     return conn
 
 
-def test_Call_HandlesAnEventThatArrivesBeforeItsAnswer():
+def test_Call_HandlesAnEventThatArrivesBeforeItsAnswer(home):
+    # home: a call writes the tool log, which lives in the secrets folder - a throwaway one here.
     conn = _connection([{"method": "Fetch.requestPaused", "params": {"requestId": "r1"}}, {"id": 1, "result": {"ok": 1}}])
     seen = []
     conn.on("Fetch.requestPaused", seen.append)
