@@ -38,7 +38,8 @@ silently does less than its author meant.
 
 Markers a browser would not treat as elements do not count: inside HTML comments, inside `<script>`,
 `<style>`, `<template>`, `<textarea>`, `<title>`, `<xmp>`, `<iframe>`, `<noembed>`, `<noframes>` and
-`<noscript>`, and anywhere after `<plaintext>`.
+`<noscript>` (a `<template>` runs to its own end tag, past any template nested in it), and anywhere after
+`<plaintext>`.
 
 "Inside" is decided by an element's own start and end tags, and the note-taking script uses the same rule
 in the page. So the questions section, every question and the no-questions element must each be closed
@@ -77,7 +78,7 @@ with their own end tag, and the check says so when one is not.
 - **The Queue button** is added by the script, one per question. An author never writes it.
 
 The shape check enforces: at least two options, exactly one `data-recommended`, unique ids, no nesting,
-no option outside a question, and a no-questions element that has words in it.
+no option outside a question, and exactly one no-questions element whose own text has words in it (a character reference such as `&nbsp;` alone is not words, and text after a block element that would close a `<p>` is not the paragraph's).
 
 Every text the script sends is at most 20000 characters. The script sets `maxlength` on the comment box
 and says so, rather than queueing, when a comment or the question's own markup is longer.
@@ -113,10 +114,17 @@ Every message, in both directions, is one object:
 - A message whose `channel` or `version` does not match is ignored.
 - A message whose `type` is unknown is ignored.
 - A message whose payload does not have the shape below is ignored, whole. Nothing is half-applied.
-- The page accepts messages only from `window.parent`. It posts to `window.parent` with target origin
-  `"*"`, because a sandboxed frame without `allow-same-origin` has an opaque origin and cannot name its
-  host's.
-- Every message from the page carries the host's `token` (section 4). A host drops any message without it.
+- Every message from the page carries the host's `token` (section 4).
+
+**Where messages travel.** Exactly one message goes over the window: the page's `ready`, posted to
+`window.parent` with target origin `"*"` (a sandboxed frame has an opaque origin and cannot name its
+host's) and carrying ONE end of a `MessageChannel` the page created. Everything after that - `restore`,
+`status`, `reply`, `send`, `state-changed` - goes over that private port, in both directions. The page does
+not listen for messages on its window at all.
+
+Why a port: a page the frame is navigated to later is a new document that never held the port, so it
+cannot receive what the host pushes - not even in the moment before its load event, when the host cannot
+yet tell the frame has moved - and it cannot pass for the note-taking script.
 
 ### Items
 
@@ -146,7 +154,7 @@ present only for the anchor types that carry them. Every string is at most 20000
 
 | type | payload | effect |
 |---|---|---|
-| `restore` | `{ "state": state }` | replaces the page's state, puts back what the owner had picked and typed, and scrolls to the saved position. Also marks the host as connected. |
+| `restore` | `{ "state": state }` | replaces the page's state, puts back what the inputs showed, and scrolls to the saved position. Also marks the host as connected. |
 | `status` | `{ "updates": [ { "id": "n3", "status": "held", "statusLabel": "Delivered when the agent finishes" } ] }` | the host's word on items, by id; an unknown id is skipped |
 | `reply` | `{ "reply": { "id": "r1", "text": "Fixed - see section 2", "at": "2026-09-16T10:00:00Z" } }` | adds the agent's reply to the page (same id replaces) |
 
@@ -164,6 +172,10 @@ Posting a message is not the host accepting it. So Send does not empty the queue
      removed.
 3. Pressing Send again re-sends everything still queued, pending items included. **A host MUST treat an id
    it has already accepted as the same item**, not a new note.
+4. Answering a question again replaces the latest queued answer to it - unless that answer is pending, in
+   which case the new answer is added with a new id. So one question has at most two queued answers: the
+   pending one and the newest revision. **A host MUST treat a later answer to the same question as
+   replacing an earlier one.**
 
 A later `status` for an item already in Sent just replaces its words.
 
@@ -179,7 +191,9 @@ A later `status` for an item already in Sent just replaces its words.
 ```
 
 `pending` and `statusLabel` on a queued item are optional. `answerDrafts` is what the owner has picked and
-typed in a question without queueing it yet; `optionValue` is empty when nothing is picked.
+typed in a question without queueing it; `optionValue` is empty when nothing is picked. Queueing an answer
+clears that question's draft, so a draft that exists is always newer than the queued answer, and after a
+restore the inputs show the draft if there is one, otherwise the queued answer.
 
 The page cannot remember anything across a reload - a sandboxed frame has no storage - so the HOST keeps
 the last `state-changed` state and sends it back as `restore` after the page's next `ready`.
@@ -200,11 +214,17 @@ below, a `<script>` in the report could post a `send` that looks exactly like th
 notes and replies the host restores. `event.source` cannot tell the two apart - they are the same window.
 
 So a host that shows a dev report MUST do all of the following. The test host in
-`browser-tests/dev-report-notes-proof/index.html` does them, and the browser proof checks each one.
+`browser-tests/dev-report-notes-proof/index.html` does them, and the browser proof checks each one - each
+check was also watched failing with its rule removed.
 
 1. **Frame.** Show the report in `<iframe sandbox="allow-scripts">`, never with `allow-same-origin`.
-2. **No report scripts.** Put this policy at the top of the report's `<head>`, before anything else the
-   report contains, with a fresh random nonce for every load:
+2. **The host writes the head, first.** Build the frame's document as the host's own
+   `<!doctype html><html><head>` holding the policy and the injected script, closed with `</head>`, and
+   only THEN the report's bytes, untouched. Never search the report's text for a place to insert anything:
+   a `<head>` inside a comment is enough to put a searched-for policy where it does nothing. (A report's
+   own doctype, html and head tags after that point are ignored or merged by the parser; its styles and
+   title still apply.)
+3. **No report scripts.** The policy, with a fresh random nonce for every load:
 
    ```html
    <meta http-equiv="Content-Security-Policy"
@@ -212,14 +232,22 @@ So a host that shows a dev report MUST do all of the following. The test host in
    ```
 
    Scripts, inline event handlers and `javascript:` links in the report do not run. Only the one script
-   the host injects with that nonce does. Styles and inline SVG work; images must be `data:` URLs.
-3. **A token per load.** Inject the note-taking script as `<script nonce="NONCE" data-dev-report-token="TOKEN">`
-   with a fresh random token. The script reads the token, removes the attribute, and puts it on every
-   message. Drop any message whose `token` is not the current one, or whose `event.source` is not the frame.
-4. **A navigation ends the token.** A report can still contain a plain link or a `<meta http-equiv="refresh">`
-   that takes the frame to another page, and that page's scripts CAN run and post messages. The host sets
-   the frame's content itself, so any `load` event on the frame the host did not cause means the frame is
-   showing something else: forget the token, stop pushing to the frame, and ignore it until the host loads
-   the report again.
-5. **Restore only to a token-bearing `ready`.** The saved state holds the owner's notes and the agent's
-   replies; it goes only to the page the host just loaded.
+   the host injects with that nonce does - and because it is in the host's head, it runs before any of the
+   report exists. Styles and inline SVG work; images must be `data:` URLs.
+4. **A token per load, and one ready.** Inject the note-taking script as
+   `<script nonce="NONCE" data-dev-report-token="TOKEN">` with a fresh random token. On the window, accept
+   only a `ready` whose `event.source` is the frame, whose `token` is the current one, and which carries
+   exactly one port; then forget the token (one ready per load). Refuse everything else on the window.
+5. **Everything else over the port.** Push `restore`, `status` and `reply` only over the port from that
+   ready, and read `send` and `state-changed` only from it. Never post to the frame's window.
+6. **A navigation closes the port.** A report can still contain a plain link or a `<meta http-equiv="refresh">`
+   that takes the frame to another page, whose scripts CAN run. That page never has the port, so it gets
+   nothing. And because the host sets the frame's content itself, a `load` event it did not cause means the
+   frame shows something else: close the port and ignore the frame until the host loads the report again.
+
+**What the page does for itself.** The notes tray and each question's Queue button live in shadow roots,
+so the report's CSS cannot select them, and their host elements carry inline `!important` rules for
+display, visibility, opacity, position, transform, filter and clip-path. This stops a report from hiding
+the interface by name. It does not stop everything a stylesheet can do to a page: a report can still lay
+something over the tray, or hide the whole page. That is a report that is broken for the owner to see, not
+one that acts for him.
