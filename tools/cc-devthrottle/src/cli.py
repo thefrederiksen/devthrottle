@@ -976,10 +976,23 @@ def actions(
 
 @session_app.command("list")
 def session_list(
-    json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output raw JSON: every field, a bare array. Filters still apply."
+    ),
+    state: str = typer.Option(
+        None, "--state", help="Only these states, comma separated: needs-you, working, ready, snoozed, crashed."
+    ),
+    repo: str = typer.Option(None, "--repo", help="Only this repository: its folder name or full path."),
+    machine: str = typer.Option(None, "--machine", help="Only sessions on this machine."),
+    fields: str = typer.Option(
+        None,
+        "--fields",
+        help="Fields to show, comma separated. Default: id,name,state,repo. "
+        "Valid: id, name, state, repo, machine, number, model, agent, mission, path.",
+    ),
 ) -> None:
-    """List every session running across the fleet."""
-    list_sessions(json_output)
+    """List every session in the fleet: id, name, state and repository."""
+    list_sessions(json_output, state=state, repo=repo, machine=machine, fields=fields)
 
 
 @repo_app.command("list")

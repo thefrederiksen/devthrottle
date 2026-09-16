@@ -70,6 +70,7 @@ if _tools_dir not in sys.path:
     sys.path.insert(0, _tools_dir)
 
 from cc_shared import gateway  # noqa: E402
+from cc_shared import axi_output  # noqa: E402
 
 for _stream in (sys.stdout, sys.stderr):
     try:
@@ -214,96 +215,220 @@ def resolve_target_or_current(target: Optional[str]) -> str:
     return gateway.field(chosen, "sessionId", "SessionId")
 
 
-def list_sessions(json_output: bool) -> None:
-    """List every session running across the fleet."""
+# --- session list (AXI standard, docs/axi-standard.md; issue #2922) ---
+
+# The five plain states, in the order the count line lists them.
+SESSION_STATES = ("needs-you", "working", "ready", "snoozed", "crashed")
+
+# Every field `session list --fields` accepts, and the four shown when it is not given.
+SESSION_LIST_FIELDS = ("id", "name", "state", "repo", "machine", "number", "model", "agent", "mission", "path")
+SESSION_LIST_DEFAULT_FIELDS = ("id", "name", "state", "repo")
+
+# The roster's triage buckets this tool knows how to read (SessionOrdering on the Gateway).
+_KNOWN_BUCKETS = ("needsYou", "active", "onHold")
+
+
+class SessionStateError(Exception):
+    """A roster row carries a triage bucket this tool does not know. Never guessed around."""
+
+
+def plain_state(s: Dict[str, Any]) -> str:
+    """Fold one roster row into its plain state: needs-you, working, ready, snoozed or crashed.
+
+    RENDER, NEVER RULE. The Gateway has already folded the row into a triage bucket (the same fold the
+    Cockpit uses); this only names that bucket in one word, splitting the active bucket by whether the
+    agent is working right now. The order is the Architect's ruling for #2922:
+
+    - crashed is true                          -> crashed
+    - bucket needsYou                          -> needs-you
+    - bucket onHold                            -> snoozed (this also holds supervised Workers that
+                                                  have stopped - the Gateway parks them in the same bucket)
+    - bucket active, activity state Working    -> working
+    - bucket active otherwise                  -> ready
+
+    A missing or unknown bucket raises SessionStateError naming the value. lastStatusReason is free text
+    for people and is never read.
+    """
+    # The boolean is read DIRECTLY: a string "False" would be truthy, and absent is not a crash.
+    if s.get("crashed", s.get("Crashed")) is True:
+        return "crashed"
+    bucket = s.get("triageBucket", s.get("TriageBucket"))
+    if bucket == "needsYou":
+        return "needs-you"
+    if bucket == "onHold":
+        return "snoozed"
+    if bucket == "active":
+        activity = s.get("activityState", s.get("ActivityState"))
+        return "working" if activity == "Working" else "ready"
+    sid = gateway.field(s, "sessionId", "SessionId") or "(no id)"
+    shown = "missing" if bucket is None else repr(bucket)
+    raise SessionStateError(
+        f"session {axi_output.escape_ascii(sid)} has a triage bucket that is {axi_output.escape_ascii(shown)}; "
+        f"this tool knows only {', '.join(_KNOWN_BUCKETS)}. "
+        "If the Gateway has added a bucket, update cc-devthrottle; --json shows the raw rows."
+    )
+
+
+def _session_record(s: Dict[str, Any], state: str) -> Dict[str, object]:
+    """Every field `session list` can show, for one roster row. Ids and names are never shortened."""
+    repo_path = gateway.field(s, "repoPath", "RepoPath")
+    number = s.get("number", s.get("Number"))
+    return {
+        "id": gateway.field(s, "sessionId", "SessionId") or None,
+        "name": gateway.field(s, "name", "Name") or None,
+        "state": state,
+        "repo": _repo_name(repo_path) if repo_path else None,
+        "machine": gateway.field(s, "machineName", "MachineName") or None,
+        "number": number if isinstance(number, int) and not isinstance(number, bool) else None,
+        "model": _model_text(s),
+        "agent": gateway.field(s, "agent", "Agent") or None,
+        "mission": gateway.field(s, "missionName", "MissionName") or None,
+        "path": repo_path or None,
+    }
+
+
+def _usage_error(message: str) -> None:
+    print(f"Error: {message}", file=sys.stderr)
+    raise typer.Exit(axi_output.USAGE_ERROR_EXIT_CODE)
+
+
+def _parse_states(requested: Optional[str]) -> Optional[List[str]]:
+    """Turn a `--state` value (one state, or several separated by commas) into a list, or exit 2."""
+    if requested is None:
+        return None
+    names = [part.strip() for part in requested.split(",")]
+    unknown = [name for name in names if name not in SESSION_STATES]
+    if unknown:
+        listed = ", ".join(repr(axi_output.escape_ascii(name)) for name in unknown)
+        _usage_error(f"unknown --state value {listed}. Valid states: {', '.join(SESSION_STATES)}")
+    return names
+
+
+def _norm_path(path: str) -> str:
+    return path.replace("\\", "/").rstrip("/").lower()
+
+
+def _matches_repo(s: Dict[str, Any], repo: str) -> bool:
+    """--repo matches the repository folder name (as the repo field shows it) or the full path,
+    ignoring case and slash direction."""
+    path = gateway.field(s, "repoPath", "RepoPath")
+    if not path:
+        return False
+    wanted = _norm_path(repo)
+    return wanted in (_repo_name(path).lower(), _norm_path(path))
+
+
+def _matches_machine(s: Dict[str, Any], machine: str) -> bool:
+    return (gateway.field(s, "machineName", "MachineName") or "").lower() == machine.strip().lower()
+
+
+def _fold_or_exit(sessions: List[Dict[str, Any]]) -> List[str]:
+    try:
+        return [plain_state(s) for s in sessions]
+    except SessionStateError as err:
+        print(f"Error: {err}", file=sys.stderr)
+        raise typer.Exit(1)
+
+
+def list_sessions(
+    json_output: bool,
+    *,
+    state: Optional[str] = None,
+    repo: Optional[str] = None,
+    machine: Optional[str] = None,
+    fields: Optional[str] = None,
+) -> None:
+    """List every session running across the fleet, optionally narrowed by state, repository or machine."""
+    # Usage errors come before the fetch: a bad flag is the caller's to fix, whatever the fleet holds.
+    if json_output and fields is not None:
+        _usage_error("--fields does not apply to --json, which always carries every field. Drop one of them.")
+    chosen_fields = axi_output.parse_fields_or_exit(fields, SESSION_LIST_FIELDS, SESSION_LIST_DEFAULT_FIELDS)
+    wanted_states = _parse_states(state)
+    for flag, value in (("--repo", repo), ("--machine", machine)):
+        if value is not None and not value.strip():
+            _usage_error(f"{flag} needs a value.")
+
     sessions, complete, reason, stale_caution = _get_fleet()
     caveat = _roster_caveat(complete, reason)
+    filtered = wanted_states is not None or repo is not None or machine is not None
+
+    # The state is folded only where it is needed, so an unfiltered --json never depends on the fold:
+    # it prints exactly what the Gateway sent, as it always has.
+    need_states = not json_output or wanted_states is not None
+    states = _fold_or_exit(sessions) if need_states else [""] * len(sessions)
+    rows = [
+        (s, st)
+        for s, st in zip(sessions, states)
+        if (wanted_states is None or st in wanted_states)
+        and (repo is None or _matches_repo(s, repo))
+        and (machine is None or _matches_machine(s, machine))
+    ]
 
     if json_output:
         # Plain print, not console.print: Rich wraps to 80 columns when stdout is not a TTY and
-        # injects newlines into long values, producing invalid JSON for agents/pipes.
-        print(json.dumps(sessions, indent=2))
+        # injects newlines into long values, producing invalid JSON for agents/pipes. A filter narrows
+        # the same bare array; it never changes its shape.
+        print(json.dumps([s for s, _ in rows] if filtered else sessions, indent=2))
         # Issue #1051: the caveat goes to STDERR, never stdout. The shape of this output is depended
         # on by agents and pipes, so it stays a bare array - but a caller acting on a partial roster
         # still has to be told, and stderr reaches a human without corrupting the parse.
         if caveat:
             print(f"WARNING: the fleet list may be incomplete. {caveat}", file=sys.stderr)
-        # An EMPTY machine-readable roster is a negative answer too, and the agent parsing it is the
-        # reader most likely to act on "nothing is running" as a fact. stderr, for the same reason the
-        # caveat goes there: the array shape is depended on.
-        if not sessions and stale_caution:
+        # An EMPTY machine-readable answer is a negative answer too, and the agent parsing it is the
+        # reader most likely to act on "nothing is running" as a fact.
+        if not rows and stale_caution:
             print(f"WARNING: {stale_caution}", file=sys.stderr)
         return
 
-    if not sessions:
+    records = [_session_record(s, st) for s, st in rows]
+    breakdown = [(name, n) for name in SESSION_STATES if (n := sum(1 for _, st in rows if st == name))]
+    blocks = [
+        axi_output.format_count(len(rows), total=len(sessions) if filtered else None, breakdown=breakdown),
+        axi_output.render_list("sessions", chosen_fields, records),
+    ]
+
+    if not rows:
         # Issue #1051, the worst sentence in the tool. "No sessions are running in the fleet" is a
         # claim about the WHOLE FLEET, and an empty roster with an unreachable Director does not
-        # support it - the sessions may be running perfectly well on the machine we could not read.
-        # Absent is not empty, and only one of the two is worth saying out loud.
-        if caveat:
-            console.print(f"[yellow]No sessions were returned, but this is not the whole fleet.[/yellow] {caveat}")
-        elif stale_caution:
-            # Connected, so the roster is COMPLETE and the offline caveat is silent - and the answer is
-            # still empty while a machine's rows are known to be stale. That is precisely the case where
-            # "no sessions are running in the fleet" is a claim the list cannot support.
-            console.print("[yellow]No sessions were returned, but this is not the whole fleet.[/yellow]")
+        # support it. Absent is not empty, and only one of the two is worth saying out loud.
+        if filtered and sessions:
+            blocks.append("No session matches the filter.")
+        elif caveat or stale_caution:
+            blocks.append("No sessions were returned, but this is not the whole fleet.")
         else:
-            console.print("No sessions are running in the fleet.")
-        # Both cautions can be live at once - one Director offline, another connected but quiet - and on
-        # an empty answer they say different things. Printed after, never instead of, the other.
-        if stale_caution:
-            console.print(f"[yellow]{stale_caution}[/yellow]")
-        return
-
-    table = Table(show_header=True, header_style="bold", box=box.ASCII)
-    table.add_column("NO.")
-    table.add_column("ID")
-    table.add_column("NAME")
-    table.add_column("MACHINE")
-    table.add_column("REPOSITORY")
-    # Issue devthrottle_internal#1340. ONE new column, not two: an AGENT column beside it was tried and
-    # cost more than it gave. Rich lays this table out at 80 columns when stdout is a pipe (which is how
-    # every agent reads it), and the eighth column pushed STATUS far enough to elide "Exited (crashed)" -
-    # trading a fact nobody could read anywhere for one already implied by the model id and available in
-    # --json. The model is the fact that was invisible; it gets the width.
-    table.add_column("MODEL")
-    table.add_column("STATUS")
-
-    me = gateway.session_id()
-    for s in sessions:
-        sid = gateway.field(s, "sessionId", "SessionId")
-        number = gateway.field(s, "number", "Number")
-        number_text = str(number) if number is not None else "-"
-        name = gateway.field(s, "name", "Name") or "(unnamed)"
-        machine = gateway.field(s, "machineName", "MachineName") or "-"
-        repo = gateway.field(s, "repoPath", "RepoPath")
-        status = gateway.field(s, "activityState", "ActivityState") or "-"
-        # Issue #1019: a session the Director is still holding now appears here even after its process is
-        # gone, which is what makes a dead row nameable and therefore reapable. A crash was never modelled
-        # as its own activity state - it reads "Exited", byte-identical to a session that finished on
-        # purpose - so say it, from the RAW crash fact the Director puts on the wire. We render that fact,
-        # we do not rule on it: deciding what a state MEANS belongs to the Gateway fold, never to a client.
-        # Read the boolean DIRECTLY, not through gateway.field: field stringifies, and the string
-        # "False" is truthy, so every row would be reported as a crash. Absent is not true either - a
-        # roster row carrying no crash fact is not a crash.
-        if s.get("crashed", s.get("Crashed")) is True:
-            status = f"{status} (crashed)"
-        marker = " (you)" if me and sid.lower() == me.lower() else ""
-        table.add_row(
-            number_text,
-            gateway.short_id(sid) + marker,
-            name,
-            machine,
-            _repo_name(repo),
-            _model_text(s),
-            status,
-        )
-
-    console.print(table)
-    # Issue #1051: printed AFTER the table, so the rows the reader can trust come first and the
-    # qualification lands on what they have just read rather than being scrolled past above it.
+            blocks.append("No sessions are running in the fleet.")
+    # Issue #1051: printed AFTER the rows, so the rows the reader can trust come first and the
+    # qualification lands on what they have just read.
     if caveat:
-        console.print(f"[yellow]This is not the whole fleet.[/yellow] {caveat}")
+        blocks.append(f"This is not the whole fleet. {caveat}")
+    # The stale caution qualifies a negative answer only. Both cautions can be live at once, and on an
+    # empty answer they say different things, so this is printed after the other, never instead of it.
+    if not rows and stale_caution:
+        blocks.append(stale_caution)
+
+    blocks.append(axi_output.format_help(_session_list_help(rows, filtered, chosen_fields)))
+    axi_output.write_blocks(sys.stdout, *(_ascii_text(block) for block in blocks))
+
+
+def _ascii_text(block: str) -> str:
+    """The rendered blocks are ASCII already; a caution sentence from the Gateway may not be."""
+    return block if block.isascii() else axi_output.escape_ascii(block)
+
+
+def _session_list_help(rows: List[Tuple[Dict[str, Any], str]], filtered: bool, chosen_fields: List[str]) -> List[str]:
+    """Concrete next commands. Runtime values are placeholders, never guessed."""
+    if not rows:
+        if filtered:
+            return ["cc-devthrottle session list", "cc-devthrottle session list --help"]
+        return ["cc-devthrottle director list", "cc-devthrottle session spawn <repo> --controlled-by self"]
+    commands = []
+    if not filtered:
+        commands.append("cc-devthrottle session list --state needs-you")
+    if list(chosen_fields) == list(SESSION_LIST_DEFAULT_FIELDS):
+        commands.append("cc-devthrottle session list --fields " + ",".join(SESSION_LIST_FIELDS))
+    commands.append("cc-devthrottle session list --json")
+    commands.append("cc-devthrottle session whoami")
+    return commands
 
 
 def whoami() -> None:
