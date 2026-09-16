@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MicRecorder, rmsLevel } from "./recorder";
+import { MicRecorder, rmsLevel, STOP_TAIL_MS } from "./recorder";
 
 // snapshotFlushed() is the tail-loss fix for the turn-taking paths (Car Mode "Over and out" and the
 // end-phrase watch): a bare snapshot() only sees chunks MediaRecorder has already delivered, so the
@@ -264,6 +264,10 @@ class StopFake {
   }
 
   stop(): void {
+    // As browsers do: stopping a recorder that is already inactive throws, and fires no stop event.
+    if (this.state === "inactive") {
+      throw new DOMException("The MediaRecorder's state is 'inactive'.", "InvalidStateError");
+    }
     this.stopCalls += 1;
     this.onStopDeliver?.();
     this.state = "inactive";
@@ -329,7 +333,83 @@ describe("MicRecorder.stop", () => {
 
     const clip = await mic.stop();
     expect(fake.requestDataCalls).toBe(0);
+    expect(fake.stopCalls).toBe(0); // stopping an inactive recorder throws in a browser
     expect(clip.size).toBe(9);
+  });
+});
+
+// ===== stop(): the 250 ms tail after Send and Pause (issue #2927) ==================================
+// A word said on the Send or Pause click ends AFTER the click. Stopping at once cut it off, and neither
+// the flush nor the browser's stop-time delivery can return audio that was never captured.
+
+describe("MicRecorder.stop tail", () => {
+  it("keeps capturing for the tail, so audio delivered after Send is in the clip", async () => {
+    vi.useFakeTimers();
+    const fake = new StopFake();
+    const chunks: Blob[] = [bytes(3)];
+    const mic = wireStop(fake, chunks);
+
+    const pending = mic.stop();
+    // The end of the last word arrives 100 ms after Send, while the tail is running.
+    await vi.advanceTimersByTimeAsync(100);
+    expect(fake.stopCalls).toBe(0); // the recorder has not been stopped yet
+    chunks.push(bytes(4));
+    await vi.advanceTimersByTimeAsync(STOP_TAIL_MS);
+
+    const clip = await pending;
+    expect(fake.stopCalls).toBe(1);
+    expect(clip.size).toBe(7); // the late 4 bytes are in
+  });
+
+  it("does not stop the recorder before the tail has elapsed", async () => {
+    vi.useFakeTimers();
+    const fake = new StopFake();
+    const mic = wireStop(fake, [bytes(1)]);
+
+    const pending = mic.stop();
+    await vi.advanceTimersByTimeAsync(STOP_TAIL_MS - 1);
+    expect(fake.stopCalls).toBe(0);
+    await vi.advanceTimersByTimeAsync(1);
+    await pending;
+    expect(fake.stopCalls).toBe(1);
+  });
+
+  it("returns the delivered chunks when the recorder goes inactive on its own during the tail", async () => {
+    // Inspection one, finding 4: the input track ends while the tail runs, the browser fires stop and
+    // the recorder is inactive. Calling stop() then throws InvalidStateError and the clip was lost.
+    vi.useFakeTimers();
+    const fake = new StopFake();
+    const chunks: Blob[] = [bytes(3)];
+    const mic = wireStop(fake, chunks);
+
+    const pending = mic.stop();
+    const outcome = pending.then(
+      (clip) => clip.size,
+      (err: Error) => `rejected: ${err.message}`,
+    );
+    await vi.advanceTimersByTimeAsync(100);
+    chunks.push(bytes(4)); // the browser's final delivery as the track ended
+    fake.state = "inactive";
+    await vi.advanceTimersByTimeAsync(STOP_TAIL_MS);
+
+    expect(await outcome).toBe(7);
+    expect(fake.stopCalls).toBe(0);
+    expect(fake.requestDataCalls).toBe(0);
+  });
+
+  it("fails loudly instead of hanging when Cancel releases the microphone during the tail", async () => {
+    vi.useFakeTimers();
+    const fake = new StopFake();
+    const mic = wireStop(fake, [bytes(1)]);
+
+    const pending = mic.stop();
+    const outcome = pending.then(
+      () => "resolved",
+      (err: Error) => err.message,
+    );
+    (mic as unknown as { recorder: StopFake | null }).recorder = null; // what dispose() leaves behind
+    await vi.advanceTimersByTimeAsync(STOP_TAIL_MS);
+    expect(await outcome).toMatch(/cancelled/);
   });
 });
 
