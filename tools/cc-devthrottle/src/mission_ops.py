@@ -279,14 +279,35 @@ def _mission_state(mission: Dict[str, Any]) -> str:
     return raw
 
 
-def _require_mission_ids(missions: List[Dict[str, Any]]) -> None:
-    """A mission with no id cannot be named by any verb, so it is a broken answer and fails loudly."""
+def _require_mission_rows(missions: List[Any]) -> None:
+    """Every row must be a mission this tool can name: an object with a mission id and a name.
+
+    A row that is not an object, or has no id or no name, is a broken answer and fails loudly. Filtering
+    it would silently drop a Gateway row, and rendering it would crash or show a mission nobody can
+    address. An empty-string name is still a name - it reads back as itself.
+    """
     for index, mission in enumerate(missions):
+        row = index + 1
+        if not isinstance(mission, dict):
+            print(
+                f"Error: the Gateway returned a mission row that is not an object (row {row}, "
+                f"{type(mission).__name__}). --json shows the raw rows.",
+                file=sys.stderr,
+            )
+            raise typer.Exit(1)
         mid = mission.get("missionId", mission.get("MissionId"))
         if not isinstance(mid, str) or not mid.strip():
             print(
-                f"Error: the Gateway returned a mission with no mission id (row {index + 1}). "
+                f"Error: the Gateway returned a mission with no mission id (row {row}). "
                 "This tool will not list a mission it cannot name; --json shows the raw rows.",
+                file=sys.stderr,
+            )
+            raise typer.Exit(1)
+        name = mission.get("missionName", mission.get("MissionName"))
+        if not isinstance(name, str):
+            print(
+                f"Error: the Gateway returned mission {mid} with no mission name (row {row}). "
+                "This tool will not list or filter a mission without its name; --json shows the raw rows.",
                 file=sys.stderr,
             )
             raise typer.Exit(1)
@@ -353,6 +374,8 @@ def list_missions(
             print(f"Error: {err}", file=sys.stderr)
             raise typer.Exit(1)
         if name is not None:
+            # Filtering reads every row, so every row is checked first; the unfiltered answer is not.
+            _require_mission_rows(missions)
             missions = [m for m in missions if _matches_name(m, name)]
         # Plain print, not console.print: Rich wraps long values when stdout is not a terminal.
         print(json.dumps(missions, indent=2))
@@ -364,7 +387,7 @@ def list_missions(
     except GatewayError as err:
         print(f"Error: {err}", file=sys.stderr)
         raise typer.Exit(1)
-    _require_mission_ids(everything)
+    _require_mission_rows(everything)
     states = [_mission_state(m) for m in everything]
 
     # No --state means the Gateway's default view, active only - itself a filter, so the count line

@@ -9,7 +9,8 @@ What "done" means for a list command, and what each group below pins:
   filter is given; `--name` narrows the same bare array without changing its shape.
 - An empty answer says `count: 0`, and `count: 0 of N total` when a filter matched nothing.
 - An unknown state, an unknown field or an unknown flag exits 2 and lists the valid values.
-- A mission with no id, or with a state this tool does not know, fails loudly instead of being listed.
+- A row that is not an object, or a mission with no id, no name, or a state this tool does not know,
+  fails loudly instead of being listed or filtered out.
 """
 
 import io
@@ -36,15 +37,16 @@ from src.cli import app  # noqa: E402
 runner = CliRunner()
 
 
-def _mission(mid, name, state, why=""):
+def _mission(mid, name, state, why="", why_at="2026-09-16T11:21:56.6053801+00:00",
+             changed_at="2026-09-10T08:00:00+00:00", run=None):
     return {
         "missionId": mid,
         "missionName": name,
         "why": why,
-        "whyUpdatedAt": "2026-09-16T11:21:56.6053801+00:00" if why else None,
+        "whyUpdatedAt": why_at if why else None,
         "state": state,
-        "stateChangedAt": None if state == "active" else "2026-09-10T08:00:00+00:00",
-        "workflowRunId": None,
+        "stateChangedAt": None if state == "active" else changed_at,
+        "workflowRunId": run,
     }
 
 
@@ -52,14 +54,14 @@ def _mission(mid, name, state, why=""):
 # than any table column, leading whitespace, and a name that is the empty string.
 MISSIONS = [
     _mission("aaaaaaaa-1111-4111-8111-000000000001", "URGENT - Recorder must capture all day, no cutoff", "active",
-             why="The owner lost a day of audio."),
+             why="The owner lost a day of audio.", run="bbbbbbbb-2222-4222-8222-000000000001"),
     _mission("aaaaaaaa-1111-4111-8111-000000000002", 'AXI - "agent-shaped" tools', "active"),
     _mission("aaaaaaaa-1111-4111-8111-000000000003", "S\u00f8ren's caf\u00e9 \u2014 \U0001f680 launch", "complete",
-             why="done"),
+             why="done", why_at="2026-09-01T07:00:00+00:00", run="bbbbbbbb-2222-4222-8222-000000000002"),
     _mission("aaaaaaaa-1111-4111-8111-000000000004",
              "Mentor on the Gateway - the weekly mentor report runs inside the Gateway, for every tenant",
              "active", why="Every tenant gets a report."),
-    _mission("aaaaaaaa-1111-4111-8111-000000000005", "  padded  ", "removed"),
+    _mission("aaaaaaaa-1111-4111-8111-000000000005", "  padded  ", "removed", changed_at="2026-09-12T19:30:00+00:00"),
     _mission("aaaaaaaa-1111-4111-8111-000000000006", "", "active"),
 ]
 ACTIVE = [MISSIONS[i] for i in (0, 1, 3, 5)]
@@ -174,9 +176,37 @@ def test_list_missions_Fields_ShowsExactlyTheRequestedFieldsInOrder(serve, capsy
         "why": "done",
         "id": MISSIONS[2]["missionId"],
         "state-changed": "2026-09-10T08:00:00+00:00",
-        "run": None,
+        "run": "bbbbbbbb-2222-4222-8222-000000000002",
     }
     assert records[1]["why"] == ""
+
+
+def test_fields_fixture_EveryMappedFieldHasTwoDistinctValues():
+    # A mapping replaced by a constant can only be caught if the fixtures disagree with that constant.
+    for key in ("missionId", "missionName", "state", "why", "whyUpdatedAt", "stateChangedAt", "workflowRunId"):
+        present = {m[key] for m in MISSIONS if m[key] is not None}
+        assert len(present) >= 2, key
+
+
+def test_list_missions_EveryField_EveryMissionReadsBackExactly(serve, capsys):
+    serve(MISSIONS)
+
+    mission_ops.list_missions(json_output=False, state="all", fields=",".join(mission_ops.MISSION_LIST_FIELDS))
+
+    fields, records = parse_list(capsys.readouterr().out, "missions")
+    assert fields == list(mission_ops.MISSION_LIST_FIELDS)
+    assert records == [
+        {
+            "id": m["missionId"],
+            "name": m["missionName"],
+            "state": m["state"],
+            "why": m["why"],
+            "why-updated": m["whyUpdatedAt"],
+            "state-changed": m["stateChangedAt"],
+            "run": m["workflowRunId"],
+        }
+        for m in MISSIONS
+    ]
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -450,6 +480,57 @@ def test_mission_list_Cli_MissionWithNoId_ExitsOne(serve, bad_id):
     assert result.exit_code == 1
     assert "no mission id (row 7)" in result.stderr
     assert result.stdout == ""
+
+
+def _serve_raw(monkeypatch, rows):
+    """Serve `rows` as the Gateway's answer to every state, unfiltered - the rows may not be objects."""
+    monkeypatch.setattr(mission_ops.MissionClient, "__init__", lambda self, base_url=None: None)
+    monkeypatch.setattr(mission_ops.MissionClient, "list_all", lambda self, state=None: list(rows))
+
+
+FILTERED_PATHS = [["mission", "list"], ["mission", "list", "--all"], ["mission", "list", "--name", "orphan"],
+                  ["mission", "list", "--json", "--name", "orphan"],
+                  ["mission", "list", "--json", "--state", "all", "--name", "orphan"]]
+
+
+@pytest.mark.parametrize("args", FILTERED_PATHS)
+@pytest.mark.parametrize("key", ["missing", "null", "number"])
+def test_mission_list_Cli_MissionWithNoName_ExitsOne(monkeypatch, args, key):
+    orphan = _mission("aaaaaaaa-1111-4111-8111-000000000009", "orphan", "active")
+    if key == "missing":
+        del orphan["missionName"]
+    else:
+        orphan["missionName"] = None if key == "null" else 7
+    _serve_raw(monkeypatch, MISSIONS + [orphan])
+
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 1
+    assert "aaaaaaaa-1111-4111-8111-000000000009 with no mission name (row 7)" in result.stderr
+    assert result.stdout == ""
+
+
+@pytest.mark.parametrize("args", FILTERED_PATHS)
+@pytest.mark.parametrize("row", [None, "a mission", 3, ["aaaaaaaa"]])
+def test_mission_list_Cli_RowThatIsNotAnObject_ExitsOne(monkeypatch, args, row):
+    _serve_raw(monkeypatch, MISSIONS + [row])
+
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 1
+    assert "not an object (row 7" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert result.stdout == ""
+
+
+@pytest.mark.parametrize("rows", [[None], [{"missionId": "m1", "state": "active"}]])
+def test_mission_list_Cli_JsonUnfiltered_BrokenRowsStayTheRawAnswer(monkeypatch, rows):
+    _serve_raw(monkeypatch, rows)
+
+    result = runner.invoke(app, ["mission", "list", "--json"])
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == rows
 
 
 # ---------------------------------------------------------------------------------------------------

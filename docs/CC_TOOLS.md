@@ -1069,7 +1069,9 @@ Schedule page.
 
 ```bash
 # List / inspect
-cc-devthrottle schedule list                       # every job: id, name, machine, schedule, next run, enabled
+cc-devthrottle schedule list                       # every job: a count line, then id, name, enabled, next run (UTC)
+cc-devthrottle schedule list --enabled --machine <machine>   # filters combine, and apply to --json too
+cc-devthrottle schedule list --fields id,name,machine,kind,cron,run-at   # machine and schedule on request
 cc-devthrottle schedule get <id>                   # one job in full
 cc-devthrottle schedule runs <id>                  # run history for a job (infra status vs task status)
 

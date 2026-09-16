@@ -38,7 +38,9 @@ runner = CliRunner()
 
 
 def _job(job_id, name, enabled, *, machine="SOREN_NORTH", kind="recurring", cron="0 7 * * 1", run_at=None,
-         next_run="2026-09-21T11:00:00Z", work_list=None):
+         next_run="2026-09-21T11:00:00Z", work_list=None, time_zone="Eastern Standard Time",
+         repo="D:\\ReposFred\\devthrottle_internal", last_fired="2026-09-14T11:00:04Z", last_status="started",
+         notify="failure", created="2026-08-01T10:00:00Z"):
     return {
         "id": job_id,
         "name": name,
@@ -46,21 +48,21 @@ def _job(job_id, name, enabled, *, machine="SOREN_NORTH", kind="recurring", cron
         "scheduleKind": kind,
         "cronExpression": cron,
         "runAt": run_at,
-        "timeZoneId": "Eastern Standard Time",
+        "timeZoneId": time_zone,
         "target": {"machine": machine},
         "action": {
-            "repoPath": "D:\\ReposFred\\devthrottle_internal",
+            "repoPath": repo,
             "seed": "A long seed prompt,\nwith a newline and \"quotes\".",
             "workListName": work_list,
             "autoDismiss": False,
         },
-        "notifyOn": "failure",
+        "notifyOn": notify,
         "notifyWebhookUrl": None,
         "preventOverlap": True,
         "nextRunUtc": next_run,
-        "lastFiredUtc": "2026-09-14T11:00:04Z",
-        "lastStatus": "started",
-        "createdUtc": "2026-08-01T10:00:00Z",
+        "lastFiredUtc": last_fired,
+        "lastStatus": last_status,
+        "createdUtc": created,
     }
 
 
@@ -69,13 +71,17 @@ def _job(job_id, name, enabled, *, machine="SOREN_NORTH", kind="recurring", cron
 JOBS = [
     _job("cj_1a10c4", "SmartScreen + winget follow-up, then report", False, kind="oneOff", cron=None,
          run_at="2026-09-09 09:47", next_run=None),
-    _job("cj_33022a", 'Monday "business" finance run', True),
-    _job("cj_4056ec", "S\u00f8ren's caf\u00e9 \u2014 \U0001f680 check-in", True, machine="devthrottle-mac-mini"),
+    _job("cj_33022a", 'Monday "business" finance run', True, time_zone="UTC", last_status="failed",
+         last_fired="2026-09-15T07:00:01Z", notify="always", created="2026-08-20T09:30:00Z"),
+    _job("cj_4056ec", "S\u00f8ren's caf\u00e9 \u2014 \U0001f680 check-in", True, machine="devthrottle-mac-mini",
+         repo="/Users/soren/ReposFred/devthrottle", last_status="skipped-overlap", last_fired=None,
+         notify="never"),
     _job("cj_91da7b", "Morning dictionary suggestions email (stopgap until issue 2074) for every account",
-         False, machine="DEVTHROTTLE_2", work_list="nightly"),
-    _job("cj_9dedee", "  padded  ", True),
+         False, machine="DEVTHROTTLE_2", work_list="nightly", cron="30 6 * * *", last_status=None,
+         next_run="2026-09-17T10:30:00Z"),
+    _job("cj_9dedee", "  padded  ", True, work_list="weekly review"),
     _job("cj_c536b9", None, True),
-    _job("cj_e22337", "", False),
+    _job("cj_e22337", "", False, kind="oneOff", cron=None, run_at="2026-10-01 18:00"),
 ]
 ENABLED = ["no", "yes", "yes", "no", "yes", "yes", "no"]
 
@@ -190,6 +196,43 @@ def test_list_jobs_Fields_ShowsTheGatewaysOwnValuesInOrder(serve, capsys):
     }
     assert records[3]["work-list"] == "nightly"
     assert records[1]["cron"] == "0 7 * * 1"
+
+
+LIST_KEYS = {
+    "id": lambda j: j["id"],
+    "name": lambda j: j["name"],
+    "enabled": lambda j: "yes" if j["enabled"] else "no",
+    "next-run": lambda j: j["nextRunUtc"],
+    "machine": lambda j: j["target"]["machine"],
+    "kind": lambda j: j["scheduleKind"],
+    "cron": lambda j: j["cronExpression"],
+    "run-at": lambda j: j["runAt"],
+    "time-zone": lambda j: j["timeZoneId"],
+    "work-list": lambda j: j["action"]["workListName"],
+    "path": lambda j: j["action"]["repoPath"],
+    "last-fired": lambda j: j["lastFiredUtc"],
+    "last-status": lambda j: j["lastStatus"],
+    "notify": lambda j: j["notifyOn"],
+    "created": lambda j: j["createdUtc"],
+}
+
+
+def test_fields_fixture_EveryMappedFieldHasTwoDistinctValues():
+    # A mapping replaced by a constant can only be caught if the fixtures disagree with that constant.
+    assert set(LIST_KEYS) == set(schedule_ops.SCHEDULE_LIST_FIELDS)
+    for field, read in LIST_KEYS.items():
+        present = {read(j) for j in JOBS if read(j) is not None}
+        assert len(present) >= 2, field
+
+
+def test_list_jobs_EveryField_EveryScheduleReadsBackExactly(serve, capsys):
+    serve(JOBS)
+
+    schedule_ops.list_jobs(json_output=False, fields=",".join(schedule_ops.SCHEDULE_LIST_FIELDS))
+
+    fields, records = parse_list(capsys.readouterr().out, "schedules")
+    assert fields == list(schedule_ops.SCHEDULE_LIST_FIELDS)
+    assert records == [{f: LIST_KEYS[f](j) for f in fields} for j in JOBS]
 
 
 # ---------------------------------------------------------------------------------------------------

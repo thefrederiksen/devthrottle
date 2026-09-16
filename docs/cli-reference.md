@@ -799,8 +799,10 @@ help[5]:
   shown, a line says how many of the listed missions have no why set.
 - **Filters** apply to `--json` as well. `--json` asks the Gateway exactly what it always asked
   (`--state` is passed through), and `--name` narrows that same bare array.
-- An unknown state or field exits 2 and lists the valid values. A mission with no id, or with a
-  state other than active, complete or removed, exits 1 rather than being listed under a guess.
+- An unknown state or field exits 2 and lists the valid values. A row that is not an object, or a
+  mission with no id, no name, or a state other than active, complete or removed, exits 1 rather
+  than being listed, filtered out or guessed at. `--json` without `--name` prints the Gateway's answer
+  as it came; `--json --name` checks every row before narrowing it.
 - **An empty answer says so**: `count: 0`, or `count: 0 of N total` with the filter that matched
   nothing named on the next line.
 
