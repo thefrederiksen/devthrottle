@@ -1513,8 +1513,9 @@ possible owners and no safe default between them. Say which:
       finishes, and you will not hear from it.
       Use this for work you are starting on his behalf.
 
-  --controlled-by <id>
-      Another session owns it.
+  (--controlled-by <another session's id> is refused by the
+  Gateway: the owner is who the new session may message, so
+  a session may only name itself.)
 
 This used to default to 'self' silently. It no longer does:
 a session that answers to a machine rather than to the user

@@ -98,10 +98,60 @@ public sealed class SpawnOriginTests
     }
 
     [Fact]
-    public void A_session_may_declare_another_session_as_the_owner()
+    public void A_session_may_declare_ITSELF_as_the_owner()
     {
+        // Upper-cased on purpose: the id is compared as a session id, not as a string, and is stored in the
+        // Gateway's own spelling.
+        var req = Body(owner: CallerId.ToUpperInvariant());
+        Assert.True(SpawnOrigin.TryEstablish(req, AsSession(CallerId), "test", out var error));
+        Assert.Null(error);
+        Assert.Equal(CallerId, req.ControllerSessionId);
+    }
+
+    [Fact]
+    public void A_session_may_NOT_declare_another_session_as_the_owner()
+    {
+        // The Message Load mission, inspection 1, ruling 2. The owner is who the new session may message, so a
+        // session key that could name an unrelated live session here would invent a messaging relationship.
+        // This test was "A_session_may_declare_another_session_as_the_owner" until the slice 1 fix round.
         var req = Body(owner: OwnerId);
-        Assert.True(SpawnOrigin.TryEstablish(req, AsSession(CallerId), "test", out _));
+        Assert.False(SpawnOrigin.TryEstablish(req, AsSession(CallerId), "test", out var error));
+        var json = Assert.IsAssignableFrom<IStatusCodeHttpResult>(error);
+        Assert.Equal(StatusCodes.Status403Forbidden, json.StatusCode);
+        var value = Assert.IsAssignableFrom<IValueHttpResult>(error).Value!;
+        var text = System.Text.Json.JsonSerializer.Serialize(value);
+        Assert.Contains(OwnerId, text);
+        Assert.Contains("--controlled-by self", text);
+    }
+
+    [Fact]
+    public void The_refusal_for_naming_another_owner_says_what_to_do_instead()
+    {
+        // Pinned to the literal, so a changed sentence is a deliberate edit of this test too.
+        Assert.Equal(
+            "The owner of a session is the session it may message and report to, so naming someone else would " +
+            "create a messaging relationship that session never agreed to. Own it yourself " +
+            "(--controlled-by self), or give it to the user (--standalone --why \"<reason>\"). If another " +
+            "session should run this work, send that session a queued message and let it start the work itself.",
+            SpawnOrigin.NamedAnotherOwner);
+    }
+
+    [Fact]
+    public void The_owners_device_may_still_start_a_session_without_being_asked_about_ownership()
+    {
+        // The owner is unchanged by ruling 2: a device key never reaches the session arm, whatever the body says.
+        var req = Body(owner: OwnerId);
+        Assert.True(SpawnOrigin.TryEstablish(req, AsDevice("browser"), "test", out var error));
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public void A_RELAYED_spawn_naming_an_owner_is_not_refused()
+    {
+        // A Director relaying a spawn carries its own key, not a session key, so the ruling does not reach it.
+        var req = Body(origin: SessionOriginKinds.Agent, owner: OwnerId);
+        Assert.True(SpawnOrigin.TryEstablish(req, new DefaultHttpContext(), "test", out var error));
+        Assert.Null(error);
         Assert.Equal(OwnerId, req.ControllerSessionId);
     }
 

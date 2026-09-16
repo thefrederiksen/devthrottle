@@ -1582,9 +1582,10 @@ def spawn(
         "--controlled-by",
         help="WHO OWNS the new session. REQUIRED when you spawn from inside a session - there is no "
         "default, because who a session answers to is too important to be decided by an environment "
-        "variable. Pass 'self' to own it yourself (it stays quiet and reports back to you), an explicit "
-        "session id to hand it to another session, or 'none' (same as --standalone) to spawn a peer that "
-        "answers to the USER. A person spawning from the desktop or the Cockpit needs none of this: a "
+        "variable. Pass 'self' to own it yourself (it stays quiet and reports back to you), or 'none' (same "
+        "as --standalone) to spawn a peer that answers to the USER. An explicit session id is accepted only "
+        "when it is your own: the Gateway refuses a session that names another session as the owner, "
+        "because the owner is who the new session may message. A person spawning from the desktop or the Cockpit needs none of this: a "
         "session a person opens is the user's.",
     ),
     why: Optional[str] = typer.Option(

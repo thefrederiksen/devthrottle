@@ -413,4 +413,47 @@ public sealed class FleetMessageRouteTests : IAsyncLifetime
         var payload = JsonSerializer.Deserialize<CompactContextRequest>(cmd.PayloadJson, Web);
         Assert.True(string.IsNullOrEmpty(payload?.ContinuePrompt));
     }
+
+    // =========================================================================================
+    // A session key cannot invent a supervisor by spawning (inspection 1, ruling 2)
+    // =========================================================================================
+
+    private Task<HttpResponseMessage> Spawn(HttpClient who, string controller)
+        => who.PostAsJsonAsync($"directors/{DirectorId}/sessions",
+            new { repoPath = "/repos/devthrottle", agent = "ClaudeCode", name = "Mission - Worker - C", controllerSessionId = controller });
+
+    [Fact]
+    public async Task A_session_key_spawn_naming_an_unrelated_session_as_owner_is_refused_and_nothing_is_started()
+    {
+        // Without the ruling, worker A could start a child "controlled by" the stranger, and that child could then
+        // write into the stranger's inbox as its worker.
+        var r = await Spawn(_asWorkerA, _stranger);
+
+        Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
+        Assert.Contains(_stranger, S(await Body(r), "error"));
+        Assert.DoesNotContain("create", VerbsSent());
+    }
+
+    [Fact]
+    public async Task A_session_key_spawn_naming_itself_as_owner_is_started_with_that_owner()
+    {
+        var r = await Spawn(_asWorkerA, _workerA.ToUpperInvariant());
+
+        Assert.NotEqual(HttpStatusCode.Forbidden, r.StatusCode);
+        var create = Assert.Single(_commands, c => c.Verb == "create");
+        var payload = JsonSerializer.Deserialize<NewSessionRequest>(create.PayloadJson, Web)!;
+        Assert.Equal(_workerA, payload.ControllerSessionId);
+        Assert.Equal(_workerA, payload.ParentSessionId);
+    }
+
+    [Fact]
+    public async Task The_owner_may_still_start_a_session_owned_by_any_session()
+    {
+        // The shared token is the owner's; ruling 2 binds session keys only.
+        var r = await Spawn(_owner, _stranger);
+
+        Assert.NotEqual(HttpStatusCode.Forbidden, r.StatusCode);
+        var create = Assert.Single(_commands, c => c.Verb == "create");
+        Assert.Equal(_stranger, JsonSerializer.Deserialize<NewSessionRequest>(create.PayloadJson, Web)!.ControllerSessionId);
+    }
 }
