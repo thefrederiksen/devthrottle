@@ -26,7 +26,7 @@ Every command takes `--json` and `--help`, and never prompts.
 | Command | What it does |
 |---|---|
 | `get` | Hands out the first free slot after proving it landed and resetting it to the freshly fetched default branch. With no free slot and fewer slots than `--pool-size` (default 4), creates a new one at `<repo-parent>/<repo-name>.worktrees/wtNN` on a detached HEAD at the remote default branch. Returns the slot, path and lease id. A free slot that fails the check becomes held and is skipped. |
-| `return` | Runs the landed-work check. Landed: reset with `git read-tree --reset -u` (ignored build output stays; there is no `git clean`) and free. Not landed or cannot tell: held with the reason, nothing reset. `--lease` is required: a return without it is a usage error (exit 2), and a lease that no longer matches is refused; neither changes anything. |
+| `return` | Runs the landed-work check. Landed: reset with the two-tree merge `git read-tree -m -u <checked HEAD> <default tip>` (ignored build output stays; there is no `git clean`) and free. Not landed or cannot tell: held with the reason, nothing reset. `--lease` is required: a return without it is a usage error (exit 2), and a lease that no longer matches is refused; neither changes anything. |
 | `list` | Every slot with its state (`free`, `in-use`, `held`), holder and reason. `--fields` picks from `repo,slot,path,state,holder,reason,updated`. |
 | `lease` | Takes one specific free slot (checked and reset like `get`). A held slot only with `--reclaim-held`, which takes it as it is, without a reset. |
 | `destroy` | Runs the full landed-work check at that moment, whatever the recorded state says - a free slot is only free as of its last check - and refuses (exit 3, held, with the reason) unless it passes. No flag skips that check. Dry run by default: says what it would remove. `--yes` removes it with `git worktree remove` under `HEAD.lock` (never `--force`, so git itself refuses a worktree with modified or untracked files). A held slot also needs `--allow-held`, an in-use slot `--allow-in-use`. A slot whose directory is gone cannot be checked, so it is refused too. One slot per call; there is no destroy-all. |
@@ -85,13 +85,21 @@ waiting at a prompt. The two network calls, `ls-remote` and `fetch`, are stopped
 helper that git itself started may keep running until its own network call ends.
 
 Immediately before the reset the tool takes `HEAD.lock` in the worktree's git directory and re-checks
-the `.git` binding, HEAD, the reflog and cleanliness under it.
+the `.git` binding, HEAD, the whole reflog and cleanliness under it. It then refreshes the index
+(`git update-index --refresh`; a tracked file that changed holds the slot) and resets with a two-tree
+merge from the checked HEAD. That merge checks every path it would write before writing any, and refuses
+(held, nothing written) when an untracked file or a local change sits on one of them, so a file an editor
+writes after the status check is not overwritten. A local change on a path the default branch did not
+touch is carried forward instead, and the status check after the reset holds the slot, naming it.
 
-The reset never writes over or deletes an ignored file. If the default branch now tracks a path that is
-an ignored file in the slot (or a directory above one), the slot is held and the reason names the
-files. There is no `git clean`: after `read-tree` the only untracked files left can be ones the new
-default branch no longer ignores, and those are kept; the slot is then held, naming them. If the reset fails part way (for example a file locked by another
-process on Windows) the slot is held with the reason.
+The reset never writes over or deletes an ignored file, as far as the tool can see. `read-tree` has no
+way to keep an ignored file on a path it writes, in either mode, so the tool compares the ignored files
+with the target tree under the lock, as late as it can: if the default branch now tracks a path that is
+an ignored file in the slot (or a directory above one), the slot is held and the reason names the files.
+An ignored file created in the few milliseconds between that comparison and `read-tree` is not seen.
+There is no `git clean`: after `read-tree` the only untracked files left can be ones the new default
+branch no longer ignores, and those are kept; the slot is then held, naming them. If the reset fails part
+way (for example a file locked by another process on Windows) the slot is held with the reason.
 
 The tool never kills a process, never deletes a branch, and never pushes, merges or rewrites history.
 

@@ -496,7 +496,14 @@ def reset(worktree: Path, repo: Path, checked: Checked) -> ReflogMark:
     committed = False
     try:
         _recheck_under_lock(worktree, repo, checked)
+        # The status the check read is an observation an editor can outdate. The refresh re-reads every
+        # tracked file's stat data; the two-tree merge below then refuses, path by path and before it
+        # writes anything, to overwrite an untracked file or a local change on a path it would write.
+        refreshed = gitrun.run(worktree, "update-index", "--refresh", check=False)
+        if refreshed.returncode != 0:
+            raise NotLanded(f"a tracked file changed after the check: {(refreshed.stdout or refreshed.stderr).strip()[:200]}")
         try:
+            # As late as possible: read-tree has no way to keep an ignored file, in either mode.
             overlap = ignored_overlaps(worktree, target)
         except GitError as ex:
             raise cannot_verify(f"cannot list ignored files: {ex.short()}") from ex
@@ -508,9 +515,9 @@ def reset(worktree: Path, repo: Path, checked: Checked) -> ReflogMark:
         # proven clean, read-tree removes the files it untracks, so a clean could only ever delete a
         # file that was ignored before and is not ignored by the new tree.
         try:
-            gitrun.run(worktree, "read-tree", "--reset", "-u", target)
+            gitrun.run(worktree, "read-tree", "-m", "-u", checked.head, target)
         except GitError as ex:
-            raise NotLanded(f"reset failed part way: {ex.short()}") from ex
+            raise NotLanded(f"reset refused or not finished: {ex.short()}") from ex
         os.write(fd, f"{target}\n".encode("ascii"))
         os.fsync(fd)
         mark = _append_tool_line(worktree, checked.gitdir, checked.reflog, checked.head, target)
@@ -521,8 +528,11 @@ def reset(worktree: Path, repo: Path, checked: Checked) -> ReflogMark:
         left = dirty_entries(worktree)
         if left:
             paths = [entry[3:] for entry in left]
-            raise NotLanded(f"reset to the default branch, but it no longer ignores {len(paths)} "
-                            f"file{'s' if len(paths) != 1 else ''}, kept untouched: {_names(paths)}")
+            # Either files the new default branch no longer ignores, or a local change the two-tree merge
+            # carried forward because the default branch did not touch that path. Both are kept.
+            raise NotLanded(f"reset to the default branch, but {len(paths)} "
+                            f"file{'s' if len(paths) != 1 else ''} it no longer ignores or that changed "
+                            f"locally {'are' if len(paths) != 1 else 'is'} kept untouched: {_names(paths)}")
     finally:
         if fd != -1:
             os.close(fd)
