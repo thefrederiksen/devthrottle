@@ -240,13 +240,13 @@ public sealed class GatewayTranscriptionServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task TranscribeSegmentRawAsync_RemoteModeNoKey_Throws()
+    public async Task TranscribeSegmentUncorrectedAsync_RemoteModeNoKey_Throws()
     {
         TranscriptionModeConfig.Set(TranscriptionMode.DevThrottle);
         // No key seeded for DevThrottle.
 
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => Service().TranscribeSegmentRawAsync(new byte[] { 1, 2, 3 }, "audio.webm", "audio/webm", CancellationToken.None));
+            () => Service().TranscribeSegmentUncorrectedAsync(new byte[] { 1, 2, 3 }, "audio.webm", "audio/webm", CancellationToken.None));
     }
 
     [Fact]
