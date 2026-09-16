@@ -59,11 +59,16 @@ class GatewayError(RuntimeError):
     know whether the command had been carried out, because the one thing that tells the two apart was
     thrown away one line after it was read. The status travels WITH the failure rather than being
     guessed at from the wording of the sentence.
+
+    `body` is the parsed JSON of a refused answer, or None when there was no answer or it was not
+    JSON. The sentence alone is not always everything a caller must show: a refused dev report
+    carries a LIST of shape-check errors beside it, and the tool has to print every one.
     """
 
-    def __init__(self, message: str, status: Optional[int] = None):
+    def __init__(self, message: str, status: Optional[int] = None, body: Any = None):
         super().__init__(message)
         self.status = status
+        self.body = body
 
 
 def gateway_base_url() -> str:
@@ -279,9 +284,14 @@ def _request(method: str, path: str, body: Optional[dict] = None, timeout: float
             fault = (err.headers.get(FAULT_HEADER) or "") if err.headers else ""
         except AttributeError:
             fault = ""
+        try:
+            parsed = json.loads(detail) if detail else None
+        except ValueError:
+            parsed = None
         raise GatewayError(
             _error_message(detail, err.code, fault_is_director=(fault == FAULT_DIRECTOR)),
             status=err.code,
+            body=parsed,
         ) from err
     except urllib.error.URLError as err:
         raise GatewayError(

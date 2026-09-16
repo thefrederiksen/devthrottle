@@ -285,6 +285,15 @@
       "requirements": ["git", "gh", "curl", "cc-devthrottle", "playwright-cli"]
     },
     {
+      "name": "cc-dev-reports",
+      "category": "fleet",
+      "type": "python",
+      "description": "Publish a dev report to the owner through the Gateway, and reply to the owner in it",
+      "built": true,
+      "ship": false,
+      "requirements": []
+    },
+    {
       "name": "cc-devthrottle",
       "category": "fleet",
       "type": "python",
