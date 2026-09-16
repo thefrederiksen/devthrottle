@@ -37,8 +37,9 @@ public static class TurnVerdictContract
     /// version to decide whether a record may be shown.
     ///
     /// v2.1 (2026-09-16): the SPOKEN section only. The judge no longer writes the session title - it is
-    /// prepended from the record after the answer - and it is told plainly that NOTHING downstream strips
-    /// an identifier it leaves in. An earlier draft of this note said the opposite, promising a scrub that
+    /// prepended from the record after the answer - and it is told plainly that no downstream step LOOKS
+    /// FOR an identifier it leaves in. (A general Markdown pass does run before synthesis and drops fenced
+    /// blocks whole; it is not identifier-specific and is no safety net, which is what the judge is told.) An earlier draft of this note said the opposite, promising a scrub that
     /// was written, reviewed three times and then deleted because no pattern separates an identifier from
     /// a number in prose without deleting real answers. Nothing about the JSON shape or validation changed, which is why the
     /// resource file keeps its v2 name and the grading tool keeps its path: renaming it would move a file

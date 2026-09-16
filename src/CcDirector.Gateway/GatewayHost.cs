@@ -2851,9 +2851,11 @@ public sealed class GatewayHost : IAsyncDisposable
         // #186 by Director doorbell pings and heartbeat snapshots (wired into the endpoints below);
         // the only pull left is the one-time startup catch-up sweep.
         FileLog.Write("[GatewayHost] StartAsync: starting the turn-end watcher (voice auto-refresh only; turn-brief pipeline retired in #549)");
-        // sessionTitleResolver: the wingman opens every narration with the session's title, so a
-        // listener with the phone in a pocket knows WHICH session is talking before anything else
-        // (WingmanTranslator.FidelityPrompt v5.2). Push-store read - no dial. See ResolveSessionTitle.
+        // sessionTitleResolver: every narration opens with the session's title, so a listener with the
+        // phone in a pocket knows WHICH session is talking before anything else. The title is prefixed
+        // from THIS record by SpokenForEar at assembly - it is no longer written by the model, which got
+        // it wrong (the cited FidelityPrompt is the legacy translator path and has no production caller).
+        // Push-store read - no dial. See ResolveSessionTitle.
         _voiceService ??= new Wingman.WingmanVoiceService(WingmanBrainAsync, _keyVault, _tenantSettingsResolver,
             instructionsProvider: () => _instructionsStore.ActiveContent,
             sessionTitleResolver: ResolveSessionTitle,
@@ -3736,9 +3738,11 @@ public sealed class GatewayHost : IAsyncDisposable
         // Wingman-voice surface for the Cockpit's Voice tab (issue #531): drive one turn of a
         // session and have the persistent wingman brain translate the reply into speakable form,
         // plus the direct-to-wingman path. Backed by the same warm Brain the brief agent uses.
-        // sessionTitleResolver: the wingman opens every narration with the session's title, so a
-        // listener with the phone in a pocket knows WHICH session is talking before anything else
-        // (WingmanTranslator.FidelityPrompt v5.2). Push-store read - no dial. See ResolveSessionTitle.
+        // sessionTitleResolver: every narration opens with the session's title, so a listener with the
+        // phone in a pocket knows WHICH session is talking before anything else. The title is prefixed
+        // from THIS record by SpokenForEar at assembly - it is no longer written by the model, which got
+        // it wrong (the cited FidelityPrompt is the legacy translator path and has no production caller).
+        // Push-store read - no dial. See ResolveSessionTitle.
         _voiceService ??= new Wingman.WingmanVoiceService(WingmanBrainAsync, _keyVault, _tenantSettingsResolver,
             instructionsProvider: () => _instructionsStore.ActiveContent,
             sessionTitleResolver: ResolveSessionTitle,
