@@ -235,7 +235,7 @@ def test_no_args_InsideSession_ExactOutput(serve):
 
 
 def test_no_args_IncompleteRoster_SaysSoInAscii(serve):
-    serve(FLEET, complete=False, reason="The machine SOREN_NORTH — did not answer.")
+    serve(FLEET, complete=False, reason="The machine SOREN_NORTH \u2014 did not answer.")
 
     result = _invoke([])
 
@@ -283,7 +283,7 @@ def test_no_args_NoGatewayConfigured_ExitsOne(monkeypatch):
 
 def test_no_args_NonAsciiGatewayError_IsWrittenAsAscii(monkeypatch):
     def fail():
-        raise session_ops.gateway.GatewayError("The Gateway said — no.")
+        raise session_ops.gateway.GatewayError("The Gateway said \u2014 no.")
 
     monkeypatch.setattr(session_ops.gateway, "get_fleet", fail)
 
