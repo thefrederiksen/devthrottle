@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using CcDirector.Core.Configuration;
 using CcDirector.Core.Wingman;
 using Xunit;
 using Xunit.Abstractions;
@@ -19,8 +20,9 @@ namespace CcDirector.Core.Tests.Wingman;
 /// Enforced invariants:
 ///   1. No cheap-model literal (e.g. "haiku") in any Wingman source file - the only
 ///      thing that can actually invoke a cheap model.
-///   2. WingmanService.Model is a known STRONG model, and the back-compat aliases
-///      resolve to it (so nobody re-points an alias at a cheap model).
+///   2. WingmanService.Model and the turn-verdict judge are the models the CHARTER NAMES,
+///      read out of docs/wingman/WINGMAN.md itself, and the back-compat aliases resolve to
+///      WingmanService.Model (so nobody re-points an alias at a cheap model).
 ///   3. Every allowedTools: argument in Wingman code is a subset of the read-only
 ///      allow-list (Read, Grep, Glob) - never a write/execute tool.
 /// </summary>
@@ -39,21 +41,63 @@ public sealed class WingmanCharterAuditTests
     private static readonly HashSet<string> ReadOnlyTools =
         new(StringComparer.Ordinal) { "Read", "Grep", "Glob" };
 
-    private static readonly HashSet<string> StrongModels =
-        new(StringComparer.OrdinalIgnoreCase) { "opus", "sonnet" };
+    // Invariant 1 used to pin the model against a hard-coded set of "strong" models, on the
+    // belief that a bigger model reads a screen better. Slice 0 of the Wingman-on-every-turn
+    // mission MEASURED that belief against a labelled corpus and it lost: the thinking tier
+    // never answered 48 of its 100 calls. So the rule is no longer "strong"; it is "the model
+    // the charter names, with its score beside it", and this test reads the charter rather
+    // than carrying its own opinion about which models are acceptable.
+    //
+    // WHY READ THE DOCUMENT. The charter is the record of WHICH judge was measured and what it
+    // scored. A pin that lived only here would let the code move to a model the charter has
+    // never measured while every test stayed green - which is exactly the drift invariant 1
+    // exists to stop. The two now fail together or not at all.
+
+    /// <summary>The charter line that names the Director-side content model. The value is
+    /// substituted, so changing the constant without changing the charter fails here.</summary>
+    private static string ContentModelClaim(string model) => $"`WingmanService.Model` = `{model}`";
+
+    /// <summary>The charter line that names the Gateway turn-verdict judge.</summary>
+    private static string JudgeClaim(string model) => $"the judge = `{model}`";
 
     [Fact]
-    public void Model_is_strong_and_aliases_resolve_to_it()
+    public void Model_is_the_one_the_charter_names_and_aliases_resolve_to_it()
     {
-        Assert.True(StrongModels.Contains(WingmanService.Model),
-            $"WingmanService.Model is '{WingmanService.Model}', not a known strong model. The Wingman runs on a strong model only ({CharterRef}).");
+        var charter = File.ReadAllText(ResolveCharterPath());
+
+        var content = ContentModelClaim(WingmanService.Model);
+        Assert.True(charter.Contains(content, StringComparison.Ordinal),
+            $"WingmanService.Model is '{WingmanService.Model}', which the charter does not name. " +
+            $"Invariant 1 records the model in force and its score; the charter must carry " +
+            $"the line: {content} ({CharterRef}).");
+
+        var judge = JudgeClaim(IncludedModelId.WingmanFast.Value);
+        Assert.True(charter.Contains(judge, StringComparison.Ordinal),
+            $"The turn-verdict judge is '{IncludedModelId.WingmanFast.Value}', which the charter does not name. " +
+            $"The charter must carry the line: {judge} ({CharterRef}).");
+
         foreach (var forbidden in ForbiddenModelLiterals)
             Assert.False(string.Equals(WingmanService.Model, forbidden, StringComparison.OrdinalIgnoreCase),
                 $"WingmanService.Model must never be the cheap model '{forbidden}' ({CharterRef}).");
 
-        // Back-compat aliases must point at the single strong model, not be re-pointed.
+        // Back-compat aliases must point at the single model the charter names, not be re-pointed.
         Assert.Equal(WingmanService.Model, WingmanService.DefaultModel);
         Assert.Equal(WingmanService.Model, WingmanService.StrongModel);
+    }
+
+    /// <summary>
+    /// The charter's NOT-MEASURED sentence, which is the one number in invariant 1 that a later
+    /// reader is most likely to flatten into a zero. A charter that printed 0.0 percent for the
+    /// cyan false-calm row would read as a perfect score on the row that gates the colour switch.
+    /// </summary>
+    [Fact]
+    public void The_charter_does_not_print_the_unmeasured_false_calm_row_as_zero()
+    {
+        var charter = File.ReadAllText(ResolveCharterPath());
+        Assert.True(charter.Contains("NOT MEASURED, not zero", StringComparison.Ordinal),
+            $"Invariant 1 must say that the cyan false-calm rate under contract version two is NOT MEASURED " +
+            $"rather than zero: every finished answer in that run was asked under version one and is refused " +
+            $"by version two, so there is no accepted answer for a mistake to be counted among ({CharterRef}).");
     }
 
     [Fact]
@@ -175,6 +219,20 @@ public sealed class WingmanCharterAuditTests
             $"Wingman actuation must be request-driven (except the approved auto-resume loop); " +
             $"nothing else in the Wingman core may invoke WingmanActionExecutor.Execute ({CharterRef}):\n  "
             + string.Join("\n  ", offenders));
+    }
+
+    /// <summary>The charter itself - invariant 1 names the models, and this test reads them from it.</summary>
+    private static string ResolveCharterPath()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null)
+        {
+            var candidate = Path.Combine(dir.FullName, "docs", "wingman", "WINGMAN.md");
+            if (File.Exists(candidate)) return candidate;
+            dir = dir.Parent;
+        }
+        throw new FileNotFoundException(
+            "Could not locate docs/wingman/WINGMAN.md by walking up from " + AppContext.BaseDirectory);
     }
 
     private static string ResolveWingmanSourceDir()
