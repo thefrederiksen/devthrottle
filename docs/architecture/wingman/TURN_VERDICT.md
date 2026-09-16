@@ -37,8 +37,7 @@ The detector (Director, no model)            decides a stop HAPPENED
    v
 Turn-end boundary (Gateway)
    |
-   +-- tier one: held, live, not brand-new, not exited, not working, the switch
-   |       nothing read yet; a stop refused here costs nothing
+   +-- the boundary: seven steps, each with its cost in reads    see section 6
    +-- "reading" stamped -> yellow           so a judged stop never shows red first
    +-- one screen read, hashed once
    +-- the package: screen + reply or failure + last four turns + facts
@@ -213,67 +212,96 @@ row.
 
 ## 6. The checks, in the order they run, and what each has already cost
 
-The first version of this section said "nothing is read and nothing is paid for until every check
-passes". That was false, and it is worth saying why rather than quietly correcting it: two of the
-checks sit AFTER both reads, and a reader who believed the old sentence would have concluded that a
-stop refused by the account ceiling had read nothing. It had read the screen and the conversation.
+This is the boundary exactly as `TurnVerdictService.JudgeAsync` runs it. The same block, word for
+word, is the comment above that code and the charter's section 3b, so the three cannot describe it
+differently:
 
-The code was always right. The order below is `TurnVerdictService.JudgeAsync`, and the line numbers
-are that file at the commit this document landed on.
+```
+THE BOUNDARY, IN THE ORDER THE CODE RUNS IT. A read means the session's screen or its stored
+conversation; the pushed roster and the verdict store are consulted as well and are not counted.
+1. The checks that read neither: held, live, not brand new, not exited, not working, and the
+   judge switch; then, for a turn end, the settle wait, and for an automatic request the same
+   checks again. A stop refused here costs NO reads.
+2. The screen read, and its one full-grid hash.
+3. The reuse check: a stored verdict formed on the same hash is reused and the judge is not
+   asked. A stop answered here costs ONE read.
+4. The speech re-attempt refusal: a caller that may not ask the judge stops here, before the
+   conversation is read. A stop refused here costs ONE read.
+5. The conversation read.
+6. The provider deadline, then the account ceiling. A stop refused by either costs TWO reads.
+7. The model call.
+```
 
-### Tier one - decided before anything is read (lines 761-782)
+### Where each step is
 
-A stop refused here has cost nothing at all.
+Line numbers in `src/CcDirector.Gateway/Wingman/TurnVerdictService.cs` at the commit this document
+landed on. They are cited so the order can be CHECKED rather than believed; they will rot as the file
+changes, and a stale line number is visibly stale where a wrong sentence about a boundary is not.
 
-1. **Held.** A session a live owning session is holding is not the owner's to be read. Resolved
-   across the account's WHOLE fresh roster in one snapshot, never off the session's own row - the
-   push store nulls the role at ingest, so a check that read the row would answer "not held" for
-   every session on the fleet and read every worker.
-2. **Live at all**; **not brand new**; **not exited**; **not working**. These four and the held check
-   are one function, `SessionStateSkipCause`, over one snapshot.
-3. **The judge switch**, which binds the two triggers nobody is waiting on - the detector's turn end,
-   and a snooze expiry with a stop nothing has judged. A voice session is judged whatever the switch
-   says, because its narration IS the verdict's spoken section, and a person's own request is not
-   automatic at all.
-4. **The settle wait** (600 milliseconds by default), after which the role and the facts are
-   **resolved again** against a fresh snapshot and put through the same tier-one checks. A session
-   can become held, or start working, while the request waits, and the first answer does not license
-   a read made later.
+| Step | What | Line |
+|---|---|---|
+| 1 | The held, live, brand-new, exited and working checks | 782 |
+| 1 | The judge switch | 790 |
+| 1 | The settle wait | 793 |
+| 1 | The same checks again, for an automatic request | 799-800 |
+| 2 | The screen read | 806 |
+| 3 | The reuse check | 811 |
+| 4 | The speech re-attempt refusal | 825 |
+| 5 | The conversation read | 832 |
+| 6 | The provider deadline | 838 |
+| 6 | The account ceiling | 847 |
+| 7 | The model call | 879 |
 
-### Tier two - the reads, which the checks after them need (lines 785-813)
+### Two earlier versions of this section were wrong, both about cost
 
-5. **One screen read**, hashed as ONE canonical full-grid hash over every row (line 785).
+The first said "nothing is read and nothing is paid for until every check passes". Steps 3, 4 and 6
+all come after the screen read, so a reader who believed it would have concluded that a stop refused
+by the account ceiling had read nothing. It had read the screen and the conversation.
 
-   **This read is not gated by anything below it, and it cannot be.** The very next thing the seat
-   does is ask whether a stored verdict was formed on this same screen (line 790), and that question
-   has no answer without the hash. The read is what makes the reuse possible, and the reuse is what
-   stops the model being asked again about a screen that has not moved. A read placed after the
-   ceiling check would buy nothing and would cost every reusable stop a model call.
+The second fixed that and then filed the speech re-attempt refusal with the checks that come after
+BOTH reads, at a cost of two. It comes before the conversation is read and costs one - the table
+above shows it at line 825, before the conversation read at line 832.
 
-   An unreadable screen hashes to the empty string and is never reused outside the idle sweep,
-   because otherwise two different stops on an unreachable Director would look like one screen and
-   the second would be played the first one's words.
+The code was right both times. Both errors were in the sentence beside it.
 
-6. **The stored conversation** (line 811), read once the reuse check has found no match, and used by
-   `WingmanNarrationSource.Select` to choose the package kind.
+### Why the boundary is where it is
 
-### Tier three - the checks that gate THE MODEL CALL (lines 804-831)
+**The real boundary is step 6.** A stop refused there has cost two reads and no model call. That is
+the deliberate shape: the expensive, rate-limited, chargeable thing is the model, and step 6 is what
+stands in front of it. The reads are cheap, local to the Gateway and its tunnel, and the screen read
+pays for itself through the reuse.
 
-**This is the real boundary.** A stop refused here has cost two reads and no model call. That is the
-deliberate shape: the expensive, rate-limited, chargeable thing is the model, and these are what
-stand in front of it. The reads are cheap, local to the Gateway and its tunnel, and one of them pays
-for itself through the reuse.
+Notes on individual steps, which add reasons and do not change the order or the costs above:
 
-7. **A speech re-attempt may not ask the judge at all** (line 804) and stops here, after the reuse
-   check, which is the only thing it was entitled to. No automatic path costs two model calls for one
-   stop.
-8. **The provider's own deadline** (line 817). A caller the provider told to wait - the voice path,
-   after a rate limit on this stop - is not asked about again for this stop until the wait has passed.
-9. **The account's ceiling** (line 826), eight judgements in flight. A stop over the ceiling is not
-   judged; it stays exactly as the detector left it. The alternative is a queue whose answers arrive
-   about screens that have moved on.
+- **Held** is resolved across the account's WHOLE fresh roster in one snapshot, never off the
+  session's own row. The push store nulls the role at ingest, so a check that read the row would
+  answer "not held" for every session on the fleet and read every worker. Held, live, brand-new,
+  exited and working are one function, `SessionStateSkipCause`, over one snapshot.
+- **The judge switch** binds only the two triggers nobody is waiting on: the detector's turn end, and
+  a snooze expiry with a stop nothing has judged. A voice session is judged whatever the switch says,
+  because its narration IS the verdict's spoken section, and a person's own request is not automatic
+  at all.
+- **The checks run again after the settle wait** (600 milliseconds by default) because a session can
+  become held, or start working, while the request waits, and the first answer does not license a read
+  made later.
+- **The screen is read before the reuse check because the reuse check needs it**: it compares the hash
+  of this screen to the hash a stored verdict was formed on, and has no answer without it. A screen
+  read placed after step 6 would buy nothing and would cost every reusable stop a model call. An
+  unreadable screen hashes to the empty string and is never reused outside the idle sweep, because
+  otherwise two different stops on an unreachable Director would look like one screen and the second
+  would be played the first one's words.
+- **The speech re-attempt refusal** exists because no automatic path may cost two model calls for one
+  stop. The reuse check is the only thing a re-attempt is entitled to, which is why it stops
+  immediately after it and before anything else is read.
+- **The conversation** is read only once the reuse check has found no match, and
+  `WingmanNarrationSource.Select` uses it to choose the package kind.
+- **The provider deadline** applies to a caller the provider told to wait - the voice path, after a
+  rate limit on this stop - which is not asked about again for this stop until the wait has passed.
+- **The account ceiling** is eight judgements in flight, and it binds the turn end, the idle sweep and
+  the snooze expiry. A stop over it is not judged; it stays exactly as the detector left it, because
+  the alternative is a queue whose answers arrive about screens that have moved on.
 
-Only then is the package built, the prompt rendered and the judge asked (line 858).
+Only after step 6 is the package built, the prompt rendered and the judge asked.
 
 ## 7. What the verdict does to a row
 

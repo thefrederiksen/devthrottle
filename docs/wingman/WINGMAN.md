@@ -228,51 +228,56 @@ The full rule, member by member, is in the specification. The vocabulary lives i
 `TurnVerdictVocabulary`, and its twin in the labelling tool of the internal repository is pinned
 to it by a test in each repository.
 
-### The order of the checks, and what each one is actually protecting
+### The order of the checks, and what each one costs
 
-The checks are NOT all free, and saying they were was wrong in the first version of this section.
-There are three tiers, and the difference between them is what has been spent by the time each one
-answers. The order below is the order in `TurnVerdictService.JudgeAsync`.
+This is the boundary exactly as `TurnVerdictService.JudgeAsync` runs it. The same block, word for
+word, is the comment above that code and section 6 of the specification, so the three cannot
+describe it differently:
 
-**Tier one - decided before anything is read.** These need no screen, no conversation and no model,
-and a stop refused here costs nothing at all:
+```
+THE BOUNDARY, IN THE ORDER THE CODE RUNS IT. A read means the session's screen or its stored
+conversation; the pushed roster and the verdict store are consulted as well and are not counted.
+1. The checks that read neither: held, live, not brand new, not exited, not working, and the
+   judge switch; then, for a turn end, the settle wait, and for an automatic request the same
+   checks again. A stop refused here costs NO reads.
+2. The screen read, and its one full-grid hash.
+3. The reuse check: a stored verdict formed on the same hash is reused and the judge is not
+   asked. A stop answered here costs ONE read.
+4. The speech re-attempt refusal: a caller that may not ask the judge stops here, before the
+   conversation is read. A stop refused here costs ONE read.
+5. The conversation read.
+6. The provider deadline, then the account ceiling. A stop refused by either costs TWO reads.
+7. The model call.
+```
 
-1. **Held.** A session a live owning session is holding is not the owner's to be read, so its screen
-   is never read and no model is asked about it. Resolved across the account's WHOLE fresh roster in
-   one snapshot, never off the session's own row - the push store nulls the role at ingest, so a
-   check that read the row would answer "not held" for every session on the fleet.
-2. **Live at all**, and **not brand new**, and **not exited**, and **not working**.
-3. **The judge switch** for the account, which binds the two triggers nobody is waiting on: the
-   detector's turn end, and a snooze expiry with a stop nothing has judged. A voice session is the
-   standing exception - somebody is listening to it - and a person's own request is not automatic at
-   all.
-4. **The settle wait** (600 milliseconds by default), after which the role and the facts are
-   **resolved again**, against a fresh snapshot, with the same tier-one checks. A session can become
-   held, or start working, while the request waits, and the first answer does not license a read made
-   later.
+**Two earlier versions of this section were wrong, both about cost.** The first said nothing was read
+until every check passed. The second grouped the speech re-attempt refusal with the checks after BOTH
+reads, when it comes before the conversation is read and costs one. The code was right both times.
 
-**Tier two - the reads, which happen because the later checks need what they return.**
+**The real boundary is step 6.** A stop refused there has cost two reads and no model call, and that
+is deliberate: the expensive, rate-limited, chargeable thing is the model, and step 6 is what stands in
+front of it.
 
-5. **The screen, read once**, and hashed as ONE canonical full-grid hash over every row. **This read
-   happens before the checks below it, and it has to**: the next thing the seat does is ask whether a
-   stored verdict was formed on this same screen, and that question cannot be asked without the hash.
-   A match is REUSED rather than re-asked, which is the read paying for itself. An unreadable screen
-   hashes to the empty string and is never reused outside the idle sweep, because otherwise two
-   different stops on an unreachable Director would look like one screen.
-6. **The stored conversation**, read after the reuse check has failed to find a match, and used to
-   choose the package kind.
+Notes on individual steps, which add reasons and do not change the order or the costs above:
 
-**Tier three - the checks that gate THE MODEL CALL, after both reads have happened.** A stop refused
-here has cost two reads and no model call. That is the real boundary, and it is deliberate: the
-expensive, rate-limited, chargeable thing is the model, and these are what stand in front of it.
-
-7. **A speech re-attempt may not ask the judge at all**, so it stops here - after the reuse check,
-   which is the only thing it was entitled to.
-8. **The provider's own deadline.** A caller the provider told to wait is not asked about again for
-   this stop until the wait has passed.
-9. **The account's ceiling**, eight judgements in flight. A stop over the ceiling is not judged; it
-   stays exactly as the detector left it. The alternative is a queue whose answers arrive about
-   screens that have moved on.
+- **Held** is resolved across the account's WHOLE fresh roster in one snapshot, never off the
+  session's own row. The push store nulls the role at ingest, so a check that read the row would
+  answer "not held" for every session on the fleet.
+- **The judge switch** binds only the two triggers nobody is waiting on: the detector's turn end, and
+  a snooze expiry with a stop nothing has judged. A voice session is judged whatever the switch says,
+  because somebody is listening to it, and a person's own request is not automatic at all.
+- **The checks run again after the settle wait** because a session can become held, or start working,
+  while the request waits, and the first answer does not license a read made later.
+- **The screen is read before the reuse check because the reuse check needs it**: it compares the hash
+  of this screen to the hash a stored verdict was formed on. A screen read placed after step 6 would
+  buy nothing and would cost every reusable stop a model call. An unreadable screen hashes to the empty
+  string and is never reused outside the idle sweep, because otherwise two different stops on an
+  unreachable Director would look like one screen.
+- **The speech re-attempt refusal** exists because no automatic path may cost two model calls for one
+  stop; the reuse check is the only thing a re-attempt is entitled to.
+- **The account ceiling** is eight judgements in flight. A stop over it is not judged and stays exactly
+  as the detector left it, because the alternative is a queue whose answers arrive about screens that
+  have moved on.
 
 ### Which way it errs
 
