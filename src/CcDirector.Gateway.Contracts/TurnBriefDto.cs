@@ -1,11 +1,23 @@
 ﻿namespace CcDirector.Gateway.Contracts;
 
 /// <summary>
-/// One wingman turn brief - the strong model's interpretation of a completed turn
-/// (docs/architecture/wingman/TURN_BRIEFING.md, contract v2.2). Generated eagerly at turn
-/// end by the Director, stored durably, and rendered verbatim by every consumer (Cockpit
-/// Brief page, rail, phone, voice). Consumers NEVER parse or post-process this -
-/// interpretation happened once, on the Director, with the best model available (D6).
+/// One wingman turn brief - a model's interpretation of a completed turn
+/// (docs/architecture/wingman/TURN_BRIEFING.md, contract v2.2).
+///
+/// NOTHING PRODUCES ONE OF THESE ANY MORE. This is a HISTORICAL data type, kept so that briefs
+/// written before the pipeline was retired can still be read back. The writer was retired in
+/// issue #549; the Gateway surface that served them went with it; and the contract that validated
+/// them, TurnBriefContract, was deleted in 2026-09. Every field below describes what a brief MEANT
+/// when something was still writing them, in the past tense, however it is worded.
+///
+/// WHAT REPLACED IT: the turn verdict (docs/architecture/wingman/TURN_VERDICT.md, and
+/// docs/wingman/WINGMAN.md section 3b) - one structured question per stop, judged on the Gateway,
+/// stored as TurnVerdictDto. A new reader wants that type, never this one.
+///
+/// STILL READ BY: the restore continuation history and the phone's brief view, both of which are
+/// reading stored rows rather than fresh ones, and both of which already get nothing on hosted.
+/// The one rule that has not lapsed is the one it always had: a consumer renders this verbatim
+/// and NEVER parses or post-processes it.
 /// </summary>
 public sealed class TurnBriefDto
 {

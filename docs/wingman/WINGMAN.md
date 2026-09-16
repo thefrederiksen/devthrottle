@@ -211,33 +211,68 @@ The answer is one JSON object. The field names are the wire names:
 ```
 
 Validation is MECHANICAL and never interpretation (`TurnVerdictContract.ParseAndValidate`):
-closed word lists, the declared shape of every member before any member is read for meaning,
-length caps, and a receipt check that looks for `evidence` verbatim in the latest reply or in
-the screen rows after whitespace normalisation. An unknown `verdict` word, an unknown `risk`
-word, a missing required member, a wrong type, an option whose `send` carries a carriage return,
-a receipt that differs by one word - each rejects the WHOLE answer. Nothing missing is ever
-synthesised. The vocabulary lives in one file, `TurnVerdictVocabulary`, and its twin in the
-labelling tool of the internal repository is pinned to it by a test in each repository.
+closed word lists, the declared shape of every member proved before any member is read for
+meaning, length caps, and a receipt check that looks for `evidence` verbatim in the latest reply
+or in the screen rows after whitespace normalisation.
 
-### The free checks - nothing is read and nothing is paid for until they pass
+`verdict`, `confidence`, `evidence`, `label`, `summary`, `answerVia`, `risk` and `spoken` must be
+present and be strings; `options` must be present and be an array, empty when there is nothing to
+offer. **`agentRecommends` and `menu` are the only members that may be null or absent**, and even
+there a wrong TYPE rejects the answer rather than reading as nothing. `finishedKind` is required
+on a `finished` verdict and refused on every other. An unknown `verdict` word, an unknown `risk`
+word, a member that is missing or of the wrong kind, an option whose `send` carries a carriage
+return, a receipt that differs by one word - each rejects the WHOLE answer. Nothing missing is
+ever synthesised.
 
-In order, on the caller's own thread, before any screen is read and before any model is asked
-(`TurnVerdictService.JudgeAsync`):
+The full rule, member by member, is in the specification. The vocabulary lives in one file,
+`TurnVerdictVocabulary`, and its twin in the labelling tool of the internal repository is pinned
+to it by a test in each repository.
 
-1. **Held.** A session a live owning session is holding is not the owner's to be read. Resolved
-   across the account's WHOLE fresh roster in one snapshot, never off the session's own row.
+### The order of the checks, and what each one is actually protecting
+
+The checks are NOT all free, and saying they were was wrong in the first version of this section.
+There are three tiers, and the difference between them is what has been spent by the time each one
+answers. The order below is the order in `TurnVerdictService.JudgeAsync`.
+
+**Tier one - decided before anything is read.** These need no screen, no conversation and no model,
+and a stop refused here costs nothing at all:
+
+1. **Held.** A session a live owning session is holding is not the owner's to be read, so its screen
+   is never read and no model is asked about it. Resolved across the account's WHOLE fresh roster in
+   one snapshot, never off the session's own row - the push store nulls the role at ingest, so a
+   check that read the row would answer "not held" for every session on the fleet.
 2. **Live at all**, and **not brand new**, and **not exited**, and **not working**.
-3. **The judge switch** for the account, with one standing exception: a voice session is judged
-   whatever the switch says, because its narration IS the verdict's spoken section. A person's
-   own request is not automatic and is not bound by the switch.
+3. **The judge switch** for the account, which binds the two triggers nobody is waiting on: the
+   detector's turn end, and a snooze expiry with a stop nothing has judged. A voice session is the
+   standing exception - somebody is listening to it - and a person's own request is not automatic at
+   all.
 4. **The settle wait** (600 milliseconds by default), after which the role and the facts are
-   **resolved again** - a session can become held, or start working, while the request waits,
-   and the first answer does not license a read made later.
-5. **The screen, read once**, and hashed as ONE canonical full-grid hash. A stored verdict formed
-   on the same hash is REUSED rather than re-asked. An unreadable screen hashes to the empty
-   string and is never reused outside the idle sweep.
-6. **The provider's own deadline**, then **the account's ceiling** of eight judgements in flight.
-   A stop over the ceiling is not judged; it stays exactly as the detector left it.
+   **resolved again**, against a fresh snapshot, with the same tier-one checks. A session can become
+   held, or start working, while the request waits, and the first answer does not license a read made
+   later.
+
+**Tier two - the reads, which happen because the later checks need what they return.**
+
+5. **The screen, read once**, and hashed as ONE canonical full-grid hash over every row. **This read
+   happens before the checks below it, and it has to**: the next thing the seat does is ask whether a
+   stored verdict was formed on this same screen, and that question cannot be asked without the hash.
+   A match is REUSED rather than re-asked, which is the read paying for itself. An unreadable screen
+   hashes to the empty string and is never reused outside the idle sweep, because otherwise two
+   different stops on an unreachable Director would look like one screen.
+6. **The stored conversation**, read after the reuse check has failed to find a match, and used to
+   choose the package kind.
+
+**Tier three - the checks that gate THE MODEL CALL, after both reads have happened.** A stop refused
+here has cost two reads and no model call. That is the real boundary, and it is deliberate: the
+expensive, rate-limited, chargeable thing is the model, and these are what stand in front of it.
+
+7. **A speech re-attempt may not ask the judge at all**, so it stops here - after the reuse check,
+   which is the only thing it was entitled to.
+8. **The provider's own deadline.** A caller the provider told to wait is not asked about again for
+   this stop until the wait has passed.
+9. **The account's ceiling**, eight judgements in flight. A stop over the ceiling is not judged; it
+   stays exactly as the detector left it. The alternative is a queue whose answers arrive about
+   screens that have moved on.
 
 ### Which way it errs
 
@@ -289,7 +324,7 @@ snooze ran, that stop's verdict rules, and only a needs-you verdict brings the r
   word the Wingman may never answer with: it is a fact about the detector, not a state of the
   session, and an answer carrying it is rejected like any other unknown word.
 - **It never types, never snoozes, never closes, and never touches a working session or a held
-  one.** The held check is the first free check and runs before the screen is read.
+  one.** The held check is the FIRST check of all and runs before the screen is read.
 - **It is never a second colour authority.** One verdict, folded once on the Gateway, rendered
   verbatim by every client (the repository's law 7). A client never re-derives a colour, a label
   or a bucket.

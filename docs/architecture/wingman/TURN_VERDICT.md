@@ -37,7 +37,8 @@ The detector (Director, no model)            decides a stop HAPPENED
    v
 Turn-end boundary (Gateway)
    |
-   +-- the free checks                       nothing read, nothing paid for, until all pass
+   +-- tier one: held, live, not brand-new, not exited, not working, the switch
+   |       nothing read yet; a stop refused here costs nothing
    +-- "reading" stamped -> yellow           so a judged stop never shows red first
    +-- one screen read, hashed once
    +-- the package: screen + reply or failure + last four turns + facts
@@ -59,7 +60,7 @@ Where each piece lives:
 | The question, and the mechanical validation of the answer | `src/CcDirector.Core/Wingman/TurnVerdictContract.cs` |
 | The prompt itself, as an embedded resource | `src/CcDirector.Core/Wingman/Prompts/turn-verdict-v2.txt` |
 | The closed word lists, and what each word means | `src/CcDirector.Core/Wingman/TurnVerdictVocabulary.cs` |
-| The seat: the free checks, the call, the store, the ledger | `src/CcDirector.Gateway/Wingman/TurnVerdictService.cs` |
+| The seat: the checks, the reads, the call, the store, the ledger | `src/CcDirector.Gateway/Wingman/TurnVerdictService.cs` |
 | What the judge is asked about this stop | `src/CcDirector.Gateway/Wingman/TurnVerdictPackageBuilder.cs` |
 | The two switches and the timings | `src/CcDirector.Gateway/Wingman/TurnVerdictSettings.cs` |
 | Colour, label and bucket | `src/CcDirector.Gateway.Contracts/SessionOrdering.cs` |
@@ -114,19 +115,40 @@ is stuck, and the clock in section 7 is what catches it.
 Nothing below reads the answer for sense. A judge that could talk its way past its own
 validation is not validated.
 
-- **Shape before meaning.** Every declared member present with its declared type, before any
-  member is read for meaning. Nullable members (`menu`, `agentRecommends`) distinguish null from
-  a wrong type. Nothing missing is ever synthesised - no invented `answerVia`, no empty
-  `summary`, no `recommended` coerced from a string. A wrong shape rejects the whole answer.
+- **Shape before meaning**, proved in one pass before any member is read for what it means
+  (`TurnVerdictContract.ValidateShape`). This is the exact rule, not a paraphrase of it:
+
+  - **Eight members must be PRESENT and must be strings**: `verdict`, `confidence`, `evidence`,
+    `label`, `summary`, `answerVia`, `risk`, `spoken`. Absent rejects the whole answer; present
+    but of any other JSON kind rejects the whole answer. A missing field is not an empty one.
+  - **`options` must be PRESENT and must be an array.** Empty is the answer when there is nothing
+    to offer. Absent rejects, and so does null, and so does any other kind - deliberately, because
+    absent-means-empty would be a second way to say one thing, and the same list would then be
+    synthesised from either.
+  - **`agentRecommends` and `menu` are the ONLY members that may be null or absent.** Absent reads
+    as null, because the shape's own null-or-a-value wording says there is nothing to carry. A
+    wrong TYPE still rejects the whole answer: a string where `menu` belongs is not read as no
+    menu, because a picker silently becoming no picker is how a selection the owner cannot make
+    gets stored as one he can.
+  - **`finishedKind` is conditional**, and is covered by its own rule below rather than by the
+    shape pass.
+
+  Nothing missing is ever synthesised - no invented `answerVia`, no empty `summary`, no
+  `recommended` coerced from a string. Each of those was once a repair this contract made on the
+  judge's behalf and then stored as though the judge had made it.
 - **Closed words.** `verdict` must be one of the six; `confidence`, `answerVia`,
   `selectionMode`, `risk` and `finishedKind` each one of their own list. Any other value rejects
   the whole answer. There is no safe default for `risk` in particular: defaulting to `none`
   would be the contract quietly telling the owner that an irreversible action is free.
 - **`finishedKind` is required on `finished` and refused on every other verdict.**
-- **The receipt.** `evidence` is required for every verdict except `cannot-tell`, and must be
-  found verbatim in the latest reply or in the screen rows after whitespace normalisation
-  (collapse runs of spaces, strip box-drawing characters at row edges, ignore line breaks).
-  Not found - even by one word - rejects the whole answer, including the parts that were right.
+- **The receipt.** `evidence` is present and a string on EVERY answer, `cannot-tell` included -
+  that is the shape rule above, and it has no exception. What `cannot-tell` is exempt from is
+  everything after it: on every other verdict the string must be non-empty, at most 600
+  characters, and found verbatim in the latest reply or in the screen rows after whitespace
+  normalisation (collapse runs of spaces, strip box-drawing characters at row edges, ignore line
+  breaks). Not found - even by one word - rejects the whole answer, including the parts that were
+  right. An over-long receipt is refused rather than cut, because cutting it would break the
+  check. What is STORED is the source's own characters, not the judge's rendering of them.
 - **Options.** Zero, or at least two. At most one `recommended`. Every `send` non-empty and
   never containing a carriage return or line feed. `answerVia: keys` requires a `menu` and, with
   one exception below, non-empty `options`. `answerVia: reply` requires `menu` to be null.
@@ -189,32 +211,69 @@ The template is filled in ONE pass, so a value that happens to contain a placeho
 text rather than a way into the prompt: a screen row reading `{{SCREEN_ROWS}}` is just a screen
 row.
 
-## 6. The free checks
+## 6. The checks, in the order they run, and what each has already cost
 
-In order, on the caller's own thread, before any screen is read and before any model is asked.
+The first version of this section said "nothing is read and nothing is paid for until every check
+passes". That was false, and it is worth saying why rather than quietly correcting it: two of the
+checks sit AFTER both reads, and a reader who believed the old sentence would have concluded that a
+stop refused by the account ceiling had read nothing. It had read the screen and the conversation.
+
+The code was always right. The order below is `TurnVerdictService.JudgeAsync`, and the line numbers
+are that file at the commit this document landed on.
+
+### Tier one - decided before anything is read (lines 761-782)
+
+A stop refused here has cost nothing at all.
 
 1. **Held.** A session a live owning session is holding is not the owner's to be read. Resolved
-   across the account's WHOLE fresh roster in one snapshot, never off the session's own row -
-   the push store nulls the role at ingest, so a check that read the row would answer "not held"
-   for every session on the fleet and read every worker.
-2. **Live at all**; **not brand new**; **not exited**; **not working**.
-3. **The judge switch**, which binds the two triggers nobody is waiting on - the detector's turn
-   end, and a snooze expiry with a stop nothing has judged. A voice session is judged whatever
-   the switch says, because its narration IS the verdict's spoken section, and a person's own
-   request is not automatic at all.
+   across the account's WHOLE fresh roster in one snapshot, never off the session's own row - the
+   push store nulls the role at ingest, so a check that read the row would answer "not held" for
+   every session on the fleet and read every worker.
+2. **Live at all**; **not brand new**; **not exited**; **not working**. These four and the held check
+   are one function, `SessionStateSkipCause`, over one snapshot.
+3. **The judge switch**, which binds the two triggers nobody is waiting on - the detector's turn end,
+   and a snooze expiry with a stop nothing has judged. A voice session is judged whatever the switch
+   says, because its narration IS the verdict's spoken section, and a person's own request is not
+   automatic at all.
 4. **The settle wait** (600 milliseconds by default), after which the role and the facts are
-   **resolved again**. A session can become held, or start working, while the request waits, and
-   the first answer does not license a read made later.
-5. **One screen read**, hashed as ONE canonical full-grid hash over every row. A stored verdict
-   formed on the same hash is REUSED rather than re-asked. An unreadable screen hashes to the
-   empty string and is never reused outside the idle sweep, because otherwise two different
-   stops on an unreachable Director would look like one screen and the second would be played
-   the first one's words.
-6. **The provider's own deadline** - a caller the provider told to wait is not asked again for
-   this stop until the wait has passed.
-7. **The account's ceiling**, eight judgements in flight. A stop over the ceiling is not judged;
-   it stays exactly as the detector left it. The alternative is a queue whose answers arrive
+   **resolved again** against a fresh snapshot and put through the same tier-one checks. A session
+   can become held, or start working, while the request waits, and the first answer does not license
+   a read made later.
+
+### Tier two - the reads, which the checks after them need (lines 785-813)
+
+5. **One screen read**, hashed as ONE canonical full-grid hash over every row (line 785).
+
+   **This read is not gated by anything below it, and it cannot be.** The very next thing the seat
+   does is ask whether a stored verdict was formed on this same screen (line 790), and that question
+   has no answer without the hash. The read is what makes the reuse possible, and the reuse is what
+   stops the model being asked again about a screen that has not moved. A read placed after the
+   ceiling check would buy nothing and would cost every reusable stop a model call.
+
+   An unreadable screen hashes to the empty string and is never reused outside the idle sweep,
+   because otherwise two different stops on an unreachable Director would look like one screen and
+   the second would be played the first one's words.
+
+6. **The stored conversation** (line 811), read once the reuse check has found no match, and used by
+   `WingmanNarrationSource.Select` to choose the package kind.
+
+### Tier three - the checks that gate THE MODEL CALL (lines 804-831)
+
+**This is the real boundary.** A stop refused here has cost two reads and no model call. That is the
+deliberate shape: the expensive, rate-limited, chargeable thing is the model, and these are what
+stand in front of it. The reads are cheap, local to the Gateway and its tunnel, and one of them pays
+for itself through the reuse.
+
+7. **A speech re-attempt may not ask the judge at all** (line 804) and stops here, after the reuse
+   check, which is the only thing it was entitled to. No automatic path costs two model calls for one
+   stop.
+8. **The provider's own deadline** (line 817). A caller the provider told to wait - the voice path,
+   after a rate limit on this stop - is not asked about again for this stop until the wait has passed.
+9. **The account's ceiling** (line 826), eight judgements in flight. A stop over the ceiling is not
+   judged; it stays exactly as the detector left it. The alternative is a queue whose answers arrive
    about screens that have moved on.
+
+Only then is the package built, the prompt rendered and the judge asked (line 858).
 
 ## 7. What the verdict does to a row
 
