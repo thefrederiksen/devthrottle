@@ -298,6 +298,42 @@ def check(worktree: Path, repo: Path, tip: RemoteTip | None, recorded_gitdir: st
     return Checked(tip, head, gitdir, ReflogMark(len(entries), entries[0] if entries else None))
 
 
+def _z_list(worktree: Path, *args: str) -> list[str]:
+    return [item for item in gitrun.run(worktree, *args).stdout.split("\0") if item]
+
+
+def ignored_overlaps(worktree: Path, target: str) -> list[str]:
+    """Ignored files in the worktree whose path the target tree tracks, as a file or as a directory
+    above a file. `read-tree --reset -u` would overwrite them without a word.
+
+    Compared without regard to case, so a path that differs only in case also counts: on a
+    case-insensitive file system it is the same file.
+    """
+    ignored = _z_list(worktree, "ls-files", "-z", "--others", "--ignored", "--exclude-standard")
+    if not ignored:
+        return []
+    tracked_files: set[str] = set()
+    tracked_dirs: set[str] = set()
+    for path in _z_list(worktree, "ls-tree", "-r", "-z", "--name-only", "--full-tree", target):
+        folded = path.casefold()
+        tracked_files.add(folded)
+        parts = folded.split("/")
+        tracked_dirs.update("/".join(parts[:i]) for i in range(1, len(parts)))
+    hits = []
+    for path in ignored:
+        folded = path.casefold()
+        parts = folded.split("/")
+        if (folded in tracked_files or folded in tracked_dirs
+                or any("/".join(parts[:i]) in tracked_files for i in range(1, len(parts)))):
+            hits.append(path)
+    return hits
+
+
+def _names(paths: list[str], limit: int = 5) -> str:
+    shown = ", ".join(paths[:limit])
+    return shown + (f" and {len(paths) - limit} more" if len(paths) > limit else "")
+
+
 def _take_head_lock(checked: Checked, action: str) -> tuple[int, Path]:
     lock_path = checked.gitdir / "HEAD.lock"
     try:
@@ -341,9 +377,18 @@ def reset(worktree: Path, repo: Path, checked: Checked) -> None:
     try:
         _recheck_under_lock(worktree, repo, checked)
         try:
+            overlap = ignored_overlaps(worktree, target)
+        except GitError as ex:
+            raise cannot_verify(f"cannot list ignored files: {ex.short()}") from ex
+        if overlap:
+            raise NotLanded(f"the default branch now tracks {len(overlap)} ignored "
+                            f"file{'s' if len(overlap) != 1 else ''} in this worktree, which a reset would "
+                            f"overwrite: {_names(overlap)}")
+        # Ignored build output stays, which is the point of a pool. There is no git clean: the tree was
+        # proven clean, read-tree removes the files it untracks, so a clean could only ever delete a
+        # file that was ignored before and is not ignored by the new tree.
+        try:
             gitrun.run(worktree, "read-tree", "--reset", "-u", target)
-            # No -x: ignored build output stays, which is the point of a pool.
-            gitrun.run(worktree, "clean", "-fd")
         except GitError as ex:
             raise NotLanded(f"reset failed part way: {ex.short()}") from ex
         os.write(fd, f"{target}\n".encode("ascii"))
@@ -352,6 +397,11 @@ def reset(worktree: Path, repo: Path, checked: Checked) -> None:
         fd = -1
         os.replace(lock_path, checked.gitdir / "HEAD")
         committed = True
+        left = dirty_entries(worktree)
+        if left:
+            paths = [entry[3:] for entry in left]
+            raise NotLanded(f"reset to the default branch, but it no longer ignores {len(paths)} "
+                            f"file{'s' if len(paths) != 1 else ''}, kept untouched: {_names(paths)}")
     finally:
         if fd != -1:
             os.close(fd)
