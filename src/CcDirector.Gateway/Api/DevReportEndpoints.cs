@@ -180,6 +180,7 @@ internal static class DevReportEndpoints
 
         app.MapGet("/dev-reports", (HttpContext ctx) =>
         {
+            if (RefuseSessionIdentity(ctx) is { } refused) return refused;
             if (ReqTenant(ctx, boundary) is not { } tenant) return NoTenant();
             var sessionFilter = ctx.Request.Query["sessionId"].ToString();
             var reports = store.List(tenant,
@@ -189,6 +190,7 @@ internal static class DevReportEndpoints
 
         app.MapGet("/dev-reports/{reportId}", (string reportId, HttpContext ctx) =>
         {
+            if (RefuseSessionIdentity(ctx) is { } refused) return refused;
             if (ReqTenant(ctx, boundary) is not { } tenant) return NoTenant();
             if (FindReport(store, tenant, reportId, sessionId: null) is not { } report) return ReportNotFound(reportId);
             return Results.Json(Detail(store, delivery, tenant, report));
@@ -196,6 +198,7 @@ internal static class DevReportEndpoints
 
         app.MapGet("/dev-reports/{reportId}/html", (string reportId, HttpContext ctx) =>
         {
+            if (RefuseSessionIdentity(ctx) is { } refused) return refused;
             if (ReqTenant(ctx, boundary) is not { } tenant) return NoTenant();
             if (FindReport(store, tenant, reportId, sessionId: null) is not { } report) return ReportNotFound(reportId);
 
@@ -225,6 +228,7 @@ internal static class DevReportEndpoints
         app.MapPost("/dev-reports/{reportId}/send", async (string reportId, HttpContext ctx, CancellationToken ct) =>
         {
             FileLog.Write($"[DevReportEndpoints] POST /dev-reports/{reportId}/send: identity={AuthMiddleware.IdentityKind(ctx)}");
+            if (RefuseSessionIdentity(ctx) is { } refused) return refused;
             if (ReqTenant(ctx, boundary) is not { } tenant) return NoTenant();
             // Looked up BEFORE the body is judged: another account's report is a 404 whatever the body says.
             if (FindReport(store, tenant, reportId, sessionId: null) is not { } report) return ReportNotFound(reportId);
@@ -344,6 +348,21 @@ internal static class DevReportEndpoints
         if (report is null) return null;
         if (sessionId is not null && !string.Equals(report.SessionId, sessionId, StringComparison.Ordinal)) return null;
         return report;
+    }
+
+    /// <summary>
+    /// The owner routes refuse a session identity themselves, not only through SessionKeyGuard: a session key is
+    /// never the owner, and a later edit to the guard's allow list must not be enough to let an agent read the
+    /// owner's queue or send notes and answers in the owner's name. Null when the caller is not a session.
+    /// </summary>
+    private static IResult? RefuseSessionIdentity(HttpContext ctx)
+    {
+        var caller = AuthMiddleware.CallingSession(ctx);
+        if (caller is null) return null;
+        var route = $"{ctx.Request.Method} {ctx.Request.Path}";
+        FileLog.Write($"[DevReportEndpoints] owner route REFUSED to session {caller.SessionId:D}: {route}");
+        return Error(403, "session_key_out_of_scope",
+            $"a session key may not call {route}; the dev report owner routes are for the owner's own devices, never a session.");
     }
 
     private static IResult NoTenant()
