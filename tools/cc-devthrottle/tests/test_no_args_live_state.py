@@ -27,7 +27,7 @@ from src.cli import app  # noqa: E402
 runner = CliRunner()
 
 MY_ID = "2e7b6504-4fc2-44bd-9bb3-cebcccba554b"
-MY_NAME = 'AXI Tools - Worker - no-args, "live" state Søren \U0001f680'
+MY_NAME = 'AXI Tools - Worker - no-args, "live" state S\u00f8ren \U0001f680'
 
 
 def _row(sid, name, *, bucket, activity="WaitingForInput", crashed=False, repo="/Users/soren/ReposFred/devthrottle"):
@@ -324,11 +324,11 @@ def test_no_args_UnknownBucket_ExitsOneNamingTheValue(serve):
     assert "'parked'" in result.stderr
 
 
-def test_UnknownTopLevelFlag_ExitsTwo(no_fetch):
+def test_UnknownTopLevelFlag_ExitsTwo(no_fetch, plain):
     result = _invoke(["--bogus"])
 
     assert result.exit_code == 2
-    assert "--bogus" in result.stderr
+    assert "--bogus" in plain(result.stderr)
 
 
 # ---------------------------------------------------------------------------------------------------
