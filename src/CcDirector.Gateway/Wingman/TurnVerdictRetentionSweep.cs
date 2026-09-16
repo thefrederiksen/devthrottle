@@ -18,20 +18,24 @@ namespace CcDirector.Gateway.Wingman;
 public sealed class TurnVerdictRetentionSweep : TenantScopedSweep
 {
     private readonly TurnVerdictStore _store;
+    private readonly TurnVerdictTraceStore _traces;
     private readonly ITenantContext _tenantContext;
 
     public TurnVerdictRetentionSweep(
         HostedTenantBoundary boundary,
         TenantRegistry tenants,
         ITenantContext tenantContext,
-        TurnVerdictStore store)
+        TurnVerdictStore store,
+        TurnVerdictTraceStore traces)
         : base(boundary, tenants)
     {
         _tenantContext = tenantContext ?? throw new ArgumentNullException(nameof(tenantContext));
         _store = store ?? throw new ArgumentNullException(nameof(store));
+        _traces = traces ?? throw new ArgumentNullException(nameof(traces));
     }
 
-    /// <summary>Purge every tenant's judged stops older than the retention window. One pass over the census.</summary>
+    /// <summary>Purge every tenant's judged stops, and the Wingman inspector's traces of them, older than the
+    /// retention window. One pass over the census.</summary>
     public async Task SweepAsync(CancellationToken ct = default)
     {
         var cutoffUtc = DateTime.UtcNow - TurnVerdictStore.RetentionPeriod;
@@ -39,6 +43,7 @@ public sealed class TurnVerdictRetentionSweep : TenantScopedSweep
         await ForEachTenantAsync(() =>
         {
             total += _store.PurgeOlderThan(_tenantContext.Current, cutoffUtc);
+            total += _traces.PurgeOlderThan(_tenantContext.Current, cutoffUtc);
             return Task.CompletedTask;
         }, ct).ConfigureAwait(false);
 

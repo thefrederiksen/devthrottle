@@ -684,6 +684,13 @@ public sealed class GatewayHost : IAsyncDisposable
     /// MEANS, per tenant and per session. Written by the turn-end seat and read by the roster fold and the
     /// two turn-verdict routes.</summary>
     private readonly Wingman.TurnVerdictStore _turnVerdicts;
+    /// <summary>The Wingman inspector's record: every judgement kept whole - package, prompt, raw reply, verdict -
+    /// appended by the turn-end seat and never cleared when a session works again. Seven days.</summary>
+    private readonly Wingman.TurnVerdictTraceStore _turnVerdictTraces;
+    /// <summary>Writes the inspector's traces off the verdict path, so a verdict never waits for its copy.</summary>
+    private readonly Wingman.TurnVerdictTraceWriter _turnVerdictTraceWriter;
+    /// <summary>How long shutdown waits for queued traces to be written before the database is disposed.</summary>
+    private static readonly TimeSpan TurnVerdictTraceDrainTimeout = TimeSpan.FromSeconds(5);
     /// <summary>Which Directors told this Gateway they send conversations (turn-push mission, phase 2).</summary>
     private readonly Streaming.TurnPushCapabilityRegistry _turnPushCapabilities = new();
     private readonly History.SessionHistoryRecorder _sessionHistoryRecorder;
@@ -1818,8 +1825,10 @@ public sealed class GatewayHost : IAsyncDisposable
         // The Wingman-on-every-turn mission: the judged-stop record, and its seven-day purge on the same
         // per-tenant worker seam the activity ledger's retention uses.
         _turnVerdicts = new Wingman.TurnVerdictStore(_gatewayDb);
+        _turnVerdictTraces = new Wingman.TurnVerdictTraceStore(_gatewayDb);
+        _turnVerdictTraceWriter = new Wingman.TurnVerdictTraceWriter(_turnVerdictTraces.Append);
         _turnVerdictRetentionSweep = new Wingman.TurnVerdictRetentionSweep(
-            _tenantBoundary, TenantRegistry, _tenantContext, _turnVerdicts);
+            _tenantBoundary, TenantRegistry, _tenantContext, _turnVerdicts, _turnVerdictTraces);
         // Slice D: the one source every fold reads verdicts through - the roster, the single-session read and the
         // display push to the desktop - so all three stamp one answer. And the carrying-on clock, on the same
         // per-tenant seam as the retention above.
@@ -2667,6 +2676,7 @@ public sealed class GatewayHost : IAsyncDisposable
             },
             judgeModel: tenant => ResolveWingmanModel(tenant, Wingman.TurnVerdictJudge.Role),
             store: _turnVerdicts,
+            traces: _turnVerdictTraceWriter,
             language: _tenantSettingsResolver.SpokenLanguage,
             // The account's own narration instructions replace the verdict's spoken rules only when they differ
             // from the shipped default - the default is already what the verdict prompt says.
@@ -5220,6 +5230,24 @@ public sealed class GatewayHost : IAsyncDisposable
         // ladder holding a token and re-sending into a fleet this process no longer owns.
         try { _sessionSupervisor?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] session supervisor dispose error: {ex.Message}"); }
         try { _turnVerdictService?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] turn verdict dispose error: {ex.Message}"); }
+        // THE INSPECTOR'S TRACES, in the order that keeps them: first the verdict flights the service just cancelled are
+        // let finish, so each hands in its cancelled trace while the writer still takes them; then the writer is drained
+        // before the database below is disposed. Both waits are bounded, so a stuck judge or a database that will not
+        // take writes cannot hold shutdown. If the drain runs out of time the writer is ABANDONED, so it stops writing
+        // into a database that is being disposed; the traces it did not write are logged and counted by the writer.
+        try
+        {
+            if (_turnVerdictService is not null
+                && !await _turnVerdictService.WaitForFlightsAsync(TurnVerdictTraceDrainTimeout).ConfigureAwait(false))
+                FileLog.Write($"[GatewayHost] verdict flights did not finish within {TurnVerdictTraceDrainTimeout.TotalSeconds:0}s; a trace one of them hands in later is refused and logged");
+            var drain = _turnVerdictTraceWriter.CompleteAsync();
+            if (await Task.WhenAny(drain, Task.Delay(TurnVerdictTraceDrainTimeout)).ConfigureAwait(false) != drain)
+            {
+                _turnVerdictTraceWriter.Abandon();
+                FileLog.Write($"[GatewayHost] turn verdict traces did not finish writing within {TurnVerdictTraceDrainTimeout.TotalSeconds:0}s; the writer is abandoned and the traces still queued are logged, not written");
+            }
+        }
+        catch (Exception ex) { FileLog.Write($"[GatewayHost] turn verdict trace writer drain error: {ex.Message}"); }
         try { _voiceModeAllSweepTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] voice-mode sweep timer dispose error: {ex.Message}"); }
         _turnEndWatcher = null;
         try { Brain.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] brain dispose error: {ex.Message}"); }
