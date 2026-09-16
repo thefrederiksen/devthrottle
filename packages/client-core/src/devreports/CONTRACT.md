@@ -31,7 +31,11 @@ names or headings, so a report can look however it likes.
 "Right after" is about the ORDER OF THE MARKERS, not about the HTML between them: the check reads the
 markers in document order and does not judge untagged content in between.
 
-Markers inside HTML comments, `<script>`, `<style>`, `<template>` and `<textarea>` do not count.
+Markers inside HTML comments, `<script>`, `<style>`, `<template>`, `<textarea>` and `<title>` do not count.
+
+The check does not build a tree, so "inside" is decided by order too: a question is inside the questions
+section when it comes after the questions marker and before the next section marker, and a radio option
+belongs to the question it follows. A report that nests its sections the ordinary way gets the same answer.
 
 ### The questions section
 
