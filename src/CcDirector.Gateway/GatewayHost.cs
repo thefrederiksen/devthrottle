@@ -3449,6 +3449,8 @@ public sealed class GatewayHost : IAsyncDisposable
             governanceAudit: _governanceAudit,
             // The Wingman-on-every-turn mission: the store GET /sessions/{sid}/turn-verdict(s) serve from.
             turnVerdicts: _turnVerdicts,
+            // The Wingman inspector: the record GET /sessions/{sid}/wingman-stops serves from.
+            turnVerdictTraces: _turnVerdictTraces,
             // Slice D: the verdict source the roster and GET /sessions/{sid} fold from.
             turnVerdictRows: _turnVerdictRows,
             // Slice F: the same snooze memory the display push folds with, so one expiry is one edge.
