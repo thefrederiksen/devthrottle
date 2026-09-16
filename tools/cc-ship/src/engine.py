@@ -653,7 +653,12 @@ def _handle_session_result(run: dict, result: fleet.WaitResult) -> dict:
             # Already reaped (it finished while nobody was polling): nobody is left to
             # correct, so a fresh session redoes the work, within the same limit.
             return _redo_in_fresh_session(run, session, output)
-        fleet.clear_done_flag(session["id"])
+        try:
+            fleet.clear_done_flag(session["id"])
+        except fleet.FleetError:
+            if fleet.find_session(session["id"]) is not None:
+                raise  # the session is there: this failure is real, show it
+            return _redo_in_fresh_session(run, session, output)  # reaped just now
         fleet.done_marker(output).unlink(missing_ok=True)
         fix = _folder(run) / f"correction-{role.lower()}-r{run['review_round']}-{session['corrections']}.md"
         fix.write_text(briefs.correction_brief(output, problems, session["corrections"],

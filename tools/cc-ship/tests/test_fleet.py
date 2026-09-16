@@ -230,6 +230,25 @@ def test_command_CmdShimWithQuoteInArgument_Refused(monkeypatch):
         fleet.command(["session", "stop", "s1", "--reason", 'said "no"'])
 
 
+@pytest.mark.parametrize("arg", [r"C:\work\R&D", r"C:\work\a^b", "a|b", "a<b", "a>b"])
+def test_command_CmdShimWithCmdMetacharacter_Refused(monkeypatch, arg):
+    # Stall fix round 3: Python quotes only arguments with spaces, so these reach cmd.exe bare.
+    monkeypatch.setattr(fleet.shutil, "which", lambda name: r"C:\bin\cc-devthrottle.cmd")
+    with pytest.raises(fleet.FleetError, match="cmd.exe"):
+        fleet.command(["session", "spawn", arg])
+
+
+def test_command_CmdShimWithEveryArgumentCcShipReallyPasses_Allowed(monkeypatch, tmp_path):
+    monkeypatch.setattr(fleet.shutil, "which", lambda name: r"C:\bin\cc-devthrottle.cmd")
+    brief = r"C:\Users\soren\AppData\Local\cc-director\ship\runs\20260916-1\brief-review-r1.md"
+    args = ["session", "spawn", r"D:\ReposFred\devthrottle_internal-x", "--agent", "Codex",
+            "--controlled-by", "0d9b30df-9bc9-4e93-ba42-811bf0449103",
+            "--name", "cc-ship - take a finished change to merged on main - Reviewer - ship docs/fix",
+            "--prompt", f"Read the file {brief} and follow it exactly. It is your whole task."]
+    assert fleet.command(args)[1:] == args
+    assert fleet.command(["session", "stop", "x", "--reason", "cc-ship: HEAD moved; the round restarts"])
+
+
 def test_command_RealProgramWithQuote_Allowed(monkeypatch):
     monkeypatch.setattr(fleet.shutil, "which", lambda name: "/usr/local/bin/cc-devthrottle")
     assert fleet.command(["x", 'a "b"'])[-1] == 'a "b"'

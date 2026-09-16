@@ -924,3 +924,50 @@ def test_run_InvalidReviewFromReapedSessionsThreeTimes_FailsAfterTwo(world, caps
     code, out = ship_to_merge(world, capsys)
     assert code != 0 and out["code"] == "invalid-output"
     assert len([s for s in world.spawned if s["role"] == "Reviewer"]) == 3
+
+
+def test_run_ReviewerReapedBetweenLookupAndUndo_FreshSessionRedoesIt(world, capsys, monkeypatch):
+    # Stall fix round 3: the row disappears after find_session saw it, before --undo runs.
+    def undo_after_reap(sid):
+        world.reaped.add(sid)
+        raise fleet.FleetError("no such session")
+
+    monkeypatch.setattr(engine.fleet, "clear_done_flag", undo_after_reap)
+    world.outputs["Reviewer"] += ["not json", review()]
+    world.outputs["Verifier"].append(GO)
+    code, out = ship_to_merge(world, capsys)
+    assert out["state"] == "merged", out
+    assert [s["role"] for s in world.spawned] == ["Reviewer", "Reviewer", "Verifier"]
+
+
+def test_run_UndoFailsWhileSessionStillThere_FailureShown(world, capsys, monkeypatch):
+    def undo_broken(sid):
+        raise fleet.FleetError("gateway said 500")
+
+    monkeypatch.setattr(engine.fleet, "clear_done_flag", undo_broken)
+    world.outputs["Reviewer"] += ["not json"]
+    code, out = ship_to_merge(world, capsys)
+    assert code != 0 and "gateway said 500" in out["error"]
+
+
+def test_run_InvalidVerifyFromReapedVerifier_FreshVerifierWithFreshCookie(world, capsys, monkeypatch):
+    _set_main_config(world, dict(SHIP_YAML, verify={"surface": "vercel-preview"}))
+    monkeypatch.setattr(engine.preview, "find_preview_url", lambda slug, sha: "https://p.vercel.app")
+    cookies = []
+    monkeypatch.setattr(engine.preview, "write_bypass_state",
+                        lambda url, path: (path.write_text("{}"), cookies.append(path)))
+    monkeypatch.setattr(engine.gitops, "push_branch", lambda repo, branch: None)
+    real_wait = world.wait_for_output
+
+    def wait_then_reap(sid, output, *args, **kwargs):
+        result = real_wait(sid, output, *args, **kwargs)
+        world.reaped.add(sid)
+        return result
+
+    engine.fleet.wait_for_output = wait_then_reap
+    world.outputs["Reviewer"].append(review())
+    world.outputs["Verifier"] += [{"verdict": "go"}, GO]
+    code, out = ship_to_merge(world, capsys)
+    assert out["state"] == "merged", out
+    assert [s["role"] for s in world.spawned] == ["Reviewer", "Verifier", "Verifier"]
+    assert len(cookies) == 2 and not cookies[0].exists()

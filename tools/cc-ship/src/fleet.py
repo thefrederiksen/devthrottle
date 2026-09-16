@@ -49,8 +49,10 @@ class FleetError(RuntimeError):
     """A fleet command failed; the message carries the command's own output."""
 
 
-# cmd.exe re-reads the arguments of a .cmd file; these characters change their meaning there.
-_UNSAFE_FOR_CMD = set('"%\n\r')
+# cmd.exe re-reads the arguments of a .cmd file; these characters change their meaning
+# there. Python only quotes an argument that has a space in it, so "&" in C:\work\R&D
+# would reach cmd.exe bare and split the command.
+_UNSAFE_FOR_CMD = set('"%&|<>^\n\r')
 
 
 def command(args: list[str]) -> list[str]:
@@ -66,8 +68,9 @@ def command(args: list[str]) -> list[str]:
     if path.lower().endswith((".cmd", ".bat")):
         bad = [a for a in args if _UNSAFE_FOR_CMD & set(a)]
         if bad:
-            raise FleetError(f"cannot pass {bad[0]!r} safely to {path} (it contains a quote, "
-                             "a percent sign or a line break)")
+            raise FleetError(f"cannot pass {bad[0]!r} safely to {path}: it contains one of "
+                             "\" % & | < > ^ or a line break, which cmd.exe would misread. "
+                             "Rename the folder or text so it has none of them.")
     return [path, *args]
 
 
