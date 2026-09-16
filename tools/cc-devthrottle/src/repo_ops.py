@@ -79,18 +79,15 @@ class GatewayShapeError(Exception):
 
 
 def _fail(message: str) -> None:
-    print(_ascii_text(f"Error: {message}"), file=sys.stderr)
+    """Print an error and exit 1. Any free text in `message` has already been escaped by the caller."""
+    print(f"Error: {message}", file=sys.stderr)
     raise typer.Exit(1)
 
 
 def _usage_error(message: str) -> None:
-    print(_ascii_text(f"Error: {message}"), file=sys.stderr)
+    """Print a usage error and exit 2. Any free text in `message` has already been escaped by the caller."""
+    print(f"Error: {message}", file=sys.stderr)
     raise typer.Exit(axi_output.USAGE_ERROR_EXIT_CODE)
-
-
-def _ascii_text(block: str) -> str:
-    """The rendered blocks are ASCII already; a sentence carrying a Gateway value may not be."""
-    return block if block.isascii() else axi_output.escape_ascii(block)
 
 
 def _get(path: str, noun: str) -> List[Dict[str, Any]]:
@@ -101,9 +98,9 @@ def _get(path: str, noun: str) -> List[Dict[str, Any]]:
     try:
         rows = gateway.get_json(path)
     except gateway.GatewayError as err:
-        _fail(str(err))
+        _fail(axi_output.escape_ascii(str(err)))
     if isinstance(rows, dict) and rows.get("error"):
-        _fail(str(rows["error"]))
+        _fail(axi_output.escape_ascii(str(rows["error"])))
     if not isinstance(rows, list):
         _fail(
             f"the Gateway answered /{path} with no list of {noun} "
@@ -461,7 +458,7 @@ def list_repositories(
             blocks.append("No repositories were returned.")
         blocks.append(_STALE_DIRECTORS_CAUTION)
     blocks.append(axi_output.format_help(_repo_list_help(bool(rows), filtered, chosen_fields)))
-    axi_output.write_blocks(sys.stdout, *(_ascii_text(block) for block in blocks))
+    axi_output.write_blocks(sys.stdout, *blocks)
 
 
 def _repo_list_help(any_rows: bool, filtered: bool, chosen_fields: Sequence[str]) -> List[str]:
@@ -600,7 +597,7 @@ def list_worktrees(
             blocks.append("No worktrees were returned.")
         blocks.append(_STALE_DIRECTORS_CAUTION)
     blocks.append(axi_output.format_help(_worktree_list_help(bool(rows), filtered, chosen_fields)))
-    axi_output.write_blocks(sys.stdout, *(_ascii_text(block) for block in blocks))
+    axi_output.write_blocks(sys.stdout, *blocks)
 
 
 def _worktree_list_help(any_rows: bool, filtered: bool, chosen_fields: Sequence[str]) -> List[str]:

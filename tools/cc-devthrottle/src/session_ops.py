@@ -72,6 +72,8 @@ if _tools_dir not in sys.path:
 from cc_shared import gateway  # noqa: E402
 from cc_shared import axi_output  # noqa: E402
 
+from .repo_ops import matches_repo  # noqa: E402
+
 for _stream in (sys.stdout, sys.stderr):
     try:
         _stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
@@ -320,18 +322,15 @@ def _parse_states(requested: Optional[str]) -> Optional[List[str]]:
     return names
 
 
-def _norm_path(path: str) -> str:
-    return path.replace("\\", "/").rstrip("/").lower()
-
-
 def _matches_repo(s: Dict[str, Any], repo: str) -> bool:
-    """--repo matches the repository folder name (as the repo field shows it) or the full path,
-    ignoring case and slash direction."""
+    """--repo matches the repository folder name (as the repo field shows it, ignoring case) or the
+    full path, through the matcher repo list and worktree list use: a Windows path ignores case and
+    slash direction, and any other path must match exactly, because /home/A/proj and /home/a/proj can
+    be two different repositories."""
     path = gateway.field(s, "repoPath", "RepoPath")
     if not path:
         return False
-    wanted = _norm_path(repo)
-    return wanted in (_repo_name(path).lower(), _norm_path(path))
+    return matches_repo(_repo_name(path), path, repo)
 
 
 def _matches_machine(s: Dict[str, Any], machine: str) -> bool:

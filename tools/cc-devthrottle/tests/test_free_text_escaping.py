@@ -19,7 +19,7 @@ from typer.testing import CliRunner
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src import mission_ops, schedule_ops, session_ops  # noqa: E402
+from src import mission_ops, repo_ops, schedule_ops, session_ops  # noqa: E402
 from src.cli import app  # noqa: E402
 
 runner = CliRunner()
@@ -300,3 +300,34 @@ def test_schedule_list_EnabledNotABoolean_ValueIsWrittenAsAscii(schedules):
     err = _error_text(result)
     _assert_clean(err)
     assert "enabled 'ja \\u00e6'; it must be true or false" in err
+
+
+# ----- repo list and worktree list ----------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("command", ["repo", "worktree"])
+@pytest.mark.parametrize("json_flag", [[], ["--json"]])
+def test_repo_and_worktree_list_GatewayError_StaysOneLine(monkeypatch, command, json_flag):
+    def fail(path):
+        raise repo_ops.gateway.GatewayError(CONTROL)
+
+    monkeypatch.setattr(repo_ops.gateway, "get_json", fail)
+
+    result = _invoke([command, "list", *json_flag])
+
+    assert result.exit_code == 1
+    err = _error_text(result)
+    _assert_clean(err)
+    assert err.splitlines()[0] == f"Error: {CONTROL_ESCAPED}"
+
+
+@pytest.mark.parametrize("command,path", [("repo", "repositories"), ("worktree", "worktrees")])
+def test_repo_and_worktree_list_ErrorInTheAnswer_StaysOneLine(monkeypatch, command, path):
+    monkeypatch.setattr(repo_ops.gateway, "get_json", lambda asked: {"error": CONTROL})
+
+    result = _invoke([command, "list"])
+
+    assert result.exit_code == 1
+    err = _error_text(result)
+    _assert_clean(err)
+    assert err.splitlines()[0] == f"Error: {CONTROL_ESCAPED}"
