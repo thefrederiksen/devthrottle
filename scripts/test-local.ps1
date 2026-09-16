@@ -162,6 +162,12 @@ $installerProjects = @(
 $gatewayProject = "src\CcDirector.Gateway.Tests\CcDirector.Gateway.Tests.csproj"
 $parkedProjects = @(
     $gatewayProject,
+    # THE WINGMAN GUARDS LEFT THIS SUITE on 2026-09-16, the same way and for the same reason as the skill
+    # guards below. WingmanCharterAuditTests (the charter's invariants, and that the model in force is the one
+    # the charter names) and WingmanVerdictBoundaryAuditTests (the verdict boundary read from JudgeAsync, with the
+    # charter required to agree) were in Core.Tests. They read files, reference no timing and no shared state,
+    # and exist to catch an edit to the charter or to the verdict seat at the moment it is made. In a parked
+    # suite they told nobody anything at commit time. They now live in Core.UnitTests. Do not move them back.
     "src\CcDirector.Core.Tests\CcDirector.Core.Tests.csproj",
     # PARKED AGAIN 2026-09-13 (issue #2824), having been brought back when the migration-template fix took
     # it under a minute. It has since grown from 2,777 tests to 4,267 and from about 56 seconds to about

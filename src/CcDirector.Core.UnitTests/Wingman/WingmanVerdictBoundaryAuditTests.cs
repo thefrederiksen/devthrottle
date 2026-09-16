@@ -29,8 +29,10 @@ namespace CcDirector.Core.Tests.Wingman;
 ///     for an automatic request only, the voice-session exception to the switch, which triggers the ceiling binds.
 ///   - A switch check added AFTER the model call. The "not checked again" fact looks between the settle wait and
 ///     the model call, which is where a second check could stop a flight before it spends anything.
-///   - It runs in the PARKED <c>CcDirector.Core.Tests</c> suite, beside the charter audit it extends, so it does
-///     not run in the default local gate.
+///   - It says nothing about a change nobody runs the default local gate on. It lives in
+///     <c>CcDirector.Core.UnitTests</c>, which the default gate runs, with the charter audit it extends. Both were
+///     first written into the PARKED <c>CcDirector.Core.Tests</c> and moved here, because a guard in a parked
+///     suite reports nothing at commit time - which reads exactly like a guard that passed.
 ///   - It is brittle to harmless renames: renaming <c>_env.Latest</c> turns it red for a reason that is not a
 ///     boundary change. That red is loud and names the missing statement, which is the safe direction.
 /// </summary>

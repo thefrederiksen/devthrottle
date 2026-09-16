@@ -21,7 +21,7 @@ to the raw tab?** A lossy or wrong answer the user can't trust is worse than not
 ## 2. Hard invariants (enforced)
 
 These hold for every Wingman path. The audit gate
-(`CcDirector.Core.Tests/Wingman/WingmanCharterAuditTests.cs`) fails the build if any file
+(`CcDirector.Core.UnitTests/Wingman/WingmanCharterAuditTests.cs`, in the default local gate) fails the build if any file
 under `src/CcDirector.Core/Wingman/` violates the mechanical ones.
 
 1. **The judge that scored best on the labelled corpus - and the score and the reply time
