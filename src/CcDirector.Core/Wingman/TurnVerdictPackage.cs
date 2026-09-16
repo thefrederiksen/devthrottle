@@ -1,4 +1,4 @@
-namespace CcDirector.Core.Wingman;
+﻿namespace CcDirector.Core.Wingman;
 
 /// <summary>
 /// Which of the two shapes a stop has. Both go through the same model call and the same contract; the
@@ -62,7 +62,11 @@ public sealed record TurnVerdictPackage
     /// and the whole block is cut from the OLDEST end at <see cref="MaxRecentTurnsChars"/>.</summary>
     public string RecentTurns { get; init; } = "";
 
-    /// <summary>The session's title, which the spoken section opens with. Null when it has none.</summary>
+    /// <summary>
+    /// The session's title. The judge is GIVEN it as context and is told not to write it into the spoken
+    /// section: from contract v2.1 the name is prefixed from the record when the audio is assembled,
+    /// because the judge got it wrong often enough to matter. Null when the session has none.
+    /// </summary>
     public string? SessionTitle { get; init; }
 
     /// <summary>The first thing the person asked this session, capped at

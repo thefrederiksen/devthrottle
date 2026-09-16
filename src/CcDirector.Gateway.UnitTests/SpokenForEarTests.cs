@@ -26,16 +26,23 @@ public class SpokenForEarTests
         // rule for spotting one survived review without eating real sentences - but the listener now
         // hears the right name first, from the record, which is what they needed.
         Assert.Equal(
-            "Wingman Inspector Cockpit tab. Wingman Inspector mobile. Merge complete.",
+            "Wingman Inspector - Cockpit tab. Wingman Inspector mobile. Merge complete.",
             SpokenForEar.Assemble("Wingman Inspector - Cockpit tab", "Wingman Inspector mobile. Merge complete."));
     }
 
     [Theory]
-    [InlineData("devthrottle_internal - parallel", "devthrottle internal parallel")]
-    [InlineData("DevThrottleInternal::ubuntu", "DevThrottleInternal ubuntu")]
-    [InlineData("Alpha ----- Beta", "Alpha Beta")]
-    public void TheSeparatorsThatJoinWordsBecomePauses(string written, string said)
-        => Assert.Equal(said, SpokenForEar.SpeakableTitle(written));
+    // THE NAME IS THE USER'S WORD. A rule that turned separators into pauses said a DIFFERENT name:
+    // "UTC-5" became "UTC 5", which means its own opposite, and "-1" became "1". A name is not a
+    // sentence and its punctuation is content, so none of it is rewritten.
+    [InlineData("devthrottle_internal - parallel")]
+    [InlineData("DevThrottleInternal::ubuntu")]
+    [InlineData("UTC-5")]
+    [InlineData("Phase 1/2")]
+    [InlineData("-1")]
+    [InlineData("_-/:|")]
+    [InlineData("Alpha ----- Beta")]
+    public void TheNameIsSaidExactlyAsTheUserWroteIt(string written)
+        => Assert.Equal(written, SpokenForEar.SpeakableTitle(written));
 
     [Theory]
     // Round four: a rule that kept "letters, numbers and spaces" mangled real names. Combining marks are
@@ -113,18 +120,10 @@ public class SpokenForEarTests
         => Assert.Equal("session. ...", SpokenForEar.Assemble("session", "..."));
 
     [Fact]
-    public void ANameMadeEntirelyOfSeparators_IsStillSaid()
-    {
-        // Found in review: turning every separator into a pause left nothing, so the session went
-        // unnamed - the exact failure this code exists to prevent, for a name the product accepts.
-        Assert.Equal("_-/:|", SpokenForEar.SpeakableTitle("_-/:|"));
-        Assert.Equal("_-/:|. Build passed.", SpokenForEar.Assemble("_-/:|", "Build passed."));
-    }
-
-    [Fact]
     public void ASingleTabInsideANameIsCollapsed_NotCarriedIntoTheSpeech()
     {
-        // The whitespace rule matched runs of two or more, so a lone tab survived as a tab.
+        // The ONLY change made to a name, and the only one that cannot alter what it says. The rule
+        // matched runs of two or more, so a lone tab survived into the speech string as a tab.
         Assert.Equal("Alpha Beta", SpokenForEar.SpeakableTitle("Alpha\tBeta"));
         Assert.DoesNotContain('\t', SpokenForEar.SpeakableTitle("Alpha\tBeta"));
     }

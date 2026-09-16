@@ -40,35 +40,34 @@ namespace CcDirector.Gateway.Speech;
 /// </summary>
 public static class SpokenForEar
 {
-    /// <summary>The characters that JOIN words in a session name and are read as pauses, not voiced.</summary>
-    private static readonly Regex Separators = new(@"[_\-/:|]+", RegexOptions.Compiled);
-
     /// <summary>Any run of whitespace, INCLUDING A SINGLE ONE. It matched only runs of two or more, so a
     /// lone tab inside a name survived into the speech string as a tab.</summary>
     private static readonly Regex Whitespace = new(@"\s+", RegexOptions.Compiled);
 
     /// <summary>
-    /// The session's name as it should be SAID: the separators that join its words become spaces, so
-    /// "devthrottle_internal - parallel" is spoken "devthrottle internal parallel" instead of voicing the
-    /// punctuation.
+    /// The session's name, as the user wrote it. Runs of whitespace are collapsed so a stray tab or a
+    /// double space does not reach the speech provider; NOTHING ELSE is changed.
     ///
-    /// NOTHING ELSE IS REMOVED, and the first version's attempt to remove more is why that is spelled out.
-    /// It kept only letters, numbers and spaces, which silently mangled real names: combining marks are
-    /// neither letters nor numbers, so a Devanagari name lost its vowel signs and a decomposed "equipe"
-    /// split in half. A session called "C++" became "C", and one called "+++" became nothing at all, which
-    /// dropped the name this method exists to say. A name is the user's word; it is repunctuated for the
-    /// ear and never rewritten.
+    /// IT USED TO "REPUNCTUATE FOR THE EAR" - separators became pauses, so "devthrottle_internal -
+    /// parallel" was handed over as "devthrottle internal parallel". Two rounds of review killed that,
+    /// and the second one killed it for good: the rule fired wherever a separator appeared, not only
+    /// between words, so it said a DIFFERENT NAME.
+    ///
+    ///     UTC-5      -> UTC 5        (a minus sign, deleted: the name now means its own opposite)
+    ///     Phase 1/2  -> Phase 1 2
+    ///     -1         -> 1
+    ///
+    /// An earlier attempt at the same idea had already lost the vowel signs off a Devanagari name, split
+    /// a decomposed "equipe" in half, cut "C++" down to "C" and erased "+++" entirely. The fallback added
+    /// for that last case then handed raw punctuation to the provider, which is not speakable either.
+    ///
+    /// There is no version of this transformation that cannot change a name, because a name is not a
+    /// sentence and its punctuation is content. The file's own rule decides it: a wrong name is worse
+    /// than none, and by the same measure a wrong name is worse than an awkward one. Whatever the speech
+    /// provider makes of an underscore, it is working from what the user actually called the session.
     /// </summary>
     public static string SpeakableTitle(string? title)
-    {
-        if (string.IsNullOrWhiteSpace(title)) return string.Empty;
-        var said = Whitespace.Replace(Separators.Replace(title, " "), " ").Trim();
-        // A NAME MADE ENTIRELY OF SEPARATORS SURVIVES AS ITSELF. Turning "_-/:|" into pauses leaves
-        // nothing, and this method would then return empty and the session would go unnamed - the exact
-        // failure it exists to prevent, for a name the product's own validation accepts. When the
-        // repunctuation would erase the name, the name is said as written instead.
-        return said.Length == 0 ? Whitespace.Replace(title, " ").Trim() : said;
-    }
+        => string.IsNullOrWhiteSpace(title) ? string.Empty : Whitespace.Replace(title, " ").Trim();
 
     /// <summary>
     /// The session's name, then the narration exactly as the model wrote it.

@@ -178,7 +178,8 @@ internal static class GatewayWingmanVoiceEndpoint
             SessionVerbClient.ResolveAsync(sid, tenant, registry, pushedSessions, stale, owners, sendCommand);
 
         // The session's title is no longer resolved here: the narrations this surface plays are turn verdicts,
-        // and the verdict package carries the title the spoken section opens with.
+        // and the verdict package carries the session title as CONTEXT for the judge. The spoken section
+        // does not open with it - from contract v2.1 the name is prefixed from the record at assembly.
 
         // A bounded wait for a session to stop working, read from the pushed roster - nothing is dialled.
         async Task WaitUntilNotWorkingAsync(TenantId tenant, string sid, CancellationToken ct)
