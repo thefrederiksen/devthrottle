@@ -25,12 +25,19 @@ Owner rulings are in the issue. These are the Architect's, settling the inferred
    one source, injected into the report by the host. The same file serves Cockpit, phone and Director.
 6. Size limit on publish: 10 MB of HTML, refused with a clear error above it.
 7. Deploy: the owner approved ONE deploy through the `deploy-hosted-gateway` skill after phase 3 merges.
+8. Report scripts are blocked (upheld 2026-09-16, from the phase 1 review). A script in an agent-written
+   report shares the frame with the note-taking script, so it could forge the owner's notes and read restored
+   state. Every host MUST follow `packages/client-core/src/devreports/CONTRACT.md` section 4: a
+   Content-Security-Policy letting only the host's injected script run (fresh nonce per load), a fresh token
+   on that script carried by every message, and any frame load the host did not cause ends the token. The
+   shape check refuses `<script>` and inline event handlers. Cost accepted: no script-drawn charts; images
+   are `data:` URLs.
 
 ## Phases
 
 | Phase | State |
 |---|---|
-| 1. Note-taking script and shape check | starting |
+| 1. Note-taking script and shape check | built and reviewed; pull request after the second review pass |
 | 2. Gateway record and delivery | not started |
 | 3. Cockpit and phone viewer (then deploy) | not started |
 | 4. Director pane | not started |
