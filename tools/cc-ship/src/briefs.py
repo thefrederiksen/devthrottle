@@ -94,17 +94,18 @@ Use ASCII only. Then run this command, and stop:
 """
 
 
-def correction_brief(output: Path, problems: list[str], attempt: int) -> str:
+def correction_brief(output: Path, problems: list[str], attempt: int, role: str) -> str:
     listed = "\n".join(f"- {p}" for p in problems)
-    return f"""# cc-ship: your review file is invalid (correction {attempt} of 2)
+    keep = "your findings" if role == "reviewer" else "your scenarios and evidence"
+    return f"""# cc-ship: your {output.name} is invalid (correction {attempt} of 2)
 
 The file {output} does not match the required shape:
 
 {listed}
 
-Rewrite {output} so that every problem above is gone, keeping your findings. Then run:
+Rewrite {output} so that every problem above is gone, keeping {keep}. Then run:
 
-    {DONE_COMMAND.format(role="reviewer")}
+    {DONE_COMMAND.format(role=role)}
 """
 
 

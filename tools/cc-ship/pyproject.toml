@@ -1,0 +1,9 @@
+[project]
+name = "cc-ship"
+version = "0.1.0"
+description = "Take a finished change from a session to merged on main"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

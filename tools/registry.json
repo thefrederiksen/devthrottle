@@ -276,6 +276,15 @@
       "requirements": ["Graphviz"]
     },
     {
+      "name": "cc-ship",
+      "category": "fleet",
+      "type": "python",
+      "description": "Take a finished change from a session to merged on main: independent review, live verification, risk, pull request and merge",
+      "built": true,
+      "ship": false,
+      "requirements": ["git", "gh", "curl", "cc-devthrottle", "playwright-cli"]
+    },
+    {
       "name": "cc-devthrottle",
       "category": "fleet",
       "type": "python",

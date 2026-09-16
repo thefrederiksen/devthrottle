@@ -154,11 +154,17 @@ def wait_for_output(
     timeout_seconds: float,
     poll_seconds: float = 10,
     written_after: float | None = None,
+    watch: dict | None = None,
 ) -> WaitResult:
     """Block until the session finishes, crashes, or the timeout passes.
 
     written_after (a time.time() value) makes an older output file count as absent,
     so a correction turn is only finished once the file has been rewritten.
+
+    watch carries what has been observed across separate calls (cc-ship waits in
+    slices of a few minutes, in separate processes): seen_working, seen_done and
+    idle_since (a time.time() value). It is updated in place; pass the same dict
+    back on the next call, or a stalled session would never be recognised.
     """
 
     def output_ready() -> bool:
@@ -168,20 +174,22 @@ def wait_for_output(
 
     observations: list[dict] = []
     deadline = time.monotonic() + timeout_seconds
-    seen_working = False
-    seen_done = False
-    idle_since: float | None = None
+    if watch is None:
+        watch = {}
+    watch.setdefault("seen_working", False)
+    watch.setdefault("seen_done", False)
+    watch.setdefault("idle_since", None)
     while True:
         row = find_session(session_id)
         ready = output_ready()
-        outcome, reason = classify(ready, row, seen_done)
-        seen_done = seen_done or bool(row and row.get("pendingDeletion"))
+        outcome, reason = classify(ready, row, watch["seen_done"])
+        watch["seen_done"] = watch["seen_done"] or bool(row and row.get("pendingDeletion"))
         if outcome is None and row is not None:
             if row["activityState"] == "Working":
-                seen_working, idle_since = True, None
-            elif seen_working and not ready and not row.get("pendingDeletion"):
-                idle_since = idle_since or time.monotonic()
-                if time.monotonic() - idle_since >= STALL_SECONDS:
+                watch["seen_working"], watch["idle_since"] = True, None
+            elif watch["seen_working"] and not ready and not row.get("pendingDeletion"):
+                watch["idle_since"] = watch["idle_since"] or time.time()
+                if time.time() - watch["idle_since"] >= STALL_SECONDS:
                     screen = session_screen(session_id)[-800:]
                     outcome = STALLED
                     reason = (f"session stopped working {STALL_SECONDS}s ago without writing "

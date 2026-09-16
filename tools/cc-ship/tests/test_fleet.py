@@ -69,6 +69,7 @@ class _FakeFleet:
 def clock(monkeypatch):
     now = [1000.0]
     monkeypatch.setattr(fleet.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(fleet.time, "time", lambda: now[0])
     monkeypatch.setattr(fleet.time, "sleep", lambda s: now.__setitem__(0, now[0] + s))
     monkeypatch.setattr(fleet, "session_screen", lambda _sid: "Error: missing or invalid token")
     return now
@@ -147,3 +148,14 @@ def test_spawn_session_GatewayTimeoutAndNoSession_Raises(monkeypatch, clock):
 def test_prompt_session_MultiLineText_Rejected():
     with pytest.raises(ValueError):
         fleet.prompt_session("s1", "line one\nline two")
+
+
+def test_wait_for_output_StallSpansSeparateCalls_Stalled(tmp_path, monkeypatch, clock):
+    # cc-ship waits in slices; the second slice must remember the session was seen working.
+    watch = {}
+    fake = _FakeFleet([_row("Working")] + [_row("WaitingForInput")] * 50)
+    monkeypatch.setattr(fleet, "find_session", fake.find)
+    first = fleet.wait_for_output("s1", tmp_path / "out.json", 60, poll_seconds=10, watch=watch)
+    assert first.outcome == fleet.TIMED_OUT
+    second = fleet.wait_for_output("s1", tmp_path / "out.json", 60, poll_seconds=10, watch=watch)
+    assert second.outcome == fleet.STALLED
