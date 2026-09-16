@@ -2210,16 +2210,6 @@ public sealed class GatewayHost : IAsyncDisposable
     }
 
     /// <summary>
-    /// The title of a session, for the wingman to speak first (WingmanTranslator.FidelityPrompt
-    /// v5.2). Reads the pushed-session store, so it costs no round trip and stays inside the same
-    /// stream-freshness window as every other stream-mode read.
-    ///
-    /// Returns null when the session is unknown or has no name, and that is deliberate rather than
-    /// a placeholder: the prompt rule no-ops on a missing title, so the listener gets an untitled
-    /// narration - whereas inventing something ("unknown session", the raw id) would either mislead
-    /// or read out an identifier, which the same instructions explicitly forbid.
-    /// </summary>
-    /// <summary>
     /// The fresh fleet snapshot for the tenant of the CURRENT unit of work (Hosted Multi-Tenancy,
     /// session-serving PR2) - the request scope, the tunnel connection scope, or the per-tenant background
     /// pass. Self-host always resolves Local, so this is the same read as before. On hosted with no scope in
@@ -2324,6 +2314,23 @@ public sealed class GatewayHost : IAsyncDisposable
         return !_turnPushCapabilities.PushesTurns(tenant, located.DirectorId);
     }
 
+    /// <summary>
+    /// The title of a session, which every narration is spoken with in front of it. Reads the
+    /// pushed-session store, so it costs no round trip and stays inside the same stream-freshness window
+    /// as every other stream-mode read.
+    ///
+    /// THE TITLE IS PREFIXED FROM THIS RESULT, by <c>SpokenForEar</c> when the audio is assembled. It used
+    /// to be the judge's job, and the judge got it wrong - a session called "Wingman Inspector - Cockpit
+    /// tab" was narrated "Wingman Inspector mobile" - so from contract v2.1 the prompt tells it not to
+    /// write one. This doc block used to cite WingmanTranslator.FidelityPrompt as the mechanism; that is
+    /// the legacy translator path and has no production caller. It was also attached to the WRONG MEMBER,
+    /// sitting above AmbientSnapshotFresh with nothing documenting this method at all.
+    ///
+    /// Returns null when the session is unknown or has no name, and that is deliberate rather than a
+    /// placeholder: the assembly no-ops on a missing title, so the listener gets an untitled narration -
+    /// whereas inventing something ("unknown session", the raw id) would either mislead or read out an
+    /// identifier, which the spoken instructions explicitly forbid.
+    /// </summary>
     private string? ResolveSessionTitle(TenantId tenant, string sessionId)
     {
         if (!tenant.IsValid)
