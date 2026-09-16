@@ -693,3 +693,40 @@
   font-weight: 600;
   color: var(--warn);
 }
+
+/* The ownership tree on the map (the Sessions list's rule, owner ruling 2026-09-14): a parent card
+   carries the Sessions list's chevron in its gutter and a crew line while collapsed; its crew renders
+   under it while expanded. The gutter is reserved only on parent cards, so an ordinary card does not
+   move. */
+.fmap-tree {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  min-width: 0;
+}
+
+.fmap-tree-parent > .fmap-card {
+  padding-left: 26px;
+}
+
+.fmap-chevron {
+  left: 5px;
+  top: 10px;
+}
+
+.fmap-kids {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin-left: 14px;
+}
+
+/* Past three levels the indent stops; the connector rail on each child card keeps the level readable. */
+.fmap-kids-flat {
+  margin-left: 0;
+}
+
+.fmap-card-crew {
+  margin-top: 7px;
+}

@@ -16,9 +16,6 @@ import {
   buildSessionTree,
   CALM_BAND_TITLE,
   childrenOf,
-  crewAge,
-  crewSummary,
-  crewSummaryLine,
   descendantsOf,
   isCrewExpanded,
   isOnAnotherMachine,
@@ -45,6 +42,7 @@ import {
   type DirectorReachability,
 } from "@devthrottle/client-core/fleet/fleetClient";
 import { SessionMenu } from "./SessionMenu";
+import { CrewLine } from "./CrewLine";
 import { RestartRequestsPanel } from "@devthrottle/client-core/restart/RestartRequestsPanel";
 
 // The fleet-wide session roster (issue #972) - the React port of the Blazor SessionRail. It lists
@@ -338,27 +336,6 @@ function TreeList({
         />
       ))}
     </ul>
-  );
-}
-
-// The crew line on a collapsed parent: one dot per session under it, in their order and colours (so
-// collapsing hides no colour), the counts, and how long the crew has been going. Ticks on the shared
-// one-second clock for the age.
-function CrewLine({ root, tree }: { root: SessionDto; tree: SessionTree }) {
-  const now = useSharedNow();
-  const kids = descendantsOf(tree, root).map((d) => d.session);
-  const sum = crewSummary(root, kids);
-  const age = crewAge(sum, now);
-  return (
-    <span className="roster-crew" title={crewSummaryLine(sum)}>
-      <span className="roster-crew-strip" aria-hidden="true">
-        {kids.map((k) => (
-          <i key={k.sessionId} style={{ backgroundColor: dotHex(k) }} />
-        ))}
-      </span>
-      <span className={sum.needsYou > 0 ? "roster-crew-text alarm" : "roster-crew-text"}>{crewSummaryLine(sum)}</span>
-      {age.length > 0 && <span className="roster-crew-age">{age}</span>}
-    </span>
   );
 }
 
