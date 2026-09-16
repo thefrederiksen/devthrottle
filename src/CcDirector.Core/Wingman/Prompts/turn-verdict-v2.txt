@@ -36,7 +36,7 @@ Answer with ONLY a JSON object - no fences, no prose before or after - in exactl
   "menu": null or { "question": "the choice being asked, in plain words", "selectionMode": "single" | "multiple", "submit": "" | "\r" },
   "options": [ { "key": "short label", "send": "exact text or key sequence", "recommended": true or false, "note": "at most 18 words: consequence and risk" } ],
   "risk": "none" | "irreversible" | "standing-grant" | "spends-money",
-  "spoken": "the same content for the ear, about thirty seconds, opening with the session title",
+  "spoken": "the same content for the ear, about thirty seconds. Do NOT write the session name - it is added for you",
   "finishedKind": "done" | "report" - ONLY when verdict is "finished"; leave the member out for every other verdict
 }
 

@@ -1507,8 +1507,10 @@ public sealed class WingmanVoiceService
             // stop that ends on a picker says so. The verdict is the judge's, and it already fed the menu cache
             // the send-time guards read, under the same full-grid hash.
             // Every spoken string goes through the one sanitize-for-speech pass, whether a model wrote it or not.
-            // The session is named HERE, from the record, and identifiers are taken out HERE - not asked
-            // for in the prompt and hoped for. See SpokenForEar for the audit that forced both.
+            // The session is named HERE, from the record, rather than asked for in the prompt and hoped
+            // for. NOTHING ELSE about the narration is changed - see SpokenForEar for the four review
+            // rounds that settled that, and for why the identifier stripping this comment used to
+            // promise was deleted rather than fixed.
             var spoken = Speech.SpokenForEar.Assemble(
                 _sessionTitleResolver?.Invoke(tenant, sid),
                 Speech.SpeechContract.Finish(verdict.Spoken));
