@@ -4,74 +4,47 @@ using Xunit;
 namespace CcDirector.Gateway.UnitTests;
 
 /// <summary>
-/// THE NARRATIONS THE OWNER ACTUALLY HEARD, on 2026-09-16, across his twenty sessions. He called the
-/// result "ridiculously bad". The first tests in each section quote one real utterance from the live
-/// Gateway, against a judge prompt that already forbade exactly what the model did.
+/// NAMING THE SESSION, AND LEAVING EVERYTHING ELSE ALONE.
 ///
-/// EVERY OTHER TEST HERE IS A CASE THE FIRST VERSION OF THIS CODE GOT WRONG, found by the Codex
-/// inspector on pull request 2910 before it merged. That review is the reason this file is mostly
-/// about what the scrub must NOT do: the first implementation treated any seven characters of digits,
-/// a-f and hyphens as a hash, which is also the shape of a number, a date, a version and a decimal, so
-/// it deleted the substance it exists to protect. Those cases are kept as the permanent record of what
-/// "narrow" has to mean here.
+/// The defect this closes was heard on 2026-09-16: a session named "Wingman Inspector - Cockpit tab"
+/// narrated as "Wingman Inspector mobile". The listener cannot see a screen and identifies the session
+/// by that name, so a wrong one is worse than none.
+///
+/// MOST OF THIS FILE IS ABOUT WHAT IS NOT TOUCHED, and that is the point. An earlier version also
+/// stripped identifiers the model should not have voiced and names it invented. Three review rounds
+/// found fourteen defects in that stripping - every one of them real content deleted for sitting where
+/// an identifier might sit - and it was removed rather than patched a fourth time. The invariant test
+/// at the bottom is what keeps it removed.
 /// </summary>
 public class SpokenForEarTests
 {
-    // ================= the session's name comes from the record, not the model =================
+    // ================= the name comes from the record =================
 
     [Fact]
-    public void TheWrongNameTheModelInvented_IsGone_NotMerelyPrecededByTheRealOne()
+    public void TheRealNameIsSpokenFirst_WhateverTheModelWrote()
     {
-        // Heard live: session "Wingman Inspector - Cockpit tab" narrated as "Wingman Inspector mobile."
-        // The first fix prepended the real title and LEFT the invented one, so the listener heard both
-        // names, one of them false - the defect surviving immediately after its own correction.
+        // The exact narration heard on the phone. The invented name is still in the body - it is wrong,
+        // and no rule for spotting one survived review - but the listener now hears the right name first,
+        // from the record, which is what they needed to know.
         var said = SpokenForEar.Assemble(
             "Wingman Inspector - Cockpit tab",
             "Wingman Inspector mobile. Merge complete with new table and fixes.");
 
-        Assert.Equal("Wingman Inspector Cockpit tab. Merge complete with new table and fixes.", said);
-        Assert.DoesNotContain("mobile", said, StringComparison.OrdinalIgnoreCase);
+        Assert.StartsWith("Wingman Inspector Cockpit tab.", said, StringComparison.Ordinal);
     }
 
     [Fact]
     public void AModelThatWroteTheTitleCorrectly_DoesNotSayItTwice()
     {
-        var said = SpokenForEar.Assemble(
-            "mindzieWeb - bpm video",
-            "mindzieWeb - bpm video. Send the video to Ilayda for her to check.");
-
-        Assert.Equal("mindzieWeb bpm video. Send the video to Ilayda for her to check.", said);
-    }
-
-    [Fact]
-    public void ARealOpeningSentenceThatBeginsWithTheSessionName_IsKeptWhole()
-    {
-        // The guard on the heuristic above. A sentence long enough to be a sentence is not a title
-        // attempt, however it starts, and losing it would cost the listener the actual news.
-        var said = SpokenForEar.Assemble("Dev Manager", "Dev Manager finished the report and filed it.");
-
-        Assert.Equal("Dev Manager. Dev Manager finished the report and filed it.", said);
-    }
-
-    [Theory]
-    // Every one of these came back mangled from the first implementation, which matched title words as
-    // PREFIXES with no boundary at the end.
-    [InlineData("Dev", "Development is complete.", "Dev. Development is complete.")]
-    [InlineData("Go", "Go-live failed.", "Go. Go-live failed.")]
-    [InlineData("colors", "colorspace conversion ran.", "colors. colorspace conversion ran.")]
-    public void ATitleThatIsAPrefixOfTheFirstWord_IsNotTornOutOfIt(string title, string body, string said)
-        => Assert.Equal(said, SpokenForEar.Assemble(title, body));
-
-    [Fact]
-    public void ATitleWithRegexMetacharacters_IsMatchedLiterally()
-    {
-        var said = SpokenForEar.Assemble("build (nightly) [v2]", "build nightly v2. The build passed.");
-        Assert.Equal("build nightly v2. The build passed.", said);
+        Assert.Equal(
+            "mindzieWeb bpm video. Send the video to Ilayda for her to check.",
+            SpokenForEar.Assemble("mindzieWeb - bpm video", "mindzieWeb - bpm video. Send the video to Ilayda for her to check."));
     }
 
     [Theory]
     [InlineData("devthrottle_internal - parallel", "devthrottle internal parallel")]
     [InlineData("DevThrottleInternal::ubuntu", "DevThrottleInternal ubuntu")]
+    [InlineData("build (nightly) [v2]", "build nightly v2")]
     public void PunctuationInTheNameIsSpokenAsWords_NotAsSymbols(string written, string said)
         => Assert.Equal(said, SpokenForEar.SpeakableTitle(written));
 
@@ -86,80 +59,76 @@ public class SpokenForEarTests
     public void AnEmptyNarrationStillNamesTheSession_RatherThanSayingNothing()
         => Assert.Equal("Dev Manager.", SpokenForEar.Assemble("Dev Manager", ""));
 
-    // ================= identifiers a listener cannot use =================
+    // ================= the de-duplication cuts nothing in half =================
+
+    [Theory]
+    // Each of these was mangled by a version that matched the title as a PREFIX with no boundary.
+    [InlineData("Dev", "Development is complete.")]
+    [InlineData("Go", "Go-live failed.")]
+    [InlineData("colors", "colorspace conversion ran.")]
+    public void ATitleThatIsAPrefixOfTheFirstWord_IsNotTornOutOfIt(string title, string body)
+        => Assert.Equal($"{title}. {body}", SpokenForEar.Assemble(title, body));
+
+    [Theory]
+    // A real sentence that opens with the session's name keeps every word. Only a title PUNCTUATED as
+    // its own clause is a duplicate; a sentence runs straight on.
+    [InlineData("Dev Manager", "Dev Manager finished the report.")]
+    [InlineData("Go", "Go now! The deploy needs approval.")]
+    [InlineData("Dev Manager", "Dev Manager failed. Retry queued.")]
+    [InlineData("Construire", "Construire maintenant! Le deploiement attend.")]
+    [InlineData("colors", "colors are wrong on the chart.")]
+    public void ARealOpeningSentenceIsNeverMistakenForATitle(string title, string body)
+        => Assert.Equal($"{SpokenForEar.SpeakableTitle(title)}. {body}", SpokenForEar.Assemble(title, body));
 
     [Fact]
-    public void TheCommitHashHeHeardReadOut_IsGoneAndTheSentenceStillParses()
+    public void ALongSessionTitleDoesNotLicenseEatingAShortResult()
     {
-        // Heard verbatim: "...confirm cutting the release at 2bfaa2a24. Say the word and it will be cut."
-        Assert.Equal(
-            "The agent is waiting for you to confirm cutting the release. Say the word and it will be cut.",
-            SpokenForEar.ScrubIdentifiers(
-                "The agent is waiting for you to confirm cutting the release at 2bfaa2a24. Say the word and it will be cut."));
+        // Found in review: a rule that compared word COUNTS deleted this entire result, because five real
+        // words are fewer than the six in the title.
+        var said = SpokenForEar.Assemble("Dev Manager - Inspector - 2910 round three", "Dev Manager found four defects.");
+        Assert.Contains("found four defects.", said, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public void TheIssueNumberHeHeard_BecomesTheWorkWithoutTheNumber()
-    {
-        // Heard verbatim: "Agent recommends doing issue 2905 first."
-        Assert.Equal(
-            "Agent recommends doing that issue first.",
-            SpokenForEar.ScrubIdentifiers("Agent recommends doing issue 2905 first."));
-    }
+    // ================= THE INVARIANT: the words are the model's =================
 
     [Theory]
-    [InlineData("Merged at commit d0630a5f2b1c.", "Merged.")]
-    [InlineData("See pull request 2909 for the fix.", "See that pull request for the fix.")]
-    [InlineData("See PR 2909 for the fix.", "See that pull request for the fix.")]
-    // A run NUMBER, in the shape one is actually written. It used to read "The run failed in 35047040578."
-    // and expected the number gone - which the second review showed was damage, not a fix: "in" is a
-    // general preposition and the same pattern deleted durations and dates behind it. The number is
-    // removed because the NOUN names it, not because a preposition sits in front of it.
-    [InlineData("Run 35047040578 failed.", "That run failed.")]
-    [InlineData("Closed #2905 and moved on.", "Closed and moved on.")]
-    [InlineData("The verdict 38203005460445138611e8ce0c5e4045 was stored.", "The verdict was stored.")]
-    public void EveryShapeOfIdentifierAndReferenceNumber(string heard, string spoken)
-        => Assert.Equal(spoken, SpokenForEar.ScrubIdentifiers(heard));
-
-    [Theory]
-    // The three shapes the inspector found still ungrammatical: a carrier at the START of a sentence
-    // (the pattern was case-sensitive and demanded a leading space), a QUOTED identifier (the quotes
-    // stayed behind, empty), and TWO bare hashes joined by a conjunction (which was left holding nothing).
-    [InlineData("At commit d0630a5f2b1c, we merged.", "we merged.")]
-    [InlineData("Merged at commit \"d0630a5f2b1c\".", "Merged.")]
-    [InlineData("Merged d0630a5f2b1c and 2bfaa2a24.", "Merged.")]
-    public void RemovingAnIdentifierNeverLeavesADanglingWord(string heard, string spoken)
-        => Assert.Equal(spoken, SpokenForEar.ScrubIdentifiers(heard));
-
-    // ================= and NOT one word more than that =================
-
-    [Theory]
-    // EVERY ONE OF THESE WAS BROKEN by the first implementation, which asked only for "contains a digit".
-    // A legitimate number, a date, a version and a decimal are all digits and separators, so all four
-    // matched. The rule is now "contains a hex LETTER and a digit", which no ordinary number does.
+    // Every one of these was damaged by the identifier stripping that used to live here. They are kept as
+    // the standing proof that it is gone: whatever the narration says, it reaches the listener intact.
     [InlineData("1000000 tests passed.")]
     [InlineData("Pi is 3.1415926.")]
-    [InlineData("Version 2.1234567 shipped.")]
     [InlineData("Release 2026-09-15 shipped.")]
+    [InlineData("Deployed on 2026-09-15.")]
+    [InlineData("It ran for 12345678 seconds.")]
+    [InlineData("The population grew from 1000000 to 2000000.")]
     [InlineData("The value is 12345678%.")]
+    [InlineData("The condition uses AND, not XOR.")]
+    [InlineData("The operator is OR.")]
+    [InlineData("We will commit 1000000 rows tonight.")]
+    [InlineData("The database will hash 1234567 records before upload.")]
     [InlineData("All 340 tests passed and 3 findings are fixed.")]
-    [InlineData("Version 2.1 shipped and it took 46 seconds.")]
-    [InlineData("The address is 192.168.1.100 on port 7330.")]
-    public void ANumberThatIsTheANSWER_SurvivesUntouched(string sentence)
-        => Assert.Equal(sentence, SpokenForEar.ScrubIdentifiers(sentence));
-
-    [Fact]
-    public void OrdinaryEnglishSpelledFromTheLettersAToF_SurvivesTheScrub()
+    [InlineData("Wait... the deploy is still running.")]
+    [InlineData("Use a prior run, e.g. run 35047040578.")]
+    [InlineData("Merged at commit d0630a5f2b1c.")]
+    [InlineData("Agent recommends doing issue 2905 first.")]
+    public void TheNARRATIONItselfIsNeverEdited_OnlyPrefixedWithTheName(string narration)
     {
-        // "defaced" and "effaced" are seven hex letters each. This is why the pattern also demands a
-        // digit: a rule that eats real words to catch hashes is worse than the hashes.
-        var sentence = "The page was defaced and the note effaced, and the facade cabbaged.";
-        Assert.Equal(sentence, SpokenForEar.ScrubIdentifiers(sentence));
+        // The last two are things the prompt forbids and the model sometimes says anyway. They are in
+        // this list on purpose: hearing a hash is a cost this design accepts, because the alternative -
+        // the fourteen findings above it - was deleting the answer.
+        Assert.Equal($"session. {narration}", SpokenForEar.Assemble("session", narration));
     }
 
     [Fact]
-    public void ScrubbingRunsBeforeTheTitleIsAdded_SoADigitInTheNameIsNeverEatenAsAReference()
+    public void NothingIsRemovedFromTheBodyExceptALeadingCopyOfTheTitle()
     {
-        Assert.Equal("run 2 nightly. The build finished.", SpokenForEar.Assemble("run 2 - nightly", "The build finished."));
+        // Stated as a property rather than a list, so a future edit that starts removing something else
+        // fails here even if nobody thought to add a case for it.
+        const string body = "Merged deadbeef1 and 2bfaa2a24, and it took 3.5 seconds.";
+        foreach (var title in new[] { "session", "Dev Manager", "a", "build nightly", "Merged" })
+        {
+            var said = SpokenForEar.Assemble(title, body);
+            var withoutName = said[(SpokenForEar.SpeakableTitle(title).Length + 2)..];
+            Assert.Equal(body, withoutName);
+        }
     }
 }
