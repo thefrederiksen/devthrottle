@@ -167,6 +167,13 @@ public sealed class FleetMessageStore
     ///
     /// The recent rows are read BEFORE the lock, untracked: they are never written, and holding the one store
     /// lock while a large answer is materialised would stall every send and read on the Gateway behind it.
+    ///
+    /// KNOWN GAP, ACCEPTED (inspection 2, ruling 2): the unread rows are marked read and saved here, before the
+    /// caller has built or sent the response. If that response is lost - the connection drops, the process
+    /// dies - the next plain read will not return those messages. They are recoverable with
+    /// <paramref name="includeRecent"/> for <see cref="FleetMessageLimits.RecentReadWindow"/> after the read,
+    /// and only if the recipient knows to ask; after that they are gone from every read. Read-marks-read is the
+    /// protocol of design ruling 9, so this interval is disclosed rather than closed.
     /// </summary>
     public FleetInboxRead ReadInbox(TenantId tenant, string recipientSessionId, DateTime nowUtc, bool includeRecent,
         TimeSpan? recentWindow = null, int? recentCap = null)

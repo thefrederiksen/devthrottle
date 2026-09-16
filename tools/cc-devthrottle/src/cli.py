@@ -516,8 +516,8 @@ _ACTIONS = [
         "description": (
             "Read THIS session's inbox: every unread message in full, each marked read by this call. "
             "Reading is the acknowledgement - a message stays open until its recipient runs this. "
-            "--all adds every message read in the last 24 hours, so a read whose answer was lost can be "
-            "recovered."
+            "--all adds the newest 200 messages read in the last 24 hours, so a read whose answer was lost "
+            "can be recovered - for 24 hours, and only by asking."
         ),
         "command": "cc-devthrottle message inbox [--all] [--json]",
         "mutatesState": True,
@@ -1849,8 +1849,10 @@ def message_inbox(
     include_read: bool = typer.Option(
         False,
         "--all",
-        help="Also show every message you read in the last 24 hours, newest first. Reading marks a "
-        "message read before you have seen it, so this is how you get back one whose read was lost.",
+        help="Also show the messages you read in the last 24 hours, newest first, at most 200. A read "
+        "marks messages read before their text reaches you, so if a read failed part way they are "
+        "gone from the plain inbox: this is the only way to get them back, and only for 24 hours after "
+        "that read.",
     ),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
 ) -> None:

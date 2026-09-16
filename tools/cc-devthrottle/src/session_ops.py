@@ -1390,8 +1390,9 @@ def read_inbox(include_read: bool = False, json_output: bool = False) -> Dict[st
     """Read THIS session's inbox: every unread message in full, each marked read by this call.
 
     Reading is the acknowledgement. A message stays open - and its sender can see it is still unread -
-    until the recipient runs this. `--all` adds every message read in the last 24 hours, newest first:
+    until the recipient runs this. `--all` adds the newest 200 messages read in the last 24 hours:
     reading marks a message read before its text reaches you, so this is how a lost read is recovered.
+    That interval is an accepted gap (inspection 2, ruling 2): after 24 hours a lost read is gone.
     """
     path = "fleet/inbox?all=true" if include_read else "fleet/inbox"
     try:

@@ -306,15 +306,17 @@ def test_the_action_catalogue_lists_inbox_and_not_ask():
 
 
 def test_inbox_all_help_says_it_returns_the_last_24_hours_and_why(plain):
-    # Inspection 1, ruling 4: the Gateway returns every message read in the last 24 hours, so a read whose
-    # answer was lost can be recovered. The help must say both halves.
+    # Inspection 1, ruling 4: the Gateway returns the messages read in the last 24 hours, so a read whose
+    # answer was lost can be recovered. Inspection 2, rulings 1 and 2: at most 200 of them, and the loss
+    # interval (marked read before the text arrives) is an accepted gap the help must state.
     result = runner.invoke(app, ["message", "inbox", "--help"])
 
     assert result.exit_code == 0
     # The help is drawn in a bordered box, so a sentence wraps across border characters; drop them first.
     out = " ".join(plain(result.output).replace("|", " ").replace("\u2502", " ").split())
-    assert "every message you read in the last 24 hours" in out
-    assert "read was lost" in out
+    assert "the messages you read in the last 24 hours, newest first, at most 200" in out
+    assert "marks messages read before their text reaches you" in out
+    assert "only for 24 hours after that read" in out
     inbox = next(a for a in _ACTIONS if a["id"] == "message-inbox")
     assert "last 24 hours" in inbox["description"]
 
