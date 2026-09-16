@@ -1125,7 +1125,8 @@ public sealed class TurnVerdictService : IDisposable
             // prompt it was asked, its answer as received, and how long it took. An answer the contract refused is
             // kept with the raw reply that failed - that is the case the record exists for.
             var judgedOutcome = TraceOutcome(record, failure);
-            TraceStop(tenant, sid, TriggerWord(trigger), judgedOutcome, record.TurnEndObservedAtUtc, settings,
+            // The row is ABOUT this flight's own stop, whatever later stop the verdict now carries as its join key.
+            TraceStop(tenant, sid, TriggerWord(trigger), judgedOutcome, observedAt, settings,
                 colour => NewTrace(sid, directorId, trigger, judgedOutcome, record, colour) with
                 {
                     ReplySeconds = rawReply is null ? null : replySeconds,
@@ -1218,7 +1219,7 @@ public sealed class TurnVerdictService : IDisposable
         // A reuse is a STOP only on the turn-end path. The voice path and the sweep come past an unchanged screen
         // over and over, and a trace for each pass would bury the stops under the passes.
         if (trigger == TurnVerdictTrigger.TurnEnd)
-            TraceStop(tenant, sid, TriggerWord(trigger), TurnVerdictTraceOutcomes.Reused, verdict.TurnEndObservedAtUtc, settings,
+            TraceStop(tenant, sid, TriggerWord(trigger), TurnVerdictTraceOutcomes.Reused, observedAt, settings,
                 colour => NewTrace(sid, directorId, trigger, TurnVerdictTraceOutcomes.Reused, verdict, colour));
 
         _env.Record(new TurnVerdictRecord(tenant, directorId, sid, ActivityEventTypes.TurnVerdictReused,
@@ -1522,6 +1523,11 @@ public sealed class TurnVerdictService : IDisposable
     ///   now would not be the one the stop was observed under.
     /// - OTHERWISE: the trace is built and handed to the writer, which keeps it or logs and counts it. Building or handing
     ///   it over that throws is counted as lost with the exception's type.
+    ///
+    /// A TRACE CARRIES THE OBSERVED TIME OF THE STOP IT IS ABOUT, and the door stamps it (round 3 inspection). A verdict
+    /// takes the LATEST observed stop as its join key, so a judgement that a later stop joined stores that later time -
+    /// and a trace copied from the verdict named the joiner twice and the founding stop never. The judged row is about
+    /// the founding stop, each joined row about its joiner, and the caller says which by <paramref name="observedAt"/>.
     /// </summary>
     /// <param name="build">Builds the trace, given whether the account's colour switch is on.</param>
     private void TraceStop(TenantId tenant, string sid, string trigger, string outcome, DateTime observedAt,
@@ -1537,7 +1543,7 @@ public sealed class TurnVerdictService : IDisposable
         TurnVerdictTrace trace;
         try
         {
-            trace = build(settings.ColourEnabled);
+            trace = build(settings.ColourEnabled) with { TurnEndObservedAtUtc = observedAt };
         }
         catch (Exception ex)
         {

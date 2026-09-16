@@ -38,7 +38,17 @@ public sealed class TurnVerdictEveryStopIsAccountedForTests
     private static int Accounted(FakeTurnVerdictEnvironment env)
         => env.Traces.Count(t => t.Trigger == "turn-end") + env.NotKept.Count;
 
-    private sealed record Exit(string Name, int Stops, FakeTurnVerdictEnvironment Env, TurnVerdictService Service);
+    /// <summary>The observed time of every turn-end row and every counted loss, as minutes after <see cref="ObservedAt"/>,
+    /// sorted - one entry per stop the seat accounted for, named by the stop it is ABOUT.</summary>
+    private static int[] AccountedStops(FakeTurnVerdictEnvironment env)
+        => env.Traces.Where(t => t.Trigger == "turn-end").Select(t => t.TurnEndObservedAtUtc)
+            .Concat(env.NotKept.Select(l => l.Trace.TurnEndObservedAtUtc))
+            .Select(at => (int)(at - ObservedAt).TotalMinutes)
+            .OrderBy(minute => minute)
+            .ToArray();
+
+    /// <summary>One exit, and the stops it admitted, as minutes after <see cref="ObservedAt"/>.</summary>
+    private sealed record Exit(string Name, int[] Stops, FakeTurnVerdictEnvironment Env, TurnVerdictService Service);
 
     [Fact]
     public async Task EveryExitOfAnObservedStop_LeavesExactlyOneRowOrOneCountedLoss_PerStop()
@@ -49,28 +59,28 @@ public sealed class TurnVerdictEveryStopIsAccountedForTests
         {
             var env = Env(); var service = new TurnVerdictService(env);
             Assert.Equal(TurnVerdictOutcomeKind.Judged, (await service.StartTurnEnd(Signal())).Kind);
-            exits.Add(new("judged", 1, env, service));
+            exits.Add(new("judged", new[] { 0 }, env, service));
         }
         // Refused by the contract.
         {
             var env = Env(); env.Judge = (_, _) => Task.FromResult("not a verdict at all");
             var service = new TurnVerdictService(env);
             Assert.Equal(TurnVerdictOutcomeKind.Failed, (await service.StartTurnEnd(Signal())).Kind);
-            exits.Add(new("refused", 1, env, service));
+            exits.Add(new("refused", new[] { 0 }, env, service));
         }
         // Reused: a second stop on the same screen.
         {
             var env = Env(); var service = new TurnVerdictService(env);
             await service.StartTurnEnd(Signal());
             Assert.Equal(TurnVerdictOutcomeKind.Reused, (await service.StartTurnEnd(Signal(1))).Kind);
-            exits.Add(new("reused", 2, env, service));
+            exits.Add(new("reused", new[] { 0, 1 }, env, service));
         }
         // Skipped: held.
         {
             var env = Env(); env.Held = _ => true;
             var service = new TurnVerdictService(env);
             Assert.Equal(ActivityCauses.Held, (await service.StartTurnEnd(Signal())).SkipCause);
-            exits.Add(new("skipped", 1, env, service));
+            exits.Add(new("skipped", new[] { 0 }, env, service));
         }
         // Cancelled: the session worked while its verdict was being formed.
         {
@@ -81,21 +91,21 @@ public sealed class TurnVerdictEveryStopIsAccountedForTests
             await entered.Task.WaitAsync(Wait);
             service.OnSessionWorking(Tenant, Sid);
             Assert.Equal(TurnVerdictOutcomeKind.Cancelled, (await pending.WaitAsync(Wait)).Kind);
-            exits.Add(new("cancelled", 1, env, service));
+            exits.Add(new("cancelled", new[] { 0 }, env, service));
         }
         // Failed at the boundary, with settings: the store threw.
         {
             var env = Env(); env.NextStoreThrows = new InvalidOperationException("the database went away");
             var service = new TurnVerdictService(env);
             Assert.Equal(TurnVerdictOutcomeKind.Failed, (await service.StartTurnEnd(Signal())).Kind);
-            exits.Add(new("failed-with-settings", 1, env, service));
+            exits.Add(new("failed-with-settings", new[] { 0 }, env, service));
         }
         // Failed at the boundary before any settings were read.
         {
             var env = Env(); env.SettingsOverride = () => throw new InvalidOperationException("settings unreadable");
             var service = new TurnVerdictService(env);
             Assert.Equal(TurnVerdictOutcomeKind.Failed, (await service.StartTurnEnd(Signal())).Kind);
-            exits.Add(new("failed-without-settings", 1, env, service));
+            exits.Add(new("failed-without-settings", new[] { 0 }, env, service));
         }
         // Joined a running judgement.
         {
@@ -106,7 +116,7 @@ public sealed class TurnVerdictEveryStopIsAccountedForTests
             Assert.Equal(ActivityCauses.AlreadyJudging, (await service.StartTurnEnd(Signal(1))).SkipCause);
             release.SetResult();
             await first.WaitAsync(Wait);
-            exits.Add(new("joined", 2, env, service));
+            exits.Add(new("joined", new[] { 0, 1 }, env, service));
         }
         // Joined a judgement whose settings read threw.
         {
@@ -126,7 +136,7 @@ public sealed class TurnVerdictEveryStopIsAccountedForTests
             Assert.Equal(ActivityCauses.AlreadyJudging, (await service.StartTurnEnd(Signal(1))).SkipCause);
             release.Set();
             Assert.Equal(TurnVerdictOutcomeKind.Failed, (await first.WaitAsync(Wait)).Kind);
-            exits.Add(new("joined-no-settings", 2, env, service));
+            exits.Add(new("joined-no-settings", new[] { 0, 1 }, env, service));
         }
         // Queued behind an ending judgement, then handed the gate - and a third stop joining that successor.
         {
@@ -141,7 +151,7 @@ public sealed class TurnVerdictEveryStopIsAccountedForTests
             await service.StartTurnEnd(Signal()).WaitAsync(Wait);
             await queuedHead!.WaitAsync(Wait);
             Assert.Equal(ActivityCauses.AlreadyJudging, (await queuedJoiner!.WaitAsync(Wait)).SkipCause);
-            exits.Add(new("queued-handed-over", 3, env, service));
+            exits.Add(new("queued-handed-over", new[] { 0, 1, 2 }, env, service));
         }
         // Queued behind an ending judgement, then shutdown.
         {
@@ -155,14 +165,14 @@ public sealed class TurnVerdictEveryStopIsAccountedForTests
             };
             await service.StartTurnEnd(Signal()).WaitAsync(Wait);
             Assert.Equal(TurnVerdictOutcomeKind.Cancelled, (await queued!.WaitAsync(Wait)).Kind);
-            exits.Add(new("queued-cancelled-at-shutdown", 2, env, service));
+            exits.Add(new("queued-cancelled-at-shutdown", new[] { 0, 1 }, env, service));
         }
         // Queued behind a judgement that never read its settings, then shutdown.
         {
             var (env, service, queued) = QueuedBehindAJudgementWithNoSettingsAtShutdown();
             await service.WaitForFlightsAsync(Wait);
             Assert.Equal(TurnVerdictOutcomeKind.Cancelled, (await queued.WaitAsync(Wait)).Kind);
-            exits.Add(new("queued-no-settings-at-shutdown", 2, env, service));
+            exits.Add(new("queued-no-settings-at-shutdown", new[] { 0, 1 }, env, service));
         }
         // Registered, then disposal before its flight starts: stood down after disposal.
         {
@@ -172,22 +182,26 @@ public sealed class TurnVerdictEveryStopIsAccountedForTests
             var stop = service.StartTurnEnd(Signal());
             await disposing.WaitAsync(Wait);
             await stop.WaitAsync(Wait);
-            exits.Add(new("registered-then-disposed", 1, env, service));
+            exits.Add(new("registered-then-disposed", new[] { 0 }, env, service));
         }
         // Refused: arrived after shutdown began.
         {
             var env = Env(); var service = new TurnVerdictService(env);
             service.Dispose();
             await service.StartTurnEnd(Signal()).WaitAsync(Wait);
-            exits.Add(new("refused-after-shutdown", 1, env, service));
+            exits.Add(new("refused-after-shutdown", new[] { 0 }, env, service));
         }
 
         var unaccounted = new List<string>();
         foreach (var exit in exits)
         {
             Assert.True(await exit.Service.WaitForFlightsAsync(Wait), $"{exit.Name}: the drain timed out");
-            if (exit.Stops != Accounted(exit.Env))
-                unaccounted.Add($"{exit.Name}: {exit.Stops} stop(s) observed, but {exit.Env.Traces.Count(t => t.Trigger == "turn-end")} row(s) and {exit.Env.NotKept.Count} counted loss(es)");
+            // BY IDENTITY, NOT BY TOTAL (round 3 inspection): a row naming the wrong stop beside a stop with no row adds up
+            // to the right count, so each admitted stop must be named exactly once by a row or a counted loss.
+            var accounted = AccountedStops(exit.Env);
+            if (!accounted.SequenceEqual(exit.Stops))
+                unaccounted.Add($"{exit.Name}: stops admitted at minute(s) [{string.Join(",", exit.Stops)}], " +
+                                $"but rows and counted losses name minute(s) [{string.Join(",", accounted)}]");
         }
         Assert.True(unaccounted.Count == 0, string.Join("; ", unaccounted));
     }
