@@ -32,6 +32,8 @@ if _tools_dir not in sys.path:
 
 from cc_shared import axi_output, gateway  # noqa: E402
 
+from . import usage_errors  # noqa: E402
+
 console = Console()
 err_console = Console(stderr=True)
 
@@ -253,9 +255,7 @@ MISSION_LIST_FIELDS = ("id", "name", "state", "why", "why-updated", "state-chang
 MISSION_LIST_DEFAULT_FIELDS = ("id", "name", "state")
 
 
-def _usage_error(message: str) -> None:
-    print(f"Error: {message}", file=sys.stderr)
-    raise typer.Exit(axi_output.USAGE_ERROR_EXIT_CODE)
+_usage_error = usage_errors.usage_error
 
 
 def _mission_state(mission: Dict[str, Any]) -> str:
@@ -264,7 +264,7 @@ def _mission_state(mission: Dict[str, Any]) -> str:
     raw = mission.get("state", mission.get("State"))
     if raw not in MISSION_STATES:
         mid = _shown_id(mission.get("missionId", mission.get("MissionId")))
-        shown = "missing" if raw is None else axi_output.format_value(raw) if isinstance(raw, str) else repr(raw)
+        shown = "missing" if raw is None else axi_output.format_value(raw) if isinstance(raw, str) else axi_output.escape_ascii(repr(raw))
         print(
             f"Error: the Gateway returned mission {mid} with state {shown}; "
             f"this tool knows only {', '.join(MISSION_STATES)}. --json shows the raw rows.",
@@ -409,10 +409,10 @@ def list_missions(
     # Usage errors come before the fetch: a bad flag is the caller's to fix, whatever the Gateway holds.
     if json_output and fields is not None:
         _usage_error("--fields does not apply to --json, which always carries every field. Drop one of them.")
-    chosen_fields = axi_output.parse_fields_or_exit(fields, MISSION_LIST_FIELDS, MISSION_LIST_DEFAULT_FIELDS)
+    chosen_fields = usage_errors.parse_fields(fields, MISSION_LIST_FIELDS, MISSION_LIST_DEFAULT_FIELDS)
     if state is not None and state not in MISSION_STATE_FILTERS:
         _usage_error(
-            f"unknown --state value {axi_output.escape_ascii(state)!r}. "
+            f"unknown --state value '{axi_output.escape_ascii(state)}'. "
             f"Valid states: {', '.join(MISSION_STATE_FILTERS)}"
         )
     if name is not None and not name.strip():

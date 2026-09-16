@@ -29,6 +29,8 @@ if _tools_dir not in sys.path:
 from cc_shared import axi_output  # noqa: E402
 from cc_shared import gateway  # noqa: E402
 
+from . import usage_errors  # noqa: E402
+
 console = Console()
 
 
@@ -94,9 +96,7 @@ DIRECTOR_LIST_FIELDS = ("id", "name", "machine", "state", "version", "pid", "use
 DIRECTOR_LIST_DEFAULT_FIELDS = ("id", "name", "machine", "state")
 
 
-def _usage_error(message: str) -> None:
-    print(f"Error: {message}", file=sys.stderr)
-    raise typer.Exit(axi_output.USAGE_ERROR_EXIT_CODE)
+_usage_error = usage_errors.usage_error
 
 
 def _answer_error(message: str) -> None:
@@ -122,7 +122,7 @@ def _parse_states(requested: Optional[str], valid: Tuple[str, ...]) -> Optional[
     names = [part.strip() for part in requested.split(",")]
     unknown = [name for name in names if name not in valid]
     if unknown:
-        listed = ", ".join(repr(axi_output.escape_ascii(name)) for name in unknown)
+        listed = ", ".join("'" + axi_output.escape_ascii(name) + "'" for name in unknown)
         _usage_error(f"unknown --state value {listed}. Valid states: {', '.join(valid)}")
     return names
 
@@ -132,7 +132,7 @@ def _check_usage(json_output: bool, fields: Optional[str], valid: Tuple[str, ...
     # Usage errors come before the fetch: a bad flag is the caller's to fix, whatever the fleet holds.
     if json_output and fields is not None:
         _usage_error("--fields does not apply to --json, which always carries every field. Drop one of them.")
-    return axi_output.parse_fields_or_exit(fields, valid, default)
+    return usage_errors.parse_fields(fields, valid, default)
 
 
 def _rows_or_exit(payload: Any, what: str, id_key: str, id_camel: str,

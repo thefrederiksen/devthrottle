@@ -21,6 +21,22 @@ own arguments are parsed, and `invoke`, which resolves a subcommand and parses I
 group catches the errors of every command beneath it, and the context the error carries says which
 command it was about.
 
+RAISING ONE FROM A COMMAND BODY. A check that only the command itself can make - an unknown
+`--fields` name, an unknown `--state` value, two flags that cannot be given together - is still a
+usage error, and is written exactly the same way. A command body never prints its own `Error:` line
+and exits 2; it calls one of these two, and the group writes the rest:
+
+    usage_errors.usage_error("unknown --state value 'bogus'. Valid states: working, idle")
+    chosen = usage_errors.parse_fields(fields, VALID_FIELDS, DEFAULT_FIELDS)
+
+`usage_error` raises `CommandUsageError`, a Click `UsageError` carrying the running command's
+context, so the group adds that command's Usage line, its Valid options, and its help[1]. The message
+becomes the Error line as it is given: free text in it must already be escaped with
+`axi_output.escape_ascii`, and a message that is not one line of ASCII is refused rather than
+altered. `parse_fields` is `axi_output.parse_fields` with its FieldsError turned into this usage
+error, so every `--fields` answer keeps naming the valid fields. Any cc-devthrottle command - and
+any helper that today writes its own usage error, such as `setup_ops` - should use these two.
+
 WHY NOT `import click`. Typer 0.16.1, the declared floor, uses the Click package; later Typer
 releases carry their own copy of Click and do not install the package at all. The exception classes
 are therefore taken from whichever Click Typer itself is using.
@@ -28,9 +44,10 @@ are therefore taken from whichever Click Typer itself is using.
 
 from __future__ import annotations
 
+import importlib
 import sys
 from pathlib import Path
-from typing import Any, List, NoReturn
+from typing import Any, List, NoReturn, Optional, Sequence
 
 import typer.core
 
@@ -44,6 +61,29 @@ from cc_shared import axi_output  # noqa: E402
 _click = getattr(typer.core, "_click", None) or getattr(typer.core, "click")
 _UsageError = _click.exceptions.UsageError
 _BadParameter = _click.exceptions.BadParameter
+# Typer's own copy of Click does not re-export get_current_context from its package.
+_get_current_context = importlib.import_module(_click.__name__ + ".globals").get_current_context
+
+
+class CommandUsageError(_UsageError):
+    """A usage error found by a command body rather than by the parser. Raise it with `usage_error`."""
+
+
+def usage_error(message: str) -> NoReturn:
+    """Stop the running command with a usage error: the group writes `message` as the Error line,
+    then the command's Usage line, Valid options and help[1], and exits 2."""
+    if "\n" in message or not message.isascii():
+        raise ValueError(f"a usage error message must be one line of ASCII: {message!r}")
+    raise CommandUsageError(message, ctx=_get_current_context(silent=True))
+
+
+def parse_fields(requested: Optional[str], valid: Sequence[str], default: Sequence[str]) -> List[str]:
+    """`axi_output.parse_fields` for a command: a bad `--fields` value is a usage error naming the
+    valid fields."""
+    try:
+        return axi_output.parse_fields(requested, valid, default)
+    except axi_output.FieldsError as exc:
+        usage_error(str(exc))
 
 
 def _is_help_request(error: Exception) -> bool:
@@ -90,7 +130,10 @@ def format_usage_error(error: Any) -> str:
         # Name the option by its flags. Left to itself, Typer 0.16.1 with Click 8.2 appends
         # "(env var: 'None')" to an option that has no environment variable at all.
         error.param_hint = _param_hint(param)
-    lines = ["Error: " + axi_output.escape_ascii(error.format_message())]
+    message = error.format_message()
+    # A command body's message was escaped where it was written (see usage_error); escaping it again
+    # would double every backslash in it. The parser's messages carry raw input and are escaped here.
+    lines = ["Error: " + (message if isinstance(error, CommandUsageError) else axi_output.escape_ascii(message))]
     ctx = getattr(error, "ctx", None)
     if ctx is not None:
         lines.extend(axi_output.escape_ascii(line) for line in ctx.get_usage().splitlines())

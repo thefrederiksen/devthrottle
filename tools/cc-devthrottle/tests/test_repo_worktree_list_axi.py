@@ -1046,6 +1046,23 @@ def test_path_matches_BackslashOutsideWindowsStart_MatchesExactly(row_path, want
     assert repo_ops.path_matches(row_path, wanted) is expected
 
 
+@pytest.mark.parametrize("row_path, wanted, expected", [
+    # C: alone is the current folder on drive C, not its root, in either direction.
+    ("C:\\", "C:", False),
+    ("C:/", "c:", False),
+    ("C:", "C:\\", False),
+    ("C:", "c:/", False),
+    # The root still matches itself however its slash is written.
+    ("C:\\", "c:/", True),
+    ("C:/", "C:\\\\", True),
+    ("C:", "C:", True),
+    # A folder below the root is unaffected.
+    ("C:\\Repos\\", "c:/repos", True),
+])
+def test_path_matches_DriveRelativeFilter_IsNotTheDriveRoot(row_path, wanted, expected):
+    assert repo_ops.path_matches(row_path, wanted) is expected
+
+
 def test_repo_list_Cli_BackslashLinuxPath_IsNotTheLowercaseSlashPath(serve):
     backslash = _repo("A\\proj", LINUX_BACKSLASH, clean=True, machine="linux-box")
     lower = _repo("proj", LINUX_LOWER, clean=False, machine="linux-box")

@@ -32,6 +32,8 @@ if _tools_dir not in sys.path:
 from cc_shared import axi_output  # noqa: E402
 from cc_shared import gateway  # noqa: E402
 
+from . import usage_errors  # noqa: E402
+
 # --- repo list ---
 
 # The two repository states, in the order the count line lists them. They name the Gateway's isClean
@@ -84,10 +86,7 @@ def _fail(message: str) -> None:
     raise typer.Exit(1)
 
 
-def _usage_error(message: str) -> None:
-    """Print a usage error and exit 2. Any free text in `message` has already been escaped by the caller."""
-    print(f"Error: {message}", file=sys.stderr)
-    raise typer.Exit(axi_output.USAGE_ERROR_EXIT_CODE)
+_usage_error = usage_errors.usage_error
 
 
 def _get(path: str, noun: str) -> List[Dict[str, Any]]:
@@ -235,6 +234,7 @@ def _labels(dto: Dict[str, Any], key: str, index: int) -> List[str]:
 # ordinary filename character on macOS and Linux, so such a path is not Windows-shaped and matches
 # exactly.
 _WINDOWS_START = re.compile(r"^([A-Za-z]:[\\/]|\\\\)")
+_DRIVE_ONLY = re.compile(r"^[a-z]:$")
 
 
 def is_windows_path(path: str) -> bool:
@@ -242,7 +242,14 @@ def is_windows_path(path: str) -> bool:
 
 
 def _fold_windows(path: str) -> str:
-    return path.replace("\\", "/").rstrip("/").lower()
+    """Case and slash direction folded, trailing slashes dropped - except the one after a drive
+    letter. C:\\ is the root of drive C, while C: on its own is the current folder on drive C, so
+    they must not fold to the same thing."""
+    folded = path.replace("\\", "/").lower()
+    trimmed = folded.rstrip("/")
+    if trimmed != folded and _DRIVE_ONLY.match(trimmed):
+        return trimmed + "/"
+    return trimmed
 
 
 def _path_key(path: str) -> str:
@@ -275,7 +282,7 @@ def _parse_states(requested: Optional[str], valid: Sequence[str]) -> Optional[Li
     names = [part.strip().lower() for part in requested.split(",")]
     unknown = [name for name in names if name not in valid]
     if unknown:
-        listed = ", ".join(repr(axi_output.escape_ascii(name)) for name in unknown)
+        listed = ", ".join("'" + axi_output.escape_ascii(name) + "'" for name in unknown)
         _usage_error(f"unknown --state value {listed}. Valid states: {', '.join(valid)}")
     return names
 
@@ -403,7 +410,7 @@ def list_repositories(
     _check_flags(json_output, fields, (("--repo", repo), ("--machine", machine)))
     if dirty_only and state is not None:
         _usage_error("--dirty is the same as --state dirty. Give one of them.")
-    chosen_fields = axi_output.parse_fields_or_exit(fields, REPO_LIST_FIELDS, REPO_LIST_DEFAULT_FIELDS)
+    chosen_fields = usage_errors.parse_fields(fields, REPO_LIST_FIELDS, REPO_LIST_DEFAULT_FIELDS)
     wanted_states = ["dirty"] if dirty_only else _parse_states(state, REPO_STATES)
 
     repos = _get("repositories", "repositories")
@@ -546,7 +553,7 @@ def list_worktrees(
 ) -> None:
     """List the fleet's worktrees, optionally narrowed by repository, state or machine."""
     _check_flags(json_output, fields, (("--repo", repo), ("--state", state), ("--machine", machine)))
-    chosen_fields = axi_output.parse_fields_or_exit(fields, WORKTREE_LIST_FIELDS, WORKTREE_LIST_DEFAULT_FIELDS)
+    chosen_fields = usage_errors.parse_fields(fields, WORKTREE_LIST_FIELDS, WORKTREE_LIST_DEFAULT_FIELDS)
     wanted_states = _parse_states(state, WORKTREE_STATES)
 
     worktrees = _get("worktrees", "worktrees")

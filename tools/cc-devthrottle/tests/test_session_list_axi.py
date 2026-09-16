@@ -559,3 +559,36 @@ def test_session_list_Cli_UnknownBucket_ExitsOneNamingIt(serve):
     assert "'somethingNew'" in result.stderr
     assert "d2a4069f-1111-4111-8111-000000000007" in result.stderr
     assert result.stdout == ""
+
+
+# ---------------------------------------------------------------------------------------------------
+# Inspection fixes: a backslash in a macOS or Linux folder name, and the root of a Windows drive
+# ---------------------------------------------------------------------------------------------------
+
+POSIX_BACKSLASH_ID = "d2a4069f-1111-4111-8111-00000000000b"
+DRIVE_ROOT_ID = "d2a4069f-1111-4111-8111-00000000000c"
+
+
+def _repo_ids(args):
+    result = runner.invoke(app, ["session", "list", "--json", *args])
+    assert result.exit_code == 0, result.output
+    return [s["sessionId"] for s in json.loads(result.stdout)]
+
+
+def test_session_list_Cli_PosixFolderWithABackslash_IsItsOwnName(serve):
+    # The inspection's reproduction: /home/a\b is the folder a\b, not the folder b inside a.
+    serve([_row(POSIX_BACKSLASH_ID, "posix", bucket="active", repo="/home/a\\b")])
+
+    assert _repo_ids(["--repo", "a\\b"]) == [POSIX_BACKSLASH_ID]
+    assert _repo_ids(["--repo", "b"]) == []
+    assert session_ops._repo_name("/home/a\\b") == "a\\b"
+    assert session_ops._repo_name(r"D:\ReposFred\a") == "a"
+
+
+def test_session_list_Cli_DriveRelativeFilter_DoesNotMatchTheDriveRoot(serve):
+    serve([_row(DRIVE_ROOT_ID, "root", bucket="active", repo="C:\\")])
+
+    assert _repo_ids(["--repo", "C:"]) == []
+    assert _repo_ids(["--repo", "C:\\"]) == [DRIVE_ROOT_ID]
+    assert _repo_ids(["--repo", "c:/"]) == [DRIVE_ROOT_ID]
+    assert session_ops._repo_name("C:\\") == "C:\\"

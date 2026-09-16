@@ -331,3 +331,17 @@ def test_repo_and_worktree_list_ErrorInTheAnswer_StaysOneLine(monkeypatch, comma
     err = _error_text(result)
     _assert_clean(err)
     assert err.splitlines()[0] == f"Error: {CONTROL_ESCAPED}"
+
+
+@pytest.mark.parametrize("state", [["café"], {"s": "a\nb"}])
+def test_mission_list_StateThatIsNotAString_IsShownAsOneAsciiLine(missions, state):
+    # The inspection's reproduction: repr() of a non-string state keeps its non-ASCII letters.
+    missions([dict(MISSION, state=state)])
+
+    result = _invoke(["mission", "list"])
+
+    assert result.exit_code == 1
+    err = _error_text(result)
+    _assert_clean(err)
+    assert len(err.splitlines()) == 1, err
+    assert "with state " in err

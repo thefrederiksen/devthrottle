@@ -6,7 +6,9 @@ so a command added tomorrow is covered the day it is added. For each one:
 - an unknown option exits 2 and lists every valid option of THAT command;
 - a group given an unknown command exits 2 and lists every command it has;
 - a missing required argument, and a value of the wrong kind, exit 2 and list the options;
-- the text is plain ASCII on standard error, with no Rich panel around it.
+- the text is plain ASCII on standard error, with no Rich panel around it;
+- a usage error a command body finds (a bad --fields or --state value, --fields with --json) is
+  written by the same formatter, with the same Usage line, Valid options and help[1].
 
 A fixed set of values is covered by a small app of its own, because no shipped option is one yet.
 
@@ -340,3 +342,92 @@ def test_valid_command_StillRuns(monkeypatch):
 
     assert result.exit_code == 0, result.output
     assert result.output.startswith("count: 0\n")
+
+
+# ---------------------------------------------------------------------------------------------------
+# Usage errors a command body finds go through the same formatter
+# ---------------------------------------------------------------------------------------------------
+
+
+def _options_named(flag):
+    found = []
+    for path, command in LEAVES:
+        for param in command.params:
+            if param.param_type_name == "option" and flag in param.opts:
+                found.append((path, command))
+    return found
+
+
+FIELDS_COMMANDS = _options_named("--fields")
+STATE_COMMANDS = _options_named("--state")
+
+
+@pytest.fixture
+def no_gateway(monkeypatch):
+    # A usage error is found before anything is fetched; a fetch here is a defect, not a skip.
+    from cc_shared import gateway
+
+    def refuse(*args, **kwargs):
+        raise AssertionError("a usage error must be reported before the Gateway is asked")
+
+    for name in ("get_json", "get_fleet", "post_json", "request"):
+        if hasattr(gateway, name):
+            monkeypatch.setattr(gateway, name, refuse)
+    monkeypatch.setattr("requests.request", refuse)
+    monkeypatch.setattr("requests.get", refuse)
+
+
+def test_body_usage_error_walk_FindsTheListCommands():
+    # A walk that found nothing would pass the two tests below without checking anything.
+    fields_paths = [path for path, _ in FIELDS_COMMANDS]
+    state_paths = [path for path, _ in STATE_COMMANDS]
+    for noun in ("session", "repo", "worktree", "machine", "director", "mission"):
+        assert [noun, "list"] in fields_paths
+        assert [noun, "list"] in state_paths
+    assert ["schedule", "list"] in fields_paths
+
+
+@pytest.mark.parametrize("path,command", FIELDS_COMMANDS, ids=[_label(p) for p, _ in FIELDS_COMMANDS])
+@pytest.mark.parametrize("value", ["bogus", "id,,name", "café\nx"])
+def test_every_fields_option_BadValue_IsAFullUsageError(no_gateway, path, command, value):
+    result = _invoke([*path, "--fields", value])
+
+    text = _assert_plain_usage_error(result, path)
+    first = text.splitlines()[0]
+    assert "Valid fields: " in first, text
+    assert "\\u00e9" in first or "caf" not in value, text
+    assert text.splitlines()[1] == "Usage: " + " ".join([PROG, *path]) + " [OPTIONS]", text
+    assert _listed(text, "Valid options") == _options(command)
+
+
+@pytest.mark.parametrize("path,command", FIELDS_COMMANDS, ids=[_label(p) for p, _ in FIELDS_COMMANDS])
+def test_every_fields_option_WithJson_IsAFullUsageError(no_gateway, path, command):
+    result = _invoke([*path, "--json", "--fields", "id"])
+
+    text = _assert_plain_usage_error(result, path)
+    assert "--fields does not apply to --json" in text.splitlines()[0], text
+    assert _listed(text, "Valid options") == _options(command)
+
+
+@pytest.mark.parametrize("path,command", STATE_COMMANDS, ids=[_label(p) for p, _ in STATE_COMMANDS])
+@pytest.mark.parametrize("value", ["bogus", "stäte\\x"])
+def test_every_state_option_BadValue_IsAFullUsageError(no_gateway, path, command, value):
+    result = _invoke([*path, "--state", value])
+
+    text = _assert_plain_usage_error(result, path)
+    first = text.splitlines()[0]
+    assert first.startswith("Error: unknown --state value "), text
+    assert "Valid states: " in first, text
+    if value != "bogus":
+        # Escaped once where it was written, and not a second time by the formatter.
+        assert "st\\u00e4te\\\\x" in first, text
+        assert "\\\\\\\\" not in first, text
+    assert _listed(text, "Valid options") == _options(command)
+
+
+def test_usage_error_OutsideTheAsciiLine_IsRefused():
+    from src import usage_errors
+
+    for message in ("two\nlines", "café"):
+        with pytest.raises(ValueError):
+            usage_errors.usage_error(message)

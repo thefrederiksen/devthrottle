@@ -19,6 +19,8 @@ if _tools_dir not in sys.path:
 
 from cc_shared import axi_output, gateway  # noqa: E402
 
+from . import usage_errors  # noqa: E402
+
 TIMEOUT_SECONDS = 10
 SCHEDULE_RECURRING = "recurring"
 SCHEDULE_ONE_OFF = "oneOff"
@@ -214,9 +216,7 @@ SCHEDULE_LIST_FIELDS = (
 SCHEDULE_LIST_DEFAULT_FIELDS = ("id", "name", "enabled", "next-run")
 
 
-def _usage_error(message: str) -> None:
-    print(f"Error: {message}", file=sys.stderr)
-    raise typer.Exit(axi_output.USAGE_ERROR_EXIT_CODE)
+_usage_error = usage_errors.usage_error
 
 
 def _bad_job(job_id: Any, what: str) -> None:
@@ -367,7 +367,7 @@ def list_jobs(
     # Usage errors come before the fetch: a bad flag is the caller's to fix, whatever the Gateway holds.
     if json_output and fields is not None:
         _usage_error("--fields does not apply to --json, which always carries every field. Drop one of them.")
-    chosen_fields = axi_output.parse_fields_or_exit(fields, SCHEDULE_LIST_FIELDS, SCHEDULE_LIST_DEFAULT_FIELDS)
+    chosen_fields = usage_errors.parse_fields(fields, SCHEDULE_LIST_FIELDS, SCHEDULE_LIST_DEFAULT_FIELDS)
     if machine is not None and not machine.strip():
         _usage_error("--machine needs a value.")
 
