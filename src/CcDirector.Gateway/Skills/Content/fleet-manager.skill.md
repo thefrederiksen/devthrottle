@@ -16,8 +16,8 @@ Say the gaps plainly; never act as if a missing piece exists.
 | Piece | Today |
 | --- | --- |
 | The Wingman's reading of each stop | Built. On every session row, in `session list --json`. |
-| The Wingman reading the sessions YOU own | Being built. Until it is, a session you own may carry no reading - treat that as "cannot tell" and read the session yourself. |
-| Being told when a session you own stops | Being built: the Gateway will tell you at the end of each of their turns. Until it is, use the TEMPORARY path in "Checking your sessions" below: one report from each session when it finishes or is blocked, and a read of your sessions at the start of every one of your turns. |
+| The Wingman reading the sessions YOU own | Built, for the sessions you start directly, once the account marks you as its Fleet Manager: `cc-devthrottle fleet-manager show` prints the mark, `cc-devthrottle fleet-manager set [<session>]` sets it (no session given marks the session running the command), and `cc-devthrottle fleet-manager clear` removes it. Without the mark, a session you own carries no reading - treat that as "cannot tell". |
+| Being told when a session you own stops | Being built: the Gateway will tell you at the end of each of their turns. Until it is, use the TEMPORARY path in "Checking your sessions" below: a report from each session at each handoff (finished, or blocked on a decision), and a check of your sessions at the start of every one of your turns. |
 | Outcome records (Ready, Finding, Decision) that stay open until answered | Not built. Keep your open items in a file (below) and read it at every start. |
 | One digest command for the start of a conversation | Not built. Use the routine below. |
 | Handing an existing session over to you | Not built. Say so when they ask. |
@@ -67,8 +67,10 @@ its report file if the work is a report).
 **Temporary, until the Gateway delivers end-of-turn events to you:** end the Build notes with this
 line, word for word, and ask for nothing else:
 
-> Run `cc-devthrottle session report "<one or two sentences>"` exactly ONCE: when your task is
-> finished, or when you are blocked on a decision you cannot make. Never run it for progress.
+> Run `cc-devthrottle session report "<one or two sentences>"` at each handoff, and only then:
+> when your task is finished, and each time you are blocked on a decision you cannot make. If you
+> were blocked, got your answer and then finish, report again when you finish. Never run it for
+> progress.
 
 Once end-of-turn events are live, this line leaves the instructions: the events and the Wingman's
 reading replace it.
@@ -103,9 +105,9 @@ Every word sent into a session interrupts it. The owner has ruled that this must
 - The whole task goes in the spawn prompt. Nothing routine is sent afterwards.
 - You never ask a session what it did. You read it (below).
 - Once the Gateway delivers end-of-turn events to you, no session reports to you: those events and
-  the Wingman's reading tell you what happened. **Until then (temporary)**, the one report line in
-  "Starting a session you own" is the only report you ask for - once, when finished or blocked on
-  a decision, never for progress.
+  the Wingman's reading tell you what happened. **Until then (temporary)**, the report line in
+  "Starting a session you own" is the only report you ask for - at each handoff (finished, or
+  blocked on a decision), never for progress.
 - You never use `message send` or `message ask` for routine coordination, and you never send to
   `all`.
 - You send words into a session only in two cases: it is idle and waiting for exactly that input
@@ -120,13 +122,16 @@ Today, at the start of EVERY one of your own turns - whatever woke you - run:
 
 ```
 cc-devthrottle session workers
-cc-devthrottle session buffer <session>
+cc-devthrottle session list --json
 ```
 
 - `session workers` lists the sessions you own and their state.
-- For each one that has stopped (idle, waiting, or gone) and that you have not yet dealt with, run
-  `session buffer` on it, then act on it as the conduct says. This catches a stop whose report
-  never arrived.
+- For each one that has stopped (idle, waiting, or gone) and that you have not yet dealt with, read
+  the Wingman's reading of that stop first: its `turnVerdict` in `session list --json` (see
+  "Reading the Wingman's reading"). Then act on it as the conduct says. This catches a stop whose
+  report never arrived.
+- Open its screen (`session buffer`) only when the Wingman cannot tell, there is no reading for
+  that stop, or the session is stuck and needs a person.
 - Between your turns, do not poll and do not ask.
 
 ## Answering a session
@@ -153,8 +158,8 @@ git -C <its copy of the repository> log --oneline <its base>..HEAD
 
 - `session workers` and `session list --json` say what state each one is in.
 - Its commits, its pull request and its report file say what it produced.
-- Read its screen (`session buffer`) only when the Wingman cannot tell, or the session is stuck and
-  needs a person.
+- Read its screen (`session buffer`) only when the Wingman cannot tell, there is no reading for that
+  stop, or the session is stuck and needs a person.
 
 ## Snooze, close, stop
 
