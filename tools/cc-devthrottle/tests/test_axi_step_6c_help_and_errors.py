@@ -13,6 +13,7 @@ browser, and the top-level `actions` command. The rules are in docs/axi-standard
 """
 
 import json
+import os
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -230,6 +231,25 @@ class TestAxiCli:
         for unsafe in ["", " padded", 'a"b', "a$b", "a`b", "a\\\\b", "\\\\server\\share", "ends\\",
                        "a!b", "line\nbreak", "caf\u00e9", None]:
             assert axi_cli.quoted(unsafe, "<name>") == '"<name>"'
+
+    # Re-check 3, finding 5: every character bash, zsh, Windows cmd or PowerShell still acts on inside
+    # double quotes gets the placeholder, each on its own and inside an otherwise plain value.
+    @pytest.mark.parametrize("char", ['%', '$', '`', '!', '"'])
+    def test_quoted_refuses_each_character_a_shell_expands_inside_double_quotes(self, char):
+        for value in [char, f"a{char}b", f"{char}USERNAME{char}", f"C:\\dir\\{char}x"]:
+            assert axi_cli.quoted(value, "<dir>") == '"<dir>"', value
+
+    def test_quoted_refuses_the_inspection_reproduction(self):
+        assert axi_cli.quoted("%USERNAME%", "<dir>") == '"<dir>"'
+
+    def test_quoted_keeps_characters_double_quotes_do_protect(self):
+        # cmd's own specials are literal inside double quotes, and so is everything else printable.
+        value = "a ^&|<>()[]{};,=~#*?'+@:.-_ b"
+        assert axi_cli.quoted(value, "<dir>") == f'"{value}"'
+
+    @pytest.mark.parametrize("char", list('%$`!"\'^&|<>()[]{};,=~#*? /\\'))
+    def test_bare_refuses_every_character_a_shell_reads_unquoted(self, char):
+        assert axi_cli.bare(f"a{char}b", "<id>") == "<id>"
 
     def test_fail_refuses_an_error_without_a_next_step(self):
         with pytest.raises(ValueError):
@@ -1433,20 +1453,6 @@ def _snapshot(root: Path) -> dict:
     return {p.relative_to(root).as_posix(): p.read_bytes() for p in sorted(root.rglob("*")) if p.is_file()}
 
 
-def _no_leftovers(parent: Path) -> None:
-    from src import bundle_swap
-
-    left = [str(p) for p in parent.rglob("*") if p.name == bundle_swap.WORK_DIR]
-    assert left == [], left
-
-
-def _is_move_in(target: Path, src, dst) -> bool:
-    from src import bundle_swap
-
-    staging = target.resolve() / bundle_swap.WORK_DIR / "incoming"
-    return Path(dst).parent == target.resolve() and Path(src).parent == staging
-
-
 def _assert_refused(stderr: str) -> None:
     # An unsafe path keeps its own long-standing message; every other broken answer says it wrote nothing.
     assert "nothing was written" in stderr or "unsafe file path" in stderr or "unsafe helper file name" in stderr, stderr
@@ -1465,7 +1471,6 @@ class TestReplacingFilesChecksTheWholeAnswerFirst:
         )
         _assert_refused(stderr)
         assert _snapshot(target) == before
-        _no_leftovers(tmp_path)
 
     @pytest.mark.parametrize("broken", _BROKEN_BUNDLES)
     def test_workflow_pull_keeps_the_old_bytes(self, workflow_client, tmp_path, broken):
@@ -1479,7 +1484,6 @@ class TestReplacingFilesChecksTheWholeAnswerFirst:
         )
         _assert_refused(stderr)
         assert _snapshot(target) == before
-        _no_leftovers(tmp_path)
 
     @pytest.mark.parametrize("broken", _BROKEN_BUNDLES + _PARTIAL_FILES)
     def test_workflow_materialize_keeps_the_cached_helpers(self, workflow_client, tmp_path, monkeypatch, broken):
@@ -1494,7 +1498,6 @@ class TestReplacingFilesChecksTheWholeAnswerFirst:
         )
         _assert_refused(stderr)
         assert _snapshot(cache) == before
-        _no_leftovers(cache.parent)
 
     @pytest.mark.parametrize("broken", _BROKEN_BUNDLES + _BROKEN_SKILL_ONLY + _PARTIAL_FILES)
     def test_skill_cache_keeps_the_cached_files(self, skill_client, tmp_path, monkeypatch, broken):
@@ -1511,14 +1514,16 @@ class TestReplacingFilesChecksTheWholeAnswerFirst:
         assert result.exit_code == 1
         _assert_refused(result.stderr)
         assert _snapshot(versions) == before
-        _no_leftovers(versions)
 
-    def test_skill_pull_that_fails_while_writing_keeps_the_old_bytes(self, skill_client, tmp_path, monkeypatch):
+    def test_skill_pull_that_fails_while_writing_keeps_the_old_hash_and_unlisted_files(
+        self, skill_client, tmp_path, monkeypatch
+    ):
+        # A write that fails part way may leave a mix (stated in skill_ops), but the hash is written
+        # last and old entries are removed only after every new file is on disk.
         from src import skill_ops
 
         target = tmp_path / "pulled"
         _existing_skill(target)
-        before = _snapshot(target)
         real = skill_ops._write_bundle_files
 
         def half_then_fail(root, files):
@@ -1534,10 +1539,11 @@ class TestReplacingFilesChecksTheWholeAnswerFirst:
             'cc-devthrottle skill pull my-skill --dir "<writable-dir>"',
         )
         assert "disk full" in stderr
-        assert _snapshot(target) == before
-        _no_leftovers(tmp_path)
+        assert (target / skill_ops.HASH_SIDECAR).read_text() == "old-hash"
+        assert (target / "support.txt").read_text() == "keep me"
+        assert (target / "helpers" / "run.sh").read_text() == "echo keep"
 
-    def test_workflow_materialize_that_fails_while_writing_keeps_the_cached_helpers(
+    def test_workflow_materialize_that_fails_while_writing_keeps_the_old_hash_and_helpers(
         self, workflow_client, tmp_path, monkeypatch
     ):
         from src import workflow_ops
@@ -1545,7 +1551,6 @@ class TestReplacingFilesChecksTheWholeAnswerFirst:
         monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
         cache = tmp_path / "cc-director" / "workflows" / "my-flow" / "2"
         _existing_workflow(cache)
-        before = _snapshot(cache)
         real = workflow_ops._write_exact
 
         def fail_on_helper(path, text):
@@ -1562,7 +1567,34 @@ class TestReplacingFilesChecksTheWholeAnswerFirst:
             "cc-devthrottle workflow instructions my-flow --version 2",
         )
         assert "disk full" in stderr
-        assert _snapshot(cache) == before
+        assert (cache / workflow_ops.HASH_SIDECAR).read_text() == "old-hash"
+        assert (cache / workflow_ops.HELPERS_DIR / "run.sh").read_text() == "echo keep"
+
+    def test_workflow_materialize_retries_after_a_failed_write(self, workflow_client, tmp_path, monkeypatch):
+        # The old sidecar does not name the new version, so the next call rewrites the mixed cache.
+        from src import workflow_ops
+
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        cache = tmp_path / "cc-director" / "workflows" / "my-flow" / "2"
+        _existing_workflow(cache)
+        real = workflow_ops._write_exact
+
+        def fail_on_helper(path, text):
+            if path.parent.name == workflow_ops.HELPERS_DIR:
+                raise OSError("disk full")
+            real(path, text)
+
+        workflow_client.get_version_detail.return_value = _workflow_detail(
+            {"files": [{"fileName": "new.sh", "content": "echo new"}]}
+        )
+        with monkeypatch.context() as m:
+            m.setattr(workflow_ops, "_write_exact", fail_on_helper)
+            runner.invoke(app, ["workflow", "materialize", "my-flow", "--version", "2"])
+        result = runner.invoke(app, ["workflow", "materialize", "my-flow", "--version", "2"])
+        assert result.exit_code == 0, result.stderr
+        assert "Materialized" in result.stdout
+        assert _snapshot(cache) == {".workflow-hash": b"new-hash", "helpers/new.sh": b"echo new",
+                                    "instructions.md": b"new body"}
 
     def test_workflow_pull_replaces_only_what_it_owns(self, workflow_client, tmp_path):
         from src import workflow_ops
@@ -1579,7 +1611,6 @@ class TestReplacingFilesChecksTheWholeAnswerFirst:
         assert sorted(p.name for p in (target / workflow_ops.HELPERS_DIR).iterdir()) == ["new.sh"]
         assert (target / workflow_ops.INSTRUCTIONS_MD).read_text() == "new body"
         assert (target / workflow_ops.HASH_SIDECAR).read_text() == "new-hash"
-        _no_leftovers(tmp_path)
 
     def test_skill_pull_with_base64_writes_the_decoded_bytes(self, skill_client, tmp_path):
         target = tmp_path / "pulled"
@@ -1591,77 +1622,6 @@ class TestReplacingFilesChecksTheWholeAnswerFirst:
         assert result.exit_code == 0, result.stderr
         assert (target / "bin" / "a.bin").read_bytes() == b"\x00\x01\x02"
         assert not (target / "support.txt").exists()
-        _no_leftovers(tmp_path)
-
-
-class TestBundleSwap:
-    def test_a_failed_move_puts_the_old_entries_back(self, tmp_path, monkeypatch):
-        import os
-
-        from src import bundle_swap
-
-        target = tmp_path / "t"
-        target.mkdir()
-        (target / "a.txt").write_text("old a")
-        (target / "b.txt").write_text("old b")
-        real = os.replace
-        calls = []
-
-        def fail_on_first_move_in(src, dst):
-            calls.append((src, dst))
-            if _is_move_in(target, src, dst):
-                raise OSError("rename failed")
-            real(src, dst)
-
-        monkeypatch.setattr(bundle_swap.os, "replace", fail_on_first_move_in)
-
-        def build(staging):
-            (staging / "a.txt").write_text("new a")
-
-        with pytest.raises(OSError, match="rename failed"):
-            bundle_swap.replace_directory(target, build)
-        assert _snapshot(target) == {"a.txt": b"old a", "b.txt": b"old b"}
-        assert calls, "the move was never attempted"
-        _no_leftovers(tmp_path)
-
-    def test_a_failed_move_after_some_moved_in_removes_them(self, tmp_path, monkeypatch):
-        from src import bundle_swap
-
-        target = tmp_path / "t"
-        target.mkdir()
-        (target / "a.txt").write_text("old a")
-        real = bundle_swap.os.replace
-        moved_in = []
-
-        def fail_on_second_move_in(src, dst):
-            if _is_move_in(target, src, dst):
-                moved_in.append(dst)
-                if len(moved_in) == 2:
-                    raise OSError("rename failed")
-            real(src, dst)
-
-        monkeypatch.setattr(bundle_swap.os, "replace", fail_on_second_move_in)
-
-        def build(staging):
-            (staging / "a.txt").write_text("new a")
-            (staging / "z").mkdir()
-            (staging / "z" / "n.txt").write_text("new z")
-
-        with pytest.raises(OSError, match="rename failed"):
-            bundle_swap.replace_directory(target, build)
-        assert _snapshot(target) == {"a.txt": b"old a"}
-        _no_leftovers(tmp_path)
-
-    def test_build_may_not_write_an_entry_it_does_not_own(self, tmp_path):
-        from src import bundle_swap
-
-        target = tmp_path / "t"
-        target.mkdir()
-        (target / "keep.txt").write_text("keep")
-        with pytest.raises(ValueError, match="does not own"):
-            bundle_swap.replace_directory(target, lambda s: (s / "keep.txt").write_text("x"), ["other"])
-        assert (target / "keep.txt").read_text() == "keep"
-        _no_leftovers(tmp_path)
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -1763,7 +1723,6 @@ class TestPullRequiresEveryAuthoredField:
         )
         assert "nothing was written" in stderr
         assert _snapshot(target) == before
-        _no_leftovers(tmp_path)
 
     @pytest.mark.parametrize("field, value", _BAD_SKILL_FIELDS)
     def test_skill_cache_refuses_the_same_answers(self, skill_client, tmp_path, monkeypatch, field, value):
@@ -1815,7 +1774,6 @@ class TestPullRequiresEveryAuthoredField:
         )
         assert "nothing was written" in stderr
         assert _snapshot(target) == before
-        _no_leftovers(tmp_path)
 
     @pytest.mark.parametrize("field, value", _BAD_WORKFLOW_FIELDS)
     def test_workflow_materialize_refuses_the_same_answers(
@@ -1866,7 +1824,7 @@ class TestPullRequiresEveryAuthoredField:
 
 
 _COLLIDING_PATHS = [
-    "SKILL.md", "skill.md", "skill.json", "SKILL.JSON", ".skill-hash", ".bundle-swap/lock",
+    "SKILL.md", "skill.md", "skill.json", "SKILL.JSON", ".skill-hash",
     "SKILL.md/extra.txt", "skill.json/x",
 ]
 
@@ -1937,255 +1895,10 @@ class TestNoSupportingFileOnAWriterPath:
         assert json.loads((target / workflow_ops.WORKFLOW_JSON).read_text())["name"] == "My flow"
         assert (target / workflow_ops.HELPERS_DIR / workflow_ops.INSTRUCTIONS_MD).read_text() == "helper"
 
-    def test_skill_push_never_sends_the_swap_work_directory(self, tmp_path):
-        from src import bundle_swap, skill_ops
-
-        (tmp_path / bundle_swap.WORK_DIR).mkdir()
-        (tmp_path / bundle_swap.WORK_DIR / "stray.txt").write_text("x")
-        (tmp_path / "real.txt").write_text("y")
-        files = skill_ops._read_tree(tmp_path, [])
-        assert [f["fileName"] for f in files] == ["real.txt"]
-
-
-# A child process that replaces a directory and is killed straight after its Nth rename. The parent
-# then makes the next call and checks what the directory holds.
-_KILLED_SWAP = r'''
-import os, sys
-from pathlib import Path
-sys.path.insert(0, os.getcwd())
-from src import bundle_swap
-
-target, stop_after = Path(sys.argv[1]), int(sys.argv[2])
-real = os.replace
-done = [0]
-
-def replace_then_die(src, dst):
-    real(src, dst)
-    done[0] += 1
-    if done[0] == stop_after:
-        os._exit(17)
-
-bundle_swap.os.replace = replace_then_die
-
-def build(staging):
-    (staging / "instructions.md").write_text("new instructions")
-    (staging / "helpers").mkdir()
-    (staging / "helpers" / "new.sh").write_text("echo new")
-    (staging / "added.txt").write_text("added")
-
-bundle_swap.replace_directory(target, build)
-print("completed")
-'''
-
-_OLD_TREE = {"instructions.md": b"old instructions", "helpers/run.sh": b"echo old", "gone.txt": b"gone"}
-_NEW_TREE = {"instructions.md": b"new instructions", "helpers/new.sh": b"echo new", "added.txt": b"added"}
-
-
 def _plant(target: Path, tree: dict) -> None:
     for name, data in tree.items():
         (target / name).parent.mkdir(parents=True, exist_ok=True)
         (target / name).write_bytes(data)
-
-
-def _kill_swap_after(target: Path, renames: int):
-    import subprocess
-
-    return subprocess.run(
-        [sys.executable, "-c", _KILLED_SWAP, str(target), str(renames)],
-        cwd=str(Path(__file__).parent.parent), capture_output=True, text=True, timeout=60,
-    )
-
-
-# The journal write is rename 1; the three old entries move out as renames 2-4, the three new ones
-# move in as 5-7, and the committed journal is rename 8.
-_RENAMES_BEFORE_COMMIT = range(1, 8)
-
-
-class TestAKilledSwapIsPutRight:
-    @pytest.mark.parametrize("renames", _RENAMES_BEFORE_COMMIT)
-    def test_recover_brings_back_the_whole_old_directory(self, tmp_path, renames):
-        from src import bundle_swap
-
-        target = tmp_path / "t"
-        _plant(target, _OLD_TREE)
-        child = _kill_swap_after(target, renames)
-        assert child.returncode == 17, (child.stdout, child.stderr)
-        # The kill really did leave the directory incomplete or mixed - otherwise this proves nothing.
-        assert (target / bundle_swap.WORK_DIR).is_dir()
-        if renames >= 2:
-            assert _snapshot_without_work(target) != _OLD_TREE
-
-        bundle_swap.recover(target)
-
-        assert _snapshot(target) == _OLD_TREE
-        _no_leftovers(tmp_path)
-
-    def test_the_first_move_out_is_the_inspection_reproduction(self, tmp_path):
-        # helpers/run.sh used to stay in a hidden .outgoing directory with nothing to bring it back.
-        from src import bundle_swap
-
-        target = tmp_path / "t"
-        _plant(target, {"instructions.md": b"old", "helpers/run.sh": b"echo old"})
-        child = _kill_swap_after(target, 2)
-        assert child.returncode == 17, child.stderr
-        assert not (target / "helpers" / "run.sh").exists()
-
-        bundle_swap.recover(target)
-
-        assert (target / "helpers" / "run.sh").read_bytes() == b"echo old"
-
-    @pytest.mark.parametrize("renames", _RENAMES_BEFORE_COMMIT)
-    def test_the_next_replace_starts_from_the_whole_old_directory(self, tmp_path, renames):
-        from src import bundle_swap
-
-        target = tmp_path / "t"
-        _plant(target, _OLD_TREE)
-        assert _kill_swap_after(target, renames).returncode == 17
-        seen = {}
-
-        def build(staging):
-            # What the next replace moves out must be the whole old directory, not what the kill left.
-            seen.update(_snapshot_without_work(target))
-            (staging / "fresh.txt").write_text("fresh")
-
-        bundle_swap.replace_directory(target, build)
-
-        assert seen == _OLD_TREE
-        assert _snapshot(target) == {"fresh.txt": b"fresh"}
-        _no_leftovers(tmp_path)
-
-    def test_a_kill_after_the_commit_keeps_the_new_directory(self, tmp_path):
-        from src import bundle_swap
-
-        target = tmp_path / "t"
-        _plant(target, _OLD_TREE)
-        assert _kill_swap_after(target, 8).returncode == 17
-        bundle_swap.recover(target)
-        assert _snapshot(target) == _NEW_TREE
-        _no_leftovers(tmp_path)
-
-    def test_an_uninterrupted_swap_leaves_no_work_directory(self, tmp_path):
-        target = tmp_path / "t"
-        _plant(target, _OLD_TREE)
-        child = _kill_swap_after(target, 10_000)
-        assert child.returncode == 0 and "completed" in child.stdout, child.stderr
-        assert _snapshot(target) == _NEW_TREE
-        _no_leftovers(tmp_path)
-
-    def test_a_rollback_that_itself_fails_is_finished_by_the_next_call(self, tmp_path, monkeypatch):
-        from src import bundle_swap
-
-        target = tmp_path / "t"
-        _plant(target, _OLD_TREE)
-        real = bundle_swap.os.replace
-
-        def refuse_every_move_in(src, dst):
-            if _is_move_in(target, src, dst):
-                raise OSError("rename failed")
-            real(src, dst)
-
-        def refuse_to_roll_back(*_args):
-            raise OSError("rollback failed")
-
-        monkeypatch.setattr(bundle_swap.os, "replace", refuse_every_move_in)
-        monkeypatch.setattr(bundle_swap, "_roll_back", refuse_to_roll_back)
-        with pytest.raises(OSError, match="rollback failed"):
-            bundle_swap.replace_directory(target, lambda s: _plant(s, _NEW_TREE))
-        monkeypatch.undo()
-        assert _snapshot_without_work(target) != _OLD_TREE
-
-        bundle_swap.recover(target)
-
-        assert _snapshot(target) == _OLD_TREE
-
-    def test_old_files_with_no_journal_are_kept_and_reported(self, tmp_path):
-        from src import bundle_swap
-
-        target = tmp_path / "t"
-        _plant(target, {"keep.txt": b"keep"})
-        orphan = target / bundle_swap.WORK_DIR / "outgoing"
-        orphan.mkdir(parents=True)
-        (orphan / "precious.txt").write_text("only copy")
-        with pytest.raises(OSError, match="no journal"):
-            bundle_swap.recover(target)
-        assert (orphan / "precious.txt").read_text() == "only copy"
-
-    def test_recover_does_not_create_a_missing_directory(self, tmp_path):
-        from src import bundle_swap
-
-        bundle_swap.recover(tmp_path / "absent")
-        assert not (tmp_path / "absent").exists()
-
-    @pytest.mark.parametrize("renames", [2, 5])
-    def test_skill_push_reads_the_recovered_directory(self, skill_client, tmp_path, renames):
-        from src import skill_ops
-
-        target = tmp_path / "pulled"
-        _plant(target, {"SKILL.md": b"old body", ".skill-hash": b"old-hash", "ref/a.md": b"old ref"})
-        assert _kill_swap_after(target, renames).returncode == 17
-        skill_client.skill_exists.return_value = True
-        skill_client.update_draft.return_value = {"version": 2, "contentHash": "h2"}
-        result = runner.invoke(app, ["skill", "push", "my-skill", "--dir", str(target)])
-        assert result.exit_code == 0, result.stderr
-        sent = skill_client.update_draft.call_args[0][1]
-        assert sent["bodyMarkdown"] == "old body"
-        assert [f["fileName"] for f in sent["files"]] == ["ref/a.md"]
-        assert skill_client.update_draft.call_args[0][2] == "old-hash"
-
-    @pytest.mark.parametrize("renames", [2, 5])
-    def test_workflow_push_reads_the_recovered_directory(self, workflow_client, tmp_path, renames):
-        target = tmp_path / "pulled"
-        _plant(target, _OLD_TREE)
-        (target / ".workflow-hash").write_text("old-hash")
-        assert _kill_swap_after(target, renames).returncode == 17
-        workflow_client.workflow_exists.return_value = True
-        workflow_client.update_draft.return_value = {"version": 3, "contentHash": "h3"}
-        result = runner.invoke(app, ["workflow", "push", "my-flow", "--dir", str(target)])
-        assert result.exit_code == 0, result.stderr
-        sent = workflow_client.update_draft.call_args[0][1]
-        assert sent["instructionsMarkdown"] == "old instructions"
-        assert [f["fileName"] for f in sent["files"]] == ["run.sh"]
-
-    def test_skill_get_judges_the_cache_only_after_recovery(self, skill_client, tmp_path, monkeypatch):
-        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
-        versions = tmp_path / "cc-director" / "skills" / "my-skill"
-        cache = versions / "1"
-        _plant(cache, {"SKILL.md": b"new body", "a.txt": b"x"})
-        (versions / "1.hash").write_text("new-hash")
-        assert _kill_swap_after(cache, 3).returncode == 17
-        skill_client.get_version_detail.return_value = _full_skill(files=[{"fileName": "a.txt", "content": "x"}])
-        skill_client.get_body.return_value = "new body"
-        result = runner.invoke(app, ["skill", "get", "my-skill", "--version", "1"])
-        assert result.exit_code == 0, result.stderr
-        assert _snapshot(cache) == {"SKILL.md": b"new body", "a.txt": b"x"}
-        assert str(cache / "a.txt") in result.stdout
-
-    def test_workflow_materialize_judges_the_cache_only_after_recovery(
-        self, workflow_client, tmp_path, monkeypatch
-    ):
-        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
-        cache = tmp_path / "cc-director" / "workflows" / "my-flow" / "2"
-        _plant(cache, {"instructions.md": b"new body", ".workflow-hash": b"new-hash", "helpers/a.sh": b"x"})
-        assert _kill_swap_after(cache, 3).returncode == 17
-        workflow_client.get_version_detail.return_value = _full_workflow(
-            files=[{"fileName": "a.sh", "content": "x"}]
-        )
-        result = runner.invoke(app, ["workflow", "materialize", "my-flow", "--version", "2"])
-        assert result.exit_code == 0, result.stderr
-        assert "Already materialized" in result.stdout
-        assert _snapshot(cache) == {"instructions.md": b"new body", ".workflow-hash": b"new-hash",
-                                    "helpers/a.sh": b"x"}
-
-
-def _snapshot_without_work(root: Path) -> dict:
-    from src import bundle_swap
-
-    # Filtered before reading: on Windows the held lock file cannot be read while a replace runs.
-    return {
-        p.relative_to(root).as_posix(): p.read_bytes()
-        for p in sorted(root.rglob("*"))
-        if p.is_file() and p.relative_to(root).parts[0] != bundle_swap.WORK_DIR
-    }
 
 
 class TestNoAnswerIsReadAsNoFiles:
@@ -2261,43 +1974,58 @@ class TestAFailedCacheRefreshKeepsItsHash:
         (versions / "1.hash").write_text("old-hash")
         return versions
 
-    def test_a_write_that_fails_keeps_every_old_file(self, skill_client, tmp_path, monkeypatch):
+    def _fail_writing(self, monkeypatch):
         from src import skill_ops
 
-        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
-        versions = self._cache(tmp_path)
-        before = _snapshot(versions)
+        real = skill_ops._write_bundle_files
 
-        def disk_full(root, files):
+        def half_then_fail(root, files):
+            real(root, files[:1])
             raise OSError("disk full")
 
-        monkeypatch.setattr(skill_ops, "_write_bundle_files", disk_full)
-        skill_client.get_version_detail.return_value = _full_skill(files=[{"fileName": "new.txt", "content": "n"}])
+        monkeypatch.setattr(skill_ops, "_write_bundle_files", half_then_fail)
+
+    def test_a_write_that_fails_keeps_the_old_hash_and_old_files(self, skill_client, tmp_path, monkeypatch):
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        versions = self._cache(tmp_path)
+        self._fail_writing(monkeypatch)
+        skill_client.get_version_detail.return_value = _full_skill(
+            files=[{"fileName": "new.txt", "content": "n"}, {"fileName": "two.txt", "content": "t"}]
+        )
         skill_client.get_body.return_value = "new body"
         stderr = _body_then_error(runner.invoke(app, ["skill", "get", "my-skill", "--version", "1"]))
         assert "disk full" in stderr
-        assert _snapshot(versions) == before
-        _no_leftovers(versions)
+        assert (versions / "1.hash").read_text() == "old-hash"
+        assert (versions / "1" / "old.txt").read_bytes() == b"old"
 
-    def test_a_move_that_fails_keeps_every_old_file(self, skill_client, tmp_path, monkeypatch):
-        from src import bundle_swap
-
+    def test_the_next_read_rewrites_a_cache_a_failed_write_left_mixed(self, skill_client, tmp_path, monkeypatch):
         monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
         versions = self._cache(tmp_path)
-        before = _snapshot(versions)
-        real = bundle_swap.os.replace
-
-        def fail_moving_in(src, dst):
-            if _is_move_in(versions / "1", src, dst):
-                raise OSError("rename failed")
-            real(src, dst)
-
-        monkeypatch.setattr(bundle_swap.os, "replace", fail_moving_in)
-        skill_client.get_version_detail.return_value = _full_skill(files=[{"fileName": "new.txt", "content": "n"}])
+        skill_client.get_version_detail.return_value = _full_skill(
+            files=[{"fileName": "new.txt", "content": "n"}, {"fileName": "two.txt", "content": "t"}]
+        )
         skill_client.get_body.return_value = "new body"
-        stderr = _body_then_error(runner.invoke(app, ["skill", "get", "my-skill", "--version", "1"]))
-        assert "rename failed" in stderr
-        assert _snapshot(versions) == before
+        with monkeypatch.context() as m:
+            self._fail_writing(m)
+            runner.invoke(app, ["skill", "get", "my-skill", "--version", "1"])
+        result = runner.invoke(app, ["skill", "get", "my-skill", "--version", "1"])
+        assert result.exit_code == 0, result.stderr
+        assert _snapshot(versions) == {"1.hash": b"new-hash", "1/SKILL.md": b"new body", "1/new.txt": b"n",
+                                       "1/two.txt": b"t"}
+
+    def test_a_sidecar_naming_this_version_is_dropped_before_a_refresh(self, skill_client, tmp_path, monkeypatch):
+        # It already vouches for files that are not all there; left in place, a failed refresh would
+        # leave it vouching for a mix that the next read then serves as intact.
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        versions = self._cache(tmp_path)
+        (versions / "1.hash").write_text("new-hash")
+        self._fail_writing(monkeypatch)
+        skill_client.get_version_detail.return_value = _full_skill(
+            files=[{"fileName": "new.txt", "content": "n"}, {"fileName": "two.txt", "content": "t"}]
+        )
+        skill_client.get_body.return_value = "new body"
+        _body_then_error(runner.invoke(app, ["skill", "get", "my-skill", "--version", "1"]))
+        assert not (versions / "1.hash").exists()
 
     def test_a_successful_refresh_replaces_the_hash(self, skill_client, tmp_path, monkeypatch):
         monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
@@ -2373,3 +2101,138 @@ class TestAPushWithoutANewHashSaysSo:
         )
         assert "did not include the new content hash" in stderr
         assert "Pull before the next push." in stderr
+
+
+# ---------------------------------------------------------------------------------------------------
+# Re-check 3 (pull request 2962): the journal-based swap is gone. A checked answer is written over the
+# old files, then what the new version no longer has is removed, then the hash is written last.
+# ---------------------------------------------------------------------------------------------------
+
+
+class TestTheSimpleWriter:
+    def test_skill_pull_removes_only_what_the_version_no_longer_has(self, skill_client, tmp_path):
+        target = tmp_path / "pulled"
+        _plant(target, {"SKILL.md": b"old", "keep.txt": b"old keep", "gone.txt": b"g", "old/deep/x.txt": b"x"})
+        skill_client.get_version_detail.return_value = _full_skill(
+            files=[{"fileName": "keep.txt", "content": "new keep"}, {"fileName": "docs/a.md", "content": "a"}]
+        )
+        result = runner.invoke(app, ["skill", "pull", "my-skill", "--dir", str(target), "--version", "1"])
+        assert result.exit_code == 0, result.stderr
+        snapshot = _snapshot(target)
+        assert sorted(snapshot) == [".skill-hash", "SKILL.md", "docs/a.md", "keep.txt", "skill.json"]
+        assert snapshot["keep.txt"] == b"new keep"
+        assert not (target / "old").exists()
+
+    def test_skill_pull_replaces_a_file_where_a_folder_is_now_needed(self, skill_client, tmp_path):
+        target = tmp_path / "pulled"
+        _plant(target, {"SKILL.md": b"old", "docs": b"was a file"})
+        (target / "notes").mkdir()
+        (target / "notes" / "old.md").write_text("old")
+        skill_client.get_version_detail.return_value = _full_skill(
+            files=[{"fileName": "docs/a.md", "content": "a"}, {"fileName": "notes", "content": "now a file"}]
+        )
+        result = runner.invoke(app, ["skill", "pull", "my-skill", "--dir", str(target), "--version", "1"])
+        assert result.exit_code == 0, result.stderr
+        assert (target / "docs" / "a.md").read_text() == "a"
+        assert (target / "notes").read_text() == "now a file"
+
+    def test_skill_pull_takes_the_new_letter_case_of_a_file(self, skill_client, tmp_path):
+        target = tmp_path / "pulled"
+        _plant(target, {"SKILL.md": b"old", "readme.md": b"old"})
+        skill_client.get_version_detail.return_value = _full_skill(
+            files=[{"fileName": "README.md", "content": "new"}]
+        )
+        result = runner.invoke(app, ["skill", "pull", "my-skill", "--dir", str(target), "--version", "1"])
+        assert result.exit_code == 0, result.stderr
+        names = sorted(p.name for p in target.iterdir())
+        assert "README.md" in names and "readme.md" not in names, names
+        assert (target / "README.md").read_text() == "new"
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="creating a link needs a privilege on Windows")
+    def test_skill_pull_never_writes_through_a_link(self, skill_client, tmp_path):
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "a.md").write_text("outside")
+        target = tmp_path / "pulled"
+        target.mkdir()
+        (target / "docs").symlink_to(outside, target_is_directory=True)
+        (target / "b.md").symlink_to(outside / "a.md")
+        skill_client.get_version_detail.return_value = _full_skill(
+            files=[{"fileName": "docs/a.md", "content": "new"}, {"fileName": "b.md", "content": "new b"}]
+        )
+        result = runner.invoke(app, ["skill", "pull", "my-skill", "--dir", str(target), "--version", "1"])
+        assert result.exit_code == 0, result.stderr
+        assert (outside / "a.md").read_text() == "outside"
+        assert not (target / "docs").is_symlink() and not (target / "b.md").is_symlink()
+        assert (target / "docs" / "a.md").read_text() == "new"
+        assert (target / "b.md").read_text() == "new b"
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="creating a link needs a privilege on Windows")
+    def test_skill_pull_removes_a_stale_link_without_touching_its_target(self, skill_client, tmp_path):
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "a.md").write_text("outside")
+        target = tmp_path / "pulled"
+        target.mkdir()
+        (target / "linked").symlink_to(outside, target_is_directory=True)
+        skill_client.get_version_detail.return_value = _full_skill()
+        result = runner.invoke(app, ["skill", "pull", "my-skill", "--dir", str(target), "--version", "1"])
+        assert result.exit_code == 0, result.stderr
+        assert not os.path.lexists(target / "linked")
+        assert (outside / "a.md").read_text() == "outside"
+
+    def test_the_skill_hash_is_written_after_every_other_file(self, skill_client, tmp_path, monkeypatch):
+        from src import skill_ops
+
+        target = tmp_path / "pulled"
+        _existing_skill(target)
+        order = []
+        real = skill_ops._remove_unlisted
+
+        def record(root, keep):
+            order.append(("prune", (root / skill_ops.HASH_SIDECAR).read_text()))
+            real(root, keep)
+
+        monkeypatch.setattr(skill_ops, "_remove_unlisted", record)
+        skill_client.get_version_detail.return_value = _full_skill()
+        result = runner.invoke(app, ["skill", "pull", "my-skill", "--dir", str(target), "--version", "1"])
+        assert result.exit_code == 0, result.stderr
+        assert order == [("prune", "old-hash")]
+        assert (target / skill_ops.HASH_SIDECAR).read_text() == "new-hash"
+
+    def test_workflow_pull_removes_every_helper_when_the_version_has_none(self, workflow_client, tmp_path):
+        from src import workflow_ops
+
+        target = tmp_path / "pulled"
+        _existing_workflow(target)
+        (target / "notes.md").write_text("mine")
+        workflow_client.get_version_detail.return_value = _full_workflow()
+        result = runner.invoke(app, ["workflow", "pull", "my-flow", "--dir", str(target), "--version", "2"])
+        assert result.exit_code == 0, result.stderr
+        assert not (target / workflow_ops.HELPERS_DIR).exists()
+        assert (target / "notes.md").read_text() == "mine"
+
+    def test_workflow_pull_takes_the_new_letter_case_of_a_helper(self, workflow_client, tmp_path):
+        from src import workflow_ops
+
+        target = tmp_path / "pulled"
+        _existing_workflow(target)
+        workflow_client.get_version_detail.return_value = _full_workflow(
+            files=[{"fileName": "RUN.sh", "content": "echo new"}]
+        )
+        result = runner.invoke(app, ["workflow", "pull", "my-flow", "--dir", str(target), "--version", "2"])
+        assert result.exit_code == 0, result.stderr
+        assert sorted(p.name for p in (target / workflow_ops.HELPERS_DIR).iterdir()) == ["RUN.sh"]
+        assert (target / workflow_ops.HELPERS_DIR / "RUN.sh").read_text() == "echo new"
+
+    def test_no_swap_work_folder_is_reserved_any_more(self, skill_client, tmp_path):
+        # Re-check 3, finding 3: a supporting file under .bundle-swap is an ordinary file again.
+        from src import skill_ops
+
+        target = tmp_path / "pulled"
+        skill_client.get_version_detail.return_value = _full_skill(
+            files=[{"fileName": ".bundle-swap/incoming/support.txt", "content": "s"}]
+        )
+        result = runner.invoke(app, ["skill", "pull", "my-skill", "--dir", str(target), "--version", "1"])
+        assert result.exit_code == 0, result.stderr
+        assert [f["fileName"] for f in skill_ops._read_tree(target, [])] == [".bundle-swap/incoming/support.txt"]

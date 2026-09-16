@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import socket
 import sys
 from pathlib import Path
@@ -34,15 +35,13 @@ if _tools_dir not in sys.path:
 
 from cc_shared import gateway  # noqa: E402
 
-from . import axi_cli, bundle_swap  # noqa: E402
+from . import axi_cli  # noqa: E402
 
 TIMEOUT_SECONDS = 15
 WORKFLOW_JSON = "workflow.json"
 INSTRUCTIONS_MD = "instructions.md"
 HELPERS_DIR = "helpers"
 HASH_SIDECAR = ".workflow-hash"
-# The entries of a pulled or cached workflow directory this command writes, and so may replace.
-_OWNED_ENTRIES = (WORKFLOW_JSON, INSTRUCTIONS_MD, HELPERS_DIR, HASH_SIDECAR)
 
 console = Console()
 err_console = Console(stderr=True)
@@ -601,41 +600,81 @@ def _checked_bundle(detail: Any, workflow_id: str, version: int) -> Dict[str, An
     }
 
 
-def _write_bundle(root: Path, bundle: Dict[str, Any]) -> None:
-    """Write checked instructions, helpers and hash sidecar into an empty directory."""
-    _write_exact(root / INSTRUCTIONS_MD, bundle["instructions"])
-    if bundle["files"]:
-        helpers = root / HELPERS_DIR
-        helpers.mkdir()
-        for f in bundle["files"]:
-            _write_exact(helpers / f["fileName"], f["content"])
-    (root / HASH_SIDECAR).write_text(bundle["contentHash"], encoding="utf-8")
+# HOW A PULL OR A CACHE REFRESH WRITES, AND WHAT IT DOES NOT PROMISE.
+#
+# `_checked_bundle` checks the WHOLE Gateway answer - every field, every helper's name and content -
+# before anything on disk is touched, so a partial or malformed answer leaves the old files exactly as
+# they were. Only then are the files written, in this order: the new files over the old ones, then
+# every old helper the new version no longer has is removed, then the hash sidecar is written LAST,
+# so it never vouches for files that are not all on disk.
+#
+# NOT GUARANTEED (moved to its own issue, not solved here): a write that fails part way (a full
+# disk, a file another program holds open), or a process killed part way, can leave a MIXED
+# directory - some new files, some old. That was also true before this change. The old sidecar is
+# left in place, and it does not match the new version, so the next materialize rewrites the cache
+# and a push is compared against the old version. Windows name aliases (a trailing dot or space) are
+# not refused either; a helper is a bare name inside helpers/, so such a name can only reach another
+# helper.
+
+
+def _file_at(root: Path, name: str) -> Path:
+    """`root/name`, made writable as a file: a folder or link in its place is removed (a link is
+    never followed out of `root`), and so is a sibling spelled with other letter case, which on a disk
+    that ignores case IS this file and would keep its old spelling if written over. `root` itself
+    must already be a folder."""
+    root.mkdir(parents=True, exist_ok=True)
+    target = root / name
+    for entry in root.iterdir():
+        if entry.name == name or entry.name.lower() == name.lower():
+            if entry.is_dir() and not entry.is_symlink():
+                shutil.rmtree(entry)
+            elif entry.name != name or entry.is_symlink():
+                entry.unlink()
+    return target
+
+
+def _write_bundle(root: Path, bundle: Dict[str, Any], metadata: Optional[Dict[str, Any]] = None) -> None:
+    """Write checked instructions, helpers and (when given) workflow.json over what `root` holds,
+    remove the helpers the version no longer has, and write the hash sidecar last. Entries of `root`
+    this command does not own are left alone."""
+    _write_exact(_file_at(root, INSTRUCTIONS_MD), bundle["instructions"])
+    if metadata is not None:
+        _file_at(root, WORKFLOW_JSON).write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+    helpers = root / HELPERS_DIR
+    if helpers.is_symlink() or (helpers.exists() and not helpers.is_dir()):
+        helpers.unlink()
+    for f in bundle["files"]:
+        _write_exact(_file_at(helpers, f["fileName"]), f["content"])
+    keep = {f["fileName"] for f in bundle["files"]}
+    if helpers.is_dir():
+        for entry in helpers.iterdir():
+            if entry.name in keep:
+                continue
+            if entry.is_dir() and not entry.is_symlink():
+                shutil.rmtree(entry)
+            else:
+                entry.unlink()
+        if not keep:
+            helpers.rmdir()
+    _file_at(root, HASH_SIDECAR).write_text(bundle["contentHash"], encoding="utf-8")
 
 
 def _write_pulled(target: Path, workflow_id: str, version: int, detail: Dict[str, Any]) -> None:
     """Write one pulled version into `target`. The whole answer is checked BEFORE anything is
-    written, and the new files replace the old ones in one swap, so a bad answer or a failed write
-    leaves the directory exactly as it was.
+    written, so a bad answer leaves the directory exactly as it was. What a write that fails part
+    way can leave is described above `_file_at`.
 
     The helpers directory mirrors the SERVER: a helper another author deleted on the Gateway must
     not survive locally and be resurrected by the next push. Files in `target` this command does not
     own are left alone."""
     bundle = _checked_bundle(detail, workflow_id, version)
-    metadata = bundle["metadata"]
-
-    def build(staging: Path) -> None:
-        (staging / WORKFLOW_JSON).write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
-        _write_bundle(staging, bundle)
-
-    bundle_swap.replace_directory(target, build, _OWNED_ENTRIES)
+    _write_bundle(target, bundle, bundle["metadata"])
 
 
 def _read_directory(workflow_id: str, directory: str, note: Optional[str]) -> Dict[str, Any]:
     source = Path(directory)
     if not source.is_dir():
         raise GatewayError(f"Directory not found: {source}")
-    # A pull that was interrupted is put right first, so a push never sends a half-replaced workflow.
-    bundle_swap.recover(source)
 
     metadata: Dict[str, Any] = {}
     metadata_path = source / WORKFLOW_JSON
@@ -1004,15 +1043,6 @@ def materialize_workflow(workflow_id: str, version: Optional[int]) -> None:
     expected = bundle["contentHash"]
     files = bundle["files"]
 
-    try:
-        # An interrupted refresh is put right before the cache is judged.
-        bundle_swap.recover(root)
-    except OSError as ex:
-        _fail(
-            f"could not repair the workflow cache at {root}: {ex}",
-            [f"cc-devthrottle workflow instructions {_ref(workflow_id)} --version {version}"],
-        )
-        return
     # The sidecar alone is not proof the bundle is intact - every listed file must actually exist,
     # or a deleted/half-written cache would be reported as materialized forever.
     intact = (
@@ -1026,7 +1056,12 @@ def materialize_workflow(workflow_id: str, version: Optional[int]) -> None:
         lines.append(f"Already materialized: {root}")
     else:
         try:
-            bundle_swap.replace_directory(root, lambda staging: _write_bundle(staging, bundle), _OWNED_ENTRIES)
+            # A sidecar that already names this version vouches for files that are not all there, so
+            # it goes first: a refresh that fails part way must not leave it vouching for a mix. Any
+            # other sidecar cannot match this version, so it stays until the new one replaces it.
+            if hash_file.is_file() and hash_file.read_text(encoding="utf-8").strip() == expected:
+                hash_file.unlink()
+            _write_bundle(root, bundle)
         except OSError as ex:
             _fail(
                 f"could not write the workflow cache at {root}: {ex}",

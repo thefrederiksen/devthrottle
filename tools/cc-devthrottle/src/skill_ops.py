@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import socket
 import sys
 from pathlib import Path
@@ -52,7 +53,7 @@ if _tools_dir not in sys.path:
 
 from cc_shared import gateway  # noqa: E402
 
-from . import axi_cli, bundle_swap  # noqa: E402
+from . import axi_cli  # noqa: E402
 
 TIMEOUT_SECONDS = 15
 SKILL_JSON = "skill.json"
@@ -352,7 +353,7 @@ def _read_exact(path: Path) -> str:
 #: Paths a skill directory's own writers produce. A supporting file may not use one, at any letter
 #: case, because it would overwrite that file - or the file would overwrite it - on a disk that
 #: ignores case, and a push skips these names so the file could never round-trip anyway.
-_RESERVED_PATHS = (SKILL_MD, SKILL_JSON, HASH_SIDECAR, bundle_swap.WORK_DIR)
+_RESERVED_PATHS = (SKILL_MD, SKILL_JSON, HASH_SIDECAR)
 
 #: The authored text fields of a version detail, all written to skill.json and pushed back.
 _REQUIRED_TEXT = ("skillId", "status", "name", "summary", "bodyMarkdown", "contentHash")
@@ -463,20 +464,92 @@ def _checked_bundle(detail: Any, skill_id: str, version: int) -> Dict[str, Any]:
     }
 
 
+# HOW A PULL OR A CACHE REFRESH WRITES, AND WHAT IT DOES NOT PROMISE.
+#
+# `_checked_bundle` checks the WHOLE Gateway answer - every field, every file's content and
+# encoding, every path that would collide with the skill's own files - before anything on disk is
+# touched, so a partial or malformed answer leaves the old files exactly as they were. Only then are
+# the files written, in this order: the new files over the old ones, then every old entry the new
+# version no longer has is removed, then the hash is written LAST, so a hash never vouches for files
+# that are not all on disk.
+#
+# NOT GUARANTEED (moved to its own issue, not solved here):
+# - A write that fails part way (a full disk, a file another program holds open), or a process
+#   killed part way, can leave a MIXED directory: some new files, some old. That was also true
+#   before this change. The old hash is left in place, and it does not match the new version, so
+#   the next cache read rewrites the directory and a push is compared against the old version.
+# - Windows name aliases are not yet refused: a supporting file named `SKILL.md.` or `SKILL.md `
+#   (a trailing dot or space) is written by Windows to `SKILL.md` and overwrites the body.
+# - On a disk that ignores letter case, an existing folder keeps its old letter case when the new
+#   version spells it differently; the files inside are the new ones.
+
+
+def _clear_the_way(root: Path, relative: str) -> Path:
+    """Make `root/relative` writable as a file, and return it.
+
+    Removes only entries the new version cannot have (the checked bundle has no path that is both a
+    file and a folder): a file or link where a folder of this path must be, a folder or link at the
+    path itself, and a sibling spelled with other letter case - which on a disk that ignores case IS
+    this file, and would keep its old spelling if written over. A link is removed rather than
+    followed, so a write never lands outside `root`."""
+    target = root / Path(relative)
+    parent = root
+    for part in Path(relative).parts[:-1]:
+        parent = parent / part
+        if parent.is_symlink() or (parent.exists() and not parent.is_dir()):
+            parent.unlink()
+    if target.is_symlink():
+        target.unlink()
+    elif target.is_dir():
+        shutil.rmtree(target)
+    if target.parent.is_dir():
+        for sibling in target.parent.iterdir():
+            if sibling.name != target.name and sibling.name.lower() == target.name.lower():
+                if sibling.is_dir() and not sibling.is_symlink():
+                    shutil.rmtree(sibling)
+                else:
+                    sibling.unlink()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    return target
+
+
 def _write_bundle_files(root: Path, files: List[Dict[str, Any]]) -> None:
     """Write checked supporting files under `root` at their own relative paths, setting the
     executable bit where the platform has one."""
     import stat
 
     for entry in files:
-        target = root / Path(entry["fileName"])
-        target.parent.mkdir(parents=True, exist_ok=True)
+        target = _clear_the_way(root, entry["fileName"])
         target.write_bytes(entry["data"])
         # Windows has no executable bit; on Linux and macOS a bundled script the skill tells an agent
         # to run is useless without it.
         if entry["executable"] and os.name != "nt":
             mode = target.stat().st_mode
             target.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+
+def _remove_unlisted(root: Path, keep: List[str]) -> None:
+    """Remove every entry under `root` that is not one of the `keep` paths (relative, `/`-separated)
+    or a folder holding one. Run AFTER the new files are written, so it only ever removes what the
+    new version no longer has. A path that differs from a kept one only by letter case is kept when
+    it is the same file on disk (a disk that ignores case), and removed when it is not."""
+    exact = set(keep)
+    folded: Dict[str, str] = {k.lower(): k for k in keep}
+    for current, folders, names in os.walk(root, topdown=False):
+        here = Path(current)
+        for name in names + [f for f in folders if (here / f).is_symlink()]:
+            path = here / name
+            relative = path.relative_to(root).as_posix()
+            if relative in exact:
+                continue
+            twin = folded.get(relative.lower())
+            if twin is not None and path.exists() and os.path.samefile(path, root / Path(twin)):
+                continue
+            path.unlink()
+        for name in folders:
+            path = here / name
+            if not path.is_symlink() and path.is_dir() and not any(path.iterdir()):
+                path.rmdir()
 
 
 def _read_tree(root: Path, executable_paths: List[str]) -> List[Dict[str, Any]]:
@@ -502,7 +575,7 @@ def _read_tree(root: Path, executable_paths: List[str]) -> List[Dict[str, Any]]:
         if not path.is_file():
             continue
         relative = path.relative_to(root).as_posix()
-        if relative in skipped or relative.split("/")[0] == bundle_swap.WORK_DIR:
+        if relative in skipped:
             continue
         data = path.read_bytes()
         entry: Dict[str, Any] = {"fileName": relative}
@@ -662,8 +735,6 @@ def _materialize(skill_id: str, version: int, detail: Dict[str, Any]) -> List[Pa
     hash_file = versions_root / f"{version}.hash"
     expected = bundle["contentHash"]
 
-    # An interrupted refresh is put right before the directory is judged.
-    bundle_swap.recover(root)
     intact = (
         hash_file.is_file()
         and hash_file.read_text(encoding="utf-8").strip() == expected
@@ -671,16 +742,16 @@ def _materialize(skill_id: str, version: int, detail: Dict[str, Any]) -> List[Pa
         and all((root / Path(f["fileName"])).is_file() for f in files)
     )
     if not intact:
-        def build(staging: Path) -> None:
-            _write_exact(staging / SKILL_MD, bundle["body"])
-            _write_bundle_files(staging, files)
-
-        def forget_old_hash() -> None:
-            # The old sidecar vouches for the old files, so it stays until they have all moved out;
-            # a refresh that fails before then leaves it, and the old files, exactly as they were.
-            hash_file.unlink(missing_ok=True)
-
-        bundle_swap.replace_directory(root, build, before_commit=forget_old_hash)
+        # A sidecar that already names this version vouches for files that are not all there, so it
+        # goes first: otherwise a refresh that fails part way would leave it vouching for a mix. Any
+        # other sidecar cannot match this version, so it stays until the new one replaces it.
+        if hash_file.is_file() and hash_file.read_text(encoding="utf-8").strip() == expected:
+            hash_file.unlink()
+        root.mkdir(parents=True, exist_ok=True)
+        _write_exact(_clear_the_way(root, SKILL_MD), bundle["body"])
+        _write_bundle_files(root, files)
+        _remove_unlisted(root, [SKILL_MD] + [f["fileName"] for f in files])
+        # Written last, and swapped in whole, so it never vouches for files that are not on disk.
         partial = versions_root / f"{version}.hash.tmp"
         partial.write_text(expected, encoding="utf-8")
         os.replace(partial, hash_file)
@@ -801,11 +872,12 @@ def pull_skill(skill_id: str, directory: str, version: Optional[int]) -> None:
 
 def _write_pulled(target: Path, skill_id: str, version: int, detail: Dict[str, Any]) -> None:
     """Write one pulled version into `target`. The whole answer is checked BEFORE anything is
-    written, and the new files replace the old ones in one swap, so a bad answer or a failed write
-    leaves the directory exactly as it was.
+    written, so a bad answer leaves the directory exactly as it was. What a write that fails part
+    way can leave is described above `_clear_the_way`.
 
     The directory mirrors the SERVER: a supporting file another author deleted on the Gateway must
-    not survive locally and be resurrected by the next push, so every existing entry is replaced."""
+    not survive locally and be resurrected by the next push, so every entry the version does not
+    have is removed once the new files are written."""
     bundle = _checked_bundle(detail, skill_id, version)
     files = bundle["files"]
     # Every authored field, including the Agent Skills standard's own frontmatter, so a pulled skill
@@ -815,21 +887,20 @@ def _write_pulled(target: Path, skill_id: str, version: int, detail: Dict[str, A
     # bit to read; on Linux and macOS the bit on disk wins and this is a record of what was pulled.
     metadata["executable"] = sorted(f["fileName"] for f in files if f["executable"])
 
-    def build(staging: Path) -> None:
-        (staging / SKILL_JSON).write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
-        _write_exact(staging / SKILL_MD, bundle["body"])
-        _write_bundle_files(staging, files)
-        (staging / HASH_SIDECAR).write_text(bundle["contentHash"], encoding="utf-8")
-
-    bundle_swap.replace_directory(target, build)
+    target.mkdir(parents=True, exist_ok=True)
+    _write_exact(_clear_the_way(target, SKILL_MD), bundle["body"])
+    _clear_the_way(target, SKILL_JSON).write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+    _write_bundle_files(target, files)
+    _remove_unlisted(target, [SKILL_MD, SKILL_JSON, HASH_SIDECAR] + [f["fileName"] for f in files])
+    # The hash is written last: it names the version a push is compared against, so it moves on only
+    # once the new files are all on disk.
+    _clear_the_way(target, HASH_SIDECAR).write_text(bundle["contentHash"], encoding="utf-8")
 
 
 def _read_directory(skill_id: str, directory: str, note: Optional[str]) -> Dict[str, Any]:
     source = Path(directory)
     if not source.is_dir():
         raise GatewayError(f"directory not found: {source}")
-    # A pull that was interrupted is put right first, so a push never sends a half-replaced skill.
-    bundle_swap.recover(source)
 
     metadata: Dict[str, Any] = {}
     metadata_path = source / SKILL_JSON

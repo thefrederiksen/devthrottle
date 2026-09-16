@@ -707,10 +707,12 @@ cache behind `skill get` change nothing on disk unless the Gateway's whole answe
 for the version asked for - every authored field (name, summary, triggers or steps, and the rest),
 an explicit files list, a safe name, an encoding and decodable content for every file, the body,
 and the content hash. A supporting file may not use a path the skill's own files use (`SKILL.md`,
-`skill.json`, `.skill-hash`, `.bundle-swap`, at any letter case). The new files are written into a
-hidden `.bundle-swap` folder inside the target and swapped in, so a failure part way leaves the old
-files as they were, and a process killed part way is rolled back by the next of these commands that
-touches that folder, `skill push` and `workflow push` included. A push whose answer has no new content
+`skill.json`, `.skill-hash`, at any letter case). Once the answer is checked, the new files are
+written over the old ones, then the files the new version no longer has are removed, and the content
+hash is written last. Not guaranteed: a write that fails part way (a full disk, say) or a process
+killed part way can leave a mix of old and new files; the old hash stays, so the next `skill get` or
+`workflow materialize` rewrites its cache, and a push is compared against the old version. Windows
+name aliases such as `SKILL.md.` (a trailing dot or space) are not yet refused. A push whose answer has no new content
 hash says so and names `pull`. After `browser start`, the next step is `browser attach`, which
 works in any shell; the `eval` line in its output is the Bash or zsh form. `--json` output is unchanged, and the raw text of `skill get` and
 `workflow instructions` gets nothing added.

@@ -48,10 +48,16 @@ TOOL = "cc-devthrottle"
 
 # An identifier that can be pasted into a shell as it is: no spaces, quotes, or shell characters.
 _BARE_ARGUMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:@+-]*")
-# Characters a shell still acts on inside double quotes, or that would end the quoting. A backslash
-# is handled separately: a Windows path is full of them, and one is only read specially when another
-# backslash follows it or it would escape the closing quote.
-_UNSAFE_IN_DOUBLE_QUOTES = set('"$`!')
+# Characters a shell still acts on inside double quotes, or that would end the quoting:
+#   "   ends the quoting in every shell;
+#   $   expands a variable in bash, zsh and PowerShell;
+#   `   runs a command in bash and zsh, and is PowerShell's escape character;
+#   !   is history expansion in bash and zsh, and delayed expansion in Windows cmd;
+#   %   expands a variable in Windows cmd (`"%USERNAME%"` prints the user's name).
+# Nothing else printable is read specially inside double quotes by bash, zsh, cmd or PowerShell. A
+# backslash is handled separately: a Windows path is full of them, and one is only read specially
+# when another backslash follows it or it would escape the closing quote.
+_UNSAFE_IN_DOUBLE_QUOTES = set('"$`!%')
 
 
 def ascii_text(text: str) -> str:
