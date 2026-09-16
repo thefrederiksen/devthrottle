@@ -5,21 +5,22 @@ using Xunit;
 namespace CcDirector.Gateway.Tests;
 
 /// <summary>
-/// The legend's words, held to the fold that decides the colours - EVERY CLAIM, AND NOTHING BUT CLAIMS.
+/// The legend's words, held to the fold that decides the colours - EVERY CLAIM, THE RELATION BETWEEN THEM, AND THE
+/// NOTE.
 ///
-/// Four rounds of review shaped this file, each closing a way a FALSE SENTENCE could still pass:
+/// Five rounds of review shaped this file, each finding the same species of defect in a narrower place - prose a
+/// person reads that no test executes:
 ///   1. Tests that only rendered the legend's own strings proved nothing; two sentences were false the day they were
 ///      written ("or a schedule is driving it"; "with them off, every stopped session is red").
 ///   2. One example per colour executed a sentence's FIRST claim and left the rest as prose.
-///   3. A clause table keyed by colour was not tied to the served words at all - rewording a sentence changed nothing.
-///   4. Requiring each claim to appear SOMEWHERE in the sentence was still not fail-closed: a false statement could be
-///      grown around the true claims ("The session is working and does not need you - at a prompt, ...").
+///   3. A clause table keyed by colour was not tied to the served words at all.
+///   4. Claims checked by substring let a false statement be grown around true ones.
+///   5. The joining words still carried meaning (", " where the fold means ", or ") and the verdict note was free
+///      prose ("Blue also needs that switch" would have shipped).
 ///
-/// So the sentence is no longer a string the legend writes: it is claims joined by the nine strings in
-/// <see cref="SessionColourLegend.AllowedGlue"/>. This file demands a session for EVERY claim, refuses any glue
-/// outside that list, and runs each claim's session through the real <see cref="SessionOrdering"/> for its colour, the
-/// words beside its dot, and which side of the needs-you line it lands on. New prose cannot reach a screen without an
-/// executed claim behind it.
+/// So: a sentence is structure, not prose. This file demands a session for EVERY claim, proves the alternatives of a
+/// OneOf really are DIFFERENT SITUATIONS, checks the rendered words are exactly what the structure produces, and
+/// demands an executable check for every claim the verdict note makes.
 /// </summary>
 public sealed class SessionColourLegendTests
 {
@@ -83,23 +84,25 @@ public sealed class SessionColourLegendTests
         ("green", "A brand-new session at its first prompt") => new(BrandNew("green-new"), "Ready"),
         ("green", "It has not done anything yet") => new(BrandNew("green-untouched"), "Ready"),
 
-        ("orange", "Your dictation is still uploading") => new(new SessionDto
+        ("orange", "Your dictation is on its way") => new(Transcribing("orange-on-its-way"), "Transcribing"),
+        ("orange", "it is still uploading from your phone") => new(new SessionDto
         {
             SessionId = "orange-uploading", ActivityState = "WaitingForInput", DictationStatus = "Uploading from phone",
         }, "Uploading from phone"),
-        ("orange", "being turned into text") => new(Transcribing("orange-transcribing"), "Transcribing"),
+        ("orange", "it is being turned into text") => new(Transcribing("orange-transcribing"), "Transcribing"),
         ("orange", "Wait before typing into it") => new(Transcribing("orange-busy"), "Transcribing"),
 
         ("supporting", "Stopped, but another live session is driving it") => new(Supervised("supporting-driven"), "Snoozed"),
-        ("supporting", "so it waits on that session instead of you") => new(Supervised("supporting-waits"), "Snoozed"),
+        ("supporting", "So it waits on that session instead of you") => new(Supervised("supporting-waits"), "Snoozed"),
 
-        ("grey", "You snoozed it") =>
+        ("grey", "This session is resting") =>
+            new(new SessionDto { SessionId = "grey-resting", ActivityState = "WaitingForInput", OnHold = true }, "Snoozed"),
+        ("grey", "you snoozed it") =>
             new(new SessionDto { SessionId = "grey-snoozed", ActivityState = "WaitingForInput", OnHold = true }, "Snoozed"),
         ("grey", "its agent exited") => new(new SessionDto { SessionId = "grey-exited", ActivityState = "Exited" }, "Exited"),
         // A different NAME for the same pixel, and - as round 3 found - its label is "Idle", not a word about being
-        // unreadable. The sentence says so now, and the next claim checks that word.
-        ("grey", "its state could not be read") =>
-            new(Unreadable("grey-unreadable"), "Idle", FoldsTo: "unknown"),
+        // unreadable. The sentence says so now, and the trailing claim checks that word.
+        ("grey", "its state could not be read") => new(Unreadable("grey-unreadable"), "Idle", FoldsTo: "unknown"),
         ("grey", "The label reads Snoozed, Exited or Idle") => new(Unreadable("grey-label"), "Idle", FoldsTo: "unknown"),
 
         ("error", "The agent process died") => new(Crashed("error-died"), "Crashed"),
@@ -111,6 +114,54 @@ public sealed class SessionColourLegendTests
             "the facts those words describe - a claim nobody executes is prose, and prose is how two false sentences " +
             "reached this legend already."),
     };
+
+    /// <summary>What a claim of the verdict note promises, executed. Throws for a claim with no check - which is what
+    /// stopped the note being free prose (round 5: "Blue also needs that switch" would have shipped).</summary>
+    private static void CheckNoteClaim(string claim)
+    {
+        switch (claim)
+        {
+            case "Done and Carrying on appear only when the Wingman's verdicts are switched on for your account":
+                // "only": the two it names lose their colour without a verdict, and NOTHING ELSE does.
+                foreach (var colour in new[] { "cyan", "purple" })
+                    foreach (var text in SessionColourLegend.ClaimsFor(colour))
+                        Assert.Equal("red", SessionOrdering.EffectiveColor(Unstamped(PromiseFor(colour, text).Session)));
+
+                foreach (var entry in SessionColourLegend.Build().Entries.Where(e => e.Colour is not ("cyan" or "purple")))
+                    foreach (var text in SessionColourLegend.ClaimsFor(entry.Colour))
+                    {
+                        var promise = PromiseFor(entry.Colour, text);
+                        var expected = promise.FoldsTo ?? entry.Colour;
+                        Assert.True(expected == SessionOrdering.EffectiveColor(Unstamped(promise.Session)),
+                            $"the note says only Done and Carrying on need the switch, but '{entry.Title}' / \"{text}\" " +
+                            $"changes without a verdict");
+                    }
+                return;
+
+            case "With them off, those sessions show red instead":
+                foreach (var colour in new[] { "cyan", "purple" })
+                    foreach (var text in SessionColourLegend.ClaimsFor(colour))
+                    {
+                        var row = Unstamped(PromiseFor(colour, text).Session);
+                        Assert.Equal("red", SessionOrdering.EffectiveColor(row));
+                        Assert.Equal(SessionOrdering.TriageBucket.NeedsYou, SessionOrdering.Classify(row));
+                    }
+                return;
+
+            default:
+                throw new InvalidOperationException(
+                    $"the verdict note claims \"{claim}\" and nothing here executes it. The note is read verbatim by " +
+                    "every client, so a sentence added to it without a check is prose in front of the owner.");
+        }
+    }
+
+    private static SessionDto Unstamped(SessionDto session)
+    {
+        session.VerdictState = VerdictStates.None;
+        session.TurnVerdict = null;
+        session.VerdictLabel = null;
+        return session;
+    }
 
     private static SessionDto Stopped(string id, string activity) => new() { SessionId = id, ActivityState = activity };
     private static SessionDto Briefing(string id) => new() { SessionId = id, ActivityState = "WaitingForInput", BriefingState = "Briefing" };
@@ -139,31 +190,47 @@ public sealed class SessionColourLegendTests
         },
     };
 
-    // ================================================================= nothing but claims and allowed glue
+    /// <summary>The facts a session is built from, as a fingerprint - two alternatives that produce the same one are
+    /// not alternatives at all.</summary>
+    private static string Facts(SessionDto s) =>
+        $"{s.ActivityState}|{s.OnHold}|{s.Crashed}|{s.IsBrandNew}|{s.HasLiveSupervisor}|{s.Transcribing}|" +
+        $"{s.IsTranscribing}|{s.DictationStatus}|{s.BriefingState}|{s.VoiceMode}|{s.VoiceAudioReady}|" +
+        $"{s.VerdictState}|{s.TurnVerdict?.Verdict}|{s.TurnVerdict?.FinishedKind}";
+
+    // ================================================================= the sentence is its claims
 
     [Fact]
-    public void EverySentence_IsClaimsAndNothingElse()
+    public void EverySentence_IsExactlyWhatItsStructureRenders()
     {
+        // Nobody types the joining words: they come from the structure. So the served text cannot carry a statement
+        // that is not a claim, and cannot say "and" where the fold means "or".
         foreach (var entry in SessionColourLegend.Build().Entries)
         {
-            var segments = SessionColourLegend.SegmentsFor(entry.Colour);
-            Assert.NotEmpty(segments);
+            var sentence = SessionColourLegend.SentenceFor(entry.Colour);
+            Assert.NotNull(sentence);
+            Assert.Equal(sentence!.Render(), entry.Means);
+            foreach (var claim in sentence.Claims) Assert.False(string.IsNullOrWhiteSpace(claim));
+        }
+    }
 
-            foreach (var segment in segments)
-            {
-                if (segment.IsClaim)
-                {
-                    Assert.False(string.IsNullOrWhiteSpace(segment.Text));
-                    continue;
-                }
-                // A statement smuggled in as glue is exactly how a sentence grows something nobody executes.
-                Assert.True(SessionColourLegend.AllowedGlue.Contains(segment.Text),
-                    $"'{entry.Title}' joins its claims with \"{segment.Text}\", which is not one of the allowed joining " +
-                    "strings - if those words say something about a session, they must be a claim");
-            }
+    [Fact]
+    public void TheAlternativesOfAOneOf_AreDifferentSituations()
+    {
+        // Round 5's finding: the joining words carried meaning. ", or " says these are cases of one another, so the
+        // sessions behind them must differ in the facts the fold reads. Two "alternatives" built from identical facts
+        // are one case written twice, and the "or" would be a lie.
+        foreach (var entry in SessionColourLegend.Build().Entries)
+        {
+            var sentence = SessionColourLegend.SentenceFor(entry.Colour)!;
+            if (sentence.How != SessionColourLegend.Relation.OneOf || sentence.Alternatives.Count < 2) continue;
 
-            // The served sentence is exactly its segments: no words reach a person from anywhere else.
-            Assert.Equal(string.Concat(segments.Select(s => s.Text)), entry.Means);
+            var fingerprints = sentence.Alternatives
+                .Select(a => Facts(PromiseFor(entry.Colour, a).Session))
+                .ToList();
+
+            Assert.True(fingerprints.Distinct(StringComparer.Ordinal).Count() == fingerprints.Count,
+                $"'{entry.Title}' offers its cases as alternatives, but two of them are the same session: " +
+                string.Join(" / ", sentence.Alternatives));
         }
     }
 
@@ -186,8 +253,6 @@ public sealed class SessionColourLegendTests
     [Fact]
     public void EveryClaim_ReadsTheWordsTheLegendImplies()
     {
-        // Round 3's finding: the grey entry promised the label said which of three things had happened, and for an
-        // unreadable state the label is "Idle". A claim about the words is checked against the words.
         foreach (var entry in SessionColourLegend.Build().Entries)
             foreach (var claim in SessionColourLegend.ClaimsFor(entry.Colour))
             {
@@ -217,7 +282,6 @@ public sealed class SessionColourLegendTests
     [Fact]
     public void AsksForYou_NotYet_MeansItWillAskOnceTheThingItWaitsForArrives()
     {
-        // "Not yet" is a promise about the FUTURE, and it used to be indistinguishable from "No".
         foreach (var entry in SessionColourLegend.Build().Entries.Where(e => e.AsksForYou == SessionColourLegend.AsksNotYet))
             foreach (var claim in SessionColourLegend.ClaimsFor(entry.Colour))
             {
@@ -242,14 +306,13 @@ public sealed class SessionColourLegendTests
             }
     }
 
-    // ================================================================= the promises that are about time
+    // ================================================================= promises about time
 
     [Fact]
     public void TheCarryingOnPromise_IsKeptByTheRealClock_NotByAVerdictThisTestWrote()
     {
         // Round 4's finding: this used to hand the fold an already-expired verdict of its own making, so deleting the
-        // watchdog would have left "It turns red if it does not" false with the test still green. It now drives the
-        // real clock: TurnVerdictWatchdog decides WHEN, and produces the verdict the row then folds from.
+        // watchdog would have left "It turns red if it does not" false with the test still green.
         var row = PromiseFor("purple", "It turns red if it does not").Session;
         var verdict = row.TurnVerdict!;
         var judgedAt = verdict.JudgedAtUtc;
@@ -269,36 +332,15 @@ public sealed class SessionColourLegendTests
     // ================================================================= the notes
 
     [Fact]
-    public void TheVerdictNote_NamesOnlyTheColoursTheSwitchDecides_AndThatIsExecuted()
+    public void TheVerdictNote_IsItsClaims_AndEveryClaimIsExecuted()
     {
         var legend = SessionColourLegend.Build();
-        var note = legend.VerdictNote;
 
-        Assert.Contains("Done", note, StringComparison.Ordinal);
-        Assert.Contains("Carrying on", note, StringComparison.Ordinal);
+        // The note a person reads is exactly the claims, so it cannot grow a sentence nobody checks.
+        Assert.Equal(string.Join(" ", SessionColourLegend.NoteClaims.Select(c => c + ".")), legend.VerdictNote);
+        Assert.NotEmpty(SessionColourLegend.NoteClaims);
 
-        // Round 4's finding: it used to name the Wingman's yellow too, and a Director's briefing paints that same
-        // yellow with the same words whatever the switch says. The note must not speak for it.
-        foreach (var word in new[] { "yellow", "Wingman reading", "Being read" })
-            Assert.DoesNotContain(word, note, StringComparison.Ordinal);
-        foreach (var title in new[] { "Needs you", "Working", "Ready", "Transcribing", "Supervised", "Snoozed or exited", "Crashed" })
-            Assert.DoesNotContain(title, note, StringComparison.Ordinal);
-
-        // With the switch off the Gateway stamps no verdict on any row, so the two it names fold red...
-        foreach (var colour in new[] { "cyan", "purple" })
-            foreach (var claim in SessionColourLegend.ClaimsFor(colour))
-            {
-                var row = PromiseFor(colour, claim).Session;
-                row.VerdictState = VerdictStates.None;
-                row.TurnVerdict = null;
-                Assert.Equal("red", SessionOrdering.EffectiveColor(row));
-            }
-
-        // ...and the briefing yellow it does NOT name is untouched by the switch, which is why it may not be named.
-        var briefing = PromiseFor("yellow", "the Wingman or the Director is reading the stop").Session;
-        briefing.VerdictState = VerdictStates.None;
-        Assert.Equal("yellow", SessionOrdering.EffectiveColor(briefing));
-        Assert.Equal("Wingman reading", SessionOrdering.StateLabel(briefing));
+        foreach (var claim in SessionColourLegend.NoteClaims) CheckNoteClaim(claim);
     }
 
     [Fact]
@@ -350,8 +392,8 @@ public sealed class SessionColourLegendTests
     [Fact]
     public void TheSupervisedEntry_IsALiveSupervisor_NotASchedule()
     {
-        // The first draft said "or a schedule is driving it". A schedule is not supervision: IsSupervised reads only a
-        // live supervisor. A stopped session without one is red, whoever started it.
+        // Round 1's finding: the first draft said "or a schedule is driving it". A schedule is not supervision -
+        // IsSupervised reads only a live supervisor - so a stopped session without one is red, whoever started it.
         var noSupervisor = new SessionDto
         {
             SessionId = "scheduled-run", ActivityState = "WaitingForInput", HasLiveSupervisor = false,
