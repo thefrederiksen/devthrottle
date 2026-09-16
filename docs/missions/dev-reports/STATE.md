@@ -44,8 +44,8 @@ Owner rulings are in the issue. These are the Architect's, settling the inferred
 
 | Phase | State |
 |---|---|
-| 1. Note-taking script and shape check | pull request #2948; inspection found 2 high, 3 medium, 1 low - fixing |
-| 2. Gateway record and delivery | not started |
+| 1. Note-taking script and shape check | MERGED to main (pull request #2948, ce017b08c) after three inspection rounds |
+| 2. Gateway record and delivery | starting (HANDOFF-phase-2.md) |
 | 3. Cockpit and phone viewer (then deploy) | not started |
 | 4. Director pane | not started |
 | 5. Tool, skill, global instruction rule | not started |
