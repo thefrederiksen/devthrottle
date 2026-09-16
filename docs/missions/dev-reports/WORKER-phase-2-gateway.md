@@ -62,7 +62,7 @@ Session routes (the caller's own session key, and the path session must be the c
 | same, empty or over 20000 characters (from the code, not run) | 400 `reply_empty` / `reply_too_long` |
 | `GET /sessions/{sid}/dev-reports` | 200 `{"count":N,"reports":[summary...]}` - NOT exercised over the wire (see below) |
 
-Owner routes (device key; refused to every session key by the guard):
+Owner routes (device key; refused to every session key by the guard, and again by each route itself):
 
 | Route | Answer |
 |---|---|
@@ -135,6 +135,20 @@ the machine-wide Gateway test lock (other sessions held it for long stretches). 
 and each red belongs to its own test; the other eight hosted tests, including the journey, stayed green
 in that build, which shows no mutation leaked into another test.
 
+### The owner routes refuse a session themselves (added on the Manager's instruction, commit 856d93bcb)
+
+Every owner route (`GET /dev-reports`, `GET /dev-reports/{id}`, `GET /dev-reports/{id}/html`,
+`POST /dev-reports/{id}/send`) now checks `AuthMiddleware.CallingSession` first and answers 403
+`session_key_out_of_scope` to any session identity, so an edit to the guard's allow list is not enough to let
+an agent read the owner's queue or send in the owner's name. In normal operation the guard still answers
+first, so the real answer is unchanged. Proof, on committed code, each step built: with the guard mutated to
+allow `dev-reports/...` for GET and POST, `ASessionKey_IsRefusedEveryOwnerRoute` stayed GREEN, and all four
+refusals carried the route's own message (`"a session key may not call GET /dev-reports; the dev report owner
+routes are for the owner's own devices, never a session."`), which shows the route check, not the guard,
+answered. With the route check also disabled it went RED: `Assert.Equal() Failure: Values differ Expected:
+Forbidden Actual: OK`, the log showing `GET dev-reports -> 200` under the session key. Restored with
+`git checkout`, no mutation left in either file, rebuilt without `--no-build`: all 12 hosted tests passed.
+
 ### Gates
 
 - `.\scripts\test-local.ps1`: exit 0, 1,907 tests, all completed.
@@ -179,10 +193,8 @@ would have left its Postgres container and the lock behind.
 - A second send can land right after an idle delivery, before the roster shows the session working, and
   type into a turn that has just started. The roster is the only signal; nothing closes that window.
 - Two Gateway processes at once (a deploy swap): the lock is in process, so a double drain is possible then.
-- `director-stopped` counts as ended, per the plan. That refuses owner sends to a session that may later be
-  restored. Flagged for the Manager to rule.
-- The owner routes are refused to session keys by the guard alone, by design; the routes themselves do not
-  re-check the credential kind.
+- `director-stopped` counts as ended, per the plan. Ruled by the Manager: it stays ended and refused; a refused
+  item stays in the owner's queue and can be resent once the session is restored and its history row reopens.
 - A body above the 128 MB transport limit gets the server's own 413, not the dev report body.
 - The title is capped at 200 characters (not in the plan).
 - The Postgres migration was applied only inside the `-Parked` rig; no hosted database has run it.
