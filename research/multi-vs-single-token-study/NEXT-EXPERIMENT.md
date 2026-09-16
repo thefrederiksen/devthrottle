@@ -64,8 +64,16 @@ Crucial finding that makes it viable - we HAVE real data to evaluate on:
 
 What already exists (do NOT rebuild; keep the new work honest):
 - Capture layer `WingmanTrainingStore` - built, on, producing the data above.
-- `WingmanGoldenTests` (#209) - a MECHANICAL regression gate that replays golden
-  TurnPackages through the contract. NOT a quality judge; passes vacuously with no goldens.
+- `WingmanGoldenTests` (#209) IS GONE - deleted by pull request 2916 on 2026-09-16, with the
+  turn-brief contract it replayed golden `TurnPackage`s through. **There is no mechanical
+  regression gate to build on any more, so the next experiment has to supply its own fixture.**
+  It never had goldens in any case: it passed vacuously with an empty set, which is the same
+  shape of false green this study exists to avoid.
+  Build the fixture from the LABELLED CORPUS instead - `corpus/labelled/` in the internal
+  repository, the turns the judge grading runs against, where every record carries a verdict
+  word agreed by two reviewers of different model families or corrected by the owner. That is a
+  fixture with known answers rather than an empty gate, and it is already maintained daily.
+  The contract to replay through is now `TurnVerdictContract`, not the deleted one.
 - The NEW work is the QUALITY-judgment layer: curate a labeled golden subset from the raw
   captures, run a G-Eval-style judge (different model family, temperature 0) over dimensions
   (faithfulness / completeness / speakability / reference-resolution / terse-expansion),

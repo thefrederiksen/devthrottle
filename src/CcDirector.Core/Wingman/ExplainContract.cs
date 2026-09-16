@@ -22,8 +22,8 @@ public sealed record ExplainPackage(
 /// <summary>
 /// The "I am lost - explain" contract (issue #217): the prompt that asks the model for a
 /// SESSION-LEVEL deep dive - what happened, what we did, what next - and the mechanical
-/// validation of its JSON answer. Lives in the one prompt home next to
-/// <see cref="TurnBriefContract"/>; a change here reaches the fleet via the Gateway.
+/// validation of its JSON answer. Lives in the one prompt home under
+/// src/CcDirector.Core/Wingman; a change here reaches the fleet via the Gateway.
 ///
 /// Everything here is pure: no model calls, no I/O beyond logging. Validation is
 /// mechanical (presence, length caps), never interpretation.

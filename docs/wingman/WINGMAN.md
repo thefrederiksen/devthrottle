@@ -21,15 +21,68 @@ to the raw tab?** A lossy or wrong answer the user can't trust is worse than not
 ## 2. Hard invariants (enforced)
 
 These hold for every Wingman path. The audit gate
-(`CcDirector.Core.Tests/Wingman/WingmanCharterAuditTests.cs`) fails the build if any file
+(`CcDirector.Core.UnitTests/Wingman/WingmanCharterAuditTests.cs`, in the default local gate) fails the build if any file
 under `src/CcDirector.Core/Wingman/` violates the mechanical ones.
 
-1. **Strong model only - NEVER a cheap model.** The Wingman's LLM features run on
-   `WingmanService.Model` (currently `opus`). There is no Haiku/cheap tier; a weak model
-   cannot read a screen faithfully or answer without summarizing. `DefaultModel`/`StrongModel`
-   are back-compat aliases of `Model`. (Audited: no cheap-model literal in Wingman source.)
-   Note: this applies to the **content** features in sections 4-5. Turn-**state detection**
-   (section 3) uses no model at all.
+1. **The judge that scored best on the labelled corpus - and the score and the reply time
+   are recorded here.** Which model a Wingman path runs on is settled by MEASUREMENT against
+   a corpus of labelled turns, not by the belief that a bigger model reads a screen better.
+   That belief was this invariant's old wording ("strong model only"), and the measurement
+   contradicted it: the thinking tier never answered 48 of its 100 calls and its ninety-fifth
+   percentile reply was 273.0 seconds, so on a boundary that has to answer while a row is
+   yellow it is not a better judge, it is no judge at all. The models in force, which the
+   audit gate reads out of this document:
+
+   - Director-side content features (sections 4 and 5): `WingmanService.Model` = `opus`.
+     `DefaultModel` and `StrongModel` are back-compat aliases of `Model`.
+   - The Gateway turn verdict (section 3b): the judge = `devthrottle/wingman-fast`.
+
+   There is still no cheap tier and no Haiku: the audit gate fails on a quoted cheap-model
+   literal anywhere in Wingman source, and separately fails when `WingmanService.Model` is
+   any value this document does not name. Turn-**state detection** (section 3) uses no model
+   at all.
+
+   **The score, measured on 2026-09-15** (`devthrottle/wingman-fast`, 341 turns of a
+   350-label corpus, eight calls in flight, against the product's real package, scored under
+   contract version one; the report is `docs/design/wingman-on-every-turn/grading-2026-09-15.md`
+   in the internal repository):
+
+   | | `devthrottle/wingman-fast` | `devthrottle/wingman` (the runner-up) |
+   |---|---|---|
+   | Calls that never answered | 0 of 341 | 48 of 100 |
+   | Reply seconds: fiftieth, ninetieth, ninety-fifth percentile | 9.8, 15.4, 20.2 | 144.5, 238.5, 273.0 |
+   | Slowest single answer, seconds | 34.1 | 288.4 |
+   | Answers accepted by the contract | 222 of 341 (65.1%) | 18 of 100 (18.0%) |
+   | Agreement with the label | 70.7% | 100.0%, over 18 accepted answers |
+   | False calm (a calm verdict on a stop that needed a person) | 10 of 154 (6.5%) | 0 of 17 (0.0%) |
+   | - of which `finished`, cyan, with no clock behind it | 2 of 154 (1.3%) | 0 of 17 (0.0%) |
+   | - of which `continues-alone`, purple, which the clock turns red again | 8 of 154 (5.2%) | 0 of 17 (0.0%) |
+   | Receipt failures (the answer is refused and the row stays red) | 68 of 341 | 0 |
+
+   **The judge timeout is 30 seconds**, set from that ninety-fifth percentile by a rule fixed
+   before the measurement: 20 stands unless the chosen judge's ninety-fifth is over 20, in
+   which case it becomes 30, because a timed-out stop stays red and headroom costs yellow time
+   rather than safety. The slowest answers are still lost, deliberately.
+
+   **The two judges were measured at the same eight calls in flight, and their columns still
+   are not like-for-like on quality**: the runner-up's rates rest on 18 accepted answers and 17
+   turns, which measures how rarely it answers rather than how well it judges. Read its
+   never-answered row, not its rate columns. And the corpus labels are agreement between two
+   reviewers of different model families, not truth; the owner's own correction (section 3b) is
+   the only label that outranks them, and every number above inherits that.
+
+   **What the re-score says, and the one row that is NOT MEASURED.** Contract version two
+   (slice D) requires a `finished` answer to say which kind of finished it is. The stored
+   answers were re-scored under it without calling any model: acceptance falls to 185 of 341
+   (54.3%), agreement to 68.1%, false calm to 8 of 154 (5.2%). The `finished` row then reads
+   zero - and **the honest reading of it is NOT MEASURED, not zero**. Every `finished` answer
+   in that run was asked under contract version one, which never asked for the kind, so version
+   two refuses them all: there is no accepted answer of that kind for a mistake to be counted
+   among, the numerator cannot rise however the judge behaves, and a rate over no accepted
+   answers is not a rate. Printed as 0.0 percent it would read as a perfect score on the row
+   that gates the colour switch. **The cyan false-calm rate becomes a number again on the first
+   grading run whose `finished` answers were asked under contract version two, and until then
+   the number this document stands behind is the 1.3 percent measured under version one.**
 2. **The Wingman's LLM calls are read-only.** No Wingman LLM call may write to a session.
    Any full-power Wingman session gets a read-only tool allow-list (`Read Grep Glob`) only,
    and the side-calls are tool-less (`--tools ""`). (Audited: no non-read-only `allowedTools`.)
@@ -110,6 +163,211 @@ is just **blue (working)** or **red (needs you)**.
 - `CC_DIRECTOR_TERMINAL_STATE=0` - use the Claude-Code hook path to drive `ActivityState`
   instead of the terminal timer (off by default; see section 7 on why hooks are not used).
   The colour mapping above is unchanged either way.
+
+---
+
+## 3b. The turn verdict (the Gateway): what a stop MEANS
+
+Section 3 decides that a session has STOPPED. This section decides what the stop MEANS. The
+two are different jobs on different machines and they are never merged: the detector is a
+ten-second timer on the Director with no model in it, and the verdict is one model call on the
+Gateway at the turn-end boundary the detector already found.
+
+The settled specification, with worked examples, is
+[`docs/architecture/wingman/TURN_VERDICT.md`](../architecture/wingman/TURN_VERDICT.md). This
+section is the charter's summary of it and the invariants it must hold.
+
+### Why it exists
+
+The badge says "needs you" whenever a session has been silent for ten seconds. Measured on the
+owner's fleet on 2026-09-14: 801 red flips, 248 turns he actually drove, and of 131 labelled
+turn ends 57 percent were "finished", 24 percent "needed a person", 15 percent "carrying on by
+itself". Three reds in four did not need him. The verdict exists to tell those apart.
+
+### The one question, and the contract
+
+At every stop of a session the account owns, the Gateway asks ONE model ONE structured question
+and stores the answer on the session row with the agent's own words as the receipt. One model
+call per stop, terminal-failure stops included; the spoken version for the ear is a SECTION of
+that same answer, never a second call.
+
+The answer is one JSON object. The field names are the wire names:
+
+```
+{
+  "verdict":         "needed-you" | "finished" | "continues-alone" | "stuck-recoverable" | "stuck-needs-person" | "cannot-tell",
+  "confidence":      "high" | "ambiguous",
+  "evidence":        "<the agent's decisive sentence, copied character for character>",
+  "label":           "<= 10 words: the ask, or the report",
+  "summary":         "1-2 sentences for a reader who has not looked at this session for hours",
+  "agentRecommends": null | "<the agent's own recommendation>",
+  "answerVia":       "reply" | "keys",
+  "menu":            null | { "question": "...", "selectionMode": "single" | "multiple", "submit": "" | carriage return },
+  "options":         [ { "key": "...", "send": "...", "recommended": true|false, "note": "<= 18 words" } ],
+  "risk":            "none" | "irreversible" | "standing-grant" | "spends-money",
+  "spoken":          "<the same content for the ear, about 30 seconds, opening with the session title>",
+  "finishedKind":    "done" | "report"        (only when the verdict is "finished")
+}
+```
+
+Validation is MECHANICAL and never interpretation (`TurnVerdictContract.ParseAndValidate`):
+closed word lists, the declared shape of every member proved before any member is read for
+meaning, length caps, and a receipt check that looks for `evidence` verbatim in the latest reply
+or in the screen rows after whitespace normalisation.
+
+`verdict`, `confidence`, `evidence`, `label`, `summary`, `answerVia`, `risk` and `spoken` must be
+present and be strings; `options` must be present and be an array, empty when there is nothing to
+offer. **`agentRecommends` and `menu` are the only members that may be null or absent**, and even
+there a wrong TYPE rejects the answer rather than reading as nothing. `finishedKind` is required
+on a `finished` verdict and refused on every other. An unknown `verdict` word, an unknown `risk`
+word, a member that is missing or of the wrong kind, an option whose `send` carries a carriage
+return, a receipt that differs by one word - each rejects the WHOLE answer. Nothing missing is
+ever synthesised.
+
+The full rule, member by member, is in the specification. The vocabulary lives in one file,
+`TurnVerdictVocabulary`, and its twin in the labelling tool of the internal repository is pinned
+to it by a test in each repository.
+
+### The order of the checks, and what each one costs
+
+This is the boundary exactly as `TurnVerdictService.JudgeAsync` runs it. The same block, word for
+word, is the comment above that code and section 6 of the specification, so the three cannot
+describe it differently:
+
+```
+THE BOUNDARY, IN THE ORDER THE CODE RUNS IT. A read means the session's screen or its stored
+conversation; the pushed roster and the verdict store are consulted as well and are not counted.
+1. The checks that read neither: held, live, not brand new, not exited, not working; then the
+   judge switch, checked ONCE in the flight, before the settle wait. Then, for a turn end, the
+   settle wait. Then, for an automatic request, the held, live, brand-new, exited and working
+   checks again - but NOT the switch, so a switch turned off during a flight does not stop that
+   flight. A stop refused here costs NO reads.
+2. The screen read, and its one full-grid hash.
+3. The reuse check: a stored verdict formed on the same hash is reused and the judge is not
+   asked. A stop answered here costs ONE read.
+4. The speech re-attempt refusal: a caller that may not ask the judge stops here, before the
+   conversation is read. A stop refused here costs ONE read.
+5. The conversation read.
+6. The provider deadline, then the account ceiling. A stop refused by either costs TWO reads.
+7. The model call.
+```
+
+**Three earlier versions of this section were wrong.** The first said nothing was read until every
+check passed. The second grouped the speech re-attempt refusal with the checks after BOTH reads, when
+it comes before the conversation is read and costs one. The third said the judge switch was checked
+again after the settle wait; it is checked once, before it, so a switch turned off during a flight
+does not stop that flight. The code was right all three times.
+
+**The real boundary is step 6.** A stop refused there has cost two reads and no model call, and that
+is deliberate: the expensive, rate-limited, chargeable thing is the model, and step 6 is what stands in
+front of it.
+
+Notes on individual steps, which add reasons and do not change the order or the costs above:
+
+- **Held** is resolved across the account's WHOLE fresh roster in one snapshot, never off the
+  session's own row. The push store nulls the role at ingest, so a check that read the row would
+  answer "not held" for every session on the fleet.
+- **The judge switch** binds only the two triggers nobody is waiting on: the detector's turn end, and
+  a snooze expiry with a stop nothing has judged. A voice session is judged whatever the switch says,
+  because somebody is listening to it, and a person's own request is not automatic at all.
+- **The held, live, brand-new, exited and working checks run again after the settle wait; the judge
+  switch does not.** A session can become held, or start working, while the request waits, and the
+  first answer does not license a read made later. The switch is taken from the account settings read
+  when the flight starts and is not looked at again, so turning it off stops the NEXT flight, not one
+  already waiting or reading.
+- **The screen is read before the reuse check because the reuse check needs it**: it compares the hash
+  of this screen to the hash a stored verdict was formed on. A screen read placed after step 6 would
+  buy nothing and would cost every reusable stop a model call. An unreadable screen hashes to the empty
+  string and is never reused outside the idle sweep, because otherwise two different stops on an
+  unreachable Director would look like one screen.
+- **The speech re-attempt refusal** exists because no automatic path may cost two model calls for one
+  stop; the reuse check is the only thing a re-attempt is entitled to.
+- **The account ceiling** is eight judgements in flight. A stop over it is not judged and stays exactly
+  as the detector left it, because the alternative is a queue whose answers arrive about screens that
+  have moved on.
+
+### Which way it errs
+
+**Toward the owner, at every single gate.** A calm verdict takes a session out of his queue, so
+a wrong calm verdict is the one that goes unnoticed - the session sits there and nobody comes.
+So:
+
+- **A rejected answer stores a `failed` record with its reason and leaves the row exactly as the
+  detector left it, which is red. Silence is never a decision.** A timeout, a rate limit, an
+  unusable provider and a malformed answer all land in the same place: red, and a stored record
+  saying why.
+- A row is calmed only when it is raw red AND the account's colour switch is on AND the state is
+  `judged` AND the confidence is `high` AND the word is `finished` or `continues-alone`. Every
+  gate that cannot be answered answers "not calm".
+- `confidence: ambiguous` is accepted, stored and graded, and never demotes a red row.
+- `cannot-tell` is a real answer and not a failure to answer, and it is not calm.
+- A terminal-failure package - no reply, a failure on screen - has `finished` and
+  `continues-alone` refused outright by validation. A failure with no reply cannot be calm.
+
+The two switches are per account and BOTH DEFAULT OFF: `JudgeEnabled` (are this account's stops
+judged at all) and `ColourEnabled` (do the verdicts reach the screen). With judging on and colour
+off - the shadow state - verdicts are stored and gradeable and every row stays exactly the colour
+the detector made it.
+
+### What the verdict does to a row
+
+| Verdict | Colour | Label | In the "needs you" count? |
+|---|---|---|---|
+| `finished`, kind `done` | cyan | leads "Done" | No. Listed in the calm band below the reds |
+| `finished`, kind `report` | cyan | leads "Report" | No. Same band |
+| `continues-alone` | purple | the Wingman's line, or "Carrying on" | No. Same band, and a clock is running |
+| `needed-you`, `stuck-needs-person`, `stuck-recoverable`, `cannot-tell` | red, unchanged | the ask, in the Wingman's words | Yes |
+| refused, timed out, rate limited, or never judged | red, unchanged | as today | Yes |
+
+Purple carries a clock (`TurnVerdictWatchdog`): the agent's announced next wake-up plus two
+minutes when it announced one, otherwise ten minutes. On expiry the row goes red with the label
+"Said it would continue and did not". A session whose own owned sessions are still working is
+carrying on whatever its reply says, and the clock does not run while any of them works.
+
+A snooze that ends with no new turn end comes back CYAN with "Snooze ended, nothing new" rather
+than red - nothing happened, so there is nothing to bring him. If a stop DID happen while the
+snooze ran, that stop's verdict rules, and only a needs-you verdict brings the row back red.
+
+### What it may NOT decide
+
+- **It judges what a stop MEANS. It never decides whether a stop HAPPENED** - that is the
+  detector's job, in section 3, and the verdict is only ever asked about stops the detector has
+  already decided happened. This is why `not-a-turn-end` is in the shared vocabulary and is a
+  word the Wingman may never answer with: it is a fact about the detector, not a state of the
+  session, and an answer carrying it is rejected like any other unknown word.
+- **It never types, never snoozes, never closes, and never touches a working session or a held
+  one.** The held check is the FIRST check of all and runs before the screen is read.
+- **It is never a second colour authority.** One verdict, folded once on the Gateway, rendered
+  verbatim by every client (the repository's law 7). A client never re-derives a colour, a label
+  or a bucket.
+
+### Answering from the panel is THE OWNER TYPING, not the Wingman
+
+A verdict may carry options, and the Cockpit and the phone render them as buttons. Pressing one
+is the owner typing - it goes through ONE server-owned activation route,
+`POST /sessions/{sid}/turn-verdict/answer`, which binds the account, the session, the verdict
+id, the screen version and the allowed bytes; re-reads the live screen; and REFUSES on a
+mismatch with "The screen has changed since the Wingman read it, so nothing was sent." A verdict
+can be answered once: a second attempt is refused with "That stop has already been answered".
+The write itself goes through the existing prompt send under one screen lock, and every
+activation - including every refusal - leaves a line in the activity ledger.
+
+**The Wingman itself never presses a button.** Invariant 8 is unchanged by any of this: the one
+sanctioned self-actuator is still transient-error auto-resume (section 5c). A verdict's options
+are a shorter route for the owner's own hand, not a licence for the Wingman to act.
+
+### When the verdict is wrong
+
+The panel carries "This is wrong". It records a correction against the verdict - one word from
+the shared vocabulary and an optional note - through
+`POST /sessions/{sid}/turn-verdict/feedback`, and the labelling tool in the internal repository
+pulls those corrections into the labelled corpus, where an owner label outranks a two-family
+reviewer label for the same turn. That is the loop by which the score in invariant 1 is meant to
+be re-measured.
+
+Answering a verdict SUPERSEDES it rather than deleting it: the record stays findable, stamped
+with the moment it was superseded, so a correction can still be made about a stop that has
+already been answered.
 
 ---
 
@@ -276,6 +534,29 @@ to it (invariant 2).
   mapped a verdict to a colour. It worked but added latency (a model call per turn-end),
   cost, and non-determinism, and it was a second classifier that could disagree with the
   byte gate. Replaced by the dumb 10s timer in section 3.
+
+  **A model judge IS BACK, and it is a different thing (2026-09, the Wingman-on-every-turn
+  mission; section 3b).** What was deleted was a judge that decided WHETHER A STOP HAD
+  HAPPENED, on the Director, competing with the byte gate for the same answer. What came back
+  decides WHAT A STOP MEANS, on the Gateway, and is only ever asked about stops the byte gate
+  has already decided happened. The three things that make it a different object:
+
+  1. **It is not a second colour authority.** The byte gate is still the only thing that says
+     a session stopped, and the fold is the only thing that says what colour a row is. The
+     verdict is ONE input to that one fold, and a client renders the fold's answer verbatim.
+     There is nothing for it to disagree with, because it is never asked the same question.
+  2. **It cannot flip-flop a badge.** A verdict is stored once against the screen it was formed
+     on (one canonical full-grid hash), it is REUSED rather than re-asked while that screen
+     stands, and it may only ever move a row from red toward calm - never the other way, and
+     never on a working, exited, brand-new or held session.
+  3. **It fails to red, loudly, and its failures are stored.** The deleted judge's
+     non-determinism mattered because a bad answer changed the badge. A bad answer here is
+     REFUSED by mechanical validation and the row stays exactly as the detector left it. The
+     refusal is stored with its reason and is a number in the grading report.
+
+  **Do not resurrect the deleted one.** A model that answers "is this session working?" is
+  still forbidden, and so is any second writer of the colour. The rule that survives unchanged
+  is one producer per answer.
 - **The competing colour heuristics in `SessionStatusWingman`**: the byte-burst
   `OutputActivityWatcher` (blue on a burst), the buffer question-marker scan
   (`BufferShowsUserGate` / `PromotePendingQuestion`), and the turn-summary colour voting
@@ -291,16 +572,58 @@ to it (invariant 2).
 
 ## 8. Known limits / open items
 
+### The detector, and where its open items are settled
+
 - **The timer is deliberately dumb.** A clean, finished turn goes silent and flips to red
   ("needs you") after 10s just like a turn that is genuinely blocked - the detector does not
   distinguish them. This is the accepted trade-off for having one simple, predictable,
-  zero-LLM rule. If red-fatigue becomes a problem, the lever is the threshold or a smarter
-  rule, not a second classifier.
-- **Two colours.** The badge is blue or red (plus gray for an exited session). Green/yellow
-  are no longer produced by the detector.
+  zero-LLM rule. Since 2026-09 the verdict in section 3b is what tells those two apart AFTER
+  the fact, for an account that has switched it on; the detector itself is unchanged and is
+  still not allowed a second classifier.
+- **Two colours from the detector.** The Director's own badge is blue or red, plus grey for an
+  exited session. Cyan, purple and the reading yellow come from the Gateway's fold, not from
+  the detector, and they appear only where the account's colour switch is on.
 - **A genuinely stuck session reads red the same as one waiting for you.** The silence clock
   in the Wingman tab is how you tell a long-running-but-alive turn from a finished one at a
   glance.
 - `SessionStatusWingman` writes via `Session.SetStatusColor`, which still carries a
   source-precedence guard left over from the multi-writer era. With a single writer it never
   fires; it is harmless but vestigial and can be removed.
+
+**Four open items about the DETECTOR belong to the trustworthy-state-switching design, not
+here** (`docs/design/trustworthy-state-switching/` in the internal repository). They are named
+so that nobody re-opens them against this charter:
+
+1. the detector itself, and whether a stop is decided by something better than silence;
+2. the ten-second quiet threshold;
+3. each agent's own turn-end event, and the cause and confidence fields that would ride with
+   it - section 3b reads them when they are present and treats their absence as a timer guess;
+4. the snooze's "work ends it" edge - what a snooze should do when the session starts working
+   while it is still running.
+
+### Open items of the turn verdict (section 3b)
+
+- **The desktop has the colour and the label, and no verdict panel.** The receipt, the summary
+  and the option buttons are on the Cockpit and the phone. The desktop needs a Director wire
+  change and a Director release to carry the rest, and that was deferred until the Director has
+  one for other reasons.
+- **A session whose supervisor dies with no new stop is not re-judged.** It was held, so it was
+  never read; when its supervisor goes it surfaces raw red, which is the right direction, and it
+  is judged at its next stop. Written into the code as a gap.
+- **The cyan false-calm rate is NOT MEASURED under contract version two.** See invariant 1: the
+  number the charter stands behind, 1.3 percent, was measured under version one, and the row
+  becomes a number again on the first grading run whose `finished` answers were asked under
+  version two.
+- **About one in five of the fast tier's answers is refused for a receipt that is not verbatim**
+  (63 of 341 on the re-score). That is the safe direction and it is the design - an invented
+  quotation must never reach a screen - but every refusal is a stop that stayed red and that the
+  owner then looked at for nothing. The prompt's quoting instruction is the lever, and it was
+  deliberately not touched in the same change as the validation rules.
+- **The snooze's arming moment is observed, not stored.** After a Gateway restart, or after a
+  session genuinely leaves the account and returns, the moment is unknown and the expiry answers
+  by asking - one extra read at the colour the row already had. It never quietens a question.
+  The durable fix is to store the arming moment on the snooze itself, which costs a migration on
+  both providers.
+- **A shadow account does not re-judge on a snooze expiry**, because its rows carry no verdict
+  to read. The re-judge should read the store, as the carrying-on clock does, so that shadow
+  records reflect what the product would have done.

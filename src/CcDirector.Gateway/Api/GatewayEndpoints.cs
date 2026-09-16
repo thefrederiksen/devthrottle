@@ -267,8 +267,14 @@ internal static class GatewayEndpoints
 
         // Issue #1177 (Phase 4a): the freshness window used both by /sessions (pushed-cache serve) and by
         // LocateSessionAsync (pushed-cache session location). Resolved once here so every session endpoint's
-        // owner lookup shares the exact window the roster uses. When stream mode is off pushedSessions is null,
-        // so this value is never consulted and location stays on the HTTP pull, byte-identical to today.
+        // owner lookup shares the exact window the roster uses.
+        //
+        // CORRECTED 2026-09-16. This comment used to say "when stream mode is off pushedSessions is null",
+        // which is not what the code does: GatewayHost constructs PushedSessions unconditionally and passes
+        // it to every Map call, and stream mode is a DIRECTOR-side setting about whether a Director pushes,
+        // not a Gateway-side switch that withholds the store. The null path exists only for a test harness
+        // that maps these routes without a store; in that case this value is never consulted and location
+        // stays on the HTTP pull. The behaviour is unchanged - only the claim was wrong.
         var streamStaleResolved = streamStaleAfter ?? TimeSpan.FromSeconds(Core.Configuration.GatewayConfig.DefaultStreamStaleAfterSeconds);
 
         // Issue #1229: the Hub's broadcast governance state - the human-issued grant store and the

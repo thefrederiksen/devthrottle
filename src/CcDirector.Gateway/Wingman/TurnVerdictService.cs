@@ -150,7 +150,10 @@ public enum TurnVerdictOutcomeKind
     Judged,
     /// <summary>The screen was unchanged, so the stored verdict was returned and nobody was asked.</summary>
     Reused,
-    /// <summary>A free check stood the request down before anything was read or asked.</summary>
+    /// <summary>A check stood the request down before the judge was asked. NOT necessarily before anything was
+    /// read: the re-attempt refusal comes after the screen read, and the provider deadline and the account ceiling
+    /// come after the screen AND the conversation. Which check costs what is the boundary block above JudgeAsync.
+    /// (This summary used to say "before anything was read or asked", which was true of only some of them.)</summary>
     Skipped,
     /// <summary>No usable verdict came back - the judge failed, or the request met an exception it did not
     /// expect. A failed record was stored and the ledger says so. The one case with no stored record is a store
@@ -751,7 +754,27 @@ public sealed class TurnVerdictService : IDisposable
         flight.Settings = settings;
         var automatic = trigger != TurnVerdictTrigger.OnDemand;
 
-        // ---- the free checks: nothing is read and nothing is paid for until every one of them passes ----
+        // THE BOUNDARY, IN THE ORDER THE CODE RUNS IT. A read means the session's screen or its stored
+        // conversation; the pushed roster and the verdict store are consulted as well and are not counted.
+        // 1. The checks that read neither: held, live, not brand new, not exited, not working; then the
+        //    judge switch, checked ONCE in the flight, before the settle wait. Then, for a turn end, the
+        //    settle wait. Then, for an automatic request, the held, live, brand-new, exited and working
+        //    checks again - but NOT the switch, so a switch turned off during a flight does not stop that
+        //    flight. A stop refused here costs NO reads.
+        // 2. The screen read, and its one full-grid hash.
+        // 3. The reuse check: a stored verdict formed on the same hash is reused and the judge is not
+        //    asked. A stop answered here costs ONE read.
+        // 4. The speech re-attempt refusal: a caller that may not ask the judge stops here, before the
+        //    conversation is read. A stop refused here costs ONE read.
+        // 5. The conversation read.
+        // 6. The provider deadline, then the account ceiling. A stop refused by either costs TWO reads.
+        // 7. The model call.
+        //
+        // The line above used to read "the free checks: nothing is read and nothing is paid for until every one of
+        // them passes". That was false - steps 3, 4 and 6 all come after the screen read - and it is recorded here
+        // because the charter and the specification had copied it. The same block, word for word, is in
+        // docs/wingman/WINGMAN.md section 3b and docs/architecture/wingman/TURN_VERDICT.md section 6.
+        //
         // ONE SNAPSHOT for the role and the facts, so the two cannot describe different moments. HELD FIRST: a
         // session a live owning session holds is not the owner's to be read, so its screen is never read and no
         // model is asked about it.
