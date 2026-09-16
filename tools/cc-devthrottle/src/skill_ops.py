@@ -53,6 +53,8 @@ if _tools_dir not in sys.path:
 
 from cc_shared import gateway  # noqa: E402
 
+from . import axi_cli  # noqa: E402
+
 TIMEOUT_SECONDS = 15
 SKILL_JSON = "skill.json"
 SKILL_MD = "SKILL.md"
@@ -284,9 +286,21 @@ class SkillClient:
         )
 
 
-def _fail(message: str) -> None:
-    err_console.print(f"[red]FAILED:[/red] {message}")
-    raise typer.Exit(1)
+_FIND_A_SKILL = "cc-devthrottle skill list"
+
+
+def _fail(message: str, next_commands: List[str]) -> None:
+    """Report a failure on standard error with what to run next, and exit 1."""
+    axi_cli.fail(message, next_commands)
+
+
+def _ref(skill_id: str) -> str:
+    """The skill id for a help line, or a placeholder when it cannot be pasted back as it is."""
+    return axi_cli.bare(skill_id, "<skill-id>")
+
+
+def _dir_arg(directory: str) -> str:
+    return axi_cli.quoted(directory, "<dir>")
 
 
 def _client() -> SkillClient:
@@ -438,7 +452,7 @@ def list_skills(json_output: bool) -> None:
     try:
         skills = _client().list_skills()
     except GatewayError as ex:
-        _fail(str(ex))
+        _fail(str(ex), ["cc-devthrottle setup status"])
         return
 
     if json_output:
@@ -492,7 +506,7 @@ def get_skill(skill_id: str, version: Optional[int]) -> None:
             file_count = len(detail.get("files") or [])
         body = client.get_body(skill_id, version)
     except GatewayError as ex:
-        _fail(str(ex))
+        _fail(str(ex), [_FIND_A_SKILL, f"cc-devthrottle skill versions {_ref(skill_id)}"])
         return
 
     sys.stdout.write(body)
@@ -506,12 +520,15 @@ def get_skill(skill_id: str, version: Optional[int]) -> None:
         if detail is None:
             detail = _client().get_version_detail(skill_id, version)
         paths = _materialize(skill_id, int(version), detail)
-    except GatewayError as ex:
+    except (GatewayError, OSError, ValueError) as ex:
+        # ValueError: a supporting file whose base64 content does not decode. OSError: the cache
+        # directory could not be written.
         # The body already printed, so the agent has the instructions but not the files it was told
         # to run. Say exactly that rather than letting it discover a missing path itself.
         _fail(
             f"the body of '{skill_id}' printed above, but its supporting files could not be "
-            f"fetched: {ex}"
+            f"fetched: {ex}",
+            [f"cc-devthrottle skill get {_ref(skill_id)} --version {version}"],
         )
         return
 
@@ -571,7 +588,7 @@ def show_skill(skill_id: str, version: Optional[int], json_output: bool) -> None
         else:
             data = client.get_skill(skill_id)
     except GatewayError as ex:
-        _fail(str(ex))
+        _fail(str(ex), [_FIND_A_SKILL, f"cc-devthrottle skill versions {_ref(skill_id)}"])
         return
 
     if json_output:
@@ -611,7 +628,7 @@ def list_versions(skill_id: str, json_output: bool) -> None:
     try:
         versions = _client().list_versions(skill_id)
     except GatewayError as ex:
-        _fail(str(ex))
+        _fail(str(ex), [_FIND_A_SKILL])
         return
 
     if json_output:
@@ -642,18 +659,46 @@ def pull_skill(skill_id: str, directory: str, version: Optional[int]) -> None:
             versions = client.list_versions(skill_id)
             picked = _pick_authoring_version(versions)
             if picked is None:
-                _fail(f"skill '{skill_id}' has no versions to pull.")
+                _fail(
+                    f"skill '{skill_id}' has no versions to pull.",
+                    [f"cc-devthrottle skill versions {_ref(skill_id)}", _FIND_A_SKILL],
+                )
                 return
             version = int(picked["version"])
         detail = client.get_version_detail(skill_id, version)
     except GatewayError as ex:
-        _fail(str(ex))
+        _fail(str(ex), [_FIND_A_SKILL, f"cc-devthrottle skill versions {_ref(skill_id)}"])
         return
 
     target = Path(directory)
-    target.mkdir(parents=True, exist_ok=True)
+    try:
+        _write_pulled(target, skill_id, detail)
+    except GatewayError as ex:
+        _fail(str(ex), [f"cc-devthrottle skill show {_ref(skill_id)} --version {version}"])
+        return
+    except (OSError, ValueError) as ex:
+        # ValueError: a supporting file whose base64 content does not decode.
+        _fail(
+            f"could not write the skill into {target}: {ex}",
+            [f'cc-devthrottle skill pull {_ref(skill_id)} --dir "<writable-dir>"'],
+        )
+        return
 
+    axi_cli.write_lines(
+        f"Pulled '{skill_id}' v{version} ({detail.get('status')}) into {target.resolve()}",
+        f'Edit the files, then push with: cc-devthrottle skill push {skill_id} --dir "{target}"',
+    )
+    axi_cli.print_next([f"cc-devthrottle skill push {_ref(skill_id)} --dir {_dir_arg(directory)}"])
+
+
+def _write_pulled(target: Path, skill_id: str, detail: Dict[str, Any]) -> None:
+    """Write one pulled version into `target`. Every file path is checked BEFORE anything is written,
+    so an unsafe path from the Gateway leaves the directory as it was."""
     files = detail.get("files") or []
+    for entry in files:
+        _safe_relative_path(entry["fileName"])
+
+    target.mkdir(parents=True, exist_ok=True)
     metadata = {
         "id": detail.get("skillId", skill_id),
         "name": detail.get("name", ""),
@@ -680,11 +725,6 @@ def pull_skill(skill_id: str, directory: str, version: Optional[int]) -> None:
     for entry in files:
         _write_skill_file(target, entry)
     (target / HASH_SIDECAR).write_text(detail.get("contentHash", ""), encoding="utf-8")
-
-    console.print(f"Pulled '{skill_id}' v{version} ({detail.get('status')}) into {target.resolve()}")
-    console.print(
-        f'Edit the files, then push with: cc-devthrottle skill push {skill_id} --dir "{target}"'
-    )
 
 
 def _read_directory(skill_id: str, directory: str, note: Optional[str]) -> Dict[str, Any]:
@@ -762,7 +802,16 @@ def push_skill(skill_id: str, directory: str, note: Optional[str], force: bool =
             result = client.update_draft(skill_id, body, if_match)
             verb = "Updated"
     except GatewayError as ex:
-        _fail(str(ex))
+        _fail(str(ex), [
+            f"cc-devthrottle skill pull {_ref(skill_id)} --dir {_dir_arg(directory)}",
+            axi_cli.help_for("skill push"),
+        ])
+        return
+    except (OSError, UnicodeDecodeError) as ex:
+        _fail(
+            f"could not read the skill files in {directory}: {ex}. Nothing was pushed.",
+            [f"cc-devthrottle skill pull {_ref(skill_id)} --dir {_dir_arg(directory)}"],
+        )
         return
 
     new_hash = result.get("contentHash", "")
@@ -772,70 +821,91 @@ def push_skill(skill_id: str, directory: str, note: Optional[str], force: bool =
         except OSError as exc:
             _fail(
                 f"the draft WAS updated on the Gateway (v{result.get('version')}), but the local "
-                f"hash sidecar could not be written: {exc}. Run 'cc-devthrottle skill pull "
-                f'{skill_id} --dir "{directory}"\' to resynchronize before the next push.'
+                f"hash sidecar could not be written: {exc}. Resynchronize before the next push.",
+                [f"cc-devthrottle skill pull {_ref(skill_id)} --dir {_dir_arg(directory)}"],
             )
             return
-    console.print(
+    axi_cli.write_lines(
         f"{verb} draft v{result.get('version')} of '{skill_id}'. "
         "No agent sees it until it publishes: "
         f"cc-devthrottle skill publish {skill_id}"
     )
+    axi_cli.print_next([
+        f"cc-devthrottle skill publish {_ref(skill_id)}",
+        f"cc-devthrottle skill versions {_ref(skill_id)}",
+    ])
 
 
 def publish_skill(skill_id: str) -> None:
     try:
         result = _client().publish(skill_id)
     except GatewayError as ex:
-        _fail(str(ex))
+        _fail(str(ex), [f"cc-devthrottle skill versions {_ref(skill_id)}", _FIND_A_SKILL])
         return
-    console.print(
+    axi_cli.write_lines(
         f"Published '{skill_id}' v{result.get('version')}. Every agent on every machine gets this "
         "version on its next fetch - nothing to deploy, nothing to update."
     )
+    axi_cli.print_next([
+        f"cc-devthrottle skill get {_ref(skill_id)}",
+        f"cc-devthrottle skill versions {_ref(skill_id)}",
+    ])
 
 
 def clone_skill(skill_id: str, new_id: str) -> None:
     try:
         result = _client().clone(skill_id, new_id)
     except GatewayError as ex:
-        _fail(str(ex))
+        _fail(str(ex), [_FIND_A_SKILL, axi_cli.help_for("skill clone")])
         return
-    console.print(
+    axi_cli.write_lines(
         f"Cloned '{skill_id}' into '{result.get('id')}' v{result.get('version')}. "
         "The clone is yours: published, editable, and independent of the original."
     )
+    clone_ref = axi_cli.bare(result.get("id"), "<new-id>")
+    axi_cli.print_next([
+        f'cc-devthrottle skill pull {clone_ref} --dir "<dir>"',
+        f"cc-devthrottle skill show {clone_ref}",
+    ])
 
 
 def set_skill_enabled(skill_id: str, enabled: bool) -> None:
     try:
         _client().set_enabled(skill_id, enabled)
     except GatewayError as ex:
-        _fail(str(ex))
+        _fail(str(ex), [_FIND_A_SKILL])
         return
     if enabled:
-        console.print(
+        axi_cli.write_lines(
             f"'{skill_id}' is AVAILABLE again - back in every agent's briefing and fetchable."
         )
+        axi_cli.print_next([
+            f"cc-devthrottle skill show {_ref(skill_id)}",
+            f"cc-devthrottle skill disable {_ref(skill_id)}",
+        ])
     else:
-        console.print(
+        axi_cli.write_lines(
             f"'{skill_id}' is OFF - left out of every agent's briefing and its fetch refused. "
             "Nothing was deleted; switch it back on anytime with: "
             f"cc-devthrottle skill enable {skill_id}"
         )
+        axi_cli.print_next([f"cc-devthrottle skill enable {_ref(skill_id)}", _FIND_A_SKILL])
 
 
 def delete_skill(skill_id: str, yes: bool) -> None:
-    if not yes:
-        confirmed = typer.confirm(
-            f"Archive skill '{skill_id}'? It leaves the register; its versions remain readable "
-            "by explicit version."
-        )
-        if not confirmed:
-            raise typer.Exit(0)
+    confirmed = axi_cli.confirm_or_fail(
+        f"Archive skill '{skill_id}'? It leaves the register; its versions remain readable "
+        "by explicit version.",
+        yes,
+        "--yes",
+        f"cc-devthrottle skill delete {_ref(skill_id)} --yes",
+    )
+    if not confirmed:
+        raise typer.Exit(0)
     try:
         _client().delete(skill_id)
     except GatewayError as ex:
-        _fail(str(ex))
+        _fail(str(ex), [_FIND_A_SKILL])
         return
-    console.print(f"Archived '{skill_id}'.")
+    axi_cli.write_lines(f"Archived '{skill_id}'.")
+    axi_cli.print_next([_FIND_A_SKILL, f"cc-devthrottle skill versions {_ref(skill_id)}"])

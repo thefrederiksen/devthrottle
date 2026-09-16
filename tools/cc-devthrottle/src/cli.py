@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import json
+import sys
 from typing import List, Optional
 
 import typer
 from rich.console import Console
-from rich.table import Table
 
 from . import __version__
 from . import browser_ops
@@ -21,6 +21,8 @@ from . import setup_ops
 from . import skill_ops
 from . import workflow_ops
 from .usage_errors import AxiGroup
+# cc_shared is importable here: the ops modules above put tools/ on the path when run from source.
+from cc_shared import axi_output  # noqa: E402
 from .session_ops import (
     ask_session,
     compact_session,
@@ -90,13 +92,13 @@ schedule_app = typer.Typer(
 )
 workflow_app = typer.Typer(
     cls=AxiGroup,
-    help="Read and author fleet Workflows (cross-agent conduct stored on the Gateway).",
+    help="Read and author fleet Workflows: shared conduct on the Gateway.",
     add_completion=False,
     no_args_is_help=True,
 )
 skill_app = typer.Typer(
     cls=AxiGroup,
-    help="Read and author fleet Skills (central capabilities held on the Gateway, fetched on use).",
+    help="Read and author fleet Skills, held on the Gateway.",
     add_completion=False,
     no_args_is_help=True,
 )
@@ -110,13 +112,13 @@ email_app = typer.Typer(
 )
 diag_app = typer.Typer(
     cls=AxiGroup,
-    help="Run network diagnostics (Tailscale direct-vs-relay, speed results).",
+    help="Run network diagnostics: direct or relayed paths, speed results.",
     add_completion=False,
     no_args_is_help=True,
 )
 autostart_app = typer.Typer(
     cls=AxiGroup,
-    help="Start the Gateway at login (issue #2022): on | off | status.",
+    help="Start the Gateway at login: on, off, or status.",
     add_completion=False,
     no_args_is_help=True,
 )
@@ -125,7 +127,7 @@ browser_app = typer.Typer(
     # The verb stays "browser": it is the resource name agents already hold, in the actions registry
     # and in the attach command baked into the fold. The HELP says "profile", which is what the thing
     # actually is - a dedicated signed-in profile inside Chrome or Edge, not a browser we installed.
-    help="Manage DevThrottle's drivable browser profiles (signed in once, driven by an agent; machine-local).",
+    help="Manage this machine's browser profiles for agents to drive.",
     add_completion=False,
     no_args_is_help=True,
 )
@@ -947,7 +949,7 @@ def browser_signin(
     done: bool = typer.Option(False, "--done", help="Record that the human finished signing in."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
 ) -> None:
-    """Open the account page for a one-time hand sign-in, or (with --done) mark it complete."""
+    """Open a profile's sign-in page, or mark the sign-in done with --done."""
     browser_ops.signin_browser(name, done, json_output)
 
 
@@ -965,7 +967,7 @@ def browser_stop(
     name: str = typer.Argument(..., help="Browser name or id."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
 ) -> None:
-    """Close a running browser cleanly (its login is kept; start it again any time)."""
+    """Close a running browser cleanly; its login is kept."""
     browser_ops.stop_browser(name, json_output)
 
 
@@ -973,7 +975,10 @@ def browser_stop(
 def browser_attach(
     name: str = typer.Argument(..., help="Browser name or id."),
 ) -> None:
-    """Print ONLY the export lines, so: eval "$(cc-devthrottle browser attach 'Name')\"."""
+    """Print the export lines that attach the harness to a browser.
+
+    Only those lines, so: eval "$(cc-devthrottle browser attach 'Name')"
+    """
     browser_ops.attach_browser(name)
 
 
@@ -1012,17 +1017,31 @@ def main(
 def actions(
     json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
 ) -> None:
-    """List agent-discoverable actions."""
+    """List the actions an agent can discover, with their commands."""
     if json_output:
         print(json.dumps({"actions": _ACTIONS}, indent=2))
         return
 
-    table = Table(show_header=True, header_style="bold")
-    table.add_column("ACTION")
-    table.add_column("COMMAND")
-    for action in _ACTIONS:
-        table.add_row(str(action["id"]), str(action["command"]))
-    console.print(table)
+    # The AXI list shape (docs/axi-standard.md): every id and command in full, one row each. The old
+    # table wrapped long commands across rows at 80 columns and drew its borders in non-ASCII.
+    records = [
+        {
+            "id": action["id"],
+            "command": action["command"],
+            "changes-state": "yes" if action["mutatesState"] else "no",
+        }
+        for action in _ACTIONS
+    ]
+    changing = sum(1 for action in _ACTIONS if action["mutatesState"])
+    axi_output.write_blocks(
+        sys.stdout,
+        axi_output.format_count(
+            len(records),
+            breakdown=[("changes-state", changing), ("read-only", len(records) - changing)],
+        ),
+        axi_output.render_list("actions", ["id", "command", "changes-state"], records),
+        axi_output.format_help(["cc-devthrottle actions --json", "cc-devthrottle <group> <command> --help"]),
+    )
 
 
 @session_app.command("list")
@@ -1768,9 +1787,9 @@ def mission_detach(
 def diag_network(
     json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
 ) -> None:
-    """Server-side network check: per connected device, direct-vs-DERP-relay + latency, plus UDP/NAT.
+    """Check each device's network path from the Gateway.
 
-    Runs on the Gateway with no phone and no app open - the check an agent uses to tell "warming up on
+    Per connected device: direct-vs-DERP-relay and latency, plus UDP/NAT health. Runs on the Gateway with no phone and no app open - the check an agent uses to tell "warming up on
     the relay" apart from "genuinely slow".
     """
     diag_ops.show_network(json_output)
@@ -1780,7 +1799,7 @@ def diag_network(
 def diag_results(
     json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
 ) -> None:
-    """Recent speed-test results users submitted from the app or Cockpit (newest first)."""
+    """Show recent speed-test results from the app or Cockpit."""
     diag_ops.show_results(json_output)
 
 
@@ -1899,7 +1918,7 @@ def skill_main(
         help="Override the Gateway base URL.",
     ),
 ) -> None:
-    """Read and author fleet Skills (central capabilities held on the Gateway, fetched on use)."""
+    """Read and author fleet Skills, held on the Gateway."""
     skill_ops.set_gateway_override(gateway)
 
 
@@ -1918,9 +1937,10 @@ def skill_get(
         None, "--version", "-v", help="A specific published version instead of the current one."
     ),
 ) -> None:
-    """Print a Skill's full instructions - run this when you are ABOUT TO USE the skill, and follow
-    what it says. Supporting files are written to this machine and their paths printed after the
-    body. Fails loudly if the Gateway cannot be reached; never proceed from memory."""
+    """Print a Skill's full instructions; run it just before using it.
+
+    Follow what it says. Supporting files are written to this machine and their paths printed after
+    the body. Fails loudly if the Gateway cannot be reached; never proceed from memory."""
     skill_ops.get_skill(skill_id, version)
 
 
@@ -1956,7 +1976,10 @@ def skill_pull(
         help="A specific version (default: the draft if one exists, else the published version).",
     ),
 ) -> None:
-    """Pull a Skill into a directory (skill.json + SKILL.md + its files at their own paths) for editing."""
+    """Pull a Skill into a directory for editing.
+
+    Writes skill.json, SKILL.md, and every supporting file at its own relative path.
+    """
     skill_ops.pull_skill(skill_id, directory, version)
 
 
@@ -1969,7 +1992,7 @@ def skill_push(
         False, "--force", help="Push without a hash sidecar, overwriting deliberately."
     ),
 ) -> None:
-    """Push a directory as the Skill's DRAFT. No agent sees it until you publish."""
+    """Push a directory as a Skill's draft; unseen until published."""
     skill_ops.push_skill(skill_id, directory, note, force)
 
 
@@ -1977,7 +2000,7 @@ def skill_push(
 def skill_publish(
     skill_id: str = typer.Argument(..., help="The skill id."),
 ) -> None:
-    """Publish the Skill's draft - live for every agent on every machine on its next fetch."""
+    """Publish a Skill's draft; every agent gets it on its next fetch."""
     skill_ops.publish_skill(skill_id)
 
 
@@ -1986,7 +2009,7 @@ def skill_clone(
     skill_id: str = typer.Argument(..., help="The skill to copy."),
     new_id: str = typer.Argument(..., help="The new skill id."),
 ) -> None:
-    """Clone a Skill into one of your own - how a read-only built-in is customized."""
+    """Clone a Skill into one you own; how a built-in is customized."""
     skill_ops.clone_skill(skill_id, new_id)
 
 
@@ -2002,7 +2025,7 @@ def skill_enable(
 def skill_disable(
     skill_id: str = typer.Argument(..., help="The skill id."),
 ) -> None:
-    """Switch a Skill off - left out of every briefing, fetch refused, nothing deleted."""
+    """Switch a Skill off: out of briefings, fetch refused, kept."""
     skill_ops.set_skill_enabled(skill_id, False)
 
 
@@ -2011,7 +2034,7 @@ def skill_delete(
     skill_id: str = typer.Argument(..., help="The skill id."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Do not ask for confirmation."),
 ) -> None:
-    """Archive a Skill (never a built-in). Its versions remain readable by explicit version."""
+    """Archive a Skill (never a built-in); its versions stay readable."""
     skill_ops.delete_skill(skill_id, yes)
 
 
@@ -2023,7 +2046,7 @@ def workflow_main(
         help="Override the Gateway base URL.",
     ),
 ) -> None:
-    """Read and author fleet Workflows (cross-agent conduct stored on the Gateway)."""
+    """Read and author fleet Workflows: shared conduct on the Gateway."""
     workflow_ops.set_gateway_override(gateway)
 
 
@@ -2054,7 +2077,7 @@ def workflow_instructions(
         None, "--version", "-v", help="A specific pinned version instead of the published one."
     ),
 ) -> None:
-    """Print the Workflow's raw instruction markdown - fetch this and FOLLOW it as your conduct."""
+    """Print a Workflow's raw instructions; fetch this and FOLLOW it."""
     workflow_ops.print_instructions(workflow_id, version)
 
 
@@ -2075,7 +2098,10 @@ def workflow_pull(
         None, "--version", "-v", help="A specific version (default: the draft if one exists, else the published version)."
     ),
 ) -> None:
-    """Pull a Workflow into a directory (workflow.json + instructions.md + helpers/) for editing."""
+    """Pull a Workflow into a directory for editing.
+
+    Writes workflow.json, instructions.md, and the helper files under helpers/.
+    """
     workflow_ops.pull_workflow(workflow_id, directory, version)
 
 
@@ -2091,7 +2117,7 @@ def workflow_push(
         "may overwrite another author's edit).",
     ),
 ) -> None:
-    """Push a Workflow directory to the Gateway as a draft (creates the Workflow if new)."""
+    """Push a Workflow directory as a draft; creates it if new."""
     workflow_ops.push_workflow(workflow_id, directory, note, force)
 
 
@@ -2099,7 +2125,7 @@ def workflow_push(
 def workflow_publish(
     workflow_id: str = typer.Argument(..., help="The workflow id."),
 ) -> None:
-    """Publish the draft - it becomes the version every machine and agent reads."""
+    """Publish a Workflow's draft; every agent reads it from then on."""
     workflow_ops.publish_workflow(workflow_id)
 
 
@@ -2110,7 +2136,7 @@ def workflow_materialize(
         None, "--version", "-v", help="A specific published version (default: the current one)."
     ),
 ) -> None:
-    """Write the Workflow's instructions and helper files to this machine's cache and print the paths."""
+    """Write a Workflow's files to this machine and print the paths."""
     workflow_ops.materialize_workflow(workflow_id, version)
 
 
@@ -2125,7 +2151,7 @@ def workflow_runs(
     ),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
 ) -> None:
-    """List workflow runs (one row per execution of a workflow), newest first."""
+    """List workflow runs, one per execution, newest first."""
     workflow_ops.list_runs(workflow, status, json_output)
 
 
@@ -2134,7 +2160,7 @@ def workflow_run(
     run_id: str = typer.Argument(..., help="The run id."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
 ) -> None:
-    """Show one workflow run: pinned version, lifecycle, acceptance, criteria, participants, proof."""
+    """Show one workflow run: version, status, criteria and proof."""
     workflow_ops.show_run(run_id, json_output)
 
 
@@ -2142,7 +2168,7 @@ def workflow_run(
 def workflow_enable(
     workflow_id: str = typer.Argument(..., help="The workflow id."),
 ) -> None:
-    """Turn a Workflow back ON - it returns to every agent's briefing; runs and seats resume."""
+    """Turn a Workflow back on; runs and seats resume."""
     workflow_ops.set_workflow_enabled(workflow_id, True)
 
 
@@ -2150,7 +2176,7 @@ def workflow_enable(
 def workflow_disable(
     workflow_id: str = typer.Argument(..., help="The workflow id (built-ins included)."),
 ) -> None:
-    """Turn a Workflow OFF - hidden from agents' briefings, no new runs or seats; nothing deleted."""
+    """Turn a Workflow off: no new runs or seats; nothing deleted."""
     workflow_ops.set_workflow_enabled(workflow_id, False)
 
 
@@ -2163,7 +2189,7 @@ def workflow_clone(
     workflow_id: str = typer.Argument(..., help="The source workflow id (e.g. mission)."),
     new_id: str = typer.Argument(..., help="The id for the clone (a fresh slug, never a built-in id)."),
 ) -> None:
-    """Clone a Workflow's published content into a new editable Workflow you own.
+    """Clone a Workflow into a new editable Workflow you own.
 
     The sanctioned way to customize a built-in: the clone copies the steps, instructions, and
     helper files into version 1 of the new id, immediately published and fully editable, with
@@ -2177,7 +2203,7 @@ def workflow_delete(
     workflow_id: str = typer.Argument(..., help="The workflow id."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip the confirmation prompt."),
 ) -> None:
-    """Archive a custom Workflow (built-ins can never be deleted; version history remains)."""
+    """Archive a custom Workflow (never a built-in); history remains."""
     workflow_ops.delete_workflow(workflow_id, yes)
 
 
@@ -2198,7 +2224,7 @@ def schedule_list(
         "last-fired, last-status, notify, created.",
     ),
 ) -> None:
-    """List every schedule on the Gateway: id, name, whether it is enabled, and its next run."""
+    """List every schedule: id, name, whether enabled, and next run."""
     schedule_ops.list_jobs(json_output, enabled=enabled, machine=machine, fields=fields)
 
 
@@ -2349,7 +2375,7 @@ def setup_doctor(
 def autostart_on(
     json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
 ) -> None:
-    """Start the Gateway when you log in (issue #2022)."""
+    """Start the Gateway when you log in."""
     setup_ops.run_autostart("on", json_output)
 
 
@@ -2395,9 +2421,9 @@ def email_owner(
     ),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the send result as JSON."),
 ) -> None:
-    """Send ONE email to the account owner (single recipient - no way to address anyone else).
+    """Send one email to the account owner, the only recipient there can be.
 
-    Passes only a subject, body, and any attachments to the Gateway, which relays it to the cloud
+    There is no way to address anyone else. Passes only a subject, body, and any attachments to the Gateway, which relays it to the cloud
     with your account token; the cloud resolves the owner and sends. Use it to escalate from an
     unattended or scheduled run, or to send yourself a report to read offline.
     """

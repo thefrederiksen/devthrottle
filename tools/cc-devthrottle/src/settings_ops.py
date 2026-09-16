@@ -7,7 +7,6 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-import typer
 from rich import box
 from rich.console import Console
 from rich.table import Table
@@ -18,7 +17,15 @@ if _tools_dir not in sys.path:
 
 from cc_shared.config import CCDirectorConfig, get_config_path  # noqa: E402
 
+from . import axi_cli  # noqa: E402
+
 console = Console()
+
+_LIST_KEYS = "cc-devthrottle settings list"
+
+
+class SettingValueError(ValueError):
+    """The value given for a setting does not fit that setting's type - the caller's to fix."""
 
 
 def load_config() -> CCDirectorConfig:
@@ -100,17 +107,17 @@ def _coerce_value(key: str, current: Any, value: str) -> Any:
             return True
         if token in ("false", "0", "no", "off"):
             return False
-        raise ValueError(f"{key} expects a boolean (true/false), got '{value}'")
+        raise SettingValueError(f"{key} expects a boolean (true/false), got '{value}'")
     if isinstance(current, int):
         try:
             return int(value)
         except ValueError:
-            raise ValueError(f"{key} expects an integer, got '{value}'")
+            raise SettingValueError(f"{key} expects an integer, got '{value}'")
     if isinstance(current, float):
         try:
             return float(value)
         except ValueError:
-            raise ValueError(f"{key} expects a number, got '{value}'")
+            raise SettingValueError(f"{key} expects a number, got '{value}'")
     return value
 
 
@@ -132,9 +139,10 @@ def show(section: Optional[str], json_output: bool) -> None:
         data = get_section(config, section)
         if data is None:
             sections = get_section_names(config)
-            console.print(f"[red]Unknown section: {section}[/red]")
-            console.print(f"Available sections: {', '.join(sections)}")
-            raise typer.Exit(1)
+            axi_cli.usage_error(
+                f"unknown section '{section}'. Available sections: {', '.join(sections)}",
+                ["cc-devthrottle settings show", _LIST_KEYS],
+            )
 
         if json_output:
             print(json.dumps({section: data}, indent=2))
@@ -162,9 +170,7 @@ def get(key: str, json_output: bool) -> None:
     found, value = get_value(config, key)
 
     if not found:
-        console.print(f"[red]Unknown key: {key}[/red]")
-        console.print("Use 'cc-devthrottle settings list' to see available keys.")
-        raise typer.Exit(1)
+        axi_cli.usage_error(f"unknown key '{key}'.", [_LIST_KEYS])
 
     if json_output:
         print(json.dumps({"key": key, "value": value}, indent=2))
@@ -175,21 +181,29 @@ def get(key: str, json_output: bool) -> None:
 def set_config_value(key: str, value: str, json_output: bool) -> None:
     """Set a configuration value."""
     config = load_config()
+    key_ref = axi_cli.bare(key, "<key>")
     try:
         success = set_value(config, key, value)
-    except ValueError as exc:
-        console.print(f"[red]Error: {exc}[/red]")
-        raise typer.Exit(1)
+    except SettingValueError as exc:
+        axi_cli.usage_error(str(exc), [f"cc-devthrottle settings get {key_ref}"])
+    except (ValueError, OSError) as exc:
+        # The config file itself: unreadable JSON (which save refuses to overwrite) or not writable.
+        axi_cli.fail(
+            f"{key} was not saved: {exc}. Fix or move the config file, then run this again.",
+            ["cc-devthrottle settings path"],
+        )
 
     if not success:
-        console.print(f"[red]Cannot set key: {key}[/red]")
-        console.print("Use 'cc-devthrottle settings list' to see available keys.")
-        raise typer.Exit(1)
+        axi_cli.usage_error(f"cannot set key '{key}'; no such setting.", [_LIST_KEYS])
 
     if json_output:
         print(json.dumps({"key": key, "value": value, "status": "saved"}, indent=2))
-    else:
-        console.print(f"[green]Set {key} = {value}[/green]")
+        return
+    axi_cli.write_lines(f"Set {key} = {value}")
+    axi_cli.print_next([
+        f"cc-devthrottle settings get {key_ref}",
+        f"cc-devthrottle settings show {axi_cli.bare(key.split('.')[0], '<section>')}",
+    ])
 
 
 def list_settings(json_output: bool) -> None:

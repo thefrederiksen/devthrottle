@@ -16,7 +16,6 @@ import functools
 import json
 from typing import Any, Dict, List, Optional
 
-import typer
 from rich import box
 from rich.console import Console
 from rich.table import Table
@@ -24,6 +23,8 @@ from rich.table import Table
 # session_ops installs the ASCII-only Rich patch at import; cli imports it eagerly, so tables here
 # render with plain ASCII too. cc_shared.gateway is the one door to the fleet.
 from cc_shared import gateway
+
+from . import axi_cli
 
 
 def _mine() -> str:
@@ -49,6 +50,13 @@ def _mine() -> str:
 
 console = Console()
 
+_CREATE_USAGE = 'cc-devthrottle browser create --name "<name>" --browser chrome'
+_LIST = "cc-devthrottle browser list"
+
+
+def _name_arg(name: str) -> str:
+    return axi_cli.quoted(name, "<name>")
+
 
 def _browsers() -> List[Dict[str, Any]]:
     """Every automation browser on this machine, each already folded (status/account/attach)."""
@@ -73,14 +81,14 @@ def _resolve(target: str) -> Dict[str, Any]:
 
     if browsers:
         names = ", ".join(f'"{gateway.field(b, "name", "Name")}"' for b in browsers)
-        console.print(f'[red]No automation browser matching "{target}".[/red] On this machine: {names}.')
-    else:
-        console.print(
-            f'[red]No automation browser matching "{target}".[/red] '
-            "There are none on this machine yet - create one with "
-            "'cc-devthrottle browser create --name \"...\" --browser chrome'."
+        axi_cli.fail(
+            f'No automation browser matching "{target}". On this machine: {names}.',
+            ["cc-devthrottle browser list"],
         )
-    raise typer.Exit(code=1)
+    axi_cli.fail(
+        f'No automation browser matching "{target}". There are none on this machine yet.',
+        [_CREATE_USAGE],
+    )
 
 
 def _reports_gateway_failures(fn):
@@ -101,8 +109,7 @@ def _reports_gateway_failures(fn):
         try:
             return fn(*args, **kwargs)
         except gateway.GatewayError as err:
-            console.print(f"[red]Error:[/red] {err}")
-            raise typer.Exit(1)
+            axi_cli.fail(str(err), ["cc-devthrottle session whoami", "cc-devthrottle setup status"])
 
     return wrapper
 
@@ -146,10 +153,11 @@ def create_browser(name: str, browser: str, json_output: bool) -> None:
         return
     bname = gateway.field(dto, "name", "Name")
     kind = gateway.field(dto, "browser", "Browser")
-    console.print(
-        f'[green]Created[/green] browser "{bname}" ({kind}).\n'
-        f'Sign it in once with:  cc-devthrottle browser signin "{bname}"'
+    axi_cli.write_lines(
+        f'Created browser "{bname}" ({kind}).',
+        f'Sign it in once with:  cc-devthrottle browser signin "{bname}"',
     )
+    axi_cli.print_next([f"cc-devthrottle browser signin {_name_arg(bname)}", _LIST])
 
 
 @_reports_gateway_failures
@@ -164,13 +172,15 @@ def signin_browser(target: str, done: bool, json_output: bool) -> None:
 
     bname = gateway.field(dto, "name", "Name")
     if done:
-        console.print(f'[green]Recorded[/green]: "{bname}" is signed in and ready to drive.')
+        axi_cli.write_lines(f'Recorded: "{bname}" is signed in and ready to drive.')
+        axi_cli.print_next([f"cc-devthrottle browser start {_name_arg(bname)}"])
     else:
-        console.print(
+        axi_cli.write_lines(
             f'Opened the sign-in page in "{bname}". Sign in BY HAND in that window (credentials are '
-            "never automated).\n"
-            f'When the account is signed in, run:  cc-devthrottle browser signin "{bname}" --done'
+            "never automated).",
+            f'When the account is signed in, run:  cc-devthrottle browser signin "{bname}" --done',
         )
+        axi_cli.print_next([f"cc-devthrottle browser signin {_name_arg(bname)} --done"])
 
 
 @_reports_gateway_failures
@@ -187,10 +197,18 @@ def start_browser(target: str, json_output: bool) -> None:
     status = gateway.field(dto, "statusLabel", "StatusLabel")
     bu_name = gateway.field(dto, "buName", "BuName")
     bu_url = gateway.field(dto, "buCdpUrl", "BuCdpUrl")
-    console.print(f'[green]Started[/green] "{bname}" ({status}). Attach the harness with:')
-    console.print(f'  eval "$(cc-devthrottle browser attach \'{bname}\')"')
-    console.print(f"    BU_NAME={bu_name}")
-    console.print(f"    BU_CDP_URL={bu_url}")
+    axi_cli.write_lines(
+        f'Started "{bname}" ({status}). Attach the harness with:',
+        f'  eval "$(cc-devthrottle browser attach \'{bname}\')"',
+        f"    BU_NAME={bu_name}",
+        f"    BU_CDP_URL={bu_url}",
+    )
+    # The attach line wraps the name in single quotes, so a name holding one gets the placeholder.
+    attach_name = bname if _name_arg(bname) == f'"{bname}"' and "'" not in bname else "<name>"
+    axi_cli.print_next([
+        f"eval \"$(cc-devthrottle browser attach '{attach_name}')\"",
+        f"cc-devthrottle browser stop {_name_arg(bname)}",
+    ])
 
 
 @_reports_gateway_failures
@@ -217,7 +235,8 @@ def stop_browser(target: str, json_output: bool) -> None:
         return
     bname = gateway.field(dto, "name", "Name")
     status = gateway.field(dto, "statusLabel", "StatusLabel")
-    console.print(f'[green]Stopped[/green] "{bname}" ({status}). Its login is kept - start it again any time.')
+    axi_cli.write_lines(f'Stopped "{bname}" ({status}). Its login is kept - start it again any time.')
+    axi_cli.print_next([f"cc-devthrottle browser start {_name_arg(bname)}", _LIST])
 
 
 @_reports_gateway_failures
@@ -229,7 +248,9 @@ def rename_browser(target: str, to: str, json_output: bool) -> None:
     if json_output:
         print(json.dumps(dto, indent=2))
         return
-    console.print(f'[green]Renamed[/green] to "{gateway.field(dto, "name", "Name")}".')
+    new_name = gateway.field(dto, "name", "Name")
+    axi_cli.write_lines(f'Renamed to "{new_name}".')
+    axi_cli.print_next([f"cc-devthrottle browser start {_name_arg(new_name)}", _LIST])
 
 
 @_reports_gateway_failures
@@ -242,4 +263,5 @@ def remove_browser(target: str, json_output: bool) -> None:
     if json_output:
         print(json.dumps(result, indent=2))
         return
-    console.print(f'[green]Removed[/green] "{bname}".')
+    axi_cli.write_lines(f'Removed "{bname}".')
+    axi_cli.print_next([_LIST, _CREATE_USAGE])

@@ -35,6 +35,8 @@ if _tools_dir not in sys.path:
 
 from cc_shared import gateway  # noqa: E402
 
+from . import axi_cli  # noqa: E402
+
 TIMEOUT_SECONDS = 15
 WORKFLOW_JSON = "workflow.json"
 INSTRUCTIONS_MD = "instructions.md"
@@ -131,9 +133,8 @@ class WorkflowClient:
         except requests.exceptions.ConnectionError as exc:
             raise GatewayError(
                 f"Gateway not reachable at {self.base_url}. "
-                "Is the Gateway tray app running on this machine? "
-                "If you target a remote Gateway, set gateway.url with "
-                "'cc-devthrottle settings set gateway.url <url>'."
+                "Check that the Gateway is running, or point this command at another one with "
+                "'cc-devthrottle workflow --gateway <url> ...'."
             ) from exc
         except requests.exceptions.Timeout as exc:
             raise GatewayError(
@@ -268,9 +269,22 @@ class WorkflowClient:
         return self._json_or_raise(self._request("GET", f"/gateway/workflow-runs/{run_id}"))
 
 
-def _fail(message: str) -> None:
-    err_console.print(f"[red]Error:[/red] {message}")
-    raise typer.Exit(1)
+_FIND_A_WORKFLOW = "cc-devthrottle workflow list"
+
+
+def _fail(message: str, next_commands: List[str]) -> None:
+    """Report a failure on standard error with what to run next, and exit 1."""
+    axi_cli.fail(message, next_commands)
+
+
+def _ref(workflow_id: str) -> str:
+    """The workflow id for a help line: the id the Gateway just accepted, or a placeholder when it
+    cannot be pasted back as it is."""
+    return axi_cli.bare(workflow_id, "<workflow-id>")
+
+
+def _dir_arg(directory: str) -> str:
+    return axi_cli.quoted(directory, "<dir>")
 
 
 def _client() -> WorkflowClient:
@@ -323,7 +337,7 @@ def list_workflows(json_output: bool) -> None:
     try:
         workflows = _client().list_workflows()
     except GatewayError as ex:
-        _fail(str(ex))
+        _fail(str(ex), ["cc-devthrottle setup status"])
         return
 
     if json_output:
@@ -365,7 +379,7 @@ def show_workflow(workflow_id: str, version: Optional[int], json_output: bool) -
         else:
             data = client.get_workflow(workflow_id)
     except GatewayError as ex:
-        _fail(str(ex))
+        _fail(str(ex), [_FIND_A_WORKFLOW, f"cc-devthrottle workflow versions {_ref(workflow_id)}"])
         return
 
     if json_output:
@@ -415,7 +429,7 @@ def print_instructions(workflow_id: str, version: Optional[int]) -> None:
     try:
         markdown = _client().get_instructions(workflow_id, version)
     except GatewayError as ex:
-        _fail(str(ex))
+        _fail(str(ex), [_FIND_A_WORKFLOW, f"cc-devthrottle workflow versions {_ref(workflow_id)}"])
         return
     sys.stdout.write(markdown)
 
@@ -424,7 +438,7 @@ def list_versions(workflow_id: str, json_output: bool) -> None:
     try:
         versions = _client().list_versions(workflow_id)
     except GatewayError as ex:
-        _fail(str(ex))
+        _fail(str(ex), [_FIND_A_WORKFLOW])
         return
 
     if json_output:
@@ -455,17 +469,46 @@ def pull_workflow(workflow_id: str, directory: str, version: Optional[int]) -> N
             versions = client.list_versions(workflow_id)
             picked = _pick_authoring_version(versions)
             if picked is None:
-                _fail(f"Workflow '{workflow_id}' has no versions to pull.")
+                _fail(
+                    f"Workflow '{workflow_id}' has no versions to pull.",
+                    [f"cc-devthrottle workflow versions {_ref(workflow_id)}", _FIND_A_WORKFLOW],
+                )
                 return
             version = int(picked["version"])
         detail = client.get_version_detail(workflow_id, version)
     except GatewayError as ex:
-        _fail(str(ex))
+        _fail(str(ex), [_FIND_A_WORKFLOW, f"cc-devthrottle workflow versions {_ref(workflow_id)}"])
         return
 
     target = Path(directory)
-    target.mkdir(parents=True, exist_ok=True)
+    try:
+        _write_pulled(target, workflow_id, detail)
+    except GatewayError as ex:
+        _fail(str(ex), [f"cc-devthrottle workflow show {_ref(workflow_id)} --version {version}"])
+        return
+    except OSError as ex:
+        _fail(
+            f"could not write the workflow into {target}: {ex}",
+            [f'cc-devthrottle workflow pull {_ref(workflow_id)} --dir "<writable-dir>"'],
+        )
+        return
 
+    axi_cli.write_lines(
+        f"Pulled '{workflow_id}' v{version} ({detail.get('status')}) into {target.resolve()}",
+        "Edit the files, then push with: "
+        f"cc-devthrottle workflow push {workflow_id} --dir \"{target}\"",
+    )
+    axi_cli.print_next([f"cc-devthrottle workflow push {_ref(workflow_id)} --dir {_dir_arg(directory)}"])
+
+
+def _write_pulled(target: Path, workflow_id: str, detail: Dict[str, Any]) -> None:
+    """Write one pulled version into `target`. Every helper file name is checked BEFORE anything is
+    written, so an unsafe name from the Gateway leaves the directory as it was."""
+    files = detail.get("files") or []
+    for f in files:
+        _safe_file_name(f["fileName"])
+
+    target.mkdir(parents=True, exist_ok=True)
     metadata = {
         "id": detail.get("workflowId", workflow_id),
         "name": detail.get("name", ""),
@@ -482,20 +525,11 @@ def pull_workflow(workflow_id: str, directory: str, version: Optional[int]) -> N
     helpers = target / HELPERS_DIR
     if helpers.is_dir():
         shutil.rmtree(helpers)
-    files = detail.get("files") or []
     if files:
         helpers.mkdir()
         for f in files:
             _write_exact(helpers / _safe_file_name(f["fileName"]), f.get("content") or "")
     (target / HASH_SIDECAR).write_text(detail.get("contentHash", ""), encoding="utf-8")
-
-    console.print(
-        f"Pulled '{workflow_id}' v{version} ({detail.get('status')}) into {target.resolve()}"
-    )
-    console.print(
-        "Edit the files, then push with: "
-        f"cc-devthrottle workflow push {workflow_id} --dir \"{target}\""
-    )
 
 
 def _read_directory(workflow_id: str, directory: str, note: Optional[str]) -> Dict[str, Any]:
@@ -570,7 +604,16 @@ def push_workflow(workflow_id: str, directory: str, note: Optional[str], force: 
             result = client.update_draft(workflow_id, body, if_match)
             verb = "Updated"
     except GatewayError as ex:
-        _fail(str(ex))
+        _fail(str(ex), [
+            f"cc-devthrottle workflow pull {_ref(workflow_id)} --dir {_dir_arg(directory)}",
+            axi_cli.help_for("workflow push"),
+        ])
+        return
+    except (OSError, UnicodeDecodeError) as ex:
+        _fail(
+            f"could not read the workflow files in {directory}: {ex}. Nothing was pushed.",
+            [f"cc-devthrottle workflow pull {_ref(workflow_id)} --dir {_dir_arg(directory)}"],
+        )
         return
 
     new_hash = result.get("contentHash", "")
@@ -580,27 +623,35 @@ def push_workflow(workflow_id: str, directory: str, note: Optional[str], force: 
         except OSError as exc:
             _fail(
                 f"The draft WAS updated on the Gateway (v{result.get('version')}), but the local "
-                f"hash sidecar could not be written: {exc}. Run 'cc-devthrottle workflow pull "
-                f"{workflow_id} --dir \"{directory}\"' to resynchronize before the next push."
+                f"hash sidecar could not be written: {exc}. Resynchronize before the next push.",
+                [f"cc-devthrottle workflow pull {_ref(workflow_id)} --dir {_dir_arg(directory)}"],
             )
             return
-    console.print(
+    axi_cli.write_lines(
         f"{verb} draft v{result.get('version')} of '{workflow_id}'. "
         "Nothing changes for the fleet until it publishes: "
         f"cc-devthrottle workflow publish {workflow_id}"
     )
+    axi_cli.print_next([
+        f"cc-devthrottle workflow publish {_ref(workflow_id)}",
+        f"cc-devthrottle workflow versions {_ref(workflow_id)}",
+    ])
 
 
 def publish_workflow(workflow_id: str) -> None:
     try:
         result = _client().publish(workflow_id)
     except GatewayError as ex:
-        _fail(str(ex))
+        _fail(str(ex), [f"cc-devthrottle workflow versions {_ref(workflow_id)}", _FIND_A_WORKFLOW])
         return
-    console.print(
+    axi_cli.write_lines(
         f"Published '{workflow_id}' v{result.get('version')}. "
         "It is now the version every machine and agent reads."
     )
+    axi_cli.print_next([
+        f"cc-devthrottle workflow instructions {_ref(workflow_id)}",
+        f"cc-devthrottle workflow versions {_ref(workflow_id)}",
+    ])
 
 
 # reset_workflow was retired with the Shared Workflow Library phase 3: built-ins are read-only,
@@ -611,53 +662,69 @@ def clone_workflow(workflow_id: str, new_id: str) -> None:
     try:
         result = _client().clone(workflow_id, new_id)
     except GatewayError as ex:
-        _fail(str(ex))
+        _fail(str(ex), [_FIND_A_WORKFLOW, axi_cli.help_for("workflow clone")])
         return
-    console.print(
+    axi_cli.write_lines(
         f"Cloned '{workflow_id}' into '{result.get('id')}' v{result.get('version')}. "
         "The clone is yours: published, editable, and independent of the original."
     )
+    clone_ref = axi_cli.bare(result.get("id"), "<new-id>")
+    axi_cli.print_next([
+        f'cc-devthrottle workflow pull {clone_ref} --dir "<dir>"',
+        f"cc-devthrottle workflow show {clone_ref}",
+    ])
 
 
 def set_workflow_enabled(workflow_id: str, enabled: bool) -> None:
     try:
         _client().set_enabled(workflow_id, enabled)
     except GatewayError as ex:
-        _fail(str(ex))
+        _fail(str(ex), [_FIND_A_WORKFLOW])
         return
     if enabled:
-        console.print(
+        axi_cli.write_lines(
             f"'{workflow_id}' is IN FORCE again - back in every agent's briefing, runs and seats allowed."
         )
+        axi_cli.print_next([
+            f"cc-devthrottle workflow show {_ref(workflow_id)}",
+            f"cc-devthrottle workflow disable {_ref(workflow_id)}",
+        ])
     else:
-        console.print(
+        axi_cli.write_lines(
             f"'{workflow_id}' is OFF - hidden from agents' briefings, no new runs or seats. "
             "Nothing was deleted; re-enable anytime with: "
             f"cc-devthrottle workflow enable {workflow_id}"
         )
+        axi_cli.print_next([
+            f"cc-devthrottle workflow enable {_ref(workflow_id)}",
+            _FIND_A_WORKFLOW,
+        ])
 
 
 def delete_workflow(workflow_id: str, yes: bool) -> None:
-    if not yes:
-        confirmed = typer.confirm(
-            f"Archive workflow '{workflow_id}'? It leaves the catalog; its versions remain "
-            "as pinned history."
-        )
-        if not confirmed:
-            raise typer.Exit(0)
+    confirmed = axi_cli.confirm_or_fail(
+        f"Archive workflow '{workflow_id}'? It leaves the catalog; its versions remain "
+        "as pinned history.",
+        yes,
+        "--yes",
+        f"cc-devthrottle workflow delete {_ref(workflow_id)} --yes",
+    )
+    if not confirmed:
+        raise typer.Exit(0)
     try:
         _client().delete(workflow_id)
     except GatewayError as ex:
-        _fail(str(ex))
+        _fail(str(ex), [_FIND_A_WORKFLOW])
         return
-    console.print(f"Archived '{workflow_id}'.")
+    axi_cli.write_lines(f"Archived '{workflow_id}'.")
+    axi_cli.print_next([_FIND_A_WORKFLOW, f'cc-devthrottle workflow push <new-id> --dir "<dir>"'])
 
 
 def list_runs(workflow_id: Optional[str], status: Optional[str], json_output: bool) -> None:
     try:
         runs = _client().list_runs(workflow_id, status)
     except GatewayError as ex:
-        _fail(str(ex))
+        _fail(str(ex), [_FIND_A_WORKFLOW, axi_cli.help_for("workflow runs")])
         return
 
     if json_output:
@@ -749,7 +816,7 @@ def show_run(run_id: str, json_output: bool) -> None:
         client = _client()
         run = client.get_run(_resolve_run_id(client, run_id))
     except GatewayError as ex:
-        _fail(str(ex))
+        _fail(str(ex), ["cc-devthrottle workflow runs --json"])
         return
 
     if json_output:
@@ -800,14 +867,18 @@ def materialize_workflow(workflow_id: str, version: Optional[int]) -> None:
             version = int(head["version"])
         detail = client.get_version_detail(workflow_id, version)
     except GatewayError as ex:
-        _fail(str(ex))
+        _fail(str(ex), [_FIND_A_WORKFLOW, f"cc-devthrottle workflow versions {_ref(workflow_id)}"])
         return
 
     status = (detail.get("status") or "").lower()
     if status == "draft":
         _fail(
             f"Version {version} of '{workflow_id}' is a draft. Only published history can be "
-            "materialized - publish it first."
+            "materialized - publish it first.",
+            [
+                f"cc-devthrottle workflow publish {_ref(workflow_id)}",
+                f"cc-devthrottle workflow versions {_ref(workflow_id)}",
+            ],
         )
         return
 
@@ -816,8 +887,12 @@ def materialize_workflow(workflow_id: str, version: Optional[int]) -> None:
     hash_file = root / HASH_SIDECAR
     expected = detail.get("contentHash", "")
     files = detail.get("files") or []
-    for f in files:
-        _safe_file_name(f["fileName"])
+    try:
+        for f in files:
+            _safe_file_name(f["fileName"])
+    except GatewayError as ex:
+        _fail(str(ex), [f"cc-devthrottle workflow show {_ref(workflow_id)} --version {version}"])
+        return
 
     # The sidecar alone is not proof the bundle is intact - every listed file must actually exist,
     # or a deleted/half-written cache would be reported as materialized forever.
@@ -827,23 +902,33 @@ def materialize_workflow(workflow_id: str, version: Optional[int]) -> None:
         and (root / INSTRUCTIONS_MD).is_file()
         and all((root / HELPERS_DIR / f["fileName"]).is_file() for f in files)
     )
+    lines: List[str] = []
     if intact:
-        console.print(f"Already materialized: {root}")
+        lines.append(f"Already materialized: {root}")
     else:
-        root.mkdir(parents=True, exist_ok=True)
-        _write_exact(root / INSTRUCTIONS_MD, detail.get("instructionsMarkdown") or "")
-        helpers = root / HELPERS_DIR
-        if helpers.is_dir():
-            shutil.rmtree(helpers)
-        if files:
-            helpers.mkdir()
-            for f in files:
-                _write_exact(helpers / _safe_file_name(f["fileName"]), f.get("content") or "")
-        hash_file.write_text(expected, encoding="utf-8")
-        console.print(f"Materialized '{workflow_id}' v{version} into {root}")
+        try:
+            root.mkdir(parents=True, exist_ok=True)
+            _write_exact(root / INSTRUCTIONS_MD, detail.get("instructionsMarkdown") or "")
+            helpers = root / HELPERS_DIR
+            if helpers.is_dir():
+                shutil.rmtree(helpers)
+            if files:
+                helpers.mkdir()
+                for f in files:
+                    _write_exact(helpers / _safe_file_name(f["fileName"]), f.get("content") or "")
+            hash_file.write_text(expected, encoding="utf-8")
+        except OSError as ex:
+            _fail(
+                f"could not write the workflow cache at {root}: {ex}",
+                [f"cc-devthrottle workflow instructions {_ref(workflow_id)} --version {version}"],
+            )
+            return
+        lines.append(f"Materialized '{workflow_id}' v{version} into {root}")
 
-    console.print(f"Instructions: {root / INSTRUCTIONS_MD}")
+    lines.append(f"Instructions: {root / INSTRUCTIONS_MD}")
     helpers_dir = root / HELPERS_DIR
     if helpers_dir.is_dir():
         for path in sorted(helpers_dir.iterdir()):
-            console.print(f"Helper: {path}")
+            lines.append(f"Helper: {path}")
+    axi_cli.write_lines(*lines)
+    axi_cli.print_next([f"cc-devthrottle workflow instructions {_ref(workflow_id)} --version {version}"])

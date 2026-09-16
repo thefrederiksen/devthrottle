@@ -21,8 +21,6 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
 import requests
-import typer
-from rich.console import Console
 
 _tools_dir = str(Path(__file__).resolve().parent.parent.parent)
 if _tools_dir not in sys.path:
@@ -31,16 +29,23 @@ if _tools_dir not in sys.path:
 from cc_shared import gateway  # noqa: E402
 from cc_shared.config import CCDirectorConfig  # noqa: E402
 
+from . import axi_cli  # noqa: E402
+
 LOOPBACK_DEFAULT = "http://127.0.0.1:7878"
 TIMEOUT_SECONDS = 45
 
-console = Console()
-err_console = Console(stderr=True)
 gateway_override: Optional[str] = None
 
 
 class GatewayError(Exception):
     """A handled, user-facing failure talking to the Gateway."""
+
+
+class AttachmentError(Exception):
+    """An --attach file is missing or unreadable - the caller's to fix before anything is sent."""
+
+
+_OWNER_USAGE = 'cc-devthrottle email owner --subject "<subject>" --body "<text>"'
 
 
 def set_gateway_override(value: Optional[str]) -> None:
@@ -80,8 +85,11 @@ def _read_attachment(path_text: str) -> Dict[str, str]:
     """Read one file into the wire shape { filename, content(base64), contentType }."""
     path = Path(path_text).expanduser()
     if not path.is_file():
-        raise GatewayError(f"attachment not found: {path}")
-    data = path.read_bytes()
+        raise AttachmentError(f"attachment not found: {path}")
+    try:
+        data = path.read_bytes()
+    except OSError as exc:
+        raise AttachmentError(f"attachment could not be read: {path}: {exc}") from exc
     content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
     return {
         "filename": path.name,
@@ -130,7 +138,7 @@ class EmailClient:
         except requests.exceptions.ConnectionError as exc:
             raise GatewayError(
                 f"Gateway not reachable at {self.base_url}. "
-                "Is the Gateway tray app running on this machine? "
+                "Is the Gateway running? "
                 "If you target a remote Gateway, set gateway.url with "
                 "'cc-devthrottle settings set gateway.url <url>'."
             ) from exc
@@ -159,8 +167,12 @@ def _gateway_message(resp: requests.Response) -> str:
 
 
 def _fail(message: str) -> None:
-    err_console.print(f"[red]Error:[/red] {message}")
-    raise typer.Exit(1)
+    """The send failed or its outcome is unknown. Report it on standard error with where to look next,
+    and exit 1. It does not claim nothing was sent: after a timeout the relay may have sent it."""
+    axi_cli.fail(
+        message,
+        ["cc-devthrottle settings get gateway.url", "cc-devthrottle email --gateway <url> owner --help"],
+    )
 
 
 def send_owner(
@@ -172,14 +184,20 @@ def send_owner(
 ) -> None:
     """Send one email to the account owner via the Gateway relay."""
     if not subject or not subject.strip():
-        _fail("--subject is required.")
-        return
+        axi_cli.usage_error("--subject must not be blank.", [_OWNER_USAGE])
     if not (body and body.strip()) and not (html and html.strip()) and not attach:
-        _fail("provide a body: --body <text>, --html <html>, and/or --attach <file>.")
-        return
+        axi_cli.usage_error(
+            "provide a body: --body <text>, --html <html>, and/or --attach <file>.", [_OWNER_USAGE]
+        )
 
     try:
         attachments = [_read_attachment(p) for p in (attach or [])]
+    except AttachmentError as ex:
+        axi_cli.usage_error(
+            f"{ex}. Nothing was sent.",
+            ['cc-devthrottle email owner --subject "<subject>" --attach "<existing-file>"'],
+        )
+    try:
         result = EmailClient(base_url=gateway_override).send_owner(subject.strip(), body, html, attachments)
     except GatewayError as ex:
         _fail(str(ex))
@@ -193,6 +211,8 @@ def send_owner(
     count = len(attach or [])
     suffix = f" with {count} attachment(s)" if count else ""
     if provider_id:
-        console.print(f"[green]Sent[/green] email to the account owner{suffix} (id {provider_id}).")
+        axi_cli.write_lines(f"Sent email to the account owner{suffix} (id {provider_id}).")
     else:
-        console.print(f"[green]Sent[/green] email to the account owner{suffix}.")
+        axi_cli.write_lines(f"Sent email to the account owner{suffix}.")
+    # An email is the escalation an unattended run sends before it winds itself down.
+    axi_cli.print_next(["cc-devthrottle session done", "cc-devthrottle session whoami"])

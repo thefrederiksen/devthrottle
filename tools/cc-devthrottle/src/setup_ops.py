@@ -17,7 +17,12 @@ from typing import Optional
 import typer
 from rich.console import Console
 
+from . import axi_cli
+
 console = Console()
+
+_SETUP_ROLES = ("workstation", "gateway")
+_AUTOSTART_VERBS = ("on", "off", "status")
 
 GITHUB_API_BASE = "https://api.github.com"
 # The product's release location, and the same default as
@@ -148,12 +153,13 @@ def _download_file(url: str, dest_path: str, show_progress: bool = True) -> bool
                         print(
                             f"\r  Progress: {percent:.1f}% ({mb_downloaded:.1f}/{mb_total:.1f} MB)",
                             end="",
+                            file=sys.stderr,
                         )
             if show_progress:
-                print()
+                print(file=sys.stderr)
         return True
     except (urllib.error.URLError, OSError) as exc:
-        console.print(f"[red]Download failed:[/red] {exc}")
+        print(axi_cli.ascii_text(f"Download failed: {exc}"), file=sys.stderr)
         return False
 
 
@@ -387,7 +393,7 @@ def _download_setup_cli() -> Optional[str]:
     assets = _release_assets(release)
     asset_name, url = _select_setup_cli_asset(assets, system, machine)
     if not asset_name or not url:
-        console.print(f"[red]ERROR:[/red] The latest release has no setup tool for {system} {machine}.")
+        print(f"The latest release has no setup tool for {system} {machine}.", file=sys.stderr)
         return None
 
     cache_dir = Path(tempfile.gettempdir()) / "cc-devthrottle-setup-cli"
@@ -401,23 +407,27 @@ def _download_setup_cli() -> Optional[str]:
     return None
 
 
+def _releases_page() -> str:
+    return f"https://github.com/{'/'.join(_release_repository())}/releases/latest"
+
+
 def _download_setup_cli_or_exit() -> str:
-    console.print("Setup CLI not found locally; downloading the latest release setup CLI...")
+    print("Setup CLI not found locally; downloading the latest release setup CLI...", file=sys.stderr)
     try:
         setup_cli = _download_setup_cli()
     except UnsupportedSetupPlatformError as exc:
-        console.print(f"[red]ERROR:[/red] {exc}")
-        raise typer.Exit(1)
+        axi_cli.fail(str(exc), ["cc-devthrottle setup doctor"])
     except ReleaseLookupError as exc:
-        console.print(f"[red]ERROR:[/red] Could not read the latest release: {exc}")
-        raise typer.Exit(1)
-    if not setup_cli:
-        console.print("[red]ERROR:[/red] Could not find or download devthrottle-setup-cli.")
-        console.print(
-            "Download the setup tool for this machine from "
-            f"https://github.com/{'/'.join(_release_repository())}/releases/latest and put it on PATH."
+        axi_cli.fail(
+            f"Could not read the latest release: {exc}. Check the network and run this again.",
+            ["cc-devthrottle setup doctor"],
         )
-        raise typer.Exit(1)
+    if not setup_cli:
+        axi_cli.fail(
+            "Could not find or download devthrottle-setup-cli. Download the setup tool for this "
+            f"machine from {_releases_page()} and put it on PATH, then run this again.",
+            ["cc-devthrottle setup doctor"],
+        )
     return setup_cli
 
 
@@ -432,19 +442,33 @@ def _setup_cli_args(command: str, role: str, dry_run: bool, json_output: bool) -
 
 
 def run_setup_cli(command: str, role: str, dry_run: bool = False, json_output: bool = False) -> None:
-    if role not in {"workstation", "gateway"}:
-        console.print("[red]ERROR:[/red] --role must be workstation or gateway")
-        raise typer.Exit(2)
+    # Progress and "what is happening" notes go to standard error, so `--json` output stays parseable.
+    if role not in _SETUP_ROLES:
+        axi_cli.usage_error(
+            f"--role must be one of {', '.join(_SETUP_ROLES)}, not '{role}'.",
+            [f"cc-devthrottle setup {command} --role workstation", axi_cli.help_for(f"setup {command}")],
+        )
 
     setup_cli = _locate_setup_cli()
     if not setup_cli:
         setup_cli = _download_setup_cli_or_exit()
 
     args = [setup_cli, *_setup_cli_args(command, role, dry_run, json_output)]
-    console.print(f"Delegating to setup engine: {' '.join(args)}")
+    print(axi_cli.ascii_text(f"Delegating to setup engine: {' '.join(args)}"), file=sys.stderr)
     completed = subprocess.run(args, check=False)
     if completed.returncode != 0:
-        raise typer.Exit(completed.returncode)
+        axi_cli.fail(
+            f"the setup engine exited with code {completed.returncode} during '{command}'; "
+            "its own output above says why.",
+            ["cc-devthrottle setup doctor", f"cc-devthrottle setup repair --role {role}"],
+            exit_code=completed.returncode,
+        )
+    if json_output:
+        return
+    if dry_run:
+        axi_cli.print_next([f"cc-devthrottle setup {command} --role {role}", "cc-devthrottle setup status"])
+    else:
+        axi_cli.print_next(["cc-devthrottle setup status", "cc-devthrottle autostart status"])
 
 
 def run_autostart(verb: str, json_output: bool = False) -> None:
@@ -453,9 +477,11 @@ def run_autostart(verb: str, json_output: bool = False) -> None:
     CLI + config-file is the universal home a headless Linux server needs, so this is where autostart lives
     now that it left the web Settings page."""
     verb = (verb or "status").lower()
-    if verb not in {"on", "off", "status"}:
-        console.print("[red]ERROR:[/red] autostart verb must be on, off, or status")
-        raise typer.Exit(2)
+    if verb not in _AUTOSTART_VERBS:
+        axi_cli.usage_error(
+            f"autostart verb must be one of {', '.join(_AUTOSTART_VERBS)}, not '{verb}'.",
+            ["cc-devthrottle autostart status"],
+        )
 
     setup_cli = _locate_setup_cli()
     if not setup_cli:
@@ -464,9 +490,21 @@ def run_autostart(verb: str, json_output: bool = False) -> None:
     args = [setup_cli, "autostart", verb]
     if json_output:
         args.append("--json")
-    completed = subprocess.run(args, check=False)
+    try:
+        completed = subprocess.run(args, check=False)
+    except OSError as exc:
+        axi_cli.fail(f"could not run the setup engine at {setup_cli}: {exc}", ["cc-devthrottle setup doctor"])
     if completed.returncode != 0:
-        raise typer.Exit(completed.returncode)
+        axi_cli.fail(
+            f"the setup engine exited with code {completed.returncode} for 'autostart {verb}'; "
+            "its own output above says why.",
+            ["cc-devthrottle autostart status", "cc-devthrottle setup doctor"],
+            exit_code=completed.returncode,
+        )
+    if json_output or verb == "status":
+        return
+    other = "off" if verb == "on" else "on"
+    axi_cli.print_next(["cc-devthrottle autostart status", f"cc-devthrottle autostart {other}"])
 
 
 def status(json_output: bool) -> None:
@@ -497,20 +535,28 @@ def doctor(json_output: bool) -> None:
     status(json_output)
 
 
-def install(role: str = "workstation", dry_run: bool = False, json_output: bool = False) -> None:
+def _run_setup_command(command: str, role: str, dry_run: bool, json_output: bool) -> None:
+    """install, update and repair share one failure policy: every way the delegation can break ends
+    in one sentence on standard error with the next step, never a traceback."""
     try:
-        run_setup_cli("install", role, dry_run, json_output)
+        run_setup_cli(command, role, dry_run, json_output)
+    except typer.Exit:
+        # Already reported. typer.Exit is a RuntimeError, so without this it would be caught below
+        # and reported a second time as "failed: 2", with the usage exit code lost.
+        raise
     except KeyboardInterrupt:
-        console.print("\nInstallation cancelled by user.")
-        raise typer.Exit(1)
+        axi_cli.fail(f"setup {command} was cancelled.", [f"cc-devthrottle setup {command} --role {role}"])
     except (OSError, RuntimeError, urllib.error.URLError, subprocess.SubprocessError) as exc:
-        console.print(f"\n[red]ERROR:[/red] {exc}")
-        raise typer.Exit(1)
+        axi_cli.fail(f"setup {command} failed: {exc}", ["cc-devthrottle setup doctor"])
+
+
+def install(role: str = "workstation", dry_run: bool = False, json_output: bool = False) -> None:
+    _run_setup_command("install", role, dry_run, json_output)
 
 
 def update(role: str = "workstation", dry_run: bool = False, json_output: bool = False) -> None:
-    run_setup_cli("update", role, dry_run, json_output)
+    _run_setup_command("update", role, dry_run, json_output)
 
 
 def repair(role: str = "workstation", dry_run: bool = False, json_output: bool = False) -> None:
-    run_setup_cli("repair", role, dry_run, json_output)
+    _run_setup_command("repair", role, dry_run, json_output)
