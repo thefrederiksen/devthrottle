@@ -38,6 +38,26 @@ def _unknown_slot_name(data, w):
     data["slots"]["notaslot"] = dict(data["slots"]["wt01"])
 
 
+def _reflog_position_is_a_boolean(data, w):
+    data["slots"]["wt01"]["reflog_position"] = True
+
+
+def _reflog_nonce_is_not_a_nonce(data, w):
+    data["slots"]["wt01"]["reflog_nonce"] = "reset"
+
+
+def _reflog_commit_without_a_position(data, w):
+    data["slots"]["wt01"]["reflog_position"] = None
+
+
+def _the_old_count_and_newest_fields(data, w):
+    entry = data["slots"]["wt01"]
+    for key in ("reflog_position", "reflog_commit", "reflog_nonce"):
+        entry.pop(key, None)
+    entry["reflog_count"] = 2
+    entry["reflog_newest"] = "0" * 40 + " HEAD@{1}"
+
+
 def _the_inspector_case(data, w):
     _wrong_version(data, w)
     _wrong_repo(data, w)
@@ -45,7 +65,9 @@ def _the_inspector_case(data, w):
 
 
 CORRUPTIONS = [_wrong_version, _wrong_repo, _free_but_still_held_by_someone, _unknown_state,
-               _in_use_without_lease, _held_without_reason, _unknown_slot_name, _the_inspector_case]
+               _in_use_without_lease, _held_without_reason, _unknown_slot_name, _reflog_position_is_a_boolean,
+               _reflog_nonce_is_not_a_nonce, _reflog_commit_without_a_position, _the_old_count_and_newest_fields,
+               _the_inspector_case]
 
 
 @pytest.mark.parametrize("corrupt", CORRUPTIONS, ids=[c.__name__.strip("_") for c in CORRUPTIONS])

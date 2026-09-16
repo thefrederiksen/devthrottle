@@ -31,7 +31,7 @@ from landed import NotLanded
 from statelock import file_lock, machine_lock
 
 HOME_ENV = "CC_WORKTREES_HOME"
-STATE_VERSION = 2
+STATE_VERSION = 3
 FREE, IN_USE, HELD = "free", "in-use", "held"
 STATES = (FREE, IN_USE, HELD)
 SLOT_NAME = re.compile(r"wt[0-9]{2,}")
@@ -146,10 +146,14 @@ def _atomic_write(path: Path, text: str) -> None:
 
 def _lost_entry(path: Path, reason: str = STATE_LOST) -> dict:
     return {"path": str(path), "state": HELD, "holder": None, "lease": None, "reason": reason,
-            "updated": _now(), "gitdir": None, "reflog_count": None, "reflog_newest": None}
+            "updated": _now(), "gitdir": None, "reflog_position": None, "reflog_commit": None,
+            "reflog_nonce": None}
 
 
-ENTRY_KEYS = {"path", "state", "holder", "lease", "reason", "updated", "gitdir", "reflog_count", "reflog_newest"}
+ENTRY_KEYS = {"path", "state", "holder", "lease", "reason", "updated", "gitdir",
+              "reflog_position", "reflog_commit", "reflog_nonce"}
+COMMIT_ID = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+NONCE = re.compile(r"[0-9a-f]{32}")
 
 
 class _InvalidState(Exception):
@@ -169,18 +173,19 @@ def _check_entry(repo: Path, name: str, entry: object) -> None:
         raise _InvalidState(f"{name}: updated is not text")
     if not all(_optional_text(entry[key]) for key in ("holder", "lease", "reason", "gitdir")):
         raise _InvalidState(f"{name}: holder, lease, reason or gitdir is not text")
-    count, newest = entry["reflog_count"], entry["reflog_newest"]
-    if count is None:
-        if newest is not None:
-            raise _InvalidState(f"{name}: a newest reflog entry without a count")
-    elif isinstance(count, bool) or not isinstance(count, int) or count < 0 or not _optional_text(newest) \
-            or (count == 0) != (newest is None):
-        raise _InvalidState(f"{name}: the reflog count and newest entry do not fit together")
+    position, commit, nonce = entry["reflog_position"], entry["reflog_commit"], entry["reflog_nonce"]
+    if position is None:
+        if commit is not None or nonce is not None:
+            raise _InvalidState(f"{name}: a reflog commit or nonce without a position")
+    elif (isinstance(position, bool) or not isinstance(position, int) or position < 0
+          or not isinstance(commit, str) or not COMMIT_ID.fullmatch(commit)
+          or not isinstance(nonce, str) or not NONCE.fullmatch(nonce)):
+        raise _InvalidState(f"{name}: the reflog position, commit and nonce do not fit together")
     state, holder, lease, reason = entry["state"], entry["holder"], entry["lease"], entry["reason"]
     if state == FREE:
         # A free slot was proven landed, so its git metadata was proven then too.
         ok = (holder is None and lease is None and reason is None and entry["gitdir"] is not None
-              and count is not None)
+              and position is not None)
     elif state == IN_USE:
         ok = holder is not None and lease is not None and reason is None
     elif state == HELD:
@@ -376,20 +381,26 @@ def _reset_to_tip(pool: Pool, name: str, tip: landed.RemoteTip | None) -> tuple[
     path = Path(entry["path"])
     try:
         checked = landed.check(path, pool.repo, tip, entry["gitdir"], _mark(entry))
-        landed.reset(path, pool.repo, checked)
-        mark = landed.reflog_mark(path)
+        mark = landed.reset(path, pool.repo, checked)
     except NotLanded as ex:
         return None, str(ex)
-    entry.update(gitdir=str(checked.gitdir), reflog_count=mark.count, reflog_newest=mark.newest)
+    _record_mark(entry, checked.gitdir, mark)
     return checked.tip, None
 
 
+def _record_mark(entry: dict, gitdir: Path, mark: landed.ReflogMark) -> None:
+    """The mark is the reflog line the reset or the creation wrote, as that step returned it. It is never
+    read again afterwards: by then anyone may have added entries nobody checked."""
+    entry.update(gitdir=str(gitdir), reflog_position=mark.position, reflog_commit=mark.commit,
+                 reflog_nonce=mark.nonce)
+
+
 def _mark(entry: dict) -> landed.ReflogMark | None:
-    """Where the reflog stood when the slot was last proven or made. None: nothing on record, so every
-    reflog entry must pass the check."""
-    if entry["reflog_count"] is None:
+    """The reflog line the tool wrote when the slot was last proven or made. None: nothing on record, so
+    every reflog entry must pass the check."""
+    if entry["reflog_position"] is None:
         return None
-    return landed.ReflogMark(entry["reflog_count"], entry["reflog_newest"])
+    return landed.ReflogMark(entry["reflog_position"], entry["reflog_commit"], entry["reflog_nonce"])
 
 
 def _hold(pool: Pool, name: str, reason: str) -> None:
@@ -461,16 +472,16 @@ def get(repo_path: str, holder: str, pool_size: int) -> dict:
             raise ToolError("create-failed", f"could not create {name}: {ex.short()}",
                             [f"cc-worktrees list --repo {repo}"]) from ex
         try:
-            gitdir = landed.require_bound(path, repo, None)
-            mark = landed.reflog_mark(path)
+            gitdir, mark = landed.mark_new_slot(path, repo, tip.commit)
         except NotLanded as ex:
             pool.slots[name] = _lost_entry(path, f"created, but not proven sound: {ex}")
             pool.save()
             raise ToolError("create-failed", f"{name} was created but is held: {ex}",
                             [f"cc-worktrees list --repo {repo}"]) from ex
-        pool.slots[name] = {"path": str(path), "state": IN_USE, "holder": holder, "lease": _new_lease(),
-                            "reason": None, "updated": _now(), "gitdir": str(gitdir),
-                            "reflog_count": mark.count, "reflog_newest": mark.newest}
+        entry = _lost_entry(path)
+        entry.update(state=IN_USE, holder=holder, lease=_new_lease(), reason=None)
+        _record_mark(entry, gitdir, mark)
+        pool.slots[name] = entry
         pool.save()
         return _lease_view(pool, name, tip, reused=False)
 

@@ -18,6 +18,8 @@ internal/vcs/gitvcs/gitvcs.go: the remote default branch read and the HEAD.lock-
 from __future__ import annotations
 
 import os
+import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -281,16 +283,34 @@ def require_commits_landed(worktree: Path, tip: RemoteTip, tips: list[str]) -> N
 
 
 @dataclass(frozen=True)
+class ReflogEntry:
+    commit: str
+    selector: str   # HEAD@{<unix time>}
+    subject: str
+
+
+@dataclass(frozen=True)
 class ReflogMark:
-    """Where the slot's HEAD reflog stood when the slot was last proven landed or made."""
-    count: int
-    newest: str | None   # "<commit> HEAD@{<unix time>}" of the newest entry then, None when there was none
+    """The HEAD reflog line cc-worktrees itself wrote when it last reset or made the slot.
+
+    Never "whatever entry was newest": a line is only a mark when the tool wrote it, under HEAD.lock,
+    with a nonce nobody else knows, and verified it was the one line added to exactly what was checked."""
+    position: int   # counted from the oldest entry, starting at 0
+    commit: str
+    nonce: str
+
+
+TOOL_IDENT = "cc-worktrees <cc-worktrees@localhost>"
+
+
+def tool_subject(commit: str, nonce: str) -> str:
+    return f"cc-worktrees: reset to {commit} {nonce}"
 
 
 _OFF = ("false", "no", "off", "0")
 
 
-def reflog_entries(worktree: Path) -> list[str]:
+def reflog_entries(worktree: Path) -> list[ReflogEntry]:
     """The slot's HEAD reflog, newest first. A commit abandoned with reset --hard lives only here."""
     setting = gitrun.run(worktree, "config", "--get", "core.logAllRefUpdates", check=False)
     if setting.returncode not in (0, 1):
@@ -298,42 +318,45 @@ def reflog_entries(worktree: Path) -> list[str]:
     if setting.returncode == 0 and setting.stdout.strip().lower() in _OFF:
         raise cannot_verify("core.logAllRefUpdates is off, so commits abandoned in the worktree cannot be seen")
     try:
-        text = gitrun.run(worktree, "reflog", "show", "--date=unix", "--format=%H %gd", "HEAD").stdout
+        text = gitrun.run(worktree, "reflog", "show", "-z", "--date=unix", "--format=%H%x00%gd%x00%gs",
+                          "HEAD").stdout
     except GitError as ex:
         raise cannot_verify(f"cannot read the HEAD reflog: {ex.short()}") from ex
-    return [line.strip() for line in text.splitlines() if line.strip()]
+    if not text:
+        return []
+    fields = text.removesuffix("\0").split("\0")
+    if len(fields) % 3:
+        raise cannot_verify("the HEAD reflog could not be read entry by entry")
+    return [ReflogEntry(*fields[i:i + 3]) for i in range(0, len(fields), 3)]
 
 
-def reflog_mark(worktree: Path) -> ReflogMark:
-    entries = reflog_entries(worktree)
-    return ReflogMark(len(entries), entries[0] if entries else None)
-
-
-def reflog_commits_since(entries: list[str], mark: ReflogMark | None) -> list[str]:
-    """The commits the HEAD reflog gained after `mark`, newest first. With no mark on record, every
-    entry counts. A reflog that shrank or was rewritten since the mark cannot be vouched for."""
+def reflog_commits_since(entries: list[ReflogEntry], mark: ReflogMark | None) -> list[str]:
+    """The commits of the HEAD reflog entries after `mark`, newest first. With no mark on record, every
+    entry counts. The mark must be found as the tool's own line, with its commit and nonce, at its
+    recorded position; anything else cannot be vouched for."""
     if mark is None:
         new = entries
     else:
-        if len(entries) < mark.count:
-            raise cannot_verify("the HEAD reflog lost entries since the slot was handed out")
-        if mark.count and entries[len(entries) - mark.count] != mark.newest:
-            raise cannot_verify("the HEAD reflog was rewritten since the slot was handed out")
-        new = entries[:len(entries) - mark.count]
+        index = len(entries) - 1 - mark.position
+        if index < 0:
+            raise cannot_verify("the HEAD reflog lost the line cc-worktrees wrote when the slot was handed out")
+        entry = entries[index]
+        if entry.commit != mark.commit or entry.subject != tool_subject(mark.commit, mark.nonce):
+            raise cannot_verify("the HEAD reflog does not have the line cc-worktrees wrote where it was recorded")
+        new = entries[:index]
     commits: list[str] = []
     for entry in new:
-        commit = entry.split()[0]
-        if commit not in commits:
-            commits.append(commit)
+        if entry.commit not in commits:
+            commits.append(entry.commit)
     return commits
 
 
 @dataclass(frozen=True)
 class Checked:
-    tip: RemoteTip      # the remote default branch the work was checked against
-    head: str           # the HEAD that was proven landed
-    gitdir: Path        # the slot's own git metadata directory, proven bound to it
-    reflog: ReflogMark  # the HEAD reflog as it stood when checked
+    tip: RemoteTip                    # the remote default branch the work was checked against
+    head: str                         # the HEAD that was proven landed
+    gitdir: Path                      # the slot's own git metadata directory, proven bound to it
+    reflog: tuple[ReflogEntry, ...]   # the whole HEAD reflog the proof examined, newest first
 
 
 def check(worktree: Path, repo: Path, tip: RemoteTip, recorded_gitdir: str | None,
@@ -351,7 +374,7 @@ def check(worktree: Path, repo: Path, tip: RemoteTip, recorded_gitdir: str | Non
     entries = reflog_entries(worktree)
     since = reflog_commits_since(entries, mark)
     require_commits_landed(worktree, tip, [head, *(c for c in since if c != head)])
-    return Checked(tip, head, gitdir, ReflogMark(len(entries), entries[0] if entries else None))
+    return Checked(tip, head, gitdir, tuple(entries))
 
 
 def _z_list(worktree: Path, *args: str) -> list[str]:
@@ -390,8 +413,8 @@ def _names(paths: list[str], limit: int = 5) -> str:
     return shown + (f" and {len(paths) - limit} more" if len(paths) > limit else "")
 
 
-def _take_head_lock(checked: Checked, action: str) -> tuple[int, Path]:
-    lock_path = checked.gitdir / "HEAD.lock"
+def _take_head_lock(gitdir: Path, action: str) -> tuple[int, Path]:
+    lock_path = gitdir / "HEAD.lock"
     try:
         fd = os.open(lock_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
     except FileExistsError as ex:
@@ -403,14 +426,52 @@ def _take_head_lock(checked: Checked, action: str) -> tuple[int, Path]:
 
 def _recheck_under_lock(worktree: Path, repo: Path, checked: Checked) -> None:
     """With HEAD.lock held nothing can commit, check out or rebase. Everything the check proved must
-    still be exactly as it was."""
+    still be exactly as it was, the whole reflog included, entry by entry."""
     if not same_path(require_bound(worktree, repo, str(checked.gitdir)), checked.gitdir):
         raise NotLanded("the worktree's git metadata changed after the check")
     if head_commit(worktree) != checked.head:
         raise NotLanded("HEAD moved after the check")
-    if reflog_mark(worktree) != checked.reflog:
+    if tuple(reflog_entries(worktree)) != checked.reflog:
         raise NotLanded("the HEAD reflog changed after the check")
     require_clean(worktree)
+
+
+def _append_tool_line(worktree: Path, gitdir: Path, examined: tuple[ReflogEntry, ...], old: str,
+                      new: str) -> ReflogMark:
+    """Write the tool's own HEAD reflog line, then prove the reflog is exactly what was examined plus
+    that one line. Call only while holding HEAD.lock: git itself appends to this log only under that
+    lock, so nothing else can write between the append and the re-read."""
+    nonce = uuid.uuid4().hex
+    line = f"{old} {new} {TOOL_IDENT} {int(time.time())} +0000\t{tool_subject(new, nonce)}\n"
+    log = gitdir / "logs" / "HEAD"
+    log.parent.mkdir(exist_ok=True)
+    with open(log, "ab") as f:
+        f.write(line.encode("ascii"))
+        f.flush()
+        os.fsync(f.fileno())
+    now = reflog_entries(worktree)
+    if (len(now) != len(examined) + 1 or tuple(now[1:]) != examined or now[0].commit != new
+            or now[0].subject != tool_subject(new, nonce)):
+        raise NotLanded("the HEAD reflog is not exactly what was checked plus the line cc-worktrees wrote")
+    return ReflogMark(len(examined), new, nonce)
+
+
+def mark_new_slot(worktree: Path, repo: Path, tip: str) -> tuple[Path, ReflogMark]:
+    """For a slot `git worktree add` just made at `tip`: prove it is bound to its own record, that HEAD
+    and every entry of its reflog are the tip, and write the tool's reflog line as its first mark."""
+    gitdir = require_bound(worktree, repo, None)
+    fd, lock_path = _take_head_lock(gitdir, "create")
+    try:
+        os.close(fd)
+        if head_commit(worktree) != tip:
+            raise NotLanded("HEAD is not the default branch tip it was created at")
+        examined = tuple(reflog_entries(worktree))
+        others = [e.commit for e in examined if e.commit != tip]
+        if others:
+            raise NotLanded(f"its HEAD reflog already names other commits: {_short_list(others)}")
+        return gitdir, _append_tool_line(worktree, gitdir, examined, tip, tip)
+    finally:
+        _drop_lock(lock_path)
 
 
 def _drop_lock(lock_path: Path) -> None:
@@ -420,15 +481,18 @@ def _drop_lock(lock_path: Path) -> None:
         pass
 
 
-def reset(worktree: Path, repo: Path, checked: Checked) -> None:
+def reset(worktree: Path, repo: Path, checked: Checked) -> ReflogMark:
     """Reset a worktree whose work was just proven landed to the checked remote tip, keeping ignored files.
 
     Takes git's own HEAD.lock first, so no commit, checkout or rebase can move HEAD while it runs,
-    then re-checks everything under that lock. Raises NotLanded with the reason if the worktree
-    changed, or if the reset fails (for example a file locked by another process).
+    then re-checks everything under that lock. Before HEAD moves, writes the tool's own reflog line and
+    proves it is the only line added to what was checked; that line is the returned mark. Raises
+    NotLanded with the reason if the worktree changed, or if the reset fails (for example a file locked
+    by another process).
     """
     target = checked.tip.commit
-    fd, lock_path = _take_head_lock(checked, "reset")
+    fd, lock_path = _take_head_lock(checked.gitdir, "reset")
+    mark = None
     committed = False
     try:
         _recheck_under_lock(worktree, repo, checked)
@@ -449,6 +513,7 @@ def reset(worktree: Path, repo: Path, checked: Checked) -> None:
             raise NotLanded(f"reset failed part way: {ex.short()}") from ex
         os.write(fd, f"{target}\n".encode("ascii"))
         os.fsync(fd)
+        mark = _append_tool_line(worktree, checked.gitdir, checked.reflog, checked.head, target)
         os.close(fd)
         fd = -1
         os.replace(lock_path, checked.gitdir / "HEAD")
@@ -463,13 +528,14 @@ def reset(worktree: Path, repo: Path, checked: Checked) -> None:
             os.close(fd)
         if not committed:
             _drop_lock(lock_path)
+    return mark
 
 
 def remove(worktree: Path, repo: Path, checked: Checked) -> None:
     """Remove a worktree whose work was just proven landed, re-checked under HEAD.lock so nothing can
     commit between the check and the removal. `git worktree remove` is never forced: git itself still
     refuses a worktree with modified or untracked files."""
-    fd, lock_path = _take_head_lock(checked, "destroy")
+    fd, lock_path = _take_head_lock(checked.gitdir, "destroy")
     removed = False
     try:
         _recheck_under_lock(worktree, repo, checked)
