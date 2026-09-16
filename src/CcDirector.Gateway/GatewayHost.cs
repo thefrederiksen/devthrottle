@@ -895,6 +895,9 @@ public sealed class GatewayHost : IAsyncDisposable
     /// through the production environment and the production trace writer.</summary>
     internal Wingman.TurnVerdictService EnsureTurnVerdictServiceForTest() => EnsureTurnVerdictService();
 
+    /// <summary>The trace writer, so a hosted test that waits for a trace can say what became of it when it never arrives.</summary>
+    internal Wingman.TurnVerdictTraceWriter TurnVerdictTraceWriterForTest => _turnVerdictTraceWriter;
+
     /// <summary>Test-only: the turn-end watcher, so an isolation test can drive a real session-state
     /// transition (Working -&gt; Waiting) into the REAL onTurnEnd / onSessionWorking callbacks rather than a
     /// re-implementation. Null until StartAsync builds it.</summary>
@@ -4744,8 +4747,15 @@ public sealed class GatewayHost : IAsyncDisposable
     /// fold as the push above, with the inputs that CHANGE state when folded left out - the needs-you clock, the
     /// voice-waiting clock and the snooze-expiry memory - because writing a record must not move the product.
     /// </summary>
+    /// <remarks>
+    /// THE ACCOUNT'S SCOPE IS ENTERED HERE, because this runs on the trace writer's thread, which belongs to no request
+    /// and no per-tenant pass. The fold's snooze read is tenant-scoped through the ambient scope, and on the hosted
+    /// Gateway an unscoped read refuses to run - which failed every trace write in the hosted route test while every
+    /// self-hosted unit test stayed green.
+    /// </remarks>
     private void FoldRowForTrace(TenantId tenant, List<SessionDto> sessions, Wingman.ITurnVerdictRowSource rows)
     {
+        using var scope = _tenantBoundary.EnterScope(tenant);
         var voiceNameable = Wingman.WingmanVoiceService.CanNameVoicePartition(tenant);
         EnrichVoiceThenFoldForPush(
             sessions,

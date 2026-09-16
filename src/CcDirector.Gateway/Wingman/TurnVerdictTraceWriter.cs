@@ -81,6 +81,11 @@ public sealed class TurnVerdictTraceWriter : IDisposable
     /// <summary>Traces whose write threw.</summary>
     public long Failed => Interlocked.Read(ref _failed);
 
+    /// <summary>The last write that threw, as its exception type and message, or null when none has. The log line is the
+    /// record; this is so a caller holding the writer can say why a trace never arrived without reading a log file.</summary>
+    public string? LastFailure => Volatile.Read(ref _lastFailure);
+    private string? _lastFailure;
+
     /// <summary>Traces written.</summary>
     public long Written => Interlocked.Read(ref _written);
 
@@ -164,6 +169,7 @@ public sealed class TurnVerdictTraceWriter : IDisposable
             catch (Exception ex)
             {
                 Interlocked.Increment(ref _failed);
+                Volatile.Write(ref _lastFailure, $"{ex.GetType().FullName}: {ex.Message}");
                 FileLog.Write($"[TurnVerdictTraceWriter] trace NOT KEPT (write failed): outcome={trace.Outcome} sid={trace.SessionId} " +
                               $"observed={trace.TurnEndObservedAtUtc:O} verdict={trace.VerdictId}: {ex.GetType().FullName}: {ex.Message}");
             }

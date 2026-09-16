@@ -172,7 +172,10 @@ public sealed class WingmanStopsRouteHostedTests : IAsyncLifetime
             if (stops.GetArrayLength() == 1) { stop = stops[0]; break; }
             await Task.Delay(100);
         }
-        Assert.Equal(JsonValueKind.Object, stop.ValueKind);
+        var writer = _gateway.TurnVerdictTraceWriterForTest;
+        Assert.True(stop.ValueKind == JsonValueKind.Object,
+            $"No stop arrived. The trace writer says: written={writer.Written} failed={writer.Failed} "
+            + $"dropped={writer.Dropped} lost={writer.Lost} abandoned={writer.Abandoned} lastFailure={writer.LastFailure ?? "none"}.");
         Assert.Equal("expired", stop.GetProperty("outcome").GetString());
         Assert.True(stop.GetProperty("rowRecorded").GetBoolean());
         Assert.Equal("red", stop.GetProperty("rowColour").GetString());
