@@ -537,6 +537,9 @@ public sealed class GatewayHost : IAsyncDisposable
     /// and then assert what the route hands to each kind of caller.</summary>
     internal Wingman.TurnVerdictStore TurnVerdicts => _turnVerdicts;
 
+    /// <summary>The fleet message inbox (the Message Load mission). Exposed for the route tests.</summary>
+    internal Messaging.FleetMessageStore FleetMessages => _fleetMessages;
+
     /// <summary>
     /// The auth-boundary tenant binder. Exposed to the test assembly so an isolation test can enter the same
     /// tenant scope a real request or tunnel connection would, and drive the production loop code inside it.
@@ -688,6 +691,9 @@ public sealed class GatewayHost : IAsyncDisposable
     /// MEANS, per tenant and per session. Written by the turn-end seat and read by the roster fold and the
     /// two turn-verdict routes.</summary>
     private readonly Wingman.TurnVerdictStore _turnVerdicts;
+    private readonly Messaging.FleetMessageStore _fleetMessages;
+    private readonly Messaging.FleetMessageService _fleetMessageService;
+    private readonly Messaging.FleetMessageRetentionSweep _fleetMessageRetentionSweep;
     /// <summary>The Wingman inspector's record: every judgement kept whole - package, prompt, raw reply, verdict -
     /// appended by the turn-end seat and never cleared when a session works again. Seven days.</summary>
     private readonly Wingman.TurnVerdictTraceStore _turnVerdictTraces;
@@ -1842,6 +1848,12 @@ public sealed class GatewayHost : IAsyncDisposable
         _turnVerdictTraceWriter = new Wingman.TurnVerdictTraceWriter(_turnVerdictTraces.Append);
         _turnVerdictRetentionSweep = new Wingman.TurnVerdictRetentionSweep(
             _tenantBoundary, TenantRegistry, _tenantContext, _turnVerdicts, _turnVerdictTraces);
+        // The Message Load mission: the fleet message inbox, the one service that decides and writes a send, and
+        // its thirty-day purge, run on the same timer tick as the judged-stop purge above.
+        _fleetMessages = new Messaging.FleetMessageStore(_gatewayDb);
+        _fleetMessageService = new Messaging.FleetMessageService(_fleetMessages);
+        _fleetMessageRetentionSweep = new Messaging.FleetMessageRetentionSweep(
+            _tenantBoundary, TenantRegistry, _tenantContext, _fleetMessages, Messaging.FleetMessageLimits.Default.Retention);
         // Slice D: the one source every fold reads verdicts through - the roster, the single-session read and the
         // display push to the desktop - so all three stamp one answer. And the carrying-on clock, on the same
         // per-tenant seam as the retention above.
@@ -3468,11 +3480,9 @@ public sealed class GatewayHost : IAsyncDisposable
             // same translator (and verdict cache) the narration path uses, so an unchanged screen is
             // answered from the cached per-turn verdict without a second model call.
             wingmanTranslator: _voiceService?.Translator,
-            // Remove-the-network-port mission, phase 2: the fleet-message steward for POST
-            // /sessions/{sid}/message. Its own instance, on its own options, because it keeps per-sender
-            // counters and windows: sharing one with a Director in the same process would let two paths spend
-            // each other's budget, and on hosted there is no Director in the process to share with anyway.
-            messageSteward: new Core.Fleet.MessageSteward(new Core.Configuration.MessageStewardOptions()),
+            // The Message Load mission: POST /sessions/{sid}/message, POST /fleet/broadcast and GET /fleet/inbox
+            // write and read the inbox through this one service. It replaced the per-process message steward.
+            fleetMessages: _fleetMessageService,
             requestShutdown: () =>
             {
                 var handler = OnShutdownRequested;
@@ -4894,6 +4904,15 @@ public sealed class GatewayHost : IAsyncDisposable
         catch (Exception ex)
         {
             FileLog.Write($"[GatewayHost] turn verdict retention sweep FAILED: {ex.Message}");
+        }
+        // The fleet message purge rides the same tick, on its own try, so one failing never skips the other.
+        try
+        {
+            await _fleetMessageRetentionSweep.SweepAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayHost] fleet message retention sweep FAILED: {ex.Message}");
         }
         finally
         {

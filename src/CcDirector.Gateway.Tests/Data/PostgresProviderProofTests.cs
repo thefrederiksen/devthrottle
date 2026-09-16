@@ -206,6 +206,11 @@ public sealed class PostgresProviderProofTests
             ("device_import_markers", "SourcePath"),
             ("dictation_suggestion_dismissals", "Term"),
             ("dictation_suggestion_verdicts", "Term"),
+            // The fleet message inbox (the Message Load mission): the minted message id, and the two session
+            // ids the inbox read and the sender's limits select on.
+            ("fleet_messages", "MessageId"),
+            ("fleet_messages", "RecipientSessionId"),
+            ("fleet_messages", "SenderSessionId"),
             ("known_repositories", "MachineKey"),
             ("known_repositories", "PathKey"),
             ("mission_notes", "Key"),

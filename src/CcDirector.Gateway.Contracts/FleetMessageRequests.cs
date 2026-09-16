@@ -1,8 +1,8 @@
 namespace CcDirector.Gateway.Contracts;
 
 /// <summary>
-/// Body of <c>POST /sessions/{sid}/message</c> - one agent sending one message to one session
-/// (Remove-the-network-port mission, phase 2).
+/// Body of <c>POST /sessions/{sid}/message</c> - one session writing one message into another session's
+/// inbox (Remove-the-network-port mission, phase 2; queued since the Message Load mission).
 ///
 /// THERE IS NO SENDER FIELD, AND ITS ABSENCE IS THE POINT. The sender is the session whose key
 /// authenticated the request, read from the authenticated identity and never from this body. The
@@ -13,29 +13,117 @@ namespace CcDirector.Gateway.Contracts;
 /// </summary>
 public sealed class FleetMessageRequest
 {
-    /// <summary>The message body. The sender header and (for a one-way message) the reply hint are
-    /// added by the Gateway.</summary>
+    /// <summary>The message body, exactly as it should be read. It may span many lines: it is written to the
+    /// recipient's inbox and never typed into a terminal.</summary>
     public string Text { get; set; } = "";
 
     /// <summary>
-    /// True for <c>message ask</c>: hold the response open until the recipient finishes and return what
-    /// it printed. It also DROPS the reply hint from the frame - the asker is already waiting and reads
-    /// the answer from the recipient's own output, so telling the recipient to send a separate reply
-    /// makes it answer into a channel nobody is listening on.
+    /// "message" (the default) or "report" - a worker telling its supervisor what it did. Any other value is
+    /// refused. The kinds a broadcast or a system notice carry are decided by the Gateway, never here.
+    /// </summary>
+    public string? Kind { get; set; }
+
+    /// <summary>
+    /// RETIRED with <c>message ask</c> (the Message Load mission, ruling 10). It is still read so that an
+    /// older command line asking to wait is REFUSED with a sentence rather than silently queued and answered
+    /// with an empty "answer". No agent waits for another agent any more.
     /// </summary>
     public bool WaitForIdle { get; set; }
-
-    /// <summary>How long to wait when <see cref="WaitForIdle"/> is set. Default 120000 (2 minutes).</summary>
-    public int TimeoutMs { get; set; } = 120_000;
 }
 
 /// <summary>
-/// Body of <c>POST /fleet/broadcast</c> - one message to the sender's own TEAM (the fleet's
-/// "message send all").
+/// What <c>POST /sessions/{sid}/message</c> answers, and one row of what <c>POST /fleet/broadcast</c>
+/// answers (the Message Load mission, slice 1).
 ///
-/// Like <see cref="FleetMessageRequest"/> it carries no sender: the team is resolved from the
-/// authenticated session's own roster row, which is also the only way the scope decision and the
-/// recipient list can be guaranteed to be about the same session.
+/// "QUEUED", NEVER "DELIVERED". The message is written to the recipient's inbox; the recipient reads it when
+/// it is next free. Nothing here claims the recipient has seen it.
+/// </summary>
+public sealed class FleetMessageSendResponse
+{
+    /// <summary>"queued" (written to the inbox), "duplicate" (dropped: an identical message is already
+    /// waiting unread), or "refused" (not written; <see cref="Error"/> says why).</summary>
+    public string Status { get; set; } = "";
+
+    /// <summary>The session the message was for.</summary>
+    public string RecipientSessionId { get; set; } = "";
+
+    /// <summary>The written message's id, when <see cref="Status"/> is "queued".</summary>
+    public string? MessageId { get; set; }
+
+    /// <summary>Why nothing was queued, when <see cref="Status"/> is "refused". Named <c>error</c> on the wire
+    /// so every client that reads a refusal sentence from <c>error</c> reads this one.</summary>
+    public string? Error { get; set; }
+
+    /// <summary>A sentence about an outcome that is not a refusal - why a duplicate was dropped.</summary>
+    public string? Note { get; set; }
+}
+
+/// <summary>What <c>POST /fleet/broadcast</c> answers (the Message Load mission, slice 1).</summary>
+public sealed class FleetBroadcastResponse
+{
+    /// <summary>One row per recipient the broadcast was considered for.</summary>
+    public List<FleetMessageSendResponse> Results { get; set; } = new();
+
+    /// <summary>True when the whole broadcast was refused before any recipient was considered.</summary>
+    public bool Denied { get; set; }
+
+    /// <summary>Why, when <see cref="Denied"/> is true.</summary>
+    public string? DeniedReason { get; set; }
+
+    /// <summary>A note about an accepted broadcast that reached nobody - "You have no workers to message."</summary>
+    public string? Warning { get; set; }
+}
+
+/// <summary>One message as the recipient reads it from <c>GET /fleet/inbox</c>.</summary>
+public sealed class FleetInboxMessageDto
+{
+    public string MessageId { get; set; } = "";
+
+    /// <summary>The sending session's id, or null for a notice from the Gateway itself.</summary>
+    public string? FromSessionId { get; set; }
+
+    /// <summary>The sender's name when it sent, or null.</summary>
+    public string? FromName { get; set; }
+
+    /// <summary>The sender's machine when it sent, or null.</summary>
+    public string? FromMachine { get; set; }
+
+    /// <summary>message, report, team, everyone or system.</summary>
+    public string Kind { get; set; } = "";
+
+    /// <summary>The full text, exactly as sent.</summary>
+    public string Text { get; set; } = "";
+
+    public DateTime SentAtUtc { get; set; }
+
+    /// <summary>When it was read. For a message returned as unread this is the moment of this read.</summary>
+    public DateTime? ReadAtUtc { get; set; }
+}
+
+/// <summary>What <c>GET /fleet/inbox</c> answers: the calling session's own inbox.</summary>
+public sealed class FleetInboxResponse
+{
+    /// <summary>The session whose inbox this is - always the caller.</summary>
+    public string SessionId { get; set; } = "";
+
+    /// <summary>How many messages were unread before this read. Every one of them is in <see cref="Unread"/>
+    /// and is now marked read.</summary>
+    public int UnreadCount { get; set; }
+
+    /// <summary>The messages that were unread, oldest first, in full.</summary>
+    public List<FleetInboxMessageDto> Unread { get; set; } = new();
+
+    /// <summary>Messages read earlier, newest first - only when the caller asked with <c>all=true</c>.</summary>
+    public List<FleetInboxMessageDto> Recent { get; set; } = new();
+}
+
+/// <summary>
+/// Body of <c>POST /fleet/broadcast</c> - one message to each of the sender's own WORKERS (the fleet's
+/// "message send all"; the Message Load mission narrowed it from the sender's team).
+///
+/// Like <see cref="FleetMessageRequest"/> it carries no sender: the workers are the roster rows that name
+/// the AUTHENTICATED session as their controller, so the recipient list can only ever be about the session
+/// whose key made the call.
 ///
 /// It is a DIFFERENT TYPE from the Director's <see cref="FleetBroadcastRequest"/> rather than a reuse of
 /// it, and the difference is the whole point: that one carries a caller-supplied FromSessionId, which is
@@ -44,17 +132,17 @@ public sealed class FleetMessageRequest
 /// </summary>
 public sealed class FleetTeamBroadcastRequest
 {
-    /// <summary>The message body. Framed with the sender's header by the Gateway.</summary>
+    /// <summary>The message body. Each worker's inbox gets one copy, with the sender recorded beside it.</summary>
     public string Text { get; set; } = "";
 
     /// <summary>
-    /// Reach the whole ACCOUNT rather than the sender's team. Refused unless <see cref="Reason"/> and a
+    /// Reach the whole ACCOUNT rather than the sender's workers. Refused unless <see cref="Reason"/> and a
     /// valid human-issued <see cref="GrantId"/> accompany it - an agent cannot mint its own grant, so
     /// this cannot become the default way to talk to the fleet.
     /// </summary>
     public bool Everyone { get; set; }
 
-    /// <summary>Why this message needs to reach beyond the sender's team. Required with <see cref="Everyone"/>.</summary>
+    /// <summary>Why this message needs to reach beyond the sender's workers. Required with <see cref="Everyone"/>.</summary>
     public string? Reason { get; set; }
 
     /// <summary>The human-issued broadcast grant authorizing <see cref="Everyone"/>.</summary>

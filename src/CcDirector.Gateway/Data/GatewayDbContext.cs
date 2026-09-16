@@ -304,6 +304,11 @@ public sealed class GatewayDbContext : DbContext
     /// cleared when a session works again, kept seven days.</summary>
     public DbSet<TurnVerdictTraceEntity> TurnVerdictTraces => Set<TurnVerdictTraceEntity>();
 
+    /// <summary>The fleet message inbox (<c>fleet_messages</c>, the Message Load mission): one row per message,
+    /// held until the recipient reads it. The row IS the delivery - nothing is typed into the recipient's
+    /// terminal. Kept thirty days, matching the activity ledger.</summary>
+    public DbSet<FleetMessageEntity> FleetMessages => Set<FleetMessageEntity>();
+
     /// <summary>Per-tenant setting overrides (<c>tenant_settings</c>, issue #2017) - the per-tenant home the
     /// AI / voice / car-mode / notification settings needed before they could be served on the hosted Gateway.
     /// Tenant-scoped: an absent row means "no override" and the typed resolver returns the operator global
@@ -762,6 +767,32 @@ public sealed class GatewayDbContext : DbContext
             b.HasIndex(e => new { e.TenantId, e.ReportedAtUtc });
         });
 
+        // ---- the fleet message inbox: one row per message, read by the recipient ----------------------
+
+        modelBuilder.Entity<FleetMessageEntity>(b =>
+        {
+            b.ToTable("fleet_messages");
+            // Tenant-leading, like every key on this model. The message id is minted by the Gateway, so it
+            // cannot collide; the tenant leads so the key and the global filter agree.
+            b.HasKey(e => new { e.TenantId, e.MessageId });
+            b.Property(e => e.MessageId).HasMaxLength(32);
+            b.Property(e => e.RecipientSessionId).HasMaxLength(64);
+            b.Property(e => e.SenderSessionId).HasMaxLength(64);
+            b.Property(e => e.SenderName).HasMaxLength(256);
+            b.Property(e => e.SenderMachine).HasMaxLength(256);
+            b.Property(e => e.Kind).HasMaxLength(16);
+            b.Property(e => e.TextHash).HasMaxLength(64);
+            b.Property(e => e.CorrelationId).HasMaxLength(32);
+            b.Property(e => e.InReplyToMessageId).HasMaxLength(32);
+            // The inbox read: one recipient's unread messages, oldest first. Also serves "has this recipient
+            // an unread identical message from this sender", which narrows on the recipient first.
+            b.HasIndex(e => new { e.TenantId, e.RecipientSessionId, e.ReadAtUtc, e.CreatedAtUtc });
+            // The sender's limits: how many it sent in the last hour, and when it last wrote to one recipient.
+            b.HasIndex(e => new { e.TenantId, e.SenderSessionId, e.CreatedAtUtc });
+            // Retention cuts on the created moment across every session.
+            b.HasIndex(e => new { e.TenantId, e.CreatedAtUtc });
+        });
+
         modelBuilder.Entity<SessionHistoryEntity>(b =>
         {
             b.ToTable("session_history");
@@ -1173,6 +1204,7 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<TurnVerdictEntity>(modelBuilder);
         ApplyTenantScope<TurnVerdictFeedbackEntity>(modelBuilder);
         ApplyTenantScope<TurnVerdictTraceEntity>(modelBuilder);
+        ApplyTenantScope<FleetMessageEntity>(modelBuilder);
 
         ApplyCommonSubsetConventions(modelBuilder);
 
@@ -1244,6 +1276,11 @@ public sealed class GatewayDbContext : DbContext
             // selects a session's history on - both compared byte-ordinally, for the reasons above.
             modelBuilder.Entity<TurnVerdictTraceEntity>().Property(e => e.TraceId).UseCollation("C");
             modelBuilder.Entity<TurnVerdictTraceEntity>().Property(e => e.SessionId).UseCollation("C");
+            // fleet_messages: the minted message id is the key, and the recipient and sender session ids are
+            // what the inbox read and the sender's limits select on - all compared byte-ordinally, as above.
+            modelBuilder.Entity<FleetMessageEntity>().Property(e => e.MessageId).UseCollation("C");
+            modelBuilder.Entity<FleetMessageEntity>().Property(e => e.RecipientSessionId).UseCollation("C");
+            modelBuilder.Entity<FleetMessageEntity>().Property(e => e.SenderSessionId).UseCollation("C");
             // Known-repository lookups use these normalized values as exact indexed predicates. Pin both
             // to byte-ordinal equality so SQLite and Postgres select the same bounded candidate set.
             modelBuilder.Entity<KnownRepositoryEntity>().Property(e => e.MachineKey).UseCollation("C");

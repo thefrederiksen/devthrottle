@@ -10,6 +10,28 @@ public readonly record struct SessionKeyVerdict(bool Allowed, string Reason)
 }
 
 /// <summary>
+/// The sentences an agent reads when it tries to type into a session (the Message Load mission, ruling 17).
+/// Held once so the guard's refusal and the compaction route's refusal say the same thing.
+/// </summary>
+public static class AgentInputRefusal
+{
+    /// <summary>What to do instead, said once and appended to every refusal below.</summary>
+    public const string Instead =
+        "To reach a session you started, or the session that started you, send a queued message: " +
+        "cc-devthrottle message send <session> \"<text>\" - it is read when that session is free.";
+
+    /// <summary>A session key asked to type into, interrupt or escape a session, or to fan a prompt out.</summary>
+    public const string Typing =
+        "An agent may not type into, interrupt or escape another session: only the owner does that, from his " +
+        "own screens. " + Instead;
+
+    /// <summary>A session key asked to compact a session and then send it a prompt.</summary>
+    public const string CompactContinue =
+        "An agent may compact a session but may not send it a prompt afterwards: typing into a session is the " +
+        "owner's alone. Compact it with cc-devthrottle session compact, then " + Instead;
+}
+
+/// <summary>
 /// What a SESSION KEY may call on the Gateway (Remove-the-network-port mission, phase 1b).
 ///
 /// This began as the Gateway twin of the Director's ControlApiGuard.CheckSessionChild (deleted with the Director's listener; this guard is the surviving one), and it is written the same way and
@@ -25,7 +47,7 @@ public readonly record struct SessionKeyVerdict(bool Allowed, string Reason)
 /// agent's work, and admission is not.
 ///
 /// BEHAVES - allowed. The FLEET WORK an agent's command line does: see the roster, find repositories and
-/// worktrees and machines, read a session's terminal, message/prompt/interrupt/hold/rename another session,
+/// worktrees and machines, read a session's terminal, queue a message for / hold / rename another session,
 /// spawn one, take a mission or a role, mark itself done, and read and publish the fleet's shared skills and
 /// workflows. It may also END a session outright - see the paragraph on stopping below. Plus CONFIGURATION,
 /// in both directions: a Director's settings, the application's own settings
@@ -42,6 +64,12 @@ public readonly record struct SessionKeyVerdict(bool Allowed, string Reason)
 /// configuration at all: the
 /// diagnostics surface, and voice, dictation and transcription DATA - note the distinction from the voice
 /// SETTINGS above, which say how the product should behave and are therefore allowed.
+///
+/// TYPING INTO A SESSION IS NOT BEHAVING, IT IS THE OWNER'S (the Message Load mission, 16 September 2026).
+/// Prompt, interrupt, escape and the raw fan-out were on the allowed side until then. Every one of them put
+/// keystrokes into a session mid-turn, and the owner ordered that stopped: an agent now reaches another
+/// session only through a queued message, and only a session it started or the one that started it. These
+/// four are refused by <see cref="IsAgentInput"/> with a sentence that says so.
 ///
 /// WHAT CHANGED, AND WHY THIS PARAGRAPH WAS REWRITTEN RATHER THAN AMENDED. Phase 1b refused the whole
 /// <c>/directors</c> surface bar two sub-paths, and said so here in prose. The owner's ruling reverses that
@@ -91,6 +119,12 @@ public static class SessionKeyGuard
         for (var i = 0; i < segments.Length; i++)
             segments[i] = segments[i].ToLowerInvariant();
 
+        // NO AGENT TYPES INTO A SESSION (the Message Load mission, ruling 17). Checked before the allow list and
+        // refused with its own sentence, because an agent told only "may not call POST /sessions/x/prompt" does
+        // not learn that a queued message is what it should send instead.
+        if (IsAgentInput(verb, segments))
+            return SessionKeyVerdict.Refuse(AgentInputRefusal.Typing);
+
         if (IsAllowed(verb, segments))
             return SessionKeyVerdict.Allow;
 
@@ -98,6 +132,21 @@ public static class SessionKeyGuard
             $"a session key may not call {verb} {p}; it may run the fleet's agent routes and configure the " +
             "product - settings and handovers - but never the admission surface: device enrollment, account " +
             "identity, Director registration, or force-killing a Director");
+    }
+
+    /// <summary>
+    /// The routes that put keystrokes into a running session: a raw prompt, Ctrl+C, Escape, and the fan-out
+    /// that sends one prompt to many sessions. All four were open to a session key until the Message Load
+    /// mission, and each is a way round the inbox - a gate with a side door is not a gate. The owner's own
+    /// screens reach them with a device key, which this guard never sees, so they are unchanged for him.
+    /// Compact-and-continue is the fifth such path; it shares its route with a plain compaction, so the route
+    /// refuses it where it can read the body.
+    /// </summary>
+    private static bool IsAgentInput(string verb, string[] s)
+    {
+        if (verb != "POST") return false;
+        if (s.Length == 3 && s[0] == "sessions" && s[2] is "prompt" or "interrupt" or "escape") return true;
+        return s.Length == 1 && s[0] == "fanout";
     }
 
     private static bool IsAllowed(string verb, string[] s)
@@ -130,6 +179,9 @@ public static class SessionKeyGuard
                 // Every restart request in the account, so an agent can see what is pending before it
                 // asks. The same class of read as the machine-scoped list below, one level up.
                 case "gateway/director-restart-requests":
+                // The calling session's OWN message inbox (the Message Load mission). There is no session id in
+                // the path: the route reads the inbox of the key that called it and no other.
+                case "fleet/inbox":
                     return true;
             }
 
@@ -202,20 +254,16 @@ public static class SessionKeyGuard
         // ---------- Fleet actions ----------
         if (verb == "POST")
         {
-            // Talk to a session: prompt it, interrupt it, park it, give it a role or a mission, ask it to
-            // compact, or flag it finished. Every one of these names a session in the path, and the tenant
-            // binding keeps it inside the calling account.
+            // Act on a session: queue it a message, park it, give it a role or a mission, ask it to compact,
+            // or flag it finished. Every one of these names a session in the path, and the tenant binding keeps
+            // it inside the calling account. Typing into it - prompt, interrupt, escape - is refused above.
             if (s.Length == 3 && s[0] == "sessions")
             {
                 switch (s[2])
                 {
-                    case "prompt":
-                    // An agent-to-agent message: a prompt the Gateway frames with the CALLING session's own
-                    // name, so the recipient knows who sent it. Allowed for the same reason "prompt" is, and
-                    // it is strictly the narrower of the two - the sender cannot be chosen by the caller.
+                    // A queued message into another session's inbox. Nothing is typed; who may be written to,
+                    // and how often, is the route's ruling (FleetMessagePolicy), because it needs the roster.
                     case "message":
-                    case "interrupt":
-                    case "escape":
                     case "hold":
                     case "role":
                     case "mission":
@@ -260,10 +308,9 @@ public static class SessionKeyGuard
             // call it would read every account's corrections, which is the opposite of what a session credential
             // is for.
 
-            // A message to the agent's own team (the fanout the fleet's "message send all" uses), and the
-            // team-resolving front door onto it - which is what the command line actually calls, because
-            // working out who is on the team is the Gateway's ruling to make, not the caller's.
-            if (Join(s) == "fanout") return true;
+            // A queued message to each of the agent's own workers ("message send all"). Working out who they are
+            // is the Gateway's ruling to make, not the caller's. The raw /fanout beside it types into sessions
+            // and is refused above.
             if (Join(s) == "fleet/broadcast") return true;
 
             // Create a mission - the unit of work sessions attach to.
