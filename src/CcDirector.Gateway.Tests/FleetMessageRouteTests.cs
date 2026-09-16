@@ -175,6 +175,10 @@ public sealed class FleetMessageRouteTests : IAsyncLifetime
 
         var withRecent = await Inbox(_asWorkerA, all: true);
         Assert.Equal(messageId, Assert.Single(withRecent.Recent).MessageId);
+        // The command line reads these two names off the wire (message inbox --all, inspection 2 ruling 1).
+        var raw = await Body(await _asWorkerA.GetAsync("fleet/inbox?all=true"));
+        Assert.Equal(1, raw.GetProperty("recentTotal").GetInt32());
+        Assert.False(raw.GetProperty("truncated").GetBoolean());
 
         // THE POINT OF THE MISSION: the Director was told nothing. No prompt, no keystroke, no command at all.
         Assert.Empty(VerbsSent());

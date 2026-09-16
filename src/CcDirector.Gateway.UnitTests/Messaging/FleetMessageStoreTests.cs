@@ -137,7 +137,7 @@ public sealed class FleetMessageStoreTests : IDisposable
     }
 
     [Fact]
-    public void Recent_returns_every_message_read_in_the_last_day_with_no_count_cap()
+    public void Recent_returns_every_message_read_in_the_last_day_below_the_cap()
     {
         // Inspection 1, ruling 4. The first cut returned the latest 20, so a read whose answer was lost could be
         // pushed out of reach by later reads. Thirty messages, each read on its own, all come back.
@@ -154,6 +154,57 @@ public sealed class FleetMessageStoreTests : IDisposable
         Assert.Equal(30, read.Recent.Count);
         Assert.Equal("message 29", read.Recent[0].Text);
         Assert.Equal("message 0", read.Recent[29].Text);
+        Assert.Equal(30, read.RecentTotal);
+        Assert.False(read.RecentTruncated);
+    }
+
+    // Inspection 2, ruling 1: one --all read is bounded. The cap is exercised through the SERVICE with the
+    // product's own limits, so the default of 200 is what is under test, not a number this test passed in.
+    private FleetMessageService ServiceWithReadMessages(int count, Func<DateTime> clock)
+    {
+        var store = NewStore();
+        for (var i = 0; i < count; i++)
+            store.TryEnqueue(TenantA, Draft(Manager, WorkerA, $"message {i}"), T0.AddSeconds(i), Hour, Allow);
+        store.ReadInbox(TenantA, WorkerA, T0.AddHours(1), false);
+        return new FleetMessageService(store, clock: clock);
+    }
+
+    [Fact]
+    public void Recent_over_the_cap_returns_the_newest_200_and_says_it_was_truncated()
+    {
+        var service = ServiceWithReadMessages(201, () => T0.AddHours(2));
+
+        var answer = service.ReadInbox(TenantA, WorkerA, includeRecent: true);
+
+        Assert.Equal(200, answer.Recent.Count);
+        Assert.Equal(201, answer.RecentTotal);
+        Assert.True(answer.Truncated);
+        Assert.Equal("message 200", answer.Recent[0].Text);
+        Assert.Equal("message 1", answer.Recent[199].Text);
+    }
+
+    [Fact]
+    public void Recent_at_exactly_the_cap_returns_all_200_and_is_not_truncated()
+    {
+        var service = ServiceWithReadMessages(200, () => T0.AddHours(2));
+
+        var answer = service.ReadInbox(TenantA, WorkerA, includeRecent: true);
+
+        Assert.Equal(200, answer.Recent.Count);
+        Assert.Equal(200, answer.RecentTotal);
+        Assert.False(answer.Truncated);
+    }
+
+    [Fact]
+    public void A_plain_read_reports_no_recent_total_and_no_truncation()
+    {
+        var service = ServiceWithReadMessages(201, () => T0.AddHours(2));
+
+        var answer = service.ReadInbox(TenantA, WorkerA, includeRecent: false);
+
+        Assert.Empty(answer.Recent);
+        Assert.Equal(0, answer.RecentTotal);
+        Assert.False(answer.Truncated);
     }
 
     [Fact]

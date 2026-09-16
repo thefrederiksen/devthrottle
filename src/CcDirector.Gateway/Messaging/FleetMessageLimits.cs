@@ -33,9 +33,15 @@ public sealed record FleetMessageLimits
 
     /// <summary>How far back <c>message inbox --all</c> reaches for messages already read (inspection 1,
     /// ruling 4). Reading marks a message read before its text has reached the reader, so a read whose answer
-    /// was lost must be recoverable; every message read inside this window comes back, however many there are.
+    /// was lost must be recoverable; messages read inside this window come back, newest first, up to
+    /// <see cref="RecentReadCap"/>.
     /// </summary>
     public TimeSpan RecentReadWindow { get; init; } = TimeSpan.FromHours(24);
+
+    /// <summary>The most already-read messages one <c>message inbox --all</c> returns (inspection 2, ruling 1).
+    /// Newest first; a read that had more says so with <c>truncated</c> and the full count, so the shared
+    /// Gateway never loads an unbounded day of sixteen-thousand-character rows for one request.</summary>
+    public int RecentReadCap { get; init; } = 200;
 
     /// <summary>The longest message text accepted. A message is read from the inbox, never typed, so it may
     /// be long - but not unbounded.</summary>

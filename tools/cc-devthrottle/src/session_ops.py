@@ -1412,7 +1412,14 @@ def read_inbox(include_read: bool = False, json_output: bool = False) -> Dict[st
     for n, m in enumerate(unread, 1):
         blocks.append(_inbox_block(m, n, len(unread)))
     if include_read:
-        blocks.append(f"earlier: {len(recent)} read before")
+        # Inspection 2, ruling 1: the Gateway returns at most the newest 200 read messages and says so. A
+        # truncated answer must say it is one, or the reader takes 200 for the whole day.
+        truncated = bool(resp.get("truncated", resp.get("Truncated", False)))
+        total = resp.get("recentTotal", resp.get("RecentTotal"))
+        if truncated:
+            blocks.append(f"earlier: showing {len(recent)} of {total} read in the last 24 hours")
+        else:
+            blocks.append(f"earlier: {len(recent)} read before")
         for n, m in enumerate(recent, 1):
             blocks.append(_inbox_block(m, n, len(recent)))
     blocks.append(axi_output.format_help(INBOX_HELP))

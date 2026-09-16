@@ -3,6 +3,7 @@ using System.Text;
 using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Data.Entities;
+using Microsoft.EntityFrameworkCore;
 
 namespace CcDirector.Gateway.Messaging;
 
@@ -33,8 +34,16 @@ public readonly record struct FleetMessageHistory(
 
 /// <summary>What one inbox read returned.</summary>
 /// <param name="Unread">The messages this read marked read, oldest first. Each is returned exactly once.</param>
-/// <param name="Recent">Messages read before this call, newest first, when the caller asked for them.</param>
-public sealed record FleetInboxRead(IReadOnlyList<FleetMessageEntity> Unread, IReadOnlyList<FleetMessageEntity> Recent);
+/// <param name="Recent">Messages read before this call, newest first, when the caller asked for them - at most
+/// the cap the caller passed.</param>
+/// <param name="RecentTotal">How many messages were read inside the window, before the cap was applied. Greater
+/// than <c>Recent.Count</c> exactly when the answer was truncated.</param>
+public sealed record FleetInboxRead(IReadOnlyList<FleetMessageEntity> Unread, IReadOnlyList<FleetMessageEntity> Recent,
+    int RecentTotal)
+{
+    /// <summary>True when more messages were read inside the window than <see cref="Recent"/> holds.</summary>
+    public bool RecentTruncated => RecentTotal > Recent.Count;
+}
 
 /// <summary>
 /// The fleet message inbox (the Message Load mission, slice 1), over the <c>fleet_messages</c> table.
@@ -150,42 +159,55 @@ public sealed class FleetMessageStore
 
     /// <summary>
     /// Read one session's inbox: every unread message is returned in full and marked read in the same step,
-    /// so the read IS the acknowledgement. With <paramref name="includeRecent"/>, EVERY message read BEFORE this
+    /// so the read IS the acknowledgement. With <paramref name="includeRecent"/>, messages read BEFORE this
     /// call and no longer ago than <paramref name="recentWindow"/> (the product's
-    /// <see cref="FleetMessageLimits.RecentReadWindow"/> when omitted) comes back too, newest first, unchanged.
-    /// There is no count cap: a read whose answer never reached the reader must stay recoverable however busy
-    /// the inbox was afterwards (inspection 1, ruling 4).
+    /// <see cref="FleetMessageLimits.RecentReadWindow"/> when omitted) come back too, newest first, unchanged,
+    /// at most <paramref name="recentCap"/> of them (<see cref="FleetMessageLimits.RecentReadCap"/> when
+    /// omitted), with the uncapped count beside them (inspection 2, ruling 1).
+    ///
+    /// The recent rows are read BEFORE the lock, untracked: they are never written, and holding the one store
+    /// lock while a large answer is materialised would stall every send and read on the Gateway behind it.
     /// </summary>
     public FleetInboxRead ReadInbox(TenantId tenant, string recipientSessionId, DateTime nowUtc, bool includeRecent,
-        TimeSpan? recentWindow = null)
+        TimeSpan? recentWindow = null, int? recentCap = null)
     {
         if (string.IsNullOrWhiteSpace(recipientSessionId))
             throw new ArgumentException("An inbox belongs to a session.", nameof(recipientSessionId));
         var window = recentWindow ?? FleetMessageLimits.Default.RecentReadWindow;
         if (window <= TimeSpan.Zero)
             throw new ArgumentOutOfRangeException(nameof(recentWindow), window, "The recent-read window must be positive.");
+        var cap = recentCap ?? FleetMessageLimits.Default.RecentReadCap;
+        if (cap <= 0)
+            throw new ArgumentOutOfRangeException(nameof(recentCap), cap, "The recent-read cap must be positive.");
         var recipient = Id(recipientSessionId)!;
         var now = Utc(nowUtc);
         var readSince = now - window;
 
+        var recent = new List<FleetMessageEntity>();
+        var recentTotal = 0;
+        if (includeRecent)
+        {
+            using var readCtx = _db.CreateContext(tenant);
+            var inWindow = readCtx.FleetMessages.AsNoTracking()
+                .Where(m => m.RecipientSessionId == recipient && m.ReadAtUtc != null && m.ReadAtUtc >= readSince);
+            recentTotal = inWindow.Count();
+            recent = inWindow
+                .OrderByDescending(m => m.ReadAtUtc)
+                .ThenByDescending(m => m.CreatedAtUtc)
+                .Take(cap)
+                .ToList();
+        }
+
         lock (_gate)
         {
             using var ctx = _db.CreateContext(tenant);
-            var recent = includeRecent
-                ? ctx.FleetMessages
-                    .Where(m => m.RecipientSessionId == recipient && m.ReadAtUtc != null && m.ReadAtUtc >= readSince)
-                    .OrderByDescending(m => m.ReadAtUtc)
-                    .ThenByDescending(m => m.CreatedAtUtc)
-                    .ToList()
-                : new List<FleetMessageEntity>();
-
             var unread = ctx.FleetMessages
                 .Where(m => m.RecipientSessionId == recipient && m.ReadAtUtc == null)
                 .OrderBy(m => m.CreatedAtUtc)
                 .ToList();
             foreach (var m in unread) m.ReadAtUtc = now;
             if (unread.Count > 0) ctx.SaveChanges();
-            return new FleetInboxRead(unread, recent);
+            return new FleetInboxRead(unread, recent, Math.Max(recentTotal, recent.Count));
         }
     }
 

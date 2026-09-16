@@ -120,14 +120,16 @@ public sealed class FleetMessageService
     /// </summary>
     public FleetInboxResponse ReadInbox(TenantId tenant, string sessionId, bool includeRecent)
     {
-        var read = _store.ReadInbox(tenant, sessionId, _clock(), includeRecent, _limits.RecentReadWindow);
-        FileLog.Write($"[FleetMessageService] ReadInbox: sid={Short(sessionId)} unread={read.Unread.Count} recent={read.Recent.Count} ids=[{string.Join(",", read.Unread.Select(m => m.MessageId))}]");
+        var read = _store.ReadInbox(tenant, sessionId, _clock(), includeRecent, _limits.RecentReadWindow, _limits.RecentReadCap);
+        FileLog.Write($"[FleetMessageService] ReadInbox: sid={Short(sessionId)} unread={read.Unread.Count} recent={read.Recent.Count}/{read.RecentTotal} truncated={read.RecentTruncated} ids=[{string.Join(",", read.Unread.Select(m => m.MessageId))}]");
         return new FleetInboxResponse
         {
             SessionId = sessionId,
             UnreadCount = read.Unread.Count,
             Unread = read.Unread.Select(ToDto).ToList(),
             Recent = read.Recent.Select(ToDto).ToList(),
+            RecentTotal = read.RecentTotal,
+            Truncated = read.RecentTruncated,
         };
     }
 

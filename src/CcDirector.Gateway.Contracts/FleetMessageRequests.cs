@@ -113,9 +113,17 @@ public sealed class FleetInboxResponse
     /// <summary>The messages that were unread, oldest first, in full.</summary>
     public List<FleetInboxMessageDto> Unread { get; set; } = new();
 
-    /// <summary>Every message read earlier in the last 24 hours, newest first - only when the caller asked with
-    /// <c>all=true</c>. This is how a read whose answer was lost is recovered.</summary>
+    /// <summary>Messages read earlier in the last 24 hours, newest first, at most 200 - only when the caller
+    /// asked with <c>all=true</c>. This is how a read whose answer was lost is recovered.</summary>
     public List<FleetInboxMessageDto> Recent { get; set; } = new();
+
+    /// <summary>How many messages were read in the last 24 hours, before the 200-row cap. Zero unless the caller
+    /// asked with <c>all=true</c>.</summary>
+    public int RecentTotal { get; set; }
+
+    /// <summary>True when <see cref="RecentTotal"/> is more than <see cref="Recent"/> holds - the answer is the
+    /// newest 200 of them.</summary>
+    public bool Truncated { get; set; }
 }
 
 /// <summary>

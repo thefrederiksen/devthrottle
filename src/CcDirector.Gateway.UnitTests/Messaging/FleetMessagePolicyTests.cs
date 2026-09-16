@@ -60,6 +60,7 @@ public sealed class FleetMessagePolicyTests
         Assert.Equal(3, Limits.StuckAfterRings);
         Assert.Equal(TimeSpan.FromDays(30), Limits.Retention);
         Assert.Equal(TimeSpan.FromHours(24), Limits.RecentReadWindow);
+        Assert.Equal(200, Limits.RecentReadCap);
         Assert.Equal(16_000, Limits.MaxTextLength);
     }
 

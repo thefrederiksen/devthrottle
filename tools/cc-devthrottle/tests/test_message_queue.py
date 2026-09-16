@@ -242,6 +242,30 @@ def test_inbox_all_asks_for_the_read_ones_and_shows_them(inbox):
     assert "earlier words" in result.output
 
 
+def test_inbox_all_says_when_the_gateway_truncated_the_read_ones(inbox):
+    recent = [_msg(f"old{i}", f"earlier {i}") for i in range(200)]
+    inbox["answer"] = {"sessionId": ME, "unreadCount": 0, "unread": [], "recent": recent,
+                       "recentTotal": 257, "truncated": True}
+
+    result = runner.invoke(app, ["message", "inbox", "--all"])
+
+    assert result.exit_code == 0
+    assert "earlier: showing 200 of 257 read in the last 24 hours" in result.output
+    assert "read before" not in result.output
+
+
+def test_inbox_all_does_not_claim_truncation_when_the_gateway_did_not(inbox):
+    recent = [_msg(f"old{i}", f"earlier {i}") for i in range(200)]
+    inbox["answer"] = {"sessionId": ME, "unreadCount": 0, "unread": [], "recent": recent,
+                       "recentTotal": 200, "truncated": False}
+
+    result = runner.invoke(app, ["message", "inbox", "--all"])
+
+    assert result.exit_code == 0
+    assert "earlier: 200 read before" in result.output
+    assert "showing" not in result.output
+
+
 def test_inbox_output_is_ascii_with_the_rest_escaped(inbox):
     inbox["answer"] = {"sessionId": ME, "unreadCount": 1, "unread": [_msg("m1", "café → done")], "recent": []}
 
