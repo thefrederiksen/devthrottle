@@ -1013,6 +1013,57 @@ a.banner-btn {
   min-height: 0;
 }
 
+/* THE VERDICT PANEL IS A GUEST ON THIS SCREEN, NOT ITS TENANT.
+
+   The blanket rule above gives every direct child its natural size and makes the stage the single
+   give-point. That is right for the bars, which are short and fixed. It is wrong for the Wingman's
+   verdict panel, which is a direct child with no height of its own: whatever the judge wrote, the
+   panel took, and the conversation - the flexible one - absorbed the loss.
+
+   Measured on a 390x844 phone, 2026-09-16, before this rule: chrome 196px, verdict panel 231px,
+   term-controls 218px, leaving the conversation 100px inside a fixed screen that does not scroll.
+   The Terminal tab on the same screen gave its stage 577px, which is why Terminal read as working
+   and Chat read as broken. The owner's words: "I can't use chat mode because it puts something in
+   front of my session."
+
+   So the panel may shrink (flex 0 1), it never takes more than a third of the screen, and it scrolls
+   inside itself when the judge is wordy. A long verdict now costs the reader a scroll inside the
+   panel instead of costing them the conversation. */
+.terminal-screen > .verdict-panel {
+  /* 0 0, NOT 0 1. The first attempt let the panel shrink as well as cap, and the flex algorithm then
+     crushed it to 31px against the growing chat stage - the judgement present but unreadable, which
+     trades one unusable pane for another. It holds its content height, up to the cap. */
+  flex: 0 0 auto;
+  max-height: 168px;
+  overflow-y: auto;
+}
+
+/* THE ANSWER STAYS REACHABLE WHEN THE PANEL SCROLLS. Capping the panel means a wordy judge now scrolls
+   inside it, and "This is wrong" is the last child - so on a long verdict the one control that
+   corrects the Wingman scrolled out of sight. It is pinned to the bottom of the panel's own scroll
+   instead. The background is repeated because a sticky row over scrolling text is otherwise
+   transparent, and it takes the panel's own surface so it cannot drift from it. */
+.terminal-screen > .verdict-panel > .verdict-actions {
+  position: sticky;
+  bottom: -12px;
+  background: var(--surface);
+  padding-top: 6px;
+  margin-bottom: -12px;
+  padding-bottom: 12px;
+}
+
+/* NO min-height FLOOR ON THE CHAT STAGE, deliberately, and this is the second version of this fix.
+   The first gave the conversation a 180px floor. That reads like the requirement - the conversation
+   must stay usable - but this screen is position:fixed with overflow:hidden, so a floor does not make
+   room, it pushes the bottom off the edge: the input row and the key rows, which the blanket rule
+   above exists to keep reachable. It would have traded an unusable chat pane for an unreachable Send
+   button.
+
+   The conversation's floor is produced by BOUNDING what sits above it instead, which is the only
+   direction that adds space rather than borrowing it. A cap in pixels, not a percentage: a percentage
+   resolves against the whole fixed screen (781px on a 390x844 phone), so 33% was 258px - larger than
+   the panel it was meant to bound, and no fix at all. Verified on the device, not by arithmetic. */
+
 .term-title {
   margin: 0;
   font-size: 16px;
