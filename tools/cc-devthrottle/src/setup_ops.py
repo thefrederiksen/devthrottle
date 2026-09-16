@@ -20,8 +20,14 @@ from rich.console import Console
 console = Console()
 
 GITHUB_API_BASE = "https://api.github.com"
-REPO_OWNER = os.environ.get("DEVTHROTTLE_GITHUB_OWNER", "devthrottle")
-REPO_NAME = os.environ.get("DEVTHROTTLE_GITHUB_REPO", "devthrottle")
+# The product's release location, and the same default as
+# tools/cc-director-setup-engine/GitHubRepositoryDefaults.cs - keep the two in sync. It must be the
+# REAL repository: a wrong default answers 404 and no setup tool can ever be downloaded. The
+# environment variables override it for a fork that hosts its releases elsewhere.
+REPO_OWNER_ENVIRONMENT_VARIABLE = "DEVTHROTTLE_GITHUB_OWNER"
+REPO_NAME_ENVIRONMENT_VARIABLE = "DEVTHROTTLE_GITHUB_REPO"
+DEFAULT_REPO_OWNER = "thefrederiksen"
+DEFAULT_REPO_NAME = "devthrottle"
 
 # The setup command line tool each release publishes, keyed by (operating system, processor), in
 # preference order. These are the names .github/workflows/release.yml uploads - keep the two in
@@ -70,22 +76,44 @@ LEGACY_ALIAS_NAMES = [
 ]
 
 
-def _latest_release() -> Optional[dict]:
-    url = f"{GITHUB_API_BASE}/repos/{REPO_OWNER}/{REPO_NAME}/releases/latest"
+class ReleaseLookupError(Exception):
+    """The latest release could not be read. Carries the address and the reason so the user sees
+    exactly which request failed - never a silent 'nothing found'."""
+
+
+def _resolve_setting(variable: str, default: str) -> str:
+    value = os.environ.get(variable, "").strip()
+    return value or default
+
+
+def _release_repository() -> tuple[str, str]:
+    return (
+        _resolve_setting(REPO_OWNER_ENVIRONMENT_VARIABLE, DEFAULT_REPO_OWNER),
+        _resolve_setting(REPO_NAME_ENVIRONMENT_VARIABLE, DEFAULT_REPO_NAME),
+    )
+
+
+def _latest_release_url() -> str:
+    owner, name = _release_repository()
+    return f"{GITHUB_API_BASE}/repos/{owner}/{name}/releases/latest"
+
+
+def _latest_release() -> dict:
+    url = _latest_release_url()
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "cc-devthrottle",
+        },
+    )
     try:
-        request = urllib.request.Request(
-            url,
-            headers={
-                "Accept": "application/vnd.github.v3+json",
-                "User-Agent": "cc-devthrottle",
-            },
-        )
         with urllib.request.urlopen(request, timeout=30) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        if exc.code == 404:
-            return None
-        raise
+        raise ReleaseLookupError(f"GET {url} failed with HTTP {exc.code} {exc.reason}") from exc
+    except urllib.error.URLError as exc:
+        raise ReleaseLookupError(f"GET {url} failed: {exc.reason}") from exc
 
 
 def _release_assets(release: dict) -> dict:
@@ -259,8 +287,11 @@ def doctor_data() -> dict:
     ]
     cc_resolved = shutil.which("cc-devthrottle")
     problems = []
-    if not installer.install_dir.exists():
-        problems.append("install bin directory is missing")
+    # Only the directory that holds the shims must exist. On macOS and Linux that is ~/.local/bin
+    # and the install bin directory is never created (PythonToolsInstaller.WriteUnixShims), so
+    # requiring it there reported every healthy install as needing repair.
+    if not shim_dir.exists():
+        problems.append(f"tool shim directory is missing: {shim_dir}")
     if not _path_contains(shim_dir):
         problems.append(f"tool shim directory is not on PATH: {shim_dir}")
     if cc_resolved is None:
@@ -353,8 +384,6 @@ def _download_setup_cli() -> Optional[str]:
     # and never reaches a download of another platform's executable.
     _setup_cli_asset_names(system, machine)
     release = _latest_release()
-    if not release:
-        return None
     assets = _release_assets(release)
     asset_name, url = _select_setup_cli_asset(assets, system, machine)
     if not asset_name or not url:
@@ -379,11 +408,14 @@ def _download_setup_cli_or_exit() -> str:
     except UnsupportedSetupPlatformError as exc:
         console.print(f"[red]ERROR:[/red] {exc}")
         raise typer.Exit(1)
+    except ReleaseLookupError as exc:
+        console.print(f"[red]ERROR:[/red] Could not read the latest release: {exc}")
+        raise typer.Exit(1)
     if not setup_cli:
         console.print("[red]ERROR:[/red] Could not find or download devthrottle-setup-cli.")
         console.print(
-            f"Download the setup tool for this machine from https://github.com/{REPO_OWNER}/{REPO_NAME}"
-            "/releases/latest and put it on PATH."
+            "Download the setup tool for this machine from "
+            f"https://github.com/{'/'.join(_release_repository())}/releases/latest and put it on PATH."
         )
         raise typer.Exit(1)
     return setup_cli

@@ -27,9 +27,12 @@ def _write_healthy_script(root: Path, script: str) -> None:
     target = _script_target(root, script)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text("fake", encoding="utf-8")
-    bin_dir = root / "bin"
-    bin_dir.mkdir(parents=True, exist_ok=True)
+    # Only Windows writes shims into the install bin directory. On macOS and Linux the installer
+    # never creates that directory (PythonToolsInstaller.WriteUnixShims links into ~/.local/bin), so
+    # creating it here would model an install that does not exist and hide a doctor that demands it.
     if os.name == "nt":
+        bin_dir = root / "bin"
+        bin_dir.mkdir(parents=True, exist_ok=True)
         (bin_dir / f"{script}.cmd").write_text("@echo off\r\n", encoding="utf-8")
         (bin_dir / script).write_text("#!/bin/sh\n", encoding="utf-8")
     else:
@@ -232,6 +235,88 @@ def test_doctor_requires_the_platforms_shim_directory_on_path(isolated_install, 
     data = setup_ops.doctor_data()
     assert data["needsRepair"] is True
     assert any("shim directory is not on PATH" in problem for problem in data["problems"])
+
+
+def test_doctor_healthy_install_needs_only_the_shim_directory(isolated_install):
+    # A healthy macOS or Linux install has no install bin directory at all. The old rule called
+    # that "install bin directory is missing" and asked for a repair.
+    _write_healthy_script(isolated_install, "cc-devthrottle")
+    if os.name != "nt":
+        assert not (isolated_install / "bin").exists()
+
+    data = setup_ops.doctor_data()
+
+    assert data["problems"] == []
+    assert data["needsRepair"] is False
+
+
+def test_doctor_reports_a_missing_shim_directory(isolated_install):
+    data = setup_ops.doctor_data()
+
+    shim_dir = data["shimDir"]
+    assert not Path(shim_dir).exists()
+    assert f"tool shim directory is missing: {shim_dir}" in data["problems"]
+    assert data["needsRepair"] is True
+
+
+def test_latest_release_url_defaults_to_the_product_release_repository(monkeypatch):
+    monkeypatch.delenv("DEVTHROTTLE_GITHUB_OWNER", raising=False)
+    monkeypatch.delenv("DEVTHROTTLE_GITHUB_REPO", raising=False)
+
+    # Must match tools/cc-director-setup-engine/GitHubRepositoryDefaults.cs.
+    assert setup_ops._latest_release_url() == (
+        "https://api.github.com/repos/thefrederiksen/devthrottle/releases/latest"
+    )
+
+
+def test_latest_release_url_honours_environment_overrides(monkeypatch):
+    monkeypatch.setenv("DEVTHROTTLE_GITHUB_OWNER", "someone")
+    monkeypatch.setenv("DEVTHROTTLE_GITHUB_REPO", "fork")
+    assert setup_ops._latest_release_url() == "https://api.github.com/repos/someone/fork/releases/latest"
+
+    monkeypatch.setenv("DEVTHROTTLE_GITHUB_OWNER", "  ")
+    monkeypatch.setenv("DEVTHROTTLE_GITHUB_REPO", "")
+    assert setup_ops._latest_release_url() == (
+        "https://api.github.com/repos/thefrederiksen/devthrottle/releases/latest"
+    )
+
+
+def _raise_http_error(status):
+    import urllib.error
+
+    def _urlopen(request, timeout=None):
+        raise urllib.error.HTTPError(request.full_url, status, "Not Found", {}, None)
+
+    return _urlopen
+
+
+def test_latest_release_http_error_raises_with_status_and_url(monkeypatch):
+    monkeypatch.delenv("DEVTHROTTLE_GITHUB_OWNER", raising=False)
+    monkeypatch.delenv("DEVTHROTTLE_GITHUB_REPO", raising=False)
+    monkeypatch.setattr(setup_ops.urllib.request, "urlopen", _raise_http_error(404))
+
+    with pytest.raises(setup_ops.ReleaseLookupError) as exc:
+        setup_ops._latest_release()
+
+    assert "HTTP 404" in str(exc.value)
+    assert setup_ops._latest_release_url() in str(exc.value)
+
+
+def test_run_setup_cli_release_lookup_failure_reaches_the_user(monkeypatch, capsys, plain):
+    import typer
+
+    monkeypatch.setattr(setup_ops, "_locate_setup_cli", lambda: None)
+    monkeypatch.setattr(setup_ops, "_current_platform", lambda: ("linux", "x64"))
+    monkeypatch.setattr(setup_ops.urllib.request, "urlopen", _raise_http_error(403))
+    monkeypatch.setattr(setup_ops, "console", setup_ops.Console(width=500))
+
+    with pytest.raises(typer.Exit) as exc:
+        setup_ops.run_setup_cli("install", "workstation")
+
+    assert exc.value.exit_code == 1
+    output = plain(capsys.readouterr().out)
+    assert "HTTP 403" in output
+    assert "/releases/latest" in output
 
 
 def test_no_legacy_hard_coded_tool_lists_remain():
