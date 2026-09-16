@@ -201,6 +201,13 @@ public sealed class PostgresProviderProofTests
         var expected = new[]
         {
             ("account_trials", "subject"),
+            // The dev report natural keys (the dev reports mission). A report is found by (session, report
+            // file path) and an owner item by the page-minted id, both unique indexes matched for exact
+            // equality, so the two providers have to agree on what counts as the same key.
+            ("dev_report_items", "ClientItemId"),
+            ("dev_report_items", "SessionId"),
+            ("dev_reports", "Key"),
+            ("dev_reports", "SessionId"),
             ("device_credentials", "DeviceId"),
             ("device_credentials", "DeviceKeyHash"),
             ("device_import_markers", "SourcePath"),

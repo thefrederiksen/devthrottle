@@ -1,0 +1,367 @@
+using System.Collections.Concurrent;
+using System.Text.Json;
+using CcDirector.Core.Sessions;
+using CcDirector.Core.Tenancy;
+using CcDirector.Gateway.Api;
+using CcDirector.Gateway.Contracts;
+using CcDirector.Gateway.Data.Entities;
+using CcDirector.Gateway.DevReports;
+using CcDirector.Gateway.Tests.Data;
+using Xunit;
+
+namespace CcDirector.Gateway.Tests.DevReports;
+
+/// <summary>
+/// The delivery rules of PLAN-phase-2.md over the REAL store and the real migrated schema. The only fakes are
+/// the two things outside the Gateway's own record: the session's reach (the roster) and the Director on the
+/// other end of the tunnel, which counts every prompt it is handed. "Nothing was typed" here is a counted fact
+/// about the one seam that can type.
+/// </summary>
+public sealed class DevReportDeliveryTests : IDisposable
+{
+    private const string DirectorId = "director-dr";
+    private static readonly TenantId Tenant = new("tenant-dev-reports-a");
+    private static readonly TenantId OtherTenant = new("tenant-dev-reports-b");
+    private static readonly DateTime Now = new(2026, 9, 16, 12, 0, 0, DateTimeKind.Utc);
+
+    private readonly GatewayDbTestHarness _h = new();
+    private readonly string _sid = Guid.NewGuid().ToString("D");
+
+    /// <summary>What the fake roster says about the session.</summary>
+    private DevReportSessionReach _reach = DevReportSessionReach.Busy;
+
+    /// <summary>What the fake Director answers a prompt with; null means the command never left the Gateway.</summary>
+    private Func<DirectorCommandResult?> _answer = () => DirectorCommandResult.Success(
+        JsonSerializer.Serialize(new PromptResponse { Accepted = true, ActivityState = "Working" }));
+
+    private readonly ConcurrentQueue<PromptRequest> _prompts = new();
+
+    /// <summary>The account scope in effect, as the fake scope seam sets it; the fake Director records it per send.</summary>
+    private static readonly AsyncLocal<string?> ScopeInEffect = new();
+    private readonly ConcurrentQueue<string?> _scopeAtSend = new();
+
+    private sealed class Scope : IDisposable
+    {
+        private readonly string? _prior;
+        public Scope(TenantId tenant) { _prior = ScopeInEffect.Value; ScopeInEffect.Value = tenant.Value; }
+        public void Dispose() => ScopeInEffect.Value = _prior;
+    }
+
+    public void Dispose() => _h.Dispose();
+
+    private DevReportStore Store() => new(_h.Open());
+
+    private DevReportDelivery Delivery(DevReportStore store) => new(store,
+        (tenant, sid) => new DevReportSessionLiveness(_reach, _reach == DevReportSessionReach.Ended ? null : DirectorId, "test roster"),
+        (tenant, directorId) => new SessionVerbClient(new DirectorDto { DirectorId = directorId, MachineName = "TEST" }, SendAsync),
+        () => Now,
+        tenant => new Scope(tenant));
+
+    private Task<DirectorCommandResult?> SendAsync(string directorId, DirectorCommand command, CancellationToken ct)
+    {
+        Assert.Equal("prompt", command.Verb);
+        _scopeAtSend.Enqueue(ScopeInEffect.Value);
+        var answer = _answer();
+        if (answer is not null)
+            _prompts.Enqueue(JsonSerializer.Deserialize<PromptRequest>(command.PayloadJson, new JsonSerializerOptions(JsonSerializerDefaults.Web))!);
+        return Task.FromResult(answer);
+    }
+
+    private static DevReportItem Note(string id, string text = "This number is wrong")
+        => new(id, DevReportItem.Note, text,
+            new DevReportAnchor(DevReportAnchor.TableCell, "#t td", "42", "Gateway", "Failures", null), "", "", "", "", "");
+
+    private static DevReportItem Answer(string id, string questionId, string value, string comment = "")
+        => new(id, DevReportItem.Answer, "", null, questionId, "When should we deploy?", value, value.ToUpperInvariant(), comment);
+
+    private DevReportEntity Publish(DevReportStore store, string key = @"C:\r\report.html", TenantId? tenant = null)
+        => store.Publish(tenant ?? Tenant, _sid, key, "<p>html</p>", "waiting-on-you", "Report", Now).Report;
+
+    [Fact]
+    public async Task SendAsync_SessionWorking_HoldsTheItemsAndTypesNothing()
+    {
+        var store = Store();
+        var report = Publish(store);
+        _reach = DevReportSessionReach.Busy;
+
+        var updates = await Delivery(store).SendAsync(Tenant, report, [Note("n1"), Answer("a1", "deploy", "tonight")], "device", default);
+
+        Assert.Equal(["n1", "a1"], updates.Select(u => u.Id));
+        Assert.All(updates, u => Assert.Equal(("held", "Delivered when the agent finishes its turn"), (u.Status, u.StatusLabel)));
+        Assert.Empty(_prompts);
+    }
+
+    [Fact]
+    public async Task SendAsync_SessionIdle_DeliversOnePromptInTheSameRequest()
+    {
+        var store = Store();
+        var report = Publish(store);
+        _reach = DevReportSessionReach.Idle;
+
+        var updates = await Delivery(store).SendAsync(Tenant, report, [Note("n1"), Answer("a1", "deploy", "tonight")], "device", default);
+
+        Assert.All(updates, u => Assert.Equal(("delivered", "Delivered to the session"), (u.Status, u.StatusLabel)));
+        var prompt = Assert.Single(_prompts);
+        Assert.Contains("row \"Gateway\", column \"Failures\"", prompt.Text);
+        Assert.Contains("TONIGHT (value \"tonight\")", prompt.Text);
+        // The owner's turn: not an agent prompting another, and the dev report door on the ledger row.
+        Assert.False(prompt.AgentDriven);
+        Assert.True(prompt.AppendEnter);
+        Assert.Equal(SubmissionRoutes.GatewayDevReport, prompt.Provenance!.Route);
+        Assert.Equal("device", prompt.Provenance.IdentityKind);
+        Assert.All(store.Items(Tenant, report.Id), i => Assert.Equal(Now, i.DeliveredAtUtc));
+    }
+
+    [Fact]
+    public async Task SendAsync_SameIdTwice_IsOneItemAndOneDelivery()
+    {
+        var store = Store();
+        var report = Publish(store);
+        _reach = DevReportSessionReach.Idle;
+        var delivery = Delivery(store);
+
+        await delivery.SendAsync(Tenant, report, [Note("n1")], "device", default);
+        var again = await delivery.SendAsync(Tenant, report, [Note("n1", "different words the second time")], "device", default);
+
+        Assert.Equal(("n1", "delivered"), (again.Single().Id, again.Single().Status));
+        Assert.Single(_prompts);
+        var row = Assert.Single(store.Items(Tenant, report.Id));
+        Assert.Equal("This number is wrong", row.Text);
+    }
+
+    [Fact]
+    public async Task SendAsync_SameIdResentWhileHeld_ReturnsHeldAndStoresOnce()
+    {
+        var store = Store();
+        var report = Publish(store);
+        var delivery = Delivery(store);
+
+        await delivery.SendAsync(Tenant, report, [Note("n1")], "device", default);
+        var again = await delivery.SendAsync(Tenant, report, [Note("n1"), Note("n1")], "device", default);
+
+        Assert.Equal(["held", "held"], again.Select(u => u.Status));
+        Assert.Single(store.Items(Tenant, report.Id));
+
+        _reach = DevReportSessionReach.Idle;
+        Assert.Equal(1, await delivery.DrainAsync(Tenant, _sid, default));
+        Assert.Single(_prompts);
+    }
+
+    [Fact]
+    public async Task SendAsync_LaterAnswerWhileEarlierHeld_ReplacesItAndOnlyTheNewerGoes()
+    {
+        var store = Store();
+        var report = Publish(store);
+        var delivery = Delivery(store);
+
+        await delivery.SendAsync(Tenant, report, [Answer("a1", "deploy", "tonight")], "device", default);
+        var later = await delivery.SendAsync(Tenant, report, [Answer("a2", "deploy", "monday")], "device", default);
+
+        Assert.Equal("held", later.Single().Status);
+        var first = store.Items(Tenant, report.Id).Single(i => i.ClientItemId == "a1");
+        Assert.Equal(("replaced", "Replaced by a later answer", "a2"), (first.Status, first.StatusLabel, first.ReplacedBy));
+
+        // A resend of the replaced id answers its current state rather than reviving it.
+        var resend = await delivery.SendAsync(Tenant, report, [Answer("a1", "deploy", "tonight")], "device", default);
+        Assert.Equal("replaced", resend.Single().Status);
+
+        _reach = DevReportSessionReach.Idle;
+        await delivery.DrainAsync(Tenant, _sid, default);
+        var prompt = Assert.Single(_prompts);
+        Assert.Contains("MONDAY (value \"monday\")", prompt.Text);
+        Assert.DoesNotContain("tonight", prompt.Text);
+        Assert.DoesNotContain("changes the owner's earlier answer", prompt.Text);
+    }
+
+    [Fact]
+    public async Task SendAsync_LaterAnswerAfterEarlierDelivered_IsDeliveredAsAChange()
+    {
+        var store = Store();
+        var report = Publish(store);
+        _reach = DevReportSessionReach.Idle;
+        var delivery = Delivery(store);
+
+        await delivery.SendAsync(Tenant, report, [Answer("a1", "deploy", "tonight")], "device", default);
+        await delivery.SendAsync(Tenant, report, [Answer("a2", "deploy", "monday")], "device", default);
+
+        Assert.Equal(2, _prompts.Count);
+        Assert.Contains("This changes the owner's earlier answer to this question.", _prompts.Last().Text);
+        Assert.Equal("delivered", store.Items(Tenant, report.Id).Single(i => i.ClientItemId == "a1").Status);
+    }
+
+    [Fact]
+    public async Task SendAsync_EndedSession_RefusesEveryNewItemAndStoresNothing()
+    {
+        var store = Store();
+        var report = Publish(store);
+        _reach = DevReportSessionReach.Ended;
+
+        var updates = await Delivery(store).SendAsync(Tenant, report, [Note("n1"), Answer("a1", "deploy", "tonight")], "device", default);
+
+        Assert.All(updates, u => Assert.Equal(("refused", "This session has ended"), (u.Status, u.StatusLabel)));
+        Assert.Empty(store.Items(Tenant, report.Id));
+        Assert.Empty(_prompts);
+    }
+
+    [Fact]
+    public async Task DrainAsync_HeldAcrossTwoReports_GoesAsOnePrompt()
+    {
+        var store = Store();
+        var first = Publish(store, @"C:\r\one.html");
+        var second = Publish(store, @"C:\r\two.html");
+        var delivery = Delivery(store);
+        await delivery.SendAsync(Tenant, first, [Note("n1")], "device", default);
+        await delivery.SendAsync(Tenant, second, [Answer("a1", "deploy", "tonight")], "device", default);
+        Assert.Empty(_prompts);
+
+        _reach = DevReportSessionReach.Idle;
+        var delivered = await delivery.DrainAsync(Tenant, _sid, default);
+
+        Assert.Equal(2, delivered);
+        var prompt = Assert.Single(_prompts);
+        Assert.Contains(@"file C:\r\one.html", prompt.Text);
+        Assert.Contains(@"file C:\r\two.html", prompt.Text);
+        // A second turn end has nothing left to send.
+        Assert.Equal(0, await delivery.DrainAsync(Tenant, _sid, default));
+        Assert.Single(_prompts);
+    }
+
+    [Fact]
+    public async Task DrainAsync_SessionBusyAgain_KeepsTheItemsHeld()
+    {
+        var store = Store();
+        var report = Publish(store);
+        var delivery = Delivery(store);
+        await delivery.SendAsync(Tenant, report, [Note("n1")], "device", default);
+
+        _reach = DevReportSessionReach.Busy;
+        Assert.Equal(0, await delivery.DrainAsync(Tenant, _sid, default));
+
+        Assert.Empty(_prompts);
+        Assert.Equal("held", store.Items(Tenant, report.Id).Single().Status);
+    }
+
+    [Fact]
+    public async Task DrainAsync_SendNeverLeftTheGateway_StaysHeldAndGoesNextTime()
+    {
+        var store = Store();
+        var report = Publish(store);
+        var delivery = Delivery(store);
+        await delivery.SendAsync(Tenant, report, [Note("n1")], "device", default);
+        _reach = DevReportSessionReach.Idle;
+        _answer = () => null;
+
+        Assert.Equal(0, await delivery.DrainAsync(Tenant, _sid, default));
+        Assert.Equal("held", store.Items(Tenant, report.Id).Single().Status);
+
+        _answer = () => DirectorCommandResult.Success(JsonSerializer.Serialize(new PromptResponse { Accepted = true }));
+        Assert.Equal(1, await delivery.DrainAsync(Tenant, _sid, default));
+        Assert.Equal("delivered", store.Items(Tenant, report.Id).Single().Status);
+    }
+
+    [Fact]
+    public async Task DrainAsync_SendUnanswered_IsSentNotConfirmedAndNeverRetried()
+    {
+        var store = Store();
+        var report = Publish(store);
+        var delivery = Delivery(store);
+        await delivery.SendAsync(Tenant, report, [Note("n1")], "device", default);
+        _reach = DevReportSessionReach.Idle;
+        _answer = () => DirectorCommandResult.Fail(DirectorCommandStatus.Timeout, "the Director did not answer");
+
+        await delivery.DrainAsync(Tenant, _sid, default);
+        await delivery.DrainAsync(Tenant, _sid, default);
+
+        var row = store.Items(Tenant, report.Id).Single();
+        Assert.Equal(("delivered", "Sent to the session, not confirmed"), (row.Status, row.StatusLabel));
+        Assert.Single(_prompts);
+    }
+
+    [Fact]
+    public async Task SendAndDrain_RacingEachOther_DeliverEveryItemExactlyOnce()
+    {
+        var store = Store();
+        var report = Publish(store);
+        var delivery = Delivery(store);
+        _reach = DevReportSessionReach.Idle;
+
+        var work = new List<Task>();
+        for (var i = 0; i < 20; i++)
+        {
+            var id = "n" + i;
+            work.Add(Task.Run(() => delivery.SendAsync(Tenant, report, [Note(id, "note " + id)], "device", default)));
+            work.Add(Task.Run(() => delivery.DrainAsync(Tenant, _sid, default)));
+        }
+        await Task.WhenAll(work);
+
+        for (var i = 0; i < 20; i++)
+        {
+            var words = "<<<\nnote n" + i + "\n>>>";
+            Assert.Equal(1, _prompts.Count(p => p.Text.Contains(words, StringComparison.Ordinal)));
+        }
+        Assert.All(store.Items(Tenant, report.Id), row => Assert.Equal("delivered", row.Status));
+    }
+
+    [Fact]
+    public async Task DrainAsync_AfterARestartOverTheSameDatabase_DeliversWhatWasHeld()
+    {
+        var before = Store();
+        var report = Publish(before);
+        await Delivery(before).SendAsync(Tenant, report, [Note("n1"), Answer("a1", "deploy", "tonight")], "device", default);
+        Assert.Empty(_prompts);
+
+        // A new process: a new store over the same database file, a new delivery service with no memory.
+        var after = Store();
+        _reach = DevReportSessionReach.Idle;
+        var delivered = await Delivery(after).DrainAsync(Tenant, _sid, default);
+
+        Assert.Equal(2, delivered);
+        Assert.Single(_prompts);
+    }
+
+    [Fact]
+    public async Task DrainAsync_CalledWithNoAccountInScope_SendsInsideTheAccountsScope()
+    {
+        // The restart path: the turn-end watcher's catch-up sweep raises the drain with no account in scope, and a
+        // hosted tunnel drops a command sent that way. The send itself must carry the scope.
+        var store = Store();
+        var report = Publish(store);
+        await Delivery(store).SendAsync(Tenant, report, [Note("n1")], "device", default);
+        Assert.Null(ScopeInEffect.Value);
+
+        _reach = DevReportSessionReach.Idle;
+        await Delivery(store).DrainAsync(Tenant, _sid, default);
+
+        Assert.Equal(Tenant.Value, Assert.Single(_scopeAtSend));
+    }
+
+    [Fact]
+    public void Store_AnotherTenantsReport_IsNotFound()
+    {
+        var store = Store();
+        var report = Publish(store);
+
+        Assert.NotNull(store.Get(Tenant, report.Id));
+        Assert.Null(store.Get(OtherTenant, report.Id));
+        Assert.Empty(store.List(OtherTenant, null));
+        Assert.Null(store.GetVersion(OtherTenant, report.Id, null));
+    }
+
+    [Fact]
+    public void Publish_SameKeyAgain_IsANewVersionOfTheSameReport()
+    {
+        var store = Store();
+
+        var (first, created) = store.Publish(Tenant, _sid, "k", "<p>one</p>", "agent-working", "One", Now);
+        var (second, createdAgain) = store.Publish(Tenant, _sid, "k", "<p>one</p>", "done", "One again", Now.AddMinutes(1));
+
+        Assert.True(created);
+        Assert.False(createdAgain);
+        Assert.Equal(first.Id, second.Id);
+        Assert.Equal(2, second.Version);
+        Assert.Equal("<p>one</p>", store.GetVersion(Tenant, first.Id, 1)!.Html);
+        Assert.Equal("done", store.GetVersion(Tenant, first.Id, null)!.Status);
+        Assert.Equal(Now, second.PublishedAtUtc);
+        Assert.Equal(Now.AddMinutes(1), second.UpdatedAtUtc);
+    }
+}

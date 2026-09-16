@@ -37,6 +37,10 @@ public static class SubmissionRoutes
 
     /// <summary>Text the product itself authored and sent - a handover, a pre-prompt, a chat relay, the wingman.</summary>
     public const string Framework = "framework";
+
+    /// <summary>The owner's notes and answers on a dev report, delivered by the Gateway after the session's turn
+    /// ends (issue #2958). The owner's turn, not the product's: the words are the owner's.</summary>
+    public const string GatewayDevReport = "gateway-dev-report";
 }
 
 /// <summary>The kind of credential that stood behind the submission when it entered.</summary>
