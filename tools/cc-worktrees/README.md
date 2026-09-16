@@ -107,6 +107,17 @@ way (for example a file locked by another process on Windows) the slot is held w
 
 The tool never kills a process, never deletes a branch, and never pushes, merges or rewrites history.
 
+## What a slot is not
+
+- **Ignored files persist to the next holder.** A reset keeps every ignored file, because warm build
+  output is the reason the pool exists, and the tool cannot tell build output from anything else that
+  is ignored. A `.env`, a local credential or any other ignored file one holder leaves behind is in the
+  slot when the next holder gets it.
+- **A slot is not private.** Every holder is the same operating-system user on the same machine, who
+  can already read every slot on disk, whoever holds it.
+- **The lease is a coordination token, not authentication.** It stops one session returning a slot
+  another session holds by mistake. Anyone who can read the state file can read the lease.
+
 ## Exit codes
 
 | Code | Meaning |
