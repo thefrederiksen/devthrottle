@@ -85,59 +85,59 @@ def test_load_json_TopLevelList_ReportsProblem(tmp_path):
 
 
 def test_validate_verify_PassWithEvidence_IsValid():
-    assert contracts.validate_verify({"verdict": "go", "scenarios": [_scenario()]}) == []
+    assert contracts.validate_verify(surface_available=True, data={"verdict": "go", "scenarios": [_scenario()]}) == []
 
 
 def test_validate_verify_NoScenarios_Rejected():
-    assert contracts.validate_verify({"verdict": "go", "scenarios": []})
+    assert contracts.validate_verify(surface_available=True, data={"verdict": "go", "scenarios": []})
 
 
 def test_validate_verify_PassWithoutEvidence_Rejected():
-    problems = contracts.validate_verify({"verdict": "go", "scenarios": [_scenario(evidence="")]})
+    problems = contracts.validate_verify(surface_available=True, data={"verdict": "go", "scenarios": [_scenario(evidence="")]})
     assert any("needs evidence" in p for p in problems)
 
 
 def test_validate_verify_UntestedWithoutReason_Rejected():
     scenario = _scenario(result="untested", live=False, evidence="", reason="")
-    problems = contracts.validate_verify({"verdict": "go", "scenarios": [scenario]})
+    problems = contracts.validate_verify(surface_available=True, data={"verdict": "go", "scenarios": [scenario]})
     assert any("reason" in p for p in problems)
 
 
 def test_validate_verify_FailWithGo_Rejected():
-    problems = contracts.validate_verify({"verdict": "go", "scenarios": [_scenario(result="fail")]})
+    problems = contracts.validate_verify(surface_available=True, data={"verdict": "go", "scenarios": [_scenario(result="fail")]})
     assert any("no-go" in p for p in problems)
 
 
 def test_validate_verify_NoSurfaceWithLiveScenario_Rejected():
-    problems = contracts.validate_verify({"verdict": "no-surface", "scenarios": [_scenario()]})
+    problems = contracts.validate_verify(surface_available=False, data={"verdict": "no-surface", "scenarios": [_scenario()]})
     assert any("no-surface" in p for p in problems)
 
 
 def test_validate_verify_NoSurfaceAllUntested_IsValid():
     scenario = _scenario(result="untested", live=False, evidence="", reason="documents only")
-    assert contracts.validate_verify({"verdict": "no-surface", "scenarios": [scenario]}) == []
+    assert contracts.validate_verify(surface_available=False, data={"verdict": "no-surface", "scenarios": [scenario]}) == []
 
 
 def test_validate_verify_LiveNotBoolean_Rejected():
-    problems = contracts.validate_verify({"verdict": "go", "scenarios": [_scenario(live="yes")]})
+    problems = contracts.validate_verify(surface_available=True, data={"verdict": "go", "scenarios": [_scenario(live="yes")]})
     assert any("live" in p for p in problems)
 
 
 def test_validate_verify_PassNotLive_Rejected():
     # Inspection finding 2: a pass that never ran live is a guessed pass.
-    problems = contracts.validate_verify({"verdict": "go", "scenarios": [_scenario(live=False)]})
+    problems = contracts.validate_verify(surface_available=True, data={"verdict": "go", "scenarios": [_scenario(live=False)]})
     assert any("run live" in p for p in problems)
 
 
 def test_validate_verify_FailNotLive_Rejected():
     scenario = _scenario(result="fail", live=False)
-    problems = contracts.validate_verify({"verdict": "no-go", "scenarios": [scenario]})
+    problems = contracts.validate_verify(surface_available=True, data={"verdict": "no-go", "scenarios": [scenario]})
     assert any("run live" in p for p in problems)
 
 
 def test_validate_verify_UntestedButLive_Rejected():
     scenario = _scenario(result="untested", live=True, evidence="", reason="x")
-    problems = contracts.validate_verify({"verdict": "go", "scenarios": [scenario]})
+    problems = contracts.validate_verify(surface_available=True, data={"verdict": "go", "scenarios": [scenario]})
     assert any("cannot be live" in p for p in problems)
 
 
@@ -152,11 +152,20 @@ def test_validate_verify_GoWithNothingRunLive_Rejected():
     # Re-inspection finding 1: the verifier could not get past the preview sign-in.
     scenario = _scenario(result="untested", live=False, evidence="",
                          reason="preview sign-in bypass did not work")
-    problems = contracts.validate_verify({"verdict": "go", "scenarios": [scenario]})
+    problems = contracts.validate_verify(surface_available=True, data={"verdict": "go", "scenarios": [scenario]})
     assert any("at least one scenario that passed live" in p for p in problems)
 
 
 def test_validate_verify_InconclusiveWithNothingRunLive_IsValid():
     scenario = _scenario(result="untested", live=False, evidence="",
                          reason="preview sign-in bypass did not work")
-    assert contracts.validate_verify({"verdict": "inconclusive", "scenarios": [scenario]}) == []
+    assert contracts.validate_verify(surface_available=True, data={"verdict": "inconclusive", "scenarios": [scenario]}) == []
+
+
+def test_validate_verify_NoSurfaceWhenPreviewSupplied_Rejected():
+    # Re-inspection round 3, finding 1: the preview existed, the verifier could not get in.
+    scenario = _scenario(result="untested", live=False, evidence="",
+                         reason="preview sign-in bypass did not work")
+    problems = contracts.validate_verify(
+        surface_available=True, data={"verdict": "no-surface", "scenarios": [scenario]})
+    assert any("a surface was provided" in p for p in problems)

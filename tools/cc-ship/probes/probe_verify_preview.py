@@ -55,7 +55,7 @@ def main() -> None:
               "evidence_files": sorted(p.name for p in evidence.iterdir())}
     if result.outcome == fleet.FINISHED:
         data, problems = contracts.load_json(output)
-        record["problems"] = problems if data is None else contracts.validate_verify(data)
+        record["problems"] = problems if data is None else contracts.validate_verify(data, surface_available=True)
         record["verify"] = data
     (work / "record.json").write_text(json.dumps(record, indent=1), encoding="utf-8")
     print(json.dumps({k: v for k, v in record.items() if k != "verify"}))

@@ -103,7 +103,9 @@ def finding_action(finding: dict) -> str:
     return finding.get("action") or "ask-owner"
 
 
-def validate_verify(data: dict) -> list[str]:
+def validate_verify(data: dict, surface_available: bool) -> list[str]:
+    """surface_available: cc-ship handed the verifier something to run (a preview, a build).
+    With a surface, 'no-surface' is never true: failing to drive it is 'inconclusive'."""
     problems: list[str] = []
     scenarios = data.get("scenarios")
     if not isinstance(scenarios, list) or not scenarios:
@@ -143,6 +145,9 @@ def validate_verify(data: dict) -> list[str]:
     if verdict == "go" and not live_passes:
         problems.append("verdict 'go' needs at least one scenario that passed live; "
                         "use 'inconclusive' when a surface exists but could not be driven")
+    if verdict == "no-surface" and surface_available:
+        problems.append("verdict 'no-surface' is wrong: a surface was provided; "
+                        "use 'inconclusive' if it could not be driven")
     if verdict == "no-surface" and not all(
         isinstance(s, dict) and s.get("result") == "untested" and s.get("live") is False
         for s in scenarios

@@ -122,7 +122,13 @@ two more errors and one warning, also fixed with regression tests:
   Creating and removing it is now one `with` block. The live verifier probe was rerun
   through it (45 s, three live passes) and left no cookie file behind.
 
-Each fix, in both rounds, was reverted to confirm its test fails, then restored.
+A third fresh session found the neighbouring gap: `no-surface` was still accepted when a
+preview had been supplied but could not be opened. The validator now takes whether a
+surface was supplied and rejects `no-surface` when one was. It also asked for the
+cookie cleanup to be guarded through the probe itself; a test now runs the probe with a
+failure straight after the cookie file is created.
+
+Each fix, in every round, was reverted to confirm its test fails, then restored.
 
 ## Setup a machine needs before cc-ship runs there
 
