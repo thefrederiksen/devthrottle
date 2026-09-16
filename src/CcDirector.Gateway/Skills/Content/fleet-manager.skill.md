@@ -17,7 +17,7 @@ Say the gaps plainly; never act as if a missing piece exists.
 | --- | --- |
 | The Wingman's reading of each stop | Built. On every session row, in `session list --json`. |
 | The Wingman reading the sessions YOU own | Being built. Until it is, a session you own may carry no reading - treat that as "cannot tell" and read the session yourself. |
-| Being told when a session you own stops | Being built: the Gateway will tell you at the end of each of their turns. Until it is, read `session workers` and `session list --json` when you need to know. Never ask a session to report to you instead - see "Messages are rare" below. |
+| Being told when a session you own stops | Being built: the Gateway will tell you at the end of each of their turns. Until it is, use the TEMPORARY path in "Checking your sessions" below: one report from each session when it finishes or is blocked, and a read of your sessions at the start of every one of your turns. |
 | Outcome records (Ready, Finding, Decision) that stay open until answered | Not built. Keep your open items in a file (below) and read it at every start. |
 | One digest command for the start of a conversation | Not built. Use the routine below. |
 | Handing an existing session over to you | Not built. Say so when they ask. |
@@ -62,8 +62,16 @@ In each row's `turnVerdict`:
 Give the session its WHOLE task at the start, so it never has to be told anything more. Write the
 instructions to a file first - **The owner's intent** (their words, unchanged) and **Build notes**
 (yours: the repository, the files that matter, what done means, how to prove it, and where to write
-its report file if the work is a report). Do NOT ask it to run `session report` at the end of its
-turns: the Wingman reads every stop, and the Gateway's end-of-turn events tell you it stopped.
+its report file if the work is a report).
+
+**Temporary, until the Gateway delivers end-of-turn events to you:** end the Build notes with this
+line, word for word, and ask for nothing else:
+
+> Run `cc-devthrottle session report "<one or two sentences>"` exactly ONCE: when your task is
+> finished, or when you are blocked on a decision you cannot make. Never run it for progress.
+
+Once end-of-turn events are live, this line leaves the instructions: the events and the Wingman's
+reading replace it.
 
 ```
 cc-devthrottle session spawn <repository path> --controlled-by self --name "<what it does>" --prompt "Read your instructions at <file> and do them."
@@ -94,12 +102,32 @@ Every word sent into a session interrupts it. The owner has ruled that this must
 
 - The whole task goes in the spawn prompt. Nothing routine is sent afterwards.
 - You never ask a session what it did. You read it (below).
-- You never ask a session to report to you. The Wingman's reading and the Gateway's end-of-turn
-  events tell you what happened.
+- Once the Gateway delivers end-of-turn events to you, no session reports to you: those events and
+  the Wingman's reading tell you what happened. **Until then (temporary)**, the one report line in
+  "Starting a session you own" is the only report you ask for - once, when finished or blocked on
+  a decision, never for progress.
 - You never use `message send` or `message ask` for routine coordination, and you never send to
   `all`.
 - You send words into a session only in two cases: it is idle and waiting for exactly that input
   (the Wingman read `needed-you`), or the owner asked for their words to be passed on.
+
+## Checking your sessions
+
+**Temporary, until the Gateway delivers end-of-turn events to you.** Once those are live, you wait
+for them instead, and this section goes.
+
+Today, at the start of EVERY one of your own turns - whatever woke you - run:
+
+```
+cc-devthrottle session workers
+cc-devthrottle session buffer <session>
+```
+
+- `session workers` lists the sessions you own and their state.
+- For each one that has stopped (idle, waiting, or gone) and that you have not yet dealt with, run
+  `session buffer` on it, then act on it as the conduct says. This catches a stop whose report
+  never arrived.
+- Between your turns, do not poll and do not ask.
 
 ## Answering a session
 

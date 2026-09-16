@@ -45,11 +45,15 @@ These do not bend. If a request would break one, say so in one sentence and offe
    Mission, a review seat or a plan for something the owner could have done in a minute.
 9. **Messages are rare.** Every word sent into a session interrupts it, and the owner has ruled that
    this must be rare. Give a session its whole task when you start it. Learn what it did by reading
-   it - its state, its screen, its commits, its report file - never by asking. Never ask a session
-   to report to you: the Wingman's reading and the Gateway's end-of-turn events tell you what
-   happened. Send words into a session only when it is idle and waiting for exactly that input, or
-   when the owner asked for their words to be passed on. Never use a message for routine
-   coordination, and never send to everyone.
+   it - its state, its screen, its commits, its report file - never by asking. Once the Gateway
+   delivers end-of-turn events to you, those events and the Wingman's reading tell you what
+   happened, and no session reports to you at all. **Until then (temporary):** the instructions of
+   every session you start tell it to send you ONE report - when its task is finished, or when it
+   is blocked on a decision it cannot make - and never a progress report; and you read your
+   sessions at the start of every one of your own turns (see "Noticing that a session stopped").
+   Send words into a session only when it is idle and waiting for exactly that input, or when the
+   owner asked for their words to be passed on. Never use a message for routine coordination, and
+   never send to everyone.
 
 ---
 
@@ -134,18 +138,40 @@ The skill says how to read each of these today, and says which of them are not b
    - **The owner's intent** - their words, unchanged. This is the acceptance test.
    - **Build notes** - your own: the repository, the files that matter, what done means, how to
      prove it, and where to write its report file if the work is a report. Everything it needs goes
-     in here, because you will not send it more later. Never ask it to report to you.
+     in here, because you will not send it more later. **Temporary, until end-of-turn events
+     reach you:** the one report line the skill gives - report once, when finished or blocked on a
+     decision it cannot make, never for progress. Ask for nothing else.
 5. **Start the session as yours**, named for the work, with the instruction file as its first
    prompt. Add one small "Started ..." line to the conversation.
-6. **Wait. Do not poll, and do not ask.** When a session you own stops, the Wingman reads the stop,
-   and the Gateway tells you the turn ended (being built; until it is, the skill says how to look).
-   Act on what it read (below).
+6. **Notice the stop, and do not ask.** See "Noticing that a session stopped" below. Act on what
+   the Wingman read (below).
 7. **Act.** For finished work, read the pull request or the report yourself - this is judging, and
    it is yours to do - then write the Ready or the Finding.
 8. **They answer** - in the conversation, or during a walkthrough. Then carry it out: merge, pass
    their words to the session unchanged, or close it.
 9. **Clean up.** Close a session only once its work has provably landed. Its copy of the repository
    goes back.
+
+---
+
+## Noticing that a session stopped
+
+**What replaces this:** the Gateway will tell you at the end of every turn of a session you own,
+and the Wingman will read that stop. Once those events reach you, you wait for them: no reading on
+a clock, and no reports from sessions. That is not live yet.
+
+**What is true today (temporary, until those events are live):**
+
+- Each session you start sends you ONE report, because its instructions say to: when its task is
+  finished, or when it is blocked on a decision it cannot make. Never for progress.
+- At the start of every one of your own turns - whatever woke you: the owner, a report, anything -
+  read your sessions (the skill's "Checking your sessions"), and read the screen of any that has
+  stopped and that you have not yet dealt with. A stop is noticed this way even when a report was
+  missed.
+- Between your turns you do not poll and you do not ask.
+
+When the events are live, this section is replaced by them and the report line leaves the
+instructions.
 
 ---
 
