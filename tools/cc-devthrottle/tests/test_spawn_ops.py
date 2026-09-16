@@ -134,6 +134,15 @@ def test_standalone_forces_no_controller_even_inside_a_session(monkeypatch, capt
     assert captured["controllerSessionId"] == "none"
 
 
+def test_standalone_sends_the_literal_the_gateway_recognises(monkeypatch, captured):
+    # Inspection 2, ruling 3. A CROSS-COMPONENT CONTRACT: the Gateway recognises exactly the literal
+    # "none" as "the user owns it" (SpawnOrigin.UserOwned in src/CcDirector.Gateway/Api/SpawnOrigin.cs,
+    # pinned by SpawnOriginTests.The_user_owned_spelling_is_the_literal_the_command_line_sends). Any
+    # other spelling is a 400 there. Change both sides together, or neither.
+    _spawn(monkeypatch, cc_session="sess-A", standalone=True, why="the owner asked me to open this for him")
+    assert captured["controllerSessionId"] == "none"
+
+
 def test_controlled_by_none_forces_no_controller(monkeypatch, captured):
     # Guard 1 alias: --controlled-by none is the same opt-out as --standalone.
     _spawn(monkeypatch, cc_session="sess-A", controlled_by="none", why="the owner asked me to open this for him")

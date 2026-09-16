@@ -125,6 +125,21 @@ public sealed class SpawnOriginTests
     }
 
     [Fact]
+    public void The_user_owned_spelling_is_the_literal_the_command_line_sends()
+    {
+        // Inspection 2, ruling 3. A CROSS-COMPONENT CONTRACT: cc-devthrottle sends the literal "none" for
+        // --standalone and --controlled-by none (tools/cc-devthrottle/src/session_ops.py, pinned by
+        // test_spawn_ops.py::test_standalone_sends_the_literal_the_gateway_recognises). The other tests here
+        // pass SpawnOrigin.UserOwned back to itself and would stay green on any spelling; this one would not.
+        Assert.Equal("none", SpawnOrigin.UserOwned);
+
+        var req = Body(owner: "none");
+        Assert.True(SpawnOrigin.TryEstablish(req, AsSession(CallerId), "test", out var error));
+        Assert.Null(error);
+        Assert.Null(req.ControllerSessionId);
+    }
+
+    [Fact]
     public void The_refusal_for_naming_another_owner_says_what_to_do_instead()
     {
         // Pinned to the literal, so a changed sentence is a deliberate edit of this test too.
