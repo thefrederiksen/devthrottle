@@ -184,19 +184,16 @@ def send_owner(
 ) -> None:
     """Send one email to the account owner via the Gateway relay."""
     if not subject or not subject.strip():
-        axi_cli.usage_error("--subject must not be blank.", [_OWNER_USAGE])
+        axi_cli.usage_error(f"--subject must not be blank. Full form: {_OWNER_USAGE}")
     if not (body and body.strip()) and not (html and html.strip()) and not attach:
         axi_cli.usage_error(
-            "provide a body: --body <text>, --html <html>, and/or --attach <file>.", [_OWNER_USAGE]
+            f"provide a body: --body <text>, --html <html>, and/or --attach <file>. Full form: {_OWNER_USAGE}"
         )
 
     try:
         attachments = [_read_attachment(p) for p in (attach or [])]
     except AttachmentError as ex:
-        axi_cli.usage_error(
-            f"{ex}. Nothing was sent.",
-            ['cc-devthrottle email owner --subject "<subject>" --attach "<existing-file>"'],
-        )
+        axi_cli.usage_error(f"{ex}. Nothing was sent. --attach must name an existing file.")
     try:
         result = EmailClient(base_url=gateway_override).send_owner(subject.strip(), body, html, attachments)
     except GatewayError as ex:

@@ -139,10 +139,7 @@ def show(section: Optional[str], json_output: bool) -> None:
         data = get_section(config, section)
         if data is None:
             sections = get_section_names(config)
-            axi_cli.usage_error(
-                f"unknown section '{section}'. Available sections: {', '.join(sections)}",
-                ["cc-devthrottle settings show", _LIST_KEYS],
-            )
+            axi_cli.usage_error(f"unknown section '{section}'. Available sections: {', '.join(sections)}")
 
         if json_output:
             print(json.dumps({section: data}, indent=2))
@@ -170,7 +167,7 @@ def get(key: str, json_output: bool) -> None:
     found, value = get_value(config, key)
 
     if not found:
-        axi_cli.usage_error(f"unknown key '{key}'.", [_LIST_KEYS])
+        axi_cli.usage_error(f"unknown key '{key}'. List the keys with: {_LIST_KEYS}")
 
     if json_output:
         print(json.dumps({"key": key, "value": value}, indent=2))
@@ -185,7 +182,7 @@ def set_config_value(key: str, value: str, json_output: bool) -> None:
     try:
         success = set_value(config, key, value)
     except SettingValueError as exc:
-        axi_cli.usage_error(str(exc), [f"cc-devthrottle settings get {key_ref}"])
+        axi_cli.usage_error(f"{exc} Read the current value with: cc-devthrottle settings get {key_ref}")
     except (ValueError, OSError) as exc:
         # The config file itself: unreadable JSON (which save refuses to overwrite) or not writable.
         axi_cli.fail(
@@ -194,7 +191,7 @@ def set_config_value(key: str, value: str, json_output: bool) -> None:
         )
 
     if not success:
-        axi_cli.usage_error(f"cannot set key '{key}'; no such setting.", [_LIST_KEYS])
+        axi_cli.usage_error(f"cannot set key '{key}'; no such setting. List the keys with: {_LIST_KEYS}")
 
     if json_output:
         print(json.dumps({"key": key, "value": value, "status": "saved"}, indent=2))

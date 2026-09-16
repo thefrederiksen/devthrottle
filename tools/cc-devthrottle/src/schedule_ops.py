@@ -174,7 +174,7 @@ def _fail(message: str, next_commands: List[str]) -> None:
 
 def _create_usage_error(message: str) -> None:
     """A schedule create flag is wrong or missing. Exit 2 and show the full form of the command."""
-    axi_cli.usage_error(message, [_CREATE_USAGE, axi_cli.help_for("schedule create")])
+    axi_cli.usage_error(f"{message} Full form: {_CREATE_USAGE}")
 
 
 # The issue #2201 scope guard that used to sit here (assert_scope_is_unambiguous, reading the

@@ -695,11 +695,15 @@ with the full command on each row; `--json` is unchanged.
 **After a change, and on an error.** In the schedule, workflow, skill, settings, setup, email,
 diag, autostart and browser groups, a command that changes something ends its plain output with
 `help[N]:` lines naming what to run next. A value appears in those lines only when the command's
-own result supplied it; otherwise it is a placeholder such as `<schedule-id>`. An error is written
-to standard error as `Error: ...`, followed by `help[N]:` lines, and the command exits non-zero:
-2 for a flag or argument to fix, 1 otherwise (setup and autostart keep the setup engine's own exit
-code). `workflow delete` and `skill delete` without `--yes` refuse when there is no terminal to ask
-on, instead of prompting. `--json` output is unchanged, and the raw text of `skill get` and
+own result supplied it, and the same holds for a command quoted inside a sentence; otherwise it is
+a placeholder such as `<schedule-id>`. A failure is written to standard error as `Error: ...`,
+followed by `help[N]:` lines naming what to run next, and the command exits 1 - including when the
+setup engine behind setup and autostart fails, whose own exit code is kept in the error text. A flag
+or argument to fix is a usage error, written like every other usage error in the tool (the Usage
+line, the valid options, and `help[1]` naming the command's `--help`), and exits 2. `workflow
+delete` and `skill delete` without `--yes` refuse with a usage error when there is no terminal to
+ask on, instead of prompting. `workflow pull` and `skill pull` write nothing unless the Gateway
+lists the version's files explicitly. `--json` output is unchanged, and the raw text of `skill get` and
 `workflow instructions` gets nothing added.
 
 ```

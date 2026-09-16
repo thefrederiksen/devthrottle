@@ -418,7 +418,7 @@ def show_workflow(workflow_id: str, version: Optional[int], json_output: bool) -
     if files:
         console.print("Helper files: " + ", ".join(f.get("fileName", "") for f in files))
     console.print(
-        f"Instructions: cc-devthrottle workflow instructions {workflow_id}"
+        f"Instructions: cc-devthrottle workflow instructions {_ref(workflow_id)}"
         + (f" --version {version}" if version is not None else "")
     )
 
@@ -496,15 +496,30 @@ def pull_workflow(workflow_id: str, directory: str, version: Optional[int]) -> N
     axi_cli.write_lines(
         f"Pulled '{workflow_id}' v{version} ({detail.get('status')}) into {target.resolve()}",
         "Edit the files, then push with: "
-        f"cc-devthrottle workflow push {workflow_id} --dir \"{target}\"",
+        f"cc-devthrottle workflow push {_ref(workflow_id)} --dir {_dir_arg(directory)}",
     )
     axi_cli.print_next([f"cc-devthrottle workflow push {_ref(workflow_id)} --dir {_dir_arg(directory)}"])
+
+
+def _pulled_files(detail: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The version's helper files, refused unless the Gateway sent them as an explicit list.
+
+    A pull deletes every local helper the version does not carry, so an answer that omits `files`
+    must never be read as "no helpers": that would wipe the directory on a partial answer. An
+    explicit empty list is the only way to say "no helpers"."""
+    files = detail.get("files")
+    if not isinstance(files, list):
+        raise GatewayError("the Gateway's answer did not list the version's helper files, so nothing was written.")
+    for entry in files:
+        if not isinstance(entry, dict) or not isinstance(entry.get("fileName"), str):
+            raise GatewayError("the Gateway's answer lists a helper file with no name, so nothing was written.")
+    return files
 
 
 def _write_pulled(target: Path, workflow_id: str, detail: Dict[str, Any]) -> None:
     """Write one pulled version into `target`. Every helper file name is checked BEFORE anything is
     written, so an unsafe name from the Gateway leaves the directory as it was."""
-    files = detail.get("files") or []
+    files = _pulled_files(detail)
     for f in files:
         _safe_file_name(f["fileName"])
 
@@ -630,7 +645,7 @@ def push_workflow(workflow_id: str, directory: str, note: Optional[str], force: 
     axi_cli.write_lines(
         f"{verb} draft v{result.get('version')} of '{workflow_id}'. "
         "Nothing changes for the fleet until it publishes: "
-        f"cc-devthrottle workflow publish {workflow_id}"
+        f"cc-devthrottle workflow publish {_ref(workflow_id)}"
     )
     axi_cli.print_next([
         f"cc-devthrottle workflow publish {_ref(workflow_id)}",
@@ -693,7 +708,7 @@ def set_workflow_enabled(workflow_id: str, enabled: bool) -> None:
         axi_cli.write_lines(
             f"'{workflow_id}' is OFF - hidden from agents' briefings, no new runs or seats. "
             "Nothing was deleted; re-enable anytime with: "
-            f"cc-devthrottle workflow enable {workflow_id}"
+            f"cc-devthrottle workflow enable {_ref(workflow_id)}"
         )
         axi_cli.print_next([
             f"cc-devthrottle workflow enable {_ref(workflow_id)}",
@@ -707,7 +722,6 @@ def delete_workflow(workflow_id: str, yes: bool) -> None:
         "as pinned history.",
         yes,
         "--yes",
-        f"cc-devthrottle workflow delete {_ref(workflow_id)} --yes",
     )
     if not confirmed:
         raise typer.Exit(0)

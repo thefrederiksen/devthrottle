@@ -155,7 +155,7 @@ def create_browser(name: str, browser: str, json_output: bool) -> None:
     kind = gateway.field(dto, "browser", "Browser")
     axi_cli.write_lines(
         f'Created browser "{bname}" ({kind}).',
-        f'Sign it in once with:  cc-devthrottle browser signin "{bname}"',
+        f"Sign it in once with:  cc-devthrottle browser signin {_name_arg(bname)}",
     )
     axi_cli.print_next([f"cc-devthrottle browser signin {_name_arg(bname)}", _LIST])
 
@@ -178,7 +178,7 @@ def signin_browser(target: str, done: bool, json_output: bool) -> None:
         axi_cli.write_lines(
             f'Opened the sign-in page in "{bname}". Sign in BY HAND in that window (credentials are '
             "never automated).",
-            f'When the account is signed in, run:  cc-devthrottle browser signin "{bname}" --done',
+            f"When the account is signed in, run:  cc-devthrottle browser signin {_name_arg(bname)} --done",
         )
         axi_cli.print_next([f"cc-devthrottle browser signin {_name_arg(bname)} --done"])
 
@@ -197,18 +197,22 @@ def start_browser(target: str, json_output: bool) -> None:
     status = gateway.field(dto, "statusLabel", "StatusLabel")
     bu_name = gateway.field(dto, "buName", "BuName")
     bu_url = gateway.field(dto, "buCdpUrl", "BuCdpUrl")
+    attach_line = _attach_line(bname)
     axi_cli.write_lines(
         f'Started "{bname}" ({status}). Attach the harness with:',
-        f'  eval "$(cc-devthrottle browser attach \'{bname}\')"',
+        f"  {attach_line}",
         f"    BU_NAME={bu_name}",
         f"    BU_CDP_URL={bu_url}",
     )
-    # The attach line wraps the name in single quotes, so a name holding one gets the placeholder.
-    attach_name = bname if _name_arg(bname) == f'"{bname}"' and "'" not in bname else "<name>"
-    axi_cli.print_next([
-        f"eval \"$(cc-devthrottle browser attach '{attach_name}')\"",
-        f"cc-devthrottle browser stop {_name_arg(bname)}",
-    ])
+    axi_cli.print_next([attach_line, f"cc-devthrottle browser stop {_name_arg(bname)}"])
+
+
+def _attach_line(name: object) -> str:
+    """The line that points the harness at a started browser. The name sits in single quotes inside
+    double quotes, so it is written in only when `_name_arg` would write it AND it holds no single
+    quote; otherwise the line carries the placeholder."""
+    safe = isinstance(name, str) and _name_arg(name) == f'"{name}"' and "'" not in name
+    return f"eval \"$(cc-devthrottle browser attach '{name if safe else '<name>'}')\""
 
 
 @_reports_gateway_failures

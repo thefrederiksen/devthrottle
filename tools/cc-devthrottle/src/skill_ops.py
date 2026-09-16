@@ -616,10 +616,10 @@ def show_skill(skill_id: str, version: Optional[int], json_output: bool) -> None
     if data.get("isBuiltIn"):
         console.print(
             "Built in and read-only. To customize it: "
-            f"cc-devthrottle skill clone {skill_id} <new-id>"
+            f"cc-devthrottle skill clone {_ref(skill_id)} <new-id>"
         )
     console.print(
-        f"Read it in full: cc-devthrottle skill get {skill_id}"
+        f"Read it in full: cc-devthrottle skill get {_ref(skill_id)}"
         + (f" --version {version}" if version is not None else "")
     )
 
@@ -686,15 +686,34 @@ def pull_skill(skill_id: str, directory: str, version: Optional[int]) -> None:
 
     axi_cli.write_lines(
         f"Pulled '{skill_id}' v{version} ({detail.get('status')}) into {target.resolve()}",
-        f'Edit the files, then push with: cc-devthrottle skill push {skill_id} --dir "{target}"',
+        f"Edit the files, then push with: cc-devthrottle skill push {_ref(skill_id)} --dir {_dir_arg(directory)}",
     )
     axi_cli.print_next([f"cc-devthrottle skill push {_ref(skill_id)} --dir {_dir_arg(directory)}"])
+
+
+def _pulled_files(detail: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The version's supporting files, refused unless the Gateway sent them as an explicit list.
+
+    A pull deletes every local supporting file the version does not carry, so an answer that omits
+    `files` must never be read as "no files": that would wipe the directory on a partial answer. An
+    explicit empty list is the only way to say "no supporting files"."""
+    files = detail.get("files")
+    if not isinstance(files, list):
+        raise GatewayError(
+            "the Gateway's answer did not list the version's supporting files, so nothing was written."
+        )
+    for entry in files:
+        if not isinstance(entry, dict) or not isinstance(entry.get("fileName"), str):
+            raise GatewayError(
+                "the Gateway's answer lists a supporting file with no name, so nothing was written."
+            )
+    return files
 
 
 def _write_pulled(target: Path, skill_id: str, detail: Dict[str, Any]) -> None:
     """Write one pulled version into `target`. Every file path is checked BEFORE anything is written,
     so an unsafe path from the Gateway leaves the directory as it was."""
-    files = detail.get("files") or []
+    files = _pulled_files(detail)
     for entry in files:
         _safe_relative_path(entry["fileName"])
 
@@ -828,7 +847,7 @@ def push_skill(skill_id: str, directory: str, note: Optional[str], force: bool =
     axi_cli.write_lines(
         f"{verb} draft v{result.get('version')} of '{skill_id}'. "
         "No agent sees it until it publishes: "
-        f"cc-devthrottle skill publish {skill_id}"
+        f"cc-devthrottle skill publish {_ref(skill_id)}"
     )
     axi_cli.print_next([
         f"cc-devthrottle skill publish {_ref(skill_id)}",
@@ -887,7 +906,7 @@ def set_skill_enabled(skill_id: str, enabled: bool) -> None:
         axi_cli.write_lines(
             f"'{skill_id}' is OFF - left out of every agent's briefing and its fetch refused. "
             "Nothing was deleted; switch it back on anytime with: "
-            f"cc-devthrottle skill enable {skill_id}"
+            f"cc-devthrottle skill enable {_ref(skill_id)}"
         )
         axi_cli.print_next([f"cc-devthrottle skill enable {_ref(skill_id)}", _FIND_A_SKILL])
 
@@ -898,7 +917,6 @@ def delete_skill(skill_id: str, yes: bool) -> None:
         "by explicit version.",
         yes,
         "--yes",
-        f"cc-devthrottle skill delete {_ref(skill_id)} --yes",
     )
     if not confirmed:
         raise typer.Exit(0)

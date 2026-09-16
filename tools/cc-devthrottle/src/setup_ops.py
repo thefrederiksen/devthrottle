@@ -444,10 +444,7 @@ def _setup_cli_args(command: str, role: str, dry_run: bool, json_output: bool) -
 def run_setup_cli(command: str, role: str, dry_run: bool = False, json_output: bool = False) -> None:
     # Progress and "what is happening" notes go to standard error, so `--json` output stays parseable.
     if role not in _SETUP_ROLES:
-        axi_cli.usage_error(
-            f"--role must be one of {', '.join(_SETUP_ROLES)}, not '{role}'.",
-            [f"cc-devthrottle setup {command} --role workstation", axi_cli.help_for(f"setup {command}")],
-        )
+        axi_cli.usage_error(f"--role must be one of {', '.join(_SETUP_ROLES)}, not '{role}'.")
 
     setup_cli = _locate_setup_cli()
     if not setup_cli:
@@ -461,7 +458,6 @@ def run_setup_cli(command: str, role: str, dry_run: bool = False, json_output: b
             f"the setup engine exited with code {completed.returncode} during '{command}'; "
             "its own output above says why.",
             ["cc-devthrottle setup doctor", f"cc-devthrottle setup repair --role {role}"],
-            exit_code=completed.returncode,
         )
     if json_output:
         return
@@ -478,10 +474,7 @@ def run_autostart(verb: str, json_output: bool = False) -> None:
     now that it left the web Settings page."""
     verb = (verb or "status").lower()
     if verb not in _AUTOSTART_VERBS:
-        axi_cli.usage_error(
-            f"autostart verb must be one of {', '.join(_AUTOSTART_VERBS)}, not '{verb}'.",
-            ["cc-devthrottle autostart status"],
-        )
+        axi_cli.usage_error(f"autostart verb must be one of {', '.join(_AUTOSTART_VERBS)}, not '{verb}'.")
 
     setup_cli = _locate_setup_cli()
     if not setup_cli:
@@ -499,7 +492,6 @@ def run_autostart(verb: str, json_output: bool = False) -> None:
             f"the setup engine exited with code {completed.returncode} for 'autostart {verb}'; "
             "its own output above says why.",
             ["cc-devthrottle autostart status", "cc-devthrottle setup doctor"],
-            exit_code=completed.returncode,
         )
     if json_output or verb == "status":
         return

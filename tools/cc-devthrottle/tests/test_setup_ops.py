@@ -331,11 +331,10 @@ def test_no_legacy_hard_coded_tool_lists_remain():
 def test_run_autostart_rejects_unknown_verb():
     # The one home per OS lives behind the setup CLI (issue #2022); this passthrough only accepts the
     # three real verbs and fails loud on anything else rather than shelling a nonsense command.
-    import typer
+    from src.usage_errors import CommandUsageError
 
-    with pytest.raises(typer.Exit) as exc:
+    with pytest.raises(CommandUsageError):
         setup_ops.run_autostart("bogus")
-    assert exc.value.exit_code == 2
 
 
 def test_run_autostart_shells_to_setup_cli_autostart(monkeypatch):

@@ -6,13 +6,23 @@ Two things every command in a group that uses this module does the same way:
   an agent would run next (principle 9). A value is written into a help line only when the command's
   own result supplied it and it is safe to paste back into a shell; otherwise the line carries a
   placeholder such as `<schedule-id>`. Nothing is guessed.
-- An error goes to standard error as `Error: <what failed>`, followed by `help[N]:` lines naming what
-  to run or which flag to fix, and the command exits non-zero (principle 6). An error without a next
-  step is refused here, so a handler cannot be written without one.
+- A runtime error - the Gateway refused, a file could not be written, the setup engine failed - goes
+  to standard error as `Error: <what failed>`, followed by `help[N]:` lines naming what to run next,
+  and the command exits 1 (principle 6). An error without a next step is refused here, so a handler
+  cannot be written without one.
+- A usage error - a flag or an argument the caller has to fix - is NOT formatted here. `usage_error`
+  hands it to `usage_errors.usage_error`, the one formatter for exit 2, which adds the command's
+  Usage line, its Valid options and help[1].
+
+The API, in full: `bare` and `quoted` (a value, or a placeholder, for any command-looking line),
+`ascii_text` (free text made one line of ASCII), `write_lines` and `print_next` (standard output),
+`fail` (exit 1), `usage_error` (exit 2), `help_for`, and `confirm_or_fail`.
 
 Text reaches the stream through `axi_output.write_blocks`, never through Rich: Rich reads square
 brackets in a message as markup and drops them, and wraps long lines at the console width. Anything
-that is not ASCII is escaped, because a Gateway message or a user's own value can carry it.
+that is not printable ASCII is escaped - a control character as much as a non-ASCII one - because a
+Gateway message or a user's own value can carry either, and a raw newline would split one result
+line into two.
 
 `--json` output never passes through here; a machine format keeps its shape.
 """
@@ -32,6 +42,8 @@ if _tools_dir not in sys.path:
 
 from cc_shared import axi_output  # noqa: E402
 
+from . import usage_errors  # noqa: E402
+
 TOOL = "cc-devthrottle"
 
 # An identifier that can be pasted into a shell as it is: no spaces, quotes, or shell characters.
@@ -43,8 +55,10 @@ _UNSAFE_IN_DOUBLE_QUOTES = set('"$`!')
 
 
 def ascii_text(text: str) -> str:
-    """`text` with every non-ASCII character escaped, and everything else left exactly as it was."""
-    return "".join(ch if ch.isascii() else axi_output.escape_ascii(ch) for ch in text)
+    """`text` as one line of printable ASCII: every other character - a newline, a carriage return,
+    an escape sequence, a non-ASCII letter - is escaped with `axi_output.escape_ascii`, and every
+    printable ASCII character is left exactly as it was, so a Windows path keeps single backslashes."""
+    return "".join(ch if 0x20 <= ord(ch) <= 0x7E else axi_output.escape_ascii(ch) for ch in text)
 
 
 def bare(value: object, placeholder: str) -> str:
@@ -80,28 +94,27 @@ def print_next(commands: Sequence[str]) -> None:
     axi_output.write_blocks(sys.stdout, axi_output.format_help(list(commands)))
 
 
-def fail(message: str, next_commands: Sequence[str], exit_code: int = 1) -> NoReturn:
-    """Write `Error: <message>` and the next steps to standard error, then exit with `exit_code`.
+def fail(message: str, next_commands: Sequence[str]) -> NoReturn:
+    """Write `Error: <message>` and the next steps to standard error, then exit 1.
 
-    `next_commands` must name at least one thing to run: an error an agent cannot act on is the
-    defect this module exists to prevent.
+    For a runtime failure only; a usage error is `usage_error`. `next_commands` must name at least
+    one thing to run: an error an agent cannot act on is the defect this module exists to prevent.
     """
     if not next_commands:
         raise ValueError("an error must name at least one next step")
-    if exit_code == 0:
-        raise ValueError("an error must exit non-zero")
-    text = message.strip()
     axi_output.write_blocks(
         sys.stderr,
-        ascii_text(f"Error: {text}"),
+        ascii_text(f"Error: {message.strip()}"),
         axi_output.format_help(list(next_commands)),
     )
-    raise typer.Exit(exit_code)
+    raise typer.Exit(1)
 
 
-def usage_error(message: str, next_commands: Sequence[str]) -> NoReturn:
-    """`fail` with the usage-error exit code, 2: the caller has a flag or an argument to fix."""
-    fail(message, next_commands, exit_code=axi_output.USAGE_ERROR_EXIT_CODE)
+def usage_error(message: str) -> NoReturn:
+    """A flag or an argument is wrong: exit 2 through the one usage-error formatter,
+    `usage_errors.usage_error`, which adds the running command's Usage line, Valid options and
+    help[1]. Free text in `message` is escaped here, so a caller may quote the value it refused."""
+    usage_errors.usage_error(ascii_text(message.strip()))
 
 
 def help_for(command: str) -> str:
@@ -109,7 +122,7 @@ def help_for(command: str) -> str:
     return f"{TOOL} {command} --help"
 
 
-def confirm_or_fail(prompt: str, yes: bool, flag_hint: str, retry_command: str) -> bool:
+def confirm_or_fail(prompt: str, yes: bool, flag_hint: str) -> bool:
     """Ask for confirmation only when a person is at the keyboard.
 
     AXI principle 6 says never prompt: an agent's standard input is not a terminal, so the old
@@ -120,9 +133,6 @@ def confirm_or_fail(prompt: str, yes: bool, flag_hint: str, retry_command: str) 
     if yes:
         return True
     if not sys.stdin.isatty():
-        usage_error(
-            f"this needs confirmation and there is no terminal to ask on. Re-run it with {flag_hint}.",
-            [retry_command],
-        )
+        usage_error(f"this needs confirmation and there is no terminal to ask on. Re-run it with {flag_hint}.")
     return typer.confirm(prompt)
 

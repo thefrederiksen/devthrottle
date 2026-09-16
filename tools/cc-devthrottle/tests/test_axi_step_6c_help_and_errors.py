@@ -6,7 +6,9 @@ browser, and the top-level `actions` command. The rules are in docs/axi-standard
 - A command that changes something ends its plain output with `help[N]:` next commands. A value is
   filled in only when the command's own result supplied it; everything else is a placeholder.
 - Every command and group has a one-line `--help` summary that fits one row of its group's list.
-- An error goes to standard error as `Error: ...` plus `help[N]:` next steps, and exits non-zero.
+- A runtime error goes to standard error as `Error: ...` plus `help[N]:` next steps, and exits 1.
+- A usage error goes through the one usage-error formatter (usage_errors): `Error: ...`, the
+  command's Usage line, its Valid options and help[1] naming its --help, and exits 2.
 - `--json` output never changes.
 """
 
@@ -24,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from cc_shared import axi_output  # noqa: E402
 from cc_shared.config import CCDirectorConfig  # noqa: E402
-from src import axi_cli, browser_ops, setup_ops, settings_ops  # noqa: E402
+from src import axi_cli, browser_ops, setup_ops, settings_ops, usage_errors  # noqa: E402
 from src.cli import app  # noqa: E402
 
 runner = CliRunner()
@@ -50,9 +52,9 @@ def _help_block(text: str) -> list:
     return [command[2:] for command in commands]
 
 
-def _assert_error(result, *expected_help, exit_code=1):
+def _assert_error(result, *expected_help):
     """An error: nothing on standard output, `Error: ...` and next steps on standard error."""
-    assert result.exit_code == exit_code, (result.exit_code, result.stdout, result.stderr)
+    assert result.exit_code == 1, (result.exit_code, result.stdout, result.stderr)
     assert result.stdout == "", result.stdout
     # A progress note (setup's "Delegating to setup engine") may come first; the error comes last.
     errors = [line for line in result.stderr.split("\n") if line.startswith("Error: ")]
@@ -63,6 +65,22 @@ def _assert_error(result, *expected_help, exit_code=1):
     commands = _help_block(result.stderr)
     for wanted in expected_help:
         assert wanted in commands, (wanted, commands)
+    return result.stderr
+
+
+def _assert_usage_error(result, command):
+    """A usage error, written by the one formatter in usage_errors: the Error line, the Usage line of
+    `command`, its Valid options, and help[1] naming its --help. Exit 2, nothing on standard output."""
+    assert result.exit_code == 2, (result.exit_code, result.stdout, result.stderr)
+    assert result.stdout == "", result.stdout
+    assert "Traceback" not in result.stderr
+    assert result.stderr.isascii()
+    lines = result.stderr.rstrip("\n").split("\n")
+    assert lines[0].startswith("Error: "), result.stderr
+    assert sum(1 for line in lines if line.startswith("Error: ")) == 1, result.stderr
+    assert lines[1].startswith(f"Usage: cc-devthrottle {command} "), result.stderr
+    assert lines[2].startswith("Valid options: ") and "--help" in lines[2], result.stderr
+    assert _help_block(result.stderr) == [f"cc-devthrottle {command} --help"]
     return result.stderr
 
 
@@ -180,8 +198,32 @@ class TestAxiCli:
     def test_fail_refuses_an_error_without_a_next_step(self):
         with pytest.raises(ValueError):
             axi_cli.fail("broken", [])
-        with pytest.raises(ValueError):
-            axi_cli.fail("broken", ["cc-devthrottle x"], exit_code=0)
+
+    def test_fail_always_exits_1(self, capsys):
+        # 2 belongs to usage errors, and they have their own formatter.
+        with pytest.raises(typer.Exit) as exc:
+            axi_cli.fail("broken", ["cc-devthrottle x"])
+        assert exc.value.exit_code == 1
+
+    def test_usage_error_goes_through_the_one_formatter(self):
+        # Outside a command there is no context to name; the error is still the shared class, and
+        # its message is escaped to one line of ASCII before it gets there.
+        with pytest.raises(usage_errors.CommandUsageError) as exc:
+            axi_cli.usage_error("bad value 'caf\u00e9\nx'.")
+        assert exc.value.format_message() == "bad value 'caf\\u00e9\\nx'."
+
+    def test_ascii_text_escapes_control_characters_and_keeps_backslashes(self):
+        assert axi_cli.ascii_text("A\nB") == "A\\nB"
+        assert axi_cli.ascii_text("a\rb\tc\x1b[31md\x07") == "a\\rb\\tc\\u001b[31md\\u0007"
+        assert axi_cli.ascii_text("caf\u00e9") == "caf\\u00e9"
+        assert axi_cli.ascii_text('C:\\Users\\me "x"') == 'C:\\Users\\me "x"'
+
+    def test_write_lines_and_fail_keep_a_newline_in_a_value_on_one_line(self, capsys):
+        axi_cli.write_lines("Started 'a\nb'.")
+        assert capsys.readouterr().out == "Started 'a\\nb'.\n"
+        with pytest.raises(typer.Exit):
+            axi_cli.fail("gateway said: first\nsecond", ["cc-devthrottle x"])
+        assert capsys.readouterr().err == "Error: gateway said: first\\nsecond\nhelp[1]:\n  cc-devthrottle x\n"
 
     def test_fail_writes_markup_and_non_ascii_verbatim_but_escaped(self, capsys):
         with pytest.raises(typer.Exit) as exc:
@@ -200,8 +242,8 @@ class TestAxiCli:
 
         monkeypatch.setattr(axi_cli.sys, "stdin", _Terminal())
         monkeypatch.setattr(axi_cli.typer, "confirm", lambda prompt: False)
-        assert axi_cli.confirm_or_fail("Sure?", False, "--yes", "cc-devthrottle x --yes") is False
-        assert axi_cli.confirm_or_fail("Sure?", True, "--yes", "cc-devthrottle x --yes") is True
+        assert axi_cli.confirm_or_fail("Sure?", False, "--yes") is False
+        assert axi_cli.confirm_or_fail("Sure?", True, "--yes") is True
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -227,10 +269,22 @@ def test_actions_lists_every_id_and_command_in_full():
     assert _help_block(result.stdout) == ["cc-devthrottle actions --json", "cc-devthrottle <group> <command> --help"]
 
 
-def test_actions_json_is_unchanged():
-    from src.cli import _ACTIONS
+# `cc-devthrottle actions --json` exactly as origin/main printed it before step 6c, captured byte for
+# byte. It is pinned in a file, not rebuilt from `_ACTIONS`, so a changed id, command or flag in the
+# registry fails here instead of changing both sides of the comparison.
+_ACTIONS_JSON_BEFORE = Path(__file__).parent / "fixtures" / "actions_json_before_step_6c.json"
 
-    _assert_json_unchanged(runner.invoke(app, ["actions", "--json"]), {"actions": _ACTIONS})
+
+def test_actions_json_is_unchanged():
+    pinned = _ACTIONS_JSON_BEFORE.read_text(encoding="utf-8")
+    # The pin itself must be the real payload, not an empty file that anything would match.
+    actions = json.loads(pinned)["actions"]
+    assert len(actions) == 83
+    assert {"session-list", "schedule-create", "browser-start"} <= {a["id"] for a in actions}
+
+    result = runner.invoke(app, ["actions", "--json"])
+    assert result.exit_code == 0
+    assert result.stdout == pinned
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -354,15 +408,14 @@ class TestScheduleErrors:
         ],
     )
     def test_create_flag_mistakes_are_usage_errors(self, schedule_client, extra, message):
-        stderr = _assert_error(
-            runner.invoke(app, _CREATE + extra), "cc-devthrottle schedule create --help", exit_code=2
-        )
+        stderr = _assert_usage_error(runner.invoke(app, _CREATE + extra), "schedule create")
         assert message in stderr
+        assert "Full form: cc-devthrottle schedule create --name" in stderr
         schedule_client.create_job.assert_not_called()
 
     def test_create_without_anything_to_run_is_a_usage_error(self, schedule_client):
         args = [a for a in _CREATE if a not in ("--seed", "/help")]
-        stderr = _assert_error(runner.invoke(app, args), exit_code=2)
+        stderr = _assert_usage_error(runner.invoke(app, args), "schedule create")
         assert "--seed <text> or --worklist <name>" in stderr
 
     def test_endpoint_without_a_gateway_is_a_sentence_not_a_traceback(self, monkeypatch):
@@ -439,11 +492,7 @@ class TestWorkflowMutations:
         )
 
     def test_delete_without_yes_and_no_terminal_refuses_instead_of_prompting(self, workflow_client):
-        stderr = _assert_error(
-            runner.invoke(app, ["workflow", "delete", "my-flow"]),
-            "cc-devthrottle workflow delete my-flow --yes",
-            exit_code=2,
-        )
+        stderr = _assert_usage_error(runner.invoke(app, ["workflow", "delete", "my-flow"]), "workflow delete")
         assert "--yes" in stderr
         workflow_client.delete.assert_not_called()
 
@@ -565,11 +614,8 @@ class TestSkillMutations:
         _assert_plain_with_help(result, "cc-devthrottle skill list", "cc-devthrottle skill versions my-skill")
 
     def test_delete_without_yes_and_no_terminal_refuses(self, skill_client):
-        _assert_error(
-            runner.invoke(app, ["skill", "delete", "my-skill"]),
-            "cc-devthrottle skill delete my-skill --yes",
-            exit_code=2,
-        )
+        stderr = _assert_usage_error(runner.invoke(app, ["skill", "delete", "my-skill"]), "skill delete")
+        assert "Re-run it with --yes." in stderr
         skill_client.delete.assert_not_called()
 
     def test_pull_with_an_unsafe_directory_name_uses_the_placeholder(self, skill_client, tmp_path):
@@ -711,18 +757,16 @@ class TestSettings:
         )
 
     def test_unknown_key_on_set_is_a_usage_error(self, config_file):
-        stderr = _assert_error(
-            runner.invoke(app, ["settings", "set", "nope.key", "1"]), "cc-devthrottle settings list", exit_code=2
-        )
+        stderr = _assert_usage_error(runner.invoke(app, ["settings", "set", "nope.key", "1"]), "settings set")
+        assert "cc-devthrottle settings list" in stderr
         assert "cannot set key 'nope.key'" in stderr
         assert not config_file.exists()
 
     def test_wrong_type_is_a_usage_error_naming_get(self, config_file):
-        stderr = _assert_error(
-            runner.invoke(app, ["settings", "set", "llm.providers.claude_code.enabled", "maybe"]),
-            "cc-devthrottle settings get llm.providers.claude_code.enabled",
-            exit_code=2,
+        stderr = _assert_usage_error(
+            runner.invoke(app, ["settings", "set", "llm.providers.claude_code.enabled", "maybe"]), "settings set"
         )
+        assert "cc-devthrottle settings get llm.providers.claude_code.enabled" in stderr
         assert "expects a boolean" in stderr
 
     def test_a_corrupt_config_file_is_a_failure_naming_its_path(self, config_file):
@@ -734,12 +778,11 @@ class TestSettings:
         assert config_file.read_text() == "{ not json"
 
     def test_unknown_key_on_get_is_a_usage_error(self, config_file):
-        _assert_error(runner.invoke(app, ["settings", "get", "nope"]), "cc-devthrottle settings list", exit_code=2)
+        stderr = _assert_usage_error(runner.invoke(app, ["settings", "get", "nope"]), "settings get")
+        assert "cc-devthrottle settings list" in stderr
 
     def test_unknown_section_on_show_lists_the_real_ones(self, config_file):
-        stderr = _assert_error(
-            runner.invoke(app, ["settings", "show", "nope"]), "cc-devthrottle settings show", exit_code=2
-        )
+        stderr = _assert_usage_error(runner.invoke(app, ["settings", "show", "nope"]), "settings show")
         assert "Available sections:" in stderr and "llm" in stderr
 
 
@@ -789,12 +832,11 @@ class TestSetup:
         assert result.stdout == '{"ok": true}\n'
         assert calls[-1] == ["/bin/devthrottle-setup-cli", "update", "--role", "workstation", "--json"]
 
-    def test_engine_failure_keeps_its_exit_code_and_names_doctor(self, setup_engine):
+    def test_engine_failure_exits_1_keeps_its_code_in_the_text_and_names_doctor(self, setup_engine):
+        # 0, 1 and 2 are the whole contract: an engine failure is an ordinary failure, not a new code.
         _, outcome = setup_engine
         outcome["returncode"] = 3
-        stderr = _assert_error(
-            runner.invoke(app, ["setup", "repair"]), "cc-devthrottle setup doctor", exit_code=3
-        )
+        stderr = _assert_error(runner.invoke(app, ["setup", "repair"]), "cc-devthrottle setup doctor")
         assert "exited with code 3" in stderr
 
     @pytest.mark.parametrize("verb", ["install", "update", "repair"])
@@ -802,11 +844,7 @@ class TestSetup:
         # install used to catch its own exit (typer.Exit is a RuntimeError) and report "ERROR:" a
         # second time with exit code 1.
         calls, _ = setup_engine
-        stderr = _assert_error(
-            runner.invoke(app, ["setup", verb, "--role", "server"]),
-            f"cc-devthrottle setup {verb} --role workstation",
-            exit_code=2,
-        )
+        stderr = _assert_usage_error(runner.invoke(app, ["setup", verb, "--role", "server"]), f"setup {verb}")
         assert stderr.count("Error:") == 1
         assert "--role must be one of workstation, gateway, not 'server'" in stderr
         assert calls == []
@@ -836,15 +874,17 @@ class TestAutostart:
         outcome["stdout"] = '{"enabled": true}\n'
         assert runner.invoke(app, ["autostart", "on", "--json"]).stdout == '{"enabled": true}\n'
 
-    def test_engine_failure_is_an_actionable_error(self, setup_engine):
+    def test_engine_failure_exits_1_and_keeps_its_code_in_the_text(self, setup_engine):
         _, outcome = setup_engine
         outcome["returncode"] = 5
-        _assert_error(runner.invoke(app, ["autostart", "off"]), "cc-devthrottle autostart status", exit_code=5)
+        stderr = _assert_error(runner.invoke(app, ["autostart", "off"]), "cc-devthrottle autostart status")
+        assert "exited with code 5" in stderr
 
-    def test_unknown_verb_names_status(self):
-        with pytest.raises(typer.Exit) as exc:
+    def test_unknown_verb_is_a_usage_error(self):
+        # No command reaches it - each verb is its own command - so it is called directly.
+        with pytest.raises(usage_errors.CommandUsageError) as exc:
             setup_ops.run_autostart("bogus")
-        assert exc.value.exit_code == 2
+        assert "autostart verb must be one of on, off, status, not 'bogus'" in exc.value.format_message()
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -873,16 +913,15 @@ class TestEmail:
         )
 
     def test_blank_subject_and_missing_body_are_usage_errors(self, email_client):
-        _assert_error(runner.invoke(app, ["email", "owner", "--subject", " ", "--body", "B"]), exit_code=2)
-        stderr = _assert_error(runner.invoke(app, ["email", "owner", "--subject", "S"]), exit_code=2)
+        _assert_usage_error(runner.invoke(app, ["email", "owner", "--subject", " ", "--body", "B"]), "email owner")
+        stderr = _assert_usage_error(runner.invoke(app, ["email", "owner", "--subject", "S"]), "email owner")
         assert "--body <text>" in stderr
         email_client.send_owner.assert_not_called()
 
     def test_missing_attachment_is_a_usage_error_and_nothing_is_sent(self, email_client, tmp_path):
-        stderr = _assert_error(
+        stderr = _assert_usage_error(
             runner.invoke(app, ["email", "owner", "--subject", "S", "--attach", str(tmp_path / "x.html")]),
-            'cc-devthrottle email owner --subject "<subject>" --attach "<existing-file>"',
-            exit_code=2,
+            "email owner",
         )
         assert "attachment not found" in stderr and "Nothing was sent." in stderr
         email_client.send_owner.assert_not_called()
@@ -1081,11 +1120,7 @@ def test_workflow_materialize_into_an_unwritable_cache_is_an_error(workflow_clie
 
 
 def test_schedule_list_flag_mistakes_name_the_help(schedule_client):
-    stderr = _assert_error(
-        runner.invoke(app, ["schedule", "list", "--machine", " "]),
-        "cc-devthrottle schedule list --help",
-        exit_code=2,
-    )
+    stderr = _assert_usage_error(runner.invoke(app, ["schedule", "list", "--machine", " "]), "schedule list")
     assert "--machine needs a value." in stderr
     schedule_client.list_jobs.assert_not_called()
 
@@ -1094,3 +1129,186 @@ def test_schedule_list_refusing_a_broken_row_names_the_raw_view(schedule_client)
     schedule_client.list_jobs.return_value = [{"name": "no id"}]
     stderr = _assert_error(runner.invoke(app, ["schedule", "list"]), "cc-devthrottle schedule list --json")
     assert "a schedule with no id (row 1)" in stderr
+
+
+# ---------------------------------------------------------------------------------------------------
+# Inspection fixes (pull request 2962)
+# ---------------------------------------------------------------------------------------------------
+
+
+def _existing_skill(target: Path) -> None:
+    from src import skill_ops
+
+    (target / "helpers").mkdir(parents=True)
+    (target / "support.txt").write_text("keep me")
+    (target / "helpers" / "run.sh").write_text("echo keep")
+    (target / skill_ops.SKILL_MD).write_text("old body")
+    (target / skill_ops.HASH_SIDECAR).write_text("old-hash")
+
+
+def _existing_workflow(target: Path) -> None:
+    from src import workflow_ops
+
+    (target / workflow_ops.HELPERS_DIR).mkdir(parents=True)
+    (target / workflow_ops.HELPERS_DIR / "run.sh").write_text("echo keep")
+    (target / workflow_ops.INSTRUCTIONS_MD).write_text("old body")
+    (target / workflow_ops.HASH_SIDECAR).write_text("old-hash")
+
+
+# Answers that do not say which support files the version has: no field, a null, the wrong type, or
+# an entry with no name. None of them may be read as "no files".
+_PARTIAL_FILES = [
+    {},
+    {"files": None},
+    {"files": "a.sh"},
+    {"files": [{"content": "x"}]},
+    {"files": ["a.sh"]},
+]
+
+
+class TestPullNeedsAnExplicitFilesList:
+    @pytest.mark.parametrize("partial", _PARTIAL_FILES)
+    def test_skill_pull_without_a_files_list_writes_and_deletes_nothing(self, skill_client, tmp_path, partial):
+        from src import skill_ops
+
+        target = tmp_path / "pulled"
+        _existing_skill(target)
+        skill_client.get_version_detail.return_value = {
+            "skillId": "my-skill", "version": 1, "status": "published", "bodyMarkdown": "new body",
+            "contentHash": "new-hash", **partial,
+        }
+        stderr = _assert_error(
+            runner.invoke(app, ["skill", "pull", "my-skill", "--dir", str(target), "--version", "1"]),
+            "cc-devthrottle skill show my-skill --version 1",
+        )
+        assert "nothing was written" in stderr
+        assert (target / "support.txt").read_text() == "keep me"
+        assert (target / "helpers" / "run.sh").read_text() == "echo keep"
+        assert (target / skill_ops.SKILL_MD).read_text() == "old body"
+        assert (target / skill_ops.HASH_SIDECAR).read_text() == "old-hash"
+        assert not (target / skill_ops.SKILL_JSON).exists()
+
+    def test_skill_pull_with_an_explicit_empty_list_removes_the_support_files(self, skill_client, tmp_path):
+        from src import skill_ops
+
+        target = tmp_path / "pulled"
+        _existing_skill(target)
+        skill_client.get_version_detail.return_value = {
+            "skillId": "my-skill", "version": 1, "status": "published", "bodyMarkdown": "new body",
+            "contentHash": "new-hash", "files": [],
+        }
+        result = runner.invoke(app, ["skill", "pull", "my-skill", "--dir", str(target), "--version", "1"])
+        assert result.exit_code == 0, result.stderr
+        assert not (target / "support.txt").exists()
+        assert not (target / "helpers").exists()
+        assert (target / skill_ops.SKILL_MD).read_text() == "new body"
+        assert (target / skill_ops.HASH_SIDECAR).read_text() == "new-hash"
+
+    @pytest.mark.parametrize("partial", _PARTIAL_FILES)
+    def test_workflow_pull_without_a_files_list_writes_and_deletes_nothing(
+        self, workflow_client, tmp_path, partial
+    ):
+        from src import workflow_ops
+
+        target = tmp_path / "pulled"
+        _existing_workflow(target)
+        workflow_client.get_version_detail.return_value = {
+            "workflowId": "my-flow", "version": 2, "status": "published",
+            "instructionsMarkdown": "new body", "contentHash": "new-hash", **partial,
+        }
+        stderr = _assert_error(
+            runner.invoke(app, ["workflow", "pull", "my-flow", "--dir", str(target), "--version", "2"]),
+            "cc-devthrottle workflow show my-flow --version 2",
+        )
+        assert "nothing was written" in stderr
+        assert (target / workflow_ops.HELPERS_DIR / "run.sh").read_text() == "echo keep"
+        assert (target / workflow_ops.INSTRUCTIONS_MD).read_text() == "old body"
+        assert (target / workflow_ops.HASH_SIDECAR).read_text() == "old-hash"
+        assert not (target / workflow_ops.WORKFLOW_JSON).exists()
+
+    def test_workflow_pull_with_an_explicit_empty_list_removes_the_helpers(self, workflow_client, tmp_path):
+        from src import workflow_ops
+
+        target = tmp_path / "pulled"
+        _existing_workflow(target)
+        workflow_client.get_version_detail.return_value = {
+            "workflowId": "my-flow", "version": 2, "status": "published",
+            "instructionsMarkdown": "new body", "contentHash": "new-hash", "files": [],
+        }
+        result = runner.invoke(app, ["workflow", "pull", "my-flow", "--dir", str(target), "--version", "2"])
+        assert result.exit_code == 0, result.stderr
+        assert not (target / workflow_ops.HELPERS_DIR).exists()
+        assert (target / workflow_ops.INSTRUCTIONS_MD).read_text() == "new body"
+
+
+def _command_lines(text: str) -> list:
+    """Every command `text` shows, whether in a sentence or in the help block: each line from its
+    first `cc-devthrottle ` on. A sentence may quote a value before it; the command may not."""
+    return [line[line.index("cc-devthrottle "):] for line in text.split("\n") if "cc-devthrottle " in line]
+
+
+# A value that must never be written into a command: a quote ends the quoting, and the rest runs.
+_HOSTILE = "x'\"; touch pwned; echo $(id) `id`"
+
+
+class TestEveryCommandLineIsSafe:
+    def test_browser_start_attach_line_uses_the_placeholder_for_a_quote(self, browsers):
+        browsers["answer"] = dict(_BROWSER, name="Soren's")
+        result = runner.invoke(app, ["browser", "start", "center-consulting"])
+        assert result.exit_code == 0, result.stderr
+        placeholder = "eval \"$(cc-devthrottle browser attach '<name>')\""
+        assert f"  {placeholder}" in result.stdout.split("\n")
+        assert "attach 'Soren" not in result.stdout
+        for line in _command_lines(result.stdout):
+            assert "attach 'Soren" not in line, line
+
+    @pytest.mark.parametrize(
+        "args",
+        [
+            ["browser", "create", "--name", "x"],
+            ["browser", "signin", "center-consulting"],
+            ["browser", "signin", "center-consulting", "--done"],
+            ["browser", "start", "center-consulting"],
+            ["browser", "stop", "center-consulting"],
+            ["browser", "rename", "center-consulting", "--to", "x"],
+        ],
+    )
+    def test_browser_never_writes_a_hostile_name_into_a_command(self, browsers, args):
+        browsers["answer"] = dict(_BROWSER, name=_HOSTILE)
+        result = runner.invoke(app, args)
+        assert result.exit_code == 0, result.stderr
+        lines = _command_lines(result.stdout)
+        assert lines, result.stdout
+        for line in lines:
+            assert "touch pwned" not in line, line
+
+    def test_skill_pull_sentence_uses_the_placeholder_for_an_unsafe_directory(self, skill_client, tmp_path):
+        skill_client.get_version_detail.return_value = {"version": 1, "status": "published", "files": []}
+        target = tmp_path / "it's $HOME"
+        result = runner.invoke(app, ["skill", "pull", "my-skill", "--dir", str(target), "--version", "1"])
+        assert result.exit_code == 0, result.stderr
+        assert 'Edit the files, then push with: cc-devthrottle skill push my-skill --dir "<dir>"' in result.stdout
+        for line in _command_lines(result.stdout):
+            assert "$HOME" not in line, line
+
+    def test_workflow_pull_sentence_uses_the_placeholder_for_an_unsafe_directory(self, workflow_client, tmp_path):
+        workflow_client.get_version_detail.return_value = {"version": 2, "status": "published", "files": []}
+        target = tmp_path / "it's $HOME"
+        result = runner.invoke(app, ["workflow", "pull", "my-flow", "--dir", str(target), "--version", "2"])
+        assert result.exit_code == 0, result.stderr
+        assert (
+            'Edit the files, then push with: cc-devthrottle workflow push my-flow --dir "<dir>"' in result.stdout
+        )
+        for line in _command_lines(result.stdout):
+            assert "$HOME" not in line, line
+
+    @pytest.mark.parametrize("group", ["skill", "workflow"])
+    def test_disable_sentence_uses_the_placeholder_for_an_unsafe_id(self, skill_client, workflow_client, group):
+        result = runner.invoke(app, [group, "disable", "a;touch pwned"])
+        assert result.exit_code == 0, result.stderr
+        lines = _command_lines(result.stdout)
+        assert any(line.startswith(f"cc-devthrottle {group} enable <{group}-id>") for line in lines), result.stdout
+        # Both the sentence and the help block carry it.
+        assert result.stdout.count(f"cc-devthrottle {group} enable <{group}-id>") == 2
+        for line in lines:
+            assert "touch pwned" not in line, line
