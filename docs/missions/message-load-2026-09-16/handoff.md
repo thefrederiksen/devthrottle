@@ -140,3 +140,16 @@ not call POST /sessions/<id>/needs-manager". The session key guard has no entry 
 report channel this mission relies on does not work for any agent today. No message was sent instead
 (mission rule). This note and the pushed branch are the report. Worth a fix in slice 1 or its own change:
 add `needs-manager` to `SessionKeyGuard` with a test.
+
+## Architect rulings after slice 1 (16 September 2026)
+
+- Slice 1 merges after inspection even though nothing rings yet. Main is not production: the hosted
+  Gateway and the Directors pick the change up at the release cut at the end of the mission, by which
+  time the doorbell (slice 2) and the words (slice 5) are on main too. Recorded so nobody re-argues it.
+- `needs-manager` is added to `SessionKeyGuard` with a test, in the slice 1 fix round. `session raise`
+  is the report channel of this mission and it must work for agents.
+- `turn-verdict/answer` is closed to session keys too (judgement call 6): an agent writing an answer
+  into a session is agent input, and ruling 17 admits no side doors.
+- Judgement calls 1 to 5 stand as made.
+- Inspection 1 (Codex, adversarial) writes `inspection-1.md` in this folder. The Postgres proofs run
+  on SOREN_NORTH, result in `postgres-proof-1.md`.
