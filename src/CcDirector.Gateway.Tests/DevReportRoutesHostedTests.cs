@@ -418,9 +418,6 @@ public sealed class DevReportRoutesHostedTests : IAsyncLifetime
         await ConnectDirectorAsync();
         await _director!.PushSnapshotAsync(Row(_sessionA, "WaitingForInput"));
         await _gateway.TurnEndWatcherForTest!.SweepAsync(sweepAll: true);
-        _out.WriteLine($"DIAG located={_gateway.PushedSessions.TryLocate(_tenantA, _sessionA, TimeSpan.FromMinutes(5))?.Session.ActivityState ?? "(none)"} " +
-                       $"tenants={string.Join(",", _gateway.PushedSessions.KnownTenants().Select(t => t.Value))} tenantA={_tenantA.Value} " +
-                       $"fresh={_gateway.PushedSessions.SnapshotFresh(_tenantA, TimeSpan.FromMinutes(5)).Count} log={CcDirector.Core.Utilities.FileLog.CurrentLogPath}");
 
         await WaitUntil(() => !_prompts.IsEmpty, "the held items to be delivered after the restart");
         // A second sweep - the reconcile - finds the session already seen and raises nothing.
