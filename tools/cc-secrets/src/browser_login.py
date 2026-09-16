@@ -29,7 +29,15 @@ PAUSED by the browser before it is sent, and judged by `blocked_request_reason`:
 only as the body of a POST to an allowed origin. A request whose address carries the password, or that is
 not a POST to an allowed origin and has a body carrying the password - or a body the browser does not
 show - is failed before it leaves the browser, and the login is refused. A redirect is a new request, so
-it is judged again at each hop. Measured against real Chrome: the handler that stops the event (for the
+it is judged again at each hop.
+
+That holds WHILE cc-secrets is connected, and only then. The browser pauses a request for as long as the
+connection that asked for the pause is there to answer it; if that connection drops with a request paused -
+cc-secrets stopped, killed or crashed mid-login - Chrome sends the request on without a judgement. Measured
+against real Chrome: a paused request answered with a block never arrived, and the same request with the
+connection closed instead did arrive (review of pull request 2891 at 186bea1d). Nothing on the debug
+connection can close that gap, because everything set up over it ends with it. What keeps the gap small is
+that each paused request is answered as soon as it arrives. Measured against real Chrome: the handler that stops the event (for the
 method and for the destination) and the 307 to another origin all sent the password before, and none did
 after.
 
@@ -56,7 +64,7 @@ site needs it - so a listener an agent attached to the page before calling login
 can transform it before sending (a hash or a reversal no longer looks like the password). The request guard
 sees the requests of this tab's own frames: a service worker, a cross-origin frame running in another
 process, a WebSocket message, or another tab are outside it. If the debug connection drops while a request
-is paused, the browser sends it on. Also not covered: login forms inside cross-origin frames, two-step verification and captchas (reported as a
+is paused, the browser sends it on (see above). Also not covered: login forms inside cross-origin frames, two-step verification and captchas (reported as a
 verification stop for the owner to finish by hand), and a hostile process running as this same user that
 binds the profile's debug port in place of the real browser.
 """
@@ -303,10 +311,10 @@ def _request_body(request: Dict) -> Optional[bytes]:
 def blocked_request_reason(request: Dict, forms: Scrubber, allowed: List[str]) -> Optional[str]:
     """Why a request made while the password is in the page must not be sent, or None when it may go.
 
-    The password may travel only as a POST body to an allowed origin. A request is blocked when its address
-    carries the password (in any form the scrubber knows, percent-decoded too), or when it is not a POST to an
-    allowed origin and has a body that carries the password - or a body the browser did not show. Every request
-    is judged on its own, so a redirect is judged again at each hop.
+    The password may travel only in a POST to an allowed origin, and never in an address. A request is blocked
+    when its address carries the password (in any form the scrubber knows, percent-decoded too), or when it is
+    not a POST to an allowed origin and a header carries the password, or its body carries it - or it has a body
+    the browser did not show. Every request is judged on its own, so a redirect is judged again at each hop.
     """
     url = str(request.get("url", ""))
     method = str(request.get("method", "GET")).upper()
@@ -315,6 +323,11 @@ def blocked_request_reason(request: Dict, forms: Scrubber, allowed: List[str]) -
         return f"a {method} request to {where} that carried the password in its address"
     if method == "POST" and origin_allowed(url, allowed):
         return None
+    # A page script can put it in a header of its own (review of pull request 2891 at 186bea1d).
+    headers = request.get("headers") or {}
+    for name, value in headers.items():
+        if forms.contains(f"{name}: {value}") or forms.contains(str(value)):
+            return f"a {method} request to {where} that carried the password in its '{name}' header"
     body = _request_body(request)
     if body is None:
         return f"a {method} request to {where} with a body the browser did not show, which may have held the password"
@@ -357,9 +370,11 @@ class _Tab:
         self._conn.pump(seconds)
 
     def guard_requests(self, secret: str, allowed: List[str]) -> None:
-        """From now on, pause every request this tab makes and send only those the password may travel in."""
+        """From now on, pause every request this tab makes and send only those the password may travel in.
+        Only while this connection lasts: a request paused when it drops is sent on by the browser."""
         forms = Scrubber()
-        forms.add(secret)
+        # With the username, so "username:password" in base64 - a Basic authorization header - is recognised.
+        forms.add(secret, self._entry.username)
 
         def on_paused(params: Dict) -> None:
             request_id = params.get("requestId")

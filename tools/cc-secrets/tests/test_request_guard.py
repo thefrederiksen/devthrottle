@@ -82,6 +82,29 @@ def test_GetToAnotherOrigin_WithoutThePassword_IsSent(forms):
     assert blocked_request_reason({"url": "https://sso.test/landing", "method": "GET"}, forms, ALLOWED) is None
 
 
+def test_PasswordInAHeaderToAnotherOrigin_IsBlocked(forms):
+    # The review's case (186bea1d): a submit handler sends the password in a header of its own, by GET.
+    request = {"url": "https://other.test/collect", "method": "GET", "headers": {"X-Password": SECRET}}
+
+    assert "'X-Password' header" in blocked_request_reason(request, forms, ALLOWED)
+
+
+def test_BasicAuthorizationHeaderToAnotherOrigin_IsBlocked():
+    forms = Scrubber()
+    forms.add(SECRET, "leak-user")
+    token = base64.b64encode(f"leak-user:{SECRET}".encode()).decode()
+    request = {"url": "https://other.test/api", "method": "GET", "headers": {"Authorization": "Basic " + token}}
+
+    assert blocked_request_reason(request, forms, ALLOWED) is not None
+
+
+def test_HeadersWithoutThePassword_AreSent(forms):
+    request = {"url": "https://other.test/collect", "method": "GET",
+               "headers": {"Accept": "*/*", "User-Agent": "Mozilla/5.0"}}
+
+    assert blocked_request_reason(request, forms, ALLOWED) is None
+
+
 def test_PasswordInAJsonBodyToAnotherOrigin_IsBlocked(forms):
     request = {"url": "https://other.test/api", "method": "PUT", "hasPostData": True,
                "postData": json.dumps({"password": SECRET})}
@@ -175,6 +198,28 @@ def test_Guard_FailsARequestThatCarriesThePassword_AndRecordsWhy(entry):
     assert conn.calls == ["Fetch.enable"]
     assert conn.sent == [("Fetch.failRequest", {"requestId": "r", "errorReason": "BlockedByClient"})]
     assert len(tab.blocked) == 1 and SECRET not in tab.blocked[0]
+
+
+def test_Guard_FailsAPausedRequestCarryingThePasswordInAHeader(entry):
+    conn = GuardConnection()
+    tab = _Tab(conn, entry)
+
+    tab.guard_requests(SECRET, ALLOWED)
+    conn.pause({"url": "https://other.test/collect", "method": "GET", "headers": {"X-Password": SECRET}})
+
+    assert conn.sent == [("Fetch.failRequest", {"requestId": "r", "errorReason": "BlockedByClient"})]
+    assert len(tab.blocked) == 1 and SECRET not in tab.blocked[0]
+
+
+def test_Guard_RecognisesTheEntrysBasicAuthorizationHeader(entry):
+    conn = GuardConnection()
+    tab = _Tab(conn, entry)
+    token = base64.b64encode(f"{entry.username}:{SECRET}".encode()).decode()
+
+    tab.guard_requests(SECRET, ALLOWED)
+    conn.pause({"url": "https://other.test/api", "method": "GET", "headers": {"Authorization": "Basic " + token}})
+
+    assert conn.sent[0][0] == "Fetch.failRequest"
 
 
 def test_Guard_LetsAnAllowedRequestThrough_AndIsReleased(entry):

