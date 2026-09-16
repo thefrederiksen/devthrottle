@@ -687,18 +687,55 @@ ARGUMENTS:
 USAGE: cc-devthrottle session list [OPTIONS]
 
 OPTIONS:
-  --json  -j  Output raw JSON
+  --json     -j  Output raw JSON: every field, a bare array. Filters still apply.
+  --state        Only these states, comma separated: needs-you, working, ready, snoozed, crashed.
+  --repo         Only this repository: its folder name or full path.
+  --machine      Only sessions on this machine.
+  --fields       Fields to show, comma separated. Default: id,name,state,repo.
+                 Valid: id, name, state, repo, machine, number, model, agent, mission, path.
 ```
 
-Output columns: number, short id, name, machine, repository, model, status. Your own session is marked
-`(you)`.
+The output follows the command-line output standard (`docs/axi-standard.md`): a `count:` line, then
+one comma-separated row per session under a `sessions[N]{fields}:` header, then `help[N]:` with the
+next commands to run.
 
-The MODEL column is the model that session's agent is actually running, read from the agent's own
-records at every turn-end - so it follows a mid-session model switch. Where there is no model, the
-column says which kind of absence it is rather than leaving the cell blank: `no model yet` for a
-session with nothing recorded yet (it is read at each turn-end), `model not reported` for an agent that cannot
-report one at all (Gemini, Cursor - it is never coming), and `(unknown)` when the Gateway sent no
-verdict for that row.
+```
+count: 2 (needs-you 1, working 1)
+sessions[2]{id,name,state,repo}:
+  9b2f41c0-7d1e-4a55-9c1a-2f6e0d3b8a71,"AXI Tools - Worker - step 3, session list",needs-you,devthrottle
+  e0c3a8d2-5b64-4f1e-8a09-6d2c7f1b4e93,review: session list,working,cc-consult
+help[4]:
+  cc-devthrottle session list --state needs-you
+  cc-devthrottle session list --fields id,name,state,repo,machine,number,model,agent,mission,path
+  cc-devthrottle session list --json
+  cc-devthrottle session whoami
+```
+
+- **Default fields** are `id`, `name`, `state` and `repo`. `--fields` picks others, in the order
+  given; an unknown field name exits 2 and lists the valid ones. `--fields` cannot be combined with
+  `--json`, which always carries every field (exit 2).
+- **Ids and names are always shown in full**, never shortened. A value containing a comma, a quote,
+  surrounding spaces or a character outside ASCII is written in double quotes with backslash
+  escapes; an empty name is written `""`, and a missing value is written as nothing.
+- **State** is one plain word, folded from the Gateway's triage verdict: `crashed` if the session
+  crashed, otherwise `needs-you`, `snoozed`, or - for an active session - `working` while the agent
+  is working and `ready` when it is not. An unknown triage verdict, or a session with no id, exits 1
+  rather than being guessed at.
+- **Filters** (`--state`, `--repo`, `--machine`) can be combined, and every one of them applies to
+  `--json` as well: the output is the same bare array, narrowed. `--repo` matches the repository
+  folder name or the full path, ignoring case and slash direction; `--machine` ignores case. An
+  unknown state exits 2 and lists the valid states.
+- **An empty answer says so**: `count: 0` for an empty fleet, and `count: 0 of N total` when a
+  filter matched nothing. With `--json` it is `[]`.
+- **`--json`** without a filter prints exactly what the Gateway returned. Any caution that the list
+  may be incomplete goes to standard error, never into the JSON.
+
+The `model` field is the model that session's agent is actually running, read from the agent's own
+records at every turn-end - so it follows a mid-session model switch. Where there is no model, it
+says which kind of absence it is rather than being blank: `no model yet` for a session with nothing
+recorded yet (it is read at each turn-end), `model not reported` for an agent that cannot report one
+at all (Gemini, Cursor - it is never coming), and `(unknown)` when the Gateway sent no verdict for
+that row.
 
 ### Session Whoami
 

@@ -270,12 +270,17 @@ def plain_state(s: Dict[str, Any]) -> str:
 
 
 def _session_record(s: Dict[str, Any], state: str) -> Dict[str, object]:
-    """Every field `session list` can show, for one roster row. Ids and names are never shortened."""
+    """Every field `session list` can show, for one roster row. Ids and names are never shortened.
+
+    The row must carry a session id (see _require_session_ids). A name that is the empty string stays
+    the empty string, so it renders as "" and reads back exactly; only an absent name is None.
+    """
     repo_path = gateway.field(s, "repoPath", "RepoPath")
     number = s.get("number", s.get("Number"))
+    name = s.get("name", s.get("Name"))
     return {
-        "id": gateway.field(s, "sessionId", "SessionId") or None,
-        "name": gateway.field(s, "name", "Name") or None,
+        "id": gateway.field(s, "sessionId", "SessionId"),
+        "name": None if name is None else str(name),
         "state": state,
         "repo": _repo_name(repo_path) if repo_path else None,
         "machine": gateway.field(s, "machineName", "MachineName") or None,
@@ -322,6 +327,21 @@ def _matches_machine(s: Dict[str, Any], machine: str) -> bool:
     return (gateway.field(s, "machineName", "MachineName") or "").lower() == machine.strip().lower()
 
 
+def _require_session_ids(sessions: List[Dict[str, Any]]) -> None:
+    """A row with no session id cannot be named by any verb, so listing it with a blank id would hand
+    the reader a row they cannot act on. It is a broken answer from the Gateway, and it fails loudly."""
+    for index, s in enumerate(sessions):
+        if not gateway.field(s, "sessionId", "SessionId").strip():
+            name = s.get("name", s.get("Name"))
+            shown = "no name" if name is None else f"the name {axi_output.format_value(str(name))}"
+            print(
+                f"Error: the Gateway returned a session with no session id (row {index + 1}, {shown}). "
+                "This tool will not list a session it cannot name; --json shows the raw rows.",
+                file=sys.stderr,
+            )
+            raise typer.Exit(1)
+
+
 def _fold_or_exit(sessions: List[Dict[str, Any]]) -> List[str]:
     try:
         return [plain_state(s) for s in sessions]
@@ -355,6 +375,8 @@ def list_sessions(
     # The state is folded only where it is needed, so an unfiltered --json never depends on the fold:
     # it prints exactly what the Gateway sent, as it always has.
     need_states = not json_output or wanted_states is not None
+    if not json_output:
+        _require_session_ids(sessions)
     states = _fold_or_exit(sessions) if need_states else [""] * len(sessions)
     rows = [
         (s, st)
@@ -372,16 +394,19 @@ def list_sessions(
         # Issue #1051: the caveat goes to STDERR, never stdout. The shape of this output is depended
         # on by agents and pipes, so it stays a bare array - but a caller acting on a partial roster
         # still has to be told, and stderr reaches a human without corrupting the parse.
+        # The cautions are the Gateway's sentences and may not be ASCII; stderr is escaped exactly
+        # as the plain output is.
         if caveat:
-            print(f"WARNING: the fleet list may be incomplete. {caveat}", file=sys.stderr)
+            print(_ascii_text(f"WARNING: the fleet list may be incomplete. {caveat}"), file=sys.stderr)
         # An EMPTY machine-readable answer is a negative answer too, and the agent parsing it is the
         # reader most likely to act on "nothing is running" as a fact.
         if not rows and stale_caution:
-            print(f"WARNING: {stale_caution}", file=sys.stderr)
+            print(_ascii_text(f"WARNING: {stale_caution}"), file=sys.stderr)
         return
 
     records = [_session_record(s, st) for s, st in rows]
-    breakdown = [(name, n) for name in SESSION_STATES if (n := sum(1 for _, st in rows if st == name))]
+    # No rows means no breakdown at all: the helper refuses an empty one, and "count: 0" says it all.
+    breakdown = [(name, n) for name in SESSION_STATES if (n := sum(1 for _, st in rows if st == name))] or None
     blocks = [
         axi_output.format_count(len(rows), total=len(sessions) if filtered else None, breakdown=breakdown),
         axi_output.render_list("sessions", chosen_fields, records),

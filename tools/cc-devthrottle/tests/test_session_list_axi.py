@@ -54,7 +54,8 @@ def _row(sid, name, *, bucket, activity="WaitingForInput", crashed=False,
 
 
 # One of every state, with the names that break a naive list: a comma, quotes, non-ASCII, a name far
-# longer than any table column, leading whitespace, and no name at all.
+# longer than any table column, leading whitespace, no name at all, and a name that is the empty string
+# (which must read back as the empty string, not as no name).
 FLEET = [
     _row("d2a4069f-1111-4111-8111-000000000001", "AXI Tools - Worker - step 3, session list", bucket="needsYou"),
     _row("d2a4069f-1111-4111-8111-000000000002", 'review: "quoted" name', bucket="active", activity="Working",
@@ -65,8 +66,17 @@ FLEET = [
          bucket="onHold", repo=r"C:\ReposFred\cc-consult"),
     _row("d2a4069f-1111-4111-8111-000000000005", "  padded  ", bucket="needsYou", activity="Exited", crashed=True),
     _row("d2a4069f-1111-4111-8111-000000000006", None, bucket="active", activity="Working"),
+    _row("d2a4069f-1111-4111-8111-000000000007", "", bucket="onHold"),
 ]
-EXPECTED_STATES = ["needs-you", "working", "ready", "snoozed", "crashed", "working"]
+EXPECTED_STATES = ["needs-you", "working", "ready", "snoozed", "crashed", "working", "snoozed"]
+
+# Rows no list may show: a session with no id cannot be named by any verb.
+ORPHANS = [
+    {k: v for k, v in _row("unused", "orphan", bucket="active").items() if k != "sessionId"},
+    _row("", "blank id", bucket="active"),
+    _row("   ", "whitespace id", bucket="active"),
+    _row(None, None, bucket="active"),
+]
 
 
 @pytest.fixture
@@ -131,6 +141,20 @@ def test_list_sessions_DefaultOutput_EveryIdNameAndStateReadBackExactly(serve, c
     assert fields == ["id", "name", "state", "repo"]
     # Pinned independently of plain_state, so the check above is not the fold agreeing with itself.
     assert [r["state"] for r in records] == EXPECTED_STATES
+    # Pinned independently too: "" and None are different names and both survive the round trip.
+    assert [r["name"] for r in records][5:] == [None, ""]
+
+
+@pytest.mark.parametrize("orphan", ORPHANS)
+def test_session_list_Cli_RowWithNoSessionId_ExitsOneAndPrintsNoList(serve, orphan):
+    serve(FLEET + [orphan])
+
+    result = runner.invoke(app, ["session", "list"])
+
+    assert result.exit_code == 1
+    assert "no session id" in result.stderr
+    assert "row 8" in result.stderr
+    assert result.stdout == ""
 
 
 def test_recoverability_check_OldRichTable_Fails():
@@ -183,7 +207,7 @@ def test_list_sessions_Unfiltered_CountsByStateAndHelp(serve, capsys):
     session_ops.list_sessions(json_output=False)
 
     lines = capsys.readouterr().out.splitlines()
-    assert lines[0] == "count: 6 (needs-you 1, working 2, ready 1, snoozed 1, crashed 1)"
+    assert lines[0] == "count: 7 (needs-you 1, working 2, ready 1, snoozed 2, crashed 1)"
     help_index = next(i for i, line in enumerate(lines) if line.startswith("help["))
     assert "  cc-devthrottle session list --state needs-you" in lines[help_index:]
 
@@ -194,7 +218,7 @@ def test_list_sessions_Filtered_CountSaysOfTotal(serve, capsys):
     session_ops.list_sessions(json_output=False, state="working,ready")
 
     out = capsys.readouterr().out
-    assert out.splitlines()[0] == "count: 3 of 6 total (working 2, ready 1)"
+    assert out.splitlines()[0] == "count: 3 of 7 total (working 2, ready 1)"
     _, records = parse_list(out, "sessions")
     assert [r["id"] for r in records] == [FLEET[1]["sessionId"], FLEET[2]["sessionId"], FLEET[5]["sessionId"]]
 
@@ -216,7 +240,7 @@ def test_list_sessions_FilterMatchesNothing_PrintsCountZeroOfTotal(serve, capsys
     session_ops.list_sessions(json_output=False, machine="NO_SUCH_MACHINE")
 
     out = capsys.readouterr().out
-    assert out.splitlines()[0] == "count: 0 of 6 total"
+    assert out.splitlines()[0] == "count: 0 of 7 total"
     assert "No session matches the filter." in out
     assert "  cc-devthrottle session list" in out.splitlines()
 
@@ -248,7 +272,7 @@ def test_list_sessions_RepoFilter_MatchesFolderNameOrFullPath(serve, capsys, rep
     session_ops.list_sessions(json_output=False, repo=repo)
 
     _, records = parse_list(capsys.readouterr().out, "sessions")
-    assert [r["id"] for r in records] == [FLEET[i]["sessionId"] for i in (0, 2, 4, 5)]
+    assert [r["id"] for r in records] == [FLEET[i]["sessionId"] for i in (0, 2, 4, 5, 6)]
 
 
 def test_list_sessions_MachineFilter_IgnoresCase(serve, capsys):
@@ -285,6 +309,68 @@ def test_list_sessions_JsonFiltered_SameBareArrayNarrowed(serve, capsys):
 
     captured = capsys.readouterr()
     assert captured.out == json.dumps([FLEET[0], FLEET[4]], indent=2) + "\n"
+
+
+def test_list_sessions_JsonRepoFilterAlone_ExcludesSameStateRowInAnotherRepo(serve, capsys):
+    # FLEET[1] and FLEET[5] are both working; only the repository tells them apart. If --repo were
+    # ignored under --json, FLEET[1] and FLEET[3] would come back and this fails.
+    serve(FLEET)
+
+    session_ops.list_sessions(json_output=True, repo="devthrottle")
+
+    assert capsys.readouterr().out == json.dumps([FLEET[i] for i in (0, 2, 4, 5, 6)], indent=2) + "\n"
+
+
+def test_list_sessions_JsonStateAndRepo_OnlyTheRowInThatRepo(serve, capsys):
+    serve(FLEET)
+
+    session_ops.list_sessions(json_output=True, state="working", repo="devthrottle")
+
+    assert capsys.readouterr().out == json.dumps([FLEET[5]], indent=2) + "\n"
+
+
+def test_list_sessions_JsonMachineFilter_MatchesThatMachineOnly(serve, capsys):
+    # A real match, so a --json path that ignored --machine (every row) or answered [] both fail.
+    serve(FLEET)
+
+    session_ops.list_sessions(json_output=True, machine="devthrottle-MAC-mini")
+
+    assert capsys.readouterr().out == json.dumps([FLEET[1]], indent=2) + "\n"
+
+
+def test_list_sessions_JsonMachineFilter_ExcludesOtherMachines(serve, capsys):
+    serve(FLEET)
+
+    session_ops.list_sessions(json_output=True, machine="soren_north")
+
+    assert json.loads(capsys.readouterr().out) == [FLEET[i] for i in (0, 2, 3, 4, 5, 6)]
+
+
+def test_list_sessions_JsonNonAsciiCautions_StderrIsAscii(serve, capsys):
+    serve([], complete=False, reason="Director on S\u00d8REN is offline",
+          stale="Machine S\u00d8REN \u2014 quiet")
+
+    session_ops.list_sessions(json_output=True)
+
+    captured = capsys.readouterr()
+    assert captured.out == "[]\n"
+    assert captured.err.isascii()
+    assert "Director on S\\u00d8REN is offline" in captured.err
+    assert "Machine S\\u00d8REN \\u2014 quiet" in captured.err
+
+
+def test_list_sessions_EnvelopeWithNoSessionsField_ExitsOne(monkeypatch, capsys):
+    # Absent is not empty: the fetch refuses the answer, so nothing claims "no sessions".
+    monkeypatch.delenv("CC_SESSION_ID", raising=False)
+    monkeypatch.setattr(session_ops.gateway, "get_json", lambda path: {"rosterComplete": True})
+
+    for json_output in (True, False):
+        with pytest.raises(typer.Exit) as exc:
+            session_ops.list_sessions(json_output=json_output)
+        assert exc.value.exit_code == 1
+        captured = capsys.readouterr()
+        assert "[]" not in captured.out
+        assert "no list of sessions" in " ".join((captured.out + captured.err).split())
 
 
 def test_list_sessions_JsonFilterMatchesNothing_EmptyArray(serve, capsys):

@@ -372,10 +372,20 @@ def get_fleet() -> Tuple[List[Dict[str, Any]], Optional[bool], Optional[str], Op
     Every verdict here is FOLDED ON THE GATEWAY and printed verbatim. Deciding what "offline" means
     for completeness is a ruling, and rulings do not live in a client.
     """
-    body = get_json("sessions?envelope=true") or []
+    body = get_json("sessions?envelope=true")
+    # An older Director serves the bare array, and that is still a roster.
     if isinstance(body, list):
         return body, None, None, None
-    sessions = body.get("sessions") or []
+    # Anything else that is not an envelope carrying a list is NOT an empty roster. Absent is not
+    # empty: reading a missing field as "no sessions" would tell the caller nothing is running.
+    if not isinstance(body, dict):
+        raise GatewayError(
+            f"the Gateway's session list answer was not a list or an envelope (got {type(body).__name__})."
+        )
+    sessions = body.get("sessions")
+    if not isinstance(sessions, list):
+        shown = "missing" if sessions is None else f"a {type(sessions).__name__}"
+        raise GatewayError(f"the Gateway's session list answer has no list of sessions (the field is {shown}).")
     complete = body.get("rosterComplete")
     reason = body.get("rosterIncompleteReason")
     stale = body.get("rosterStaleAnswerCaution")

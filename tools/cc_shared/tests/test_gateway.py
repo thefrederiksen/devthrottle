@@ -391,6 +391,31 @@ def test_a_gateway_that_says_nothing_about_completeness_is_UNKNOWN_not_complete(
     assert gateway.roster_caveat(complete, reason) != ""  # and it says so out loud
 
 
+@pytest.mark.parametrize("body, named", [
+    ({"rosterComplete": True}, "missing"),
+    ({"sessions": None, "rosterComplete": True}, "missing"),
+    ({"sessions": {"a": 1}, "rosterComplete": True}, "a dict"),
+    ({"sessions": "none", "rosterComplete": True}, "a str"),
+    (None, "NoneType"),
+    ("sessions", "str"),
+])
+def test_get_fleet_AnswerWithNoListOfSessions_RaisesInsteadOfEmpty(monkeypatch, body, named):
+    # Absent is not empty. An envelope with no sessions field used to become [], and every caller
+    # then said "nothing is running" about a roster it never received.
+    monkeypatch.setattr(gateway, "get_json", lambda path, **k: body)
+
+    with pytest.raises(gateway.GatewayError) as caught:
+        gateway.get_fleet()
+
+    assert named in str(caught.value)
+
+
+def test_get_fleet_EnvelopeWithEmptyList_IsAnEmptyRoster(monkeypatch):
+    monkeypatch.setattr(gateway, "get_json", lambda path, **k: {"sessions": [], "rosterComplete": True})
+
+    assert gateway.get_fleet() == ([], True, None, None)
+
+
 # --- The credential must not cross an origin boundary -----------------------------------------
 
 
