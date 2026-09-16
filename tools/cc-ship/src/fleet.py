@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -48,9 +49,32 @@ class FleetError(RuntimeError):
     """A fleet command failed; the message carries the command's own output."""
 
 
+# cmd.exe re-reads the arguments of a .cmd file; these characters change their meaning there.
+_UNSAFE_FOR_CMD = set('"%\n\r')
+
+
+def command(args: list[str]) -> list[str]:
+    """The full command line for cc-devthrottle.
+
+    On Windows cc-devthrottle is a .cmd file, and Windows only finds a bare name that
+    ends in .exe, so the full path is looked up first (issue 2961). A .cmd file's
+    arguments pass through cmd.exe, so any argument it would misread is refused.
+    """
+    path = shutil.which(CLI)
+    if path is None:
+        raise FleetError(f"{CLI} is not on PATH; cc-ship reaches the fleet through it.")
+    if path.lower().endswith((".cmd", ".bat")):
+        bad = [a for a in args if _UNSAFE_FOR_CMD & set(a)]
+        if bad:
+            raise FleetError(f"cannot pass {bad[0]!r} safely to {path} (it contains a quote, "
+                             "a percent sign or a line break)")
+    return [path, *args]
+
+
 def _run(args: list[str], timeout: int = 120) -> str:
     proc = subprocess.run(
-        [CLI, *args], capture_output=True, text=True, timeout=timeout
+        command(args), capture_output=True, text=True, timeout=timeout,
+        encoding="utf-8", errors="replace",
     )
     if proc.returncode != 0:
         raise FleetError(

@@ -63,6 +63,7 @@ class World:
         self.failed_checks: list[str] = []
         self.prs: dict[int, dict] = {}
         self.merged: list[int] = []
+        self.reaped: set[str] = set()   # sessions the Director has already removed
 
     # fleet
     def spawn_session(self, repo, agent, controlled_by, name, brief):
@@ -87,6 +88,8 @@ class World:
     def find_session(self, sid):
         if sid == AUTHOR:
             return {"sessionId": AUTHOR, "agent": "ClaudeCode", "missionName": "Test Mission"}
+        if any(s["id"] == sid for s in self.spawned) and sid not in self.reaped:
+            return {"sessionId": sid, "status": "Running", "activityState": "WaitingForInput"}
         return None
 
     # github
@@ -864,3 +867,60 @@ def test_validate_review_BadSameAsDecision_Rejected():
     import contracts
     bad = review(dict(finding("F1", "t"), same_as_decision="the first one"))
     assert any("same_as_decision" in p for p in contracts.validate_review(bad))
+
+
+def test_start_FleetUnreachableBeforeRunExists_SaysStartAgain(world, capsys, monkeypatch):
+    # Issue 2961: the advice must be something the author can do.
+    def unreachable(sid):
+        raise fleet.FleetError("cc-devthrottle is not on PATH")
+    monkeypatch.setattr(engine.fleet, "find_session", unreachable)
+    code, out = run_cli("start", "--intent", str(world.intent), capsys=capsys)
+    assert code != 0 and out["state"] == "failed"
+    assert "cc-ship start again" in out["help"] and "continue" not in out["help"]
+    assert not runstore.runs_root().exists() or not list(runstore.runs_root().iterdir())
+
+
+def test_start_UnexpectedErrorBeforeRunExists_SaysStartAgain(world, capsys, monkeypatch):
+    def missing(sid):
+        raise FileNotFoundError("[WinError 2] The system cannot find the file specified")
+    monkeypatch.setattr(engine.fleet, "find_session", missing)
+    code, out = run_cli("start", "--intent", str(world.intent), capsys=capsys)
+    assert code != 0 and "cc-ship start again" in out["help"]
+
+
+def test_run_InvalidReviewAndReviewerAlreadyReaped_FreshSessionRedoesIt(world, capsys, monkeypatch):
+    # Stall fix re-inspection: an invalid file from a session that is already gone cannot
+    # be corrected in place; a fresh session redoes it within the same two-attempt limit.
+    real_wait = world.wait_for_output
+
+    def wait_then_reap(sid, output, *args, **kwargs):
+        result = real_wait(sid, output, *args, **kwargs)
+        world.reaped.add(sid)
+        return result
+
+    def undo_gone(sid):
+        raise fleet.FleetError("no such session")
+
+    engine.fleet.wait_for_output = wait_then_reap
+    monkeypatch.setattr(engine.fleet, "clear_done_flag", undo_gone)
+    world.outputs["Reviewer"] += ["not json", review()]
+    world.outputs["Verifier"].append(GO)
+    code, out = ship_to_merge(world, capsys)
+    assert out["state"] == "merged", out
+    assert [s["role"] for s in world.spawned] == ["Reviewer", "Reviewer", "Verifier"]
+    assert world.prompts == []
+
+
+def test_run_InvalidReviewFromReapedSessionsThreeTimes_FailsAfterTwo(world, capsys, monkeypatch):
+    real_wait = world.wait_for_output
+
+    def wait_then_reap(sid, output, *args, **kwargs):
+        result = real_wait(sid, output, *args, **kwargs)
+        world.reaped.add(sid)
+        return result
+
+    engine.fleet.wait_for_output = wait_then_reap
+    world.outputs["Reviewer"] += ["bad", "bad", "bad"]
+    code, out = ship_to_merge(world, capsys)
+    assert code != 0 and out["code"] == "invalid-output"
+    assert len([s for s in world.spawned if s["role"] == "Reviewer"]) == 3

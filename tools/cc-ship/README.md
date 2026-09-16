@@ -83,8 +83,12 @@ a sign-in bypass), `none` (no deployed surface; the verifier runs what it can), 
 
 ```
 git worktree add --detach ../devthrottle-cc-ship-tool origin/main
-python3 ../devthrottle-cc-ship-tool/tools/cc-ship/install.py
+python3 ../devthrottle-cc-ship-tool/tools/cc-ship/install.py     # macOS
+python  ../devthrottle-cc-ship-tool/tools/cc-ship/install.py     # Windows (python3 does not exist there)
 ```
+
+On Windows the installer writes `cc-ship.cmd` (PowerShell, cmd) and an extensionless
+`cc-ship` (Git Bash, which sessions use).
 
 ## Run folder
 

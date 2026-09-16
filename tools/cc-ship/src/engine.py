@@ -649,6 +649,10 @@ def _handle_session_result(run: dict, result: fleet.WaitResult) -> dict:
             _fail(run, err)
             raise err
         session["corrections"] += 1
+        if fleet.find_session(session["id"]) is None:
+            # Already reaped (it finished while nobody was polling): nobody is left to
+            # correct, so a fresh session redoes the work, within the same limit.
+            return _redo_in_fresh_session(run, session, output)
         fleet.clear_done_flag(session["id"])
         fleet.done_marker(output).unlink(missing_ok=True)
         fix = _folder(run) / f"correction-{role.lower()}-r{run['review_round']}-{session['corrections']}.md"
@@ -665,6 +669,27 @@ def _handle_session_result(run: dict, result: fleet.WaitResult) -> dict:
     if role == "Reviewer":
         return _review_done(run, data)
     return _verify_done(run, data)
+
+
+def _redo_in_fresh_session(run: dict, old: dict, output: Path) -> dict:
+    role = old["role"]
+    output.unlink(missing_ok=True)
+    fleet.done_marker(output).unlink(missing_ok=True)
+    if role == "Verifier":
+        _drop_verifier(run, "cc-ship: verifier gone before its correction")
+        run["phase"] = "verify"
+        run["session"] = None
+        advance(run)  # a fresh cookie and brief for the fresh verifier
+    else:
+        _spawn(run, role, old["agent"], Path(old["brief"]), output)
+    if run.get("session"):
+        run["session"]["corrections"] = old["corrections"]
+        run["session"]["replaced"] = old["replaced"]
+        return _set(run, WORKING,
+                    f"The {role.lower()}'s file was invalid and the session was already gone; a "
+                    f"fresh session is redoing it ({old['corrections']} of {MAX_CORRECTIONS}). "
+                    "Run: cc-ship wait")
+    return run
 
 
 def wait(run: dict, slice_seconds: float = WAIT_SLICE_SECONDS) -> dict:

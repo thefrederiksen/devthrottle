@@ -24,6 +24,22 @@ from pathlib import Path
 MAIN = Path(__file__).resolve().parent / "main.py"
 
 
+def write_launchers(bin_dir: Path, python: Path, main_py: Path, windows: bool) -> list[Path]:
+    """A POSIX launcher everywhere; on Windows also a .cmd for PowerShell and cmd.
+    Git Bash, the shell sessions use on Windows, runs only the POSIX one."""
+    written = []
+    if windows:
+        cmd = bin_dir / "cc-ship.cmd"
+        cmd.write_text(f'@echo off\r\n"{python}" "{main_py}" %*\r\n', encoding="ascii")
+        written.append(cmd)
+    sh = bin_dir / "cc-ship"
+    sh.write_text(f'#!/bin/sh\nexec "{python.as_posix()}" "{main_py.as_posix()}" "$@"\n',
+                  encoding="ascii", newline="\n")
+    sh.chmod(0o755)
+    written.append(sh)
+    return written
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -34,14 +50,9 @@ def main() -> int:
         print("cc-ship needs Python 3.11 or newer; run this installer with that Python.")
         return 1
     args.bin.mkdir(parents=True, exist_ok=True)
-    if os.name == "nt":
-        launcher = args.bin / "cc-ship.cmd"
-        launcher.write_text(f'@echo off\r\n"{sys.executable}" "{MAIN}" %*\r\n', encoding="ascii")
-    else:
-        launcher = args.bin / "cc-ship"
-        launcher.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{MAIN}" "$@"\n', encoding="ascii")
-        launcher.chmod(0o755)
-    print(f"Installed {launcher} -> {MAIN}")
+    written = write_launchers(args.bin, Path(sys.executable), MAIN, windows=os.name == "nt")
+    for launcher in written:
+        print(f"Installed {launcher} -> {MAIN}")
     on_path = [Path(p).resolve() for p in os.environ.get("PATH", "").split(os.pathsep) if p]
     if args.bin.resolve() not in on_path:
         print(f"{args.bin} is NOT on PATH. Add it, or sessions will not find cc-ship.")

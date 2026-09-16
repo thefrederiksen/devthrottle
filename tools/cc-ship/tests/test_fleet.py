@@ -216,3 +216,38 @@ def test_briefs_EverySessionWritesItsMarkerAfterSessionDone(tmp_path):
     vtext = briefs.verifier_brief(repo=tmp_path, intent=tmp_path / "i.md", preview_url=None,
                                   browser_state=None, evidence_dir=tmp_path, output=verify_out)
     assert str(fleet.done_marker(verify_out)) in vtext
+
+
+def test_command_WindowsCmdShim_FullPathUsed(monkeypatch):
+    # Issue 2961: Windows does not find a .cmd file from its bare name.
+    monkeypatch.setattr(fleet.shutil, "which", lambda name: r"C:\bin\cc-devthrottle.CMD")
+    assert fleet.command(["session", "list"]) == [r"C:\bin\cc-devthrottle.CMD", "session", "list"]
+
+
+def test_command_CmdShimWithQuoteInArgument_Refused(monkeypatch):
+    monkeypatch.setattr(fleet.shutil, "which", lambda name: r"C:\bin\cc-devthrottle.cmd")
+    with pytest.raises(fleet.FleetError, match="safely"):
+        fleet.command(["session", "stop", "s1", "--reason", 'said "no"'])
+
+
+def test_command_RealProgramWithQuote_Allowed(monkeypatch):
+    monkeypatch.setattr(fleet.shutil, "which", lambda name: "/usr/local/bin/cc-devthrottle")
+    assert fleet.command(["x", 'a "b"'])[-1] == 'a "b"'
+
+
+def test_command_NotOnPath_FailsLoudly(monkeypatch):
+    monkeypatch.setattr(fleet.shutil, "which", lambda name: None)
+    with pytest.raises(fleet.FleetError, match="not on PATH"):
+        fleet.command(["session", "list"])
+
+
+def test_write_launchers_Windows_CmdAndGitBashLauncher(tmp_path):
+    # Issue 2961: Git Bash, the shell sessions use on Windows, runs only the POSIX launcher.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    import install
+    written = install.write_launchers(tmp_path, Path("C:/Python311/python.exe"),
+                                      Path("D:/tool/main.py"), windows=True)
+    assert [p.name for p in written] == ["cc-ship.cmd", "cc-ship"]
+    assert (tmp_path / "cc-ship").read_bytes().startswith(b"#!/bin/sh\n")
+    assert b"\r" not in (tmp_path / "cc-ship").read_bytes()
+    assert b"%*" in (tmp_path / "cc-ship.cmd").read_bytes()
