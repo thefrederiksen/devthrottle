@@ -11,14 +11,14 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 type Anchor = { type: string; selector: string; quote: string; rowLabel?: string; columnLabel?: string; label?: string };
 type Item = Record<string, unknown> & { id: string; kind: string };
-type State = { queued: Item[]; sent: Item[]; replies: unknown[]; draft: unknown; scroll: { x: number; y: number } };
+type State = { queued: Item[]; sent: Item[]; replies: unknown[]; draft: unknown; answerDrafts: unknown[]; scroll: { x: number; y: number } };
 type Model = {
   snapshot(): State;
   queueNote(anchor: Anchor, text: string): Item;
   queueAnswer(answer: Record<string, string>): Item;
   remove(id: string): void;
   sendMessage(): { channel: string; version: number; type: string; payload: { items: Item[] } };
-  markSent(): Item[];
+  markPending(): void;
   applyStatus(updates: unknown[]): void;
   restore(state: unknown): void;
 };
@@ -31,6 +31,7 @@ type Api = {
   parseInbound(data: unknown): { type: string; payload: unknown } | null;
   validState(state: unknown): boolean;
   createModel(): Model;
+  started: symbol;
   start(options: { window: Window }): { model: Model; isHosted(): boolean; lastPayload(): unknown };
 };
 
@@ -47,14 +48,14 @@ function envelope(type: string, payload: unknown) {
   return { channel: "devthrottle.dev-report", version: 1, type, payload };
 }
 
-const emptyState: State = { queued: [], sent: [], replies: [], draft: null, scroll: { x: 0, y: 0 } };
+const emptyState: State = { queued: [], sent: [], replies: [], draft: null, answerDrafts: [], scroll: { x: 0, y: 0 } };
 
 let api: Api;
 beforeEach(() => {
-  document.documentElement.removeAttribute("data-dev-report-notes-started");
   document.head.innerHTML = "";
   document.body.innerHTML = "";
   api = load();
+  delete (window as unknown as Record<symbol, unknown>)[api.started];
 });
 
 describe("the script file", () => {
@@ -176,9 +177,20 @@ describe("svg and element anchors", () => {
     expect(api.anchorFor(document.querySelector("p")!)).toEqual({ type: "element", selector: "html > body > p", quote: "The Gateway keeps the report." });
   });
 
-  it("never anchors to the notes tray", () => {
-    document.body.innerHTML = `<div data-dev-report-ui><button>Send</button></div>`;
-    expect(api.anchorFor(document.querySelector("button")!)).toBeNull();
+  it("never anchors to the notes tray the script added", () => {
+    document.body.innerHTML = `<p>text</p>`;
+    api.start({ window });
+    expect(api.anchorFor(document.querySelector("[data-drn=send]")!)).toBeNull();
+    expect(api.anchorFor(document.querySelector("[data-drn=queued]")!)).toBeNull();
+  });
+
+  it("does not let report markup copy the tray's attribute to opt out of notes", () => {
+    // Review finding 6.
+    document.body.innerHTML = `<p data-dev-report-ui>text</p>`;
+    document.body.setAttribute("data-dev-report-ui", "");
+    api.start({ window });
+    expect(api.anchorFor(document.querySelector("p")!)).toMatchObject({ type: "element", quote: "text" });
+    document.body.removeAttribute("data-dev-report-ui");
   });
 });
 
@@ -208,23 +220,55 @@ describe("the queue", () => {
     expect(() => api.createModel().queueNote(anchor, "   ")).toThrow(/needs some text/);
   });
 
-  it("sends the whole queue and moves it to sent, where the host's status words replace ours", () => {
+  it("keeps sent items in the queue until the host confirms each one", () => {
+    // Review finding 2: posting a message is not the host accepting it.
     const model = api.createModel();
     model.queueNote(anchor, "one");
     model.queueNote(anchor, "two");
     expect(model.sendMessage()).toMatchObject({ channel: "devthrottle.dev-report", version: 1, type: "send" });
     expect(model.sendMessage().payload.items.map((i) => i.text)).toEqual(["one", "two"]);
-    model.markSent();
+    model.markPending();
+    expect(model.snapshot().queued.map((i) => i.pending)).toEqual([true, true]);
+    expect(model.snapshot().sent).toEqual([]);
+    expect(model.sendMessage().payload.items[0]).not.toHaveProperty("pending");
+
     model.applyStatus([{ id: "n2", status: "held", statusLabel: "Delivered when the agent finishes" }, { id: "zz", status: "x", statusLabel: "x" }]);
     const s = model.snapshot();
-    expect(s.queued).toEqual([]);
-    expect(s.sent.map((i) => i.statusLabel)).toEqual(["Sent to the app", "Delivered when the agent finishes"]);
+    expect(s.queued.map((i) => i.id)).toEqual(["n1"]);
+    expect(s.sent).toEqual([{ id: "n2", kind: "note", text: "two", anchor, status: "held", statusLabel: "Delivered when the agent finishes" }]);
+  });
+
+  it("keeps a refused item queued with the host's reason, ready to send again", () => {
+    const model = api.createModel();
+    model.queueNote(anchor, "one");
+    model.markPending();
+    model.applyStatus([{ id: "n1", status: "refused", statusLabel: "This session has ended" }]);
+    expect(model.snapshot().queued).toEqual([{ id: "n1", kind: "note", text: "one", anchor, pending: false, statusLabel: "This session has ended" }]);
+    expect(model.snapshot().sent).toEqual([]);
+  });
+
+  it("cannot remove an item the host already has", () => {
+    const model = api.createModel();
+    model.queueNote(anchor, "one");
+    model.markPending();
+    model.remove("n1");
+    expect(model.snapshot().queued).toHaveLength(1);
+  });
+
+  it("gives a re-answer a new id when the earlier answer is already with the host", () => {
+    const model = api.createModel();
+    model.queueAnswer({ questionId: "q1", question: "Q?", optionValue: "a", optionLabel: "A", comment: "" });
+    model.markPending();
+    const again = model.queueAnswer({ questionId: "q1", question: "Q?", optionValue: "b", optionLabel: "B", comment: "" });
+    expect(again.id).toBe("a2");
+    expect(model.snapshot().queued.map((i) => i.id)).toEqual(["a1", "a2"]);
   });
 
   it("does not reuse an id already in the sent list", () => {
     const model = api.createModel();
     model.queueNote(anchor, "one");
-    model.markSent();
+    model.markPending();
+    model.applyStatus([{ id: "n1", status: "delivered", statusLabel: "Delivered" }]);
     expect(model.queueNote(anchor, "two").id).toBe("n2");
   });
 });
@@ -252,7 +296,10 @@ describe("inbound message validation", () => {
     const badScroll = { ...emptyState, scroll: { x: "0", y: 0 } };
     const badDraft = { ...emptyState, draft: { text: "x" } };
     const tooLong = { ...emptyState, replies: [{ id: "r", text: "x".repeat(20001), at: "" }] };
-    for (const state of [badItem, badSent, badScroll, badDraft, tooLong]) {
+    const noAnswerDrafts = { ...emptyState, answerDrafts: undefined };
+    const badAnswerDraft = { ...emptyState, answerDrafts: [{ questionId: "", optionValue: "a", comment: "" }] };
+    const badPending = { ...emptyState, queued: [{ id: "n1", kind: "note", text: "x", anchor: { type: "element", selector: "", quote: "" }, pending: "yes" }] };
+    for (const state of [badItem, badSent, badScroll, badDraft, tooLong, noAnswerDrafts, badAnswerDraft, badPending]) {
       expect(api.parseInbound(envelope("restore", { state }))).toBeNull();
     }
   });
@@ -319,6 +366,65 @@ describe("the page", () => {
     expect(shown).toMatchObject({ type: "send", payload: { items: [{ questionId: "deploy" }] } });
     expect(page.model.snapshot().queued).toHaveLength(1);
     expect(page.model.snapshot().sent).toHaveLength(0);
+  });
+
+  it("answers a question with its own options only, never a nested question's", () => {
+    // Review finding 5.
+    document.body.innerHTML = `
+      <div data-dev-report-question="outer">
+        <label><input type="radio" name="o" value="o1" data-recommended> Outer 1</label>
+        <label><input type="radio" name="o" value="o2"> Outer 2</label>
+        <div data-dev-report-question="inner">
+          <label><input type="radio" name="i" value="i1" data-recommended> Inner 1</label>
+          <label><input type="radio" name="i" value="i2"> Inner 2</label>
+        </div>
+      </div>`;
+    const page = api.start({ window });
+    click(document.querySelector("[data-question-id=outer]")!);
+    expect(page.model.snapshot().queued[0]).toMatchObject({ questionId: "outer", optionValue: "o1", optionLabel: "Outer 1" });
+  });
+
+  it("says a too-long comment is too long instead of throwing", () => {
+    // Review finding 7.
+    document.body.innerHTML = report;
+    const page = api.start({ window });
+    const comment = document.querySelector<HTMLTextAreaElement>("textarea[data-dev-report-comment]")!;
+    expect(comment.getAttribute("maxlength")).toBe("20000");
+    comment.value = "x".repeat(20001);
+    expect(() => click(document.querySelector("[data-drn=queue-answer]")!)).not.toThrow();
+    expect(page.model.snapshot().queued).toEqual([]);
+    expect(document.querySelector("[data-drn=question-state]")!.textContent).toContain("the comment is longer than 20000 characters");
+  });
+
+  it("gives a question with the id __proto__ its state line like any other", () => {
+    // Review finding 11.
+    document.body.innerHTML = report.split('"deploy"').join('"__proto__"');
+    const page = api.start({ window });
+    click(document.querySelector("[data-drn=queue-answer]")!);
+    expect(page.model.snapshot().queued).toHaveLength(1);
+    expect(document.querySelector("[data-drn=question-state]")!.textContent).toContain("Queued: Tonight");
+  });
+
+  it("keeps an unqueued choice and comment in the state it hands the host", () => {
+    // Review finding 8.
+    document.body.innerHTML = report;
+    const page = api.start({ window });
+    const monday = document.querySelector<HTMLInputElement>("input[value=monday]")!;
+    monday.checked = true;
+    monday.dispatchEvent(new Event("change", { bubbles: true }));
+    const comment = document.querySelector<HTMLTextAreaElement>("textarea[data-dev-report-comment]")!;
+    comment.value = "half an answer";
+    comment.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(page.model.snapshot().answerDrafts).toEqual([{ questionId: "deploy", optionValue: "monday", comment: "half an answer" }]);
+  });
+
+  it("starts even when the report carries the old started attribute or a look-alike global id", () => {
+    // Review finding 6.
+    document.documentElement.setAttribute("data-dev-report-notes-started", "1");
+    document.body.innerHTML = report + `<div id="DEV_REPORT_NOTES_MANUAL_START"></div>`;
+    expect(() => api.start({ window })).not.toThrow();
+    expect(document.querySelector("[data-drn=send]")).not.toBeNull();
+    document.documentElement.removeAttribute("data-dev-report-notes-started");
   });
 
   it("refuses to start twice on one page", () => {

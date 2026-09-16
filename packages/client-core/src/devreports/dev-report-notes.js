@@ -31,8 +31,26 @@
   var VERSION = 1;
   var MAX_STRING = 20000;
   var QUOTE_LENGTH = 240;
-  var UI_ATTR = "data-dev-report-ui";
+  var TOKEN_ATTR = "data-dev-report-token";
+  var STARTED = typeof Symbol === "function" ? Symbol.for("devthrottle.dev-report-notes.started") : "__devReportNotesStarted";
   var ANCHOR_TYPES = ["element", "text", "table-cell", "svg-part"];
+
+  // The host's per-load token, read from the script element the host injected, then removed from the DOM.
+  // Every message to the host carries it, so the host can refuse a message from anything else in the frame
+  // (see CONTRACT.md, "Trust"). A plain file opened with no host has no token.
+  var hostToken = "";
+  (function readToken() {
+    var doc = root.document;
+    var current = doc && doc.currentScript;
+    if (current && current.hasAttribute(TOKEN_ATTR)) {
+      hostToken = current.getAttribute(TOKEN_ATTR);
+      current.removeAttribute(TOKEN_ATTR);
+    }
+  })();
+
+  // The elements this script added to the page. Only these count as the notes interface: a report cannot
+  // opt its own elements out of being noted by copying an attribute.
+  var uiRoots = [];
 
   // ---------------------------------------------------------------------------------------------
   // Text and selectors
@@ -290,7 +308,11 @@
   }
 
   function isUi(el) {
-    return Boolean(el && el.closest && el.closest("[" + UI_ATTR + "]"));
+    if (!el) return false;
+    for (var i = 0; i < uiRoots.length; i++) {
+      if (uiRoots[i] === el || uiRoots[i].contains(el)) return true;
+    }
+    return false;
   }
 
   function anchorFor(el) {
@@ -345,12 +367,23 @@
     return false;
   }
 
+  // A queued item may be waiting for the host to confirm it (pending), or carry the host's words for why it
+  // was refused and is still queued (statusLabel).
+  function validQueuedItem(item) {
+    return validItem(item) && (item.pending === undefined || typeof item.pending === "boolean") &&
+      isOptStr(item.statusLabel);
+  }
+
   function validSentItem(item) {
     return validItem(item) && isStr(item.status) && isStr(item.statusLabel);
   }
 
   function validReply(r) {
     return isPlainObject(r) && isStr(r.id) && r.id !== "" && isStr(r.text) && isStr(r.at);
+  }
+
+  function validAnswerDraft(d) {
+    return isPlainObject(d) && isStr(d.questionId) && d.questionId !== "" && isStr(d.optionValue) && isStr(d.comment);
   }
 
   function everyValid(list, check) {
@@ -361,7 +394,8 @@
 
   function validState(s) {
     if (!isPlainObject(s)) return false;
-    if (!everyValid(s.queued, validItem) || !everyValid(s.sent, validSentItem) || !everyValid(s.replies, validReply)) {
+    if (!everyValid(s.queued, validQueuedItem) || !everyValid(s.sent, validSentItem) ||
+      !everyValid(s.replies, validReply) || !everyValid(s.answerDrafts, validAnswerDraft)) {
       return false;
     }
     if (s.draft !== null && !(isPlainObject(s.draft) && validAnchor(s.draft.anchor) && isStr(s.draft.text))) {
@@ -390,19 +424,25 @@
   }
 
   function envelope(type, payload) {
-    return { channel: CHANNEL, version: VERSION, type: type, payload: payload };
+    var message = { channel: CHANNEL, version: VERSION, type: type, payload: payload };
+    if (hostToken) message.token = hostToken;
+    return message;
   }
 
   // ---------------------------------------------------------------------------------------------
-  // The model - queued, sent, replies, draft. No DOM, so it is testable on its own.
+  // The model - queued, sent, replies, drafts. No DOM, so it is testable on its own.
   // ---------------------------------------------------------------------------------------------
 
   function copy(value) {
     return JSON.parse(JSON.stringify(value));
   }
 
+  function emptyState() {
+    return { queued: [], sent: [], replies: [], draft: null, answerDrafts: [], scroll: { x: 0, y: 0 } };
+  }
+
   function createModel() {
-    var state = { queued: [], sent: [], replies: [], draft: null, scroll: { x: 0, y: 0 } };
+    var state = emptyState();
 
     function nextId(prefix) {
       var max = 0;
@@ -414,19 +454,28 @@
       return prefix + (max + 1);
     }
 
+    function indexOfId(list, id) {
+      for (var i = 0; i < list.length; i++) if (list[i].id === id) return i;
+      return -1;
+    }
+
     return {
       snapshot: function () {
         return copy(state);
       },
+      // Returns the queued item, or throws when the note cannot be queued. The page checks lengths first
+      // and shows the reason, so a throw here is a defect in the page, not a user mistake.
       queueNote: function (anchor, text) {
         if (!validAnchor(anchor)) throw new Error("queueNote: the anchor is not a valid anchor");
         var body = String(text == null ? "" : text).trim();
         if (!body) throw new Error("queueNote: a note needs some text");
-        var item = { id: nextId("n"), kind: "note", text: body.slice(0, MAX_STRING), anchor: copy(anchor) };
+        var item = { id: nextId("n"), kind: "note", text: body, anchor: copy(anchor) };
+        if (!validItem(item)) throw new Error("queueNote: the note is longer than " + MAX_STRING + " characters");
         state.queued.push(item);
         return copy(item);
       },
-      // One queued answer per question: queueing again replaces the earlier one in place.
+      // One queued answer per question: queueing again replaces the earlier one in place - unless the
+      // earlier one is already with the host (pending), which gets a new id so the host cannot confuse them.
       queueAnswer: function (answer) {
         var item = {
           id: "",
@@ -438,10 +487,12 @@
           comment: String(answer.comment || "").trim()
         };
         for (var i = 0; i < state.queued.length; i++) {
-          if (state.queued[i].kind === "answer" && state.queued[i].questionId === item.questionId) {
-            item.id = state.queued[i].id;
+          var existing = state.queued[i];
+          if (existing.kind === "answer" && existing.questionId === item.questionId) {
+            item.id = existing.pending ? nextId("a") : existing.id;
             if (!validItem(item)) throw new Error("queueAnswer: the answer is not valid");
-            state.queued[i] = item;
+            if (existing.pending) state.queued.push(item);
+            else state.queued[i] = item;
             return copy(item);
           }
         }
@@ -450,51 +501,74 @@
         state.queued.push(item);
         return copy(item);
       },
+      // A pending item is with the host already, so it cannot be taken back.
       remove: function (id) {
-        state.queued = state.queued.filter(function (it) { return it.id !== id; });
+        state.queued = state.queued.filter(function (it) { return it.id !== id || it.pending === true; });
       },
       queuedAnswerFor: function (questionId) {
+        var found = null;
         for (var i = 0; i < state.queued.length; i++) {
-          if (state.queued[i].kind === "answer" && state.queued[i].questionId === questionId) return copy(state.queued[i]);
+          if (state.queued[i].kind === "answer" && state.queued[i].questionId === questionId) found = state.queued[i];
         }
-        return null;
+        return found ? copy(found) : null;
       },
-      // The payload Send would post: the whole queue, in order. Does not change state.
+      // The message Send posts: the whole queue, in order, including items still waiting for the host to
+      // confirm them (the host treats a repeated id as the same item). Does not change state.
       sendMessage: function () {
-        return envelope("send", { items: copy(state.queued) });
-      },
-      // Moves the whole queue to sent. The status words are the host's to replace.
-      markSent: function () {
         var items = copy(state.queued);
         for (var i = 0; i < items.length; i++) {
-          items[i].status = "sending";
-          items[i].statusLabel = "Sent to the app";
-          state.sent.push(items[i]);
+          delete items[i].pending;
+          delete items[i].statusLabel;
         }
-        state.queued = [];
-        return items;
+        return envelope("send", { items: items });
       },
+      // Marks the whole queue as waiting for the host. Nothing leaves the queue until the host says so.
+      markPending: function () {
+        for (var i = 0; i < state.queued.length; i++) {
+          state.queued[i].pending = true;
+          delete state.queued[i].statusLabel;
+        }
+      },
+      // The host's word on each item. "refused" leaves a queued item queued, with the host's reason;
+      // anything else moves it to sent. A sent item just takes the new words. Unknown ids are skipped.
       applyStatus: function (updates) {
         for (var i = 0; i < updates.length; i++) {
-          for (var j = 0; j < state.sent.length; j++) {
-            if (state.sent[j].id === updates[i].id) {
-              state.sent[j].status = updates[i].status;
-              state.sent[j].statusLabel = updates[i].statusLabel;
+          var u = updates[i];
+          var q = indexOfId(state.queued, u.id);
+          if (q >= 0) {
+            var item = state.queued[q];
+            if (u.status === "refused") {
+              item.pending = false;
+              item.statusLabel = u.statusLabel;
+            } else {
+              state.queued.splice(q, 1);
+              delete item.pending;
+              item.status = u.status;
+              item.statusLabel = u.statusLabel;
+              state.sent.push(item);
             }
+            continue;
+          }
+          var s = indexOfId(state.sent, u.id);
+          if (s >= 0) {
+            state.sent[s].status = u.status;
+            state.sent[s].statusLabel = u.statusLabel;
           }
         }
       },
       addReply: function (reply) {
-        for (var i = 0; i < state.replies.length; i++) {
-          if (state.replies[i].id === reply.id) {
-            state.replies[i] = copy(reply);
-            return;
-          }
-        }
-        state.replies.push(copy(reply));
+        var i = indexOfId(state.replies, reply.id);
+        if (i >= 0) state.replies[i] = copy(reply);
+        else state.replies.push(copy(reply));
       },
       setDraft: function (draft) {
         state.draft = draft ? copy(draft) : null;
+      },
+      setAnswerDraft: function (questionId, optionValue, comment) {
+        var draft = { questionId: String(questionId), optionValue: String(optionValue), comment: String(comment) };
+        if (!validAnswerDraft(draft)) throw new Error("setAnswerDraft: the draft is not valid");
+        state.answerDrafts = state.answerDrafts.filter(function (d) { return d.questionId !== draft.questionId; });
+        state.answerDrafts.push(draft);
       },
       setScroll: function (x, y) {
         state.scroll = { x: x, y: y };
@@ -582,8 +656,26 @@
     return text || String(input.value || "");
   }
 
+  // A question's options and comment are the ones inside it that do not belong to a question nested inside
+  // it - the same ownership rule the Gateway's shape check applies (which refuses nested questions outright).
+  function ownedBy(q, list) {
+    return Array.prototype.slice.call(list).filter(function (node) {
+      return node.parentElement && node.parentElement.closest("[data-dev-report-question]") === q;
+    });
+  }
+
   function radiosIn(q) {
-    return Array.prototype.slice.call(q.querySelectorAll("input[type=radio]"));
+    return ownedBy(q, q.querySelectorAll("input[type=radio]"));
+  }
+
+  function checkedIn(q) {
+    var chosen = null;
+    radiosIn(q).forEach(function (r) { if (r.checked) chosen = r; });
+    return chosen;
+  }
+
+  function commentIn(q) {
+    return ownedBy(q, q.querySelectorAll("textarea[data-dev-report-comment]"))[0] || null;
   }
 
   function el(doc, name, attrs, text) {
@@ -601,10 +693,11 @@
     var opts = options || {};
     var win = opts.window || root;
     var doc = win.document;
-    if (doc.documentElement.hasAttribute("data-dev-report-notes-started")) {
+    // The flag lives on the window under a symbol, where report markup cannot set it.
+    if (win[STARTED] === true) {
       throw new Error("dev-report-notes: already started on this page");
     }
-    doc.documentElement.setAttribute("data-dev-report-notes-started", "1");
+    win[STARTED] = true;
 
     var model = createModel();
     var hosted = false;
@@ -628,6 +721,7 @@
     var style = el(doc, "style", { "data-dev-report-ui": "" });
     style.textContent = CSS_TEXT;
     (doc.head || doc.documentElement).appendChild(style);
+    uiRoots.push(style);
 
     var tray = el(doc, "aside", { "data-dev-report-ui": "", "class": "drn-tray drn-collapsed", "aria-label": "Notes for the agent" });
     var head = el(doc, "div", { "class": "drn-head" });
@@ -642,7 +736,7 @@
     var pickHint = el(doc, "div", { "class": "drn-where", "data-drn": "pick-hint" }, "");
     var composer = el(doc, "div", { "data-drn": "composer", hidden: "" });
     var composerWhere = el(doc, "div", { "class": "drn-where", "data-drn": "composer-where" });
-    var composerText = el(doc, "textarea", { "data-drn": "composer-text", placeholder: "Your note to the agent" });
+    var composerText = el(doc, "textarea", { "data-drn": "composer-text", placeholder: "Your note to the agent", maxlength: String(MAX_STRING) });
     var composerRow = el(doc, "div", { "class": "drn-row" });
     var composerQueue = el(doc, "button", { type: "button", "class": "drn-primary", "data-drn": "composer-queue" }, "Queue note");
     var composerCancel = el(doc, "button", { type: "button", "data-drn": "composer-cancel" }, "Cancel");
@@ -678,6 +772,7 @@
     body.appendChild(replyList);
     tray.appendChild(body);
     doc.body.appendChild(tray);
+    uiRoots.push(tray);
 
     function setOpen(open) {
       if (open) tray.classList.remove("drn-collapsed");
@@ -698,7 +793,12 @@
         li.appendChild(el(doc, "div", null, d.body));
         if (withStatus) {
           li.appendChild(el(doc, "div", { "class": "drn-status", "data-drn": "status" }, items[i].statusLabel));
+        } else if (items[i].pending) {
+          li.appendChild(el(doc, "div", { "class": "drn-status", "data-drn": "status" }, "Waiting for the app to confirm it has this"));
         } else {
+          if (items[i].statusLabel) {
+            li.appendChild(el(doc, "div", { "class": "drn-status", "data-drn": "status" }, items[i].statusLabel));
+          }
           var remove = el(doc, "button", { type: "button", "data-drn": "remove", "data-remove-id": items[i].id }, "Remove");
           li.appendChild(remove);
         }
@@ -826,6 +926,10 @@
         composerWhere.textContent = describeAnchor(s.draft.anchor) + " - type a note first.";
         return;
       }
+      if (composerText.value.trim().length > MAX_STRING) {
+        composerWhere.textContent = describeAnchor(s.draft.anchor) + " - the note is too long; the limit is " + MAX_STRING + " characters.";
+        return;
+      }
       model.queueNote(s.draft.anchor, composerText.value);
       model.setDraft(null);
       changed();
@@ -853,14 +957,16 @@
         return;
       }
       payloadBox.setAttribute("hidden", "");
+      // Nothing leaves the queue here: posting a message is not the host accepting it. Each item moves to
+      // Sent only when the host answers with a status for its id.
       post("send", message.payload);
-      model.markSent();
+      model.markPending();
       changed();
     });
 
     // --- questions ------------------------------------------------------------------------------
     var questions = Array.prototype.slice.call(doc.querySelectorAll("[data-dev-report-question]"));
-    var questionStates = {};
+    var questionStates = new Map();
 
     questions.forEach(function (q) {
       var id = q.getAttribute("data-dev-report-question");
@@ -872,52 +978,79 @@
         });
       }
       var row = el(doc, "div", { "data-dev-report-ui": "", "class": "drn-row" });
+      uiRoots.push(row);
       var queueBtn = el(doc, "button", { type: "button", "class": "drn-primary", "data-drn": "queue-answer", "data-question-id": id }, "Queue answer");
       var stateText = el(doc, "span", { "class": "drn-q-state", "data-drn": "question-state" }, "");
       row.appendChild(queueBtn);
       row.appendChild(stateText);
       q.appendChild(row);
-      questionStates[id] = stateText;
+      questionStates.set(id, stateText);
+      var comment = commentIn(q);
+      if (comment) comment.setAttribute("maxlength", String(MAX_STRING));
+
+      function saveAnswerDraft() {
+        var chosen = checkedIn(q);
+        var text = comment ? comment.value : "";
+        if (text.length > MAX_STRING || (chosen && String(chosen.value).length > MAX_STRING)) return;
+        model.setAnswerDraft(id, chosen ? String(chosen.value) : "", text);
+        emitState();
+      }
+      radiosIn(q).forEach(function (r) { r.addEventListener("change", saveAnswerDraft); });
+      if (comment) comment.addEventListener("input", saveAnswerDraft);
 
       queueBtn.addEventListener("click", function () {
-        var chosen = null;
-        radiosIn(q).forEach(function (r) { if (r.checked) chosen = r; });
+        var chosen = checkedIn(q);
         if (!chosen) {
           stateText.textContent = "Pick an option first.";
           return;
         }
-        var comment = q.querySelector("textarea[data-dev-report-comment]");
-        model.queueAnswer({
+        var answer = {
           questionId: id,
           question: questionText(q),
           optionValue: String(chosen.value),
           optionLabel: optionLabel(chosen),
-          comment: comment ? comment.value : ""
-        });
+          comment: comment ? comment.value.trim() : ""
+        };
+        var tooLong = [];
+        if (answer.comment.length > MAX_STRING) tooLong.push("the comment");
+        if (answer.optionValue.length > MAX_STRING || answer.question.length > MAX_STRING) tooLong.push("the question's markup");
+        if (answer.questionId.length > MAX_STRING) tooLong.push("the question id");
+        if (tooLong.length) {
+          stateText.textContent = "Not queued: " + tooLong.join(" and ") + " is longer than " + MAX_STRING + " characters.";
+          return;
+        }
+        model.queueAnswer(answer);
         changed();
       });
     });
 
     function renderQuestionStates(s) {
-      for (var id in questionStates) {
-        if (!Object.prototype.hasOwnProperty.call(questionStates, id)) continue;
+      questionStates.forEach(function (stateText, id) {
         var queued = null;
         var sent = null;
         for (var i = 0; i < s.queued.length; i++) if (s.queued[i].questionId === id) queued = s.queued[i];
         for (var j = 0; j < s.sent.length; j++) if (s.sent[j].questionId === id) sent = s.sent[j];
-        if (queued) questionStates[id].textContent = "Queued: " + queued.optionLabel + " - press Send in the notes tray.";
-        else if (sent) questionStates[id].textContent = "Sent: " + sent.optionLabel + " - " + sent.statusLabel;
-        else questionStates[id].textContent = "";
-      }
+        if (queued && queued.pending) stateText.textContent = "Sent: " + queued.optionLabel + " - waiting for the app to confirm it has this.";
+        else if (queued && queued.statusLabel) stateText.textContent = "Not sent: " + queued.optionLabel + " - " + queued.statusLabel;
+        else if (queued) stateText.textContent = "Queued: " + queued.optionLabel + " - press Send in the notes tray.";
+        else if (sent) stateText.textContent = "Sent: " + sent.optionLabel + " - " + sent.statusLabel;
+        else stateText.textContent = "";
+      });
     }
 
-    function applyQueuedAnswersToInputs() {
+    // After a restore: first what the owner had picked and typed, then any queued answer on top of it.
+    function applyAnswersToInputs() {
+      var drafts = model.snapshot().answerDrafts;
       questions.forEach(function (q) {
-        var answer = model.queuedAnswerFor(q.getAttribute("data-dev-report-question"));
-        if (!answer) return;
-        radiosIn(q).forEach(function (r) { r.checked = String(r.value) === answer.optionValue; });
-        var comment = q.querySelector("textarea[data-dev-report-comment]");
-        if (comment) comment.value = answer.comment;
+        var id = q.getAttribute("data-dev-report-question");
+        var comment = commentIn(q);
+        var fill = null;
+        for (var i = 0; i < drafts.length; i++) if (drafts[i].questionId === id) fill = drafts[i];
+        var answer = model.queuedAnswerFor(id);
+        if (answer) fill = answer;
+        if (!fill) return;
+        if (fill.optionValue !== "") radiosIn(q).forEach(function (r) { r.checked = String(r.value) === fill.optionValue; });
+        if (comment) comment.value = fill.comment;
       });
     }
 
@@ -940,18 +1073,18 @@
         hosted = true;
         payloadBox.setAttribute("hidden", "");
         model.restore(message.payload.state);
-        applyQueuedAnswersToInputs();
+        applyAnswersToInputs();
         render();
         var scroll = message.payload.state.scroll;
         win.scrollTo(scroll.x, scroll.y);
         if (message.payload.state.draft) setOpen(true);
       } else if (message.type === "status") {
         model.applyStatus(message.payload.updates);
-        render();
+        changed();
       } else if (message.type === "reply") {
         model.addReply(message.payload.reply);
         setOpen(true);
-        render();
+        changed();
       }
     });
 
@@ -977,13 +1110,15 @@
     parseInbound: parseInbound,
     validState: validState,
     validItem: validItem,
+    started: STARTED,
     createModel: createModel,
     start: start
   };
   root.DevReportNotes = api;
 
   // Starts itself when injected into a report. A test page sets DEV_REPORT_NOTES_MANUAL_START first.
-  if (root.document && !root.DEV_REPORT_NOTES_MANUAL_START) {
+  // Compared with true, because a report element with that id would otherwise be a truthy window property.
+  if (root.document && root.DEV_REPORT_NOTES_MANUAL_START !== true) {
     if (root.document.readyState === "loading") {
       root.document.addEventListener("DOMContentLoaded", function () { start({ window: root }); });
     } else {
