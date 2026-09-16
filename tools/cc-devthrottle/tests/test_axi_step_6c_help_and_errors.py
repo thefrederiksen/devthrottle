@@ -2180,7 +2180,12 @@ class TestAKilledSwapIsPutRight:
 def _snapshot_without_work(root: Path) -> dict:
     from src import bundle_swap
 
-    return {k: v for k, v in _snapshot(root).items() if not k.startswith(bundle_swap.WORK_DIR + "/")}
+    # Filtered before reading: on Windows the held lock file cannot be read while a replace runs.
+    return {
+        p.relative_to(root).as_posix(): p.read_bytes()
+        for p in sorted(root.rglob("*"))
+        if p.is_file() and p.relative_to(root).parts[0] != bundle_swap.WORK_DIR
+    }
 
 
 class TestNoAnswerIsReadAsNoFiles:
