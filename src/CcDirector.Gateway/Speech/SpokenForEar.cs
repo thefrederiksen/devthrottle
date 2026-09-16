@@ -10,8 +10,16 @@ namespace CcDirector.Gateway.Speech;
 /// session named "Wingman Inspector - Cockpit tab" was narrated as "Wingman Inspector mobile" - not
 /// mangled punctuation, a different name. A name is a fact on a record, so it is read off the record.
 ///
-/// THE NARRATION ITSELF IS NEVER EDITED. Not a word removed, not a word changed. That is the whole
+/// THIS STEP NEVER EDITS THE NARRATION. Not a word removed, not a word changed. That is the whole
 /// design, and it is what four review rounds cost to arrive at.
+///
+/// IT IS NOT THE ONLY STEP, AND SAYING OTHERWISE WAS AN OVERCLAIM. Both callers run the narration
+/// through <see cref="SpeechContract.Finish"/> first, which strips Markdown for the ear and drops fenced
+/// code blocks WHOLE - so a narration whose answer sits in a fenced block reaches this method already
+/// missing it. That pass is older than this file and is not changed here; what is corrected is the claim,
+/// which twice said "nothing else is changed" about a pipeline that changes something else immediately
+/// upstream. A comment promising a guarantee the code does not hold is how a reader comes to trust the
+/// wrong thing. The fenced-block loss is filed separately as its own defect.
 ///
 /// This file began by also stripping what the model should not have said - hashes and issue numbers
 /// read aloud, and names it invented - because the prompt forbids those and the model does them anyway.
@@ -35,7 +43,9 @@ public static class SpokenForEar
     /// <summary>The characters that JOIN words in a session name and are read as pauses, not voiced.</summary>
     private static readonly Regex Separators = new(@"[_\-/:|]+", RegexOptions.Compiled);
 
-    private static readonly Regex Whitespace = new(@"\s{2,}", RegexOptions.Compiled);
+    /// <summary>Any run of whitespace, INCLUDING A SINGLE ONE. It matched only runs of two or more, so a
+    /// lone tab inside a name survived into the speech string as a tab.</summary>
+    private static readonly Regex Whitespace = new(@"\s+", RegexOptions.Compiled);
 
     /// <summary>
     /// The session's name as it should be SAID: the separators that join its words become spaces, so
@@ -52,7 +62,12 @@ public static class SpokenForEar
     public static string SpeakableTitle(string? title)
     {
         if (string.IsNullOrWhiteSpace(title)) return string.Empty;
-        return Whitespace.Replace(Separators.Replace(title, " "), " ").Trim();
+        var said = Whitespace.Replace(Separators.Replace(title, " "), " ").Trim();
+        // A NAME MADE ENTIRELY OF SEPARATORS SURVIVES AS ITSELF. Turning "_-/:|" into pauses leaves
+        // nothing, and this method would then return empty and the session would go unnamed - the exact
+        // failure it exists to prevent, for a name the product's own validation accepts. When the
+        // repunctuation would erase the name, the name is said as written instead.
+        return said.Length == 0 ? Whitespace.Replace(title, " ").Trim() : said;
     }
 
     /// <summary>

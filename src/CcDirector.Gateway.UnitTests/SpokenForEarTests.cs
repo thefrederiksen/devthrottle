@@ -111,4 +111,21 @@ public class SpokenForEarTests
     [Fact]
     public void ANarrationOfPunctuationAloneIsStillNotEdited()
         => Assert.Equal("session. ...", SpokenForEar.Assemble("session", "..."));
+
+    [Fact]
+    public void ANameMadeEntirelyOfSeparators_IsStillSaid()
+    {
+        // Found in review: turning every separator into a pause left nothing, so the session went
+        // unnamed - the exact failure this code exists to prevent, for a name the product accepts.
+        Assert.Equal("_-/:|", SpokenForEar.SpeakableTitle("_-/:|"));
+        Assert.Equal("_-/:|. Build passed.", SpokenForEar.Assemble("_-/:|", "Build passed."));
+    }
+
+    [Fact]
+    public void ASingleTabInsideANameIsCollapsed_NotCarriedIntoTheSpeech()
+    {
+        // The whitespace rule matched runs of two or more, so a lone tab survived as a tab.
+        Assert.Equal("Alpha Beta", SpokenForEar.SpeakableTitle("Alpha\tBeta"));
+        Assert.DoesNotContain('\t', SpokenForEar.SpeakableTitle("Alpha\tBeta"));
+    }
 }

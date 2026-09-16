@@ -77,7 +77,9 @@ public sealed class TurnVerdictDto
     /// <summary>"none", "irreversible", "standing-grant" or "spends-money".</summary>
     public string Risk { get; set; } = "";
 
-    /// <summary>The same content for the ear, about thirty seconds, opening with the session title.
+    /// <summary>The same content for the ear, about thirty seconds. It does NOT open with the session
+    /// name: from contract v2.1 the judge is told not to write one, and the name is prefixed from the
+    /// record when the audio is assembled, because the judge got it wrong often enough to matter.
     /// Produced for every owned stop; audio is synthesised only when somebody is listening.</summary>
     public string Spoken { get; set; } = "";
 
