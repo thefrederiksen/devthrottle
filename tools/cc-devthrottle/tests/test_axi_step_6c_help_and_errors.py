@@ -1,4 +1,4 @@
-"""AXI step 6, part B (#2922): next steps after mutations, short help, and errors an agent can act on.
+"""AXI step 6c (#2922): next steps after mutations, short help, and errors an agent can act on.
 
 Covers the command groups schedule, workflow, skill, settings, setup, email, diag, autostart and
 browser, and the top-level `actions` command. The rules are in docs/axi-standard.md:
@@ -85,7 +85,7 @@ def _assert_json_unchanged(result, payload):
 # Short help for every command and group
 # ---------------------------------------------------------------------------------------------------
 
-# The groups this part owns. Part A (branch axi/help-mutations-a) adds session, message, mission,
+# The groups step 6c owns. Step 6b (branch axi/help-mutations-a) adds session, message, mission,
 # repo, worktree, director, machine and the root app; when both have landed this becomes the whole tree.
 SHORT_HELP_GROUPS = (
     "actions",
