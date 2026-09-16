@@ -23,14 +23,6 @@ public enum LauncherUpdateDecision
     HeldBecauseUndecidable,
 
     /// <summary>
-    /// A newer build is staged, but on this platform a launcher cannot be observed to hold a command
-    /// surface at all, so no swap could ever be certified. Nothing was touched. See
-    /// <see cref="LauncherWitnessReading.Witnessed"/>: this is Windows-only until the launcher
-    /// publishes its own capability.
-    /// </summary>
-    HeldBecauseTheCommandSurfaceCannotBeObserved,
-
-    /// <summary>
     /// A newer build is staged, but another binary swap is already running on this machine - the
     /// launcher installing the Director's update, or a second Director installing the launcher's.
     /// Nothing was touched; the next pass looks again.
@@ -174,10 +166,31 @@ public sealed class LauncherUpdateOwner
     public Func<InstallLayout, int> StartLauncher { get; init; } = DefaultStartLauncher;
 
     /// <summary>
-    /// What version does a build on disk declare about itself? Production reads the file's own stamp;
-    /// a test supplies one, because a fake build has no version resource to read.
+    /// The order the swap is performed in, decided by which process supervises the launcher on this
+    /// machine. Overridable so both orders can be exercised on one development machine - the one thing
+    /// that could not be done while the order was implied by an <c>if</c> inside the swap.
     /// </summary>
-    public Func<string, string?> ReadVersionOnDisk { get; init; } = InstalledStateReader.ReadVersionFromDisk;
+    public LauncherSwapOrder SwapOrder { get; init; } =
+        OperatingSystem.IsMacOS() ? LauncherSwapOrder.PlaceThenRestart : LauncherSwapOrder.StopThenPlaceThenStart;
+
+    /// <summary>
+    /// Ask the launcher's supervisor to restart it, for <see cref="LauncherSwapOrder.PlaceThenRestart"/>.
+    /// Only macOS has a supervisor to ask; elsewhere this is never called, and says so rather than
+    /// quietly answering "yes, restarted".
+    /// </summary>
+    public Func<bool> RestartLauncher { get; init; } = DefaultRestartLauncher;
+
+    /// <summary>
+    /// What version is the staged build? Production reads the sidecar the stager wrote beside it; a
+    /// test supplies one directly.
+    ///
+    /// THIS USED TO READ THE FILE'S OWN VERSION STAMP, AND THAT IS A WINDOWS-ONLY QUESTION. The Mac and
+    /// Linux launchers are bare single-file executables carrying no version resource, so the answer was
+    /// null and every staged build on those platforms was refused as one that "does not declare a
+    /// version" - a refusal that would have outlived every other fix in this change. See
+    /// <see cref="StagedBuildVersion"/> for why the sidecar is the better source on Windows too.
+    /// </summary>
+    public Func<string, string?> ReadVersionOnDisk { get; init; } = StagedBuildVersion.Read;
 
     /// <summary>
     /// The machine-wide lock this swap takes. <see cref="BinarySwapLock.Name"/> in production, always;
@@ -198,7 +211,7 @@ public sealed class LauncherUpdateOwner
     public TimeSpan StopSettleTimeout { get; init; } = TimeSpan.FromSeconds(5);
 
     /// <summary>Where a staged launcher build waits - one definition, shared with the launcher's own updater.</summary>
-    public string StagedBuildPath => new LauncherUpdater(_layout).StagedExePath;
+    public string StagedBuildPath => new LauncherUpdater(_layout).StagedBuildPath;
 
     /// <summary>
     /// One pass: look for a staged launcher build newer than the one installed, and install it. Never
@@ -248,24 +261,18 @@ public sealed class LauncherUpdateOwner
         // starting an application somebody deliberately closed is not an update.
         var reading = _witness.Read();
 
-        // WHERE A LAUNCHER CANNOT BE WITNESSED, NOTHING IS SWAPPED. On a platform whose command surface
-        // cannot be observed at all, every swap this class performed would install the new build, fail
-        // to certify it for the whole witness timeout, roll it back and PIN it - churning the machine
-        // and permanently blacklisting a build that was probably fine. Refusing up front, and saying
-        // which platform fact caused it, is the honest form of the same answer. See
-        // LauncherWitnessReading.Witnessed for why the alternative - letting the witness pass on a live
-        // registration alone - is the liveness-only proof this whole class exists to forbid.
-        if (reading.CommandSurface == LauncherCommandSurface.NotObservable)
-        {
-            var notObservable =
-                $"{staged.Version} is staged, but whether a launcher holds a command surface cannot be "
-                + "observed on this platform, so a swap could never be certified. The Director's "
-                + "ownership of the launcher's update is Windows-only until the launcher publishes its "
-                + "own capability.";
-            FileLog.Write($"[LauncherUpdateOwner] {notObservable}");
-            return LauncherUpdateResult.Of(
-                LauncherUpdateDecision.HeldBecauseTheCommandSurfaceCannotBeObserved, notObservable);
-        }
+        // THERE USED TO BE A REFUSAL HERE, AND ITS REMOVAL IS THE POINT OF THIS CHANGE. On a platform
+        // whose command surface could not be observed - every Mac and every Linux machine - this class
+        // refused outright, because a swap it could not certify would install the new build, fail the
+        // whole witness timeout, roll it back and PIN it. Refusing was correct given the evidence
+        // available. The evidence is what changed: a launcher now states the signals it armed, so the
+        // surface is answerable everywhere and there is no longer a platform this cannot certify on.
+        // See LauncherCommandSurface.
+        //
+        // An ABSENT surface is deliberately NOT a refusal and never was. It means the running launcher
+        // cannot be told anything, which is precisely the build this class exists to replace - and it is
+        // how a machine still on a launcher too old to declare anything gets swapped onto one that does,
+        // with no manual step and nobody in front of it.
 
         List<LauncherProcess> ours;
         try
@@ -357,8 +364,10 @@ public sealed class LauncherUpdateOwner
             staged.InstallTarget,
             staged.StagedBuild,
             staged.Version,
+            order: SwapOrder,
             stopLauncher: StopInstalledLauncher,
             startLauncher: () => StartLauncher(_layout) > 0,
+            restartLauncher: RestartLauncher,
             // THE WITNESS, and the whole reason this is not the Director's update owner with the nouns
             // changed: the new build is proved by a launcher that is running AND can be commanded,
             // reporting the version just installed. A launcher that starts and opens nothing fails this.
@@ -424,7 +433,9 @@ public sealed class LauncherUpdateOwner
         {
             // A build that will not say what it is cannot be compared with what is installed, and
             // installing it anyway would mean not knowing afterwards whether it was the right one.
-            why = $"the build staged at {stagedPath} does not declare a version, so it cannot be installed";
+            // A staged file with no sidecar was not put there by this product's staging path.
+            why = $"the build staged at {stagedPath} has no recorded version "
+                  + $"({StagedBuildVersion.PathFor(stagedPath)} is missing or empty), so it cannot be installed";
             FileLog.Write($"[LauncherUpdateOwner] {why}");
             return null;
         }
@@ -611,6 +622,25 @@ public sealed class LauncherUpdateOwner
         psi.ArgumentList.Add(LauncherTrayInstaller.InstalledArguments);
         psi.Environment["CC_DIRECTOR_ROOT"] = layout.LocalRoot;
         return psi;
+    }
+
+    /// <summary>
+    /// Ask launchd to restart the launcher. See <see cref="LauncherLaunchdAutostart.Kickstart"/> for why
+    /// this is one operation and not a stop plus a start.
+    /// </summary>
+    private static bool DefaultRestartLauncher()
+    {
+        if (!OperatingSystem.IsMacOS())
+        {
+            // Reached only if a caller sets PlaceThenRestart where nothing supervises the launcher. It
+            // answers NO rather than pretending, so the swap reports a refused restart instead of
+            // waiting out a health timeout for a process nobody ever asked to start.
+            FileLog.Write("[LauncherUpdateOwner] a supervisor restart was asked for on a platform that has no "
+                          + "launcher supervisor; nothing was restarted.");
+            return false;
+        }
+
+        return LauncherLaunchdAutostart.Kickstart();
     }
 
     /// <summary>Start the installed launcher. See <see cref="BuildLauncherStartInfo"/> for the environment.</summary>

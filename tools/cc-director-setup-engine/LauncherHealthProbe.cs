@@ -5,7 +5,13 @@ namespace CcDirector.Setup.Engine;
 /// <summary>One reading of the launcher registration file: liveness plus IDENTITY (version, process id).
 /// <see cref="Ok"/> means the file names a process that is alive RIGHT NOW - a file left behind by a
 /// crashed launcher reads as not ok, because the pid in it is dead.</summary>
-public sealed record LauncherHealth(bool Ok, string? Version, int Pid);
+/// <param name="CommandSignals">
+/// The lifecycle signals the registered launcher says it armed. Carried here so a caller that has read
+/// the registration once does not have to read it a second time to find out whether that launcher can
+/// be told anything - and so the two answers cannot come from two different reads of a file that is
+/// rewritten while it is being read.
+/// </param>
+public sealed record LauncherHealth(bool Ok, string? Version, int Pid, IReadOnlyList<string> CommandSignals);
 
 /// <summary>Why a readiness wait stopped. "Not ready yet" and "never going to be ready" are
 /// different facts and the caller has to be able to tell them apart.</summary>
@@ -169,7 +175,7 @@ public static class LauncherHealthProbe
         if (!fact.Installed) return null;
         var pid = fact.Pid ?? 0;
         var alive = pid > 0 && (processIsAlive ?? DefaultProcessIsAlive)(pid);
-        return new LauncherHealth(Ok: alive, fact.Version, pid);
+        return new LauncherHealth(Ok: alive, fact.Version, pid, fact.CommandSignals);
     }
 
     /// <summary>True when the reading certifies the install: a live process, version-matched when one was

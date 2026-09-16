@@ -25,13 +25,16 @@ public class LauncherWitnessTests : IDisposable
         try { if (Directory.Exists(_root)) Directory.Delete(_root, true); } catch { /* best effort */ }
     }
 
-    private void WriteRegistration(int pid, string? version)
+    private void WriteRegistration(int pid, string? version, IReadOnlyList<string>? commandSignals = null)
     {
         var payload = version is null
-            ? JsonSerializer.Serialize(new { pid })
-            : JsonSerializer.Serialize(new { pid, version });
+            ? JsonSerializer.Serialize(new { pid, commandSignals = commandSignals ?? [] })
+            : JsonSerializer.Serialize(new { pid, version, commandSignals = commandSignals ?? [] });
         File.WriteAllText(_registration, payload);
     }
+
+    /// <summary>The restart signal name a launcher serving THIS root would have armed.</summary>
+    private string CommandSignalName => new LauncherWitness(_root).CommandSignalName;
 
     private LauncherWitness Witness(bool? listener, Func<int, bool>? alive = null,
         IReadOnlyList<LauncherProcess>? running = null) =>
@@ -109,27 +112,71 @@ public class LauncherWitnessTests : IDisposable
     }
 
     [Fact]
-    public void WhereAListenerCannotBeObserved_ThatIsNOTAWITNESS()
+    public void WhereNoListenerCanBeSeen_TheLAUNCHERSOWNDECLARATION_IsTheAnswer()
     {
-        // Unix: the signal is a request file that a listener polls, so there is nothing to consult and
-        // a "no" would be invented. The reading says so in its own words rather than pretending - and
-        // it does NOT count as witnessed.
-        //
-        // THIS TEST ASSERTED THE OPPOSITE. Accepting NotObservable was reasoned as "a listener genuinely
-        // cannot be observed here, so refusing would refuse for ever" - but what it actually did was let
-        // a live registration ALONE pass, which is precisely the liveness-only proof this class exists
-        // to forbid, reintroduced on the one platform where nobody would see it. A witness that cannot
-        // fail on a platform is not a witness on that platform. The refusal for ever is the honest
-        // answer, and it is the caller's job to say so plainly rather than the boolean's job to hide it:
-        // LauncherUpdateOwner declines to swap at all where this is the reading.
-        WriteRegistration(4242, "2.0.4");
+        // The Unix arm. The signal is a request file a listener polls, so there is no handle to open and
+        // nothing outside the launcher can see it - which is why this reading used to be "not
+        // observable", why LauncherUpdateOwner refused, and why no launcher on a Mac has ever updated
+        // itself. The launcher now states what it armed, and that is evidence this can check.
+        WriteRegistration(4242, "2.0.4", commandSignals: [CommandSignalName]);
 
         var reading = Witness(listener: null).Read();
 
-        Assert.Equal(LauncherCommandSurface.NotObservable, reading.CommandSurface);
+        Assert.Equal(LauncherCommandSurface.Present, reading.CommandSurface);
+        Assert.True(reading.Witnessed);
+        Assert.Equal("2.0.4", Witness(listener: null).WitnessedVersion());
+    }
+
+    [Fact]
+    public void WhereNoListenerCanBeSeen_ALiveRegistrationALONE_IsStillNotAWitness()
+    {
+        // The rule that must survive the change above, because it is the whole point of this class: a
+        // process that started is not evidence of anything. A launcher too old to declare, or one whose
+        // signals failed to arm, is registered and alive and STILL not witnessed.
+        //
+        // If this ever passes, the Unix arm has quietly become the liveness-only proof the class exists
+        // to forbid - on the one platform where nobody would notice.
+        WriteRegistration(4242, "2.0.4", commandSignals: []);
+
+        var reading = Witness(listener: null).Read();
+
+        Assert.Equal(LauncherCommandSurface.Absent, reading.CommandSurface);
         Assert.False(reading.Witnessed);
         Assert.Null(Witness(listener: null).WitnessedVersion());
-        Assert.Contains("cannot be observed on this platform", reading.Detail);
+        Assert.Contains("cannot be told anything", reading.Detail);
+    }
+
+    [Fact]
+    public void ADeclarationForADIFFERENTROOT_IsNotThisRootsCommandSurface()
+    {
+        // The failure the Windows kernel check CANNOT catch, and this one can. On 2026-09-06 a launcher
+        // started from a shell holding a Director's CC_DIRECTOR_ROOT took that instance home for the
+        // machine root: it registered, it was alive, it armed both signals - all of it keyed to a root
+        // nothing computing from the real root could reach.
+        //
+        // A yes/no "signals armed" flag would call that launcher commandable. A NAME can be compared
+        // with the name computed here, so it cannot.
+        WriteRegistration(4242, "2.0.4",
+            commandSignals: ["cc-director-launcher-restart-director-SOMEONEELSESROOT"]);
+
+        var reading = Witness(listener: null).Read();
+
+        Assert.Equal(LauncherCommandSurface.Absent, reading.CommandSurface);
+        Assert.False(reading.Witnessed);
+    }
+
+    [Fact]
+    public void WhereTheKernelAnswers_ItsNOBeatsADeclarationThatSaysYes()
+    {
+        // Windows. The named-event check is a live fact read from outside the launcher at this instant;
+        // the declaration is a claim the launcher wrote at startup and may have outlived. Where both
+        // exist the live fact wins, or this change would have WEAKENED the platform it was not for.
+        WriteRegistration(4242, "2.0.4", commandSignals: [CommandSignalName]);
+
+        var reading = Witness(listener: false).Read();
+
+        Assert.Equal(LauncherCommandSurface.Absent, reading.CommandSurface);
+        Assert.False(reading.Witnessed);
     }
 
     [Fact]

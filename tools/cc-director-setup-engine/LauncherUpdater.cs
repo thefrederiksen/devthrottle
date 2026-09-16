@@ -22,14 +22,32 @@ public sealed class LauncherUpdater
         _layout = layout ?? InstallLayout.Default();
     }
 
-    /// <summary>The staging path the new Launcher exe is downloaded to before the swap.</summary>
-    public string StagedExePath => Path.Combine(_layout.StateDir, "staged", "cc-launcher.exe");
+    /// <summary>
+    /// The staging path the new Launcher build is downloaded to before the swap.
+    ///
+    /// THE NAME IS THE PLATFORM'S, NOT ALWAYS WINDOWS'S. This was <c>cc-launcher.exe</c> unconditionally
+    /// - harmless-looking, since a name is only a name, and on macOS it would have staged a file whose
+    /// extension says it is a Windows program into a directory a Mac reads. The suffix is what the
+    /// operating system and every person reading a log uses to tell one from the other.
+    /// </summary>
+    public string StagedBuildPath =>
+        Path.Combine(_layout.StateDir, "staged", OperatingSystem.IsWindows() ? "cc-launcher.exe" : "cc-launcher");
+
+    /// <summary>
+    /// The release asset holding a Launcher for THIS machine, or null when the release has none.
+    ///
+    /// This asked for <see cref="Component.WindowsAsset"/> by name, which is the whole reason no launcher
+    /// on a Mac or a Linux box has ever updated itself. The Mac and Linux launcher assets are built and
+    /// published in every release; nothing but the installer has ever asked for one.
+    /// </summary>
+    private static string? AssetName() => ComponentRegistry.Launcher.AssetFor(HostPlatform.Current);
 
     /// <summary>True when the release has a Launcher newer than the installed one (and it isn't pinned).</summary>
     public bool IsUpdateAvailable(ResolvedRelease release)
     {
         ArgumentNullException.ThrowIfNull(release);
-        var asset = release.Manifest.TryGetAsset(ComponentRegistry.Launcher.WindowsAsset);
+        if (AssetName() is not { } assetName) return false;
+        var asset = release.Manifest.TryGetAsset(assetName);
         if (asset is null) return false;
 
         var installed = new InstalledStateReader(_layout).Read(ComponentRegistry.Launcher);
@@ -40,9 +58,14 @@ public sealed class LauncherUpdater
     }
 
     /// <summary>
-    /// Download + SHA-256 verify the new Launcher exe to <see cref="StagedExePath"/>. Returns the
+    /// Download + SHA-256 verify the new Launcher build to <see cref="StagedBuildPath"/>. Returns the
     /// staged path and version, or null if no update is available. Throws on a hash mismatch (never
     /// stages a corrupt build).
+    ///
+    /// RUNS ON EVERY PLATFORM, and only the APPLYING of it is platform-dependent. Staging is a download,
+    /// a hash check and a file copy - nothing about it is Windows-shaped, and a Mac that stages is a Mac
+    /// whose Director can install the result (<see cref="LauncherUpdateOwner"/>). Keeping the download
+    /// behind the same Windows gate as the apply is what left every Mac with nothing to install.
     /// </summary>
     public async Task<(string StagedPath, string Version)?> StageAsync(ResolvedRelease release, ReleaseSource source, CancellationToken ct = default)
     {
@@ -50,7 +73,8 @@ public sealed class LauncherUpdater
         ArgumentNullException.ThrowIfNull(source);
         if (!IsUpdateAvailable(release)) return null;
 
-        var asset = release.Manifest.TryGetAsset(ComponentRegistry.Launcher.WindowsAsset);
+        if (AssetName() is not { } assetName) return null;
+        var asset = release.Manifest.TryGetAsset(assetName);
         if (asset is null) return null;
 
         var downloaded = await source.DownloadAssetAsync(asset.Name, release.DownloadUrls, ct);
@@ -59,10 +83,20 @@ public sealed class LauncherUpdater
             if (!Hashing.Sha256Matches(downloaded, asset.Sha256))
                 throw new InvalidOperationException("Launcher asset SHA-256 mismatch; not staging.");
 
-            Directory.CreateDirectory(Path.GetDirectoryName(StagedExePath) ?? _layout.StateDir);
-            File.Copy(downloaded, StagedExePath, overwrite: true);
-            EngineLog.Write($"[LauncherUpdater] staged Launcher {asset.Version} -> {StagedExePath}");
-            return (StagedExePath, asset.Version);
+            var staged = StagedBuildPath;
+            Directory.CreateDirectory(Path.GetDirectoryName(staged) ?? _layout.StateDir);
+
+            // The sidecar is removed FIRST and rewritten LAST, so the window in which a reader could see
+            // a new binary described by the previous version's sidecar does not exist. A staged build
+            // with no sidecar is refused; one with the wrong sidecar would be installed and then
+            // mis-recorded, which is the failure that cannot be seen afterwards.
+            StagedBuildVersion.Delete(staged);
+            File.Copy(downloaded, staged, overwrite: true);
+            RunnableBuild.Prepare(staged);
+            StagedBuildVersion.Write(staged, asset.Version);
+
+            EngineLog.Write($"[LauncherUpdater] staged Launcher {asset.Version} ({asset.Name}) -> {staged}");
+            return (staged, asset.Version);
         }
         finally
         {
@@ -95,7 +129,17 @@ public sealed class LauncherUpdater
         return p;
     }
 
-    /// <summary>Convenience: if an update is available, stage it and launch the detached helper. Returns the staged version, or null.</summary>
+    /// <summary>
+    /// Convenience: if an update is available, stage it and launch the detached helper. Returns the
+    /// staged version, or null.
+    ///
+    /// WINDOWS ONLY, AND THAT IS NOT THE GAP THIS CHANGE CLOSED. The detached helper exists because on
+    /// Windows the launcher has to replace its own locked executable, so something outside it must
+    /// outlive it. Off Windows there is a better process available for the job: the DIRECTOR, which is
+    /// already running, is not the file being replaced, and can witness the result
+    /// (<see cref="LauncherUpdateOwner"/>). So a Mac stages and the Director installs; only the
+    /// applying differs, never the staging.
+    /// </summary>
     [SupportedOSPlatform("windows")]
     public async Task<string?> CheckStageAndLaunchAsync(ResolvedRelease release, ReleaseSource source, CancellationToken ct = default)
     {

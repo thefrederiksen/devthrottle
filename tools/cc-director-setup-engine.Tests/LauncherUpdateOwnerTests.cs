@@ -37,7 +37,12 @@ public class LauncherUpdateOwnerTests : IDisposable
         _root = Path.Combine(Path.GetTempPath(), "cc-luo-" + Guid.NewGuid().ToString("N"));
         _layout = new InstallLayout(_root);
         _target = _layout.PathFor(ComponentRegistry.Launcher);
-        _staged = Path.Combine(_root, "state", "staged", "cc-launcher.exe");
+        // The staged file's NAME is the platform's, exactly as LauncherUpdater spells it. Hard-coded
+        // to ".exe" this suite would look for a file the owner never writes the moment it runs on a
+        // Mac or in Linux CI - and would report the whole update path broken for a reason that is only
+        // the test's.
+        _staged = Path.Combine(_root, "state", "staged",
+            OperatingSystem.IsWindows() ? "cc-launcher.exe" : "cc-launcher");
         _registration = LauncherWitness.RegistrationPathFor(_root);
 
         Directory.CreateDirectory(Path.GetDirectoryName(_target)!);
@@ -58,8 +63,16 @@ public class LauncherUpdateOwnerTests : IDisposable
         try { if (Directory.Exists(_root)) Directory.Delete(_root, true); } catch { /* best effort */ }
     }
 
-    private void WriteRegistration(int pid, string version)
-        => File.WriteAllText(_registration, JsonSerializer.Serialize(new { pid, version }));
+    private void WriteRegistration(int pid, string version, bool declaresCommandSignal = false)
+        => File.WriteAllText(_registration, JsonSerializer.Serialize(new
+        {
+            pid,
+            version,
+            commandSignals = declaresCommandSignal ? new[] { CommandSignalName } : [],
+        }));
+
+    /// <summary>The restart signal a launcher serving this root would have armed.</summary>
+    private string CommandSignalName => new LauncherWitness(_root).CommandSignalName;
 
     /// <summary>The launcher this machine is running, as the process list would report it.</summary>
     private LauncherProcess InstalledLauncher(int pid = 1001)
@@ -125,7 +138,7 @@ public class LauncherUpdateOwnerTests : IDisposable
         // instance home and finds nothing, for ever, on every machine.
         var owner = new LauncherUpdateOwner(_root, () => true);
 
-        Assert.Equal(Path.Combine(_root, "state", "staged", "cc-launcher.exe"), owner.StagedBuildPath);
+        Assert.Equal(_staged, owner.StagedBuildPath);
     }
 
     [Fact]
@@ -153,7 +166,27 @@ public class LauncherUpdateOwnerTests : IDisposable
 
         var silent = new LauncherUpdateOwner(_root, () => true) { ReadVersionOnDisk = _ => null };
         Assert.Null(silent.FindStagedUpdate(out var noVersion));
-        Assert.Contains("does not declare a version", noVersion);
+        Assert.Contains("has no recorded version", noVersion);
+        // The refusal names the file that is missing, so the next person is not left looking for a
+        // version resource inside a binary that never had one.
+        Assert.Contains(".version", noVersion);
+    }
+
+    [Fact]
+    public void FindStagedUpdate_ReadsTheVersionTheSTAGERWroteDown_NotOneReadOutOfTheBinary()
+    {
+        // The Mac and Linux launchers are bare single-file executables with no version resource of any
+        // kind, so the file-stamp route answered null and every staged build on those platforms was
+        // refused for ever - a refusal that would have outlived every other part of this change.
+        // Production reads the sidecar; this asserts the default wiring does, with no seam in the way.
+        StagedBuildVersion.Write(_staged, StagedVersion);
+
+        var owner = new LauncherUpdateOwner(_root, () => true);
+        var found = owner.FindStagedUpdate(out var why);
+
+        Assert.NotNull(found);
+        Assert.Equal(StagedVersion, found!.Version);
+        Assert.Equal("", why);
     }
 
     [Fact]
@@ -344,14 +377,62 @@ public class LauncherUpdateOwnerTests : IDisposable
     }
 
     [Fact]
-    public async Task WhereTheCommandSurfaceCannotBeObserved_NothingIsSwappedAtAll()
+    public async Task WhereNoListenerCanBeSeen_TheSwapHAPPENS_AndTheDeclarationCertifiesIt()
     {
-        // On a platform that cannot be asked who is listening, EVERY swap would install, fail to
-        // certify for the whole witness timeout, roll back, and PIN a build that was probably fine.
-        // Refusing up front, naming the platform fact, is the honest form of the same answer - and it
-        // is the deliberate resolution of letting the witness pass on a live registration alone, which
-        // would have reintroduced liveness-only proof on the one platform nobody watches.
-        var stopped = new List<int>();
+        // THE MAC. This pass used to refuse outright here, because nothing could be asked who was
+        // listening, and that refusal is why no launcher on a Mac has ever updated itself - a machine
+        // kept whatever launcher its last installer run left behind while its Director updated weekly.
+        //
+        // The old launcher declares nothing (it is the build being replaced). The new one declares the
+        // signal it armed, and THAT is what certifies the swap - not the fact that a process exists.
+        var running = new List<LauncherProcess> { InstalledLauncher() };
+        var startedNewBuild = false;
+        var owner = new LauncherUpdateOwner(
+            _root,
+            directorStillHoldsItsInstance: () => true,
+            witness: new LauncherWitness(_root)
+            {
+                RegistrationPath = _registration,
+                ProcessIsAlive = _ => running.Count > 0,
+                HasListener = _ => null,      // the Unix answer: nothing outside the launcher can see it
+            },
+            apply: new LauncherSelfUpdate(_layout, unlockTimeout: TimeSpan.FromSeconds(1)),
+            witnessTimeout: TimeSpan.FromSeconds(2))
+        {
+            SwapLockName = _swapLockName,
+            ReadVersionOnDisk = path => path == _staged ? StagedVersion : null,
+            ListLauncherProcesses = () => running.ToList(),
+            RequestQuit = _ => false,
+            StopProcess = pid => { running.RemoveAll(p => p.Pid == pid); return true; },
+            StartLauncher = _ =>
+            {
+                startedNewBuild = true;
+                running.Add(InstalledLauncher(2002));
+                WriteRegistration(2002, StagedVersion, declaresCommandSignal: true);
+                return 2002;
+            },
+            GracefulStopTimeout = TimeSpan.FromMilliseconds(200),
+            StopSettleTimeout = TimeSpan.FromMilliseconds(200),
+        };
+
+        var result = await owner.RunOnceAsync();
+
+        Assert.Equal(LauncherUpdateDecision.Applied, result.Decision);
+        Assert.True(startedNewBuild);
+        Assert.Equal("launcher-NEW", File.ReadAllText(_target));
+        Assert.Equal(StagedVersion, InstalledManifest.Load(_layout).Get(ComponentRegistry.Launcher.Id));
+    }
+
+    [Fact]
+    public async Task WhereNoListenerCanBeSeen_ANewBuildThatDeclaresNOTHING_IsStillRolledBack()
+    {
+        // The negative control for the test above, and the one that decides whether this is a witness
+        // at all off Windows. The new build comes up, registers, and is alive - and declares no signal,
+        // so it cannot be told anything. That is the exact machine state the witness exists to catch,
+        // and it must fail here just as it would on Windows.
+        //
+        // Without this, "the swap now works on a Mac" would be indistinguishable from "the check was
+        // removed on a Mac".
         var running = new List<LauncherProcess> { InstalledLauncher() };
         var owner = new LauncherUpdateOwner(
             _root,
@@ -359,8 +440,8 @@ public class LauncherUpdateOwnerTests : IDisposable
             witness: new LauncherWitness(_root)
             {
                 RegistrationPath = _registration,
-                ProcessIsAlive = _ => true,
-                HasListener = _ => null,      // the Unix answer: not observable
+                ProcessIsAlive = _ => running.Count > 0,
+                HasListener = _ => null,
             },
             apply: new LauncherSelfUpdate(_layout, unlockTimeout: TimeSpan.FromSeconds(1)),
             witnessTimeout: TimeSpan.FromMilliseconds(400))
@@ -368,15 +449,78 @@ public class LauncherUpdateOwnerTests : IDisposable
             SwapLockName = _swapLockName,
             ReadVersionOnDisk = path => path == _staged ? StagedVersion : null,
             ListLauncherProcesses = () => running.ToList(),
-            StopProcess = pid => { stopped.Add(pid); return true; },
+            RequestQuit = _ => false,
+            StopProcess = pid => { running.RemoveAll(p => p.Pid == pid); return true; },
+            StartLauncher = _ =>
+            {
+                running.Add(InstalledLauncher(2002));
+                WriteRegistration(2002, StagedVersion, declaresCommandSignal: false);
+                return 2002;
+            },
+            GracefulStopTimeout = TimeSpan.FromMilliseconds(200),
+            StopSettleTimeout = TimeSpan.FromMilliseconds(200),
         };
 
         var result = await owner.RunOnceAsync();
 
-        Assert.Equal(LauncherUpdateDecision.HeldBecauseTheCommandSurfaceCannotBeObserved, result.Decision);
-        Assert.Contains("cannot be observed on this platform", result.Message);
-        Assert.Empty(stopped);
+        Assert.Equal(LauncherUpdateDecision.RolledBack, result.Decision);
         Assert.Equal("launcher-OLD", File.ReadAllText(_target));
+        Assert.True(PinStore.Load(_layout).IsPinned(ComponentRegistry.Launcher.Id, StagedVersion));
+    }
+
+    [Fact]
+    public async Task OnASupervisedMachine_TheFileIsReplacedBEFORETheSupervisorIsAsked()
+    {
+        // THE macOS ORDER, and the reason it is not the Windows one. launchd keeps the launcher alive
+        // with KeepAlive/SuccessfulExit=false, so a stop performed first can be answered by launchd
+        // starting the OLD build back up in the gap before the swap lands - after which the machine is
+        // running the old launcher, the swap reports success, and nothing says otherwise.
+        //
+        // So: nothing is stopped, the file is replaced underneath the running process, and the
+        // SUPERVISOR is asked to restart. This asserts the order by recording what the target file held
+        // at the moment the restart was requested.
+        var running = new List<LauncherProcess> { InstalledLauncher() };
+        var stopped = new List<int>();
+        var started = new List<int>();
+        string? targetContentsWhenRestartWasAsked = null;
+
+        var owner = new LauncherUpdateOwner(
+            _root,
+            directorStillHoldsItsInstance: () => true,
+            witness: new LauncherWitness(_root)
+            {
+                RegistrationPath = _registration,
+                ProcessIsAlive = _ => running.Count > 0,
+                HasListener = _ => null,
+            },
+            apply: new LauncherSelfUpdate(_layout, unlockTimeout: TimeSpan.FromSeconds(1)),
+            witnessTimeout: TimeSpan.FromSeconds(2))
+        {
+            SwapLockName = _swapLockName,
+            SwapOrder = LauncherSwapOrder.PlaceThenRestart,
+            ReadVersionOnDisk = path => path == _staged ? StagedVersion : null,
+            ListLauncherProcesses = () => running.ToList(),
+            RequestQuit = _ => false,
+            StopProcess = pid => { stopped.Add(pid); return true; },
+            StartLauncher = _ => { started.Add(1); return 1; },
+            RestartLauncher = () =>
+            {
+                targetContentsWhenRestartWasAsked = File.ReadAllText(_target);
+                running.Clear();
+                running.Add(InstalledLauncher(2002));
+                WriteRegistration(2002, StagedVersion, declaresCommandSignal: true);
+                return true;
+            },
+            GracefulStopTimeout = TimeSpan.FromMilliseconds(200),
+            StopSettleTimeout = TimeSpan.FromMilliseconds(200),
+        };
+
+        var result = await owner.RunOnceAsync();
+
+        Assert.Equal(LauncherUpdateDecision.Applied, result.Decision);
+        Assert.Equal("launcher-NEW", targetContentsWhenRestartWasAsked);   // replaced BEFORE the ask
+        Assert.Empty(stopped);                                            // launchd owns the lifecycle
+        Assert.Empty(started);                                            // never started alongside it
     }
 
     [Fact]
