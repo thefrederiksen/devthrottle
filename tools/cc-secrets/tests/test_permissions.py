@@ -10,6 +10,8 @@ import pytest
 
 from conftest import add_entry, run_entry_point
 from src import paths, permissions
+from src.store import SecretStore
+from src.storefile import UserOnlyFile
 
 WINDOWS = sys.platform == "win32"
 MACOS = sys.platform == "darwin"
@@ -426,8 +428,8 @@ def test_MacOS_NewFileInAFolderThatPassesOnAGrant_IsRefusedBeforeAnythingIsWritt
     premise = folder / "premise.tmp"
     os.close(os.open(premise, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))
     assert stat.S_IMODE(os.stat(premise).st_mode) == 0o600
-    assert any("inherited" in kind for _, _, name, kind in permissions.mac_access_entries(premise)
-               if name == OTHER_MAC_ACCOUNT)
+    assert any("inherited" in entry.flags for entry in permissions.mac_access_entries(premise)
+               if entry.who == f"user {OTHER_MAC_ACCOUNT}")
     premise.unlink()
     probe = folder / "probe.tmp"
 
@@ -463,3 +465,94 @@ def test_MacOS_Put_LeavesNoAccessListOnFolderOrFile(store):
 
     assert permissions.mac_access_entries(paths.secrets_home()) == []
     assert permissions.mac_access_entries(paths.store_path()) == []
+
+
+@pytest.mark.skipif(not MACOS, reason="macOS access control list check")
+def test_MacOS_EntriesAreReadWithTheirKindWhoAndFlags(tmp_path):
+    folder = _private_mode_folder(tmp_path, "read-back")
+    _chmod_acl("+a", "group:everyone deny delete", str(folder))
+    _grant_other_account(folder, f"user:{OTHER_MAC_ACCOUNT} allow read,file_inherit,directory_inherit,only_inherit")
+    child = folder / "child"
+    child.write_text("x", encoding="utf-8")
+
+    entries = permissions.mac_access_entries(folder)
+    child_entries = permissions.mac_access_entries(child)
+
+    assert [(e.allow, e.who, e.flags) for e in entries] == [
+        (False, "group everyone", frozenset()),
+        (True, f"user {OTHER_MAC_ACCOUNT}", frozenset({"file_inherit", "directory_inherit", "only_inherit"})),
+    ]
+    assert [(e.allow, e.who, e.flags) for e in child_entries] == [(True, f"user {OTHER_MAC_ACCOUNT}", frozenset({"inherited"}))]
+    assert child_entries[0].identifier == entries[1].identifier != permissions.current_user_uuid()
+
+
+@pytest.mark.skipif(not MACOS, reason="macOS access control list check")
+def test_MacOS_EntryThatListsNoPermissions_IsJudgedNotAnError(tmp_path):
+    # Review of pull request 2960: acl_to_text drops the permissions field of such an entry, and a text parser
+    # raised on it instead of judging it.
+    folder = _private_mode_folder(tmp_path, "no-permissions-entry")
+    _grant_other_account(folder, f"user:{OTHER_MAC_ACCOUNT} allow file_inherit")
+
+    assert OTHER_MAC_ACCOUNT in (permissions.folder_problem(folder) or "")
+
+
+@pytest.mark.skipif(not MACOS, reason="macOS access control list check")
+def test_MacOS_FolderItCreatedWithANoPermissionsEntry_IsStripped_AndStaysUsable(store):
+    add_entry(store)
+    folder = paths.secrets_home()
+    _grant_other_account(folder, f"user:{OTHER_MAC_ACCOUNT} allow file_inherit")
+
+    note = permissions.ensure_private_folder(folder)
+    add_entry(store, name="second")
+
+    assert note is not None
+    assert permissions.mac_access_entries(folder) == []
+    assert {entry.name for entry in store.entries()} == {"devlinux", "second"}
+
+
+@pytest.fixture
+def ownership_ignored_volume(tmp_path):
+    """A small disk image, attached by this user. macOS mounts such an image with ownership ignored."""
+    image = tmp_path / "ownership.dmg"
+    mount_point = tmp_path / "volume"
+    mount_point.mkdir()
+    subprocess.run(["hdiutil", "create", "-size", "20m", "-fs", "APFS", "-volname", "ccsecrets-test", str(image)],
+                   check=True, capture_output=True, timeout=120)
+    subprocess.run(["hdiutil", "attach", str(image), "-nobrowse", "-mountpoint", str(mount_point)],
+                   check=True, capture_output=True, timeout=120)
+    try:
+        mounts = subprocess.run(["mount"], check=True, capture_output=True, text=True).stdout
+        line = next(line for line in mounts.splitlines() if f" on {mount_point} " in line or
+                    f" on {os.path.realpath(mount_point)} " in line)
+        assert "noowners" in line, f"test setup: the image was not mounted with ownership ignored: {line}"
+        yield mount_point
+    finally:
+        subprocess.run(["hdiutil", "detach", str(mount_point), "-force"], capture_output=True, timeout=120)
+
+
+@pytest.mark.skipif(not MACOS, reason="macOS volume ownership check")
+def test_MacOS_PrivateLookingFolderAndFileOnAVolumeThatIgnoresOwnership_AreNotPrivate(ownership_ignored_volume):
+    folder = ownership_ignored_volume / "store"
+    folder.mkdir()
+    os.chmod(folder, 0o700)
+    path = folder / "secrets.json"
+    path.write_text("{}", encoding="utf-8")
+    os.chmod(path, 0o600)
+    assert permissions.mac_access_entries(folder) == [] and os.stat(path).st_uid == os.getuid()
+
+    assert "ignore ownership" in (permissions.folder_problem(folder) or "")
+    assert "ignore ownership" in (permissions.file_problem(path) or "")
+
+
+@pytest.mark.skipif(not MACOS, reason="macOS volume ownership check")
+def test_MacOS_StoreOnAVolumeThatIgnoresOwnership_IsRefused_AndNothingIsSaved(ownership_ignored_volume, monkeypatch):
+    folder = ownership_ignored_volume / "secrets-home"
+    monkeypatch.setenv("CC_SECRETS_HOME", str(folder))
+    monkeypatch.delenv("CC_SESSION_ID", raising=False)
+    monkeypatch.setattr(paths, "_checked_home", None)
+    store = SecretStore(UserOnlyFile(paths.store_path()))
+
+    with pytest.raises(permissions.StorePermissionError, match="ignore ownership"):
+        add_entry(store)
+
+    assert not paths.store_path().exists()
