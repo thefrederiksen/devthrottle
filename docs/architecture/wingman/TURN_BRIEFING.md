@@ -1,6 +1,23 @@
 # Wingman Turn Briefing - the architecture for understanding a turn
 
-**Status:** v3.4 - BUILT; contract frozen against captured examples (incl. multi-select), extended additively with the session headline + turn title (v2.2), the chapter model - headline = chapter title + explicit `newChapter` boundary (v2.3, 2026-06-05), the mission-complete `suggestedAction` (v2.4, 2026-06-06, issue #201), the cold-reader bar (v3, issue #205), the parked-reply invariants (v3.2, issue #208), action-first rail/buttons (v3.3), and the **FIDELITY guard (v3.4, 2026-06-09)**
+> **SUPERSEDED, 2026-09-16, by [`TURN_VERDICT.md`](TURN_VERDICT.md) beside this file.**
+>
+> This document described the turn-BRIEF pipeline. That pipeline no longer exists: its writer was
+> retired in issue #549, the Gateway surface that served it was removed with it, and the mission
+> "Wingman On Every Turn" replaced the idea itself. What a stop MEANS is now decided by ONE
+> structured question at the Gateway turn-end boundary, answered against a closed vocabulary,
+> validated mechanically, and folded once into a colour and a label. `TurnBriefContract`,
+> `ITurnBriefGenerator` and `StubTurnBriefGenerator` were deleted in the same change that wrote
+> this banner.
+>
+> **Nothing here is current. It is kept because a superseded document that says so is a record,
+> and a deleted one is a hole** - the cold-reader bar, the non-contradiction rule and the verbatim
+> receipt were all worked out here first and were carried into the turn verdict, so the reasoning
+> behind them is in this file and nowhere else. Read it as history. Do not implement from it, and
+> do not cite it as the design.
+
+
+**Status:** SUPERSEDED (see the banner above). It was last v3.4 - BUILT; contract frozen against captured examples (incl. multi-select), extended additively with the session headline + turn title (v2.2), the chapter model - headline = chapter title + explicit `newChapter` boundary (v2.3, 2026-06-05), the mission-complete `suggestedAction` (v2.4, 2026-06-06, issue #201), the cold-reader bar (v3, issue #205), the parked-reply invariants (v3.2, issue #208), action-first rail/buttons (v3.3), and the **FIDELITY guard (v3.4, 2026-06-09)**
 
 ## v3.4 - the fidelity guard (the trust fix)
 
