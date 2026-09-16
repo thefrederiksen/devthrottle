@@ -1,4 +1,4 @@
-using System.Text.Json.Serialization;
+﻿using System.Text.Json.Serialization;
 
 namespace CcDirector.Gateway.Contracts;
 
@@ -203,8 +203,9 @@ public static class ActivityEventTypes
 
     /// <summary>A snooze's clock ran out and the Wingman ruled on what that means (ruling 10): nothing happened
     /// while it ran, or a stop happened and its verdict rules, or a stop happened with no verdict covering it and
-    /// the judge is being asked now. The cause says which; the detail carries the row's verdict state and never a
-    /// word of the screen. Exactly one of these is written per expiry - the ruling is an edge, not a condition.</summary>
+    /// the judge is being asked now, or a verdict was already being formed and the answer is on its way. The cause
+    /// says which; the detail carries the row's verdict state and never a word of the screen. Exactly one of these
+    /// is written per expiry - the ruling is an edge, not a condition.</summary>
     public const string TurnVerdictSnoozeExpiry = "turn-verdict-snooze-expiry";
 
     /// <summary>The owner answered a verdict from the panel and the Director confirmed the bytes were written into
@@ -234,8 +235,8 @@ public static class ActivityEventTypes
         SupervisorFaultDetected, SupervisorWaiting, SupervisorContinueSent, SupervisorRecovered,
         SupervisorEscalated, SupervisorStoodDown,
         TurnVerdictJudged, TurnVerdictReused, TurnVerdictFailed, TurnVerdictSkipped, TurnVerdictCancelled,
-        TurnVerdictExpired, TurnVerdictAnswered, TurnVerdictAnswerRefused, TurnVerdictAnswerUnconfirmed,
-        TurnVerdictFeedbackRefused,
+        TurnVerdictExpired, TurnVerdictSnoozeExpiry, TurnVerdictAnswered, TurnVerdictAnswerRefused,
+        TurnVerdictAnswerUnconfirmed, TurnVerdictFeedbackRefused,
     };
 }
 
@@ -372,8 +373,14 @@ public static class ActivityCauses
     public const string SnoozeVerdictRules = "snooze-verdict-rules";
 
     /// <summary>A snooze's clock ran out, a stop happened while it ran, and no verdict covers it - so the judge
-    /// is being asked about the current screen now. The row stays red until an answer lands.</summary>
+    /// is being asked about the current screen now. The row turns yellow while it is read, and keeps its red when
+    /// the account will not judge it at all.</summary>
     public const string SnoozeReJudgeRequested = "snooze-re-judge-requested";
+
+    /// <summary>A snooze's clock ran out while a verdict for this session was ALREADY being formed. The answer is
+    /// on its way, so the expiry neither calls the row calm nor asks a second time - but it still says so, because
+    /// an expiry that spent its one edge and wrote nothing is an expiry nobody can account for afterwards.</summary>
+    public const string SnoozeReadInFlight = "snooze-read-in-flight";
 
     /// <summary>The owner's answer to a verdict was written into the session and the Director confirmed it.</summary>
     public const string OwnerAnswered = "owner-answered";
@@ -465,6 +472,7 @@ public static class ActivityCauses
         MenuOwnsScreen, RetryCeiling,
         JudgeAnswered, ScreenUnchanged, JudgeDidNotAnswer, JudgeRefused, JudgeUnavailable,
         Held, BrandNew, JudgeSwitchOff, InFlightCap, AlreadyJudging, ReattemptNeverJudges, CarryingOnExpired,
+        SnoozeNothingNew, SnoozeVerdictRules, SnoozeReJudgeRequested, SnoozeReadInFlight,
         OwnerAnswered, AnswerMalformed, AnswerSessionNotFound, AnswerShadowRecord, AnswerVerdictNotFound, AnswerVerdictFailed,
         AnswerVerdictSuperseded, AnswerSelectionRefused, AnswerScreenUnreadable, AnswerScreenChanged,
         AnswerNeverSent, AnswerUnanswered, AnswerAlreadyAnswered, AnswerInvalidSessionId, AnswerUnavailable,

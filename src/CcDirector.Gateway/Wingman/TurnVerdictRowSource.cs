@@ -1,4 +1,4 @@
-using CcDirector.Core.Tenancy;
+﻿using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Contracts;
 
 namespace CcDirector.Gateway.Wingman;
@@ -90,9 +90,7 @@ public static class TurnVerdictRowStamp
             // and what the row shows is that the stop is being read.
             if (source.IsReading(account, s.SessionId))
             {
-                s.VerdictState = VerdictStates.Reading;
-                s.TurnVerdict = null;
-                s.VerdictLabel = null;
+                Reading(s);
                 continue;
             }
 
@@ -116,6 +114,20 @@ public static class TurnVerdictRowStamp
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// THE ROW SAYS THE STOP IS BEING READ. One place, because slice F writes it too: a snooze expiry that asks
+    /// the judge does so AFTER this stamp has already run over the row, so the row it is holding still carries
+    /// the verdict that is about to be replaced - and would go out red. It re-stamps through here rather than
+    /// assigning the three fields itself, so there is one rule for what "reading" looks like on a row and not two.
+    /// </summary>
+    public static void Reading(SessionDto s)
+    {
+        ArgumentNullException.ThrowIfNull(s);
+        s.VerdictState = VerdictStates.Reading;
+        s.TurnVerdict = null;
+        s.VerdictLabel = null;
     }
 
     private static void None(SessionDto s)

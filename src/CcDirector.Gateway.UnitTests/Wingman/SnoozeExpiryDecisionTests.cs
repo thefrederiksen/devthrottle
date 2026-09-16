@@ -1,4 +1,4 @@
-using CcDirector.Gateway.Contracts;
+﻿using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Wingman;
 using Xunit;
 
@@ -70,9 +70,20 @@ public sealed class SnoozeExpiryDecisionTests
             SnoozeExpiryDecision.AtExpiry(SnoozeSet, Verdict(SnoozeSet.AddMinutes(5), failed: true), VerdictStates.Failed, null));
 
     [Fact]
-    public void AReadAlreadyInFlight_DecidesNothing()
-        // An answer is already coming: this must neither call the row calm nor ask a second time.
-        => Assert.Equal(SnoozeExpiryOutcome.None,
+    public void AReadAlreadyInFlight_SaysSo_RatherThanSayingNothing()
+        // An answer is already coming: this must neither call the row calm nor ask a second time - but it is a
+        // THING THIS EXPIRY KNOWS, and it is not the same as knowing nothing at all. It carries its own word so
+        // it can carry its own ledger row (the Architect's ruling on the inspector's second finding), where None
+        // stays reserved for the one case with nothing whatever to say.
+        => Assert.Equal(SnoozeExpiryOutcome.ReadInFlight,
+            SnoozeExpiryDecision.AtExpiry(SnoozeSet, latest: null, VerdictStates.Reading, null));
+
+    [Fact]
+    public void AReadAlreadyInFlight_IsNotConfusedWithKnowingNothing()
+        // The two used to share one answer, which is exactly how an expiry came to spend its edge and record
+        // nothing. They are different answers now, and this is what keeps them apart.
+        => Assert.NotEqual(
+            SnoozeExpiryDecision.AtExpiry(armedAtUtc: null, latest: null, VerdictStates.None, null),
             SnoozeExpiryDecision.AtExpiry(SnoozeSet, latest: null, VerdictStates.Reading, null));
 
     [Fact]

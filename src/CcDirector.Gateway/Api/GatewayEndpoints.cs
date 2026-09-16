@@ -5265,7 +5265,10 @@ internal static class GatewayEndpoints
         // A SNOOZE EXPIRY RE-JUDGES (slice F, ruling 10), stamped after the verdicts because its decision reads
         // them, and before the loop because the loop's colour and label read its answer. It takes the SAME snooze
         // snapshot the hold state above came from - the fold's one read - and never a second one.
-        Wingman.SnoozeExpiryRowStamp.Stamp(all, snoozeExpiry, verdictsOnTheWire, holds, tenant, foldNowUtc);
+        // The ROLE UNIVERSE is what the watch prunes against - see PruneToRoster for why it is that list and not
+        // the response set: `all` can be a filtered subset of one Director's sessions, and absence from a subset
+        // is not evidence a session has gone.
+        Wingman.SnoozeExpiryRowStamp.Stamp(all, snoozeExpiry, verdictsOnTheWire, holds, tenant, foldNowUtc, roleUniverse);
 
         foreach (var s in all)
         {

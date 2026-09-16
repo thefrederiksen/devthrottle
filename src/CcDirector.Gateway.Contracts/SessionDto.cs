@@ -625,7 +625,13 @@ public sealed class SessionDto
     ///
     /// It is NOT a verdict. Nothing was judged and no model was asked, so <see cref="VerdictState"/> stays
     /// "none" and the row is not in the calm band, which selects on an accepted verdict.
+    ///
+    /// IT DOES NOT TRAVEL. The fold's colour and label already carry the whole of this to every client, and THE
+    /// CLIENT IS DUMB: a client handed the decision itself would eventually branch on it, and that is how a second
+    /// colour authority is born. So it is excluded from serialisation and stays a fact of the fold - the Gateway
+    /// decides, the wire carries the answer. Pinned by a test that the roster response does not contain it.
     /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
     public bool SnoozeEndedNothingNew { get; set; }
 
     /// <summary>

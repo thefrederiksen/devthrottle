@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
@@ -8,8 +8,20 @@ namespace CcDirector.Gateway.Wingman;
 /// <summary>What one snooze expiry came to (the Wingman-on-every-turn mission, slice F, ruling 10).</summary>
 public enum SnoozeExpiryOutcome
 {
-    /// <summary>Nothing to do: no expiry edge this fold, or the row is already being read.</summary>
+    /// <summary>
+    /// NOTHING IS KNOWN, so nothing is ruled and nothing is recorded. This Gateway never saw the snooze armed -
+    /// it started while the clock was already running - and "nothing happened while it ran" is a claim about a
+    /// stretch of time with no start. The row is left exactly as the rest of the fold made it.
+    /// </summary>
     None,
+
+    /// <summary>
+    /// A VERDICT FOR THIS SESSION IS ALREADY BEING FORMED. The answer is on its way, so the expiry neither calls
+    /// the row calm nor asks a second time - and it RECORDS THAT, with its own cause word. An expiry spends its
+    /// one edge whatever it decides, and an edge that is spent without a ledger row is an expiry that cannot be
+    /// accounted for afterwards (the inspector's second finding on pull request 2899, upheld by the Architect).
+    /// </summary>
+    ReadInFlight,
 
     /// <summary>No turn ended while the snooze ran, so the row comes back calm and nobody is asked anything.</summary>
     NothingNew,
@@ -23,7 +35,7 @@ public enum SnoozeExpiryOutcome
 
 /// <summary>
 /// THE DECISION ONE SNOOZE EXPIRY MAKES, as a pure function over facts (ruling 10). Separated from the memory
-/// below so the three cases can be read, and tested, without a fold, a clock or a store.
+/// below so its cases can be read, and tested, without a fold, a clock or a store.
 /// </summary>
 public static class SnoozeExpiryDecision
 {
@@ -47,9 +59,11 @@ public static class SnoozeExpiryDecision
         int? turnEndsSinceSnoozeSet)
     {
         // A read is already in flight for this stop: an answer is coming, so this must neither call the row calm
-        // nor ask a second time. The reading stamp is the one row state that carries no verdict of its own.
+        // nor ask a second time. The reading stamp is the one row state that carries no verdict of its own. It is
+        // NOT "None": an answer on its way is something this expiry knows and says, where None is the absence of
+        // anything to say at all.
         if (string.Equals(verdictState, VerdictStates.Reading, StringComparison.Ordinal))
-            return SnoozeExpiryOutcome.None;
+            return SnoozeExpiryOutcome.ReadInFlight;
 
         // NEVER SEEN ARMED, SO NOTHING IS KNOWN. "Nothing happened while the snooze ran" is a claim about a
         // stretch of time, and without its start there is no stretch. The row is left exactly as the rest of the
@@ -101,7 +115,7 @@ public static class SnoozeExpiryDecision
 /// in memory, keyed by (tenant, session), re-derived after a restart - because one kind of memory in the fold is
 /// enough and a second would be a second authority.
 ///
-/// THE THREE CASES ARE IN <see cref="SnoozeExpiryDecision"/>. What lives here is WHEN they are asked, and that is
+/// THE CASES ARE IN <see cref="SnoozeExpiryDecision"/>. What lives here is WHEN they are asked, and that is
 /// the part with teeth: the edge fires ONCE. A session that stays expired across a thousand folds asks the judge
 /// on the first of them and on none of the others - a fold runs on every roster poll, every display sweep and
 /// every accepted Director push, so a condition rather than an edge would be a paid model call per poll.
@@ -130,30 +144,39 @@ public sealed class SnoozeExpiryReJudge
     /// </summary>
     private sealed class Watch
     {
-        public Watch(bool expired, DateTime? armedSeenAtUtc, DateTime? armedUntilUtc, bool nothingNew)
+        public Watch(bool expired, DateTime? armedSeenAtUtc, DateTime? armedUntilUtc, bool nothingNew, string directorId)
         {
             Expired = expired;
             ArmedSeenAtUtc = armedSeenAtUtc;
             ArmedUntilUtc = armedUntilUtc;
             NothingNew = nothingNew;
+            DirectorId = directorId;
         }
 
         public bool Expired { get; }
         public DateTime? ArmedSeenAtUtc { get; }
         public DateTime? ArmedUntilUtc { get; }
         public bool NothingNew { get; }
+
+        /// <summary>Which Director owned the session when this was last observed. Kept HERE because the prune
+        /// needs it after the session has left the roster, when its row no longer exists to be asked.</summary>
+        public string DirectorId { get; }
     }
 
     private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), Watch> _watch = new();
-    private readonly Action<TenantId, string, string>? _requestRead;
+    private readonly Func<TenantId, string, string, bool>? _requestRead;
     private readonly Action<TurnVerdictRecord>? _record;
 
     /// <param name="requestRead">Ask the seat to judge this session's CURRENT screen now (tenant, director id,
-    /// session id). Fire and forget: the fold is the hot path and waits for nothing.</param>
+    /// session id). The JUDGEMENT is fire and forget - the fold is the hot path and waits for no model call - but
+    /// the ANSWER TO THIS CALL is not: it says whether the Wingman is now READING this session, which the seat
+    /// decides synchronously, on this thread, before it reads anything. That answer is what lets this fold paint
+    /// the row yellow instead of letting it go out red one last time (the inspector's third finding on pull
+    /// request 2899). False means the seat will not judge this stop at all, and then the row keeps its red.</param>
     /// <param name="record">The ledger, so an expiry's ruling is answerable by query rather than by reading a
     /// log file.</param>
     public SnoozeExpiryReJudge(
-        Action<TenantId, string, string>? requestRead = null,
+        Func<TenantId, string, string, bool>? requestRead = null,
         Action<TurnVerdictRecord>? record = null)
     {
         _requestRead = requestRead;
@@ -168,10 +191,17 @@ public sealed class SnoozeExpiryReJudge
     /// and assign <see cref="SessionDto.SnoozeEndedNothingNew"/> on EVERY row in both directions - the roster
     /// re-serves rows a previous fold stamped, so a stamp that was only ever set would outlive its reason.
     /// </summary>
-    public void Observe(TenantId tenant, IReadOnlyList<SessionDto> rows, Snooze.SnoozeHoldSnapshot holds, DateTime nowUtc)
+    public void Observe(
+        TenantId tenant,
+        IReadOnlyList<SessionDto> rows,
+        Snooze.SnoozeHoldSnapshot holds,
+        DateTime nowUtc,
+        IReadOnlyList<SessionDto>? rosterUniverse = null)
     {
         ArgumentNullException.ThrowIfNull(rows);
         ArgumentNullException.ThrowIfNull(holds);
+
+        PruneToRoster(tenant, rosterUniverse);
 
         foreach (var s in rows)
         {
@@ -196,7 +226,7 @@ public sealed class SnoozeExpiryReJudge
                     var sameClock = previous is { Expired: false, ArmedUntilUtc: DateTime was } && was == deadline;
                     if (!sameClock)
                     {
-                        var armed = new Watch(false, nowUtc, deadline, false);
+                        var armed = new Watch(false, nowUtc, deadline, false, s.DirectorId ?? "");
                         if (previous is null) _watch.TryAdd(key, armed);
                         else _watch.TryUpdate(key, armed, previous);
                     }
@@ -243,16 +273,19 @@ public sealed class SnoozeExpiryReJudge
                 var stillNothingNew = watch.NothingNew && outcome == SnoozeExpiryOutcome.NothingNew;
                 s.SnoozeEndedNothingNew = stillNothingNew;
                 if (stillNothingNew != watch.NothingNew)
-                    _watch.TryUpdate(key, new Watch(true, watch.ArmedSeenAtUtc, watch.ArmedUntilUtc, stillNothingNew), watch);
+                    _watch.TryUpdate(key, new Watch(true, watch.ArmedSeenAtUtc, watch.ArmedUntilUtc, stillNothingNew, s.DirectorId ?? ""), watch);
                 return;
             }
 
             // THE EDGE. Nobody acts until the swap is won.
-            var next = new Watch(true, armedAt, until, outcome == SnoozeExpiryOutcome.NothingNew);
+            var next = new Watch(true, armedAt, until, outcome == SnoozeExpiryOutcome.NothingNew, s.DirectorId ?? "");
             var won = watch is null ? _watch.TryAdd(key, next) : _watch.TryUpdate(key, next, watch);
             if (!won) continue;   // another fold took this expiry; go round and hold with whatever it decided
 
             s.SnoozeEndedNothingNew = outcome == SnoozeExpiryOutcome.NothingNew;
+            // NOTHING KNOWN, NOTHING SAID. This is the one outcome that writes no ledger row, because there is
+            // nothing to write: this Gateway never saw the snooze armed, so it has no reading of what the quiet
+            // contained. Every other outcome, including an answer already on its way, records exactly once.
             if (outcome == SnoozeExpiryOutcome.None) return;
 
             FileLog.Write($"[SnoozeExpiryReJudge] sid={s.SessionId} tenant={tenant.ToLogString()} snooze ended: {outcome}");
@@ -261,17 +294,80 @@ public sealed class SnoozeExpiryReJudge
                 $"verdictState={s.VerdictState}"));
 
             if (outcome == SnoozeExpiryOutcome.ReadRequested)
-                _requestRead?.Invoke(tenant, s.DirectorId ?? "", s.SessionId);
+            {
+                // NO RED FRAME BEFORE THE WINGMAN READS (the owner's slice E ruling, which is LATER than this
+                // slice's own "red stands until it answers" wording and wins over it). The seat stamps "reading"
+                // synchronously, before it reads the screen, and answers here whether it did - so a stop that
+                // WILL be judged turns yellow on THIS fold rather than going out red one last time.
+                //
+                // THE ROW HAS TO BE RE-STAMPED, and that is not a second colour authority. TurnVerdictRowStamp
+                // ran over this row before this stamp did, so the row in hand still carries the verdict the read
+                // is about to replace; the re-stamp is the SAME rule, applied again to the fact that changed
+                // underneath it, through the one method that owns what "reading" looks like on a row.
+                //
+                // A STOP THE SEAT WILL NOT JUDGE KEEPS ITS RED - the judge switch is off for this account, its
+                // ceiling is full, or the free checks refuse the session. Painting that row yellow would trade
+                // one lie for another: nothing is reading it, and nothing is going to.
+                if (_requestRead?.Invoke(tenant, s.DirectorId ?? "", s.SessionId) == true)
+                    TurnVerdictRowStamp.Reading(s);
+            }
             return;
         }
     }
 
+    /// <summary>The cause word for one outcome. EVERY case is named: a fall-through arm would silently give a new
+    /// outcome somebody else's word, which is exactly the shape of defect this file has already been caught by.</summary>
     private static string CauseOf(SnoozeExpiryOutcome outcome) => outcome switch
     {
         SnoozeExpiryOutcome.NothingNew => ActivityCauses.SnoozeNothingNew,
         SnoozeExpiryOutcome.VerdictRules => ActivityCauses.SnoozeVerdictRules,
-        _ => ActivityCauses.SnoozeReJudgeRequested,
+        SnoozeExpiryOutcome.ReadRequested => ActivityCauses.SnoozeReJudgeRequested,
+        SnoozeExpiryOutcome.ReadInFlight => ActivityCauses.SnoozeReadInFlight,
+        _ => throw new ArgumentOutOfRangeException(nameof(outcome), outcome,
+            "A snooze expiry outcome with no cause word reached the ledger."),
     };
+
+    /// <summary>
+    /// DROP WHAT THE ROSTER NO LONGER HAS, so this memory is bounded by the account's sessions and not by how
+    /// long the Gateway has been up. A session that vanished while its snooze was expired used to leave one entry
+    /// behind for the life of the process, and those accumulate (the inspector's second note on pull request
+    /// 2899, upheld by the Architect).
+    ///
+    /// IT PRUNES ONLY WHAT THE CALLER CAN VOUCH FOR, and that restriction is the whole safety of it. This runs on
+    /// every fold, and a fold is NOT always the whole account: a Director's snapshot push carries that Director's
+    /// sessions, and a roster read filtered by machine carries those machines' Directors. Absence from a PARTIAL
+    /// set is not evidence a session is gone - and dropping a live session's entry silently disarms ruling 10 for
+    /// it, because its expiry then finds no armed observation and rules nothing at all. So the prune is scoped to
+    /// the DIRECTORS this universe actually contains: every caller passes each Director's sessions whole or not at
+    /// all, which makes "this Director's session is missing" mean it really has gone. A Director absent from the
+    /// universe keeps everything it owns.
+    ///
+    /// AN UNREACHABLE MACHINE IS NOT AN ABSENT ONE. The roster serves what the Gateway last knew, always - an
+    /// offline Director's sessions are still on it - so a quiet machine prunes nothing. That is the same caution
+    /// the snooze registry's own PruneNotLive takes, and for the same reason.
+    /// </summary>
+    private void PruneToRoster(TenantId tenant, IReadOnlyList<SessionDto>? rosterUniverse)
+    {
+        if (rosterUniverse is null || rosterUniverse.Count == 0) return;
+
+        var present = new HashSet<string>(StringComparer.Ordinal);
+        var directors = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var s in rosterUniverse)
+        {
+            if (string.IsNullOrEmpty(s.SessionId)) continue;
+            present.Add(s.SessionId);
+            directors.Add(s.DirectorId ?? "");
+        }
+
+        foreach (var key in _watch.Keys)
+        {
+            if (key.Tenant != tenant || present.Contains(key.SessionId)) continue;
+            // WHICH DIRECTOR OWNED IT is remembered on the watch itself, because by the time the session is gone
+            // the row that carried its director id has gone with it.
+            if (_watch.TryGetValue(key, out var held) && directors.Contains(held.DirectorId))
+                _watch.TryRemove(new KeyValuePair<(TenantId, string), Watch>(key, held));
+        }
+    }
 }
 
 /// <summary>
@@ -290,13 +386,18 @@ public static class SnoozeExpiryRowStamp
     /// <param name="holds">The fold's ONE snooze snapshot. Never a second read.</param>
     /// <param name="tenant">The account the rows belong to. Null or invalid stamps false.</param>
     /// <param name="nowUtc">The fold's single moment.</param>
+    /// <param name="rosterUniverse">The fold's ROLE UNIVERSE - every session of every Director this fold covers,
+    /// unfiltered. The watch prunes against it, so its memory is bounded by the account's sessions rather than by
+    /// the life of the process. Null prunes nothing, which is what a caller that cannot vouch for a whole Director
+    /// must pass.</param>
     public static void Stamp(
         IReadOnlyList<SessionDto> rows,
         SnoozeExpiryReJudge? watch,
         bool verdictsOnTheWire,
         Snooze.SnoozeHoldSnapshot holds,
         TenantId? tenant,
-        DateTime nowUtc)
+        DateTime nowUtc,
+        IReadOnlyList<SessionDto>? rosterUniverse = null)
     {
         ArgumentNullException.ThrowIfNull(rows);
 
@@ -306,6 +407,6 @@ public static class SnoozeExpiryRowStamp
             return;
         }
 
-        watch.Observe(account, rows, holds, nowUtc);
+        watch.Observe(account, rows, holds, nowUtc, rosterUniverse);
     }
 }

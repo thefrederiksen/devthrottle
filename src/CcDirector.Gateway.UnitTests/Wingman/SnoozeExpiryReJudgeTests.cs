@@ -1,4 +1,4 @@
-using CcDirector.Core.Tenancy;
+﻿using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data;
@@ -45,8 +45,20 @@ public sealed class SnoozeExpiryReJudgeTests : IDisposable
     /// <summary>Every ledger line the expiry wrote, as "cause/session".</summary>
     private readonly List<string> _ledger = new();
 
+    /// <summary>
+    /// WHAT THE SEAT ANSWERS when it is asked to judge: true when it took the read and stamped the session
+    /// "reading", false when it will not judge this stop at all - the account's judge switch is off, its ceiling
+    /// is full, or the free checks refuse the session. The real seat decides this synchronously, before it reads
+    /// anything, which is what lets the fold paint the row yellow rather than serving it red one last time.
+    /// </summary>
+    private bool _seatTakesTheRead = true;
+
     private SnoozeExpiryReJudge NewWatch() => new(
-        requestRead: (_, _, sid) => _reads.Add(sid),
+        requestRead: (_, _, sid) =>
+        {
+            _reads.Add(sid);
+            return _seatTakesTheRead;
+        },
         record: r => _ledger.Add($"{r.Cause}/{r.SessionId}"));
 
     public void Dispose() => _harness.Dispose();
@@ -270,8 +282,13 @@ public sealed class SnoozeExpiryReJudgeTests : IDisposable
     // ============================================================ case 3: a stop happened and nothing judged it
 
     [Fact]
-    public void ANewTurnEndWithNoVerdictForTheScreen_IsAskedNow_AndTheRowStaysRedMeanwhile()
+    public void ANewTurnEndWithNoVerdictForTheScreen_IsAskedNow_AndTheRowGoesYellowMeanwhile()
     {
+        // NO RED FRAME BEFORE THE WINGMAN READS - the owner's slice E ruling, and it is LATER than this slice's
+        // own plan wording ("red stands until it answers"), so it wins. This test pinned that red frame until the
+        // inspector made it blocking on pull request 2899: the fold asked the seat to judge and then served the
+        // row it was still holding, which carried the verdict the read was about to replace. Correcting it IS the
+        // fix, not a weakening - the assertion was pinning the defect.
         var (watch, rows, row) = ArmedAndObserved();
         // A refused answer IS evidence a stop happened, and it is not a verdict for anything: nothing on this row
         // says what the stop means.
@@ -281,11 +298,35 @@ public sealed class SnoozeExpiryReJudgeTests : IDisposable
 
         Assert.Equal(new[] { "s1" }, _reads);
         Assert.Equal(new[] { "snooze-re-judge-requested/s1" }, _ledger);
-        // RED STANDS while it waits: the expiry itself calms nothing here. (Once the seat actually asks the
-        // judge it stamps "reading" and the row is yellow - slice E's owner ruling, which this does not override.)
+        Assert.False(row.SnoozeEndedNothingNew);
+        // YELLOW ON THIS FOLD, not on some later poll. The seat stamps "reading" synchronously, before it reads
+        // the screen, and says so - so the very fold that asked serves the yellow.
+        Assert.Equal("yellow", row.EffectiveColor);
+        Assert.Equal("Wingman reading", row.StateLabel);
+        Assert.Equal(VerdictStates.Reading, row.VerdictState);
+        Assert.NotEqual("red", row.EffectiveColor);
+    }
+
+    [Fact]
+    public void ANewTurnEndTheSeatWillNotJudge_IsStillAsked_AndTheRowKeepsItsRed()
+    {
+        // THE OTHER HALF OF THE SAME RULING, and it must not be collapsed into the one above. Only a row that is
+        // actually about to be read turns yellow. A stop the seat will not judge - this account's judge switch is
+        // off, its ceiling is full, the free checks refuse the session - is not being read by anybody and never
+        // will be, so painting it yellow would trade one lie for another. It keeps the detector's red.
+        _seatTakesTheRead = false;
+        var (watch, rows, row) = ArmedAndObserved();
+        Store.Store(Account, "s1", Verdict("", "", Armed.AddMinutes(5), failed: true));
+
+        Fold(watch, rows, new[] { row }, AfterExpiry);
+
+        // Still ASKED, and still recorded: the expiry made its ruling and the seat is the one that declined.
+        Assert.Equal(new[] { "s1" }, _reads);
+        Assert.Equal(new[] { "snooze-re-judge-requested/s1" }, _ledger);
         Assert.False(row.SnoozeEndedNothingNew);
         Assert.Equal("red", row.EffectiveColor);
         Assert.Equal("needsYou", row.TriageBucket);
+        Assert.NotEqual(VerdictStates.Reading, row.VerdictState);
     }
 
     // ============================================================ the edge fires once
@@ -438,8 +479,13 @@ public sealed class SnoozeExpiryReJudgeTests : IDisposable
     }
 
     [Fact]
-    public void AStopAlreadyBeingRead_IsNeitherCalmedNorAskedAgain()
+    public void AStopAlreadyBeingRead_IsNeitherCalmedNorAskedAgain_AndSaysSoInTheLedger()
     {
+        // AN EXPIRY SPENDS ITS ONE EDGE WHATEVER IT DECIDES, so it writes its one event whatever it decides. This
+        // test pinned an EMPTY ledger until the inspector made it blocking on pull request 2899: the edge was
+        // consumed - this session's expiry never rules again - and nothing recorded that it had happened at all,
+        // which contradicts the event's own contract of exactly one row per expiry. Correcting it IS the fix; the
+        // Architect ruled the cause list grows to four rather than this case staying silent.
         var (watch, rows, row) = ArmedAndObserved();
         rows.Reading.Add("s1");
 
@@ -448,8 +494,24 @@ public sealed class SnoozeExpiryReJudgeTests : IDisposable
         Assert.False(row.SnoozeEndedNothingNew);
         Assert.Equal("yellow", row.EffectiveColor);
         Assert.Equal("Wingman reading", row.StateLabel);
+        // NOTHING IS ASKED A SECOND TIME - one model call per stop, and one is already being paid for.
         Assert.Empty(_reads);
-        Assert.Empty(_ledger);
+        Assert.Equal(new[] { "snooze-read-in-flight/s1" }, _ledger);
+    }
+
+    [Fact]
+    public void TheInFlightExpiry_RecordsExactlyOnce_LikeEveryOtherOutcome()
+    {
+        // The edge, not the condition: a row that stays expired and stays being read writes its one row and no
+        // more, exactly as the three other outcomes do.
+        var (watch, rows, row) = ArmedAndObserved();
+        rows.Reading.Add("s1");
+
+        for (var i = 0; i < 12; i++)
+            Fold(watch, rows, new[] { row }, AfterExpiry.AddMinutes(i));
+
+        Assert.Equal(new[] { "snooze-read-in-flight/s1" }, _ledger);
+        Assert.Empty(_reads);
     }
 
     [Fact]
@@ -470,7 +532,11 @@ public sealed class SnoozeExpiryReJudgeTests : IDisposable
         var reads = new System.Collections.Concurrent.ConcurrentBag<string>();
         var ledger = new System.Collections.Concurrent.ConcurrentBag<string>();
         var racing = new SnoozeExpiryReJudge(
-            requestRead: (_, _, sid) => reads.Add(sid),
+            requestRead: (_, _, sid) =>
+            {
+                reads.Add(sid);
+                return true;
+            },
             record: r => ledger.Add(r.Cause));
 
         SessionDto Clone()
@@ -500,6 +566,55 @@ public sealed class SnoozeExpiryReJudgeTests : IDisposable
         Assert.Equal(new[] { "snooze-re-judge-requested" }, ledger.ToArray());
         // And every racer folded its own row, winner or not: a row that lost the swap is still answered.
         Assert.All(clones, c => Assert.False(c.SnoozeEndedNothingNew));
+    }
+
+    // ============================================================ the memory is bounded by the roster
+
+    [Fact]
+    public void ASessionThatLeavesTheRoster_TakesItsWatchEntryWithIt()
+    {
+        // BOUNDED BY THE ROSTER, NOT BY THE LIFE OF THE PROCESS. A session that vanished while its snooze was
+        // expired used to leave one entry behind until the Gateway restarted, and those accumulate. The prune runs
+        // on every fold, against the fold's own role universe.
+        Snoozes.Snooze("s1", Deadline, "dir-1");
+        Snoozes.Snooze("s2", Deadline, "dir-1");
+        var watch = NewWatch();
+        var rows = new Rows(Store);
+        var one = Row("s1");
+        var two = Row("s2");
+
+        Fold(watch, rows, new[] { one, two }, Armed.AddSeconds(1));
+        Assert.Equal(2, watch.Watching);
+
+        // s2 is gone from the account's roster - the same Director is still there, and it no longer has it.
+        Fold(watch, rows, new[] { one }, Armed.AddSeconds(2));
+
+        Assert.Equal(1, watch.Watching);
+    }
+
+    [Fact]
+    public void ASessionWhoseDirectorIsNotInThisFold_KeepsItsWatchEntry()
+    {
+        // THE PRUNE ONLY ACTS ON WHAT THE FOLD CAN VOUCH FOR, and this is the test that makes that mean something.
+        // A fold is not always the whole account: a Director's snapshot push carries that Director's sessions, and
+        // a roster read filtered by machine carries those machines' Directors. Absence from a PARTIAL set is not
+        // evidence a session has gone - and dropping a live session's entry would silently disarm ruling 10 for
+        // it, because its expiry would then find no armed observation and rule nothing at all.
+        Snoozes.Snooze("s1", Deadline, "dir-1");
+        Snoozes.Snooze("s2", Deadline, "dir-2");
+        var watch = NewWatch();
+        var rows = new Rows(Store);
+        var one = Row("s1");
+        var two = Row("s2");
+        two.DirectorId = "dir-2";
+
+        Fold(watch, rows, new[] { one, two }, Armed.AddSeconds(1));
+        Assert.Equal(2, watch.Watching);
+
+        // Only dir-1 pushed this time. dir-2 said nothing, which is not the same as dir-2 having nothing.
+        Fold(watch, rows, new[] { one }, Armed.AddSeconds(2));
+
+        Assert.Equal(2, watch.Watching);
     }
 
     [Fact]

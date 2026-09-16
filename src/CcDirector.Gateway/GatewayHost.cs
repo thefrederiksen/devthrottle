@@ -1842,12 +1842,14 @@ public sealed class GatewayHost : IAsyncDisposable
             _tenantSettingsResolver.TurnVerdict, _turnVerdicts, () => _turnVerdictService);
         _turnVerdictWatchdogSweep = new Wingman.TurnVerdictWatchdogSweep(
             _tenantBoundary, TenantRegistry, _tenantContext, EnsureTurnVerdictService);
-        // Slice F (ruling 10): a snooze expiry re-judges. The read is FIRE AND FORGET - the fold is the hot path
-        // and waits for nothing - and it goes through the seat's ordinary current-screen request, so an unchanged
-        // screen reuses the stored verdict and only a changed one costs a model call.
+        // Slice F (ruling 10): a snooze expiry re-judges. The JUDGEMENT is fire and forget - the fold is the hot
+        // path and waits for nothing - and it goes through the seat's ordinary current-screen request, so an
+        // unchanged screen reuses the stored verdict and only a changed one costs a model call. What the fold DOES
+        // wait for is the seat's synchronous answer to "are you reading this now", which is what keeps a stop the
+        // Wingman will judge from going out red one last time before the yellow appears.
         _snoozeExpiry = new Wingman.SnoozeExpiryReJudge(
-            requestRead: (tenant, directorId, sid) => _ = EnsureTurnVerdictService()
-                .VerdictForCurrentScreenAsync(tenant, directorId, sid, Wingman.TurnVerdictTrigger.SnoozeExpiry),
+            requestRead: (tenant, directorId, sid) => EnsureTurnVerdictService()
+                .StartSnoozeExpiryReJudge(tenant, directorId, sid),
             record: record => EnsureTurnVerdictEnvironment().Record(record));
         // The machine name and the Director version are stamped from the CONNECTION record, not
         // from the pushed session: the pushed machine name is hard-coded empty on every client in
