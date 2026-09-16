@@ -60,6 +60,25 @@ public sealed class FleetMessagePolicyTests
         Assert.Equal(3, Limits.StuckAfterRings);
         Assert.Equal(TimeSpan.FromDays(30), Limits.Retention);
         Assert.Equal(TimeSpan.FromHours(24), Limits.RecentReadWindow);
+        Assert.Equal(16_000, Limits.MaxTextLength);
+    }
+
+    [Fact]
+    public void The_product_runs_with_the_default_limits()
+        // Limits here IS the product's instance; a test that swapped it would pin nothing.
+        => Assert.Same(FleetMessageLimits.Default, Limits);
+
+    [Fact]
+    public void The_advice_sentences_are_the_approved_wording()
+    {
+        // Pinned to literals (inspection 1, ruling 5). The other tests compare a refusal to these constants, so a
+        // reworded sentence would leave every one of them green.
+        Assert.Equal(
+            "Put it in your report instead: what you would have sent belongs in the answer you give when your turn ends.",
+            FleetMessagePolicy.PutItInYourReport);
+        Assert.Equal(
+            "Leave your report as the last thing you write in this session; your supervisor reads it there when it opens you.",
+            FleetMessagePolicy.LeaveItInYourSession);
     }
 
     // ---------- Rule 1: only your supervisor and your own workers ----------
@@ -284,10 +303,11 @@ public sealed class FleetMessagePolicyTests
     [Fact]
     public void The_text_length_boundary_is_exact()
     {
+        // Literal lengths, not Limits.MaxTextLength: a boundary built from the property follows any default.
         Assert.Equal(FleetMessageOutcome.Queued,
-            Decide(Attempt(Manager, WorkerA, text: new string('x', Limits.MaxTextLength))).Outcome);
+            Decide(Attempt(Manager, WorkerA, text: new string('x', 16_000))).Outcome);
         Assert.Equal(FleetMessageOutcome.RefusedText,
-            Decide(Attempt(Manager, WorkerA, text: new string('x', Limits.MaxTextLength + 1))).Outcome);
+            Decide(Attempt(Manager, WorkerA, text: new string('x', 16_001))).Outcome);
     }
 
     [Theory]
