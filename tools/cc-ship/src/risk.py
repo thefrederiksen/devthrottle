@@ -3,6 +3,7 @@ Rules can raise the label, never lower it (issue 2935, "Risk")."""
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 import config
@@ -24,13 +25,43 @@ class RiskInputs:
     owner_kept_errors: list[str]  # titles of error-severity findings the owner kept
 
 
+# Always high, whatever a repository lists (issue 2935, "Risk"). Matched as whole words
+# of the path, split at separators and camelCase, so "AuthContext.jsx" and
+# "oauth_callback.py" match and "authoring.md" does not.
+SENSITIVE_WORDS = {
+    "auth", "authn", "authz", "authentication", "authorization", "oauth", "login", "signin",
+    "signup", "password", "passwords", "credential", "credentials", "secret", "secrets",
+    "apikey", "apikeys", "token", "tokens", "jwt", "tenant", "tenants", "rls",
+    "migration", "migrations", "schema", "schemas",
+}
+SENSITIVE_PAIRS = {("api", "key"), ("api", "keys"), ("sign", "in"), ("sign", "up")}
+SENSITIVE_SUFFIXES = (".sql", ".prisma")
+
+
+def path_words(path: str) -> list[str]:
+    spaced = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", path)
+    spaced = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1 \2", spaced)
+    return [w for w in re.split(r"[^A-Za-z0-9]+", spaced.lower()) if w]
+
+
+def sensitive_path(path: str) -> bool:
+    if path.lower().endswith(SENSITIVE_SUFFIXES):
+        return True
+    words = path_words(path)
+    if any(w in SENSITIVE_WORDS for w in words):
+        return True
+    return any(pair in SENSITIVE_PAIRS for pair in zip(words, words[1:]))
+
+
 def compute(inputs: RiskInputs, cfg: config.ShipConfig) -> dict:
     raised: list[tuple[str, str]] = []
-    # Schema, migration, authentication, key and tenant code are declared per
-    # repository in .ship.yaml risk.high_paths; a name guess misfires ("authoring").
     high_hits = [f for f in inputs.changed_files if config.matches(f, cfg.high_paths)]
     if high_hits:
         raised.append(("high", f"touches a high-risk path: {', '.join(high_hits[:5])}"))
+    sensitive = [f for f in inputs.changed_files if sensitive_path(f)]
+    if sensitive:
+        raised.append(("high", "touches schema, migration, authentication, key or tenant code: "
+                               + ", ".join(sensitive[:5])))
     if inputs.verdict == "inconclusive":
         raised.append(("high", "the verifier's verdict was inconclusive"))
     if inputs.owner_kept_errors:

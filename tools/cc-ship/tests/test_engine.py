@@ -694,3 +694,93 @@ def test_run_FixLimitOwnerKeeps_ShipsAsHighRisk(world, capsys):
     code, out = run_cli("wait", "--seconds", "5", capsys=capsys)
     assert out["state"] == "waiting-on-owner" and out["risk"] == "high", out
     assert "OWNER KEPT: Fix-round limit reached" in world.prs[1]["body"]
+
+
+# ------------------------------------------------------------------ re-review of pull request 2949
+
+def test_run_UncommittedEditDuringReview_HandedBackAndFullyRerunAfterCommit(world, capsys):
+    # Round 2 finding 1: uncommitted edits would be verified but never shipped.
+    real_wait = world.wait_for_output
+    edited = []
+
+    def wait_while_author_edits(sid, output, *args, **kwargs):
+        if not edited:
+            (world.work / "app.py").write_text("x = 42\n", encoding="ascii")
+            edited.append(sid)
+        return real_wait(sid, output, *args, **kwargs)
+
+    engine.fleet.wait_for_output = wait_while_author_edits
+    world.outputs["Reviewer"] += [review(), review()]
+    world.outputs["Verifier"].append(GO)
+    code, out = ship_to_merge(world, capsys)
+    assert out["state"] == "waiting-on-author" and "uncommitted" in out["next_step"], out
+    assert edited[0] in world.stopped and world.prs == {}
+    git(world.work, "commit", "-am", "the edit")
+    run_cli("continue", capsys=capsys)
+    code, out = run_cli("wait", "--seconds", "5", capsys=capsys)
+    assert out["state"] == "merged", out
+    assert world.prs[1]["head"] == git(world.work, "rev-parse", "HEAD")
+    assert [s["role"] for s in world.spawned] == ["Reviewer", "Reviewer", "Verifier"]
+
+
+def test_start_UntrackedFileOnly_NotADirtyTree(world, capsys):
+    (world.work / "intent-draft.md").write_text("scratch\n", encoding="ascii")
+    world.outputs["Reviewer"].append(review())
+    code, out = run_cli("start", "--intent", str(world.intent), capsys=capsys)
+    assert out["state"] == "working", out
+
+
+def test_risk_AuthenticationCodeNotListedByRepository_StillHigh(world, capsys):
+    # Round 2 finding 2: a repository's incomplete list never makes auth code low risk.
+    (world.work / "src" / "auth").mkdir(parents=True)
+    (world.work / "src" / "auth" / "session.ts").write_text("x\n", encoding="ascii")
+    git(world.work, "add", ".")
+    git(world.work, "commit", "-m", "auth")
+    world.outputs["Reviewer"].append(review(risk="low"))
+    world.outputs["Verifier"].append(GO)
+    code, out = ship_to_merge(world, capsys)
+    assert out["risk"] == "high" and out["state"] == "waiting-on-owner" and world.merged == []
+    assert "authentication, key or tenant code: src/auth/session.ts" in world.prs[1]["body"]
+
+
+def test_run_ReviewerRewordsDecidedFinding_MatchesDecisionIdAndOwnerIsNotAskedAgain(world, capsys):
+    # Round 2 finding 3: the same owner call in other words is not raised again.
+    first = dict(finding("F1", "Missing error handling", action="ask-owner", severity="warning"),
+                 sequence="Opening settings without an org returns 500")
+    world.outputs["Reviewer"].append(review(first))
+    ship_to_merge(world, capsys)
+    world.outputs["Verifier"].append(GO)
+    run_cli("respond", "r1-F1", "--keep", "--note", "fine for now", capsys=capsys)
+    run_cli("wait", "--seconds", "5", capsys=capsys)
+
+    (world.work / "app.py").write_text("x = 8\n", encoding="ascii")
+    git(world.work, "commit", "-am", "unrelated")
+    world.prs[1]["state"] = "MERGED"
+    reworded = dict(first, sequence="GET settings with no org produces HTTP 500",
+                    same_as_decision="D1")
+    world.outputs["Reviewer"].append(review(reworded))
+    world.outputs["Verifier"].append(GO)
+    code, out = ship_to_merge(world, capsys)
+    assert out["state"] == "merged", out
+    brief = [s for s in world.spawned if s["role"] == "Reviewer"][-1]["brief"].read_text()
+    assert 'D1: owner chose KEEP - "Missing error handling"' in brief
+    assert "reviewer matched" in world.prs[2]["body"] and "decision D1" in world.prs[2]["body"]
+
+
+def test_run_SameAsDecisionPointingAtAFixDecision_NotSuppressed(world, capsys):
+    first = dict(finding("F1", "Missing error handling", action="ask-owner", severity="warning"))
+    world.outputs["Reviewer"] += [review(first), review(dict(first, sequence="other words",
+                                                             same_as_decision="D1"))]
+    ship_to_merge(world, capsys)
+    run_cli("respond", "r1-F1", "--fix", capsys=capsys)  # owner wants it fixed: not closed
+    (world.work / "app.py").write_text("x = 6\n", encoding="ascii")
+    git(world.work, "commit", "-am", "attempt")
+    run_cli("continue", capsys=capsys)
+    code, out = run_cli("wait", "--seconds", "5", capsys=capsys)
+    assert out["state"] == "waiting-on-owner" and "r2-F1" in out["next_step"], out
+
+
+def test_validate_review_BadSameAsDecision_Rejected():
+    import contracts
+    bad = review(dict(finding("F1", "t"), same_as_decision="the first one"))
+    assert any("same_as_decision" in p for p in contracts.validate_review(bad))

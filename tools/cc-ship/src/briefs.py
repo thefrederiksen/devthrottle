@@ -18,16 +18,24 @@ def reviewer_brief(
     head: str,
     intent: Path,
     diff: Path,
-    decisions: Path | None,
+    decisions: list[dict],
     output: Path,
     repo_rules: list[str],
     first_reviewed_head: str | None,
 ) -> str:
     rules = "\n".join(f"- {r}" for r in repo_rules) or "- (none declared)"
-    decisions_line = (
-        f"- The owner's recorded decisions on this branch: {decisions}. A decided finding is closed; never raise it again."
-        if decisions else "- There are no recorded owner decisions on this branch yet."
-    )
+    if decisions:
+        listed = "\n".join(
+            f"  - {d['id']}: owner chose {d['decision'].upper()} - \"{d['title']}\" in "
+            f"{d['file'] or '(whole change)'}: {d['sequence']}" + (f" (owner: {d['note']})" if d['note'] else "")
+            for d in decisions)
+        decisions_line = (
+            "- The owner has already decided these. A decided finding is CLOSED: do not raise "
+            "it again. If something you find is the same problem as one of them, even in other "
+            "words, leave it out; if you are not sure, report it with \"same_as_decision\" set "
+            "to that id (for example \"D1\"):\n" + listed)
+    else:
+        decisions_line = "- There are no recorded owner decisions on this branch yet."
     rereview = ""
     if first_reviewed_head:
         rereview = f"""
@@ -158,7 +166,9 @@ A preview of this exact change is deployed at:
     {preview_url}
 
 It is behind a sign-in. The file {browser_state} holds a browser state that gets you
-past it. Drive it with playwright-cli, using this browser session name:
+past it. Drive it with playwright-cli, using this browser session name. Run these
+from inside {evidence_dir} (cd there first) so the browser's own files never land in
+the repository:
 
     playwright-cli -s={browser_session} open
     playwright-cli -s={browser_session} state-load "{browser_state}"

@@ -94,6 +94,22 @@ def _reset_round(run: dict) -> None:
         run[key] = None
 
 
+def _worktree_dirty(run: dict) -> dict | None:
+    """Uncommitted edits would be verified but never shipped: stop and hand back."""
+    if gitops.is_clean(_repo(run)):
+        return None
+    session = run.get("session")
+    if session:
+        _stop_session_quietly(session["id"], "cc-ship: the worktree has uncommitted changes")
+    _drop_verifier(run, "cc-ship: uncommitted changes")
+    run["session"] = None
+    run["phase"] = "dirty"
+    return _set(run, WAITING_ON_AUTHOR,
+                "The worktree has uncommitted changes to tracked files. What is reviewed and "
+                "verified must be exactly what ships. Commit them (every step then runs again "
+                "on the new commit) or discard them, then run: cc-ship continue")
+
+
 def _head_moved(run: dict) -> str | None:
     """What was checked, reviewed and verified must be exactly what ships."""
     head = gitops.head(_repo(run))
@@ -223,7 +239,8 @@ def advance(run: dict) -> dict:
                 if not _step_verify(run):
                     return run
             elif phase == "pr":
-                _step_pr(run)
+                if not _step_pr(run):
+                    return run
             elif phase == "merge":
                 return _step_merge(run)
             else:
@@ -305,6 +322,9 @@ def _step_review(run: dict) -> dict:
     repo = _repo(run)
     cfg = config.load_from_main(repo)
     agent = _reviewer_agent(run, cfg)
+    dirty = _worktree_dirty(run)
+    if dirty:
+        return dirty
     moved = _head_moved(run)
     if moved:
         _restart_round(run, moved)
@@ -315,12 +335,11 @@ def _step_review(run: dict) -> dict:
     folder = _folder(run)
     diff = folder / f"diff-r{rnd}.patch"
     diff.write_text(gitops.diff_text(repo, base, head), encoding="utf-8")
-    decision_log = decisions.log_path(run["slug"], run["branch"])
     output = folder / f"review-r{rnd}.json"
     brief = folder / f"brief-review-r{rnd}.md"
     brief.write_text(briefs.reviewer_brief(
         repo=repo, base=base, head=head, intent=folder / "intent.md", diff=diff,
-        decisions=decision_log if decision_log.exists() else None, output=output,
+        decisions=decisions.listed(run["slug"], run["branch"]), output=output,
         repo_rules=cfg.rules, first_reviewed_head=run["first_reviewed_head"],
     ), encoding="utf-8")
     output.unlink(missing_ok=True)
@@ -339,11 +358,18 @@ def _finding_id(rnd: int, finding: dict) -> str:
 def _review_done(run: dict, review: dict) -> dict:
     rnd = run["review_round"]
     closed_exact, closed_similar = decisions.closed(run["slug"], run["branch"])
+    by_id = {d["id"]: d for d in decisions.listed(run["slug"], run["branch"])}
     open_findings, notes, suppressed = [], [], []
     for f in review["findings"]:
         key = decisions.finding_key(f)
         if decisions.exact_key(f) in closed_exact:
             suppressed.append(f["title"])
+            continue
+        matched = by_id.get(f.get("same_as_decision") or "")
+        if matched and matched["decision"] in ("keep", "drop") and matched["file"] == f["file"]:
+            # The reviewer itself says this is a problem the owner already decided.
+            notes.append(f"reviewer matched \"{f['title']}\" to owner decision {matched['id']} "
+                         f"({matched['decision']}: {matched['title']}); not asked again")
             continue
         action = contracts.finding_action(f)
         entry = {"id": _finding_id(rnd, f), "key": key, "title": f["title"], "file": f["file"],
@@ -477,6 +503,8 @@ def respond(run: dict, finding_id: str, decision: str, note: str) -> dict:
 
 def _step_verify(run: dict) -> bool:
     repo = _repo(run)
+    if _worktree_dirty(run):
+        return False
     moved = _head_moved(run)
     if moved:
         _restart_round(run, moved)
@@ -562,6 +590,9 @@ def _handle_session_result(run: dict, result: fleet.WaitResult) -> dict:
     session = run["session"]
     role = session["role"]
     output = Path(session["output"])
+    dirty = _worktree_dirty(run)
+    if dirty:
+        return dirty
     moved = _head_moved(run)
     if moved:
         _restart_round(run, moved)
@@ -677,12 +708,14 @@ def _owner_kept_errors(run: dict) -> list[str]:
             if d["decision"] == "keep" and d["severity"] == "error"]
 
 
-def _step_pr(run: dict) -> None:
+def _step_pr(run: dict) -> bool:
     repo = _repo(run)
+    if _worktree_dirty(run):
+        return False
     moved = _head_moved(run)
     if moved:
         _restart_round(run, moved)
-        return
+        return True
     cfg = config.load_from_main(repo)
     head = gitops.head(repo)
     base = gitops.merge_base(repo)
@@ -719,6 +752,7 @@ def _step_pr(run: dict) -> None:
         run["pr"] = github.create_pr(run["slug"], run["branch"], title, body_file)
     run["pr"]["head"] = head
     run["phase"] = "merge"
+    return True
 
 
 def _park_reasons(run: dict) -> list[str]:
@@ -744,6 +778,9 @@ def _step_merge(run: dict) -> dict:
     if state["state"] == "CLOSED":
         raise ShipError("pr-closed", f"{pr['url']} was closed without merging.",
                         "Ask the owner; then cc-ship abort, or reopen it and cc-ship continue")
+    dirty = _worktree_dirty(run)
+    if dirty:
+        return dirty
     moved = _head_moved(run)
     if moved:
         _restart_round(run, moved)

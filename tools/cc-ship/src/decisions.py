@@ -64,6 +64,11 @@ def record(slug: str, branch: str, run_id: str, finding: dict, decision: str, no
     return entry
 
 
+def listed(slug: str, branch: str) -> list[dict]:
+    """Every decision with a stable id (D1, D2, ...) in the order it was made."""
+    return [dict(d, id=f"D{i}") for i, d in enumerate(read(slug, branch), start=1)]
+
+
 def closed(slug: str, branch: str) -> tuple[set[str], dict[str, dict]]:
     """(exact keys the owner kept or dropped, similar key -> that decision).
 
