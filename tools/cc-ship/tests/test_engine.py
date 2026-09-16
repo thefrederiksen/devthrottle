@@ -427,7 +427,7 @@ def test_run_DocsOnlyChange_ProceedsWithNoSurface(world, capsys):
 
 
 def test_output_IsAsciiEvenWhenTheReviewerWritesUnicode(world, capsys):
-    world.outputs["Reviewer"].append(review(finding("F1", "x — wrong “quoted” 中")))
+    world.outputs["Reviewer"].append(review(finding("F1", "x \u2014 wrong \u201cquoted\u201d \u4e2d")))
     cli.main(["start", "--intent", str(world.intent)])
     cli.main(["wait", "--seconds", "5"])
     out = capsys.readouterr().out
