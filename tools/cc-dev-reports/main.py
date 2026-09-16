@@ -8,4 +8,4 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from src.cli import app  # noqa: E402
 
 if __name__ == "__main__":
-    app()
+    app(prog_name="cc-dev-reports")

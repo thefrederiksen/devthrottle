@@ -84,7 +84,7 @@ def _require_environment() -> str:
     sid = gateway.session_id()
     if not sid:
         raise CommandError(
-            "CC_SESSION_ID is not set, so there is no session to publish the report for. "
+            "CC_SESSION_ID is not set, so this command cannot tell which session it is running in. "
             "cc-dev-reports only works inside a DevThrottle session.",
             "missing_environment",
         )
@@ -175,6 +175,11 @@ def reply(text: str, report_id: Optional[str]) -> Dict[str, Any]:
 # --- Output ---------------------------------------------------------------------------------------
 
 
+def _ascii(text: str) -> str:
+    """Readable ASCII: printable ASCII passes through as written; anything else is escaped."""
+    return "".join(ch if 0x20 <= ord(ch) <= 0x7E else axi_output.escape_ascii(ch) for ch in text)
+
+
 def _line(key: str, value: Any) -> str:
     if isinstance(value, bool):
         value = "true" if value else "false"
@@ -188,10 +193,12 @@ def render(result: Dict[str, Any], as_json: bool, stream: TextIO) -> int:
         return EXIT_OK if result["ok"] else EXIT_ERROR
 
     if not result["ok"]:
-        blocks = [f"error: {axi_output.escape_ascii(result['error'] or '')}", f"code: {result['code']}"]
+        # A Gateway sentence can run to several lines (a 401 explains its causes); keep them as lines.
+        first, *rest = (result["error"] or "").splitlines() or [""]
+        blocks = [f"error: {_ascii(first)}", *(f"  {_ascii(line)}" for line in rest), f"code: {result['code']}"]
         if result["errors"]:
             blocks.append(f"errors[{len(result['errors'])}]:")
-            blocks.extend(f"  {axi_output.escape_ascii(e)}" for e in result["errors"])
+            blocks.extend(f"  {_ascii(e)}" for e in result["errors"])
         if result["code"] == "shape_check_failed":
             blocks.append(axi_output.format_help(["cc-dev-reports open <file>"]))
         axi_output.write_blocks(stream, *blocks)

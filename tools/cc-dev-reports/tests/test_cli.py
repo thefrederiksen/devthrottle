@@ -279,6 +279,26 @@ def test_json_shape_is_the_same_keys_for_success_and_failure_on_both_commands(wi
     assert parsed[3]["code"] == "no_report"
 
 
+def test_error_lines_keep_quotes_readable_and_escape_only_non_ascii(wire, report_file):
+    wire((422, {"error": "failed", "code": "shape_check_failed",
+                "errors": ['Question "deploy" has two recommended options.', "Caf\u00e9 marker"]}))
+    result = runner.invoke(app, ["open", str(report_file)])
+    lines = result.output.splitlines()
+    assert '  Question "deploy" has two recommended options.' in lines
+    assert r"  Caf\u00e9 marker" in lines
+    assert result.output.isascii()
+
+
+def test_a_multi_line_gateway_sentence_stays_on_separate_lines(wire, report_file):
+    wire((401, {"error": "missing or invalid token"}))
+    result = runner.invoke(app, ["open", str(report_file)])
+    assert result.exit_code == 1
+    assert "error: missing or invalid token" in result.output.splitlines()
+    assert r"\n" not in result.output  # never an escaped newline squeezed onto one line
+    assert "  A 401 here has more than one cause and this answer cannot tell them apart." in result.output.splitlines()
+    assert "code: http_401" in result.output
+
+
 def test_non_ascii_from_the_gateway_is_escaped_not_printed(wire, report_file):
     wire((200, {"report": _summary(title="Rapport \u00e9t\u00e9"), "created": True}))
     result = runner.invoke(app, ["open", str(report_file)])
