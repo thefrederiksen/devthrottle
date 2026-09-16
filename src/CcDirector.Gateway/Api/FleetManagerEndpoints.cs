@@ -60,7 +60,8 @@ internal enum FleetManagerAction
 /// every conversation (the Fleet Manager mission, step 3).
 ///
 ///   POST   /gateway/fleet-manager/outcomes                 file a Ready, Finding or Decision -> 201
-///   GET    /gateway/fleet-manager/outcomes                 ?status=open|answered|all &amp;kind= &amp;count=
+///   GET    /gateway/fleet-manager/outcomes                 ?status=open|answered|all &amp;kind= &amp;count= &amp;cursor=
+///                                                          -> { count, total, hasMore, nextCursor, outcomes }
 ///   GET    /gateway/fleet-manager/outcomes/{id}
 ///   POST   /gateway/fleet-manager/outcomes/{id}/answer     close it with the owner's words -> 200 | 409
 ///   GET    /gateway/fleet-manager/preferences
@@ -181,12 +182,24 @@ internal static class FleetManagerEndpoints
             if (q.TryGetValue("count", out var c) && !int.TryParse(c.ToString(), out count))
                 return BadRequest($"count '{c}' is not a whole number between 1 and {FleetOutcomeStore.MaxCount}");
 
-            var rows = store.List(tenant, status, kind, count);
-            // The page is capped; the total is counted by the database, so a reader always knows whether it saw
-            // every record the filter matches.
+            var cursor = q.TryGetValue("cursor", out var cur) ? cur.ToString() : null;
+            if (cursor is not null && cursor.Trim().Length == 0)
+                return BadRequest("cursor is empty; give the nextCursor of the page before, or leave cursor out to start from the newest");
+
+            var page = store.ListPage(tenant, status, kind, count, cursor);
+            // The page is capped; the total is counted by the database, and the cursor continues after the last
+            // record served, so a reader can always reach every record the filter matches.
             var total = store.Count(tenant, status, kind);
-            FileLog.Write($"[FleetManagerEndpoints] ListOutcomes: returned={rows.Count}, total={total}");
-            return Results.Json(new { count = rows.Count, total, outcomes = rows });
+            FileLog.Write($"[FleetManagerEndpoints] ListOutcomes: returned={page.Outcomes.Count}, total={total}, "
+                          + $"hasMore={page.NextCursor is not null}");
+            return Results.Json(new
+            {
+                count = page.Outcomes.Count,
+                total,
+                hasMore = page.NextCursor is not null,
+                nextCursor = page.NextCursor,
+                outcomes = page.Outcomes,
+            });
         }
         catch (ArgumentException ex)
         {
@@ -348,8 +361,11 @@ internal static class FleetManagerEndpoints
     /// OWNED SESSIONS ARE EVERY FLEET MANAGER'S, NOT ONLY THE CURRENT ONE'S. A new Fleet Manager session is marked
     /// in the old one's place, and the sessions the old one started are still controlled by the old id. So the
     /// owned sessions are those controlled by the current mark OR by any session this account marked before
-    /// (<see cref="FleetManagerMarkHistory"/>), each shown with its owner's id. Handing them over to the new
-    /// Fleet Manager is a later step (hand over); until then the digest shows who still holds each one.
+    /// (<see cref="FleetManagerMarkHistory"/>, which keeps the most recent
+    /// <see cref="FleetManagerMarkHistory.MaxRememberedPerAccount"/>), each shown with its owner's id. The list of
+    /// Fleet Manager ids names the current mark and an earlier one only while it still controls a live session.
+    /// Handing them over to the new Fleet Manager is a later step (hand over); until then the digest shows who
+    /// still holds each one.
     ///
     /// THE READINGS ARE SERVED. The Wingman's readings of the sessions a Fleet Manager owns are what it works
     /// from (the design's digest carries them), and only the Fleet Manager itself or the owner may read this
@@ -383,10 +399,10 @@ internal static class FleetManagerEndpoints
             var marked = access.MarkedSessionId(tenant);
 
             // In the order the account marked them; a current mark set before the history existed comes last.
-            var managers = sources.FormerFleetManagers(tenant).ToList();
-            if (!string.IsNullOrEmpty(marked) && !managers.Contains(marked, StringComparer.OrdinalIgnoreCase))
-                managers.Add(marked);
-            var managerSet = new HashSet<string>(managers, StringComparer.OrdinalIgnoreCase);
+            var marks = sources.FormerFleetManagers(tenant).ToList();
+            if (!string.IsNullOrEmpty(marked) && !marks.Contains(marked, StringComparer.OrdinalIgnoreCase))
+                marks.Add(marked);
+            var managerSet = new HashSet<string>(marks, StringComparer.OrdinalIgnoreCase);
 
             var owned = roster
                 .Where(s => !string.IsNullOrEmpty(s.ControllerSessionId) && managerSet.Contains(s.ControllerSessionId))
@@ -403,6 +419,13 @@ internal static class FleetManagerEndpoints
                     UncommittedCount = s.UncommittedCount,
                     TurnVerdict = sources.LatestVerdict(tenant, s.SessionId),
                 })
+                .ToList();
+
+            // The current mark always; an earlier one only while it still controls a live session - the only
+            // reason the digest names it at all - so the list does not grow with every reset.
+            var managers = marks
+                .Where(m => string.Equals(m, marked, StringComparison.OrdinalIgnoreCase)
+                            || owned.Any(o => string.Equals(o.OwnerSessionId, m, StringComparison.OrdinalIgnoreCase)))
                 .ToList();
 
             var open = outcomes.ListOpen(tenant).ToList();

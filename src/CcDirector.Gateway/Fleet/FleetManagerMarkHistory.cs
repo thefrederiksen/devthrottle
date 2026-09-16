@@ -14,8 +14,12 @@ public sealed record FleetManagerMark(string SessionId, DateTime FirstMarkedAtUt
 /// table (the Fleet Manager mission, step 3). The current mark itself stays the <c>fleet_manager_session_id</c>
 /// tenant setting (<see cref="FleetManagerSessions"/>); every time it is set, the session is recorded here too.
 ///
-/// ONLY EVER ADDED TO. Clearing or replacing the mark does not remove a row: a session that was once the Fleet
-/// Manager may still control sessions it started, and the digest must still find them.
+/// CLEARING OR REPLACING THE MARK DOES NOT REMOVE A ROW: a session that was once the Fleet Manager may still
+/// control sessions it started, and the digest must still find them.
+///
+/// BOUNDED. An account keeps the <see cref="MaxRememberedPerAccount"/> sessions it marked most recently; every
+/// write prunes the older ones, so repeated resets never grow the table or the digest without limit. A session
+/// pruned this way is no longer found as a former Fleet Manager, even if it still controls sessions.
 ///
 /// WHAT THIS DOES NOT DO: it does not hand those sessions over. A session an earlier Fleet Manager started is
 /// still controlled by that earlier session; the digest shows it with that owner's id. Transferring ownership
@@ -25,6 +29,9 @@ public sealed record FleetManagerMark(string SessionId, DateTime FirstMarkedAtUt
 /// </summary>
 public sealed class FleetManagerMarkHistory
 {
+    /// <summary>How many marked sessions one account keeps, the most recently marked first.</summary>
+    public const int MaxRememberedPerAccount = 20;
+
     private readonly object _gate = new();
     private readonly GatewayDatabase _db;
 
@@ -83,11 +90,26 @@ public sealed class FleetManagerMarkHistory
             row.LastMarkedAtUtc = now;
         }
         ctx.SaveChanges();
-        FileLog.Write($"[FleetManagerMarkHistory] Record: session={sid}, first={row.FirstMarkedAtUtc:O}");
+        var pruned = Prune(ctx);
+        FileLog.Write($"[FleetManagerMarkHistory] Record: session={sid}, first={row.FirstMarkedAtUtc:O}, pruned={pruned}");
         return new FleetManagerMark(row.SessionId, row.FirstMarkedAtUtc, row.LastMarkedAtUtc);
     }
 
-    /// <summary>Every session this account has ever marked, oldest mark first.</summary>
+    /// <summary>Delete every row of the context's account beyond the <see cref="MaxRememberedPerAccount"/> most
+    /// recently marked. Returns how many were deleted.</summary>
+    private static int Prune(GatewayDbContext ctx)
+    {
+        var stale = ctx.FleetManagerMarks.AsNoTracking()
+            .OrderByDescending(m => m.LastMarkedAtUtc).ThenByDescending(m => m.SessionId)
+            .Skip(MaxRememberedPerAccount)
+            .Select(m => m.Id)
+            .ToList();
+        if (stale.Count == 0) return 0;
+        return ctx.FleetManagerMarks.Where(m => stale.Contains(m.Id)).ExecuteDelete();
+    }
+
+    /// <summary>The sessions this account has marked (at most <see cref="MaxRememberedPerAccount"/>, the most
+    /// recent), oldest first mark first.</summary>
     public IReadOnlyList<FleetManagerMark> List(TenantId tenant)
     {
         FileLog.Write($"[FleetManagerMarkHistory] List: tenant={tenant}");

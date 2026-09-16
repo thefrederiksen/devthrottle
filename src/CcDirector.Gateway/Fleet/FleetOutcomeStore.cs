@@ -26,6 +26,10 @@ public enum FleetOutcomeAnswerStatus
 /// (null only when it was not found).</summary>
 public sealed record FleetOutcomeAnswerResult(FleetOutcomeAnswerStatus Status, FleetOutcomeDto? Outcome);
 
+/// <summary>One page of <see cref="FleetOutcomeStore.ListPage"/>: the records, and the opaque cursor that continues
+/// after the last of them - null when no record remains.</summary>
+public sealed record FleetOutcomePage(IReadOnlyList<FleetOutcomeDto> Outcomes, string? NextCursor);
+
 /// <summary>
 /// The durable record of the news the Fleet Manager brought the owner - READY, FINDING, DECISION - over the
 /// <c>fleet_outcomes</c> table (the Fleet Manager mission, step 3).
@@ -157,28 +161,87 @@ public sealed class FleetOutcomeStore
     }
 
     /// <summary>
-    /// This account's records, newest first.
+    /// The first page of this account's records, newest first - <see cref="ListPage"/> with no cursor.
+    /// </summary>
+    /// <exception cref="ArgumentException">A filter is not one of its accepted values.</exception>
+    public IReadOnlyList<FleetOutcomeDto> List(TenantId tenant, string status, string? kind, int count)
+        => ListPage(tenant, status, kind, count, cursor: null).Outcomes;
+
+    /// <summary>
+    /// One page of this account's records, newest first, and the cursor that continues after it.
+    ///
+    /// EVERY RECORD IS REACHABLE. The order is <c>(CreatedAtUtc, Id)</c> descending - unique, because the id is -
+    /// and a cursor names the last record a page returned, so the next page starts strictly after it. There is
+    /// no offset: a record answered between pages (which leaves an <c>open</c> list) moves no other record, so
+    /// nothing after the cursor is skipped and nothing before it comes round again. A record filed after the
+    /// first page is newer than every cursor and so is not in later pages; listing again from the start shows it.
     /// </summary>
     /// <param name="status"><c>open</c>, <c>answered</c> or <c>all</c>.</param>
     /// <param name="kind">One kind, or null for every kind.</param>
     /// <param name="count">How many at most, 1 to <see cref="MaxCount"/>.</param>
-    /// <exception cref="ArgumentException">A filter is not one of its accepted values.</exception>
-    public IReadOnlyList<FleetOutcomeDto> List(TenantId tenant, string status, string? kind, int count)
+    /// <param name="cursor">The <see cref="FleetOutcomePage.NextCursor"/> of the page before, or null for the first.</param>
+    /// <exception cref="ArgumentException">A filter is not one of its accepted values, or the cursor is not one
+    /// this Gateway issued.</exception>
+    public FleetOutcomePage ListPage(TenantId tenant, string status, string? kind, int count, string? cursor)
     {
-        FileLog.Write($"[FleetOutcomeStore] List: tenant={tenant}, status={status}, kind={kind}, count={count}");
+        FileLog.Write($"[FleetOutcomeStore] ListPage: tenant={tenant}, status={status}, kind={kind}, count={count}, "
+                      + $"cursor={(cursor is null ? "none" : "given")}");
         var wantedStatus = RequireOneOf(status, Statuses, "status");
         var wantedKind = kind is null ? null : RequireOneOf(kind, Kinds, "kind");
         if (count < 1 || count > MaxCount)
             throw new ArgumentException($"count must be between 1 and {MaxCount}, got {count}");
+        var after = cursor is null ? ((DateTime CreatedAtUtc, Guid Id)?)null : DecodeCursor(cursor);
 
         using var ctx = _db.CreateContext(tenant);
         var query = ctx.FleetOutcomes.AsNoTracking();
         if (wantedStatus != StatusAll) query = query.Where(o => o.Status == wantedStatus);
         if (wantedKind is not null) query = query.Where(o => o.Kind == wantedKind);
-        var rows = query.OrderByDescending(o => o.CreatedAtUtc).ThenByDescending(o => o.Id).Take(count).ToList();
+        if (after is { } a)
+        {
+            var at = a.CreatedAtUtc;
+            var id = a.Id;
+            query = query.Where(o => o.CreatedAtUtc < at || (o.CreatedAtUtc == at && o.Id.CompareTo(id) < 0));
+        }
+        // One more than asked, so the page knows whether any record remains after it.
+        var rows = query.OrderByDescending(o => o.CreatedAtUtc).ThenByDescending(o => o.Id).Take(count + 1).ToList();
+        var more = rows.Count > count;
+        if (more) rows.RemoveAt(rows.Count - 1);
+        var next = more ? EncodeCursor(rows[^1]) : null;
 
-        FileLog.Write($"[FleetOutcomeStore] List: returned={rows.Count}");
-        return rows.Select(ToDto).ToList();
+        FileLog.Write($"[FleetOutcomeStore] ListPage: returned={rows.Count}, hasMore={more}");
+        return new FleetOutcomePage(rows.Select(ToDto).ToList(), next);
+    }
+
+    private const string CursorVersion = "v1";
+
+    private static string EncodeCursor(FleetOutcomeEntity last)
+    {
+        var text = $"{CursorVersion}:{Utc(last.CreatedAtUtc).Ticks}:{last.Id:N}";
+        return Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(text))
+            .TrimEnd('=').Replace('+', '-').Replace('/', '_');
+    }
+
+    private static (DateTime CreatedAtUtc, Guid Id) DecodeCursor(string cursor)
+    {
+        var refusal = $"cursor '{cursor}' is not one this Gateway issued; list again without a cursor to start from the newest";
+        var b64 = cursor.Trim().Replace('-', '+').Replace('_', '/');
+        b64 = b64.PadRight(b64.Length + (4 - b64.Length % 4) % 4, '=');
+        string text;
+        try
+        {
+            text = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(b64));
+        }
+        catch (FormatException)
+        {
+            throw new ArgumentException(refusal);
+        }
+        var parts = text.Split(':');
+        if (parts.Length != 3 || parts[0] != CursorVersion
+            || !long.TryParse(parts[1], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var ticks)
+            || ticks > DateTime.MaxValue.Ticks
+            || !Guid.TryParseExact(parts[2], "N", out var id))
+            throw new ArgumentException(refusal);
+        return (new DateTime(ticks, DateTimeKind.Utc), id);
     }
 
     /// <summary>How many records of this account match the filter, counted by the database - never from a

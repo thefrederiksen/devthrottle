@@ -483,6 +483,34 @@ public sealed class FleetManagerEndpointsTests : IDisposable
         Assert.Equal(3, Field(page, "total"));
     }
 
+    [Fact]
+    public async Task ListOutcomes_TheCursorContinuesAfterThePage_AndSaysWhenNoneRemain()
+    {
+        for (var i = 0; i < 3; i++) await FileAsync(TenantA, FleetOutcomeStoreTests.Ready($"Ready {i}"));
+
+        var first = FleetManagerEndpoints.ListOutcomes(
+            Request(TenantA, FleetManager, query: "count=2"), ResolveTenant, Access(), _outcomes);
+        Assert.Equal(true, Field(first, "hasMore"));
+        var cursor = Assert.IsType<string>(Field(first, "nextCursor"));
+
+        var second = FleetManagerEndpoints.ListOutcomes(
+            Request(TenantA, FleetManager, query: "count=2&cursor=" + Uri.EscapeDataString(cursor)), ResolveTenant, Access(), _outcomes);
+        Assert.Equal(1, Field(second, "count"));
+        Assert.Equal(3, Field(second, "total"));
+        Assert.Equal(false, Field(second, "hasMore"));
+        Assert.Null(Field(second, "nextCursor"));
+    }
+
+    [Theory]
+    [InlineData("cursor=", "cursor is empty; give the nextCursor of the page before, or leave cursor out to start from the newest")]
+    [InlineData("cursor=bogus", "cursor 'bogus' is not one this Gateway issued; list again without a cursor to start from the newest")]
+    public void ListOutcomes_BadCursor_Is400(string query, string expected)
+    {
+        var result = FleetManagerEndpoints.ListOutcomes(Request(TenantA, FleetManager, query: query), ResolveTenant, Access(), _outcomes);
+        Assert.Equal(StatusCodes.Status400BadRequest, Status(result));
+        Assert.Equal(expected, Field(result, "error"));
+    }
+
     // ---- preferences -------------------------------------------------------------------------------------
 
     [Fact]
@@ -586,6 +614,25 @@ public sealed class FleetManagerEndpointsTests : IDisposable
         Assert.Equal("verdict-former", former.TurnVerdict!.VerdictId);
         Assert.Equal(FleetManager, digest.OwnedSessions[1].OwnerSessionId);
         Assert.Equal(3, digest.OwnedSessionCounts.Total);
+    }
+
+    /// <summary>
+    /// AN EARLIER FLEET MANAGER IS NAMED ONLY WHILE IT STILL CONTROLS A LIVE SESSION. One that controls nothing is
+    /// left out of the list; one that controls a live session stays in it; the current mark is always in it.
+    /// </summary>
+    [Fact]
+    public void Digest_AnEarlierFleetManagerControllingNothingLive_IsNotNamed()
+    {
+        var controlsNothing = "10000000-0000-4000-8000-000000000099";
+        _marks.Record(TenantA, controlsNothing, DateTime.UtcNow.AddHours(-9));
+        _marks.Record(TenantA, OwnedExited, DateTime.UtcNow.AddHours(-8));
+        _marks.Record(TenantA, FormerFleetManager, DateTime.UtcNow.AddHours(-5));
+        _marks.Record(TenantA, FleetManager, DateTime.UtcNow.AddHours(-2));
+
+        var digest = Body<FleetDigestDto>(Digest(TenantA, FleetManager, FleetManager));
+
+        Assert.Equal(new[] { FormerFleetManager, FleetManager }, digest.FleetManagerSessionIds);
+        Assert.Equal(new[] { OwnedByFormer, OwnedWorking, OwnedStopped }, digest.OwnedSessions.Select(s => s.SessionId));
     }
 
     [Fact]

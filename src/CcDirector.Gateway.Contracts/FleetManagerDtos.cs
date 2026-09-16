@@ -205,8 +205,8 @@ public sealed class FleetDigestDto
     /// <summary>The session the account has marked as its Fleet Manager now, or null when it has marked none.</summary>
     public string? FleetManagerSessionId { get; set; }
 
-    /// <summary>Every session whose owned sessions are listed: the current mark and every session this account
-    /// marked before it, oldest first.</summary>
+    /// <summary>The Fleet Managers whose owned sessions are listed, oldest mark first: the current mark, and each
+    /// session this account marked before it that still controls at least one live session.</summary>
     public List<string> FleetManagerSessionIds { get; set; } = new();
 
     public DateTime GeneratedAtUtc { get; set; }

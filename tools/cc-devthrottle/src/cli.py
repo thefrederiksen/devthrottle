@@ -2648,11 +2648,13 @@ def fleet_decision(
 def fleet_outcomes(
     status: str = typer.Option("open", "--status", help="open, answered or all."),
     kind: Optional[str] = typer.Option(None, "--kind", help="ready, finding or decision."),
-    count: int = typer.Option(50, "--count", "-n", help="Largest number of records to return (1-200)."),
+    count: int = typer.Option(50, "--count", "-n", help="Largest number of records on one page (1-200)."),
+    cursor: Optional[str] = typer.Option(None, "--cursor", help="Continue after an earlier page: its nextCursor."),
+    every_page: bool = typer.Option(False, "--all", help="Follow every page to the end and list every record."),
     json_output: bool = _JSON_OPT,
 ) -> None:
-    """List the account's outcome records, newest first."""
-    fleet_ops.list_outcomes(status, kind, count, json_output)
+    """List the account's outcome records, newest first, one page at a time (or every page with --all)."""
+    fleet_ops.list_outcomes(status, kind, count, json_output, cursor=cursor, every_page=every_page)
 
 
 @fleet_app.command("show")

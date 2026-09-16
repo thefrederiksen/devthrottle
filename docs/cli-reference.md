@@ -1118,7 +1118,7 @@ USAGE: cc-devthrottle fleet finding "<title>" --answer "<answer>" [--reason "<wh
 USAGE: cc-devthrottle fleet decision "<title>" --question "<q>" --option "<a>" --option "<b>"
          [--recommend "<a>"] [--why "<why>"] [--session <id>] [--json]
 USAGE: cc-devthrottle fleet outcomes [--status open|answered|all] [--kind ready|finding|decision]
-         [--count/-n 1-200] [--json]
+         [--count/-n 1-200] [--cursor <nextCursor>] [--all] [--json]
 USAGE: cc-devthrottle fleet show ID [--json]
 USAGE: cc-devthrottle fleet answer ID "<the owner's words, exactly>" [--json]
 USAGE: cc-devthrottle fleet prefer "<preference, verbatim>" [--json]
@@ -1133,18 +1133,23 @@ may list, read and answer records, manage preferences and read the digest, but d
 A Director's own key may do none of it.
 
 `fleet digest` defaults to this session (`CC_SESSION_ID`), and the Fleet Manager may read only its
-own. It prints whether the session is the Fleet Manager, the marked Fleet Manager and every session
-the account has marked before, EVERY open record of the account (never a page - the command fails
+own. It prints whether the session is the Fleet Manager, the marked Fleet Manager and each session
+the account marked before it that still controls at least one live session, EVERY open record of the account (never a page - the command fails
 rather than print a list that disagrees with the Gateway's count), the sessions owned by the current
 Fleet Manager or by any earlier one (each with its state - `needs-you`, `working` or `stopped` - its
 owning session, and the Wingman's latest reading), and the standing preferences. A session an
 earlier Fleet Manager started is shown with that owner; handing it over to the new Fleet Manager is a
-later step.
+later step. The Gateway remembers the 20 sessions the account marked most recently; an earlier one is
+forgotten, and its sessions are no longer listed.
 
 `fleet outcomes` lists the open records by default, newest first, one page at a time. When the
-filter matches more than the page, the count line says `count: <shown> of <total>`. A filter that
-matches nothing says how many records there are in all. An `ID` given as the start of an id is
-matched against the newest 200 records, and says so when there are more.
+filter matches more than the page, the count line says `count: <shown> of <total>`, the next line is
+`nextCursor: <cursor>`, and the help names the command for the next page (`--cursor <cursor>`, with
+the same `--status`, `--kind` and `--count`). `--all` follows every page and lists every record; with
+`--json` it answers one list with `hasMore: false`. Pages follow a cursor, not a position, so a record
+answered between pages is neither skipped nor repeated; a record filed after the first page appears
+when you list again from the start. A filter that matches nothing says how many records there are in
+all. An `ID` given as the start of an id is matched against every record, every page followed.
 
 `fleet answer` is final: when two callers answer the same record at once - the owner on the phone and
 the Fleet Manager, or two Gateway instances - exactly one answer is kept, and the other is refused
@@ -1153,8 +1158,10 @@ the Fleet Manager, or two Gateway instances - exactly one answer is kept, and th
 
 Gateway routes: `/gateway/fleet-manager/outcomes` (GET, POST), `/outcomes/{id}` (GET),
 `/outcomes/{id}/answer` (POST, 409 when already answered), `/preferences` (GET, POST),
-`/preferences/{id}` (DELETE), `/digest?session=<id>` (GET). `GET /outcomes` answers `count` (this
-page) and `total` (every match, counted by the Gateway). A refused caller gets 403 with
+`/preferences/{id}` (DELETE), `/digest?session=<id>` (GET). `GET /outcomes` takes `status`, `kind`,
+`count` and `cursor`, and answers `count` (this page), `total` (every match, counted by the Gateway),
+`hasMore`, `nextCursor` (null on the last page) and `outcomes`. A cursor the Gateway did not issue is
+refused with 400. A refused caller gets 403 with
 `code: not_fleet_manager`.
 
 ### Skill Commands

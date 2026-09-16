@@ -295,6 +295,95 @@ public sealed class FleetManagerRoutesHostTests : IAsyncLifetime
         Assert.Equal("fleet-manager", Root(byFm.Body).GetProperty("answeredByRole").GetString());
     }
 
+    /// <summary>Every record the list serves, following nextCursor from the first page to the last.</summary>
+    private async Task<List<string>> ListEveryPageAsync(HttpClient http, string query, Func<int, IReadOnlyList<string>, Task>? betweenPages = null)
+    {
+        var ids = new List<string>();
+        string? cursor = null;
+        for (var page = 0; page < 20; page++)
+        {
+            var path = "gateway/fleet-manager/outcomes?" + query
+                       + (cursor is null ? "" : "&cursor=" + Uri.EscapeDataString(cursor));
+            var (status, body) = await Send(http, "GET", path);
+            Assert.Equal(HttpStatusCode.OK, status);
+            var root = Root(body);
+            ids.AddRange(root.GetProperty("outcomes").EnumerateArray().Select(o => o.GetProperty("id").GetString()!));
+            var more = root.GetProperty("hasMore").GetBoolean();
+            cursor = root.GetProperty("nextCursor").ValueKind == JsonValueKind.Null
+                ? null
+                : root.GetProperty("nextCursor").GetString();
+            Assert.Equal(more, cursor is not null);
+            if (!more) return ids;
+            if (betweenPages is not null) await betweenPages(page, ids);
+        }
+        throw new InvalidOperationException("the list did not end within 20 pages");
+    }
+
+    /// <summary>
+    /// THE 201ST RECORD IS REACHABLE. More records than the largest page are filed through the route; the first
+    /// page says more remain, and following the cursor reaches every one - including the oldest - exactly once.
+    /// </summary>
+    [Fact]
+    public async Task Every_record_beyond_the_largest_page_is_reachable_by_following_the_cursor()
+    {
+        var filed = new List<string>();
+        for (var i = 0; i < 201; i++)
+        {
+            var (status, body) = await Send(_fleetManager, "POST", "gateway/fleet-manager/outcomes", ReadyBody($"Record {i}"));
+            Assert.Equal(HttpStatusCode.Created, status);
+            filed.Add(Root(body).GetProperty("id").GetString()!);
+        }
+
+        var (_, firstBody) = await Send(_ownerA, "GET", "gateway/fleet-manager/outcomes?status=all&count=200");
+        var first = Root(firstBody);
+        Assert.Equal(200, first.GetProperty("count").GetInt32());
+        Assert.Equal(201, first.GetProperty("total").GetInt32());
+        Assert.True(first.GetProperty("hasMore").GetBoolean());
+        Assert.DoesNotContain(first.GetProperty("outcomes").EnumerateArray(),
+            o => o.GetProperty("id").GetString() == filed[0]);
+
+        var every = await ListEveryPageAsync(_ownerA, "status=all&count=200");
+
+        Assert.Equal(201, every.Count);
+        Assert.Equal(filed[0], every[^1]);
+        Assert.Equal(filed.OrderBy(x => x), every.OrderBy(x => x));
+    }
+
+    /// <summary>
+    /// AN ANSWER BETWEEN PAGES SKIPS AND REPEATS NOTHING, through the real routes: after the first page of open
+    /// records, the owner answers one the Fleet Manager has already been served and one it has not reached. A
+    /// position-based page would then skip a record; the cursor does not. Every record still open is served once,
+    /// none twice, and the unreached answered one is not served.
+    /// </summary>
+    [Fact]
+    public async Task Answering_a_record_between_pages_skips_and_repeats_nothing()
+    {
+        var filed = new List<string>();
+        for (var i = 0; i < 7; i++)
+        {
+            var (_, body) = await Send(_fleetManager, "POST", "gateway/fleet-manager/outcomes", ReadyBody($"Record {i}"));
+            filed.Add(Root(body).GetProperty("id").GetString()!);
+        }
+        string? served = null, unreached = null;
+
+        var seen = await ListEveryPageAsync(_fleetManager, "status=open&count=2", async (page, servedSoFar) =>
+        {
+            if (page != 0) return;
+            served = servedSoFar[0];
+            unreached = filed.First(id => !servedSoFar.Contains(id));
+            foreach (var id in new[] { served, unreached })
+            {
+                var (status, _) = await Send(_ownerA, "POST", $"gateway/fleet-manager/outcomes/{id}/answer",
+                    new { answer = "Merged." });
+                Assert.Equal(HttpStatusCode.OK, status);
+            }
+        });
+
+        Assert.NotNull(unreached);
+        Assert.Equal(seen.Count, seen.Distinct().Count());
+        Assert.Equal(filed.Where(id => id != unreached).OrderBy(x => x), seen.OrderBy(x => x));
+    }
+
     [Fact]
     public async Task Another_accounts_owner_cannot_read_this_accounts_record()
     {

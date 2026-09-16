@@ -38,6 +38,34 @@ public sealed class FleetManagerMarkHistoryTests : IDisposable
         Assert.Empty(reopened.Skip(2));
     }
 
+    /// <summary>
+    /// BOUNDED. Marking more sessions than the cap keeps only the most recently marked ones - a session marked
+    /// long ago and marked again counts as recent - and another account's history is not pruned by this one's.
+    /// </summary>
+    [Fact]
+    public void Record_BeyondTheCap_KeepsOnlyTheMostRecentlyMarked()
+    {
+        var history = new FleetManagerMarkHistory(_harness.Open());
+        history.Record(TenantB, First, Now);
+        var sessions = Enumerable.Range(1, FleetManagerMarkHistory.MaxRememberedPerAccount + 5)
+            .Select(i => $"bbbbbbbb-0000-4000-8000-{i:D12}")
+            .ToList();
+        for (var i = 0; i < sessions.Count; i++)
+            history.Record(TenantA, sessions[i], Now.AddMinutes(i));
+        // The oldest one still kept is marked again, and then one more new session is marked.
+        history.Record(TenantA, sessions[5], Now.AddHours(5));
+        const string Newest = "cccccccc-0000-4000-8000-000000000001";
+        history.Record(TenantA, Newest, Now.AddHours(6));
+
+        var kept = history.List(TenantA).Select(m => m.SessionId).ToList();
+
+        // The first five went when the cap was passed; the re-marked one was kept as recent, so the next oldest
+        // went instead.
+        Assert.Equal(FleetManagerMarkHistory.MaxRememberedPerAccount, kept.Count);
+        Assert.Equal(new[] { sessions[5] }.Concat(sessions.Skip(7)).Append(Newest), kept);
+        Assert.Equal(new[] { First }, history.List(TenantB).Select(m => m.SessionId));
+    }
+
     [Fact]
     public void List_AnotherAccount_SeesNoneOfIt()
     {

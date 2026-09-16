@@ -118,18 +118,34 @@ def _resolve_id(given: str, rows: List[Dict[str, Any]], what: str, list_command:
     return matches[0]
 
 
+def _pages(status: str, kind: Optional[str], count: int, cursor: Optional[str] = None):
+    """Every page of the list, following the Gateway's nextCursor until it says none remain."""
+    seen = set()
+    while True:
+        query = {"status": status, "count": str(count)}
+        if kind:
+            query["kind"] = kind
+        if cursor:
+            query["cursor"] = cursor
+        page = _call(gateway.get_json, f"{PREFIX}/outcomes?{urllib.parse.urlencode(query)}")
+        yield page
+        cursor = page.get("nextCursor")
+        if not page.get("hasMore") or not cursor:
+            return
+        if cursor in seen:
+            _fail(f"the Gateway handed back cursor '{cursor}' twice; the list cannot be followed to its end")
+        seen.add(cursor)
+
+
 def _outcome_id(given: str) -> str:
+    """A full id as it is; otherwise the start of exactly one id among EVERY record, every page followed."""
     if _GUID.match((given or "").strip()):
         return given.strip().lower()
-    listed = _call(gateway.get_json, f"{PREFIX}/outcomes?status=all&count=200")
-    rows = listed.get("outcomes", [])
-    total = listed.get("total", len(rows))
-    text = (given or "").strip().lower()
-    if text and total > len(rows) and not any(str(r.get("id", "")).lower().startswith(text) for r in rows):
-        # Never a silent miss: the start of an id was matched against the newest page only.
-        _fail(f"no outcome id starts with '{given.strip()}' among the newest {len(rows)} of {total} records; "
-              "give the full id")
-    return _resolve_id(given, rows, "outcome", "cc-devthrottle fleet outcomes --status all")
+    rows: List[Dict[str, Any]] = []
+    if (given or "").strip():
+        for page in _pages("all", None, 200):
+            rows.extend(page.get("outcomes", []))
+    return _resolve_id(given, rows, "outcome", "cc-devthrottle fleet outcomes --status all --all")
 
 
 def _preference_id(given: str) -> str:
@@ -217,21 +233,32 @@ def file_decision(title: str, question: str, options: Optional[List[str]], recom
 # ---- reading ----------------------------------------------------------------------------------------
 
 
-def list_outcomes(status: str, kind: Optional[str], count: int, json_output: bool) -> None:
-    """The account's records, newest first. Default: the open ones."""
+def list_outcomes(status: str, kind: Optional[str], count: int, json_output: bool,
+                  cursor: Optional[str] = None, every_page: bool = False) -> None:
+    """The account's records, newest first. Default: the open ones, one page. `cursor` continues after an earlier
+    page; `every_page` follows the cursor to the end, so every record is listed."""
     status = _choice(status, STATUSES, "--status") or "open"
     kind = _choice(kind, KINDS, "--kind")
     if count < 1 or count > 200:
         _fail(f"--count must be between 1 and 200, got {count}", code=2)
-    query = {"status": status, "count": str(count)}
-    if kind:
-        query["kind"] = kind
-    answer = _call(gateway.get_json, f"{PREFIX}/outcomes?{urllib.parse.urlencode(query)}")
+    if cursor is not None and not cursor.strip():
+        _fail("--cursor is empty; give the nextCursor an earlier page printed", code=2)
+
+    if every_page:
+        rows: List[Dict[str, Any]] = []
+        total = 0
+        for page in _pages(status, kind, count, cursor):
+            rows.extend(page.get("outcomes", []))
+            total = page.get("total", total)
+        answer = {"count": len(rows), "total": total, "hasMore": False, "nextCursor": None, "outcomes": rows}
+    else:
+        answer = next(_pages(status, kind, count, cursor))
     if json_output:
         _print_json(answer)
         return
 
     rows = answer.get("outcomes", [])
+    base = f"cc-devthrottle fleet outcomes --status {status}" + (f" --kind {kind}" if kind else "")
     if not rows:
         filtered = status != "all" or kind is not None
         if filtered:
@@ -246,15 +273,20 @@ def list_outcomes(status: str, kind: Optional[str], count: int, json_output: boo
     total = answer.get("total", len(rows))
     shown = f"{len(rows)} of {total}" if total > len(rows) else f"{len(rows)}"
     _out(f"count: {shown} ({_counts_by_kind(rows)}) status: {status}")
+    next_cursor = answer.get("nextCursor") if answer.get("hasMore") else None
+    if next_cursor:
+        _out(f"nextCursor: {next_cursor}")
     _table("outcomes", ["id", "kind", "status", "title"],
            [[o.get("id"), o.get("kind"), o.get("status"), o.get("title")] for o in rows])
     first = rows[0].get("id")
-    hints = [
+    hints = []
+    if next_cursor:
+        hints.append(f"{base} --count {count} --cursor {next_cursor}   (the next page)")
+        hints.append(f"{base} --all   (every page)")
+    hints += [
         f"cc-devthrottle fleet show {first}",
         f'cc-devthrottle fleet answer {first} "<the owner\'s words, exactly>"',
     ]
-    if total > len(rows):
-        hints.append("cc-devthrottle fleet digest   (every open record, never a page)")
     _help(hints)
 
 

@@ -179,6 +179,94 @@ public sealed class FleetOutcomeStoreTests : IDisposable
         Assert.Equal("newest", Assert.Single(one).Title);
     }
 
+    /// <summary>
+    /// EVERY RECORD IS REACHABLE: more than the largest page, many filed in the same instant (so only the id orders
+    /// them), and following the cursor serves each exactly once and then says nothing remains.
+    /// </summary>
+    [Fact]
+    public void ListPage_FollowingTheCursor_ServesEveryRecordOnce_BeyondTheLargestPage()
+    {
+        var store = NewStore();
+        var filed = new List<string>();
+        for (var i = 0; i < FleetOutcomeStore.MaxCount + 5; i++)
+            filed.Add(store.File(TenantA, Ready($"Ready {i}"), FleetManagerId, Now.AddSeconds(i / 50)).Id);
+
+        var seen = new List<string>();
+        string? cursor = null;
+        var pages = 0;
+        do
+        {
+            var page = store.ListPage(TenantA, "all", null, 60, cursor);
+            seen.AddRange(page.Outcomes.Select(o => o.Id));
+            cursor = page.NextCursor;
+            pages++;
+        } while (cursor is not null && pages < 10);
+
+        Assert.Equal(4, pages);
+        Assert.Equal(seen.Count, seen.Distinct().Count());
+        Assert.Equal(filed.OrderBy(x => x), seen.OrderBy(x => x));
+        // Newest first across page boundaries.
+        var times = seen.Select(id => store.Get(TenantA, Guid.Parse(id))!.CreatedAtUtc).ToList();
+        Assert.Equal(times.OrderByDescending(t => t), times);
+    }
+
+    /// <summary>
+    /// AN ANSWER BETWEEN PAGES SKIPS AND REPEATS NOTHING. Records answered after the first page leave the open
+    /// list; every record still open is served exactly once, and none is served twice.
+    /// </summary>
+    [Fact]
+    public void ListPage_AnsweringBetweenPages_SkipsAndRepeatsNothing()
+    {
+        var store = NewStore();
+        for (var i = 0; i < 10; i++) store.File(TenantA, Ready($"Ready {i}"), FleetManagerId, Now);
+
+        var first = store.ListPage(TenantA, "open", null, 4, cursor: null);
+        // Answer one record already served and one not yet reached.
+        var notYetReached = store.List(TenantA, "open", null, 10)[7].Id;
+        foreach (var id in new[] { first.Outcomes[0].Id, notYetReached })
+            Assert.Equal(FleetOutcomeAnswerStatus.Answered,
+                store.Answer(TenantA, Guid.Parse(id), "Done.", FleetOutcomeStore.OwnerCaller, FleetOutcomeStore.RoleOwner, Now).Status);
+
+        var seen = first.Outcomes.Select(o => o.Id).ToList();
+        var cursor = first.NextCursor;
+        while (cursor is not null)
+        {
+            var page = store.ListPage(TenantA, "open", null, 4, cursor);
+            seen.AddRange(page.Outcomes.Select(o => o.Id));
+            cursor = page.NextCursor;
+        }
+
+        Assert.Equal(seen.Count, seen.Distinct().Count());
+        var stillOpen = store.List(TenantA, "open", null, 50).Select(o => o.Id).ToList();
+        Assert.Equal(8, stillOpen.Count);
+        Assert.All(stillOpen, id => Assert.Contains(id, seen));
+        Assert.DoesNotContain(notYetReached, seen);
+
+        // Across both statuses the answer moves nothing: all ten, once each.
+        var all = new List<string>();
+        var page1 = store.ListPage(TenantA, "all", null, 3, null);
+        all.AddRange(page1.Outcomes.Select(o => o.Id));
+        store.Answer(TenantA, Guid.Parse(stillOpen[^1]), "Also done.", FleetOutcomeStore.OwnerCaller, FleetOutcomeStore.RoleOwner, Now);
+        for (var c = page1.NextCursor; c is not null;)
+        {
+            var page = store.ListPage(TenantA, "all", null, 3, c);
+            all.AddRange(page.Outcomes.Select(o => o.Id));
+            c = page.NextCursor;
+        }
+        Assert.Equal(10, all.Distinct().Count());
+        Assert.Equal(10, all.Count);
+    }
+
+    [Theory]
+    [InlineData("not-a-cursor")]
+    [InlineData("djE6MTIzOm5vdC1hLWd1aWQ")] // "v1:123:not-a-guid"
+    [InlineData("djI6MTIzOjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAw")] // another version
+    public void ListPage_ACursorThisGatewayDidNotIssue_IsRefused(string cursor)
+    {
+        var ex = Assert.Throws<ArgumentException>(() => NewStore().ListPage(TenantA, "all", null, 5, cursor));
+        Assert.Equal($"cursor '{cursor}' is not one this Gateway issued; list again without a cursor to start from the newest", ex.Message);
+    }
+
     [Theory]
     [InlineData("open", "news", 5, "kind 'news' is not valid; use one of: ready, finding, decision")]
     [InlineData("closed", null, 5, "status 'closed' is not valid; use one of: open, answered, all")]

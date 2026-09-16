@@ -82,8 +82,15 @@ class FakeGateway:
             if "kind" in query:
                 rows = [o for o in rows if o["kind"] == query["kind"]]
             total = len(rows)
-            rows = rows[: int(query.get("count", "50"))]
-            return {"count": len(rows), "total": total, "outcomes": rows}
+            if "cursor" in query:
+                # The cursor names the last record served; the next page starts strictly after it.
+                after = next(i for i, o in enumerate(rows) if "cursor-" + o["id"] == query["cursor"])
+                rows = rows[after + 1:]
+            count = int(query.get("count", "50"))
+            more = len(rows) > count
+            rows = rows[:count]
+            return {"count": len(rows), "total": total, "hasMore": more,
+                    "nextCursor": "cursor-" + rows[-1]["id"] if more else None, "outcomes": rows}
         if route.startswith("gateway/fleet-manager/outcomes/"):
             oid = route.rsplit("/", 1)[1]
             for o in self.outcomes:
@@ -309,8 +316,10 @@ def test_json_is_the_gateways_answer_with_every_filter_applied(gw):
     filtered = runner.invoke(app, ["fleet", "outcomes", "--status", "answered", "--kind", "ready", "--json"])
 
     assert unfiltered.exit_code == 0 and filtered.exit_code == 0
-    assert json.loads(unfiltered.output) == {"count": 2, "total": 2, "outcomes": [o for o in gw.outcomes if o["status"] == "open"]}
-    assert json.loads(filtered.output) == {"count": 1, "total": 1, "outcomes": [answered]}
+    assert json.loads(unfiltered.output) == {"count": 2, "total": 2, "hasMore": False, "nextCursor": None,
+                                              "outcomes": [o for o in gw.outcomes if o["status"] == "open"]}
+    assert json.loads(filtered.output) == {"count": 1, "total": 1, "hasMore": False, "nextCursor": None,
+                                            "outcomes": [answered]}
     # The filters went to the Gateway; nothing was filtered only on this side.
     query = dict(urllib.parse.parse_qsl(urllib.parse.urlparse(gw.calls[-1][1]).query))
     assert query == {"status": "answered", "kind": "ready", "count": "50"}
@@ -511,27 +520,65 @@ def test_digest_whose_records_and_counts_disagree_fails_rather_than_print_a_part
         assert "the digest carried 1 open records but the Gateway counts 2" in result.output
 
 
-def test_a_page_smaller_than_the_total_says_so(gw):
-    for i in range(3):
-        gw.add("ready", f"Ready {i}")
+def test_a_page_smaller_than_the_total_says_so_and_names_the_next_page(gw):
+    rows = [gw.add("ready", f"Ready {i}") for i in range(3)]
 
     result = runner.invoke(app, ["fleet", "outcomes", "--count", "2"])
 
     assert result.exit_code == 0, result.output
-    assert result.output.splitlines()[0] == "count: 2 of 3 (ready 2, finding 0, decision 0) status: open"
-    assert "cc-devthrottle fleet digest" in result.output
+    lines = result.output.splitlines()
+    assert lines[0] == "count: 2 of 3 (ready 2, finding 0, decision 0) status: open"
+    assert lines[1] == f"nextCursor: cursor-{rows[1]['id']}"
+    assert f"cc-devthrottle fleet outcomes --status open --count 2 --cursor cursor-{rows[1]['id']}" in result.output
+    assert "cc-devthrottle fleet outcomes --status open --all" in result.output
 
 
-def test_the_start_of_an_id_beyond_the_newest_page_fails_naming_the_limit(gw):
+def test_the_cursor_continues_after_the_page_and_the_last_page_names_none(gw):
+    rows = [gw.add("ready", f"Ready {i}") for i in range(3)]
+
+    result = runner.invoke(app, ["fleet", "outcomes", "--count", "2", "--cursor", f"cursor-{rows[1]['id']}"])
+
+    assert result.exit_code == 0, result.output
+    n, listed = read_table(result.output, "outcomes")
+    assert [r["id"] for r in listed] == [rows[0]["id"]]
+    assert "nextCursor" not in result.output
+    assert ("GET", f"gateway/fleet-manager/outcomes?status=open&count=2&cursor=cursor-{rows[1]['id']}", None) in gw.calls
+
+
+def test_all_follows_every_page_beyond_the_largest_one(gw):
+    rows = [gw.add("ready", f"Ready {i}", status="answered" if i % 2 else "open") for i in range(205)]
+
+    text = runner.invoke(app, ["fleet", "outcomes", "--status", "all", "--count", "200", "--all"])
+    as_json = runner.invoke(app, ["fleet", "outcomes", "--status", "all", "--count", "200", "--all", "--json"])
+
+    assert text.exit_code == 0, text.output
+    n, listed = read_table(text.output, "outcomes")
+    assert n == 205
+    assert sorted(r["id"] for r in listed) == sorted(r["id"] for r in rows)
+    assert text.output.splitlines()[0].startswith("count: 205 (ready 205")
+    body = json.loads(as_json.output)
+    assert (body["count"], body["total"], body["hasMore"], body["nextCursor"]) == (205, 205, False, None)
+    assert [o["id"] for o in body["outcomes"]] == [o["id"] for o in gw.outcomes]
+    assert len([c for c in gw.calls if c[1].startswith("gateway/fleet-manager/outcomes?")]) == 4
+
+
+def test_an_empty_cursor_is_a_usage_error_and_sends_nothing(gw):
+    result = runner.invoke(app, ["fleet", "outcomes", "--cursor", " "])
+
+    assert result.exit_code == 2
+    assert "--cursor is empty" in result.output
+    assert gw.calls == []
+
+
+def test_the_start_of_an_id_beyond_the_newest_page_is_found_on_a_later_page(gw):
     old = gw.add("ready", "the oldest", id="ffff0000-0000-4000-8000-000000000001")
     for i in range(200):
         gw.add("ready", f"Ready {i}", id=f"0000{i:04d}-0000-4000-8000-000000000000")
 
     result = runner.invoke(app, ["fleet", "show", old["id"][:6]])
 
-    assert result.exit_code == 1
-    assert "among the newest 200 of 201 records; give the full id" in result.output
-    assert runner.invoke(app, ["fleet", "show", old["id"]]).exit_code == 0
+    assert result.exit_code == 0, result.output
+    assert f"id: {old['id']}" in result.output
 
 
 def test_answer_says_who_answered(gw):
