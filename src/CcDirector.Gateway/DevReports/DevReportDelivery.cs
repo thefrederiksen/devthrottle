@@ -56,19 +56,25 @@ internal sealed class DevReportDelivery
     private readonly Func<TenantId, string, DevReportSessionLiveness> _liveness;
     private readonly Func<TenantId, string, SessionVerbClient?> _route;
     private readonly Func<DateTime> _nowUtc;
+    private readonly Func<TenantId, IDisposable>? _enterTenantScope;
     private readonly ConcurrentDictionary<(string Tenant, string SessionId), SemaphoreSlim> _locks = new();
 
     /// <param name="store">The record.</param>
     /// <param name="liveness">The session's reach, from the pushed roster and the session history.</param>
     /// <param name="route">A tunnel caller for (tenant, director id), or null when that Director is not connected.</param>
     /// <param name="nowUtc">The clock, as a seam.</param>
+    /// <param name="enterTenantScope">Enters the account's scope for the send. REQUIRED on a hosted Gateway in
+    /// practice: the tunnel refuses a command with no account in scope, and a turn end raised by the watcher's
+    /// catch-up sweep - the restart path - arrives with none. Optional only because self-host is one partition.</param>
     /// <exception cref="ArgumentNullException">A required dependency is null.</exception>
     public DevReportDelivery(
         DevReportStore store,
         Func<TenantId, string, DevReportSessionLiveness> liveness,
         Func<TenantId, string, SessionVerbClient?> route,
-        Func<DateTime>? nowUtc = null)
+        Func<DateTime>? nowUtc = null,
+        Func<TenantId, IDisposable>? enterTenantScope = null)
     {
+        _enterTenantScope = enterTenantScope;
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _liveness = liveness ?? throw new ArgumentNullException(nameof(liveness));
         _route = route ?? throw new ArgumentNullException(nameof(route));
@@ -209,7 +215,13 @@ internal sealed class DevReportDelivery
             },
         };
 
-        var sent = await route.SendPromptAsync(sessionId, request, ct).ConfigureAwait(false);
+        // THE ACCOUNT'S SCOPE IS ENTERED FOR THE SEND, HERE, whatever called us. A turn end from a live push arrives
+        // inside the tunnel connection's scope and an owner's send inside the request's, but the watcher's catch-up
+        // sweep - the only thing that drains held items after a restart - carries none, and the tunnel then drops
+        // the command as "never left the Gateway". The items would sit held until some later turn end.
+        SessionVerbClient.PromptSendOutcome sent;
+        using (_enterTenantScope?.Invoke(tenant))
+            sent = await route.SendPromptAsync(sessionId, request, ct).ConfigureAwait(false);
         var outcome = sent.Kind switch
         {
             SessionVerbClient.PromptSendKind.Accepted => DevReportItemStates.SendOutcome.Accepted,

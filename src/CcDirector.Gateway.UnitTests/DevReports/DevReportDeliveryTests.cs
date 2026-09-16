@@ -36,6 +36,17 @@ public sealed class DevReportDeliveryTests : IDisposable
 
     private readonly ConcurrentQueue<PromptRequest> _prompts = new();
 
+    /// <summary>The account scope in effect, as the fake scope seam sets it; the fake Director records it per send.</summary>
+    private static readonly AsyncLocal<string?> ScopeInEffect = new();
+    private readonly ConcurrentQueue<string?> _scopeAtSend = new();
+
+    private sealed class Scope : IDisposable
+    {
+        private readonly string? _prior;
+        public Scope(TenantId tenant) { _prior = ScopeInEffect.Value; ScopeInEffect.Value = tenant.Value; }
+        public void Dispose() => ScopeInEffect.Value = _prior;
+    }
+
     public void Dispose() => _h.Dispose();
 
     private DevReportStore Store() => new(_h.Open());
@@ -43,11 +54,13 @@ public sealed class DevReportDeliveryTests : IDisposable
     private DevReportDelivery Delivery(DevReportStore store) => new(store,
         (tenant, sid) => new DevReportSessionLiveness(_reach, _reach == DevReportSessionReach.Ended ? null : DirectorId, "test roster"),
         (tenant, directorId) => new SessionVerbClient(new DirectorDto { DirectorId = directorId, MachineName = "TEST" }, SendAsync),
-        () => Now);
+        () => Now,
+        tenant => new Scope(tenant));
 
     private Task<DirectorCommandResult?> SendAsync(string directorId, DirectorCommand command, CancellationToken ct)
     {
         Assert.Equal("prompt", command.Verb);
+        _scopeAtSend.Enqueue(ScopeInEffect.Value);
         var answer = _answer();
         if (answer is not null)
             _prompts.Enqueue(JsonSerializer.Deserialize<PromptRequest>(command.PayloadJson, new JsonSerializerOptions(JsonSerializerDefaults.Web))!);
@@ -304,6 +317,22 @@ public sealed class DevReportDeliveryTests : IDisposable
 
         Assert.Equal(2, delivered);
         Assert.Single(_prompts);
+    }
+
+    [Fact]
+    public async Task DrainAsync_CalledWithNoAccountInScope_SendsInsideTheAccountsScope()
+    {
+        // The restart path: the turn-end watcher's catch-up sweep raises the drain with no account in scope, and a
+        // hosted tunnel drops a command sent that way. The send itself must carry the scope.
+        var store = Store();
+        var report = Publish(store);
+        await Delivery(store).SendAsync(Tenant, report, [Note("n1")], "device", default);
+        Assert.Null(ScopeInEffect.Value);
+
+        _reach = DevReportSessionReach.Idle;
+        await Delivery(store).DrainAsync(Tenant, _sid, default);
+
+        Assert.Equal(Tenant.Value, Assert.Single(_scopeAtSend));
     }
 
     [Fact]

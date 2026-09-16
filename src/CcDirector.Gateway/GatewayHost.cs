@@ -1847,7 +1847,8 @@ public sealed class GatewayHost : IAsyncDisposable
                 if (director is null) return null;
                 Api.DirectorCommandRouter.SendDirectorCommandAsync sendCommand = SendCommandAsync;
                 return new Api.SessionVerbClient(director, sendCommand);
-            });
+            },
+            enterTenantScope: tenant => _tenantBoundary.EnterScope(tenant));
         _devReportLauncher = new DevReports.DevReportTurnEndLauncher(_devReportDelivery);
         _knownRepositories = new History.KnownRepositoryStore(_gatewayDb);
         _sessionTurns = new History.SessionTurnStore(_gatewayDb);
