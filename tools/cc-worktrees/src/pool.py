@@ -30,7 +30,7 @@ from landed import NotLanded
 from statelock import machine_lock
 
 HOME_ENV = "CC_WORKTREES_HOME"
-STATE_VERSION = 1
+STATE_VERSION = 2
 FREE, IN_USE, HELD = "free", "in-use", "held"
 STATES = (FREE, IN_USE, HELD)
 SLOT_NAME = re.compile(r"wt[0-9]{2,}")
@@ -145,10 +145,10 @@ def _atomic_write(path: Path, text: str) -> None:
 
 def _lost_entry(path: Path, reason: str = STATE_LOST) -> dict:
     return {"path": str(path), "state": HELD, "holder": None, "lease": None, "reason": reason,
-            "updated": _now()}
+            "updated": _now(), "gitdir": None}
 
 
-ENTRY_KEYS = {"path", "state", "holder", "lease", "reason", "updated"}
+ENTRY_KEYS = {"path", "state", "holder", "lease", "reason", "updated", "gitdir"}
 
 
 class _InvalidState(Exception):
@@ -166,11 +166,12 @@ def _check_entry(repo: Path, name: str, entry: object) -> None:
         raise _InvalidState(f"{name}: the path is not this pool's {name}")
     if not isinstance(entry["updated"], str):
         raise _InvalidState(f"{name}: updated is not text")
-    if not all(_optional_text(entry[key]) for key in ("holder", "lease", "reason")):
-        raise _InvalidState(f"{name}: holder, lease or reason is not text")
+    if not all(_optional_text(entry[key]) for key in ("holder", "lease", "reason", "gitdir")):
+        raise _InvalidState(f"{name}: holder, lease, reason or gitdir is not text")
     state, holder, lease, reason = entry["state"], entry["holder"], entry["lease"], entry["reason"]
     if state == FREE:
-        ok = holder is None and lease is None and reason is None
+        # A free slot was proven landed, so its git metadata was proven then too.
+        ok = holder is None and lease is None and reason is None and entry["gitdir"] is not None
     elif state == IN_USE:
         ok = holder is not None and lease is not None and reason is None
     elif state == HELD:
@@ -362,13 +363,15 @@ def _lease_view(pool: Pool, name: str, tip: landed.RemoteTip, reused: bool) -> d
 
 def _reset_to_tip(pool: Pool, name: str, tip: landed.RemoteTip | None) -> tuple[landed.RemoteTip | None, str | None]:
     """Prove the slot's work landed and reset it. Returns (tip, None) or (None, reason)."""
-    path = Path(pool.slots[name]["path"])
+    entry = pool.slots[name]
+    path = Path(entry["path"])
     try:
-        checked_tip, head = landed.check(path, tip)
-        landed.reset(path, checked_tip.commit, head)
+        checked = landed.check(path, pool.repo, tip, entry["gitdir"])
+        landed.reset(path, pool.repo, checked)
     except NotLanded as ex:
         return None, str(ex)
-    return checked_tip, None
+    entry["gitdir"] = str(checked.gitdir)
+    return checked.tip, None
 
 
 def _hold(pool: Pool, name: str, reason: str) -> None:
@@ -420,8 +423,15 @@ def get(repo_path: str, holder: str, pool_size: int) -> dict:
         except GitError as ex:
             raise ToolError("create-failed", f"could not create {name}: {ex.short()}",
                             [f"cc-worktrees list --repo {repo}"]) from ex
+        try:
+            gitdir = landed.require_bound(path, repo, None)
+        except NotLanded as ex:
+            pool.slots[name] = {**_lost_entry(path, f"created, but not proven sound: {ex}")}
+            pool.save()
+            raise ToolError("create-failed", f"{name} was created but is held: {ex}",
+                            [f"cc-worktrees list --repo {repo}"]) from ex
         pool.slots[name] = {"path": str(path), "state": IN_USE, "holder": holder, "lease": _new_lease(),
-                            "reason": None, "updated": _now()}
+                            "reason": None, "updated": _now(), "gitdir": str(gitdir)}
         pool.save()
         return _lease_view(pool, name, tip, reused=False)
 

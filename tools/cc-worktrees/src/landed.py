@@ -96,6 +96,55 @@ def require_own_worktree(worktree: Path) -> None:
         raise cannot_verify("the directory is not the top of its own git worktree")
 
 
+def git_metadata_dir(repo: Path, worktree: Path) -> Path:
+    """The linked-worktree record in the MAIN repository whose back-link names this directory.
+
+    This is found from the repository's side, so it cannot be redirected by editing the slot's own
+    .git file. Exactly one record must name the directory.
+    """
+    records = repo / ".git" / "worktrees"
+    matches = []
+    if records.is_dir():
+        for record in sorted(records.iterdir()):
+            link = record / "gitdir"
+            if not link.is_file():
+                continue
+            try:
+                text = link.read_text(encoding="utf-8").strip()
+            except (OSError, UnicodeDecodeError) as ex:
+                raise cannot_verify(f"cannot read {link}: {ex}") from ex
+            target = Path(text) if os.path.isabs(text) else record / text
+            if same_path(target, worktree / ".git"):
+                matches.append(record)
+    if len(matches) != 1:
+        raise cannot_verify(f"the repository has {len(matches)} worktree records for this directory, not exactly 1")
+    return matches[0]
+
+
+def require_bound(worktree: Path, repo: Path, recorded_gitdir: str | None) -> Path:
+    """Prove the slot's .git leads to this slot's own record in this repository, before any git answer
+    from inside the slot is trusted. Returns that record's directory.
+
+    A .git file copied from another slot would make status, HEAD and the reset all act on the other
+    slot's git state.
+    """
+    require_own_worktree(worktree)
+    expected = git_metadata_dir(repo, worktree)
+    try:
+        actual = gitrun.out(worktree, "rev-parse", "--path-format=absolute", "--git-dir")
+        common = gitrun.out(worktree, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    except GitError as ex:
+        raise cannot_verify(f"cannot read the worktree's git directory: {ex.short()}") from ex
+    if not same_path(common, repo / ".git"):
+        raise NotLanded(f"its .git points into another repository ({common})")
+    if not same_path(actual, expected):
+        raise NotLanded(f"its .git points at the git metadata of another worktree ({Path(actual).name}, "
+                        f"expected {expected.name})")
+    if recorded_gitdir is not None and not same_path(recorded_gitdir, expected):
+        raise NotLanded(f"its .git record {expected.name} is not the one recorded when the slot was made")
+    return expected
+
+
 def head_commit(worktree: Path) -> str:
     try:
         return gitrun.out(worktree, "rev-parse", "--verify", "HEAD^{commit}")
@@ -173,38 +222,38 @@ def require_commits_landed(worktree: Path, tip: RemoteTip, tips: list[str]) -> N
         raise NotLanded(f"{noun} on no remote: {_short_list(unproven)}")
 
 
-def check(worktree: Path, tip: RemoteTip | None = None) -> tuple[RemoteTip, str]:
-    """Prove the worktree's work landed. Returns the remote tip and the HEAD that was checked.
+@dataclass(frozen=True)
+class Checked:
+    tip: RemoteTip   # the remote default branch the work was checked against
+    head: str        # the HEAD that was proven landed
+    gitdir: Path     # the slot's own git metadata directory, proven bound to it
+
+
+def check(worktree: Path, repo: Path, tip: RemoteTip | None, recorded_gitdir: str | None) -> Checked:
+    """Prove the worktree's work landed, at this moment. Raises NotLanded with the plain reason.
 
     Pass `tip` only when the remote was fetched moments ago by the same command.
-    Raises NotLanded with the plain reason otherwise.
     """
     if not worktree.is_dir():
         raise NotLanded("the worktree directory is missing")
-    require_own_worktree(worktree)
+    gitdir = require_bound(worktree, repo, recorded_gitdir)
     require_clean(worktree)
     head = head_commit(worktree)
     if tip is None:
         tip = fetch_default(worktree)
     require_commits_landed(worktree, tip, [head])
-    return tip, head
+    return Checked(tip, head, gitdir)
 
 
-def _git_path(worktree: Path, name: str) -> Path:
-    return Path(gitrun.out(worktree, "rev-parse", "--path-format=absolute", "--git-path", name))
-
-
-def reset(worktree: Path, target: str, expected_head: str) -> None:
+def reset(worktree: Path, repo: Path, checked: Checked) -> None:
     """Reset a worktree whose work was just proven landed to `target`, keeping ignored files.
 
     Takes git's own HEAD.lock first, so no commit, checkout or rebase can move HEAD while it runs,
     then re-checks HEAD and cleanliness under that lock. Raises NotLanded with the reason if the
     worktree changed, or if the reset fails (for example a file locked by another process).
     """
-    try:
-        head_path = _git_path(worktree, "HEAD")
-    except GitError as ex:
-        raise NotLanded(f"reset failed: {ex.short()}") from ex
+    target, expected_head = checked.tip.commit, checked.head
+    head_path = checked.gitdir / "HEAD"
     lock_path = head_path.with_name(head_path.name + ".lock")
     try:
         fd = os.open(lock_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
@@ -214,6 +263,8 @@ def reset(worktree: Path, target: str, expected_head: str) -> None:
         raise NotLanded(f"reset refused: cannot lock HEAD: {ex.strerror}") from ex
     committed = False
     try:
+        if not same_path(require_bound(worktree, repo, str(checked.gitdir)), checked.gitdir):
+            raise NotLanded("the worktree's git metadata changed after the check")
         if head_commit(worktree) != expected_head:
             raise NotLanded("HEAD moved after the check")
         require_clean(worktree)

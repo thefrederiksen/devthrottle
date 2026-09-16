@@ -37,13 +37,18 @@ A slot is named `wt01` (with `--repo`, or the repository of the current director
 
 A worktree is reset only when all of these are positively proven, in this order:
 
-1. `git status --porcelain --untracked-files=all` is empty: nothing uncommitted, no untracked file
+1. The slot's `.git` leads to the slot's own record in this repository: `git rev-parse --git-dir`
+   inside the slot must be the `.git/worktrees/<name>` record whose back-link names the slot (found
+   from the repository's side), and the one recorded when the slot was made. A `.git` file copied from
+   another slot would make every later answer describe that other slot, so a mismatch holds the slot
+   and nothing in either slot is touched.
+2. `git status --porcelain --untracked-files=all` is empty: nothing uncommitted, no untracked file
    that is not ignored.
-2. The default branch is read from the remote with `git ls-remote --symref origin HEAD`. It is never
+3. The default branch is read from the remote with `git ls-remote --symref origin HEAD`. It is never
    assumed to be `main` and the local `origin/HEAD` is never used.
-3. The remote was fetched just now (`git fetch --prune origin +refs/heads/*:refs/remotes/origin/*`).
+4. The remote was fetched just now (`git fetch --prune origin +refs/heads/*:refs/remotes/origin/*`).
    `--prune` matters: a tracking ref for a branch deleted on the remote must not count as proof.
-4. Every commit reachable from HEAD is checked on its own: it is on an `origin` branch, or it is the
+5. Every commit reachable from HEAD is checked on its own: it is on an `origin` branch, or it is the
    same patch as a commit in the default branch (`git cherry`, which recognises a rebase). Files that
    merely end up the same are never proof for the commits behind them.
    - A commit that differs from a landed one only in its message counts as landed, so the message
@@ -52,7 +57,7 @@ A worktree is reset only when all of these are positively proven, in this order:
      the commits it combined. It counts as landed while its commits are still on a remote branch (for
      example the pull request branch). A later phase may prove a squash through the pull request.
    - A merge commit on no remote branch is held: `git cherry` does not compare merge commits.
-5. The caller's lease matches. The lease is required, because without it the tool has no evidence the holder let go.
+6. The caller's lease matches. The lease is required, because without it the tool has no evidence the holder let go.
 
 Any failure - including a fetch that fails for an unreachable remote, bad credentials or an expired
 token - holds the worktree with a plain reason such as `1 commit is on no remote: <commit>`,
