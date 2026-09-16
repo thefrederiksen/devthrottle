@@ -17,8 +17,9 @@ Two things every command in a group that uses this module does the same way:
 The API, in full: `bare` and `quoted` (a value, or a placeholder, for any command-looking line),
 `ascii_text` (free text made one line of ASCII), `shown` (a value made safe inside a Rich
 `console.print` line), `write_lines` and `print_next` (standard output), `warn` (standard error, no
-exit), `fail` (exit 1), `usage_error` (exit 2), `help_for`, `confirm_or_fail`, and `CHECK_GATEWAY`
-(the next step for a failed Gateway call when nothing more specific is known).
+exit), `fail` (exit 1), `usage_error` (exit 2), `help_for`, `confirm_or_fail`, `CHECK_GATEWAY`
+(the next step for a failed Gateway call when nothing more specific is known), and
+`FIELDS_WITH_JSON` (the one refusal of `--fields` given with `--json`, used by every list command).
 
 `fail` takes an optional `label` in place of `Error:`, for the few commands whose first word is a
 fact of its own: `session stop` says `Not stopped:` or `Outcome unknown:`, because those differ.
@@ -60,6 +61,13 @@ TOOL = "cc-devthrottle"
 #: The next step for a failed Gateway call when nothing more specific is known. Every fleet command
 #: goes through the Gateway, and this is the command that says whether this machine can reach it.
 CHECK_GATEWAY = f"{TOOL} setup status"
+
+#: The usage error for `--fields` given with `--json`. It says which to keep, because "drop one of
+#: them" left an agent to guess: --fields picks a few fields, --json always carries every field.
+FIELDS_WITH_JSON = (
+    "--fields does not apply to --json, which always carries every field. "
+    "Use --fields to show a few fields, or --json to get every field."
+)
 
 # An identifier that can be pasted into a shell as it is: no spaces, quotes, or shell characters.
 _BARE_ARGUMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:@+-]*")

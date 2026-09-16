@@ -804,8 +804,9 @@ count: 2 (needs-you 1, working 1)
 sessions[2]{id,name,state,repo}:
   9b2f41c0-7d1e-4a55-9c1a-2f6e0d3b8a71,"AXI Tools - Worker - step 3, session list",needs-you,devthrottle
   e0c3a8d2-5b64-4f1e-8a09-6d2c7f1b4e93,review: session list,working,cc-consult
-help[4]:
-  cc-devthrottle session list --state needs-you
+help[5]:
+  cc-devthrottle session list --state needs-you|working|ready|snoozed|crashed
+  cc-devthrottle message send <session-id> "<message>"
   cc-devthrottle session list --fields id,name,state,repo,machine,number,model,agent,mission,path
   cc-devthrottle session list --json
   cc-devthrottle session whoami
@@ -813,7 +814,10 @@ help[4]:
 
 - **Default fields** are `id`, `name`, `state` and `repo`. `--fields` picks others, in the order
   given; an unknown field name exits 2 and lists the valid ones. `--fields` cannot be combined with
-  `--json`, which always carries every field (exit 2).
+  `--json`, which always carries every field (exit 2); the refusal says to use `--fields` for a few
+  fields or `--json` for every field. The same holds for every list command.
+- **Help lines** always name all five states in one `--state` line, whatever the count line shows,
+  and how to message a listed session (`message send`).
 - **Ids and names are always shown in full**, never shortened. A value containing a comma, a quote,
   surrounding spaces or a character outside ASCII is written in double quotes with backslash
   escapes; an empty name is written `""`, and a missing value is written as nothing.
@@ -823,7 +827,9 @@ help[4]:
   rather than being guessed at.
 - **Filters** (`--state`, `--repo`, `--machine`) can be combined, and every one of them applies to
   `--json` as well: the output is the same bare array, narrowed. `--repo` matches the repository
-  folder name or the full path, ignoring case and slash direction; `--machine` ignores case. An
+  folder name, ignoring case but not spaces, or the full path - a Windows path ignoring case and
+  slash direction, any other path exactly (as `repo list` and `worktree list` do); `--machine`
+  ignores case. An
   unknown state exits 2 and lists the valid states.
 - **An empty answer says so**: `count: 0` for an empty fleet, and `count: 0 of N total` when a
   filter matched nothing. With `--json` it is `[]`.

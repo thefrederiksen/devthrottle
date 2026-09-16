@@ -269,8 +269,11 @@ def path_matches(row_path: str, wanted: str) -> bool:
 
 
 def matches_repo(name: str, path: str, wanted: str) -> bool:
-    """--repo names a repository by its folder name (ignoring case) or by its full path."""
-    return name.strip().lower() == wanted.strip().lower() or path_matches(path, wanted)
+    """--repo names a repository by its folder name (ignoring case) or by its full path.
+
+    Whitespace is part of a folder name and is compared as it is: "a " and "a" are two folders, so
+    trimming either side would let --repo "a" match both."""
+    return name.lower() == wanted.lower() or path_matches(path, wanted)
 
 
 def _parse_states(requested: Optional[str], valid: Sequence[str]) -> Optional[List[str]]:
@@ -288,7 +291,7 @@ def _parse_states(requested: Optional[str], valid: Sequence[str]) -> Optional[Li
 
 def _check_flags(json_output: bool, fields: Optional[str], valued: Sequence[Tuple[str, Optional[str]]]) -> None:
     if json_output and fields is not None:
-        _usage_error("--fields does not apply to --json, which always carries every field. Drop one of them.")
+        _usage_error(axi_cli.FIELDS_WITH_JSON)
     for flag, value in valued:
         if value is not None and not value.strip():
             _usage_error(f"{flag} needs a value.")

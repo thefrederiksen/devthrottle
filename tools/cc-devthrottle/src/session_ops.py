@@ -374,7 +374,7 @@ def list_sessions(
     """List every session running across the fleet, optionally narrowed by state, repository or machine."""
     # Usage errors come before the fetch: a bad flag is the caller's to fix, whatever the fleet holds.
     if json_output and fields is not None:
-        _usage_error("--fields does not apply to --json, which always carries every field. Drop one of them.")
+        _usage_error(axi_cli.FIELDS_WITH_JSON)
     chosen_fields = usage_errors.parse_fields(fields, SESSION_LIST_FIELDS, SESSION_LIST_DEFAULT_FIELDS)
     wanted_states = _parse_states(state)
     for flag, value in (("--repo", repo), ("--machine", machine)):
@@ -448,15 +448,23 @@ def list_sessions(
     axi_output.write_blocks(sys.stdout, *blocks)
 
 
+#: The --state line of the help block. It names all five states whatever the rows hold: the count line
+#: lists only the states that have sessions, so without this an agent never learns that, for example,
+#: `--state crashed` exists, and reads the whole fleet as JSON to find out instead.
+SESSION_LIST_STATE_HELP = "cc-devthrottle session list --state " + "|".join(SESSION_STATES)
+
+#: How to reach a listed session. Agents looking at the list guessed `session message` and `session
+#: send`; the command lives in its own group.
+SESSION_LIST_MESSAGE_HELP = 'cc-devthrottle message send <session-id> "<message>"'
+
+
 def _session_list_help(rows: List[Tuple[Dict[str, Any], str]], filtered: bool, chosen_fields: List[str]) -> List[str]:
     """Concrete next commands. Runtime values are placeholders, never guessed."""
     if not rows:
         if filtered:
-            return ["cc-devthrottle session list", "cc-devthrottle session list --help"]
+            return ["cc-devthrottle session list", SESSION_LIST_STATE_HELP, "cc-devthrottle session list --help"]
         return ["cc-devthrottle director list", "cc-devthrottle session spawn <repo> --controlled-by self"]
-    commands = []
-    if not filtered:
-        commands.append("cc-devthrottle session list --state needs-you")
+    commands = [SESSION_LIST_STATE_HELP, SESSION_LIST_MESSAGE_HELP]
     if list(chosen_fields) == list(SESSION_LIST_DEFAULT_FIELDS):
         commands.append("cc-devthrottle session list --fields " + ",".join(SESSION_LIST_FIELDS))
     commands.append("cc-devthrottle session list --json")

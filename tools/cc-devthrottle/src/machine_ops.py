@@ -156,7 +156,7 @@ def _check_usage(json_output: bool, fields: Optional[str], valid: Tuple[str, ...
                  default: Tuple[str, ...]) -> List[str]:
     # Usage errors come before the fetch: a bad flag is the caller's to fix, whatever the fleet holds.
     if json_output and fields is not None:
-        _usage_error("--fields does not apply to --json, which always carries every field. Drop one of them.")
+        _usage_error(axi_cli.FIELDS_WITH_JSON)
     return usage_errors.parse_fields(fields, valid, default)
 
 

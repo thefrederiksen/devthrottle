@@ -420,7 +420,7 @@ def list_missions(
     """
     # Usage errors come before the fetch: a bad flag is the caller's to fix, whatever the Gateway holds.
     if json_output and fields is not None:
-        _usage_error("--fields does not apply to --json, which always carries every field. Drop one of them.")
+        _usage_error(axi_cli.FIELDS_WITH_JSON)
     chosen_fields = usage_errors.parse_fields(fields, MISSION_LIST_FIELDS, MISSION_LIST_DEFAULT_FIELDS)
     if state is not None and state not in MISSION_STATE_FILTERS:
         _usage_error(
