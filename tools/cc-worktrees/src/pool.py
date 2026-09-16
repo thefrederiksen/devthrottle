@@ -19,6 +19,8 @@ import re
 import sys
 import tempfile
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -427,20 +429,35 @@ def _new_lease() -> str:
     return uuid.uuid4().hex
 
 
-def _fetch(home: Path, repo: Path) -> tuple[landed.RemoteTip | None, str | None]:
-    """Fetch the remote OUTSIDE the machine-wide lock, under a lock for this repository only, so a slow
-    or hanging remote holds up commands for this repository and nothing else.
+@contextmanager
+def _fetched(home: Path, repo: Path) -> Iterator[tuple[landed.RemoteTip | None, str | None]]:
+    """Fetch the remote OUTSIDE the machine-wide lock, under a lock for this repository only, and keep
+    that lock until the caller's act is done. A slow or hanging remote holds up commands for this
+    repository and nothing else.
 
-    Nothing is decided here. The caller re-reads the pool under the machine-wide lock and runs the
-    whole landed check against what was fetched. Between the two, tracking refs can only be moved by
-    another fetch, which records the remote as it is at a later moment; no local change is trusted
-    from before the lock.
+    Nothing is decided from what this yields. Under the machine-wide lock the caller reads the tracking
+    ref again (_tip_under_lock) and proves and acts against that commit. The order is always this lock,
+    then the machine-wide lock; nothing takes this lock while holding the machine-wide one.
     """
     with file_lock(repo_lock_file(home, repo), "the fetch lock for this repository"):
         try:
-            return landed.fetch_default(repo), None
+            answer: tuple[landed.RemoteTip | None, str | None] = (landed.fetch_default(repo), None)
         except NotLanded as ex:
-            return None, str(ex)
+            answer = (None, str(ex))
+        yield answer
+
+
+def _tip_under_lock(repo: Path, fetched: landed.RemoteTip | None,
+                    reason: str | None) -> tuple[landed.RemoteTip | None, str | None]:
+    """The default branch's tracking ref as it is now, read under the machine-wide lock. The commit the
+    fetch returned is never used: only a later fetch can have moved the ref, and it recorded the remote
+    at a later moment."""
+    if fetched is None:
+        return None, reason
+    try:
+        return landed.tracking_tip(repo, fetched.branch), None
+    except NotLanded as ex:
+        return None, str(ex)
 
 
 def repo_lock_file(home: Path, repo: Path) -> Path:
@@ -450,11 +467,11 @@ def repo_lock_file(home: Path, repo: Path) -> Path:
 def get(repo_path: str, holder: str, pool_size: int) -> dict:
     home = state_home()
     repo = main_repo_root(repo_path)
-    tip, fetch_reason = _fetch(home, repo)
-    if tip is None:
-        raise ToolError("cannot-fetch", f"no worktree handed out: {fetch_reason}",
-                        [f"git -C {repo} fetch origin"])
-    with machine_lock(home):
+    with _fetched(home, repo) as (fetched, fetch_reason), machine_lock(home):
+        tip, fetch_reason = _tip_under_lock(repo, fetched, fetch_reason)
+        if tip is None:
+            raise ToolError("cannot-fetch", f"no worktree handed out: {fetch_reason}",
+                            [f"git -C {repo} fetch origin"])
         pool = load(home, repo)
         for name in sorted(n for n, e in pool.slots.items() if e["state"] == FREE):
             ready, reason = _reset_to_tip(pool, name, tip)
@@ -519,8 +536,8 @@ def return_slot(target: str, lease: str, repo_opt: str | None) -> dict:
         repo, name = resolve_target(home, target, repo_opt)
         # Refuse a wrong lease before waiting on the network. It is checked again below.
         _require_lease(load(home, repo), name, lease)
-    tip, fetch_reason = _fetch(home, repo)
-    with machine_lock(home):
+    with _fetched(home, repo) as (fetched, fetch_reason), machine_lock(home):
+        tip, fetch_reason = _tip_under_lock(repo, fetched, fetch_reason)
         pool = load(home, repo)
         entry = _require_lease(pool, name, lease)
         if tip is None:
@@ -556,8 +573,8 @@ def lease_slot(target: str, holder: str, reclaim_held: bool, repo_opt: str | Non
             pool.save()
             return {**_slot_view(pool, name), "lease": pool.slots[name]["lease"], "reused": True,
                     "base": None, "commit": None}
-    tip, fetch_reason = _fetch(home, repo)
-    with machine_lock(home):
+    with _fetched(home, repo) as (fetched, fetch_reason), machine_lock(home):
+        tip, fetch_reason = _tip_under_lock(repo, fetched, fetch_reason)
         pool = load(home, repo)
         entry = pool.entry(name)
         if entry["state"] != FREE:
@@ -596,8 +613,8 @@ def destroy_slot(target: str, yes: bool, allow_held: bool, allow_in_use: bool, r
     with machine_lock(home):
         repo, name = resolve_target(home, target, repo_opt)
         _destroy_allowed(load(home, repo), name, allow_held, allow_in_use)
-    tip, fetch_reason = _fetch(home, repo)
-    with machine_lock(home):
+    with _fetched(home, repo) as (fetched, fetch_reason), machine_lock(home):
+        tip, fetch_reason = _tip_under_lock(repo, fetched, fetch_reason)
         pool = load(home, repo)
         entry = _destroy_allowed(pool, name, allow_held, allow_in_use)
         path = Path(entry["path"])

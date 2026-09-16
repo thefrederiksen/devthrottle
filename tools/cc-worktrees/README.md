@@ -123,10 +123,14 @@ One JSON file per repository pool under `pools/`, all guarded by one machine-wid
 lock: `msvcrt.locking` on Windows, `flock` elsewhere), written to a temp file and replaced.
 
 The network is never touched under the machine-wide lock. A command fetches first, under a lock for
-that repository only (`fetch-locks/`), then takes the machine-wide lock, reads the state again and runs
-the whole landed check against what it fetched. A slow remote therefore holds up commands for its own
-repository and nothing else. Between the fetch and the check, the tracking refs can only be changed by
-another fetch, which records the remote as it is later; nothing local is trusted from before the lock.
+that repository only (`fetch-locks/`), and keeps that lock until its act is done. It then takes the
+machine-wide lock, reads the state again, reads the default branch's tracking ref again, and runs the
+whole landed check and the reset against THAT commit, never the one the fetch returned. The order is
+always the fetch lock, then the machine-wide lock. A slow remote therefore holds up commands for its own
+repository and nothing else. Two commands for one repository run their fetch-and-act one after the
+other, so one never hands out a tip another has already fetched past. A plain `git fetch` run by hand
+outside the tool can still move the tracking refs at any moment; that records the remote as it is later,
+and it is an accepted gap.
 
 Location: `%LOCALAPPDATA%\cc-worktrees` on Windows, `~/Library/Application Support/cc-worktrees` on
 macOS, `$XDG_DATA_HOME/cc-worktrees` or `~/.local/share/cc-worktrees` elsewhere. Set

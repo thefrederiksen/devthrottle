@@ -104,6 +104,16 @@ def fetch_default(cwd: Path) -> RemoteTip:
     return RemoteTip(branch, tip)
 
 
+def tracking_tip(cwd: Path, branch: str) -> RemoteTip:
+    """The default branch's tracking ref as it stands at this moment. Read under the machine-wide lock,
+    so the proof and the reset use the refs as they are, not the commit a fetch returned earlier."""
+    tracking = f"refs/remotes/{REMOTE}/{branch}"
+    try:
+        return RemoteTip(branch, gitrun.out(cwd, "rev-parse", "--verify", "--quiet", f"{tracking}^{{commit}}"))
+    except GitError as ex:
+        raise cannot_verify(f"{tracking} cannot be read") from ex
+
+
 def same_path(a: Path | str, b: Path | str) -> bool:
     return os.path.normcase(os.path.realpath(a)) == os.path.normcase(os.path.realpath(b))
 
