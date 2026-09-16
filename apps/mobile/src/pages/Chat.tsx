@@ -144,6 +144,11 @@ export function Chat() {
           spoken on the Voice mode tab, still colours and labels the row on the session list, and still has its
           full panel in the Cockpit. */}
 
+      {/* A READ FAILURE IS STILL SHOWN, and removing it with the panel was caught in review. The panel was not the
+          only thing this notice explained: a failed or partial roster read leaves the app bar's Snoozed pill
+          holding the last value it saw, and this is the one place on the phone that says it may be stale. */}
+      {manage.sessionProblem !== null && <div className="chat-stale" role="status">{manage.sessionProblem}</div>}
+
       {/* ABOVE the scrolling conversation, not inside it. A long conversation opens at the BOTTOM, so a
           notice placed at the top of the scroll is exactly where nobody looks (found in review); and it
           must survive the empty branches too, where the reader is even more in the dark. It is non-null

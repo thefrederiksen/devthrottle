@@ -40,8 +40,10 @@ const judged = {
   },
 };
 
+let rosterRead: () => Promise<unknown[]> = () => Promise.resolve([judged]);
+
 vi.mock("@devthrottle/client-core/api/client", () => ({
-  listSessions: () => Promise.resolve([judged]),
+  listSessions: () => rosterRead(),
   holdSession: vi.fn(),
   stopSession: vi.fn(),
   gatewayErrorMessage: (err: unknown) => String(err),
@@ -68,7 +70,10 @@ vi.mock("../components/ViewTabs", () => ({ ViewTabs: () => <div /> }));
 
 import { Chat } from "./Chat";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  rosterRead = () => Promise.resolve([judged]);
+});
 
 function renderChat() {
   return render(
@@ -116,5 +121,14 @@ describe("what the chat screen spends its height on", () => {
     expect(document.querySelector(".verdict-panel")).toBeNull();
     expect(screen.queryByRole("button", { name: "This is wrong" })).toBeNull();
     expect(screen.queryByText("Apply the migration now?")).toBeNull();
+  });
+
+  it("still says when the roster could not be read, because the Snoozed pill may be stale", async () => {
+    // Caught in review of the panel removal: this notice was not only about the panel. A failed roster read
+    // keeps the last snooze state on the app bar, and this is the one place on the phone that says so.
+    rosterRead = () => Promise.reject(new Error("gateway unreachable"));
+    renderChat();
+    expect(await screen.findByText(/Could not read the roster, so this session's snooze state may be out of date/)).toBeTruthy();
+    expect(document.querySelector(".verdict-panel")).toBeNull();
   });
 });

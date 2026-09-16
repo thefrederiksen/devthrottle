@@ -59,7 +59,7 @@ describe("useSessionManage's row", () => {
     const { result } = renderHook(() => useSessionManage(B));
 
     await waitFor(() =>
-      expect(result.current.sessionProblem).toBe("This session is not on the roster right now, so there is nothing here to answer."),
+      expect(result.current.sessionProblem).toBe("This session is not on the roster right now, so its snooze state may be out of date."),
     );
     expect(result.current.session).toBeNull();
   });
