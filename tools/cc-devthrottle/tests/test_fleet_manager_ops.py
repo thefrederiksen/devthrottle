@@ -48,57 +48,57 @@ def _stub(monkeypatch, stored=None):
     return state
 
 
-def test_show_with_no_mark_says_none_and_how_to_set_one(monkeypatch):
+def test_show_with_no_mark_says_none_and_how_to_set_one(monkeypatch, plain):
     _stub(monkeypatch)
 
     result = runner.invoke(app, ["fleet-manager", "show"])
 
     assert result.exit_code == 0
-    assert "fleet-manager: none" in result.output
-    assert "cc-devthrottle fleet-manager set <session>" in result.output
+    assert "fleet-manager: none" in plain(result.output)
+    assert "cc-devthrottle fleet-manager set <session>" in plain(result.output)
 
 
-def test_show_prints_the_full_id_and_the_name(monkeypatch):
+def test_show_prints_the_full_id_and_the_name(monkeypatch, plain):
     _stub(monkeypatch, stored=FM_ID)
 
     result = runner.invoke(app, ["fleet-manager", "show"])
 
     assert result.exit_code == 0
-    assert f"id: {FM_ID}" in result.output
-    assert "name: Fleet - Fleet Manager - the owner's work" in result.output
+    assert f"id: {FM_ID}" in plain(result.output)
+    assert "name: Fleet - Fleet Manager - the owner's work" in plain(result.output)
 
 
-def test_show_json_keeps_the_gateway_shape(monkeypatch):
+def test_show_json_keeps_the_gateway_shape(monkeypatch, plain):
     _stub(monkeypatch, stored=FM_ID)
 
     result = runner.invoke(app, ["fleet-manager", "show", "--json"])
 
     assert result.exit_code == 0
-    assert json.loads(result.output) == {"sessionId": FM_ID}
+    assert json.loads(plain(result.output)) == {"sessionId": FM_ID}
 
 
-def test_set_by_name_sends_the_resolved_full_id(monkeypatch):
+def test_set_by_name_sends_the_resolved_full_id(monkeypatch, plain):
     state = _stub(monkeypatch)
 
     result = runner.invoke(app, ["fleet-manager", "set", "Release - Architect", "--json"])
 
-    assert result.exit_code == 0, result.output
+    assert result.exit_code == 0, plain(result.output)
     assert state["puts"] == [{"sessionId": OTHER_ID}]
-    assert json.loads(result.output) == {"sessionId": OTHER_ID}
+    assert json.loads(plain(result.output)) == {"sessionId": OTHER_ID}
 
 
-def test_set_with_no_target_marks_this_session(monkeypatch):
+def test_set_with_no_target_marks_this_session(monkeypatch, plain):
     state = _stub(monkeypatch)
     monkeypatch.setenv("CC_SESSION_ID", FM_ID)
 
     result = runner.invoke(app, ["fleet-manager", "set"])
 
-    assert result.exit_code == 0, result.output
+    assert result.exit_code == 0, plain(result.output)
     assert state["puts"] == [{"sessionId": FM_ID}]
-    assert f"id: {FM_ID}" in result.output
+    assert f"id: {FM_ID}" in plain(result.output)
 
 
-def test_set_with_no_target_outside_a_session_fails_and_sends_nothing(monkeypatch):
+def test_set_with_no_target_outside_a_session_fails_and_sends_nothing(monkeypatch, plain):
     state = _stub(monkeypatch)
     monkeypatch.delenv("CC_SESSION_ID", raising=False)
 
@@ -106,7 +106,7 @@ def test_set_with_no_target_outside_a_session_fails_and_sends_nothing(monkeypatc
 
     assert result.exit_code == 1
     assert state["puts"] == []
-    assert "fleet-manager set <session>" in " ".join(result.output.split())
+    assert "fleet-manager set <session>" in " ".join(plain(result.output).split())
 
 
 def test_set_unknown_session_fails_and_sends_nothing(monkeypatch):
@@ -118,17 +118,17 @@ def test_set_unknown_session_fails_and_sends_nothing(monkeypatch):
     assert state["puts"] == []
 
 
-def test_clear_sends_a_null_id(monkeypatch):
+def test_clear_sends_a_null_id(monkeypatch, plain):
     state = _stub(monkeypatch, stored=FM_ID)
 
     result = runner.invoke(app, ["fleet-manager", "clear"])
 
     assert result.exit_code == 0
     assert state["puts"] == [{"sessionId": None}]
-    assert "fleet-manager: none (cleared)" in result.output
+    assert "fleet-manager: none (cleared)" in plain(result.output)
 
 
-def test_gateway_error_is_a_sentence_and_exit_one(monkeypatch):
+def test_gateway_error_is_a_sentence_and_exit_one(monkeypatch, plain):
     gw = fleet_manager_ops.gateway
 
     def refuse(path, timeout=30):
@@ -139,11 +139,11 @@ def test_gateway_error_is_a_sentence_and_exit_one(monkeypatch):
     result = runner.invoke(app, ["fleet-manager", "show"])
 
     assert result.exit_code == 1
-    assert "Cannot reach the Gateway" in result.output
+    assert "Cannot reach the Gateway" in plain(result.output)
 
 
-def test_actions_list_the_three_fleet_manager_commands():
+def test_actions_list_the_three_fleet_manager_commands(plain):
     result = runner.invoke(app, ["actions", "--json"])
 
-    ids = {a["id"] for a in json.loads(result.output)["actions"]}
+    ids = {a["id"] for a in json.loads(plain(result.output))["actions"]}
     assert {"fleet-manager-show", "fleet-manager-set", "fleet-manager-clear"}.issubset(ids)
