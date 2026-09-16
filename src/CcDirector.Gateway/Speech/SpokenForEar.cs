@@ -86,17 +86,31 @@ public static class SpokenForEar
         @"\b(?:the\s+|that\s+|an?\s+)?(issue|pull request|PR|merge request|run|ticket|bug)\s+#?\d+\b",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+    private const string Start = @"(?:(?<=^)|(?<=\s))";
+    private const string Preposition = @"(?:at|in|on|from|to|for)\s+";
+    private const string NamingNoun = @"(?:commit|sha|hash|revision)\s+";
+
     /// <summary>
-    /// An identifier taken WITH whatever carried it, so the sentence still parses: "the release at
-    /// 2bfaa2a24. Say the word" becomes "the release. Say the word".
-    ///
-    /// The carrier may be a preposition, a naming noun, or both. Case-insensitive and allowed at the very
-    /// start of a sentence, because "At commit d0630a5, we merged." is the same sentence with a capital
-    /// letter and left "At, we merged." while this required a lowercase carrier preceded by a space.
+    /// A value something NAMES as an identifier - "commit 1234567", "at revision d0630a5". The naming noun
+    /// is strong evidence, so a digits-only run is taken here: a thing called a commit is a commit.
     /// </summary>
-    private static readonly Regex CarriedIdentifier = new(
-        @"(?:(?<=^)|(?<=\s))(?:(?:at|in|on|from|to|for)\s+(?:commit\s+|sha\s+|hash\s+|revision\s+)?|(?:commit|sha|hash|revision)\s+)"
-        + Quote + CarriedToken + Quote + NotPartOfANumber,
+    private static readonly Regex NamedIdentifier = new(
+        Start + @"(?:" + Preposition + @")?" + NamingNoun + Quote + CarriedToken + Quote + NotPartOfANumber,
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    /// <summary>
+    /// An identifier introduced by a bare preposition - "at 2bfaa2a24". The preposition is taken along so
+    /// the sentence still parses, but it is WEAK EVIDENCE and the token must therefore look like a hash on
+    /// its own.
+    ///
+    /// A GENERAL PREPOSITION IS NOT EVIDENCE THAT A NUMBER IS AN IDENTIFIER, and treating it as one
+    /// reopened the very defect the letter-and-digit rule had just closed. "on", "from", "to" and "for"
+    /// introduce dates, durations and quantities constantly, so allowing a digits-only run behind them
+    /// produced "Deployed." from "Deployed on 2026-09-15.", "It ran seconds." from "It ran for 12345678
+    /// seconds.", and "The population grew." from "The population grew from 1000000 to 2000000."
+    /// </summary>
+    private static readonly Regex PrepositionedIdentifier = new(
+        Start + Preposition + Quote + HashToken + Quote + NotPartOfANumber,
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     /// <summary>An identifier standing on its own, with nothing in front of it to orphan.</summary>
@@ -120,9 +134,18 @@ public static class SpokenForEar
     /// prepositions are handled where they are actually orphaned, by the carrier rule, which takes them
     /// away together with the identifier they introduced.
     /// </summary>
+    /// <remarks>
+    /// SENTENCE-FINAL ONLY, and NOT before a comma. A conjunction followed by a comma is routinely a real
+    /// one introducing a parenthetical - "The list is long and, frankly, unread." lost its "and" while a
+    /// comma counted. An "and" with nothing at all after it but the end of a sentence cannot be doing that
+    /// job, and is the only shape a removal actually orphans.
+    /// </remarks>
     private static readonly Regex DanglingJoiner = new(
-        @"\s+\b(?:and|or)\b\s*(?=[.,;:!?]|$)",
+        @"\s+\b(?:and|or)\b\s*(?=[.;:!?]|$)",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+    /// <summary>A comma or semicolon left leaning against a full stop by a removal in between.</summary>
+    private static readonly Regex StrandedComma = new(@"\s*[,;:]+\s*(?=[.!?])", RegexOptions.Compiled);
 
     private static readonly Regex EmptyQuotes = new(@"\s*[""'“‘]\s*[""'”’]", RegexOptions.Compiled);
     private static readonly Regex LeadingPunctuation = new(@"^[\s,;:.\-]+", RegexOptions.Compiled);
@@ -141,22 +164,62 @@ public static class SpokenForEar
     {
         if (string.IsNullOrWhiteSpace(spoken)) return string.Empty;
         var text = spoken;
-        text = ReferenceNumber.Replace(text, m => $"that {Noun(m.Groups[1].Value)}");
-        text = CarriedIdentifier.Replace(text, "");
+        text = ReferenceNumber.Replace(text, m => Determiner(text, m.Index) + " " + Noun(m.Groups[1].Value));
+
+        // Whether anything was actually CUT OUT, which is what licenses the repair pass below. The
+        // reference-number rule is deliberately not counted: it substitutes rather than removes, so it
+        // leaves no hole and orphans nothing.
+        var before = text;
+        text = NamedIdentifier.Replace(text, "");
+        text = PrepositionedIdentifier.Replace(text, "");
         text = BareIdentifier.Replace(text, "");
         text = HashNumber.Replace(text, "");
-        return Tidy(text);
+        var removedSomething = !ReferenceEquals(before, text) && before != text;
+
+        return Tidy(text, removedSomething);
     }
 
-    private static string Tidy(string text)
+    /// <summary>
+    /// Put the sentence back together after something was taken out of it.
+    ///
+    /// THE REPAIRS ONLY RUN IF THERE WAS A REMOVAL, and that gate is the fix for a whole class of damage
+    /// rather than for one case of it. The joiner sweep ran unconditionally over every narration, so
+    /// "The condition uses AND, not XOR." became "The condition uses, not XOR." and "The operator is OR."
+    /// became "The operator is." - words that are the SUBJECT of the sentence, deleted from text that
+    /// contained no identifier at all. Position alone is not evidence that a word is an orphan; a removal
+    /// next to it is.
+    ///
+    /// Whitespace and punctuation spacing are always tidied - those are cosmetic and cannot lose a word.
+    /// </summary>
+    private static string Tidy(string text, bool removedSomething)
     {
-        text = EmptyQuotes.Replace(text, "");
-        text = DanglingJoiner.Replace(text, "");
+        if (removedSomething)
+        {
+            text = EmptyQuotes.Replace(text, "");
+            text = DanglingJoiner.Replace(text, "");
+            text = StrandedComma.Replace(text, "");
+            text = DoubledPunctuation.Replace(text, "$1");
+        }
         text = SpaceBeforePunctuation.Replace(text, "$1");
-        text = DoubledPunctuation.Replace(text, "$1");
         text = Whitespace.Replace(text, " ");
-        text = LeadingPunctuation.Replace(text, "");
+        if (removedSomething) text = LeadingPunctuation.Replace(text, "");
         return text.Trim();
+    }
+
+    /// <summary>
+    /// "That", capitalised when it begins a sentence. The substitution replaces the FIRST word of a
+    /// sentence whenever the reference opened one - "Run 35047040578 failed." - and a narration that
+    /// starts in lower case reads as a fragment to anyone seeing it written and is a small wrongness in
+    /// the mouth of a speech engine.
+    /// </summary>
+    private static string Determiner(string text, int index)
+    {
+        for (var i = index - 1; i >= 0; i--)
+        {
+            if (char.IsWhiteSpace(text[i])) continue;
+            return text[i] is '.' or '!' or '?' or ':' or ';' ? "That" : "that";
+        }
+        return "That";
     }
 
     /// <summary>"PR" is written, never said. Every other noun keeps the writer's own word, lower-cased.</summary>
@@ -229,15 +292,23 @@ public static class SpokenForEar
     /// for. "Wingman Inspector - Cockpit tab" was narrated "Wingman Inspector mobile. Merge complete...",
     /// and prepending the real title alone left the listener hearing BOTH names, one of them false.
     ///
-    /// A HEURISTIC, and stated as one. The opening sentence is treated as the model's attempt at the title
-    /// when it starts with the same words the title does and is no longer than a title plausibly is. Two
-    /// leading words must agree (one, when the title is a single word), and the sentence may run to at most
-    /// ONE word beyond the title's length.
+    /// A HEURISTIC, and stated as one. The opening is treated as the model's attempt at the title when it
+    /// agrees with the title on at least two words AND IS STRICTLY SHORTER THAN THE TITLE IN WORDS.
     ///
-    /// One word, not two, and that bound was found by a test rather than chosen. At two, a one-word title
-    /// licensed dropping a three-word sentence, so "Go-live failed." vanished entirely under the title
-    /// "Go" and the listener was left with the session's name and silence. The looser the title, the less
-    /// it can be allowed to claim.
+    /// SHORTER IS THE WHOLE TEST, and it replaced two successive bounds that were both wrong. A model
+    /// getting the title wrong DROPS or SUBSTITUTES words from a name it was given - "Wingman Inspector
+    /// Cockpit tab" came back as "Wingman Inspector mobile", three words for four. A real sentence ADDS
+    /// them: it needs a verb, and an object, and it is therefore longer than the name it opens with.
+    ///
+    /// The earlier bounds counted upward from the title's length and so licensed exactly the sentences a
+    /// verb makes. At two words over, "Go-live failed." vanished under the title "Go". At one word over,
+    /// the inspector found "Go now! The deploy needs approval." losing its instruction, "Dev Manager
+    /// failed. Retry queued." losing its failure, and the same shape in French. Counting downward cannot
+    /// reach any of them.
+    ///
+    /// It follows that a ONE-WORD title never fires this rule - nothing is strictly shorter than one word
+    /// - and that is correct rather than a gap: the only title attempt a one-word title can produce is
+    /// that word by itself, which <see cref="DropExactTitle"/> already removes.
     ///
     /// WHAT IT WILL NOT TOUCH, which is the half that matters: a real opening sentence that merely begins
     /// with the session's name survives, because it is longer than the bound. "Dev Manager finished the
@@ -246,15 +317,17 @@ public static class SpokenForEar
     /// </summary>
     private static string? DropTheModelsOwnName(string body, string[] words)
     {
-        var end = body.IndexOfAny(new[] { '.', '!', '?', ';' });
+        // A colon ends it too. A title written as a LABEL - "Wingman Inspector mobile: Merge complete" -
+        // is a natural thing for a model to produce, and without the colon here the matcher read the whole
+        // line as one over-long name and kept the false one.
+        var end = body.IndexOfAny(new[] { '.', '!', '?', ';', ':' });
         if (end <= 0) return null;
-        var first = body[..end];
-        var firstWords = SpeakableTitle(first).Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (firstWords.Length == 0) return null;
-        if (firstWords.Length > words.Length + 1) return null;
+        var firstWords = SpeakableTitle(body[..end]).Split(' ', StringSplitOptions.RemoveEmptyEntries);
 
-        var needed = Math.Min(words.Length == 1 ? 1 : 2, Math.Min(words.Length, firstWords.Length));
-        for (var i = 0; i < needed; i++)
+        // Strictly shorter than the title, and agreeing on two words. See the summary for why the
+        // comparison runs this way round.
+        if (firstWords.Length < 2 || firstWords.Length >= words.Length) return null;
+        for (var i = 0; i < 2; i++)
             if (!firstWords[i].Equals(words[i], StringComparison.OrdinalIgnoreCase)) return null;
 
         return body[(end + 1)..].TrimStart();

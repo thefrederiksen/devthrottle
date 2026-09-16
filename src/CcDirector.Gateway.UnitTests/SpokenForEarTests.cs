@@ -111,7 +111,11 @@ public class SpokenForEarTests
     [InlineData("Merged at commit d0630a5f2b1c.", "Merged.")]
     [InlineData("See pull request 2909 for the fix.", "See that pull request for the fix.")]
     [InlineData("See PR 2909 for the fix.", "See that pull request for the fix.")]
-    [InlineData("The run failed in 35047040578.", "The run failed.")]
+    // A run NUMBER, in the shape one is actually written. It used to read "The run failed in 35047040578."
+    // and expected the number gone - which the second review showed was damage, not a fix: "in" is a
+    // general preposition and the same pattern deleted durations and dates behind it. The number is
+    // removed because the NOUN names it, not because a preposition sits in front of it.
+    [InlineData("Run 35047040578 failed.", "That run failed.")]
     [InlineData("Closed #2905 and moved on.", "Closed and moved on.")]
     [InlineData("The verdict 38203005460445138611e8ce0c5e4045 was stored.", "The verdict was stored.")]
     public void EveryShapeOfIdentifierAndReferenceNumber(string heard, string spoken)
