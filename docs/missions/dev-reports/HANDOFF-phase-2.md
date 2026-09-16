@@ -1,6 +1,6 @@
 # Handoff - phase 2: the Gateway report record and delivery into the session
 
-Read first: `STATE.md` (rulings 1-8 bind you), issue #2936, the phase 1 contract
+Read first: `STATE.md` (rulings 1-9 bind you), issue #2936, the phase 1 contract
 `packages/client-core/src/devreports/CONTRACT.md` (the item and message shapes you store are defined
 there - do not invent a second shape), and `PHASE-1-REPORT.md`. Open a child issue of #2936 first.
 
