@@ -1288,8 +1288,13 @@ def _report_broadcast(resp: Any, who: str) -> None:
     warning = resp.get("warning") or resp.get("Warning")
     results = resp.get("results", resp.get("Results")) or []
     if not results:
-        console.print(f"Nothing to queue: {escape(str(warning or 'there was nobody to send to.'))}")
-        return
+        # Inspection 2, ruling 4: nothing queued and nothing waiting is a failure, even with nobody to
+        # send to - BROADCAST_EXIT_RULE has no exception for an empty recipient list.
+        line = "Not queued: no workers to send to."
+        if warning:
+            line += f" {escape(str(warning))}"
+        console.print(line)
+        raise typer.Exit(1)
     queued = [r for r in results if isinstance(r, dict) and r.get("status", r.get("Status")) == "queued"]
     dupes = [r for r in results if isinstance(r, dict) and r.get("status", r.get("Status")) == "duplicate"]
     refused = [r for r in results if r not in queued and r not in dupes]

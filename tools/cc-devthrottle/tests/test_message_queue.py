@@ -157,14 +157,28 @@ def test_send_all_where_every_copy_was_refused_fails(posted, plain):
     assert "Queued for 0 of 2" in " ".join(plain(result.output).split())
 
 
-def test_send_all_with_no_workers_says_so_and_succeeds(posted, plain):
+def test_send_all_with_no_workers_says_so_and_fails(posted, plain):
+    # Inspection 2, ruling 4: nothing was queued and nothing was waiting, so the exit code is 1 - the
+    # same rule as every other broadcast, with no exception for an empty recipient list.
     _, state = posted
     state["answer"] = {"results": [], "warning": "You have no workers to message."}
 
     result = runner.invoke(app, ["message", "send", "all", "stand up"])
 
-    assert result.exit_code == 0
-    assert "You have no workers to message." in plain(result.output)
+    assert result.exit_code == 1
+    words = " ".join(plain(result.output).split())
+    assert "no workers to send to" in words
+    assert "You have no workers to message." in words
+
+
+def test_send_all_with_no_workers_and_no_warning_still_says_so(posted, plain):
+    _, state = posted
+    state["answer"] = {"results": []}
+
+    result = runner.invoke(app, ["message", "send", "all", "stand up"])
+
+    assert result.exit_code == 1
+    assert "no workers to send to" in plain(result.output)
 
 
 def test_a_denied_broadcast_fails_with_its_reason(posted, plain):
