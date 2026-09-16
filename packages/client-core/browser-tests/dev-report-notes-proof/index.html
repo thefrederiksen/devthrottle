@@ -11,41 +11,91 @@
 </head>
 <body>
 <!--
-  A TEST host - it stands in for the Cockpit, the phone and the Director, which do not exist yet for
-  reports (phases 3 and 4). It does what the contract says a host does and nothing more:
-    - shows the report in <iframe sandbox="allow-scripts"> with NO allow-same-origin (mission ruling 1),
-    - injects the ONE note-taking script into the report,
-    - answers the page's ready with restore (the state it saved from the last state-changed),
-    - accepts messages only from its own frame,
-    - records every message it receives in window.__received for the proof driver to read.
+  A TEST host - it stands in for the Cockpit, the phone and the Director, which do not show reports yet
+  (phases 3 and 4). It does what CONTRACT.md section 4 says a host MUST do, and nothing more:
+    - shows the report in <iframe sandbox="allow-scripts"> with NO allow-same-origin,
+    - puts a Content-Security-Policy at the top of the report's head, so only the script it injects runs,
+    - injects the ONE note-taking script with a fresh nonce and a fresh token on every load,
+    - drops any message that is not from its frame or does not carry the current token,
+    - treats a frame load it did not cause as the end of the token,
+    - answers a token-bearing ready with restore (the state it saved from the last state-changed),
+    - records what it accepted and what it refused, for the proof driver to read.
+  Which report it shows is the ?report= query parameter (default sample-report.html).
 -->
 <iframe id="report" sandbox="allow-scripts" title="Dev report"></iframe>
 <div id="log"></div>
 <script>
   var CHANNEL = "devthrottle.dev-report";
   var frame = document.getElementById("report");
-  var saved = { queued: [], sent: [], replies: [], draft: null, scroll: { x: 0, y: 0 } };
+  var saved = { queued: [], sent: [], replies: [], draft: null, answerDrafts: [], scroll: { x: 0, y: 0 } };
   var parts = null;
+  var token = "";
+  var connected = false;
+  var expectingLoad = false;
   window.__received = [];
+  window.__refused = [];
+  window.__unexpectedLoads = 0;
 
-  function send(type, payload) {
-    frame.contentWindow.postMessage({ channel: CHANNEL, version: 1, type: type, payload: payload }, "*");
+  function log(line) {
+    document.getElementById("log").textContent += line + "\n";
   }
 
+  function random() {
+    var bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    return Array.prototype.map.call(bytes, function (b) { return ("0" + b.toString(16)).slice(-2); }).join("");
+  }
+
+  // Returns false, and sends nothing, when the frame is not showing the report this host loaded.
+  function send(type, payload) {
+    if (!connected) return false;
+    frame.contentWindow.postMessage({ channel: CHANNEL, version: 1, type: type, payload: payload }, "*");
+    return true;
+  }
   window.__hostSend = send;
+  window.__isConnected = function () { return connected; };
 
   window.addEventListener("message", function (event) {
     if (event.source !== frame.contentWindow) return;
     var data = event.data;
     if (!data || data.channel !== CHANNEL || data.version !== 1) return;
+    if (!token || data.token !== token) {
+      window.__refused.push(data);
+      log("refused " + data.type + " (token " + (data.token === undefined ? "missing" : "wrong") + ")");
+      return;
+    }
     window.__received.push(data);
-    document.getElementById("log").textContent += data.type + "\n";
-    if (data.type === "ready") send("restore", { state: saved });
+    log(data.type);
+    if (data.type === "ready") {
+      connected = true;
+      send("restore", { state: saved });
+    }
     if (data.type === "state-changed") saved = data.payload.state;
   });
 
+  frame.addEventListener("load", function () {
+    if (expectingLoad) {
+      expectingLoad = false;
+      return;
+    }
+    token = "";
+    connected = false;
+    window.__unexpectedLoads++;
+    log("the frame loaded something this host did not put there - token forgotten");
+  });
+
   function load() {
-    var html = parts.report.replace("</body>", function () { return "<script>" + parts.script + "<\/script></body>"; });
+    var nonce = random();
+    token = random();
+    connected = false;
+    var policy = "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'nonce-" + nonce +
+      "'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'\">";
+    var script = "<script nonce=\"" + nonce + "\" data-dev-report-token=\"" + token + "\">" + parts.script + "<\/script>";
+    var html = parts.report;
+    var head = /<head[^>]*>/i.exec(html);
+    html = head ? html.slice(0, head.index + head[0].length) + policy + html.slice(head.index + head[0].length) : policy + html;
+    html = html.replace(/<\/body>/i, function () { return script + "</body>"; });
+    expectingLoad = true;
     frame.srcdoc = html;
   }
 
@@ -53,7 +103,8 @@
   // no memory, and the host hands its state back.
   window.__reload = load;
 
-  Promise.all([fetch("sample-report.html").then(function (r) { return r.text(); }),
+  var reportName = new URLSearchParams(location.search).get("report") || "sample-report.html";
+  Promise.all([fetch(reportName).then(function (r) { return r.text(); }),
                fetch("dev-report-notes.js").then(function (r) { return r.text(); })])
     .then(function (texts) {
       parts = { report: texts[0], script: texts[1] };

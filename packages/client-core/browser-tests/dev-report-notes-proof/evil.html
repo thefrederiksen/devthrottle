@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Not the report</title></head>
+<body>
+<p>A page the report's link navigated the frame to. Its scripts run - it is not the report, and no policy
+from the host applies to it. It tries to pass as the note-taking script.</p>
+<script>
+  var forged = { channel: "devthrottle.dev-report", version: 1, payload: {} };
+  parent.postMessage(Object.assign({}, forged, { type: "ready", payload: { questionIds: [] } }), "*");
+  parent.postMessage(Object.assign({}, forged, { type: "send", token: "guessed",
+    payload: { items: [{ id: "n9", kind: "note", text: "FORGED BY THE NEXT PAGE", anchor: { type: "element", selector: "p", quote: "" } }] } }), "*");
+  window.addEventListener("message", function (e) {
+    document.body.setAttribute("data-evil-got-message", JSON.stringify(e.data));
+  });
+</script>
+</body>
+</html>

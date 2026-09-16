@@ -6,7 +6,8 @@ This is the ONE contract for a dev report. It has three parts, and all three liv
    (`src/CcDirector.Gateway/DevReports/DevReportShapeCheck.cs`).
 2. **The question markup** - what the note-taking script turns into a Queue button.
 3. **The host protocol** - the `postMessage` messages between the note-taking script
-   (`dev-report-notes.js`, beside this file) and the app that shows the report.
+   (`dev-report-notes.js`, beside this file) and the app that shows the report, and what a host must do
+   so that a message it receives really came from the owner (section 4, Trust).
 
 If you change a marker or a message, change it here, in the script, and in the shape check in the same
 pull request. The idea for in-page notes and queued answers comes from lavish-axi by Kun Chen (MIT,
@@ -31,11 +32,13 @@ names or headings, so a report can look however it likes.
 "Right after" is about the ORDER OF THE MARKERS, not about the HTML between them: the check reads the
 markers in document order and does not judge untagged content in between.
 
-Markers inside HTML comments, `<script>`, `<style>`, `<template>`, `<textarea>` and `<title>` do not count.
+Markers a browser would not treat as elements do not count: inside HTML comments, inside `<script>`,
+`<style>`, `<template>`, `<textarea>`, `<title>`, `<xmp>`, `<iframe>`, `<noembed>`, `<noframes>` and
+`<noscript>`, and anywhere after `<plaintext>`.
 
-The check does not build a tree, so "inside" is decided by order too: a question is inside the questions
-section when it comes after the questions marker and before the next section marker, and a radio option
-belongs to the question it follows. A report that nests its sections the ordinary way gets the same answer.
+"Inside" is decided by an element's own start and end tags, and the note-taking script uses the same rule
+in the page. So the questions section, every question and the no-questions element must each be closed
+with their own end tag, and the check says so when one is not.
 
 ### The questions section
 
@@ -45,6 +48,8 @@ belongs to the question it follows. A report that nests its sections the ordinar
   that says so in words ("No questions - nothing needed from you."). A missing section never reads as
   "no questions", and neither does an empty one.
 - A section may not contain both questions and the no-questions element.
+- A question may not contain another question.
+- Every radio option in the questions section must be inside a question.
 
 ## 2. The question markup
 
@@ -57,7 +62,8 @@ belongs to the question it follows. A report that nests its sections the ordinar
 </div>
 ```
 
-- **Options** are `<input type="radio">` elements inside the question. At least two. The option's label
+- **Options** are `<input type="radio">` elements inside the question element (not inside a question nested
+  in it, which the check refuses anyway). At least two. The option's label
   is the text of its `<label>` (wrapping, or pointed at by `for=`); without a label, its `value`.
 - **The recommendation** is `data-recommended` on exactly one option. The script checks it when the page
   loads, so the recommendation is preselected.
@@ -66,7 +72,11 @@ belongs to the question it follows. A report that nests its sections the ordinar
 - **A comment box** is optional: a `<textarea data-dev-report-comment>` inside the question.
 - **The Queue button** is added by the script, one per question. An author never writes it.
 
-The shape check enforces: at least two options, exactly one `data-recommended`, unique ids.
+The shape check enforces: at least two options, exactly one `data-recommended`, unique ids, no nesting,
+no option outside a question, and a no-questions element that has words in it.
+
+Every text the script sends is at most 20000 characters. The script sets `maxlength` on the comment box
+and says so, rather than queueing, when a comment or the question's own markup is longer.
 
 ### What can be noted
 
@@ -93,7 +103,7 @@ same page. It starts from the nearest ancestor with an `id` when there is one.
 Every message, in both directions, is one object:
 
 ```json
-{ "channel": "devthrottle.dev-report", "version": 1, "type": "<type>", "payload": { } }
+{ "channel": "devthrottle.dev-report", "version": 1, "type": "<type>", "payload": { }, "token": "<page to host only>" }
 ```
 
 - A message whose `channel` or `version` does not match is ignored.
@@ -101,7 +111,8 @@ Every message, in both directions, is one object:
 - A message whose payload does not have the shape below is ignored, whole. Nothing is half-applied.
 - The page accepts messages only from `window.parent`. It posts to `window.parent` with target origin
   `"*"`, because a sandboxed frame without `allow-same-origin` has an opaque origin and cannot name its
-  host's. The host must check `event.source` is its own frame.
+  host's.
+- Every message from the page carries the host's `token` (section 4). A host drops any message without it.
 
 ### Items
 
@@ -119,33 +130,52 @@ A queued or sent item is one of:
 `id` is unique within the report's state. `anchor.rowLabel`, `anchor.columnLabel` and `anchor.label` are
 present only for the anchor types that carry them. Every string is at most 20000 characters.
 
-A sent item also carries `status` (a short machine word from the host, e.g. `sent`, `held`, `delivered`,
-`refused`) and `statusLabel` (the words to show, rendered verbatim - the page never decides what a
-status means).
-
 ### Page to host
 
 | type | payload | when |
 |---|---|---|
 | `ready` | `{ "questionIds": ["deploy-window"] }` | once, when the script has started |
-| `send` | `{ "items": [ item, ... ] }` | the owner pressed Send; the whole queue, in order |
-| `state-changed` | `{ "state": state }` | the queue, the sent list, the half-typed note or the scroll position changed |
+| `send` | `{ "items": [ item, ... ] }` | the owner pressed Send; every item still in the queue, in order |
+| `state-changed` | `{ "state": state }` | anything in the state changed - including a status or reply the host pushed |
 
 ### Host to page
 
 | type | payload | effect |
 |---|---|---|
-| `restore` | `{ "state": state }` | replaces the page's queued, sent, draft and replies, and scrolls to the saved position. Also marks the host as connected. |
-| `status` | `{ "updates": [ { "id": "n3", "status": "held", "statusLabel": "Delivered when the agent finishes" } ] }` | updates sent items by id; an unknown id is skipped |
+| `restore` | `{ "state": state }` | replaces the page's state, puts back what the owner had picked and typed, and scrolls to the saved position. Also marks the host as connected. |
+| `status` | `{ "updates": [ { "id": "n3", "status": "held", "statusLabel": "Delivered when the agent finishes" } ] }` | the host's word on items, by id; an unknown id is skipped |
 | `reply` | `{ "reply": { "id": "r1", "text": "Fixed - see section 2", "at": "2026-09-16T10:00:00Z" } }` | adds the agent's reply to the page (same id replaces) |
+
+### Send, and when an item counts as sent
+
+Posting a message is not the host accepting it. So Send does not empty the queue:
+
+1. Send posts every queued item and marks each one **pending** ("waiting for the app to confirm it has
+   this"). A pending item stays in the queue and cannot be removed.
+2. The host MUST answer every item of a `send` with a `status` for its id:
+   - any status other than `refused` means the host has the item. It moves from the queue to Sent, with
+     the host's `statusLabel` shown verbatim - the page never decides what a status means.
+   - `refused` means the host will not take it. It stays in the queue, no longer pending, with the host's
+     `statusLabel` shown as the reason (for example "This session has ended"), and can be sent again or
+     removed.
+3. Pressing Send again re-sends everything still queued, pending items included. **A host MUST treat an id
+   it has already accepted as the same item**, not a new note.
+
+A later `status` for an item already in Sent just replaces its words.
 
 ### State
 
 ```json
-{ "queued": [ item, ... ], "sent": [ sentItem, ... ], "replies": [ reply, ... ],
-  "draft": { "anchor": anchor, "text": "half-typed" } | null,
+{ "queued": [ item + { "pending": true, "statusLabel": "..." }, ... ],
+  "sent": [ item + { "status": "held", "statusLabel": "..." }, ... ],
+  "replies": [ reply, ... ],
+  "draft": { "anchor": anchor, "text": "half-typed note" } | null,
+  "answerDrafts": [ { "questionId": "deploy-window", "optionValue": "monday", "comment": "half-typed" } ],
   "scroll": { "x": 0, "y": 1200 } }
 ```
+
+`pending` and `statusLabel` on a queued item are optional. `answerDrafts` is what the owner has picked and
+typed in a question without queueing it yet; `optionValue` is empty when nothing is picked.
 
 The page cannot remember anything across a reload - a sandboxed frame has no storage - so the HOST keeps
 the last `state-changed` state and sends it back as `restore` after the page's next `ready`.
@@ -155,3 +185,37 @@ the last `state-changed` state and sends it back as `restore` after the page's n
 The page counts as hosted once it has received a valid `restore`. Before that - a plain file opened in a
 browser, or a host that has not answered yet - everything works except Send: pressing it shows the exact
 `send` message that would have been posted, and the queue is kept.
+
+---
+
+## 4. Trust - what a host MUST do
+
+The report is written by an agent, and it runs in the same frame as the note-taking script. The sandbox
+keeps the report away from the app around it, but NOT away from the note-taking script: without the rules
+below, a `<script>` in the report could post a `send` that looks exactly like the owner's, or read the
+notes and replies the host restores. `event.source` cannot tell the two apart - they are the same window.
+
+So a host that shows a dev report MUST do all of the following. The test host in
+`browser-tests/dev-report-notes-proof/index.html` does them, and the browser proof checks each one.
+
+1. **Frame.** Show the report in `<iframe sandbox="allow-scripts">`, never with `allow-same-origin`.
+2. **No report scripts.** Put this policy at the top of the report's `<head>`, before anything else the
+   report contains, with a fresh random nonce for every load:
+
+   ```html
+   <meta http-equiv="Content-Security-Policy"
+         content="default-src 'none'; script-src 'nonce-NONCE'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'">
+   ```
+
+   Scripts, inline event handlers and `javascript:` links in the report do not run. Only the one script
+   the host injects with that nonce does. Styles and inline SVG work; images must be `data:` URLs.
+3. **A token per load.** Inject the note-taking script as `<script nonce="NONCE" data-dev-report-token="TOKEN">`
+   with a fresh random token. The script reads the token, removes the attribute, and puts it on every
+   message. Drop any message whose `token` is not the current one, or whose `event.source` is not the frame.
+4. **A navigation ends the token.** A report can still contain a plain link or a `<meta http-equiv="refresh">`
+   that takes the frame to another page, and that page's scripts CAN run and post messages. The host sets
+   the frame's content itself, so any `load` event on the frame the host did not cause means the frame is
+   showing something else: forget the token, stop pushing to the frame, and ignore it until the host loads
+   the report again.
+5. **Restore only to a token-bearing `ready`.** The saved state holds the owner's notes and the agent's
+   replies; it goes only to the page the host just loaded.

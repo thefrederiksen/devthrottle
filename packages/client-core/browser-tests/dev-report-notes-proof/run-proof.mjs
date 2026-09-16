@@ -1,21 +1,26 @@
 // Dev report note-taking script proof driver (issue #2940, phase 1 of #2936).
 //
 // It serves this directory plus the ONE shipping script (src/devreports/dev-report-notes.js, read from
-// source so the proof cannot drift from it), and drives a real Chromium:
-//   claim A - the report runs in <iframe sandbox="allow-scripts"> with no allow-same-origin, and really is
-//             cut off: the host cannot read the frame's document, and the frame cannot read its parent's
-//             or use storage.
-//   claim B - the page announces ready with its question ids, and the host's restore connects it.
+// source so the proof cannot drift from it), and drives a real Chromium against a test host that follows
+// CONTRACT.md section 4:
+//   claim A - the report runs in <iframe sandbox="allow-scripts"> with no allow-same-origin: the host cannot
+//             read the frame's document, and the frame cannot read its parent's or use storage.
+//   claim B - the page announces ready, carrying the host's token, with its question ids.
 //   claim C - the recommended option is preselected.
 //   claim D - a note on a table cell carries the cell's selector, text, row label and column label.
 //   claim E - an answer carries the question, the chosen option and the comment.
-//   claim F - queued items show as QUEUED, apart from SENT, until Send.
-//   claim G - Send posts ONE send message with the whole queue, and the host gets exactly those items.
-//   claim H - the host's status words and the agent's reply are shown verbatim.
+//   claim F - queued items show as queued, apart from sent, until Send.
+//   claim G - Send posts ONE send message with the whole queue - and nothing leaves the queue until the
+//             host confirms it.
+//   claim H - the host's status words and the agent's reply are shown verbatim; a refused item stays
+//             queued with the host's reason, and sending again carries only it.
 //   claim I - malformed or foreign messages are ignored whole.
-//   claim J - a reload loses nothing: the host's restore brings back sent items, the half-typed note and
-//             the scroll position.
-//   claim K - opened as a plain page with no host, Send shows the exact payload and sends nothing.
+//   claim J - a reload straight after the host pushes a status and a reply loses neither.
+//   claim K - a reload brings back the half-typed note, an unqueued choice and comment, and the scroll.
+//   claim L - with no host, Send shows the exact payload and sends nothing.
+//   claim M - a report's own scripts and event handlers do not run, and a message without the token is refused.
+//   claim N - when a link takes the frame to another page, that page's messages are refused and the host
+//             stops pushing to the frame.
 //
 // This proves the SCRIPT against a TEST HOST (index.html). It is not the Cockpit, the phone or the
 // Director - those hosts are phases 3 and 4 - and nothing here reaches a Gateway.
@@ -89,7 +94,17 @@ function check(claim, ok, detail) {
 }
 
 const received = (page) => page.evaluate(() => window.__received);
+const ofType = async (page, type) => (await received(page)).filter((m) => m.type === type);
 const reportFrame = (page) => page.frames().find((f) => f.parentFrame() === page.mainFrame());
+const text = (frame, drn) => frame.locator(`[data-drn=${drn}]`).innerText();
+
+async function reloadAndWait(page) {
+  const readies = (await ofType(page, "ready")).length;
+  await page.evaluate(() => window.__reload());
+  await waitFor("the reloaded page to announce ready", async () => (await ofType(page, "ready")).length === readies + 1);
+  await waitFor("the host to be connected again", () => page.evaluate(() => window.__isConnected()));
+  await page.waitForTimeout(300);
+}
 
 async function main() {
   const server = await serve();
@@ -102,7 +117,8 @@ async function main() {
 
   try {
     await page.goto(`${base}/`);
-    await waitFor("the page to announce ready", async () => (await received(page)).some((m) => m.type === "ready"));
+    await waitFor("the page to announce ready", async () => (await ofType(page, "ready")).length === 1);
+    await waitFor("the host to be connected", () => page.evaluate(() => window.__isConnected()));
     const frame = page.frameLocator("#report");
 
     // ---- claim A: the sandbox is real.
@@ -125,9 +141,13 @@ async function main() {
     );
 
     // ---- claim B: ready then restore.
-    const ready = (await received(page)).find((m) => m.type === "ready");
+    const ready = (await ofType(page, "ready"))[0];
     evidence.steps.ready = ready;
-    check("B: the page announces ready with its question ids", JSON.stringify(ready.payload.questionIds) === '["rerun"]', JSON.stringify(ready));
+    check(
+      "B: the page announces ready with the host's token and its question ids",
+      JSON.stringify(ready.payload.questionIds) === '["rerun"]' && typeof ready.token === "string" && ready.token.length === 32,
+      JSON.stringify({ ...ready, token: ready.token ? `(${ready.token.length} characters)` : ready.token }),
+    );
 
     // ---- claim C: recommendation preselected.
     const preselected = await frame.locator("input[name=rerun][value=tonight]").isChecked();
@@ -145,8 +165,8 @@ async function main() {
     await frame.locator("[data-drn=queue-answer]").click();
 
     // ---- claim F: queued, not sent.
-    const queuedText = await frame.locator("[data-drn=queued]").innerText();
-    const sentTextBefore = await frame.locator("[data-drn=sent]").innerText();
+    const queuedText = await text(frame, "queued");
+    const sentTextBefore = await text(frame, "sent");
     await page.screenshot({ path: join(here, "evidence-queued.png") });
     check(
       "F: queued items show as queued and not as sent",
@@ -154,11 +174,10 @@ async function main() {
       `queued=${JSON.stringify(queuedText.slice(0, 160))} sent=${JSON.stringify(sentTextBefore)}`,
     );
 
-    // ---- claim G: Send.
-    const sendsBefore = (await received(page)).filter((m) => m.type === "send").length;
+    // ---- claim G: Send - one message, and nothing leaves the queue yet.
     await frame.locator("[data-drn=send]").click();
-    await waitFor("the host to get send", async () => (await received(page)).filter((m) => m.type === "send").length === sendsBefore + 1);
-    const send = (await received(page)).filter((m) => m.type === "send").at(-1);
+    await waitFor("the host to get send", async () => (await ofType(page, "send")).length === 1);
+    const send = (await ofType(page, "send"))[0];
     evidence.steps.sendPayloadTheHostGot = send;
     const [note, answer] = send.payload.items;
     check(
@@ -175,21 +194,58 @@ async function main() {
         answer.optionLabel === "Wait for tomorrow - nothing is blocked" && answer.comment === "The database is back tomorrow morning.",
       JSON.stringify(answer),
     );
-    check("G: one send message carries exactly the two queued items", send.payload.items.length === 2 && sendsBefore === 0, `${send.payload.items.length} items, ${sendsBefore} earlier sends`);
+    const queuedWhilePending = await text(frame, "queued");
+    const sentWhilePending = await text(frame, "sent");
+    check(
+      "G: one send carries both items, and they stay queued, waiting, until the host confirms",
+      send.payload.items.length === 2 && queuedWhilePending.includes("Waiting for the app to confirm") &&
+        queuedWhilePending.includes("Forty-two failures") && sentWhilePending.includes("Nothing here"),
+      `${send.payload.items.length} items; queued=${JSON.stringify(queuedWhilePending.slice(0, 200))}`,
+    );
 
-    // ---- claim H: status and reply shown verbatim.
+    // ---- claim H: the host confirms one and refuses the other; then a reply.
     await page.evaluate(() => {
-      window.__hostSend("status", { updates: [{ id: "n1", status: "held", statusLabel: "Held - delivered when the agent finishes its turn" }] });
+      window.__hostSend("status", { updates: [
+        { id: "n1", status: "held", statusLabel: "Held - delivered when the agent finishes its turn" },
+        { id: "a2", status: "refused", statusLabel: "Not taken - try again" },
+      ] });
       window.__hostSend("reply", { reply: { id: "r1", text: "You are right - the fixture double-counted. Fixed in section 1.", at: "2026-09-16T12:00:00Z" } });
     });
-    await waitFor("the reply to show", async () => (await frame.locator("[data-drn=replies]").innerText()).includes("double-counted"));
-    const sentAfter = await frame.locator("[data-drn=sent]").innerText();
-    const queuedAfter = await frame.locator("[data-drn=queued]").innerText();
+    await waitFor("the reply to show", async () => (await text(frame, "replies")).includes("double-counted"));
+    const sentAfter = await text(frame, "sent");
+    const queuedAfter = await text(frame, "queued");
     await page.screenshot({ path: join(here, "evidence-sent-status-reply.png") });
+    const hOk1 = sentAfter.includes("Held - delivered when the agent finishes its turn") && !sentAfter.includes("Wait for tomorrow") &&
+      queuedAfter.includes("Wait for tomorrow") && queuedAfter.includes("Not taken - try again") && !queuedAfter.includes("Forty-two");
+
+    // ---- claim J: reload straight away - nothing else happens between the pushes and the reload.
+    await reloadAndWait(page);
+    const afterPushReload = {
+      sent: await text(frame, "sent"),
+      queued: await text(frame, "queued"),
+      replies: await text(frame, "replies"),
+    };
+    evidence.steps.reloadRightAfterPushes = afterPushReload;
     check(
-      "H: the host's status words and the reply are shown verbatim, and the queue is empty",
-      sentAfter.includes("Held - delivered when the agent finishes its turn") && sentAfter.includes("Sent to the app") && queuedAfter.includes("Nothing here"),
-      JSON.stringify(sentAfter.slice(0, 300)),
+      "J: a reload straight after the host's status and reply keeps both",
+      afterPushReload.sent.includes("Held - delivered when the agent finishes its turn") &&
+        afterPushReload.queued.includes("Not taken - try again") && afterPushReload.replies.includes("double-counted"),
+      JSON.stringify(afterPushReload).slice(0, 400),
+    );
+
+    // Send again: only the refused item goes, and the host takes it this time.
+    await frame.locator("[data-drn=toggle]").click();
+    await frame.locator("[data-drn=send]").click();
+    await waitFor("the second send", async () => (await ofType(page, "send")).length === 2);
+    const resend = (await ofType(page, "send"))[1];
+    await page.evaluate(() => window.__hostSend("status", { updates: [{ id: "a2", status: "delivered", statusLabel: "Delivered to the session" }] }));
+    await waitFor("the answer to reach sent", async () => (await text(frame, "sent")).includes("Delivered to the session"));
+    const queuedEnd = await text(frame, "queued");
+    evidence.steps.resend = resend;
+    check(
+      "H: statuses and the reply show verbatim; a refused item stays queued with the reason and is the only thing sent again",
+      hOk1 && resend.payload.items.length === 1 && resend.payload.items[0].id === "a2" && queuedEnd.includes("Nothing here"),
+      `resend=${JSON.stringify(resend.payload.items.map((i) => i.id))} queuedAfterConfirm=${JSON.stringify(queuedEnd)}`,
     );
 
     // ---- claim I: malformed and foreign messages change nothing.
@@ -201,39 +257,39 @@ async function main() {
       f.postMessage({ channel: "devthrottle.dev-report", version: 1, type: "wipe", payload: {} }, "*");
     });
     await page.waitForTimeout(500);
-    const afterJunk = (await frame.locator("[data-drn=sent]").innerText()) + (await frame.locator("[data-drn=replies]").innerText());
+    const afterJunk = (await text(frame, "sent")) + (await text(frame, "replies"));
     check(
       "I: malformed, foreign and unknown messages are ignored",
       afterJunk.includes("Held - delivered when the agent finishes its turn") && !afterJunk.includes("FOREIGN") && !afterJunk.includes("WRONG VERSION"),
       JSON.stringify(afterJunk.slice(0, 200)),
     );
 
-    // ---- claim J: reload keeps sent, the half-typed note and the scroll position.
+    // ---- claim K: reload keeps the half-typed note, an unqueued choice and comment, and the scroll position.
     await frame.locator("[data-drn=pick]").click();
     await frame.locator("#explain").click();
     await frame.locator("[data-drn=composer-text]").pressSequentially("half typed");
+    await frame.locator("input[name=rerun][value=tonight]").check();
+    await frame.locator("textarea[data-dev-report-comment]").fill("half an answer");
     await reportFrame(page).evaluate(() => window.scrollTo(0, 300));
     await page.waitForTimeout(700);
-    const readiesBefore = (await received(page)).filter((m) => m.type === "ready").length;
-    await page.evaluate(() => window.__reload());
-    await waitFor("the reloaded page to announce ready", async () => (await received(page)).filter((m) => m.type === "ready").length === readiesBefore + 1);
+    await reloadAndWait(page);
     await waitFor("the draft to come back", async () => (await frame.locator("[data-drn=composer-text]").inputValue()) === "half typed");
     const restored = await reportFrame(page).evaluate(() => ({
       scrollY: window.scrollY,
       draft: document.querySelector("[data-drn=composer-text]").value,
       where: document.querySelector("[data-drn=composer-where]").textContent,
-      sent: document.querySelector("[data-drn=sent]").textContent,
-      replies: document.querySelector("[data-drn=replies]").textContent,
+      tonightChecked: document.querySelector("input[name=rerun][value=tonight]").checked,
+      comment: document.querySelector("textarea[data-dev-report-comment]").value,
     }));
     evidence.steps.afterReload = restored;
     check(
-      "J: after a reload the host's restore brings back sent items, the reply, the half-typed note and the scroll position",
+      "K: after a reload the half-typed note, the unqueued choice and comment, and the scroll position come back",
       restored.scrollY === 300 && restored.draft === "half typed" && restored.where.includes("Gateway failures") &&
-        restored.sent.includes("Held - delivered when the agent finishes its turn") && restored.replies.includes("double-counted"),
+        restored.tonightChecked && restored.comment === "half an answer",
       JSON.stringify(restored).slice(0, 300),
     );
 
-    // ---- claim K: no host.
+    // ---- claim L: no host.
     const plain = await browser.newPage({ viewport: { width: 1600, height: 900 } });
     await plain.goto(`${base}/plain.html`);
     await plain.click("[data-drn=queue-answer]");
@@ -248,10 +304,64 @@ async function main() {
     const shown = JSON.parse(plainResult.payload || "null");
     evidence.steps.noHost = { payloadShown: shown, queued: plainResult.queued };
     check(
-      "K: with no host, Send shows the exact send message and keeps the queue",
+      "L: with no host, Send shows the exact send message and keeps the queue",
       plainResult.payloadVisible && shown?.channel === "devthrottle.dev-report" && shown?.type === "send" &&
-        shown?.payload?.items?.[0]?.optionValue === "tonight" && plainResult.queued.includes("Rerun tonight"),
+        shown?.payload?.items?.[0]?.optionValue === "tonight" && plainResult.queued.includes("Rerun tonight") && !("token" in shown),
       JSON.stringify(shown),
+    );
+
+    // ---- claim M: a hostile report's scripts do not run, and a tokenless message is refused.
+    const hostile = await browser.newPage({ viewport: { width: 1600, height: 900 } });
+    await hostile.goto(`${base}/?report=hostile-report.html`);
+    await waitFor("the hostile report's page to connect", () => hostile.evaluate(() => window.__isConnected()));
+    await hostile.waitForTimeout(800);
+    const hostileFrame = reportFrame(hostile);
+    const ran = await hostileFrame.evaluate(() => ({
+      script: document.documentElement.getAttribute("data-hostile-script-ran"),
+      handler: document.documentElement.getAttribute("data-hostile-handler-ran"),
+      readRestore: document.documentElement.getAttribute("data-hostile-read-restore"),
+      trayPresent: document.querySelector("[data-drn=send]") !== null,
+      tokenAttributeLeft: document.querySelector("[data-dev-report-token]") !== null,
+    }));
+    // Something that does get to run in the frame - here the proof driver, standing in for a script the
+    // policy failed to stop - posts a forged send with no token and one with a wrong token.
+    await hostileFrame.evaluate(() => {
+      parent.postMessage({ channel: "devthrottle.dev-report", version: 1, type: "send", payload: { items: [] } }, "*");
+      parent.postMessage({ channel: "devthrottle.dev-report", version: 1, type: "send", token: "0".repeat(32), payload: { items: [] } }, "*");
+    });
+    await hostile.waitForTimeout(500);
+    const hostileHost = await hostile.evaluate(() => ({
+      accepted: window.__received.map((m) => m.type),
+      refused: window.__refused.map((m) => `${m.type}:${m.token === undefined ? "no token" : "wrong token"}`),
+    }));
+    evidence.steps.hostileReport = { ran, host: hostileHost };
+    check(
+      "M: a report's own script and event handler do not run, only the injected script does, and tokenless or wrong-token messages are refused",
+      ran.script === null && ran.handler === null && ran.readRestore === null && ran.trayPresent && !ran.tokenAttributeLeft &&
+        !hostileHost.accepted.includes("send") &&
+        JSON.stringify(hostileHost.refused) === JSON.stringify(["send:no token", "send:wrong token"]),
+      JSON.stringify(evidence.steps.hostileReport),
+    );
+
+    // ---- claim N: a link takes the frame elsewhere; that page is not trusted and gets nothing.
+    await hostile.frameLocator("#report").locator("#away").click();
+    await waitFor("the frame to reach the other page", async () => (await hostile.evaluate(() => window.__unexpectedLoads)) === 1);
+    await hostile.waitForTimeout(800);
+    const pushed = await hostile.evaluate(() => window.__hostSend("reply", { reply: { id: "r1", text: "PRIVATE REPLY", at: "" } }));
+    await hostile.waitForTimeout(300);
+    const evilGot = await reportFrame(hostile).evaluate(() => document.body.getAttribute("data-evil-got-message"));
+    const afterNavigation = await hostile.evaluate(() => ({
+      connected: window.__isConnected(),
+      accepted: window.__received.map((m) => m.type),
+      refused: window.__refused.map((m) => `${m.type}:${m.token === undefined ? "no token" : "wrong token"}`),
+    }));
+    evidence.steps.navigatedAway = { ...afterNavigation, pushAccepted: pushed, evilGot };
+    check(
+      "N: after the frame navigates away, the other page's messages are refused and the host pushes nothing to it",
+      !afterNavigation.connected && pushed === false && evilGot === null &&
+        afterNavigation.accepted.filter((t) => t === "send").length === 0 &&
+        afterNavigation.refused.includes("ready:no token") && afterNavigation.refused.includes("send:wrong token"),
+      JSON.stringify(evidence.steps.navigatedAway),
     );
   } catch (err) {
     check("the run completed", false, err.stack || String(err));

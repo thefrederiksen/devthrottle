@@ -16,7 +16,8 @@
         "questionIds": [
           "rerun"
         ]
-      }
+      },
+      "token": "8431794e2e57c87711be96199a9ff621"
     },
     "sendPayloadTheHostGot": {
       "channel": "devthrottle.dev-report",
@@ -46,14 +47,39 @@
             "comment": "The database is back tomorrow morning."
           }
         ]
-      }
+      },
+      "token": "8431794e2e57c87711be96199a9ff621"
+    },
+    "reloadRightAfterPushes": {
+      "sent": "Table cell - row \"Gateway\", column \"Failures\": \"42\"Forty-two failures cannot be right - the suite has twelve tests.Held - delivered when the agent finishes its turn",
+      "queued": "Answer: Should the failed suite be rerun tonight?Wait for tomorrow - nothing is blocked - The database is back tomorrow morning.Not taken - try againRemove",
+      "replies": "2026-09-16T12:00:00ZYou are right - the fixture double-counted. Fixed in section 1."
+    },
+    "resend": {
+      "channel": "devthrottle.dev-report",
+      "version": 1,
+      "type": "send",
+      "payload": {
+        "items": [
+          {
+            "id": "a2",
+            "kind": "answer",
+            "questionId": "rerun",
+            "question": "Should the failed suite be rerun tonight?",
+            "optionValue": "tomorrow",
+            "optionLabel": "Wait for tomorrow - nothing is blocked",
+            "comment": "The database is back tomorrow morning."
+          }
+        ]
+      },
+      "token": "405495491abe9007517c11372e38975a"
     },
     "afterReload": {
       "scrollY": 300,
       "draft": "half typed",
       "where": "\"The Gateway failures all come from one fixture that could not reach its database\"",
-      "sent": "Table cell - row \"Gateway\", column \"Failures\": \"42\"Forty-two failures cannot be right - the suite has twelve tests.Held - delivered when the agent finishes its turnAnswer: Should the failed suite be rerun tonight?Wait for tomorrow - nothing is blocked - The database is back tomorrow morning.Sent to the app",
-      "replies": "2026-09-16T12:00:00ZYou are right - the fixture double-counted. Fixed in section 1."
+      "tonightChecked": true,
+      "comment": "half an answer"
     },
     "noHost": {
       "payloadShown": {
@@ -75,20 +101,55 @@
         }
       },
       "queued": "Answer: Should the failed suite be rerun tonight?Rerun tonight - costs 20 minutes of machine timeRemove"
+    },
+    "hostileReport": {
+      "ran": {
+        "script": null,
+        "handler": null,
+        "readRestore": null,
+        "trayPresent": true,
+        "tokenAttributeLeft": false
+      },
+      "host": {
+        "accepted": [
+          "ready"
+        ],
+        "refused": [
+          "send:no token",
+          "send:wrong token"
+        ]
+      }
+    },
+    "navigatedAway": {
+      "connected": false,
+      "accepted": [
+        "ready"
+      ],
+      "refused": [
+        "send:no token",
+        "send:wrong token",
+        "ready:no token",
+        "send:wrong token"
+      ],
+      "pushAccepted": false,
+      "evilGot": null
     }
   },
   "passed": [
     "A: the report is in a sandboxed frame that cannot reach its host",
-    "B: the page announces ready with its question ids",
+    "B: the page announces ready with the host's token and its question ids",
     "C: the recommended option is preselected",
     "F: queued items show as queued and not as sent",
     "D: the note names the table cell by selector, text, row and column",
     "E: the answer carries the question, the chosen option and the comment",
-    "G: one send message carries exactly the two queued items",
-    "H: the host's status words and the reply are shown verbatim, and the queue is empty",
+    "G: one send carries both items, and they stay queued, waiting, until the host confirms",
+    "J: a reload straight after the host's status and reply keeps both",
+    "H: statuses and the reply show verbatim; a refused item stays queued with the reason and is the only thing sent again",
     "I: malformed, foreign and unknown messages are ignored",
-    "J: after a reload the host's restore brings back sent items, the reply, the half-typed note and the scroll position",
-    "K: with no host, Send shows the exact send message and keeps the queue"
+    "K: after a reload the half-typed note, the unqueued choice and comment, and the scroll position come back",
+    "L: with no host, Send shows the exact send message and keeps the queue",
+    "M: a report's own script and event handler do not run, only the injected script does, and tokenless or wrong-token messages are refused",
+    "N: after the frame navigates away, the other page's messages are refused and the host pushes nothing to it"
   ],
   "failed": []
 }
