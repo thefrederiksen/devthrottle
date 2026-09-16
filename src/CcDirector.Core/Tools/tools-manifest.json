@@ -51,6 +51,16 @@
       "note": "Auth-gated (device code). No zero-auth read-only command. Presence + version only."
     },
     {
+      "name": "cc-secrets",
+      "category": "Data",
+      "description": "Passwords your agents can use without ever seeing them: an agent runs a command or signs in to a website with a secret you added by hand, and gets back only the result.",
+      "smoke": {
+        "args": ["--help"],
+        "expectContains": "without the model ever seeing it"
+      },
+      "note": null
+    },
+    {
       "name": "cc-devthrottle",
       "category": "Fleet",
       "description": "Run DevThrottle itself from the command line: your sessions, messages between them, schedules, and settings.",

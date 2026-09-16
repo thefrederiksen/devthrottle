@@ -243,6 +243,15 @@
       "requirements": []
     },
     {
+      "name": "cc-secrets",
+      "category": "data-utilities",
+      "type": "python",
+      "description": "Use a stored password without the model ever seeing it: run a command or fill a login form with a secret the owner added by hand",
+      "built": true,
+      "ship": true,
+      "requirements": []
+    },
+    {
       "name": "cc-hardware",
       "category": "data-utilities",
       "type": "python",

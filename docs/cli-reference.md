@@ -967,6 +967,93 @@ COMMANDS:
   screenshot  Take a screenshot
 ```
 
+## cc-secrets
+
+Use a stored password without the model ever seeing it. The owner adds entries by hand on each
+machine; agents use them through `list`, `run` and `login`, and get back only the result. No command
+prints a secret, and there is deliberately no `get`.
+
+The store is one plain JSON file per user per machine (`secrets.json`), protected by user-only file
+permissions. Every use writes a line to `secrets-audit.log`.
+
+It protects against accidental exposure (transcripts, logs, output, screenshots), not against a
+hostile program running as the same user.
+
+```
+USAGE: cc-secrets [OPTIONS] COMMAND [ARGS]...
+
+COMMANDS:
+  add      OWNER: add or replace an entry (hidden prompt, or secret piped on stdin)
+  remove   OWNER: remove an entry
+  list     Entries agents may use: names, usernames, allowed addresses. Never secrets (--all, --json)
+  run      Run a command with the secret supplied; output comes back with the secret removed
+  login    Fill and submit the login form in a Director-owned browser; refuses any other address
+  log      Show the audit log (-n, --json)
+  version  Print the version
+```
+
+`add` and `remove` refuse to run inside a DevThrottle session. There is no option that takes the
+secret as an argument. In Git Bash (mintty) typing cannot be hidden, so `add` refuses there: run it from
+PowerShell or cmd, or pipe the secret in.
+
+No error is shown as a traceback: an unexpected error is named by its type only.
+
+### cc-secrets add
+
+```
+USAGE: cc-secrets add [OPTIONS] NAME
+
+OPTIONS:
+  --username TEXT         The user name that goes with the secret
+  --domains TEXT          Comma-separated site addresses login may fill: https://example.com,
+                          https://*.example.com, http://127.0.0.1:8080. No scheme means https;
+                          scheme, host and port must all match
+  --notes TEXT            A note for yourself; agents see it in list
+  --agents / --no-agents  Whether sessions on this machine may use it
+  --uses TEXT             Comma-separated: login, run [default: both]
+  --replace               Replace an existing entry without asking
+```
+
+With the secret piped on stdin, `--username`, `--domains` and `--agents`/`--no-agents` are required.
+
+### cc-secrets run
+
+```
+USAGE: cc-secrets run [OPTIONS] NAME -- COMMAND...
+
+OPTIONS:
+  --via TEXT        stdin, env or askpass [default: stdin]
+  --env-name TEXT   Variable name for --via env [default: CC_SECRET]
+  --timeout FLOAT   Seconds before the command is stopped [default: 600]
+  --json            Print JSON
+```
+
+Example: `cc-secrets run devlinux -- sudo -S apt-get update`
+
+### cc-secrets login
+
+```
+USAGE: cc-secrets login [OPTIONS] NAME
+
+OPTIONS:
+  --browser TEXT    The Director-owned browser profile (cc-devthrottle browser list) [required]
+  --timeout FLOAT   Seconds to wait for the login to complete [default: 30]
+  --json            Print JSON
+```
+
+Open the login page in that browser first. The tab's address AND the address the form sends to must be
+allowed, and the form must send by POST: a GET form would put the password in the page address and the
+browser history, so it is refused before anything is typed. The browser reads the form's method and
+address again after the page's own submit handlers have run, so those are re-checked inside the submit
+event itself and the submission is cancelled there if the page changed either one. Outcomes: `logged in`, `refused` (nothing typed), `verification` (finish two-step verification
+by hand), `failed`. After a password has been typed, whatever the outcome, every password field in the tab
+is emptied and the tab's back/forward history is reset, and that is confirmed by reading the tab back -
+including that neither the address nor the history holds the password; if one does, the tab is taken off
+that page first. If it cannot be confirmed - for example the connection dropped - it is redone over a fresh
+connection, and if that fails too the tab is closed.
+
+---
+
 ## cc-transcribe
 
 Transcribe video/audio with timestamps and screenshots.
