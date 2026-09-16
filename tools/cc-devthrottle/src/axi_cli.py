@@ -36,8 +36,10 @@ TOOL = "cc-devthrottle"
 
 # An identifier that can be pasted into a shell as it is: no spaces, quotes, or shell characters.
 _BARE_ARGUMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:@+-]*")
-# Characters a shell still acts on inside double quotes, or that would end the quoting.
-_UNSAFE_IN_DOUBLE_QUOTES = set('"\\$`!')
+# Characters a shell still acts on inside double quotes, or that would end the quoting. A backslash
+# is handled separately: a Windows path is full of them, and one is only read specially when another
+# backslash follows it or it would escape the closing quote.
+_UNSAFE_IN_DOUBLE_QUOTES = set('"$`!')
 
 
 def ascii_text(text: str) -> str:
@@ -61,6 +63,8 @@ def quoted(value: object, placeholder: str) -> str:
         and value == value.strip()
         and all(0x20 <= ord(ch) <= 0x7E for ch in value)
         and not _UNSAFE_IN_DOUBLE_QUOTES.intersection(value)
+        and "\\\\" not in value
+        and not value.endswith("\\")
     ):
         return f'"{value}"'
     return f'"{placeholder}"'

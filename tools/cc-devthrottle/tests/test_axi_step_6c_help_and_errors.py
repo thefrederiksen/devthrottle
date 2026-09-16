@@ -171,7 +171,10 @@ class TestAxiCli:
 
     def test_quoted_wraps_names_and_refuses_what_double_quotes_do_not_protect(self):
         assert axi_cli.quoted("Center Consulting", "<name>") == '"Center Consulting"'
-        for unsafe in ["", " padded", 'a"b', "a$b", "a`b", "a\\b", "a!b", "line\nbreak", "caf\u00e9", None]:
+        # A Windows path keeps its single backslashes: inside double quotes they are literal.
+        assert axi_cli.quoted("C:\\Users\\me\\my dir", "<dir>") == '"C:\\Users\\me\\my dir"'
+        for unsafe in ["", " padded", 'a"b', "a$b", "a`b", "a\\\\b", "\\\\server\\share", "ends\\",
+                       "a!b", "line\nbreak", "caf\u00e9", None]:
             assert axi_cli.quoted(unsafe, "<name>") == '"<name>"'
 
     def test_fail_refuses_an_error_without_a_next_step(self):
