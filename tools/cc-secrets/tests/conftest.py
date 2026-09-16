@@ -25,25 +25,6 @@ from src.storefile import UserOnlyFile  # noqa: E402
 
 _ANSI_STYLE = re.compile(r"\x1b\[[0-9;]*m")
 
-MACOS_REFUSED = ("cc-secrets refuses to run on macOS until its access control lists are checked (review of pull "
-                 "request 2891), so a test that needs the secrets folder cannot run here")
-
-
-def pytest_configure(config):
-    config.addinivalue_line("markers", "needs_store: the test creates or opens the secrets folder without the "
-                                       "home fixture")
-
-
-def pytest_collection_modifyitems(config, items):
-    """On macOS a test that needs the secrets folder would only show the refusal again, so it is skipped with the
-    reason. Every other test - redaction, the request guard, the refusal itself - still runs. A test needs the
-    folder when it uses the home fixture (store and entry go through it) or is marked needs_store."""
-    if sys.platform != "darwin":
-        return
-    for item in items:
-        if "home" in getattr(item, "fixturenames", ()) or item.get_closest_marker("needs_store"):
-            item.add_marker(pytest.mark.skip(reason=MACOS_REFUSED))
-
 
 def new_secret() -> str:
     """A secret unique to this test run, so a hit can only come from this run."""

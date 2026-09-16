@@ -6,12 +6,16 @@ protection at rest:
 - Windows: the folder's access list has inheritance removed and grants the current user alone; files
   created inside it inherit that single grant from the moment they exist.
 - Linux: the folder is 0700 and each file is created 0600.
-- macOS: REFUSED for now (paths.ensure_home). An access control list there can let another account read a
-  file whose mode is 0600, and these lists are not checked yet (review of pull request 2891).
+- macOS: the same modes, AND no access control list entry that allows anyone but this user. On macOS such
+  an entry can let another account read a file whose mode is 0600 (review of pull request 2891), and a file
+  created in a folder whose list has an inheritable entry is born carrying it, whatever mode it was created
+  with. Tightening strips the whole list (chmod -N) and sets the mode. A new file is checked the moment it
+  exists, before a byte is written, and refused if it inherited anything.
 
 Every access checks the permissions, tightens them when they have been loosened (and logs that it did),
-and refuses to go on if they are still open to anyone else. Checking on Windows reads the access list
-directly through the Windows security API, so it costs no subprocess; tightening runs icacls.
+and refuses to go on if they are still open to anyone else. Checking reads the access list directly through
+the operating system's own interface (the Windows security API, the macOS acl functions), so it costs no
+subprocess; tightening runs icacls on Windows and chmod on macOS.
 
 What this does not stop, stated plainly: an administrator or root can read any file on the machine, and
 any process running as this same user - an agent's shell included - can read it too. The rule that the
@@ -222,6 +226,107 @@ def _tighten_windows_file(path: Path) -> None:
 
 
 # --------------------------------------------------------------------------------------------------
+# macOS
+# --------------------------------------------------------------------------------------------------
+
+_ACL_TYPE_EXTENDED = 0x00000100
+_ENOENT = 2
+_user_uuid_cache: Optional[str] = None
+
+
+def _mac_libc():
+    import ctypes
+    import ctypes.util
+
+    libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+    libc.acl_get_file.argtypes = [ctypes.c_char_p, ctypes.c_int]
+    libc.acl_get_file.restype = ctypes.c_void_p
+    libc.acl_to_text.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_ssize_t)]
+    libc.acl_to_text.restype = ctypes.c_void_p
+    libc.acl_free.argtypes = [ctypes.c_void_p]
+    libc.acl_free.restype = ctypes.c_int
+    libc.mbr_uid_to_uuid.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
+    libc.mbr_uid_to_uuid.restype = ctypes.c_int
+    return ctypes, libc
+
+
+def current_user_uuid() -> str:
+    """The directory-services identifier of the user this process runs as, as macOS writes it in an access list."""
+    global _user_uuid_cache
+    if _user_uuid_cache is not None:
+        return _user_uuid_cache
+    import uuid
+
+    ctypes, libc = _mac_libc()
+    buffer = (ctypes.c_ubyte * 16)()
+    rc = libc.mbr_uid_to_uuid(os.getuid(), buffer)
+    if rc != 0:
+        raise StorePermissionError(f"Could not look up the identifier of user {os.getuid()} (error {rc}).")
+    _user_uuid_cache = str(uuid.UUID(bytes=bytes(buffer))).upper()
+    return _user_uuid_cache
+
+
+def mac_access_entries(path: Path) -> List[Tuple[str, str, str, List[str]]]:
+    """The access control list of `path` as [(tag, identifier, name, [allow or deny, then flags])].
+    Empty when the path has no list."""
+    ctypes, libc = _mac_libc()
+    acl = libc.acl_get_file(os.fsencode(str(path)), _ACL_TYPE_EXTENDED)
+    if not acl:
+        error = ctypes.get_errno()
+        if error == _ENOENT:
+            return []
+        raise StorePermissionError(f"Could not read the access control list of {path} ({os.strerror(error)}).")
+    try:
+        length = ctypes.c_ssize_t()
+        text_pointer = libc.acl_to_text(acl, ctypes.byref(length))
+        if not text_pointer:
+            raise StorePermissionError(
+                f"Could not read the access control list of {path} ({os.strerror(ctypes.get_errno())}).")
+        try:
+            text = ctypes.string_at(text_pointer).decode("utf-8")
+        finally:
+            libc.acl_free(text_pointer)
+    finally:
+        libc.acl_free(acl)
+    # One line per entry after the header: tag:identifier:name:numeric id:allow|deny[,flags]:permissions
+    entries = []
+    for line in text.splitlines():
+        if not line or line.startswith("!#acl"):
+            continue
+        fields = line.split(":")
+        if len(fields) != 6:
+            raise StorePermissionError(f"Could not understand an access control list entry of {path}: {line!r}")
+        tag, identifier, name, _, kind, _ = fields
+        entries.append((tag, identifier.upper(), name, kind.split(",")))
+    return entries
+
+
+def _mac_acl_problem(path: Path) -> Optional[str]:
+    """Why the access control list of `path` lets someone else in, or None.
+
+    Any entry that ALLOWS anyone but this user is a problem, whether it applies to the path itself or is
+    only passed on to new files (an inherit-only entry on the folder is exactly how a new file is born open).
+    Deny entries and entries for this user take nothing away from privacy.
+    """
+    user = current_user_uuid()
+    for tag, identifier, name, kind in mac_access_entries(path):
+        if kind[0] == "deny":
+            continue
+        if tag != "user" or identifier != user:
+            who = f"{tag} {name or identifier}"
+            how = " (inherited)" if "inherited" in kind else ""
+            return f"{path} has an access control list entry{how} that allows {who}, not only this user"
+    return None
+
+
+def _tighten_mac(path: Path, mode: int) -> None:
+    result = subprocess.run(["/bin/chmod", "-N", str(path)], capture_output=True, text=True, timeout=30)
+    if result.returncode != 0:
+        raise StorePermissionError(f"chmod -N {path} failed: {(result.stdout + result.stderr).strip()}")
+    os.chmod(path, mode)
+
+
+# --------------------------------------------------------------------------------------------------
 # macOS and Linux
 # --------------------------------------------------------------------------------------------------
 
@@ -231,6 +336,8 @@ def _posix_problem(path: Path) -> Optional[str]:
         return f"{path} is owned by another user"
     if info.st_mode & 0o077:
         return f"{path} has mode {stat.S_IMODE(info.st_mode):o}; group and others must have no access"
+    if sys.platform == "darwin":
+        return _mac_acl_problem(path)
     return None
 
 
@@ -279,6 +386,8 @@ def ensure_private_folder(folder: Path) -> Optional[str]:
         )
     if sys.platform == "win32":
         _tighten_windows_folder(folder)
+    elif sys.platform == "darwin":
+        _tighten_mac(folder, 0o700)
     else:
         os.chmod(folder, 0o700)
     remaining = folder_problem(folder)
@@ -296,6 +405,8 @@ def ensure_private_file(path: Path) -> Optional[str]:
         return None
     if sys.platform == "win32":
         _tighten_windows_file(path)
+    elif sys.platform == "darwin":
+        _tighten_mac(path, 0o600)
     else:
         os.chmod(path, 0o600)
     remaining = file_problem(path)
@@ -308,7 +419,9 @@ def create_private_file(path: Path) -> int:
     """Create a new file that is private from its first byte, and return its descriptor.
 
     The caller must already have made the parent folder private: on Windows the file takes the folder's
-    single grant by inheritance at creation, and on macOS and Linux it is created with mode 0600.
+    single grant by inheritance at creation, and on macOS and Linux it is created with mode 0600. On macOS a
+    file also takes the folder's inheritable access control list entries, whatever its mode, so the new file
+    is checked before anything is written and refused (and removed) if it carries one that lets anyone else in.
     """
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
     descriptor = os.open(path, flags, 0o600)

@@ -12,6 +12,9 @@ from conftest import add_entry, run_entry_point
 from src import paths, permissions
 
 WINDOWS = sys.platform == "win32"
+MACOS = sys.platform == "darwin"
+# An account every Mac has, standing in for "another account" in the access control list tests.
+OTHER_MAC_ACCOUNT = "_www"
 BUILTIN_USERS_SID = "S-1-5-32-545"
 
 
@@ -24,6 +27,8 @@ def _permissions_snapshot(path):
     if WINDOWS:
         return permissions.windows_access_list(path)
     info = os.stat(path)
+    if MACOS:
+        return info.st_uid, stat.S_IMODE(info.st_mode), permissions.mac_access_entries(path)
     return info.st_uid, stat.S_IMODE(info.st_mode)
 
 
@@ -41,7 +46,6 @@ def test_Put_LeavesNoTempFileBehind(store):
     assert sorted(p.name for p in paths.secrets_home().iterdir() if p.is_file()) == [".cc-secrets-folder", "secrets.json"]
 
 
-@pytest.mark.needs_store
 def test_ExistingFolderThatIsNotPrivate_IsRefused_AndLeftExactlyAsItWas(tmp_path, monkeypatch):
     folder = tmp_path / "someone-elses-folder"
     folder.mkdir()
@@ -58,7 +62,6 @@ def test_ExistingFolderThatIsNotPrivate_IsRefused_AndLeftExactlyAsItWas(tmp_path
     assert sorted(p.name for p in folder.iterdir()) == ["their-file.txt"]
 
 
-@pytest.mark.needs_store
 def test_Command_PointedAtAnExistingFolder_RefusesWithAClearMessage(tmp_path):
     folder = tmp_path / "someone-elses-folder"
     folder.mkdir()
@@ -73,7 +76,6 @@ def test_Command_PointedAtAnExistingFolder_RefusesWithAClearMessage(tmp_path):
     assert list(folder.iterdir()) == []
 
 
-@pytest.mark.needs_store
 def test_ExistingFolderThatIsAlreadyPrivate_IsAdopted(tmp_path, monkeypatch):
     folder = tmp_path / "already-private"
     folder.mkdir()
@@ -290,16 +292,174 @@ def test_Posix_LoosenedFile_IsDetected_ThenTightenedOnRead(store):
     assert stat.S_IMODE(os.stat(paths.store_path()).st_mode) == 0o600
 
 
-def test_MacOS_IsRefused_BeforeAnythingIsCreated(tmp_path, monkeypatch):
-    # Review of pull request 2891: mode bits alone do not make a file private on macOS, where an access control
-    # list can grant another account, and those lists are not checked yet.
-    folder = tmp_path / "never-created"
+def _chmod_acl(*args):
+    subprocess.run(["/bin/chmod", *args], check=True, capture_output=True)
+
+
+def _grant_other_account(path, rule=f"user:{OTHER_MAC_ACCOUNT} allow read"):
+    _chmod_acl("+a", rule, str(path))
+    assert permissions.mac_access_entries(path), f"test setup did not add an access control list entry to {path}"
+
+
+def _private_mode_folder(tmp_path, name):
+    folder = tmp_path / name
+    folder.mkdir()
+    os.chmod(folder, 0o700)
+    return folder
+
+
+@pytest.mark.skipif(not MACOS, reason="macOS access control list check")
+def test_MacOS_FolderWithPrivateModeButAnAccessListGrant_IsNotPrivate(tmp_path):
+    folder = _private_mode_folder(tmp_path, "grants-another-account")
+    assert permissions.folder_problem(folder) is None, "test setup: mode 0700 alone must pass"
+
+    _grant_other_account(folder)
+
+    assert OTHER_MAC_ACCOUNT in (permissions.folder_problem(folder) or "")
+
+
+@pytest.mark.skipif(not MACOS, reason="macOS access control list check")
+def test_MacOS_FolderGrantingAGroup_IsNotPrivate(tmp_path):
+    folder = _private_mode_folder(tmp_path, "grants-everyone")
+
+    _grant_other_account(folder, "group:everyone allow list")
+
+    assert "group everyone" in (permissions.folder_problem(folder) or "")
+
+
+@pytest.mark.skipif(not MACOS, reason="macOS access control list check")
+def test_MacOS_FolderGrantOnlyPassedOnToNewFiles_IsNotPrivate(tmp_path):
+    # An inherit-only entry grants nothing on the folder itself, but every file created inside is born with it.
+    folder = _private_mode_folder(tmp_path, "inherit-only-grant")
+
+    _grant_other_account(folder, f"user:{OTHER_MAC_ACCOUNT} allow read,file_inherit,only_inherit")
+
+    assert OTHER_MAC_ACCOUNT in (permissions.folder_problem(folder) or "")
+
+
+@pytest.mark.skipif(not MACOS, reason="macOS access control list check")
+def test_MacOS_FileWithPrivateModeButAnAccessListGrant_IsNotPrivate(tmp_path):
+    path = tmp_path / "file.json"
+    path.write_text("x", encoding="utf-8")
+    os.chmod(path, 0o600)
+    assert permissions.file_problem(path) is None, "test setup: mode 0600 alone must pass"
+
+    _grant_other_account(path)
+
+    assert OTHER_MAC_ACCOUNT in (permissions.file_problem(path) or "")
+
+
+@pytest.mark.skipif(not MACOS, reason="macOS access control list check")
+def test_MacOS_DenyEntriesAndGrantsToThisUser_StayPrivate(tmp_path):
+    import pwd
+
+    folder = _private_mode_folder(tmp_path, "deny-and-self")
+    _chmod_acl("+a", "group:everyone deny delete", str(folder))
+    _chmod_acl("+a", f"user:{pwd.getpwuid(os.getuid()).pw_name} allow read,file_inherit", str(folder))
+    assert len(permissions.mac_access_entries(folder)) == 2, "test setup did not add both entries"
+
+    assert permissions.folder_problem(folder) is None
+
+
+@pytest.mark.skipif(not MACOS, reason="macOS access control list check")
+def test_MacOS_LoosenedFolderItCreated_IsDetected_ThenStripped(store):
+    add_entry(store)
+    folder = paths.secrets_home()
+    _grant_other_account(folder, f"user:{OTHER_MAC_ACCOUNT} allow read,list,file_inherit,directory_inherit")
+    assert OTHER_MAC_ACCOUNT in (permissions.folder_problem(folder) or "")
+
+    note = permissions.ensure_private_folder(folder)
+
+    assert note is not None and OTHER_MAC_ACCOUNT in note
+    assert permissions.mac_access_entries(folder) == []
+    assert stat.S_IMODE(os.stat(folder).st_mode) == 0o700
+    assert permissions.folder_problem(folder) is None
+
+
+@pytest.mark.skipif(not MACOS, reason="macOS access control list check")
+def test_MacOS_ExistingFolderWithAnAccessListGrant_IsRefused_AndLeftExactlyAsItWas(tmp_path, monkeypatch):
+    folder = _private_mode_folder(tmp_path, "someone-elses-shared-folder")
+    _grant_other_account(folder)
+    before = _permissions_snapshot(folder)
     monkeypatch.setenv("CC_SECRETS_HOME", str(folder))
     monkeypatch.setattr(paths, "_checked_home", None)
-    monkeypatch.setattr(sys, "platform", "darwin")
 
-    with pytest.raises(permissions.StorePermissionError, match="does not run on macOS"):
+    with pytest.raises(permissions.StorePermissionError, match="created itself"):
         paths.ensure_home()
 
-    monkeypatch.undo()
-    assert not folder.exists()
+    assert _permissions_snapshot(folder) == before
+    assert OTHER_MAC_ACCOUNT in str(before)
+    assert list(folder.iterdir()) == []
+
+
+@pytest.mark.skipif(not MACOS, reason="macOS access control list check")
+def test_MacOS_NewFolderUnderAParentThatPassesOnAGrant_IsCreatedPrivate(tmp_path, monkeypatch):
+    parent = _private_mode_folder(tmp_path, "parent")
+    _grant_other_account(parent, f"user:{OTHER_MAC_ACCOUNT} allow list,read,file_inherit,directory_inherit")
+    folder = parent / "secrets-home"
+    monkeypatch.setenv("CC_SECRETS_HOME", str(folder))
+    monkeypatch.setattr(paths, "_checked_home", None)
+
+    paths.ensure_home()
+
+    assert permissions.mac_access_entries(folder) == []
+    assert permissions.folder_problem(folder) is None
+
+
+@pytest.mark.skipif(not MACOS, reason="macOS access control list check")
+def test_MacOS_LoosenedStoreFile_IsStrippedOnRead(store):
+    add_entry(store)
+    _grant_other_account(paths.store_path())
+    assert OTHER_MAC_ACCOUNT in (permissions.file_problem(paths.store_path()) or "")
+
+    store.entries()
+
+    assert permissions.mac_access_entries(paths.store_path()) == []
+    assert permissions.file_problem(paths.store_path()) is None
+
+
+@pytest.mark.skipif(not MACOS, reason="macOS access control list check")
+def test_MacOS_NewFileInAFolderThatPassesOnAGrant_IsRefusedBeforeAnythingIsWritten(tmp_path):
+    folder = _private_mode_folder(tmp_path, "passes-on-a-grant")
+    _grant_other_account(folder, f"user:{OTHER_MAC_ACCOUNT} allow read,file_inherit,only_inherit")
+    # The premise: a file created with mode 0600 in this folder is still born carrying the grant.
+    premise = folder / "premise.tmp"
+    os.close(os.open(premise, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))
+    assert stat.S_IMODE(os.stat(premise).st_mode) == 0o600
+    assert any("inherited" in kind for _, _, name, kind in permissions.mac_access_entries(premise)
+               if name == OTHER_MAC_ACCOUNT)
+    premise.unlink()
+    probe = folder / "probe.tmp"
+
+    with pytest.raises(permissions.StorePermissionError, match="would not be private"):
+        permissions.create_private_file(probe)
+
+    assert not probe.exists()
+
+
+@pytest.mark.skipif(not MACOS, reason="macOS access control list check")
+def test_MacOS_SaveIntoAFolderThatPassesOnAGrant_WritesNothing(tmp_path, monkeypatch):
+    # The check on the folder is bypassed so the save reaches the new-file check, the last line of defence.
+    import json
+
+    from src.storefile import UserOnlyFile
+
+    folder = _private_mode_folder(tmp_path, "passes-on-a-grant")
+    (folder / permissions.FOLDER_MARKER).write_text("x", encoding="utf-8")
+    _grant_other_account(folder, f"user:{OTHER_MAC_ACCOUNT} allow read,file_inherit,only_inherit")
+    monkeypatch.setenv("CC_SECRETS_HOME", str(folder))
+    monkeypatch.setattr(paths, "_checked_home", folder)
+    store_file = UserOnlyFile(folder / "secrets.json")
+
+    with pytest.raises(permissions.StorePermissionError, match="would not be private"):
+        store_file.write(json.dumps({"version": 1, "entries": []}).encode("utf-8"))
+
+    assert sorted(p.name for p in folder.iterdir()) == [permissions.FOLDER_MARKER]
+
+
+@pytest.mark.skipif(not MACOS, reason="macOS access control list check")
+def test_MacOS_Put_LeavesNoAccessListOnFolderOrFile(store):
+    add_entry(store)
+
+    assert permissions.mac_access_entries(paths.secrets_home()) == []
+    assert permissions.mac_access_entries(paths.store_path()) == []
