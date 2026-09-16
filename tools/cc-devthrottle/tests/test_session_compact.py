@@ -83,7 +83,10 @@ def test_the_two_verbs_are_separately_discoverable(monkeypatch):
     assert "compact-continue" not in plain["command"]
     assert "NOTHING afterwards" in plain["description"]
     assert "compact-continue" in both["command"]
-    assert "THEN send it a message" in both["description"]
+    assert "THEN type a prompt" in both["description"]
+    # The Message Load mission, ruling 17: the continue half is the owner's, and the entry says so, so an
+    # agent listing actions does not pick a verb the Gateway will refuse it.
+    assert "REFUSES this to every agent" in both["description"]
 
 
 def test_compact_only_sends_no_follow_up(posted):

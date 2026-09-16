@@ -171,7 +171,7 @@ def _resolve_target(target: str, *, command_name: str) -> Dict[str, Any]:
             )
         # THE negative answer the second caution exists for. A machine whose tunnel is up but whose
         # pushes are late can be hiding the very session being addressed, and every target-resolving
-        # verb comes through here - message send, message ask, rename, done, hold, compact. Printed on
+        # verb comes through here - message send, rename, done, hold, compact. Printed on
         # this path only, so it stays rare enough to be read.
         if stale_caution:
             console.print(f"[yellow]{_text(stale_caution)}[/yellow]", soft_wrap=True)
@@ -615,8 +615,9 @@ def rename_session(target: Optional[str], new_name: str) -> Dict[str, Any]:
 def prompt_session(target: str, text: str, no_submit: bool = False) -> Dict[str, Any]:
     """Send raw text into a session - what a human typing into it would produce.
 
-    Unlike `message send`, this does NOT frame the text with a sender. Restores the old
-    POST /sessions/{sid}/prompt.
+    THE GATEWAY REFUSES THIS TO EVERY AGENT (the Message Load mission, ruling 17): only the owner
+    types into a session, from his own screens. This command always runs with a session key, so it
+    prints the Gateway's refusal, which names the queued message to send instead.
     """
     if not text.strip():
         console.print("[red]Error:[/red] the prompt text cannot be blank.")
@@ -627,19 +628,23 @@ def prompt_session(target: str, text: str, no_submit: bool = False) -> Dict[str,
             f"sessions/{sid}/prompt", {"text": text, "appendEnter": not no_submit}
         )
     except gateway.GatewayError as err:
-        console.print(f"[red]Error:[/red] {err}")
+        console.print(f"[red]Error:[/red] {escape(str(err))}")
         raise typer.Exit(1)
     console.print(f"[green]Sent[/green] prompt to {gateway.short_id(sid)}.")
     return resp if isinstance(resp, dict) else {}
 
 
 def interrupt_session(target: Optional[str]) -> Dict[str, Any]:
-    """Stop what a session is currently doing. Restores the old POST /sessions/{sid}/interrupt."""
+    """Stop what a session is currently doing.
+
+    THE GATEWAY REFUSES THIS TO EVERY AGENT (the Message Load mission, ruling 17), for the same reason
+    as `session prompt`; the refusal is printed as the Gateway wrote it.
+    """
     sid = resolve_target_or_current(target)
     try:
         resp = gateway.post_json(f"sessions/{sid}/interrupt")
     except gateway.GatewayError as err:
-        console.print(f"[red]Error:[/red] {err}")
+        console.print(f"[red]Error:[/red] {escape(str(err))}")
         raise typer.Exit(1)
     console.print(f"[green]Interrupted[/green] {gateway.short_id(sid)}.")
     return resp if isinstance(resp, dict) else {}
@@ -724,14 +729,12 @@ def report_to_parent(summary: Optional[str], target: Optional[str] = None) -> No
     getting back to them is part of doing it. This is the session doing that itself, in its own
     words - not the roster hoping somebody wanders past a grey row and wonders about it.
 
-    IT INTERRUPTS, DELIBERATELY (owner's ruling, 2026-09-13). Every fleet message lands mid-turn in
-    the receiving agent, and that is the right cost here: a parent that took ownership of a session
-    took on being interrupted when it comes back. The alternative already existed and is what failed
-    - the hand-raise registry is pull-only, so a supervisor learns nothing unless it thinks to look,
-    which is how a finished session sits quiet and finished with nobody ever told. A signal nobody is
-    obliged to read is a signal that does not exist. The load is bounded by how many sessions a
-    parent CHOSE to own, and since ownership must now be declared at spawn, owning five of them is a
-    deliberate act rather than an accident of an environment variable.
+    IT IS QUEUED, NOT TYPED (the Message Load mission, 16 September 2026, reversing the owner's
+    ruling of 13 September that a report interrupts). The report is written to the parent's inbox as
+    a message of kind "report" and the parent reads it when it is free - nothing lands mid-turn. It is
+    still not a pull-only flag: the record stays open until the parent reads it. A report is not held
+    to the one-message-per-ten-minutes spacing, because every refused message is told to put what it
+    wanted to say in the report.
 
     NO PARENT MEANS THE USER, AND THEN THERE IS NOTHING TO SEND. A session the user owns is already
     red and already in his queue - that red IS the report, and messaging him a second time through a
@@ -797,9 +800,9 @@ def report_to_parent(summary: Optional[str], target: Optional[str] = None) -> No
         return
 
     try:
-        resp = gateway.post_json(f"sessions/{parent_id}/message", {"text": text})
+        resp = gateway.post_json(f"sessions/{parent_id}/message", {"text": text, "kind": "report"})
     except gateway.GatewayError as err:
-        console.print(f"[red]Error:[/red] {err}")
+        console.print(f"[red]Not queued:[/red] {escape(str(err))}")
         raise typer.Exit(1)
 
     parent_name = None
@@ -808,7 +811,7 @@ def report_to_parent(summary: Optional[str], target: Optional[str] = None) -> No
             parent_name = gateway.field(s, "name", "Name")
             break
     label = parent_name or gateway.short_id(parent_id)
-    _report_delivery(resp, f"{label} ({gateway.short_id(parent_id)})")
+    _report_queued(resp, f"{label} ({gateway.short_id(parent_id)})")
 
 
 def list_my_workers(target: Optional[str] = None) -> None:
@@ -1232,45 +1235,71 @@ def stop_session(target: str, reason: Optional[str], json_output: bool = False) 
     return body
 
 
-def _report_delivery(resp: Any, who: str) -> None:
-    """Report a delivery from either of the Gateway's two answer shapes.
+def _report_queued(resp: Any, who: str) -> None:
+    """Report what the Gateway did with ONE message: queued, dropped as a duplicate, or refused.
 
-    A message to ONE session answers with the prompt result - accepted plus an error - and a broadcast
-    answers with the fan-out: a per-recipient result row each, a refusal, or a note that there was
-    nobody to send to. Both are read here rather than at the two call sites so the sentence the user
-    reads cannot drift between "message send" and "message send all".
+    QUEUED, NEVER DELIVERED. The message is a record in the recipient's inbox; nothing was typed into
+    it, and it reads the message when it is next free. Saying "delivered" would claim the recipient
+    has seen it, which nothing here knows.
 
-    The counting is the part worth being careful about. A fan-out row with no error was delivered; a
-    row with one was not, and counting rows rather than successes would report a storm of failures as
-    a successful broadcast. A refusal is an error even though it arrives with a 200 - the Hub answers
-    scope refusals in the body, not the status code.
+    A refusal usually arrives as an HTTP error, which the caller turns into the same "Not queued"
+    line; this also handles a refusal that arrives in a 200 body, so the sentence cannot drift.
     """
-    accepted = False
-    count = 0
-    err: Optional[str] = None
-    warning: Optional[str] = None
+    status = ""
     if isinstance(resp, dict):
-        warning = resp.get("warning") or resp.get("Warning")
-        results = resp.get("results", resp.get("Results"))
-        if bool(resp.get("denied", resp.get("Denied", False))):
-            err = resp.get("deniedReason") or resp.get("DeniedReason") or "the broadcast was refused"
-        elif isinstance(results, list):
-            count = sum(1 for r in results if isinstance(r, dict) and not (r.get("error") or r.get("Error")))
-            failed = [r for r in results if isinstance(r, dict) and (r.get("error") or r.get("Error"))]
-            accepted = True
-            if failed and not warning:
-                warning = (f"{len(failed)} of {len(results)} recipients did not receive it: "
-                           + "; ".join(str(r.get("error") or r.get("Error")) for r in failed[:3]))
-        else:
-            accepted = bool(resp.get("accepted", resp.get("Accepted", False)))
-            count = 1 if accepted else 0
-            err = resp.get("error") or resp.get("Error")
-    if accepted:
-        console.print(f"[green]Delivered[/green] to {who} ({count} session(s)).")
-        if warning:
-            console.print(f"[yellow]Note:[/yellow] {warning}")
-    else:
-        console.print(f"[red]Not delivered:[/red] {err or 'unknown error'}")
+        status = str(resp.get("status", resp.get("Status", "")) or "")
+    if status == "queued":
+        mid = str(resp.get("messageId", resp.get("MessageId", "")) or "")
+        console.print(
+            f"[green]Queued[/green] for {escape(who)} (message {mid}). Nothing was typed into it; "
+            "it reads the message from its inbox when it is free."
+        )
+        return
+    if status == "duplicate":
+        note = resp.get("note") or resp.get("Note") or "an identical message is already waiting unread."
+        console.print(f"[yellow]Not queued again:[/yellow] {escape(str(note))}")
+        return
+    err = None
+    if isinstance(resp, dict):
+        err = resp.get("error") or resp.get("Error")
+    console.print(f"[red]Not queued:[/red] {escape(str(err or 'the Gateway gave no answer this tool understands'))}")
+    raise typer.Exit(1)
+
+
+def _report_broadcast(resp: Any, who: str) -> None:
+    """Report a broadcast: one row per recipient, each queued, dropped or refused on its own.
+
+    Counting is by OUTCOME, not by row - a broadcast where every row was refused queued nothing, and
+    saying "sent to 4 sessions" about it would be the failure this report exists to prevent. A
+    broadcast that queued nothing at all exits 1; one that queued some says which were not.
+    """
+    if not isinstance(resp, dict):
+        console.print("[red]Not queued:[/red] the Gateway gave no answer this tool understands.")
+        raise typer.Exit(1)
+    if bool(resp.get("denied", resp.get("Denied", False))):
+        reason = resp.get("deniedReason") or resp.get("DeniedReason") or "the broadcast was refused"
+        console.print(f"[red]Not queued:[/red] {escape(str(reason))}")
+        raise typer.Exit(1)
+    warning = resp.get("warning") or resp.get("Warning")
+    results = resp.get("results", resp.get("Results")) or []
+    if not results:
+        console.print(f"Nothing to queue: {escape(str(warning or 'there was nobody to send to.'))}")
+        return
+    queued = [r for r in results if isinstance(r, dict) and r.get("status", r.get("Status")) == "queued"]
+    dupes = [r for r in results if isinstance(r, dict) and r.get("status", r.get("Status")) == "duplicate"]
+    refused = [r for r in results if r not in queued and r not in dupes]
+    console.print(
+        f"Queued for {len(queued)} of {len(results)} session(s) in {escape(who)}. Nothing was typed "
+        "into any of them; each reads it from its inbox when it is free."
+    )
+    for r in dupes:
+        sid = gateway.short_id(str(r.get("recipientSessionId", r.get("RecipientSessionId", "")) or ""))
+        console.print(f"  [yellow]{sid} not queued again:[/yellow] {escape(str(r.get('note') or r.get('Note') or ''))}")
+    for r in refused:
+        sid = gateway.short_id(str(r.get("recipientSessionId", r.get("RecipientSessionId", "")) or "")) if isinstance(r, dict) else "?"
+        why = (r.get("error") or r.get("Error")) if isinstance(r, dict) else None
+        console.print(f"  [red]{sid} not queued:[/red] {escape(str(why or 'refused'))}")
+    if not queued and not dupes:
         raise typer.Exit(1)
 
 
@@ -1280,18 +1309,17 @@ def send_message(
     everyone: bool = False,
     reason: str | None = None,
     grant: str | None = None,
+    kind: str = "message",
 ) -> None:
-    """Send a message to one session, or broadcast with target 'all'.
+    """Queue a message for one session, or for each of your workers with target 'all'.
 
-    A plain 'all' reaches only the sender's team (its Mission, or - solo - the same repository on the
-    same machine). --everyone asks to reach the whole fleet, which the Gateway Hub gates on a human
-    grant plus a reason (issue #1229)."""
-    me = gateway.session_id()
-
+    The Gateway decides who you may write to: the session that started you, and the sessions you
+    started. Anything else is refused with the reason. --everyone reaches the whole account and needs
+    a human grant plus a reason (issue #1229); its copies are queued like any other message."""
     if target.strip().lower() == "all":
         # No sender field: the Gateway takes it from the session key that authenticated the call, so
-        # the team it resolves and the message it frames are about the same session by construction.
-        body = {"text": message}
+        # the workers it finds and the sender it records are about the same session by construction.
+        body: Dict[str, Any] = {"text": message}
         if everyone:
             body["everyone"] = True
             if reason:
@@ -1301,54 +1329,89 @@ def send_message(
         try:
             resp = gateway.post_json("fleet/broadcast", body)
         except gateway.GatewayError as err:
-            console.print(f"[red]Error:[/red] {err}")
+            console.print(f"[red]Not queued:[/red] {escape(str(err))}")
             raise typer.Exit(1)
-        _report_delivery(resp, "the whole fleet" if everyone else "your team")
+        _report_broadcast(resp, "the whole account" if everyone else "your workers")
         return
 
     chosen = _resolve_target(target, command_name="cc-devthrottle message send")
     target_sid = gateway.field(chosen, "sessionId", "SessionId")
+    body = {"text": message}
+    if kind != "message":
+        body["kind"] = kind
     try:
-        resp = gateway.post_json(f"sessions/{target_sid}/message", {"text": message})
+        resp = gateway.post_json(f"sessions/{target_sid}/message", body)
     except gateway.GatewayError as err:
-        console.print(f"[red]Error:[/red] {err}")
+        console.print(f"[red]Not queued:[/red] {escape(str(err))}")
         raise typer.Exit(1)
 
     name = gateway.field(chosen, "name", "Name") or gateway.short_id(target_sid)
-    _report_delivery(resp, f'{name} ({gateway.short_id(target_sid)})')
+    _report_queued(resp, f"{name} ({gateway.short_id(target_sid)})")
 
 
-def ask_session(target: str, question: str, timeout_ms: int) -> None:
-    """Ask one session a question and print its answer."""
-    if target.strip().lower() == "all":
-        console.print(
-            "[red]message ask targets a single session.[/red] "
-            "Use cc-devthrottle message send all for a broadcast."
-        )
-        raise typer.Exit(1)
+INBOX_HELP = [
+    "cc-devthrottle message inbox --all",
+    'cc-devthrottle message send <id> "<message>"',
+    'cc-devthrottle session report "<what you did>"',
+]
 
-    me = gateway.session_id()
-    chosen = _resolve_target(target, command_name="cc-devthrottle message ask")
-    target_sid = gateway.field(chosen, "sessionId", "SessionId")
 
-    http_timeout = max(30.0, timeout_ms / 1000.0 + 15.0)
+def _inbox_block(m: Dict[str, Any], index: int, total: int) -> str:
+    """One message, in full, as ASCII lines. The text is never cut: reading it marked it read, so a
+    truncated body would be a message the recipient can never see the rest of."""
+    sender_id = m.get("fromSessionId") or m.get("FromSessionId")
+    sender_name = m.get("fromName") or m.get("FromName")
+    machine = m.get("fromMachine") or m.get("FromMachine")
+    if sender_id:
+        who = f"{sender_name} ({sender_id})" if sender_name else str(sender_id)
+        if machine:
+            who += f" on {machine}"
+    else:
+        who = "the Gateway"
+    text = str(m.get("text", m.get("Text", "")) or "")
+    lines = [
+        f"message {index} of {total}",
+        f"  id: {axi_output.escape_ascii(str(m.get('messageId', m.get('MessageId', ''))))}",
+        f"  from: {axi_output.escape_ascii(who)}",
+        f"  kind: {axi_output.escape_ascii(str(m.get('kind', m.get('Kind', ''))))}",
+        f"  sent: {axi_output.escape_ascii(str(m.get('sentAtUtc', m.get('SentAtUtc', ''))))}",
+        "  text:",
+    ]
+    lines.extend("    " + axi_output.escape_ascii(line) for line in text.split("\n"))
+    return "\n".join(lines)
+
+
+def read_inbox(include_read: bool = False, json_output: bool = False) -> Dict[str, Any]:
+    """Read THIS session's inbox: every unread message in full, each marked read by this call.
+
+    Reading is the acknowledgement. A message stays open - and its sender can see it is still unread -
+    until the recipient runs this. `--all` adds the messages read earlier, newest first.
+    """
+    path = "fleet/inbox?all=true" if include_read else "fleet/inbox"
     try:
-        # An ask is a message that WAITS. waitForIdle also drops the reply hint from the frame: the
-        # asker is already holding the line and reads the answer from the target's own output, so a
-        # "reply with this command" line would make the recipient answer into a channel nobody reads.
-        resp = gateway.post_json(
-            f"sessions/{target_sid}/message",
-            {"text": question, "waitForIdle": True, "timeoutMs": timeout_ms},
-            timeout=http_timeout,
-        )
+        resp = gateway.get_json(path)
     except gateway.GatewayError as err:
-        console.print(f"[red]{err}[/red]")
+        console.print(f"[red]Error:[/red] {escape(str(err))}")
         raise typer.Exit(1)
+    if not isinstance(resp, dict):
+        console.print("[red]Error:[/red] the Gateway did not return an inbox.")
+        raise typer.Exit(1)
+    if json_output:
+        print(json.dumps(resp, indent=2))
+        return resp
 
-    answer = (gateway.field(resp, "output", "Output") if isinstance(resp, dict) else "").strip()
-    name = gateway.field(chosen, "name", "Name") or gateway.short_id(target_sid)
-    console.print(f"[dim]-- answer from {name} ({gateway.short_id(target_sid)}) --[/dim]")
-    console.print(answer if answer else "(the target produced no output)")
+    unread = [m for m in (resp.get("unread", resp.get("Unread")) or []) if isinstance(m, dict)]
+    recent = [m for m in (resp.get("recent", resp.get("Recent")) or []) if isinstance(m, dict)]
+    blocks = [f"count: {len(unread)} unread" + (" (now marked read)" if unread else "")]
+    for n, m in enumerate(unread, 1):
+        blocks.append(_inbox_block(m, n, len(unread)))
+    if include_read:
+        blocks.append(f"earlier: {len(recent)} read before")
+        for n, m in enumerate(recent, 1):
+            blocks.append(_inbox_block(m, n, len(recent)))
+    blocks.append(axi_output.format_help(INBOX_HELP))
+    axi_output.write_blocks(sys.stdout, *blocks)
+    return resp
 
 
 def _controller_mission(controller_session_id: str) -> Optional[Dict[str, Any]]:
@@ -1657,8 +1720,7 @@ If you cannot say why it is his, it is probably yours:
             f"session {controller_label}. Undo with: cc-devthrottle mission detach {short}"
         )
     console.print(
-        f'Message it:  cc-devthrottle message send {short} "<message>"'
-        f'   |   Ask it:  cc-devthrottle message ask {short} "<question>"'
+        f'Message it (queued, read when it is free):  cc-devthrottle message send {short} "<message>"'
     )
 
 
@@ -1718,9 +1780,17 @@ def _resolve_director_id(name: str, machine: str) -> str:
 
 
 def _spawn_selftest(repo: str, command_args: str, name: str) -> str:
+    # Controlled by THIS session: a session may message only the sessions it started, so a throwaway
+    # nobody owns could not be written to at all, and the test would be measuring the refusal.
     resp = gateway.post_json(
         f"directors/{_my_director()}/sessions",
-        {"repoPath": repo, "agent": "RawCli", "command": "cmd", "commandArgs": command_args},
+        {
+            "repoPath": repo,
+            "agent": "RawCli",
+            "command": "cmd",
+            "commandArgs": command_args,
+            "controllerSessionId": gateway.session_id(),
+        },
     )
     sid = gateway.field(resp, "sessionId", "SessionId")
     if not sid:
@@ -1742,10 +1812,15 @@ def _fleet_ids() -> List[str]:
 
 
 def selftest(timeout_ms: int) -> None:
-    """Run the fleet messaging self-test against the local Director."""
+    """Run the fleet messaging self-test against the local Director.
+
+    It spawns one throwaway it controls, queues a message for it, and checks the Gateway answered
+    "queued". It cannot read the throwaway's inbox - only the throwaway's own key can - so what it
+    proves is that a message to your own worker is accepted and recorded, not that it was read.
+    `timeout_ms` is kept for callers that still pass it; nothing waits any more.
+    """
     repo = tempfile.gettempdir()
     results: List[Tuple[str, bool, str]] = []
-    responder: Optional[str] = None
     recipient: Optional[str] = None
 
     def record(step: str, ok: bool, detail: str = "") -> None:
@@ -1754,46 +1829,23 @@ def selftest(timeout_ms: int) -> None:
         console.print(f"  {mark}  {step}{('  - ' + detail) if detail else ''}")
 
     try:
-        responder = _spawn_selftest(repo, f"/k prompt {SELFTEST_MARKER}$G", "selftest-responder")
         recipient = _spawn_selftest(repo, "/k", "selftest-recipient")
-        record(
-            "spawn two sessions",
-            True,
-            f"responder={gateway.short_id(responder)} recipient={gateway.short_id(recipient)}",
-        )
+        record("spawn a worker", True, f"recipient={gateway.short_id(recipient)}")
         time.sleep(2)
 
         ids = _fleet_ids()
-        listed = responder in ids and recipient in ids
-        record("session list includes both", listed)
+        record("session list includes it", recipient in ids)
 
-        # The self-test's messages are sent AS THIS SESSION, not as the throwaway it spawned: the
-        # Gateway takes the sender from the key that authenticated the call, and this process holds
-        # its own session's key, not the throwaways'. What is under test is that a message reaches a
-        # session and that an ask comes back with its answer, and both still are.
         send = gateway.post_json(
             f"sessions/{recipient}/message", {"text": "fleet self-test message"},
         )
-        accepted = bool(isinstance(send, dict) and send.get("accepted", send.get("Accepted", False)))
-        record("message send delivers", accepted, str(gateway.field(send, "error", "Error") or ""))
-
-        ask = gateway.post_json(
-            f"sessions/{responder}/message",
-            {"text": "selftest ping", "waitForIdle": True, "timeoutMs": timeout_ms},
-            timeout=timeout_ms / 1000.0 + 15.0,
-        )
-        answer = gateway.field(ask, "output", "Output") if isinstance(ask, dict) else ""
-        got_marker = SELFTEST_MARKER in answer
-        record(
-            "message ask returns the answer",
-            got_marker,
-            "marker found" if got_marker else f"status={gateway.field(ask, 'waitStatus', 'WaitStatus')}",
-        )
+        status = gateway.field(send, "status", "Status") if isinstance(send, dict) else ""
+        record("message send queues", status == "queued", f"status={status}")
 
     except gateway.GatewayError as err:
         record("fleet messaging reachable", False, str(err))
     finally:
-        for sid in (responder, recipient):
+        for sid in (recipient,):
             if sid:
                 try:
                     # request-deletion, not a hard DELETE: that is the verb an agent credential may
@@ -1805,7 +1857,7 @@ def selftest(timeout_ms: int) -> None:
         try:
             time.sleep(1)
             remaining = _fleet_ids()
-            leaked = [s for s in (responder, recipient) if s and s in remaining]
+            leaked = [s for s in (recipient,) if s and s in remaining]
             record("throwaway sessions cleaned up", not leaked, "" if not leaked else f"leaked {len(leaked)}")
         except gateway.GatewayError as err:
             record("throwaway sessions cleaned up", False, str(err))
