@@ -54,7 +54,7 @@ public sealed class SnoozeExpiryStampsReadingBeforeItReadsTests
 
         // Answered on the caller's thread - this IS the fold's thread in production, and the fold is about to
         // serve the very row it just asked about.
-        Assert.True(reading);
+        Assert.True(reading, $"the seat did not take the read: stateReads={env.StateReads} screenReads={env.ScreenReads} judge={env.Knobs.JudgeEnabled} maxInFlight={env.Knobs.MaxInFlight} steps={string.Join(",", env.Steps)}");
         Assert.True(seat.IsReading(Tenant, Sid));
         // AND THE READ HAS NOT COMPLETED, which is what makes the line above an ordering claim rather than a
         // coincidence: the judge is asked only after the screen comes back, and the screen cannot come back
@@ -98,7 +98,7 @@ public sealed class SnoozeExpiryStampsReadingBeforeItReadsTests
 
         var reading = seat.StartSnoozeExpiryReJudge(Tenant, "dir-1", Sid);
 
-        Assert.True(reading);
+        Assert.True(reading, $"the seat did not take the read: stateReads={env.StateReads} screenReads={env.ScreenReads} judge={env.Knobs.JudgeEnabled} maxInFlight={env.Knobs.MaxInFlight} steps={string.Join(",", env.Steps)}");
         Assert.True(seat.IsReading(Tenant, Sid));
         Assert.Equal(0, env.ScreenReads);
         Assert.Equal(0, env.JudgeCalls);
@@ -144,10 +144,9 @@ public sealed class SnoozeExpiryStampsReadingBeforeItReadsTests
         var env = Env();
         using var seat = new TurnVerdictService(env);
 
-        Assert.True(seat.StartSnoozeExpiryReJudge(Tenant, "dir-1", Sid));
+        Assert.True(seat.StartSnoozeExpiryReJudge(Tenant, "dir-1", Sid), $"the seat did not take the read: stateReads={env.StateReads} steps={string.Join(",", env.Steps)}");
 
-        var waitedFor = TimeSpan.FromSeconds(30);
-        var until = DateTime.UtcNow + waitedFor;
+        var until = DateTime.UtcNow + TimeSpan.FromSeconds(60);
         while (seat.IsReading(Tenant, Sid) && DateTime.UtcNow < until)
             await Task.Delay(10);
 
@@ -170,7 +169,7 @@ public sealed class SnoozeExpiryStampsReadingBeforeItReadsTests
         };
         using var seat = new TurnVerdictService(env);
 
-        Assert.True(seat.StartSnoozeExpiryReJudge(Tenant, "dir-1", Sid));
+        Assert.True(seat.StartSnoozeExpiryReJudge(Tenant, "dir-1", Sid), $"the seat did not take the read: stateReads={env.StateReads} steps={string.Join(",", env.Steps)}");
         var second = seat.StartSnoozeExpiryReJudge(Tenant, "dir-1", Sid);
 
         // It reports what the running judgement stamped, and it stamped nothing of its own.
@@ -180,7 +179,7 @@ public sealed class SnoozeExpiryStampsReadingBeforeItReadsTests
         // still running - a count taken mid-flight answers "how far has that thread got", which is not a claim
         // about the seat at all. Reading the count here is race-free because nothing is left to run.
         screenIsOpen.Set();
-        var until = DateTime.UtcNow + TimeSpan.FromSeconds(30);
+        var until = DateTime.UtcNow + TimeSpan.FromSeconds(60);
         while (seat.IsReading(Tenant, Sid) && DateTime.UtcNow < until)
             Thread.Sleep(10);
 

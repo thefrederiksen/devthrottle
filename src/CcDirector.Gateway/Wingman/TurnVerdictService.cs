@@ -1280,12 +1280,6 @@ public sealed class TurnVerdictService : IDisposable
     }
 
     /// <summary>
-    /// Whether a turn end with this roster snapshot will be judged, decided from the same free checks the flight makes,
-    /// without reading or paying for anything. Only this answer stamps "reading" at the boundary. The flight still makes
-    /// every check itself, so a stop this answers yes for and the flight then skips shows reading only until the flight
-    /// exits.
-    /// </summary>
-    /// <summary>
     /// Will an AUTOMATIC request for this session actually reach the judge? The three gates that bind every
     /// unattended trigger, asked synchronously and cheaply: the free checks over the session's own state, the
     /// account's judge switch (a voice session is the standing exception), and the account's ceiling.
@@ -1293,7 +1287,8 @@ public sealed class TurnVerdictService : IDisposable
     /// It is asked by the two triggers nobody is waiting on - the detector's turn end and a snooze expiry - so
     /// that a stop which WILL be judged is stamped "reading" before anything is read, and a stop that will not be
     /// judged keeps the detector's red. It is deliberately NOT the judgement itself: the flight asks all of this
-    /// again, properly, inside its own boundary.
+    /// again, properly, inside its own boundary - so a stop this answers yes for and the flight then skips shows
+    /// reading only until the flight exits.
     /// </summary>
     private bool WillJudgeAutomatic(TenantId tenant, string sid, TurnVerdictSessionState state)
     {

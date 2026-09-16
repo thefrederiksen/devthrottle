@@ -1,4 +1,4 @@
-using CcDirector.Core.Tenancy;
+﻿using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Activity;
 using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Contracts;
@@ -173,6 +173,39 @@ public sealed class SnoozeExpiryLedgerIsDurableTests : IDisposable
         var stored = Assert.Single(StoredFor("s1"));
         Assert.Equal(ActivityEventTypes.TurnVerdictSnoozeExpiry, stored.EventType);
         Assert.Equal(ActivityCauses.SnoozeReadInFlight, stored.Cause);
+    }
+
+    [Fact]
+    public void EveryLegalWord_IsOneTheRealStoreAccepts_WhoeverDeclaredIt()
+    {
+        // THE MERGE GUARD, and it is the reason this test names no words of its own.
+        //
+        // Two slices were adding vocabulary to the same closed lists at the same time, and a rebase that took
+        // one side's version of either list would leave the other side's events refused by this store - caught
+        // and logged on the production path, so nothing would look broken. Naming slice F's four words here
+        // would prove nothing about slice G's, and a list written by hand goes stale the day after it is
+        // written. This walks the lists THEMSELVES, so it exercises every word either slice declares, and every
+        // word anybody adds later, with no edit.
+        //
+        // Read together with ActivityVocabularyIsCompleteTests, the pair is closed: that one says every DECLARED
+        // word is in its list, this one says every LISTED word is one the real store accepts. A merge that drops
+        // a word fails the first; a word that the store would refuse fails this.
+        var now = AfterExpiry;
+        var rows = new List<ActivityEventRecord>();
+        var i = 0;
+        foreach (var eventType in ActivityEventTypes.All)
+            rows.Add(TurnVerdictLedgerRow.For(new TurnVerdictRecord(Account, "dir-1", $"e{i++}", eventType,
+                ActivityCauses.Unknown, "vocabulary probe"), now));
+        foreach (var cause in ActivityCauses.All)
+            rows.Add(TurnVerdictLedgerRow.For(new TurnVerdictRecord(Account, "dir-1", $"c{i++}",
+                ActivityEventTypes.TurnVerdictSnoozeExpiry, cause, "vocabulary probe"), now));
+
+        var (written, _) = _ledger.AppendBatch(rows);
+
+        Assert.Equal(rows.Count, written);
+        Assert.Equal(ActivityEventTypes.All.Count + ActivityCauses.All.Count, rows.Count);
+        // And the words really did land, rather than the count merely adding up.
+        Assert.All(rows, r => Assert.Equal(r.EventType, Assert.Single(StoredFor(r.SessionId)).EventType));
     }
 
     [Fact]
