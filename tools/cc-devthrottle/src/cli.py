@@ -1565,7 +1565,9 @@ def mission_create(
 
 @mission_app.command("list")
 def mission_list(
-    json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output raw JSON: every field, a bare array. Filters still apply."
+    ),
     show_all: bool = typer.Option(
         False,
         "--all",
@@ -1576,11 +1578,22 @@ def mission_list(
     state: Optional[str] = typer.Option(
         None,
         "--state",
-        help="Show only this state: active, complete, or removed. Overrides --all.",
+        help="Show only this state: active, complete, removed, or all. Overrides --all.",
+    ),
+    name: Optional[str] = typer.Option(
+        None, "--name", help="Only missions whose name contains this text, ignoring case."
+    ),
+    fields: Optional[str] = typer.Option(
+        None,
+        "--fields",
+        help="Fields to show, comma separated. Default: id,name,state. "
+        "Valid: id, name, state, why, why-updated, state-changed, run.",
     ),
 ) -> None:
-    """List the Missions on the Gateway (active ones by default)."""
-    mission_ops.list_missions(json_output, state=state or ("all" if show_all else None))
+    """List the Missions on the Gateway (active ones by default): id, name and state."""
+    mission_ops.list_missions(
+        json_output, state=state or ("all" if show_all else None), name=name, fields=fields
+    )
 
 
 @mission_app.command("rename")
@@ -2073,10 +2086,23 @@ def workflow_delete(
 
 @schedule_app.command("list")
 def schedule_list(
-    json_output: bool = typer.Option(False, "--json", "-j", help="Output as JSON."),
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output raw JSON: every field, a bare array. Filters still apply."
+    ),
+    enabled: Optional[bool] = typer.Option(
+        None, "--enabled/--disabled", help="Only enabled schedules, or only disabled ones."
+    ),
+    machine: Optional[str] = typer.Option(None, "--machine", help="Only schedules that run on this machine."),
+    fields: Optional[str] = typer.Option(
+        None,
+        "--fields",
+        help="Fields to show, comma separated. Default: id,name,enabled,next-run. "
+        "Valid: id, name, enabled, next-run, machine, kind, cron, run-at, time-zone, work-list, path, "
+        "last-fired, last-status, notify, created.",
+    ),
 ) -> None:
-    """List every schedule on the Gateway."""
-    schedule_ops.list_jobs(json_output)
+    """List every schedule on the Gateway: id, name, whether it is enabled, and its next run."""
+    schedule_ops.list_jobs(json_output, enabled=enabled, machine=machine, fields=fields)
 
 
 @schedule_app.command("get")

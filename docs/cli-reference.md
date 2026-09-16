@@ -666,6 +666,7 @@ COMMANDS:
   session spawn    Open a new session - here, on another computer, or on one named Director.
   session report   Tell the session that owns you what you did, at the end of your turn.
   director list    List every Director this account runs, with the id --director accepts.
+  mission list     List the missions on the Gateway, active ones by default.
   message send     Send a message to one session, or broadcast with all.
   message ask      Ask one session a question and print its answer.
   skill list       List every skill in the fleet library.
@@ -761,6 +762,95 @@ USAGE: cc-devthrottle session whoami
 ```
 
 Shows this session's own id, name, machine, and repository.
+
+### Mission List
+
+```
+USAGE: cc-devthrottle mission list [OPTIONS]
+
+OPTIONS:
+  --json     -j  Output raw JSON: every field, a bare array. Filters still apply.
+  --all      -a  Include missions that have been completed or removed.
+  --state        Show only this state: active, complete, removed, or all. Overrides --all.
+  --name         Only missions whose name contains this text, ignoring case.
+  --fields       Fields to show, comma separated. Default: id,name,state.
+                 Valid: id, name, state, why, why-updated, state-changed, run.
+```
+
+The same shape as `session list`: a `count:` line, one row per mission, then `help[N]:`.
+
+```
+count: 70 of 78 total (active 70)
+missions[70]{id,name,state}:
+  43b85d84-07bd-410b-a6c6-88a137bcc1c3,AXI - make our command-line tools agent-shaped,active
+  ...
+38 of these missions have no why set.
+help[5]:
+  cc-devthrottle mission list --all
+  cc-devthrottle mission list --fields id,name,state,why,why-updated,state-changed,run
+  cc-devthrottle mission list --json
+  cc-devthrottle mission attach <session> <id>
+  cc-devthrottle session spawn <repo> --controlled-by self --mission <id>
+```
+
+- **Active only by default**, which is itself a filter, so the count says how many missions it left
+  out. `--all` shows every state and counts each: `count: 78 (active 70, complete 5, removed 3)`.
+- **The why** is long free text, so it is shown only when `--fields` asks for it. When it is not
+  shown, a line says how many of the listed missions have no why set.
+- **Filters** apply to `--json` as well. `--json` asks the Gateway exactly what it always asked
+  (`--state` is passed through), and `--name` narrows that same bare array.
+- An unknown state or field exits 2 and lists the valid values. Every row is checked in full before
+  anything is filtered or shown, and a broken one exits 1 rather than being listed, filtered out or
+  shown blank: a row that is not an object; a mission with no id, an id another row already has, or
+  no name or a blank one (the Gateway refuses a blank name); a state other than active, complete or
+  removed; a why that is missing or not text (an empty why is "unset", and is flagged); or a
+  why-updated, state-changed or run that is missing, blank, or neither text nor null. `--json`
+  without `--name` prints the Gateway's answer as it came; `--json --name` checks every row first.
+- **An empty answer says so**: `count: 0`, or `count: 0 of N total` with the filter that matched
+  nothing named on the next line.
+
+### Schedule List
+
+```
+USAGE: cc-devthrottle schedule list [OPTIONS]
+
+OPTIONS:
+  --json     -j           Output raw JSON: every field, a bare array. Filters still apply.
+  --enabled / --disabled  Only enabled schedules, or only disabled ones.
+  --machine               Only schedules that run on this machine.
+  --fields                Fields to show, comma separated. Default: id,name,enabled,next-run.
+                          Valid: id, name, enabled, next-run, machine, kind, cron, run-at,
+                          time-zone, work-list, path, last-fired, last-status, notify, created.
+```
+
+```
+count: 39 (enabled 23, disabled 16)
+schedules[39]{id,name,enabled,next-run}:
+  cj_1a10c4,SmartScreen + winget follow-up,no,
+  cj_33022a,Monday business finance run,yes,2026-09-21T11:01:00Z
+  ...
+help[5]:
+  cc-devthrottle schedule list --enabled
+  cc-devthrottle schedule list --fields id,name,enabled,next-run,machine,kind,cron,run-at,time-zone,work-list,path,last-fired,last-status,notify,created
+  cc-devthrottle schedule list --json
+  cc-devthrottle schedule get <id>
+  cc-devthrottle schedule runs <id>
+```
+
+- Every field is the Gateway's own value, unreworded; `next-run` is in UTC and is empty when there
+  is no next run. The seed prompt is left to `schedule get`.
+- **Filters** (`--enabled` or `--disabled`, `--machine`) combine, and apply to `--json` as the same
+  bare array, narrowed. `--machine` ignores case. With no filter, `--json` prints exactly what the
+  Gateway returned.
+- An answer from the Gateway with no list of jobs exits 1 - it is never reported as "no schedules".
+  Every schedule is checked in full before anything is filtered or shown, whichever fields are asked
+  for, and a broken one exits 1 rather than being listed, filtered out or shown blank: no id, or an id
+  another row already has; an enabled flag that is not true or false; any field missing or of the
+  wrong kind; a blank name, time zone, target machine or repo path (the Gateway refuses each); a kind
+  other than recurring or oneOff; no cron expression on a recurring schedule or no run-at time on a
+  one-off; or a notify policy other than none, always or failure. With no filter, `--json` prints the
+  rows as the Gateway sent them.
+- **An empty answer says so**: `count: 0`, or `count: 0 of N total` when a filter matched nothing.
 
 ### Message Send
 
