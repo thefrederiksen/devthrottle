@@ -338,22 +338,37 @@ def inventory(home: Path) -> list[Path]:
 # ---------------------------------------------------------------------------------------------------
 
 
-def resolve_target(home: Path, target: str, repo_opt: str | None) -> tuple[Path, str]:
-    """A slot name (wt01, with --repo or the current directory's repository) or a worktree path."""
-    if SLOT_NAME.fullmatch(target):
-        return main_repo_root(repo_opt or os.getcwd()), target
-    if Path(target).is_dir():
-        repo = main_repo_root(target)
+def _registered_slots(home: Path) -> list[tuple[Path, str, str]]:
+    """(repository, slot, path) for every slot of every registered pool, from the tool's own records.
+    A slot's own .git is never asked which repository it belongs to: that pointer is what is checked."""
+    found = []
+    for repo in inventory(home):
+        if not repo.is_dir():
+            continue
         for name, entry in load(home, repo).slots.items():
-            if _key(entry["path"]) == _key(target):
-                return repo, name
-    else:
-        for repo in inventory(home):
-            if not repo.is_dir():
-                continue
-            for name, entry in load(home, repo).slots.items():
-                if _key(entry["path"]) == _key(target):
-                    return repo, name
+            found.append((repo, name, entry["path"]))
+    return found
+
+
+def _inside(path: str, directory: str) -> bool:
+    a, b = _key(path), _key(directory)
+    return a == b or a.startswith(b.rstrip(os.sep) + os.sep)
+
+
+def resolve_target(home: Path, target: str, repo_opt: str | None) -> tuple[Path, str]:
+    """A slot name (wt01, with --repo, or the registered slot or repository the current directory is in)
+    or a slot path, found in the registry whether or not the directory still exists."""
+    if SLOT_NAME.fullmatch(target):
+        if repo_opt:
+            return main_repo_root(repo_opt), target
+        cwd = os.getcwd()
+        for repo, _, path in _registered_slots(home):
+            if _inside(cwd, path):
+                return repo, target
+        return main_repo_root(cwd), target
+    for repo, name, path in _registered_slots(home):
+        if _key(path) == _key(target):
+            return repo, name
     raise ToolError("not-a-pooled-worktree", f"{target} is not a worktree in any cc-worktrees pool",
                     ["cc-worktrees list"])
 

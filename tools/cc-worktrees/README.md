@@ -31,7 +31,11 @@ Every command takes `--json` and `--help`, and never prompts.
 | `lease` | Takes one specific free slot (checked and reset like `get`). A held slot only with `--reclaim-held`, which takes it as it is, without a reset. |
 | `destroy` | Runs the full landed-work check at that moment, whatever the recorded state says - a free slot is only free as of its last check - and refuses (exit 3, held, with the reason) unless it passes. No flag skips that check. Dry run by default: says what it would remove. `--yes` removes it with `git worktree remove` under `HEAD.lock` (never `--force`, so git itself refuses a worktree with modified or untracked files). A held slot also needs `--allow-held`, an in-use slot `--allow-in-use`. A slot whose directory is gone cannot be checked, so it is refused too. One slot per call; there is no destroy-all. |
 
-A slot is named `wt01` (with `--repo`, or the repository of the current directory) or by its path.
+A slot is named `wt01` (with `--repo`; without it, the registered slot the current directory is inside,
+or else the repository of the current directory) or by its path. Both are looked up in the tool's own
+registry of pools, never by asking git through the slot's `.git`: that pointer is one of the things the
+check proves, so a pointer swapped to another repository reaches the check and holds the slot. Because
+the lookup needs the registry, a lost registry makes these commands fail with `no-inventory`.
 
 ## The landed-work rule
 
