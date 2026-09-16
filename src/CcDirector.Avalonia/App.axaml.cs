@@ -131,8 +131,9 @@ public partial class App : Application
                     // gates or delays boot (failures only log), gated by tools.autoUpdate.enabled.
                     StartToolReconcile(selfUpdateApplied);
 
-                    // Keep the other Director slot present and current (issue #2945). After the health
-                    // mark on purpose: an unproven build is never copied into the standby.
+                    // Create the standby Director slot if it is missing (issue #2945). It never updates an
+                    // existing slot; each Director updates itself. After the health mark on purpose: an
+                    // unproven build is never copied into the standby.
                     StartStandbySlotProvisioning();
                 }
                 catch (Exception ex)
@@ -586,7 +587,7 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// Create the other Director slot in the background when it is missing (issue #2945). Off the UI
+    /// Create the standby Director slot in the background when it is missing (issue #2945). Off the UI
     /// thread and fire-and-forget: copying the executable must never delay boot. A held pass is retried
     /// until the slot exists; the retry loop is the boundary and logs every failure itself.
     /// </summary>

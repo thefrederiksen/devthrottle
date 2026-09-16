@@ -76,25 +76,32 @@ public class StandbySlotProvisionerTests : IDisposable
         return holder;
     }
 
-    // ---- the slot path ----
+    // ---- the slot paths ----
 
     [Fact]
-    public void OtherSlotFor_FromPrimary_ReturnsStandbyFolder()
+    public void StandbySlotFor_Primary_ReturnsStandbyFolder()
     {
-        Assert.Equal(_standby, StandbySlotProvisioner.OtherSlotFor(_primary));
+        Assert.Equal(_standby, StandbySlotProvisioner.StandbySlotFor(_primary));
     }
 
     [Fact]
-    public void OtherSlotFor_FromStandby_ReturnsPrimary()
+    public void IsInStandbySlot_PrimaryAndStandby_AreToldApart()
     {
-        Assert.Equal(_primary, StandbySlotProvisioner.OtherSlotFor(_standby));
+        Assert.False(StandbySlotProvisioner.IsInStandbySlot(_primary));
+        Assert.True(StandbySlotProvisioner.IsInStandbySlot(_standby));
+        Assert.True(StandbySlotProvisioner.IsInStandbySlot(Path.Combine(_root, "app", "STANDBY", "cc-director.exe")));
     }
 
     [Fact]
-    public void OtherSlotFor_StandbyFolderInOtherCase_IsStillTheStandby()
+    public void UpdateLeftoversFor_NamesTheUpdateSwappersOwnFiles()
     {
-        var upper = Path.Combine(_root, "app", "STANDBY", "cc-director.exe");
-        Assert.Equal(_primary, StandbySlotProvisioner.OtherSlotFor(upper));
+        // Tied to the swapper's own naming, so a renamed staging or backup suffix cannot silently slip past.
+        var leftovers = StandbySlotProvisioner.UpdateLeftoversFor(_standby);
+
+        Assert.Contains(DirectorBuildSwapper.StagingPathFor(_standby), leftovers);
+        Assert.Contains(DirectorBuildSwapper.BackupPathFor(_standby), leftovers);
+        Assert.Contains(DirectorBuildSwapper.BackupPathFor(_standby, DirectorBuildSwapper.LauncherBackupSuffix), leftovers);
+        Assert.DoesNotContain(_standby + StandbySlotProvisioner.StagingSuffix, leftovers);
     }
 
     // ---- the decision ----
@@ -102,33 +109,46 @@ public class StandbySlotProvisionerTests : IDisposable
     [Fact]
     public void Decide_NotWindows_ReturnsNotWindows()
     {
-        Assert.Equal(StandbySlotDecision.NotWindows, StandbySlotProvisioner.Decide(false, false, HealthGate.Clear));
+        Assert.Equal(StandbySlotDecision.NotWindows, StandbySlotProvisioner.Decide(false, true, false, false, HealthGate.Clear));
     }
 
     [Fact]
-    public void Decide_SlotExists_IsAlreadyPresentWhateverTheHealth()
+    public void Decide_NotPrimary_NeverCreates()
     {
-        Assert.Equal(StandbySlotDecision.AlreadyPresent, StandbySlotProvisioner.Decide(true, true, HealthGate.Unreadable));
+        Assert.Equal(StandbySlotDecision.NotPrimary, StandbySlotProvisioner.Decide(true, false, false, false, HealthGate.Clear));
+    }
+
+    [Fact]
+    public void Decide_StandbyExists_IsAlreadyPresentWhateverElse()
+    {
+        Assert.Equal(StandbySlotDecision.AlreadyPresent, StandbySlotProvisioner.Decide(true, true, true, true, HealthGate.Unreadable));
+    }
+
+    [Fact]
+    public void Decide_MissingWithUpdateLeftover_Holds()
+    {
+        Assert.Equal(StandbySlotDecision.HeldBecauseAnUpdateOwnsTheSlot,
+            StandbySlotProvisioner.Decide(true, true, false, true, HealthGate.Clear));
     }
 
     [Fact]
     public void Decide_MissingAndPendingForThisBuild_Holds()
     {
         Assert.Equal(StandbySlotDecision.HeldBecauseThisBuildIsUnproven,
-            StandbySlotProvisioner.Decide(true, false, HealthGate.PendingForThisBuild));
+            StandbySlotProvisioner.Decide(true, true, false, false, HealthGate.PendingForThisBuild));
     }
 
     [Fact]
     public void Decide_MissingAndHealthUnreadable_Holds()
     {
         Assert.Equal(StandbySlotDecision.HeldBecauseHealthStateUnreadable,
-            StandbySlotProvisioner.Decide(true, false, HealthGate.Unreadable));
+            StandbySlotProvisioner.Decide(true, true, false, false, HealthGate.Unreadable));
     }
 
     [Fact]
     public void Decide_MissingAndClear_Creates()
     {
-        Assert.Equal(StandbySlotDecision.Created, StandbySlotProvisioner.Decide(true, false, HealthGate.Clear));
+        Assert.Equal(StandbySlotDecision.Created, StandbySlotProvisioner.Decide(true, true, false, false, HealthGate.Clear));
     }
 
     // ---- the health gate, against real state files ----
@@ -136,6 +156,14 @@ public class StandbySlotProvisionerTests : IDisposable
     [Fact]
     public void ReadHealthGate_NoStateFiles_IsClear()
     {
+        Assert.Equal(HealthGate.Clear, StandbySlotProvisioner.ReadHealthGate(_root, Self));
+    }
+
+    [Fact]
+    public void ReadHealthGate_InstanceWithoutStateFile_IsClear()
+    {
+        Directory.CreateDirectory(Path.Combine(_root, "instances", "fresh"));
+
         Assert.Equal(HealthGate.Clear, StandbySlotProvisioner.ReadHealthGate(_root, Self));
     }
 
@@ -170,6 +198,25 @@ public class StandbySlotProvisionerTests : IDisposable
     public void ReadHealthGate_CorruptStateFile_IsUnreadableNeverClear()
     {
         Write(InstanceState("default"), "{ this is not json");
+
+        Assert.Equal(HealthGate.Unreadable, StandbySlotProvisioner.ReadHealthGate(_root, Self));
+    }
+
+    [Fact]
+    public void ReadHealthGate_StatePathThatCannotBeReadAsAFile_IsUnreadableNeverClear()
+    {
+        // File.Exists answers false for a path it cannot read as a file - here a directory stands where the
+        // state file goes. Asking existence first would skip it as absent; reading it must hold instead.
+        Directory.CreateDirectory(InstanceState("default"));
+
+        Assert.Equal(HealthGate.Unreadable, StandbySlotProvisioner.ReadHealthGate(_root, Self));
+    }
+
+    [Fact]
+    public void ReadHealthGate_InstancesThatCannotBeListed_IsUnreadableNeverClear()
+    {
+        // A file where the instances directory goes: the named instances cannot be listed at all.
+        Write(Path.Combine(_root, "instances"), "not a directory");
 
         Assert.Equal(HealthGate.Unreadable, StandbySlotProvisioner.ReadHealthGate(_root, Self));
     }
@@ -215,7 +262,7 @@ public class StandbySlotProvisionerTests : IDisposable
 
         Assert.Equal(StandbySlotDecision.Created, outcome.Decision);
         Assert.Equal("2.4.0", File.ReadAllText(_standby));
-        Assert.False(File.Exists(_standby + ".new"), "the staging copy must not be left behind");
+        Assert.False(File.Exists(_standby + StandbySlotProvisioner.StagingSuffix), "the staging copy must not be left behind");
     }
 
     [Fact]
@@ -231,15 +278,49 @@ public class StandbySlotProvisionerTests : IDisposable
     }
 
     [Fact]
-    public async Task RunOnceAsync_FromStandbyWithPrimaryMissing_CreatesPrimary()
+    public async Task RunOnceAsync_FromStandbyWithPrimaryMissing_NeverWritesThePrimary()
     {
+        // The installer, launcher and updater own the primary - including recovering one that went missing
+        // mid-update. The standby never recreates it.
         Write(_standby, "2.4.0");
         File.Delete(_primary);
 
         var outcome = await Provisioner(_standby).RunOnceAsync();
 
+        Assert.Equal(StandbySlotDecision.NotPrimary, outcome.Decision);
+        Assert.True(outcome.IsSettled);
+        Assert.False(File.Exists(_primary));
+    }
+
+    [Theory]
+    [InlineData(".new")]
+    [InlineData(".old")]
+    [InlineData(".prev")]
+    public async Task RunOnceAsync_MissingStandbyWithUpdateLeftover_CreatesNothing(string suffix)
+    {
+        // An update interrupted halfway: the executable is gone, its staging or backup file remains, and its
+        // own recovery must put it back. Creating the slot here would defeat that recovery.
+        Write(_standby + suffix, "2.5.0");
+
+        var outcome = await Provisioner(_primary).RunOnceAsync();
+
+        Assert.Equal(StandbySlotDecision.HeldBecauseAnUpdateOwnsTheSlot, outcome.Decision);
+        Assert.False(File.Exists(_standby));
+        Assert.Equal("2.5.0", File.ReadAllText(_standby + suffix));
+    }
+
+    [Fact]
+    public async Task RunOnceAsync_OwnStagingLeftoverFromACrash_IsReplacedAndCleaned()
+    {
+        // A pass killed mid-copy leaves a partial file under its own staging name. That is not an update's
+        // file, so it must not hold; the next pass overwrites it and cleans up.
+        Write(_standby + StandbySlotProvisioner.StagingSuffix, "2.4");
+
+        var outcome = await Provisioner(_primary).RunOnceAsync();
+
         Assert.Equal(StandbySlotDecision.Created, outcome.Decision);
-        Assert.Equal("2.4.0", File.ReadAllText(_primary));
+        Assert.Equal("2.4.0", File.ReadAllText(_standby));
+        Assert.False(File.Exists(_standby + StandbySlotProvisioner.StagingSuffix));
     }
 
     [Fact]
@@ -311,27 +392,42 @@ public class StandbySlotProvisionerTests : IDisposable
     }
 
     [Fact]
+    public async Task RunOnceAsync_PartialSettingsStagingFromACrash_CarriesTheWholeFile()
+    {
+        // A copy killed mid-write leaves only a partial file under the staging name, never under the real
+        // one, so the next pass still carries the whole settings document.
+        Write(_primarySettings, "{\"primary\":true}");
+        Write(_standbySettings + StandbySlotProvisioner.StagingSuffix, "{\"prim");
+
+        var outcome = await Provisioner(_primary).RunOnceAsync();
+
+        Assert.Equal(StandbySlotDecision.Created, outcome.Decision);
+        Assert.Equal("{\"primary\":true}", File.ReadAllText(_standbySettings));
+        Assert.False(File.Exists(_standbySettings + StandbySlotProvisioner.StagingSuffix));
+    }
+
+    [Fact]
     public async Task RunOnceAsync_InterruptedCreation_CompletesWithoutOverwritingSettings()
     {
-        // A creation interrupted after the settings were written leaves no executable. The next pass
+        // A creation interrupted after the settings were placed leaves no executable. The next pass
         // completes it, and keeps the settings that are already there.
         Write(_primarySettings, "{\"primary\":true}");
-        Write(_standbySettings, "{\"written before the interruption\":true}");
+        Write(_standbySettings, "{\"placed before the interruption\":true}");
 
         var outcome = await Provisioner(_primary).RunOnceAsync();
 
         Assert.Equal(StandbySlotDecision.Created, outcome.Decision);
         Assert.Equal("2.4.0", File.ReadAllText(_standby));
-        Assert.Equal("{\"written before the interruption\":true}", File.ReadAllText(_standbySettings));
+        Assert.Equal("{\"placed before the interruption\":true}", File.ReadAllText(_standbySettings));
     }
 
     [Fact]
     public async Task RunOnceAsync_SettingsWriteFails_LeavesNoExecutable()
     {
-        // The executable's presence must mean creation finished, so the settings are written first. Make
-        // that write fail - a directory stands where the settings file goes - and no executable may appear.
+        // The executable's presence must mean creation finished, so the settings are placed first. Make
+        // that fail - a directory stands where the settings staging file goes - and no executable may appear.
         Write(_primarySettings, "{\"primary\":true}");
-        Directory.CreateDirectory(_standbySettings);
+        Directory.CreateDirectory(_standbySettings + StandbySlotProvisioner.StagingSuffix);
 
         await Assert.ThrowsAnyAsync<Exception>(() => Provisioner(_primary).RunOnceAsync());
 
@@ -343,7 +439,7 @@ public class StandbySlotProvisionerTests : IDisposable
     [Fact]
     public async Task RunUntilSettledAsync_HeldThenCleared_RetriesAndCreates()
     {
-        // A health file that cannot be read at one moment must not leave the slot missing until a restart.
+        // Health state that cannot be read at one moment must not leave the slot missing until a restart.
         var corrupt = InstanceState("default");
         Write(corrupt, "{ this is not json");
         var delays = 0;

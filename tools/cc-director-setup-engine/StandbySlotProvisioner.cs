@@ -1,6 +1,7 @@
-using System.Text.Json;
 using System.Diagnostics;
+using System.Text.Json;
 using CcDirector.Core.Instances;
+using CcDirector.Core.Update;
 using CcDirector.Core.Utilities;
 
 namespace CcDirector.Setup.Engine;
@@ -12,7 +13,7 @@ public enum HealthGate
     Clear,
     /// <summary>Some Director on this machine still owes a health check for this exact build.</summary>
     PendingForThisBuild,
-    /// <summary>A health state file exists but could not be read, so a pending check cannot be ruled out.</summary>
+    /// <summary>Health state that may exist could not be read, so a pending check cannot be ruled out.</summary>
     Unreadable,
 }
 
@@ -21,29 +22,37 @@ public enum StandbySlotDecision
 {
     /// <summary>Not Windows. The macOS application bundle needs its own slot layout.</summary>
     NotWindows,
-    /// <summary>The other slot's executable already exists. It is never touched.</summary>
+    /// <summary>This Director runs from the standby slot. Only the primary ever creates the standby.</summary>
+    NotPrimary,
+    /// <summary>The standby executable already exists. It is never touched.</summary>
     AlreadyPresent,
-    /// <summary>The other slot was missing, and was created from this build.</summary>
+    /// <summary>The standby slot was missing, and was created from this build.</summary>
     Created,
     /// <summary>Another update held the machine-wide binary swap lock past the wait.</summary>
     HeldBecauseAnotherSwapIsRunning,
+    /// <summary>
+    /// The standby executable is missing but an update's staging or backup file sits beside it: an update
+    /// is under way or was interrupted there, and its own recovery owns that slot.
+    /// </summary>
+    HeldBecauseAnUpdateOwnsTheSlot,
     /// <summary>Some Director on this machine still owes a post-update health check for this exact build.</summary>
     HeldBecauseThisBuildIsUnproven,
-    /// <summary>A health state file could not be read, so this build cannot be shown to be proven.</summary>
+    /// <summary>Health state could not be read, so this build cannot be shown to be proven.</summary>
     HeldBecauseHealthStateUnreadable,
 }
 
 /// <summary>The decision a pass reached, and a sentence for the log.</summary>
 public sealed record StandbySlotOutcome(StandbySlotDecision Decision, string Detail)
 {
-    /// <summary>True when there is nothing left to do: the slot exists, or this platform has no slot.</summary>
+    /// <summary>True when there is nothing left to do.</summary>
     public bool IsSettled => Decision is StandbySlotDecision.AlreadyPresent
         or StandbySlotDecision.Created
-        or StandbySlotDecision.NotWindows;
+        or StandbySlotDecision.NotWindows
+        or StandbySlotDecision.NotPrimary;
 }
 
 /// <summary>
-/// CREATES THE OTHER DIRECTOR SLOT WHEN IT IS MISSING (issue #2945).
+/// CREATES THE STANDBY DIRECTOR SLOT WHEN IT IS MISSING (issue #2945).
 ///
 /// Every Windows install carries two copies of the Director executable:
 ///     app\cc-director.exe            the primary, where it has always been
@@ -60,23 +69,30 @@ public sealed record StandbySlotOutcome(StandbySlotDecision Decision, string Det
 /// starts after the update is the NEW build, so it creates the slot with no reinstall. A new install
 /// reaches the same code the first time its Director starts. One mechanism covers both.
 ///
-/// IT ONLY EVER CREATES. An existing slot is never replaced, whatever its version. Each Director keeps
-/// itself up to date through the ordinary update path, and a Director can only update a file it was
-/// started from - a file that exists. So this pass, which writes only where no file exists, can never
-/// collide with a Director updating itself. A replace would have raced that update; this cannot.
+/// IT ONLY EVER CREATES THE STANDBY, AND ONLY FROM THE PRIMARY. An existing standby is never touched,
+/// whatever its version: each Director keeps itself up to date through the ordinary update path. The
+/// primary is never written: the installer, the launcher and the updater own it. So the one file this
+/// ever writes is a standby executable that does not exist - and a Director can only update a file it
+/// was started from, which does exist.
+///
+/// THE ONE WAY "MISSING" CAN LIE: an update interrupted halfway, with the executable gone and its backup
+/// waiting to be put back. Creating the slot then would defeat that recovery. So a missing standby with
+/// an update's staging or backup file beside it is left to the update that owns it.
 ///
 /// THE RULES, each for a reason:
 /// - Only a PROVEN build is copied: the standby starts life as a copy of it. Health checks are per named
 ///   instance while the executable is shared, so EVERY instance's state is read, and the pass holds while
 ///   any of them still owes a check for THIS version. A marker for another version is about another build
-///   and does not hold - a machine can carry a stale marker for months. A state file that exists but
-///   cannot be read, or whose marker is not a version, holds too: a pending check cannot be ruled out.
+///   and does not hold - a machine can carry a stale marker for months. Anything that cannot be read holds.
+///   Existence is never ASKED: File.Exists and Directory.Exists answer false when access is denied, which
+///   would silently skip the very state that must hold. Every read is attempted, and only "not found"
+///   counts as absent.
 /// - Wait, bounded, for the machine-wide binary swap lock, so two Directors starting together never
 ///   create the slot at once. On the first start after an update the launcher may still hold that lock
-///   while it waits for this Director to answer, so the wait is long.
-/// - appsettings.json is written into the slot BEFORE the executable, and the executable is moved into
-///   place last. The executable's presence therefore means creation finished; an interrupted creation
-///   leaves no executable, and the next pass completes it without overwriting the settings.
+///   while it waits for this Director to answer, so the wait is long. A held pass retries.
+/// - Every file is written under a staging name no other writer uses, then moved into place, so no file
+///   is ever half-written in its final name. appsettings.json goes first and the executable last: the
+///   executable's presence means creation finished.
 ///
 /// It never STARTS a Director. It only makes sure the slot exists.
 /// </summary>
@@ -84,6 +100,12 @@ public sealed class StandbySlotProvisioner
 {
     /// <summary>The standby slot's folder under the primary's folder. Permanent: identity follows the path.</summary>
     public const string StandbyFolderName = "standby";
+
+    /// <summary>
+    /// The suffix of this pass's own staging files. Deliberately not ".new": the update swapper stages
+    /// under that name, and two writers must never share a staging file.
+    /// </summary>
+    internal const string StagingSuffix = ".standby-create";
 
     private const string AppSettingsFileName = "appsettings.json";
 
@@ -134,32 +156,39 @@ public sealed class StandbySlotProvisioner
         return new StandbySlotProvisioner(self, InstanceContext.SharedRoot, ReadFileVersion, OperatingSystem.IsWindows());
     }
 
-    /// <summary>
-    /// The executable in the OTHER slot: the standby when running from the primary, the primary when
-    /// running from the standby.
-    /// </summary>
-    public static string OtherSlotFor(string executable)
+    /// <summary>True when <paramref name="executable"/> runs from a standby slot folder.</summary>
+    public static bool IsInStandbySlot(string executable)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(executable);
         var directory = Path.GetDirectoryName(executable)
             ?? throw new ArgumentException($"Executable has no directory: {executable}", nameof(executable));
-        var fileName = Path.GetFileName(executable);
-
-        if (string.Equals(Path.GetFileName(directory), StandbyFolderName, StringComparison.OrdinalIgnoreCase))
-        {
-            var primaryDirectory = Path.GetDirectoryName(directory)
-                ?? throw new ArgumentException($"Standby slot has no parent directory: {executable}", nameof(executable));
-            return Path.Combine(primaryDirectory, fileName);
-        }
-
-        return Path.Combine(directory, StandbyFolderName, fileName);
+        return string.Equals(Path.GetFileName(directory), StandbyFolderName, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>The standby executable for a primary executable.</summary>
+    public static string StandbySlotFor(string primaryExecutable)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(primaryExecutable);
+        var directory = Path.GetDirectoryName(primaryExecutable)
+            ?? throw new ArgumentException($"Executable has no directory: {primaryExecutable}", nameof(primaryExecutable));
+        return Path.Combine(directory, StandbyFolderName, Path.GetFileName(primaryExecutable));
+    }
+
+    /// <summary>The files an update leaves beside an executable while it is under way or interrupted.</summary>
+    public static IReadOnlyList<string> UpdateLeftoversFor(string executable) =>
+    [
+        DirectorBuildSwapper.StagingPathFor(executable),
+        DirectorBuildSwapper.BackupPathFor(executable),
+        DirectorBuildSwapper.BackupPathFor(executable, DirectorBuildSwapper.LauncherBackupSuffix),
+    ];
+
     /// <summary>What a pass should do, given what is true of the machine. Pure, so every branch is tested.</summary>
-    public static StandbySlotDecision Decide(bool isWindows, bool otherExists, HealthGate health)
+    public static StandbySlotDecision Decide(bool isWindows, bool isPrimary, bool standbyExists, bool updateLeftoverPresent, HealthGate health)
     {
         if (!isWindows) return StandbySlotDecision.NotWindows;
-        if (otherExists) return StandbySlotDecision.AlreadyPresent;
+        if (!isPrimary) return StandbySlotDecision.NotPrimary;
+        if (standbyExists) return StandbySlotDecision.AlreadyPresent;
+        if (updateLeftoverPresent) return StandbySlotDecision.HeldBecauseAnUpdateOwnsTheSlot;
         if (health == HealthGate.PendingForThisBuild) return StandbySlotDecision.HeldBecauseThisBuildIsUnproven;
         if (health == HealthGate.Unreadable) return StandbySlotDecision.HeldBecauseHealthStateUnreadable;
         return StandbySlotDecision.Created;
@@ -176,18 +205,41 @@ public sealed class StandbySlotProvisioner
 
         var files = new List<string> { StateFileUnder(sharedRoot) };
         var instancesRoot = Path.Combine(sharedRoot, "instances");
-        if (Directory.Exists(instancesRoot))
+        try
+        {
             files.AddRange(Directory.GetDirectories(instancesRoot).Select(StateFileUnder));
+        }
+        catch (DirectoryNotFoundException)
+        {
+            // No named instances at all: only the shared root's own file.
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            FileLog.Write($"[StandbySlotProvisioner] named instances could not be listed: {instancesRoot}: {ex.Message}");
+            return HealthGate.Unreadable;
+        }
 
         foreach (var file in files)
         {
-            if (!File.Exists(file))
+            string text;
+            try
+            {
+                text = File.ReadAllText(file);
+            }
+            catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+            {
                 continue;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                FileLog.Write($"[StandbySlotProvisioner] health state could not be read: {file}: {ex.Message}");
+                return HealthGate.Unreadable;
+            }
 
             string? pending;
             try
             {
-                using var doc = JsonDocument.Parse(File.ReadAllText(file));
+                using var doc = JsonDocument.Parse(text);
                 if (doc.RootElement.ValueKind != JsonValueKind.Object)
                 {
                     FileLog.Write($"[StandbySlotProvisioner] health state is not a JSON object: {file}");
@@ -209,9 +261,9 @@ public sealed class StandbySlotProvisioner
                     return HealthGate.Unreadable;
                 }
             }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+            catch (JsonException ex)
             {
-                FileLog.Write($"[StandbySlotProvisioner] health state could not be read: {file}: {ex.Message}");
+                FileLog.Write($"[StandbySlotProvisioner] health state is not valid JSON: {file}: {ex.Message}");
                 return HealthGate.Unreadable;
             }
 
@@ -232,24 +284,29 @@ public sealed class StandbySlotProvisioner
     }
 
     /// <summary>
-    /// One pass: if the other slot is missing, wait for the swap lock and create it when this build is
-    /// proven. Throws when the file work fails; the caller is the boundary that logs it.
+    /// One pass: if this is the primary and the standby is missing, wait for the swap lock and create it when
+    /// this build is proven. Throws when the file work fails; the caller is the boundary that logs it.
     /// </summary>
     public Task<StandbySlotOutcome> RunOnceAsync()
     {
-        var other = OtherSlotFor(_selfExecutable);
-        FileLog.Write($"[StandbySlotProvisioner] RunOnceAsync: self={_selfExecutable}, other={other}");
+        FileLog.Write($"[StandbySlotProvisioner] RunOnceAsync: self={_selfExecutable}");
 
         if (!_isWindows)
             return Task.FromResult(new StandbySlotOutcome(StandbySlotDecision.NotWindows,
                 "not Windows; the application bundle needs its own slot layout"));
 
+        if (IsInStandbySlot(_selfExecutable))
+            return Task.FromResult(new StandbySlotOutcome(StandbySlotDecision.NotPrimary,
+                "running from the standby slot; only the primary creates the standby"));
+
+        var standby = StandbySlotFor(_selfExecutable);
+
         // Cheap answer for the common case, without taking the machine-wide lock.
-        if (File.Exists(other))
-            return Task.FromResult(new StandbySlotOutcome(StandbySlotDecision.AlreadyPresent, $"{other} exists; it is never touched"));
+        if (File.Exists(standby))
+            return Task.FromResult(new StandbySlotOutcome(StandbySlotDecision.AlreadyPresent, $"{standby} exists; it is never touched"));
 
         return BinarySwapLock.RunExclusivelyAsync(
-            () => Task.FromResult(DecideAndCreate(other)),
+            () => Task.FromResult(DecideAndCreate(standby)),
             message => new StandbySlotOutcome(StandbySlotDecision.HeldBecauseAnotherSwapIsRunning, message),
             who: "standby slot",
             name: SwapLockName,
@@ -257,9 +314,9 @@ public sealed class StandbySlotProvisioner
     }
 
     /// <summary>
-    /// Run passes until one settles - the slot exists, or this platform has none - waiting
-    /// <paramref name="retryDelay"/> between held passes. A pass that throws is logged and retried: this is
-    /// a boundary. Returns the settling outcome, or null when cancelled first.
+    /// Run passes until one settles, waiting <paramref name="retryDelay"/> between passes that did not. A pass
+    /// that throws is logged and retried: this is a boundary. Returns the settling outcome, or null when
+    /// cancelled first.
     /// </summary>
     public async Task<StandbySlotOutcome?> RunUntilSettledAsync(Func<CancellationToken, Task> retryDelay, CancellationToken ct)
     {
@@ -290,59 +347,70 @@ public sealed class StandbySlotProvisioner
         return null;
     }
 
-    private StandbySlotOutcome DecideAndCreate(string other)
+    private StandbySlotOutcome DecideAndCreate(string standby)
     {
         var selfVersion = _readVersion(_selfExecutable)
             ?? throw new InvalidOperationException($"This Director's own executable has no readable version: {_selfExecutable}");
 
         // Read under the lock, after any wait: the slot may have been created, or a check armed or cleared.
-        var otherExists = File.Exists(other);
-        var health = otherExists ? HealthGate.Clear : ReadHealthGate(_sharedRoot, selfVersion);
-        var decision = Decide(_isWindows, otherExists, health);
-        FileLog.Write($"[StandbySlotProvisioner] self={selfVersion}, otherExists={otherExists}, health={health} -> {decision}");
+        var standbyExists = File.Exists(standby);
+        var leftovers = standbyExists ? [] : UpdateLeftoversFor(standby).Where(File.Exists).ToList();
+        var health = standbyExists || leftovers.Count > 0 ? HealthGate.Clear : ReadHealthGate(_sharedRoot, selfVersion);
+        var decision = Decide(_isWindows, isPrimary: true, standbyExists, leftovers.Count > 0, health);
+        FileLog.Write($"[StandbySlotProvisioner] self={selfVersion}, standbyExists={standbyExists}, "
+                      + $"updateLeftovers=[{string.Join(", ", leftovers)}], health={health} -> {decision}");
 
         switch (decision)
         {
             case StandbySlotDecision.Created:
-                CreateSlot(other);
-                return new StandbySlotOutcome(decision, $"{other} created at {selfVersion}");
+                CreateSlot(standby);
+                return new StandbySlotOutcome(decision, $"{standby} created at {selfVersion}");
             case StandbySlotDecision.AlreadyPresent:
-                return new StandbySlotOutcome(decision, $"{other} exists; it is never touched");
+                return new StandbySlotOutcome(decision, $"{standby} exists; it is never touched");
+            case StandbySlotDecision.HeldBecauseAnUpdateOwnsTheSlot:
+                return new StandbySlotOutcome(decision, $"an update's files sit beside the missing {standby}; its recovery owns the slot");
             case StandbySlotDecision.HeldBecauseThisBuildIsUnproven:
                 return new StandbySlotOutcome(decision, $"a Director still owes a health check for {selfVersion}; nothing is copied");
             case StandbySlotDecision.HeldBecauseHealthStateUnreadable:
-                return new StandbySlotOutcome(decision, "a health state file could not be read; nothing is copied");
+                return new StandbySlotOutcome(decision, "health state could not be read; nothing is copied");
             default:
                 throw new InvalidOperationException($"Decision {decision} cannot be reached after the lock was taken.");
         }
     }
 
-    /// <summary>
-    /// Settings first, executable last: the executable's presence is what says creation finished. The
-    /// executable is copied beside the target and moved into place, so it is never a half-written file.
-    /// </summary>
-    private void CreateSlot(string target)
+    /// <summary>Settings first, executable last; each staged under this pass's own name and moved into place.</summary>
+    private void CreateSlot(string standby)
     {
         var selfDirectory = Path.GetDirectoryName(_selfExecutable)
             ?? throw new InvalidOperationException($"Executable has no directory: {_selfExecutable}");
-        var targetDirectory = Path.GetDirectoryName(target)
-            ?? throw new InvalidOperationException($"Target has no directory: {target}");
-        Directory.CreateDirectory(targetDirectory);
+        var standbyDirectory = Path.GetDirectoryName(standby)
+            ?? throw new InvalidOperationException($"Target has no directory: {standby}");
+        Directory.CreateDirectory(standbyDirectory);
 
         var settingsSource = Path.Combine(selfDirectory, AppSettingsFileName);
-        var settingsDestination = Path.Combine(targetDirectory, AppSettingsFileName);
+        var settingsDestination = Path.Combine(standbyDirectory, AppSettingsFileName);
         if (File.Exists(settingsSource) && !File.Exists(settingsDestination))
         {
-            File.Copy(settingsSource, settingsDestination);
+            PlaceWhole(settingsSource, settingsDestination);
             FileLog.Write($"[StandbySlotProvisioner] carried {settingsSource} to {settingsDestination}");
         }
 
-        var staging = target + ".new";
+        PlaceWhole(_selfExecutable, standby);
+        FileLog.Write($"[StandbySlotProvisioner] created {standby} from {_selfExecutable}");
+    }
+
+    /// <summary>
+    /// Copy <paramref name="source"/> to a staging name only this pass uses, then move it to
+    /// <paramref name="destination"/> without overwriting, so the destination is absent or whole and never
+    /// half-written. The staging file is removed whatever happens.
+    /// </summary>
+    private static void PlaceWhole(string source, string destination)
+    {
+        var staging = destination + StagingSuffix;
         try
         {
-            File.Copy(_selfExecutable, staging, overwrite: true);
-            File.Move(staging, target, overwrite: false);
-            FileLog.Write($"[StandbySlotProvisioner] created {target} from {_selfExecutable}");
+            File.Copy(source, staging, overwrite: true);
+            File.Move(staging, destination, overwrite: false);
         }
         finally
         {
