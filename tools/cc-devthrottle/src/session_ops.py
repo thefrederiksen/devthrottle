@@ -71,6 +71,9 @@ if _tools_dir not in sys.path:
 
 from cc_shared import gateway  # noqa: E402
 from cc_shared import axi_output  # noqa: E402
+from . import usage_errors  # noqa: E402
+
+from .repo_ops import is_windows_path, matches_repo  # noqa: E402
 
 for _stream in (sys.stdout, sys.stderr):
     try:
@@ -83,7 +86,16 @@ SELFTEST_MARKER = "FLEETPONG"
 
 
 def _repo_name(repo: str) -> str:
-    return repo.replace("\\", "/").rstrip("/").split("/")[-1] if repo else "-"
+    """The repository's folder name. A backslash separates folders only in a Windows-shaped path; on
+    macOS and Linux it is an ordinary character, so /home/a\\b is the folder a\\b."""
+    if not repo:
+        return "-"
+    separated = repo.replace("\\", "/") if is_windows_path(repo) else repo
+    trimmed = separated.rstrip("/")
+    if is_windows_path(repo) and len(trimmed) == 2 and trimmed.endswith(":"):
+        # The root of a drive keeps its slash: C: alone is a different place (issue #2922).
+        return repo[:3]
+    return trimmed.split("/")[-1]
 
 
 def _model_text(s: Dict[str, Any]) -> str:
@@ -126,7 +138,9 @@ def _get_fleet() -> Tuple[List[Dict[str, Any]], Optional[bool], Optional[str], O
     try:
         return gateway.get_fleet()
     except gateway.GatewayError as err:
-        console.print(f"[red]Error:[/red] {err}")
+        # Plain and escaped: the sentence is the Gateway's, and Rich markup would read a token like
+        # [/tmp/x] in it as a tag, while a control character in it would split the line.
+        print(f"Error: {axi_output.escape_ascii(str(err))}", file=sys.stderr)
         raise typer.Exit(1)
 
 
@@ -146,22 +160,33 @@ def _resolve_target(target: str, *, command_name: str) -> Dict[str, Any]:
         # not reach that is simply false - the roster we searched never contained it. Say which we
         # mean, because the two call for opposite next steps: give up, or go and look at machine B.
         console.print(
-            f"[red]No session matches '{target}'.[/red] "
-            "Run cc-devthrottle session list to see the fleet."
+            f"[red]No session matches '{_text(target)}'.[/red] "
+            "Run cc-devthrottle session list to see the fleet.",
+            soft_wrap=True,
         )
         caveat = _roster_caveat(complete, reason)
         if caveat:
-            console.print(f"[yellow]The fleet list searched may be incomplete.[/yellow] {caveat}")
+            console.print(
+                f"[yellow]The fleet list searched may be incomplete.[/yellow] {_text(caveat)}", soft_wrap=True
+            )
         # THE negative answer the second caution exists for. A machine whose tunnel is up but whose
         # pushes are late can be hiding the very session being addressed, and every target-resolving
         # verb comes through here - message send, message ask, rename, done, hold, compact. Printed on
         # this path only, so it stays rare enough to be read.
         if stale_caution:
-            console.print(f"[yellow]{stale_caution}[/yellow]")
+            console.print(f"[yellow]{_text(stale_caution)}[/yellow]", soft_wrap=True)
         raise typer.Exit(1)
     if len(matches) > 1:
         _refuse_ambiguous_target(target, matches, command_name=command_name)
     return matches[0]
+
+
+def _text(value: Any) -> str:
+    """Text from somewhere else, ready for console.print: escaped to ASCII, so a newline or a
+    non-ASCII character in it cannot split its line or leave the line not ASCII, and for Rich, so a
+    token like [bold] or [/tmp/x] is printed rather than read as markup. Printed with soft_wrap, one
+    sentence is then exactly one line."""
+    return escape(axi_output.escape_ascii(str(value)))
 
 
 def _refuse_ambiguous_target(
@@ -173,13 +198,17 @@ def _refuse_ambiguous_target(
     resolver (see _stop_target), still refuses an ambiguous target in exactly these words. Two
     wordings for one refusal is how the tool comes to answer the same question two ways.
     """
-    console.print(f"[yellow]'{target}' is ambiguous - {len(matches)} matches:[/yellow]")
+    console.print(
+        f"[yellow]'{_text(target)}' is ambiguous - {len(matches)} matches:[/yellow]", soft_wrap=True
+    )
     for s in matches:
         sid = gateway.field(s, "sessionId", "SessionId")
         name = gateway.field(s, "name", "Name") or "(unnamed)"
         machine = gateway.field(s, "machineName", "MachineName") or "-"
-        console.print(f"  {gateway.short_id(sid)}  {name}  ({machine})")
-    console.print(f"Re-run {command_name} with a longer id prefix.")
+        console.print(
+            f"  {_text(gateway.short_id(sid))}  {_text(name)}  ({_text(machine)})", soft_wrap=True
+        )
+    console.print(f"Re-run {command_name} with a longer id prefix.", soft_wrap=True)
     raise typer.Exit(1)
 
 
@@ -292,9 +321,7 @@ def _session_record(s: Dict[str, Any], state: str) -> Dict[str, object]:
     }
 
 
-def _usage_error(message: str) -> None:
-    print(f"Error: {message}", file=sys.stderr)
-    raise typer.Exit(axi_output.USAGE_ERROR_EXIT_CODE)
+_usage_error = usage_errors.usage_error
 
 
 def _parse_states(requested: Optional[str]) -> Optional[List[str]]:
@@ -304,23 +331,20 @@ def _parse_states(requested: Optional[str]) -> Optional[List[str]]:
     names = [part.strip() for part in requested.split(",")]
     unknown = [name for name in names if name not in SESSION_STATES]
     if unknown:
-        listed = ", ".join(repr(axi_output.escape_ascii(name)) for name in unknown)
+        listed = ", ".join("'" + axi_output.escape_ascii(name) + "'" for name in unknown)
         _usage_error(f"unknown --state value {listed}. Valid states: {', '.join(SESSION_STATES)}")
     return names
 
 
-def _norm_path(path: str) -> str:
-    return path.replace("\\", "/").rstrip("/").lower()
-
-
 def _matches_repo(s: Dict[str, Any], repo: str) -> bool:
-    """--repo matches the repository folder name (as the repo field shows it) or the full path,
-    ignoring case and slash direction."""
+    """--repo matches the repository folder name (as the repo field shows it, ignoring case) or the
+    full path, through the matcher repo list and worktree list use: a Windows path ignores case and
+    slash direction, and any other path must match exactly, because /home/A/proj and /home/a/proj can
+    be two different repositories."""
     path = gateway.field(s, "repoPath", "RepoPath")
     if not path:
         return False
-    wanted = _norm_path(repo)
-    return wanted in (_repo_name(path).lower(), _norm_path(path))
+    return matches_repo(_repo_name(path), path, repo)
 
 
 def _matches_machine(s: Dict[str, Any], machine: str) -> bool:
@@ -362,7 +386,7 @@ def list_sessions(
     # Usage errors come before the fetch: a bad flag is the caller's to fix, whatever the fleet holds.
     if json_output and fields is not None:
         _usage_error("--fields does not apply to --json, which always carries every field. Drop one of them.")
-    chosen_fields = axi_output.parse_fields_or_exit(fields, SESSION_LIST_FIELDS, SESSION_LIST_DEFAULT_FIELDS)
+    chosen_fields = usage_errors.parse_fields(fields, SESSION_LIST_FIELDS, SESSION_LIST_DEFAULT_FIELDS)
     wanted_states = _parse_states(state)
     for flag, value in (("--repo", repo), ("--machine", machine)):
         if value is not None and not value.strip():
@@ -397,11 +421,11 @@ def list_sessions(
         # The cautions are the Gateway's sentences and may not be ASCII; stderr is escaped exactly
         # as the plain output is.
         if caveat:
-            print(_ascii_text(f"WARNING: the fleet list may be incomplete. {caveat}"), file=sys.stderr)
+            print(f"WARNING: the fleet list may be incomplete. {axi_output.escape_ascii(caveat)}", file=sys.stderr)
         # An EMPTY machine-readable answer is a negative answer too, and the agent parsing it is the
         # reader most likely to act on "nothing is running" as a fact.
         if not rows and stale_caution:
-            print(_ascii_text(f"WARNING: {stale_caution}"), file=sys.stderr)
+            print(f"WARNING: {axi_output.escape_ascii(stale_caution)}", file=sys.stderr)
         return
 
     records = [_session_record(s, st) for s, st in rows]
@@ -425,19 +449,14 @@ def list_sessions(
     # Issue #1051: printed AFTER the rows, so the rows the reader can trust come first and the
     # qualification lands on what they have just read.
     if caveat:
-        blocks.append(f"This is not the whole fleet. {caveat}")
+        blocks.append(f"This is not the whole fleet. {axi_output.escape_ascii(caveat)}")
     # The stale caution qualifies a negative answer only. Both cautions can be live at once, and on an
     # empty answer they say different things, so this is printed after the other, never instead of it.
     if not rows and stale_caution:
-        blocks.append(stale_caution)
+        blocks.append(axi_output.escape_ascii(stale_caution))
 
     blocks.append(axi_output.format_help(_session_list_help(rows, filtered, chosen_fields)))
-    axi_output.write_blocks(sys.stdout, *(_ascii_text(block) for block in blocks))
-
-
-def _ascii_text(block: str) -> str:
-    """The rendered blocks are ASCII already; a caution sentence from the Gateway may not be."""
-    return block if block.isascii() else axi_output.escape_ascii(block)
+    axi_output.write_blocks(sys.stdout, *blocks)
 
 
 def _session_list_help(rows: List[Tuple[Dict[str, Any], str]], filtered: bool, chosen_fields: List[str]) -> List[str]:
@@ -475,7 +494,7 @@ def show_live_state() -> None:
     try:
         sessions, complete, reason, stale_caution = gateway.get_fleet()
     except gateway.GatewayError as err:
-        print(_ascii_text(f"Error: {err}"), file=sys.stderr)
+        print(f"Error: {axi_output.escape_ascii(str(err))}", file=sys.stderr)
         print(
             "Nothing about the fleet can be shown without the Gateway. "
             "Run cc-devthrottle setup status to check this machine, or cc-devthrottle --help for the commands.",
@@ -510,13 +529,13 @@ def show_live_state() -> None:
     blocks.append(axi_output.format_count(len(sessions), breakdown=breakdown))
     blocks.append(f"needs-you: {needs_you}")
     if caveat:
-        blocks.append(f"This is not the whole fleet. {caveat}")
+        blocks.append(f"This is not the whole fleet. {axi_output.escape_ascii(caveat)}")
     # A count of zero is a negative answer, which is the one case the stale caution qualifies.
     if needs_you == 0 and stale_caution:
-        blocks.append(stale_caution)
+        blocks.append(axi_output.escape_ascii(stale_caution))
 
     blocks.append(axi_output.format_help(_live_state_help(sid is not None, needs_you, len(sessions))))
-    axi_output.write_blocks(sys.stdout, *(_ascii_text(block) for block in blocks))
+    axi_output.write_blocks(sys.stdout, *blocks)
 
 
 def _live_state_help(inside_session: bool, needs_you: int, total: int) -> List[str]:
@@ -997,7 +1016,8 @@ def undo_done(target: Optional[str], reason: Optional[str] = None) -> Dict[str, 
             "[red]Nothing was changed:[/red] --undo and --reason cannot be used together. "
             "--reason is shown while a session winds down, and --undo is what cancels that "
             "wind-down, so there is nothing left for the reason to be shown on. Re-run "
-            "cc-devthrottle session done --undo on its own, or drop --undo to flag the session."
+            "cc-devthrottle session done --undo on its own, or drop --undo to flag the session.",
+            soft_wrap=True,
         )
         raise typer.Exit(1)
 
@@ -1008,11 +1028,12 @@ def undo_done(target: Optional[str], reason: Optional[str] = None) -> Dict[str, 
         # escape(): the server's sentence can quote a path or a fragment of another session's output,
         # and a token shaped like [/tmp/x] raises MarkupError out of the branch whose only job is to
         # report a failure.
-        console.print(f"[red]Error:[/red] {escape(str(err))}")
+        console.print(f"[red]Error:[/red] {_text(err)}", soft_wrap=True)
         raise typer.Exit(1)
 
     console.print(
-        f"[green]Cleared[/green] {gateway.short_id(sid)} is no longer marked for deletion."
+        f"[green]Cleared[/green] {gateway.short_id(sid)} is no longer marked for deletion.",
+        soft_wrap=True,
     )
     return resp if isinstance(resp, dict) else {}
 
@@ -1121,6 +1142,10 @@ def stop_session(target: str, reason: Optional[str], json_output: bool = False) 
     late may all have ended the session first, and the Gateway says as much in words. So a refused
     request is announced as "Not stopped:" and everything else as "Outcome unknown:" - see
     _refused_outright for which is which, and why the unknown side is the default.
+
+    Every sentence is printed with soft_wrap: Rich would otherwise break it at the console width,
+    and a reader - an agent above all - searching the output for the Gateway's sentence would find
+    it split across two lines.
     """
     if reason is None or not reason.strip():
         # Refused before the round trip - there is no point asking the Gateway to tell us what we
@@ -1129,7 +1154,8 @@ def stop_session(target: str, reason: Optional[str], json_output: bool = False) 
         # answer it.
         console.print(
             f"[red]{STOP_REFUSED_PREFIX}[/red] a reason is required to stop a session, and none was "
-            "given. " + STOP_REASON_FLAG_HINT
+            "given. " + STOP_REASON_FLAG_HINT,
+            soft_wrap=True,
         )
         raise typer.Exit(1)
 
@@ -1150,21 +1176,22 @@ def stop_session(target: str, reason: Optional[str], json_output: bool = False) 
         # Gateway. escape() for the reason it is used everywhere else in this module: it is text from
         # somewhere else, and a token shaped like [/tmp/x] raises MarkupError.
         text = str(err)
-        console.print(f"[red]{_failure_prefix(err.status)}[/red] {escape(text)}")
+        console.print(f"[red]{_failure_prefix(err.status)}[/red] {_text(text)}", soft_wrap=True)
         if not _refused_outright(err.status):
             # Said ONCE, after the server's own words, and only where the outcome is genuinely
             # unknown. Without it the reader is left with a sentence about a lost reply and no idea
             # what to do next.
             console.print(
                 "This cannot say whether the session is still running. Run "
-                "cc-devthrottle session list to see whether it is still there."
+                "cc-devthrottle session list to see whether it is still there.",
+                soft_wrap=True,
             )
         # The one thing only this command knows. Added AFTER the server's words, never instead of
         # them. Still tested textually rather than on the status alone: the sentence is what names
         # the reason as the missing thing, and a refusal that is about something else must not send
         # the caller off to fix a flag that was never wrong.
         if _refused_outright(err.status) and "reason" in text.lower():
-            console.print(STOP_REASON_FLAG_HINT)
+            console.print(STOP_REASON_FLAG_HINT, soft_wrap=True)
         raise typer.Exit(1)
 
     body = resp if isinstance(resp, dict) else {}
@@ -1178,7 +1205,8 @@ def stop_session(target: str, reason: Optional[str], json_output: bool = False) 
         console.print(
             "[red]No answer:[/red] the Gateway returned nothing that says what happened to "
             f"{gateway.short_id(sid)}, so this cannot report whether it was stopped. "
-            "Run cc-devthrottle session list to see whether it is still there."
+            "Run cc-devthrottle session list to see whether it is still there.",
+            soft_wrap=True,
         )
         raise typer.Exit(1)
 
@@ -1192,7 +1220,7 @@ def stop_session(target: str, reason: Optional[str], json_output: bool = False) 
         print(json.dumps(body, indent=2))
         return body
 
-    console.print(escape(headline))
+    console.print(_text(headline), soft_wrap=True)
     details = body.get("details", body.get("Details"))
     if isinstance(details, list):
         # In the order the Gateway gave them. The order is part of the answer - the worktree line
@@ -1200,7 +1228,7 @@ def stop_session(target: str, reason: Optional[str], json_output: bool = False) 
         # matters, which is the one thing it must never do.
         for line in details:
             if isinstance(line, str) and line.strip():
-                console.print(escape(line))
+                console.print(_text(line), soft_wrap=True)
     return body
 
 

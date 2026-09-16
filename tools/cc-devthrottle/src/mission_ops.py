@@ -32,6 +32,8 @@ if _tools_dir not in sys.path:
 
 from cc_shared import axi_output, gateway  # noqa: E402
 
+from . import usage_errors  # noqa: E402
+
 console = Console()
 err_console = Console(stderr=True)
 
@@ -253,14 +255,7 @@ MISSION_LIST_FIELDS = ("id", "name", "state", "why", "why-updated", "state-chang
 MISSION_LIST_DEFAULT_FIELDS = ("id", "name", "state")
 
 
-def _usage_error(message: str) -> None:
-    print(f"Error: {message}", file=sys.stderr)
-    raise typer.Exit(axi_output.USAGE_ERROR_EXIT_CODE)
-
-
-def _ascii_text(block: str) -> str:
-    """The rendered blocks are ASCII already; a sentence quoting a mission name or a filter may not be."""
-    return block if block.isascii() else axi_output.escape_ascii(block)
+_usage_error = usage_errors.usage_error
 
 
 def _mission_state(mission: Dict[str, Any]) -> str:
@@ -268,8 +263,8 @@ def _mission_state(mission: Dict[str, Any]) -> str:
     fails loudly: listing it under a guessed state would put finished work in the active list."""
     raw = mission.get("state", mission.get("State"))
     if raw not in MISSION_STATES:
-        mid = mission.get("missionId", mission.get("MissionId"))
-        shown = "missing" if raw is None else axi_output.format_value(raw) if isinstance(raw, str) else repr(raw)
+        mid = _shown_id(mission.get("missionId", mission.get("MissionId")))
+        shown = "missing" if raw is None else axi_output.format_value(raw) if isinstance(raw, str) else axi_output.escape_ascii(repr(raw))
         print(
             f"Error: the Gateway returned mission {mid} with state {shown}; "
             f"this tool knows only {', '.join(MISSION_STATES)}. --json shows the raw rows.",
@@ -279,11 +274,16 @@ def _mission_state(mission: Dict[str, Any]) -> str:
     return raw
 
 
+def _shown_id(mid: Any) -> str:
+    """A mission id from the Gateway, as one line of ASCII for an error sentence."""
+    return axi_output.escape_ascii(str(mid))
+
+
 def _bad_mission(mid: Any, what: str, row: Optional[int] = None) -> None:
     """Refuse a mission row the Gateway would never send, naming the mission and what is wrong with it."""
     where = f" (row {row})" if row is not None else ""
     print(
-        f"Error: the Gateway returned mission {mid} with {what}{where}. "
+        f"Error: the Gateway returned mission {_shown_id(mid)} with {what}{where}. "
         "This tool will not list it as if it were sound; --json shows the raw rows.",
         file=sys.stderr,
     )
@@ -327,7 +327,7 @@ def _require_mission_rows(missions: List[Any]) -> None:
         name = mission.get("missionName", mission.get("MissionName"))
         if not isinstance(name, str):
             print(
-                f"Error: the Gateway returned mission {mid} with no mission name (row {row}). "
+                f"Error: the Gateway returned mission {_shown_id(mid)} with no mission name (row {row}). "
                 "This tool will not list or filter a mission without its name; --json shows the raw rows.",
                 file=sys.stderr,
             )
@@ -409,10 +409,10 @@ def list_missions(
     # Usage errors come before the fetch: a bad flag is the caller's to fix, whatever the Gateway holds.
     if json_output and fields is not None:
         _usage_error("--fields does not apply to --json, which always carries every field. Drop one of them.")
-    chosen_fields = axi_output.parse_fields_or_exit(fields, MISSION_LIST_FIELDS, MISSION_LIST_DEFAULT_FIELDS)
+    chosen_fields = usage_errors.parse_fields(fields, MISSION_LIST_FIELDS, MISSION_LIST_DEFAULT_FIELDS)
     if state is not None and state not in MISSION_STATE_FILTERS:
         _usage_error(
-            f"unknown --state value {axi_output.escape_ascii(state)!r}. "
+            f"unknown --state value '{axi_output.escape_ascii(state)}'. "
             f"Valid states: {', '.join(MISSION_STATE_FILTERS)}"
         )
     if name is not None and not name.strip():
@@ -424,7 +424,7 @@ def list_missions(
         try:
             missions = MissionClient().list_all(state=state)
         except GatewayError as err:
-            print(f"Error: {err}", file=sys.stderr)
+            print(f"Error: {axi_output.escape_ascii(str(err))}", file=sys.stderr)
             raise typer.Exit(1)
         if name is not None:
             # Filtering reads the rows, so every row is checked in full first; the unfiltered answer is not.
@@ -438,7 +438,7 @@ def list_missions(
     try:
         everything = MissionClient().list_all(state="all")
     except GatewayError as err:
-        print(f"Error: {err}", file=sys.stderr)
+        print(f"Error: {axi_output.escape_ascii(str(err))}", file=sys.stderr)
         raise typer.Exit(1)
     _require_mission_rows(everything)
     states = [_mission_state(m) for m in everything]
@@ -471,7 +471,7 @@ def list_missions(
             if wanted is not None:
                 conditions.append(f"state '{wanted}'")
             if name is not None:
-                conditions.append(f"a name containing '{name.strip()}'")
+                conditions.append(f"a name containing '{axi_output.escape_ascii(name.strip())}'")
             blocks.append(f"No missions with {' and '.join(conditions)}.")
     elif "why" not in chosen_fields:
         # A mission with no WHY is FLAGGED, not hidden - the same rule the Cockpit card follows. A
@@ -482,7 +482,7 @@ def list_missions(
             blocks.append(f"{unset} of these {noun} no why set.")
 
     blocks.append(axi_output.format_help(_mission_list_help(rows, bool(everything), wanted, name, chosen_fields)))
-    axi_output.write_blocks(sys.stdout, *(_ascii_text(block) for block in blocks))
+    axi_output.write_blocks(sys.stdout, *blocks)
 
 
 def _mission_list_help(

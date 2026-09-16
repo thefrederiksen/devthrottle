@@ -1,4 +1,5 @@
-typer>=0.9.0
+typer>=0.16.1
+click>=8.2.1
 rich>=13.0.0
 requests>=2.31.0
 cc-shared

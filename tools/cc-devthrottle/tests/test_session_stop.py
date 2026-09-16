@@ -114,17 +114,18 @@ def _stop(target, *reason_args):
 
 
 @pytest.fixture(autouse=True)
-def wide_console(monkeypatch):
-    """Render into a wide console so no assertion depends on where the terminal wrapped a line.
+def narrow_console(monkeypatch):
+    """Render into a console far narrower than any sentence, so every test proves the stop output
+    is never wrapped.
 
-    Rich wraps to the console width, so a sentence that is one line on a wide terminal arrives in the
-    capture with a newline through the middle of it. Asserting on the raw capture would pin the width
-    of whatever machine the test ran on rather than the words the reader sees. Wrapping is the
-    terminal's business; these tests are about the words and the exit code.
+    These tests used to force a WIDE console instead, and still failed on Windows with Rich 14.3.2
+    and FORCE_COLOR=1: six assertions found a Gateway sentence split across two lines. The output is
+    now printed unwrapped, whatever the width, and a narrow console is what shows that. Every other
+    setting - colour, terminal detection - is left to the environment the suite runs in.
     """
     from rich.console import Console
 
-    monkeypatch.setattr(session_ops, "console", Console(width=200))
+    monkeypatch.setattr(session_ops, "console", Console(width=20))
 
 
 # ===== the three verdicts: every one of them is a success =====
@@ -142,7 +143,9 @@ def test_a_stopped_session_prints_the_headline_then_every_detail_line_and_exits_
     assert calls[0]["body"] == {"reason": "it was editing the wrong repository"}
     out = plain(result.output)
     assert f"stopped {SHORT_ID} - process 51884 ended, row removed" in out
-    assert r"the worktree C:\Repos\thing was left untouched" in out
+    # Escaped as every Gateway sentence is (axi_output.escape_ascii), so a backslash reads doubled
+    # and the line unescapes back to exactly what the Gateway wrote.
+    assert r"the worktree C:\\Repos\\thing was left untouched" in out
     assert "reason: it was editing the wrong repository" in out
 
 
@@ -815,3 +818,39 @@ def test_the_json_flag_is_declared_on_stop():
         if isinstance(param, typer.models.OptionInfo):
             names.extend(param.param_decls or [])
     assert "--json" in names
+
+
+# ===== every Gateway sentence is one line of ASCII =====
+
+
+def test_stop_GatewaySentencesWithNewlinesAndNonAscii_AreOneAsciiLineEach(gateway_stub, plain):
+    # The inspection's reproduction: a headline with a newline in it and a detail with a tab and a
+    # non-ASCII letter must neither split their lines nor leave the output non-ASCII.
+    gateway_stub({"verdict": "stopped", "headline": "stopp\u00e9d\nsecond", "details": ["worktree na\u00efve\tleft"]})
+
+    result = _stop(SESSION_ID, "--reason", "test")
+
+    assert result.exit_code == 0
+    assert result.output.isascii(), result.output
+    assert plain(result.output).splitlines() == ["stopp\\u00e9d\\nsecond", "worktree na\\u00efve\\tleft"]
+
+
+def test_stop_GatewayFailureSentence_IsOneAsciiLine(gateway_stub, plain):
+    gateway_stub(session_ops.gateway.GatewayError("the Director on S\u00d8REN\nsaid [/tmp/x] no", status=502))
+
+    result = _stop(SESSION_ID, "--reason", "test")
+
+    assert result.exit_code == 1
+    assert result.output.isascii(), result.output
+    first = plain(result.output).splitlines()[0]
+    assert first == "Outcome unknown: the Director on S\\u00d8REN\\nsaid [/tmp/x] no", result.output
+
+
+def test_undo_GatewayFailureSentence_IsOneAsciiLine(delete_stub, plain):
+    delete_stub(session_ops.gateway.GatewayError("caf\u00e9\nbroken [/x]"))
+
+    result = runner.invoke(app, ["session", "done", "--undo"])
+
+    assert result.exit_code == 1
+    assert result.output.isascii(), result.output
+    assert plain(result.output).splitlines() == ["Error: caf\\u00e9\\nbroken [/x]"]
