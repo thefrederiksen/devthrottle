@@ -891,6 +891,10 @@ public sealed class GatewayHost : IAsyncDisposable
     /// Null until StartAsync builds it.</summary>
     internal Wingman.TurnVerdictService? TurnVerdictServiceForTest => _turnVerdictService;
 
+    /// <summary>The live turn-verdict seat, built if it is not yet, so a hosted test can drive a judgement or an expiry
+    /// through the production environment and the production trace writer.</summary>
+    internal Wingman.TurnVerdictService EnsureTurnVerdictServiceForTest() => EnsureTurnVerdictService();
+
     /// <summary>Test-only: the turn-end watcher, so an isolation test can drive a real session-state
     /// transition (Working -&gt; Waiting) into the REAL onTurnEnd / onSessionWorking callbacks rather than a
     /// re-implementation. Null until StartAsync builds it.</summary>
