@@ -5,9 +5,12 @@ fleet exactly the way any other session does and needs no credentials of its own
 
 A spawned session has FINISHED only when BOTH are true:
   - the output file it was told to write exists, and
-  - the session has flagged itself done (pendingDeletion) or has left the fleet list.
-A session that leaves the fleet list, or is reported crashed, without writing its
-output has FAILED. A session that was seen working and then sits idle with no output
+  - the session has been SEEN flagged done (pendingDeletion). Leaving the fleet list
+    counts only after the flag was seen: the Director keeps a flagged session listed
+    for 30 seconds, far longer than one poll, so a real finish is always observed
+    with its flag. A session that vanishes without that is a crash, output or not.
+A session that leaves the fleet list without the flag, or is reported crashed, has
+FAILED. A session that was seen working and then sits idle with no output
 and no done flag has STALLED - for example it stopped on an error it could not get
 past - and has also failed. Nothing else counts as finished.
 """
@@ -126,18 +129,20 @@ class WaitResult:
     observations: list[dict] = field(default_factory=list)
 
 
-def classify(output_exists: bool, row: dict | None) -> tuple[str | None, str]:
-    """One observation -> (outcome or None while still working, reason)."""
-    gone = row is None
-    crashed = bool(row and row.get("crashed"))
-    flagged_done = bool(row and row.get("pendingDeletion"))
-    if output_exists and (flagged_done or gone):
-        why = "flagged itself done" if flagged_done else "left the fleet list"
-        return FINISHED, f"output written and session {why}"
-    if crashed:
-        return CRASHED, "session reported crashed before finishing"
-    if gone:
-        return CRASHED, "session left the fleet list without writing its output"
+def classify(output_exists: bool, row: dict | None, seen_done: bool) -> tuple[str | None, str]:
+    """One observation -> (outcome or None while still working, reason).
+
+    seen_done: the done flag was observed on this or an earlier poll of this wait.
+    """
+    if row is not None and row.get("crashed"):
+        return CRASHED, "session reported crashed"
+    flagged_done = seen_done or bool(row and row.get("pendingDeletion"))
+    if row is None:
+        if output_exists and flagged_done:
+            return FINISHED, "output written and session flagged itself done, then was reaped"
+        return CRASHED, "session left the fleet list without flagging itself done"
+    if output_exists and flagged_done:
+        return FINISHED, "output written and session flagged itself done"
     if output_exists:
         return None, "output written, waiting for the session to flag itself done"
     return None, f"working (status={row['status']}, activity={row['activityState']})"
@@ -164,11 +169,13 @@ def wait_for_output(
     observations: list[dict] = []
     deadline = time.monotonic() + timeout_seconds
     seen_working = False
+    seen_done = False
     idle_since: float | None = None
     while True:
         row = find_session(session_id)
         ready = output_ready()
-        outcome, reason = classify(ready, row)
+        outcome, reason = classify(ready, row, seen_done)
+        seen_done = seen_done or bool(row and row.get("pendingDeletion"))
         if outcome is None and row is not None:
             if row["activityState"] == "Working":
                 seen_working, idle_since = True, None

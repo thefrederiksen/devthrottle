@@ -15,30 +15,39 @@ def _row(activity="Working", pending=False, crashed=False):
 
 
 def test_classify_OutputAndDoneFlag_Finished():
-    assert fleet.classify(True, _row(pending=True))[0] == fleet.FINISHED
+    assert fleet.classify(True, _row(pending=True), False)[0] == fleet.FINISHED
 
 
-def test_classify_OutputAndSessionGone_Finished():
-    assert fleet.classify(True, None)[0] == fleet.FINISHED
+def test_classify_OutputAndGoneAfterFlagSeen_Finished():
+    assert fleet.classify(True, None, True)[0] == fleet.FINISHED
+
+
+def test_classify_OutputAndGoneWithoutFlagEverSeen_Crashed():
+    # Inspection finding 1: the file lands, then the process dies before `session done`.
+    assert fleet.classify(True, None, False)[0] == fleet.CRASHED
+
+
+def test_classify_CrashedAndFlaggedWithOutput_Crashed():
+    assert fleet.classify(True, _row(pending=True, crashed=True), True)[0] == fleet.CRASHED
 
 
 def test_classify_OutputWithoutDoneFlag_StillWorking():
     # Observed live: the file lands a few seconds before the flag. Not finished yet.
-    outcome, reason = fleet.classify(True, _row())
+    outcome, reason = fleet.classify(True, _row(), False)
     assert outcome is None
     assert "waiting for the session to flag itself done" in reason
 
 
 def test_classify_DoneFlagWithoutOutput_StillWorking():
-    assert fleet.classify(False, _row(pending=True))[0] is None
+    assert fleet.classify(False, _row(pending=True), True)[0] is None
 
 
 def test_classify_GoneWithoutOutput_Crashed():
-    assert fleet.classify(False, None)[0] == fleet.CRASHED
+    assert fleet.classify(False, None, False)[0] == fleet.CRASHED
 
 
 def test_classify_CrashedFlag_Crashed():
-    assert fleet.classify(False, _row(crashed=True))[0] == fleet.CRASHED
+    assert fleet.classify(False, _row(crashed=True), False)[0] == fleet.CRASHED
 
 
 class _FakeFleet:
@@ -87,6 +96,24 @@ def test_wait_for_output_OutputThenFlag_Finished(tmp_path, monkeypatch, clock):
     monkeypatch.setattr(fleet, "find_session", fake.find)
     result = fleet.wait_for_output("s1", out, 300, poll_seconds=5)
     assert result.outcome == fleet.FINISHED
+
+
+def test_wait_for_output_OutputThenVanishesBeforeFlag_Crashed(tmp_path, monkeypatch, clock):
+    out = tmp_path / "out.json"
+    fake = _FakeFleet([_row(), _row(), None], output=out, write_at=2)
+    monkeypatch.setattr(fleet, "find_session", fake.find)
+    result = fleet.wait_for_output("s1", out, 300, poll_seconds=5)
+    assert result.outcome == fleet.CRASHED
+
+
+def test_wait_for_output_FlagSeenThenReaped_Finished(tmp_path, monkeypatch, clock):
+    out = tmp_path / "out.json"
+    # Poll 1: flagged, file not there yet. Poll 2: the row is reaped and the file is there.
+    fake = _FakeFleet([_row(pending=True), None], output=out, write_at=2)
+    monkeypatch.setattr(fleet, "find_session", fake.find)
+    result = fleet.wait_for_output("s1", out, 300, poll_seconds=5)
+    assert result.outcome == fleet.FINISHED
+    assert "reaped" in result.reason
 
 
 def test_wait_for_output_StaleFileBeforeCorrection_NotFinished(tmp_path, monkeypatch, clock):

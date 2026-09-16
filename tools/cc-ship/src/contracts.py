@@ -126,6 +126,10 @@ def validate_verify(data: dict) -> list[str]:
             problems.append(f"{where}'evidence' and 'reason' must both be strings")
         if s.get("result") in ("pass", "fail") and not _text(s.get("evidence")):
             problems.append(f"{where}a {s.get('result')} needs evidence")
+        if s.get("result") in ("pass", "fail") and s.get("live") is not True:
+            problems.append(f"{where}a {s.get('result')} must have been run live - otherwise it is untested")
+        if s.get("result") == "untested" and s.get("live") is not False:
+            problems.append(f"{where}an untested scenario cannot be live")
         if s.get("result") == "untested" and not _text(s.get("reason")):
             problems.append(f"{where}an untested scenario needs a reason naming what was missing")
 

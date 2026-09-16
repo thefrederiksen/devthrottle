@@ -49,10 +49,13 @@ def main() -> None:
     ), encoding="ascii")
 
     started = time.monotonic()
-    session_id = fleet.spawn_session(
-        repo, agent, os.environ["CC_SESSION_ID"], "cc-ship - Verifier - probe preview", brief
-    )
-    result = fleet.wait_for_output(session_id, output, 900, poll_seconds=5)
+    try:
+        session_id = fleet.spawn_session(
+            repo, agent, os.environ["CC_SESSION_ID"], "cc-ship - Verifier - probe preview", brief
+        )
+        result = fleet.wait_for_output(session_id, output, 900, poll_seconds=5)
+    finally:
+        preview.remove_bypass_state(state)
     record = {"session_id": session_id, "outcome": result.outcome, "reason": result.reason,
               "seconds": round(time.monotonic() - started), "preview": url,
               "evidence_files": sorted(p.name for p in evidence.iterdir())}

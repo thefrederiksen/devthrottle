@@ -10,16 +10,19 @@ The raw run folders (briefs, outputs, per-poll observations, screenshots) are un
 
 ## 1. Knowing a spawned session has finished - PROVEN
 
-**Rule:** a session has FINISHED only when its output file exists AND it has flagged
-itself done (`pendingDeletion` in `cc-devthrottle session list --json`) or has left the
-list. A session that leaves the list (or is reported `crashed`) with no output has
-CRASHED. A session that was seen working and then sits idle for 90 seconds with no
-output and no done flag has STALLED.
+**Rule:** a session has FINISHED only when its output file exists AND it has been seen
+flagged done (`pendingDeletion` in `cc-devthrottle session list --json`). Leaving the
+list counts only after the flag was seen: the Director keeps a flagged session listed
+for 30 seconds, much longer than one poll. A session that leaves the list without the
+flag, or is reported `crashed`, has CRASHED, even if its file exists. (This is tighter
+than the issue's "or is gone". The inspection showed a file followed by a process
+death would otherwise count as a finish.) A session that was seen working and then
+sits idle for 90 seconds with no output and no done flag has STALLED.
 
 | Case | What happened | Detected as | Time |
 |---|---|---|---|
 | Normal finish | Claude Code session wrote the file, then ran `session done` | finished | 22 s from spawn |
-| Crash | Session stopped with `session stop` while it was working (1 min 10 s into a long task) | crashed, "left the fleet list without writing its output" | first poll after the stop |
+| Crash | Session stopped with `session stop` while it was working (1 min 10 s into a long task) | crashed (reported then as "left the fleet list without writing its output") | first poll after the stop |
 | Stall | Seen live, not staged: 6 reviewers could not authenticate to the Gateway, printed the error, and went idle | (led to adding the STALLED outcome) | - |
 
 The finish timeline shows why both halves are needed: the file appeared at 11:51:04
@@ -93,6 +96,21 @@ were opened and checked by hand: they show the real site, not the sign-in page.
    it is the step that failed in finding 3.
 5. **The python.org Python on the Mac has no certificate store**, so plain `urllib`
    cannot reach Vercel. cc-ship uses `curl`, which ships with macOS and Windows.
+
+## Independent inspection
+
+Codex inspected this pull request before merge and failed it with two errors and two
+warnings, all fixed with a regression test each:
+
+- A file followed by a vanished session counted as finished (the finish rule above).
+- A scenario could be `pass` without having run live. Now `pass` and `fail` must be
+  `live: true`, and `untested` must be `live: false`.
+- An older `success` status could hide a newer `failure` on the same deployment. Now
+  only each deployment's latest status counts.
+- The derived bypass cookie file stayed on disk. It is now removed when the verifier
+  ends, whatever the outcome.
+
+Each fix was reverted to confirm its test fails, then restored.
 
 ## Setup a machine needs before cc-ship runs there
 

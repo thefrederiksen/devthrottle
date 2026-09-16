@@ -121,3 +121,21 @@ def test_validate_verify_NoSurfaceAllUntested_IsValid():
 def test_validate_verify_LiveNotBoolean_Rejected():
     problems = contracts.validate_verify({"verdict": "go", "scenarios": [_scenario(live="yes")]})
     assert any("live" in p for p in problems)
+
+
+def test_validate_verify_PassNotLive_Rejected():
+    # Inspection finding 2: a pass that never ran live is a guessed pass.
+    problems = contracts.validate_verify({"verdict": "go", "scenarios": [_scenario(live=False)]})
+    assert any("run live" in p for p in problems)
+
+
+def test_validate_verify_FailNotLive_Rejected():
+    scenario = _scenario(result="fail", live=False)
+    problems = contracts.validate_verify({"verdict": "no-go", "scenarios": [scenario]})
+    assert any("run live" in p for p in problems)
+
+
+def test_validate_verify_UntestedButLive_Rejected():
+    scenario = _scenario(result="untested", live=True, evidence="", reason="x")
+    problems = contracts.validate_verify({"verdict": "go", "scenarios": [scenario]})
+    assert any("cannot be live" in p for p in problems)

@@ -69,3 +69,31 @@ def test_find_preview_url_OnlyFailedStatus_ReturnsNone(monkeypatch):
     monkeypatch.setattr(preview.subprocess, "run", lambda args, **_k: subprocess.CompletedProcess(
         args, 0, stdout=next(responses), stderr=""))
     assert preview.find_preview_url("o/r", "abc") is None
+
+
+def test_find_preview_url_LatestFailedOverOlderSuccess_ReturnsNone(monkeypatch):
+    # Inspection finding 3: statuses are newest first; only the latest one counts.
+    responses = iter([json.dumps([{"id": 7}]), json.dumps([
+        {"state": "failure", "environment_url": "https://x"},
+        {"state": "success", "environment_url": "https://x"},
+    ])])
+    monkeypatch.setattr(preview.subprocess, "run", lambda args, **_k: subprocess.CompletedProcess(
+        args, 0, stdout=next(responses), stderr=""))
+    assert preview.find_preview_url("o/r", "abc") is None
+
+
+def test_find_preview_url_LatestSuccess_ReturnsUrl(monkeypatch):
+    responses = iter([json.dumps([{"id": 7}]), json.dumps([
+        {"state": "success", "environment_url": "https://ok"},
+        {"state": "in_progress", "environment_url": None},
+    ])])
+    monkeypatch.setattr(preview.subprocess, "run", lambda args, **_k: subprocess.CompletedProcess(
+        args, 0, stdout=next(responses), stderr=""))
+    assert preview.find_preview_url("o/r", "abc") == "https://ok"
+
+
+def test_remove_bypass_state_Existing_Deleted(tmp_path):
+    state = tmp_path / "browser-state.json"
+    state.write_text("{}", encoding="ascii")
+    preview.remove_bypass_state(state)
+    assert not state.exists()

@@ -46,7 +46,7 @@ def read_bypass_secret() -> str:
 
 
 def find_preview_url(repo_slug: str, sha: str) -> str | None:
-    """The successful Vercel preview deployment for exactly this commit, if any."""
+    """The Vercel preview for exactly this commit whose LATEST status is success, if any."""
     deployments = json.loads(subprocess.run(
         ["gh", "api", f"repos/{repo_slug}/deployments?sha={sha}&environment=Preview"],
         capture_output=True, text=True, check=True,
@@ -56,9 +56,9 @@ def find_preview_url(repo_slug: str, sha: str) -> str | None:
             ["gh", "api", f"repos/{repo_slug}/deployments/{deployment['id']}/statuses"],
             capture_output=True, text=True, check=True,
         ).stdout)
-        for status in statuses:  # newest first
-            if status["state"] == "success" and status.get("environment_url"):
-                return status["environment_url"]
+        latest = statuses[0] if statuses else None  # GitHub lists newest first
+        if latest and latest["state"] == "success" and latest.get("environment_url"):
+            return latest["environment_url"]
     return None
 
 
@@ -99,5 +99,12 @@ def write_bypass_state(url: str, state_file: Path) -> None:
         }],
         "origins": [],
     }
+    # The cookie is itself a bypass credential. The run folder lives in the user's own
+    # profile (per-user access on Windows); chmod narrows it further on macOS.
+    # Callers remove it with remove_bypass_state as soon as the verifier ends.
     state_file.write_text(json.dumps(state), encoding="ascii")
     state_file.chmod(0o600)
+
+
+def remove_bypass_state(state_file: Path) -> None:
+    state_file.unlink(missing_ok=True)
