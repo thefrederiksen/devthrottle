@@ -4,16 +4,16 @@ using Xunit;
 namespace CcDirector.Setup.Engine.Tests;
 
 /// <summary>
-/// The standby Director slot (issue #2945). Two things are faked - an executable's version is read from
-/// its file text, and the process list is a field - so the file work (create, replace, never downgrade,
-/// carry settings) and the health state reading run for real against a temporary machine root.
+/// The standby Director slot (issue #2945). One thing is faked - an executable's version is read from its
+/// file text - so the file work and the health state reading run for real against a temporary machine root.
 /// </summary>
 public class StandbySlotProvisionerTests : IDisposable
 {
     private readonly string _root;
     private readonly string _primary;
     private readonly string _standby;
-    private OtherSlotRunning _running = OtherSlotRunning.No;
+    private readonly string _primarySettings;
+    private readonly string _standbySettings;
 
     /// <summary>
     /// This test class's own lock, so it never contends with a real swap on the machine or with another
@@ -28,7 +28,9 @@ public class StandbySlotProvisionerTests : IDisposable
         _root = Path.Combine(Path.GetTempPath(), "cc-standby-" + Guid.NewGuid().ToString("N"));
         _primary = Path.Combine(_root, "app", "cc-director.exe");
         _standby = Path.Combine(_root, "app", "standby", "cc-director.exe");
-        Directory.CreateDirectory(Path.GetDirectoryName(_primary) ?? throw new InvalidOperationException("no directory"));
+        _primarySettings = Path.Combine(_root, "app", "appsettings.json");
+        _standbySettings = Path.Combine(_root, "app", "standby", "appsettings.json");
+        Write(_primary, "2.4.0");
     }
 
     public void Dispose()
@@ -41,7 +43,6 @@ public class StandbySlotProvisionerTests : IDisposable
         new(self,
             _root,
             path => Version.TryParse(File.ReadAllText(path), out var v) ? v : null,
-            _ => _running,
             isWindows)
         {
             SwapLockName = _swapLockName,
@@ -57,6 +58,23 @@ public class StandbySlotProvisionerTests : IDisposable
     private string InstanceState(string slug) => Path.Combine(_root, "instances", slug, "config", "director", "updater-state.json");
 
     private string RootState() => Path.Combine(_root, "config", "director", "updater-state.json");
+
+    /// <summary>Hold the test lock on BinarySwapLock's own dedicated thread for <paramref name="hold"/>.</summary>
+    /// <remarks>
+    /// Never a raw Mutex held across an await: a named mutex is thread-affine, and that is exactly the
+    /// defect that made another test in this project flaky.
+    /// </remarks>
+    private async Task<Task> HoldLockAsync(TimeSpan hold)
+    {
+        var holding = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var holder = BinarySwapLock.RunExclusivelyAsync(
+            async () => { holding.SetResult(); await Task.Delay(hold); return 0; },
+            _ => throw new InvalidOperationException("the test could not take its own lock"),
+            who: "test holder",
+            name: _swapLockName);
+        await holding.Task;
+        return holder;
+    }
 
     // ---- the slot path ----
 
@@ -84,123 +102,33 @@ public class StandbySlotProvisionerTests : IDisposable
     [Fact]
     public void Decide_NotWindows_ReturnsNotWindows()
     {
-        Assert.Equal(StandbySlotDecision.NotWindows,
-            StandbySlotProvisioner.Decide(false, HealthGate.Clear, false, OtherSlotRunning.No, Self, null));
+        Assert.Equal(StandbySlotDecision.NotWindows, StandbySlotProvisioner.Decide(false, false, HealthGate.Clear));
     }
 
     [Fact]
-    public void Decide_PendingForThisBuild_HoldsEvenWhenSlotMissing()
+    public void Decide_SlotExists_IsAlreadyPresentWhateverTheHealth()
+    {
+        Assert.Equal(StandbySlotDecision.AlreadyPresent, StandbySlotProvisioner.Decide(true, true, HealthGate.Unreadable));
+    }
+
+    [Fact]
+    public void Decide_MissingAndPendingForThisBuild_Holds()
     {
         Assert.Equal(StandbySlotDecision.HeldBecauseThisBuildIsUnproven,
-            StandbySlotProvisioner.Decide(true, HealthGate.PendingForThisBuild, false, OtherSlotRunning.No, Self, null));
+            StandbySlotProvisioner.Decide(true, false, HealthGate.PendingForThisBuild));
     }
 
     [Fact]
-    public void Decide_HealthUnreadable_HoldsEvenWhenSlotMissing()
+    public void Decide_MissingAndHealthUnreadable_Holds()
     {
         Assert.Equal(StandbySlotDecision.HeldBecauseHealthStateUnreadable,
-            StandbySlotProvisioner.Decide(true, HealthGate.Unreadable, false, OtherSlotRunning.No, Self, null));
+            StandbySlotProvisioner.Decide(true, false, HealthGate.Unreadable));
     }
 
     [Fact]
-    public void Decide_SlotMissing_Creates()
+    public void Decide_MissingAndClear_Creates()
     {
-        Assert.Equal(StandbySlotDecision.Created,
-            StandbySlotProvisioner.Decide(true, HealthGate.Clear, false, OtherSlotRunning.No, Self, null));
-    }
-
-    [Fact]
-    public void Decide_OlderAndRunning_Holds()
-    {
-        Assert.Equal(StandbySlotDecision.HeldBecauseOtherSlotIsRunning,
-            StandbySlotProvisioner.Decide(true, HealthGate.Clear, true, OtherSlotRunning.Yes, Self, new Version(2, 3, 0)));
-    }
-
-    [Fact]
-    public void Decide_OlderAndRunningStateUnknown_Holds()
-    {
-        Assert.Equal(StandbySlotDecision.HeldBecauseOtherSlotStateUnknown,
-            StandbySlotProvisioner.Decide(true, HealthGate.Clear, true, OtherSlotRunning.Unknown, Self, new Version(2, 3, 0)));
-    }
-
-    [Fact]
-    public void Decide_VersionUnreadable_Holds()
-    {
-        Assert.Equal(StandbySlotDecision.HeldBecauseOtherVersionUnreadable,
-            StandbySlotProvisioner.Decide(true, HealthGate.Clear, true, OtherSlotRunning.No, Self, null));
-    }
-
-    [Fact]
-    public void Decide_OlderAndIdle_Replaces()
-    {
-        Assert.Equal(StandbySlotDecision.Replaced,
-            StandbySlotProvisioner.Decide(true, HealthGate.Clear, true, OtherSlotRunning.No, Self, new Version(2, 3, 0)));
-    }
-
-    [Fact]
-    public void Decide_SameVersion_IsUpToDate()
-    {
-        Assert.Equal(StandbySlotDecision.UpToDate,
-            StandbySlotProvisioner.Decide(true, HealthGate.Clear, true, OtherSlotRunning.No, Self, new Version(2, 4, 0, 0)));
-    }
-
-    [Fact]
-    public void Decide_OtherNewer_NeverDowngrades()
-    {
-        Assert.Equal(StandbySlotDecision.UpToDate,
-            StandbySlotProvisioner.Decide(true, HealthGate.Clear, true, OtherSlotRunning.No, Self, new Version(2, 5, 0)));
-    }
-
-    // ---- the running classification (the production probe hands its process list to this) ----
-
-    private string Exe => _standby;
-
-    [Fact]
-    public void ClassifyRunning_NoProcesses_ReturnsNo()
-    {
-        Assert.Equal(OtherSlotRunning.No, StandbySlotProvisioner.ClassifyRunning([], 1, Exe));
-    }
-
-    [Fact]
-    public void ClassifyRunning_ProcessFromAnotherPath_ReturnsNo()
-    {
-        Assert.Equal(OtherSlotRunning.No,
-            StandbySlotProvisioner.ClassifyRunning([new ProcessImage(2, _primary)], 1, Exe));
-    }
-
-    [Fact]
-    public void ClassifyRunning_ProcessFromTheSlot_ReturnsYes()
-    {
-        Assert.Equal(OtherSlotRunning.Yes,
-            StandbySlotProvisioner.ClassifyRunning([new ProcessImage(2, Exe)], 1, Exe));
-    }
-
-    [Fact]
-    public void ClassifyRunning_PathInOtherCase_ReturnsYes()
-    {
-        Assert.Equal(OtherSlotRunning.Yes,
-            StandbySlotProvisioner.ClassifyRunning([new ProcessImage(2, Exe.ToUpperInvariant())], 1, Exe));
-    }
-
-    [Fact]
-    public void ClassifyRunning_OnlyThisProcess_IsIgnored()
-    {
-        Assert.Equal(OtherSlotRunning.No,
-            StandbySlotProvisioner.ClassifyRunning([new ProcessImage(1, Exe)], 1, Exe));
-    }
-
-    [Fact]
-    public void ClassifyRunning_ProcessWouldNotReportImage_ReturnsUnknownNeverNo()
-    {
-        Assert.Equal(OtherSlotRunning.Unknown,
-            StandbySlotProvisioner.ClassifyRunning([new ProcessImage(2, _primary), new ProcessImage(3, null)], 1, Exe));
-    }
-
-    [Fact]
-    public void ClassifyRunning_UnreportedAndProvenRunning_ReturnsYes()
-    {
-        Assert.Equal(OtherSlotRunning.Yes,
-            StandbySlotProvisioner.ClassifyRunning([new ProcessImage(3, null), new ProcessImage(2, Exe)], 1, Exe));
+        Assert.Equal(StandbySlotDecision.Created, StandbySlotProvisioner.Decide(true, false, HealthGate.Clear));
     }
 
     // ---- the health gate, against real state files ----
@@ -217,6 +145,14 @@ public class StandbySlotProvisionerTests : IDisposable
         // A real machine carried a pending marker for 1.8.0 at its shared root for months. A marker for
         // another build must not hold this one, or that machine would never get its standby slot.
         Write(RootState(), "{\"pendingHealthCheckVersion\":\"1.8.0\"}");
+
+        Assert.Equal(HealthGate.Clear, StandbySlotProvisioner.ReadHealthGate(_root, Self));
+    }
+
+    [Fact]
+    public void ReadHealthGate_ExplicitNullMarker_IsClear()
+    {
+        Write(InstanceState("default"), "{\"pendingHealthCheckVersion\":null}");
 
         Assert.Equal(HealthGate.Clear, StandbySlotProvisioner.ReadHealthGate(_root, Self));
     }
@@ -246,6 +182,18 @@ public class StandbySlotProvisionerTests : IDisposable
         Assert.Equal(HealthGate.Unreadable, StandbySlotProvisioner.ReadHealthGate(_root, Self));
     }
 
+    [Theory]
+    [InlineData("240")]
+    [InlineData("true")]
+    [InlineData("{}")]
+    [InlineData("[\"2.4.0\"]")]
+    public void ReadHealthGate_MarkerOfWrongType_IsUnreadableNeverClear(string markerJson)
+    {
+        Write(InstanceState("default"), "{\"pendingHealthCheckVersion\":" + markerJson + "}");
+
+        Assert.Equal(HealthGate.Unreadable, StandbySlotProvisioner.ReadHealthGate(_root, Self));
+    }
+
     [Fact]
     public void ReadHealthGate_MarkerWrittenByRealUpdaterState_IsRead()
     {
@@ -258,13 +206,11 @@ public class StandbySlotProvisionerTests : IDisposable
         Assert.Equal(HealthGate.PendingForThisBuild, StandbySlotProvisioner.ReadHealthGate(_root, Self));
     }
 
-    // ---- the pass, against real files ----
+    // ---- one pass, against real files ----
 
     [Fact]
-    public async Task RunOnceAsync_StandbyMissing_CopiesSelfIntoStandby()
+    public async Task RunOnceAsync_StandbyMissing_CreatesItFromSelf()
     {
-        Write(_primary, "2.4.0");
-
         var outcome = await Provisioner(_primary).RunOnceAsync();
 
         Assert.Equal(StandbySlotDecision.Created, outcome.Decision);
@@ -273,71 +219,32 @@ public class StandbySlotProvisionerTests : IDisposable
     }
 
     [Fact]
-    public async Task RunOnceAsync_StandbyOlder_ReplacesIt()
+    public async Task RunOnceAsync_StandbyExistsAndOlder_IsNeverTouched()
     {
-        Write(_primary, "2.4.0");
+        // Only ever creates. A Director keeps itself up to date; replacing its file here would race that.
         Write(_standby, "2.3.0");
 
         var outcome = await Provisioner(_primary).RunOnceAsync();
 
-        Assert.Equal(StandbySlotDecision.Replaced, outcome.Decision);
-        Assert.Equal("2.4.0", File.ReadAllText(_standby));
+        Assert.Equal(StandbySlotDecision.AlreadyPresent, outcome.Decision);
+        Assert.Equal("2.3.0", File.ReadAllText(_standby));
     }
 
     [Fact]
-    public async Task RunOnceAsync_FromStandbyWithOlderPrimary_ReplacesPrimary()
+    public async Task RunOnceAsync_FromStandbyWithPrimaryMissing_CreatesPrimary()
     {
-        Write(_primary, "2.3.0");
         Write(_standby, "2.4.0");
+        File.Delete(_primary);
 
         var outcome = await Provisioner(_standby).RunOnceAsync();
 
-        Assert.Equal(StandbySlotDecision.Replaced, outcome.Decision);
+        Assert.Equal(StandbySlotDecision.Created, outcome.Decision);
         Assert.Equal("2.4.0", File.ReadAllText(_primary));
-    }
-
-    [Fact]
-    public async Task RunOnceAsync_StandbyNewer_LeavesItAlone()
-    {
-        Write(_primary, "2.3.0");
-        Write(_standby, "2.4.0");
-
-        var outcome = await Provisioner(_primary).RunOnceAsync();
-
-        Assert.Equal(StandbySlotDecision.UpToDate, outcome.Decision);
-        Assert.Equal("2.4.0", File.ReadAllText(_standby));
-    }
-
-    [Fact]
-    public async Task RunOnceAsync_StandbyRunning_TouchesNothing()
-    {
-        Write(_primary, "2.4.0");
-        Write(_standby, "2.3.0");
-        _running = OtherSlotRunning.Yes;
-
-        var outcome = await Provisioner(_primary).RunOnceAsync();
-
-        Assert.Equal(StandbySlotDecision.HeldBecauseOtherSlotIsRunning, outcome.Decision);
-        Assert.Equal("2.3.0", File.ReadAllText(_standby));
-    }
-
-    [Fact]
-    public async Task RunOnceAsync_RunningStateUnknown_TouchesNothing()
-    {
-        Write(_primary, "2.4.0");
-        Write(_standby, "2.3.0");
-        _running = OtherSlotRunning.Unknown;
-
-        var outcome = await Provisioner(_primary).RunOnceAsync();
-
-        Assert.Equal(StandbySlotDecision.HeldBecauseOtherSlotStateUnknown, outcome.Decision);
-        Assert.Equal("2.3.0", File.ReadAllText(_standby));
     }
 
     [Fact]
     public async Task RunOnceAsync_AnotherInstanceOwesCheckForThisBuild_CreatesNothing()
     {
-        Write(_primary, "2.4.0");
         Write(InstanceState("other"), "{\"pendingHealthCheckVersion\":\"2.4.0\"}");
 
         var outcome = await Provisioner(_primary).RunOnceAsync();
@@ -349,7 +256,6 @@ public class StandbySlotProvisionerTests : IDisposable
     [Fact]
     public async Task RunOnceAsync_CorruptHealthState_CreatesNothing()
     {
-        Write(_primary, "2.4.0");
         Write(InstanceState("default"), "{ this is not json");
 
         var outcome = await Provisioner(_primary).RunOnceAsync();
@@ -361,8 +267,6 @@ public class StandbySlotProvisionerTests : IDisposable
     [Fact]
     public async Task RunOnceAsync_NotWindows_CreatesNothing()
     {
-        Write(_primary, "2.4.0");
-
         var outcome = await Provisioner(_primary, isWindows: false).RunOnceAsync();
 
         Assert.Equal(StandbySlotDecision.NotWindows, outcome.Decision);
@@ -373,21 +277,10 @@ public class StandbySlotProvisionerTests : IDisposable
     public async Task RunOnceAsync_SwapLockReleasedWhileWaiting_CreatesSlot()
     {
         // The first start after an update: the launcher still holds the swap lock while it waits for this
-        // Director to answer. The pass must wait it out, not give up for good.
-        Write(_primary, "2.4.0");
-        var provisioner = Provisioner(_primary, patience: TimeSpan.FromSeconds(30));
-        var holding = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        // Director to answer. The pass must wait it out, not give up.
+        var holder = await HoldLockAsync(TimeSpan.FromMilliseconds(700));
 
-        // Held through BinarySwapLock itself, which owns the mutex on one dedicated thread. A raw Mutex held
-        // across an await is thread-affine and is exactly the defect that made another test here flaky.
-        var holder = BinarySwapLock.RunExclusivelyAsync(
-            async () => { holding.SetResult(); await Task.Delay(TimeSpan.FromMilliseconds(700)); return 0; },
-            _ => throw new InvalidOperationException("the test could not take its own lock"),
-            who: "test holder",
-            name: _swapLockName);
-        await holding.Task;
-
-        var pass = provisioner.RunOnceAsync();
+        var pass = Provisioner(_primary, patience: TimeSpan.FromSeconds(30)).RunOnceAsync();
         await holder;
         var outcome = await pass;
 
@@ -396,16 +289,12 @@ public class StandbySlotProvisionerTests : IDisposable
     }
 
     [Fact]
-    public async Task RunOnceAsync_SwapLockHeldPastPatience_TouchesNothing()
+    public async Task RunOnceAsync_SwapLockHeldPastPatience_CreatesNothing()
     {
-        Write(_primary, "2.4.0");
-        var provisioner = Provisioner(_primary, patience: TimeSpan.FromMilliseconds(200));
+        var holder = await HoldLockAsync(TimeSpan.FromSeconds(2));
 
-        var outcome = await BinarySwapLock.RunExclusivelyAsync(
-            () => provisioner.RunOnceAsync(),
-            _ => throw new InvalidOperationException("the test could not take its own lock"),
-            who: "test holder",
-            name: _swapLockName);
+        var outcome = await Provisioner(_primary, patience: TimeSpan.FromMilliseconds(200)).RunOnceAsync();
+        await holder;
 
         Assert.Equal(StandbySlotDecision.HeldBecauseAnotherSwapIsRunning, outcome.Decision);
         Assert.False(File.Exists(_standby));
@@ -414,37 +303,91 @@ public class StandbySlotProvisionerTests : IDisposable
     [Fact]
     public async Task RunOnceAsync_Created_CarriesAppSettings()
     {
-        Write(_primary, "2.4.0");
-        Write(Path.Combine(_root, "app", "appsettings.json"), "{\"primary\":true}");
+        Write(_primarySettings, "{\"primary\":true}");
 
         await Provisioner(_primary).RunOnceAsync();
 
-        Assert.Equal("{\"primary\":true}", File.ReadAllText(Path.Combine(_root, "app", "standby", "appsettings.json")));
+        Assert.Equal("{\"primary\":true}", File.ReadAllText(_standbySettings));
     }
 
     [Fact]
-    public async Task RunOnceAsync_UpToDateButSettingsMissing_CarriesAppSettings()
+    public async Task RunOnceAsync_InterruptedCreation_CompletesWithoutOverwritingSettings()
     {
-        Write(_primary, "2.4.0");
-        Write(_standby, "2.4.0");
-        Write(Path.Combine(_root, "app", "appsettings.json"), "{\"primary\":true}");
+        // A creation interrupted after the settings were written leaves no executable. The next pass
+        // completes it, and keeps the settings that are already there.
+        Write(_primarySettings, "{\"primary\":true}");
+        Write(_standbySettings, "{\"written before the interruption\":true}");
 
         var outcome = await Provisioner(_primary).RunOnceAsync();
 
-        Assert.Equal(StandbySlotDecision.UpToDate, outcome.Decision);
-        Assert.Equal("{\"primary\":true}", File.ReadAllText(Path.Combine(_root, "app", "standby", "appsettings.json")));
+        Assert.Equal(StandbySlotDecision.Created, outcome.Decision);
+        Assert.Equal("2.4.0", File.ReadAllText(_standby));
+        Assert.Equal("{\"written before the interruption\":true}", File.ReadAllText(_standbySettings));
     }
 
     [Fact]
-    public async Task RunOnceAsync_Replaced_NeverOverwritesExistingAppSettings()
+    public async Task RunOnceAsync_SettingsWriteFails_LeavesNoExecutable()
     {
-        Write(_primary, "2.4.0");
-        Write(_standby, "2.3.0");
-        Write(Path.Combine(_root, "app", "appsettings.json"), "{\"primary\":true}");
-        Write(Path.Combine(_root, "app", "standby", "appsettings.json"), "{\"standby\":true}");
+        // The executable's presence must mean creation finished, so the settings are written first. Make
+        // that write fail - a directory stands where the settings file goes - and no executable may appear.
+        Write(_primarySettings, "{\"primary\":true}");
+        Directory.CreateDirectory(_standbySettings);
 
-        await Provisioner(_primary).RunOnceAsync();
+        await Assert.ThrowsAnyAsync<Exception>(() => Provisioner(_primary).RunOnceAsync());
 
-        Assert.Equal("{\"standby\":true}", File.ReadAllText(Path.Combine(_root, "app", "standby", "appsettings.json")));
+        Assert.False(File.Exists(_standby), "an executable without its settings would read as a finished creation");
+    }
+
+    // ---- retrying until settled ----
+
+    [Fact]
+    public async Task RunUntilSettledAsync_HeldThenCleared_RetriesAndCreates()
+    {
+        // A health file that cannot be read at one moment must not leave the slot missing until a restart.
+        var corrupt = InstanceState("default");
+        Write(corrupt, "{ this is not json");
+        var delays = 0;
+
+        var outcome = await Provisioner(_primary).RunUntilSettledAsync(_ =>
+        {
+            delays++;
+            File.WriteAllText(corrupt, "{}");   // the writer finishes while this pass waits
+            return Task.CompletedTask;
+        }, CancellationToken.None);
+
+        Assert.Equal(1, delays);
+        Assert.NotNull(outcome);
+        Assert.Equal(StandbySlotDecision.Created, outcome.Decision);
+        Assert.True(File.Exists(_standby));
+    }
+
+    [Fact]
+    public async Task RunUntilSettledAsync_AlreadyPresent_SettlesWithoutWaiting()
+    {
+        Write(_standby, "2.4.0");
+        var delays = 0;
+
+        var outcome = await Provisioner(_primary).RunUntilSettledAsync(_ => { delays++; return Task.CompletedTask; },
+            CancellationToken.None);
+
+        Assert.Equal(0, delays);
+        Assert.NotNull(outcome);
+        Assert.Equal(StandbySlotDecision.AlreadyPresent, outcome.Decision);
+    }
+
+    [Fact]
+    public async Task RunUntilSettledAsync_CancelledWhileHeld_ReturnsNullAndCreatesNothing()
+    {
+        Write(InstanceState("default"), "{ this is not json");
+        using var cts = new CancellationTokenSource();
+
+        var outcome = await Provisioner(_primary).RunUntilSettledAsync(ct =>
+        {
+            cts.Cancel();
+            return Task.FromCanceled(ct);
+        }, cts.Token);
+
+        Assert.Null(outcome);
+        Assert.False(File.Exists(_standby));
     }
 }

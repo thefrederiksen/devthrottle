@@ -586,23 +586,25 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// Provision the other Director slot in the background (issue #2945). Off the UI thread and
-    /// fire-and-forget: copying the executable must never delay boot. This is the boundary, so a failure
-    /// is logged here and nowhere else.
+    /// Create the other Director slot in the background when it is missing (issue #2945). Off the UI
+    /// thread and fire-and-forget: copying the executable must never delay boot. A held pass is retried
+    /// until the slot exists; the retry loop is the boundary and logs every failure itself.
     /// </summary>
     private static void StartStandbySlotProvisioning()
     {
-        FileLog.Write("[App] StartStandbySlotProvisioning: scheduling background standby slot pass");
+        FileLog.Write("[App] StartStandbySlotProvisioning: scheduling background standby slot passes");
         _ = Task.Run(async () =>
         {
             try
             {
-                var outcome = await CcDirector.Setup.Engine.StandbySlotProvisioner.ForThisProcess().RunOnceAsync();
-                FileLog.Write($"[App] Standby slot: {outcome.Decision} - {outcome.Detail}");
+                var interval = CcDirector.Setup.Engine.StandbySlotProvisioner.RetryInterval;
+                var outcome = await CcDirector.Setup.Engine.StandbySlotProvisioner.ForThisProcess()
+                    .RunUntilSettledAsync(ct => Task.Delay(interval, ct), CancellationToken.None);
+                FileLog.Write($"[App] Standby slot settled: {outcome?.Decision.ToString() ?? "(cancelled)"} - {outcome?.Detail}");
             }
             catch (Exception ex)
             {
-                FileLog.Write($"[App] Standby slot pass FAILED: {ex}");
+                FileLog.Write($"[App] Standby slot provisioning FAILED: {ex}");
             }
         });
     }
