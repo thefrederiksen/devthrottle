@@ -73,13 +73,16 @@ def _size(size: Any) -> str:
 # a value this tool does not know fails loudly instead of being guessed.
 
 # A machine's plain state, in the order the count line lists them, and the Gateway reach each names.
-MACHINE_STATES = ("online", "offline", "too-old", "no-launcher")
+# `machine list` lists the machines that have a launcher, so the Gateway's fourth reach, NoLauncher (a
+# Director on a machine with no launcher), can never be a row's state: those machines are counted in one
+# line after the list instead, and a launcher row the Gateway calls NoLauncher fails loudly as unknown.
+MACHINE_STATES = ("online", "offline", "too-old")
 _MACHINE_STATE_FOR_REACH = {
     "Connected": "online",
     "NotConnected": "offline",
     "NotStreamCapable": "too-old",
-    "NoLauncher": "no-launcher",
 }
+_NO_LAUNCHER_REACH = "NoLauncher"
 
 MACHINE_LIST_FIELDS = ("name", "state", "version", "pid", "started", "last-seen")
 MACHINE_LIST_DEFAULT_FIELDS = ("name", "state", "version")
@@ -132,20 +135,25 @@ def _check_usage(json_output: bool, fields: Optional[str], valid: Tuple[str, ...
     return axi_output.parse_fields_or_exit(fields, valid, default)
 
 
-def _rows_or_exit(payload: Any, what: str, id_key: str, id_camel: str) -> List[Dict[str, Any]]:
-    """The Gateway's list, checked. Absent is not empty, and a row with no identifier cannot be named."""
+def _rows_or_exit(payload: Any, what: str, id_key: str, id_camel: str,
+                  also_required: Tuple[Tuple[str, str], ...] = ()) -> List[Dict[str, Any]]:
+    """The Gateway's list, checked. Absent is not empty, and a row with no identifier cannot be named.
+
+    `also_required` names further (camelCase, PascalCase) fields every row must carry as a non-blank
+    string - a row missing one would otherwise be silently dropped by a filter on that field."""
     if not isinstance(payload, list):
         shown = "nothing" if payload is None else f"a {type(payload).__name__}"
         _answer_error(f"the Gateway's {what} list answer was not a list (got {shown}).")
     for index, row in enumerate(payload):
         if not isinstance(row, dict):
             _answer_error(f"the Gateway's {what} list has a row that is not an object (row {index + 1}).")
-        value = row.get(id_camel, row.get(id_key))
-        if not isinstance(value, str) or not value.strip():
-            _answer_error(
-                f"the Gateway returned a {what} with no {id_camel} (row {index + 1}). "
-                "This tool will not list what it cannot name; --json shows the raw rows."
-            )
+        for camel, pascal in ((id_camel, id_key),) + also_required:
+            value = row.get(camel, row.get(pascal))
+            if not isinstance(value, str) or not value.strip():
+                _answer_error(
+                    f"the Gateway returned a {what} with no {camel} (row {index + 1}). "
+                    "This tool will not list what it cannot name or place."
+                )
     return payload
 
 
@@ -164,16 +172,20 @@ def _write(blocks: List[str]) -> None:
     axi_output.write_blocks(sys.stdout, *(b if b.isascii() else axi_output.escape_ascii(b) for b in blocks))
 
 
-def _machine_states(launchers: List[Dict[str, Any]]) -> List[str]:
-    """Each launcher's plain state, from the Gateway's Machines view. Fails loudly on anything unknown."""
+def _machine_states(launchers: List[Dict[str, Any]]) -> Tuple[List[str], List[str]]:
+    """Each launcher's plain state, from the Gateway's Machines view, and the names of the machines that
+    view reports with no launcher. Fails loudly on anything unknown."""
     view = _get_or_exit("machines")
     machines = view.get("machines") if isinstance(view, dict) else None
     if not isinstance(machines, list):
         _answer_error("the Gateway's machines view has no list of machines, so no machine state can be shown.")
     reach_by_name: Dict[str, Any] = {}
+    no_launcher: List[str] = []
     for entry in machines:
         if isinstance(entry, dict) and isinstance(entry.get("machine"), str):
             reach_by_name[entry["machine"].lower()] = entry.get("reach")
+            if entry.get("reach") == _NO_LAUNCHER_REACH:
+                no_launcher.append(entry["machine"])
     states = []
     for row in launchers:
         name = gateway.field(row, "machineName", "MachineName")
@@ -192,7 +204,17 @@ def _machine_states(launchers: List[Dict[str, Any]]) -> List[str]:
                 "If the Gateway has added one, update cc-devthrottle; --json shows the raw rows."
             )
         states.append(state)
-    return states
+    return states, no_launcher
+
+
+def _no_launcher_line(names: List[str]) -> str:
+    """One plain line for the machines that run a Director but no launcher, which this list cannot show."""
+    if len(names) == 1:
+        head = f"1 more machine has a Director but no launcher, so it is not listed: {names[0]}."
+    else:
+        head = (f"{len(names)} more machines have a Director but no launcher, so they are not listed: "
+                f"{', '.join(names)}.")
+    return head + " See them with: cc-devthrottle director list"
 
 
 def list_machines(json_output: bool, *, state: Optional[str] = None, fields: Optional[str] = None) -> None:
@@ -207,7 +229,7 @@ def list_machines(json_output: bool, *, state: Optional[str] = None, fields: Opt
         print(json.dumps(launchers, indent=2))
         return
 
-    states = _machine_states(launchers)
+    states, no_launcher = _machine_states(launchers)
     rows = [(r, st) for r, st in zip(launchers, states) if wanted is None or st in wanted]
     if json_output:
         print(json.dumps([r for r, _ in rows], indent=2))
@@ -236,6 +258,8 @@ def list_machines(json_output: bool, *, state: Optional[str] = None, fields: Opt
                 "No machines are registered. A machine appears here once cc-launcher is running on it "
                 "and has registered with the Gateway."
             )
+    if no_launcher:
+        blocks.append(_no_launcher_line(no_launcher))
     blocks.append(axi_output.format_help(_machine_list_help(bool(rows), filtered, chosen_fields)))
     _write(blocks)
 
@@ -317,7 +341,9 @@ def list_directors(
     if machine is not None and not machine.strip():
         _usage_error("--machine needs a value.")
 
-    directors = _rows_or_exit(_get_or_exit("directors"), "Director", "DirectorId", "directorId")
+    # Every row must carry its machine, or --machine would silently drop it and answer "none".
+    directors = _rows_or_exit(_get_or_exit("directors"), "Director", "DirectorId", "directorId",
+                              also_required=(("machineName", "MachineName"),))
     filtered = wanted is not None or machine is not None
     if json_output and not filtered:
         # Exactly what the Gateway sent: an unfiltered --json never depends on the state lookup.

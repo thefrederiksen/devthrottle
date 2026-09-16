@@ -424,6 +424,35 @@ def test_director_list_Cli_RowWithNoDirectorId_ExitsOne(serve, bad):
     assert result.stdout == ""
 
 
+@pytest.mark.parametrize("bad", [
+    {"directorId": "d1", "displayName": "Unit"},
+    _director("d1", "blank machine", ""),
+    _director("d1", "whitespace machine", "   "),
+    _director("d1", "null machine", None),
+])
+@pytest.mark.parametrize("args", [
+    ["director", "list"],
+    ["director", "list", "--json"],
+    ["director", "list", "--machine", "BUILD-BOX", "--json"],
+    ["director", "list", "--machine", "BUILD-BOX"],
+    ["director", "list", "--state", "online", "--json"],
+    ["director", "list", "--state", "online"],
+])
+def test_director_list_Cli_RowWithNoMachineName_ExitsOneOnEveryPath(serve, bad, args):
+    # Without the check, --machine silently dropped the row and answered "none" with exit 0.
+    directors = DIRECTORS + [bad]
+    serve({"directors": directors, "sessions?envelope=true": {
+        "sessions": [],
+        "directors": _envelope(DIRECTORS, DIRECTOR_STATES)["directors"] + [{"directorId": "d1", "state": "online"}],
+    }})
+
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 1
+    assert "no machineName (row 7)" in result.stderr
+    assert result.stdout == ""
+
+
 def test_director_list_Cli_GatewayError_ExitsOneWithAsciiMessage(monkeypatch):
     def fail(path):
         raise machine_ops.gateway.GatewayError("Cannot reach the Gateway at S\u00d8REN")
@@ -589,13 +618,90 @@ def test_list_machines_NoneRegistered_PrintsCountZero(serve, capsys):
 
 
 def test_list_machines_FilterMatchesNothing_PrintsCountZeroOfTotal(serve, capsys):
-    _serve_machines(serve)
+    _serve_machines(serve, LAUNCHERS[:1], ["Connected"])
 
-    machine_ops.list_machines(json_output=False, state="no-launcher")
+    machine_ops.list_machines(json_output=False, state="offline,too-old")
 
     out = capsys.readouterr().out
-    assert out.splitlines()[0] == "count: 0 of 4 total"
+    assert out.splitlines()[0] == "count: 0 of 1 total"
     assert "No machine matches the filter." in out.splitlines()
+
+
+# ---------------------------------------------------------------------------------------------------
+# machine list: machines with a Director but no launcher are counted after the list, never listed
+# ---------------------------------------------------------------------------------------------------
+
+
+def _view_with_no_launcher(launchers, reaches, no_launcher_names):
+    view = _machines_view(launchers, reaches)
+    view["machines"] += [{"machine": name, "reach": "NoLauncher", "directors": []} for name in no_launcher_names]
+    return view
+
+
+NO_LAUNCHER_NAMES = ["BUILD-BOX", "S\u00d8REN's second, very long-named build machine"]
+NO_LAUNCHER_LINE = (
+    "2 more machines have a Director but no launcher, so they are not listed: "
+    "BUILD-BOX, S\\u00d8REN's second, very long-named build machine. See them with: cc-devthrottle director list"
+)
+
+
+def test_machine_list_Cli_NoLauncherMachines_OneLineAfterTheList(serve):
+    serve({"launchers": LAUNCHERS, "machines": _view_with_no_launcher(LAUNCHERS, MACHINE_REACH, NO_LAUNCHER_NAMES)})
+
+    result = runner.invoke(app, ["machine", "list"])
+
+    assert result.exit_code == 0
+    lines = result.stdout.splitlines()
+    assert lines[0] == "count: 4 (online 2, offline 1, too-old 1)"
+    _check_machines_recoverable(result.stdout)
+    help_index = next(i for i, line in enumerate(lines) if line.startswith("help["))
+    assert lines[help_index - 1] == NO_LAUNCHER_LINE
+    assert result.stdout.isascii()
+    assert "BUILD-BOX" not in [line.split(",")[0].strip() for line in lines[1:help_index - 1]]
+
+
+def test_machine_list_Cli_OneNoLauncherMachineAndFilter_SingularLine(serve):
+    serve({"launchers": LAUNCHERS, "machines": _view_with_no_launcher(LAUNCHERS, MACHINE_REACH, ["BUILD-BOX"])})
+
+    result = runner.invoke(app, ["machine", "list", "--state", "too-old"])
+
+    assert result.exit_code == 0
+    assert result.stdout.splitlines()[0] == "count: 1 of 4 total (too-old 1)"
+    assert ("1 more machine has a Director but no launcher, so it is not listed: BUILD-BOX. "
+            "See them with: cc-devthrottle director list") in result.stdout.splitlines()
+
+
+def test_machine_list_Cli_OnlyNoLauncherMachines_CountZeroAndTheLine(serve):
+    # The inspection's reproduction: no launchers at all, and the Gateway knows of a Director-only machine.
+    serve({"launchers": [], "machines": {"machines": [{"machine": "BUILD-BOX", "reach": "NoLauncher"}]}})
+
+    result = runner.invoke(app, ["machine", "list"])
+
+    assert result.exit_code == 0
+    lines = result.stdout.splitlines()
+    assert lines[0] == "count: 0"
+    assert "1 more machine has a Director but no launcher, so it is not listed: BUILD-BOX. " \
+        "See them with: cc-devthrottle director list" in lines
+
+
+def test_machine_list_Cli_NoLauncherMachinesWithJson_ArrayUnchanged(serve):
+    serve({"launchers": LAUNCHERS, "machines": _view_with_no_launcher(LAUNCHERS, MACHINE_REACH, NO_LAUNCHER_NAMES)})
+
+    for args, expected in (
+        (["machine", "list", "--json"], LAUNCHERS),
+        (["machine", "list", "--state", "online", "--json"], [LAUNCHERS[0], LAUNCHERS[2]]),
+    ):
+        result = runner.invoke(app, args)
+        assert result.exit_code == 0
+        assert result.stdout == json.dumps(expected, indent=2) + "\n"
+
+
+def test_machine_list_Cli_NoNoLauncherMachines_NoLine(serve):
+    _serve_machines(serve)
+
+    result = runner.invoke(app, ["machine", "list"])
+
+    assert "no launcher" not in result.stdout
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -623,9 +729,9 @@ def test_list_machines_JsonStateFilter_SameBareArrayNarrowed(serve, capsys):
 
 
 def test_machine_list_Cli_JsonFilterMatchesNothing_EmptyArray(serve):
-    _serve_machines(serve)
+    _serve_machines(serve, LAUNCHERS[:1], ["Connected"])
 
-    result = runner.invoke(app, ["machine", "list", "--state", "no-launcher", "--json"])
+    result = runner.invoke(app, ["machine", "list", "--state", "offline", "--json"])
 
     assert result.exit_code == 0
     assert result.stdout == "[]\n"
@@ -636,7 +742,13 @@ def test_machine_list_Cli_JsonFilterMatchesNothing_EmptyArray(serve):
 # ---------------------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("reach, named", [("Sleeping", "'Sleeping'"), ("connected", "'connected'"), (None, "missing")])
+@pytest.mark.parametrize("reach, named", [
+    ("Sleeping", "'Sleeping'"),
+    ("connected", "'connected'"),
+    (None, "missing"),
+    # A launcher row cannot be a machine with no launcher; the Gateway saying so is a contradiction.
+    ("NoLauncher", "'NoLauncher'"),
+])
 def test_machine_list_Cli_UnknownOrMissingReach_ExitsOneNamingIt(serve, reach, named):
     _serve_machines(serve, LAUNCHERS, MACHINE_REACH[:-1] + [reach])
 
@@ -712,8 +824,22 @@ def test_machine_list_Cli_UnknownState_ExitsTwoListingStates(serve):
 
     assert result.exit_code == 2
     assert "'asleep'" in result.stderr
-    assert "online, offline, too-old, no-launcher" in result.stderr
+    assert "Valid states: online, offline, too-old\n" in result.stderr
     assert result.stdout == ""
+    assert asked == []
+
+
+def test_machine_list_Cli_StateNoLauncher_ExitsTwoListingStates(serve):
+    # A machine with no launcher is never a row of this list, so it is not a state this list filters on.
+    asked = _serve_machines(serve)
+
+    for args in (["machine", "list", "--state", "no-launcher"],
+                 ["machine", "list", "--state", "no-launcher", "--json"]):
+        result = runner.invoke(app, args)
+        assert result.exit_code == 2
+        assert "'no-launcher'" in result.stderr
+        assert "Valid states: online, offline, too-old\n" in result.stderr
+        assert result.stdout == ""
     assert asked == []
 
 

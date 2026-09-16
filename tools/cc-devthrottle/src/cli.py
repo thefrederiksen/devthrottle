@@ -1029,7 +1029,7 @@ def machine_list(
         False, "--json", "-j", help="Output raw JSON: every field, a bare array. Filters still apply."
     ),
     state: str = typer.Option(
-        None, "--state", help="Only these states, comma separated: online, offline, too-old, no-launcher."
+        None, "--state", help="Only these states, comma separated: online, offline, too-old."
     ),
     fields: str = typer.Option(
         None,
