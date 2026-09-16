@@ -233,7 +233,9 @@ def test_missing_environment_fails_naming_the_variable(wire, report_file, monkey
     assert calls == []
 
 
-def test_every_request_is_opened_with_the_timeout(wire, report_file):
+def test_every_request_is_opened_with_the_timeout(wire, report_file, monkeypatch):
+    # A value no default could produce, so the assertion watches the tool's own setting reach the socket.
+    monkeypatch.setattr(reports_ops, "HTTP_TIMEOUT_SECONDS", 7.25)
     reply = {"id": "r-1", "text": "t", "at": "2026-09-16T12:00:00Z"}
     calls = wire((200, {"report": _summary(), "created": True}),
                  (200, {"count": 1, "reports": [_summary()]}),
@@ -245,8 +247,7 @@ def test_every_request_is_opened_with_the_timeout(wire, report_file):
     runner.invoke(app, ["reply", "t", "--report", REPORT_ID])
 
     assert len(calls) == 4
-    assert [c["timeout"] for c in calls] == [reports_ops.HTTP_TIMEOUT_SECONDS] * 4
-    assert reports_ops.HTTP_TIMEOUT_SECONDS == 30.0
+    assert [c["timeout"] for c in calls] == [7.25] * 4
 
 
 def test_json_shape_is_the_same_keys_for_success_and_failure_on_both_commands(wire, report_file):
