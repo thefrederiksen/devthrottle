@@ -707,10 +707,16 @@ cache behind `skill get` change nothing on disk unless the Gateway's whole answe
 for the version asked for - every authored field (name, summary, triggers or steps, and the rest),
 an explicit files list, a safe name, an encoding and decodable content for every file, the body,
 and the content hash. A supporting file may not use a path the skill's own files use (`SKILL.md`,
-`skill.json`, `.skill-hash`, at any letter case). Once the answer is checked, the new files are
+`skill.json`, `.skill-hash`, at any letter case). The check turns the answer into the exact bytes of
+every file (body, `skill.json` or `workflow.json`, each supporting file, the hash) and refuses it when
+any text cannot be written as UTF-8 or any name holds something an operating system refuses: a NUL or
+other control character, `< > : " | ? *` or a backslash, a name over 255 bytes, or (on macOS and
+Linux) a whole path longer than the machine allows. Once the answer is checked, the new files are
 written over the old ones, then the files the new version no longer has are removed, and the content
-hash is written last. Not guaranteed: a write that fails part way (a full disk, say) or a process
-killed part way can leave a mix of old and new files; the old hash stays, so the next `skill get` or
+hash is written last; whatever still fails is reported as an `Error:` line with `help[N]:`, never a
+traceback. Not guaranteed: a write that fails part way because of the machine (a full disk, a file
+another program holds, a path over the Windows length limit) or a process killed part way can leave a
+mix of old and new files; the old hash stays, so the next `skill get` or
 `workflow materialize` rewrites its cache, and a push is compared against the old version. Windows
 name aliases such as `SKILL.md.` (a trailing dot or space) are not yet refused. A push whose answer has no new content
 hash says so and names `pull`. After `browser start`, the next step is `browser attach`, which

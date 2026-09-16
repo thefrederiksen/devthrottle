@@ -35,7 +35,7 @@ if _tools_dir not in sys.path:
 
 from cc_shared import gateway  # noqa: E402
 
-from . import axi_cli  # noqa: E402
+from . import axi_cli, bundle_files  # noqa: E402
 
 TIMEOUT_SECONDS = 15
 WORKFLOW_JSON = "workflow.json"
@@ -277,6 +277,13 @@ def _fail(message: str, next_commands: List[str]) -> None:
     axi_cli.fail(message, next_commands)
 
 
+def _describe(ex: Exception) -> str:
+    """An exception as one line for an Error: its message, and its kind when that says more."""
+    if isinstance(ex, (GatewayError, OSError)):
+        return str(ex)
+    return f"{type(ex).__name__}: {ex}"
+
+
 def _ref(workflow_id: str) -> str:
     """The workflow id for a help line: the id the Gateway just accepted, or a placeholder when it
     cannot be pasted back as it is."""
@@ -295,6 +302,7 @@ def _safe_file_name(name: str) -> str:
     """Refuse any server-supplied file name that is not a bare name. The Gateway validates names on
     write, but this CLI must not trust that: a misconfigured, older, or hostile server must not be
     able to steer a write outside the pull or cache directory."""
+    shown = axi_cli.ascii_text(name)
     if (
         not name
         or name in (".", "..")
@@ -303,15 +311,20 @@ def _safe_file_name(name: str) -> str:
         or ":" in name
         or name != name.strip()
     ):
-        raise GatewayError(f"The Gateway returned an unsafe helper file name: '{name}'.")
+        raise GatewayError(f"The Gateway returned an unsafe helper file name: '{shown}'.")
+    problem = bundle_files.name_problem(name)
+    if problem is not None:
+        raise GatewayError(
+            f"The Gateway returned an unsafe helper file name: '{shown}' ({problem}), so nothing was written."
+        )
     return name
 
 
-def _write_exact(path: Path, text: str) -> None:
-    """Write text with NO newline translation, so pull/push round-trips are value-faithful even for
-    content that already contains carriage returns."""
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        handle.write(text)
+def _write_bytes(path: Path, data: bytes) -> None:
+    """Write bytes a checked bundle already prepared. Text was encoded with NO newline translation,
+    so pull/push round-trips are value-faithful even for content that already contains carriage
+    returns."""
+    path.write_bytes(data)
 
 
 def _read_exact(path: Path) -> str:
@@ -492,9 +505,11 @@ def pull_workflow(workflow_id: str, directory: str, version: Optional[int]) -> N
     except GatewayError as ex:
         _fail(str(ex), [f"cc-devthrottle workflow show {_ref(workflow_id)} --version {version}"])
         return
-    except OSError as ex:
+    except Exception as ex:  # noqa: BLE001 - the command's entry point: every failure is reported
+        # The answer was checked in full, so what is left is this machine: a full disk, a file another
+        # program holds, a path over Windows' length limit.
         _fail(
-            f"could not write the workflow into {target}: {ex}",
+            f"could not write the workflow into {target}: {_describe(ex)}",
             [f'cc-devthrottle workflow pull {_ref(workflow_id)} --dir "<writable-dir>"'],
         )
         return
@@ -518,7 +533,8 @@ _CRITERION_TEXT = ("criterionId", "description")
 
 
 def _checked_bundle(detail: Any, workflow_id: str, version: int) -> Dict[str, Any]:
-    """Check the WHOLE version detail before anything on disk is touched.
+    """Check the WHOLE version detail before anything on disk is touched, and return the exact bytes
+    every file will hold: the instructions, workflow.json, each helper and the hash sidecar.
 
     A pull or a cache refresh replaces the local helpers with the version's, and a later push sends
     workflow.json back, so a partial or broken answer must be refused outright rather than read as
@@ -526,7 +542,8 @@ def _checked_bundle(detail: Any, workflow_id: str, version: int) -> Dict[str, An
     instructions.md, a missing list a wiped helpers directory, and a missing name or step list an
     emptied workflow on the next push. Every field the Gateway's version detail carries and these
     writers use must be present with its own type; the answer must be for the workflow and version
-    that were asked for."""
+    that were asked for. Every text must be writable as UTF-8 and every helper name one the operating
+    system accepts, so the writes that follow cannot fail on the data itself."""
 
     def refuse(what: str) -> GatewayError:
         return GatewayError(f"the Gateway's answer {what}, so nothing was written.")
@@ -566,50 +583,73 @@ def _checked_bundle(detail: Any, workflow_id: str, version: int) -> Dict[str, An
     if not isinstance(entries, list):
         raise refuse("did not list the version's helper files")
 
-    files: List[Dict[str, str]] = []
+    files: List[Dict[str, Any]] = []
     seen = set()
     for entry in entries:
         if not isinstance(entry, dict) or not isinstance(entry.get("fileName"), str):
             raise refuse("lists a helper file with no name")
         # A helper is a bare name inside helpers/, so it cannot reach the files beside that folder.
         name = _safe_file_name(entry["fileName"])
+        shown = axi_cli.ascii_text(name)
         if name.lower() in seen:
-            raise refuse(f"lists the helper file '{name}' twice")
+            raise refuse(f"lists the helper file '{shown}' twice")
         seen.add(name.lower())
         content = entry.get("content")
         if not isinstance(content, str):
-            raise refuse(f"has no content for the helper file '{name}'")
-        try:
-            content.encode("utf-8")
-        except UnicodeEncodeError as exc:
-            raise refuse(f"has content for '{name}' that cannot be written as UTF-8 ({exc})") from exc
-        files.append({"fileName": name, "content": content})
+            raise refuse(f"has no content for the helper file '{shown}'")
+        data = bundle_files.text_bytes(content)
+        if data is None:
+            raise refuse(f"has content for '{shown}' that cannot be written as UTF-8")
+        files.append({"fileName": name, "data": data})
+
+    metadata = {
+        "id": detail["workflowId"],
+        "name": detail["name"],
+        "summary": detail["summary"],
+        "whenToUse": detail["whenToUse"],
+        "humanCheckpoint": detail["humanCheckpoint"],
+        "steps": steps,
+        "outcomeCriteria": criteria,
+    }
+    # json.dumps would escape a lone surrogate and write it happily, and the next push would send
+    # it back; encoding the unescaped form finds it.
+    if bundle_files.text_bytes(json.dumps(metadata, ensure_ascii=False)) is None:
+        raise refuse("has a field that cannot be written as UTF-8")
+    instructions = bundle_files.text_bytes(detail["instructionsMarkdown"])
+    if instructions is None:
+        raise refuse("has instructions that cannot be written as UTF-8")
+    content_hash = bundle_files.text_bytes(detail["contentHash"])
+    if content_hash is None:
+        raise refuse("has a 'contentHash' that cannot be written as UTF-8")
+    # workflow.json is written with this platform's line ending, as it always was.
+    metadata_text = (json.dumps(metadata, indent=2) + "\n").replace("\n", os.linesep)
     return {
-        "instructions": detail["instructionsMarkdown"],
+        "instructions": instructions,
         "contentHash": detail["contentHash"],
+        "hash": content_hash,
         "files": files,
-        "metadata": {
-            "id": detail["workflowId"],
-            "name": detail["name"],
-            "summary": detail["summary"],
-            "whenToUse": detail["whenToUse"],
-            "humanCheckpoint": detail["humanCheckpoint"],
-            "steps": steps,
-            "outcomeCriteria": criteria,
-        },
+        "metadata": metadata_text.encode("utf-8"),
     }
 
 
 # HOW A PULL OR A CACHE REFRESH WRITES, AND WHAT IT DOES NOT PROMISE.
 #
-# `_checked_bundle` checks the WHOLE Gateway answer - every field, every helper's name and content -
-# before anything on disk is touched, so a partial or malformed answer leaves the old files exactly as
-# they were. Only then are the files written, in this order: the new files over the old ones, then
-# every old helper the new version no longer has is removed, then the hash sidecar is written LAST,
-# so it never vouches for files that are not all on disk.
+# `_checked_bundle` checks the WHOLE Gateway answer before anything on disk is touched, and turns it
+# into the exact bytes of every file: the instructions, workflow.json, each helper and the hash
+# sidecar. Any text that cannot be written as UTF-8, any helper name the operating system would
+# refuse (a NUL or other control character, < > : " | ? * or a slash, a name over 255 bytes) and -
+# on macOS and Linux, through `_check_final_paths` - any final path longer than the machine allows is
+# refused there, so a partial or malformed answer leaves the old files exactly as they were. The
+# writes that follow only put those prepared bytes at those checked paths, in this order: the new
+# files over the old ones, then every old helper the new version no longer has is removed, then the
+# hash sidecar is written LAST, so it never vouches for files that are not all on disk. Whatever
+# still fails is this machine, not the data, and the command reports it as an Error line with next
+# steps.
 #
-# NOT GUARANTEED (moved to its own issue, not solved here): a write that fails part way (a full
-# disk, a file another program holds open), or a process killed part way, can leave a MIXED
+# NOT GUARANTEED (moved to its own issue, not solved here): a write that fails part way because of
+# this machine (a full disk, a file another program holds open, a path over the Windows length
+# limit, which depends on a machine-wide setting and so is not checked in advance), or a process
+# killed part way, can leave a MIXED
 # directory - some new files, some old. That was also true before this change. The old sidecar is
 # left in place, and it does not match the new version, so the next materialize rewrites the cache
 # and a push is compared against the old version. Windows name aliases (a trailing dot or space) are
@@ -633,18 +673,29 @@ def _file_at(root: Path, name: str) -> Path:
     return target
 
 
-def _write_bundle(root: Path, bundle: Dict[str, Any], metadata: Optional[Dict[str, Any]] = None) -> None:
-    """Write checked instructions, helpers and (when given) workflow.json over what `root` holds,
+def _check_final_paths(root: Path, bundle: Dict[str, Any]) -> None:
+    """Refuse the answer when any path `_write_bundle` would use is longer than this machine allows."""
+    helpers = root / HELPERS_DIR
+    bundle_files.check_paths(
+        [root / INSTRUCTIONS_MD, root / WORKFLOW_JSON, root / HASH_SIDECAR]
+        + [helpers / f["fileName"] for f in bundle["files"]],
+        lambda what: GatewayError(f"the Gateway's answer {what}, so nothing was written."),
+    )
+
+
+def _write_bundle(root: Path, bundle: Dict[str, Any], with_metadata: bool) -> None:
+    """Write checked instructions, helpers and (when asked) workflow.json over what `root` holds,
     remove the helpers the version no longer has, and write the hash sidecar last. Entries of `root`
-    this command does not own are left alone."""
-    _write_exact(_file_at(root, INSTRUCTIONS_MD), bundle["instructions"])
-    if metadata is not None:
-        _file_at(root, WORKFLOW_JSON).write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+    this command does not own are left alone. Every byte and every path was checked by
+    `_checked_bundle` and `_check_final_paths` before this runs."""
+    _write_bytes(_file_at(root, INSTRUCTIONS_MD), bundle["instructions"])
+    if with_metadata:
+        _write_bytes(_file_at(root, WORKFLOW_JSON), bundle["metadata"])
     helpers = root / HELPERS_DIR
     if helpers.is_symlink() or (helpers.exists() and not helpers.is_dir()):
         helpers.unlink()
     for f in bundle["files"]:
-        _write_exact(_file_at(helpers, f["fileName"]), f["content"])
+        _write_bytes(_file_at(helpers, f["fileName"]), f["data"])
     keep = {f["fileName"] for f in bundle["files"]}
     if helpers.is_dir():
         for entry in helpers.iterdir():
@@ -656,7 +707,7 @@ def _write_bundle(root: Path, bundle: Dict[str, Any], metadata: Optional[Dict[st
                 entry.unlink()
         if not keep:
             helpers.rmdir()
-    _file_at(root, HASH_SIDECAR).write_text(bundle["contentHash"], encoding="utf-8")
+    _write_bytes(_file_at(root, HASH_SIDECAR), bundle["hash"])
 
 
 def _write_pulled(target: Path, workflow_id: str, version: int, detail: Dict[str, Any]) -> None:
@@ -668,7 +719,8 @@ def _write_pulled(target: Path, workflow_id: str, version: int, detail: Dict[str
     not survive locally and be resurrected by the next push. Files in `target` this command does not
     own are left alone."""
     bundle = _checked_bundle(detail, workflow_id, version)
-    _write_bundle(target, bundle, bundle["metadata"])
+    _check_final_paths(target, bundle)
+    _write_bundle(target, bundle, with_metadata=True)
 
 
 def _read_directory(workflow_id: str, directory: str, note: Optional[str]) -> Dict[str, Any]:
@@ -1020,8 +1072,11 @@ def materialize_workflow(workflow_id: str, version: Optional[int]) -> None:
         _fail(str(ex), [_FIND_A_WORKFLOW, f"cc-devthrottle workflow versions {_ref(workflow_id)}"])
         return
 
+    local_app_data = os.environ.get("LOCALAPPDATA") or str(Path.home() / ".local" / "share")
+    root = Path(local_app_data) / "cc-director" / "workflows" / workflow_id / str(version)
     try:
         bundle = _checked_bundle(detail, workflow_id, version)
+        _check_final_paths(root, bundle)
     except GatewayError as ex:
         _fail(str(ex), [f"cc-devthrottle workflow show {_ref(workflow_id)} --version {version}"])
         return
@@ -1037,37 +1092,36 @@ def materialize_workflow(workflow_id: str, version: Optional[int]) -> None:
         )
         return
 
-    local_app_data = os.environ.get("LOCALAPPDATA") or str(Path.home() / ".local" / "share")
-    root = Path(local_app_data) / "cc-director" / "workflows" / workflow_id / str(version)
     hash_file = root / HASH_SIDECAR
     expected = bundle["contentHash"]
     files = bundle["files"]
 
-    # The sidecar alone is not proof the bundle is intact - every listed file must actually exist,
-    # or a deleted/half-written cache would be reported as materialized forever.
-    intact = (
-        hash_file.is_file()
-        and hash_file.read_text(encoding="utf-8").strip() == expected
-        and (root / INSTRUCTIONS_MD).is_file()
-        and all((root / HELPERS_DIR / f["fileName"]).is_file() for f in files)
-    )
     lines: List[str] = []
-    if intact:
-        lines.append(f"Already materialized: {root}")
-    else:
-        try:
+    try:
+        # The sidecar alone is not proof the bundle is intact - every listed file must actually exist,
+        # or a deleted/half-written cache would be reported as materialized forever.
+        intact = (
+            hash_file.is_file()
+            and hash_file.read_text(encoding="utf-8").strip() == expected
+            and (root / INSTRUCTIONS_MD).is_file()
+            and all((root / HELPERS_DIR / f["fileName"]).is_file() for f in files)
+        )
+        if not intact:
             # A sidecar that already names this version vouches for files that are not all there, so
             # it goes first: a refresh that fails part way must not leave it vouching for a mix. Any
             # other sidecar cannot match this version, so it stays until the new one replaces it.
             if hash_file.is_file() and hash_file.read_text(encoding="utf-8").strip() == expected:
                 hash_file.unlink()
-            _write_bundle(root, bundle)
-        except OSError as ex:
-            _fail(
-                f"could not write the workflow cache at {root}: {ex}",
-                [f"cc-devthrottle workflow instructions {_ref(workflow_id)} --version {version}"],
-            )
-            return
+            _write_bundle(root, bundle, with_metadata=False)
+    except Exception as ex:  # noqa: BLE001 - the command's entry point: every failure is reported
+        _fail(
+            f"could not write the workflow cache at {root}: {_describe(ex)}",
+            [f"cc-devthrottle workflow instructions {_ref(workflow_id)} --version {version}"],
+        )
+        return
+    if intact:
+        lines.append(f"Already materialized: {root}")
+    else:
         lines.append(f"Materialized '{workflow_id}' v{version} into {root}")
 
     lines.append(f"Instructions: {root / INSTRUCTIONS_MD}")

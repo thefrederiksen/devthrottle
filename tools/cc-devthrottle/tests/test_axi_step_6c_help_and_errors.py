@@ -1551,14 +1551,14 @@ class TestReplacingFilesChecksTheWholeAnswerFirst:
         monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
         cache = tmp_path / "cc-director" / "workflows" / "my-flow" / "2"
         _existing_workflow(cache)
-        real = workflow_ops._write_exact
+        real = workflow_ops._write_bytes
 
-        def fail_on_helper(path, text):
+        def fail_on_helper(path, data):
             if path.parent.name == workflow_ops.HELPERS_DIR:
                 raise OSError("disk full")
-            real(path, text)
+            real(path, data)
 
-        monkeypatch.setattr(workflow_ops, "_write_exact", fail_on_helper)
+        monkeypatch.setattr(workflow_ops, "_write_bytes", fail_on_helper)
         workflow_client.get_version_detail.return_value = _workflow_detail(
             {"files": [{"fileName": "new.sh", "content": "echo new"}]}
         )
@@ -1577,18 +1577,18 @@ class TestReplacingFilesChecksTheWholeAnswerFirst:
         monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
         cache = tmp_path / "cc-director" / "workflows" / "my-flow" / "2"
         _existing_workflow(cache)
-        real = workflow_ops._write_exact
+        real = workflow_ops._write_bytes
 
-        def fail_on_helper(path, text):
+        def fail_on_helper(path, data):
             if path.parent.name == workflow_ops.HELPERS_DIR:
                 raise OSError("disk full")
-            real(path, text)
+            real(path, data)
 
         workflow_client.get_version_detail.return_value = _workflow_detail(
             {"files": [{"fileName": "new.sh", "content": "echo new"}]}
         )
         with monkeypatch.context() as m:
-            m.setattr(workflow_ops, "_write_exact", fail_on_helper)
+            m.setattr(workflow_ops, "_write_bytes", fail_on_helper)
             runner.invoke(app, ["workflow", "materialize", "my-flow", "--version", "2"])
         result = runner.invoke(app, ["workflow", "materialize", "my-flow", "--version", "2"])
         assert result.exit_code == 0, result.stderr
@@ -2236,3 +2236,282 @@ class TestTheSimpleWriter:
         result = runner.invoke(app, ["skill", "pull", "my-skill", "--dir", str(target), "--version", "1"])
         assert result.exit_code == 0, result.stderr
         assert [f["fileName"] for f in skill_ops._read_tree(target, [])] == [".bundle-swap/incoming/support.txt"]
+
+
+# ---------------------------------------------------------------------------------------------------
+# Re-check 4 (pull request 2962): a value that cannot become a file is refused while the answer is
+# checked - text that is not valid UTF-8, a name the operating system refuses - so the old bytes are
+# never touched. Before this, a lone surrogate in the body or a NUL in a file name was found only by
+# the write itself, after the old body had already been truncated.
+# ---------------------------------------------------------------------------------------------------
+
+# Each is (skill fields, workflow fields): the same fault in each detail's own shape.
+_UNWRITABLE = [
+    pytest.param({"bodyMarkdown": "\ud800"}, {"instructionsMarkdown": "\ud800"}, id="surrogate-in-body"),
+    pytest.param(
+        {"files": [{"fileName": "a.txt", "content": "ok \ud800"}]},
+        {"files": [{"fileName": "a.txt", "content": "ok \ud800"}]},
+        id="surrogate-in-file-content",
+    ),
+    pytest.param({"name": "My \udfff skill"}, {"name": "My \udfff flow"}, id="surrogate-in-name"),
+    pytest.param({"metadata": {"author": "\ud800"}}, {"steps": [
+        {"name": "Do", "description": "\ud800", "doer": "Worker", "reviewer": None, "done": "Done."}
+    ]}, id="surrogate-in-nested-metadata"),
+    pytest.param({"triggers": ["\udc80"]}, {"whenToUse": "\udc80"}, id="escapable-surrogate-in-metadata"),
+    pytest.param({"contentHash": "h\ud800"}, {"contentHash": "h\ud800"}, id="surrogate-in-hash"),
+    pytest.param(
+        {"files": [{"fileName": "x\x00y", "content": "c"}]},
+        {"files": [{"fileName": "x\x00y", "content": "c"}]},
+        id="nul-in-file-name",
+    ),
+    pytest.param(
+        {"files": [{"fileName": "docs/x\x00y.md", "content": "c"}]},
+        {"files": [{"fileName": "x\x00", "content": "c"}]},
+        id="nul-in-nested-or-trailing-name",
+    ),
+    pytest.param(
+        {"files": [{"fileName": "x\x07y", "content": "c"}]},
+        {"files": [{"fileName": "x\x1by", "content": "c"}]},
+        id="control-character-in-file-name",
+    ),
+    pytest.param(
+        {"files": [{"fileName": "a\ny.txt", "content": "c"}]},
+        {"files": [{"fileName": "a\x7fy", "content": "c"}]},
+        id="newline-or-delete-in-file-name",
+    ),
+    pytest.param(
+        {"files": [{"fileName": "a\ud800.txt", "content": "c"}]},
+        {"files": [{"fileName": "a\ud800.txt", "content": "c"}]},
+        id="surrogate-in-file-name",
+    ),
+    pytest.param(
+        {"files": [{"fileName": "what?.txt", "content": "c"}]},
+        {"files": [{"fileName": "a|b", "content": "c"}]},
+        id="character-windows-refuses",
+    ),
+    pytest.param(
+        {"files": [{"fileName": "d/" + "n" * 256, "content": "c"}]},
+        {"files": [{"fileName": "n" * 256, "content": "c"}]},
+        id="name-over-255-bytes",
+    ),
+]
+
+_SKILL_UNWRITABLE = [pytest.param(p.values[0], id=p.id) for p in _UNWRITABLE]
+_WORKFLOW_UNWRITABLE = [pytest.param(p.values[1], id=p.id) for p in _UNWRITABLE]
+
+
+def _existing_skill_everything(target: Path) -> None:
+    _existing_skill_with_metadata(target)
+
+
+class TestUnwritableValuesKeepTheOldBytes:
+    @pytest.mark.parametrize("fields", _SKILL_UNWRITABLE)
+    def test_skill_pull(self, skill_client, tmp_path, fields):
+        target = tmp_path / "pulled"
+        _existing_skill_everything(target)
+        before = _snapshot(target)
+        skill_client.get_version_detail.return_value = _full_skill(fields)
+        stderr = _assert_error(
+            runner.invoke(app, ["skill", "pull", "my-skill", "--dir", str(target), "--version", "1"]),
+            "cc-devthrottle skill show my-skill --version 1",
+        )
+        assert "nothing was written" in stderr
+        assert _snapshot(target) == before
+
+    @pytest.mark.parametrize("fields", _SKILL_UNWRITABLE)
+    def test_skill_write_pulled_directly(self, tmp_path, fields):
+        # The inspection's reproduction calls the writer itself.
+        from src import skill_ops
+
+        target = tmp_path / "pulled"
+        _existing_skill_everything(target)
+        before = _snapshot(target)
+        with pytest.raises(skill_ops.GatewayError, match="nothing was written"):
+            skill_ops._write_pulled(target, "my-skill", 1, _full_skill(fields))
+        assert _snapshot(target) == before
+
+    @pytest.mark.parametrize("fields", _SKILL_UNWRITABLE)
+    def test_skill_cache(self, skill_client, tmp_path, monkeypatch, fields):
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        versions = tmp_path / "cc-director" / "skills" / "my-skill"
+        _existing_skill(versions / "1")
+        (versions / "1.hash").write_text("old-hash")
+        before = _snapshot(versions)
+        skill_client.get_body.return_value = "# Body\n"
+        detail = _full_skill(fields)
+        if not detail["files"]:
+            detail["files"] = [{"fileName": "a.txt", "content": "x", "encoding": "utf8", "executable": False}]
+        skill_client.get_version_detail.return_value = detail
+        result = runner.invoke(app, ["skill", "get", "my-skill", "--version", "1"])
+        assert result.exit_code == 1, result.stdout
+        assert "Traceback" not in result.stderr
+        assert "nothing was written" in result.stderr
+        assert "help[" in result.stderr
+        assert _snapshot(versions) == before
+
+    @pytest.mark.parametrize("fields", _WORKFLOW_UNWRITABLE)
+    def test_workflow_pull(self, workflow_client, tmp_path, fields):
+        target = tmp_path / "pulled"
+        _existing_workflow_with_metadata(target)
+        before = _snapshot(target)
+        workflow_client.get_version_detail.return_value = _full_workflow(fields)
+        stderr = _assert_error(
+            runner.invoke(app, ["workflow", "pull", "my-flow", "--dir", str(target), "--version", "2"]),
+            "cc-devthrottle workflow show my-flow --version 2",
+        )
+        assert "nothing was written" in stderr
+        assert _snapshot(target) == before
+
+    @pytest.mark.parametrize("fields", _WORKFLOW_UNWRITABLE)
+    def test_workflow_write_pulled_directly(self, tmp_path, fields):
+        from src import workflow_ops
+
+        target = tmp_path / "pulled"
+        _existing_workflow_with_metadata(target)
+        before = _snapshot(target)
+        with pytest.raises(workflow_ops.GatewayError, match="nothing was written"):
+            workflow_ops._write_pulled(target, "my-flow", 2, _full_workflow(fields))
+        assert _snapshot(target) == before
+
+    @pytest.mark.parametrize("fields", _WORKFLOW_UNWRITABLE)
+    def test_workflow_cache(self, workflow_client, tmp_path, monkeypatch, fields):
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        cache = tmp_path / "cc-director" / "workflows" / "my-flow" / "2"
+        _existing_workflow(cache)
+        before = _snapshot(cache)
+        workflow_client.get_version_detail.return_value = _full_workflow(fields)
+        stderr = _assert_error(
+            runner.invoke(app, ["workflow", "materialize", "my-flow", "--version", "2"]),
+            "cc-devthrottle workflow show my-flow --version 2",
+        )
+        assert "nothing was written" in stderr
+        assert _snapshot(cache) == before
+
+    @pytest.mark.skipif(sys.platform == "win32", reason="Windows' path limit depends on a machine setting")
+    def test_a_path_longer_than_the_machine_allows_is_refused_first(self, skill_client, tmp_path):
+        # The longest path a skill can hold: five levels of 250 bytes.
+        longest = "/".join(["s" * 250] * 5)
+        target = tmp_path / "pulled"
+        _existing_skill_everything(target)
+        before = _snapshot(target)
+        limit = os.pathconf(tmp_path, "PC_PATH_MAX")
+        if len(os.fsencode(str(target / longest))) < limit:
+            pytest.skip(f"this machine allows {limit} bytes, more than the longest skill path needs")
+        skill_client.get_version_detail.return_value = _full_skill(
+            files=[{"fileName": "a.txt", "content": "a"}, {"fileName": longest, "content": "c"}]
+        )
+        stderr = _assert_error(
+            runner.invoke(app, ["skill", "pull", "my-skill", "--dir", str(target), "--version", "1"]),
+            "cc-devthrottle skill show my-skill --version 1",
+        )
+        assert "longer than this machine allows" in stderr
+        assert _snapshot(target) == before
+
+
+class TestAWriteFailureIsAlwaysAnErrorLine:
+    """What is left after the check is this machine, and whatever it raises is reported, never thrown."""
+
+    def test_workflow_pull_reports_a_failure_that_is_not_an_os_error(self, workflow_client, tmp_path, monkeypatch):
+        from src import workflow_ops
+
+        def broken(path, data):
+            raise ValueError("embedded null byte")
+
+        monkeypatch.setattr(workflow_ops, "_write_bytes", broken)
+        workflow_client.get_version_detail.return_value = _full_workflow()
+        stderr = _assert_error(
+            runner.invoke(app, ["workflow", "pull", "my-flow", "--dir", str(tmp_path / "p"), "--version", "2"]),
+            'cc-devthrottle workflow pull my-flow --dir "<writable-dir>"',
+        )
+        assert "ValueError: embedded null byte" in stderr
+
+    def test_workflow_cache_reports_a_failure_that_is_not_an_os_error(
+        self, workflow_client, tmp_path, monkeypatch
+    ):
+        from src import workflow_ops
+
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+
+        def broken(path, data):
+            raise UnicodeError("cannot write")
+
+        monkeypatch.setattr(workflow_ops, "_write_bytes", broken)
+        workflow_client.get_version_detail.return_value = _full_workflow()
+        stderr = _assert_error(
+            runner.invoke(app, ["workflow", "materialize", "my-flow", "--version", "2"]),
+            "cc-devthrottle workflow instructions my-flow --version 2",
+        )
+        assert "UnicodeError: cannot write" in stderr
+
+    def test_workflow_cache_reports_an_unreadable_hash_sidecar(self, workflow_client, tmp_path, monkeypatch):
+        from src import workflow_ops
+
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        cache = tmp_path / "cc-director" / "workflows" / "my-flow" / "2"
+        cache.mkdir(parents=True)
+        (cache / workflow_ops.HASH_SIDECAR).write_bytes(b"\xff\xfe")
+        workflow_client.get_version_detail.return_value = _full_workflow()
+        stderr = _assert_error(
+            runner.invoke(app, ["workflow", "materialize", "my-flow", "--version", "2"]),
+            "cc-devthrottle workflow instructions my-flow --version 2",
+        )
+        assert "UnicodeDecodeError" in stderr
+
+    @pytest.mark.parametrize("error", [ValueError("embedded null byte"), UnicodeError("cannot write")])
+    def test_skill_pull_reports_any_failure(self, skill_client, tmp_path, monkeypatch, error):
+        from src import skill_ops
+
+        def broken(root, files):
+            raise error
+
+        monkeypatch.setattr(skill_ops, "_write_bundle_files", broken)
+        skill_client.get_version_detail.return_value = _full_skill()
+        stderr = _assert_error(
+            runner.invoke(app, ["skill", "pull", "my-skill", "--dir", str(tmp_path / "p"), "--version", "1"]),
+            'cc-devthrottle skill pull my-skill --dir "<writable-dir>"',
+        )
+        assert f"{type(error).__name__}: {error}" in stderr
+
+    def test_skill_cache_reports_any_failure(self, skill_client, tmp_path, monkeypatch):
+        from src import skill_ops
+
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+
+        def broken(root, files):
+            raise KeyError("fileName")
+
+        monkeypatch.setattr(skill_ops, "_write_bundle_files", broken)
+        skill_client.get_body.return_value = "# Body\n"
+        skill_client.get_version_detail.return_value = _full_skill(files=[{"fileName": "a.txt", "content": "x"}])
+        result = runner.invoke(app, ["skill", "get", "my-skill", "--version", "1"])
+        assert result.exit_code == 1
+        assert "Traceback" not in result.stderr
+        assert "KeyError" in result.stderr and "help[1]:" in result.stderr
+
+
+class TestPreparedBytesMatchWhatWasWrittenBefore:
+    def test_skill_json_keeps_its_escaped_form(self, skill_client, tmp_path):
+        from src import skill_ops
+
+        target = tmp_path / "pulled"
+        skill_client.get_version_detail.return_value = _full_skill(name="Café", bodyMarkdown="a\r\nbé")
+        result = runner.invoke(app, ["skill", "pull", "my-skill", "--dir", str(target), "--version", "1"])
+        assert result.exit_code == 0, result.stderr
+        metadata = (target / skill_ops.SKILL_JSON).read_bytes()
+        assert b'"Caf\\u00e9"' in metadata
+        assert metadata.endswith(os.linesep.encode())
+        assert (target / skill_ops.SKILL_MD).read_bytes() == "a\r\nbé".encode("utf-8")
+
+    def test_workflow_json_keeps_its_escaped_form(self, workflow_client, tmp_path):
+        from src import workflow_ops
+
+        target = tmp_path / "pulled"
+        workflow_client.get_version_detail.return_value = _full_workflow(
+            name="Café", instructionsMarkdown="a\r\nb", files=[{"fileName": "h.sh", "content": "x\r\ny"}]
+        )
+        result = runner.invoke(app, ["workflow", "pull", "my-flow", "--dir", str(target), "--version", "2"])
+        assert result.exit_code == 0, result.stderr
+        assert b'"Caf\\u00e9"' in (target / workflow_ops.WORKFLOW_JSON).read_bytes()
+        assert (target / workflow_ops.INSTRUCTIONS_MD).read_bytes() == b"a\r\nb"
+        assert (target / workflow_ops.HELPERS_DIR / "h.sh").read_bytes() == b"x\r\ny"
+        assert (target / workflow_ops.HASH_SIDECAR).read_bytes() == b"new-hash"

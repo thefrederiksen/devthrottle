@@ -53,7 +53,7 @@ if _tools_dir not in sys.path:
 
 from cc_shared import gateway  # noqa: E402
 
-from . import axi_cli  # noqa: E402
+from . import axi_cli, bundle_files  # noqa: E402
 
 TIMEOUT_SECONDS = 15
 SKILL_JSON = "skill.json"
@@ -294,6 +294,13 @@ def _fail(message: str, next_commands: List[str]) -> None:
     axi_cli.fail(message, next_commands)
 
 
+def _describe(ex: Exception) -> str:
+    """An exception as one line for an Error: its message, and its kind when that says more."""
+    if isinstance(ex, (GatewayError, OSError)):
+        return str(ex)
+    return f"{type(ex).__name__}: {ex}"
+
+
 def _ref(skill_id: str) -> str:
     """The skill id for a help line, or a placeholder when it cannot be pasted back as it is."""
     return axi_cli.bare(skill_id, "<skill-id>")
@@ -322,27 +329,27 @@ def _safe_relative_path(name: str) -> str:
     or hostile server must not be able to steer a write anywhere but under the target directory. This
     is the same rule the Gateway enforces, enforced again at the point where bytes hit this disk.
     """
+    shown = axi_cli.ascii_text(name)
     if not name or name != name.strip():
-        raise GatewayError(f"the Gateway returned an unsafe file path: '{name}'.")
+        raise GatewayError(f"the Gateway returned an unsafe file path: '{shown}'.")
     if "\\" in name or ":" in name or name.startswith("/") or name.endswith("/"):
-        raise GatewayError(f"the Gateway returned an unsafe file path: '{name}'.")
+        raise GatewayError(f"the Gateway returned an unsafe file path: '{shown}'.")
     segments = name.split("/")
     if len(segments) > 5:
-        raise GatewayError(f"the Gateway returned a file path nested too deeply: '{name}'.")
+        raise GatewayError(f"the Gateway returned a file path nested too deeply: '{shown}'.")
     for segment in segments:
         if not segment or segment in (".", ".."):
-            raise GatewayError(f"the Gateway returned an unsafe file path: '{name}'.")
+            raise GatewayError(f"the Gateway returned an unsafe file path: '{shown}'.")
+        problem = bundle_files.name_problem(segment)
+        if problem is not None:
+            raise GatewayError(
+                f"the Gateway returned an unsafe file path: '{shown}' ({problem}), so nothing was written."
+            )
         if segment.split(".")[0].lower() in RESERVED_WINDOWS_NAMES:
             raise GatewayError(
-                f"the Gateway returned a file path using a reserved Windows device name: '{name}'."
+                f"the Gateway returned a file path using a reserved Windows device name: '{shown}'."
             )
     return name
-
-
-def _write_exact(path: Path, text: str) -> None:
-    """Write text with NO newline translation, so pull/push round-trips are value-faithful."""
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        handle.write(text)
 
 
 def _read_exact(path: Path) -> str:
@@ -361,14 +368,17 @@ _OPTIONAL_TEXT = ("license", "compatibility", "allowedTools")
 
 
 def _checked_bundle(detail: Any, skill_id: str, version: int) -> Dict[str, Any]:
-    """Check the WHOLE version detail before anything on disk is touched, and return it decoded.
+    """Check the WHOLE version detail before anything on disk is touched, and return the exact bytes
+    every file will hold: the body, skill.json, each supporting file and the hash sidecar.
 
     A pull or a cache refresh replaces the local files with the version's, and a later push sends
     skill.json back, so a partial or broken answer must be refused outright rather than read as
     "empty": a file with no content would become an empty file, a missing body an empty SKILL.md, a
     missing list a wiped directory, and a missing name or summary an emptied skill on the next push.
     Every field the Gateway's version detail carries and these writers use must be present with its
-    own type; the answer must be for the skill and version that were asked for."""
+    own type; the answer must be for the skill and version that were asked for. Every text must be
+    writable as UTF-8 and every path a name the operating system accepts, so the writes that follow
+    cannot fail on the data itself."""
     import base64
     import binascii
 
@@ -412,20 +422,21 @@ def _checked_bundle(detail: Any, skill_id: str, version: int) -> Dict[str, Any]:
         folded = relative.lower()
         if folded.split("/")[0] in reserved:
             raise refuse(
-                f"lists a supporting file '{relative}' at a path the skill's own files use "
+                f"lists a supporting file '{axi_cli.ascii_text(relative)}' at a path the skill's own files use "
                 f"({', '.join(_RESERVED_PATHS)})"
             )
+        shown = axi_cli.ascii_text(relative)
         if folded in seen:
-            raise refuse(f"lists the supporting file '{relative}' twice")
+            raise refuse(f"lists the supporting file '{shown}' twice")
         seen.add(folded)
         content = entry.get("content")
         if not isinstance(content, str):
-            raise refuse(f"has no content for the supporting file '{relative}'")
+            raise refuse(f"has no content for the supporting file '{shown}'")
         encoding = entry.get("encoding")
         if not isinstance(encoding, str):
-            raise refuse(f"has no encoding for the supporting file '{relative}'")
+            raise refuse(f"has no encoding for the supporting file '{shown}'")
         if not isinstance(entry.get("executable"), bool):
-            raise refuse(f"does not say whether the supporting file '{relative}' is executable")
+            raise refuse(f"does not say whether the supporting file '{shown}' is executable")
         encoding = encoding.strip().lower()
         try:
             if encoding == "base64":
@@ -434,11 +445,11 @@ def _checked_bundle(detail: Any, skill_id: str, version: int) -> Dict[str, Any]:
                 data = content.encode("utf-8")
             else:
                 raise GatewayError(
-                    f"the Gateway sent file '{relative}' with an encoding this command does not know "
-                    f"('{encoding}'), so nothing was written. Upgrade cc-devthrottle."
+                    f"the Gateway sent file '{shown}' with an encoding this command does not know "
+                    f"('{axi_cli.ascii_text(encoding)}'), so nothing was written. Upgrade cc-devthrottle."
                 )
         except (binascii.Error, UnicodeEncodeError) as exc:
-            raise refuse(f"has content for '{relative}' that does not decode ({exc})") from exc
+            raise refuse(f"has content for '{shown}' that does not decode ({exc})") from exc
         files.append({"fileName": relative, "data": data, "executable": entry["executable"]})
 
     # A path that is both a file and the folder of another file cannot be written.
@@ -446,42 +457,80 @@ def _checked_bundle(detail: Any, skill_id: str, version: int) -> Dict[str, Any]:
         parts = name.split("/")
         for depth in range(1, len(parts)):
             if "/".join(parts[:depth]) in seen:
-                raise refuse(f"lists '{'/'.join(parts[:depth])}' as a file and as a folder")
+                raise refuse(
+                    f"lists '{axi_cli.ascii_text('/'.join(parts[:depth]))}' as a file and as a folder"
+                )
+
+    # Every authored field, including the Agent Skills standard's own frontmatter, so a pulled skill
+    # can be pushed back without losing what its author wrote. Which files are executable: on
+    # Windows this list IS the answer, because the filesystem has no bit to read; on Linux and macOS
+    # the bit on disk wins and this is a record of what was pulled.
+    metadata = {
+        "id": detail["skillId"],
+        "name": detail["name"],
+        "summary": detail["summary"],
+        "triggers": list(triggers),
+        "license": detail["license"],
+        "compatibility": detail["compatibility"],
+        "allowedTools": detail["allowedTools"],
+        "metadata": dict(standard_metadata),
+        "executable": sorted(f["fileName"] for f in files if f["executable"]),
+    }
+    # json.dumps would escape a lone surrogate and write it happily, and the next push would send
+    # it back; encoding the unescaped form finds it.
+    if bundle_files.text_bytes(json.dumps(metadata, ensure_ascii=False)) is None:
+        raise refuse("has a field that cannot be written as UTF-8")
+    body = bundle_files.text_bytes(detail["bodyMarkdown"])
+    if body is None:
+        raise refuse("has a body that cannot be written as UTF-8")
+    content_hash = bundle_files.text_bytes(detail["contentHash"])
+    if content_hash is None:
+        raise refuse("has a 'contentHash' that cannot be written as UTF-8")
+    # Text files are written with this platform's line ending, as they always were.
+    metadata_text = (json.dumps(metadata, indent=2) + "\n").replace("\n", os.linesep)
     return {
-        "body": detail["bodyMarkdown"],
+        "body": body,
         "contentHash": detail["contentHash"],
+        "hash": content_hash,
         "files": files,
-        "metadata": {
-            "id": detail["skillId"],
-            "name": detail["name"],
-            "summary": detail["summary"],
-            "triggers": list(triggers),
-            "license": detail["license"],
-            "compatibility": detail["compatibility"],
-            "allowedTools": detail["allowedTools"],
-            "metadata": dict(standard_metadata),
-        },
+        "metadata": metadata_text.encode("utf-8"),
     }
 
 
 # HOW A PULL OR A CACHE REFRESH WRITES, AND WHAT IT DOES NOT PROMISE.
 #
-# `_checked_bundle` checks the WHOLE Gateway answer - every field, every file's content and
-# encoding, every path that would collide with the skill's own files - before anything on disk is
-# touched, so a partial or malformed answer leaves the old files exactly as they were. Only then are
-# the files written, in this order: the new files over the old ones, then every old entry the new
+# `_checked_bundle` checks the WHOLE Gateway answer before anything on disk is touched, and turns it
+# into the exact bytes of every file: the body, skill.json, each supporting file (decoded) and the
+# hash sidecar. Any text that cannot be written as UTF-8, any name the operating system would refuse
+# (a NUL or other control character, < > : " | ? * or a backslash, a name over 255 bytes, a reserved
+# Windows device name), any path that collides with the skill's own files, and - on macOS and Linux -
+# any final path longer than the machine allows is refused there, so a partial or malformed answer
+# leaves the old files exactly as they were. The writes that follow only put those prepared bytes at
+# those checked paths, in this order: the new files over the old ones, then every old entry the new
 # version no longer has is removed, then the hash is written LAST, so a hash never vouches for files
-# that are not all on disk.
+# that are not all on disk. Whatever still fails is this machine, not the data, and the command
+# reports it as an Error line with next steps.
 #
 # NOT GUARANTEED (moved to its own issue, not solved here):
-# - A write that fails part way (a full disk, a file another program holds open), or a process
-#   killed part way, can leave a MIXED directory: some new files, some old. That was also true
+# - A write that fails part way because of this machine (a full disk, a file another program holds
+#   open, a path over the Windows length limit, which depends on a machine-wide setting and so is
+#   not checked in advance), or a process killed part way, can leave a MIXED directory: some new
+#   files, some old. That was also true
 #   before this change. The old hash is left in place, and it does not match the new version, so
 #   the next cache read rewrites the directory and a push is compared against the old version.
 # - Windows name aliases are not yet refused: a supporting file named `SKILL.md.` or `SKILL.md `
 #   (a trailing dot or space) is written by Windows to `SKILL.md` and overwrites the body.
 # - On a disk that ignores letter case, an existing folder keeps its old letter case when the new
 #   version spells it differently; the files inside are the new ones.
+
+
+def _check_final_paths(root: Path, bundle: Dict[str, Any], own: List[Path]) -> None:
+    """Refuse the answer when any path the write would use is longer than this machine allows.
+    `own` is the writer's own files (the body, skill.json, the hash sidecar)."""
+    bundle_files.check_paths(
+        own + [root / Path(f["fileName"]) for f in bundle["files"]],
+        lambda what: GatewayError(f"the Gateway's answer {what}, so nothing was written."),
+    )
 
 
 def _clear_the_way(root: Path, relative: str) -> Path:
@@ -694,14 +743,14 @@ def get_skill(skill_id: str, version: Optional[int]) -> None:
         if detail is None:
             detail = _client().get_version_detail(skill_id, version)
         paths = _materialize(skill_id, int(version), detail)
-    except (GatewayError, OSError, ValueError) as ex:
-        # ValueError: a supporting file whose base64 content does not decode. OSError: the cache
-        # directory could not be written.
+    except Exception as ex:  # noqa: BLE001 - the command's entry point: every failure is reported
+        # A GatewayError: the answer was refused before anything was written. Anything else: the
+        # cache could not be written on this machine.
         # The body already printed, so the agent has the instructions but not the files it was told
         # to run. Say exactly that rather than letting it discover a missing path itself.
         _fail(
             f"the body of '{skill_id}' printed above, but its supporting files could not be "
-            f"fetched: {ex}",
+            f"fetched: {_describe(ex)}",
             [f"cc-devthrottle skill get {_ref(skill_id)} --version {version}"],
         )
         return
@@ -733,7 +782,9 @@ def _materialize(skill_id: str, version: int, detail: Dict[str, Any]) -> List[Pa
     # The hash sidecar sits BESIDE the directory, not inside it: inside, it would be a file the skill
     # did not put there, and it could collide with one the skill did.
     hash_file = versions_root / f"{version}.hash"
+    partial = versions_root / f"{version}.hash.tmp"
     expected = bundle["contentHash"]
+    _check_final_paths(root, bundle, [root / SKILL_MD, hash_file, partial])
 
     intact = (
         hash_file.is_file()
@@ -748,12 +799,11 @@ def _materialize(skill_id: str, version: int, detail: Dict[str, Any]) -> List[Pa
         if hash_file.is_file() and hash_file.read_text(encoding="utf-8").strip() == expected:
             hash_file.unlink()
         root.mkdir(parents=True, exist_ok=True)
-        _write_exact(_clear_the_way(root, SKILL_MD), bundle["body"])
+        _clear_the_way(root, SKILL_MD).write_bytes(bundle["body"])
         _write_bundle_files(root, files)
         _remove_unlisted(root, [SKILL_MD] + [f["fileName"] for f in files])
         # Written last, and swapped in whole, so it never vouches for files that are not on disk.
-        partial = versions_root / f"{version}.hash.tmp"
-        partial.write_text(expected, encoding="utf-8")
+        partial.write_bytes(bundle["hash"])
         os.replace(partial, hash_file)
 
     return [root / Path(f["fileName"]) for f in files]
@@ -855,10 +905,11 @@ def pull_skill(skill_id: str, directory: str, version: Optional[int]) -> None:
     except GatewayError as ex:
         _fail(str(ex), [f"cc-devthrottle skill show {_ref(skill_id)} --version {version}"])
         return
-    except (OSError, ValueError) as ex:
-        # ValueError: a supporting file whose base64 content does not decode.
+    except Exception as ex:  # noqa: BLE001 - the command's entry point: every failure is reported
+        # The answer was checked in full, so what is left is this machine: a full disk, a file another
+        # program holds, a path over Windows' length limit.
         _fail(
-            f"could not write the skill into {target}: {ex}",
+            f"could not write the skill into {target}: {_describe(ex)}",
             [f'cc-devthrottle skill pull {_ref(skill_id)} --dir "<writable-dir>"'],
         )
         return
@@ -880,21 +931,16 @@ def _write_pulled(target: Path, skill_id: str, version: int, detail: Dict[str, A
     have is removed once the new files are written."""
     bundle = _checked_bundle(detail, skill_id, version)
     files = bundle["files"]
-    # Every authored field, including the Agent Skills standard's own frontmatter, so a pulled skill
-    # can be pushed back without losing what its author wrote.
-    metadata = dict(bundle["metadata"])
-    # Which files are executable. On Windows this list IS the answer, because the filesystem has no
-    # bit to read; on Linux and macOS the bit on disk wins and this is a record of what was pulled.
-    metadata["executable"] = sorted(f["fileName"] for f in files if f["executable"])
+    _check_final_paths(target, bundle, [target / name for name in _RESERVED_PATHS])
 
     target.mkdir(parents=True, exist_ok=True)
-    _write_exact(_clear_the_way(target, SKILL_MD), bundle["body"])
-    _clear_the_way(target, SKILL_JSON).write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+    _clear_the_way(target, SKILL_MD).write_bytes(bundle["body"])
+    _clear_the_way(target, SKILL_JSON).write_bytes(bundle["metadata"])
     _write_bundle_files(target, files)
     _remove_unlisted(target, [SKILL_MD, SKILL_JSON, HASH_SIDECAR] + [f["fileName"] for f in files])
     # The hash is written last: it names the version a push is compared against, so it moves on only
     # once the new files are all on disk.
-    _clear_the_way(target, HASH_SIDECAR).write_text(bundle["contentHash"], encoding="utf-8")
+    _clear_the_way(target, HASH_SIDECAR).write_bytes(bundle["hash"])
 
 
 def _read_directory(skill_id: str, directory: str, note: Optional[str]) -> Dict[str, Any]:
