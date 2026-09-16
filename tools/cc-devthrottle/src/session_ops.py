@@ -456,6 +456,84 @@ def _session_list_help(rows: List[Tuple[Dict[str, Any], str]], filtered: bool, c
     return commands
 
 
+# --- cc-devthrottle with no arguments (AXI principle 8, content first; issue #2922) ---
+
+# The fields shown for this session when the command runs inside one.
+LIVE_STATE_SESSION_FIELDS = ("id", "name", "state", "repo")
+
+
+def show_live_state() -> None:
+    """What `cc-devthrottle` prints with no arguments: who this session is, how many sessions need the
+    owner, and the most useful next commands. `--help` still prints the help.
+
+    Identity comes only from CC_SESSION_ID. Outside a session this says so and names nobody. Inside
+    one, the session is looked up in the roster by its full id; a session the roster does not hold is
+    reported as not found, never matched by prefix or name.
+    """
+    # Unlike list_sessions, a failed fetch goes to standard error in plain text: this is the first
+    # command an agent runs, and the sentence it reads must be the Gateway's, with no markup in it.
+    try:
+        sessions, complete, reason, stale_caution = gateway.get_fleet()
+    except gateway.GatewayError as err:
+        print(_ascii_text(f"Error: {err}"), file=sys.stderr)
+        print(
+            "Nothing about the fleet can be shown without the Gateway. "
+            "Run cc-devthrottle setup status to check this machine, or cc-devthrottle --help for the commands.",
+            file=sys.stderr,
+        )
+        raise typer.Exit(1)
+    _require_session_ids(sessions)
+    states = _fold_or_exit(sessions)
+    caveat = _roster_caveat(complete, reason)
+
+    sid = gateway.session_id()
+    blocks = []
+    if sid is None:
+        blocks.append("session: none - CC_SESSION_ID is not set, so this is not running inside a DevThrottle session.")
+    else:
+        mine = [
+            (s, st) for s, st in zip(sessions, states)
+            if gateway.field(s, "sessionId", "SessionId").strip().lower() == sid.lower()
+        ]
+        if mine:
+            blocks.append(axi_output.render_list(
+                "session", LIVE_STATE_SESSION_FIELDS, [_session_record(s, st) for s, st in mine]
+            ))
+        else:
+            blocks.append(
+                f"session: {axi_output.format_value(sid)} - this is CC_SESSION_ID, "
+                "but the fleet list the Gateway returned does not hold it."
+            )
+
+    breakdown = [(name, n) for name in SESSION_STATES if (n := states.count(name))] or None
+    needs_you = states.count("needs-you")
+    blocks.append(axi_output.format_count(len(sessions), breakdown=breakdown))
+    blocks.append(f"needs-you: {needs_you}")
+    if caveat:
+        blocks.append(f"This is not the whole fleet. {caveat}")
+    # A count of zero is a negative answer, which is the one case the stale caution qualifies.
+    if needs_you == 0 and stale_caution:
+        blocks.append(stale_caution)
+
+    blocks.append(axi_output.format_help(_live_state_help(sid is not None, needs_you, len(sessions))))
+    axi_output.write_blocks(sys.stdout, *(_ascii_text(block) for block in blocks))
+
+
+def _live_state_help(inside_session: bool, needs_you: int, total: int) -> List[str]:
+    """Concrete next commands. Runtime values are placeholders, never guessed."""
+    commands = []
+    if needs_you:
+        commands.append("cc-devthrottle session list --state needs-you")
+    if total:
+        commands.append("cc-devthrottle session list")
+    else:
+        commands.append("cc-devthrottle director list")
+    if inside_session:
+        commands.append("cc-devthrottle session spawn <repo> --controlled-by self")
+    commands.append("cc-devthrottle --help")
+    return commands
+
+
 def whoami() -> None:
     """Show this session's own fleet identity."""
     sid = gateway.session_id()

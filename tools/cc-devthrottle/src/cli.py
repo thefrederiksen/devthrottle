@@ -34,6 +34,7 @@ from .session_ops import (
     rename_session,
     set_session_role,
     selftest as run_selftest,
+    show_live_state,
     send_message,
     spawn_session,
     stop_session,
@@ -45,7 +46,8 @@ app = typer.Typer(
     name="cc-devthrottle",
     help="Unified DevThrottle command-line surface.",
     add_completion=False,
-    no_args_is_help=True,
+    # With no arguments the tool shows live state, not the help (docs/axi-standard.md, principle 8).
+    invoke_without_command=True,
 )
 session_app = typer.Typer(help="Manage running sessions.", add_completion=False)
 repo_app = typer.Typer(help="List the fleet's repositories.", add_completion=False)
@@ -950,11 +952,14 @@ def browser_remove(
 
 @app.callback()
 def main(
+    ctx: typer.Context,
     version: bool = typer.Option(
         False, "--version", "-v", callback=_version_callback, is_eager=True, help="Show version."
     ),
 ) -> None:
     """Unified DevThrottle command-line surface."""
+    if ctx.invoked_subcommand is None:
+        show_live_state()
 
 
 @app.command()
