@@ -335,13 +335,17 @@ public sealed class SnoozeExpiryReJudge
     /// to be absent too - each of those was a condition that let the memory grow, which is exactly what this
     /// exists to stop.
     ///
-    /// THE COST, ACCEPTED BY THE ARCHITECT ON 2026-09-16 AND WRITTEN HERE SO IT READS AS CHOSEN RATHER THAN
-    /// MISSED. A session can leave the roster and come back - a Director that went quiet for a poll, a filtered
-    /// read, a machine that restarted. If its snooze had already expired, the returning session is observed
-    /// afresh, and it can be judged ONE more time. That is one read landing on the same colour it already had:
-    /// the judge is asked about the current screen and answers about the current screen. The alternative was a
-    /// condition on when to prune, and every condition of that kind is a way for this dictionary to keep an entry
-    /// nobody can account for. A bounded memory is worth an occasional repeated read.
+    /// WHAT HAPPENS WHEN A PRUNED SESSION COMES BACK, and it is better than the cost that was accepted for it.
+    /// A session can leave the roster and return - a Director quiet for a poll, a filtered read, a machine that
+    /// restarted. If its expiry had already been handled before it left, the returning session is re-armed as
+    /// ALREADY EXPIRED and is NOT read again: its entry is gone, so nothing says when the snooze was seen armed,
+    /// and an expiry with no arming observation claims nothing and asks nothing - it takes the edge, stores an
+    /// expired watch, and stops. Every later fold then finds that expired watch and holds. The edge is spent
+    /// once whether or not the entry survived in between.
+    ///
+    /// <see cref="SnoozeExpiryReJudgeTests.ASessionThatComesBackAfterItsExpiryWasHandled_IsNotReadAgain"/> is the
+    /// assertion of this paragraph. The sentence and the test point at each other on purpose: a claim written
+    /// beside code that nothing checks is where the next reader stops being sceptical.
     /// </summary>
     private void PruneToRoster(TenantId tenant, IReadOnlyList<SessionDto> roster)
     {

@@ -637,31 +637,45 @@ public sealed class SnoozeExpiryReJudgeTests : IDisposable
     }
 
     [Fact]
-    public void ASessionThatComesBackAfterItsExpiry_IsObservedAfresh_AndMayBeJudgedOnceMore()
+    public void ASessionThatComesBackAfterItsExpiryWasHandled_IsNotReadAgain()
     {
-        // THE ACCEPTED COST OF PRUNING UNCONDITIONALLY, asserted rather than left as a sentence in a comment, so
-        // that what was chosen is visible and a later change that quietly alters it has to come through here.
+        // THE ASSERTION OF THE PARAGRAPH BESIDE PruneToRoster, and the two are named at each other deliberately.
         //
-        // A session can leave the roster and come back - a Director quiet for a poll, a filtered read, a machine
-        // that restarted. Its entry went with it, so the returning session is a clock nobody has seen: this
-        // Gateway cannot say what happened while the snooze ran, so it claims nothing, which is the honest and
-        // the safe direction. The row keeps the red it had, exactly as it does after a Gateway restart.
+        // The cost accepted for pruning unconditionally was "a returning session may be judged once more". The
+        // code turned out to be better than that, so the comment says what the code DOES instead: a session whose
+        // expiry was already handled, pruned, and returned is re-armed as ALREADY EXPIRED and is never read
+        // again. Its entry is gone, so nothing says when the snooze was seen armed, and an expiry with no arming
+        // observation claims nothing and asks nothing - it takes the edge, stores an expired watch, and stops.
+        //
+        // A comment claiming a cost the code does not pay is worse than no comment: the next reader spends their
+        // scepticism somewhere else. This is what stops that sentence drifting back.
         var (watch, rows, row) = ArmedAndObserved();
         Store.Store(Account, "s1", Verdict("", "", Armed.AddMinutes(5), failed: true));
 
         Fold(watch, rows, new[] { row }, AfterExpiry);
         Assert.Equal(new[] { "s1" }, _reads);
+        Assert.Equal(new[] { "snooze-re-judge-requested/s1" }, _ledger);
 
-        // It leaves the roster entirely, then comes back.
+        // It leaves the roster entirely - the entry goes with it - and then comes back.
         Fold(watch, rows, Array.Empty<SessionDto>(), AfterExpiry.AddMinutes(1));
         Assert.Equal(0, watch.Watching);
 
         Fold(watch, rows, new[] { row }, AfterExpiry.AddMinutes(2));
 
-        // Seen afresh, with no observation of when the snooze was armed - so nothing is claimed about the quiet
-        // and nothing is asked a second time on THIS fold.
+        // Re-armed as already expired: it is watched again, and it claims nothing about a stretch of quiet it
+        // cannot see the start of.
+        Assert.Equal(1, watch.Watching);
         Assert.False(row.SnoozeEndedNothingNew);
         Assert.Equal(new[] { "s1" }, _reads);
+        Assert.Equal(new[] { "snooze-re-judge-requested/s1" }, _ledger);
+
+        // AND IT STAYS THAT WAY. One fold proves nothing about an edge - the expired watch has to hold across
+        // every later fold, which is the whole claim the paragraph makes.
+        for (var i = 3; i < 15; i++)
+            Fold(watch, rows, new[] { row }, AfterExpiry.AddMinutes(i));
+
+        Assert.Equal(new[] { "s1" }, _reads);
+        Assert.Equal(new[] { "snooze-re-judge-requested/s1" }, _ledger);
     }
 
     [Fact]
