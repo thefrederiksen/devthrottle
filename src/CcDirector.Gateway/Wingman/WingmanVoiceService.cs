@@ -1229,7 +1229,8 @@ public sealed class WingmanVoiceService
         var latest = verdicts.Latest(tenant, sid);
         var judgeWouldBeAsked = latest is null || !string.Equals(latest.ScreenHash, hash, StringComparison.Ordinal);
         var speechWouldBeMade = !judgeWouldBeAsked
-                                && latest is { Failed: false }
+                                && latest is not null
+                                && (!latest.Failed || !string.IsNullOrWhiteSpace(latest.Spoken))
                                 && ShouldRegenerate(tenant, sid, latest.VerdictId)
                                 && ModelCallHeldOffFor(StateFor(tenant), sid, ReplyKey(LadderKey(hash,
                                     WingmanNarrationSource.Select(_conversationReader?.Invoke(tenant, sid)?.Widgets, rows)?.Content))) is null;
@@ -1353,7 +1354,8 @@ public sealed class WingmanVoiceService
     /// out of <see cref="GenerateAsync"/> so the per-session coalescing wrapper stays readable and this stays
     /// the pure "make the voice" step.
     ///
-    /// Returns TRUE only when an accepted verdict reached the speech leg; FALSE means there was nothing to do
+    /// Returns TRUE only when a verdict with words (accepted, or refused and still carrying spoken text) reached
+    /// the speech leg; FALSE means there was nothing to do
     /// or nothing usable came back.
     /// </summary>
     private async Task<bool> GenerateOnceAsync(TenantId tenant, string sid, SessionVerbClient route, CancellationToken ct, bool showReadingWindow, Action? onProviderReached = null, SweepGenerationInput? sweepInput = null, bool isSpeechReattempt = false)
@@ -1458,8 +1460,18 @@ public sealed class WingmanVoiceService
                     FileLog.Write($"[WingmanVoiceService] sid={sid}: no narration - the session started working while its verdict was formed");
                     return false;
 
+                case TurnVerdictOutcomeKind.Failed when HasSpokenWords(outcome):
+                    // A REFUSED ANSWER THAT CARRIED WORDS IS NARRATED (slice I, owner ruling 2026-09-16). The judge
+                    // answered readable JSON and a field check refused it - the receipt, finishedKind, one option. The
+                    // refusal stands for the ROW, which keeps its refused stamp; the spoken text only informs, so it
+                    // is played exactly as an accepted verdict's is, below. Only a stop with no words at all (a
+                    // timeout, a rate limit, an answer that was not JSON) falls to the arm after this one.
+                    FileLog.Write($"[WingmanVoiceService] sid={sid}: the verdict was refused ({outcome.FailureDetail}) but carries spoken text - narrating it; the row keeps the refused stamp");
+                    break;
+
                 case TurnVerdictOutcomeKind.Failed:
-                    // THE JUDGE LEG IS NEVER RE-ATTEMPTED, whatever the failure. No stop costs two model calls, in
+                    // THE JUDGE LEG IS NEVER RE-ATTEMPTED FROM HERE, whatever the failure. (The verdict service itself
+                    // gives a listened-to stop one re-attempt inside its own flight, before this outcome exists.) No stop costs two model calls, in
                     // any slice: a re-attempt here would re-enter GenerateAsync, find this screen's stored record
                     // failed, and ask the judge again. So the failed record stands, the row stays red, this stop
                     // gets no narration, and the screen reports a stop that was not narrated. Only the SPEECH leg
@@ -1549,6 +1561,11 @@ public sealed class WingmanVoiceService
         finally { if (showReadingWindow) EndGenerating(tenant, sid); }
     }
 
+    /// <summary>A failed outcome whose record still carries the judge's spoken text - a refusal of readable JSON.
+    /// Such a stop is narrated; any other failure is not.</summary>
+    private static bool HasSpokenWords(TurnVerdictOutcome outcome)
+        => outcome.Verdict is { Failed: true } refused && !string.IsNullOrWhiteSpace(refused.Spoken);
+
     /// <summary>The retry ledger's key for one stop: the screen it was judged on AND the source it was judged
     /// from. Both, because every unreadable screen hashes the same, and a new reply on one must get its own
     /// budget rather than inherit a spent one - the missed-Working-edge case issue #1322 taught this file.</summary>
@@ -1624,6 +1641,12 @@ public sealed class WingmanVoiceService
 
                 case TurnVerdictOutcomeKind.Cancelled:
                     return new StopNarration("", WorkingAgainLine, 0, Retrying: false, NothingYet: true, Error: null, VerdictId: null, PackageKind: null);
+
+                case TurnVerdictOutcomeKind.Failed when HasSpokenWords(outcome):
+                    // A refused answer that carried words is narrated exactly as an accepted one (slice I) - see the
+                    // same arm in GenerateOnceAsync.
+                    FileLog.Write($"[WingmanVoiceService] narrate-on-request sid={sid}: the verdict was refused ({outcome.FailureDetail}) but carries spoken text - narrating it");
+                    break;
 
                 case TurnVerdictOutcomeKind.Failed when outcome.Failure is TurnVerdictFailureKind.DidNotAnswer or TurnVerdictFailureKind.RateLimited:
                     // The absence of an answer, not evidence the session's computer is offline: the calm Retrying

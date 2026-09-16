@@ -44,8 +44,14 @@ public static class TurnVerdictContract
     /// a number in prose without deleting real answers. Nothing about the JSON shape or validation changed, which is why the
     /// resource file keeps its v2 name and the grading tool keeps its path: renaming it would move a file
     /// the grader reads, for a revision that cannot change how any stored record is read. The stamp still
-    /// moves, so a record can say which wording produced it.</summary>
-    public const string Version = "v2.1";
+    /// moves, so a record can say which wording produced it.
+    ///
+    /// v2.2 (2026-09-16, slice I): VALIDATION only - the prompt is byte for byte the v2.1 prompt. A REFUSED
+    /// answer that was readable JSON keeps its spoken text on the failed record, so a field check no longer
+    /// silences voice; the refusal still stands for the row. (A rewrite of the spoken section was graded in the
+    /// same slice and withdrawn on the Architect's ruling: on the fast judge it did not reach the old
+    /// translator's fidelity and raised refusals.) The JSON shape is unchanged, so the file keeps its v2 name.</summary>
+    public const string Version = "v2.2";
 
     /// <summary>The embedded name of the prompt template. The grading tool reads the same file off
     /// disk at src/CcDirector.Core/Wingman/Prompts/turn-verdict-v2.txt; a test pins the two to be
@@ -266,6 +272,17 @@ public static class TurnVerdictContract
             if (root.ValueKind != JsonValueKind.Object)
                 return Refuse(package, model, turnEndObservedAtUtc, "the answer is not a JSON object");
 
+            // ---- THE SPOKEN TEXT OUTLIVES A REFUSAL (owner ruling, 2026-09-16) ----------------
+            // From here on the answer is readable JSON, so every refusal below keeps the judge's spoken text
+            // on the failed record, cut at the same bound an accepted one is. The refusal still stands for the
+            // ROW - the receipt, the verdict word and the options protect a colour and buttons that ACT - but
+            // the narration only informs, and on 16 September 24 of 29 silent stops had a readable spoken
+            // field thrown away with the rest. Only an answer that never became a JSON object (above), a
+            // timeout or a rate limit leaves no spoken text.
+            var salvagedSpoken = SalvageSpoken(root);
+            TurnVerdictDto RefuseReadable(string reason)
+                => Refuse(package, model, turnEndObservedAtUtc, reason, salvagedSpoken);
+
             // ---- THE SHAPE, BEFORE ANY OF IT IS READ FOR MEANING -----------------------------
             // Every rule below this line reads a field already proved to exist and to be the type the
             // shape declares. Before this pass, a missing field and a wrongly typed one both arrived as
@@ -273,18 +290,18 @@ public static class TurnVerdictContract
             // and the record then said the judge had answered something it never wrote.
             var shapeFault = ValidateShape(root);
             if (shapeFault is not null)
-                return Refuse(package, model, turnEndObservedAtUtc, shapeFault);
+                return RefuseReadable(shapeFault);
 
             // ---- verdict: one of the six, and nothing else ----------------------------------
             var verdict = Str(root, "verdict");
             if (!TurnVerdictVocabulary.IsWingmanVerdict(verdict))
-                return Refuse(package, model, turnEndObservedAtUtc,
+                return RefuseReadable(
                     $"unknown verdict word '{verdict}'; the six allowed words are "
                     + string.Join(", ", TurnVerdictVocabulary.WingmanVerdicts));
 
             // ---- a failure with no reply can never be calm -----------------------------------
             if (package.Kind == TurnVerdictPackageKind.TerminalFailure && TurnVerdictVocabulary.IsCalm(verdict))
-                return Refuse(package, model, turnEndObservedAtUtc,
+                return RefuseReadable(
                     $"the verdict '{verdict}' is calm, and this stop has no reply at all - its turn ended on "
                     + "a failure shown on screen, which cannot mean the session finished or is carrying on");
 
@@ -297,20 +314,20 @@ public static class TurnVerdictContract
             if (verdict == TurnVerdictVocabulary.Finished)
             {
                 if (!hasFinishedKind)
-                    return Refuse(package, model, turnEndObservedAtUtc,
+                    return RefuseReadable(
                         "a finished answer carries no 'finishedKind'; it must say which finished it is - "
                         + string.Join(" or ", TurnVerdictVocabulary.FinishedKinds)
                         + " - and neither may be written on the judge's behalf");
                 if (finishedKindElement.ValueKind != JsonValueKind.String
                     || !TurnVerdictVocabulary.FinishedKinds.Contains(finishedKindElement.GetString(), StringComparer.Ordinal))
-                    return Refuse(package, model, turnEndObservedAtUtc,
+                    return RefuseReadable(
                         $"unknown finishedKind {finishedKindElement.GetRawText()}; the two allowed words are "
                         + string.Join(", ", TurnVerdictVocabulary.FinishedKinds));
                 finishedKind = finishedKindElement.GetString();
             }
             else if (hasFinishedKind)
             {
-                return Refuse(package, model, turnEndObservedAtUtc,
+                return RefuseReadable(
                     $"'finishedKind' is on a '{verdict}' answer; it belongs to a finished answer only, and an "
                     + "answer that carries it anywhere else is thrown away whole");
             }
@@ -318,7 +335,7 @@ public static class TurnVerdictContract
             // ---- risk: one of the four, and never defaulted ----------------------------------
             var risk = Str(root, "risk");
             if (!TurnVerdictVocabulary.Risks.Contains(risk, StringComparer.Ordinal))
-                return Refuse(package, model, turnEndObservedAtUtc,
+                return RefuseReadable(
                     risk.Length == 0
                         ? "no risk word; there is no safe default, because defaulting to 'none' would tell the "
                           + "owner an irreversible action is free"
@@ -330,17 +347,17 @@ public static class TurnVerdictContract
             if (verdict != TurnVerdictVocabulary.CannotTell)
             {
                 if (evidence.Length == 0)
-                    return Refuse(package, model, turnEndObservedAtUtc,
+                    return RefuseReadable(
                         "no evidence; every verdict except cannot-tell must carry the agent's own decisive "
                         + "sentence as a receipt");
                 if (evidence.Length > MaxEvidenceChars)
-                    return Refuse(package, model, turnEndObservedAtUtc,
+                    return RefuseReadable(
                         $"the evidence is {evidence.Length} characters, over the {MaxEvidenceChars} character "
                         + "bound; a receipt is one decisive sentence, and it cannot be cut without breaking "
                         + "the check that it is verbatim");
                 var found = FindEvidence(package, evidence);
                 if (found is null)
-                    return Refuse(package, model, turnEndObservedAtUtc,
+                    return RefuseReadable(
                         "the evidence is not found verbatim in the reply or on the screen; it was paraphrased, "
                         + "retyped or invented, and an unanchored answer is thrown away whole");
 
@@ -355,14 +372,14 @@ public static class TurnVerdictContract
             // ---- label and summary ------------------------------------------------------------
             var label = Str(root, "label");
             if (label.Length == 0)
-                return Refuse(package, model, turnEndObservedAtUtc,
+                return RefuseReadable(
                     "no label; the label is the one line every row shows, and a row that reports nothing "
                     + "reads as broken");
             label = CapAtWordBoundary(label, MaxLabelChars);
 
             var summary = Str(root, "summary");
             if (summary.Length == 0)
-                return Refuse(package, model, turnEndObservedAtUtc,
+                return RefuseReadable(
                     "the summary is empty; it is the one or two sentences given to a reader who has not "
                     + "looked at this session for hours, and an empty one reads as a broken row exactly "
                     + "as an empty label does");
@@ -371,7 +388,7 @@ public static class TurnVerdictContract
             // ---- the spoken section -----------------------------------------------------------
             var spoken = Str(root, "spoken");
             if (spoken.Length == 0)
-                return Refuse(package, model, turnEndObservedAtUtc,
+                return RefuseReadable(
                     "no spoken section; it is produced for every owned stop, whether or not anybody is "
                     + "listening, and a stop without one is silent in the car");
             spoken = CapAtWordBoundary(spoken, MaxSpokenChars);
@@ -379,7 +396,7 @@ public static class TurnVerdictContract
             // ---- how the person answers -------------------------------------------------------
             var optionsResult = ReadOptions(root);
             if (optionsResult.Reason is not null)
-                return Refuse(package, model, turnEndObservedAtUtc, optionsResult.Reason);
+                return RefuseReadable(optionsResult.Reason);
             var options = optionsResult.Options;
 
             // The shape pass has proved answerVia is present and a string. It is never written in: it
@@ -387,18 +404,18 @@ public static class TurnVerdictContract
             // gets typed.
             var answerVia = Str(root, "answerVia");
             if (!TurnVerdictVocabulary.AnswerVias.Contains(answerVia, StringComparer.Ordinal))
-                return Refuse(package, model, turnEndObservedAtUtc,
+                return RefuseReadable(
                     $"unknown answerVia word '{answerVia}'; the two allowed words are "
                     + string.Join(", ", TurnVerdictVocabulary.AnswerVias));
 
             var menuResult = ReadMenu(root);
             if (menuResult.Reason is not null)
-                return Refuse(package, model, turnEndObservedAtUtc, menuResult.Reason);
+                return RefuseReadable(menuResult.Reason);
 
             // ---- CAN THE ROUTE ACTUALLY PERFORM THIS, EXACTLY ONCE? --------------------------
             var executableFault = ValidateExecutable(package, answerVia, menuResult.Menu, options);
             if (executableFault is not null)
-                return Refuse(package, model, turnEndObservedAtUtc, executableFault);
+                return RefuseReadable(executableFault);
 
             // ---- confidence: one of the two, and never defaulted -------------------------------
             // Reading an unknown word as "ambiguous" was a silent repair. It looked harmless because
@@ -408,7 +425,7 @@ public static class TurnVerdictContract
             // risk word is, and for the same reason.
             var confidence = Str(root, "confidence");
             if (!TurnVerdictVocabulary.Confidences.Contains(confidence, StringComparer.Ordinal))
-                return Refuse(package, model, turnEndObservedAtUtc,
+                return RefuseReadable(
                     confidence.Length == 0
                         ? "no confidence word; the two allowed words are "
                           + string.Join(", ", TurnVerdictVocabulary.Confidences)
@@ -853,6 +870,26 @@ public static class TurnVerdictContract
         }, null);
     }
 
+    /// <summary>
+    /// Did the judge answer with a JSON object at all - after the same fence and preamble absorption validation
+    /// applies? The one mechanical line between an answer that carries words (every refusal of it still keeps its
+    /// spoken text) and one that carries none: nothing, text that does not parse, or JSON that is not an object.
+    /// The verdict service re-attempts only the second kind, and only for a stop somebody is listening to.
+    /// </summary>
+    public static bool IsReadableJsonObject(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return false;
+        try
+        {
+            using var doc = JsonDocument.Parse(Unwrap(raw));
+            return doc.RootElement.ValueKind == JsonValueKind.Object;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>Models wrap JSON in fences and narrate a sentence in front of it despite being told not
     /// to. Both are absorbed mechanically, exactly as the brief contract has absorbed them for a year -
     /// it is a quirk of how models answer, not a fact about the stop. What remains still has to be valid
@@ -876,11 +913,22 @@ public static class TurnVerdictContract
         return json;
     }
 
+    /// <summary>
+    /// The judge's spoken text off an answer that is about to be refused, or empty when it has none: the
+    /// member absent, not a string, or blank. Cut at <see cref="MaxSpokenChars"/> exactly as an accepted
+    /// answer's is, so a refused stop is never narrated longer than an accepted one could be.
+    /// </summary>
+    private static string SalvageSpoken(JsonElement root)
+        => CapAtWordBoundary(Str(root, "spoken"), MaxSpokenChars);
+
+    /// <param name="spoken">The judge's spoken text, kept on the failed record when the answer was readable
+    /// JSON. Empty for an answer that never parsed: the record then carries no words at all.</param>
     private static TurnVerdictDto Refuse(
         TurnVerdictPackage package,
         string model,
         DateTime turnEndObservedAtUtc,
-        string reason)
+        string reason,
+        string spoken = "")
     {
         FileLog.Write($"[TurnVerdictContract] refused: {reason}");
         return new TurnVerdictDto
@@ -894,6 +942,7 @@ public static class TurnVerdictContract
             PackageKind = TurnVerdictPackage.WireName(package.Kind),
             Failed = true,
             FailureReason = reason,
+            Spoken = spoken,
         };
     }
 

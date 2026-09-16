@@ -423,7 +423,9 @@ public sealed class WingmanVoiceServiceTests : IDisposable
 
             await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
 
-            Assert.Equal(1, brain.AskCount);                                          // it tried the model
+            // It tried the model, and - this being a voice session somebody is listening to - tried it ONCE more
+            // with the wider deadline (slice I). Both stalled, so the rest of this test is unchanged.
+            Assert.Equal(TurnVerdictService.MaxJudgeAttemptsWhenListenedTo, brain.AskCount);
             Assert.False(svc.HasVoice(TenantId.Local, "sid-1"));                                      // nothing to play
             Assert.Equal(HostedAiState.Retrying, svc.VoiceUnavailableFor(TenantId.Local, "sid-1"));   // and it says WHY, calmly
             Assert.NotEqual(HostedAiState.ServiceDown, svc.VoiceUnavailableFor(TenantId.Local, "sid-1")); // a non-answer is not "down"
@@ -1466,12 +1468,13 @@ public sealed class WingmanVoiceServiceTests : IDisposable
     }
 
     /// <summary>
-    /// A JUDGE THAT DOES NOT ANSWER IS NOT ASKED AGAIN FOR THE SAME STOP. This test used to prove the opposite - that the
-    /// voice path booked its own re-attempt and the second ask narrated the turn - and that second ask was a
-    /// second model call for one stop, which the design forbids in every slice. Now the failed verdict stands,
-    /// nothing is booked, and the screen says at once that the turn was not narrated instead of promising audio.
+    /// A JUDGE THAT DOES NOT ANSWER IS NOT ASKED AGAIN FOR THE SAME STOP ONCE ITS ONE RE-ATTEMPT IS SPENT. This test used
+    /// to prove the opposite - that the voice path booked its own re-attempt ladder and a later ask narrated the turn.
+    /// Slice I (owner ruling, 2026-09-16) gives a stop somebody is listening to exactly ONE re-attempt, inside the
+    /// verdict flight itself, with the sixty second deadline, and nothing is booked afterwards. So the failed verdict
+    /// stands after two stalls, nothing is booked, and the screen says at once that the turn was not narrated.
     ///
-    /// The brain answers on its SECOND ask, so a re-attempt, had one been booked, would have produced audio: the
+    /// The brain answers on its THIRD ask, so a further re-attempt, had one been booked, would have produced audio: the
     /// absence below is the absence of a call that would have succeeded. The positive control at the end asks
     /// once more by hand and sees exactly one more call and the audio, so the machinery was alive throughout.
     /// </summary>
@@ -1484,13 +1487,13 @@ public sealed class WingmanVoiceServiceTests : IDisposable
         var persistPath = Path.Combine(dir, "voice-sessions.json");
         try
         {
-            var brain = new StallsThenAnswersBrain(failures: 1);
+            var brain = new StallsThenAnswersBrain(failures: TurnVerdictService.MaxJudgeAttemptsWhenListenedTo);
             var svc = ServiceWithBrainAndTts(brain, new byte[] { 5, 5, 5 }, persistPath, conversation.Reader);
             svc.UseModelRetryBackoffForTest(TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(50));
 
             await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: true);
 
-            Assert.Equal(1, brain.AskCount);
+            Assert.Equal(TurnVerdictService.MaxJudgeAttemptsWhenListenedTo, brain.AskCount);
             Assert.False(svc.HasVoice(TenantId.Local, "sid-1"));
             Assert.Null(svc.LastBookedRetryDelayForTest);                      // nothing was booked
             Assert.True(svc.NarrationAbandonedFor(TenantId.Local, "sid-1"));   // and the screen is told so at once
@@ -1498,7 +1501,7 @@ public sealed class WingmanVoiceServiceTests : IDisposable
 
             // Ten times the rung the old code booked, so a re-attempt would have run by now.
             await Task.Delay(500);
-            Assert.Equal(1, brain.AskCount);
+            Assert.Equal(TurnVerdictService.MaxJudgeAttemptsWhenListenedTo, brain.AskCount);
             Assert.False(svc.HasVoice(TenantId.Local, "sid-1"));
 
             var display = VoiceDisplayFold.Fold(
@@ -1511,7 +1514,7 @@ public sealed class WingmanVoiceServiceTests : IDisposable
 
             // POSITIVE CONTROL: a person asking again is one more call, and this time the judge answers.
             await svc.GenerateAsync(TenantId.Local, "sid-1", RouteFor(director), CancellationToken.None, showReadingWindow: false);
-            Assert.Equal(2, brain.AskCount);
+            Assert.Equal(TurnVerdictService.MaxJudgeAttemptsWhenListenedTo + 1, brain.AskCount);
             Assert.True(svc.HasVoice(TenantId.Local, "sid-1"));
         }
         finally { try { Directory.Delete(dir, recursive: true); } catch { /* best-effort */ } }
