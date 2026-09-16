@@ -5,14 +5,14 @@ A worktree may be reset only when every one of these is positively proven:
 1. It has no uncommitted changes and no untracked files that are not ignored.
 2. The remote was fetched successfully just now.
 3. The default branch was read from the remote itself (never assumed, never the local origin/HEAD).
-4. Every commit reachable from HEAD and not in the default branch is on a remote branch, or its
-   content is already in the default branch (a rebase: same patch; a squash: same resulting files).
+4. Every commit reachable from HEAD and on no remote branch is, on its own, the same patch as a commit
+   in the default branch (a rebase). A matching final snapshot is never proof for the commits behind
+   it, so work landed only by a squash is not proven here.
 
 Anything that cannot be proven is NOT landed. The caller holds the worktree with the reason.
 
 Portions adapted from treehouse (https://github.com/kunchenguid/treehouse),
-internal/vcs/gitvcs/gitvcs.go: the remote default branch read, the squash content check, and the
-HEAD.lock-guarded reset. Copyright (c) 2026 kunchenguid. MIT License - see THIRD_PARTY_NOTICES.md.
+internal/vcs/gitvcs/gitvcs.go: the remote default branch read and the HEAD.lock-guarded reset. Copyright (c) 2026 kunchenguid. MIT License - see THIRD_PARTY_NOTICES.md.
 """
 
 from __future__ import annotations
@@ -126,53 +126,51 @@ def require_clean(worktree: Path) -> None:
     raise NotLanded(" and ".join(parts))
 
 
-def _read_tree(worktree: Path, rev: str) -> dict[str, str]:
-    raw = gitrun.run(worktree, "ls-tree", "-r", "-z", "--full-tree", rev).stdout
-    tree: dict[str, str] = {}
-    for record in raw.split("\0"):
-        if not record:
-            continue
-        meta, sep, path = record.partition("\t")
-        if not sep:
-            raise GitError(["ls-tree", rev], 0, f"malformed ls-tree entry: {record!r}")
-        tree[path] = meta
-    return tree
+def _short_list(commits: list[str], limit: int = 5) -> str:
+    shown = ", ".join(c[:12] for c in commits[:limit])
+    return shown + (f" and {len(commits) - limit} more" if len(commits) > limit else "")
 
 
-def _content_in_default(worktree: Path, tip: str) -> bool:
-    """True when every file HEAD changed since it split from the default branch is identical in the
-    default branch tip. That is what a squash merge leaves behind. No change at all proves nothing."""
-    base = gitrun.run(worktree, "merge-base", "HEAD", tip, check=False)
-    if base.returncode != 0 or not base.stdout.strip():
-        return False
-    base_tree = _read_tree(worktree, base.stdout.strip())
-    head_tree = _read_tree(worktree, "HEAD")
-    tip_tree = _read_tree(worktree, tip)
-    changed = {p for p in base_tree.keys() | head_tree.keys() if base_tree.get(p) != head_tree.get(p)}
-    if not changed:
-        return False
-    return all(head_tree.get(p) == tip_tree.get(p) for p in changed)
+def unproven_commits(worktree: Path, tip: RemoteTip, tips: list[str]) -> list[str]:
+    """Every commit reachable from `tips` that is not individually proven landed, newest first.
 
-
-def require_commits_landed(worktree: Path, tip: RemoteTip) -> None:
-    try:
-        stray = gitrun.out(worktree, "rev-list", "HEAD", "--not", f"--remotes={REMOTE}").split()
+    A commit is landed only when it is on a remote branch, or when it is the same patch as a commit in
+    the default branch (git cherry marks it "-"). Nothing else counts: a squash, or a final snapshot
+    that happens to match, says nothing about the commits behind it. An empty git answer where commits
+    exist proves nothing, so a tip with no stray commits must also be positively found on a remote.
+    """
+    unproven: list[str] = []
+    seen: set[str] = set()
+    for start in tips:
+        stray = gitrun.out(worktree, "rev-list", start, "--not", f"--remotes={REMOTE}").split()
         if not stray:
-            return
-        # "- <sha>" means the same patch is already in the default branch (a rebase landed it).
-        # A commit git cherry does not mark that way stays unproven.
-        cherry = gitrun.out(worktree, "cherry", tip.commit, "HEAD")
+            on_remote = gitrun.out(worktree, "for-each-ref", "--format=%(refname)", "--contains", start,
+                                   f"refs/remotes/{REMOTE}/")
+            if not on_remote:
+                raise cannot_verify(f"{start[:12]} lists no commit to check and is on no remote branch")
+            continue
+        # "- <sha>": the same patch is already in the default branch. "+ <sha>", a merge commit (git
+        # cherry never lists one) or a commit git cherry does not mention at all stays unproven.
+        cherry = gitrun.out(worktree, "cherry", tip.commit, start)
         same_patch = {line.split()[1] for line in cherry.splitlines() if line.startswith("- ")}
-        remaining = [c for c in stray if c not in same_patch]
-        if not remaining:
-            return
-        if _content_in_default(worktree, tip.commit):
-            return
+        for commit in stray:
+            if commit in seen:
+                continue
+            seen.add(commit)
+            if commit not in same_patch:
+                unproven.append(commit)
+    return unproven
+
+
+def require_commits_landed(worktree: Path, tip: RemoteTip, tips: list[str]) -> None:
+    try:
+        unproven = unproven_commits(worktree, tip, tips)
     except GitError as ex:
         raise cannot_verify(ex.short()) from ex
-    count = len(remaining)
-    noun = "1 commit is" if count == 1 else f"{count} commits are"
-    raise NotLanded(f"{noun} on no remote (newest {remaining[0][:12]})")
+    if unproven:
+        count = len(unproven)
+        noun = "1 commit is" if count == 1 else f"{count} commits are"
+        raise NotLanded(f"{noun} on no remote: {_short_list(unproven)}")
 
 
 def check(worktree: Path, tip: RemoteTip | None = None) -> tuple[RemoteTip, str]:
@@ -188,7 +186,7 @@ def check(worktree: Path, tip: RemoteTip | None = None) -> tuple[RemoteTip, str]
     head = head_commit(worktree)
     if tip is None:
         tip = fetch_default(worktree)
-    require_commits_landed(worktree, tip)
+    require_commits_landed(worktree, tip, [head])
     return tip, head
 
 

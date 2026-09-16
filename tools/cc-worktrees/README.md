@@ -43,13 +43,19 @@ A worktree is reset only when all of these are positively proven, in this order:
    assumed to be `main` and the local `origin/HEAD` is never used.
 3. The remote was fetched just now (`git fetch --prune origin +refs/heads/*:refs/remotes/origin/*`).
    `--prune` matters: a tracking ref for a branch deleted on the remote must not count as proof.
-4. Every commit reachable from HEAD that is on no `origin` branch is either the same patch as a
-   commit in the default branch (`git cherry`, which recognises a rebase), or the files HEAD changed
-   since it split from the default branch are identical in the default branch tip (a squash merge).
+4. Every commit reachable from HEAD is checked on its own: it is on an `origin` branch, or it is the
+   same patch as a commit in the default branch (`git cherry`, which recognises a rebase). Files that
+   merely end up the same are never proof for the commits behind them.
+   - A commit that differs from a landed one only in its message counts as landed, so the message
+     itself is not protected.
+   - Work landed only by a squash merge is held, because a squash is not the same patch as any one of
+     the commits it combined. It counts as landed while its commits are still on a remote branch (for
+     example the pull request branch). A later phase may prove a squash through the pull request.
+   - A merge commit on no remote branch is held: `git cherry` does not compare merge commits.
 5. The caller's lease matches. The lease is required, because without it the tool has no evidence the holder let go.
 
 Any failure - including a fetch that fails for an unreachable remote, bad credentials or an expired
-token - holds the worktree with a plain reason such as `1 commit is on no remote (newest ...)`,
+token - holds the worktree with a plain reason such as `1 commit is on no remote: <commit>`,
 `2 uncommitted changes`, or `cannot verify: <git's error>`. Every git call runs with
 `GIT_TERMINAL_PROMPT=0` and `GCM_INTERACTIVE=never`, so a credential problem fails at once instead of
 waiting at a prompt.
