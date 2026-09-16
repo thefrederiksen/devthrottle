@@ -144,7 +144,8 @@ def gw(monkeypatch):
         if fake.mission_patch is not None:
             return fake.mission_patch
         mission = next(m for m in fake.missions if m["missionId"] == mission_id)
-        return {"mission": dict(mission, **body)}
+        stored = {k: v.strip() for k, v in body.items()}  # the Gateway stores the name trimmed
+        return {"mission": dict(mission, **stored)}
 
     monkeypatch.setattr(mission_ops.MissionClient, "__init__", lambda self, base_url=None: None)
     monkeypatch.setattr(mission_ops.MissionClient, "list_all", list_all)
@@ -932,6 +933,17 @@ UNCONFIRMED = [
      _mission_patch({"mission": {"missionId": MID}}), "gave nothing for missionName"),
     ("mission rename old name", ["mission", "rename", MID, "AXI renamed"], None,
      _mission_patch({"mission": dict(MISSION)}), "'AXI' for missionName"),
+    # Only the request is trimmed: a returned value with whitespace is not what the Director stores.
+    ("mission rename trailing space", ["mission", "rename", MID, "AXI renamed"], None,
+     _mission_patch({"mission": dict(MISSION, missionName="AXI renamed ")}), "'AXI renamed ' for missionName"),
+    ("mission rename padded request, padded answer", ["mission", "rename", MID, "  AXI renamed  "], None,
+     _mission_patch({"mission": dict(MISSION, missionName="  AXI renamed  ")}),
+     # standard error is compared with whitespace runs collapsed
+     "' AXI renamed ' for missionName"),
+    ("mission complete padded state", ["mission", "complete", MID], None,
+     _mission_patch({"mission": dict(MISSION, state=" complete")}), "' complete' for state"),
+    ("mission create trailing space", ["mission", "create", "AXI"], None,
+     _mission_create({"missionId": MID, "missionName": "AXI "}), "'AXI ' for missionName"),
     ("mission rename other id", ["mission", "rename", MID, "AXI renamed"], None,
      _mission_patch({"mission": dict(OTHER_MISSION, missionName="AXI renamed")}), "for missionId"),
     ("mission complete no state", ["mission", "complete", MID], None,
@@ -961,6 +973,33 @@ UNCONFIRMED = [
     ("mission detach still attached", ["mission", "detach", SID], None,
      _set(**{f"POST sessions/{SID}/mission": {"session": {"sessionId": SID, "missionId": MID}}}),
      "still gives the session mission"),
+    ("mission detach mission zero", ["mission", "detach", SID], None,
+     _set(**{f"POST sessions/{SID}/mission": {"session": {"sessionId": SID, "missionId": 0}}}),
+     "still gives the session mission 0,"),
+    ("mission detach mission false", ["mission", "detach", SID], None,
+     _set(**{f"POST sessions/{SID}/mission": {"session": {"sessionId": SID, "missionId": False}}}),
+     "still gives the session mission False,"),
+    ("mission detach mission empty list", ["mission", "detach", SID], None,
+     _set(**{f"POST sessions/{SID}/mission": {"session": {"sessionId": SID, "missionId": []}}}),
+     "still gives the session mission [],"),
+    ("mission detach mission empty object", ["mission", "detach", SID], None,
+     _set(**{f"POST sessions/{SID}/mission": {"session": {"sessionId": SID, "missionId": {}}}}),
+     "still gives the session mission {},"),
+    ("mission detach mission blank", ["mission", "detach", SID], None,
+     _set(**{f"POST sessions/{SID}/mission": {"session": {"sessionId": SID, "missionId": "  "}}}),
+     "still gives the session mission ' ',"),
+    ("role clear zero", ["session", "role", SID, "none"], None,
+     _set(**{f"POST sessions/{SID}/role": {"sessionId": SID, "explicitRole": 0}}),
+     "gave 0 for explicitRole"),
+    ("role clear false", ["session", "role", SID, "none"], None,
+     _set(**{f"POST sessions/{SID}/role": {"sessionId": SID, "explicitRole": False}}),
+     "gave False for explicitRole"),
+    ("role clear empty list", ["session", "role", SID, "none"], None,
+     _set(**{f"POST sessions/{SID}/role": {"sessionId": SID, "explicitRole": []}}),
+     "gave [] for explicitRole"),
+    ("role clear blank", ["session", "role", SID, "none"], None,
+     _set(**{f"POST sessions/{SID}/role": {"sessionId": SID, "explicitRole": "  "}}),
+     "gave the explicit role ' ', not none"),
     ("launch empty", ["machine", "launch", "MAC", "--app", "Chrome"], None,
      _set(**{"POST machines/MAC/launch": {}}), "gave nothing for relayStatus"),
     ("launch no status", ["machine", "launch", "MAC", "--app", "Chrome", "--json"], None,
@@ -1233,7 +1272,10 @@ def test_confirmed_IsCleared_FieldPresentAndEmpty_IsConfirmed(answer):
 
 
 @pytest.mark.parametrize("answer,shown", [({}, "nothing"), ({"sessionId": "s"}, "nothing"),
-                                          ({"explicitRole": "Worker"}, "'Worker'")])
+                                          ({"explicitRole": "Worker"}, "'Worker'"),
+                                          ({"explicitRole": 0}, "0"), ({"explicitRole": False}, "False"),
+                                          ({"explicitRole": []}, "[]"), ({"explicitRole": {}}, "{}"),
+                                          ({"explicitRole": "  "}, "'  '")])
 def test_confirmed_IsCleared_FieldAbsentOrSet_ExitsOne(capsys, answer, shown):
     # Absent is a missing answer, not a cleared value.
     with pytest.raises(typer.Exit) as ex:

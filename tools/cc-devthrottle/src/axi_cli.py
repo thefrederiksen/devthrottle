@@ -157,8 +157,12 @@ def fail(message: str, next_commands: Sequence[str], *, label: str = "Error:") -
 
 
 def is_cleared(value: Any) -> bool:
-    """An `accept` for `confirmed` on a clearing change: the answer carries the field, and it is null or blank."""
-    return value is None or (isinstance(value, str) and not value.strip())
+    """An `accept` for `confirmed` on a clearing change: the answer carries the field as null or "".
+
+    Nothing else is cleared. 0, false, an empty list, a blank-but-not-empty string or any other present
+    value is an answer the Director would not give for a cleared field, so it fails the change.
+    """
+    return value is None or value == ""
 
 
 def confirmed(

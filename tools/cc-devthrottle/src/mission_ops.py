@@ -547,7 +547,9 @@ def _patch_mission(mission_query: str, body: Dict[str, Any], command_name: str) 
             check,
         )
     # Every value the command reports is read from the returned mission, so each one asked for must be
-    # there and must be what was asked: the id of this mission, and the new name or state.
+    # there and must be what was asked: the id of this mission, and the new name or state. Only the
+    # REQUEST is trimmed, the way the Director trims what it stores (MissionStore.Rename); the returned
+    # value is compared as given, so a name the Director could not have stored ("New name ") fails.
     axi_cli.confirmed(
         changed, ("missionId", "MissionId"), what, check,
         accept=lambda v: isinstance(v, str) and v.lower() == mission_id.lower(),
@@ -555,7 +557,7 @@ def _patch_mission(mission_query: str, body: Dict[str, Any], command_name: str) 
     for key, wanted in body.items():
         axi_cli.confirmed(
             changed, (key, key[:1].upper() + key[1:]), what, check,
-            accept=lambda v, wanted=wanted: isinstance(v, str) and v.strip() == str(wanted).strip(),
+            accept=lambda v, wanted=wanted: isinstance(v, str) and v == str(wanted).strip(),
         )
     resp["_before"] = mission
     return resp
@@ -731,9 +733,11 @@ def _apply_mission(session_id: str, mission_id: Optional[str]) -> Dict[str, Any]
             f"the Gateway's answer to the attach gave the session mission {returned_mid!r}, not {mission_id}, "
             "so the session was not attached."
         )
-    if not mission_id and returned_mid:
+    # CLEARED MEANS NULL OR EMPTY. Any other value that is there - 0, false, an empty list - is not a
+    # cleared mission id, so it does not confirm the detach.
+    if not mission_id and not axi_cli.is_cleared(returned_mid):
         raise gateway.GatewayError(
-            f"the Gateway's answer to the detach still gives the session mission {returned_mid}, "
+            f"the Gateway's answer to the detach still gives the session mission {returned_mid!r}, "
             "so the session was not detached."
         )
     for key in ("workflowId", "WorkflowId", "workflowVersion", "WorkflowVersion"):

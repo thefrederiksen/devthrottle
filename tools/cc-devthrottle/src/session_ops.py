@@ -1098,8 +1098,10 @@ def set_session_role(target: Optional[str], role: Optional[str]) -> Dict[str, An
     )
     explicit = gateway.field(resp, "explicitRole", "ExplicitRole")
     if explicit.lower() != wanted.lower():
+        # A blank role is not a cleared one (only null or "" is), so it is shown quoted, not as "none".
+        shown_role = explicit if explicit.strip() else (repr(explicit) if explicit else "none")
         axi_cli.fail(
-            f"the Gateway's answer to {what} gave the explicit role {explicit or 'none'}, not "
+            f"the Gateway's answer to {what} gave the explicit role {shown_role}, not "
             f"{wanted or 'none'}, so the role was not changed as asked.",
             _CHECK_SESSION,
         )
