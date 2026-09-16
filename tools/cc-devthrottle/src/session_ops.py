@@ -13,7 +13,6 @@ from typing import Any, Dict, List, Optional, Tuple
 import typer
 from rich import box
 from rich.console import Console
-from rich.markup import escape
 from rich.table import Table
 
 
@@ -71,6 +70,7 @@ if _tools_dir not in sys.path:
 
 from cc_shared import gateway  # noqa: E402
 from cc_shared import axi_output  # noqa: E402
+from . import axi_cli  # noqa: E402
 from . import usage_errors  # noqa: E402
 
 from .repo_ops import is_windows_path, matches_repo  # noqa: E402
@@ -81,7 +81,9 @@ for _stream in (sys.stdout, sys.stderr):
     except (AttributeError, ValueError):
         pass
 
-console = Console()
+# soft_wrap: a sentence is never broken across lines at the console width. An id or a session name
+# split in two cannot be read back or pasted; tables still fit their columns.
+console = Console(soft_wrap=True)
 SELFTEST_MARKER = "FLEETPONG"
 
 
@@ -138,10 +140,7 @@ def _get_fleet() -> Tuple[List[Dict[str, Any]], Optional[bool], Optional[str], O
     try:
         return gateway.get_fleet()
     except gateway.GatewayError as err:
-        # Plain and escaped: the sentence is the Gateway's, and Rich markup would read a token like
-        # [/tmp/x] in it as a tag, while a control character in it would split the line.
-        print(f"Error: {axi_output.escape_ascii(str(err))}", file=sys.stderr)
-        raise typer.Exit(1)
+        axi_cli.fail(f"could not read the fleet list: {err}", [axi_cli.CHECK_GATEWAY])
 
 
 def _roster_caveat(complete: Optional[bool], reason: Optional[str]) -> str:
@@ -159,34 +158,23 @@ def _resolve_target(target: str, *, command_name: str) -> Dict[str, Any]:
         # reads as "that session does not exist", and for a session on a machine the Gateway could
         # not reach that is simply false - the roster we searched never contained it. Say which we
         # mean, because the two call for opposite next steps: give up, or go and look at machine B.
-        console.print(
-            f"[red]No session matches '{_text(target)}'.[/red] "
-            "Run cc-devthrottle session list to see the fleet.",
-            soft_wrap=True,
-        )
+        details = []
         caveat = _roster_caveat(complete, reason)
         if caveat:
-            console.print(
-                f"[yellow]The fleet list searched may be incomplete.[/yellow] {_text(caveat)}", soft_wrap=True
-            )
+            details.append(f"The fleet list searched may be incomplete. {caveat}")
         # THE negative answer the second caution exists for. A machine whose tunnel is up but whose
         # pushes are late can be hiding the very session being addressed, and every target-resolving
         # verb comes through here - message send, message ask, rename, done, hold, compact. Printed on
         # this path only, so it stays rare enough to be read.
         if stale_caution:
-            console.print(f"[yellow]{_text(stale_caution)}[/yellow]", soft_wrap=True)
-        raise typer.Exit(1)
+            details.append(stale_caution)
+        axi_cli.fail(
+            " ".join([f"No session matches '{target}'. Pass a full session id, a session number, or an exact name.", *details]),
+            ["cc-devthrottle session list"],
+        )
     if len(matches) > 1:
         _refuse_ambiguous_target(target, matches, command_name=command_name)
     return matches[0]
-
-
-def _text(value: Any) -> str:
-    """Text from somewhere else, ready for console.print: escaped to ASCII, so a newline or a
-    non-ASCII character in it cannot split its line or leave the line not ASCII, and for Rich, so a
-    token like [bold] or [/tmp/x] is printed rather than read as markup. Printed with soft_wrap, one
-    sentence is then exactly one line."""
-    return escape(axi_output.escape_ascii(str(value)))
 
 
 def _refuse_ambiguous_target(
@@ -198,18 +186,19 @@ def _refuse_ambiguous_target(
     resolver (see _stop_target), still refuses an ambiguous target in exactly these words. Two
     wordings for one refusal is how the tool comes to answer the same question two ways.
     """
-    console.print(
-        f"[yellow]'{_text(target)}' is ambiguous - {len(matches)} matches:[/yellow]", soft_wrap=True
-    )
+    # FULL ids, never the short form: the caller's next move is to paste one of these back, and a
+    # shortened id can be ambiguous all over again.
+    listed = []
     for s in matches:
         sid = gateway.field(s, "sessionId", "SessionId")
         name = gateway.field(s, "name", "Name") or "(unnamed)"
         machine = gateway.field(s, "machineName", "MachineName") or "-"
-        console.print(
-            f"  {_text(gateway.short_id(sid))}  {_text(name)}  ({_text(machine)})", soft_wrap=True
-        )
-    console.print(f"Re-run {command_name} with a longer id prefix.", soft_wrap=True)
-    raise typer.Exit(1)
+        listed.append(f"{sid} {name} ({machine})")
+    axi_cli.fail(
+        f"'{target}' is ambiguous - {len(matches)} sessions match: " + "; ".join(listed)
+        + f". Re-run {command_name} with one of these full session ids.",
+        ["cc-devthrottle session list --fields id,name,machine,state"],
+    )
 
 
 def resolve_session(target: str, *, command_name: str) -> Dict[str, Any]:
@@ -229,18 +218,20 @@ def fleet_or_exit() -> Tuple[List[Dict[str, Any]], Optional[bool], Optional[str]
     return _get_fleet()
 
 
-def resolve_target_or_current(target: Optional[str]) -> str:
+def resolve_target_or_current(target: Optional[str], command_name: str = "the command") -> str:
     """Return the requested session id, defaulting to this session."""
     if target is None or not target.strip():
         sid = gateway.session_id()
         if not sid:
-            console.print(
-                "[red]Error:[/red] no target was provided and CC_SESSION_ID is not set."
+            axi_cli.usage_error(
+                "no target session was given, and CC_SESSION_ID is not set, so there is no current "
+                "session to default to. "
+                "Name the session: a full id, a session number, or an exact name from "
+                "cc-devthrottle session list.",
             )
-            raise typer.Exit(1)
         return sid
 
-    chosen = _resolve_target(target, command_name="cc-devthrottle session rename")
+    chosen = _resolve_target(target, command_name=command_name)
     return gateway.field(chosen, "sessionId", "SessionId")
 
 
@@ -358,20 +349,18 @@ def _require_session_ids(sessions: List[Dict[str, Any]]) -> None:
         if not gateway.field(s, "sessionId", "SessionId").strip():
             name = s.get("name", s.get("Name"))
             shown = "no name" if name is None else f"the name {axi_output.format_value(str(name))}"
-            print(
-                f"Error: the Gateway returned a session with no session id (row {index + 1}, {shown}). "
+            axi_cli.fail(
+                f"the Gateway returned a session with no session id (row {index + 1}, {shown}). "
                 "This tool will not list a session it cannot name; --json shows the raw rows.",
-                file=sys.stderr,
+                ["cc-devthrottle session list --json", axi_cli.CHECK_GATEWAY],
             )
-            raise typer.Exit(1)
 
 
 def _fold_or_exit(sessions: List[Dict[str, Any]]) -> List[str]:
     try:
         return [plain_state(s) for s in sessions]
     except SessionStateError as err:
-        print(f"Error: {err}", file=sys.stderr)
-        raise typer.Exit(1)
+        axi_cli.fail(str(err), ["cc-devthrottle session list --json", axi_cli.CHECK_GATEWAY])
 
 
 def list_sessions(
@@ -494,13 +483,10 @@ def show_live_state() -> None:
     try:
         sessions, complete, reason, stale_caution = gateway.get_fleet()
     except gateway.GatewayError as err:
-        print(f"Error: {axi_output.escape_ascii(str(err))}", file=sys.stderr)
-        print(
-            "Nothing about the fleet can be shown without the Gateway. "
-            "Run cc-devthrottle setup status to check this machine, or cc-devthrottle --help for the commands.",
-            file=sys.stderr,
+        axi_cli.fail(
+            str(err),
+            [axi_cli.CHECK_GATEWAY, "cc-devthrottle --help"],
         )
-        raise typer.Exit(1)
     _require_session_ids(sessions)
     states = _fold_or_exit(sessions)
     caveat = _roster_caveat(complete, reason)
@@ -557,13 +543,12 @@ def whoami() -> None:
     """Show this session's own fleet identity."""
     sid = gateway.session_id()
     if not sid:
-        console.print(
-            "[red]Error:[/red] CC_SESSION_ID is not set. "
-            "cc-devthrottle session whoami only works inside a DevThrottle session."
+        axi_cli.fail(
+            "CC_SESSION_ID is not set, so this is not running inside a DevThrottle session and has no "
+            "identity to show. Run it from inside a session.",
+            ["cc-devthrottle session list"],
         )
-        raise typer.Exit(1)
 
-    short = gateway.short_id(sid)
     # Completeness is deliberately ignored here: whoami looks up THIS session, which lives on the
     # Director being asked, and a Director always reports its own sessions (issue #1019). An
     # unreachable Director elsewhere cannot hide the caller from itself.
@@ -573,42 +558,59 @@ def whoami() -> None:
         None,
     )
     if me is None:
-        console.print(f"You are session {short} (id {sid}).")
+        console.print(f"You are session {sid}. The fleet list does not hold it yet, so nothing more is known.")
     else:
         name = gateway.field(me, "name", "Name") or "(unnamed)"
         machine = gateway.field(me, "machineName", "MachineName") or "this machine"
         repo = gateway.field(me, "repoPath", "RepoPath")
+        # gateway.field answers "" for an absent number, never None, so test for a value.
         number = gateway.field(me, "number", "Number")
-        number_text = f"number {number}, " if number is not None else ""
-        console.print(f'You are session {number_text}{short} ("{name}") on {machine}, repo {_repo_name(repo)}.')
+        number_text = f"number {number}, " if number else ""
+        console.print(
+            f'You are session {number_text}{sid} ("{axi_cli.shown(name)}") on {axi_cli.shown(machine)}, '
+            f"repo {axi_cli.shown(_repo_name(repo))}."
+        )
 
-    console.print('To message another session:  cc-devthrottle message send <id> "<message>"')
-    console.print('To message everyone:         cc-devthrottle message send all "<message>"')
-    console.print("To see all sessions:         cc-devthrottle session list")
+    axi_cli.print_next([
+        'cc-devthrottle message send <session-id> "<message>"',
+        'cc-devthrottle message send all "<message>"',
+        "cc-devthrottle session list",
+    ])
+
+
+#: The next step after a call about one session failed: look the session up again.
+_CHECK_SESSION = ["cc-devthrottle session list", axi_cli.CHECK_GATEWAY]
 
 
 def rename_session(target: Optional[str], new_name: str) -> Dict[str, Any]:
     """Rename a target session, defaulting to the current session."""
     name = new_name.strip()
     if not name:
-        console.print("[red]Error:[/red] the new session name cannot be blank.")
-        raise typer.Exit(1)
+        axi_cli.usage_error(
+            "the new session name is blank. "
+            'Pass a name: cc-devthrottle session rename [<session-id>] "<new name>"',
+        )
 
-    sid = resolve_target_or_current(target)
+    sid = resolve_target_or_current(target, "cc-devthrottle session rename")
     try:
         # The Gateway renames a session anywhere in the account and answers with the updated row.
         resp = gateway.patch_json(f"sessions/{sid}", {"name": name})
     except gateway.GatewayError as err:
-        console.print(f"[red]Error:[/red] {err}")
-        raise typer.Exit(1)
+        axi_cli.fail(f"could not rename session {sid}: {err}", _CHECK_SESSION)
 
     if not isinstance(resp, dict):
-        console.print("[red]Error:[/red] the Gateway did not return the renamed session.")
-        raise typer.Exit(1)
+        axi_cli.fail(
+            f"the Gateway did not return the renamed session {sid}, so whether the rename happened is unknown.",
+            _CHECK_SESSION,
+        )
 
     actual = gateway.field(resp, "name", "Name") or name
     actual_sid = gateway.field(resp, "sessionId", "SessionId") or sid
-    console.print(f'[green]Renamed[/green] {gateway.short_id(actual_sid)} to "{actual}".')
+    console.print(f'[green]Renamed[/green] {actual_sid} to "{axi_cli.shown(actual)}".')
+    axi_cli.print_next([
+        "cc-devthrottle session list",
+        f'cc-devthrottle message send {axi_cli.bare(actual_sid, "<session-id>")} "<message>"',
+    ])
     return resp
 
 
@@ -619,29 +621,37 @@ def prompt_session(target: str, text: str, no_submit: bool = False) -> Dict[str,
     POST /sessions/{sid}/prompt.
     """
     if not text.strip():
-        console.print("[red]Error:[/red] the prompt text cannot be blank.")
-        raise typer.Exit(1)
-    sid = resolve_target_or_current(target)
+        axi_cli.usage_error(
+            "the prompt text is blank. "
+            'Pass the text to type: cc-devthrottle session prompt <session-id> "<text>"',
+        )
+    sid = resolve_target_or_current(target, "cc-devthrottle session prompt")
     try:
         resp = gateway.post_json(
             f"sessions/{sid}/prompt", {"text": text, "appendEnter": not no_submit}
         )
     except gateway.GatewayError as err:
-        console.print(f"[red]Error:[/red] {err}")
-        raise typer.Exit(1)
-    console.print(f"[green]Sent[/green] prompt to {gateway.short_id(sid)}.")
+        axi_cli.fail(f"could not send the prompt to session {sid}: {err}", _CHECK_SESSION)
+    console.print(f"[green]Sent[/green] prompt to {sid}.")
+    axi_cli.print_next([
+        f"cc-devthrottle session buffer {axi_cli.bare(sid, '<session-id>')}",
+        f"cc-devthrottle session interrupt {axi_cli.bare(sid, '<session-id>')}",
+    ])
     return resp if isinstance(resp, dict) else {}
 
 
 def interrupt_session(target: Optional[str]) -> Dict[str, Any]:
     """Stop what a session is currently doing. Restores the old POST /sessions/{sid}/interrupt."""
-    sid = resolve_target_or_current(target)
+    sid = resolve_target_or_current(target, "cc-devthrottle session interrupt")
     try:
         resp = gateway.post_json(f"sessions/{sid}/interrupt")
     except gateway.GatewayError as err:
-        console.print(f"[red]Error:[/red] {err}")
-        raise typer.Exit(1)
-    console.print(f"[green]Interrupted[/green] {gateway.short_id(sid)}.")
+        axi_cli.fail(f"could not interrupt session {sid}: {err}", _CHECK_SESSION)
+    console.print(f"[green]Interrupted[/green] {sid}.")
+    axi_cli.print_next([
+        f"cc-devthrottle session buffer {axi_cli.bare(sid, '<session-id>')}",
+        f'cc-devthrottle session prompt {axi_cli.bare(sid, "<session-id>")} "<text>"',
+    ])
     return resp if isinstance(resp, dict) else {}
 
 
@@ -652,24 +662,47 @@ def hold_session(target: Optional[str], release: bool = False, minutes: Optional
     settles, and the response's pending flag says so. A held session that starts working again
     always takes itself off hold.
     """
-    sid = resolve_target_or_current(target)
+    # Refused before anything is sent: a timer on a release would otherwise be dropped without a word.
+    if release and minutes is not None:
+        axi_cli.usage_error(
+            "--minutes and --release cannot be used together: --minutes sets how long a hold lasts, "
+            "and --release ends the hold. "
+            "Drop --minutes to release the hold, or drop --release to hold for that long.",
+        )
+    if minutes is not None and minutes < 1:
+        axi_cli.usage_error(
+            f"--minutes must be at least 1, not {minutes}. "
+            "Pass a whole number of minutes: cc-devthrottle session hold [<session-id>] --minutes <n>",
+        )
+    sid = resolve_target_or_current(target, "cc-devthrottle session hold")
     body: Dict[str, Any] = {"onHold": not release}
     if minutes is not None:
         body["snoozeMinutes"] = minutes
     try:
         resp = gateway.post_json(f"sessions/{sid}/hold", body)
     except gateway.GatewayError as err:
-        console.print(f"[red]Error:[/red] {err}")
-        raise typer.Exit(1)
+        what = "release the hold on" if release else "hold"
+        axi_cli.fail(f"could not {what} session {sid}: {err}", _CHECK_SESSION)
 
-    short = gateway.short_id(sid)
+    # READ STRAIGHT OFF THE DICT: gateway.field stringifies, and str(False) is "False", which is truthy -
+    # so a hold that was applied at once would have been reported as queued.
+    pending = isinstance(resp, dict) and resp.get("pending", resp.get("Pending")) is True
     if release:
-        console.print(f"[green]Released[/green] {short} - no longer held.")
-    elif isinstance(resp, dict) and gateway.field(resp, "pending", "Pending"):
-        console.print(f"[green]Hold queued[/green] {short} is still working; it parks when it finishes.")
+        console.print(f"[green]Released[/green] {sid} - no longer held.")
+        axi_cli.print_next([
+            "cc-devthrottle session list --state needs-you",
+            f"cc-devthrottle session hold {axi_cli.bare(sid, '<session-id>')} --minutes <n>",
+        ])
     else:
-        for_text = f" for {minutes} minutes" if minutes else ""
-        console.print(f"[green]Held[/green] {short}{for_text}.")
+        if pending:
+            console.print(f"[green]Hold queued[/green] {sid} is still working; it parks when it finishes.")
+        else:
+            for_text = f" for {minutes} minutes" if minutes else ""
+            console.print(f"[green]Held[/green] {sid}{for_text}.")
+        axi_cli.print_next([
+            "cc-devthrottle session list --state snoozed",
+            f"cc-devthrottle session hold {axi_cli.bare(sid, '<session-id>')} --release",
+        ])
     return resp if isinstance(resp, dict) else {}
 
 
@@ -686,34 +719,41 @@ def raise_hand(reason: Optional[str], target: Optional[str] = None, clear: bool 
     your supervisor to look at you, so a flag that outlived the turn would just be noise nobody
     cleared. Raise it when you are mid-turn and cannot go on without an answer.
     """
-    sid = resolve_target_or_current(target)
     if clear:
+        if reason is not None:
+            axi_cli.usage_error(
+                "a reason and --clear cannot be used together: --clear takes the hand down, so there "
+                "is nothing for the reason to say. "
+                'Run cc-devthrottle session raise --clear on its own, or drop --clear to raise the hand.',
+            )
         body: Dict[str, Any] = {"raised": False}
     else:
         text = (reason or "").strip()
         if not text:
-            console.print(
-                "[red]Error:[/red] say what you need. A raised hand with no words is a 'notice me' "
-                "ping - your supervisor would have to open you to find out what for, which is the "
-                "work this is meant to save."
+            axi_cli.usage_error(
+                "say what you need. A raised hand with no words is a 'notice me' ping - your supervisor "
+                "would have to open you to find out what for, which is the work this is meant to save. "
+                'Pass the question: cc-devthrottle session raise "<what you are blocked on>"',
             )
-            raise typer.Exit(1)
         body = {"raised": True, "reason": text}
 
+    sid = resolve_target_or_current(target, "cc-devthrottle session raise")
     try:
         resp = gateway.post_json(f"sessions/{sid}/needs-manager", body)
     except gateway.GatewayError as err:
-        console.print(f"[red]Error:[/red] {err}")
-        raise typer.Exit(1)
+        what = "lower the hand of" if clear else "raise the hand of"
+        axi_cli.fail(f"could not {what} session {sid}: {err}", _CHECK_SESSION)
 
-    short = gateway.short_id(sid)
+    target_flag = f" --target {axi_cli.bare(sid, '<session-id>')}" if target is not None and target.strip() else ""
     if clear:
-        console.print(f"[green]Hand down[/green] {short}.")
+        console.print(f"[green]Hand down[/green] {sid}.")
+        axi_cli.print_next([f'cc-devthrottle session raise "<what you need>"{target_flag}'])
     else:
         console.print(
-            f"[green]Hand up[/green] {short}. Your supervisor sees it on the roster while you keep "
+            f"[green]Hand up[/green] {sid}. Your supervisor sees it on the roster while you keep "
             "working; it lowers itself when your turn ends."
         )
+        axi_cli.print_next([f"cc-devthrottle session raise --clear{target_flag}"])
     return resp if isinstance(resp, dict) else {}
 
 
@@ -744,26 +784,24 @@ def report_to_parent(summary: Optional[str], target: Optional[str] = None) -> No
     "you are the user's", and a worker would stop reporting to a supervisor that was alive the whole
     time. So an incomplete roster, or a roster that does not contain this session, is an error.
     """
-    sid = resolve_target_or_current(target)
-
     text = (summary or "").strip()
     if not text:
-        console.print(
-            "[red]Error:[/red] say what you did. A report with no words is a 'notice me' ping - "
-            "your parent would have to open you to find out what happened, which is the work this "
-            "is meant to save. One or two sentences: what you did, and anything they must decide."
+        axi_cli.usage_error(
+            "say what you did. A report with no words is a 'notice me' ping - your parent would have "
+            "to open you to find out what happened, which is the work this is meant to save. "
+            'Pass one or two sentences: cc-devthrottle session report "<what you did, and anything they must decide>"',
         )
-        raise typer.Exit(1)
 
+    sid = resolve_target_or_current(target, "cc-devthrottle session report")
     sessions, complete, reason, _stale = _get_fleet()
     if not complete:
-        console.print(
-            f"[red]Error:[/red] the fleet roster could not be read in full{(' - ' + reason) if reason else ''}.\n"
+        axi_cli.fail(
+            f"the fleet roster could not be read in full{(' - ' + reason) if reason else ''}. "
             "Refusing to report, because a roster that is missing sessions cannot tell 'you have no "
-            "parent' apart from 'your parent is one of the rows I could not see'. Fix the roster read "
-            "and try again, or name the session yourself with cc-devthrottle message send."
+            "parent' apart from 'your parent is one of the rows I could not see'. Try again once the "
+            "session list reads the whole fleet, or name the session yourself.",
+            ["cc-devthrottle session list", 'cc-devthrottle message send <session-id> "<message>"'],
         )
-        raise typer.Exit(1)
 
     me = None
     for s in sessions:
@@ -771,11 +809,10 @@ def report_to_parent(summary: Optional[str], target: Optional[str] = None) -> No
             me = s
             break
     if me is None:
-        console.print(
-            f"[red]Error:[/red] session {gateway.short_id(sid)} is not in the fleet roster, so who "
-            "owns it cannot be answered. Refusing to guess."
+        axi_cli.fail(
+            f"session {sid} is not in the fleet roster, so who owns it cannot be answered. Refusing to guess.",
+            ["cc-devthrottle session whoami", "cc-devthrottle session list"],
         )
-        raise typer.Exit(1)
 
     # The SAME fact the roster folds its colour from, read here so the report and the dot can never
     # disagree about who owns this session.
@@ -794,13 +831,16 @@ def report_to_parent(summary: Optional[str], target: Optional[str] = None) -> No
             "you are red on his roster and in his queue the moment your turn ends, so that red IS "
             "your report. Leave your answer where he will read it - in this session."
         )
+        axi_cli.print_next(["cc-devthrottle session whoami", "cc-devthrottle session done"])
         return
 
     try:
         resp = gateway.post_json(f"sessions/{parent_id}/message", {"text": text})
     except gateway.GatewayError as err:
-        console.print(f"[red]Error:[/red] {err}")
-        raise typer.Exit(1)
+        axi_cli.fail(
+            f"could not deliver the report to the parent session {parent_id}: {err}",
+            ["cc-devthrottle session list", axi_cli.CHECK_GATEWAY],
+        )
 
     parent_name = None
     for s in sessions:
@@ -808,7 +848,11 @@ def report_to_parent(summary: Optional[str], target: Optional[str] = None) -> No
             parent_name = gateway.field(s, "name", "Name")
             break
     label = parent_name or gateway.short_id(parent_id)
-    _report_delivery(resp, f"{label} ({gateway.short_id(parent_id)})")
+    _report_delivery(resp, f"{label} ({parent_id})")
+    axi_cli.print_next([
+        f"cc-devthrottle session buffer {axi_cli.bare(parent_id, '<session-id>')}",
+        "cc-devthrottle session done",
+    ])
 
 
 def list_my_workers(target: Optional[str] = None) -> None:
@@ -818,17 +862,18 @@ def list_my_workers(target: Optional[str] = None) -> None:
     only one who can see a blocked one - and the design says a manager learns by READING its workers,
     not by being messaged 'notice me'. This is that read, in one line instead of one session at a time.
     """
-    me = resolve_target_or_current(target)
+    me = resolve_target_or_current(target, "cc-devthrottle session workers")
     try:
         rows = gateway.get_json("sessions")
     except gateway.GatewayError as err:
-        console.print(f"[red]Error:[/red] {err}")
-        raise typer.Exit(1)
+        axi_cli.fail(f"could not read the fleet list: {err}", [axi_cli.CHECK_GATEWAY])
 
     sessions = rows.get("sessions") if isinstance(rows, dict) else rows
     if not isinstance(sessions, list):
-        console.print("[red]Error:[/red] the Gateway did not return a session list.")
-        raise typer.Exit(1)
+        axi_cli.fail(
+            "the Gateway did not return a session list, so the sessions you drive cannot be shown.",
+            ["cc-devthrottle session list", axi_cli.CHECK_GATEWAY],
+        )
 
     mine = [
         x for x in sessions
@@ -838,7 +883,7 @@ def list_my_workers(target: Optional[str] = None) -> None:
         console.print("You are not driving any sessions.")
         return
 
-    table = Table(title=f"Sessions driven by {gateway.short_id(me)}")
+    table = Table(title=f"Sessions driven by {gateway.short_id(me)}", box=box.ASCII)
     table.add_column("ID")
     table.add_column("NAME")
     table.add_column("STATE")
@@ -875,7 +920,14 @@ def compact_session(target: Optional[str], continue_prompt: Optional[str]) -> Di
     outside. The call BLOCKS until the tool reports the compaction finished - which is why the
     timeout here is generous - and the follow-up is sent at that moment, never on a guessed delay.
     """
-    sid = resolve_target_or_current(target)
+    verb = "cc-devthrottle session compact-continue" if continue_prompt is not None else "cc-devthrottle session compact"
+    if continue_prompt is not None and not continue_prompt.strip():
+        axi_cli.usage_error(
+            "the message to send after compacting is blank. "
+            'Pass a message, or leave it out to send "continue": '
+            'cc-devthrottle session compact-continue [<session-id>] ["<message>"]',
+        )
+    sid = resolve_target_or_current(target, verb)
     body: Dict[str, Any] = {}
     if continue_prompt:
         body["continuePrompt"] = continue_prompt
@@ -885,10 +937,11 @@ def compact_session(target: Optional[str], continue_prompt: Optional[str]) -> Di
         # what actually failed.
         resp = gateway.post_json(f"sessions/{sid}/compact-context", body, timeout=300)
     except gateway.GatewayError as err:
-        console.print(f"[red]Error:[/red] {escape(str(err))}")
-        raise typer.Exit(1)
+        axi_cli.fail(
+            f"could not compact session {sid}: {err}",
+            [f"cc-devthrottle session buffer {axi_cli.bare(sid, '<session-id>')}"],
+        )
 
-    short = gateway.short_id(sid)
     body = resp if isinstance(resp, dict) else {}
     detail = gateway.field(body, "detail", "Detail")
     # Read the flag as a BOOLEAN, not through gateway.field: that helper stringifies, and str(False) is
@@ -896,33 +949,42 @@ def compact_session(target: Optional[str], continue_prompt: Optional[str]) -> Di
     # "Compacted", which is the one thing this line must never say without evidence.
     observed = bool(body.get("compactionObserved", body.get("CompactionObserved", False)))
     label = "[green]Compacted[/green]" if observed else "[yellow]Compaction submitted[/yellow]"
-    console.print(f"{label} {short}. {escape(str(detail or ''))}")
+    console.print(f"{label} {sid}. {axi_cli.shown(detail or '')}")
+    steps = [f"cc-devthrottle session buffer {sid}"]
+    if continue_prompt is None:
+        steps.append(f'cc-devthrottle message send {sid} "<message>"')
+    axi_cli.print_next(steps)
     return resp if isinstance(resp, dict) else {}
 
 
 def read_session_buffer(target: Optional[str]) -> None:
     """Print what a session's terminal is showing. Restores the old GET /sessions/{sid}/buffer."""
-    sid = resolve_target_or_current(target)
+    sid = resolve_target_or_current(target, "cc-devthrottle session buffer")
     try:
         resp = gateway.get_json(f"sessions/{sid}/buffer")
     except gateway.GatewayError as err:
-        # escape(): the error text comes from the server, so it is no more ours to trust than the buffer
-        # itself - it can quote a path or a fragment of the session's own output. Interpolated raw, a
-        # token like [/tmp/x] raises the very MarkupError this verb was crashing on, from the branch whose
-        # job is to REPORT a failure. The "Error:" label is ours, so it keeps its markup.
-        console.print(f"[red]Error:[/red] {escape(str(err))}")
-        raise typer.Exit(1)
+        # Plain text to standard error, never Rich markup: the error text comes from the server, so it
+        # is no more ours to trust than the buffer itself - it can quote a path or a fragment of the
+        # session's own output, and a token like [/tmp/x] once raised MarkupError from this very branch.
+        axi_cli.fail(f"could not read the terminal of session {sid}: {err}", _CHECK_SESSION)
 
     # The buffer verb returns the terminal text under one of a couple of shapes depending on the
     # path it came back through; print whichever carries the text rather than guessing one.
+    # A key that is ABSENT is not an empty terminal: gateway.field answers "" for both, which printed a
+    # blank line and exited 0 for an answer that carried no text at all.
     text = None
     if isinstance(resp, dict):
-        text = gateway.field(resp, "text", "Text") or gateway.field(resp, "buffer", "Buffer")
+        for key in ("text", "Text", "buffer", "Buffer"):
+            if isinstance(resp.get(key), str):
+                text = resp[key]
+                break
     elif isinstance(resp, str):
         text = resp
     if text is None:
-        console.print("[red]Error:[/red] the Gateway did not return the session's buffer.")
-        raise typer.Exit(1)
+        axi_cli.fail(
+            f"the Gateway's answer for session {sid} carried no terminal text. Try again.",
+            [f"cc-devthrottle session buffer {axi_cli.bare(sid, '<session-id>')}", axi_cli.CHECK_GATEWAY],
+        )
     # Plain print, not console.print, for the same reason as list_sessions above. This is raw terminal
     # text from another session, so it is arbitrary and nobody controls its shape: Rich reads a token
     # like [/tmp/x] as a closing tag and raises MarkupError - an uncaught traceback out of a read-only
@@ -946,27 +1008,32 @@ def set_session_role(target: Optional[str], role: Optional[str]) -> Dict[str, An
     the spawn graph, so this is the only way to make one after birth. An empty role clears the
     explicit role and reverts the session to auto-derivation.
     """
-    sid = resolve_target_or_current(target)
+    sid = resolve_target_or_current(target, "cc-devthrottle session role")
     wanted = (role or "").strip()
     try:
         resp = gateway.post_json(f"sessions/{sid}/role", {"role": wanted})
     except gateway.GatewayError as err:
-        console.print(f"[red]Error:[/red] {err}")
-        raise typer.Exit(1)
+        axi_cli.fail(
+            f"could not set the role of session {sid}: {err}",
+            [f"cc-devthrottle session role {axi_cli.bare(sid, '<session-id>')} <Standalone|Manager|Worker|Architect|none>", *_CHECK_SESSION],
+        )
 
     if not isinstance(resp, dict):
-        console.print("[red]Error:[/red] the Gateway did not return the session's role.")
-        raise typer.Exit(1)
+        axi_cli.fail(
+            f"the Gateway did not return the role of session {sid}, so whether it changed is unknown.",
+            _CHECK_SESSION,
+        )
 
     actual_sid = gateway.field(resp, "sessionId", "SessionId") or sid
     explicit = gateway.field(resp, "explicitRole", "ExplicitRole")
-    short = gateway.short_id(actual_sid)
     # Only the explicit role is reported: Worker/Manager derivation needs the fleet-wide spawn graph, which
     # lives in the Gateway, so the effective role is read from `session list`, not returned here.
     if explicit:
-        console.print(f"[green]Role set[/green] {short} is now explicitly {explicit}.")
+        console.print(f"[green]Role set[/green] {actual_sid} is now explicitly {axi_cli.shown(explicit)}.")
+        axi_cli.print_next([f"cc-devthrottle session role {axi_cli.bare(actual_sid, '<session-id>')} none", "cc-devthrottle session list"])
     else:
-        console.print(f"[green]Role cleared[/green] {short} reverts to automatic role derivation.")
+        console.print(f"[green]Role cleared[/green] {actual_sid} reverts to automatic role derivation.")
+        axi_cli.print_next([f"cc-devthrottle session role {axi_cli.bare(actual_sid, '<session-id>')} <role>", "cc-devthrottle session list"])
     return resp
 
 
@@ -978,20 +1045,20 @@ def mark_done(target: Optional[str], reason: Optional[str]) -> Dict[str, Any]:
     session is no longer working. This is how an unattended run tears ITSELF down when it has
     nothing left for the user, instead of lingering as a dead session in the fleet.
     """
-    sid = resolve_target_or_current(target)
+    sid = resolve_target_or_current(target, "cc-devthrottle session done")
     body: Dict[str, Any] = {}
     if reason and reason.strip():
         body["reason"] = reason.strip()
     try:
         resp = gateway.post_json(f"sessions/{sid}/request-deletion", body)
     except gateway.GatewayError as err:
-        console.print(f"[red]Error:[/red] {err}")
-        raise typer.Exit(1)
+        axi_cli.fail(f"could not flag session {sid} for deletion: {err}", _CHECK_SESSION)
 
     console.print(
-        f"[green]Marked[/green] {gateway.short_id(sid)} for deletion; "
+        f"[green]Marked[/green] {sid} for deletion; "
         "the Director will reap it shortly."
     )
+    axi_cli.print_next([f"cc-devthrottle session done {axi_cli.bare(sid, '<session-id>')} --undo", "cc-devthrottle session list"])
     return resp if isinstance(resp, dict) else {}
 
 
@@ -1012,29 +1079,25 @@ def undo_done(target: Optional[str], reason: Optional[str] = None) -> Dict[str, 
         # recorded that never was. Recording it would attach a justification to the one session
         # operation that needs none, and would put a sentence in the trail for an act that is not an
         # intervention. So say the two do not go together, and let the caller choose.
-        console.print(
-            "[red]Nothing was changed:[/red] --undo and --reason cannot be used together. "
+        axi_cli.usage_error(
+            "--undo and --reason cannot be used together, so nothing was changed. "
             "--reason is shown while a session winds down, and --undo is what cancels that "
             "wind-down, so there is nothing left for the reason to be shown on. Re-run "
-            "cc-devthrottle session done --undo on its own, or drop --undo to flag the session.",
-            soft_wrap=True,
+            "cc-devthrottle session done --undo on its own, or drop --undo to flag the session."
         )
-        raise typer.Exit(1)
 
-    sid = resolve_target_or_current(target)
+    sid = resolve_target_or_current(target, "cc-devthrottle session done --undo")
     try:
         resp = gateway.delete(f"sessions/{sid}/request-deletion")
     except gateway.GatewayError as err:
-        # escape(): the server's sentence can quote a path or a fragment of another session's output,
-        # and a token shaped like [/tmp/x] raises MarkupError out of the branch whose only job is to
-        # report a failure.
-        console.print(f"[red]Error:[/red] {_text(err)}", soft_wrap=True)
-        raise typer.Exit(1)
+        # Plain text to standard error: the server's sentence can quote a path or a fragment of another
+        # session's output, and a token shaped like [/tmp/x] once raised MarkupError from this branch.
+        axi_cli.fail(f"could not clear the deletion flag on session {sid}: {err}", _CHECK_SESSION)
 
     console.print(
-        f"[green]Cleared[/green] {gateway.short_id(sid)} is no longer marked for deletion.",
-        soft_wrap=True,
+        f"[green]Cleared[/green] {sid} is no longer marked for deletion.", soft_wrap=True
     )
+    axi_cli.print_next(["cc-devthrottle session list", f"cc-devthrottle session done {axi_cli.bare(sid, '<session-id>')}"])
     return resp if isinstance(resp, dict) else {}
 
 
@@ -1152,12 +1215,9 @@ def stop_session(target: str, reason: Optional[str], json_output: bool = False) 
         # already know. The Gateway refuses a missing reason too, in its own words, and that refusal
         # is what the failure branch below prints; this sentence is ours because no call was made to
         # answer it.
-        console.print(
-            f"[red]{STOP_REFUSED_PREFIX}[/red] a reason is required to stop a session, and none was "
-            "given. " + STOP_REASON_FLAG_HINT,
-            soft_wrap=True,
+        axi_cli.usage_error(
+            f"a reason is required to stop a session, and none was given. {STOP_REASON_FLAG_HINT}"
         )
-        raise typer.Exit(1)
 
     sid = _stop_target(target)
     try:
@@ -1173,26 +1233,26 @@ def stop_session(target: str, reason: Optional[str], json_output: bool = False) 
         # The server's sentence survives INTACT. gateway._error_message has already lifted it out of
         # the body, so re-wording it here would throw away the one sentence written for this failure -
         # and for a Director-side fault it is the sentence that names the machine rather than the
-        # Gateway. escape() for the reason it is used everywhere else in this module: it is text from
+        # Gateway. It goes to standard error as plain text, never through Rich markup: it is text from
         # somewhere else, and a token shaped like [/tmp/x] raises MarkupError.
         text = str(err)
-        console.print(f"[red]{_failure_prefix(err.status)}[/red] {_text(text)}", soft_wrap=True)
         if not _refused_outright(err.status):
             # Said ONCE, after the server's own words, and only where the outcome is genuinely
             # unknown. Without it the reader is left with a sentence about a lost reply and no idea
             # what to do next.
-            console.print(
-                "This cannot say whether the session is still running. Run "
-                "cc-devthrottle session list to see whether it is still there.",
-                soft_wrap=True,
-            )
-        # The one thing only this command knows. Added AFTER the server's words, never instead of
-        # them. Still tested textually rather than on the status alone: the sentence is what names
-        # the reason as the missing thing, and a refusal that is about something else must not send
-        # the caller off to fix a flag that was never wrong.
-        if _refused_outright(err.status) and "reason" in text.lower():
-            console.print(STOP_REASON_FLAG_HINT, soft_wrap=True)
-        raise typer.Exit(1)
+            text = f"{text} This cannot say whether the session is still running."
+            next_steps = ["cc-devthrottle session list"]
+        elif "reason" in text.lower():
+            # The one thing only this command knows. Added AFTER the server's words, never instead of
+            # them. Still tested textually rather than on the status alone: the sentence is what names
+            # the reason as the missing thing, and a refusal that is about something else must not send
+            # the caller off to fix a flag that was never wrong.
+            text = f"{text} {STOP_REASON_FLAG_HINT}"
+            next_steps = ['cc-devthrottle session stop <session-id> --reason "<why you are stopping it>"']
+        else:
+            text = f"{text} Nothing was stopped."
+            next_steps = _CHECK_SESSION
+        axi_cli.fail(text, next_steps, label=_failure_prefix(err.status))
 
     body = resp if isinstance(resp, dict) else {}
     headline = gateway.field(body, "headline", "Headline")
@@ -1202,13 +1262,12 @@ def stop_session(target: str, reason: Optional[str], json_output: bool = False) 
         # while exiting 0 would be the "button that accepts a click and says nothing" this mission
         # exists to remove. Said as ignorance rather than as an outcome: we do not know whether it
         # stopped, and neither does anybody reading this.
-        console.print(
-            "[red]No answer:[/red] the Gateway returned nothing that says what happened to "
-            f"{gateway.short_id(sid)}, so this cannot report whether it was stopped. "
-            "Run cc-devthrottle session list to see whether it is still there.",
-            soft_wrap=True,
+        axi_cli.fail(
+            f"the Gateway returned nothing that says what happened to {sid}, so this cannot report "
+            "whether it was stopped.",
+            ["cc-devthrottle session list"],
+            label="No answer:",
         )
-        raise typer.Exit(1)
 
     if json_output:
         # Plain print, not console.print: Rich wraps to 80 columns when stdout is not a TTY and injects
@@ -1220,7 +1279,7 @@ def stop_session(target: str, reason: Optional[str], json_output: bool = False) 
         print(json.dumps(body, indent=2))
         return body
 
-    console.print(_text(headline), soft_wrap=True)
+    console.print(axi_cli.shown(headline), soft_wrap=True)
     details = body.get("details", body.get("Details"))
     if isinstance(details, list):
         # In the order the Gateway gave them. The order is part of the answer - the worktree line
@@ -1228,7 +1287,11 @@ def stop_session(target: str, reason: Optional[str], json_output: bool = False) 
         # matters, which is the one thing it must never do.
         for line in details:
             if isinstance(line, str) and line.strip():
-                console.print(_text(line), soft_wrap=True)
+                console.print(axi_cli.shown(line), soft_wrap=True)
+    axi_cli.print_next([
+        "cc-devthrottle session list",
+        "cc-devthrottle session spawn <repo> --controlled-by self",
+    ])
     return body
 
 
@@ -1266,12 +1329,16 @@ def _report_delivery(resp: Any, who: str) -> None:
             count = 1 if accepted else 0
             err = resp.get("error") or resp.get("Error")
     if accepted:
-        console.print(f"[green]Delivered[/green] to {who} ({count} session(s)).")
+        console.print(f"[green]Delivered[/green] to {axi_cli.shown(who)} ({count} session(s)).")
         if warning:
-            console.print(f"[yellow]Note:[/yellow] {warning}")
+            console.print(f"[yellow]Note:[/yellow] {axi_cli.shown(warning)}")
     else:
-        console.print(f"[red]Not delivered:[/red] {err or 'unknown error'}")
-        raise typer.Exit(1)
+        # The Gateway said nothing about why: say THAT, rather than a sentence that reads like a reason.
+        axi_cli.fail(
+            str(err) if err else "the Gateway did not accept the message and gave no reason.",
+            ["cc-devthrottle session list"],
+            label="Not delivered:",
+        )
 
 
 def send_message(
@@ -1286,9 +1353,28 @@ def send_message(
     A plain 'all' reaches only the sender's team (its Mission, or - solo - the same repository on the
     same machine). --everyone asks to reach the whole fleet, which the Gateway Hub gates on a human
     grant plus a reason (issue #1229)."""
-    me = gateway.session_id()
+    is_broadcast = target.strip().lower() == "all"
+    # Refused before anything is sent: each of these flags only means something on a fleet-wide
+    # broadcast, and a flag that is silently dropped is a defect (docs/axi-standard.md).
+    if everyone and not is_broadcast:
+        axi_cli.usage_error(
+            f"--everyone broadcasts to the whole fleet, so it needs the target 'all', not '{target}'. "
+            'Use cc-devthrottle message send all "<message>" --everyone --reason "<why>" --grant <grant-id>, '
+            "or drop --everyone to message one session.",
+        )
+    for flag, value in (("--reason", reason), ("--grant", grant)):
+        if value is not None and not everyone:
+            axi_cli.usage_error(
+                f"{flag} only applies to a fleet-wide broadcast (--everyone), so it would be ignored here. "
+                f"Drop {flag}, or add --everyone with target 'all'.",
+            )
+    if not message.strip():
+        axi_cli.usage_error(
+            "the message is blank. "
+            'Pass the text: cc-devthrottle message send <session-id> "<message>"',
+        )
 
-    if target.strip().lower() == "all":
+    if is_broadcast:
         # No sender field: the Gateway takes it from the session key that authenticated the call, so
         # the team it resolves and the message it frames are about the same session by construction.
         body = {"text": message}
@@ -1298,12 +1384,16 @@ def send_message(
                 body["reason"] = reason
             if grant:
                 body["grantId"] = grant
+        who = "the whole fleet" if everyone else "your team"
         try:
             resp = gateway.post_json("fleet/broadcast", body)
         except gateway.GatewayError as err:
-            console.print(f"[red]Error:[/red] {err}")
-            raise typer.Exit(1)
-        _report_delivery(resp, "the whole fleet" if everyone else "your team")
+            axi_cli.fail(
+                f"could not broadcast to {who}: {err}",
+                ["cc-devthrottle session list", axi_cli.CHECK_GATEWAY],
+            )
+        _report_delivery(resp, who)
+        axi_cli.print_next(["cc-devthrottle session list", 'cc-devthrottle message send <session-id> "<message>"'])
         return
 
     chosen = _resolve_target(target, command_name="cc-devthrottle message send")
@@ -1311,23 +1401,34 @@ def send_message(
     try:
         resp = gateway.post_json(f"sessions/{target_sid}/message", {"text": message})
     except gateway.GatewayError as err:
-        console.print(f"[red]Error:[/red] {err}")
-        raise typer.Exit(1)
+        axi_cli.fail(f"could not send the message to session {target_sid}: {err}", _CHECK_SESSION)
 
     name = gateway.field(chosen, "name", "Name") or gateway.short_id(target_sid)
-    _report_delivery(resp, f'{name} ({gateway.short_id(target_sid)})')
+    _report_delivery(resp, f'{name} ({target_sid})')
+    axi_cli.print_next([
+        f"cc-devthrottle session buffer {axi_cli.bare(target_sid, '<session-id>')}",
+        f'cc-devthrottle message ask {axi_cli.bare(target_sid, "<session-id>")} "<question>"',
+    ])
 
 
 def ask_session(target: str, question: str, timeout_ms: int) -> None:
     """Ask one session a question and print its answer."""
     if target.strip().lower() == "all":
-        console.print(
-            "[red]message ask targets a single session.[/red] "
-            "Use cc-devthrottle message send all for a broadcast."
+        axi_cli.usage_error(
+            "message ask targets a single session, not 'all'. "
+            'Use cc-devthrottle message send all "<message>" for a broadcast, or name one session.',
         )
-        raise typer.Exit(1)
+    if not question.strip():
+        axi_cli.usage_error(
+            "the question is blank. "
+            'Pass the question: cc-devthrottle message ask <session-id> "<question>"',
+        )
+    if timeout_ms < 1:
+        axi_cli.usage_error(
+            f"--timeout-ms must be at least 1, not {timeout_ms}. "
+            "Pass how long to wait in milliseconds, for example --timeout-ms 120000.",
+        )
 
-    me = gateway.session_id()
     chosen = _resolve_target(target, command_name="cc-devthrottle message ask")
     target_sid = gateway.field(chosen, "sessionId", "SessionId")
 
@@ -1342,13 +1443,25 @@ def ask_session(target: str, question: str, timeout_ms: int) -> None:
             timeout=http_timeout,
         )
     except gateway.GatewayError as err:
-        console.print(f"[red]{err}[/red]")
-        raise typer.Exit(1)
+        axi_cli.fail(
+            f"no answer from session {target_sid}: {err}",
+            [f"cc-devthrottle session buffer {axi_cli.bare(target_sid, '<session-id>')}"],
+        )
 
-    answer = (gateway.field(resp, "output", "Output") if isinstance(resp, dict) else "").strip()
+    if not isinstance(resp, dict):
+        axi_cli.fail(
+            f"the Gateway's answer for session {target_sid} was not an answer object, so no reply can be shown.",
+            [f"cc-devthrottle session buffer {axi_cli.bare(target_sid, '<session-id>')}"],
+        )
+    answer = gateway.field(resp, "output", "Output").strip()
     name = gateway.field(chosen, "name", "Name") or gateway.short_id(target_sid)
-    console.print(f"[dim]-- answer from {name} ({gateway.short_id(target_sid)}) --[/dim]")
-    console.print(answer if answer else "(the target produced no output)")
+    console.print(f"[dim]-- answer from {axi_cli.shown(name)} ({target_sid}) --[/dim]")
+    # The answer is another session's own words: printed as text, never read as markup.
+    print(axi_cli.ascii_text(answer) if answer else "(the target produced no output)")
+    axi_cli.print_next([
+        f"cc-devthrottle session buffer {axi_cli.bare(target_sid, '<session-id>')}",
+        f'cc-devthrottle message send {axi_cli.bare(target_sid, "<session-id>")} "<message>"',
+    ])
 
 
 def _controller_mission(controller_session_id: str) -> Optional[Dict[str, Any]]:
@@ -1367,9 +1480,10 @@ def _controller_mission(controller_session_id: str) -> Optional[Dict[str, Any]]:
     try:
         sessions, _, _, _ = gateway.get_fleet()
     except gateway.GatewayError as err:
-        console.print(
-            "[yellow]Warning:[/yellow] could not read the fleet list to inherit the controlling "
-            f"session's mission, so the new session starts attached to no mission: {err}"
+        axi_cli.warn(
+            "could not read the fleet list to inherit the controlling "
+            f"session's mission, so the new session starts attached to no mission: {err} "
+            "Attach it afterwards with: cc-devthrottle mission attach <session-id> <mission-id>"
         )
         return None
 
@@ -1432,36 +1546,12 @@ def spawn_session(
     opt_out = standalone or (controlled_by is not None and controlled_by.strip().lower() == "none")
 
     if cc_session and not opt_out and not controlled_by:
-        console.print(
-            "[red]Error:[/red] this spawn has to say who will OWN the new session."
+        axi_cli.usage_error(
+            "this spawn has to say who will OWN the new session: you are spawning from inside a session, "
+            "so there are two possible owners and no safe default between them. Pass --controlled-by self "
+            "if YOU own it (it stays quiet and reports back to you), --standalone if the USER owns it (it "
+            "goes red and asks him when it finishes), or --controlled-by <session-id> if another session owns it."
         )
-        console.print(
-            """
-You are spawning from inside a session, so there are two
-possible owners and no safe default between them. Say which:
-
-  --controlled-by self
-      YOU own it. It stays quiet on the roster and reports
-      back to you when it finishes.
-      Use this for work you will collect.
-
-  --standalone
-      The USER owns it. It goes red and asks HIM when it
-      finishes, and you will not hear from it.
-      Use this for work you are starting on his behalf.
-
-  --controlled-by <id>
-      Another session owns it.
-
-This used to default to 'self' silently. It no longer does:
-a session that answers to a machine rather than to the user
-is the user's decision, not a side effect of an environment
-variable being set.
-""",
-            markup=False,
-            highlight=False,
-        )
-        raise typer.Exit(1)
 
     # HANDING WORK TO THE USER IS A DELIBERATE ACT, SO IT STATES A REASON (owner's ruling, 2026-09-14).
     # --standalone and --controlled-by self cost the same to type, and on 14 September three of thirteen
@@ -1472,23 +1562,11 @@ variable being set.
     # no field for it on the create, so it is printed here and lands in the SPAWNING session's transcript,
     # which is searchable and durable. A field on the session is the right home and is not built.
     if cc_session and opt_out and not (why or "").strip():
-        console.print("[red]Error:[/red] --standalone gives this session to the USER. Say why.")
-        console.print(
-            """
-You are handing work to the owner rather than collecting it
-yourself, so it will go RED and ask him when it finishes.
-
-  --why "he asked me to open this for him"
-  --why "this needs his decision before anything else runs"
-
-If you cannot say why it is his, it is probably yours:
-
-  --controlled-by self
-""",
-            markup=False,
-            highlight=False,
+        axi_cli.usage_error(
+            "--standalone gives this session to the USER, so it goes red and asks him when it finishes. "
+            'Say why with --why "<why it is his>", for example --why "he asked me to open this for him". '
+            "If you cannot say why it is his, it is probably yours: pass --controlled-by self."
         )
-        raise typer.Exit(1)
 
     if opt_out:
         controller_session_id = None
@@ -1496,19 +1574,19 @@ If you cannot say why it is his, it is probably yours:
         if controlled_by.strip().lower() == "self":
             controller_session_id = cc_session
             if not controller_session_id:
-                console.print(
-                    "[red]Error:[/red] --controlled-by self requires CC_SESSION_ID to be set, but it "
-                    "is not. Run this from inside a session, or pass an explicit controlling session id."
+                axi_cli.usage_error(
+                    "--controlled-by self requires CC_SESSION_ID to be set, but it is not. "
+                    "Run this from inside a session, or pass an explicit controlling session id: "
+                    "--controlled-by <session-id>",
                 )
-                raise typer.Exit(1)
         else:
             controller_session_id = controlled_by
     # Issue #800: always name your session. On this fleet many sessions run in the same
     # checkout, so a session with neither a name nor a purpose still gets an auto-composed
     # name from the Director, but it reads better when you describe what it is FOR.
     if not name and not purpose:
-        console.print(
-            "[yellow]Warning:[/yellow] no --name or --purpose given; the session will get an "
+        axi_cli.warn(
+            "no --name or --purpose given; the session will get an "
             "auto-composed name. Pass --purpose \"<what it is for>\" so it is easy to tell apart."
         )
 
@@ -1607,39 +1685,54 @@ If you cannot say why it is his, it is probably yours:
     target_machine = machine.strip() if machine else ""
     target_director = director_target.strip() if director_target else ""
 
-    if target_director:
-        # ONE named Director. The Gateway's machine route picks "some Director on that computer" and
-        # has no way to be told which, so naming one has to be addressed to it BY ID - which is what
-        # /directors/{id}/sessions is. Resolving the typed name against the Director list is the same
-        # class of lookup `session list` already does for a session id or name; what a name MATCHES is
-        # a client's job, what may be DONE with the result is the Gateway's.
-        path = f"directors/{_resolve_director_id(target_director, target_machine)}/sessions"
-    elif target_machine:
-        # "Some Director on that computer", launching one if none is running.
-        path = f"machines/{target_machine}/sessions"
-    else:
-        # HERE. This session's own Director, named from what the session was told at launch - no
-        # roster lookup, no hostname read off the operating system, and no round trip to work out
-        # something the session already knows.
-        path = f"directors/{_my_director()}/sessions"
+    # Resolved INSIDE the error handling: both lookups raise GatewayError with the sentence written for
+    # the case, and outside it that sentence reached the caller as a traceback.
+    try:
+        if target_director:
+            # ONE named Director. The Gateway's machine route picks "some Director on that computer" and
+            # has no way to be told which, so naming one has to be addressed to it BY ID - which is what
+            # /directors/{id}/sessions is. Resolving the typed name against the Director list is the same
+            # class of lookup `session list` already does for a session id or name; what a name MATCHES is
+            # a client's job, what may be DONE with the result is the Gateway's.
+            path = f"directors/{gateway.path_segment(_resolve_director_id(target_director, target_machine))}/sessions"
+        elif target_machine:
+            # "Some Director on that computer", launching one if none is running.
+            path = f"machines/{gateway.path_segment(target_machine)}/sessions"
+        else:
+            # HERE. This session's own Director, named from what the session was told at launch - no
+            # roster lookup, no hostname read off the operating system, and no round trip to work out
+            # something the session already knows.
+            path = f"directors/{gateway.path_segment(_my_director())}/sessions"
+    except gateway.GatewayError as err:
+        axi_cli.fail(
+            f"no session was opened: {err}",
+            ["cc-devthrottle director list"],
+        )
 
     try:
         resp = gateway.post_json(path, body)
     except gateway.GatewayError as err:
-        console.print(f"[red]Error:[/red] {err}")
-        raise typer.Exit(1)
+        where = target_director or target_machine or "this session's own Director"
+        axi_cli.fail(
+            f"no session was opened on {where}: {err}",
+            ["cc-devthrottle director list"],
+        )
 
-    sid = gateway.field(resp, "sessionId", "SessionId")
+    sid = gateway.field(resp, "sessionId", "SessionId") if isinstance(resp, dict) else ""
     if not sid:
-        console.print("[red]Error:[/red] the Gateway did not return a session id.")
-        raise typer.Exit(1)
+        axi_cli.fail(
+            "the Gateway did not return a session id, so whether a session was opened is unknown. Look for it before spawning again.",
+            ["cc-devthrottle session list"],
+        )
 
     short = gateway.short_id(sid)
     # The Director names the session at birth (issue #800), so the response carries the final name.
     label = gateway.field(resp, "name", "Name") or name or short
-    console.print(f"[green]Opened[/green] session {short} ({label}).")
+    console.print(f"[green]Opened[/green] session {short} ({axi_cli.shown(label)}).")
     if opt_out and cc_session:
-        console.print(f"[yellow]The USER owns it[/yellow] - it will go red and ask him. Reason given: {why.strip()}")
+        console.print(
+            f"[yellow]The USER owns it[/yellow] - it will go red and ask him. Reason given: {axi_cli.shown(why.strip())}"
+        )
     console.print(f"id: {sid}")
     if inherited_from is not None:
         # Never silent. An inherited mission the caller did not ask for is only safe if they can see
@@ -1653,13 +1746,16 @@ If you cannot say why it is his, it is probably yours:
             or gateway.short_id(gateway.field(inherited_from, "sessionId", "SessionId"))
         )
         console.print(
-            f"Attached to mission [bold]{mission_label}[/bold], inherited from its controlling "
-            f"session {controller_label}. Undo with: cc-devthrottle mission detach {short}"
+            f"Attached to mission [bold]{axi_cli.shown(mission_label)}[/bold], inherited from its controlling "
+            f"session {axi_cli.shown(controller_label)}. Undo with: cc-devthrottle mission detach {sid}"
         )
-    console.print(
-        f'Message it:  cc-devthrottle message send {short} "<message>"'
-        f'   |   Ask it:  cc-devthrottle message ask {short} "<question>"'
-    )
+    steps = [
+        f'cc-devthrottle message send {sid} "<message>"',
+        f"cc-devthrottle session buffer {sid}",
+    ]
+    if inherited_from is not None:
+        steps.append(f"cc-devthrottle mission detach {sid}")
+    axi_cli.print_next(steps)
 
 
 def _my_director() -> str:
@@ -1689,9 +1785,14 @@ def _resolve_director_id(name: str, machine: str) -> str:
     computer and nobody notices until they go looking for it.
     """
     try:
-        rows = gateway.get_json("directors") or []
+        rows = gateway.get_json("directors")
     except gateway.GatewayError as err:
         raise gateway.GatewayError(f"Cannot list this account's Directors to resolve '{name}': {err}") from err
+    # Absent is not empty: an answer that is not a list would otherwise read as "no Director matches".
+    if not isinstance(rows, list) or not all(isinstance(d, dict) for d in rows):
+        raise gateway.GatewayError(
+            f"Cannot resolve '{name}': the Gateway's Director list answer was not a list of Directors."
+        )
 
     wanted = name.strip().lower()
     if machine:
@@ -1707,28 +1808,34 @@ def _resolve_director_id(name: str, machine: str) -> str:
     if not exact:
         where = f" on machine '{machine}'" if machine else ""
         raise gateway.GatewayError(
-            f"No Director matches '{name}'{where}. Run cc-devthrottle machine directors to see them."
+            f"No Director matches '{name}'{where}. Run cc-devthrottle director list to see them."
         )
     if len(exact) > 1:
         raise gateway.GatewayError(
-            f"'{name}' matches {len(exact)} Directors. Name it more precisely, or add --machine."
+            f"'{name}' matches {len(exact)} Directors: "
+            + ", ".join(gateway.field(d, "directorId", "DirectorId") for d in exact)
+            + ". Pass one of these ids to --director, or add --machine."
         )
     return gateway.field(exact[0], "directorId", "DirectorId")
 
 
 
 def _spawn_selftest(repo: str, command_args: str, name: str) -> str:
-    resp = gateway.post_json(
-        f"directors/{_my_director()}/sessions",
-        {"repoPath": repo, "agent": "RawCli", "command": "cmd", "commandArgs": command_args},
-    )
-    sid = gateway.field(resp, "sessionId", "SessionId")
+    body: Dict[str, Any] = {
+        "repoPath": repo, "agent": "RawCli", "command": "cmd", "commandArgs": command_args,
+        # Named at birth, not renamed afterwards: a rename that failed used to be swallowed, leaving a
+        # throwaway nobody could tell apart from real work.
+        "name": name,
+    }
+    # The throwaways are this session's own work, declared as such: the Gateway refuses a spawn from
+    # inside a session that does not say who owns the result (issue #2838).
+    me = gateway.session_id()
+    if me:
+        body["controllerSessionId"] = me
+    resp = gateway.post_json(f"directors/{gateway.path_segment(_my_director())}/sessions", body)
+    sid = gateway.field(resp, "sessionId", "SessionId") if isinstance(resp, dict) else ""
     if not sid:
         raise gateway.GatewayError("the Gateway did not return a session id when spawning.")
-    try:
-        gateway.patch_json(f"sessions/{sid}", {"name": name})
-    except gateway.GatewayError:
-        pass
     return sid
 
 
@@ -1741,8 +1848,25 @@ def _fleet_ids() -> List[str]:
     return [gateway.field(s, "sessionId", "SessionId") for s in sessions]
 
 
+def _runs_on_windows() -> bool:
+    return sys.platform.startswith("win")
+
+
 def selftest(timeout_ms: int) -> None:
     """Run the fleet messaging self-test against the local Director."""
+    # The responder sessions are Windows command prompts (cmd /k prompt ...), and they start on THIS
+    # session's own Director, which runs on this machine. Anywhere else they cannot start, so say so
+    # before anything is spawned rather than report a failure that reads like a messaging fault.
+    if not _runs_on_windows():
+        axi_cli.fail(
+            f"selftest drives Windows command prompt sessions, so it runs only on Windows (this is {sys.platform}).",
+            ["cc-devthrottle session list", axi_cli.CHECK_GATEWAY],
+        )
+    if timeout_ms < 1:
+        axi_cli.usage_error(
+            f"--timeout-ms must be at least 1, not {timeout_ms}. "
+            "Pass how long the ask step waits in milliseconds, for example --timeout-ms 25000.",
+        )
     repo = tempfile.gettempdir()
     results: List[Tuple[str, bool, str]] = []
     responder: Optional[str] = None
@@ -1751,7 +1875,7 @@ def selftest(timeout_ms: int) -> None:
     def record(step: str, ok: bool, detail: str = "") -> None:
         results.append((step, ok, detail))
         mark = "[green]PASS[/green]" if ok else "[red]FAIL[/red]"
-        console.print(f"  {mark}  {step}{('  - ' + detail) if detail else ''}")
+        console.print(f"  {mark}  {axi_cli.shown(step)}{('  - ' + axi_cli.shown(detail)) if detail else ''}")
 
     try:
         responder = _spawn_selftest(repo, f"/k prompt {SELFTEST_MARKER}$G", "selftest-responder")
@@ -1800,8 +1924,8 @@ def selftest(timeout_ms: int) -> None:
                     # call, and it is what `session done` uses. The reaper removes the session within
                     # about a minute, which is why the check below allows for a grace period.
                     gateway.post_json(f"sessions/{sid}/request-deletion", {})
-                except gateway.GatewayError:
-                    pass
+                except gateway.GatewayError as err:
+                    record(f"flag throwaway {sid} for deletion", False, str(err))
         try:
             time.sleep(1)
             remaining = _fleet_ids()
@@ -1814,6 +1938,12 @@ def selftest(timeout_ms: int) -> None:
     total = len(results)
     if passed == total and total > 0:
         console.print(f"[green]PASS[/green] - fleet messaging self-test: {passed}/{total} checks passed.")
+        axi_cli.print_next(["cc-devthrottle session list", 'cc-devthrottle message send <session-id> "<message>"'])
         raise typer.Exit(0)
-    console.print(f"[red]FAIL[/red] - fleet messaging self-test: {passed}/{total} checks passed.")
-    raise typer.Exit(1)
+    # Throwaways that may still be listed; removing one that is already gone is harmless.
+    leftovers = [sid for sid in (responder, recipient) if sid]
+    axi_cli.fail(
+        f"fleet messaging self-test: {passed}/{total} checks passed. The failed checks are marked FAIL above.",
+        [axi_cli.CHECK_GATEWAY, *(f"cc-devthrottle session done {axi_cli.bare(sid, '<session-id>')}" for sid in leftovers)],
+        label="FAIL -",
+    )

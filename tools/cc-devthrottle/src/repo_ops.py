@@ -22,7 +22,6 @@ import sys
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
-import typer
 
 # Make cc_shared importable when running from source, matching the existing cc-* tools.
 _tools_dir = str(Path(__file__).resolve().parent.parent.parent)
@@ -31,6 +30,7 @@ if _tools_dir not in sys.path:
 
 from cc_shared import axi_output  # noqa: E402
 from cc_shared import gateway  # noqa: E402
+from . import axi_cli  # noqa: E402
 
 from . import usage_errors  # noqa: E402
 
@@ -81,9 +81,8 @@ class GatewayShapeError(Exception):
 
 
 def _fail(message: str) -> None:
-    """Print an error and exit 1. Any free text in `message` has already been escaped by the caller."""
-    print(f"Error: {message}", file=sys.stderr)
-    raise typer.Exit(1)
+    # Every failure here is the Gateway's answer or the Gateway's absence, so the next step is the same.
+    axi_cli.fail(message, [axi_cli.CHECK_GATEWAY])
 
 
 _usage_error = usage_errors.usage_error

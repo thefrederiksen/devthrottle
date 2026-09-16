@@ -20,7 +20,7 @@ from typer.testing import CliRunner
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src import session_ops  # noqa: E402
+from src import session_ops, usage_errors  # noqa: E402
 from src.cli import app  # noqa: E402
 
 runner = CliRunner()
@@ -268,14 +268,20 @@ def test_a_machine_narrows_an_ambiguous_director_name(monkeypatch, captured, dir
     assert captured["_path"] == "directors/dir-south-2/sessions"
 
 
-def test_an_ambiguous_director_name_is_refused_not_guessed(monkeypatch, captured, directors):
+def test_an_ambiguous_director_name_is_refused_not_guessed(monkeypatch, captured, directors, capsys):
     monkeypatch.delenv("CC_SESSION_ID", raising=False)
-    with pytest.raises(session_ops.gateway.GatewayError) as ex:
+    # A refusal the caller reads, exit 1 - not an exception escaping as a traceback.
+    with pytest.raises(typer.Exit) as ex:
         session_ops.spawn_session(
             repo="C:/repo", agent="ClaudeCode", prompt=None, name="n", purpose=None,
             command=None, command_args=None, director_target="Twin",
         )
-    assert "matches 2 Directors" in str(ex.value)
+    assert ex.value.exit_code == 1
+    err = capsys.readouterr().err
+    assert "matches 2 Directors" in err
+    # Both candidates by full id, and the command that lists them.
+    assert "dir-north-2" in err and "dir-south-2" in err
+    assert "cc-devthrottle director list" in err
     assert "_path" not in captured  # nothing was started anywhere
 
 
@@ -437,9 +443,10 @@ def test_an_unreadable_roster_is_reported_and_the_spawn_still_opens(
     )
 
     assert "missionId" not in captured
-    out = plain(capsys.readouterr().out)
-    assert "no mission" in out
-    assert "Opened" in out   # the control: the spawn itself still happened
+    printed = capsys.readouterr()
+    # The warning goes to standard error, so standard output stays the answer.
+    assert "no mission" in plain(printed.err)
+    assert "Opened" in plain(printed.out)   # the control: the spawn itself still happened
 
 
 def test_standalone_from_inside_a_session_REFUSES_without_a_reason(monkeypatch, captured):
@@ -449,7 +456,7 @@ def test_standalone_from_inside_a_session_REFUSES_without_a_reason(monkeypatch, 
     agent-started sessions had chosen --standalone - two of them then sat red at the owner. This does not
     forbid the choice; it makes an agent that cannot justify it collect its own work.
     """
-    with pytest.raises(typer.Exit):
+    with pytest.raises(usage_errors.CommandUsageError):
         _spawn(monkeypatch, cc_session="sess-A", standalone=True)
     assert captured == {}, "a refused spawn must not reach the Gateway"
 

@@ -744,6 +744,43 @@ ARGUMENTS:
 `cc-devthrottle session rename "New Name"` renames the current session using `CC_SESSION_ID`.
 `cc-devthrottle session rename 9b2f "New Name"` renames an explicit target.
 
+### After a change, and when something fails
+
+These rules hold for the `session`, `message`, `mission`, `repo`, `worktree`, `director` and `machine`
+groups, `selftest`, and `cc-devthrottle` itself (`docs/axi-standard.md`):
+
+- **A command that changes something ends with `help[N]:`** - the next commands worth running. A
+  runtime value is a placeholder such as `<session-id>` unless the command's own result supplied it,
+  in which case the real, full id is filled in:
+
+  ```
+  $ cc-devthrottle session rename 9b2f "Review - pull request 2960"
+  Renamed 9b2f41c0-7d1e-4a55-9c1a-2f6e0d3b8a71 to "Review - pull request 2960".
+  help[2]:
+    cc-devthrottle session list
+    cc-devthrottle message send 9b2f41c0-7d1e-4a55-9c1a-2f6e0d3b8a71 "<message>"
+  ```
+
+  `--json` never carries a `help[]` block: it prints the Gateway's answer, unchanged.
+- **An error goes to standard error**, never standard output, as one `Error: <what failed>` line.
+  A runtime failure then lists what to run next as `help[N]:` lines and exits **1**:
+
+  ```
+  $ cc-devthrottle session interrupt 9b2f
+  Error: could not interrupt session 9b2f41c0-7d1e-4a55-9c1a-2f6e0d3b8a71: <the Gateway's reason>
+  help[2]:
+    cc-devthrottle session list
+    cc-devthrottle setup status
+  ```
+
+  A usage error - what was typed has to change: a blank value, flags that contradict each other, a
+  flag that would otherwise be ignored - says how to fix it on the `Error:` line, adds the command's
+  `Usage:` line and `Valid options:`, and exits **2**. Nothing is sent to the Gateway before a usage
+  error. Every command in the tool writes both kinds the same way (`src/axi_cli.py`,
+  `src/usage_errors.py`).
+- **An ambiguous target** is refused with every candidate's full id, so one can be pasted back.
+- **Every command has a one-line summary** in `--help`; the detail follows on later lines.
+
 ### Session List
 
 ```
@@ -936,6 +973,10 @@ The recipient sees a framed message that names the sender and how to reply:
 
 An ambiguous id prefix or name is refused with the list of candidates. No message is sent.
 
+`--everyone`, `--reason` and `--grant` apply only to a fleet-wide broadcast (`message send all
+--everyone`). Given anywhere else they exit 2 and nothing is sent, rather than being ignored. A
+message the Gateway does not accept exits 1 with `Not delivered:` and its reason on standard error.
+
 ### Message Ask
 
 ```
@@ -949,8 +990,8 @@ OPTIONS:
   --timeout-ms INTEGER  How long to wait for the answer (default 120000)
 ```
 
-If the target does not answer within the timeout, the command prints a clear timeout message and
-exits non-zero. `message ask all` is not supported.
+If the target does not answer within the timeout, the command writes a clear timeout message to
+standard error and exits 1. `message ask all`, a blank question and a `--timeout-ms` below 1 exit 2.
 
 ### Session Spawn
 
@@ -973,8 +1014,10 @@ OPTIONS:
   --standalone          The USER owns it: no controller (same as --controlled-by none)
 ```
 
-Prints the new session's short id and full GUID; the session then appears in
-`cc-devthrottle session list`. A non-existent repository path exits non-zero with a clear error.
+Prints the new session's short id and full GUID, then `help[]` lines that name the new session by
+its full id; the session then appears in `cc-devthrottle session list`. A non-existent repository
+path exits non-zero with a clear error. Warnings (no `--name`, a mission that could not be inherited)
+go to standard error.
 
 **A session-initiated spawn must say who OWNS the new session.** Every session has exactly one
 owner and it is either another session or the user; no owner means the user. From inside a session

@@ -31,10 +31,13 @@ if _tools_dir not in sys.path:
     sys.path.insert(0, _tools_dir)
 
 from cc_shared import axi_output, gateway  # noqa: E402
+from . import axi_cli  # noqa: E402
 
 from . import usage_errors  # noqa: E402
 
-console = Console()
+# soft_wrap: a sentence is never broken across lines at the console width. An id or a session name
+# split in two cannot be read back or pasted; tables still fit their columns.
+console = Console(soft_wrap=True)
 err_console = Console(stderr=True)
 
 TIMEOUT_SECONDS = 10
@@ -174,13 +177,17 @@ def _resolve_mission(query: str) -> Dict[str, Any]:
     # addressable - reopening one, or correcting its name, is exactly when you reach for it, and
     # resolving against the default active-only list would answer "no mission matches" for a record
     # that is plainly there.
+    wanted = query.strip()
+    if not wanted:
+        axi_cli.usage_error(
+            "no mission was named. "
+            "Pass a mission id, an id prefix, or part of its name. See them with: cc-devthrottle mission list --all",
+        )
     try:
         missions = MissionClient().list_all(state="all")
     except GatewayError as err:
-        console.print(f"[red]Error:[/red] {err}")
-        raise typer.Exit(1)
+        axi_cli.fail(f"could not read the missions to find '{wanted}': {err}", [axi_cli.CHECK_GATEWAY])
 
-    wanted = query.strip()
     lowered = wanted.lower()
     exact = [m for m in missions if (_field(m, "missionId", "MissionId") or "").lower() == lowered]
     if exact:
@@ -192,18 +199,21 @@ def _resolve_mission(query: str) -> Dict[str, Any]:
         or lowered in (_field(m, "missionName", "MissionName") or "").lower()
     ]
     if not matches:
-        console.print(
-            f"[red]No mission matches '{wanted}'.[/red] "
-            "Run cc-devthrottle mission list to see the missions on the Gateway."
+        axi_cli.fail(
+            f"No mission matches '{wanted}'. Pass the id of a mission the list below shows.",
+            ["cc-devthrottle mission list --all"],
         )
-        raise typer.Exit(1)
     if len(matches) > 1:
-        console.print(f"[yellow]'{wanted}' is ambiguous - {len(matches)} missions match:[/yellow]")
-        for m in matches:
-            mid = _field(m, "missionId", "MissionId") or "-"
-            console.print(f"  {_short_id(mid)}  {_field(m, 'missionName', 'MissionName') or '-'}")
-        console.print("Re-run with a longer id prefix or the exact name.")
-        raise typer.Exit(1)
+        # FULL ids: the caller's next move is to paste one back, and a shortened id can be ambiguous too.
+        listed = "; ".join(
+            f"{_field(m, 'missionId', 'MissionId') or '-'} {_field(m, 'missionName', 'MissionName') or '-'}"
+            for m in matches
+        )
+        axi_cli.fail(
+            f"'{wanted}' is ambiguous - {len(matches)} missions match: {listed}. "
+            "Re-run with one of these full mission ids.",
+            ["cc-devthrottle mission list --all"],
+        )
     return matches[0]
 
 
@@ -216,31 +226,33 @@ def _field(record: Dict[str, Any], *names: str) -> Optional[str]:
     return None
 
 
-def _short_id(value: Optional[str]) -> str:
-    if not value:
-        return "-"
-    return value.split("-")[0] if "-" in value else value
-
-
 def create_mission(name: str) -> None:
     """Create a Mission record on the Gateway and print its id."""
+    if not name.strip():
+        axi_cli.usage_error(
+            "the mission name is blank. "
+            'Pass a name: cc-devthrottle mission create "<name>"',
+        )
     try:
         resp = MissionClient().create(name)
     except GatewayError as err:
-        console.print(f"[red]Error:[/red] {err}")
-        raise typer.Exit(1)
+        axi_cli.fail(f"no mission was created: {err}", [axi_cli.CHECK_GATEWAY])
 
-    mid = _field(resp, "missionId", "MissionId")
+    mid = _field(resp, "missionId", "MissionId") if isinstance(resp, dict) else None
     if not mid:
-        console.print("[red]Error:[/red] the Gateway did not return a mission id.")
-        raise typer.Exit(1)
+        axi_cli.fail(
+            "the Gateway did not return a mission id, so whether the mission was created is unknown. Look for it before creating it again.",
+            ["cc-devthrottle mission list"],
+        )
 
     label = _field(resp, "missionName", "MissionName") or name
-    console.print(f"[green]Created[/green] mission ({label}).")
+    console.print(f"[green]Created[/green] mission ({axi_cli.shown(label)}).")
     console.print(f"id: {mid}")
-    console.print(
-        f'Attach a session at spawn:  cc-devthrottle session spawn <repo> --mission {mid}'
-    )
+    axi_cli.print_next([
+        f"cc-devthrottle session spawn <repo> --mission {axi_cli.bare(mid, '<mission-id>')} --controlled-by self",
+        f"cc-devthrottle mission attach <session-id> {axi_cli.bare(mid, '<mission-id>')}",
+        "cc-devthrottle mission list",
+    ])
 
 
 # Every state a mission can be in, in the order the count line names them.
@@ -424,8 +436,7 @@ def list_missions(
         try:
             missions = MissionClient().list_all(state=state)
         except GatewayError as err:
-            print(f"Error: {axi_output.escape_ascii(str(err))}", file=sys.stderr)
-            raise typer.Exit(1)
+            axi_cli.fail(f"could not read the missions: {err}", [axi_cli.CHECK_GATEWAY])
         if name is not None:
             # Filtering reads the rows, so every row is checked in full first; the unfiltered answer is not.
             _require_mission_rows(missions)
@@ -438,8 +449,7 @@ def list_missions(
     try:
         everything = MissionClient().list_all(state="all")
     except GatewayError as err:
-        print(f"Error: {axi_output.escape_ascii(str(err))}", file=sys.stderr)
-        raise typer.Exit(1)
+        axi_cli.fail(f"could not read the missions: {err}", [axi_cli.CHECK_GATEWAY])
     _require_mission_rows(everything)
     states = [_mission_state(m) for m in everything]
 
@@ -509,15 +519,26 @@ def _patch_mission(mission_query: str, body: Dict[str, Any], command_name: str) 
     mission = _resolve_mission(mission_query)
     mission_id = _field(mission, "missionId", "MissionId")
     if not mission_id:
-        console.print("[red]Error:[/red] the Gateway returned a mission with no id.")
-        raise typer.Exit(1)
+        axi_cli.fail(
+            f"the Gateway returned a mission with no id for '{mission_query}', so it cannot be changed.",
+            ["cc-devthrottle mission list --all --json"],
+        )
 
     try:
         resp = MissionClient().patch(mission_id, body)
     except GatewayError as err:
-        console.print(f"[red]Error:[/red] {err}")
-        raise typer.Exit(1)
+        axi_cli.fail(
+            f"could not {command_name} mission {mission_id}: {err}",
+            ["cc-devthrottle mission list --all", axi_cli.CHECK_GATEWAY],
+        )
 
+    # The changed mission is what every report below names; an answer without it cannot say what happened.
+    if not _patched_mission(resp):
+        axi_cli.fail(
+            f"the Gateway's answer to {command_name} mission {mission_id} did not include the mission, "
+            "so whether it changed is unknown.",
+            ["cc-devthrottle mission list --all"],
+        )
     resp["_before"] = mission
     return resp
 
@@ -536,44 +557,52 @@ def _print_patch_note(resp: Dict[str, Any]) -> None:
     """
     note = _field(resp, "note", "Note")
     if note:
-        console.print(f"[yellow]Note:[/yellow] {note}")
+        console.print(f"[yellow]Note:[/yellow] {axi_cli.shown(note)}")
 
 
 def rename_mission(mission_query: str, new_name: str) -> None:
     """Rename a Mission. Its id does not change, so nothing attached to it moves."""
     if not new_name.strip():
-        console.print("[red]Error:[/red] a mission name cannot be blank.")
-        raise typer.Exit(1)
+        axi_cli.usage_error(
+            "the new mission name is blank. "
+            'Pass a name: cc-devthrottle mission rename <mission-id> "<new name>"',
+        )
 
     resp = _patch_mission(mission_query, {"missionName": new_name}, "rename")
     before = _field(resp.get("_before", {}), "missionName", "MissionName") or "(unnamed)"
     after = _field(_patched_mission(resp), "missionName", "MissionName") or new_name.strip()
+    mid = _field(resp.get("_before", {}), "missionId", "MissionId")
 
     # NAME THE OLD NAME. A rename that reports only the new one hides which mission moved, which is
     # the same failure the attach command avoids by naming the mission a session LEFT.
-    console.print(f'[green]Renamed[/green] "{before}" to "{after}".')
+    console.print(f'[green]Renamed[/green] "{axi_cli.shown(before)}" to "{axi_cli.shown(after)}".')
     console.print("Its id is unchanged, so every attached session stays attached.")
     _print_patch_note(resp)
+    axi_cli.print_next([
+        "cc-devthrottle session list --fields id,name,state,mission",
+        f"cc-devthrottle mission attach <session-id> {axi_cli.bare(mid, '<mission-id>')}",
+    ])
 
 
 def end_mission(mission_query: str, state: str) -> None:
     """Complete or remove a Mission (both are endings; both are reversible)."""
-    resp = _patch_mission(mission_query, {"state": state}, state)
+    resp = _patch_mission(mission_query, {"state": state}, "complete" if state == "complete" else "remove")
     mission = _patched_mission(resp)
     name = _field(mission, "missionName", "MissionName") or "(unnamed)"
-    mid = _field(mission, "missionId", "MissionId") or ""
+    mid = _field(mission, "missionId", "MissionId") or _field(resp["_before"], "missionId", "MissionId")
 
     verb = "Completed" if state == "complete" else "Removed"
-    console.print(f"[green]{verb}[/green] mission {name} ({_short_id(mid)}).")
+    console.print(f"[green]{verb}[/green] mission {axi_cli.shown(name)} ({mid}).")
     _print_patch_note(resp)
 
     # SAY WHERE IT WENT, and how to get it back. An ending that reports only success leaves the owner
     # unable to find the record afterwards - and the Cockpit has no archive view yet, so the command
     # line is currently the ONLY way to see it again.
-    console.print(
-        f"It is out of the default list. See it with 'cc-devthrottle mission list --state {state}', "
-        f"or bring it back with 'cc-devthrottle mission reopen {_short_id(mid)}'."
-    )
+    console.print("It is out of the default list.")
+    axi_cli.print_next([
+        f"cc-devthrottle mission list --state {axi_cli.bare(state, '<state>')}",
+        f"cc-devthrottle mission reopen {axi_cli.bare(mid, '<mission-id>')}",
+    ])
 
 
 def reopen_mission(mission_query: str) -> None:
@@ -581,8 +610,13 @@ def reopen_mission(mission_query: str) -> None:
     resp = _patch_mission(mission_query, {"state": "active"}, "reopen")
     mission = _patched_mission(resp)
     name = _field(mission, "missionName", "MissionName") or "(unnamed)"
-    console.print(f"[green]Reopened[/green] mission {name}. It is back in the default list.")
+    mid = _field(mission, "missionId", "MissionId") or _field(resp["_before"], "missionId", "MissionId")
+    console.print(f"[green]Reopened[/green] mission {axi_cli.shown(name)} ({mid}). It is back in the default list.")
     _print_patch_note(resp)
+    axi_cli.print_next([
+        "cc-devthrottle mission list",
+        f"cc-devthrottle mission attach <session-id> {axi_cli.bare(mid, '<mission-id>')}",
+    ])
 
 
 # ===== Attach and detach (issue #2387) =====================================================
@@ -645,9 +679,12 @@ def _apply_mission(session_id: str, mission_id: Optional[str]) -> Dict[str, Any]
     body: Dict[str, Any] = {}
     if mission_id:
         body["missionId"] = mission_id
-    resp = gateway.post_json(f"sessions/{session_id}/mission", body)
+    resp = gateway.post_json(f"sessions/{gateway.path_segment(session_id)}/mission", body)
     if not isinstance(resp, dict):
-        return {}
+        # Absent is not success: an answer that says nothing cannot be reported as "Attached".
+        raise gateway.GatewayError(
+            "the Gateway's answer was not a mission change, so whether the session moved is unknown."
+        )
     session = resp.get("session", resp.get("Session"))
     if isinstance(session, dict):
         for key in ("workflowId", "WorkflowId", "workflowVersion", "WorkflowVersion"):
@@ -709,13 +746,14 @@ def _print_seat_note(resp: Dict[str, Any]) -> None:
     """
     note = _field(resp, "seatNote", "SeatNote")
     if note:
-        console.print(f"[yellow]Note:[/yellow] {note}")
+        console.print(f"[yellow]Note:[/yellow] {axi_cli.shown(note)}")
 
 
 def _session_label(session: Dict[str, Any]) -> str:
+    """A session's name and FULL id, ASCII-safe. The id is what a follow-up command needs, so it is never cut."""
     sid = _field(session, "sessionId", "SessionId") or ""
     name = _field(session, "name", "Name") or "(unnamed)"
-    return f"{name} ({gateway.short_id(sid)})"
+    return f"{axi_cli.ascii_text(name)} ({sid})"
 
 
 def attach_session(target: str, mission_query: str, with_children: bool) -> None:
@@ -726,8 +764,10 @@ def attach_session(target: str, mission_query: str, with_children: bool) -> None
     mission_id = _field(mission, "missionId", "MissionId")
     mission_name = _field(mission, "missionName", "MissionName") or "(unnamed)"
     if not mission_id:
-        console.print("[red]Error:[/red] the Gateway returned a mission with no id.")
-        raise typer.Exit(1)
+        axi_cli.fail(
+            f"the Gateway returned a mission with no id for '{mission_query}', so nothing can be attached to it.",
+            ["cc-devthrottle mission list --all --json"],
+        )
 
     chosen = session_ops.resolve_session(target, command_name="cc-devthrottle mission attach")
     session_id = _field(chosen, "sessionId", "SessionId")
@@ -737,13 +777,13 @@ def attach_session(target: str, mission_query: str, with_children: bool) -> None
         sessions, _, _, _ = session_ops.fleet_or_exit()
         targets.extend(_controlled_subtree(sessions, session_id))
         console.print(
-            f"Attaching {len(targets)} session(s) to mission [bold]{mission_name}[/bold] "
-            f"({_short_id(mission_id)}):"
+            f"Attaching {len(targets)} session(s) to mission [bold]{axi_cli.shown(mission_name)}[/bold] "
+            f"({mission_id}):"
         )
         for s in targets:
-            console.print(f"  {_session_label(s)}")
+            console.print(f"  {axi_cli.shown(_session_label(s))}")
 
-    failed = 0
+    failed: List[str] = []
     seat_moved_any = False
     # The command that re-reads the conduct the sessions are NOW under. Filled from the first move that
     # reports a workflow and version; the placeholder stands only when the destination seats nobody, which
@@ -757,16 +797,18 @@ def attach_session(target: str, mission_query: str, with_children: bool) -> None
             # Keep going. A partial attach is honest and repeatable; abandoning the rest of the tree
             # because one session's Director is unreachable would leave the pod split with no record
             # of where it stopped.
-            console.print(f"[red]Failed:[/red] {_session_label(s)} - {err}")
-            failed += 1
+            sys.stdout.flush()
+            print(axi_cli.ascii_text(f"Failed: {_session_label(s)} - {err}"), file=sys.stderr)
+            failed.append(sid)
             continue
 
         previous_id, previous = _previous_mission(resp, s)
         moved_from = ""
         if previous_id and previous_id.lower() != mission_id.lower():
-            moved_from = f" (moved from {previous or _short_id(previous_id)})"
+            moved_from = f" (moved from {previous or previous_id})"
         console.print(
-            f"[green]Attached[/green] {_session_label(s)} to {mission_name}{moved_from}."
+            f"[green]Attached[/green] {axi_cli.shown(_session_label(s))} to "
+            f"{axi_cli.shown(mission_name)}{axi_cli.shown(moved_from)}."
         )
         if _seat_moved(resp):
             seat_moved_any = True
@@ -787,7 +829,13 @@ def attach_session(target: str, mission_query: str, with_children: bool) -> None
         )
 
     if failed:
-        raise typer.Exit(1)
+        axi_cli.fail(
+            f"{len(failed)} of {len(targets)} session(s) were not attached to mission {mission_id}: "
+            + ", ".join(failed) + ". Each failure is printed above. Attaching again is safe.",
+            [f"cc-devthrottle mission attach <session-id> {axi_cli.bare(mission_id, '<mission-id>')}"],
+        )
+    steps = [f"cc-devthrottle mission detach {session_id}", "cc-devthrottle session list --fields id,name,state,mission"]
+    axi_cli.print_next(steps)
 
 
 def detach_session(target: str) -> None:
@@ -800,17 +848,20 @@ def detach_session(target: str) -> None:
     try:
         resp = _apply_mission(session_id, None)
     except gateway.GatewayError as err:
-        console.print(f"[red]Error:[/red] {err}")
-        raise typer.Exit(1)
+        axi_cli.fail(
+            f"could not detach session {session_id}: {err}",
+            ["cc-devthrottle session list --fields id,name,state,mission"],
+        )
 
     previous_id, previous = _previous_mission(resp, chosen)
     if not previous_id:
         # Say what is true rather than claiming a change: the session was already attached to nothing.
-        console.print(f"{_session_label(chosen)} was not attached to a mission; nothing changed.")
+        console.print(f"{axi_cli.shown(_session_label(chosen))} was not attached to a mission; nothing changed.")
         _print_seat_note(resp)
+        axi_cli.print_next([f"cc-devthrottle mission attach {axi_cli.bare(session_id, '<session-id>')} <mission-id>"])
         return
     console.print(
-        f"[green]Detached[/green] {_session_label(chosen)} from {previous or _short_id(previous_id)}."
+        f"[green]Detached[/green] {axi_cli.shown(_session_label(chosen))} from {axi_cli.shown(previous or previous_id)}."
     )
     if _seat_moved(resp):
         # Detach clears the mission's seat with it. A session that has LEFT a mission cannot still be
@@ -822,3 +873,7 @@ def detach_session(target: str) -> None:
             "mission's workflow run."
         )
     _print_seat_note(resp)
+    axi_cli.print_next([
+        f"cc-devthrottle mission attach {axi_cli.bare(session_id, '<session-id>')} {axi_cli.bare(previous_id, '<mission-id>')}",
+        "cc-devthrottle mission list",
+    ])

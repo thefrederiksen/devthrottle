@@ -158,8 +158,11 @@ def test_launch_without_a_name_or_a_path_is_refused_before_anything_is_sent(monk
 
     result = runner.invoke(app, ["machine", "launch", "SOREN_NORTH"])
 
-    assert result.exit_code == 1
+    # A usage error: the caller has to change what they typed (docs/axi-standard.md, exit 2).
+    assert result.exit_code == 2
     assert sent == []
+    assert result.stdout == ""
+    assert "--app" in result.stderr and "--path" in result.stderr
 
 
 def test_launch_by_name_posts_the_application_to_the_right_machine(monkeypatch):

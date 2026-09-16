@@ -15,8 +15,18 @@ Two things every command in a group that uses this module does the same way:
   Usage line, its Valid options and help[1].
 
 The API, in full: `bare` and `quoted` (a value, or a placeholder, for any command-looking line),
-`ascii_text` (free text made one line of ASCII), `write_lines` and `print_next` (standard output),
-`fail` (exit 1), `usage_error` (exit 2), `help_for`, and `confirm_or_fail`.
+`ascii_text` (free text made one line of ASCII), `shown` (a value made safe inside a Rich
+`console.print` line), `write_lines` and `print_next` (standard output), `warn` (standard error, no
+exit), `fail` (exit 1), `usage_error` (exit 2), `help_for`, `confirm_or_fail`, and `CHECK_GATEWAY`
+(the next step for a failed Gateway call when nothing more specific is known).
+
+`fail` takes an optional `label` in place of `Error:`, for the few commands whose first word is a
+fact of its own: `session stop` says `Not stopped:` or `Outcome unknown:`, because those differ.
+
+Some commands (session, mission, machine) still print their answer through a Rich console, which
+this module does not replace. For those, `shown` escapes a value from elsewhere so Rich prints it
+rather than reading `[fix] tests` as markup, and `print_next` and `fail` flush standard output first
+so the help lines come after what Rich already wrote.
 
 Text reaches the stream through `axi_output.write_blocks`, never through Rich: Rich reads square
 brackets in a message as markup and drops them, and wraps long lines at the console width. Anything
@@ -35,6 +45,7 @@ from pathlib import Path
 from typing import NoReturn, Sequence
 
 import typer
+from rich.markup import escape as _markup_escape
 
 _tools_dir = str(Path(__file__).resolve().parent.parent.parent)
 if _tools_dir not in sys.path:
@@ -45,6 +56,10 @@ from cc_shared import axi_output  # noqa: E402
 from . import usage_errors  # noqa: E402
 
 TOOL = "cc-devthrottle"
+
+#: The next step for a failed Gateway call when nothing more specific is known. Every fleet command
+#: goes through the Gateway, and this is the command that says whether this machine can reach it.
+CHECK_GATEWAY = f"{TOOL} setup status"
 
 # An identifier that can be pasted into a shell as it is: no spaces, quotes, or shell characters.
 _BARE_ARGUMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:@+-]*")
@@ -90,6 +105,12 @@ def quoted(value: object, placeholder: str) -> str:
     return f'"{placeholder}"'
 
 
+def shown(value: object) -> str:
+    """A value from elsewhere, made safe to put inside a Rich `console.print` line: ASCII, and with any
+    `[` escaped so a name like `[fix] tests` is printed rather than read as markup."""
+    return _markup_escape(ascii_text(str(value)))
+
+
 def write_lines(*lines: str) -> None:
     """Write result sentences to standard output, ASCII only."""
     axi_output.write_blocks(sys.stdout, *(ascii_text(line) for line in lines))
@@ -97,20 +118,29 @@ def write_lines(*lines: str) -> None:
 
 def print_next(commands: Sequence[str]) -> None:
     """End a command's plain output with its `help[N]:` next steps."""
+    sys.stdout.flush()
     axi_output.write_blocks(sys.stdout, axi_output.format_help(list(commands)))
 
 
-def fail(message: str, next_commands: Sequence[str]) -> NoReturn:
+def warn(text: str) -> None:
+    """A warning that does not stop the command. Standard error, so standard output stays the answer."""
+    sys.stdout.flush()
+    axi_output.write_blocks(sys.stderr, ascii_text(f"Warning: {text.strip()}"))
+
+
+def fail(message: str, next_commands: Sequence[str], *, label: str = "Error:") -> NoReturn:
     """Write `Error: <message>` and the next steps to standard error, then exit 1.
 
     For a runtime failure only; a usage error is `usage_error`. `next_commands` must name at least
     one thing to run: an error an agent cannot act on is the defect this module exists to prevent.
+    `label` replaces `Error:` only where the first word is a fact of its own (see the module text).
     """
-    if not next_commands:
-        raise ValueError("an error must name at least one next step")
+    if not message.strip() or not [c for c in next_commands if c.strip()]:
+        raise ValueError("an error must say what failed and name at least one next step")
+    sys.stdout.flush()
     axi_output.write_blocks(
         sys.stderr,
-        ascii_text(f"Error: {message.strip()}"),
+        ascii_text(f"{label} {message.strip()}"),
         axi_output.format_help(list(next_commands)),
     )
     raise typer.Exit(1)

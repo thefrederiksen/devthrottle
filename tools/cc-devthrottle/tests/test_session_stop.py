@@ -143,9 +143,9 @@ def test_a_stopped_session_prints_the_headline_then_every_detail_line_and_exits_
     assert calls[0]["body"] == {"reason": "it was editing the wrong repository"}
     out = plain(result.output)
     assert f"stopped {SHORT_ID} - process 51884 ended, row removed" in out
-    # Escaped as every Gateway sentence is (axi_output.escape_ascii), so a backslash reads doubled
-    # and the line unescapes back to exactly what the Gateway wrote.
-    assert r"the worktree C:\\Repos\\thing was left untouched" in out
+    # Printable ASCII is printed as it is (axi_cli.ascii_text), so a Windows path keeps single
+    # backslashes; only a character that is not printable ASCII is escaped.
+    assert r"the worktree C:\Repos\thing was left untouched" in out
     assert "reason: it was editing the wrong repository" in out
 
 
@@ -211,9 +211,12 @@ def test_an_ambiguous_target_is_still_an_error(gateway_stub, plain):
 
     assert result.exit_code != 0
     assert not calls, "an ambiguous target was stopped anyway - one of two sessions was guessed at"
-    out = plain(result.output)
-    assert "is ambiguous - 2 matches" in out
+    assert result.stdout == ""
+    out = plain(result.stderr)
+    assert "is ambiguous - 2 sessions match" in out
     assert "cc-devthrottle session stop" in out
+    # Full ids, so the caller can paste one back without it being ambiguous all over again.
+    assert SESSION_ID in out and OTHER_ID in out
 
 
 # ===== the reason: refused here, and refused again by the Gateway in its own words =====
@@ -434,7 +437,9 @@ def test_an_empty_details_list_prints_nothing_beyond_the_headline(gateway_stub, 
 
     assert result.exit_code == 0
     printed = [line for line in plain(result.output).splitlines() if line.strip()]
-    assert printed == ["stopped 9c41e7a2 - process 51884 ended, row removed"]
+    # The headline, then only the help[] block: nothing invented in between.
+    assert printed[0] == "stopped 9c41e7a2 - process 51884 ended, row removed"
+    assert printed[1].startswith("help[")
 
 
 def test_an_answer_with_no_headline_is_reported_as_no_answer_rather_than_as_a_success(
@@ -832,7 +837,8 @@ def test_stop_GatewaySentencesWithNewlinesAndNonAscii_AreOneAsciiLineEach(gatewa
 
     assert result.exit_code == 0
     assert result.output.isascii(), result.output
-    assert plain(result.output).splitlines() == ["stopp\\u00e9d\\nsecond", "worktree na\\u00efve\\tleft"]
+    # The two Gateway lines, each one line, then only the help[] block.
+    assert plain(result.output).splitlines()[:3] == ["stopp\\u00e9d\\nsecond", "worktree na\\u00efve\\tleft", "help[2]:"]
 
 
 def test_stop_GatewayFailureSentence_IsOneAsciiLine(gateway_stub, plain):
@@ -843,7 +849,10 @@ def test_stop_GatewayFailureSentence_IsOneAsciiLine(gateway_stub, plain):
     assert result.exit_code == 1
     assert result.output.isascii(), result.output
     first = plain(result.output).splitlines()[0]
-    assert first == "Outcome unknown: the Director on S\\u00d8REN\\nsaid [/tmp/x] no", result.output
+    assert first == (
+        "Outcome unknown: the Director on S\\u00d8REN\\nsaid [/tmp/x] no "
+        "This cannot say whether the session is still running."
+    ), result.output
 
 
 def test_undo_GatewayFailureSentence_IsOneAsciiLine(delete_stub, plain):
@@ -853,4 +862,6 @@ def test_undo_GatewayFailureSentence_IsOneAsciiLine(delete_stub, plain):
 
     assert result.exit_code == 1
     assert result.output.isascii(), result.output
-    assert plain(result.output).splitlines() == ["Error: caf\\u00e9\\nbroken [/x]"]
+    lines = plain(result.output).splitlines()
+    assert lines[0] == f"Error: could not clear the deletion flag on session {SESSION_ID}: caf\\u00e9\\nbroken [/x]"
+    assert lines[1].startswith("help[")

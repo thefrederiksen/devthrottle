@@ -59,7 +59,7 @@ repo_app = typer.Typer(cls=AxiGroup, help="List the fleet's repositories.", add_
 worktree_app = typer.Typer(cls=AxiGroup, help="List the fleet's worktrees and who is in them.", add_completion=False)
 machine_app = typer.Typer(
     cls=AxiGroup,
-    help="Search and start applications on another computer.",
+    help="List machines, search them, start applications and ask for restarts.",
     add_completion=False,
     no_args_is_help=True,
 )
@@ -71,7 +71,7 @@ director_app = typer.Typer(
 )
 mission_app = typer.Typer(
     cls=AxiGroup,
-    help="Create and list Missions (the unit of work sessions attach to).",
+    help="Create, list, attach and end Missions - the bodies of work sessions join.",
     add_completion=False,
     no_args_is_help=True,
 )
@@ -1127,7 +1127,10 @@ def machine_list(
         "Valid: name, state, version, pid, started, last-seen.",
     ),
 ) -> None:
-    """List the computers you can search and start applications on: name, state and launcher version."""
+    """List the machines you can search and start applications on.
+
+    Shows each machine's name, state and launcher version.
+    """
     from .machine_ops import list_machines
 
     list_machines(json_output, state=state, fields=fields)
@@ -1149,7 +1152,10 @@ def director_list(
         "Valid: id, name, machine, state, version, pid, user, started, last-seen.",
     ),
 ) -> None:
-    """List every Director this account is running, with the id to pass to 'session spawn --director'."""
+    """List every Director this account runs, with the id 'session spawn' takes.
+
+    Pass that id to 'cc-devthrottle session spawn <repo> --director <id>'.
+    """
     from .machine_ops import list_directors
 
     list_directors(json_output, state=state, machine=machine, fields=fields)
@@ -1208,8 +1214,9 @@ def machine_restart_request(
     director: Optional[str] = typer.Option(None, "--director", help="Which Director on that computer, when it runs several."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
 ) -> None:
-    """Ask for a Director restart. The machine scrutinises; the owner accepts once; then it runs alone.
+    """Ask for a Director restart on one machine; the owner accepts it once.
 
+    The machine scrutinises the request first; once accepted, the restart runs alone.
     A request, not a restart: it creates a pending record, refused on the spot when the machine cannot
     be restarted or another request is already pending. The direct restart stays refused to a session.
     """
@@ -1327,7 +1334,9 @@ def raise_(
     ),
     clear: bool = typer.Option(False, "--clear", help="Take the hand back down - the decision was answered."),
 ) -> None:
-    """Put your hand up to the session driving you, when you cannot go on without an answer.
+    """Put your hand up to the session driving you when you are blocked.
+
+    Use it when you cannot go on without an answer.
 
     A supervised session - a worker with a live supervisor, or a scheduled run - is quiet toward the
     owner by construction: it parks on every screen when it stops and it has no channel to him. This
@@ -1414,7 +1423,9 @@ def compact_continue(
         "continue", help="What to send once the compaction finishes. Defaults to 'continue'."
     ),
 ) -> None:
-    """Compact a session's context, then send it a message - the rescue for a STUCK session.
+    """Compact a session's context, then send it a message to get it moving.
+
+    This is the rescue for a STUCK session.
 
     A session whose context window is full cannot read anything you send it: every message is
     swallowed and the tool just reprints its context-limit line. Compaction is the only thing that
@@ -1438,7 +1449,10 @@ def buffer(
         None, help="Session to read. Defaults to THIS session (CC_SESSION_ID)."
     ),
 ) -> None:
-    """Print what a session's terminal is showing - how you see what a session is actually doing."""
+    """Print what a session's terminal is showing right now.
+
+    This is how you see what a session is actually doing.
+    """
     read_session_buffer(target)
 
 
@@ -1637,7 +1651,10 @@ def spawn(
         "its PINNED version. Unknown run ids are rejected.",
     ),
 ) -> None:
-    """Open a new session - here, on another computer with --machine, or on one Director with --director."""
+    """Open a new session here, on another machine, or on one named Director.
+
+    Use --machine for another computer, or --director for one named Director.
+    """
     spawn_session(
         repo, agent, prompt, name, purpose, command, command_args, controlled_by, args, standalone, why, role,
         machine, mission, workflow_run, director,
@@ -1719,7 +1736,7 @@ def mission_rename(
     ),
     name: str = typer.Argument(..., help="The new display name."),
 ) -> None:
-    """Rename a Mission. Its id does not change, so every attached session stays attached."""
+    """Rename a Mission; its id stays, so attached sessions stay attached."""
     mission_ops.rename_mission(mission, name)
 
 
@@ -1729,7 +1746,10 @@ def mission_complete(
         ..., help="The Mission to complete: its id, an id prefix, or part of its name."
     ),
 ) -> None:
-    """Mark a Mission as finished. It leaves the default list but is kept - this is the outcome."""
+    """Mark a Mission as finished; it leaves the default list but is kept.
+
+    This is the ending to use when the work is done.
+    """
     mission_ops.end_mission(mission, "complete")
 
 
@@ -1739,7 +1759,10 @@ def mission_remove(
         ..., help="The Mission to remove: its id, an id prefix, or part of its name."
     ),
 ) -> None:
-    """Remove a Mission that should not exist (a duplicate, a mistake). Soft: the record is kept."""
+    """Remove a Mission that should not exist; soft, so the record is kept.
+
+    For a duplicate or a mistake. Use 'mission complete' for finished work.
+    """
     mission_ops.end_mission(mission, "removed")
 
 
@@ -1769,7 +1792,7 @@ def mission_attach(
         "bulk re-parent cannot be undone in one step.",
     ),
 ) -> None:
-    """Attach a session that already exists to a Mission (moving it if it already had one)."""
+    """Attach an existing session to a Mission, moving it from any other."""
     mission_ops.attach_session(session, mission, with_children)
 
 
@@ -1826,7 +1849,10 @@ def message_send(
         help="A human-issued broadcast grant id authorizing a fleet-wide broadcast (--everyone).",
     ),
 ) -> None:
-    """Send a message to one session, or to your team when TARGET is 'all' (add --everyone for the whole fleet)."""
+    """Send a message to one session, or to your team with the target 'all'.
+
+    Add --everyone (with --reason and --grant) to reach the whole fleet.
+    """
     send_message(target, message, everyone=everyone, reason=reason, grant=grant)
 
 
@@ -1838,7 +1864,7 @@ def message_ask(
         120000, "--timeout-ms", help="How long to wait for the answer, in milliseconds."
     ),
 ) -> None:
-    """Ask TARGET the QUESTION and print the answer."""
+    """Ask one session a question, wait, and print its answer."""
     ask_session(target, question, timeout_ms)
 
 
