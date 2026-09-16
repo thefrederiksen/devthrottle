@@ -159,7 +159,7 @@ def test_a_report_with_no_words_is_refused(monkeypatch, sent):
     assert "say what you did" in result.output
 
 
-def test_a_refused_delivery_is_a_failure_not_a_shrug(monkeypatch, sent):
+def test_a_refused_delivery_is_a_failure_not_a_shrug(monkeypatch, sent, either_console):
     """A report that was not queued must not look like one that was.
 
     The whole point of this verb is that the parent LEARNS. Printing success over a refusal would
@@ -186,7 +186,8 @@ def test_a_refused_delivery_is_a_failure_not_a_shrug(monkeypatch, sent):
     result = runner.invoke(app, ["session", "report", "Done."])
     assert result.exit_code != 0
     assert "Not queued" in result.output
-    assert "the limit is 6" in result.output
+    # Verbatim, on the raw output: the Gateway's sentence is quoted, so the console must not style it.
+    assert "You have sent 6 messages in the last hour; the limit is 6." in result.output
 
 
 def test_it_reports_for_a_named_session_when_asked(monkeypatch, sent):

@@ -802,7 +802,7 @@ def report_to_parent(summary: Optional[str], target: Optional[str] = None) -> No
     try:
         resp = gateway.post_json(f"sessions/{parent_id}/message", {"text": text, "kind": "report"})
     except gateway.GatewayError as err:
-        console.print(f"[red]Not queued:[/red] {escape(str(err))}")
+        _say_gateway("[red]Not queued:[/red]", err)
         raise typer.Exit(1)
 
     parent_name = None
@@ -888,7 +888,7 @@ def compact_session(target: Optional[str], continue_prompt: Optional[str]) -> Di
         # what actually failed.
         resp = gateway.post_json(f"sessions/{sid}/compact-context", body, timeout=300)
     except gateway.GatewayError as err:
-        console.print(f"[red]Error:[/red] {escape(str(err))}")
+        _say_gateway("[red]Error:[/red]", err)
         raise typer.Exit(1)
 
     short = gateway.short_id(sid)
@@ -1235,6 +1235,19 @@ def stop_session(target: str, reason: Optional[str], json_output: bool = False) 
     return body
 
 
+def _say_gateway(label: str, sentence: Any) -> None:
+    """Print a label this tool owns, then a sentence the Gateway wrote, exactly as the Gateway wrote it.
+
+    The sentence is QUOTED TEXT - a refusal, a note, a warning - and is printed verbatim: escaped, so a
+    bracket in it is not read as markup, and with highlighting off, so the console does not colour the
+    numbers and paths inside it. With colour on, "the limit is 6" otherwise reaches the reader as
+    "the limit is <colour>6<reset>", which is no longer the sentence the Gateway sent and no longer
+    matches it. The label is ours, so it keeps its markup; an empty label prints the sentence alone.
+    """
+    text = escape(str(sentence))
+    console.print(f"{label} {text}" if label else text, highlight=False)
+
+
 def _report_queued(resp: Any, who: str) -> None:
     """Report what the Gateway did with ONE message: queued, dropped as a duplicate, or refused.
 
@@ -1252,17 +1265,18 @@ def _report_queued(resp: Any, who: str) -> None:
         mid = str(resp.get("messageId", resp.get("MessageId", "")) or "")
         console.print(
             f"[green]Queued[/green] for {escape(who)} (message {mid}). Nothing was typed into it; "
-            "it reads the message from its inbox when it is free."
+            "it reads the message from its inbox when it is free.",
+            highlight=False,
         )
         return
     if status == "duplicate":
         note = resp.get("note") or resp.get("Note") or "an identical message is already waiting unread."
-        console.print(f"[yellow]Not queued again:[/yellow] {escape(str(note))}")
+        _say_gateway("[yellow]Not queued again:[/yellow]", note)
         return
     err = None
     if isinstance(resp, dict):
         err = resp.get("error") or resp.get("Error")
-    console.print(f"[red]Not queued:[/red] {escape(str(err or 'the Gateway gave no answer this tool understands'))}")
+    _say_gateway("[red]Not queued:[/red]", err or "the Gateway gave no answer this tool understands")
     raise typer.Exit(1)
 
 
@@ -1283,7 +1297,7 @@ def _report_broadcast(resp: Any, who: str) -> None:
         raise typer.Exit(1)
     if bool(resp.get("denied", resp.get("Denied", False))):
         reason = resp.get("deniedReason") or resp.get("DeniedReason") or "the broadcast was refused"
-        console.print(f"[red]Not queued:[/red] {escape(str(reason))}")
+        _say_gateway("[red]Not queued:[/red]", reason)
         raise typer.Exit(1)
     warning = resp.get("warning") or resp.get("Warning")
     results = resp.get("results", resp.get("Results")) or []
@@ -1292,23 +1306,24 @@ def _report_broadcast(resp: Any, who: str) -> None:
         # send to - BROADCAST_EXIT_RULE has no exception for an empty recipient list.
         line = "Not queued: no workers to send to."
         if warning:
-            line += f" {escape(str(warning))}"
-        console.print(line)
+            line += f" {warning}"
+        _say_gateway("", line)
         raise typer.Exit(1)
     queued = [r for r in results if isinstance(r, dict) and r.get("status", r.get("Status")) == "queued"]
     dupes = [r for r in results if isinstance(r, dict) and r.get("status", r.get("Status")) == "duplicate"]
     refused = [r for r in results if r not in queued and r not in dupes]
     console.print(
         f"Queued for {len(queued)} of {len(results)} session(s) in {escape(who)}. Nothing was typed "
-        "into any of them; each reads it from its inbox when it is free."
+        "into any of them; each reads it from its inbox when it is free.",
+        highlight=False,
     )
     for r in dupes:
         sid = gateway.short_id(str(r.get("recipientSessionId", r.get("RecipientSessionId", "")) or ""))
-        console.print(f"  [yellow]{sid} not queued again:[/yellow] {escape(str(r.get('note') or r.get('Note') or ''))}")
+        _say_gateway(f"  [yellow]{sid} not queued again:[/yellow]", r.get("note") or r.get("Note") or "")
     for r in refused:
         sid = gateway.short_id(str(r.get("recipientSessionId", r.get("RecipientSessionId", "")) or "")) if isinstance(r, dict) else "?"
         why = (r.get("error") or r.get("Error")) if isinstance(r, dict) else None
-        console.print(f"  [red]{sid} not queued:[/red] {escape(str(why or 'refused'))}")
+        _say_gateway(f"  [red]{sid} not queued:[/red]", why or "refused")
     if not queued and not dupes:  # BROADCAST_EXIT_RULE, see the docstring
         raise typer.Exit(1)
 
@@ -1339,7 +1354,7 @@ def send_message(
         try:
             resp = gateway.post_json("fleet/broadcast", body)
         except gateway.GatewayError as err:
-            console.print(f"[red]Not queued:[/red] {escape(str(err))}")
+            _say_gateway("[red]Not queued:[/red]", err)
             raise typer.Exit(1)
         _report_broadcast(resp, "the whole account" if everyone else "your workers")
         return
@@ -1352,7 +1367,7 @@ def send_message(
     try:
         resp = gateway.post_json(f"sessions/{target_sid}/message", body)
     except gateway.GatewayError as err:
-        console.print(f"[red]Not queued:[/red] {escape(str(err))}")
+        _say_gateway("[red]Not queued:[/red]", err)
         raise typer.Exit(1)
 
     name = gateway.field(chosen, "name", "Name") or gateway.short_id(target_sid)
@@ -1403,7 +1418,7 @@ def read_inbox(include_read: bool = False, json_output: bool = False) -> Dict[st
     try:
         resp = gateway.get_json(path)
     except gateway.GatewayError as err:
-        console.print(f"[red]Error:[/red] {escape(str(err))}")
+        _say_gateway("[red]Error:[/red]", err)
         raise typer.Exit(1)
     if not isinstance(resp, dict):
         console.print("[red]Error:[/red] the Gateway did not return an inbox.")

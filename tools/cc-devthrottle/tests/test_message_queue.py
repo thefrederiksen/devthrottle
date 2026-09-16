@@ -364,3 +364,74 @@ def test_the_broadcast_exit_rule_is_stated_in_the_same_words_in_help_and_code(pl
     out = " ".join(plain(result.output).replace("|", " ").replace("│", " ").split())
     assert EXIT_RULE in out
     assert EXIT_RULE in " ".join(session_ops._report_broadcast.__doc__.split())
+
+
+# --- the Gateway's sentences are quoted verbatim ----------------------------------------------------
+#
+# A refusal, a note and a warning are the Gateway's words. They are asserted on the RAW output, on a colour
+# terminal and on a plain console (the either_console fixture): with highlighting on, the console coloured
+# the numbers inside them, and the continuous integration run - which forces colour - read
+# "the limit is <colour>6<reset>" where the Gateway had written "the limit is 6".
+
+LIMIT = "You have sent 6 messages in the last hour; the limit is 6 [per hour] at /fleet/inbox."
+
+
+def test_a_refusal_error_is_printed_verbatim(posted, either_console):
+    _, state = posted
+    state["answer"] = session_ops.gateway.GatewayError(LIMIT, status=429)
+
+    result = runner.invoke(app, ["message", "send", "worker", "hello"])
+
+    assert result.exit_code == 1
+    assert LIMIT in result.output
+
+
+def test_a_refusal_in_a_body_is_printed_verbatim(posted, either_console):
+    _, state = posted
+    state["answer"] = {"status": "refused", "error": LIMIT}
+
+    result = runner.invoke(app, ["message", "send", "worker", "hello"])
+
+    assert result.exit_code == 1
+    assert LIMIT in result.output
+
+
+def test_a_duplicate_note_is_printed_verbatim(posted, either_console):
+    _, state = posted
+    note = "33333333 has 1 identical message from you, unread since 12:04."
+    state["answer"] = {"status": "duplicate", "note": note}
+
+    result = runner.invoke(app, ["message", "send", "worker", "hello"])
+
+    assert result.exit_code == 0
+    assert note in result.output
+
+
+def test_broadcast_sentences_are_printed_verbatim(posted, either_console):
+    _, state = posted
+    state["answer"] = {"results": [_row(WORKER, "refused", error=LIMIT)]}
+    result = runner.invoke(app, ["message", "send", "all", "hello"])
+    assert result.exit_code == 1
+    assert LIMIT in result.output
+
+    state["answer"] = {"denied": True, "deniedReason": LIMIT}
+    result = runner.invoke(app, ["message", "send", "all", "hello"])
+    assert result.exit_code == 1
+    assert LIMIT in result.output
+
+    state["answer"] = {"results": [], "warning": LIMIT}
+    result = runner.invoke(app, ["message", "send", "all", "hello"])
+    assert result.exit_code == 1
+    assert "Not queued: no workers to send to. " + LIMIT in result.output
+
+
+def test_an_inbox_read_error_is_printed_verbatim(monkeypatch, either_console):
+    def refuse(path):
+        raise session_ops.gateway.GatewayError(LIMIT, status=429)
+
+    monkeypatch.setattr(session_ops.gateway, "get_json", refuse)
+
+    result = runner.invoke(app, ["message", "inbox"])
+
+    assert result.exit_code == 1
+    assert LIMIT in result.output

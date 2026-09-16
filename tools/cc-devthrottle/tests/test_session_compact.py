@@ -173,6 +173,24 @@ def test_a_bracketed_error_does_not_crash_the_verb(posted, monkeypatch, capsys, 
     assert "no session at [/tmp/x] on that Director" in plain(capsys.readouterr().out)
 
 
+def test_the_gateways_refusal_is_printed_verbatim(posted, monkeypatch, capsys, either_console):
+    # The Message Load mission: the Gateway refuses compact-continue to an agent with a sentence that names
+    # what to do instead. It is quoted text, so it must reach the reader unstyled on a colour terminal too.
+    monkeypatch.setenv("CC_SESSION_ID", SESSION_ID)
+    sentence = ("An agent may compact a session but may not send it a prompt afterwards: typing into a session "
+                "is the owner's alone. Send 1 queued message: cc-devthrottle message send <session> \"<text>\"")
+
+    def refuse(path, body, timeout=30):
+        raise session_ops.gateway.GatewayError(sentence, status=403)
+
+    monkeypatch.setattr(session_ops.gateway, "post_json", refuse)
+
+    with pytest.raises(typer.Exit):
+        session_ops.compact_session(None, "continue")
+
+    assert sentence in capsys.readouterr().out
+
+
 def test_the_actions_are_discoverable_with_their_command_lines():
     # Agents find these verbs by listing actions, not by reading the source. An action missing from the
     # catalogue does not exist as far as the fleet is concerned.
