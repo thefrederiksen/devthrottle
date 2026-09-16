@@ -284,3 +284,26 @@ real Gateway host with a recording tunnel Director.
   `ModuleNotFoundError: mdit_py_plugins` - a package missing from this machine's scratch environment, not
   a code failure.
 - Core tests: not rerun - nothing in Core changed in this round.
+
+## Architect rulings on inspection 2 (16 September 2026) - fix round 2
+
+Verdict FAIL for merge; both highs from inspection 1 confirmed closed. Rulings:
+
+1. **Recovery read bounded** (medium). `GET /fleet/inbox?all=true` returns messages read in the last
+   24 hours, newest first, at most 200 rows; the response carries `truncated: true` and the command
+   line prints "showing 200 of N read in the last 24 hours" when it is. The rows are materialised
+   outside the store lock. Test: 201 read rows return 200 and the flag; 200 return 200 and no flag.
+2. **Residual read-loss interval accepted** (medium). Marking read before the response is sent is the
+   protocol of ruling 9. The gap is written into the store's code comment as a gap, and into the
+   command help for `--all`. No code change beyond the comment.
+3. **The `none` spelling pinned on both sides** (low). A Gateway test asserts `SpawnOrigin.UserOwned`
+   is the literal `none`; a command line test asserts the literal it sends is `none`. Both name the
+   other side in their comment.
+4. **Empty broadcast exits 1** (low). `message send all` with no workers exits 1 and prints "no
+   workers to send to"; the existing test that asserted exit 0 is changed to assert this.
+5. Restore breakage: NOT in this round. The owner is deciding. Facts from inspection 2: only a
+   controlled seat restored by a session that is not its controller is refused; standalone seats and
+   owner-run restores are unaffected.
+
+Then the touched suites, each guard watched failing, this note updated, commit, push,
+`session raise "fix round 2 pushed"`, stop.
