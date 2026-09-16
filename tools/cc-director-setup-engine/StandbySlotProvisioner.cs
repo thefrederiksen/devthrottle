@@ -301,7 +301,8 @@ public sealed class StandbySlotProvisioner
 
         var standby = StandbySlotFor(_selfExecutable);
 
-        // Cheap answer for the common case, without taking the machine-wide lock.
+        // Cheap answer for the common case, without taking the machine-wide lock. Only a TRUE from File.Exists
+        // is trusted here; a false falls through to the authoritative check under the lock (MayBePresent).
         if (File.Exists(standby))
             return Task.FromResult(new StandbySlotOutcome(StandbySlotDecision.AlreadyPresent, $"{standby} exists; it is never touched"));
 
@@ -353,8 +354,8 @@ public sealed class StandbySlotProvisioner
             ?? throw new InvalidOperationException($"This Director's own executable has no readable version: {_selfExecutable}");
 
         // Read under the lock, after any wait: the slot may have been created, or a check armed or cleared.
-        var standbyExists = File.Exists(standby);
-        var leftovers = standbyExists ? [] : UpdateLeftoversFor(standby).Where(File.Exists).ToList();
+        var standbyExists = MayBePresent(standby);
+        var leftovers = standbyExists ? [] : UpdateLeftoversFor(standby).Where(MayBePresent).ToList();
         var health = standbyExists || leftovers.Count > 0 ? HealthGate.Clear : ReadHealthGate(_sharedRoot, selfVersion);
         var decision = Decide(_isWindows, isPrimary: true, standbyExists, leftovers.Count > 0, health);
         FileLog.Write($"[StandbySlotProvisioner] self={selfVersion}, standbyExists={standbyExists}, "
@@ -416,6 +417,29 @@ public sealed class StandbySlotProvisioner
         {
             if (File.Exists(staging))
                 File.Delete(staging);
+        }
+    }
+
+    /// <summary>
+    /// Whether something may be at <paramref name="path"/>. Only "not found" answers false. File.Exists is
+    /// not used because it answers false for a directory and when access is denied - either of which is
+    /// something present that this pass must not create over.
+    /// </summary>
+    internal static bool MayBePresent(string path)
+    {
+        try
+        {
+            File.GetAttributes(path);
+            return true;
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return false;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            FileLog.Write($"[StandbySlotProvisioner] could not inspect {path}, so it counts as present: {ex.Message}");
+            return true;
         }
     }
 

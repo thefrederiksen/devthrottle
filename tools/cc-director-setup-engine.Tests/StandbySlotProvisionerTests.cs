@@ -310,6 +310,28 @@ public class StandbySlotProvisionerTests : IDisposable
     }
 
     [Fact]
+    public async Task RunOnceAsync_UpdateLeftoverThatFileExistsCannotSee_StillHolds()
+    {
+        // File.Exists answers false for something it cannot see as a plain file - here a directory named
+        // like the backup. The leftover check must never ask it, or the slot is created over that update.
+        Directory.CreateDirectory(_standby + ".old");
+
+        var outcome = await Provisioner(_primary).RunOnceAsync();
+
+        Assert.Equal(StandbySlotDecision.HeldBecauseAnUpdateOwnsTheSlot, outcome.Decision);
+        Assert.False(File.Exists(_standby));
+    }
+
+    [Fact]
+    public void MayBePresent_NothingThere_IsFalse_AndSomethingThere_IsTrue()
+    {
+        Assert.False(StandbySlotProvisioner.MayBePresent(_standby));
+        Assert.False(StandbySlotProvisioner.MayBePresent(Path.Combine(_root, "no-such-folder", "cc-director.exe")));
+        Assert.True(StandbySlotProvisioner.MayBePresent(_primary));
+        Assert.True(StandbySlotProvisioner.MayBePresent(Path.Combine(_root, "app")));
+    }
+
+    [Fact]
     public async Task RunOnceAsync_OwnStagingLeftoverFromACrash_IsReplacedAndCleaned()
     {
         // A pass killed mid-copy leaves a partial file under its own staging name. That is not an update's
