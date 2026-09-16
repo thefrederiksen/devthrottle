@@ -1789,6 +1789,12 @@ public sealed class TurnVerdictService : IDisposable
         try
         {
             trace = build(settings.ColourEnabled) with { TurnEndObservedAtUtc = observedAt };
+            // THE CARRYING-ON CLOCK AS IT STOOD AT JUDGEMENT (the Wingman inspector, phase 2). The deadline depends on
+            // the owned sessions' live activity, which nothing keeps, so it is read now or never. Only a carrying-on
+            // verdict has a clock, so only one of those costs the roster read.
+            if (trace.Verdict is { Failed: false } carryingOn
+                && string.Equals(carryingOn.Verdict, TurnVerdictVocabulary.ContinuesAlone, StringComparison.Ordinal))
+                trace = trace with { ClockDeadlineUtc = TurnVerdictWatchdog.DeadlineFor(carryingOn, _env.OwnedSessions(tenant, sid)) };
         }
         catch (Exception ex)
         {

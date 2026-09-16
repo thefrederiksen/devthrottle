@@ -703,6 +703,7 @@ public sealed class GatewayHost : IAsyncDisposable
     private readonly Wingman.TurnVerdictTraceStore _turnVerdictTraces;
     /// <summary>Writes the inspector's traces off the verdict path, so a verdict never waits for its copy.</summary>
     private readonly Wingman.TurnVerdictTraceWriter _turnVerdictTraceWriter;
+    private readonly Wingman.TurnVerdictTraceRowStamp _turnVerdictTraceRowStamp;
     /// <summary>How long shutdown waits for queued traces to be written before the database is disposed.</summary>
     private static readonly TimeSpan TurnVerdictTraceDrainTimeout = TimeSpan.FromSeconds(5);
     /// <summary>Which Directors told this Gateway they send conversations (turn-push mission, phase 2).</summary>
@@ -1850,7 +1851,6 @@ public sealed class GatewayHost : IAsyncDisposable
         // per-tenant worker seam the activity ledger's retention uses.
         _turnVerdicts = new Wingman.TurnVerdictStore(_gatewayDb);
         _turnVerdictTraces = new Wingman.TurnVerdictTraceStore(_gatewayDb);
-        _turnVerdictTraceWriter = new Wingman.TurnVerdictTraceWriter(_turnVerdictTraces.Append);
         _turnVerdictRetentionSweep = new Wingman.TurnVerdictRetentionSweep(
             _tenantBoundary, TenantRegistry, _tenantContext, _turnVerdicts, _turnVerdictTraces);
         // The Message Load mission: the fleet message inbox, the one service that decides and writes a send, and
@@ -1864,6 +1864,12 @@ public sealed class GatewayHost : IAsyncDisposable
         // per-tenant seam as the retention above.
         _turnVerdictRows = new Wingman.TurnVerdictRowSource(
             _tenantSettingsResolver.TurnVerdict, _turnVerdicts, () => _turnVerdictService);
+        // The colour each stop produced is folded as its trace is written, on the writer's thread (the Wingman
+        // inspector, phase 2), from the same verdict source and the same fold the display push uses.
+        _turnVerdictTraceRowStamp = new Wingman.TurnVerdictTraceRowStamp(
+            tenant => PushedSessions.SnapshotConnected(tenant), _turnVerdictRows, FoldRowForTrace);
+        _turnVerdictTraceWriter = new Wingman.TurnVerdictTraceWriter(_turnVerdictTraces.Append,
+            stamp: _turnVerdictTraceRowStamp.Stamp);
         _turnVerdictWatchdogSweep = new Wingman.TurnVerdictWatchdogSweep(
             _tenantBoundary, TenantRegistry, _tenantContext, EnsureTurnVerdictService);
         // Slice F (ruling 10): a snooze expiry re-judges. The JUDGEMENT is fire and forget - the fold is the hot
@@ -4726,6 +4732,33 @@ public sealed class GatewayHost : IAsyncDisposable
     /// re-derives the same yellow every tick and the change gate suppresses the update permanently. This is
     /// exercised directly by the tests so the enrichment cannot silently regress again.
     /// </summary>
+    /// <summary>
+    /// The display push's fold for ONE account, named explicitly rather than read from the ambient scope, for the colour
+    /// a Wingman stop's trace records (<see cref="Wingman.TurnVerdictTraceRowStamp"/>). The same enrichment and the same
+    /// fold as the push above, with the inputs that CHANGE state when folded left out - the needs-you clock, the
+    /// voice-waiting clock and the snooze-expiry memory - because writing a record must not move the product.
+    /// </summary>
+    private void FoldRowForTrace(TenantId tenant, List<SessionDto> sessions, Wingman.ITurnVerdictRowSource rows)
+    {
+        var voiceNameable = Wingman.WingmanVoiceService.CanNameVoicePartition(tenant);
+        EnrichVoiceThenFoldForPush(
+            sessions,
+            voiceGeneratingFor: sid => voiceNameable && _voiceService?.IsGenerating(tenant, sid) == true,
+            voiceAudioReadyFor: sid => voiceNameable && _voiceService?.HasVoice(tenant, sid) == true,
+            tenant: tenant,
+            needsYouStampFor: null,
+            snoozeRegistry: _snoozeRegistry,
+            handRaises: _handRaises,
+            voiceUnavailableFor: sid => voiceNameable ? _voiceService?.VoiceUnavailableFor(tenant, sid) : null,
+            nothingToNarrateFor: sid => voiceNameable && _voiceService?.NothingToNarrateFor(tenant, sid) == true,
+            directorCannotSendConversationFor: sid => voiceNameable && _voiceService?.DirectorCannotSendConversationFor(tenant, sid) == true,
+            narrationAbandonedFor: sid => voiceNameable && _voiceService?.NarrationAbandonedFor(tenant, sid) == true,
+            voiceWaitingStampFor: null,
+            turnVerdictRows: rows,
+            snoozeExpiry: null,
+            snoozeRosterSessionIds: null);
+    }
+
     internal static void EnrichVoiceThenFoldForPush(
         List<SessionDto> sessions,
         Func<string, bool> voiceGeneratingFor,

@@ -42,6 +42,7 @@ public sealed class TurnVerdictTraceWriter : IDisposable
     public const int Capacity = 64;
 
     private readonly Action<TenantId, TurnVerdictTrace> _append;
+    private readonly Func<TenantId, TurnVerdictTrace, TurnVerdictTrace>? _stamp;
     private readonly Channel<(TenantId Tenant, TurnVerdictTrace Trace)> _queue;
     private readonly Task _loop;
     private volatile bool _abandoned;
@@ -52,9 +53,14 @@ public sealed class TurnVerdictTraceWriter : IDisposable
     private long _lost;
 
     /// <param name="append">Writes one trace. Production passes <see cref="TurnVerdictTraceStore.Append"/>.</param>
-    public TurnVerdictTraceWriter(Action<TenantId, TurnVerdictTrace> append)
+    /// <param name="stamp">Completes a trace just before it is written, on this writer's thread and never on the verdict
+    /// path. Production passes <see cref="TurnVerdictTraceRowStamp.Stamp"/>, which records the colour the stop produced.
+    /// A stamp that throws is a write that failed, logged and counted like any other.</param>
+    public TurnVerdictTraceWriter(Action<TenantId, TurnVerdictTrace> append,
+        Func<TenantId, TurnVerdictTrace, TurnVerdictTrace>? stamp = null)
     {
         _append = append ?? throw new ArgumentNullException(nameof(append));
+        _stamp = stamp;
         // FullMode is Wait, and that is not a choice to block. Enqueue only ever calls TryWrite, which never waits and
         // answers false on a full queue. DropWrite would be the wrong mode: under it TryWrite answers TRUE and throws
         // the trace away, so every drop would be silent and uncounted - the test for a full queue caught exactly that.
@@ -152,7 +158,7 @@ public sealed class TurnVerdictTraceWriter : IDisposable
 
             try
             {
-                _append(tenant, trace);
+                _append(tenant, _stamp is null ? trace : _stamp(tenant, trace));
                 Interlocked.Increment(ref _written);
             }
             catch (Exception ex)
