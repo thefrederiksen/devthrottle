@@ -268,14 +268,9 @@ public sealed class DirectorSupervisor
         }
 
 
-        if (OperatingSystem.IsWindows())
+        if (!OperatingSystem.IsMacOS())
         {
-            var psi = new ProcessStartInfo
-            {
-                FileName = DirectorExePath,
-                WorkingDirectory = Path.GetDirectoryName(DirectorExePath) ?? "",
-                UseShellExecute = true,
-            };
+            var psi = DirectStartInfo(DirectorExePath);
 
             using var proc = Process.Start(psi)
                 ?? throw new InvalidOperationException($"Process.Start returned null for: {DirectorExePath}");
@@ -285,7 +280,7 @@ public sealed class DirectorSupervisor
             return true;
         }
 
-        // macOS: hand the bundle to launchd via /usr/bin/open. open exits immediately;
+        // macOS only: hand the bundle to launchd via /usr/bin/open. open exits immediately;
         // the Director's own PID becomes visible through its instance registration file.
         var openPsi = new ProcessStartInfo
         {
@@ -305,6 +300,23 @@ public sealed class DirectorSupervisor
         // file names it. The launch itself DID happen, which is what the return value says.
         return true;
     }
+
+    /// <summary>
+    /// How the Director executable is started directly, on Windows and Linux. macOS is the one platform
+    /// that does not start it directly: it hands the bundle to launchd through <c>/usr/bin/open</c>.
+    ///
+    /// Linux used to fall through to that macOS path, and on Linux <c>/usr/bin/open</c> is a different
+    /// program entirely (usually <c>xdg-open</c>) or absent - so a launcher that stopped a Linux Director
+    /// to install an update started nothing, rolled back, and left the Director down.
+    /// </summary>
+    internal static ProcessStartInfo DirectStartInfo(string directorExePath) => new()
+    {
+        FileName = directorExePath,
+        WorkingDirectory = Path.GetDirectoryName(directorExePath) ?? "",
+        // Windows keeps the shell start it has always used. On Linux there is no shell association for
+        // an executable, so it is started as itself.
+        UseShellExecute = OperatingSystem.IsWindows(),
+    };
 
     /// <summary>
     /// Stop the running Director: raise its shutdown signal, then wait for the process to go.

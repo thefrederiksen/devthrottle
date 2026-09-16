@@ -225,7 +225,7 @@ public sealed class UpdateService
 
             if (assetName is null)
             {
-                var platform = $"{os}/{arch}";
+                var platform = $"{RuntimeInformation.OSDescription} on {arch}";
                 FileLog.Write($"[UpdateService] No Director build is published for {platform}; this machine cannot update itself.");
                 return Conclude(state, UpdatePhase.NoBuildForThisPlatform, versionText,
                     $"no Director build is published for {platform}");

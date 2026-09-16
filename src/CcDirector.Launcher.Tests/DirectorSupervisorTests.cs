@@ -180,4 +180,19 @@ public sealed class DirectorSupervisorTests
         return System.Diagnostics.Process.Start(psi)
                ?? throw new InvalidOperationException("could not start a helper process");
     }
+
+    [Fact]
+    public void DirectStartInfo_StartsTheExecutableItself_NotThroughAnotherProgram()
+    {
+        // Linux used to fall through to the macOS "/usr/bin/open" start, which on Linux is a different
+        // program or absent, so a launcher that stopped a Linux Director to update it started nothing.
+        var exe = Path.Combine(Path.GetTempPath(), "app", "cc-director");
+
+        var psi = DirectorSupervisor.DirectStartInfo(exe);
+
+        Assert.Equal(exe, psi.FileName);
+        Assert.Equal(Path.GetDirectoryName(exe), psi.WorkingDirectory);
+        Assert.Equal(OperatingSystem.IsWindows(), psi.UseShellExecute);
+        Assert.Empty(psi.ArgumentList);
+    }
 }
