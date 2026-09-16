@@ -153,3 +153,28 @@ add `needs-manager` to `SessionKeyGuard` with a test.
 - Judgement calls 1 to 5 stand as made.
 - Inspection 1 (Codex, adversarial) writes `inspection-1.md` in this folder. The Postgres proofs run
   on SOREN_NORTH, result in `postgres-proof-1.md`.
+
+## Architect rulings on inspection 1 (16 September 2026) - the slice 1 fix round
+
+Inspection 1 verdict: FAIL for merge. Every finding is accepted. Rulings, in the order they are fixed:
+
+1. **Verdict answer closed to session keys** (high). `POST /sessions/{sid}/turn-verdict/answer` is
+   refused to a session key by `SessionKeyGuard`, with a guard test that fails on the current tree.
+2. **A session key cannot invent a supervisor** (high). For a spawn made with a session key, the
+   Gateway accepts `ControllerSessionId` only when it is the caller's own id or empty (standalone with
+   its reason). Any other id is refused with a sentence that says why. The owner's spawns (device key
+   or shared token) are unchanged. Test: a session-key spawn naming an unrelated live session is
+   refused; naming itself is accepted. *Inferred* from rulings 1 and 17.
+3. **Needs-manager opened to session keys.** `POST /sessions/{sid}/needs-manager` for the caller's
+   OWN id is allowed to a session key, with a guard test; `session raise` works again.
+4. **Read-then-lost recovery widened** (medium). `GET /fleet/inbox?all=true` returns every message
+   read in the last 24 hours, not the latest 20. The read-marks-read protocol (ruling 9) stands; the
+   doorbell in slice 2 re-rings unread messages only. Help text for `message inbox --all` says what it
+   returns and why.
+5. **Constants pinned** (low). The text cap and both advice sentences are asserted against literals
+   in the tests, so a changed default goes red.
+6. **Broadcast exit code stated** (low). An all-duplicate broadcast exits 0, matching a duplicate
+   single send; the help text and the code comment say so in the same words.
+
+Then: the full Gateway unit and route suites, the cc-devthrottle tests, each new guard watched
+failing. Update this note, commit, push, `session raise "slice 1 fix round pushed"`, stop.
