@@ -102,8 +102,12 @@ public sealed class FleetMessagePolicyTests
     [Fact]
     public void Two_sessions_that_both_have_no_supervisor_are_not_related_by_their_missing_one()
     {
-        // Both controllers are null. A comparison that treated null == null as "same supervisor" would let every
-        // unsupervised session in the account message every other one.
+        // Both controllers are null. The policy never compares one supervisor with another, so this row guards a
+        // WIDENING rather than today's code: a "siblings may talk" rule that also treated two missing supervisors
+        // as the same one would let every unsupervised session in the account message every other one. That
+        // combined change was applied and this row went red (the Message Load handoff records it). The null
+        // handling in the policy's comparison on its own cannot be reached from here - it only ever compares a
+        // supervisor with a session id - so reverting it alone leaves this row green, and that is expected.
         var a = new FleetMessageAttempt(Stranger, null, Architect, null, "hi", Now, 0, null, false);
         Assert.Equal(FleetMessageOutcome.RefusedNotRelated, Decide(a).Outcome);
         var blank = new FleetMessageAttempt(Stranger, "", Architect, " ", "hi", Now, 0, null, false);
