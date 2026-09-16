@@ -92,10 +92,14 @@ internal sealed class FakeTurnVerdictEnvironment : ITurnVerdictEnvironment
     public string? CustomSpokenRules() => Custom;
     public string JudgeModel(TenantId tenant) => Model;
 
-    public async Task<TurnVerdictJudgeAnswer> AskJudgeAsync(TenantId tenant, string prompt, CancellationToken ct)
+    /// <summary>The deadline the seat passed on each judge call, in order.</summary>
+    public readonly ConcurrentQueue<TimeSpan> JudgeTimeouts = new();
+
+    public async Task<TurnVerdictJudgeAnswer> AskJudgeAsync(TenantId tenant, string prompt, TimeSpan timeout, CancellationToken ct)
     {
         Interlocked.Increment(ref _judgeCalls);
         Prompts.Enqueue(prompt);
+        JudgeTimeouts.Enqueue(timeout);
         var raw = await Judge(prompt, ct).ConfigureAwait(false);
         return new TurnVerdictJudgeAnswer(raw, Model, 0.2);
     }

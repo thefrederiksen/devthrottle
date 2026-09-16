@@ -203,9 +203,11 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
 
     public string JudgeModel(TenantId tenant) => _judgeModel(tenant);
 
-    public async Task<TurnVerdictJudgeAnswer> AskJudgeAsync(TenantId tenant, string prompt, CancellationToken ct)
+    public async Task<TurnVerdictJudgeAnswer> AskJudgeAsync(TenantId tenant, string prompt, TimeSpan timeout, CancellationToken ct)
     {
-        var settings = _settings(tenant);
+        // The brain is built with THIS call's deadline: the account's own for a first attempt, the wider one for
+        // the single re-attempt a listened-to stop may get. Built through the same builder either way.
+        var settings = _settings(tenant) with { JudgeTimeoutSeconds = (int)Math.Ceiling(timeout.TotalSeconds) };
         var model = _judgeModel(tenant);
         using var brain = _judgeBrain(tenant, settings);
         var result = await brain.AskAsync(prompt, ct).ConfigureAwait(false);
