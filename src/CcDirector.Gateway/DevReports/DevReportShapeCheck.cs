@@ -226,14 +226,19 @@ internal static class DevReportShapeCheck
             errors.Add("The questions section has questions and also says there are none. Remove the " +
                        "data-dev-report-no-questions element.");
         }
-        foreach (var marker in noQuestions)
+        if (noQuestions.Count > 1)
         {
+            errors.Add($"The questions section has {noQuestions.Count} no-questions elements. It needs exactly one.");
+        }
+        else if (noQuestions.Count == 1)
+        {
+            var marker = noQuestions[0];
             if (marker.EndTagPosition is null)
             {
                 errors.Add($"The no-questions element (<{marker.Name} data-dev-report-no-questions>) has no closing " +
                            $"</{marker.Name}> tag. Close it around its words.");
             }
-            else if (!HasVisibleText(html, marker.StartTagEnd, marker.EndTagPosition.Value))
+            else if (!HasVisibleText(html, marker.StartTagEnd, marker.EndTagPosition.Value, stopAtParagraphClosers: marker.Name == "p"))
             {
                 errors.Add("The no-questions element is empty. It must say so in words, for example " +
                            "\"No questions - nothing needed from you.\"");
@@ -346,26 +351,41 @@ internal static class DevReportShapeCheck
         return id.Length == 0 ? "(no id)" : id;
     }
 
-    private static bool HasVisibleText(string html, int from, int to)
+    // Start tags that close an open <p> in a browser. Text after one of them is not the paragraph's text,
+    // whatever end tag comes later.
+    private static readonly string[] ParagraphClosers =
+        ["address", "article", "aside", "blockquote", "details", "dialog", "div", "dl", "fieldset", "figcaption",
+         "figure", "footer", "form", "h1", "h2", "h3", "h4", "h5", "h6", "header", "hgroup", "hr", "main", "menu",
+         "nav", "ol", "p", "pre", "section", "table", "ul"];
+
+    /// <summary>True when the element's own text, as a reader would see it, has a character that is not
+    /// white space. Character references are decoded first, so &amp;nbsp; alone is still empty. For a
+    /// paragraph, reading stops at the first start tag a browser would close the paragraph on.</summary>
+    private static bool HasVisibleText(string html, int from, int to, bool stopAtParagraphClosers)
     {
-        var inTag = false;
-        for (var i = from; i < to; i++)
+        var text = new System.Text.StringBuilder();
+        var i = from;
+        while (i < to)
         {
             var c = html[i];
-            if (inTag)
+            if (c != '<')
             {
-                if (c == '>') inTag = false;
+                text.Append(c);
+                i++;
+                continue;
             }
-            else if (c == '<')
+            var nameStart = i + 1;
+            var nameEnd = nameStart;
+            while (nameEnd < to && IsNameChar(html[nameEnd])) nameEnd++;
+            if (stopAtParagraphClosers && nameEnd > nameStart &&
+                ParagraphClosers.Contains(html.Substring(nameStart, nameEnd - nameStart).ToLowerInvariant()))
             {
-                inTag = true;
+                break;
             }
-            else if (!IsSpace(c))
-            {
-                return true;
-            }
+            var close = html.IndexOf('>', i);
+            i = close < 0 || close >= to ? to : close + 1;
         }
-        return false;
+        return System.Net.WebUtility.HtmlDecode(text.ToString()).Any(ch => !char.IsWhiteSpace(ch));
     }
 
     private static bool IsRadio(Tag t)
@@ -514,6 +534,10 @@ internal static class DevReportShapeCheck
 
     private static int FindRawTextEnd(string html, string name, int from)
     {
+        if (name == "template")
+        {
+            return FindTemplateEnd(html, from);
+        }
         var at = from;
         while (true)
         {
@@ -525,6 +549,30 @@ internal static class DevReportShapeCheck
                 return close;
             }
             at = close + 1;
+        }
+    }
+
+    // Templates nest: the content of <template><template></template> ... </template> runs to the OUTER end tag.
+    private static int FindTemplateEnd(string html, int from)
+    {
+        var depth = 1;
+        var at = from;
+        while (true)
+        {
+            var lt = html.IndexOf('<', at);
+            if (lt < 0) return -1;
+            var closing = lt + 1 < html.Length && html[lt + 1] == '/';
+            var nameStart = closing ? lt + 2 : lt + 1;
+            if (string.Compare(html, nameStart, "template", 0, 8, StringComparison.OrdinalIgnoreCase) == 0)
+            {
+                var after = nameStart + 8;
+                if (after >= html.Length || IsSpace(html[after]) || html[after] == '/' || html[after] == '>')
+                {
+                    depth += closing ? -1 : 1;
+                    if (depth == 0) return lt;
+                }
+            }
+            at = lt + 1;
         }
     }
 

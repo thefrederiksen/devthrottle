@@ -187,6 +187,21 @@ public sealed class DevReportShapeCheckTests
     public void Check_EmptyNoQuestionsElement_Fails()
         => AssertFailsWith(Report(questionsBody: "<p data-dev-report-no-questions>  <span></span> </p>"), "no-questions element is empty");
 
+    [Theory]
+    [InlineData("<p data-dev-report-no-questions>&nbsp;</p>")]
+    [InlineData("<p data-dev-report-no-questions>&#160; &#x20;</p>")]
+    [InlineData("<p data-dev-report-no-questions><div>No questions - nothing needed from you.</div></p>")]
+    public void Check_NoQuestionsElementWithNoWordsOfItsOwn_Fails(string body)
+        => AssertFailsWith(Report(questionsBody: body), "no-questions element is empty");
+
+    [Fact]
+    public void Check_NoQuestionsWordsInsideAnInlineElement_Pass()
+        => Assert.True(DevReportShapeCheck.Check(Report(questionsBody: "<p data-dev-report-no-questions><b>No questions</b> - nothing needed.</p>")).Passed);
+
+    [Fact]
+    public void Check_TwoNoQuestionsElements_Fails()
+        => AssertFailsWith(Report(questionsBody: "<div data-dev-report-no-questions>None.<div data-dev-report-no-questions>None.</div></div>"), "2 no-questions elements");
+
     [Fact]
     public void Check_RadioOptionsAfterTheQuestionCloses_Fails()
     {
@@ -273,6 +288,14 @@ public sealed class DevReportShapeCheckTests
         // Review finding 4: "</scripture" does not close a script in a browser, so the markers after it are
         // still script text.
         var html = "<script>var x = '</scripture>" + Report() + "';</script>";
+        AssertFailsWith(html, "has no header");
+    }
+
+    [Fact]
+    public void Check_MarkersInsideANestedTemplate_DoNotCount()
+    {
+        // Second review, finding 4: the outer template's content runs past the inner template's end tag.
+        var html = "<template><template></template>" + Report() + "</template>";
         AssertFailsWith(html, "has no header");
     }
 
