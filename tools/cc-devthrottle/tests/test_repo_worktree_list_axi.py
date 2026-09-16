@@ -989,6 +989,7 @@ def test_list_worktrees_PascalCaseRows_ReadTheSame(serve, capsys):
 
 LINUX_UPPER = "/home/A/proj"
 LINUX_LOWER = "/home/a/proj"
+LINUX_BACKSLASH = "/home/A\\proj"
 
 
 @pytest.mark.parametrize("row_path, wanted, expected", [
@@ -1010,11 +1011,83 @@ def test_path_matches_WindowsOnlyIgnoresCaseAndSlashes(row_path, wanted, expecte
 
 
 @pytest.mark.parametrize("path, expected", [
-    (r"D:\ReposFred", True), ("c:/repos", True), ("C:", True), (r"\\server\share", True),
+    (r"D:\ReposFred", True), ("c:/repos", True), (r"\\server\share", True),
     (LINUX_UPPER, False), ("/Users/soren/C:/odd", False), ("relative/path", False),
+    # Only a drive letter with a colon and a slash, or two leading backslashes, is Windows-shaped.
+    ("C:", False), ("C:repo", False),
+    (LINUX_BACKSLASH, False), (r"relative\path", False), (r"\single\lead", False),
 ])
-def test_is_windows_path_DriveLetterOrBackslash(path, expected):
+def test_is_windows_path_DriveSlashOrNetworkShareOnly(path, expected):
     assert repo_ops.is_windows_path(path) is expected
+
+
+# ---------------------------------------------------------------------------------------------------
+# Re-check fix: a backslash inside a macOS or Linux path is a filename character, not a separator
+# ---------------------------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("row_path, wanted, expected", [
+    # The inspection's reproduction: two different repositories.
+    (LINUX_BACKSLASH, LINUX_LOWER, False),
+    (LINUX_BACKSLASH, r"/home/a\proj", False),
+    (LINUX_BACKSLASH, LINUX_BACKSLASH, True),
+    (LINUX_LOWER, LINUX_BACKSLASH, False),
+    # A drive-letter path with backslashes still ignores case and slash direction.
+    (r"C:\Repos\Proj", "c:/repos/proj", True),
+    # A drive-letter path written with forward slashes does too.
+    ("C:/Repos/Proj", r"c:\REPOS\proj", True),
+    # A network share path does too.
+    (r"\\Server\Share\Proj", "\\\\server\\share\\PROJ\\", True),
+    # A relative path with a backslash matches exactly.
+    (r"repos\Proj", r"repos\Proj", True),
+    (r"repos\Proj", r"repos\proj", False),
+    (r"repos\Proj", "repos/Proj", False),
+])
+def test_path_matches_BackslashOutsideWindowsStart_MatchesExactly(row_path, wanted, expected):
+    assert repo_ops.path_matches(row_path, wanted) is expected
+
+
+def test_repo_list_Cli_BackslashLinuxPath_IsNotTheLowercaseSlashPath(serve):
+    backslash = _repo("A\\proj", LINUX_BACKSLASH, clean=True, machine="linux-box")
+    lower = _repo("proj", LINUX_LOWER, clean=False, machine="linux-box")
+    serve(repositories=[backslash, lower])
+
+    for wanted, expected in ((LINUX_LOWER, lower), (LINUX_BACKSLASH, backslash)):
+        result = runner.invoke(app, ["repo", "list", "--repo", wanted, "--json"])
+        assert result.exit_code == 0
+        assert json.loads(result.stdout) == [expected]
+
+
+def test_worktree_list_Cli_BackslashLinuxRepoPath_IsNotTheLowercaseSlashPath(serve):
+    backslash = _worktree("/home/A\\proj-wt", "A\\proj", LINUX_BACKSLASH, "in-use", machine="linux-box")
+    lower = _worktree("/home/a/proj-wt", "proj", LINUX_LOWER, "in-use", machine="linux-box")
+    serve(worktrees=[backslash, lower])
+
+    for wanted, expected in ((LINUX_LOWER, lower), (LINUX_BACKSLASH, backslash)):
+        result = runner.invoke(app, ["worktree", "list", "--repo", wanted, "--json"])
+        assert result.exit_code == 0
+        assert json.loads(result.stdout) == [expected]
+
+
+def test_list_repositories_BackslashLinuxPath_IsNotCalledARepeat(serve, capsys):
+    serve(repositories=[
+        _repo("A\\proj", LINUX_BACKSLASH, clean=True, machine="linux-box"),
+        _repo("proj", LINUX_LOWER, clean=True, machine="linux-box", director=DIRECTOR_B),
+    ])
+
+    repo_ops.list_repositories(json_output=False)
+
+    assert "repeated:" not in capsys.readouterr().out
+
+
+def test_list_repositories_WindowsPathsDifferingByCaseAndSlash_AreCalledARepeat(serve, capsys):
+    serve(repositories=[
+        _repo("Proj", r"C:\Repos\Proj", clean=True, machine="win-box"),
+        _repo("proj", "c:/repos/proj", clean=True, machine="win-box", director=DIRECTOR_B),
+    ])
+
+    repo_ops.list_repositories(json_output=False)
+
+    assert "repeated: 1 of these rows" in capsys.readouterr().out
 
 
 def test_repo_list_Cli_LinuxPathsDifferingByCase_AreDistinct(serve):

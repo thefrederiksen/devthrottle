@@ -233,12 +233,15 @@ def _labels(dto: Dict[str, Any], key: str, index: int) -> List[str]:
     return value
 
 
-# A Windows path starts with a drive letter, or has a backslash in it (a UNC path does both kinds).
-_DRIVE = re.compile(r"^[A-Za-z]:([\\/]|$)")
+# A path is Windows-shaped ONLY when it starts with a drive letter, a colon and a slash of either
+# kind (C:\ or C:/), or with two backslashes (a network share). A backslash anywhere else is an
+# ordinary filename character on macOS and Linux, so such a path is not Windows-shaped and matches
+# exactly.
+_WINDOWS_START = re.compile(r"^([A-Za-z]:[\\/]|\\\\)")
 
 
 def is_windows_path(path: str) -> bool:
-    return bool(_DRIVE.match(path)) or "\\" in path
+    return bool(_WINDOWS_START.match(path))
 
 
 def _fold_windows(path: str) -> str:
