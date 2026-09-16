@@ -13,6 +13,7 @@ from . import __version__
 from . import browser_ops
 from . import diag_ops
 from . import email_ops
+from . import fleet_manager_ops
 from . import mission_ops
 from . import schedule_ops
 from . import settings_ops
@@ -73,6 +74,12 @@ mission_app = typer.Typer(
     no_args_is_help=True,
 )
 message_app = typer.Typer(cls=AxiGroup, help="Send messages between sessions.", add_completion=False)
+fleet_manager_app = typer.Typer(
+    cls=AxiGroup,
+    help="Show, set, or clear which session is this account's one Fleet Manager.",
+    add_completion=False,
+    no_args_is_help=True,
+)
 settings_app = typer.Typer(
     cls=AxiGroup,
     help="Read and write CC Director settings.", add_completion=False, no_args_is_help=True
@@ -129,6 +136,7 @@ app.add_typer(machine_app, name="machine")
 app.add_typer(director_app, name="director")
 app.add_typer(mission_app, name="mission")
 app.add_typer(message_app, name="message")
+app.add_typer(fleet_manager_app, name="fleet-manager")
 app.add_typer(settings_app, name="settings")
 app.add_typer(schedule_app, name="schedule")
 app.add_typer(workflow_app, name="workflow")
@@ -836,6 +844,30 @@ _ACTIONS = [
         "description": "Show local DevThrottle setup diagnostics and repair guidance.",
         "command": "cc-devthrottle setup doctor --json",
         "mutatesState": False,
+        "args": [],
+    },
+    {
+        "id": "fleet-manager-show",
+        "description": "Show which session this account has marked as its one Fleet Manager, or none.",
+        "command": "cc-devthrottle fleet-manager show",
+        "mutatesState": False,
+        "args": [],
+    },
+    {
+        "id": "fleet-manager-set",
+        "description": (
+            "Mark a session as this account's one Fleet Manager, replacing any earlier mark. "
+            "With no session, marks the session running the command."
+        ),
+        "command": "cc-devthrottle fleet-manager set [<session>]",
+        "mutatesState": True,
+        "args": [{"name": "session", "required": False}],
+    },
+    {
+        "id": "fleet-manager-clear",
+        "description": "Remove this account's Fleet Manager mark.",
+        "command": "cc-devthrottle fleet-manager clear",
+        "mutatesState": True,
         "args": [],
     },
     {
@@ -1591,6 +1623,33 @@ def spawn(
         repo, agent, prompt, name, purpose, command, command_args, controlled_by, args, standalone, why, role,
         machine, mission, workflow_run, director,
     )
+
+
+@fleet_manager_app.command("show")
+def fleet_manager_show(
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output JSON: {\"sessionId\": <id or null>}."),
+) -> None:
+    """Show which session is this account's Fleet Manager, or none."""
+    fleet_manager_ops.show(json_output)
+
+
+@fleet_manager_app.command("set")
+def fleet_manager_set(
+    session: Optional[str] = typer.Argument(
+        None, help="The session to mark: its number, an id prefix, or its name. Omit to mark this session."
+    ),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output JSON: {\"sessionId\": <id>}."),
+) -> None:
+    """Mark a session as this account's one Fleet Manager, replacing any earlier mark."""
+    fleet_manager_ops.set_mark(session, json_output)
+
+
+@fleet_manager_app.command("clear")
+def fleet_manager_clear(
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output JSON: {\"sessionId\": null}."),
+) -> None:
+    """Remove this account's Fleet Manager mark."""
+    fleet_manager_ops.clear(json_output)
 
 
 @mission_app.command("create")

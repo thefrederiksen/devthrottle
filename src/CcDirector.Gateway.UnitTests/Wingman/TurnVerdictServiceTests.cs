@@ -71,7 +71,8 @@ public sealed class TurnVerdictServiceTests : IDisposable
             traces: new TurnVerdictTraceWriter((_, _) => { }),
             language: _ => SpokenLanguages.English,
             customSpokenRules: () => null,
-            isVoiceSession: (_, _) => false);
+            isVoiceSession: (_, _) => false,
+            fleetManagerSessionId: _ => null);
         var service = new TurnVerdictService(env);
 
         var held = await service.StartTurnEnd(Signal("child-1"));

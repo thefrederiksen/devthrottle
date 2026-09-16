@@ -4,32 +4,32 @@ namespace CcDirector.Gateway.Fleet;
 
 /// <summary>
 /// THE ONE ANSWER to "is this session the Fleet Manager?". Every caller that treats the Fleet Manager
-/// differently asks here, so the mark can change in one place.
+/// differently asks here, so the rule lives in one place.
 ///
-/// THE MARK TODAY IS THE WORKFLOW SEAT: a session seated on the built-in <c>fleet-manager</c> workflow. The
-/// seat is stamped by the Director at spawn and pushed up through <c>ControlEndpoints.Map</c>, and the push
-/// store keeps it (only the role and the supervisor-liveness answer are discarded at ingest), so the Gateway
-/// can read it off any roster row.
+/// THE MARK IS THE ACCOUNT'S, NOT THE SESSION'S. There is exactly one Fleet Manager per account, and the
+/// account says which session it is: one session id per tenant, stored as the
+/// <c>fleet_manager_session_id</c> tenant setting and set or cleared through <c>PUT /gateway/fleet-manager</c>
+/// (<c>cc-devthrottle fleet-manager set|clear</c>). This is the same mark the session list pins first.
 ///
-/// AND THE SESSION IS NOT ITSELF OWNED BY A SESSION. The seat alone is not enough, because it is inherited: a
-/// session spawned with a controlling session inherits that controller's mission, and a mission spawn with no
-/// explicit run is seated on the mission's newest run. So an Architect a Fleet Manager starts can carry the
-/// <c>fleet-manager</c> seat too, and reading the seat alone would let that Architect's Workers be judged. The
-/// Fleet Manager answers to the owner and nobody else, so a controlled session is never the Fleet Manager.
+/// THE WORKFLOW SEAT DOES NOT DECIDE IDENTITY. A seat on the <c>fleet-manager</c> workflow is inherited - a
+/// session spawned under a controller inherits its mission, and a mission spawn with no explicit run is seated
+/// on the newest run - and nothing stops an unowned Architect being seated on that workflow. Reading the seat
+/// would let any of those be treated as the Fleet Manager.
 ///
-/// GAP, STATED: a session spawned with no controlling session and explicitly seated on a Fleet Manager's run
-/// (or on its mission) reads as a Fleet Manager. Step 8 of the Fleet Manager mission replaces this with a
-/// pinned mark; when it does, it changes this method and nothing else.
+/// AND THE MARKED SESSION IS NOT ITSELF OWNED BY A SESSION. The Fleet Manager answers to the owner and nobody
+/// else, so a marked session that has been given an owning session is not treated as the Fleet Manager while
+/// that ownership stands.
 /// </summary>
 internal static class FleetManagerSessions
 {
-    /// <summary>The id of the built-in workflow a Fleet Manager session is seated on.</summary>
-    public const string WorkflowId = "fleet-manager";
-
-    /// <summary>True when <paramref name="session"/> is a Fleet Manager session.</summary>
-    public static bool IsFleetManager(SessionDto? session)
+    /// <summary>
+    /// True when <paramref name="session"/> is the session the account has marked as its Fleet Manager
+    /// (<paramref name="markedSessionId"/>) and no session owns it. False when the account has no mark.
+    /// </summary>
+    public static bool IsFleetManager(SessionDto? session, string? markedSessionId)
         => session is not null
-           && string.Equals(session.WorkflowId, WorkflowId, StringComparison.Ordinal)
+           && !string.IsNullOrEmpty(markedSessionId)
+           && string.Equals(session.SessionId, markedSessionId, StringComparison.OrdinalIgnoreCase)
            && !session.IsControlled
            && string.IsNullOrEmpty(session.ControllerSessionId);
 }

@@ -290,9 +290,13 @@ Notes on individual steps, which add reasons and do not change the order or the 
   exited and working are one function, `SessionStateSkipCause`, over one snapshot.
   **Held has two answers (owner ruling, 2026-09-16).** Held for narration is "a live owning session
   holds this one", and the voice narration and the idle sweep read it. Held for judging is the same
-  EXCEPT when that direct owner is a Fleet Manager session: the turn end and the snooze expiry then
-  judge the session, because the verdict is the Fleet Manager's. It is still never narrated, and the
-  fold still parks it for the owner. The mark is `FleetManagerSessions.IsFleetManager`.
+  EXCEPT when that direct owner is the account's Fleet Manager: the turn end and the snooze expiry
+  then judge the session and store its verdict under its own id. It is still never narrated, and the
+  fold still parks it for the owner. Carrying the verdict to the Fleet Manager is step 4 of the Fleet
+  Manager mission and is not built yet. The Fleet Manager is the ONE session the account has marked
+  (tenant setting `fleet_manager_session_id`, `PUT /gateway/fleet-manager`,
+  `cc-devthrottle fleet-manager set|clear|show`), and only while no session owns it; the workflow a
+  session is seated on never decides it. The rule is `FleetManagerSessions.IsFleetManager`.
 - **The judge switch** binds only the two triggers nobody is waiting on: the detector's turn end, and
   a snooze expiry with a stop nothing has judged. A voice session is judged whatever the switch says,
   because its narration IS the verdict's spoken section, and a person's own request is not automatic

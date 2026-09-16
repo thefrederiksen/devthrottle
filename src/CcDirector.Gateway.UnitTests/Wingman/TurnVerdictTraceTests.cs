@@ -534,7 +534,8 @@ public sealed class TurnVerdictTraceTests : IDisposable
             traces: writer,
             language: _ => SpokenLanguages.English,
             customSpokenRules: () => null,
-            isVoiceSession: (_, _) => false);
+            isVoiceSession: (_, _) => false,
+            fleetManagerSessionId: _ => null);
         var service = new TurnVerdictService(env);
 
         var judged = await service.StartTurnEnd(Signal());

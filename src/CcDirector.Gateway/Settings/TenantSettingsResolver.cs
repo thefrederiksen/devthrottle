@@ -396,6 +396,11 @@ public sealed class TenantSettingsResolver
             ColourEnabled = ParseBool(_store.Get(tenant, TenantSettingKeys.TurnVerdictColourEnabled)) ?? false,
         };
 
+    /// <summary>The id of the session this account has marked as its Fleet Manager, or null when it has marked
+    /// none. Read by the turn-verdict held check at every stop, so a change applies to the next stop.</summary>
+    public string? FleetManagerSessionId(TenantId tenant)
+        => _store.Get(tenant, TenantSettingKeys.FleetManagerSessionId);
+
     // ---- writes: validate like the global setters, then persist a per-tenant override -------------------
 
     /// <summary>Set the tenant's wingman model for a role.</summary>
@@ -612,6 +617,21 @@ public sealed class TenantSettingsResolver
     /// where verdicts are stored and gradeable and no row's colour moves.</summary>
     public void SetTurnVerdictColourEnabled(TenantId tenant, bool enabled, DateTime nowUtc)
         => _store.Set(tenant, TenantSettingKeys.TurnVerdictColourEnabled, enabled ? "true" : "false", nowUtc);
+
+    /// <summary>Mark <paramref name="sessionId"/> as this account's one Fleet Manager, replacing any earlier mark.
+    /// Stored in the canonical lower-case form every roster row carries, so the held check compares like with
+    /// like.</summary>
+    /// <exception cref="ArgumentException">The session id is not a session id.</exception>
+    public void SetFleetManagerSessionId(TenantId tenant, string sessionId, DateTime nowUtc)
+    {
+        if (!Guid.TryParse(sessionId, out var parsed))
+            throw new ArgumentException($"'{sessionId}' is not a session id.", nameof(sessionId));
+        _store.Set(tenant, TenantSettingKeys.FleetManagerSessionId, parsed.ToString("D"), nowUtc);
+    }
+
+    /// <summary>Remove this account's Fleet Manager mark. Returns true when there was one to remove.</summary>
+    public bool ClearFleetManagerSessionId(TenantId tenant)
+        => _store.Remove(tenant, TenantSettingKeys.FleetManagerSessionId);
 
     /// <summary>Record this tenant's daily-email cadence state after a mention is emitted.</summary>
     public void SetDictationEmailCadence(TenantId tenant, DictationEmailCadenceState state, DateTime nowUtc)
