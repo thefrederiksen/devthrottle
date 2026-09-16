@@ -35,9 +35,10 @@ public static class SnoozeExpiryDecision
     /// <summary>
     /// What to do at the moment a snooze's clock is first seen elapsed.
     /// </summary>
-    /// <param name="armedAtUtc">When this Gateway first saw this snooze ARMED - the snooze's set time, as
-    /// observed. Null when it was never seen armed (this Gateway started while the snooze was already running),
-    /// and then nothing can be compared and nothing is decided.</param>
+    /// <param name="armedAtUtc">When this Gateway first saw THIS CLOCK armed - the snooze's set time, as
+    /// observed. NULL WHEN THAT MOMENT IS NOT KNOWN, and then there is no stretch of time to compare anything
+    /// against, so the expiry ASKS: unknown is red, and the judge is put to the current screen. See the arm below
+    /// for the three ways the moment goes missing.</param>
     /// <param name="latest">The row's latest verdict - accepted or refused - or null when it carries none.</param>
     /// <param name="verdictState">The row's <see cref="SessionDto.VerdictState"/>.</param>
     /// <param name="turnEndsSinceSnoozeSet">THE SWITCHING DESIGN'S OWN FACT: how many turns ended since the
@@ -52,9 +53,9 @@ public static class SnoozeExpiryDecision
         int? turnEndsSinceSnoozeSet)
     {
         // A read is already in flight for this stop: an answer is coming, so this must neither call the row calm
-        // nor ask a second time. The reading stamp is the one row state that carries no verdict of its own. It is
-        // NOT "None": an answer on its way is something this expiry knows and says, where None is the absence of
-        // anything to say at all.
+        // nor ask a second time. The reading stamp is the one row state that carries no verdict of its own, and
+        // it gets its OWN word so it can carry its own ledger row - an expiry spends its one edge whatever it
+        // decides, and every outcome here records exactly once.
         if (string.Equals(verdictState, VerdictStates.Reading, StringComparison.Ordinal))
             return SnoozeExpiryOutcome.ReadInFlight;
 
@@ -65,8 +66,8 @@ public static class SnoozeExpiryDecision
         // asks the judge about the current screen, which is the one answer that is true whatever happened in the
         // part this Gateway could not see.
         //
-        // WHAT REACHES THIS ARM, now that a partial view may not prune (see PruneToRoster). Two things, and the
-        // first is the one that cannot be closed from inside this class:
+        // WHAT REACHES THIS ARM, now that a partial view may not prune (see PruneToRoster). THREE things, and
+        // the first is the one that cannot be closed from inside this class:
         //
         //   A GATEWAY RESTART. The arming observation lives in PROCESS MEMORY, so a Gateway that restarts while a
         //   snooze runs has no record of when that clock started. The watch is re-armed when the session next
@@ -74,6 +75,11 @@ public static class SnoozeExpiryDecision
         //
         //   A SESSION THAT GENUINELY LEFT THE ACCOUNT AND CAME BACK. Its entry was pruned because the account
         //   really did not have it, and a returning session is a clock nobody watched start.
+        //
+        //   A NEW CLOCK NOBODY SAW ARMED. A re-snooze that runs out with no fold in between is a deadline this
+        //   memory never observed - the snooze endpoint's display push is BEST EFFORT, so nothing guarantees a
+        //   fold between arming a clock and its running out, and a short re-snooze needs only one missed push.
+        //   The entry found then belongs to the PREVIOUS clock, so it says nothing about this one.
         //
         // What no longer reaches it is a session that merely dropped out of somebody's VIEW - a filtered read, a
         // Director's own push, a machine that went quiet. Those prune nothing now, and that was the path where
@@ -283,17 +289,32 @@ public sealed class SnoozeExpiryReJudge
             var watch = _watch.TryGetValue(key, out var held) ? held : null;
             // The observation only counts for the clock that actually elapsed. A snooze this Gateway watched
             // being armed, then re-armed elsewhere, is a different stretch of quiet.
-            var armedAt = watch is { ArmedUntilUtc: DateTime armedUntil } && until is DateTime elapsed && armedUntil == elapsed
-                ? watch.ArmedSeenAtUtc
-                : null;
+            // WHICH CLOCK IS THIS WATCH ABOUT? The entry holds the deadline it was made for, so a re-snooze is a
+            // DIFFERENT clock even though it is the same session - and everything below turns on telling those
+            // apart. Compared with Nullable.Equals so that two unknown deadlines match each other: an entry made
+            // without one must not read as a new clock on every fold, which would ask the judge on every poll.
+            var sameClock = watch is not null && Nullable.Equals(watch.ArmedUntilUtc, until);
+            var armedAt = sameClock ? watch!.ArmedSeenAtUtc : null;
             var outcome = SnoozeExpiryDecision.AtExpiry(armedAt, s.TurnVerdict, s.VerdictState, turnEndsSinceSnoozeSet: null);
 
-            if (watch is { Expired: true })
+            // THE HOLD PATH BELONGS TO THE CLOCK THE EDGE FIRED FOR, AND ONLY TO IT.
+            //
+            // A SECOND SNOOZE THAT RUNS OUT WITH NO FOLD IN BETWEEN used to land here and be swallowed: the entry
+            // still said "expired" from the FIRST clock, so this took the hold path, asked nothing and recorded
+            // nothing, and that expiry was never ruled on at all. It is reachable because the snooze endpoint's
+            // display push is BEST EFFORT - nothing guarantees a fold between arming a clock and its running out
+            // - and a short re-snooze needs only one missed push. Measured before this line existed: the second
+            // expiry produced no read and no ledger row, and the only row in the ledger belonged to the first.
+            //
+            // A new clock is a new edge, so it falls through to the swap below, where its unknown arming moment
+            // makes it ASK - the same answer the other two ways of losing that moment get.
+            if (watch is { Expired: true } && sameClock)
             {
-                // ALREADY EXPIRED WHEN SOMEBODY LOOKED LAST: the edge has fired, so nothing is asked and nothing
-                // is recorded. The calm stamp is re-decided rather than remembered, and only ever downward - this
-                // can stop saying "nothing new", and can never start. A lost swap here changes nothing worth
-                // retrying for: the other caller computed the same answer from the same row.
+                // ALREADY EXPIRED WHEN SOMEBODY LOOKED LAST, and it is the same clock: the edge has fired, so
+                // nothing is asked and nothing is recorded. The calm stamp is re-decided rather than remembered,
+                // and only ever downward - this can stop saying "nothing new", and can never start. A lost swap
+                // here changes nothing worth retrying for: the other caller computed the same answer from the
+                // same row.
                 var stillNothingNew = watch.NothingNew && outcome == SnoozeExpiryOutcome.NothingNew;
                 s.SnoozeEndedNothingNew = stillNothingNew;
                 if (stillNothingNew != watch.NothingNew)
@@ -383,10 +404,22 @@ public sealed class SnoozeExpiryReJudge
     /// DIRECTION of that failure is the whole point - a bounded memory is worth an occasional repeated read, and
     /// is not worth a real ask going silent.
     ///
-    /// AND THE ARMING MOMENT ITSELF LIVES IN PROCESS MEMORY, which is the one gap this class cannot close. A
-    /// Gateway that RESTARTS while a snooze runs loses it; the watch is re-armed when the session next folds, and
-    /// its expiry reads. With a partial view no longer pruning, a restart and a genuine departure are the only
-    /// two ways it goes missing, and both answer by asking.
+    /// AND THE ARMING MOMENT ITSELF LIVES IN PROCESS MEMORY, which is the one gap this class cannot close. With
+    /// a partial view no longer pruning, THREE things can leave an expiry without it, and all three answer the
+    /// same way - by asking:
+    ///
+    ///   A GATEWAY RESTART. The arming observation lives in PROCESS MEMORY, so a Gateway that restarts while a
+    ///   snooze runs has no record of when that clock started.
+    ///
+    ///   A SESSION THAT GENUINELY LEFT THE ACCOUNT AND CAME BACK. Its entry was pruned because the account
+    ///   really did not have it, and a returning session is a clock nobody watched start.
+    ///
+    ///   A NEW CLOCK NOBODY SAW ARMED. A re-snooze that runs out with no fold in between - the snooze endpoint's
+    ///   display push is BEST EFFORT, so nothing guarantees one - is a deadline this memory never observed, and
+    ///   the entry it finds belongs to the previous clock.
+    ///
+    /// None of them can quieten a real ask, which is the property that matters; each costs one read at the colour
+    /// the row already had.
     ///
     /// THE FIX IS DEFERRED, with its cost named: the arming moment belongs ON THE SNOOZE, beside the deadline,
     /// where it survives a restart instead of being re-derived from whoever looked first. That is a schema change

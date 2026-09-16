@@ -72,9 +72,9 @@ public sealed class SnoozeExpiryDecisionTests
     [Fact]
     public void AReadAlreadyInFlight_SaysSo_RatherThanSayingNothing()
         // An answer is already coming: this must neither call the row calm nor ask a second time - but it is a
-        // THING THIS EXPIRY KNOWS, and it is not the same as knowing nothing at all. It carries its own word so
-        // it can carry its own ledger row (the Architect's ruling on the inspector's second finding), where None
-        // stays reserved for the one case with nothing whatever to say.
+        // THING THIS EXPIRY KNOWS, and it carries its own word so it can carry its own ledger row (the
+        // Architect's ruling on the inspector's second finding). There is no outcome that decides nothing any
+        // more: an expiry spends its one edge whatever it finds, so every outcome here records exactly once.
         => Assert.Equal(SnoozeExpiryOutcome.ReadInFlight,
             SnoozeExpiryDecision.AtExpiry(SnoozeSet, latest: null, VerdictStates.Reading, null));
 

@@ -729,6 +729,58 @@ public sealed class SnoozeExpiryReJudgeTests : IDisposable
     }
 
     [Fact]
+    public void ANewClockThatRanOutWithNoFoldInBetween_IsItsOwnEdge_AndASKS()
+    {
+        // THE THIRD WAY THE ARMING MOMENT GOES MISSING, and the one that was silently swallowed.
+        //
+        // The snooze endpoint's display push is BEST EFFORT, so nothing guarantees a fold between arming a clock
+        // and its running out - a short re-snooze needs only one missed push. The entry still said "expired" from
+        // the FIRST clock, so the fold took the hold path: nothing asked, nothing recorded, and that expiry never
+        // ruled on at all. Measured before the fix: the second expiry produced no read and no ledger row, and the
+        // only row in the ledger belonged to the first clock.
+        //
+        // A new clock is a NEW EDGE. It has no observed arming moment, so it answers the way the other two ways
+        // of losing that moment answer - by asking.
+        var (watch, rows, row) = ArmedAndObserved();
+        Fold(watch, rows, new[] { row }, AfterExpiry);
+        Assert.Equal(new[] { "snooze-nothing-new/s1" }, _ledger);
+        Assert.Empty(_reads);
+
+        // Re-snoozed, and the NEW clock runs out with NO fold at all while it is armed.
+        var reArmed = AfterExpiry.AddMinutes(1);
+        var newDeadline = reArmed.AddMinutes(5);
+        Snoozes.Snooze("s1", newDeadline, "dir-1");
+        Store.Store(Account, "s1", Verdict("", "", reArmed.AddMinutes(1), failed: true));
+
+        Fold(watch, rows, new[] { row }, newDeadline.AddMinutes(1));
+
+        // Its own edge, its own row, and the judge is asked.
+        Assert.Equal(new[] { "s1" }, _reads);
+        Assert.Equal(new[] { "snooze-nothing-new/s1", "snooze-re-judge-requested/s1" }, _ledger);
+        Assert.False(row.SnoozeEndedNothingNew);
+    }
+
+    [Fact]
+    public void ANewClockThatRanOutWithNoFoldInBetween_StillFiresOnlyOnce()
+    {
+        // The edge is still an edge. Telling a new clock from the watched one must not turn into asking on every
+        // fold - that would be a paid model call per poll, which is the defect the edge exists to prevent.
+        var (watch, rows, row) = ArmedAndObserved();
+        Fold(watch, rows, new[] { row }, AfterExpiry);
+
+        var reArmed = AfterExpiry.AddMinutes(1);
+        var newDeadline = reArmed.AddMinutes(5);
+        Snoozes.Snooze("s1", newDeadline, "dir-1");
+        Store.Store(Account, "s1", Verdict("", "", reArmed.AddMinutes(1), failed: true));
+
+        for (var i = 1; i < 15; i++)
+            Fold(watch, rows, new[] { row }, newDeadline.AddMinutes(i));
+
+        Assert.Equal(new[] { "s1" }, _reads);
+        Assert.Equal(2, _ledger.Count);
+    }
+
+    [Fact]
     public void TheSoleSessionOfADirector_IsPrunedByAnEmptyRoster()
     {
         // THE INSPECTOR'S OWN PROBE, and the case an earlier version of this prune got wrong three ways at once:
