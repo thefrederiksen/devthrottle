@@ -1,5 +1,6 @@
 """How cc-ship decides a spawned session has finished, crashed or stalled (issue 2935)."""
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -236,6 +237,22 @@ def test_command_CmdShimWithCmdMetacharacter_Refused(monkeypatch, arg):
     monkeypatch.setattr(fleet.shutil, "which", lambda name: r"C:\bin\cc-devthrottle.cmd")
     with pytest.raises(fleet.FleetError, match="cmd.exe"):
         fleet.command(["session", "spawn", arg])
+
+
+@pytest.mark.parametrize("arg", ["Test Mission - Reviewer - ship fix/R&D", r"C:\my work\R&D",
+                                 "a ^ b", 'x | y'])
+def test_command_CmdShimWithMetacharacterInsideQuotes_Allowed(monkeypatch, arg):
+    # Stall fix round 4: an argument with a space is quoted, where these are literal.
+    monkeypatch.setattr(fleet.shutil, "which", lambda name: r"C:\bin\cc-devthrottle.cmd")
+    assert fleet.command(["session", "spawn", "--name", arg])[-1] == arg
+    assert " " in subprocess.list2cmdline([arg]) and subprocess.list2cmdline([arg]).startswith('"')
+
+
+@pytest.mark.parametrize("arg", ["50% done", "say \"hi\" now"])
+def test_command_CmdShimPercentOrQuoteEvenWithSpace_Refused(monkeypatch, arg):
+    monkeypatch.setattr(fleet.shutil, "which", lambda name: r"C:\bin\cc-devthrottle.cmd")
+    with pytest.raises(fleet.FleetError, match="cmd.exe"):
+        fleet.command(["session", "stop", "x", "--reason", arg])
 
 
 def test_command_CmdShimWithEveryArgumentCcShipReallyPasses_Allowed(monkeypatch, tmp_path):

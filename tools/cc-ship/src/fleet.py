@@ -49,10 +49,19 @@ class FleetError(RuntimeError):
     """A fleet command failed; the message carries the command's own output."""
 
 
-# cmd.exe re-reads the arguments of a .cmd file; these characters change their meaning
-# there. Python only quotes an argument that has a space in it, so "&" in C:\work\R&D
+# cmd.exe re-reads the arguments of a .cmd file. A quote, a percent sign (expanded even
+# inside quotes) or a line break is never safe. & | < > ^ are safe only inside quotes,
+# and Python quotes an argument only when it contains a space or a tab, so C:\work\R&D
 # would reach cmd.exe bare and split the command.
-_UNSAFE_FOR_CMD = set('"%&|<>^\n\r')
+_NEVER_SAFE_FOR_CMD = set('"%\n\r')
+_SAFE_ONLY_QUOTED_FOR_CMD = set("&|<>^")
+
+
+def _cmd_misreads(arg: str) -> bool:
+    if _NEVER_SAFE_FOR_CMD & set(arg):
+        return True
+    quoted = arg == "" or " " in arg or "\t" in arg
+    return not quoted and bool(_SAFE_ONLY_QUOTED_FOR_CMD & set(arg))
 
 
 def command(args: list[str]) -> list[str]:
@@ -66,11 +75,11 @@ def command(args: list[str]) -> list[str]:
     if path is None:
         raise FleetError(f"{CLI} is not on PATH; cc-ship reaches the fleet through it.")
     if path.lower().endswith((".cmd", ".bat")):
-        bad = [a for a in args if _UNSAFE_FOR_CMD & set(a)]
+        bad = [a for a in args if _cmd_misreads(a)]
         if bad:
-            raise FleetError(f"cannot pass {bad[0]!r} safely to {path}: it contains one of "
-                             "\" % & | < > ^ or a line break, which cmd.exe would misread. "
-                             "Rename the folder or text so it has none of them.")
+            raise FleetError(f"cannot pass {bad[0]!r} safely to {path}: cmd.exe would misread "
+                             "it (a quote, a percent sign, a line break, or & | < > ^ in text "
+                             "without a space). Rename the folder or branch so it has none.")
     return [path, *args]
 
 
