@@ -16,6 +16,7 @@ import io
 import json
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 import typer
@@ -342,6 +343,62 @@ def test_mission_list_Cli_AllAndName_ThroughAPipe(serve):
     assert [m["missionId"] for m in json.loads(result.stdout)] == [
         MISSIONS[i]["missionId"] for i in (0, 1, 2, 3, 4)
     ]
+
+
+@pytest.fixture
+def gateway_answers(monkeypatch):
+    """Run the REAL MissionClient.list_all against a Gateway whose 200 answer is `body`."""
+    def init(self, base_url=None):
+        self.base_url = "http://gateway.example"
+        self._token = "key"
+
+    monkeypatch.setattr(mission_ops.MissionClient, "__init__", init)
+    monkeypatch.setattr(mission_ops.requests, "request", MagicMock(return_value=MagicMock(status_code=200)))
+
+    def answer(body):
+        monkeypatch.setattr(mission_ops.gateway, "parse_json_body", lambda resp, base_url: body)
+
+    return answer
+
+
+NOT_A_LIST = [None, {}, {"missions": []}, "none", 0]
+
+
+@pytest.mark.parametrize("body", NOT_A_LIST)
+@pytest.mark.parametrize("args", [{"json_output": False}, {"json_output": True},
+                                  {"json_output": True, "state": "all"},
+                                  {"json_output": False, "name": "a"}, {"json_output": True, "name": "a"}])
+def test_list_missions_AnswerIsNotAList_ExitsOne(gateway_answers, capsys, body, args):
+    # Absent is not empty: an answer with no list of missions never reads as "No missions on the Gateway".
+    gateway_answers(body)
+
+    with pytest.raises(typer.Exit) as exc:
+        mission_ops.list_missions(**args)
+
+    assert exc.value.exit_code == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "no list of missions" in captured.err
+
+
+@pytest.mark.parametrize("body", NOT_A_LIST)
+def test_resolve_mission_AnswerIsNotAList_ExitsOne(gateway_answers, capsys, body):
+    # The other caller of list_all: a broken answer must not read as "no mission matches".
+    gateway_answers(body)
+
+    with pytest.raises(typer.Exit) as exc:
+        mission_ops._resolve_mission("anything")
+
+    assert exc.value.exit_code == 1
+    captured = capsys.readouterr()
+    assert "no list of missions" in captured.out + captured.err
+    assert "matches" not in (captured.out + captured.err).lower()
+
+
+def test_list_all_AnswerIsAList_ReturnsItUnchanged(gateway_answers):
+    gateway_answers(MISSIONS)
+
+    assert mission_ops.MissionClient().list_all(state="all") == MISSIONS
 
 
 def test_list_missions_GatewayError_ExitsOneWithTheSentence(monkeypatch, capsys):

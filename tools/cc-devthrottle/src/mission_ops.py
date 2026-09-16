@@ -147,7 +147,13 @@ class MissionClient:
         """
         path = "/missions" if not state else f"/missions?state={state}"
         data = self._ok_or_raise(self._request("GET", path))
-        return list(data) if isinstance(data, list) else []
+        # Absent is not empty: an answer that is not a list of missions must never read as "no missions".
+        if not isinstance(data, list):
+            raise GatewayError(
+                f"the Gateway at {self.base_url} answered {path} with no list of missions; "
+                "this tool will not report that as no missions."
+            )
+        return data
 
     def patch(self, mission_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
         """Change a mission: its why, its name, or its state. Returns MissionPatchResultDto."""

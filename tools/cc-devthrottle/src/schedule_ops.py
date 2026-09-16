@@ -225,14 +225,24 @@ def _ascii_text(block: str) -> str:
 
 
 def _check_jobs(jobs: List[Any]) -> None:
-    """A schedule with no id cannot be named by any verb, and one whose enabled flag is not true or
-    false cannot be counted. Either is a broken answer from the Gateway, and fails loudly."""
+    """A schedule with no id cannot be named by any verb, one whose enabled flag is not true or false
+    cannot be counted, and one with no target machine cannot be filtered by machine - the Gateway
+    refuses to store any of them. Each is a broken answer from the Gateway, and fails loudly rather
+    than dropping out of a filtered list."""
     for index, job in enumerate(jobs):
         job_id = job.get("id") if isinstance(job, dict) else None
         if not isinstance(job_id, str) or not job_id.strip():
             print(
                 f"Error: the Gateway returned a schedule with no id (row {index + 1}). "
                 "This tool will not list a schedule it cannot name; --json shows the raw rows.",
+                file=sys.stderr,
+            )
+            raise typer.Exit(1)
+        machine = _job_machine(job)
+        if not isinstance(machine, str) or not machine.strip():
+            print(
+                f"Error: the Gateway returned schedule {axi_output.format_value(job_id)} with no target "
+                "machine; every schedule must have one. --json shows the raw rows.",
                 file=sys.stderr,
             )
             raise typer.Exit(1)

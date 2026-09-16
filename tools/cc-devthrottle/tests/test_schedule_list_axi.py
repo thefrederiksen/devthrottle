@@ -377,6 +377,43 @@ def test_schedule_list_Cli_EnabledNotABoolean_ExitsOne(serve, args, value):
     assert result.stdout == ""
 
 
+@pytest.mark.parametrize("args", [["schedule", "list"], ["schedule", "list", "--machine", "SOREN_NORTH"],
+                                  ["schedule", "list", "--machine", "SOREN_NORTH", "--json"],
+                                  ["schedule", "list", "--enabled", "--json"],
+                                  ["schedule", "list", "--disabled"]])
+@pytest.mark.parametrize("target", ["drop", None, {}, {"machine": None}, {"machine": ""},
+                                    {"machine": "  "}, {"machine": 7}, "SOREN_NORTH"])
+def test_schedule_list_Cli_JobWithNoMachine_ExitsOne(serve, args, target):
+    # The Gateway refuses to store a schedule with no target machine. One that arrives anyway fails
+    # loudly; it never quietly drops out of a --machine filter as a nonmatch.
+    orphan = _job("cj_0rphan", "orphan", True)
+    if target == "drop":
+        del orphan["target"]
+    else:
+        orphan["target"] = target
+    serve(JOBS + [orphan])
+
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 1
+    assert "cj_0rphan" in result.stderr
+    assert "no target machine" in result.stderr
+    assert result.stdout == ""
+
+
+def test_schedule_list_Cli_UnfilteredJson_JobWithNoMachine_PrintsTheRawRows(serve):
+    # The unfiltered --json reads no row; it prints the Gateway's answer as it always has, and is
+    # where the error message sends the caller to look.
+    orphan = _job("cj_0rphan", "orphan", True)
+    del orphan["target"]
+    serve(JOBS + [orphan])
+
+    result = runner.invoke(app, ["schedule", "list", "--json"])
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == JOBS + [orphan]
+
+
 def test_list_jobs_GatewayError_ExitsOneWithTheSentence(monkeypatch, capsys):
     def fail(self):
         raise schedule_ops.GatewayError("Gateway not reachable at http://gateway.example")
