@@ -1025,22 +1025,45 @@ def worktree_list(
 
 @machine_app.command("list")
 def machine_list(
-    json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output raw JSON: every field, a bare array. Filters still apply."
+    ),
+    state: str = typer.Option(
+        None, "--state", help="Only these states, comma separated: online, offline, too-old."
+    ),
+    fields: str = typer.Option(
+        None,
+        "--fields",
+        help="Fields to show, comma separated. Default: name,state,version. "
+        "Valid: name, state, version, pid, started, last-seen.",
+    ),
 ) -> None:
-    """List the computers you can search and start applications on."""
+    """List the computers you can search and start applications on: name, state and launcher version."""
     from .machine_ops import list_machines
 
-    list_machines(json_output)
+    list_machines(json_output, state=state, fields=fields)
 
 
 @director_app.command("list")
 def director_list(
-    json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output raw JSON: every field, a bare array. Filters still apply."
+    ),
+    state: str = typer.Option(
+        None, "--state", help="Only these states, comma separated: online, wobbly, offline, stopped."
+    ),
+    machine: str = typer.Option(None, "--machine", help="Only Directors on this machine."),
+    fields: str = typer.Option(
+        None,
+        "--fields",
+        help="Fields to show, comma separated. Default: id,name,machine,state. "
+        "Valid: id, name, machine, state, version, pid, user, started, last-seen.",
+    ),
 ) -> None:
     """List every Director this account is running, with the id to pass to 'session spawn --director'."""
     from .machine_ops import list_directors
 
-    list_directors(json_output)
+    list_directors(json_output, state=state, machine=machine, fields=fields)
 
 
 @machine_app.command("apps")
