@@ -191,6 +191,11 @@ jobs:
       - name: Run the shipped-tool contract guard
         run: python -m pytest tools/test_shipped_tools_contract.py -q
 
+      # The shared output helper every cc-devthrottle list command renders through. Only this one
+      # file: the other cc_shared tests need dependencies this job does not install.
+      - name: Run the shared output helper tests
+        run: python -m pytest tools/cc_shared/tests/test_axi_output.py -q
+
       # cc-devthrottle is itself a shipped tool and the fleet's command surface; its own tests were
       # equally unrun. Executed from the tool's directory because its tests import `src` directly.
       # FORCE_COLOR is set deliberately: the defect these tests carried only appears when Rich
