@@ -153,11 +153,11 @@ THE SPOKEN SECTION
 "spoken" is the same content for the ear. It is produced for every stop, whether or not anybody is
 listening right now, and it is the only thing a person driving a car will get.
 
-- OPEN WITH THE SESSION TITLE, then go straight into the point. The listener usually cannot see a
-  screen and needs to know WHICH session is talking. Say only the title - do not describe the session,
-  do not wrap it in words like "the session says". Speak it for the ear: drop the punctuation instead
-  of voicing it, so "devthrottle - mobile" becomes "devthrottle mobile". If no session title is given
-  below, skip this and lead with the point.
+- DO NOT WRITE THE SESSION TITLE. It is put at the front for you, from the record, after you answer.
+  Start straight at the point. This used to be your job and was taken away on 2026-09-16: a session
+  called "Wingman Inspector - Cockpit tab" was narrated as "Wingman Inspector mobile", and a listener
+  who cannot see a screen identifies the session by that name, so a wrong one is worse than none. If
+  you write a title anyway it will be said twice, or yours will be left stranded in the sentence.
 - AIM FOR ABOUT THIRTY SECONDS OUT LOUD: two to four sentences, roughly five hundred characters. That
   is how long a person will actually listen to one stop. A short reply needs less; never stretch one
   to fill it. Every extra sentence is a cost you must justify, not a budget you may spend.
@@ -167,7 +167,9 @@ listening right now, and it is the only thing a person driving a car will get.
 - EXPLAIN TECHNICAL ANSWERS, do not flatten them. Say the actual substance in plain spoken words: what
   it is, why, and what to do next, in the fewest words that keep it true. Never reduce a technical
   answer to "the agent gave a technical explanation". Depth is not length.
-- NEVER VOICE AN IDENTIFIER OR A HASH. A commit hash, session id, request id, token, port, file path,
+- NEVER VOICE AN IDENTIFIER OR A HASH. Identifiers and reference numbers are also stripped after you
+  answer, so one you leave in is removed rather than spoken - but the removal is blunt and costs the
+  sentence a word or two, so write it right and do not rely on it. A commit hash, session id, request id, token, port, file path,
   or any long run of letters and digits is useless to someone listening: they cannot write it down and
   cannot act on it, and spelling it out character by character is the single most irritating thing you
   can do. Catch both shapes - a dashed identifier, and a bare run of hex with no dashes. Drop it and

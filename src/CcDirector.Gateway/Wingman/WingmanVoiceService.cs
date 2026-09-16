@@ -1507,7 +1507,11 @@ public sealed class WingmanVoiceService
             // stop that ends on a picker says so. The verdict is the judge's, and it already fed the menu cache
             // the send-time guards read, under the same full-grid hash.
             // Every spoken string goes through the one sanitize-for-speech pass, whether a model wrote it or not.
-            var spoken = Speech.SpeechContract.Finish(verdict.Spoken);
+            // The session is named HERE, from the record, and identifiers are taken out HERE - not asked
+            // for in the prompt and hoped for. See SpokenForEar for the audit that forced both.
+            var spoken = Speech.SpokenForEar.Assemble(
+                _sessionTitleResolver?.Invoke(tenant, sid),
+                Speech.SpeechContract.Finish(verdict.Spoken));
             if (TurnVerdictService.ScreenNeeds(verdict) == "menu")
             {
                 spoken += Speech.SpokenPhrases.WaitingScreenMenuNarrationSuffix.In(_tenantSettings.SpokenLanguage(tenant));
@@ -1633,7 +1637,11 @@ public sealed class WingmanVoiceService
             }
 
             var verdict = outcome.Verdict!;
-            var spokenNow = Speech.SpeechContract.Finish(verdict.Spoken);
+            // The on-request path assembles exactly as the turn-end path above does. Two callers, one
+            // assembly - a second spelling here is how the phone and the sweep come to say different things.
+            var spokenNow = Speech.SpokenForEar.Assemble(
+                _sessionTitleResolver?.Invoke(tenant, sid),
+                Speech.SpeechContract.Finish(verdict.Spoken));
             SetNothingToNarrate(tenant, sid, false);
             await StoreSpokenAsync(tenant, sid, spokenNow, outcome.SourceText ?? "", CancellationToken.None,
                 sourceIdentity: verdict.VerdictId, sourceKind: verdict.PackageKind, markAsVoiceSession: markAsVoiceSession);

@@ -34,8 +34,15 @@ public static class TurnVerdictContract
     /// v1: the judge contract as slice C shipped it. v2 (slice D): the prompt gained finishedKind and the
     /// owned-sessions facts, and validation requires finishedKind on a finished verdict and refuses it on
     /// every other. Records stored under v1 keep their v1 stamp and stay readable; nothing reads the
-    /// version to decide whether a record may be shown.</summary>
-    public const string Version = "v2";
+    /// version to decide whether a record may be shown.
+    ///
+    /// v2.1 (2026-09-16): the SPOKEN section only. The judge no longer writes the session title - it is
+    /// prepended from the record after the answer - and it is told that identifiers and reference numbers
+    /// are stripped after it answers. Nothing about the JSON shape or validation changed, which is why the
+    /// resource file keeps its v2 name and the grading tool keeps its path: renaming it would move a file
+    /// the grader reads, for a revision that cannot change how any stored record is read. The stamp still
+    /// moves, so a record can say which wording produced it.</summary>
+    public const string Version = "v2.1";
 
     /// <summary>The embedded name of the prompt template. The grading tool reads the same file off
     /// disk at src/CcDirector.Core/Wingman/Prompts/turn-verdict-v2.txt; a test pins the two to be

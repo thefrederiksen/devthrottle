@@ -1616,15 +1616,27 @@ public sealed class TurnVerdictContractTests
     }
 
     [Fact]
-    public void ContractVersion_IsV2_AndNamesThePromptFileTheBytesAreReadFrom()
+    public void ContractVersion_NamesThePromptFileByItsSHAPE_AndStillMovesForWording()
     {
-        // Slice D changed the prompt and the validation, so the stamp moved from v1 (what slice C shipped live)
-        // to v2, and a stored answer says which of the two shapes it was accepted under.
-        Assert.Equal("v2", TurnVerdictContract.Version);
-        // The version and the file it names move together: a version bumped without the file, or a file renamed
-        // without the version, fails here and not in the grading.
-        Assert.EndsWith($"/turn-verdict-{TurnVerdictContract.Version}.txt", TurnVerdictContract.PromptResourcePath);
-        Assert.EndsWith($".turn-verdict-{TurnVerdictContract.Version}.txt", TurnVerdictContract.PromptResourceName);
+        // TWO THINGS MOVE AT DIFFERENT RATES, and this test used to assume they were one.
+        //
+        // The MAJOR part names the file: it is the SHAPE - the JSON a verdict must be, and what validation
+        // accepts. The grading tool reads that file off disk by path, so renaming it moves the grader's
+        // ground truth, and nothing but a shape change may do that.
+        //
+        // The FULL version is the stamp on a stored record, and it must move for a WORDING change too, or a
+        // record cannot say which prompt produced its words. v2.1 (2026-09-16) rewrote the SPOKEN section
+        // only - the judge stopped writing the session title - and changed no shape and no validation.
+        //
+        // Before this, the two were pinned equal, so a prompt-only revision could not be stamped at all
+        // without renaming a file the grader reads. That is the coupling being broken, deliberately, and
+        // the half that protects the grader is kept exactly as strict.
+        var major = TurnVerdictContract.Version.Split('.')[0];
+        Assert.Equal("v2", major);
+        Assert.EndsWith($"/turn-verdict-{major}.txt", TurnVerdictContract.PromptResourcePath);
+        Assert.EndsWith($".turn-verdict-{major}.txt", TurnVerdictContract.PromptResourceName);
+        // A stamp that never moves is a stamp that says nothing, so it must still be at least the major.
+        Assert.StartsWith(major, TurnVerdictContract.Version, StringComparison.Ordinal);
     }
 
     [Fact]
