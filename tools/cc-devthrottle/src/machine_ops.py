@@ -168,8 +168,15 @@ def _count_line(states: List[str], order: Tuple[str, ...], total: Optional[int])
     return axi_output.format_count(len(states), total=total, breakdown=breakdown)
 
 
+def _note(text: str) -> str:
+    """A free-text note or caution for plain output, escaped so it is always one physical line of printable
+    ASCII - a newline or tab in a name the Gateway sent must not split it."""
+    return axi_output.escape_ascii(text)
+
+
 def _write(blocks: List[str]) -> None:
-    axi_output.write_blocks(sys.stdout, *(b if b.isascii() else axi_output.escape_ascii(b) for b in blocks))
+    # Every block is already rendered: lists and help by the shared helper, notes through _note.
+    axi_output.write_blocks(sys.stdout, *blocks)
 
 
 def _machine_states(launchers: List[Dict[str, Any]]) -> Tuple[List[str], List[str]]:
@@ -181,11 +188,17 @@ def _machine_states(launchers: List[Dict[str, Any]]) -> Tuple[List[str], List[st
         _answer_error("the Gateway's machines view has no list of machines, so no machine state can be shown.")
     reach_by_name: Dict[str, Any] = {}
     no_launcher: List[str] = []
-    for entry in machines:
-        if isinstance(entry, dict) and isinstance(entry.get("machine"), str):
-            reach_by_name[entry["machine"].lower()] = entry.get("reach")
-            if entry.get("reach") == _NO_LAUNCHER_REACH:
-                no_launcher.append(entry["machine"])
+    for index, entry in enumerate(machines):
+        # A row that cannot be named is refused, never skipped: skipping it turns a machine into silence.
+        name = entry.get("machine") if isinstance(entry, dict) else None
+        if not isinstance(name, str) or not name.strip():
+            _answer_error(
+                f"the Gateway's machines view has an entry with no machine name (entry {index + 1}). "
+                "This tool will not list what it cannot name."
+            )
+        reach_by_name[name.lower()] = entry.get("reach")
+        if entry.get("reach") == _NO_LAUNCHER_REACH:
+            no_launcher.append(name)
     states = []
     for row in launchers:
         name = gateway.field(row, "machineName", "MachineName")
@@ -214,7 +227,7 @@ def _no_launcher_line(names: List[str]) -> str:
     else:
         head = (f"{len(names)} more machines have a Director but no launcher, so they are not listed: "
                 f"{', '.join(names)}.")
-    return head + " See them with: cc-devthrottle director list"
+    return _note(head + " See them with: cc-devthrottle director list")
 
 
 def list_machines(json_output: bool, *, state: Optional[str] = None, fields: Optional[str] = None) -> None:
@@ -252,12 +265,12 @@ def list_machines(json_output: bool, *, state: Optional[str] = None, fields: Opt
     ]
     if not rows:
         if filtered and launchers:
-            blocks.append("No machine matches the filter.")
+            blocks.append(_note("No machine matches the filter."))
         else:
-            blocks.append(
+            blocks.append(_note(
                 "No machines are registered. A machine appears here once cc-launcher is running on it "
                 "and has registered with the Gateway."
-            )
+            ))
     if no_launcher:
         blocks.append(_no_launcher_line(no_launcher))
     blocks.append(axi_output.format_help(_machine_list_help(bool(rows), filtered, chosen_fields)))
@@ -384,12 +397,12 @@ def list_directors(
     ]
     if not rows:
         if filtered and directors:
-            blocks.append("No Director matches the filter.")
+            blocks.append(_note("No Director matches the filter."))
         else:
-            blocks.append(
+            blocks.append(_note(
                 "No Directors are registered. A Director appears here once it is running and has "
                 "connected to the Gateway."
-            )
+            ))
     blocks.append(axi_output.format_help(_director_list_help(bool(rows), filtered, chosen_fields)))
     _write(blocks)
 

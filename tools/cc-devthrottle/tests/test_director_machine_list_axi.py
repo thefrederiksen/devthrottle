@@ -704,6 +704,44 @@ def test_machine_list_Cli_NoNoLauncherMachines_NoLine(serve):
     assert "no launcher" not in result.stdout
 
 
+@pytest.mark.parametrize("bad_entry, launchers", [
+    ({"reach": "NoLauncher"}, []),                       # the inspection's reproduction
+    ({"machine": "   ", "reach": "NoLauncher"}, []),
+    ({"machine": None, "reach": "Connected"}, LAUNCHERS),
+    ("BUILD-BOX", LAUNCHERS),
+])
+@pytest.mark.parametrize("args", [
+    ["machine", "list"],
+    ["machine", "list", "--state", "online"],
+    ["machine", "list", "--state", "online", "--json"],
+])
+def test_machine_list_Cli_MachinesViewEntryWithNoName_ExitsOne(serve, bad_entry, launchers, args):
+    # Every path that reads the Machines view refuses an entry it cannot name, instead of skipping it.
+    view = _machines_view(launchers, MACHINE_REACH[:len(launchers)]) if launchers else {"machines": []}
+    view["machines"].append(bad_entry)
+    serve({"launchers": launchers, "machines": view})
+
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert "machines view has an entry with no machine name" in result.stderr
+
+
+def test_machine_list_Cli_ControlCharactersInNoLauncherName_NoteStaysOneLine(serve):
+    # A newline and a tab are ASCII, so they must be escaped on their own merits, not only with non-ASCII.
+    serve({"launchers": [], "machines": {"machines": [{"machine": "BUILD\nBOX\tTWO", "reach": "NoLauncher"}]}})
+
+    result = runner.invoke(app, ["machine", "list"])
+
+    assert result.exit_code == 0
+    lines = result.stdout.splitlines()
+    assert ("1 more machine has a Director but no launcher, so it is not listed: BUILD\\nBOX\\tTWO. "
+            "See them with: cc-devthrottle director list") in lines
+    assert "\t" not in result.stdout
+    assert not any(line.startswith("BOX") for line in lines)
+
+
 # ---------------------------------------------------------------------------------------------------
 # machine list: --json keeps its shape
 # ---------------------------------------------------------------------------------------------------
