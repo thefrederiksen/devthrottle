@@ -18,16 +18,34 @@ def reviewer_brief(
     head: str,
     intent: Path,
     diff: Path,
-    decisions: Path | None,
+    decisions: list[dict],
     output: Path,
     repo_rules: list[str],
     first_reviewed_head: str | None,
 ) -> str:
     rules = "\n".join(f"- {r}" for r in repo_rules) or "- (none declared)"
-    decisions_line = (
-        f"- The owner's recorded decisions on this branch: {decisions}. A decided finding is closed; never raise it again."
-        if decisions else "- There are no recorded owner decisions on this branch yet."
-    )
+    def describe(d: dict) -> str:
+        note = f" (owner: {d['note']})" if d["note"] else ""
+        return (f"  - {d['id']}: \"{d['title']}\" in {d['file'] or '(whole change)'}: "
+                f"{d['sequence']}{note}")
+
+    closed = [d for d in decisions if d["decision"] in ("keep", "drop")]
+    to_fix = [d for d in decisions if d["decision"] == "fix"]
+    parts = []
+    if closed:
+        parts.append(
+            "- CLOSED by the owner (he kept or dropped these). Do not raise them again. Only "
+            "when you are CERTAIN a finding is the same failing behaviour as one of them may "
+            "you report it with \"same_as_decision\" set to its id (for example \"D1\"); it "
+            "is then recorded, not asked again. If you are not certain it is the same, report "
+            "it normally without that field, so the owner can see it:\n"
+            + "\n".join(describe(d) for d in closed))
+    if to_fix:
+        parts.append(
+            "- The owner said these MUST BE FIXED. Check that each one really is fixed; if it "
+            "is not, report it again as a finding (never with same_as_decision):\n"
+            + "\n".join(describe(d) for d in to_fix))
+    decisions_line = "\n".join(parts) or "- There are no recorded owner decisions on this branch yet."
     rereview = ""
     if first_reviewed_head:
         rereview = f"""
@@ -94,17 +112,18 @@ Use ASCII only. Then run this command, and stop:
 """
 
 
-def correction_brief(output: Path, problems: list[str], attempt: int) -> str:
+def correction_brief(output: Path, problems: list[str], attempt: int, role: str) -> str:
     listed = "\n".join(f"- {p}" for p in problems)
-    return f"""# cc-ship: your review file is invalid (correction {attempt} of 2)
+    keep = "your findings" if role == "reviewer" else "your scenarios and evidence"
+    return f"""# cc-ship: your {output.name} is invalid (correction {attempt} of 2)
 
 The file {output} does not match the required shape:
 
 {listed}
 
-Rewrite {output} so that every problem above is gone, keeping your findings. Then run:
+Rewrite {output} so that every problem above is gone, keeping {keep}. Then run:
 
-    {DONE_COMMAND.format(role="reviewer")}
+    {DONE_COMMAND.format(role=role)}
 """
 
 
@@ -137,9 +156,19 @@ def verifier_brief(
     browser_state: Path | None,
     evidence_dir: Path,
     output: Path,
+    docs_only: bool = False,
 ) -> str:
     browser_session = f"verify-{output.parent.name}"
-    if preview_url and browser_state:
+    if docs_only:
+        surface = """## The live surface
+
+This change touches only documents. There is nothing to run live. Confirm that from the
+diff (git diff origin/main...HEAD --stat). If it is true, record one scenario per changed
+document as untested, not live, with the reason "Nothing to run live: documents only",
+and the verdict "no-surface". If the change does contain something that runs, say so in
+a scenario and use the verdict "inconclusive".
+"""
+    elif preview_url and browser_state:
         surface = f"""## The live surface
 
 A preview of this exact change is deployed at:
@@ -147,7 +176,9 @@ A preview of this exact change is deployed at:
     {preview_url}
 
 It is behind a sign-in. The file {browser_state} holds a browser state that gets you
-past it. Drive it with playwright-cli, using this browser session name:
+past it. Drive it with playwright-cli, using this browser session name. Run these
+from inside {evidence_dir} (cd there first) so the browser's own files never land in
+the repository:
 
     playwright-cli -s={browser_session} open
     playwright-cli -s={browser_session} state-load "{browser_state}"

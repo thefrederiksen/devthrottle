@@ -934,6 +934,21 @@ COMMANDS:
 
 ---
 
+## cc-ship
+
+Take a finished change from the author session to merged on origin/main: independent review by another agent family, live verification, risk, pull request and merge. Not in the installer yet; see `tools/cc-ship/README.md` for setup.
+
+| Command | What it does |
+|---|---|
+| `cc-ship start --intent <file> [--title <text>]` | Open a run for this branch and go as far as possible |
+| `cc-ship wait [--seconds N]` | Block (up to 480 seconds) while a spawned session works |
+| `cc-ship continue` | Resume after fixing findings or a failed step |
+| `cc-ship respond <id> --fix\|--keep\|--drop [--note <text>]` | Record the owner's call on one finding, or on `fix-limit` |
+| `cc-ship status [--json]` | The run's one state and the next step |
+| `cc-ship abort` | End the run and stop its sessions; the branch is left alone |
+
+Every command takes `--json`. Errors exit non-zero with `error`, `code` and `help`.
+
 ## cc-reddit
 
 Reddit CLI via browser automation.

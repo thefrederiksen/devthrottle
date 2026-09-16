@@ -92,6 +92,10 @@ def validate_review(data: dict) -> list[str]:
             problems.append(f"{where}'line' must be a positive whole number or null")
         if f.get("severity") not in SEVERITIES:
             problems.append(f"{where}'severity' must be one of {', '.join(SEVERITIES)}")
+        same = f.get("same_as_decision")
+        if same is not None and not (isinstance(same, str) and same.startswith("D")
+                                     and same[1:].isdigit()):
+            problems.append(f"{where}'same_as_decision' must be a decision id like \"D1\", or absent")
         # A missing action is allowed and is treated as ask-owner; a wrong one is not.
         if "action" in f and f["action"] not in ACTIONS:
             problems.append(f"{where}'action' must be one of {', '.join(ACTIONS)}")

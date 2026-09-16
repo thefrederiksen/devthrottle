@@ -96,7 +96,7 @@ def one_run(work: Path, index: int, repo: Path, base: str, head: str, agent: str
         # Invalid: keep the session alive, then hand it the problems as a file.
         entry["undo"] = fleet.clear_done_flag(session_id).strip()
         fix = folder / f"correction-{attempt + 1}.md"
-        fix.write_text(briefs.correction_brief(output, problems, attempt + 1), encoding="ascii")
+        fix.write_text(briefs.correction_brief(output, problems, attempt + 1, "reviewer"), encoding="ascii")
         written_after = time.time()
         fleet.prompt_session(session_id, f"Read the file {fix} and follow it exactly.")
 
