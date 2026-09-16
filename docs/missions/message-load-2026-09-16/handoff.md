@@ -76,7 +76,7 @@ Command line (`tools/cc-devthrottle`):
 ## Judgement calls the inspector should look at
 
 1. `escape` and the raw `/fanout` are refused to session keys along with prompt and interrupt - ruling
-   17 names prompt, interrupt and compact-continue; escape is Claude Code's interrupt and fanout types
+   17 names prompt, interrupt and compact-continue; escape is an agent's soft interrupt and fanout types
    into sessions, so leaving them open would be a side door.
 2. A REPORT is exempt from the 10-minute per-recipient spacing (every refusal says "put it in your
    report"); it is still held to the hourly limit, the relationship and the duplicate rule.
