@@ -17,7 +17,7 @@ _tools_dir = str(Path(__file__).resolve().parent.parent.parent)
 if _tools_dir not in sys.path:
     sys.path.insert(0, _tools_dir)
 
-from cc_shared import gateway  # noqa: E402
+from cc_shared import axi_output, gateway  # noqa: E402
 
 TIMEOUT_SECONDS = 10
 SCHEDULE_RECURRING = "recurring"
@@ -121,7 +121,14 @@ class ScheduleClient:
 
     def list_jobs(self) -> List[Dict[str, Any]]:
         data = self._ok_or_raise(self._request("GET", "/cron/jobs"))
-        return list(data.get("jobs", []))
+        # Absent is not empty: an answer with no list of jobs must never read as "no schedules".
+        jobs = data.get("jobs") if isinstance(data, dict) else None
+        if not isinstance(jobs, list):
+            raise GatewayError(
+                f"the Gateway at {self.base_url} answered /cron/jobs with no list of jobs; "
+                "this tool will not report that as no schedules."
+            )
+        return jobs
 
     def get_job(self, job_id: str) -> Dict[str, Any]:
         return self._ok_or_raise(self._request("GET", f"/cron/jobs/{job_id}"))
@@ -198,44 +205,152 @@ def _notify_label(job: dict) -> str:
     return f"{base} + webhook {webhook}" if webhook else base
 
 
-def list_jobs(json_output: bool) -> None:
+# Every field `schedule list --fields` accepts, and the four shown when it is not given. Each is the
+# Gateway's own value, unreworded; the seed prompt is long free text and is left to `schedule get`.
+SCHEDULE_LIST_FIELDS = (
+    "id", "name", "enabled", "next-run", "machine", "kind", "cron", "run-at", "time-zone",
+    "work-list", "path", "last-fired", "last-status", "notify", "created",
+)
+SCHEDULE_LIST_DEFAULT_FIELDS = ("id", "name", "enabled", "next-run")
+
+
+def _usage_error(message: str) -> None:
+    print(f"Error: {message}", file=sys.stderr)
+    raise typer.Exit(axi_output.USAGE_ERROR_EXIT_CODE)
+
+
+def _ascii_text(block: str) -> str:
+    """The rendered blocks are ASCII already; a sentence quoting a filter value may not be."""
+    return block if block.isascii() else axi_output.escape_ascii(block)
+
+
+def _check_jobs(jobs: List[Any]) -> None:
+    """A schedule with no id cannot be named by any verb, and one whose enabled flag is not true or
+    false cannot be counted. Either is a broken answer from the Gateway, and fails loudly."""
+    for index, job in enumerate(jobs):
+        job_id = job.get("id") if isinstance(job, dict) else None
+        if not isinstance(job_id, str) or not job_id.strip():
+            print(
+                f"Error: the Gateway returned a schedule with no id (row {index + 1}). "
+                "This tool will not list a schedule it cannot name; --json shows the raw rows.",
+                file=sys.stderr,
+            )
+            raise typer.Exit(1)
+        if not isinstance(job.get("enabled"), bool):
+            print(
+                f"Error: the Gateway returned schedule {axi_output.format_value(job_id)} with enabled "
+                f"{job.get('enabled')!r}; it must be true or false. --json shows the raw rows.",
+                file=sys.stderr,
+            )
+            raise typer.Exit(1)
+
+
+def _job_machine(job: Dict[str, Any]) -> Optional[str]:
+    target = job.get("target") or {}
+    return target.get("machine") if isinstance(target, dict) else None
+
+
+def _job_text(value: Any) -> Optional[str]:
+    return None if value is None else str(value)
+
+
+def _job_record(job: Dict[str, Any]) -> Dict[str, object]:
+    """Every field `schedule list` can show, for one schedule. Ids and names are never shortened."""
+    action = job.get("action") or {}
+    if not isinstance(action, dict):
+        action = {}
+    return {
+        "id": job["id"],
+        "name": _job_text(job.get("name")),
+        "enabled": "yes" if job["enabled"] else "no",
+        "next-run": _job_text(job.get("nextRunUtc")),
+        "machine": _job_text(_job_machine(job)),
+        "kind": _job_text(job.get("scheduleKind")),
+        "cron": _job_text(job.get("cronExpression")),
+        "run-at": _job_text(job.get("runAt")),
+        "time-zone": _job_text(job.get("timeZoneId")),
+        "work-list": _job_text(action.get("workListName")),
+        "path": _job_text(action.get("repoPath")),
+        "last-fired": _job_text(job.get("lastFiredUtc")),
+        "last-status": _job_text(job.get("lastStatus")),
+        "notify": _job_text(job.get("notifyOn")),
+        "created": _job_text(job.get("createdUtc")),
+    }
+
+
+def _matches_machine(job: Dict[str, Any], machine: str) -> bool:
+    return (_job_machine(job) or "").lower() == machine.strip().lower()
+
+
+def list_jobs(
+    json_output: bool,
+    *,
+    enabled: Optional[bool] = None,
+    machine: Optional[str] = None,
+    fields: Optional[str] = None,
+) -> None:
+    """List every schedule on the Gateway, optionally only enabled or disabled ones, or one machine's."""
+    # Usage errors come before the fetch: a bad flag is the caller's to fix, whatever the Gateway holds.
+    if json_output and fields is not None:
+        _usage_error("--fields does not apply to --json, which always carries every field. Drop one of them.")
+    chosen_fields = axi_output.parse_fields_or_exit(fields, SCHEDULE_LIST_FIELDS, SCHEDULE_LIST_DEFAULT_FIELDS)
+    if machine is not None and not machine.strip():
+        _usage_error("--machine needs a value.")
+
     try:
         jobs = _client().list_jobs()
     except GatewayError as ex:
-        _fail(str(ex))
-        return
+        print(f"Error: {ex}", file=sys.stderr)
+        raise typer.Exit(1)
+
+    filtered = enabled is not None or machine is not None
+    # An unfiltered --json prints exactly what the Gateway sent, as it always has, so it never
+    # depends on these checks. Everything else reads the rows, so the rows must be sound.
+    if filtered or not json_output:
+        _check_jobs(jobs)
+    rows = [
+        job for job in jobs
+        if (enabled is None or job["enabled"] is enabled)
+        and (machine is None or _matches_machine(job, machine))
+    ]
 
     if json_output:
-        print(json.dumps(jobs, indent=2))
+        # Plain print, not console.print: Rich wraps long values when stdout is not a terminal. A
+        # filter narrows the same bare array; it never changes its shape.
+        print(json.dumps(rows if filtered else jobs, indent=2))
         return
 
-    if not jobs:
-        console.print(
-            "No schedules on the Gateway yet. Create one with 'cc-devthrottle schedule create'."
-        )
-        return
+    records = [_job_record(job) for job in rows]
+    on = sum(1 for job in rows if job["enabled"])
+    # No rows means no breakdown at all: the helper refuses an empty one, and "count: 0" says it all.
+    breakdown = [(label, n) for label, n in (("enabled", on), ("disabled", len(rows) - on)) if n] or None
+    blocks = [
+        axi_output.format_count(len(rows), total=len(jobs) if filtered else None, breakdown=breakdown),
+        axi_output.render_list("schedules", chosen_fields, records),
+    ]
+    if not rows:
+        blocks.append("No schedule matches the filter." if jobs else "No schedules on the Gateway.")
+    blocks.append(axi_output.format_help(_schedule_list_help(rows, bool(jobs), filtered, chosen_fields)))
+    axi_output.write_blocks(sys.stdout, *(_ascii_text(block) for block in blocks))
 
-    table = Table(show_header=True, header_style="bold", box=box.ASCII)
-    table.add_column("Id")
-    table.add_column("Name")
-    table.add_column("Machine")
-    table.add_column("Runs")
-    table.add_column("Schedule")
-    table.add_column("Next run (UTC)")
-    table.add_column("Enabled")
 
-    for job in jobs:
-        target = job.get("target") or {}
-        table.add_row(
-            _fmt(job.get("id")),
-            _fmt(job.get("name")),
-            _fmt(target.get("machine")),
-            _runs_label(job),
-            _schedule_label(job),
-            _fmt(job.get("nextRunUtc")),
-            "yes" if job.get("enabled") else "no",
-        )
-    console.print(table)
+def _schedule_list_help(
+    rows: List[Dict[str, Any]], any_jobs: bool, filtered: bool, chosen_fields: List[str]
+) -> List[str]:
+    """Concrete next commands. Runtime values are placeholders, never guessed."""
+    if not rows:
+        if not any_jobs:
+            return ["cc-devthrottle schedule create --help"]
+        return ["cc-devthrottle schedule list", "cc-devthrottle schedule list --help"]
+    commands = []
+    if not filtered:
+        commands.append("cc-devthrottle schedule list --enabled")
+    if list(chosen_fields) == list(SCHEDULE_LIST_DEFAULT_FIELDS):
+        commands.append("cc-devthrottle schedule list --fields " + ",".join(SCHEDULE_LIST_FIELDS))
+    commands.append("cc-devthrottle schedule list --json")
+    commands.append("cc-devthrottle schedule get <id>")
+    commands.append("cc-devthrottle schedule runs <id>")
+    return commands
 
 
 def get_job(job_id: str, json_output: bool) -> None:

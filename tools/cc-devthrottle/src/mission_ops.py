@@ -23,16 +23,14 @@ from typing import Any, Dict, List, Optional
 
 import requests
 import typer
-from rich import box
 from rich.console import Console
-from rich.table import Table
 
 # Make cc_shared importable when running from source, matching the existing cc-* tools.
 _tools_dir = str(Path(__file__).resolve().parent.parent.parent)
 if _tools_dir not in sys.path:
     sys.path.insert(0, _tools_dir)
 
-from cc_shared import gateway  # noqa: E402
+from cc_shared import axi_output, gateway  # noqa: E402
 
 console = Console()
 err_console = Console(stderr=True)
@@ -160,8 +158,7 @@ class MissionClient:
 def _resolve_mission(query: str) -> Dict[str, Any]:
     """Resolve a Mission by full id, id prefix, or a case-insensitive name match.
 
-    'mission list' prints SHORT ids, so requiring the full identifier would mean copying it out of a
-    JSON dump every time. Only the typing is relaxed: the id that finally reaches the Gateway is the
+    Typing a whole id is slow, so a prefix or part of the name is enough. Only the typing is relaxed: the id that finally reaches the Gateway is the
     full one from the caller's OWN mission list, and the Gateway resolves it inside the caller's own
     tenant regardless of what was typed here.
     """
@@ -238,47 +235,191 @@ def create_mission(name: str) -> None:
     )
 
 
-def list_missions(json_output: bool, state: Optional[str] = None) -> None:
-    """List the Missions on the Gateway - active ones unless `state` asks for otherwise."""
-    try:
-        missions = MissionClient().list_all(state=state)
-    except GatewayError as err:
-        console.print(f"[red]Error:[/red] {err}")
+# Every state a mission can be in, in the order the count line names them.
+MISSION_STATES = ("active", "complete", "removed")
+
+# What `mission list --state` accepts: one state, or "all" (the same values the Gateway accepts).
+MISSION_STATE_FILTERS = MISSION_STATES + ("all",)
+
+# Every field `mission list --fields` accepts, and the three shown when it is not given. The why is
+# free text that runs to hundreds of characters, so it is asked for, never shown by default.
+MISSION_LIST_FIELDS = ("id", "name", "state", "why", "why-updated", "state-changed", "run")
+MISSION_LIST_DEFAULT_FIELDS = ("id", "name", "state")
+
+
+def _usage_error(message: str) -> None:
+    print(f"Error: {message}", file=sys.stderr)
+    raise typer.Exit(axi_output.USAGE_ERROR_EXIT_CODE)
+
+
+def _ascii_text(block: str) -> str:
+    """The rendered blocks are ASCII already; a sentence quoting a mission name or a filter may not be."""
+    return block if block.isascii() else axi_output.escape_ascii(block)
+
+
+def _mission_state(mission: Dict[str, Any]) -> str:
+    """The mission's state as the Gateway sent it. A missing or unknown state is a broken answer and
+    fails loudly: listing it under a guessed state would put finished work in the active list."""
+    raw = mission.get("state", mission.get("State"))
+    if raw not in MISSION_STATES:
+        mid = mission.get("missionId", mission.get("MissionId"))
+        shown = "missing" if raw is None else axi_output.format_value(raw) if isinstance(raw, str) else repr(raw)
+        print(
+            f"Error: the Gateway returned mission {mid} with state {shown}; "
+            f"this tool knows only {', '.join(MISSION_STATES)}. --json shows the raw rows.",
+            file=sys.stderr,
+        )
         raise typer.Exit(1)
+    return raw
+
+
+def _require_mission_ids(missions: List[Dict[str, Any]]) -> None:
+    """A mission with no id cannot be named by any verb, so it is a broken answer and fails loudly."""
+    for index, mission in enumerate(missions):
+        mid = mission.get("missionId", mission.get("MissionId"))
+        if not isinstance(mid, str) or not mid.strip():
+            print(
+                f"Error: the Gateway returned a mission with no mission id (row {index + 1}). "
+                "This tool will not list a mission it cannot name; --json shows the raw rows.",
+                file=sys.stderr,
+            )
+            raise typer.Exit(1)
+
+
+def _text_or_none(mission: Dict[str, Any], *names: str) -> Optional[str]:
+    """The value under the first key present, as text; None only when no key is present or it is null.
+    An empty string stays the empty string, so it reads back as itself."""
+    for name in names:
+        if name in mission:
+            value = mission[name]
+            return None if value is None else str(value)
+    return None
+
+
+def _mission_record(mission: Dict[str, Any], state: str) -> Dict[str, object]:
+    """Every field `mission list` can show, for one mission. Ids and names are never shortened."""
+    return {
+        "id": mission.get("missionId", mission.get("MissionId")),
+        "name": _text_or_none(mission, "missionName", "MissionName"),
+        "state": state,
+        "why": _text_or_none(mission, "why", "Why"),
+        "why-updated": _text_or_none(mission, "whyUpdatedAt", "WhyUpdatedAt"),
+        "state-changed": _text_or_none(mission, "stateChangedAt", "StateChangedAt"),
+        "run": _text_or_none(mission, "workflowRunId", "WorkflowRunId"),
+    }
+
+
+def _matches_name(mission: Dict[str, Any], name: str) -> bool:
+    """--name matches any part of the mission name, ignoring case."""
+    return name.strip().lower() in (_text_or_none(mission, "missionName", "MissionName") or "").lower()
+
+
+def list_missions(
+    json_output: bool,
+    state: Optional[str] = None,
+    *,
+    name: Optional[str] = None,
+    fields: Optional[str] = None,
+) -> None:
+    """List the Missions on the Gateway - active ones unless `state` asks for otherwise.
+
+    `state` is one of active, complete, removed, or all; None means the Gateway's default, active only.
+    `name` keeps only missions whose name contains it, ignoring case.
+    """
+    # Usage errors come before the fetch: a bad flag is the caller's to fix, whatever the Gateway holds.
+    if json_output and fields is not None:
+        _usage_error("--fields does not apply to --json, which always carries every field. Drop one of them.")
+    chosen_fields = axi_output.parse_fields_or_exit(fields, MISSION_LIST_FIELDS, MISSION_LIST_DEFAULT_FIELDS)
+    if state is not None and state not in MISSION_STATE_FILTERS:
+        _usage_error(
+            f"unknown --state value {axi_output.escape_ascii(state)!r}. "
+            f"Valid states: {', '.join(MISSION_STATE_FILTERS)}"
+        )
+    if name is not None and not name.strip():
+        _usage_error("--name needs a value.")
 
     if json_output:
+        # The Gateway is asked exactly what it was always asked, so the unfiltered answer is byte for
+        # byte what it was. --name narrows that same bare array; it never changes its shape.
+        try:
+            missions = MissionClient().list_all(state=state)
+        except GatewayError as err:
+            print(f"Error: {err}", file=sys.stderr)
+            raise typer.Exit(1)
+        if name is not None:
+            missions = [m for m in missions if _matches_name(m, name)]
+        # Plain print, not console.print: Rich wraps long values when stdout is not a terminal.
         print(json.dumps(missions, indent=2))
         return
 
-    if not missions:
-        if state and state != "active":
+    # The plain list asks for every mission once, so it can say how many the filter left out.
+    try:
+        everything = MissionClient().list_all(state="all")
+    except GatewayError as err:
+        print(f"Error: {err}", file=sys.stderr)
+        raise typer.Exit(1)
+    _require_mission_ids(everything)
+    states = [_mission_state(m) for m in everything]
+
+    # No --state means the Gateway's default view, active only - itself a filter, so the count line
+    # says how many missions it left out.
+    wanted = None if state == "all" else (state or "active")
+    filtered = wanted is not None or name is not None
+    rows = [
+        (m, st)
+        for m, st in zip(everything, states)
+        if (wanted is None or st == wanted) and (name is None or _matches_name(m, name))
+    ]
+
+    records = [_mission_record(m, st) for m, st in rows]
+    # No rows means no breakdown at all: the helper refuses an empty one, and "count: 0" says it all.
+    breakdown = [(s, n) for s in MISSION_STATES if (n := sum(1 for _, st in rows if st == s))] or None
+    blocks = [
+        axi_output.format_count(len(rows), total=len(everything) if filtered else None, breakdown=breakdown),
+        axi_output.render_list("missions", chosen_fields, records),
+    ]
+
+    if not rows:
+        if not everything:
+            blocks.append("No missions on the Gateway.")
+        else:
             # Say WHICH list is empty. "No missions" under a filter would read as "you have none at
             # all", which is a different and much more alarming statement.
-            console.print(f"No missions with state '{state}'.")
-        else:
-            console.print(
-                "No active missions on the Gateway. "
-                "Create one with 'cc-devthrottle mission create <name>', "
-                "or see finished ones with 'cc-devthrottle mission list --all'."
-            )
-        return
-
-    table = Table(show_header=True, header_style="bold", box=box.ASCII)
-    table.add_column("Id")
-    table.add_column("Name")
-    table.add_column("State")
-    table.add_column("Why")
-
-    for mission in missions:
-        mid = _field(mission, "missionId", "MissionId")
-        name = _field(mission, "missionName", "MissionName") or "-"
-        mstate = _field(mission, "state", "State") or "active"
-        why = _field(mission, "why", "Why") or ""
-        # A mission with no WHY is FLAGGED, not blank - the same rule the Cockpit card follows. A
+            conditions = []
+            if wanted is not None:
+                conditions.append(f"state '{wanted}'")
+            if name is not None:
+                conditions.append(f"a name containing '{name.strip()}'")
+            blocks.append(f"No missions with {' and '.join(conditions)}.")
+    elif "why" not in chosen_fields:
+        # A mission with no WHY is FLAGGED, not hidden - the same rule the Cockpit card follows. A
         # mission whose reason nobody wrote down is the thing worth noticing in this list.
-        why_cell = why if why else "[yellow]no why set[/yellow]"
-        table.add_row(_short_id(mid) if mid else "-", name, mstate, why_cell)
-    console.print(table)
+        unset = sum(1 for m, _ in rows if not (_text_or_none(m, "why", "Why") or "").strip())
+        if unset:
+            noun = "mission has" if unset == 1 else "missions have"
+            blocks.append(f"{unset} of these {noun} no why set.")
+
+    blocks.append(axi_output.format_help(_mission_list_help(rows, bool(everything), wanted, name, chosen_fields)))
+    axi_output.write_blocks(sys.stdout, *(_ascii_text(block) for block in blocks))
+
+
+def _mission_list_help(
+    rows: List[Any], any_missions: bool, wanted: Optional[str], name: Optional[str], chosen_fields: List[str]
+) -> List[str]:
+    """Concrete next commands. Runtime values are placeholders, never guessed."""
+    if not rows:
+        if not any_missions:
+            return ["cc-devthrottle mission create <name>"]
+        return ["cc-devthrottle mission list --all", "cc-devthrottle mission list --help"]
+    commands = []
+    if wanted == "active":
+        commands.append("cc-devthrottle mission list --all")
+    if list(chosen_fields) == list(MISSION_LIST_DEFAULT_FIELDS):
+        commands.append("cc-devthrottle mission list --fields " + ",".join(MISSION_LIST_FIELDS))
+    commands.append("cc-devthrottle mission list --json")
+    commands.append("cc-devthrottle mission attach <session> <id>")
+    commands.append("cc-devthrottle session spawn <repo> --controlled-by self --mission <id>")
+    return commands
 
 
 def _patch_mission(mission_query: str, body: Dict[str, Any], command_name: str) -> Dict[str, Any]:
