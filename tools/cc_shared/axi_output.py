@@ -64,9 +64,10 @@ __all__ = [
 USAGE_ERROR_EXIT_CODE = 2
 
 # Both are used with fullmatch: "$" would also match just before a trailing newline, so a name like
-# "sessions\n" would pass and split the header line in two.
+# "sessions\n" would pass and split the header line in two. The count is [0-9], never \d: \d also
+# matches non-ASCII digits such as U+0661, which int() accepts but render_list never writes.
 _NAME_PATTERN = re.compile(r"[A-Za-z0-9_.-]+")
-_HEADER_PATTERN = re.compile(r"([A-Za-z0-9_.-]+)\[(\d+)\]\{([A-Za-z0-9_.,-]*)\}:")
+_HEADER_PATTERN = re.compile(r"([A-Za-z0-9_.-]+)\[([0-9]+)\]\{([A-Za-z0-9_.,-]*)\}:")
 _ROW_INDENT = "  "
 
 # The escapes that have a short form. Everything else that needs escaping uses \u or \U.
@@ -254,7 +255,11 @@ def parse_list(text: str, name: str | None = None) -> tuple[list[str], list[dict
         raise ListParseError(f"{len(headers)} list headers found; pass name= to pick one")
 
     index, match = headers[0]
-    count = int(match.group(2))
+    try:
+        count = int(match.group(2))
+    except ValueError as ex:
+        # Python refuses to convert a number with thousands of digits; that is malformed input too.
+        raise ListParseError(f"header count cannot be read: {ex}") from ex
     fields = match.group(3).split(",")
     if any(field == "" for field in fields):
         raise ListParseError(f"empty field name in header: {lines[index]!r}")
@@ -298,7 +303,8 @@ def format_count(
 
     Pass `total` whenever a filter was applied, even if it matched everything. `breakdown` is
     printed in the order given, zeros included, and must add up to `shown` - a breakdown that does
-    not is a caller defect and raises. An empty result is `count: 0` or `count: 0 of N total`;
+    not is a caller defect and raises. `None` means no breakdown; an empty breakdown is a caller
+    defect and raises. An empty result is `count: 0` or `count: 0 of N total`;
     that line is what makes an empty result definitive, so always print it.
     """
     if not isinstance(shown, int) or isinstance(shown, bool) or shown < 0:
@@ -308,7 +314,9 @@ def format_count(
         if not isinstance(total, int) or isinstance(total, bool) or total < shown:
             raise ValueError(f"total must be an integer no smaller than shown ({shown}), got {total!r}")
         line += f" of {total} total"
-    if breakdown:
+    if breakdown is not None:
+        if len(breakdown) == 0:
+            raise ValueError("breakdown was supplied but is empty; pass None for no breakdown")
         parts = []
         for label, number in breakdown:
             _check_name("count label", label)

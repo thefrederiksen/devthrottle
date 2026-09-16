@@ -209,6 +209,14 @@ class TestRoundTrip:
         with pytest.raises(ListParseError):
             parse_list(text)
 
+    @pytest.mark.parametrize("text", [
+        "sessions[\u0661]{id}:\n  x",              # Arabic-Indic digit one: int() accepts it
+        "sessions[" + "9" * 4301 + "]{id}:\n  x",  # too many digits for int() to convert
+    ], ids=["non-ascii-digit", "too-many-digits"])
+    def test_parse_list_HeaderCountNotAsciiDigitsOrTooLong_RaisesListParseError(self, text):
+        with pytest.raises(ListParseError):
+            parse_list(text)
+
 
 # ---------------------------------------------------------------------------------------------------
 # count:
@@ -241,6 +249,10 @@ class TestCount:
     def test_format_count_BreakdownDoesNotAddUp_Raises(self):
         with pytest.raises(ValueError):
             format_count(5, breakdown=[("ready", 2)])
+
+    def test_format_count_EmptyBreakdown_Raises(self):
+        with pytest.raises(ValueError):
+            format_count(5, breakdown=[])
 
     @pytest.mark.parametrize("bad", ["ready\n", "has space", ""])
     def test_format_count_BadLabel_Raises(self, bad):
