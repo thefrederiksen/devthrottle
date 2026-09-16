@@ -823,7 +823,7 @@ def test_the_json_flag_is_declared_on_stop():
 # ===== every Gateway sentence is one line of ASCII =====
 
 
-def test_stop_GatewaySentencesWithNewlinesAndNonAscii_AreOneAsciiLineEach(gateway_stub):
+def test_stop_GatewaySentencesWithNewlinesAndNonAscii_AreOneAsciiLineEach(gateway_stub, plain):
     # The inspection's reproduction: a headline with a newline in it and a detail with a tab and a
     # non-ASCII letter must neither split their lines nor leave the output non-ASCII.
     gateway_stub({"verdict": "stopped", "headline": "stopp\u00e9d\nsecond", "details": ["worktree na\u00efve\tleft"]})
@@ -832,25 +832,25 @@ def test_stop_GatewaySentencesWithNewlinesAndNonAscii_AreOneAsciiLineEach(gatewa
 
     assert result.exit_code == 0
     assert result.output.isascii(), result.output
-    assert result.output.splitlines() == ["stopp\\u00e9d\\nsecond", "worktree na\\u00efve\\tleft"]
+    assert plain(result.output).splitlines() == ["stopp\\u00e9d\\nsecond", "worktree na\\u00efve\\tleft"]
 
 
-def test_stop_GatewayFailureSentence_IsOneAsciiLine(gateway_stub):
+def test_stop_GatewayFailureSentence_IsOneAsciiLine(gateway_stub, plain):
     gateway_stub(session_ops.gateway.GatewayError("the Director on S\u00d8REN\nsaid [/tmp/x] no", status=502))
 
     result = _stop(SESSION_ID, "--reason", "test")
 
     assert result.exit_code == 1
     assert result.output.isascii(), result.output
-    first = result.output.splitlines()[0]
+    first = plain(result.output).splitlines()[0]
     assert first == "Outcome unknown: the Director on S\\u00d8REN\\nsaid [/tmp/x] no", result.output
 
 
-def test_undo_GatewayFailureSentence_IsOneAsciiLine(delete_stub):
+def test_undo_GatewayFailureSentence_IsOneAsciiLine(delete_stub, plain):
     delete_stub(session_ops.gateway.GatewayError("caf\u00e9\nbroken [/x]"))
 
     result = runner.invoke(app, ["session", "done", "--undo"])
 
     assert result.exit_code == 1
     assert result.output.isascii(), result.output
-    assert result.output.splitlines() == ["Error: caf\\u00e9\\nbroken [/x]"]
+    assert plain(result.output).splitlines() == ["Error: caf\\u00e9\\nbroken [/x]"]
