@@ -35,6 +35,7 @@ FREE, IN_USE, HELD = "free", "in-use", "held"
 STATES = (FREE, IN_USE, HELD)
 SLOT_NAME = re.compile(r"wt[0-9]{2,}")
 STATE_LOST = "state lost, cannot verify"
+STATE_MISSING = "state missing, cannot verify"
 DEFAULT_POOL_SIZE = 4
 
 
@@ -124,6 +125,7 @@ class Pool:
         data = {"version": STATE_VERSION, "repo": str(self.repo),
                 "slots": {name: self.slots[name] for name in sorted(self.slots)}}
         _atomic_write(self.file, json.dumps(data, indent=2) + "\n")
+        register(self.home, self.repo)
 
 
 def _atomic_write(path: Path, text: str) -> None:
@@ -141,57 +143,88 @@ def _atomic_write(path: Path, text: str) -> None:
         raise
 
 
-def _lost_entry(path: Path) -> dict:
-    return {"path": str(path), "state": HELD, "holder": None, "lease": None, "reason": STATE_LOST,
+def _lost_entry(path: Path, reason: str = STATE_LOST) -> dict:
+    return {"path": str(path), "state": HELD, "holder": None, "lease": None, "reason": reason,
             "updated": _now()}
 
 
-def _valid_entry(entry: object) -> bool:
-    if not isinstance(entry, dict):
-        return False
-    if entry.get("state") not in STATES or not isinstance(entry.get("path"), str):
-        return False
-    for key in ("holder", "lease", "reason"):
-        if key not in entry or not (entry[key] is None or isinstance(entry[key], str)):
-            return False
-    if entry["state"] == IN_USE and not (entry["holder"] and entry["lease"]):
-        return False
-    return True
+ENTRY_KEYS = {"path", "state", "holder", "lease", "reason", "updated"}
+
+
+class _InvalidState(Exception):
+    """The state file parsed, but what it says cannot be trusted."""
+
+
+def _optional_text(value: object) -> bool:
+    return value is None or (isinstance(value, str) and value != "")
+
+
+def _check_entry(repo: Path, name: str, entry: object) -> None:
+    if not isinstance(entry, dict) or set(entry) != ENTRY_KEYS:
+        raise _InvalidState(f"{name}: unexpected fields")
+    if not isinstance(entry["path"], str) or _key(entry["path"]) != _key(slots_dir(repo) / name):
+        raise _InvalidState(f"{name}: the path is not this pool's {name}")
+    if not isinstance(entry["updated"], str):
+        raise _InvalidState(f"{name}: updated is not text")
+    if not all(_optional_text(entry[key]) for key in ("holder", "lease", "reason")):
+        raise _InvalidState(f"{name}: holder, lease or reason is not text")
+    state, holder, lease, reason = entry["state"], entry["holder"], entry["lease"], entry["reason"]
+    if state == FREE:
+        ok = holder is None and lease is None and reason is None
+    elif state == IN_USE:
+        ok = holder is not None and lease is not None and reason is None
+    elif state == HELD:
+        ok = reason is not None and (holder is None) == (lease is None)
+    else:
+        ok = False
+    if not ok:
+        raise _InvalidState(f"{name}: state {state!r} with a holder, lease and reason that do not fit it")
+
+
+def _validated_slots(data: object, repo: Path) -> dict[str, dict]:
+    """Every field is checked. One thing wrong makes the whole file untrustworthy."""
+    if not isinstance(data, dict) or set(data) != {"version", "repo", "slots"}:
+        raise _InvalidState("not a pool state object")
+    version = data["version"]
+    if isinstance(version, bool) or version != STATE_VERSION:
+        raise _InvalidState(f"version {version!r}, this tool reads version {STATE_VERSION}")
+    if not isinstance(data["repo"], str) or _key(data["repo"]) != _key(repo):
+        raise _InvalidState("it names a different repository")
+    if not isinstance(data["slots"], dict):
+        raise _InvalidState("slots is not an object")
+    for name, entry in data["slots"].items():
+        if not SLOT_NAME.fullmatch(name):
+            raise _InvalidState(f"{name!r} is not a slot name")
+        _check_entry(repo, name, entry)
+    return data["slots"]
 
 
 def load(home: Path, repo: Path) -> Pool:
-    """Read the pool, quarantining anything it cannot vouch for. Call only under the lock."""
+    """Read the pool, quarantining anything it cannot vouch for. Call only under the lock.
+
+    A state file that cannot be parsed, or that parses but is wrong in any way, is set aside whole and
+    every slot directory on disk comes back held. So does a slot directory the state does not know.
+    """
     path = pool_file(home, repo)
     slots: dict[str, dict] = {}
     changed = False
+    missing_reason = STATE_LOST
     if path.exists():
-        raw_slots = None
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            if isinstance(data, dict) and isinstance(data.get("slots"), dict):
-                raw_slots = data["slots"]
-        except (OSError, UnicodeDecodeError, ValueError):
-            raw_slots = None
-        if raw_slots is None:
+            slots = _validated_slots(json.loads(path.read_text(encoding="utf-8")), repo)
+        except (OSError, UnicodeDecodeError, ValueError, _InvalidState):
             # Keep the damaged file for inspection; every slot on disk comes back held below.
-            aside = path.with_name(f"{path.name}.corrupt-{datetime.now(timezone.utc):%Y%m%dT%H%M%S}")
+            aside = path.with_name(f"{path.name}.corrupt-{datetime.now(timezone.utc):%Y%m%dT%H%M%S%f}")
             os.replace(path, aside)
             changed = True
-            raw_slots = {}
-        for name, entry in raw_slots.items():
-            if not isinstance(name, str) or not SLOT_NAME.fullmatch(name):
-                changed = True
-                continue
-            if _valid_entry(entry):
-                slots[name] = entry
-            else:
-                slots[name] = _lost_entry(slots_dir(repo) / name)
-                changed = True
+            slots = {}
+    elif is_registered(home, repo):
+        missing_reason = STATE_MISSING
     directory = slots_dir(repo)
     if directory.is_dir():
         for child in directory.iterdir():
             if SLOT_NAME.fullmatch(child.name) and child.is_dir() and child.name not in slots:
-                slots[child.name] = _lost_entry(child)
+                slots[child.name] = _lost_entry(child, missing_reason)
                 changed = True
     pool = Pool(home, repo, slots)
     if changed:
@@ -199,18 +232,90 @@ def load(home: Path, repo: Path) -> Pool:
     return pool
 
 
-def known_repos(home: Path) -> list[Path]:
+# ---------------------------------------------------------------------------------------------------
+# The registry: every repository that has a pool on this machine
+# ---------------------------------------------------------------------------------------------------
+
+
+REGISTRY_VERSION = 1
+
+
+def registry_file(home: Path) -> Path:
+    return home / "registry.json"
+
+
+def read_registry(home: Path) -> list[str] | None:
+    """The repositories with a pool on this machine, or None when there is no registry file at all."""
+    path = registry_file(home)
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        valid = (isinstance(data, dict) and set(data) == {"version", "repos"}
+                 and not isinstance(data["version"], bool) and data["version"] == REGISTRY_VERSION
+                 and isinstance(data["repos"], list)
+                 and all(isinstance(r, str) and r for r in data["repos"]))
+    except (OSError, UnicodeDecodeError, ValueError):
+        valid = False
+    if not valid:
+        raise ToolError("unreadable-registry",
+                        f"the pool registry {path} cannot be read, so the pools on this machine are unknown",
+                        [f"Move {path} aside; the next cc-worktrees get rebuilds it from the pool state files",
+                         "cc-worktrees list --repo <path>"])
+    return data["repos"]
+
+
+def is_registered(home: Path, repo: Path) -> bool:
+    repos = read_registry(home)
+    return repos is not None and any(_key(r) == _key(repo) for r in repos)
+
+
+def _state_file_repos(home: Path) -> list[str]:
     repos = []
     for file in sorted((home / "pools").glob("*.json")):
         try:
-            data = json.loads(file.read_text(encoding="utf-8"))
-            repo = data["repo"]
+            repo = json.loads(file.read_text(encoding="utf-8"))["repo"]
+            if not isinstance(repo, str) or not repo:
+                raise ValueError("repo is not text")
         except (OSError, UnicodeDecodeError, ValueError, KeyError, TypeError) as ex:
             raise ToolError("unreadable-state",
                             f"pool state {file} cannot be read ({type(ex).__name__}), so its repository is unknown",
-                            ["Run a command with --repo <path> for that repository to quarantine its slots"]) from ex
-        repos.append(Path(repo))
+                            [f"Inspect {file}, then move it aside"]) from ex
+        repos.append(repo)
     return repos
+
+
+def register(home: Path, repo: Path) -> None:
+    """Record that `repo` has a pool. A missing registry is rebuilt from the state files that exist;
+    a pool whose state file is gone as well cannot be found that way."""
+    repos = read_registry(home)
+    if repos is not None and any(_key(r) == _key(repo) for r in repos):
+        return
+    if repos is None:
+        repos = _state_file_repos(home)
+    unique: dict[str, str] = {}
+    for r in [*repos, str(repo)]:
+        unique.setdefault(_key(r), r)
+    _atomic_write(registry_file(home),
+                  json.dumps({"version": REGISTRY_VERSION, "repos": sorted(unique.values())}, indent=2) + "\n")
+
+
+def inventory(home: Path) -> list[Path]:
+    """Every pool on this machine, or an error. Never an empty answer that cannot be backed."""
+    repos = read_registry(home)
+    if repos is None:
+        raise ToolError("no-inventory",
+                        f"there is no pool registry at {registry_file(home)}: either no pool was ever made on "
+                        "this machine or the registry was lost, so an empty list could not be trusted",
+                        ["cc-worktrees list --repo <path>"])
+    registered = {pool_file(home, Path(r)).name for r in repos}
+    for file in sorted((home / "pools").glob("*.json")):
+        if file.name not in registered:
+            raise ToolError("no-inventory",
+                            f"pool state {file} is not in the registry {registry_file(home)}, so the registry "
+                            "is incomplete",
+                            [f"Move {registry_file(home)} aside; the next cc-worktrees get rebuilds it"])
+    return [Path(r) for r in repos]
 
 
 # ---------------------------------------------------------------------------------------------------
@@ -228,7 +333,7 @@ def resolve_target(home: Path, target: str, repo_opt: str | None) -> tuple[Path,
             if _key(entry["path"]) == _key(target):
                 return repo, name
     else:
-        for repo in known_repos(home):
+        for repo in inventory(home):
             if not repo.is_dir():
                 continue
             for name, entry in load(home, repo).slots.items():
@@ -410,7 +515,7 @@ def destroy_slot(target: str, yes: bool, allow_held: bool, allow_in_use: bool, r
 def list_slots(repo_opt: str | None) -> list[dict]:
     home = state_home()
     with machine_lock(home):
-        repos = [main_repo_root(repo_opt)] if repo_opt else known_repos(home)
+        repos = [main_repo_root(repo_opt)] if repo_opt else inventory(home)
         rows: list[dict] = []
         for repo in repos:
             pool = load(home, repo)

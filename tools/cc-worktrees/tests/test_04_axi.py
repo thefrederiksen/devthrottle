@@ -31,8 +31,13 @@ def test_empty_pool_says_count_zero(local_world):
     fields, records = axi_output.parse_list(res.out, "slots")
     assert records == []
 
+    # The list of every pool is a different question: with no registry it cannot say "none", so it
+    # fails instead (test_11). Once a pool exists and is emptied, it can say count 0.
+    got = local_world.get()
+    assert local_world.run("return", got["path"], "--lease", got["lease"]).code == 0
+    assert local_world.run("destroy", got["path"], "--yes").code == 0
     everything = local_world.run("list", "--json")
-    assert everything.code == 0
+    assert everything.code == 0, everything.out
     assert everything.data["count"] == 0
 
 

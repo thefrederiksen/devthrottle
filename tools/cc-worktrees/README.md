@@ -87,9 +87,20 @@ Location: `%LOCALAPPDATA%\cc-worktrees` on Windows, `~/Library/Application Suppo
 macOS, `$XDG_DATA_HOME/cc-worktrees` or `~/.local/share/cc-worktrees` elsewhere. Set
 `CC_WORKTREES_HOME` to use another directory.
 
-A state file that cannot be parsed is kept beside itself as `<name>.corrupt-<time>`, and every slot
-directory on disk comes back held as `state lost, cannot verify`. So does a malformed entry, and a
-`wtNN` directory the state does not know about. None of them is ever treated as free.
+The state file is checked field by field: the version this tool reads, the same repository, a known
+state for every slot, a free slot with no holder, lease or reason, an in-use slot with both a holder
+and a lease, a held slot with a reason. A file that cannot be parsed, or that parses but fails any one
+of those checks, is not trusted at all: it is kept beside itself as `<name>.corrupt-<time>`, and every
+slot directory on disk comes back held as `state lost, cannot verify`. So does a `wtNN` directory the
+state does not know about. None of them is ever treated as free.
+
+`registry.json` beside `pools/` lists every repository with a pool on this machine. `list` without
+`--repo` reads it, so a pool whose state file has gone missing is still listed: its slot directories
+come back held as `state missing, cannot verify`. If the registry itself is missing or unreadable, or a
+state file is not in it, `list` fails with `no-inventory` or `unreadable-registry` rather than print a
+`count: 0` it cannot back. That includes a machine where no pool was ever made. The next `get` rebuilds
+a missing registry from the state files that exist; a pool whose state file was lost as well cannot be
+found that way.
 
 ## Tests
 
