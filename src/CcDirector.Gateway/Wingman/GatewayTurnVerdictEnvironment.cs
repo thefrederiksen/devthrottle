@@ -43,6 +43,13 @@ internal static class TurnVerdictJudge
 /// one session's answer. The roster arrives with every role and liveness answer nulled by the push store, so
 /// asking the row first would be blind - see <see cref="VoiceModeAllSweep"/> for the same rule on the sweep.
 ///
+/// TWO ANSWERS, NOT ONE (Fleet Manager ruling, 2026-09-16). <see cref="TurnVerdictSessionState.Held"/> is "a live
+/// owning session holds this one", and it is what narration reads: a held session is never read aloud to the owner.
+/// <see cref="TurnVerdictSessionState.OwnedByFleetManager"/> says that owner is a Fleet Manager session, and then the
+/// session is still JUDGED automatically - the verdict is the Fleet Manager's to act on - while it stays held for
+/// narration and for the owner's colour. Only the DIRECT live controller counts: a Worker under an Architect the
+/// Fleet Manager started is held by that Architect and is not read.
+///
 /// GAP, STATED: THE UNIVERSE IS THE FRESH ROSTER. An owning session whose stream has gone quiet past the freshness
 /// horizon is absent from it, so a session it owns resolves as not held and is judged. That fails toward the owner
 /// (the session is read), which is the direction the fold itself fails in.
@@ -57,7 +64,14 @@ internal static class TurnVerdictHeldCheck
         var sessions = roster.Select(r => r.Session).Where(s => s is not null).ToList();
         FleetRoleResolver.Stamp(sessions);
         var session = sessions.FirstOrDefault(s => string.Equals(s.SessionId, sessionId, StringComparison.Ordinal));
-        return new TurnVerdictSessionState(session, session?.HasLiveSupervisor == true);
+        var held = session?.HasLiveSupervisor == true;
+        // HasLiveSupervisor already proved the controller is in this roster and alive, so the controller found here
+        // is the live one. Asked only for a held session: an unheld session has no owner to be read for.
+        var ownedByFleetManager = held && FleetManagerSessions.IsFleetManager(sessions.FirstOrDefault(
+            s => string.Equals(s.SessionId, session!.ControllerSessionId, StringComparison.Ordinal)));
+        if (ownedByFleetManager)
+            FileLog.Write($"[TurnVerdictHeldCheck] Resolve: sid={sessionId} is held by Fleet Manager {session!.ControllerSessionId} - judged, not narrated");
+        return new TurnVerdictSessionState(session, held, ownedByFleetManager);
     }
 }
 

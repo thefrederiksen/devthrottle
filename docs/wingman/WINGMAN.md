@@ -266,7 +266,9 @@ Notes on individual steps, which add reasons and do not change the order or the 
 
 - **Held** is resolved across the account's WHOLE fresh roster in one snapshot, never off the
   session's own row. The push store nulls the role at ingest, so a check that read the row would
-  answer "not held" for every session on the fleet.
+  answer "not held" for every session on the fleet. A session held by a Fleet Manager session is the
+  one exception for the turn end and the snooze expiry: it is judged, for the Fleet Manager, and it is
+  still never narrated to the owner or shown to him as needing him (owner ruling, 2026-09-16).
 - **The judge switch** binds only the two triggers nobody is waiting on: the detector's turn end, and
   a snooze expiry with a stop nothing has judged. A voice session is judged whatever the switch says,
   because somebody is listening to it, and a person's own request is not automatic at all.
@@ -336,7 +338,8 @@ snooze ran, that stop's verdict rules, and only a needs-you verdict brings the r
   word the Wingman may never answer with: it is a fact about the detector, not a state of the
   session, and an answer carrying it is rejected like any other unknown word.
 - **It never types, never snoozes, never closes, and never touches a working session or a held
-  one.** The held check is the FIRST check of all and runs before the screen is read.
+  one.** The held check is the FIRST check of all and runs before the screen is read. (A session a
+  Fleet Manager holds is judged on its turn end and snooze expiry - see the note on held above.)
 - **It is never a second colour authority.** One verdict, folded once on the Gateway, rendered
   verbatim by every client (the repository's law 7). A client never re-derives a colour, a label
   or a bucket.
