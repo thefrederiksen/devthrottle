@@ -25,10 +25,12 @@ That listener is not enough on its own either: a page handler that calls `stopPr
 event from ever reaching the window, and a site that answers the POST with a 307 or 308 redirect makes the
 browser send the same body to wherever the redirect points (review of pull request 2891 at 73d8c536). So
 from just before the password is typed until the tab has been made safe, every request the tab makes is
-PAUSED by the browser before it is sent, and judged by `blocked_request_reason`: the password may travel
-only as the body of a POST to an allowed origin. A request whose address carries the password, or that is
-not a POST to an allowed origin and has a body carrying the password - or a body the browser does not
-show - is failed before it leaves the browser, and the login is refused. A redirect is a new request, so
+PAUSED by the browser before it is sent, and judged by `blocked_request_reason`. The policy: the password
+may travel only in a POST to an allowed origin - in its body or in a header, both of which go to that site
+and neither of which is kept in the address or the history - and never in any request's address. A request
+whose address carries the password, or that is not a POST to an allowed origin and has a header or a body
+carrying the password - or a body the browser does not show - is failed before it leaves the browser, and
+the login is refused. A redirect is a new request, so
 it is judged again at each hop.
 
 That holds WHILE cc-secrets is connected, and only then. The browser pauses a request for as long as the
@@ -63,7 +65,12 @@ Not covered, stated plainly: JavaScript already running in the page receives the
 site needs it - so a listener an agent attached to the page before calling login can copy it, and a page
 can transform it before sending (a hash or a reversal no longer looks like the password). The request guard
 sees the requests of this tab's own frames: a service worker, a cross-origin frame running in another
-process, a WebSocket message, or another tab are outside it. If the debug connection drops while a request
+process, a WebSocket message, or another tab are outside it. And a header the page's own script sets is
+judged only as the browser REPORTS it, which is lossy for bytes outside ASCII: measured in real Chrome, a
+header whose value held an accented letter was reported with that letter and the two characters after it
+missing, while the full value went out on the wire. So a page script that puts a non-ASCII password, as is,
+into a header of a request to another site is not caught (found testing the review of pull request 2891 at
+fbe4293e). Base64 of it - an authorization header - is plain ASCII and IS caught. If the debug connection drops while a request
 is paused, the browser sends it on (see above). Also not covered: login forms inside cross-origin frames, two-step verification and captchas (reported as a
 verification stop for the owner to finish by hand), and a hostile process running as this same user that
 binds the profile's debug port in place of the real browser.
@@ -311,7 +318,8 @@ def _request_body(request: Dict) -> Optional[bytes]:
 def blocked_request_reason(request: Dict, forms: Scrubber, allowed: List[str]) -> Optional[str]:
     """Why a request made while the password is in the page must not be sent, or None when it may go.
 
-    The password may travel only in a POST to an allowed origin, and never in an address. A request is blocked
+    The password may travel only in a POST to an allowed origin (in its body or a header - both go to that site
+    and neither is kept in the address or history), and never in any request's address. A request is blocked
     when its address carries the password (in any form the scrubber knows, percent-decoded too), or when it is
     not a POST to an allowed origin and a header carries the password, or its body carries it - or it has a body
     the browser did not show. Every request is judged on its own, so a redirect is judged again at each hop.

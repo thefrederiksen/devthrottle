@@ -9,7 +9,8 @@ without anyone meaning to:
   list), with either quote mark;
 - percent-encoded the ways URLs and forms do it (Python quote and quote_plus, JavaScript
   encodeURIComponent, browser form encoding), with upper- and lower-case escapes;
-- base64 and base64url, with and without padding, of the secret and of "username:secret";
+- base64 and base64url, with and without padding, of the secret and of "username:secret", encoded by every
+  codec Python has (a browser's btoa() and HTTP Basic authorization use ISO-8859-1, not UTF-8);
 - hexadecimal;
 - the secret ENCODED BY EVERY CODEC Python has - raw bytes, and the way Python prints those bytes
   (`b'...'`). Listing a few encodings was not enough: a diagnostic printing `s.encode('utf-16-le')` or
@@ -119,10 +120,17 @@ def variants_for(secret: str, username: str = "") -> List[str]:
         forms.add(percent)
         forms.add(_lower_percent(percent))
     raw = secret.encode("utf-8")
-    forms |= _base64_forms(raw)
     forms |= {raw.hex(), raw.hex().upper()}
-    if username:
-        forms |= _base64_forms(f"{username}:{secret}".encode("utf-8"))
+    # Base64 of the secret, and of "username:secret", in EVERY encoding - not only UTF-8. A page's btoa() and an
+    # HTTP Basic authorization header use single-byte ISO-8859-1, so a password with an accented letter came
+    # out different from its UTF-8 Base64 and was not recognised (review of pull request 2891 at fbe4293e).
+    for encoded, codec_name in encoded_secret_bytes(secret).items():
+        forms |= _base64_forms(encoded)
+        if username:
+            try:
+                forms |= _base64_forms(f"{username}:{secret}".encode(codec_name))
+            except (LookupError, UnicodeError, TypeError, ValueError):
+                continue
     # How Python prints those bytes: print(s.encode('utf-16-le')), a bytearray, a list of them.
     forms |= {repr(encoded)[2:-1] for encoded in encoded_secret_bytes(secret)}
     return sorted((f for f in forms if f), key=len, reverse=True)

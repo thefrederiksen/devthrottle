@@ -291,3 +291,35 @@ def test_Login_TheGuardIsReleased_WhenTheLoginRaises(entry, monkeypatch):
         browser_login.login(entry, 9310, 2)
 
     assert tab.events[-1] == "guard off"
+
+
+# "Passwoerd42" with an a-umlaut and an o-umlaut, spelled with chr() so this file stays plain ASCII.
+ACCENTED = "P" + chr(0xE4) + "ssw" + chr(0xF6) + "rd42"
+
+
+@pytest.fixture
+def accented_entry(store):
+    add_entry(store, name="accented", secret=ACCENTED, username="user", domains=tuple(ALLOWED))
+    return store.get("accented")
+
+
+def test_Guard_FailsABasicAuthorizationHeaderEncodedAsIso88591(accented_entry):
+    # The review's case (fbe4293e): btoa() and HTTP Basic use ISO-8859-1, so the header is not the UTF-8 Base64.
+    conn = GuardConnection()
+    tab = _Tab(conn, accented_entry)
+    token = base64.b64encode(f"user:{ACCENTED}".encode("latin-1")).decode()
+    assert token != base64.b64encode(f"user:{ACCENTED}".encode("utf-8")).decode(), "the case needs the two to differ"
+
+    tab.guard_requests(ACCENTED, ALLOWED)
+    conn.pause({"url": "https://other.test/api", "method": "GET", "headers": {"Authorization": "Basic " + token}})
+
+    assert conn.sent[0][0] == "Fetch.failRequest"
+
+
+def test_HeaderOnAPostToTheAllowedOrigin_IsSent(forms):
+    # The policy: in a POST to an allowed origin the password may be in the body or a header - both go to that
+    # site and neither is kept in the address or the history.
+    request = {"url": "https://127.0.0.1/session", "method": "POST", "hasPostData": True, "postData": "",
+               "headers": {"X-Password": SECRET}}
+
+    assert blocked_request_reason(request, forms, ALLOWED) is None

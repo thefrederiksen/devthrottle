@@ -126,3 +126,17 @@ def test_ScrubBytes_LeavesNoFormOfTheSecret(encoding):
     scrubbed = scrubber.scrub_bytes("x ]abcabc ]abc y".encode(encoding))
 
     assert not any(form in scrubbed for form in forms)
+
+
+def test_Base64OfTheSecretInASingleByteEncoding_IsScrubbed():
+    # A browser's btoa() and HTTP Basic authorization encode as ISO-8859-1, not UTF-8 (review at fbe4293e).
+    import base64
+
+    secret = "P" + chr(0xE4) + "ssw" + chr(0xF6) + "rd42"
+    scrubber = Scrubber()
+    scrubber.add(secret, "user")
+    forms = [base64.b64encode(secret.encode("latin-1")).decode(),
+             base64.b64encode(f"user:{secret}".encode("latin-1")).decode()]
+
+    for form in forms:
+        assert form not in scrubber.scrub(f"Authorization: Basic {form}")
