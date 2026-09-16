@@ -1,106 +1,98 @@
 # Dev Reports - phase 1 report: the note-taking script and the shape check
 
-Issue: #2940 (child of #2936). Branch: `mission/dev-reports`. Built, proven, reviewed twice by a Codex
-session; every finding of the first review is fixed. The second pass is recorded in
-`REVIEW-phase-1.md` beside this file.
+Issue: #2940 (child of #2936). Branch: `mission/dev-reports`. Built, proven, and reviewed twice by a Codex
+session (`REVIEW-phase-1.md`). Every finding of both passes is fixed, and each fix has a test that was
+watched failing without it.
 
-## One thing the Architect must look at: report scripts are now blocked
+## Ruling 8: report scripts are blocked
 
-The first review found a real hole: the report runs in the same frame as the note-taking script, so a
-`<script>` written into the report could post a `send` that looks exactly like the owner's, and read the
-notes and replies the host restores. The sandbox cannot tell them apart. I reproduced it: with no policy,
-the hostile test report's script and `onerror` handler ran and read the restored state.
+The first review found that a `<script>` written into a report shares the frame with the note-taking script,
+so it could forge the owner's notes and read restored notes and replies. The Architect upheld the fix as
+ruling 8 in `STATE.md`: a dev report runs none of its own scripts or inline event handlers, and the shape
+check refuses them. Cost accepted: no script-drawn charts; images are `data:` URLs.
 
-**What I did (inferred - reverse it if it is wrong):** the contract now requires every host to put a
-Content-Security-Policy on the report that lets only the host's own injected script run (a fresh nonce per
-load), to stamp that script with a fresh token that every message must carry, and to treat any frame load
-it did not cause (a link or a meta refresh to another page) as the end of that token. The shape check now
-refuses `<script>` and inline event handlers, so an agent learns this at publish time.
-
-**The cost:** a dev report cannot run its own JavaScript (no script-drawn charts) and images must be
-`data:` URLs. The design already says "hand-drawn SVG with a label on every part", so I judged that
-acceptable, but it is a product rule the owner has not stated. The alternative - letting report scripts
-run - leaves the owner's notes forgeable by the report and has no fix I know of inside one frame.
+How a host enforces it is `packages/client-core/src/devreports/CONTRACT.md` section 4, sharpened by the
+second review:
+- the host writes the frame's head itself, first - policy and injected script - and only then the report's
+  bytes, untouched (searching the report text for `<head>` is defeated by a `<head>` inside a comment);
+- on the window the host takes exactly one message: a `ready` from its frame carrying the current token and
+  a port; everything else, both ways, goes over that private port (a page the frame navigates to never has
+  the port, so it gets nothing - even before its load event, which a load-event check alone missed);
+- a frame load the host did not cause closes the port.
 
 ## What was built
 
-**One contract** - `packages/client-core/src/devreports/CONTRACT.md`: the report markers, the question
-markup, what a note's anchor carries, the versioned host messages, when an item counts as sent, and
-section 4, what a host MUST do so a message really came from the owner.
+**One contract** - `CONTRACT.md`: the report markers, the question markup, what a note's anchor carries,
+the host messages and where they travel, when an item counts as sent, how answer revisions and drafts
+behave, and section 4, what a host MUST do.
 
 **The note-taking script** - `packages/client-core/src/devreports/dev-report-notes.js`. One plain
 JavaScript file, no dependencies, no build step, ASCII only, no network, no storage. Notes on a paragraph,
 table cell, SVG part or text selection; a Queue button per question with the recommendation preselected;
-QUEUED apart from SENT; one Send. After Send an item stays queued, marked as waiting, until the host
-answers with a status for it; a refused item stays queued with the host's reason and can be sent again.
-Every status and reply the host pushes is handed back in the state, so a reload keeps it. The half-typed
-note, an unqueued choice and comment, and the scroll position come back after a reload. Every message to
-the host carries the token. Report markup cannot switch the script off or hide elements from notes (the
-flags it relies on are no longer DOM attributes). Credits lavish-axi by Kun Chen.
+QUEUED apart from SENT; one Send. After Send an item stays queued and waiting until the host confirms it; a
+refused item stays queued with the host's reason. Re-answering replaces the newest unsent revision, so a
+question has at most a pending answer plus one revision. Host pushes, the half-typed note, an unqueued
+answer edit (which wins over the queued answer, being newer) and the scroll position all survive a reload.
+The tray and Queue buttons live in shadow roots with inline `!important` rules on their hosts, so report
+CSS cannot hide them by name, and no DOM attribute a report can copy switches anything off. Credits
+lavish-axi by Kun Chen.
 
-**The shape check** - `src/CcDirector.Gateway/DevReports/DevReportShapeCheck.cs`. A pure static class, no
-endpoint. Returns every error, each a sentence an agent can act on, plus the status. Rules: one header with
-an allowed status, first; one summary right after; one questions section right after that, closed, never
-empty, with questions or a no-questions element that has words; at least one detail section; evidence
-optional and last; unknown section values refused; each question closed, not nested, with a valid unique
-id, at least two options inside it and exactly one recommended; no radio option loose in the section; no
-scripts and no inline event handlers. It pairs start and end tags, skips what a browser treats as text
-(script, style, textarea, title, xmp, iframe, noembed, noframes, noscript, template) and stops at
-plaintext. Options are merged into questions in one pass rather than a rescan per question.
+**The shape check** - `src/CcDirector.Gateway/DevReports/DevReportShapeCheck.cs`. Pure static class, no
+endpoint. Every error is a sentence an agent can act on; the status is returned. One header with an
+allowed status, first; one summary right after; one closed questions section right after, with questions
+or exactly one no-questions element whose own decoded text has words; at least one detail section;
+evidence optional and last; each question closed, not nested, valid unique id, two or more options inside
+it, exactly one recommended; no loose options; no scripts, no inline event handlers. It pairs start and end
+tags, skips what a browser treats as text (including nested templates), and stops at plaintext.
 
 ## What is proven, and how
 
-- **Script unit tests** - `devReportNotes.test.ts`, 36 tests, running the SAME file the apps inject.
-  Adds, since the review: items stay queued until confirmed; refused stays queued with the reason; a
-  pending item cannot be removed; a re-answer to a pending question gets a new id; nested questions answer
-  with their own options; a too-long comment is reported, not thrown; `__proto__` as a question id works;
-  an unqueued choice and comment are in the state; report markup copying the old flags changes nothing.
-- **Shape check tests** - `DevReportShapeCheckTests.cs`, 46 tests: a good report passes, every rule has a
-  report that breaks only that rule, the browser proof's sample report passes. Adds: plaintext,
-  `</scripture` inside a script, the five other text-only elements, options after a question closes,
-  nested questions, unclosed question and section, empty no-questions element, scripts, event handlers.
-- **Watched failing.** Before the review: the rowspan-shift guard, deep state validation, and the
-  evidence-last rule were each reverted and their test went red. After the review: all 12 new shape check
-  tests fail against the pre-review checker and pass against the new one; reverting option ownership, the
-  refused branch, and the comment length check each turn exactly their own test red; in the browser,
-  reverting "save state after a push" failed claim J (status and reply gone after a reload), and removing
-  the host's policy failed claim M (the hostile report's script and handler ran and read the restored
-  state). Everything was restored and re-run green.
-- **Real browser** - `browser-tests/dev-report-notes-proof/run-proof.mjs`, 14 claims, all PASS, with
-  `evidence-2026-09-16.json` and screenshots: the sandbox; ready carries the token; preselection; a note on
-  the "Gateway" / "Failures" cell and an answer with a comment arrive as one `send`; nothing leaves the
-  queue until the host confirms; a refused answer stays queued with the reason and is the only thing sent
-  again; junk messages change nothing; a reload straight after a status and reply keeps both; a reload
-  keeps the half-typed note, the unqueued choice and comment and the scroll; a plain page with no host shows
-  the payload; a hostile report's script and handler do not run and tokenless or wrong-token messages are
-  refused; a link to another page ends the token, that page's forged ready and send are refused, and the
-  host pushes nothing to it.
-- **Gates** - `.\scripts\test-local.ps1` green (8 suites, 1,907 tests). client-core typecheck clean, all
-  1,206 client-core tests pass, eslint clean.
+- **Script unit tests** - `devReportNotes.test.ts`, 39 tests, running the same file the apps inject:
+  anchoring and selector round-trip, table labels that refuse to guess, the queue with pending, refused,
+  revisions and ids, message validation, the page (preselection, notes, no-host Send, nested questions,
+  length limits, `__proto__`, answer drafts, tray out of reach of report CSS, markup that copies flags).
+- **Shape check tests** - `DevReportShapeCheckTests.cs`, 52 tests: a good report and the browser proof's
+  sample report pass, and every rule has a report breaking only that rule, including every bypass either
+  review named (plaintext, `</scripture`, nested template, the text-only elements, detached options,
+  nesting, unclosed elements, `&nbsp;`-only and implicitly closed no-questions text, scripts, handlers).
+- **Watched failing.** Pre-review guards (rowspan shift, deep validation, evidence last); all 12 first-review
+  checker tests against the pre-review checker; option ownership, the refused branch and the comment length
+  check each turn only their own test red. In the browser: without saving state after a push, claim J fails;
+  without the policy, claim M fails; with the host searching the report for `<head>`, claim M fails and the
+  hostile script reads the token; pushing on the window instead of the port, claim N fails with the
+  navigated page holding the private reply; without the shadow root, the tray test fails. All restored and
+  re-run green.
+- **Real browser** - `browser-tests/dev-report-notes-proof/run-proof.mjs`, 14 claims, all PASS, evidence
+  JSON and screenshots committed. Beyond the owner flow (sandbox, token, preselection, table-cell note and
+  answer in one send, confirm and refuse, junk ignored on the port and the window, reloads keeping pushes,
+  drafts, edited answers and scroll, no-host payload): a hostile report with a decoy `<head>` comment, a
+  token-snooping observer, a forged send, an `onerror` handler and CSS aimed at the tray gets nowhere and
+  the tray stays visible; a link to another page whose load is held back five seconds receives nothing the
+  host pushes while the host still believes it is connected, nor after, and its forged ready and send are
+  refused.
+- **Gates** - `.\scripts\test-local.ps1` green (8 suites, 1,907 tests); client-core typecheck clean, 1,209
+  tests pass, eslint clean.
 
 ## What is NOT proven
 
-- **No real app hosts the page yet.** The host is a test page; the Cockpit, phone and Director hosts are
-  phases 3 and 4, and each must implement contract section 4. The statuses and reply in the proof are made
-  up; the Gateway's come in phase 2, which must also accept a repeated item id as the same item.
-- **The policy was proven in Chromium only.** WebView2 (Chromium) and the phone's browser were not run.
-  Safari on an iPhone was not tried.
-- **A host that forgets section 4 is unsafe.** The script cannot protect itself from a report script that
-  runs; only the host's policy stops that.
+- **No real app hosts the page yet.** The Cockpit, phone and Director must each implement contract
+  section 4 in phases 3 and 4; the script cannot protect itself from a host that does not. Statuses and
+  replies in the proof are made up; phase 2's Gateway must treat a repeated item id as the same item and a
+  later answer to a question as replacing an earlier one.
+- **Chromium only.** WebView2, the phone's browser and Safari were not run.
+- **CSS can still obstruct.** A report can lay something over the tray or hide the whole page; it cannot
+  hide the tray by name or act for the owner. Accepted as visibly broken, not silently hostile.
 - **Phone touch behaviour** - text selection and tapping on a real phone were not driven.
-- **The shape check is not a full HTML parser.** It pairs tags by name, so an element a browser closes
-  implicitly (a `p` left open) has no end, and the check reports it as unclosed rather than guessing. It
-  does not check the summary's length or that nothing untagged sits above it. No timing benchmark was run;
-  the per-question rescan the review found is gone, but the "proportional to size" claim is by reading.
-- **Parked Gateway suites.** The full `CcDirector.Gateway.UnitTests` project was run directly before the
-  review: 4,847 passed, 8 failed, all in `HostedSchemaRefusesAnUnownedRowTests` with "Failed to connect to
-  127.0.0.1:55432" - a PostgreSQL only the `-Parked` run starts. `-Parked` was not run; nothing in the parked
-  suites references the new class, which nothing calls yet.
+- **The shape check is not a full HTML parser.** Elements a browser closes implicitly are reported as
+  unclosed rather than guessed. No timing benchmark was run; the per-question and per-marker rescans both
+  reviews found are gone, but "proportional to size" is by reading. It does not check summary length.
+- **Parked Gateway suites.** `CcDirector.Gateway.UnitTests` was run in full before the reviews: 4,847
+  passed, 8 failed, all "Failed to connect to 127.0.0.1:55432" in `HostedSchemaRefusesAnUnownedRowTests`, a
+  PostgreSQL only `-Parked` starts. `-Parked` was not run; nothing references the new class yet.
 
 ## Review
 
-`REVIEW-phase-1.md`: first pass 11 findings (1 critical, 4 high, 5 medium, 1 low). All 11 fixed:
-1 trust (contract section 4, policy, token, navigation), 2 send kept until confirmed, 3 pushes saved to
-state, 4 text-only elements and end-tag boundary, 5 option ownership and no nesting (checker and page
-agree), 6 no DOM flags, 7 length limits reported, 8 answer drafts in state, 9 empty no-questions refused,
-10 one-pass option merge, 11 `Map` for question states. Second pass: see the review file.
+`REVIEW-phase-1.md`. First pass: 11 findings (1 critical, 4 high, 5 medium, 1 low), all fixed. Second pass:
+3 held, 8 open (6 carried, 2 new; 4 severe). All 8 fixed: 1 host writes the head first and uses a port;
+4 nested templates; 6 shadow-root tray; 8 newer draft wins; 9 decoded text, paragraph closers, one marker;
+10 single marker scan; A port transport; B revisions replace the newest unsent answer.
