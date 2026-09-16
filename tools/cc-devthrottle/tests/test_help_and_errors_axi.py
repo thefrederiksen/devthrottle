@@ -902,6 +902,10 @@ SHORT_HELP_6C = {
     "actions", "settings", "schedule", "workflow", "skill", "setup", "email", "diag", "autostart", "browser",
 }
 
+#: Top-level names added to main after steps 6b and 6c were written. Their help is checked here too,
+#: so a group that lands later is held to the same one-line summary.
+SHORT_HELP_LATER = {"fleet-manager"}
+
 #: Top-level names whose help is not yet checked. Empty now that steps 6b and 6c are together, and
 #: nothing may be added here: a new command or group belongs in one of the sets above, and
 #: test_shortHelp_EveryTopLevelNameIsAccountedFor enforces that.
@@ -938,9 +942,9 @@ def _summary_problem(command):
 
 def test_shortHelp_EveryTopLevelNameIsAccountedFor():
     top = {path[0] for path, _ in _tree() if len(path) == 1}
-    accounted = SHORT_HELP_6B | SHORT_HELP_6C | NOT_YET_COVERED
+    accounted = SHORT_HELP_6B | SHORT_HELP_6C | SHORT_HELP_LATER | NOT_YET_COVERED
     assert top == accounted, f"unaccounted: {sorted(top - accounted)}, stale: {sorted(accounted - top)}"
-    assert not (SHORT_HELP_6B | SHORT_HELP_6C) & NOT_YET_COVERED
+    assert not (SHORT_HELP_6B | SHORT_HELP_6C | SHORT_HELP_LATER) & NOT_YET_COVERED
 
 
 def test_shortHelp_EveryCoveredCommandAndGroupHasAOneLineSummary():
