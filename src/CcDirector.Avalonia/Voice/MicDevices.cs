@@ -4,8 +4,20 @@ using NAudio.Wave;
 
 namespace CcDirector.Avalonia.Voice;
 
-/// <summary>One selectable microphone: the NAudio WaveIn device number plus its display name.</summary>
-public readonly record struct MicDevice(int Number, string Name);
+/// <summary>
+/// One selectable microphone: the NAudio WaveIn device number, its display name, and - when it has been
+/// used on this machine - the typical time it takes to deliver its first audio (issue #2928).
+/// </summary>
+public readonly record struct MicDevice(int Number, string Name, int? TypicalStartMs = null)
+{
+    /// <summary>
+    /// What the selector shows: the name, plus the measured wake-up time when there is one. A device never
+    /// used shows its name alone - never a guessed figure.
+    /// </summary>
+    public string Label => TypicalStartMs is { } ms
+        ? $"{Name} - takes {(ms / 1000.0).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)} s to wake up"
+        : Name;
+}
 
 /// <summary>
 /// Enumerates and resolves the microphones available for dictation.
@@ -73,6 +85,16 @@ public static class MicDevices
 
         FileLog.Write($"[MicDevices] ResolveByName: '{name}' is not a current capture device; using Windows default");
         return DefaultDeviceNumber;
+    }
+
+    /// <summary>
+    /// Resolve a persisted device name to the device to record from AND its display name, in one call, so a
+    /// caller running off the interface thread gets everything a capture needs (issue #2929).
+    /// </summary>
+    public static MicDevice ResolveWithDescription(string? name)
+    {
+        var number = ResolveByName(name);
+        return new MicDevice(number, DescribeDevice(number));
     }
 
     private static string DescribeDefault()
