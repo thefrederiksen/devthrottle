@@ -449,6 +449,140 @@ public sealed class TurnVerdictTraceTests : IDisposable
     }
 
     [Fact]
+    public async Task AStopWaitingBehindAnEndingJudgement_WhenShutdownBegins_LeavesACancelledRow_AndTheDrainWaitsForIt()
+    {
+        // Issue #2905, round 2, finding 1. A stop that arrived after the ending judgement closed its joined list used to
+        // wait on that judgement's completion OUTSIDE the gate, where the shutdown drain could not see it. The drain waited
+        // for the judgement alone, the writer closed, and the stop - observed before shutdown - then stood down with no row
+        // and no per-stop line.
+        //
+        // BOTH EVENTS HAPPEN AT THE EXACT POINT: from the seam that runs once the ending judgement has closed its joined
+        // list and before it writes a row. The stop arrives there, so it can neither join nor take the gate; then, with it
+        // still waiting, the host's own shutdown sequence begins there (cancel, wait for the flights, close the writer).
+        var release = new TaskCompletionSource();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var (env, store, writer) = StoreBacked(release, entered);
+        using var writerScope = writer;
+        var service = new TurnVerdictService(env);
+
+        var waitingAt = ObservedAt.AddMinutes(1);
+        Task<TurnVerdictOutcome>? waiting = null;
+        var waitingWhenShutdownBegan = false;
+        Task<bool>? flightsFinished = null;
+        Task? writerClosed = null;
+        var tracesWhenTheDrainReturned = -1;
+        service.OnJoinedListClosedForTests = closedSid =>
+        {
+            if (waiting is not null) return;
+            waiting = service.StartTurnEnd(Signal(waitingAt));
+            waitingWhenShutdownBegan = !waiting.IsCompleted;
+            service.Dispose();
+            flightsFinished = service.WaitForFlightsAsync(TimeSpan.FromSeconds(5));
+            writerClosed = flightsFinished.ContinueWith(done =>
+            {
+                tracesWhenTheDrainReturned = env.Traces.Count;
+                return writer.CompleteAsync();
+            }, TaskScheduler.Default).Unwrap();
+        };
+
+        var first = service.StartTurnEnd(Signal());
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        release.SetResult();
+        Assert.Equal(TurnVerdictOutcomeKind.Judged, (await first.WaitAsync(TimeSpan.FromSeconds(5))).Kind);
+        Assert.NotNull(waiting);
+        Assert.True(waitingWhenShutdownBegan, "the stop did not reach the point it was sent to: it had already been answered when shutdown began");
+        Assert.True(await flightsFinished!.WaitAsync(TimeSpan.FromSeconds(5)), "the shutdown wait timed out");
+        await writerClosed!.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(TurnVerdictOutcomeKind.Cancelled, (await waiting!.WaitAsync(TimeSpan.FromSeconds(5))).Kind);
+        // The drain returned only once the waiting stop's row had been handed in, and the writer took it.
+        Assert.Equal(2, tracesWhenTheDrainReturned);
+        Assert.Equal(0, writer.Dropped);
+        var history = store.History(Tenant, Sid);
+        Assert.Equal(
+            new[] { TurnVerdictTraceOutcomes.Cancelled, TurnVerdictTraceOutcomes.Judged },
+            history.Select(t => t.Outcome).ToArray());
+        Assert.Equal(waitingAt, history[0].TurnEndObservedAtUtc);
+        Assert.Equal(ActivityCauses.Shutdown, history[0].Cause);
+    }
+
+    [Fact]
+    public async Task AStopWaitingBehindAnEndingJudgement_IsNotOvertakenByALaterStop_ArrivingBeforeThatJudgementCompletes()
+    {
+        // Issue #2905, round 2, finding 2. The waiting stop used to take the gate only when the ending judgement COMPLETED,
+        // which is after it left the gate. A later stop arriving in between took the gate synchronously and handed in its
+        // row first, so the store read the earlier stop as the newer one.
+        //
+        // EACH STOP ARRIVES AT ITS EXACT POINT. The waiting stop arrives from the seam that runs once the ending judgement
+        // has closed its joined list. The later stop arrives from the seam that runs once that judgement has left the gate
+        // and before it completes - the gap the finding names. The waiting stop's own row is held until the later stop has
+        // arrived, so the later stop always arrives while the waiting stop is still being answered; and if the later stop
+        // takes the gate there - its roster read happens on this thread when it does - the seam waits for it to finish, so
+        // an overtaking row is handed in first, every run.
+        var release = new TaskCompletionSource();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var (env, store, writer) = StoreBacked(release, entered);
+        using var writerScope = writer;
+        var service = new TurnVerdictService(env);
+
+        var joinedAt = ObservedAt.AddMinutes(1);
+        var waitingAt = ObservedAt.AddMinutes(2);
+        var laterAt = ObservedAt.AddMinutes(3);
+        var laterArrived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        env.BeforeRecordTrace = trace =>
+        {
+            if (trace.TurnEndObservedAtUtc == waitingAt && trace.Outcome == TurnVerdictTraceOutcomes.Skipped)
+                laterArrived.Task.Wait(TimeSpan.FromSeconds(5));
+        };
+
+        Task<TurnVerdictOutcome>? waiting = null;
+        Task<TurnVerdictOutcome>? later = null;
+        var laterTookTheGate = false;
+        var gapSeamFired = 0;
+        service.OnJoinedListClosedForTests = closedSid =>
+        {
+            if (waiting is not null) return;
+            // Held from here on, so neither stop asks the judge - what is under test is only the order they are answered in.
+            env.Held = heldSid => true;
+            waiting = service.StartTurnEnd(Signal(waitingAt));
+        };
+        service.OnLeftGateForTests = leftSid =>
+        {
+            if (waiting is null || Interlocked.Exchange(ref gapSeamFired, 1) == 1) return;
+            var readsBefore = env.StateReads;
+            later = service.StartTurnEnd(Signal(laterAt));
+            laterTookTheGate = env.StateReads != readsBefore;
+            laterArrived.TrySetResult();
+            if (laterTookTheGate)
+                later.WaitAsync(TimeSpan.FromSeconds(5)).GetAwaiter().GetResult();
+        };
+
+        var first = service.StartTurnEnd(Signal());
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(ActivityCauses.AlreadyJudging, (await service.StartTurnEnd(Signal(joinedAt))).SkipCause);
+
+        release.SetResult();
+        Assert.Equal(TurnVerdictOutcomeKind.Judged, (await first.WaitAsync(TimeSpan.FromSeconds(5))).Kind);
+        Assert.NotNull(waiting);
+        Assert.Equal(ActivityCauses.Held, (await waiting!.WaitAsync(TimeSpan.FromSeconds(5))).SkipCause);
+        Assert.NotNull(later);
+        await later!.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(await service.WaitForFlightsAsync(TimeSpan.FromSeconds(5)));
+        await writer.CompleteAsync().WaitAsync(TimeSpan.FromSeconds(10));
+
+        // Newest first, from the store: the later stop, the waiting stop, the stop that joined, the judgement it joined. (The
+        // judgement's own row carries the latest stop it saw observed - the joined one - so it is named by its outcome.)
+        var history = store.History(Tenant, Sid);
+        Assert.Equal(4, history.Count);
+        Assert.Equal(
+            new[] { laterAt, waitingAt, joinedAt },
+            history.Take(3).Select(t => t.TurnEndObservedAtUtc).ToArray());
+        Assert.Equal(TurnVerdictTraceOutcomes.Joined, history[2].Outcome);
+        Assert.Equal(TurnVerdictTraceOutcomes.Judged, history[3].Outcome);
+        Assert.False(laterTookTheGate, "the later stop took the gate while an earlier stop was still waiting for it");
+    }
+
+    [Fact]
     public async Task ACancellation_TracesUnderTheSettingsItsFlightStartedWith_AndCompletes_EvenWhenASettingsReadWouldNowThrow()
     {
         // Found in review: the cancellation read the settings again; a throw there escaped the flight's boundary and
