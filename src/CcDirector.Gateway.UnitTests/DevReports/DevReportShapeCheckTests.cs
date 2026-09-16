@@ -183,6 +183,44 @@ public sealed class DevReportShapeCheckTests
     public void Check_BadQuestionId_Fails()
         => AssertFailsWith(Report(questionsBody: Question.Replace("data-dev-report-question=\"rerun\"", "data-dev-report-question=\"re run\"")), "id \"re run\" is not allowed");
 
+    [Fact]
+    public void Check_EmptyNoQuestionsElement_Fails()
+        => AssertFailsWith(Report(questionsBody: "<p data-dev-report-no-questions>  <span></span> </p>"), "no-questions element is empty");
+
+    [Fact]
+    public void Check_RadioOptionsAfterTheQuestionCloses_Fails()
+    {
+        // Review finding 5: options placed after the question's end tag look like its options by order, but
+        // the page only offers what is inside the question element.
+        var detached = "<div data-dev-report-question=\"rerun\"><h3>Rerun?</h3></div>" +
+                       "<label><input type=\"radio\" name=\"rerun\" value=\"yes\" data-recommended> Yes</label>" +
+                       "<label><input type=\"radio\" name=\"rerun\" value=\"no\"> No</label>";
+        AssertFailsWith(Report(questionsBody: detached), "\"yes\" in the questions section is not inside any question");
+        AssertFailsWith(Report(questionsBody: detached), "\"rerun\" has 0 option(s)");
+    }
+
+    [Fact]
+    public void Check_NestedQuestions_Fails()
+    {
+        var nested = "<div data-dev-report-question=\"outer\">" +
+                     "<label><input type=\"radio\" name=\"o\" value=\"o1\" data-recommended> O1</label>" +
+                     "<label><input type=\"radio\" name=\"o\" value=\"o2\"> O2</label>" +
+                     Question.Replace("rerun", "inner") + "</div>";
+        AssertFailsWith(Report(questionsBody: nested), "\"inner\" is nested inside the question \"outer\"");
+    }
+
+    [Fact]
+    public void Check_UnclosedQuestion_Fails()
+        => AssertFailsWith(Report(questionsBody: Question.Replace("</div>", "")), "has no closing </div> tag");
+
+    [Fact]
+    public void Check_UnclosedQuestionsSection_Fails()
+    {
+        var html = Report(questions: false, detail: false, evidence: false) +
+                   "<section data-dev-report=\"questions\">" + Question + "<section data-dev-report=\"detail\"></section>";
+        AssertFailsWith(html, "questions section (<section data-dev-report=\"questions\">) has no closing");
+    }
+
     // --- then the detail --------------------------------------------------------------------------------
 
     [Fact]
@@ -209,6 +247,35 @@ public sealed class DevReportShapeCheckTests
         var verdict = DevReportShapeCheck.Check(Report(afterHeader: hidden));
         Assert.True(verdict.Passed, string.Join("\n", verdict.Errors));
     }
+
+    [Fact]
+    public void Check_EveryMarkerAfterPlaintext_DoesNotCount()
+    {
+        // Review finding 4: a browser renders everything after <plaintext> as text, so a report whose markers
+        // all sit after it has no sections at all.
+        var html = "<plaintext>" + Report();
+        var verdict = DevReportShapeCheck.Check(html);
+        Assert.False(verdict.Passed);
+        Assert.Contains(verdict.Errors, e => e.Contains("has no header"));
+    }
+
+    [Fact]
+    public void Check_AnEndTagThatOnlyStartsLikeScript_DoesNotEndTheScript()
+    {
+        // Review finding 4: "</scripture" does not close a script in a browser, so the markers after it are
+        // still script text.
+        var html = "<script>var x = '</scripture>" + Report() + "';</script>";
+        AssertFailsWith(html, "has no header");
+    }
+
+    [Theory]
+    [InlineData("xmp")]
+    [InlineData("iframe")]
+    [InlineData("noembed")]
+    [InlineData("noframes")]
+    [InlineData("noscript")]
+    public void Check_MarkersInsideOtherTextOnlyElements_DoNotCount(string element)
+        => AssertFailsWith($"<{element}>{Report()}</{element}>", "has no header");
 
     [Fact]
     public void Check_UppercaseAttributesSingleQuotesAndUnquotedValues_AreRead()
