@@ -300,12 +300,15 @@ def format_count(
     - `format_count(7, breakdown=[("needs-you", 3), ("working", 4)])`
       -> `count: 7 (needs-you 3, working 4)`
     - `format_count(3, total=26)` -> `count: 3 of 26 total`
+    - `format_count(0, total=0)` -> `count: 0`
 
     Pass `total` whenever a filter was applied, even if it matched everything. `breakdown` is
     printed in the order given, zeros included, and must add up to `shown` - a breakdown that does
     not is a caller defect and raises. `None` means no breakdown; an empty breakdown is a caller
     defect and raises. An empty result is `count: 0` or `count: 0 of N total`;
-    that line is what makes an empty result definitive, so always print it.
+    that line is what makes an empty result definitive, so always print it. When `total` is 0 the
+    source itself is empty, so the line is plain `count: 0` - an empty source is an empty list, not
+    a filter that matched nothing.
     """
     if not isinstance(shown, int) or isinstance(shown, bool) or shown < 0:
         raise ValueError(f"shown must be a non-negative integer, got {shown!r}")
@@ -313,7 +316,8 @@ def format_count(
     if total is not None:
         if not isinstance(total, int) or isinstance(total, bool) or total < shown:
             raise ValueError(f"total must be an integer no smaller than shown ({shown}), got {total!r}")
-        line += f" of {total} total"
+        if total > 0:
+            line += f" of {total} total"
     if breakdown is not None:
         if len(breakdown) == 0:
             raise ValueError("breakdown was supplied but is empty; pass None for no breakdown")
