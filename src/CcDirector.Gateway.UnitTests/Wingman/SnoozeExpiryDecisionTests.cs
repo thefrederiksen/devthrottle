@@ -87,10 +87,32 @@ public sealed class SnoozeExpiryDecisionTests
             SnoozeExpiryDecision.AtExpiry(SnoozeSet, latest: null, VerdictStates.Reading, null));
 
     [Fact]
-    public void ASnoozeThisGatewayNeverSawArmed_DecidesNothing()
-        // No start, so no stretch of time, so no claim about it. Never "nothing happened".
-        => Assert.Equal(SnoozeExpiryOutcome.None,
+    public void ASnoozeThisGatewayNeverSawArmed_ASKS_BecauseUnknownIsRed()
+        // UNKNOWN IS RED, so an unknown arming moment ASKS (the Architect's ruling, 2026-09-16). No start means no
+        // stretch of time and therefore no claim about it - and the one answer that is true whatever happened in
+        // the part this Gateway could not see is "ask the judge about the current screen".
+        //
+        // This test asserted None until that ruling. It was pinning the behaviour the ruling replaces: claiming
+        // nothing left the row on whatever the rest of the fold made it, which is right for a restart and wrong
+        // for a roster prune, because the prune can lose the arming moment for a snooze that a stop DID happen
+        // during - and then "claims nothing" reads as "nothing new" and quietens a real ask.
+        => Assert.Equal(SnoozeExpiryOutcome.ReadRequested,
             SnoozeExpiryDecision.AtExpiry(armedAtUtc: null, Verdict(SnoozeSet.AddMinutes(5)), VerdictStates.Judged, null));
+
+    [Fact]
+    public void AnUnknownArmingMoment_NeverAnswersCalm_WhateverElseIsTrueOfTheRow()
+        // The property, rather than one example of it: there is no row at all for which "I cannot see the start
+        // of the quiet" comes back as "nothing happened while it ran".
+        => Assert.All(
+            new[]
+            {
+                SnoozeExpiryDecision.AtExpiry(null, latest: null, VerdictStates.None, null),
+                SnoozeExpiryDecision.AtExpiry(null, Verdict(SnoozeSet.AddMinutes(5)), VerdictStates.Judged, null),
+                SnoozeExpiryDecision.AtExpiry(null, Verdict(SnoozeSet.AddMinutes(5), failed: true), VerdictStates.Failed, null),
+                SnoozeExpiryDecision.AtExpiry(null, Verdict(SnoozeSet.AddMinutes(-5)), VerdictStates.Judged, null),
+                SnoozeExpiryDecision.AtExpiry(null, latest: null, VerdictStates.None, turnEndsSinceSnoozeSet: 0),
+            },
+            outcome => Assert.NotEqual(SnoozeExpiryOutcome.NothingNew, outcome));
 
     // ============================================================ the switching design's count, when it lands
 

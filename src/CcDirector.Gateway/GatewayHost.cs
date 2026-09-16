@@ -1645,7 +1645,12 @@ public sealed class GatewayHost : IAsyncDisposable
                 // and label every browser gets.
                 turnVerdictRows: _turnVerdictRows,
                 // Slice F: the same snooze memory, so the push and the roster see ONE expiry edge between them.
-                snoozeExpiry: _snoozeExpiry),
+                snoozeExpiry: _snoozeExpiry,
+                // And the ACCOUNT'S roster for it to prune to, not this one Director's push. Ids only: a
+                // membership question does not need a session cloned to answer it, and this is the hot path.
+                snoozeRosterSessionIds: _tenantPass.Current is { } snoozeTenant
+                    ? PushedSessions.ConnectedSessionIds(snoozeTenant)
+                    : null),
             SendCommandAsync,
             currentScopeKey: () => _tenantPass.Current?.Value);
         // Mission Screen mission (Phase 1b, issue #1405): the mission-WHY store, at a Gateway-side file
@@ -4694,7 +4699,10 @@ public sealed class GatewayHost : IAsyncDisposable
         // and the label pushed to the desktop are the ones every browser gets.
         Wingman.ITurnVerdictRowSource? turnVerdictRows = null,
         // Slice F: the same snooze memory the roster folds with. Shared, not a second instance - see the field.
-        Wingman.SnoozeExpiryReJudge? snoozeExpiry = null)
+        Wingman.SnoozeExpiryReJudge? snoozeExpiry = null,
+        // Slice F: the ACCOUNT'S whole roster as session ids, for that memory to prune to. The push carries ONE
+        // Director's sessions, and pruning to those would drop every other Director's watch on every push.
+        IReadOnlyCollection<string>? snoozeRosterSessionIds = null)
     {
         foreach (var s in sessions)
         {
@@ -4727,7 +4735,8 @@ public sealed class GatewayHost : IAsyncDisposable
                 narrationAbandoned: narrationAbandonedFor?.Invoke(s.SessionId) ?? false,
                 waitingSince: s.VoiceWaitingSince);
         }
-        Api.GatewayEndpoints.StampFleetRolesAndFold(sessions, sessions, needsYouStampFor, snoozeRegistry, tenant, handRaises, turnVerdictRows, snoozeExpiry);
+        Api.GatewayEndpoints.StampFleetRolesAndFold(sessions, sessions, needsYouStampFor, snoozeRegistry, tenant,
+            handRaises, turnVerdictRows, snoozeExpiry, nowUtc: null, snoozeRosterSessionIds: snoozeRosterSessionIds);
     }
 
     /// <summary>

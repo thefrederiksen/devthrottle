@@ -9,13 +9,6 @@ namespace CcDirector.Gateway.Wingman;
 public enum SnoozeExpiryOutcome
 {
     /// <summary>
-    /// NOTHING IS KNOWN, so nothing is ruled and nothing is recorded. This Gateway never saw the snooze armed -
-    /// it started while the clock was already running - and "nothing happened while it ran" is a claim about a
-    /// stretch of time with no start. The row is left exactly as the rest of the fold made it.
-    /// </summary>
-    None,
-
-    /// <summary>
     /// A VERDICT FOR THIS SESSION IS ALREADY BEING FORMED. The answer is on its way, so the expiry neither calls
     /// the row calm nor asks a second time - and it RECORDS THAT, with its own cause word. An expiry spends its
     /// one edge whatever it decides, and an edge that is spent without a ledger row is an expiry that cannot be
@@ -65,12 +58,25 @@ public static class SnoozeExpiryDecision
         if (string.Equals(verdictState, VerdictStates.Reading, StringComparison.Ordinal))
             return SnoozeExpiryOutcome.ReadInFlight;
 
-        // NEVER SEEN ARMED, SO NOTHING IS KNOWN. "Nothing happened while the snooze ran" is a claim about a
-        // stretch of time, and without its start there is no stretch. The row is left exactly as the rest of the
-        // fold made it, which is the red it had before this slice existed - the safe direction, and an honest
-        // one: this says "I cannot tell", never "nothing happened".
+        // UNKNOWN IS RED, and an unknown arming moment therefore ASKS (the Architect's ruling, 2026-09-16).
+        //
+        // "Nothing happened while the snooze ran" is a claim about a stretch of time, and without its start there
+        // is no stretch. So this must never answer calm. What it does instead is the inversion that matters: it
+        // asks the judge about the current screen, which is the one answer that is true whatever happened in the
+        // part this Gateway could not see.
+        //
+        // IT COVERS EVERY WAY THE ARMING MOMENT CAN GO MISSING, which is why it is stated as a property of "not
+        // known" rather than of any one cause: a Gateway that restarted while the clock ran, an entry the roster
+        // prune dropped when the session left a fold, and anything later that loses it the same way. Before this,
+        // the prune could turn a real ask into "Snooze ended, nothing new" - a quietened question, which this
+        // file's own words call the worst thing the mission can do - and whether it did depended on whether the
+        // session happened to be absent from one fold in between. Now the losing case costs ONE READ at the
+        // colour the row already had, and the two histories end in the same place.
+        //
+        // The cost is bounded by the same things every automatic trigger is bounded by: the edge fires once per
+        // expiry, the account's judge switch gates it, and its ceiling caps it.
         if (armedAtUtc is not DateTime armedAt)
-            return SnoozeExpiryOutcome.None;
+            return SnoozeExpiryOutcome.ReadRequested;
 
         var newTurnEnd = turnEndsSinceSnoozeSet is int counted
             ? counted > 0
@@ -186,17 +192,23 @@ public sealed class SnoozeExpiryReJudge
     /// and assign <see cref="SessionDto.SnoozeEndedNothingNew"/> on EVERY row in both directions - the roster
     /// re-serves rows a previous fold stamped, so a stamp that was only ever set would outlive its reason.
     /// </summary>
+    /// <param name="rosterSessionIds">THE ACCOUNT'S WHOLE ROSTER, as session ids - what the watch prunes to. It is
+    /// passed separately from the rows because a fold's rows are not the account: the display push carries one
+    /// Director's sessions, and a filtered roster read carries one machine's. A per-Director view lies to this
+    /// memory the same way it lies to the held check, so the caller NAMES the account's roster and this does not
+    /// try to infer it. Null means the rows themselves are the roster, which is what a caller with nothing better
+    /// to offer is saying.</param>
     public void Observe(
         TenantId tenant,
         IReadOnlyList<SessionDto> rows,
         Snooze.SnoozeHoldSnapshot holds,
         DateTime nowUtc,
-        IReadOnlyList<SessionDto>? rosterUniverse = null)
+        IReadOnlyCollection<string>? rosterSessionIds = null)
     {
         ArgumentNullException.ThrowIfNull(rows);
         ArgumentNullException.ThrowIfNull(holds);
 
-        PruneToRoster(tenant, rosterUniverse ?? rows);
+        PruneToRoster(tenant, rosterSessionIds ?? IdsOf(rows));
 
         foreach (var s in rows)
         {
@@ -278,11 +290,10 @@ public sealed class SnoozeExpiryReJudge
             if (!won) continue;   // another fold took this expiry; go round and hold with whatever it decided
 
             s.SnoozeEndedNothingNew = outcome == SnoozeExpiryOutcome.NothingNew;
-            // NOTHING KNOWN, NOTHING SAID. This is the one outcome that writes no ledger row, because there is
-            // nothing to write: this Gateway never saw the snooze armed, so it has no reading of what the quiet
-            // contained. Every other outcome, including an answer already on its way, records exactly once.
-            if (outcome == SnoozeExpiryOutcome.None) return;
-
+            // EVERY EXPIRY RECORDS, with no exception left. The one outcome that used to write nothing was the
+            // expiry that knew nothing, and that outcome no longer exists - not knowing is now a reason to ASK,
+            // and an ask says so like every other ruling. The event's contract of exactly one row per expiry is
+            // therefore true of every path through here rather than of all but one.
             FileLog.Write($"[SnoozeExpiryReJudge] sid={s.SessionId} tenant={tenant.ToLogString()} snooze ended: {outcome}");
             _record?.Invoke(new TurnVerdictRecord(tenant, s.DirectorId ?? "", s.SessionId,
                 ActivityEventTypes.TurnVerdictSnoozeExpiry, CauseOf(outcome),
@@ -311,7 +322,12 @@ public sealed class SnoozeExpiryReJudge
     }
 
     /// <summary>The cause word for one outcome. EVERY case is named: a fall-through arm would silently give a new
-    /// outcome somebody else's word, which is exactly the shape of defect this file has already been caught by.</summary>
+    /// outcome somebody else's word, which is exactly the shape of defect this file has already been caught by.
+    ///
+    /// AN EXPIRY WITH NO KNOWN ARMING MOMENT IS A RE-JUDGE AND CARRIES THE RE-JUDGE'S WORD, deliberately. It is
+    /// not a fifth cause: the ledger says WHAT WAS DONE about the expiry, and what was done is that the judge was
+    /// asked about the current screen - the same thing, for the same reason, as any other stop nothing had
+    /// judged. Why the arming moment was missing is the fold's business, not the owner's.</summary>
     private static string CauseOf(SnoozeExpiryOutcome outcome) => outcome switch
     {
         SnoozeExpiryOutcome.NothingNew => ActivityCauses.SnoozeNothingNew,
@@ -335,29 +351,34 @@ public sealed class SnoozeExpiryReJudge
     /// to be absent too - each of those was a condition that let the memory grow, which is exactly what this
     /// exists to stop.
     ///
-    /// WHAT HAPPENS WHEN A PRUNED SESSION COMES BACK, and it is better than the cost that was accepted for it.
-    /// A session can leave the roster and return - a Director quiet for a poll, a filtered read, a machine that
-    /// restarted. If its expiry had already been handled before it left, the returning session is re-armed as
-    /// ALREADY EXPIRED and is NOT read again: its entry is gone, so nothing says when the snooze was seen armed,
-    /// and an expiry with no arming observation claims nothing and asks nothing - it takes the edge, stores an
-    /// expired watch, and stops. Every later fold then finds that expired watch and holds. The edge is spent
-    /// once whether or not the entry survived in between.
+    /// WHAT IT COSTS WHEN A SESSION TRULY LEAVES AND COMES BACK. Its entry went with it, so nothing says when
+    /// its snooze was seen armed - and UNKNOWN IS RED (see <see cref="SnoozeExpiryDecision.AtExpiry"/>), so the
+    /// expiry ASKS rather than claiming anything about a stretch of quiet it cannot see the start of. One extra
+    /// read, at the colour the row already had, and the edge then settles: never a quietened question. The
+    /// DIRECTION of that failure is the whole point - a bounded memory is worth an occasional repeated read, and
+    /// is not worth a real ask going silent.
     ///
-    /// <see cref="SnoozeExpiryReJudgeTests.ASessionThatComesBackAfterItsExpiryWasHandled_IsNotReadAgain"/> is the
-    /// assertion of this paragraph. The sentence and the test point at each other on purpose: a claim written
-    /// beside code that nothing checks is where the next reader stops being sceptical.
+    /// <see cref="SnoozeExpiryReJudgeTests.ASessionThatTrulyLeavesTheAccount_AndComesBack_IsAskedOnceMore_NeverCalmed"/>
+    /// and <see cref="SnoozeExpiryReJudgeTests.AnAbsenceDuringTheSnooze_MakesNoDifferenceToWhatTheExpiryDoes"/>
+    /// are the assertions of this paragraph. The sentences and the tests point at each other on purpose: a claim
+    /// written beside code that nothing checks is where the next reader stops being sceptical.
     /// </summary>
-    private void PruneToRoster(TenantId tenant, IReadOnlyList<SessionDto> roster)
+    private void PruneToRoster(TenantId tenant, IReadOnlyCollection<string> rosterSessionIds)
     {
-        var present = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var s in roster)
-            if (!string.IsNullOrEmpty(s.SessionId)) present.Add(s.SessionId);
-
         foreach (var key in _watch.Keys)
         {
-            if (key.Tenant != tenant || present.Contains(key.SessionId)) continue;
+            if (key.Tenant != tenant || rosterSessionIds.Contains(key.SessionId)) continue;
             _watch.TryRemove(key, out _);
         }
+    }
+
+    /// <summary>The session ids on a set of rows, for a caller with no separate roster to name.</summary>
+    private static HashSet<string> IdsOf(IReadOnlyList<SessionDto> rows)
+    {
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var s in rows)
+            if (!string.IsNullOrEmpty(s.SessionId)) ids.Add(s.SessionId);
+        return ids;
     }
 }
 
@@ -377,9 +398,9 @@ public static class SnoozeExpiryRowStamp
     /// <param name="holds">The fold's ONE snooze snapshot. Never a second read.</param>
     /// <param name="tenant">The account the rows belong to. Null or invalid stamps false.</param>
     /// <param name="nowUtc">The fold's single moment.</param>
-    /// <param name="rosterUniverse">The fold's ROLE UNIVERSE - every session this fold covers, unfiltered - which
-    /// is what the watch prunes to. Null means the rows themselves ARE the roster, which is what a caller with no
-    /// separate universe is saying.</param>
+    /// <param name="rosterSessionIds">The ACCOUNT'S whole roster as session ids - what the watch prunes to. See
+    /// <see cref="SnoozeExpiryReJudge.Observe"/> for why the caller names it rather than it being taken from the
+    /// rows. Null means the rows themselves are the roster.</param>
     public static void Stamp(
         IReadOnlyList<SessionDto> rows,
         SnoozeExpiryReJudge? watch,
@@ -387,7 +408,7 @@ public static class SnoozeExpiryRowStamp
         Snooze.SnoozeHoldSnapshot holds,
         TenantId? tenant,
         DateTime nowUtc,
-        IReadOnlyList<SessionDto>? rosterUniverse = null)
+        IReadOnlyCollection<string>? rosterSessionIds = null)
     {
         ArgumentNullException.ThrowIfNull(rows);
 
@@ -397,6 +418,6 @@ public static class SnoozeExpiryRowStamp
             return;
         }
 
-        watch.Observe(account, rows, holds, nowUtc, rosterUniverse);
+        watch.Observe(account, rows, holds, nowUtc, rosterSessionIds);
     }
 }

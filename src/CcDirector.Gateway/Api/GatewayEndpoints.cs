@@ -5151,6 +5151,16 @@ internal static class GatewayEndpoints
     /// GET /sessions/{sid}. Those three used to fold independently (or not at all), which is how they came
     /// to disagree; there is one implementation because there must only ever be one answer.
     /// </summary>
+    /// <summary>The session ids on a fold's role universe, for the snooze memory to prune to when the caller
+    /// names no roster of its own.</summary>
+    private static HashSet<string> SnoozeRosterIds(IReadOnlyList<SessionDto> roleUniverse)
+    {
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var s in roleUniverse)
+            if (!string.IsNullOrEmpty(s.SessionId)) ids.Add(s.SessionId);
+        return ids;
+    }
+
     internal static void StampFleetRolesAndFold(
         List<SessionDto> roleUniverse,
         IReadOnlyList<SessionDto> toStamp,
@@ -5169,7 +5179,12 @@ internal static class GatewayEndpoints
         // so that both ends of a snooze - armed, then elapsed - can be folded without waiting out a real timer.
         // It is the moment the WHOLE fold answers as of, exactly as the clock it replaces is (see the snapshot
         // note below), so there is no second time in here for it to disagree with.
-        DateTime? nowUtc = null)
+        DateTime? nowUtc = null,
+        // Slice F: the ACCOUNT'S whole roster, as session ids, for the snooze memory to prune to. Named by the
+        // caller because neither list above is the account on every path - the display push carries one
+        // Director's sessions as both of them. Null falls back to the role universe, which IS the account's
+        // roster on the two routes that have one.
+        IReadOnlyCollection<string>? snoozeRosterSessionIds = null)
     {
         if (roleUniverse is null) throw new ArgumentNullException(nameof(roleUniverse));
         if (toStamp is null) throw new ArgumentNullException(nameof(toStamp));
@@ -5265,10 +5280,11 @@ internal static class GatewayEndpoints
         // A SNOOZE EXPIRY RE-JUDGES (slice F, ruling 10), stamped after the verdicts because its decision reads
         // them, and before the loop because the loop's colour and label read its answer. It takes the SAME snooze
         // snapshot the hold state above came from - the fold's one read - and never a second one.
-        // The ROLE UNIVERSE is what the watch prunes against - see PruneToRoster for why it is that list and not
-        // the response set: `all` can be a filtered subset of one Director's sessions, and absence from a subset
-        // is not evidence a session has gone.
-        Wingman.SnoozeExpiryRowStamp.Stamp(all, snoozeExpiry, verdictsOnTheWire, holds, tenant, foldNowUtc, roleUniverse);
+        // THE ACCOUNT'S ROSTER is what the watch prunes to, and it is the caller's to name: on this route the role
+        // universe IS that roster, but on the display push it is one Director's sessions, and a per-Director view
+        // lies to this memory. A caller that names nothing falls back to the role universe.
+        Wingman.SnoozeExpiryRowStamp.Stamp(all, snoozeExpiry, verdictsOnTheWire, holds, tenant, foldNowUtc,
+            snoozeRosterSessionIds ?? SnoozeRosterIds(roleUniverse));
 
         foreach (var s in all)
         {

@@ -114,6 +114,21 @@ public sealed class SnoozeExpiryReJudgeTests : IDisposable
             tenant: Account, handRaises: null, turnVerdictRows: rows, snoozeExpiry: watch, nowUtc: at);
     }
 
+    /// <summary>
+    /// A fold whose rows are NOT the whole account, with the account's roster named separately - which is exactly
+    /// what the display push is: one Director's sessions folded, while the account is running more. Production
+    /// takes those ids from the pushed-session store; here the test names them.
+    /// </summary>
+    private void FoldPartOfTheAccount(
+        SnoozeExpiryReJudge watch, Rows rows, IReadOnlyList<SessionDto> sessions, DateTime at,
+        params string[] accountRosterSessionIds)
+    {
+        var list = sessions.ToList();
+        GatewayEndpoints.StampFleetRolesAndFold(list, list, needsYouStampFor: null, snoozeRegistry: Snoozes,
+            tenant: Account, handRaises: null, turnVerdictRows: rows, snoozeExpiry: watch, nowUtc: at,
+            snoozeRosterSessionIds: new HashSet<string>(accountRosterSessionIds, StringComparer.Ordinal));
+    }
+
     /// <summary>Arm a snooze, let the fold SEE it armed (which is how this Gateway learns when it was set), and
     /// hand back the watch and the row source the expiry fold will use.</summary>
     private (SnoozeExpiryReJudge watch, Rows rows, SessionDto row) ArmedAndObserved(string sid = "s1")
@@ -461,21 +476,49 @@ public sealed class SnoozeExpiryReJudgeTests : IDisposable
     // ============================================================ what this Gateway never saw, it does not claim
 
     [Fact]
-    public void AGatewayThatNeverSawTheSnoozeArmed_ClaimsNothing_AndLeavesTheRowAsItWas()
+    public void AGatewayThatNeverSawTheSnoozeArmed_ASKS_BecauseUnknownIsRed()
     {
-        // The Gateway restarted while the snooze was running, so the moment it was set was never observed. "Nothing
-        // happened while it ran" is a claim about a stretch of time and there is no stretch - so this says "I
-        // cannot tell", which is the red the row had before this slice existed, and never "nothing happened".
+        // The Gateway restarted while the snooze was running, so the moment it was set was never observed - and
+        // UNKNOWN IS RED, so the expiry asks the judge about the current screen rather than claiming anything
+        // about a stretch of time it cannot see the start of.
+        //
+        // THIS TEST ASSERTED AN EMPTY LEDGER AND NO READ until the Architect's ruling of 2026-09-16, and it was
+        // pinning the behaviour that ruling replaces. "Claims nothing" is defensible for a restart on its own;
+        // it stopped being defensible once the roster prune could lose the arming moment for a snooze a stop HAD
+        // happened during, because then "claims nothing" quietens a real ask. One rule now covers both ways the
+        // moment can go missing, and it is the safe one.
         Snoozes.Snooze("s1", Deadline, "dir-1");
         var watch = NewWatch();   // a fresh memory, exactly as a restart leaves it
+        var rows = new Rows(Store);
+        var row = Row("s1");
+
+        Fold(watch, rows, new[] { row }, AfterExpiry);
+
+        Assert.False(row.SnoozeEndedNothingNew);
+        Assert.Equal(new[] { "s1" }, _reads);
+        Assert.Equal(new[] { "snooze-re-judge-requested/s1" }, _ledger);
+        // NOT RED: the seat took the read, so the row says what is actually happening to it.
+        Assert.Equal("yellow", row.EffectiveColor);
+        Assert.Equal("Wingman reading", row.StateLabel);
+    }
+
+    [Fact]
+    public void AGatewayThatNeverSawTheSnoozeArmed_AndWillNotJudge_KeepsItsRed()
+    {
+        // The same expiry on an account whose seat will not take the read. It still ASKS and still records - the
+        // ruling is about what the expiry decides, not about what the seat does with it - and the row keeps the
+        // red it had, because nothing is reading it.
+        _seatTakesTheRead = false;
+        Snoozes.Snooze("s1", Deadline, "dir-1");
+        var watch = NewWatch();
         var row = Row("s1");
 
         Fold(watch, new Rows(Store), new[] { row }, AfterExpiry);
 
         Assert.False(row.SnoozeEndedNothingNew);
+        Assert.Equal(new[] { "s1" }, _reads);
+        Assert.Equal(new[] { "snooze-re-judge-requested/s1" }, _ledger);
         Assert.Equal("red", row.EffectiveColor);
-        Assert.Empty(_reads);
-        Assert.Empty(_ledger);
     }
 
     [Fact]
@@ -637,18 +680,81 @@ public sealed class SnoozeExpiryReJudgeTests : IDisposable
     }
 
     [Fact]
-    public void ASessionThatComesBackAfterItsExpiryWasHandled_IsNotReadAgain()
+    public void AnAbsenceDuringTheSnooze_MakesNoDifferenceToWhatTheExpiryDoes()
+    {
+        // THE WHOLE POINT OF THE SAFETY INVERSION, and the test is built as the two histories side by side
+        // because the claim is not "this one ends in a read" - it is "these two END IN THE SAME PLACE".
+        //
+        // Measured before the inversion, the identical story answered differently depending on whether the
+        // session happened to be absent from one fold in between: with the absence, no read and a cyan row
+        // reading "Snooze ended, nothing new"; without it, a read and "Wingman reading". The absence lost the
+        // arming moment, so a stop that HAD happened during the snooze stopped counting as new - a quietened
+        // question, which this slice's own decision function calls the worst thing the mission can do.
+        //
+        // Both halves run on the real fold, over the real registry and the real verdict store, and the assertion
+        // is on the LEDGER CAUSE as well as the read: the same thing done, recorded the same way.
+        var withAbsence = OneSnoozeWithAStopNobodyJudged(absentMidSnooze: true);
+        var withoutAbsence = OneSnoozeWithAStopNobodyJudged(absentMidSnooze: false);
+
+        Assert.Equal(new[] { "s1" }, withAbsence.Reads);
+        Assert.Equal(new[] { "s1" }, withoutAbsence.Reads);
+        Assert.Equal(new[] { "snooze-re-judge-requested/s1" }, withAbsence.Ledger);
+        Assert.Equal(new[] { "snooze-re-judge-requested/s1" }, withoutAbsence.Ledger);
+        // And neither row was quietened.
+        Assert.False(withAbsence.Row.SnoozeEndedNothingNew);
+        Assert.False(withoutAbsence.Row.SnoozeEndedNothingNew);
+        Assert.NotEqual(SessionOrdering.SnoozeEndedNothingNewLabel, withAbsence.Row.StateLabel);
+        Assert.Equal(withoutAbsence.Row.StateLabel, withAbsence.Row.StateLabel);
+    }
+
+    /// <summary>
+    /// One snooze, one stop during it that nothing judged, and the clock run out - optionally with the session
+    /// absent from a fold while the snooze was still running, which is what the display push and a filtered
+    /// roster read do to a session that is not theirs. Its own watch and its own recording lists, so the two
+    /// histories cannot contaminate each other.
+    /// </summary>
+    private (IReadOnlyList<string> Reads, IReadOnlyList<string> Ledger, SessionDto Row) OneSnoozeWithAStopNobodyJudged(
+        bool absentMidSnooze)
+    {
+        var sid = "s1";
+        var reads = new List<string>();
+        var ledger = new List<string>();
+        var watch = new SnoozeExpiryReJudge(
+            requestRead: (_, _, s) => { reads.Add(s); return true; },
+            record: r => ledger.Add($"{r.Cause}/{r.SessionId}"));
+        var rows = new Rows(Store);
+        var row = Row(sid);
+
+        Snoozes.Snooze(sid, Deadline, "dir-1");
+        Fold(watch, rows, new[] { row }, Armed.AddSeconds(1));
+
+        // THE ABSENCE, exactly as production produces it: another Director pushes ITS sessions, so this session
+        // is not among the rows being folded - while the account is still running it. The account's roster is
+        // named, so the watch knows this session has not gone anywhere.
+        if (absentMidSnooze)
+            FoldPartOfTheAccount(watch, rows, Array.Empty<SessionDto>(), Armed.AddMinutes(2), sid);
+
+        // A stop happens while the snooze runs, and nothing on the row says what it means.
+        Store.Store(Account, sid, Verdict("", "", Armed.AddMinutes(5), failed: true));
+
+        Fold(watch, rows, new[] { row }, Armed.AddMinutes(10));
+        Fold(watch, rows, new[] { row }, AfterExpiry);
+        return (reads, ledger, row);
+    }
+
+    [Fact]
+    public void ASessionThatTrulyLeavesTheAccount_AndComesBack_IsAskedOnceMore_NeverCalmed()
     {
         // THE ASSERTION OF THE PARAGRAPH BESIDE PruneToRoster, and the two are named at each other deliberately.
         //
-        // The cost accepted for pruning unconditionally was "a returning session may be judged once more". The
-        // code turned out to be better than that, so the comment says what the code DOES instead: a session whose
-        // expiry was already handled, pruned, and returned is re-armed as ALREADY EXPIRED and is never read
-        // again. Its entry is gone, so nothing says when the snooze was seen armed, and an expiry with no arming
-        // observation claims nothing and asks nothing - it takes the edge, stores an expired watch, and stops.
+        // A session that leaves the ACCOUNT'S roster - not merely one fold's rows - takes its watch entry with
+        // it, because an entry for a session the account does not have has nothing to watch. If it comes back,
+        // nothing says when its snooze was seen armed, and UNKNOWN IS RED: the expiry asks the judge about the
+        // current screen rather than claiming anything about a stretch of quiet it cannot see the start of.
         //
-        // A comment claiming a cost the code does not pay is worse than no comment: the next reader spends their
-        // scepticism somewhere else. This is what stops that sentence drifting back.
+        // SO THE COST IS ONE EXTRA READ, and that is the accepted trade, stated where it can be checked. What it
+        // is NOT is a quietened question: the row is never calmed on the strength of a stretch of time nobody
+        // watched. The direction of the failure is the whole point of the ruling.
         var (watch, rows, row) = ArmedAndObserved();
         Store.Store(Account, "s1", Verdict("", "", Armed.AddMinutes(5), failed: true));
 
@@ -656,26 +762,25 @@ public sealed class SnoozeExpiryReJudgeTests : IDisposable
         Assert.Equal(new[] { "s1" }, _reads);
         Assert.Equal(new[] { "snooze-re-judge-requested/s1" }, _ledger);
 
-        // It leaves the roster entirely - the entry goes with it - and then comes back.
+        // It leaves the account entirely - the entry goes with it - and then comes back.
         Fold(watch, rows, Array.Empty<SessionDto>(), AfterExpiry.AddMinutes(1));
         Assert.Equal(0, watch.Watching);
 
         Fold(watch, rows, new[] { row }, AfterExpiry.AddMinutes(2));
 
-        // Re-armed as already expired: it is watched again, and it claims nothing about a stretch of quiet it
-        // cannot see the start of.
+        // Asked once more, and recorded once more - never calmed.
         Assert.Equal(1, watch.Watching);
         Assert.False(row.SnoozeEndedNothingNew);
-        Assert.Equal(new[] { "s1" }, _reads);
-        Assert.Equal(new[] { "snooze-re-judge-requested/s1" }, _ledger);
+        Assert.Equal(new[] { "s1", "s1" }, _reads);
+        Assert.Equal(new[] { "snooze-re-judge-requested/s1", "snooze-re-judge-requested/s1" }, _ledger);
 
-        // AND IT STAYS THAT WAY. One fold proves nothing about an edge - the expired watch has to hold across
-        // every later fold, which is the whole claim the paragraph makes.
+        // AND IT SETTLES. One extra read, not one per fold: the edge is spent again and the expired watch holds
+        // across every later fold, which is the claim that makes "once more" mean once.
         for (var i = 3; i < 15; i++)
             Fold(watch, rows, new[] { row }, AfterExpiry.AddMinutes(i));
 
-        Assert.Equal(new[] { "s1" }, _reads);
-        Assert.Equal(new[] { "snooze-re-judge-requested/s1" }, _ledger);
+        Assert.Equal(new[] { "s1", "s1" }, _reads);
+        Assert.Equal(2, _ledger.Count);
     }
 
     [Fact]
