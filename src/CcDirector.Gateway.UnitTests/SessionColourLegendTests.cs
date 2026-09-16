@@ -28,6 +28,10 @@ namespace CcDirector.Gateway.Tests;
 /// </summary>
 public sealed class SessionColourLegendTests
 {
+    /// <summary>The carrying-on sentence, named once because two tests reach for it.</summary>
+    private const string PurpleClaim =
+        "The session stopped, but the Wingman judged it will continue on its own, and it turns red if it does not";
+
     // The fold's vocabulary, spelled out literally rather than read from the palette under test.
     private static readonly string[] FoldColours =
         { "red", "yellow", "orange", "green", "cyan", "blue", "purple", "supporting", "error", "grey", "unknown" };
@@ -53,9 +57,8 @@ public sealed class SessionColourLegendTests
         ("red", "on a permission") => new(Stopped("red-permission", "WaitingForPerm"), "Needs you"),
         ("red", "gone quiet") => new(Stopped("red-idle", "Idle"), "Needs you"),
 
-        ("blue", "The agent is running a turn right now") => new(Stopped("blue-working", "Working"), "Working"),
         // Snoozed, supervised, mid-dictation and brand-new at once - and still blue, which is what "always" claims.
-        ("blue", "A working session is always blue") => new(new SessionDto
+        ("blue", "The agent is running a turn right now, and a working session is always blue") => new(new SessionDto
         {
             SessionId = "blue-outranks-everything", ActivityState = "Working",
             OnHold = true, HasLiveSupervisor = true, Transcribing = true, IsBrandNew = true,
@@ -68,11 +71,9 @@ public sealed class SessionColourLegendTests
         ("cyan", "it is only reporting something and asks you nothing") =>
             new(Judged("cyan-report", SessionOrdering.VerdictFinished, SessionOrdering.FinishedKindReport), "Report - Pushed the branch"),
 
-        ("purple", "The session stopped, but the Wingman judged it will continue on its own") =>
-            new(CarryingOn("purple-continues"), "Pushed the branch"),
         // The row is purple NOW; that it turns red is the carrying-on clock's promise, executed against the real
         // watchdog in TheCarryingOnPromise_IsKeptByTheRealClock below.
-        ("purple", "It turns red if it does not") => new(CarryingOn("purple-waiting"), "Pushed the branch"),
+        ("purple", PurpleClaim) => new(CarryingOn("purple-continues"), "Pushed the branch"),
 
         ("yellow", "The session stopped and is being looked at before it is shown to you") => new(
             Briefing("yellow-being-read"), "Wingman reading",
@@ -85,8 +86,7 @@ public sealed class SessionColourLegendTests
             "Preparing voice",
             WhenTheHoldClears: new SessionDto { SessionId = "yellow-voice-ready", ActivityState = "WaitingForInput", VoiceMode = true, VoiceAudioReady = true }),
 
-        ("green", "A brand-new session at its first prompt") => new(BrandNew("green-new"), "Ready"),
-        ("green", "It has not done anything yet") => new(BrandNew("green-untouched"), "Ready"),
+        ("green", "A brand-new session at its first prompt, which has not done anything yet") => new(BrandNew("green-new"), "Ready"),
 
         ("orange", "Your dictation is on its way") => new(Transcribing("orange-on-its-way"), "Transcribing"),
         ("orange", "it is still uploading from your phone") => new(new SessionDto
@@ -94,10 +94,9 @@ public sealed class SessionColourLegendTests
             SessionId = "orange-uploading", ActivityState = "WaitingForInput", DictationStatus = "Uploading from phone",
         }, "Uploading from phone"),
         ("orange", "it is being turned into text") => new(Transcribing("orange-transcribing"), "Transcribing"),
-        ("orange", "Wait before typing into it") => new(Transcribing("orange-busy"), "Transcribing"),
 
-        ("supporting", "Stopped, but another live session is driving it") => new(Supervised("supporting-driven"), "Snoozed"),
-        ("supporting", "So it waits on that session instead of you") => new(Supervised("supporting-waits"), "Snoozed"),
+        ("supporting", "Stopped, but another live session is driving it, so it waits on that session instead of you") =>
+            new(Supervised("supporting-driven"), "Snoozed"),
 
         ("grey", "This session is resting") =>
             new(new SessionDto { SessionId = "grey-resting", ActivityState = "WaitingForInput", OnHold = true }, "Snoozed"),
@@ -107,11 +106,8 @@ public sealed class SessionColourLegendTests
         // A different NAME for the same pixel, and - as round 3 found - its label is "Idle", not a word about being
         // unreadable. The sentence says so now, and the trailing claim checks that word.
         ("grey", "its state could not be read") => new(Unreadable("grey-unreadable"), "Idle", FoldsTo: "unknown"),
-        ("grey", "The label reads Snoozed, Exited or Idle") => new(Unreadable("grey-label"), "Idle", FoldsTo: "unknown"),
 
         ("error", "The agent process died") => new(Crashed("error-died"), "Crashed"),
-        ("error", "It is darker than the red that means needs you, so a crash never reads as a finish") =>
-            new(Crashed("error-darker"), "Crashed"),
 
         _ => throw new InvalidOperationException(
             $"the legend's '{colour}' sentence claims \"{claim}\" and no session here tests it. Write one built from " +
@@ -170,7 +166,7 @@ public sealed class SessionColourLegendTests
                     Assert.NotEqual(SessionColorPalette.Broken, SessionColorPalette.HexFor(colour));
                 return;
 
-            case "The screen received a colour this app does not understand":
+            case "The screen received a colour this app does not understand, so reload and report it if it stays":
                 // A name outside the vocabulary is what produces it - that is the whole mechanism.
                 Assert.False(SessionColorPalette.Knows("teal-ish"));
                 Assert.Equal(SessionColorPalette.Broken, SessionColorPalette.HexFor("teal-ish"));
@@ -341,7 +337,7 @@ public sealed class SessionColourLegendTests
     {
         // Round 4's finding: this used to hand the fold an already-expired verdict of its own making, so deleting the
         // watchdog would have left "It turns red if it does not" false with the test still green.
-        var row = PromiseFor("purple", "It turns red if it does not").Session;
+        var row = PromiseFor("purple", PurpleClaim).Session;
         var verdict = row.TurnVerdict!;
         var judgedAt = verdict.JudgedAtUtc;
 
@@ -380,30 +376,11 @@ public sealed class SessionColourLegendTests
         // The words a person reads are exactly the claims and the advice, so the note cannot grow a sentence nobody
         // checks - round 5 found "Magenta means the session is working." would have shipped.
         Assert.Equal(
-            string.Join(" ", SessionColourLegend.BrokenClaims.Concat(SessionColourLegend.BrokenAdvice).Select(c => c + ".")),
+            string.Join(" ", SessionColourLegend.BrokenClaims.Select(c => c + ".")),
             legend.Broken.Means);
         Assert.NotEmpty(SessionColourLegend.BrokenClaims);
 
         foreach (var claim in SessionColourLegend.BrokenClaims) CheckBrokenClaim(claim);
-    }
-
-    [Fact]
-    public void TheBrokenNotesAdvice_SaysNothingAboutWhatASessionIsDoing()
-    {
-        // Advice cannot be executed - there is no fact to fold - so it is held to the one rule that can be checked.
-        // Anything that talks about a session's state is a CLAIM and needs a check, which is what makes this the
-        // tripwire for the counterexample: "Magenta means the session is working." trips on "working".
-        var stateWords = new[]
-        {
-            "working", "needs you", "red", "blue", "cyan", "purple", "green", "yellow", "orange", "grey", "slate",
-            "snoozed", "exited", "crashed", "ready", "done", "carrying on", "finished", "transcribing", "supervised",
-        };
-
-        foreach (var advice in SessionColourLegend.BrokenAdvice)
-            foreach (var word in stateWords)
-                Assert.True(advice.IndexOf(word, StringComparison.OrdinalIgnoreCase) < 0,
-                    $"the magenta note's advice says \"{advice}\", and \"{word}\" is a statement about what a session " +
-                    "is doing - that is a claim, and a claim needs a check");
     }
 
     // ================================================================= coverage and shape

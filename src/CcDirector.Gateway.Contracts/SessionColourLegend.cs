@@ -29,36 +29,29 @@ public static class SessionColourLegend
     public const string Route = "/gateway/session-colours";
 
     /// <summary>
-    /// One colour's sentence, as structure rather than prose.
+    /// One colour's sentence, as structure rather than prose: an opening CLAIM and, when the colour has cases, the
+    /// ALTERNATIVES - rendered "opening: a, b, or c.".
+    ///
+    /// THERE IS NOTHING ELSE. A "trailing" list used to follow the alternatives, and the sixth review showed why that
+    /// was a hole: moving a claim between the two lists changed the meaning of the sentence (", or " became ". ")
+    /// while every test stayed green. A statement that is not a case of the opening belongs IN the opening claim,
+    /// where one session proves it.
     /// </summary>
     /// <param name="Opening">The claim the sentence opens with.</param>
-    /// <param name="Alternatives">The cases, each a claim, each an ALTERNATIVE to the others - rendered "a, b, or c".
-    /// There is deliberately no "all of these" relation: it was never validated, so declaring it would have rendered
-    /// "and" over two states a session cannot be in at once (the fifth review's counterexample). A sentence that needs
-    /// "and" must add it WITH a test that proves one session satisfies every part.</param>
-    /// <param name="Trailing">Further claims, each its own sentence after the first.</param>
-    public sealed record Sentence(
-        string Opening,
-        IReadOnlyList<string> Alternatives,
-        IReadOnlyList<string>? Trailing = null)
+    /// <param name="Alternatives">The cases, each a claim, each an alternative to the others. Empty when there are none.</param>
+    public sealed record Sentence(string Opening, IReadOnlyList<string> Alternatives)
     {
         /// <summary>Every claim in the sentence, in the order a person reads them.</summary>
-        public IEnumerable<string> Claims =>
-            new[] { Opening }.Concat(Alternatives).Concat(Trailing ?? Array.Empty<string>());
+        public IEnumerable<string> Claims => new[] { Opening }.Concat(Alternatives);
 
         /// <summary>The words, rendered. The joining strings come from the structure and nowhere else.</summary>
         public string Render()
         {
-            var text = Opening;
-            if (Alternatives.Count > 0)
-            {
-                var cases = Alternatives.Count == 1
-                    ? Alternatives[0]
-                    : string.Join(", ", Alternatives.Take(Alternatives.Count - 1)) + ", or " + Alternatives[^1];
-                text += ": " + cases;
-            }
-            foreach (var trailing in Trailing ?? Array.Empty<string>()) text += ". " + trailing;
-            return text + ".";
+            if (Alternatives.Count == 0) return Opening + ".";
+            var cases = Alternatives.Count == 1
+                ? Alternatives[0]
+                : string.Join(", ", Alternatives.Take(Alternatives.Count - 1)) + ", or " + Alternatives[^1];
+            return Opening + ": " + cases + ".";
         }
     }
 
@@ -70,7 +63,7 @@ public static class SessionColourLegend
         {
             Hex = SessionColorPalette.Broken,
             Title = "Magenta",
-            Means = string.Join(" ", BrokenClaims.Concat(BrokenAdvice).Select(c => c + ".")),
+            Means = string.Join(" ", BrokenClaims.Select(c => c + ".")),
         },
         VerdictNote = string.Join(" ", NoteClaims.Select(c => c + ".")),
     };
@@ -88,17 +81,7 @@ public static class SessionColourLegend
     public static readonly IReadOnlyList<string> BrokenClaims =
     [
         "Not a state",
-        "The screen received a colour this app does not understand",
-    ];
-
-    /// <summary>
-    /// What the magenta note ADVISES. Advice cannot be executed - there is no fact to fold - so the test holds it to
-    /// the only rule that can be checked: it may not talk about what a session is doing. Anything that does is a claim
-    /// and needs a check.
-    /// </summary>
-    public static readonly IReadOnlyList<string> BrokenAdvice =
-    [
-        "Usually the Gateway and this app are on different versions - reload, and report it if it stays",
+        "The screen received a colour this app does not understand, so reload and report it if it stays",
     ];
 
     public static readonly IReadOnlyList<string> NoteClaims =
@@ -175,34 +158,27 @@ public static class SessionColourLegend
         ["red"] = new("The session has stopped and is waiting for you",
             ["at a prompt", "on a permission", "gone quiet"]),
 
-        ["blue"] = new("The agent is running a turn right now", [],
-            Trailing: ["A working session is always blue"]),
+        ["blue"] = new("The agent is running a turn right now, and a working session is always blue", []),
 
         ["cyan"] = new("The session stopped and the Wingman judged it finished",
             ["the work is done", "it is only reporting something and asks you nothing"]),
 
-        ["purple"] = new("The session stopped, but the Wingman judged it will continue on its own", [],
-            Trailing: ["It turns red if it does not"]),
+        ["purple"] = new("The session stopped, but the Wingman judged it will continue on its own, and it turns red if it does not", []),
 
         ["yellow"] = new("The session stopped and is being looked at before it is shown to you",
             ["the Wingman or the Director is reading the stop", "its voice summary is not ready yet"]),
 
-        ["green"] = new("A brand-new session at its first prompt", [],
-            Trailing: ["It has not done anything yet"]),
+        ["green"] = new("A brand-new session at its first prompt, which has not done anything yet", []),
 
         ["orange"] = new("Your dictation is on its way",
-            ["it is still uploading from your phone", "it is being turned into text"],
-            Trailing: ["Wait before typing into it"]),
+            ["it is still uploading from your phone", "it is being turned into text"]),
 
-        ["supporting"] = new("Stopped, but another live session is driving it", [],
-            Trailing: ["So it waits on that session instead of you"]),
+        ["supporting"] = new("Stopped, but another live session is driving it, so it waits on that session instead of you", []),
 
         ["grey"] = new("This session is resting",
-            ["you snoozed it", "its agent exited", "its state could not be read"],
-            Trailing: ["The label reads Snoozed, Exited or Idle"]),
+            ["you snoozed it", "its agent exited", "its state could not be read"]),
 
-        ["error"] = new("The agent process died", [],
-            Trailing: ["It is darker than the red that means needs you, so a crash never reads as a finish"]),
+        ["error"] = new("The agent process died", []),
     };
 
     private static SessionColourLegendEntryDto Entry(string colour) => new()
