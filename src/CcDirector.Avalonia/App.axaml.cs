@@ -130,6 +130,10 @@ public partial class App : Application
                     // purge-drift, repair-broken. Runs OFF the UI thread and fire-and-forget so it NEVER
                     // gates or delays boot (failures only log), gated by tools.autoUpdate.enabled.
                     StartToolReconcile(selfUpdateApplied);
+
+                    // Keep the other Director slot present and current (issue #2945). After the health
+                    // mark on purpose: an unproven build is never copied into the standby.
+                    StartStandbySlotProvisioning();
                 }
                 catch (Exception ex)
                 {
@@ -578,6 +582,28 @@ public partial class App : Application
         {
             var layout = CcDirector.Setup.Engine.InstallLayout.Default();
             await CcDirector.Setup.Engine.ToolAutoUpdateTrigger.RunIfEnabledAsync(layout, trigger);
+        });
+    }
+
+    /// <summary>
+    /// Provision the other Director slot in the background (issue #2945). Off the UI thread and
+    /// fire-and-forget: copying the executable must never delay boot. This is the boundary, so a failure
+    /// is logged here and nowhere else.
+    /// </summary>
+    private static void StartStandbySlotProvisioning()
+    {
+        FileLog.Write("[App] StartStandbySlotProvisioning: scheduling background standby slot pass");
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var outcome = await CcDirector.Setup.Engine.StandbySlotProvisioner.ForThisProcess().RunOnceAsync();
+                FileLog.Write($"[App] Standby slot: {outcome.Decision} - {outcome.Detail}");
+            }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[App] Standby slot pass FAILED: {ex}");
+            }
         });
     }
 

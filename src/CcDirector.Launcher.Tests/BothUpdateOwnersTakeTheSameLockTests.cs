@@ -34,6 +34,21 @@ public class BothUpdateOwnersTakeTheSameLockTests
     }
 
     [Fact]
+    public void TheStandbySlotPass_DefaultsToTheSameMachineWideLock()
+    {
+        // The standby slot pass (issue #2945) replaces a Director binary too, so it must be excluded by
+        // the same lock as both update owners or it could overwrite a slot mid-update.
+        var standbySlotPass = new StandbySlotProvisioner(
+            Path.Combine(TestRoot(), "app", "cc-director.exe"),
+            _ => null,
+            _ => OtherSlotRunning.No,
+            () => false,
+            isWindows: true).SwapLockName;
+
+        Assert.Equal(BinarySwapLock.Name, standbySlotPass);
+    }
+
+    [Fact]
     public void TheLockIsMachineWide_NotSessionScoped()
     {
         // A Director and the launcher supervising it need not share a logon session, and an unqualified
