@@ -21,6 +21,18 @@ submission is therefore bound to what was checked (review of pull request 2891):
   submission in that event if either has changed;
 - afterwards the tab's address and history are checked for the secret, and cleared if it is there.
 
+That listener is not enough on its own either: a page handler that calls `stopPropagation()` keeps the
+event from ever reaching the window, and a site that answers the POST with a 307 or 308 redirect makes the
+browser send the same body to wherever the redirect points (review of pull request 2891 at 73d8c536). So
+from just before the password is typed until the tab has been made safe, every request the tab makes is
+PAUSED by the browser before it is sent, and judged by `blocked_request_reason`: the password may travel
+only as the body of a POST to an allowed origin. A request whose address carries the password, or that is
+not a POST to an allowed origin and has a body carrying the password - or a body the browser does not
+show - is failed before it leaves the browser, and the login is refused. A redirect is a new request, so
+it is judged again at each hop. Measured against real Chrome: the handler that stops the event (for the
+method and for the destination) and the 307 to another origin all sent the password before, and none did
+after.
+
 Holding the form's `action` and `method` unwritable was tried and REMOVED: a property defined on a node in
 an isolated world is only visible in that world, so the page's own scripts still see the original setter
 and still change the form. Measured against real Chrome: with only that hold in place all three of the
@@ -41,24 +53,28 @@ close it.
 
 Not covered, stated plainly: JavaScript already running in the page receives the password, because the
 site needs it - so a listener an agent attached to the page before calling login can copy it, and a page
-that sends the password with its own script instead of a form action can send it anywhere. Also not
-covered: login forms inside cross-origin frames, two-step verification and captchas (reported as a
+can transform it before sending (a hash or a reversal no longer looks like the password). The request guard
+sees the requests of this tab's own frames: a service worker, a cross-origin frame running in another
+process, a WebSocket message, or another tab are outside it. If the debug connection drops while a request
+is paused, the browser sends it on. Also not covered: login forms inside cross-origin frames, two-step verification and captchas (reported as a
 verification stop for the owner to finish by hand), and a hostile process running as this same user that
 binds the profile's debug port in place of the real browser.
 """
 
 from __future__ import annotations
 
+import base64
 import json
 import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
+from urllib.parse import unquote, unquote_plus
 
 from . import filelog
 from .errors import CcSecretsError
-from .redact import SCRUBBER
+from .redact import SCRUBBER, Scrubber
 from .store import Entry, origin_allowed, origin_of
 
 OUTCOME_LOGGED_IN = "logged in"
@@ -203,8 +219,42 @@ class CdpConnection:
 
         self._timeout = timeout_seconds
         self._next_id = 0
+        self._handlers: Dict[str, Callable[[Dict], None]] = {}
         self._ws = connect(websocket_url, open_timeout=timeout_seconds, max_size=None)
         filelog.write("[cdp] connected")
+
+    def on(self, event: str, handler: Optional[Callable[[Dict], None]]) -> None:
+        """Handle `event` whenever it arrives - while a call waits for its answer, or while pumping."""
+        if handler is None:
+            self._handlers.pop(event, None)
+        else:
+            self._handlers[event] = handler
+
+    def _dispatch(self, message: Dict) -> None:
+        handler = self._handlers.get(message.get("method", ""))
+        if handler is not None:
+            handler(message.get("params", {}))
+
+    def send(self, method: str, params: Optional[Dict] = None) -> None:
+        """Send a call without waiting for its answer (an event handler cannot wait inside another call)."""
+        self._next_id += 1
+        filelog.write(f"[cdp] -> {method} id={self._next_id} (not awaited)")
+        self._ws.send(json.dumps({"id": self._next_id, "method": method, "params": params or {}}))
+
+    def pump(self, seconds: float) -> None:
+        """Wait `seconds`, handling every event that arrives meanwhile."""
+        deadline = time.monotonic() + seconds
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return
+            try:
+                raw = self._ws.recv(timeout=remaining)
+            except TimeoutError:
+                return
+            message = json.loads(raw)
+            if "id" not in message:
+                self._dispatch(message)
 
     def call(self, method: str, params: Optional[Dict] = None) -> Dict:
         self._next_id += 1
@@ -221,6 +271,9 @@ class CdpConnection:
             except TimeoutError as exc:
                 raise CdpError(f"{method} did not answer within {self._timeout:.0f} seconds") from exc
             reply = json.loads(raw)
+            if "id" not in reply:
+                self._dispatch(reply)
+                continue
             if reply.get("id") != message_id:
                 continue
             if "error" in reply:
@@ -232,6 +285,42 @@ class CdpConnection:
     def close(self) -> None:
         self._ws.close()
         filelog.write("[cdp] closed")
+
+
+def _request_body(request: Dict) -> Optional[bytes]:
+    """The request body as the browser reported it; None when it has a body the report does not include."""
+    entries = request.get("postDataEntries")
+    if entries:
+        try:
+            return b"".join(base64.b64decode(e.get("bytes", "")) for e in entries)
+        except (ValueError, TypeError):
+            return None
+    if isinstance(request.get("postData"), str):
+        return request["postData"].encode("utf-8")
+    return None if request.get("hasPostData") else b""
+
+
+def blocked_request_reason(request: Dict, forms: Scrubber, allowed: List[str]) -> Optional[str]:
+    """Why a request made while the password is in the page must not be sent, or None when it may go.
+
+    The password may travel only as a POST body to an allowed origin. A request is blocked when its address
+    carries the password (in any form the scrubber knows, percent-decoded too), or when it is not a POST to an
+    allowed origin and has a body that carries the password - or a body the browser did not show. Every request
+    is judged on its own, so a redirect is judged again at each hop.
+    """
+    url = str(request.get("url", ""))
+    method = str(request.get("method", "GET")).upper()
+    where = origin_of(url) or "an unknown address"
+    if any(forms.contains(text) for text in (url, unquote(url), unquote_plus(url))):
+        return f"a {method} request to {where} that carried the password in its address"
+    if method == "POST" and origin_allowed(url, allowed):
+        return None
+    body = _request_body(request)
+    if body is None:
+        return f"a {method} request to {where} with a body the browser did not show, which may have held the password"
+    if body and forms.scrub_bytes(body) != body:
+        return f"a {method} request to {where} that carried the password"
+    return None
 
 
 def _close_quietly(conn) -> None:
@@ -260,6 +349,45 @@ class _Tab:
         self._entry = entry
         self._world: Optional[tuple] = None
         self.typed = False
+        self.blocked: List[str] = []
+        self._guarding = False
+
+    def wait(self, seconds: float) -> None:
+        """Let time pass while still answering the browser's paused requests."""
+        self._conn.pump(seconds)
+
+    def guard_requests(self, secret: str, allowed: List[str]) -> None:
+        """From now on, pause every request this tab makes and send only those the password may travel in."""
+        forms = Scrubber()
+        forms.add(secret)
+
+        def on_paused(params: Dict) -> None:
+            request_id = params.get("requestId")
+            reason = blocked_request_reason(params.get("request", {}), forms, allowed)
+            if reason is None:
+                self._conn.send("Fetch.continueRequest", {"requestId": request_id})
+                return
+            self._conn.send("Fetch.failRequest", {"requestId": request_id, "errorReason": "BlockedByClient"})
+            filelog.write(f"[login] blocked {reason}")
+            self.blocked.append(reason)
+
+        self._conn.on("Fetch.requestPaused", on_paused)
+        self._conn.call("Fetch.enable", {"patterns": [{"urlPattern": "*", "requestStage": "Request"}]})
+        self._guarding = True
+        filelog.write("[login] request guard on")
+
+    def release_requests(self) -> None:
+        """Stop pausing requests. Logged by type and otherwise quiet: this runs while an error may be leaving."""
+        if not self._guarding:
+            return
+        try:
+            self._conn.call("Fetch.disable")
+            filelog.write("[login] request guard off")
+        except Exception as exc:
+            filelog.write(f"[login] turning the request guard off FAILED: {type(exc).__name__}")
+        finally:
+            self._conn.on("Fetch.requestPaused", None)
+            self._guarding = False
 
     def _frame(self) -> Dict:
         return self._conn.call("Page.getFrameTree")["frameTree"]["frame"]
@@ -360,7 +488,7 @@ class _Tab:
                 # the current history entry, so the only way to remove it is to leave the page.
                 filelog.write("[login] the tab's address carried the password; leaving the page and clearing it")
                 self._conn.call("Page.navigate", {"url": "about:blank"})
-                time.sleep(POLL_SECONDS)
+                self.wait(POLL_SECONDS)
                 self._world = None
                 self._conn.call("Page.resetNavigationHistory", {})
                 address, history = self._address_and_history()
@@ -425,7 +553,7 @@ def _make_tab_safe(tab: _Tab, entry: Entry, target: Dict, port: int) -> None:
 def _wait(tab: _Tab, deadline: float, done) -> Optional[Dict]:
     """Poll the page until `done(state)` is true; returns that state, or None at the deadline."""
     while time.monotonic() < deadline:
-        time.sleep(POLL_SECONDS)
+        tab.wait(POLL_SECONDS)
         state = tab.state()
         if state is not None and done(state):
             return state
@@ -492,6 +620,7 @@ def _drive(tab: _Tab, entry: Entry, secret: str, timeout_seconds: float) -> Logi
             tab.fill(username_id, entry.username, "username")
             username_filled = True
         if password_id:
+            tab.guard_requests(secret, allowed)
             tab.typed = True
             tab.fill(password_id, secret, "password")
             stopped = _submission_stopped(tab.submit(password_id, target, method), origin_of(url))
@@ -510,7 +639,7 @@ def _drive(tab: _Tab, entry: Entry, secret: str, timeout_seconds: float) -> Logi
 def _await_outcome(tab: _Tab, deadline: float, origin: str) -> LoginResult:
     settled = 0
     while time.monotonic() < deadline:
-        time.sleep(POLL_SECONDS)
+        tab.wait(POLL_SECONDS)
         state = tab.state()
         if state is None:
             settled = 0
@@ -552,11 +681,18 @@ def login(entry: Entry, port: int, timeout_seconds: float = 30) -> LoginResult:
     tab = _Tab(conn, entry)
     try:
         result = _drive(tab, entry, secret, timeout_seconds)
-        filelog.write(f"[login] done: entry={entry.name}, outcome={result.outcome}, origin={result.host}")
-        return result
     finally:
         try:
             if tab.typed:
                 _make_tab_safe(tab, entry, target, port)
         finally:
-            _close_quietly(conn)
+            try:
+                tab.release_requests()
+            finally:
+                _close_quietly(conn)
+    if tab.blocked:
+        result = LoginResult(OUTCOME_REFUSED, "The page tried to send the password where this entry does not allow "
+                             f"it, and cc-secrets blocked it before it left the browser: {'; '.join(tab.blocked)}.",
+                             result.host)
+    filelog.write(f"[login] done: entry={entry.name}, outcome={result.outcome}, origin={result.host}")
+    return result

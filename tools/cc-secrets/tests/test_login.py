@@ -2,6 +2,8 @@
 form inside its own submit handler, the outcome, the clean-up - against a scripted tab. Driving real
 Chrome is proven by tests/live_leak_check.py, not here."""
 
+import time
+
 import pytest
 
 from conftest import add_entry
@@ -31,7 +33,7 @@ class FakeTab:
     """A tab that moves to its next page on every submit. `confirmations` scripts what each clean-up reports,
     and a page's `submit_status` scripts what the browser reports the submission did."""
 
-    def __init__(self, pages, fail_fill=None, fail_with=None, confirmations=(True,)):
+    def __init__(self, pages, fail_fill=None, fail_with=None, confirmations=(True,), blocks_on_submit=()):
         self.pages = [dict(p) for p in pages]
         self.index = 0
         self.filled = []
@@ -41,6 +43,20 @@ class FakeTab:
         self.fail_fill = fail_fill
         self.fail_with = fail_with
         self.confirmations = list(confirmations)
+        # What the request guard blocks when the form is submitted - the browser side of the guard is
+        # tests/test_request_guard.py and the real-Chrome probe, not this fake.
+        self.blocks_on_submit = list(blocks_on_submit)
+        self.blocked = []
+        self.events = []
+
+    def wait(self, seconds):
+        time.sleep(seconds)
+
+    def guard_requests(self, secret, allowed):
+        self.events.append("guard on")
+
+    def release_requests(self):
+        self.events.append("guard off")
 
     @property
     def current(self):
@@ -67,6 +83,7 @@ class FakeTab:
         if what == "password" and self.fail_fill:
             raise CdpError(self.fail_fill.format(value=value))
         self.filled.append((what, value, self.index))
+        self.events.append(f"fill {what}")
         if self.current["target_after_fill"]:
             self.current["target"] = self.current["target_after_fill"]
         if self.current["method_after_fill"]:
@@ -78,6 +95,7 @@ class FakeTab:
         if self.current["target"] != expected_target or self.current["method"] != expected_method:
             return CHANGED_BEFORE_SUBMIT
         self.submitted += 1
+        self.blocked.extend(self.blocks_on_submit)
         self.index = min(self.index + 1, len(self.pages) - 1)
         return SUBMITTED
 

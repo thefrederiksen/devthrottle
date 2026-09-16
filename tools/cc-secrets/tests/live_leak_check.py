@@ -162,6 +162,7 @@ def make_site(good_secret: str, marker: str, get_received: list, requests_seen: 
         def do_GET(self):
             url = urlsplit(self.path)
             query = parse_qs(url.query)
+            requests_seen.append({"method": "GET", "host": self.headers.get("Host", ""), "secret": good_secret in self.path})
             if url.path == "/login":
                 message = "Wrong password." if "error" in query else "Please sign in."
                 self._send(200, FORM.format(title="login", message=message, action="/session", extra="",
@@ -173,6 +174,13 @@ def make_site(good_secret: str, marker: str, get_received: list, requests_seen: 
             elif url.path == "/submit-action":
                 other = "http://localhost:" + str(self.server.server_port) + "/session"
                 self._send(200, handler_form("submit-action", form_extra='onsubmit="this.action=' + chr(39) + other + chr(39) + '"'))
+            elif url.path == "/stop-method":
+                self._send(200, handler_form("stop-method", form_extra='onsubmit="this.method=' + chr(39) + "get" + chr(39) + '; event.stopPropagation()"'))
+            elif url.path == "/stop-action":
+                other = "http://localhost:" + str(self.server.server_port) + "/session"
+                self._send(200, handler_form("stop-action", form_extra='onsubmit="this.action=' + chr(39) + other + chr(39) + '; event.stopPropagation()"'))
+            elif url.path == "/redirect-login":
+                self._send(200, handler_form("redirect-login").replace('action="/session"', 'action="/redirect307"'))
             elif url.path == "/submit-button":
                 self._send(200, handler_form("submit-button", form_extra='onsubmit="event.submitter.formMethod=' + chr(39) + "get" + chr(39) + '"'))
             elif url.path == "/two-step":
@@ -205,7 +213,9 @@ def make_site(good_secret: str, marker: str, get_received: list, requests_seen: 
             password = fields.get("password", [""])[0]
             requests_seen.append({"method": "POST", "host": self.headers.get("Host", ""),
                                   "secret": password == good_secret})
-            if self.path == "/two-step-user":
+            if self.path == "/redirect307":
+                self._send(307, location="http://localhost:" + str(self.server.server_port) + "/session")
+            elif self.path == "/two-step-user":
                 self._send(303, location=f"/two-step-password?u={username}")
             elif self.path == "/api":
                 self._send(200 if password == good_secret else 401, "ok")
@@ -300,6 +310,9 @@ def run(args) -> int:
     env = dict(os.environ)
     py = sys.executable
     results, expected, agent_checks = {}, {}, {}
+    # Screenshots of a tab the login's clean-up left on about:blank, recorded when taken: such a page has no
+    # text to recognise, and only a page positively recorded as blank may come back from recognition empty.
+    blank_pages = []
 
     with open(output_path, "w", encoding="utf-8") as out:
         say(f"run marker: {run_id}   site: {base}   agent site: {agent_base}   browser: {args.browser}", out)
@@ -359,6 +372,8 @@ print("screenshot saved")
             harness(f"import json\ngoto_url({url!r})\nwait_for_load()\n{before}\nprint(page_info())", out, env)
             results[label] = command([cc, "login", entry, "--browser", args.browser, "--json", "--timeout", "20"], out, env=env).stdout
             harness("import json\n" + after + "\n" + snapshot % str(shots / f"{label}.png"), out, env)
+            if harness_private("print(page_info()['url'])", env).strip() == "about:blank":
+                blank_pages.append(label)
 
         go_back = "js('history.back()')\nwait(2)\nwait_for_load()\nprint('pressed Back:', page_info()['url'])"
 
@@ -397,6 +412,17 @@ print("screenshot saved")
             agent_checks[f"{case}: the secret reached the address, the history or the site"] = (
                 good in seen or any(r["secret"] for r in requests_seen))
 
+        allowed_host = f"127.0.0.1:{port}"
+        for case, path in (("submit-handler-stops-the-event-and-changes-method", "/stop-method"),
+                           ("submit-handler-stops-the-event-and-changes-action", "/stop-action"),
+                           ("login-answers-307-to-another-origin", "/redirect-login")):
+            requests_seen.clear()
+            login_case(case, f"{base}{path}", "leak-good", "refused")
+            seen = harness_private("import json\nprint(page_info()['url'])\nprint(json.dumps(cdp('Page.getNavigationHistory')))", env)
+            agent_checks[f"{case}: the secret reached the address, the history, a GET, or another host"] = (
+                good in seen or any(r["secret"] and (r["method"] == "GET" or r["host"] != allowed_host)
+                                    for r in requests_seen))
+
         expected["connection-drops-while-typing"] = "exit 1"
         harness(f"import json\ngoto_url({base + '/stuck'!r})\nwait_for_load()\nprint(page_info())", out, env)
         dropped = command([py, "-c", DROP_AFTER_PASSWORD, "login", "leak-good", "--browser", args.browser, "--json",
@@ -424,6 +450,12 @@ print("screenshot saved")
         harness("close_tab()\nprint('closed')", out, env)
 
         command([cc, "log"], out, env=env)
+        # Asked of browser-harness itself, while the browser still runs, so it holds however the harness is
+        # installed (a uv tool, a separate virtual environment).
+        harness_log = harness_private(
+            f"from browser_harness import _ipc\nprint(_ipc.log_path({env.get('BU_NAME', 'default')!r}))", env).strip()
+        if not harness_log:
+            raise SystemExit("browser-harness did not report its log path, so its log cannot be searched.")
         if not was_running:
             command(["cc-devthrottle", "browser", "stop", args.browser], out, timeout=120)
 
@@ -434,13 +466,9 @@ print("screenshot saved")
             except (ValueError, KeyError):
                 say(f"  {label}: (no JSON result)", out)
 
-    harness_log = subprocess.run(
-        [str(Path(shutil.which("browser-harness")).parent.parent / "harness-env" / "Scripts" / "python.exe"), "-c",
-         f"from browser_harness import _ipc; print(_ipc.log_path({env.get('BU_NAME', 'default')!r}))"],
-        capture_output=True, text=True, env=env).stdout.strip()
     state = {"runId": run_id, "startedUtc": started.isoformat(), "port": port, "browser": args.browser,
              "harnessLog": harness_log, "expected": expected, "agentChecks": agent_checks,
-             "screenshots": len(expected),
+             "screenshots": len(expected), "blankPages": blank_pages,
              "results": {k: json.loads(v) if v.strip().startswith("{") else None for k, v in results.items()}}
     (workdir / "state.json").write_text(json.dumps(state, indent=2), encoding="utf-8")
     site.shutdown()
@@ -553,6 +581,9 @@ def verify(args) -> int:
         screenshot_hits = 0
         for shot in shots:
             text = ocr(shot, work)
+            if not text and shot.stem in state["blankPages"]:
+                print(f"screenshot {shot.name}: the tab was on about:blank when it was taken, so it has no text")
+                continue
             if not text:
                 raise BrokenInstrumentError(f"Text recognition read nothing from {shot.name}.")
             if any(secret in text for secret, _ in pairs):

@@ -18,6 +18,11 @@ without anyone meaning to:
 Each of those is then matched as bytes in every encoding a command's output may use here, so it is caught
 whether the command wrote UTF-8, UTF-16 or a Windows code page.
 
+A secret that is part of the replacement marker itself ("DACT" inside "[REDACTED]") would be spelled out
+again by every replacement, so it is refused when it is added and when it is used (`redaction_conflict`).
+And any output that still carries a secret after every replacement - a marker that happens to spell one out
+together with the text beside it - is WITHHELD whole rather than shown (review of pull request 2891).
+
 What this does NOT cover, stated plainly: a command that deliberately transforms the secret - reverses
 it, hashes it, splits it across lines - produces output with no recognisable form of it. The scrubber
 stops ACCIDENTAL exposure. It is not a defence against a command chosen to extract the secret; the
@@ -35,10 +40,13 @@ import locale
 import re
 import sys
 import threading
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 from urllib.parse import quote, quote_plus
 
 REDACTED = "[REDACTED]"
+# Replaces a whole output that still carries a secret after every form was replaced - which can only happen
+# when the replacement marker itself spells part of the secret (review of pull request 2891).
+WITHHELD = "(cc-secrets withheld this output: it could not be redacted safely)"
 
 
 def _lower_percent(text: str) -> str:
@@ -161,6 +169,41 @@ def decode_output(data: bytes) -> str:
     return data.decode("latin-1")
 
 
+def _needle_pairs(variants: List[str], secret: str) -> List[Tuple[bytes, bytes]]:
+    """(bytes to remove, the marker that replaces them): every text form in every encoding this machine's
+    commands write, and the secret encoded by any codec at all."""
+    pairs: List[Tuple[bytes, bytes]] = []
+    for encoding in output_encodings():
+        marker = REDACTED.encode(encoding)
+        for variant in variants:
+            try:
+                pairs.append((variant.encode(encoding), marker))
+            except UnicodeEncodeError:
+                continue
+    for raw, codec_name in encoded_secret_bytes(secret).items():
+        try:
+            marker = REDACTED.encode(codec_name)
+        except (LookupError, UnicodeError, TypeError, ValueError):
+            marker = REDACTED.encode("ascii")
+        pairs.append((raw, marker))
+    return pairs
+
+
+def redaction_conflict(secret: str, username: str = "") -> Optional[str]:
+    """Why `secret` cannot be hidden, or None. A secret that is part of the replacement marker "[REDACTED]"
+    - "RED", "ACT" - is spelled out again by every replacement, so it could never be shown hidden (review of
+    pull request 2891). A secret that only meets the marker at an edge is not refused: when a replacement
+    happens to spell it out next to the surrounding output, the whole output is withheld instead."""
+    variants = variants_for(secret, username)
+    withheld = WITHHELD.encode("ascii")
+    if any(v in REDACTED or v in WITHHELD for v in variants) or any(
+            needle in marker or needle in withheld for needle, marker in _needle_pairs(variants, secret)):
+        # The marker is not quoted: it contains the secret, so quoting it would spell the secret out.
+        return ("it is part of the text cc-secrets shows in place of a password, or of its notice for withheld "
+                "output, so it could not be hidden. Use a different password for this entry")
+    return None
+
+
 class Scrubber:
     """Holds the secret forms this process must never emit, and removes them from text and bytes."""
 
@@ -170,25 +213,15 @@ class Scrubber:
         self._needles: List[Tuple[bytes, bytes]] = []
 
     def add(self, secret: str, username: str = "") -> None:
+        """Remember `secret` so it is removed from everything this process emits. Always registers, even a
+        secret that conflicts with the marker: reading the store registers every entry, and one bad entry must
+        not stop the others being scrubbed. Commands that USE a secret refuse a conflicting one first."""
         with self._lock:
             merged = set(self._variants) | set(variants_for(secret, username))
             self._variants = sorted(merged, key=len, reverse=True)
-            needles: Dict[bytes, bytes] = {}
-            # Every text form, in every encoding this machine's commands write.
-            for encoding in output_encodings():
-                marker = REDACTED.encode(encoding)
-                for variant in self._variants:
-                    try:
-                        needles.setdefault(variant.encode(encoding), marker)
-                    except UnicodeEncodeError:
-                        continue
-            # The secret encoded by any codec at all, as raw bytes in the output.
-            for raw, codec_name in encoded_secret_bytes(secret).items():
-                try:
-                    marker = REDACTED.encode(codec_name)
-                except (LookupError, UnicodeError, TypeError, ValueError):
-                    marker = REDACTED.encode("ascii")
-                needles.setdefault(raw, marker)
+            needles = dict(self._needles)
+            for needle, marker in _needle_pairs(self._variants, secret):
+                needles.setdefault(needle, marker)
             self._needles = sorted(needles.items(), key=lambda item: len(item[0]), reverse=True)
 
     def clear(self) -> None:
@@ -203,6 +236,8 @@ class Scrubber:
             variants = list(self._variants)
         for v in variants:
             text = text.replace(v, REDACTED)
+        if any(v in text for v in variants):
+            return WITHHELD
         return text
 
     def scrub_bytes(self, data: bytes) -> bytes:
@@ -210,6 +245,8 @@ class Scrubber:
             needles = list(self._needles)
         for needle, marker in needles:
             data = data.replace(needle, marker)
+        if any(needle in data for needle, _ in needles):
+            return WITHHELD.encode("ascii")
         return data
 
     def decode_scrubbed(self, data: bytes) -> str:

@@ -53,6 +53,9 @@ class ScriptedConnection:
                 return {"result": {"value": self.address}}
         return {}
 
+    def pump(self, seconds):
+        pass
+
     def close(self):
         pass
 

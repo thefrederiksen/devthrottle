@@ -24,7 +24,7 @@ from urllib.parse import urlsplit
 
 from . import filelog
 from .errors import CcSecretsError, InputError, StoreFormatError
-from .redact import SCRUBBER
+from .redact import SCRUBBER, redaction_conflict
 from .storefile import StoreFile
 
 NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
@@ -193,6 +193,9 @@ def make_entry(name: str, username: str, secret: str, allowed_domains: List[str]
     validate_name(name)
     if len(secret) < MIN_SECRET_LENGTH:
         raise InputError(f"The secret must be at least {MIN_SECRET_LENGTH} characters.")
+    conflict = redaction_conflict(secret, username)
+    if conflict is not None:
+        raise InputError(f"This secret cannot be stored: {conflict}.")
     bad = [u for u in uses if u not in USES]
     if bad or not uses:
         raise InputError(f"Uses must be one or more of: {', '.join(USES)}.")
@@ -276,6 +279,13 @@ class SecretStore:
         if use not in entry.uses:
             raise EntryNotAvailableError(
                 f"Secret '{name}' is not allowed for '{use}'. It may be used for: {', '.join(entry.uses)}."
+            )
+        # Stored before cc-secrets refused such secrets. The reason is not given here: it would say what the
+        # secret is part of.
+        if redaction_conflict(entry.secret.reveal(), entry.username) is not None:
+            raise EntryNotAvailableError(
+                f"Secret '{name}' cannot be used, because its secret could not be hidden in output. The owner "
+                f"should replace it: cc-secrets add {name} --replace"
             )
         return entry
 

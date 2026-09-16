@@ -285,3 +285,18 @@ def test_Posix_LoosenedFile_IsDetected_ThenTightenedOnRead(store):
     store.entries()
 
     assert stat.S_IMODE(os.stat(paths.store_path()).st_mode) == 0o600
+
+
+def test_MacOS_IsRefused_BeforeAnythingIsCreated(tmp_path, monkeypatch):
+    # Review of pull request 2891: mode bits alone do not make a file private on macOS, where an access control
+    # list can grant another account, and those lists are not checked yet.
+    folder = tmp_path / "never-created"
+    monkeypatch.setenv("CC_SECRETS_HOME", str(folder))
+    monkeypatch.setattr(paths, "_checked_home", None)
+    monkeypatch.setattr(sys, "platform", "darwin")
+
+    with pytest.raises(permissions.StorePermissionError, match="does not run on macOS"):
+        paths.ensure_home()
+
+    monkeypatch.undo()
+    assert not folder.exists()

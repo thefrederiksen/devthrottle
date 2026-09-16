@@ -5,7 +5,9 @@ protection at rest:
 
 - Windows: the folder's access list has inheritance removed and grants the current user alone; files
   created inside it inherit that single grant from the moment they exist.
-- macOS and Linux: the folder is 0700 and each file is created 0600.
+- Linux: the folder is 0700 and each file is created 0600.
+- macOS: REFUSED for now (paths.ensure_home). An access control list there can let another account read a
+  file whose mode is 0600, and these lists are not checked yet (review of pull request 2891).
 
 Every access checks the permissions, tightens them when they have been loosened (and logs that it did),
 and refuses to go on if they are still open to anyone else. Checking on Windows reads the access list
