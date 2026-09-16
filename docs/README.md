@@ -27,7 +27,7 @@ Public documentation for DevThrottle (the cc-director desktop app). It is served
 
 | Page | What's in it |
 |------|--------------|
-| [Tools Overview](public/tools/01-overview.md) | The 35+ bundled `cc-*` command-line tools |
+| [Tools Overview](public/tools/01-overview.md) | The nine `cc-*` command-line tools the installer ships |
 
 ## API
 
