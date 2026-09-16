@@ -1838,6 +1838,8 @@ def message_send(
     Nothing is typed into the recipient; it reads the message from its inbox when it is free. The
     Gateway refuses any other recipient, and more than 6 messages an hour or 1 per recipient every
     10 minutes - put what you would have said in your report instead.
+
+    Exit code: 0 when the message was queued or an identical one is already waiting unread - for 'all', when that is true of at least one worker - and 1 when nothing was queued and nothing was waiting.
     """
     send_message(target, message, everyone=everyone, reason=reason, grant=grant)
 

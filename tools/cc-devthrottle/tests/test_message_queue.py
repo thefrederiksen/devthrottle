@@ -293,3 +293,34 @@ def test_inbox_all_help_says_it_returns_the_last_24_hours_and_why(plain):
     assert "read was lost" in out
     inbox = next(a for a in _ACTIONS if a["id"] == "message-inbox")
     assert "last 24 hours" in inbox["description"]
+
+
+# --- the broadcast exit code (inspection 1, ruling 6) ------------------------------------------------
+
+EXIT_RULE = (
+    "Exit code: 0 when the message was queued or an identical one is already waiting unread - for 'all', "
+    "when that is true of at least one worker - and 1 when nothing was queued and nothing was waiting."
+)
+
+
+def test_an_all_duplicate_broadcast_exits_zero_like_a_duplicate_single_send(posted, plain):
+    _, state = posted
+    state["answer"] = {"results": [
+        _row("aaaaaaaa-0000", "duplicate", note="already waiting unread"),
+        _row("bbbbbbbb-0000", "duplicate", note="already waiting unread"),
+    ]}
+
+    result = runner.invoke(app, ["message", "send", "all", "stand up"])
+
+    assert result.exit_code == 0
+    out = " ".join(plain(result.output).split())
+    assert "Queued for 0 of 2" in out
+    assert "aaaaaaaa not queued again" in out
+
+
+def test_the_broadcast_exit_rule_is_stated_in_the_same_words_in_help_and_code(plain):
+    # The help and the code comment carry one sentence, so neither can drift from the behaviour alone.
+    result = runner.invoke(app, ["message", "send", "--help"])
+    out = " ".join(plain(result.output).replace("|", " ").replace("│", " ").split())
+    assert EXIT_RULE in out
+    assert EXIT_RULE in " ".join(session_ops._report_broadcast.__doc__.split())

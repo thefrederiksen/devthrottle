@@ -1270,8 +1270,13 @@ def _report_broadcast(resp: Any, who: str) -> None:
     """Report a broadcast: one row per recipient, each queued, dropped or refused on its own.
 
     Counting is by OUTCOME, not by row - a broadcast where every row was refused queued nothing, and
-    saying "sent to 4 sessions" about it would be the failure this report exists to prevent. A
-    broadcast that queued nothing at all exits 1; one that queued some says which were not.
+    saying "sent to 4 sessions" about it would be the failure this report exists to prevent. Rows that
+    were not queued are listed either way.
+
+    BROADCAST_EXIT_RULE (inspection 1, ruling 6), the same words as `message send --help`:
+    Exit code: 0 when the message was queued or an identical one is already waiting unread - for 'all', when that is true of at least one worker - and 1 when nothing was queued and nothing was waiting.
+    So an all-duplicate broadcast exits 0, exactly as a duplicate single send does: the message is
+    already in every one of those inboxes.
     """
     if not isinstance(resp, dict):
         console.print("[red]Not queued:[/red] the Gateway gave no answer this tool understands.")
@@ -1299,7 +1304,7 @@ def _report_broadcast(resp: Any, who: str) -> None:
         sid = gateway.short_id(str(r.get("recipientSessionId", r.get("RecipientSessionId", "")) or "")) if isinstance(r, dict) else "?"
         why = (r.get("error") or r.get("Error")) if isinstance(r, dict) else None
         console.print(f"  [red]{sid} not queued:[/red] {escape(str(why or 'refused'))}")
-    if not queued and not dupes:
+    if not queued and not dupes:  # BROADCAST_EXIT_RULE, see the docstring
         raise typer.Exit(1)
 
 
