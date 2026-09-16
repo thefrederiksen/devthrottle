@@ -137,7 +137,7 @@ def gw(monkeypatch):
         fake.calls.append(("POST", "missions", name))
         if fake.mission_create is not None:
             return fake.mission_create
-        return dict(MISSION, missionName=name)
+        return dict(MISSION, missionName=name.strip())  # the Gateway stores the name trimmed
 
     def patch(self, mission_id, body):
         fake.calls.append(("PATCH", f"missions/{mission_id}", body))
@@ -362,6 +362,47 @@ def test_sessionRole_Cleared_OffersToSetOne(gw, monkeypatch):
     assert _help_block(result.stdout)[1] == [f"cc-devthrottle session role {SID} <role>", "cc-devthrottle session list"]
 
 
+def test_sessionRole_ClearedAsBlank_IsConfirmed(gw, monkeypatch):
+    gw.answers[("POST", f"sessions/{SID}/role")] = {"sessionId": SID, "explicitRole": ""}
+
+    result = _run(["session", "role", SID, "none"], None, monkeypatch)
+
+    assert result.exit_code == 0, result.output
+    assert "Role cleared" in result.stdout
+
+
+def test_sessionRename_RequestWithSpaces_ConfirmedByTheTrimmedName(gw, monkeypatch, plain):
+    # The Director trims the name it is given, so "  New name  " is confirmed by "New name".
+    gw.answers[("PATCH", f"sessions/{SID}")] = {"sessionId": SID, "name": "New name"}
+
+    result = _run(["session", "rename", SID, "  New name  "], None, monkeypatch)
+
+    assert result.exit_code == 0, result.output
+    assert gw.calls[-1][2] == {"name": "New name"}
+    assert f'Renamed {SID} to "New name".' in plain(result.stdout)
+
+
+def test_missionCreate_RequestWithSpaces_ConfirmedByTheTrimmedName(gw, monkeypatch, plain):
+    result = _run(["mission", "create", "  AXI  "], None, monkeypatch)
+
+    assert result.exit_code == 0, result.output
+    assert "Created mission (AXI)." in plain(result.stdout)
+
+
+def test_sessionSpawn_AnswerWithoutName_NamesTheSessionByIdNotByTheRequest(gw, monkeypatch, plain):
+    # The Director composes the name, so the requested --name is not what the session is called.
+    gw.answers[("POST", f"directors/{DIRECTOR}/sessions")] = {"sessionId": NEW}
+
+    result = _run(
+        ["session", "spawn", "/repos/x", "--controlled-by", "self", "--name", "asked-for", "--mission", "none"],
+        AS_SID, monkeypatch,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "asked-for" not in result.stdout
+    assert f"({NEW[:8]})" in plain(result.stdout)
+
+
 def test_missionDetach_NotAttached_SaysNothingChangedAndOffersAttach(gw, monkeypatch):
     gw.roster = ([dict(ROSTER[1])], True, None, None)
     gw.answers[("POST", f"sessions/{PARENT}/mission")] = {"session": {"sessionId": PARENT, "missionId": None}}
@@ -384,7 +425,7 @@ def test_sessionSpawn_InheritedMission_OffersDetach(gw, monkeypatch):
 def test_output_NamesFromElsewhere_AreAsciiAndNotReadAsMarkup(gw, monkeypatch, plain):
     gw.answers[("PATCH", f"sessions/{SID}")] = {"sessionId": SID, "name": "[bold]caf\u00e9[/bold]"}
 
-    result = _run(["session", "rename", SID, "x"], None, monkeypatch)
+    result = _run(["session", "rename", SID, "[bold]caf\u00e9[/bold]"], None, monkeypatch)
 
     assert result.exit_code == 0, result.output
     assert result.stdout.isascii()
@@ -815,6 +856,12 @@ UNCONFIRMED = [
      _set(**{f"PATCH sessions/{SID}": {"sessionId": SID}}), "gave nothing for name"),
     ("rename other session", ["session", "rename", SID, "new name"], None,
      _set(**{f"PATCH sessions/{SID}": {"sessionId": PARENT, "name": "new name"}}), "for sessionId"),
+    ("rename old name", ["session", "rename", SID, "New name"], None,
+     _set(**{f"PATCH sessions/{SID}": {"sessionId": SID, "name": "Old name"}}),
+     'gave the name "Old name", not the requested "New name"'),
+    ("rename not trimmed", ["session", "rename", SID, "New name"], None,
+     _set(**{f"PATCH sessions/{SID}": {"sessionId": SID, "name": "New name "}}),
+     'gave the name "New name ", not the requested "New name"'),
     ("prompt empty", ["session", "prompt", SID, "hello"], None,
      _set(**{f"POST sessions/{SID}/prompt": {}}), "gave nothing for accepted"),
     ("prompt refused", ["session", "prompt", SID, "hello"], None,
@@ -846,6 +893,10 @@ UNCONFIRMED = [
     ("role not set", ["session", "role", SID, "Worker"], None,
      _set(**{f"POST sessions/{SID}/role": {"sessionId": SID, "explicitRole": None}}),
      "gave the explicit role none, not Worker"),
+    ("role set no role", ["session", "role", SID, "Worker"], None,
+     _set(**{f"POST sessions/{SID}/role": {"sessionId": SID}}), "gave nothing for explicitRole"),
+    ("role clear no role", ["session", "role", SID, "none"], None,
+     _set(**{f"POST sessions/{SID}/role": {"sessionId": SID}}), "gave nothing for explicitRole"),
     ("role not cleared", ["session", "role", SID, "none"], None,
      _set(**{f"POST sessions/{SID}/role": {"sessionId": SID, "explicitRole": "Worker"}}),
      "gave the explicit role Worker, not none"),
@@ -873,6 +924,8 @@ UNCONFIRMED = [
      _mission_create({}), "did not return a mission id"),
     ("mission create no name", ["mission", "create", "AXI"], None,
      _mission_create({"missionId": MID}), "gave nothing for missionName"),
+    ("mission create other name", ["mission", "create", "AXI"], None,
+     _mission_create({"missionId": MID, "missionName": "Other"}), "'Other' for missionName"),
     ("mission rename empty", ["mission", "rename", MID, "AXI renamed"], None,
      _mission_patch({}), "did not include the mission"),
     ("mission rename no name", ["mission", "rename", MID, "AXI renamed"], None,
@@ -892,12 +945,19 @@ UNCONFIRMED = [
     ("mission attach empty", ["mission", "attach", SID, MID], None,
      _set(**{f"POST sessions/{SID}/mission": {}}), "did not include the session"),
     ("mission attach no mission", ["mission", "attach", SID, MID], None,
-     _set(**{f"POST sessions/{SID}/mission": {"session": {"sessionId": SID}}}), "gave the session mission None"),
+     _set(**{f"POST sessions/{SID}/mission": {"session": {"sessionId": SID}}}),
+     "did not say which mission the session is now on"),
+    ("mission attach null mission", ["mission", "attach", SID, MID], None,
+     _set(**{f"POST sessions/{SID}/mission": {"session": {"sessionId": SID, "missionId": None}}}),
+     "gave the session mission None"),
     ("mission attach other session", ["mission", "attach", SID, MID], None,
      _set(**{f"POST sessions/{SID}/mission": {"session": {"sessionId": PARENT, "missionId": MID}}}),
      f"named session '{PARENT}'"),
     ("mission detach empty", ["mission", "detach", SID], None,
      _set(**{f"POST sessions/{SID}/mission": {}}), "did not include the session"),
+    ("mission detach no mission field", ["mission", "detach", SID], None,
+     _set(**{f"POST sessions/{SID}/mission": {"session": {"sessionId": SID}}}),
+     "did not say which mission the session is now on"),
     ("mission detach still attached", ["mission", "detach", SID], None,
      _set(**{f"POST sessions/{SID}/mission": {"session": {"sessionId": SID, "missionId": MID}}}),
      "still gives the session mission"),
@@ -996,8 +1056,10 @@ def test_selftest_Windows_FlaggedSessionsStillListed_PassesOnTheAcceptedFlags(gw
     assert result.exit_code == 0, result.output
     out = " ".join(plain(result.stdout).split())
     assert "PASS throwaway sessions flagged for deletion - 2/2 accepted;" in out
-    # Removal is stated with its interval, never claimed.
-    assert "30-second grace period, on its next reaper sweep (every 30 seconds)" in out
+    # Removal is stated with its condition, never claimed and never given a deadline: the Director
+    # skips a flagged session on every sweep while it is working.
+    assert "after its 30-second grace period, on a later reaper sweep once they are no longer working" in out
+    assert "within" not in out and "next reaper sweep" not in out
     assert "cleaned up" not in out and "FAIL" not in out
     assert "5/5 checks passed" in out
 
@@ -1162,3 +1224,28 @@ def test_shortHelp_HelpRunsAndIsAscii(argv):
 
     assert result.exit_code == 0, result.output
     assert result.stdout.isascii()
+
+
+@pytest.mark.parametrize("answer", [{"explicitRole": None}, {"explicitRole": ""}, {"ExplicitRole": None}])
+def test_confirmed_IsCleared_FieldPresentAndEmpty_IsConfirmed(answer):
+    assert axi_cli.confirmed(answer, ("explicitRole", "ExplicitRole"), "x", ["cc-devthrottle session list"],
+                             accept=axi_cli.is_cleared) in (None, "")
+
+
+@pytest.mark.parametrize("answer,shown", [({}, "nothing"), ({"sessionId": "s"}, "nothing"),
+                                          ({"explicitRole": "Worker"}, "'Worker'")])
+def test_confirmed_IsCleared_FieldAbsentOrSet_ExitsOne(capsys, answer, shown):
+    # Absent is a missing answer, not a cleared value.
+    with pytest.raises(typer.Exit) as ex:
+        axi_cli.confirmed(answer, ("explicitRole", "ExplicitRole"), "clearing it", ["cc-devthrottle session list"],
+                          accept=axi_cli.is_cleared)
+
+    assert ex.value.exit_code == 1
+    assert f"gave {shown} for explicitRole" in capsys.readouterr().err
+
+
+def test_confirmed_NullWithoutAccept_ExitsOneSayingNull(capsys):
+    with pytest.raises(typer.Exit):
+        axi_cli.confirmed({"name": None}, ("name", "Name"), "the rename", ["cc-devthrottle session list"])
+
+    assert "gave null for name" in capsys.readouterr().err

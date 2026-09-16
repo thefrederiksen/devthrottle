@@ -1539,8 +1539,8 @@ def done(
 ) -> None:
     """Flag a session for deletion (defaults to the current session).
 
-    Does NOT kill the session now - it is flagged, and the owning Director's reaper removes it
-    within about a minute once the grace window passes and it is no longer working. Use this at
+    Does NOT kill the session now - it is flagged, and the owning Director's reaper removes it on
+    a sweep after the grace period, once it is no longer working. Use this at
     the end of an unattended run that has nothing left for the user, so the session tears itself
     down instead of lingering in the fleet.
 

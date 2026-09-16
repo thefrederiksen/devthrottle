@@ -1161,8 +1161,9 @@ OPTIONS:
 
 Spawns two throwaway sessions, lists them, sends to one, asks the other, flags both for deletion, and
 prints PASS/FAIL. The last check passes when the Director accepts both deletion flags. The sessions
-stay listed until the Director removes them, after its 30-second grace period, on its next 30-second
-reaper sweep.
+stay listed until the Director removes them: its reaper sweeps every 30 seconds and removes a flagged
+session only once its 30-second grace period has passed and the session is no longer working. A
+session that stays working is skipped on every sweep, so no removal time is promised.
 
 ### Settings
 

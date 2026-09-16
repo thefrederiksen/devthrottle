@@ -245,8 +245,11 @@ def create_mission(name: str) -> None:
             ["cc-devthrottle mission list"],
         )
 
+    # The Gateway stores the name trimmed (MissionStore.Create), so the returned name must be exactly the
+    # trimmed request; any other name is not the mission that was asked for.
     label = axi_cli.confirmed(
         resp, ("missionName", "MissionName"), f"creating mission {mid}", ["cc-devthrottle mission list"],
+        accept=lambda v: isinstance(v, str) and v == name.strip(),
     )
     console.print(f"[green]Created[/green] mission ({axi_cli.shown(label)}).")
     console.print(f"id: {mid}")
@@ -712,6 +715,14 @@ def _apply_mission(session_id: str, mission_id: Optional[str]) -> Dict[str, Any]
     if not isinstance(returned_sid, str) or returned_sid.lower() != session_id.lower():
         raise gateway.GatewayError(
             f"the Gateway's answer to the {what} named session {returned_sid!r}, not {session_id}, "
+            "so whether the session moved is unknown."
+        )
+    # ABSENT IS NOT DETACHED. The Director writes missionId on every session row, as null when there is
+    # none, so a row without the field is a missing answer - not a session with no mission.
+    has_mid = "missionId" in session or "MissionId" in session
+    if not has_mid:
+        raise gateway.GatewayError(
+            f"the Gateway's answer to the {what} did not say which mission the session is now on, "
             "so whether the session moved is unknown."
         )
     returned_mid = session.get("missionId", session.get("MissionId"))

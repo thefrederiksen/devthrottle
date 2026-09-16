@@ -632,10 +632,18 @@ def rename_session(target: Optional[str], new_name: str) -> Dict[str, Any]:
         axi_cli.fail(f"could not rename session {sid}: {err}", _CHECK_SESSION)
 
     # The answer is the renamed row. Both values are read from it, never from what was asked: an answer
-    # without them - {} included - cannot say the rename happened.
+    # without them - {} included - cannot say the rename happened. The Director only trims the name it
+    # is given (SessionManager.RenameSession), and `name` is already trimmed, so the returned name must
+    # be exactly it; any other name - the old one included - means this rename did not land.
     what = f"the rename of session {sid}"
     actual_sid = axi_cli.confirmed(resp, ("sessionId", "SessionId"), what, _CHECK_SESSION, accept=_same_session(sid))
     actual = axi_cli.confirmed(resp, ("name", "Name"), what, _CHECK_SESSION)
+    if actual != name:
+        axi_cli.fail(
+            f'the Gateway\'s answer to {what} gave the name "{axi_cli.ascii_text(str(actual))}", not the '
+            f'requested "{axi_cli.ascii_text(name)}", so the session was not renamed as asked.',
+            _CHECK_SESSION,
+        )
     console.print(f'[green]Renamed[/green] {actual_sid} to "{axi_cli.shown(actual)}".')
     axi_cli.print_next([
         "cc-devthrottle session list",
@@ -1078,10 +1086,16 @@ def set_session_role(target: Optional[str], role: Optional[str]) -> Dict[str, An
         )
 
     # The answer is the session's row. Its id says the row is this session; its explicitRole must be the
-    # role asked for, or absent when the role was cleared. An answer without the id - {} included - would
-    # otherwise read as "Role cleared", whatever was asked.
+    # role asked for, or null when the role was cleared. An answer without the id - {} included - would
+    # otherwise read as "Role cleared", whatever was asked. ABSENT IS NOT CLEARED: the Director writes
+    # explicitRole on every row, as null when there is none, so a row without the field is a missing
+    # answer and exits 1 here rather than reading as a cleared role.
     what = f"setting the role of session {sid}"
     actual_sid = axi_cli.confirmed(resp, ("sessionId", "SessionId"), what, _CHECK_SESSION, accept=_same_session(sid))
+    axi_cli.confirmed(
+        resp, ("explicitRole", "ExplicitRole"), what, _CHECK_SESSION,
+        accept=lambda v: axi_cli.is_cleared(v) or isinstance(v, str),
+    )
     explicit = gateway.field(resp, "explicitRole", "ExplicitRole")
     if explicit.lower() != wanted.lower():
         axi_cli.fail(
@@ -1104,8 +1118,8 @@ def mark_done(target: Optional[str], reason: Optional[str]) -> Dict[str, Any]:
     """Flag a session for deletion, defaulting to the current session.
 
     The session is not killed synchronously - it is flagged, and the owning Director's
-    deletion reaper removes it within about a minute, once a short grace has elapsed and the
-    session is no longer working. This is how an unattended run tears ITSELF down when it has
+    deletion reaper removes it on a sweep after its grace period has passed and the session is no
+    longer working; a session that stays working stays listed. This is how an unattended run tears ITSELF down when it has
     nothing left for the user, instead of lingering as a dead session in the fleet.
     """
     sid = resolve_target_or_current(target, "cc-devthrottle session done")
@@ -1798,7 +1812,9 @@ def spawn_session(
 
     short = gateway.short_id(sid)
     # The Director names the session at birth (issue #800), so the response carries the final name.
-    label = gateway.field(resp, "name", "Name") or name or short
+    # Only the answer names the session: the Director composes the name from the folder, --name and
+    # --purpose, so the name asked for is not what it is called and is never printed in its place.
+    label = gateway.field(resp, "name", "Name") or short
     console.print(f"[green]Opened[/green] session {short} ({axi_cli.shown(label)}).")
     if opt_out and cc_session:
         console.print(
@@ -1923,11 +1939,13 @@ def _runs_on_windows() -> bool:
     return sys.platform.startswith("win")
 
 
-#: When a flagged throwaway actually leaves the roster, read from SessionManager on the Director: a
-#: 30-second grace period, then the next 30-second reaper sweep. Printed, never waited for.
+#: When a flagged throwaway actually leaves the roster, read from SessionManager.ReapPendingDeletions
+#: on the Director: a sweep (every 30 seconds) removes a flagged session only once its 30-second grace
+#: period has passed AND it is not working. A session that stays working is skipped on every sweep, so
+#: no deadline is promised. Printed, never waited for.
 SELFTEST_REMOVAL_NOTE = (
-    "the Director removes them after its 30-second grace period, on its next reaper sweep "
-    "(every 30 seconds), so within about a minute"
+    "the Director removes them after its 30-second grace period, on a later reaper sweep "
+    "once they are no longer working"
 )
 
 
