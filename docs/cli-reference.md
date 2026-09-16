@@ -1126,20 +1126,36 @@ USAGE: cc-devthrottle fleet preferences [--json]
 USAGE: cc-devthrottle fleet forget ID [--json]
 ```
 
-`fleet digest` defaults to this session (`CC_SESSION_ID`). It prints whether the session is the
-Fleet Manager, the account's open records, the sessions this session owns (each with its state -
-`needs-you`, `working` or `stopped` - and the Wingman's latest reading), and the standing
-preferences. Any session may run it. While an account's Wingman readings are still a shadow record,
-they are left out for a session key and the digest says so.
+WHO MAY RUN THEM. Only the account's marked Fleet Manager session (`cc-devthrottle fleet-manager
+set`) may use these commands with its session key. Any other session is refused with
+`not_fleet_manager` and a sentence saying why. The owner, on their own signed-in phone or browser,
+may list, read and answer records, manage preferences and read the digest, but does not file records.
+A Director's own key may do none of it.
 
-`fleet outcomes` lists the open records by default, newest first. A filter that matches nothing says
-how many records there are in all.
+`fleet digest` defaults to this session (`CC_SESSION_ID`), and the Fleet Manager may read only its
+own. It prints whether the session is the Fleet Manager, the marked Fleet Manager and every session
+the account has marked before, EVERY open record of the account (never a page - the command fails
+rather than print a list that disagrees with the Gateway's count), the sessions owned by the current
+Fleet Manager or by any earlier one (each with its state - `needs-you`, `working` or `stopped` - its
+owning session, and the Wingman's latest reading), and the standing preferences. A session an
+earlier Fleet Manager started is shown with that owner; handing it over to the new Fleet Manager is a
+later step.
 
-A decision's answer need not be one of its options; the record says whether it was.
+`fleet outcomes` lists the open records by default, newest first, one page at a time. When the
+filter matches more than the page, the count line says `count: <shown> of <total>`. A filter that
+matches nothing says how many records there are in all. An `ID` given as the start of an id is
+matched against the newest 200 records, and says so when there are more.
+
+`fleet answer` is final: when two callers answer the same record at once - the owner on the phone and
+the Fleet Manager, or two Gateway instances - exactly one answer is kept, and the other is refused
+(409, `already_answered`). The record keeps who answered (`answeredByRole`: `owner` or
+`fleet-manager`). A decision's answer need not be one of its options; the record says whether it was.
 
 Gateway routes: `/gateway/fleet-manager/outcomes` (GET, POST), `/outcomes/{id}` (GET),
 `/outcomes/{id}/answer` (POST, 409 when already answered), `/preferences` (GET, POST),
-`/preferences/{id}` (DELETE), `/digest?session=<id>` (GET).
+`/preferences/{id}` (DELETE), `/digest?session=<id>` (GET). `GET /outcomes` answers `count` (this
+page) and `total` (every match, counted by the Gateway). A refused caller gets 403 with
+`code: not_fleet_manager`.
 
 ### Skill Commands
 

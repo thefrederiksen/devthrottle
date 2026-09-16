@@ -45,6 +45,10 @@ public sealed class FleetOutcomeEntity : GatewayMintedKeyEntity
     /// relayed the owner's word. Null while open.</summary>
     public string? AnsweredBy { get; set; }
 
+    /// <summary>WHO gave the answer: <c>owner</c> (the owner, through their own signed-in device) or
+    /// <c>fleet-manager</c> (the account's Fleet Manager session, relaying the owner's word). Null while open.</summary>
+    public string? AnsweredByRole { get; set; }
+
     /// <summary>On a decision only: whether the answer was exactly one of the offered options. Null on the
     /// other kinds and while open.</summary>
     public bool? AnswerMatchedOption { get; set; }

@@ -113,6 +113,10 @@ public sealed class FleetOutcomeDto
     /// <summary><c>owner</c>, or the session id of the Fleet Manager that relayed the owner's word.</summary>
     public string? AnsweredBy { get; set; }
 
+    /// <summary>WHO gave the answer: <c>owner</c> (the owner, on their own signed-in device) or
+    /// <c>fleet-manager</c> (the account's Fleet Manager session, relaying the owner's word). Null while open.</summary>
+    public string? AnsweredByRole { get; set; }
+
     /// <summary>On an answered decision: whether the answer was one of the options. Null otherwise.</summary>
     public bool? AnswerMatchedOption { get; set; }
 }
@@ -138,10 +142,15 @@ public sealed class FleetPreferenceDto
     public string CreatedBy { get; set; } = "";
 }
 
-/// <summary>One session the named session owns, as the digest carries it.</summary>
+/// <summary>One session a Fleet Manager of this account owns - the current one or an earlier one - as the digest
+/// carries it.</summary>
 public sealed class FleetOwnedSessionDto
 {
     public string SessionId { get; set; } = "";
+
+    /// <summary>The session that controls it: the current Fleet Manager, or an earlier Fleet Manager of this
+    /// account. A session still owned by an earlier one has NOT been handed over; that is a later step.</summary>
+    public string OwnerSessionId { get; set; } = "";
 
     /// <summary>The full name, never shortened.</summary>
     public string Name { get; set; } = "";
@@ -159,8 +168,7 @@ public sealed class FleetOwnedSessionDto
     public int? UncommittedCount { get; set; }
 
     /// <summary>The Wingman's latest stored reading of this session - what
-    /// <c>GET /sessions/{sid}/turn-verdict</c> returns - or null when it has none or it is withheld (see
-    /// <see cref="FleetDigestDto.VerdictsWithheld"/>).</summary>
+    /// <c>GET /sessions/{sid}/turn-verdict</c> returns - or null when it has none.</summary>
     public TurnVerdictDto? TurnVerdict { get; set; }
 }
 
@@ -183,22 +191,32 @@ public sealed class FleetOwnedSessionCounts
 }
 
 /// <summary>The answer of <c>GET /gateway/fleet-manager/digest</c>: everything a Fleet Manager reads at the
-/// start of a conversation, in one read.</summary>
+/// start of a conversation, in one read. Only the account's Fleet Manager session, or the owner on their own
+/// signed-in device, may read it.</summary>
 public sealed class FleetDigestDto
 {
     /// <summary>The session the digest was built for.</summary>
     public string SessionId { get; set; } = "";
 
     /// <summary>Whether that session IS the account's Fleet Manager
-    /// (<c>FleetManagerSessions.IsFleetManager</c>). Any session may read a digest.</summary>
+    /// (<c>FleetManagerSessions.IsFleetManager</c>).</summary>
     public bool IsFleetManager { get; set; }
+
+    /// <summary>The session the account has marked as its Fleet Manager now, or null when it has marked none.</summary>
+    public string? FleetManagerSessionId { get; set; }
+
+    /// <summary>Every session whose owned sessions are listed: the current mark and every session this account
+    /// marked before it, oldest first.</summary>
+    public List<string> FleetManagerSessionIds { get; set; } = new();
 
     public DateTime GeneratedAtUtc { get; set; }
 
-    /// <summary>The account's open records, newest first.</summary>
+    /// <summary>EVERY open record of the account, newest first - never a capped slice.
+    /// <see cref="OutcomeCounts"/> is counted by the database, so the two always agree.</summary>
     public List<FleetOutcomeDto> Outcomes { get; set; } = new();
 
-    /// <summary>The sessions whose controlling session is the named one.</summary>
+    /// <summary>The sessions controlled by the current Fleet Manager or by any earlier one of this account,
+    /// each with its <see cref="FleetOwnedSessionDto.OwnerSessionId"/>.</summary>
     public List<FleetOwnedSessionDto> OwnedSessions { get; set; } = new();
 
     /// <summary>The account's standing preferences, oldest first.</summary>
@@ -206,11 +224,4 @@ public sealed class FleetDigestDto
 
     public FleetOutcomeCounts OutcomeCounts { get; set; } = new();
     public FleetOwnedSessionCounts OwnedSessionCounts { get; set; } = new();
-
-    /// <summary>True when the Wingman's readings were left out because this account's readings are still a
-    /// shadow record and the caller is a session key - the same rule the turn verdict route applies.</summary>
-    public bool VerdictsWithheld { get; set; }
-
-    /// <summary>Why they were withheld, in plain words, or null.</summary>
-    public string? VerdictsWithheldReason { get; set; }
 }

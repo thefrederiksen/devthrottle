@@ -20,12 +20,10 @@ namespace CcDirector.Gateway.Tests.Api;
 
 /// <summary>
 /// The Fleet Manager routes (the Fleet Manager mission, step 3), driven through their handlers with real
-/// stores, a real pushed-session store, a real Director registry and the real roster fold - and no booted
-/// host. The account is resolved by the delegate the host passes in; here it is read off a test header, so two
-/// accounts can be exercised side by side.
-///
-/// What they cannot prove: that the host maps these handlers on these paths, and that the middleware admits a
-/// session key to them. The second is <see cref="SessionKeyGuardTests"/>.
+/// stores, a real pushed-session store, a real Director registry and the real roster fold. The account is
+/// resolved by the delegate the host passes in; here it is read off a test header, so two accounts can be
+/// exercised side by side, and the caller's credential is stamped on the request the way the middleware stamps
+/// it. <c>FleetManagerRoutesHostTests</c> (Gateway.Tests) proves the same rules through the booted host.
 /// </summary>
 public sealed class FleetManagerEndpointsTests : IDisposable
 {
@@ -38,7 +36,13 @@ public sealed class FleetManagerEndpointsTests : IDisposable
     private static readonly string OwnedStopped = "10000000-0000-4000-8000-000000000003";
     private static readonly string NotOwned = "10000000-0000-4000-8000-000000000004";
     private static readonly string OwnedExited = "10000000-0000-4000-8000-000000000005";
+    private static readonly string FormerFleetManager = "10000000-0000-4000-8000-000000000006";
+    private static readonly string OwnedByFormer = "10000000-0000-4000-8000-000000000007";
     private static readonly string OtherAccountSession = "20000000-0000-4000-8000-000000000001";
+
+    /// <summary>The caller shapes the middleware can admit.</summary>
+    private const string Owner = "owner";
+    private const string DirectorKey = "director";
 
     private readonly GatewayDbTestHarness _harness = new();
     private readonly string _root = Path.Combine(Path.GetTempPath(), "cc-fm-endpoints-" + Guid.NewGuid().ToString("N"));
@@ -47,7 +51,8 @@ public sealed class FleetManagerEndpointsTests : IDisposable
     private readonly FleetOutcomeStore _outcomes;
     private readonly FleetPreferenceStore _preferences;
     private readonly TurnVerdictStore _verdicts;
-    private bool _colourOn = true;
+    private readonly FleetManagerMarkHistory _marks;
+    private readonly Dictionary<TenantId, string?> _marked = new() { [TenantA] = FleetManager, [TenantB] = null };
 
     public FleetManagerEndpointsTests()
     {
@@ -56,6 +61,8 @@ public sealed class FleetManagerEndpointsTests : IDisposable
         _outcomes = new FleetOutcomeStore(_harness.Open());
         _preferences = new FleetPreferenceStore(_harness.Open());
         _verdicts = new TurnVerdictStore(_harness.Open());
+        _marks = new FleetManagerMarkHistory(_harness.Open());
+        SeedFleet();
     }
 
     public void Dispose()
@@ -73,7 +80,9 @@ public sealed class FleetManagerEndpointsTests : IDisposable
             ? new TenantId(v.ToString())
             : null;
 
-    private static DefaultHttpContext Request(TenantId? tenant, object? body = null, string query = "", string? sessionKey = null)
+    /// <summary>A request as the middleware would hand it on: <paramref name="caller"/> is a session id (a session
+    /// key), <see cref="Owner"/> (a browser device key), <see cref="DirectorKey"/> (a Director's own key), or null.</summary>
+    private static DefaultHttpContext Request(TenantId? tenant, string? caller, object? body = null, string query = "")
     {
         var ctx = new DefaultHttpContext();
         if (tenant is { } t) ctx.Request.Headers[TenantHeader] = t.Value;
@@ -84,9 +93,28 @@ public sealed class FleetManagerEndpointsTests : IDisposable
                 body as string ?? JsonSerializer.Serialize(body, new JsonSerializerOptions(JsonSerializerDefaults.Web))));
         }
         if (query.Length > 0) ctx.Request.QueryString = new QueryString("?" + query);
-        if (sessionKey is not null)
-            ctx.Items[AuthMiddleware.AuthenticatedSessionItemKey] =
-                new SessionCredentialIdentity(Guid.Parse(sessionKey), tenant ?? TenantId.Local, "director-a");
+        switch (caller)
+        {
+            case null:
+                break;
+            case Owner:
+                ctx.Items[AuthMiddleware.AuthenticatedCredentialItemKey] = "device-key";
+                ctx.Items[AuthMiddleware.DeviceTypeItemKey] = "browser";
+                ctx.Items[AuthMiddleware.AuthenticatedDeviceItemKey] =
+                    new DeviceCredentialIdentity("dev-owner", tenant?.Value, "browser", "active");
+                break;
+            case DirectorKey:
+                ctx.Items[AuthMiddleware.AuthenticatedCredentialItemKey] = "director-key";
+                ctx.Items[AuthMiddleware.DeviceTypeItemKey] = "workstation";
+                ctx.Items[AuthMiddleware.AuthenticatedDeviceItemKey] =
+                    new DeviceCredentialIdentity("dev-director", tenant?.Value, "workstation", "active");
+                break;
+            default:
+                ctx.Items[AuthMiddleware.AuthenticatedCredentialItemKey] = "session-key";
+                ctx.Items[AuthMiddleware.AuthenticatedSessionItemKey] =
+                    new SessionCredentialIdentity(Guid.Parse(caller), tenant ?? TenantId.Local, "director-a");
+                break;
+        }
         return ctx;
     }
 
@@ -101,18 +129,30 @@ public sealed class FleetManagerEndpointsTests : IDisposable
         return value.GetType().GetProperty(name)!.GetValue(value);
     }
 
+    private FleetManagerAccess Access() => new(
+        MarkedSessionId: tenant => _marked.TryGetValue(tenant, out var m) ? m : null,
+        LastKnownSession: (tenant, sid) => GatewayEndpoints.LastKnownSession(_registry, _pushed, tenant, sid));
+
     private FleetDigestSources Sources() => new(
         FoldedRoster: tenant => GatewayEndpoints.FoldedAccountRoster(_registry, _pushed, tenant, null, null, null, null),
         SessionInAccount: (tenant, sid) => _pushed.TryLocateIgnoringFreshness(tenant, sid) is not null,
         LatestVerdict: (tenant, sid) => _verdicts.Latest(tenant, sid),
-        VerdictColourOn: _ => _colourOn);
+        FormerFleetManagers: tenant => _marks.List(tenant).Select(m => m.SessionId).ToList());
 
-    private async Task<FleetOutcomeDto> FileAsync(TenantId tenant, FleetOutcomeFileRequest request, string? sessionKey = FleetManager)
+    private IResult Digest(TenantId? tenant, string? caller, string session)
+        => FleetManagerEndpoints.Digest(Request(tenant, caller, query: "session=" + session),
+            ResolveTenant, Access(), _outcomes, _preferences, Sources());
+
+    private async Task<FleetOutcomeDto> FileAsync(TenantId tenant, FleetOutcomeFileRequest request, string caller = FleetManager)
     {
-        var result = await FleetManagerEndpoints.FileOutcomeAsync(Request(tenant, request, sessionKey: sessionKey), ResolveTenant, _outcomes);
+        var result = await FleetManagerEndpoints.FileOutcomeAsync(Request(tenant, caller, request), ResolveTenant, Access(), _outcomes);
         Assert.Equal(StatusCodes.Status201Created, Status(result));
         return Body<FleetOutcomeDto>(result);
     }
+
+    private async Task<IResult> AnswerAsync(TenantId tenant, string caller, string id, string words)
+        => await FleetManagerEndpoints.AnswerOutcomeAsync(Request(tenant, caller, new { answer = words }), id,
+            ResolveTenant, Access(), _outcomes);
 
     private void SeedFleet()
     {
@@ -124,7 +164,12 @@ public sealed class FleetManagerEndpointsTests : IDisposable
         Assert.True(_pushed.ApplySnapshot(TenantA, "director-a", "conn-a", 1, new List<SessionDto>
         {
             new() { SessionId = FleetManager, Name = "Fleet Manager", ActivityState = "WaitingForInput",
-                    WorkflowId = FleetManagerSessions.WorkflowId, CreatedAt = now.AddHours(-2), LastActivityAt = now },
+                    CreatedAt = now.AddHours(-2), LastActivityAt = now },
+            new() { SessionId = FormerFleetManager, Name = "Fleet Manager before the reset", ActivityState = "Exited",
+                    CreatedAt = now.AddHours(-5) },
+            new() { SessionId = OwnedByFormer, Name = "Started by the Fleet Manager before the reset",
+                    ActivityState = "Working", IsControlled = true, ControllerSessionId = FormerFleetManager,
+                    CreatedAt = now.AddHours(-3), LastActivityAt = now },
             new() { SessionId = OwnedWorking, Name = "Product repository - fix the flaky roster test, second attempt",
                     ActivityState = "Working", IsControlled = true, ControllerSessionId = FleetManager,
                     MissionName = "Roster", UncommittedCount = 3, CreatedAt = now.AddHours(-1), LastActivityAt = now },
@@ -166,10 +211,141 @@ public sealed class FleetManagerEndpointsTests : IDisposable
         Spoken = "The docs session asks whether to publish.",
     };
 
+    // ---- who may call --------------------------------------------------------------------------------------
+
+    /// <summary>One call per route, by <paramref name="caller"/>, in account A.</summary>
+    private async Task<IResult> CallAsync(string route, string? caller)
+    {
+        var existing = _outcomes.File(TenantA, FleetOutcomeStoreTests.Ready(), FleetManager, DateTime.UtcNow);
+        var pref = _preferences.Add(TenantA, "merge docs changes on green", "owner", DateTime.UtcNow);
+        return route switch
+        {
+            "file" => await FleetManagerEndpoints.FileOutcomeAsync(
+                Request(TenantA, caller, FleetOutcomeStoreTests.Finding()), ResolveTenant, Access(), _outcomes),
+            "list" => FleetManagerEndpoints.ListOutcomes(Request(TenantA, caller), ResolveTenant, Access(), _outcomes),
+            "read" => FleetManagerEndpoints.GetOutcome(Request(TenantA, caller), existing.Id, ResolveTenant, Access(), _outcomes),
+            "answer" => await AnswerAsync(TenantA, caller!, existing.Id, "Merge it."),
+            "preferences" => FleetManagerEndpoints.ListPreferences(Request(TenantA, caller), ResolveTenant, Access(), _preferences),
+            "prefer" => await FleetManagerEndpoints.AddPreferenceAsync(
+                Request(TenantA, caller, new { text = "never merge on red" }), ResolveTenant, Access(), _preferences),
+            "forget" => FleetManagerEndpoints.DeletePreference(Request(TenantA, caller), pref.Id, ResolveTenant, Access(), _preferences),
+            "digest" => Digest(TenantA, caller, caller is not null && Guid.TryParse(caller, out _) ? caller : FleetManager),
+            _ => throw new ArgumentOutOfRangeException(nameof(route), route, null),
+        };
+    }
+
+    public static TheoryData<string> Routes => new() { "file", "list", "read", "answer", "preferences", "prefer", "forget", "digest" };
+
+    [Theory]
+    [MemberData(nameof(Routes))]
+    public async Task EveryRoute_TheMarkedFleetManager_IsAllowed(string route)
+    {
+        var result = await CallAsync(route, FleetManager);
+
+        Assert.InRange(Status(result), 200, 201);
+    }
+
+    [Theory]
+    [MemberData(nameof(Routes))]
+    public async Task EveryRoute_AnotherSessionOfTheAccount_IsRefusedAndToldWhy(string route)
+    {
+        var result = await CallAsync(route, NotOwned);
+
+        Assert.Equal(StatusCodes.Status403Forbidden, Status(result));
+        Assert.Equal("not_fleet_manager", Field(result, "code"));
+        Assert.Contains($"only this account's Fleet Manager session ({FleetManager}) may ", (string)Field(result, "error")!);
+        Assert.Contains($"session {NotOwned} is not it", (string)Field(result, "error")!);
+    }
+
+    [Theory]
+    [MemberData(nameof(Routes))]
+    public async Task EveryRoute_ADirectorKey_IsRefused(string route)
+    {
+        var result = await CallAsync(route, DirectorKey);
+
+        Assert.Equal(StatusCodes.Status403Forbidden, Status(result));
+        Assert.Contains("the owner on their own signed-in phone or browser", (string)Field(result, "error")!);
+    }
+
+    [Theory]
+    [InlineData("list")]
+    [InlineData("read")]
+    [InlineData("answer")]
+    [InlineData("preferences")]
+    [InlineData("prefer")]
+    [InlineData("forget")]
+    [InlineData("digest")]
+    public async Task EveryRouteButFiling_TheOwnersDevice_IsAllowed(string route)
+    {
+        var result = await CallAsync(route, Owner);
+
+        Assert.InRange(Status(result), 200, 201);
+    }
+
+    [Fact]
+    public async Task FileOutcome_TheOwnersDevice_IsRefusedAndNothingIsStored()
+    {
+        var result = await FleetManagerEndpoints.FileOutcomeAsync(
+            Request(TenantA, Owner, FleetOutcomeStoreTests.Finding()), ResolveTenant, Access(), _outcomes);
+
+        Assert.Equal(StatusCodes.Status403Forbidden, Status(result));
+        Assert.StartsWith("the owner does not file records", (string)Field(result, "error")!);
+        Assert.Empty(_outcomes.List(TenantA, "all", null, 50));
+    }
+
+    [Fact]
+    public async Task FileOutcome_NoFleetManagerMarked_IsRefusedNamingHowToMarkOne()
+    {
+        _marked[TenantA] = null;
+
+        var result = await FleetManagerEndpoints.FileOutcomeAsync(
+            Request(TenantA, FleetManager, FleetOutcomeStoreTests.Ready()), ResolveTenant, Access(), _outcomes);
+
+        Assert.Equal(StatusCodes.Status403Forbidden, Status(result));
+        Assert.Contains("this account has no Fleet Manager marked", (string)Field(result, "error")!);
+        Assert.Contains("cc-devthrottle fleet-manager set", (string)Field(result, "error")!);
+        Assert.Empty(_outcomes.List(TenantA, "all", null, 50));
+    }
+
+    [Fact]
+    public async Task FileOutcome_MarkedSessionThatIsItselfOwned_IsRefused()
+    {
+        // The account marked a session that another session controls - a Worker, not a Fleet Manager.
+        _marked[TenantA] = OwnedWorking;
+
+        var result = await FleetManagerEndpoints.FileOutcomeAsync(
+            Request(TenantA, OwnedWorking, FleetOutcomeStoreTests.Ready()), ResolveTenant, Access(), _outcomes);
+
+        Assert.Equal(StatusCodes.Status403Forbidden, Status(result));
+        Assert.Contains($"is owned by session {FleetManager}", (string)Field(result, "error")!);
+    }
+
+    [Fact]
+    public async Task FileOutcome_MarkedSessionNoDirectorReported_IsRefused()
+    {
+        var unreported = Guid.NewGuid().ToString();
+        _marked[TenantA] = unreported;
+
+        var result = await FleetManagerEndpoints.FileOutcomeAsync(
+            Request(TenantA, unreported, FleetOutcomeStoreTests.Ready()), ResolveTenant, Access(), _outcomes);
+
+        Assert.Equal(StatusCodes.Status403Forbidden, Status(result));
+        Assert.Contains("no Director of this account has reported it", (string)Field(result, "error")!);
+    }
+
+    [Fact]
+    public async Task Digest_TheFleetManagerAsksForAnotherSession_IsRefused()
+    {
+        var result = Digest(TenantA, FleetManager, NotOwned);
+
+        Assert.Equal(StatusCodes.Status403Forbidden, Status(result));
+        Assert.StartsWith("the Fleet Manager reads its own digest only", (string)Field(result, "error")!);
+    }
+
     // ---- outcomes ----------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task FileOutcome_SessionKey_Returns201_FiledByTheCallingSession()
+    public async Task FileOutcome_FleetManager_Returns201_FiledByTheCallingSession()
     {
         var filed = await FileAsync(TenantA, FleetOutcomeStoreTests.Ready());
 
@@ -179,18 +355,10 @@ public sealed class FleetManagerEndpointsTests : IDisposable
     }
 
     [Fact]
-    public async Task FileOutcome_DeviceKey_IsFiledByTheOwner()
-    {
-        var filed = await FileAsync(TenantA, FleetOutcomeStoreTests.Finding(), sessionKey: null);
-
-        Assert.Equal("owner", filed.FiledBy);
-    }
-
-    [Fact]
     public async Task FileOutcome_BadKind_Is400NamingTheValidKinds()
     {
         var result = await FleetManagerEndpoints.FileOutcomeAsync(
-            Request(TenantA, new { kind = "update", title = "Something" }), ResolveTenant, _outcomes);
+            Request(TenantA, FleetManager, new { kind = "update", title = "Something" }), ResolveTenant, Access(), _outcomes);
 
         Assert.Equal(StatusCodes.Status400BadRequest, Status(result));
         Assert.Equal("kind 'update' is not valid; use one of: ready, finding, decision", Field(result, "error"));
@@ -201,8 +369,9 @@ public sealed class FleetManagerEndpointsTests : IDisposable
     public async Task FileOutcome_MissingRequiredField_Is400()
     {
         var result = await FleetManagerEndpoints.FileOutcomeAsync(
-            Request(TenantA, new { kind = "decision", title = "Pick one", decision = new { question = "Which?", options = new[] { "A" } } }),
-            ResolveTenant, _outcomes);
+            Request(TenantA, FleetManager,
+                new { kind = "decision", title = "Pick one", decision = new { question = "Which?", options = new[] { "A" } } }),
+            ResolveTenant, Access(), _outcomes);
 
         Assert.Equal(StatusCodes.Status400BadRequest, Status(result));
         Assert.Equal("decision.options needs at least two options, got 1", Field(result, "error"));
@@ -211,7 +380,8 @@ public sealed class FleetManagerEndpointsTests : IDisposable
     [Fact]
     public async Task FileOutcome_BrokenJson_Is400()
     {
-        var result = await FleetManagerEndpoints.FileOutcomeAsync(Request(TenantA, "{ not json"), ResolveTenant, _outcomes);
+        var result = await FleetManagerEndpoints.FileOutcomeAsync(
+            Request(TenantA, FleetManager, "{ not json"), ResolveTenant, Access(), _outcomes);
 
         Assert.Equal(StatusCodes.Status400BadRequest, Status(result));
     }
@@ -220,37 +390,51 @@ public sealed class FleetManagerEndpointsTests : IDisposable
     public async Task AnyRoute_NoAccount_Is403()
     {
         Assert.Equal(StatusCodes.Status403Forbidden,
-            Status(await FleetManagerEndpoints.FileOutcomeAsync(Request(null, FleetOutcomeStoreTests.Ready()), ResolveTenant, _outcomes)));
+            Status(await FleetManagerEndpoints.FileOutcomeAsync(
+                Request(null, FleetManager, FleetOutcomeStoreTests.Ready()), ResolveTenant, Access(), _outcomes)));
         Assert.Equal(StatusCodes.Status403Forbidden,
-            Status(FleetManagerEndpoints.ListOutcomes(Request(null), ResolveTenant, _outcomes)));
-        Assert.Equal(StatusCodes.Status403Forbidden,
-            Status(FleetManagerEndpoints.Digest(Request(null, query: "session=" + FleetManager), ResolveTenant, _outcomes, _preferences, Sources())));
+            Status(FleetManagerEndpoints.ListOutcomes(Request(null, Owner), ResolveTenant, Access(), _outcomes)));
+        Assert.Equal(StatusCodes.Status403Forbidden, Status(Digest(null, Owner, FleetManager)));
     }
 
     [Fact]
-    public async Task Answer_ClosesTheRecord_ThenASecondAnswerIs409AndChangesNothing()
+    public async Task Answer_ByTheOwner_ClosesTheRecordWithTheOwnersRole_ThenASecondAnswerIs409AndChangesNothing()
     {
         var filed = await FileAsync(TenantA, FleetOutcomeStoreTests.Decision());
 
-        var first = await FleetManagerEndpoints.AnswerOutcomeAsync(
-            Request(TenantA, new { answer = "Stable" }, sessionKey: FleetManager), filed.Id, ResolveTenant, _outcomes);
-        var second = await FleetManagerEndpoints.AnswerOutcomeAsync(
-            Request(TenantA, new { answer = "Beta" }), filed.Id, ResolveTenant, _outcomes);
+        var first = await AnswerAsync(TenantA, Owner, filed.Id, "Stable");
+        var second = await AnswerAsync(TenantA, FleetManager, filed.Id, "Beta");
 
         Assert.Equal(StatusCodes.Status200OK, Status(first));
         var answered = Body<FleetOutcomeDto>(first);
         Assert.Equal("answered", answered.Status);
-        Assert.Equal(FleetManager, answered.AnsweredBy);
+        Assert.Equal("owner", answered.AnsweredBy);
+        Assert.Equal("owner", answered.AnsweredByRole);
         Assert.True(answered.AnswerMatchedOption);
 
         Assert.Equal(StatusCodes.Status409Conflict, Status(second));
-        Assert.Equal("Stable", _outcomes.Get(TenantA, Guid.Parse(filed.Id))!.Answer);
+        Assert.Equal("already_answered", Field(second, "code"));
+        var stored = _outcomes.Get(TenantA, Guid.Parse(filed.Id))!;
+        Assert.Equal("Stable", stored.Answer);
+        Assert.Equal("owner", stored.AnsweredByRole);
 
         // It left the open list, which is what the list route serves by default.
-        var open = FleetManagerEndpoints.ListOutcomes(Request(TenantA), ResolveTenant, _outcomes);
+        var open = FleetManagerEndpoints.ListOutcomes(Request(TenantA, Owner), ResolveTenant, Access(), _outcomes);
         Assert.Equal(0, Field(open, "count"));
-        var all = FleetManagerEndpoints.ListOutcomes(Request(TenantA, query: "status=all"), ResolveTenant, _outcomes);
+        Assert.Equal(0, Field(open, "total"));
+        var all = FleetManagerEndpoints.ListOutcomes(Request(TenantA, Owner, query: "status=all"), ResolveTenant, Access(), _outcomes);
         Assert.Equal(1, Field(all, "count"));
+    }
+
+    [Fact]
+    public async Task Answer_ByTheFleetManager_CarriesTheFleetManagerRole()
+    {
+        var filed = await FileAsync(TenantA, FleetOutcomeStoreTests.Finding());
+
+        var answered = Body<FleetOutcomeDto>(await AnswerAsync(TenantA, FleetManager, filed.Id, "Thanks, noted."));
+
+        Assert.Equal(FleetManager, answered.AnsweredBy);
+        Assert.Equal("fleet-manager", answered.AnsweredByRole);
     }
 
     [Fact]
@@ -259,11 +443,10 @@ public sealed class FleetManagerEndpointsTests : IDisposable
         var filed = await FileAsync(TenantA, FleetOutcomeStoreTests.Ready());
         var unknown = Guid.NewGuid().ToString();
 
-        var foreignRead = FleetManagerEndpoints.GetOutcome(Request(TenantB), filed.Id, ResolveTenant, _outcomes);
-        var unknownRead = FleetManagerEndpoints.GetOutcome(Request(TenantB), unknown, ResolveTenant, _outcomes);
-        var foreignAnswer = await FleetManagerEndpoints.AnswerOutcomeAsync(
-            Request(TenantB, new { answer = "Merge" }), filed.Id, ResolveTenant, _outcomes);
-        var foreignList = FleetManagerEndpoints.ListOutcomes(Request(TenantB, query: "status=all"), ResolveTenant, _outcomes);
+        var foreignRead = FleetManagerEndpoints.GetOutcome(Request(TenantB, Owner), filed.Id, ResolveTenant, Access(), _outcomes);
+        var unknownRead = FleetManagerEndpoints.GetOutcome(Request(TenantB, Owner), unknown, ResolveTenant, Access(), _outcomes);
+        var foreignAnswer = await AnswerAsync(TenantB, Owner, filed.Id, "Merge");
+        var foreignList = FleetManagerEndpoints.ListOutcomes(Request(TenantB, Owner, query: "status=all"), ResolveTenant, Access(), _outcomes);
 
         Assert.Equal(StatusCodes.Status404NotFound, Status(foreignRead));
         Assert.Equal(StatusCodes.Status404NotFound, Status(unknownRead));
@@ -281,10 +464,23 @@ public sealed class FleetManagerEndpointsTests : IDisposable
     [InlineData("count=lots", "count 'lots' is not a whole number between 1 and 200")]
     public void ListOutcomes_BadFilter_Is400(string query, string expected)
     {
-        var result = FleetManagerEndpoints.ListOutcomes(Request(TenantA, query: query), ResolveTenant, _outcomes);
+        var result = FleetManagerEndpoints.ListOutcomes(Request(TenantA, FleetManager, query: query), ResolveTenant, Access(), _outcomes);
 
         Assert.Equal(StatusCodes.Status400BadRequest, Status(result));
         Assert.Equal(expected, Field(result, "error"));
+    }
+
+    [Fact]
+    public async Task ListOutcomes_OnePage_SaysHowManyThereAreInAll()
+    {
+        for (var i = 0; i < 3; i++) await FileAsync(TenantA, FleetOutcomeStoreTests.Ready($"Ready {i}"));
+        await FileAsync(TenantA, FleetOutcomeStoreTests.Finding());
+
+        var page = FleetManagerEndpoints.ListOutcomes(
+            Request(TenantA, FleetManager, query: "kind=ready&count=2"), ResolveTenant, Access(), _outcomes);
+
+        Assert.Equal(2, Field(page, "count"));
+        Assert.Equal(3, Field(page, "total"));
     }
 
     // ---- preferences -------------------------------------------------------------------------------------
@@ -294,26 +490,36 @@ public sealed class FleetManagerEndpointsTests : IDisposable
     {
         const string words = "stop asking me about draft posts, just stage them";
         var added = await FleetManagerEndpoints.AddPreferenceAsync(
-            Request(TenantA, new { text = words }, sessionKey: FleetManager), ResolveTenant, _preferences);
+            Request(TenantA, FleetManager, new { text = words }), ResolveTenant, Access(), _preferences);
         Assert.Equal(StatusCodes.Status201Created, Status(added));
         var pref = Body<FleetPreferenceDto>(added);
         Assert.Equal(words, pref.Text);
         Assert.Equal(FleetManager, pref.CreatedBy);
 
-        Assert.Equal(0, Field(FleetManagerEndpoints.ListPreferences(Request(TenantB), ResolveTenant, _preferences), "count"));
+        Assert.Equal(0, Field(FleetManagerEndpoints.ListPreferences(Request(TenantB, Owner), ResolveTenant, Access(), _preferences), "count"));
         Assert.Equal(StatusCodes.Status404NotFound,
-            Status(FleetManagerEndpoints.DeletePreference(Request(TenantB), pref.Id, ResolveTenant, _preferences)));
-        Assert.Equal(1, Field(FleetManagerEndpoints.ListPreferences(Request(TenantA), ResolveTenant, _preferences), "count"));
+            Status(FleetManagerEndpoints.DeletePreference(Request(TenantB, Owner), pref.Id, ResolveTenant, Access(), _preferences)));
+        Assert.Equal(1, Field(FleetManagerEndpoints.ListPreferences(Request(TenantA, Owner), ResolveTenant, Access(), _preferences), "count"));
 
         Assert.Equal(StatusCodes.Status200OK,
-            Status(FleetManagerEndpoints.DeletePreference(Request(TenantA), pref.Id, ResolveTenant, _preferences)));
-        Assert.Equal(0, Field(FleetManagerEndpoints.ListPreferences(Request(TenantA), ResolveTenant, _preferences), "count"));
+            Status(FleetManagerEndpoints.DeletePreference(Request(TenantA, Owner), pref.Id, ResolveTenant, Access(), _preferences)));
+        Assert.Equal(0, Field(FleetManagerEndpoints.ListPreferences(Request(TenantA, FleetManager), ResolveTenant, Access(), _preferences), "count"));
+    }
+
+    [Fact]
+    public async Task Preferences_ByTheOwner_AreKeptAsTheOwners()
+    {
+        var added = await FleetManagerEndpoints.AddPreferenceAsync(
+            Request(TenantA, Owner, new { text = "merge docs on green" }), ResolveTenant, Access(), _preferences);
+
+        Assert.Equal("owner", Body<FleetPreferenceDto>(added).CreatedBy);
     }
 
     [Fact]
     public async Task Preferences_Blank_Is400()
     {
-        var result = await FleetManagerEndpoints.AddPreferenceAsync(Request(TenantA, new { text = "  " }), ResolveTenant, _preferences);
+        var result = await FleetManagerEndpoints.AddPreferenceAsync(
+            Request(TenantA, FleetManager, new { text = "  " }), ResolveTenant, Access(), _preferences);
 
         Assert.Equal(StatusCodes.Status400BadRequest, Status(result));
     }
@@ -321,24 +527,23 @@ public sealed class FleetManagerEndpointsTests : IDisposable
     // ---- digest ------------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task Digest_CarriesOwnedSessionsOnly_WithTheirFoldedStateAndStoredVerdict()
+    public void Digest_CarriesOwnedSessionsOnly_WithTheirFoldedStateAndStoredVerdict()
     {
-        SeedFleet();
         _verdicts.Store(TenantA, OwnedStopped, Verdict("verdict-docs"));
 
-        var result = FleetManagerEndpoints.Digest(
-            Request(TenantA, query: "session=" + FleetManager, sessionKey: FleetManager),
-            ResolveTenant, _outcomes, _preferences, Sources());
+        var result = Digest(TenantA, FleetManager, FleetManager);
 
         Assert.Equal(StatusCodes.Status200OK, Status(result));
         var digest = Body<FleetDigestDto>(result);
         Assert.Equal(FleetManager, digest.SessionId);
         Assert.True(digest.IsFleetManager);
-        Assert.False(digest.VerdictsWithheld);
+        Assert.Equal(FleetManager, digest.FleetManagerSessionId);
+        Assert.Equal(new[] { FleetManager }, digest.FleetManagerSessionIds);
 
         // Owned only: not the owner's own session, not the exited one, not another account's that names the
-        // same controlling id. Oldest first.
+        // same controlling id, and not the earlier Fleet Manager's while this account never marked it. Oldest first.
         Assert.Equal(new[] { OwnedWorking, OwnedStopped }, digest.OwnedSessions.Select(s => s.SessionId));
+        Assert.All(digest.OwnedSessions, s => Assert.Equal(FleetManager, s.OwnerSessionId));
 
         var working = digest.OwnedSessions[0];
         Assert.Equal("Product repository - fix the flaky roster test, second attempt", working.Name);
@@ -360,54 +565,84 @@ public sealed class FleetManagerEndpointsTests : IDisposable
         Assert.Equal(0, digest.OwnedSessionCounts.NeedsYou);
     }
 
+    /// <summary>
+    /// A REPLACEMENT FLEET MANAGER STILL SEES WHAT THE OLD ONE STARTED. The account marked the former session
+    /// first and the current one after it; the former one's session is still controlled by the former id (no hand
+    /// over has happened), and the digest lists it with that owner.
+    /// </summary>
     [Fact]
-    public async Task Digest_CarriesOpenRecordsOnly_AndThePreferences_AndCounts()
+    public void Digest_AfterAReplacement_CarriesTheEarlierFleetManagersSessions_WithTheirOwner()
     {
-        SeedFleet();
-        var ready = await FileAsync(TenantA, FleetOutcomeStoreTests.Ready());
-        var decision = await FileAsync(TenantA, FleetOutcomeStoreTests.Decision());
-        var answered = await FileAsync(TenantA, FleetOutcomeStoreTests.Finding());
-        _outcomes.Answer(TenantA, Guid.Parse(answered.Id), "Thanks.", "owner", DateTime.UtcNow);
-        await FileAsync(TenantB, FleetOutcomeStoreTests.Finding("another account's"));
-        _preferences.Add(TenantA, "merge docs changes on green", "owner", DateTime.UtcNow);
+        _marks.Record(TenantA, FormerFleetManager, DateTime.UtcNow.AddHours(-5));
+        _marks.Record(TenantA, FleetManager, DateTime.UtcNow.AddHours(-2));
+        _verdicts.Store(TenantA, OwnedByFormer, Verdict("verdict-former"));
 
-        var digest = Body<FleetDigestDto>(FleetManagerEndpoints.Digest(
-            Request(TenantA, query: "session=" + FleetManager), ResolveTenant, _outcomes, _preferences, Sources()));
+        var digest = Body<FleetDigestDto>(Digest(TenantA, FleetManager, FleetManager));
 
-        Assert.Equal(new[] { decision.Id, ready.Id }.OrderBy(x => x), digest.Outcomes.Select(o => o.Id).OrderBy(x => x));
-        Assert.All(digest.Outcomes, o => Assert.Equal("open", o.Status));
-        Assert.Equal(2, digest.OutcomeCounts.Total);
-        Assert.Equal(1, digest.OutcomeCounts.Ready);
-        Assert.Equal(1, digest.OutcomeCounts.Decision);
-        Assert.Equal(0, digest.OutcomeCounts.Finding);
-        Assert.Equal("merge docs changes on green", Assert.Single(digest.Preferences).Text);
+        Assert.Equal(new[] { FormerFleetManager, FleetManager }, digest.FleetManagerSessionIds);
+        Assert.Equal(new[] { OwnedByFormer, OwnedWorking, OwnedStopped }, digest.OwnedSessions.Select(s => s.SessionId));
+        var former = digest.OwnedSessions[0];
+        Assert.Equal(FormerFleetManager, former.OwnerSessionId);
+        Assert.Equal("verdict-former", former.TurnVerdict!.VerdictId);
+        Assert.Equal(FleetManager, digest.OwnedSessions[1].OwnerSessionId);
+        Assert.Equal(3, digest.OwnedSessionCounts.Total);
     }
 
     [Fact]
-    public void Digest_ForAPlainSession_SaysItIsNotTheFleetManager()
+    public async Task Digest_CarriesOpenRecordsOnly_AndThePreferences_AndCounts()
     {
-        SeedFleet();
+        var ready = await FileAsync(TenantA, FleetOutcomeStoreTests.Ready());
+        var decision = await FileAsync(TenantA, FleetOutcomeStoreTests.Decision());
+        var finding = await FileAsync(TenantA, FleetOutcomeStoreTests.Finding("the open one"));
+        var answered = await FileAsync(TenantA, FleetOutcomeStoreTests.Finding());
+        _outcomes.Answer(TenantA, Guid.Parse(answered.Id), "Thanks.", "owner", FleetOutcomeStore.RoleOwner, DateTime.UtcNow);
+        _preferences.Add(TenantA, "merge docs changes on green", "owner", DateTime.UtcNow);
 
-        var digest = Body<FleetDigestDto>(FleetManagerEndpoints.Digest(
-            Request(TenantA, query: "session=" + NotOwned), ResolveTenant, _outcomes, _preferences, Sources()));
+        var digest = Body<FleetDigestDto>(Digest(TenantA, Owner, FleetManager));
+
+        Assert.Equal(new[] { decision.Id, ready.Id, finding.Id }.OrderBy(x => x), digest.Outcomes.Select(o => o.Id).OrderBy(x => x));
+        Assert.All(digest.Outcomes, o => Assert.Equal("open", o.Status));
+        Assert.Equal(3, digest.OutcomeCounts.Total);
+        Assert.Equal(1, digest.OutcomeCounts.Ready);
+        Assert.Equal(1, digest.OutcomeCounts.Decision);
+        Assert.Equal(1, digest.OutcomeCounts.Finding);
+        Assert.Equal("merge docs changes on green", Assert.Single(digest.Preferences).Text);
+    }
+
+    /// <summary>NOTHING IS CUT SHORT: more open records than one list page holds are all in the digest, and the
+    /// counts say the same number.</summary>
+    [Fact]
+    public void Digest_MoreOpenRecordsThanAPage_CarriesEveryOne()
+    {
+        var over = FleetOutcomeStore.MaxCount + 1;
+        for (var i = 0; i < over; i++)
+            _outcomes.File(TenantA, FleetOutcomeStoreTests.Ready($"Ready {i}"), FleetManager, DateTime.UtcNow);
+        _outcomes.File(TenantA, FleetOutcomeStoreTests.Finding(), FleetManager, DateTime.UtcNow);
+
+        var digest = Body<FleetDigestDto>(Digest(TenantA, FleetManager, FleetManager));
+
+        Assert.Equal(over + 1, digest.Outcomes.Count);
+        Assert.Equal(over + 1, digest.OutcomeCounts.Total);
+        Assert.Equal(over, digest.OutcomeCounts.Ready);
+        Assert.Equal(1, digest.OutcomeCounts.Finding);
+    }
+
+    [Fact]
+    public void Digest_TheOwnerAsksForAPlainSession_SaysItIsNotTheFleetManager()
+    {
+        var digest = Body<FleetDigestDto>(Digest(TenantA, Owner, NotOwned));
 
         Assert.False(digest.IsFleetManager);
-        Assert.Empty(digest.OwnedSessions);
-        Assert.Equal(0, digest.OwnedSessionCounts.Total);
+        Assert.Equal(FleetManager, digest.FleetManagerSessionId);
     }
 
     [Fact]
     public void Digest_SessionOfAnotherAccountOrUnknown_Is404()
     {
-        SeedFleet();
-
-        var foreign = FleetManagerEndpoints.Digest(
-            Request(TenantA, query: "session=" + OtherAccountSession), ResolveTenant, _outcomes, _preferences, Sources());
-        var unknown = FleetManagerEndpoints.Digest(
-            Request(TenantA, query: "session=" + Guid.NewGuid()), ResolveTenant, _outcomes, _preferences, Sources());
-        // And the other account asking about THIS account's Fleet Manager.
-        var reverse = FleetManagerEndpoints.Digest(
-            Request(TenantB, query: "session=" + FleetManager), ResolveTenant, _outcomes, _preferences, Sources());
+        var foreign = Digest(TenantA, Owner, OtherAccountSession);
+        var unknown = Digest(TenantA, Owner, Guid.NewGuid().ToString());
+        // And the other account's owner asking about THIS account's Fleet Manager.
+        var reverse = Digest(TenantB, Owner, FleetManager);
 
         Assert.Equal(StatusCodes.Status404NotFound, Status(foreign));
         Assert.Equal(StatusCodes.Status404NotFound, Status(unknown));
@@ -419,29 +654,10 @@ public sealed class FleetManagerEndpointsTests : IDisposable
     [InlineData("session=abc", "session 'abc' is not a session id")]
     public void Digest_MissingOrMalformedSession_Is400(string query, string expected)
     {
-        var result = FleetManagerEndpoints.Digest(Request(TenantA, query: query), ResolveTenant, _outcomes, _preferences, Sources());
+        var result = FleetManagerEndpoints.Digest(Request(TenantA, Owner, query: query),
+            ResolveTenant, Access(), _outcomes, _preferences, Sources());
 
         Assert.Equal(StatusCodes.Status400BadRequest, Status(result));
         Assert.StartsWith(expected, (string)Field(result, "error")!);
-    }
-
-    [Fact]
-    public void Digest_ShadowAccount_WithholdsVerdictsFromASessionKeyButNotFromADevice()
-    {
-        SeedFleet();
-        _verdicts.Store(TenantA, OwnedStopped, Verdict("verdict-shadow"));
-        _colourOn = false;
-
-        var asSession = Body<FleetDigestDto>(FleetManagerEndpoints.Digest(
-            Request(TenantA, query: "session=" + FleetManager, sessionKey: FleetManager),
-            ResolveTenant, _outcomes, _preferences, Sources()));
-        var asDevice = Body<FleetDigestDto>(FleetManagerEndpoints.Digest(
-            Request(TenantA, query: "session=" + FleetManager), ResolveTenant, _outcomes, _preferences, Sources()));
-
-        Assert.True(asSession.VerdictsWithheld);
-        Assert.NotNull(asSession.VerdictsWithheldReason);
-        Assert.All(asSession.OwnedSessions, s => Assert.Null(s.TurnVerdict));
-        Assert.False(asDevice.VerdictsWithheld);
-        Assert.Equal("verdict-shadow", asDevice.OwnedSessions.Single(s => s.SessionId == OwnedStopped).TurnVerdict!.VerdictId);
     }
 }

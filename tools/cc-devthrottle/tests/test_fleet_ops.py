@@ -33,6 +33,7 @@ runner = CliRunner()
 
 ME = "10000000-0000-4000-8000-000000000001"
 WORKER = "2b7e0000-0000-4000-8000-000000000002"
+FORMER = "3c8f0000-0000-4000-8000-000000000003"
 
 
 # ---- the fake Gateway -------------------------------------------------------------------------------
@@ -62,6 +63,7 @@ class FakeGateway:
             "answeredAtUtc": None,
             "answer": None,
             "answeredBy": None,
+            "answeredByRole": None,
             "answerMatchedOption": None,
         }
         record.update(extra)
@@ -79,8 +81,9 @@ class FakeGateway:
             rows = [o for o in self.outcomes if status == "all" or o["status"] == status]
             if "kind" in query:
                 rows = [o for o in rows if o["kind"] == query["kind"]]
+            total = len(rows)
             rows = rows[: int(query.get("count", "50"))]
-            return {"count": len(rows), "outcomes": rows}
+            return {"count": len(rows), "total": total, "outcomes": rows}
         if route.startswith("gateway/fleet-manager/outcomes/"):
             oid = route.rsplit("/", 1)[1]
             for o in self.outcomes:
@@ -105,7 +108,7 @@ class FakeGateway:
             if record["status"] == "answered":
                 raise shared_gateway.GatewayError(
                     f"outcome {oid} was already answered; an answer is final and was not changed", status=409)
-            record.update(status="answered", answer=body["answer"], answeredBy=ME,
+            record.update(status="answered", answer=body["answer"], answeredBy=ME, answeredByRole="fleet-manager",
                           answeredAtUtc="2026-09-16T12:05:00Z")
             if record["kind"] == "decision":
                 record["answerMatchedOption"] = body["answer"].strip().lower() in [
@@ -306,8 +309,8 @@ def test_json_is_the_gateways_answer_with_every_filter_applied(gw):
     filtered = runner.invoke(app, ["fleet", "outcomes", "--status", "answered", "--kind", "ready", "--json"])
 
     assert unfiltered.exit_code == 0 and filtered.exit_code == 0
-    assert json.loads(unfiltered.output) == {"count": 2, "outcomes": [o for o in gw.outcomes if o["status"] == "open"]}
-    assert json.loads(filtered.output) == {"count": 1, "outcomes": [answered]}
+    assert json.loads(unfiltered.output) == {"count": 2, "total": 2, "outcomes": [o for o in gw.outcomes if o["status"] == "open"]}
+    assert json.loads(filtered.output) == {"count": 1, "total": 1, "outcomes": [answered]}
     # The filters went to the Gateway; nothing was filtered only on this side.
     query = dict(urllib.parse.parse_qsl(urllib.parse.urlparse(gw.calls[-1][1]).query))
     assert query == {"status": "answered", "kind": "ready", "count": "50"}
@@ -443,8 +446,8 @@ def _digest(**overrides):
         "preferences": [],
         "outcomeCounts": {"ready": 0, "finding": 0, "decision": 0, "total": 0},
         "ownedSessionCounts": {"needsYou": 0, "working": 0, "stopped": 0, "total": 0},
-        "verdictsWithheld": False,
-        "verdictsWithheldReason": None,
+        "fleetManagerSessionId": ME,
+        "fleetManagerSessionIds": [ME],
     }
     d.update(overrides)
     return d
@@ -456,12 +459,13 @@ def test_digest_defaults_to_this_session_and_reads_back(gw):
         outcomes=[record],
         outcomeCounts={"ready": 0, "finding": 0, "decision": 1, "total": 1},
         ownedSessions=[
-            {"sessionId": WORKER, "name": "Docs - fix the typo, then publish", "state": "stopped",
-             "stateLabel": "Snoozed", "missionName": None, "uncommittedCount": 0,
+            {"sessionId": WORKER, "ownerSessionId": FORMER, "name": "Docs - fix the typo, then publish",
+             "state": "stopped", "stateLabel": "Snoozed", "missionName": None, "uncommittedCount": 0,
              "turnVerdict": {"verdict": "needed-you", "label": "Asks whether to publish"}},
         ],
         ownedSessionCounts={"needsYou": 0, "working": 0, "stopped": 1, "total": 1},
         preferences=[{"id": "p-1", "text": "merge docs on green", "createdAtUtc": "x", "createdBy": "owner"}],
+        fleetManagerSessionIds=[FORMER, ME],
     )
 
     result = runner.invoke(app, ["fleet", "digest"])
@@ -471,13 +475,15 @@ def test_digest_defaults_to_this_session_and_reads_back(gw):
     lines = result.output.splitlines()
     assert lines[0] == f"session: {ME}"
     assert lines[1] == "fleetManager: yes"
+    assert lines[2] == f"markedFleetManager: {ME}"
+    assert lines[3] == f"fleetManagerSessions[2]: {FORMER},{ME}"
     assert "outcomes: 1 open (ready 0, finding 0, decision 1)" in lines
     assert "sessions: 1 owned (needs-you 0, working 0, stopped 1)" in lines
     _, outcomes = read_table(result.output, "outcomes")
     assert outcomes == [{"id": record["id"], "kind": "decision", "title": "Which channel, beta or stable"}]
     _, sessions = read_table(result.output, "sessions")
     assert sessions == [{"id": WORKER, "name": "Docs - fix the typo, then publish", "state": "stopped",
-                         "verdict": "needed-you", "label": "Asks whether to publish"}]
+                         "owner": FORMER, "verdict": "needed-you", "label": "Asks whether to publish"}]
     _, prefs = read_table(result.output, "preferences")
     assert prefs == [{"id": "p-1", "text": "merge docs on green"}]
 
@@ -494,12 +500,46 @@ def test_digest_session_flag_uses_the_shared_resolver(gw):
     assert "preferences: 0" in result.output
 
 
-def test_digest_says_when_readings_are_withheld(gw):
-    gw.digest = _digest(verdictsWithheld=True, verdictsWithheldReason="a shadow record")
+def test_digest_whose_records_and_counts_disagree_fails_rather_than_print_a_part(gw):
+    record = gw.add("finding", "One of two")
+    gw.digest = _digest(outcomes=[record], outcomeCounts={"ready": 0, "finding": 2, "decision": 0, "total": 2})
 
-    result = runner.invoke(app, ["fleet", "digest"])
+    for args in (["fleet", "digest"], ["fleet", "digest", "--json"]):
+        result = runner.invoke(app, args)
 
-    assert "verdicts: withheld - a shadow record" in result.output
+        assert result.exit_code == 1
+        assert "the digest carried 1 open records but the Gateway counts 2" in result.output
+
+
+def test_a_page_smaller_than_the_total_says_so(gw):
+    for i in range(3):
+        gw.add("ready", f"Ready {i}")
+
+    result = runner.invoke(app, ["fleet", "outcomes", "--count", "2"])
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines()[0] == "count: 2 of 3 (ready 2, finding 0, decision 0) status: open"
+    assert "cc-devthrottle fleet digest" in result.output
+
+
+def test_the_start_of_an_id_beyond_the_newest_page_fails_naming_the_limit(gw):
+    old = gw.add("ready", "the oldest", id="ffff0000-0000-4000-8000-000000000001")
+    for i in range(200):
+        gw.add("ready", f"Ready {i}", id=f"0000{i:04d}-0000-4000-8000-000000000000")
+
+    result = runner.invoke(app, ["fleet", "show", old["id"][:6]])
+
+    assert result.exit_code == 1
+    assert "among the newest 200 of 201 records; give the full id" in result.output
+    assert runner.invoke(app, ["fleet", "show", old["id"]]).exit_code == 0
+
+
+def test_answer_says_who_answered(gw):
+    record = gw.add("ready", "Merge the roster fix")
+
+    result = runner.invoke(app, ["fleet", "answer", record["id"], "Merge it"])
+
+    assert "answeredByRole: fleet-manager" in result.output
 
 
 def test_digest_json_is_the_gateways_answer(gw):

@@ -279,8 +279,11 @@ internal static class SettingsEndpoints
                 if (raw is null || !Guid.TryParse(raw, out _))
                     return Results.BadRequest(new { error = "\"sessionId\" must be a full session id or null" });
 
-                host.TenantSettingsResolver.SetFleetManagerSessionId(t.Value, raw, DateTime.UtcNow);
+                var now = DateTime.UtcNow;
+                host.TenantSettingsResolver.SetFleetManagerSessionId(t.Value, raw, now);
                 var stored = host.TenantSettingsResolver.FleetManagerSessionId(t.Value);
+                // The history beside the mark: the digest still finds the sessions an earlier Fleet Manager started.
+                host.FleetManagerMarks.Record(t.Value, stored!, now);
                 FileLog.Write($"[SettingsEndpoints] fleet_manager_session_id set to {stored} for tenant={t.Value.ToLogString()}");
                 return Results.Json(new { sessionId = stored });
             }

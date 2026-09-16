@@ -17,7 +17,8 @@ public enum FleetOutcomeAnswerStatus
     /// <summary>This account holds no record with that id.</summary>
     NotFound,
 
-    /// <summary>The record was already answered. The first answer stands and nothing was changed.</summary>
+    /// <summary>The record was already answered - before this call, or by another caller that won the race while
+    /// this call was running. The first answer stands and nothing was changed.</summary>
     AlreadyAnswered,
 }
 
@@ -33,8 +34,10 @@ public sealed record FleetOutcomeAnswerResult(FleetOutcomeAnswerStatus Status, F
 /// the Fleet Manager itself. It belongs to the account: nothing here reads or filters by the session that
 /// filed it, so a new Fleet Manager session sees and answers what the old one filed.
 ///
-/// AN ANSWER IS FINAL. Answering an answered record is refused and changes nothing - the owner's first word
-/// is never silently replaced by a second.
+/// AN ANSWER IS FINAL, ACROSS EVERY GATEWAY INSTANCE. The answer is written by ONE conditional update - only
+/// where the record is still open - and the affected-row count decides who won. Two callers on two instances
+/// over the same database cannot both succeed: exactly one update touches the row, and the other is told the
+/// record was already answered. No in-process lock is relied on for this.
 ///
 /// NO FALLBACKS. Every field is checked when the record is filed, and a missing or wrong one is refused with
 /// a message that names the field and the values it accepts. A record the Cockpit could not draw is never
@@ -59,6 +62,12 @@ public sealed class FleetOutcomeStore
     /// <summary>The caller recorded when a person's device, not a session, filed or answered.</summary>
     public const string OwnerCaller = "owner";
 
+    /// <summary>Who gave an answer: the owner, through their own signed-in device.</summary>
+    public const string RoleOwner = "owner";
+
+    /// <summary>Who gave an answer: the account's Fleet Manager session, relaying the owner's word.</summary>
+    public const string RoleFleetManager = "fleet-manager";
+
     /// <summary>The longest title accepted. A title is one line naming the news.</summary>
     public const int MaxTitleLength = 300;
 
@@ -76,6 +85,7 @@ public sealed class FleetOutcomeStore
     public static readonly IReadOnlyList<string> Statuses = new[] { StatusOpen, StatusAnswered, StatusAll };
     public static readonly IReadOnlyList<string> Risks = new[] { "low", "medium", "high" };
     public static readonly IReadOnlyList<string> Checks = new[] { "passed", "failed", "none" };
+    public static readonly IReadOnlyList<string> AnswerRoles = new[] { RoleOwner, RoleFleetManager };
 
     private static readonly JsonSerializerOptions DetailsJsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -171,19 +181,84 @@ public sealed class FleetOutcomeStore
         return rows.Select(ToDto).ToList();
     }
 
+    /// <summary>How many records of this account match the filter, counted by the database - never from a
+    /// capped list, so a reader of one page can say how many there are in all.</summary>
+    /// <exception cref="ArgumentException">A filter is not one of its accepted values.</exception>
+    public int Count(TenantId tenant, string status, string? kind)
+    {
+        FileLog.Write($"[FleetOutcomeStore] Count: tenant={tenant}, status={status}, kind={kind}");
+        var wantedStatus = RequireOneOf(status, Statuses, "status");
+        var wantedKind = kind is null ? null : RequireOneOf(kind, Kinds, "kind");
+
+        using var ctx = _db.CreateContext(tenant);
+        var query = ctx.FleetOutcomes.AsNoTracking();
+        if (wantedStatus != StatusAll) query = query.Where(o => o.Status == wantedStatus);
+        if (wantedKind is not null) query = query.Where(o => o.Kind == wantedKind);
+        var total = query.Count();
+        FileLog.Write($"[FleetOutcomeStore] Count: total={total}");
+        return total;
+    }
+
+    /// <summary>
+    /// EVERY open record of this account, newest first, with NO cap - what the digest serves, so a Fleet Manager
+    /// reset or moved rebuilds the whole of the outstanding work and never a newest slice of it. An open record
+    /// stays open only until the owner answers it, so this list is the owner's outstanding work, not history.
+    /// </summary>
+    public IReadOnlyList<FleetOutcomeDto> ListOpen(TenantId tenant)
+    {
+        FileLog.Write($"[FleetOutcomeStore] ListOpen: tenant={tenant}");
+        using var ctx = _db.CreateContext(tenant);
+        var rows = ctx.FleetOutcomes.AsNoTracking()
+            .Where(o => o.Status == StatusOpen)
+            .OrderByDescending(o => o.CreatedAtUtc).ThenByDescending(o => o.Id)
+            .ToList();
+        FileLog.Write($"[FleetOutcomeStore] ListOpen: returned={rows.Count}");
+        return rows.Select(ToDto).ToList();
+    }
+
+    /// <summary>This account's OPEN records by kind, counted by the database.</summary>
+    public FleetOutcomeCounts CountOpen(TenantId tenant)
+    {
+        FileLog.Write($"[FleetOutcomeStore] CountOpen: tenant={tenant}");
+        using var ctx = _db.CreateContext(tenant);
+        var byKind = ctx.FleetOutcomes.AsNoTracking()
+            .Where(o => o.Status == StatusOpen)
+            .GroupBy(o => o.Kind)
+            .Select(g => new { Kind = g.Key, Count = g.Count() })
+            .ToList();
+        int Of(string kind) => byKind.Where(k => k.Kind == kind).Sum(k => k.Count);
+        var counts = new FleetOutcomeCounts
+        {
+            Ready = Of(KindReady),
+            Finding = Of(KindFinding),
+            Decision = Of(KindDecision),
+            Total = byKind.Sum(k => k.Count),
+        };
+        FileLog.Write($"[FleetOutcomeStore] CountOpen: ready={counts.Ready}, finding={counts.Finding}, "
+                      + $"decision={counts.Decision}, total={counts.Total}");
+        return counts;
+    }
+
     /// <summary>
     /// Answer a record. An open record becomes answered, with the words exactly as given; an answered record
     /// is left exactly as it was and the result says so.
+    ///
+    /// FINAL UNDER CONCURRENT CALLERS. The write is one conditional update, <c>WHERE id = @id AND status =
+    /// 'open'</c>, and its affected-row count is the verdict: one row means this call won; none means another
+    /// caller answered first (on this instance or another), and the record is returned as it now stands with
+    /// <see cref="FleetOutcomeAnswerStatus.AlreadyAnswered"/>.
     ///
     /// On a decision the answer need not be one of the options - the owner may say something else - and
     /// <see cref="FleetOutcomeDto.AnswerMatchedOption"/> records whether it was one (compared after trimming,
     /// ignoring case).
     /// </summary>
     /// <param name="answeredBy">The calling session id, or <see cref="OwnerCaller"/>.</param>
-    /// <exception cref="ArgumentException">The answer is blank or too long.</exception>
-    public FleetOutcomeAnswerResult Answer(TenantId tenant, Guid id, string? answer, string answeredBy, DateTime nowUtc)
+    /// <param name="answeredByRole"><see cref="RoleOwner"/> or <see cref="RoleFleetManager"/>.</param>
+    /// <exception cref="ArgumentException">The answer is blank or too long, or the role is not one of the two.</exception>
+    public FleetOutcomeAnswerResult Answer(TenantId tenant, Guid id, string? answer, string answeredBy,
+        string answeredByRole, DateTime nowUtc)
     {
-        FileLog.Write($"[FleetOutcomeStore] Answer: tenant={tenant}, id={id}, answeredBy={answeredBy}");
+        FileLog.Write($"[FleetOutcomeStore] Answer: tenant={tenant}, id={id}, answeredBy={answeredBy}, role={answeredByRole}");
         try
         {
             if (string.IsNullOrWhiteSpace(answer))
@@ -191,38 +266,50 @@ public sealed class FleetOutcomeStore
             if (answer.Length > MaxTextLength)
                 throw new ArgumentException($"answer is {answer.Length} characters; the most accepted is {MaxTextLength}");
             RequireCaller(answeredBy, "answeredBy");
+            var role = RequireOneOf(answeredByRole, AnswerRoles, "answeredByRole");
 
-            lock (_gate)
+            using var ctx = _db.CreateContext(tenant);
+            var row = ctx.FleetOutcomes.AsNoTracking().FirstOrDefault(o => o.Id == id);
+            if (row is null)
             {
-                using var ctx = _db.CreateContext(tenant);
-                var row = ctx.FleetOutcomes.FirstOrDefault(o => o.Id == id);
-                if (row is null)
-                {
-                    FileLog.Write($"[FleetOutcomeStore] Answer: id={id}, result=not found");
-                    return new FleetOutcomeAnswerResult(FleetOutcomeAnswerStatus.NotFound, null);
-                }
-                if (row.Status == StatusAnswered)
-                {
-                    FileLog.Write($"[FleetOutcomeStore] Answer: id={id}, result=already answered at {row.AnsweredAtUtc:O}");
-                    return new FleetOutcomeAnswerResult(FleetOutcomeAnswerStatus.AlreadyAnswered, ToDto(row));
-                }
-
-                row.Status = StatusAnswered;
-                row.AnsweredAtUtc = Utc(nowUtc);
-                row.AnswerText = answer;
-                row.AnsweredBy = answeredBy;
-                if (row.Kind == KindDecision)
-                {
-                    var decision = ReadDetails(row).Decision;
-                    var spoken = answer.Trim();
-                    row.AnswerMatchedOption = decision is not null
-                        && decision.Options.Any(o => string.Equals(o.Trim(), spoken, StringComparison.OrdinalIgnoreCase));
-                }
-                ctx.SaveChanges();
-
-                FileLog.Write($"[FleetOutcomeStore] Answer: id={id}, result=answered, matchedOption={row.AnswerMatchedOption}");
-                return new FleetOutcomeAnswerResult(FleetOutcomeAnswerStatus.Answered, ToDto(row));
+                FileLog.Write($"[FleetOutcomeStore] Answer: id={id}, result=not found");
+                return new FleetOutcomeAnswerResult(FleetOutcomeAnswerStatus.NotFound, null);
             }
+            if (row.Status != StatusOpen)
+            {
+                FileLog.Write($"[FleetOutcomeStore] Answer: id={id}, result=already answered at {row.AnsweredAtUtc:O}");
+                return new FleetOutcomeAnswerResult(FleetOutcomeAnswerStatus.AlreadyAnswered, ToDto(row));
+            }
+
+            bool? matched = null;
+            if (row.Kind == KindDecision)
+            {
+                var decision = ReadDetails(row).Decision;
+                var spoken = answer.Trim();
+                matched = decision is not null
+                    && decision.Options.Any(o => string.Equals(o.Trim(), spoken, StringComparison.OrdinalIgnoreCase));
+            }
+
+            var answeredAt = Utc(nowUtc);
+            var affected = ctx.FleetOutcomes
+                .Where(o => o.Id == id && o.Status == StatusOpen)
+                .ExecuteUpdate(setters => setters
+                    .SetProperty(o => o.Status, StatusAnswered)
+                    .SetProperty(o => o.AnsweredAtUtc, answeredAt)
+                    .SetProperty(o => o.AnswerText, answer)
+                    .SetProperty(o => o.AnsweredBy, answeredBy)
+                    .SetProperty(o => o.AnsweredByRole, role)
+                    .SetProperty(o => o.AnswerMatchedOption, matched));
+
+            var now = ctx.FleetOutcomes.AsNoTracking().First(o => o.Id == id);
+            if (affected == 0)
+            {
+                FileLog.Write($"[FleetOutcomeStore] Answer: id={id}, result=lost the race; answered at {now.AnsweredAtUtc:O} by {now.AnsweredBy}");
+                return new FleetOutcomeAnswerResult(FleetOutcomeAnswerStatus.AlreadyAnswered, ToDto(now));
+            }
+
+            FileLog.Write($"[FleetOutcomeStore] Answer: id={id}, result=answered, matchedOption={matched}");
+            return new FleetOutcomeAnswerResult(FleetOutcomeAnswerStatus.Answered, ToDto(now));
         }
         catch (Exception ex)
         {
@@ -406,6 +493,7 @@ public sealed class FleetOutcomeStore
             AnsweredAtUtc = row.AnsweredAtUtc,
             Answer = row.AnswerText,
             AnsweredBy = row.AnsweredBy,
+            AnsweredByRole = row.AnsweredByRole,
             AnswerMatchedOption = row.AnswerMatchedOption,
         };
     }

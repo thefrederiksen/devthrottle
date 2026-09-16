@@ -5080,6 +5080,24 @@ internal static class GatewayEndpoints
     }
 
     /// <summary>
+    /// What this account's Directors LAST pushed for one session id, however stale - the row as it arrived, with
+    /// no fold run over it - or null when no Director of the account has pushed that id. For a reader that needs
+    /// one session's pushed facts (who controls it), not its folded state.
+    /// </summary>
+    internal static SessionDto? LastKnownSession(
+        DirectorRegistry registry, Streaming.PushedSessionStore? pushedSessions, TenantId tenant, string sessionId)
+    {
+        if (pushedSessions is null || string.IsNullOrEmpty(sessionId)) return null;
+        foreach (var d in registry.ListDirectors(tenant))
+        {
+            var row = pushedSessions.GetLastKnown(tenant, d.DirectorId).Sessions
+                .FirstOrDefault(s => string.Equals(s.SessionId, sessionId, StringComparison.OrdinalIgnoreCase));
+            if (row is not null) return row;
+        }
+        return null;
+    }
+
+    /// <summary>
     /// Resolve a request's tenant for a session READ (Hosted Multi-Tenancy, session-serving PR1). Null means
     /// the caller must be DENIED (403): on the hosted Gateway an authenticated request whose device key has no
     /// bound tenant is refused, NEVER served the Local partition (which would be a wrong-tenant read waiting to

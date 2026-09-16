@@ -215,9 +215,8 @@ public sealed class SessionKeyGuardTests
         => Assert.True(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} should be allowed");
 
     // Only the shapes the Gateway maps, each with its own verb. A word hung off the prefix later is refused
-    // until somebody classifies it.
+    // until somebody classifies it. (GET and PUT on the bare prefix are the account's mark, allowed above.)
     [Theory]
-    [InlineData("GET", "/gateway/fleet-manager")]
     [InlineData("DELETE", "/gateway/fleet-manager/outcomes/5b1c2d3e-0000-4000-8000-000000000001")]
     [InlineData("PUT", "/gateway/fleet-manager/outcomes/5b1c2d3e-0000-4000-8000-000000000001")]
     [InlineData("GET", "/gateway/fleet-manager/outcomes/5b1c2d3e-0000-4000-8000-000000000001/answer")]

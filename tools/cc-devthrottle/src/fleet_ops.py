@@ -122,7 +122,14 @@ def _outcome_id(given: str) -> str:
     if _GUID.match((given or "").strip()):
         return given.strip().lower()
     listed = _call(gateway.get_json, f"{PREFIX}/outcomes?status=all&count=200")
-    return _resolve_id(given, listed.get("outcomes", []), "outcome", "cc-devthrottle fleet outcomes --status all")
+    rows = listed.get("outcomes", [])
+    total = listed.get("total", len(rows))
+    text = (given or "").strip().lower()
+    if text and total > len(rows) and not any(str(r.get("id", "")).lower().startswith(text) for r in rows):
+        # Never a silent miss: the start of an id was matched against the newest page only.
+        _fail(f"no outcome id starts with '{given.strip()}' among the newest {len(rows)} of {total} records; "
+              "give the full id")
+    return _resolve_id(given, rows, "outcome", "cc-devthrottle fleet outcomes --status all")
 
 
 def _preference_id(given: str) -> str:
@@ -228,21 +235,27 @@ def list_outcomes(status: str, kind: Optional[str], count: int, json_output: boo
     if not rows:
         filtered = status != "all" or kind is not None
         if filtered:
-            total = _call(gateway.get_json, f"{PREFIX}/outcomes?status=all&count=200").get("count", 0)
+            total = _call(gateway.get_json, f"{PREFIX}/outcomes?status=all&count=1").get("total", 0)
             _out(f"count: 0 of {total} total (status {status}{', kind ' + kind if kind else ''})")
         else:
             _out("count: 0")
         _help(["cc-devthrottle fleet outcomes --status all"] if filtered else [])
         return
 
-    _out(f"count: {len(rows)} ({_counts_by_kind(rows)}) status: {status}")
+    # The Gateway counts every matching record; a page smaller than that says so, never silently.
+    total = answer.get("total", len(rows))
+    shown = f"{len(rows)} of {total}" if total > len(rows) else f"{len(rows)}"
+    _out(f"count: {shown} ({_counts_by_kind(rows)}) status: {status}")
     _table("outcomes", ["id", "kind", "status", "title"],
            [[o.get("id"), o.get("kind"), o.get("status"), o.get("title")] for o in rows])
     first = rows[0].get("id")
-    _help([
+    hints = [
         f"cc-devthrottle fleet show {first}",
         f'cc-devthrottle fleet answer {first} "<the owner\'s words, exactly>"',
-    ])
+    ]
+    if total > len(rows):
+        hints.append("cc-devthrottle fleet digest   (every open record, never a page)")
+    _help(hints)
 
 
 def _print_outcome(o: Dict[str, Any]) -> None:
@@ -275,6 +288,7 @@ def _print_outcome(o: Dict[str, Any]) -> None:
     if o.get("status") == "answered":
         _out(f"ownerAnswer: {cell(o.get('answer'))}")
         _out(f"answeredBy: {o.get('answeredBy')}")
+        _out(f"answeredByRole: {cell(o.get('answeredByRole'))}")
         _out(f"answeredAt: {o.get('answeredAtUtc')}")
         if o.get("kind") == "decision":
             _out(f"answerMatchedOption: {'yes' if o.get('answerMatchedOption') else 'no'}")
@@ -302,6 +316,7 @@ def answer_outcome(given: str, words: str, json_output: bool) -> None:
         _print_json(o)
         return
     _out(f"answered: {o.get('id')}")
+    _out(f"answeredByRole: {cell(o.get('answeredByRole'))}")
     _out(f"kind: {o.get('kind')}")
     _out(f"title: {cell(o.get('title'))}")
     if o.get("kind") == "decision":
@@ -358,19 +373,28 @@ def forget_preference(given: str, json_output: bool) -> None:
 
 
 def digest(session: Optional[str], json_output: bool) -> None:
-    """Everything the Fleet Manager reads at the start of a conversation, in one answer."""
+    """Everything the Fleet Manager reads at the start of a conversation, in one answer.
+
+    The Gateway serves EVERY open record and counts them itself; if the two ever disagree, this fails
+    rather than print part of the outstanding work as if it were all of it."""
     sid = session_ops.resolve_target_or_current(session)
     d = _call(gateway.get_json, f"{PREFIX}/digest?{urllib.parse.urlencode({'session': sid})}")
+    outcomes = d.get("outcomes", [])
+    oc = d.get("outcomeCounts", {})
+    if oc.get("total", len(outcomes)) != len(outcomes):
+        _fail(f"the digest carried {len(outcomes)} open records but the Gateway counts {oc.get('total')}; "
+              "not printing a partial list")
     if json_output:
         _print_json(d)
         return
 
     _out(f"session: {d.get('sessionId')}")
     _out(f"fleetManager: {'yes' if d.get('isFleetManager') else 'no'}")
+    _out(f"markedFleetManager: {cell(d.get('fleetManagerSessionId'))}")
+    managers = d.get("fleetManagerSessionIds", [])
+    _out(f"fleetManagerSessions[{len(managers)}]: {','.join(cell(m) for m in managers)}")
 
-    outcomes = d.get("outcomes", [])
-    oc = d.get("outcomeCounts", {})
-    _out(f"outcomes: {oc.get('total', len(outcomes))} open (ready {oc.get('ready', 0)}, "
+    _out(f"outcomes: {len(outcomes)} open (ready {oc.get('ready', 0)}, "
          f"finding {oc.get('finding', 0)}, decision {oc.get('decision', 0)})")
     if outcomes:
         _table("outcomes", ["id", "kind", "title"], [[o.get("id"), o.get("kind"), o.get("title")] for o in outcomes])
@@ -379,15 +403,13 @@ def digest(session: Optional[str], json_output: bool) -> None:
     sc = d.get("ownedSessionCounts", {})
     _out(f"sessions: {sc.get('total', len(owned))} owned (needs-you {sc.get('needsYou', 0)}, "
          f"working {sc.get('working', 0)}, stopped {sc.get('stopped', 0)})")
-    if d.get("verdictsWithheld"):
-        _out(f"verdicts: withheld - {cell(d.get('verdictsWithheldReason'))}")
     if owned:
         rows = []
         for s in owned:
             v = s.get("turnVerdict") or {}
-            rows.append([s.get("sessionId"), s.get("name"), s.get("state"),
+            rows.append([s.get("sessionId"), s.get("name"), s.get("state"), s.get("ownerSessionId"),
                          v.get("verdict") or "none", v.get("label")])
-        _table("sessions", ["id", "name", "state", "verdict", "label"], rows)
+        _table("sessions", ["id", "name", "state", "owner", "verdict", "label"], rows)
 
     prefs = d.get("preferences", [])
     _out(f"preferences: {len(prefs)}")

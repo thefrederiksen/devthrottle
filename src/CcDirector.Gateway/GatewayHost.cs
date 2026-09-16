@@ -286,6 +286,10 @@ public sealed class GatewayHost : IAsyncDisposable
     /// </summary>
     public Pairing.SessionKeyRegistry SessionKeys { get; }
 
+    /// <summary>Every session each account has ever marked as its Fleet Manager (the Fleet Manager mission,
+    /// step 3). Written when the mark is set; read by the Fleet Manager digest.</summary>
+    internal Fleet.FleetManagerMarkHistory FleetManagerMarks { get; }
+
     /// <summary>The Gateway's record of what each utterance upload transcribed (inspection finding I2-03), spent
     /// by the prompt route when a prompt claims to be that utterance. One per process, shared by the utterance
     /// completion route that writes it and the prompt route that spends it. In memory by design.</summary>
@@ -1385,6 +1389,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // session rather than with its Director's account-wide key. Same database and the same stored-hash
         // shape as the device registry above, because it is the same kind of credential one hop further in.
         SessionKeys = new Pairing.SessionKeyRegistry(_gatewayDb, GatewayHostedMode.IsHosted);
+        FleetManagerMarks = new Fleet.FleetManagerMarkHistory(_gatewayDb);
         // The account-to-tenant resolver (Hosted Multi-Tenancy increment 1): owns the tenants mapping table
         // and mints/looks up a tenant from a verified account subject. Built over the EF database; wired into
         // the hosted enrollment boundary (which validates the account token and stamps the resolved tenant on
@@ -4035,7 +4040,8 @@ public sealed class GatewayHost : IAsyncDisposable
 
         // The Fleet Manager's stored news, its standing preferences, and its start-of-conversation digest (the
         // Fleet Manager mission, step 3). Account-scoped client routes under /gateway, gated by the host-wide
-        // middleware; each shape a session key may call is listed in SessionKeyGuard.
+        // middleware; each shape a session key may reach is listed in SessionKeyGuard, and the routes themselves
+        // then allow only the account's marked Fleet Manager session or the owner's own device.
         FleetManagerEndpoints.Map(_app,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             outcomes: new Fleet.FleetOutcomeStore(_gatewayDb),
@@ -4045,7 +4051,10 @@ public sealed class GatewayHost : IAsyncDisposable
                     _snoozeRegistry, _handRaises, _turnVerdictRows, _snoozeExpiry),
                 SessionInAccount: (tenant, sid) => PushedSessions.TryLocateIgnoringFreshness(tenant, sid) is not null,
                 LatestVerdict: (tenant, sid) => _turnVerdicts.Latest(tenant, sid),
-                VerdictColourOn: tenant => _tenantSettingsResolver.TurnVerdict(tenant).ColourEnabled));
+                FormerFleetManagers: tenant => FleetManagerMarks.List(tenant).Select(m => m.SessionId).ToList()),
+            access: new FleetManagerAccess(
+                MarkedSessionId: _tenantSettingsResolver.FleetManagerSessionId,
+                LastKnownSession: (tenant, sid) => GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, sid)));
 
         // "DevThrottle emails me" relay (issue #1318 consumer): POST /account/email. A session or scheduled
         // run passes a subject + body (+ optional attachments); the Gateway injects its own stored account

@@ -109,13 +109,14 @@ public sealed class FleetOutcomeStoreTests : IDisposable
         var store = NewStore();
         var filed = store.File(TenantA, Ready(), FleetManagerId, Now);
 
-        var first = store.Answer(TenantA, Guid.Parse(filed.Id), "Merge it.", FleetOutcomeStore.OwnerCaller, Now.AddMinutes(5));
-        var second = store.Answer(TenantA, Guid.Parse(filed.Id), "Actually, wait.", FleetManagerId, Now.AddMinutes(6));
+        var first = store.Answer(TenantA, Guid.Parse(filed.Id), "Merge it.", FleetOutcomeStore.OwnerCaller, FleetOutcomeStore.RoleOwner, Now.AddMinutes(5));
+        var second = store.Answer(TenantA, Guid.Parse(filed.Id), "Actually, wait.", FleetManagerId, FleetOutcomeStore.RoleFleetManager, Now.AddMinutes(6));
 
         Assert.Equal(FleetOutcomeAnswerStatus.Answered, first.Status);
         Assert.Equal("answered", first.Outcome!.Status);
         Assert.Equal("Merge it.", first.Outcome.Answer);
         Assert.Equal("owner", first.Outcome.AnsweredBy);
+        Assert.Equal("owner", first.Outcome.AnsweredByRole);
         Assert.Equal(Now.AddMinutes(5), first.Outcome.AnsweredAtUtc);
         Assert.Null(first.Outcome.AnswerMatchedOption);
 
@@ -137,8 +138,8 @@ public sealed class FleetOutcomeStoreTests : IDisposable
         var matching = store.File(TenantA, Decision("first"), FleetManagerId, Now);
         var other = store.File(TenantA, Decision("second"), FleetManagerId, Now);
 
-        var matched = store.Answer(TenantA, Guid.Parse(matching.Id), "  stable ", FleetManagerId, Now);
-        var unmatched = store.Answer(TenantA, Guid.Parse(other.Id), "Neither - hold it a week.", FleetManagerId, Now);
+        var matched = store.Answer(TenantA, Guid.Parse(matching.Id), "  stable ", FleetManagerId, FleetOutcomeStore.RoleFleetManager, Now);
+        var unmatched = store.Answer(TenantA, Guid.Parse(other.Id), "Neither - hold it a week.", FleetManagerId, FleetOutcomeStore.RoleFleetManager, Now);
 
         Assert.True(matched.Outcome!.AnswerMatchedOption);
         // The words are kept exactly as given, spaces and all.
@@ -156,7 +157,7 @@ public sealed class FleetOutcomeStoreTests : IDisposable
 
         Assert.Null(store.Get(TenantB, id));
         Assert.Empty(store.List(TenantB, "all", null, 50));
-        var answer = store.Answer(TenantB, id, "Not yours.", FleetOutcomeStore.OwnerCaller, Now);
+        var answer = store.Answer(TenantB, id, "Not yours.", FleetOutcomeStore.OwnerCaller, FleetOutcomeStore.RoleOwner, Now);
         Assert.Equal(FleetOutcomeAnswerStatus.NotFound, answer.Status);
 
         // And the owner's record is untouched by the attempt.
@@ -243,9 +244,109 @@ public sealed class FleetOutcomeStoreTests : IDisposable
         var filed = store.File(TenantA, Ready(), FleetManagerId, Now);
 
         var ex = Assert.Throws<ArgumentException>(
-            () => store.Answer(TenantA, Guid.Parse(filed.Id), "   ", FleetManagerId, Now));
+            () => store.Answer(TenantA, Guid.Parse(filed.Id), "   ", FleetManagerId, FleetOutcomeStore.RoleFleetManager, Now));
 
         Assert.StartsWith("answer is required", ex.Message);
         Assert.Equal("open", store.Get(TenantA, Guid.Parse(filed.Id))!.Status);
+    }
+
+    [Fact]
+    public void Answer_UnknownRole_IsRefusedAndTheRecordStaysOpen()
+    {
+        var store = NewStore();
+        var filed = store.File(TenantA, Ready(), FleetManagerId, Now);
+
+        var ex = Assert.Throws<ArgumentException>(
+            () => store.Answer(TenantA, Guid.Parse(filed.Id), "Merge it.", FleetManagerId, "worker", Now));
+
+        Assert.Equal("answeredByRole 'worker' is not valid; use one of: owner, fleet-manager", ex.Message);
+        Assert.Equal("open", store.Get(TenantA, Guid.Parse(filed.Id))!.Status);
+    }
+
+    [Fact]
+    public void Answer_ByTheFleetManager_RecordsTheRole()
+    {
+        var store = NewStore();
+        var filed = store.File(TenantA, Finding(), FleetManagerId, Now);
+
+        var result = store.Answer(TenantA, Guid.Parse(filed.Id), "Thanks.", FleetManagerId,
+            FleetOutcomeStore.RoleFleetManager, Now);
+
+        Assert.Equal(FleetManagerId, result.Outcome!.AnsweredBy);
+        Assert.Equal("fleet-manager", NewStore().Get(TenantA, Guid.Parse(filed.Id))!.AnsweredByRole);
+    }
+
+    /// <summary>
+    /// AN ANSWER IS FINAL ACROSS INSTANCES. Two stores over the SAME database file stand in for two Gateway
+    /// instances; many callers answer the same record at the same moment, split across both. Exactly one wins,
+    /// every other caller is told the record was already answered, and the stored answer is the winner's.
+    /// Repeated over several records, because a race that is lost only sometimes is still a race.
+    /// </summary>
+    [Fact]
+    public void Answer_ConcurrentCallersOnTwoInstances_ExactlyOneWins()
+    {
+        var instances = new[] { NewStore(), NewStore() };
+        const int rounds = 12;
+        const int callers = 8;
+
+        for (var round = 0; round < rounds; round++)
+        {
+            var filed = instances[0].File(TenantA, Ready($"Round {round}"), FleetManagerId, Now);
+            var id = Guid.Parse(filed.Id);
+            using var start = new Barrier(callers);
+            var results = new FleetOutcomeAnswerResult[callers];
+
+            var threads = Enumerable.Range(0, callers).Select(i => new Thread(() =>
+            {
+                start.SignalAndWait();
+                results[i] = instances[i % 2].Answer(TenantA, id, $"answer {i}",
+                    i % 2 == 0 ? FleetOutcomeStore.OwnerCaller : FleetManagerId,
+                    i % 2 == 0 ? FleetOutcomeStore.RoleOwner : FleetOutcomeStore.RoleFleetManager, Now);
+            })).ToList();
+            threads.ForEach(t => t.Start());
+            threads.ForEach(t => t.Join());
+
+            var winners = results.Select((r, i) => (r, i)).Where(x => x.r.Status == FleetOutcomeAnswerStatus.Answered).ToList();
+            Assert.Single(winners);
+            Assert.Equal(callers - 1, results.Count(r => r.Status == FleetOutcomeAnswerStatus.AlreadyAnswered));
+
+            var stored = NewStore().Get(TenantA, id)!;
+            Assert.Equal($"answer {winners[0].i}", stored.Answer);
+            // Every loser was shown the winner's answer, not its own.
+            Assert.All(results.Where(r => r.Status == FleetOutcomeAnswerStatus.AlreadyAnswered),
+                r => Assert.Equal(stored.Answer, r.Outcome!.Answer));
+        }
+    }
+
+    /// <summary>
+    /// NOTHING OPEN IS CUT SHORT. More open records than one list page holds all come back from the open read,
+    /// and the counts are the database's, including every kind.
+    /// </summary>
+    [Fact]
+    public void ListOpen_MoreThanAPage_ReturnsEveryOpenRecord_AndCountOpenAgrees()
+    {
+        var store = NewStore();
+        var over = FleetOutcomeStore.MaxCount + 3;
+        for (var i = 0; i < over; i++)
+            store.File(TenantA, Ready($"Ready {i}"), FleetManagerId, Now.AddSeconds(i));
+        store.File(TenantA, Finding(), FleetManagerId, Now);
+        store.File(TenantA, Decision(), FleetManagerId, Now);
+        var answered = store.File(TenantA, Finding("answered one"), FleetManagerId, Now);
+        store.Answer(TenantA, Guid.Parse(answered.Id), "Seen.", FleetOutcomeStore.OwnerCaller, FleetOutcomeStore.RoleOwner, Now);
+        store.File(TenantB, Finding("another account's"), FleetManagerId, Now);
+
+        var open = store.ListOpen(TenantA);
+        var counts = store.CountOpen(TenantA);
+
+        Assert.Equal(over + 2, open.Count);
+        Assert.All(open, o => Assert.Equal("open", o.Status));
+        Assert.Equal($"Ready {over - 1}", open[0].Title);
+        Assert.Equal(over, counts.Ready);
+        Assert.Equal(1, counts.Finding);
+        Assert.Equal(1, counts.Decision);
+        Assert.Equal(over + 2, counts.Total);
+        Assert.Equal(over + 2, store.Count(TenantA, "open", null));
+        Assert.Equal(over + 3, store.Count(TenantA, "all", null));
+        Assert.Equal(1, store.Count(TenantA, "answered", "finding"));
     }
 }
