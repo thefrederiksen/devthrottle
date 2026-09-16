@@ -350,6 +350,26 @@ When using any cc-* tool, check `docs/cli-reference.md` for exact flags before c
 
 ---
 
+## COMMAND-LINE TOOLS FOLLOW THE AXI STANDARD
+
+**`cc-devthrottle` follows AXI (Agent eXperience Interface): https://axi.md.** AXI was created by
+Kun Chen (https://github.com/kunchenguid/axi). Every change to a `cc-devthrottle` command must meet
+it, and new command-line tools should be built to it from the start. Our checklist, the rules that
+do not bend, and what "done" means are in [docs/axi-standard.md](docs/axi-standard.md). Tracking
+issue: #2922.
+
+**Why:** agents run these tools far more than people do. Measured on `session list` (#2920, 90 agent
+runs): 54% fewer tokens, 60% fewer commands, 63% less time, and no loss of accuracy.
+
+**The rules most often broken, so you recognise them:**
+- `--json` keeps its shape - other code parses it - and **every filter applies to `--json` too**.
+  A filter that is silently ignored is a defect, and so is an unknown flag that does not fail.
+- Never cut an id or a name short in list output. An agent cannot act on `devthr...`.
+- An empty result says so (`count: 0`), never blank output.
+- It must work on Windows, macOS and Linux; the `cc-devthrottle` tests run on all three.
+
+---
+
 ## When in Doubt
 
 1. Log more, not less
