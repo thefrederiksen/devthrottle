@@ -616,6 +616,25 @@ public sealed class SessionDto
     public string? VerdictLabel { get; set; }
 
     /// <summary>
+    /// A SNOOZE ENDED AND NOTHING HAPPENED WHILE IT RAN (the Wingman-on-every-turn mission, slice F, ruling 10).
+    /// The owner asked for quiet, the timer ran out, and the session took no turn in between - so it comes back
+    /// CALM with its own words rather than as a fresh red the clock manufactured. Stamped by the Gateway fold
+    /// (<c>SnoozeExpiryRowStamp</c>), on EVERY row in both directions, and only while the account's colour switch
+    /// is on. Read by <see cref="SessionOrdering.IsSnoozeEndedNothingNew"/>, which is the only thing that may
+    /// read it: clients render the colour and the label the fold already decided.
+    ///
+    /// It is NOT a verdict. Nothing was judged and no model was asked, so <see cref="VerdictState"/> stays
+    /// "none" and the row is not in the calm band, which selects on an accepted verdict.
+    ///
+    /// IT DOES NOT TRAVEL. The fold's colour and label already carry the whole of this to every client, and THE
+    /// CLIENT IS DUMB: a client handed the decision itself would eventually branch on it, and that is how a second
+    /// colour authority is born. So it is excluded from serialisation and stays a fact of the fold - the Gateway
+    /// decides, the wire carries the answer. Pinned by a test that the roster response does not contain it.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool SnoozeEndedNothingNew { get; set; }
+
+    /// <summary>
     /// True while a client is transcribing a dictated utterance into this session: the phone has
     /// released the Speak dialog and the Gateway is uploading + transcribing the recorded audio in
     /// the background, which will then be submitted into the session. Stamped by the Gateway

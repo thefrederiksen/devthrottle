@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
@@ -661,6 +661,38 @@ public sealed class PushedSessionStore
             }
         }
         return result;
+    }
+
+    /// <summary>
+    /// EVERY SESSION ID THIS ACCOUNT IS KNOWN TO HAVE - ids only, no clone and no clock recompute.
+    ///
+    /// It exists for the snooze-expiry fold, which prunes a memory to the account's sessions and therefore needs
+    /// to know what the account HAS. It runs on the display push, which is the hot path, so it answers a
+    /// membership question without paying for a roster it would throw away.
+    ///
+    /// IT DELIBERATELY DOES NOT ASK WHETHER THE DIRECTOR IS CONNECTED RIGHT NOW, and that is the difference from
+    /// <see cref="SnapshotConnected"/>. The roster serves what the Gateway last knew, ALWAYS - an offline
+    /// Director's sessions are still on it - so a session whose machine has gone quiet has not gone anywhere, and
+    /// a caller that dropped it would be acting on "I cannot see it this second" as though it meant "it is gone".
+    /// Sessions leave this set when the Director's entry is forgotten, which is when they have really left.
+    ///
+    /// The one guard kept is that a Director which has never pushed under its current connection contributes
+    /// nothing, because it has said nothing yet - the same reason SnapshotConnected keeps it.
+    /// </summary>
+    public IReadOnlyCollection<string> KnownSessionIds(TenantId tenant)
+    {
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var kvp in DirectorsFor(tenant))
+        {
+            var entry = kvp.Value;
+            lock (entry.Gate)
+            {
+                if (entry.ReceivedAtUtc == DateTime.MinValue) continue;
+                foreach (var id in entry.Sessions.Keys)
+                    if (!string.IsNullOrEmpty(id)) ids.Add(id);
+            }
+        }
+        return ids;
     }
 
     /// <summary>

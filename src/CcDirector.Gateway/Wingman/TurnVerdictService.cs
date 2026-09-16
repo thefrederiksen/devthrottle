@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
@@ -133,6 +133,14 @@ public enum TurnVerdictTrigger
 
     /// <summary>A person pressed a button (explain, a spoken reply). Only the brand-new check applies.</summary>
     OnDemand,
+
+    /// <summary>
+    /// A snooze's clock ran out with a stop nothing had judged (slice F, ruling 10). Automatic, so every free
+    /// check applies, and the judge switch and the ceiling apply with them - it is unattended and it runs off
+    /// the fold, which is the hot path. No settle delay: the stop it asks about is minutes or hours old and has
+    /// long since stopped repainting.
+    /// </summary>
+    SnoozeExpiry,
 }
 
 /// <summary>How a verdict request ended.</summary>
@@ -397,7 +405,7 @@ public sealed class TurnVerdictService : IDisposable
         try
         {
             firstState = _env.ReadSessionState(signal.Tenant, signal.SessionId);
-            if (WillJudgeTurnEnd(signal.Tenant, signal.SessionId, firstState))
+            if (WillJudgeAutomatic(signal.Tenant, signal.SessionId, firstState))
                 _reading[key] = 1;
         }
         catch (Exception ex)
@@ -411,6 +419,80 @@ public sealed class TurnVerdictService : IDisposable
         var state = firstState;
         return Task.Run(() => RunFlightAsync(key, flight, signal.DirectorId, signal.ObservedAtUtc,
             TurnVerdictTrigger.TurnEnd, screenReader: null, providerHold: null, mayAskJudge: true, firstState: state));
+    }
+
+    /// <summary>
+    /// A SNOOZE EXPIRY ASKS FOR A VERDICT (the Wingman-on-every-turn mission, slice F, ruling 10). The owner's
+    /// quiet ran out over a stop nothing had judged, so the judge is asked about the session's current screen.
+    ///
+    /// IT ANSWERS SYNCHRONOUSLY WHETHER THE WINGMAN IS NOW READING, and that answer is the whole reason this is
+    /// its own entry point rather than a bare call to <see cref="VerdictForCurrentScreenAsync"/>. It is called
+    /// from inside the fold, and the fold is about to serve the very row it is asking about: with no answer it
+    /// serves that row RED and the yellow only appears on some later poll, which is the red frame the owner ruled
+    /// out in slice E. So the free checks run HERE, on the fold's own thread, before the settle, before the screen
+    /// read - exactly as <see cref="StartTurnEnd"/> does it - and a stop that will be judged is stamped "reading"
+    /// before this returns.
+    ///
+    /// THE GATE IS TAKEN BEFORE THE STAMP, so the stamp is always paired with a flight that clears it. A stamp
+    /// made without the gate could be left behind by a judgement that had already ended, and the row would sit
+    /// yellow for the life of the process with nothing reading it.
+    ///
+    /// THE JUDGEMENT ITSELF IS FIRE AND FORGET. The fold is the hot path and waits for no model call.
+    /// </summary>
+    /// <returns>True when the Wingman is now reading this session - the caller may show the row yellow. False
+    /// when this stop will not be judged at all (the judge switch is off, the ceiling is full, the free checks
+    /// refuse it, or a judgement was already in flight and this request stood aside), and then the row keeps
+    /// whatever the rest of the fold made it.</returns>
+    public bool StartSnoozeExpiryReJudge(TenantId tenant, string directorId, string sessionId)
+    {
+        if (_disposed || !tenant.IsValid || string.IsNullOrEmpty(sessionId)) return false;
+
+        var key = (tenant, sessionId);
+        var flight = new Flight();
+        if (!_inFlight.TryAdd(key, flight))
+        {
+            // A JUDGEMENT IS ALREADY BEING FORMED for this session, which is the answer this expiry wanted: one
+            // model call per stop, and it is already being paid for. Whether the row shows yellow is that
+            // judgement's to say, so this reports what IT has stamped rather than stamping anything itself.
+            flight.Cts.Dispose();
+            return IsReading(tenant, sessionId);
+        }
+
+        // Admitted after shutdown began - see StartTurnEnd for why the flag is read again after the add.
+        if (_disposed)
+        {
+            StandDownAfterDispose(key, flight, directorId);
+            return false;
+        }
+
+        TurnVerdictSessionState? firstState = null;
+        var reading = false;
+        try
+        {
+            firstState = _env.ReadSessionState(tenant, sessionId);
+            reading = WillJudgeAutomatic(tenant, sessionId, firstState);
+            if (reading) _reading[key] = 1;
+        }
+        catch (Exception ex)
+        {
+            // Not swallowed into a verdict: the flight reads the roster again inside its own boundary, where a
+            // fault becomes a stored failed record and a ledger event.
+            firstState = null;
+            FileLog.Write($"[TurnVerdictService] StartSnoozeExpiryReJudge: the free checks FAILED on the caller's thread, sid={sessionId}: {ex.GetType().FullName}: {ex.Message}");
+        }
+
+        var observedAt = _lastObserved.TryGetValue(key, out var seen) ? seen : _env.NowUtc();
+        var state = firstState;
+        var judgement = Task.Run(() => RunFlightAsync(key, flight, directorId, observedAt,
+            TurnVerdictTrigger.SnoozeExpiry, screenReader: null, providerHold: null, mayAskJudge: true,
+            firstState: state));
+        // The fold does not wait for the judgement, but a fault must not go unread: the flight answers every
+        // ordinary failure with a stored record, so anything reaching here is the boundary itself failing.
+        _ = judgement.ContinueWith(
+            t => FileLog.Write($"[TurnVerdictService] the snooze-expiry judgement FAULTED: sid={sessionId}: " +
+                               $"{t.Exception?.GetBaseException().GetType().FullName}: {t.Exception?.GetBaseException().Message}"),
+            TaskContinuationOptions.OnlyOnFaulted);
+        return reading;
     }
 
     /// <summary>
@@ -679,7 +761,11 @@ public sealed class TurnVerdictService : IDisposable
         if (SessionStateSkipCause(state, automatic) is { } cause)
             return Skip(tenant, directorId, sid, trigger, cause, settings, observedAt);
         var facts = state.Facts;
-        if (trigger == TurnVerdictTrigger.TurnEnd && !settings.JudgeEnabled && !_env.IsVoiceSession(tenant, sid))
+        // THE JUDGE SWITCH binds the two triggers nobody is waiting on: the detector's turn end, and a snooze
+        // expiry with a stop nothing has judged. A voice session is the standing exception - somebody is
+        // listening to it - and a person's own request is not automatic at all.
+        if (trigger is TurnVerdictTrigger.TurnEnd or TurnVerdictTrigger.SnoozeExpiry
+            && !settings.JudgeEnabled && !_env.IsVoiceSession(tenant, sid))
             return Skip(tenant, directorId, sid, trigger, ActivityCauses.JudgeSwitchOff, settings, observedAt);
 
         if (trigger == TurnVerdictTrigger.TurnEnd && settings.SettleMs > 0)
@@ -735,7 +821,7 @@ public sealed class TurnVerdictService : IDisposable
         }
 
         // ---- the account's ceiling ----
-        var capped = trigger is TurnVerdictTrigger.TurnEnd or TurnVerdictTrigger.Sweep;
+        var capped = trigger is TurnVerdictTrigger.TurnEnd or TurnVerdictTrigger.Sweep or TurnVerdictTrigger.SnoozeExpiry;
         var load = _tenantLoad.GetOrAdd(tenant, _ => new StrongBox<int>());
         if (capped && Interlocked.Increment(ref load.Value) > settings.MaxInFlight)
         {
@@ -1194,12 +1280,17 @@ public sealed class TurnVerdictService : IDisposable
     }
 
     /// <summary>
-    /// Whether a turn end with this roster snapshot will be judged, decided from the same free checks the flight makes,
-    /// without reading or paying for anything. Only this answer stamps "reading" at the boundary. The flight still makes
-    /// every check itself, so a stop this answers yes for and the flight then skips shows reading only until the flight
-    /// exits.
+    /// Will an AUTOMATIC request for this session actually reach the judge? The three gates that bind every
+    /// unattended trigger, asked synchronously and cheaply: the free checks over the session's own state, the
+    /// account's judge switch (a voice session is the standing exception), and the account's ceiling.
+    ///
+    /// It is asked by the two triggers nobody is waiting on - the detector's turn end and a snooze expiry - so
+    /// that a stop which WILL be judged is stamped "reading" before anything is read, and a stop that will not be
+    /// judged keeps the detector's red. It is deliberately NOT the judgement itself: the flight asks all of this
+    /// again, properly, inside its own boundary - so a stop this answers yes for and the flight then skips shows
+    /// reading only until the flight exits.
     /// </summary>
-    private bool WillJudgeTurnEnd(TenantId tenant, string sid, TurnVerdictSessionState state)
+    private bool WillJudgeAutomatic(TenantId tenant, string sid, TurnVerdictSessionState state)
     {
         if (SessionStateSkipCause(state, automatic: true) is not null) return false;
         var settings = _env.Settings(tenant);
@@ -1288,6 +1379,7 @@ public sealed class TurnVerdictService : IDisposable
         TurnVerdictTrigger.TurnEnd => "turn-end",
         TurnVerdictTrigger.Voice => "voice",
         TurnVerdictTrigger.Sweep => "sweep",
+        TurnVerdictTrigger.SnoozeExpiry => "snooze-expiry",
         _ => "on-demand",
     };
 

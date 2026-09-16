@@ -1,4 +1,4 @@
-using CcDirector.AgentBrain;
+﻿using CcDirector.AgentBrain;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
@@ -59,6 +59,28 @@ internal static class TurnVerdictHeldCheck
         var session = sessions.FirstOrDefault(s => string.Equals(s.SessionId, sessionId, StringComparison.Ordinal));
         return new TurnVerdictSessionState(session, session?.HasLiveSupervisor == true);
     }
+}
+
+/// <summary>
+/// THE LEDGER ROW ONE VERDICT RECORD BECOMES, in one place. Extracted from the environment below so that a test
+/// can drive the REAL <see cref="ActivityEventStore"/> with exactly what production writes - the store refuses an
+/// event type or a cause outside the closed lists in the contracts, and that refusal is CAUGHT and logged on the
+/// production path, so a missing word costs the durable row and looks like nothing at all. A test that builds its
+/// own row instead of this one would not be testing the thing that broke.
+/// </summary>
+internal static class TurnVerdictLedgerRow
+{
+    public static ActivityEventRecord For(TurnVerdictRecord record, DateTime nowUtc) => new()
+    {
+        EventId = Guid.NewGuid(),
+        DirectorSequence = 0,
+        OccurredUtc = nowUtc,
+        DirectorId = string.IsNullOrWhiteSpace(record.DirectorId) ? "gateway" : record.DirectorId,
+        SessionId = record.SessionId,
+        EventType = record.EventType,
+        Cause = record.Cause,
+        Detail = record.Detail,
+    };
 }
 
 /// <summary>
@@ -189,20 +211,7 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
         try
         {
             using var scope = _enterTenantScope?.Invoke(record.Tenant);
-            _ledger.AppendBatch(new[]
-            {
-                new ActivityEventRecord
-                {
-                    EventId = Guid.NewGuid(),
-                    DirectorSequence = 0,
-                    OccurredUtc = _nowUtc(),
-                    DirectorId = string.IsNullOrWhiteSpace(record.DirectorId) ? "gateway" : record.DirectorId,
-                    SessionId = record.SessionId,
-                    EventType = record.EventType,
-                    Cause = record.Cause,
-                    Detail = record.Detail,
-                },
-            });
+            _ledger.AppendBatch(new[] { TurnVerdictLedgerRow.For(record, _nowUtc()) });
         }
         catch (Exception ex)
         {

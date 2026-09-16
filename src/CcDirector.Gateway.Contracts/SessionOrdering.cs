@@ -96,6 +96,42 @@ public static class SessionOrdering
         && (string.Equals(verdict.Verdict, VerdictFinished, StringComparison.Ordinal)
             || string.Equals(verdict.Verdict, VerdictContinuesAlone, StringComparison.Ordinal));
 
+    /// <summary>
+    /// The colour a snooze that ended with nothing new comes back in (the Wingman-on-every-turn mission, slice F,
+    /// ruling 10).
+    ///
+    /// CYAN, BY THE ARCHITECT'S RULING OF 2026-09-15, and the implementation plan's "green" is superseded. A
+    /// session coming back from a snooze has TAKEN TURNS, and green is the brand-new session's "Ready" (issue
+    /// #2892) - painting this row green would say the opposite of what is true about it, which is the same
+    /// misreading that took green away from a finished report. So it takes the calm colour the owner chose for a
+    /// row that needs nothing from him. The words are what tell the two apart.
+    /// </summary>
+    public const string SnoozeEndedNothingNewColor = "cyan";
+
+    /// <summary>The words on a row that came back from a snooze with nothing new to say.</summary>
+    public const string SnoozeEndedNothingNewLabel = "Snooze ended, nothing new";
+
+    /// <summary>
+    /// THE SNOOZE-EXPIRY ARM (the Wingman-on-every-turn mission, slice F, ruling 10): the owner asked for quiet,
+    /// the timer ran out, and the session took no turn while it ran. A snooze expiry must not manufacture a red -
+    /// nothing happened, so there is nothing to bring him.
+    ///
+    /// RAW RED IS A GATE, exactly as it is on <see cref="IsCalmVerdict"/>: this may quieten a session that is
+    /// stopped, and never one that is working, exited or crashed. The stamp itself is written only for an account
+    /// whose colour switch is on, so a shadow account never sees this colour.
+    ///
+    /// AN ACCEPTED VERDICT IS THE SECOND GATE, and it is not belt and braces. "Nothing was judged" and "here is
+    /// what the judge said" are answers to the same question, and a row must never be able to carry both: a red
+    /// judged row - a real ask the Wingman found while the snooze ran - would otherwise be painted calm by this
+    /// arm, which is a quietened question and the worst thing this mission can do. The fold does not stamp both
+    /// (a judged stop is case 2 of ruling 10 and stamps nothing), so this gate is what makes that a property of
+    /// the ladder rather than a promise from the producer.
+    /// </summary>
+    public static bool IsSnoozeEndedNothingNew(SessionDto s) =>
+        s.SnoozeEndedNothingNew
+        && IsRawRed(s)
+        && !string.Equals(s.VerdictState, VerdictStates.Judged, StringComparison.Ordinal);
+
     /// <summary>The finished kind for work the agent says is complete (owner ruling, 2026-09-15).</summary>
     public const string FinishedKindDone = "done";
 
@@ -155,10 +191,23 @@ public static class SessionOrdering
     /// Director-local response, so this must answer "no voice words" there rather than assume a shape.
     /// </summary>
     private static string? VoiceGaveUpLabel(SessionDto s) =>
-        s.VoiceDisplay is { Kind: VoiceDisplayKinds.GaveUp or VoiceDisplayKinds.NotNarrated } v
-        && !string.IsNullOrWhiteSpace(v.Label)
-            ? v.Label
+        IsVoiceGaveUp(s) && !string.IsNullOrWhiteSpace(s.VoiceDisplay!.Label)
+            ? s.VoiceDisplay.Label
             : null;
+
+    /// <summary>
+    /// THIS ROW'S NARRATION IS NOT COMING - the voice fold's own two terminal verdicts, and nothing else. A
+    /// session was promised audio and will not get it, which is a thing the owner can act on.
+    ///
+    /// ONE PREDICATE, THREE READERS: the voice hold below ends on it, the colour ladder ranks by it, and the
+    /// words read it. It was written out three times before, and three copies of one rule is how the label
+    /// came to say "Voice did not arrive after 48m" while the dot said something else for 48 minutes.
+    ///
+    /// Null-safe by necessity, not by caution: <see cref="SessionDto.VoiceDisplay"/> is null on every
+    /// Director-local response, so this must answer "no voice verdict" there rather than assume a shape.
+    /// </summary>
+    public static bool IsVoiceGaveUp(SessionDto s) =>
+        s.VoiceDisplay is { Kind: VoiceDisplayKinds.GaveUp or VoiceDisplayKinds.NotNarrated };
 
     // GAP 5: THE GATEWAY'S VOICE WINDOW NEEDS NO RULE HERE - IsVoicePreparing BELOW ALREADY IS IT.
     //
@@ -309,7 +358,7 @@ public static class SessionOrdering
         // a session parked on a menu was never going to be narrated and that is not a voice failure. The
         // blocked and serviceDown verdicts still hold, because they already carry an actionable sentence of
         // their own and "needs you" would replace it with a symptom.
-        if (s.VoiceDisplay is { Kind: VoiceDisplayKinds.GaveUp or VoiceDisplayKinds.NotNarrated })
+        if (IsVoiceGaveUp(s))
             return false;
         // Yellow while generating OR while there is simply no audio yet - held across the gaps between
         // attempts, until VoiceAudioReady flips true, or until the verdict above ends the promise.
@@ -504,6 +553,32 @@ public static class SessionOrdering
         // PURPLE HAS ONE PRODUCER, and it is this line. The Director's "background running" purple in
         // ResolveActivity is deleted - see the tombstone there.
         : IsCalmVerdict(s) ? CalmColor(s)
+        // THE SNOOZE-EXPIRY ARM (the Wingman-on-every-turn mission, slice F, ruling 10). The owner's quiet ran
+        // out and nothing happened while it did, so the row comes back calm instead of as a red the clock
+        // manufactured. BELOW the verdict arms on purpose: a stop that WAS judged while the snooze ran is ruled
+        // by its verdict, and this arm only ever speaks when there is nothing to rule on. ABOVE BaseColor,
+        // whose red is the colour it exists to replace.
+        // THIS LADDER IS RANKED BY WHAT THE READER CAN DO, NOT BY WHEN AN ARM WAS ADDED, and this pair is
+        // where that rule was first written down - read it before adding an arm below.
+        //
+        // A FAILED NARRATION OUTRANKS A QUIET SNOOZE. Both arms describe the same raw-red row and only one of
+        // them can speak. "Snooze ended, nothing new" is TERMINAL: it is the end of the story, and there is
+        // nothing for the owner to do about it. A narration that is never coming is ACTIONABLE: he was
+        // promised he would HEAR this session, he did not, and he has to go and look instead. A terminal
+        // verdict must never outrank an actionable one, so the voice arm goes above (the Architect's ruling,
+        // 2026-09-16, on the collision found when these two changes met in a rebase).
+        //
+        // IT WAS NOT MERELY OUTRANKED, IT WAS UNREACHABLE. The snooze arm returned cyan here, and the voice
+        // words are only consulted inside the RED branch of StateLabel - so with the cyan winning the colour,
+        // "Voice did not arrive after 48m" could never be reached by any row. Ordering the arms is what makes
+        // the words reachable at all, which is why this is a ladder fix and not a preference.
+        //
+        // The arm yields the BASE colour rather than naming red, because the base is already the honest answer
+        // for such a row - it is red when the session is stopped, and it stays whatever it should be when the
+        // session is working or exited. What this arm actually does is keep the snooze arm from speaking over
+        // it, and a row with no expired snooze reaches the same base colour one line further down regardless.
+        : IsVoiceGaveUp(s) ? BaseColor(s)
+        : IsSnoozeEndedNothingNew(s) ? SnoozeEndedNothingNewColor
         // Issue #1177 (Phase 2): the base color is computed from RAW facts. NO GATEWAY-DECIDED COLOUR READS
         // THE DIRECTOR'S COOKED StatusColor - as of 2026-07-14 that is true of the pipeline as well as the
         // fold. It was NOT true before: the Gateway's voice-mode window (GatewayEndpoints, issue #531) gated
@@ -652,6 +727,24 @@ public static class SessionOrdering
         // verbatim - the report - and "Done" or "Carrying on" only when the verdict carries no line at all.
         if (IsVerdictReading(s)) return "Wingman reading";
         if (IsCalmVerdict(s)) return CalmLabel(s);
+        // Mirrors EffectiveColor's voice-gave-up arm, in the same position and for the same reason: a session
+        // that was promised a narration and did not get one has something the owner can act on, and the snooze
+        // words would say the opposite. It falls to the base switch below, where VoiceGaveUpLabel tells him WHY
+        // he is being asked by a session he expected to hear instead.
+        if (IsVoiceGaveUp(s)) return BaseStateLabel(s);
+        // Mirrors EffectiveColor's snooze-expiry arm, in the same position, so the dot and the words are folded
+        // from the same inputs in the same order.
+        if (IsSnoozeEndedNothingNew(s)) return SnoozeEndedNothingNewLabel;
+        return BaseStateLabel(s);
+    }
+
+    /// <summary>
+    /// The words for a row that reached the bottom of the ladder, folded from its BASE colour. Split out so the
+    /// voice-gave-up arm can reach it without repeating it: two copies of this switch would be two answers to
+    /// one question, which is the defect this file keeps being repaired for.
+    /// </summary>
+    private static string BaseStateLabel(SessionDto s)
+    {
         return BaseColor(s) switch
         {
             // NO "supporting" ARM. It is not missing - it is unreachable, and saying so here is cheaper than
