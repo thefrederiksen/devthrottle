@@ -107,11 +107,24 @@ public sealed class SnoozeExpiryReJudgeTests : IDisposable
         FinishedKind = finishedKind,
     };
 
+    /// <summary>An UNFILTERED whole-account read: the rows are the account, so the fold names them as the roster
+    /// and the snooze memory prunes to them. This is what GET /sessions with no filter does.</summary>
     private void Fold(SnoozeExpiryReJudge watch, Rows rows, IReadOnlyList<SessionDto> sessions, DateTime at)
     {
         var list = sessions.ToList();
         GatewayEndpoints.StampFleetRolesAndFold(list, list, needsYouStampFor: null, snoozeRegistry: Snoozes,
-            tenant: Account, handRaises: null, turnVerdictRows: rows, snoozeExpiry: watch, nowUtc: at);
+            tenant: Account, handRaises: null, turnVerdictRows: rows, snoozeExpiry: watch, nowUtc: at,
+            snoozeRosterSessionIds: new HashSet<string>(list.Select(x => x.SessionId), StringComparer.Ordinal));
+    }
+
+    /// <summary>A read FILTERED by machine: it sees part of the account and names no roster, so it observes and
+    /// prunes nothing. This is what GET /sessions?machine=... does.</summary>
+    private void FoldFilteredByMachine(SnoozeExpiryReJudge watch, Rows rows, IReadOnlyList<SessionDto> sessions, DateTime at)
+    {
+        var list = sessions.ToList();
+        GatewayEndpoints.StampFleetRolesAndFold(list, list, needsYouStampFor: null, snoozeRegistry: Snoozes,
+            tenant: Account, handRaises: null, turnVerdictRows: rows, snoozeExpiry: watch, nowUtc: at,
+            snoozeRosterSessionIds: null);
     }
 
     /// <summary>
@@ -633,6 +646,86 @@ public sealed class SnoozeExpiryReJudgeTests : IDisposable
         Fold(watch, rows, new[] { one }, Armed.AddSeconds(2));
 
         Assert.Equal(1, watch.Watching);
+    }
+
+    [Fact]
+    public void AReadFilteredByMachine_LeavesTheOtherMachinesWatchAlone()
+    {
+        // A PARTIAL VIEW MAY NOT MAKE A DESTRUCTIVE DECISION. A read filtered by machine sees one machine's
+        // Directors, so a session on another machine is simply not in front of it - and "not in the part I am
+        // looking at" is not "gone". It observes, and it drops nothing.
+        //
+        // This is the same principle that put the account's roster in the caller's hands rather than inferring it
+        // from a fold's rows, taken to its end: the licence to drop an entry is the ability to tell those two
+        // apart, and a filtered read does not have it.
+        Snoozes.Snooze("s1", Deadline, "dir-1");
+        Snoozes.Snooze("s2", Deadline, "dir-2");
+        var watch = NewWatch();
+        var rows = new Rows(Store);
+        var one = Row("s1");
+        var two = Row("s2");
+        two.DirectorId = "dir-2";
+
+        Fold(watch, rows, new[] { one, two }, Armed.AddSeconds(1));
+        Assert.Equal(2, watch.Watching);
+
+        // ?machine=... - only dir-1's machine is in this read.
+        FoldFilteredByMachine(watch, rows, new[] { one }, Armed.AddSeconds(2));
+
+        Assert.Equal(2, watch.Watching);
+    }
+
+    [Fact]
+    public void AnUnfilteredFold_StillPrunes_AfterAFilteredOneDidNot()
+    {
+        // The other half, in one story, so the pair cannot drift apart: the filtered read leaves the entry
+        // standing and the very next unfiltered read - which CAN tell the difference - takes it.
+        Snoozes.Snooze("s1", Deadline, "dir-1");
+        Snoozes.Snooze("s2", Deadline, "dir-2");
+        var watch = NewWatch();
+        var rows = new Rows(Store);
+        var one = Row("s1");
+        var two = Row("s2");
+        two.DirectorId = "dir-2";
+
+        Fold(watch, rows, new[] { one, two }, Armed.AddSeconds(1));
+        FoldFilteredByMachine(watch, rows, new[] { one }, Armed.AddSeconds(2));
+        Assert.Equal(2, watch.Watching);
+
+        // s2 really has gone, and an unfiltered read is the one that can say so.
+        Fold(watch, rows, new[] { one }, Armed.AddSeconds(3));
+
+        Assert.Equal(1, watch.Watching);
+    }
+
+    [Fact]
+    public void AFilteredReadDuringTheSnooze_DoesNotCostTheArmingMoment()
+    {
+        // WHAT THE RULING IS FOR, asserted at the level that matters - not the entry count, but the ANSWER. A
+        // filtered read passing over a snoozed session used to drop its entry, and the next fold re-dated the
+        // arming moment to the moment it came back, so a stop from during the snooze stopped counting and a real
+        // ask came back as "Snooze ended, nothing new".
+        var sid = "s1";
+        var watch = NewWatch();
+        var rows = new Rows(Store);
+        var row = Row(sid);
+
+        Snoozes.Snooze(sid, Deadline, "dir-1");
+        Fold(watch, rows, new[] { row }, Armed.AddSeconds(1));
+
+        // A filtered read that this session is not part of, while its clock runs.
+        FoldFilteredByMachine(watch, rows, Array.Empty<SessionDto>(), Armed.AddMinutes(2));
+
+        // A stop happens while the snooze runs, and nothing on the row says what it means.
+        Store.Store(Account, sid, Verdict("", "", Armed.AddMinutes(5), failed: true));
+
+        Fold(watch, rows, new[] { row }, Armed.AddMinutes(10));
+        Fold(watch, rows, new[] { row }, AfterExpiry);
+
+        // The arming moment survived, so the stop still counts and the judge is asked.
+        Assert.Equal(new[] { sid }, _reads);
+        Assert.Equal(new[] { "snooze-re-judge-requested/s1" }, _ledger);
+        Assert.False(row.SnoozeEndedNothingNew);
     }
 
     [Fact]

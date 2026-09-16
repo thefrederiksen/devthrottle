@@ -1648,8 +1648,10 @@ public sealed class GatewayHost : IAsyncDisposable
                 snoozeExpiry: _snoozeExpiry,
                 // And the ACCOUNT'S roster for it to prune to, not this one Director's push. Ids only: a
                 // membership question does not need a session cloned to answer it, and this is the hot path.
+                // KNOWN, not connected: a Director that has gone quiet still has its sessions on the roster, so
+                // dropping them here would read "I cannot see it this second" as "it is gone".
                 snoozeRosterSessionIds: _tenantPass.Current is { } snoozeTenant
-                    ? PushedSessions.ConnectedSessionIds(snoozeTenant)
+                    ? PushedSessions.KnownSessionIds(snoozeTenant)
                     : null),
             SendCommandAsync,
             currentScopeKey: () => _tenantPass.Current?.Value);

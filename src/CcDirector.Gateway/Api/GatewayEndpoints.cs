@@ -1610,7 +1610,13 @@ internal static class GatewayEndpoints
             // stamp the presentation fold (which reads the role to suppress a live Worker's red toward the
             // human). Done here, once, because the role needs the full fleet view - the UNFILTERED one
             // (`fleet`), not the response set (`all`). See defect 13 in StampFleetRolesAndFold.
-            StampFleetRolesAndFold(fleet, all, needsYouStampFor, snoozeRegistry, reqTenant.Value, handRaises, turnVerdictRows, snoozeExpiry);
+            // THE SNOOZE MEMORY PRUNES ONLY ON AN UNFILTERED READ. `director=` and `machine=` narrow the Director
+            // list at the top of this handler, so a filtered `fleet` is part of the account and not the account -
+            // it observes, and it drops nothing. An unfiltered read names the roster and prunes.
+            var unfilteredWholeAccount = string.IsNullOrEmpty(director) && string.IsNullOrEmpty(machine);
+            StampFleetRolesAndFold(fleet, all, needsYouStampFor, snoozeRegistry, reqTenant.Value, handRaises,
+                turnVerdictRows, snoozeExpiry,
+                snoozeRosterSessionIds: unfilteredWholeAccount ? SnoozeRosterIds(fleet) : null);
 
             // DevThrottle Stats: fold the assembled roster's per-session input tallies into the always-
             // available aggregate that backs "Your Throttle". This is the ONE path that carries
@@ -1959,7 +1965,11 @@ internal static class GatewayEndpoints
             // is driven by the roster read. Letting a by-id read stamp it would drive that clock out of band
             // and corrupt the roster's own waiting times. NeedsYouSince stays unstamped here, exactly as
             // before - this fix does not claim it.
-            StampFleetRolesAndFold(fleet, new[] { session }, needsYouStampFor: null, snoozeRegistry: snoozeRegistry, tenant: reqTenant.Value, handRaises: handRaises, turnVerdictRows: turnVerdictRows, snoozeExpiry: snoozeExpiry);
+            // This route's `fleet` is every Director's sessions for the account, unfiltered, so it names the
+            // roster and the snooze memory prunes to it.
+            StampFleetRolesAndFold(fleet, new[] { session }, needsYouStampFor: null, snoozeRegistry: snoozeRegistry,
+                tenant: reqTenant.Value, handRaises: handRaises, turnVerdictRows: turnVerdictRows,
+                snoozeExpiry: snoozeExpiry, snoozeRosterSessionIds: SnoozeRosterIds(fleet));
             return Results.Json(session);
         });
 
@@ -5180,10 +5190,10 @@ internal static class GatewayEndpoints
         // It is the moment the WHOLE fold answers as of, exactly as the clock it replaces is (see the snapshot
         // note below), so there is no second time in here for it to disagree with.
         DateTime? nowUtc = null,
-        // Slice F: the ACCOUNT'S whole roster, as session ids, for the snooze memory to prune to. Named by the
-        // caller because neither list above is the account on every path - the display push carries one
-        // Director's sessions as both of them. Null falls back to the role universe, which IS the account's
-        // roster on the two routes that have one.
+        // Slice F: the ACCOUNT'S whole roster, as session ids, for the snooze memory to prune to - or NULL from
+        // a caller looking at only part of the account, and then nothing is pruned. Never inferred from either
+        // list above: the display push carries one Director's sessions as both of them, and a filtered roster
+        // read carries one machine's.
         IReadOnlyCollection<string>? snoozeRosterSessionIds = null)
     {
         if (roleUniverse is null) throw new ArgumentNullException(nameof(roleUniverse));
@@ -5280,11 +5290,11 @@ internal static class GatewayEndpoints
         // A SNOOZE EXPIRY RE-JUDGES (slice F, ruling 10), stamped after the verdicts because its decision reads
         // them, and before the loop because the loop's colour and label read its answer. It takes the SAME snooze
         // snapshot the hold state above came from - the fold's one read - and never a second one.
-        // THE ACCOUNT'S ROSTER is what the watch prunes to, and it is the caller's to name: on this route the role
-        // universe IS that roster, but on the display push it is one Director's sessions, and a per-Director view
-        // lies to this memory. A caller that names nothing falls back to the role universe.
+        // THE ACCOUNT'S ROSTER is the CALLER'S to name, and a caller that names none prunes nothing. Nothing is
+        // inferred from the two lists above: a partial view cannot tell "this session is gone" from "this session
+        // is not in the part I am looking at", and that distinction is the whole licence to drop an entry.
         Wingman.SnoozeExpiryRowStamp.Stamp(all, snoozeExpiry, verdictsOnTheWire, holds, tenant, foldNowUtc,
-            snoozeRosterSessionIds ?? SnoozeRosterIds(roleUniverse));
+            snoozeRosterSessionIds);
 
         foreach (var s in all)
         {

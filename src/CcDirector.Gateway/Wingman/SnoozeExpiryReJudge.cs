@@ -65,13 +65,30 @@ public static class SnoozeExpiryDecision
         // asks the judge about the current screen, which is the one answer that is true whatever happened in the
         // part this Gateway could not see.
         //
-        // IT COVERS EVERY WAY THE ARMING MOMENT CAN GO MISSING, which is why it is stated as a property of "not
-        // known" rather than of any one cause: a Gateway that restarted while the clock ran, an entry the roster
-        // prune dropped when the session left a fold, and anything later that loses it the same way. Before this,
-        // the prune could turn a real ask into "Snooze ended, nothing new" - a quietened question, which this
-        // file's own words call the worst thing the mission can do - and whether it did depended on whether the
-        // session happened to be absent from one fold in between. Now the losing case costs ONE READ at the
-        // colour the row already had, and the two histories end in the same place.
+        // WHAT REACHES THIS ARM, now that a partial view may not prune (see PruneToRoster). Two things, and the
+        // first is the one that cannot be closed from inside this class:
+        //
+        //   A GATEWAY RESTART. The arming observation lives in PROCESS MEMORY, so a Gateway that restarts while a
+        //   snooze runs has no record of when that clock started. The watch is re-armed when the session next
+        //   folds, and its expiry asks.
+        //
+        //   A SESSION THAT GENUINELY LEFT THE ACCOUNT AND CAME BACK. Its entry was pruned because the account
+        //   really did not have it, and a returning session is a clock nobody watched start.
+        //
+        // What no longer reaches it is a session that merely dropped out of somebody's VIEW - a filtered read, a
+        // Director's own push, a machine that went quiet. Those prune nothing now, and that was the path where
+        // this mattered most, because it could silently turn a real ask into calm.
+        //
+        // It is still written as a property of NOT KNOWING rather than of a restart, because the rule is about
+        // the evidence and not about the cause: anything that loses the moment gets the safe answer without
+        // anybody having to remember to add a case. What it replaced was an expiry that answered CALM when it
+        // could not see the start of the quiet - a quietened question, which this file's own words call the worst
+        // thing the mission can do.
+        //
+        // THE REAL FIX IS DEFERRED, with its cost named: the arming moment belongs ON THE SNOOZE, stored where
+        // the deadline already is, so it survives a restart instead of being re-derived from whoever looked
+        // first. That needs a schema change and its migration, which is why it is a follow-up and not this
+        // slice; until it lands, a restart costs one read per snoozed session at its expiry.
         //
         // The cost is bounded by the same things every automatic trigger is bounded by: the edge fires once per
         // expiry, the account's judge switch gates it, and its ceiling caps it.
@@ -192,12 +209,10 @@ public sealed class SnoozeExpiryReJudge
     /// and assign <see cref="SessionDto.SnoozeEndedNothingNew"/> on EVERY row in both directions - the roster
     /// re-serves rows a previous fold stamped, so a stamp that was only ever set would outlive its reason.
     /// </summary>
-    /// <param name="rosterSessionIds">THE ACCOUNT'S WHOLE ROSTER, as session ids - what the watch prunes to. It is
-    /// passed separately from the rows because a fold's rows are not the account: the display push carries one
-    /// Director's sessions, and a filtered roster read carries one machine's. A per-Director view lies to this
-    /// memory the same way it lies to the held check, so the caller NAMES the account's roster and this does not
-    /// try to infer it. Null means the rows themselves are the roster, which is what a caller with nothing better
-    /// to offer is saying.</param>
+    /// <param name="rosterSessionIds">THE ACCOUNT'S WHOLE ROSTER, as session ids, or NULL FROM A CALLER THAT IS
+    /// LOOKING AT ONLY PART OF THE ACCOUNT. A caller that can name the whole roster gets a prune; a caller that
+    /// cannot gets none. It is never inferred from the rows, because a fold's rows are not the account - the
+    /// display push carries one Director's sessions and a filtered roster read carries one machine's.</param>
     public void Observe(
         TenantId tenant,
         IReadOnlyList<SessionDto> rows,
@@ -208,7 +223,9 @@ public sealed class SnoozeExpiryReJudge
         ArgumentNullException.ThrowIfNull(rows);
         ArgumentNullException.ThrowIfNull(holds);
 
-        PruneToRoster(tenant, rosterSessionIds ?? IdsOf(rows));
+        // A PARTIAL VIEW OBSERVES BUT DOES NOT DROP. Null is a caller saying "I am not looking at the whole
+        // account", and the answer to that is to prune nothing at all.
+        if (rosterSessionIds is not null) PruneToRoster(tenant, rosterSessionIds);
 
         foreach (var s in rows)
         {
@@ -339,24 +356,42 @@ public sealed class SnoozeExpiryReJudge
     };
 
     /// <summary>
-    /// PRUNE TO THE ROSTER, UNCONDITIONALLY. A watch entry for a session that is not in the roster has nothing to
-    /// watch, so it goes - whatever else is or is not in that roster. This memory is then bounded by the account's
-    /// sessions and never by how long the Gateway has been up; a session that vanished while its snooze was
-    /// expired used to leave one entry behind for the life of the process, and those accumulate (the inspector's
-    /// second note on pull request 2899).
+    /// PRUNE TO THE ROSTER, UNCONDITIONALLY - ONCE A CALLER HAS NAMED ONE. A watch entry for a session the
+    /// account does not have has nothing to watch, so it goes, whatever else is or is not in that roster. This
+    /// memory is then bounded by the account's sessions and never by how long the Gateway has been up; a session
+    /// that vanished while its snooze was expired used to leave one entry behind for the life of the process, and
+    /// those accumulate (the inspector's second note on pull request 2899).
     ///
     /// AN EMPTY ROSTER IS A ROSTER, and it is the case worth naming because it is the one an earlier version got
-    /// wrong. "The account has no sessions this fold" prunes everything for the account. There is no early return
-    /// for it, no floor of one session per Director, and nothing kept because the Director it belonged to happens
-    /// to be absent too - each of those was a condition that let the memory grow, which is exactly what this
-    /// exists to stop.
+    /// wrong. "The account has no sessions" prunes everything for the account. There is no early return for it,
+    /// no floor of one session per Director, and nothing kept because the Director it belonged to happens to be
+    /// absent too - each of those was a condition that let the memory grow, which is exactly what this exists to
+    /// stop.
     ///
-    /// WHAT IT COSTS WHEN A SESSION TRULY LEAVES AND COMES BACK. Its entry went with it, so nothing says when
-    /// its snooze was seen armed - and UNKNOWN IS RED (see <see cref="SnoozeExpiryDecision.AtExpiry"/>), so the
-    /// expiry ASKS rather than claiming anything about a stretch of quiet it cannot see the start of. One extra
-    /// read, at the colour the row already had, and the edge then settles: never a quietened question. The
+    /// A PARTIAL VIEW NEVER REACHES HERE, and that is the other half of the same principle. A roster read
+    /// filtered by machine or by Director, and any other caller looking at part of the account, passes no roster
+    /// at all and prunes nothing: such a view cannot tell "this session is gone" from "this session is not in the
+    /// part I am looking at", and a destructive decision may not be taken on a distinction the caller cannot
+    /// make. The whole-account callers - the unfiltered roster read, the single-session read, and the display
+    /// push, which names the account's roster from the pushed-session store rather than from its own rows - are
+    /// the only ones that prune.
+    ///
+    /// WHAT IT COSTS WHEN A SESSION TRULY LEAVES THE ACCOUNT AND COMES BACK. Its entry went with it, so nothing
+    /// says when its snooze was seen armed - and UNKNOWN IS RED (see <see cref="SnoozeExpiryDecision.AtExpiry"/>),
+    /// so the expiry ASKS rather than claiming anything about a stretch of quiet it cannot see the start of. One
+    /// extra read, at the colour the row already had, and the edge then settles: never a quietened question. The
     /// DIRECTION of that failure is the whole point - a bounded memory is worth an occasional repeated read, and
     /// is not worth a real ask going silent.
+    ///
+    /// AND THE ARMING MOMENT ITSELF LIVES IN PROCESS MEMORY, which is the one gap this class cannot close. A
+    /// Gateway that RESTARTS while a snooze runs loses it; the watch is re-armed when the session next folds, and
+    /// its expiry reads. With a partial view no longer pruning, a restart and a genuine departure are the only
+    /// two ways it goes missing, and both answer by asking.
+    ///
+    /// THE FIX IS DEFERRED, with its cost named: the arming moment belongs ON THE SNOOZE, beside the deadline,
+    /// where it survives a restart instead of being re-derived from whoever looked first. That is a schema change
+    /// and a migration, which is why it is a follow-up of this mission and not this slice. Until it lands, a
+    /// restart costs one read per snoozed session at its expiry.
     ///
     /// <see cref="SnoozeExpiryReJudgeTests.ASessionThatTrulyLeavesTheAccount_AndComesBack_IsAskedOnceMore_NeverCalmed"/>
     /// and <see cref="SnoozeExpiryReJudgeTests.AnAbsenceDuringTheSnooze_MakesNoDifferenceToWhatTheExpiryDoes"/>
@@ -372,14 +407,6 @@ public sealed class SnoozeExpiryReJudge
         }
     }
 
-    /// <summary>The session ids on a set of rows, for a caller with no separate roster to name.</summary>
-    private static HashSet<string> IdsOf(IReadOnlyList<SessionDto> rows)
-    {
-        var ids = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var s in rows)
-            if (!string.IsNullOrEmpty(s.SessionId)) ids.Add(s.SessionId);
-        return ids;
-    }
 }
 
 /// <summary>
@@ -398,9 +425,8 @@ public static class SnoozeExpiryRowStamp
     /// <param name="holds">The fold's ONE snooze snapshot. Never a second read.</param>
     /// <param name="tenant">The account the rows belong to. Null or invalid stamps false.</param>
     /// <param name="nowUtc">The fold's single moment.</param>
-    /// <param name="rosterSessionIds">The ACCOUNT'S whole roster as session ids - what the watch prunes to. See
-    /// <see cref="SnoozeExpiryReJudge.Observe"/> for why the caller names it rather than it being taken from the
-    /// rows. Null means the rows themselves are the roster.</param>
+    /// <param name="rosterSessionIds">The ACCOUNT'S whole roster as session ids, or null from a caller looking at
+    /// only part of the account - and then nothing is pruned. See <see cref="SnoozeExpiryReJudge.Observe"/>.</param>
     public static void Stamp(
         IReadOnlyList<SessionDto> rows,
         SnoozeExpiryReJudge? watch,
