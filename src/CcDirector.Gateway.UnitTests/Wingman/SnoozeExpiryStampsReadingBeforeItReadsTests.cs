@@ -1,4 +1,4 @@
-using CcDirector.Core.Tenancy;
+﻿using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Wingman;
 using Xunit;
@@ -56,31 +56,54 @@ public sealed class SnoozeExpiryStampsReadingBeforeItReadsTests
         // serve the very row it just asked about.
         Assert.True(reading);
         Assert.True(seat.IsReading(Tenant, Sid));
+        // AND THE READ HAS NOT COMPLETED, which is what makes the line above an ordering claim rather than a
+        // coincidence: the judge is asked only after the screen comes back, and the screen cannot come back
+        // while this test holds the gate. Nothing here races the flight - whatever the flight has reached, it
+        // is stuck before this point.
+        Assert.Equal(0, env.JudgeCalls);
 
         screenIsOpen.Set();
     }
 
     [Fact]
-    public void TheStopIsStampedReading_BeforeTheScreenHasBeenReadAtAll()
+    public void TheStopIsStampedReading_WithNoScreenReadOfItsOwn()
     {
-        // The same claim, counted rather than blocked: the seat has taken its roster snapshot and stamped, and
-        // has not asked for a screen, at the moment it answers. Kept beside the blocking test because a count is
-        // the more direct statement of "before", and the blocking one is the more robust proof of it.
-        using var screenIsOpen = new ManualResetEventSlim(false);
+        // THE STAMP COSTS NOTHING BEYOND THE ROSTER SNAPSHOT the free checks already need: no screen is read on
+        // the fold's thread, and no model is asked, so the yellow is free. Taken with the flight held at the
+        // very first thing it does, so this observes the SEAT rather than where the flight thread happened to
+        // get to.
+        //
+        // The first version of this test counted screen reads instead, and it RACED: the fake counts a read on
+        // entry, before it blocks, so the count answered "how far has the other thread got" and not "what did
+        // the seat do". It passed alone and failed in a loaded full run. Holding the roster read is the same
+        // claim with nothing to race.
+        using var flightIsHeld = new ManualResetEventSlim(false);
+        var stateReadsOnTheCallersThread = 0;
         var env = Env();
-        env.Screen = () =>
-        {
-            screenIsOpen.Wait(TimeSpan.FromSeconds(30));
-            return Screen(Sid, ReplyText, "> ");
-        };
         using var seat = new TurnVerdictService(env);
+        env.Facts = sid =>
+        {
+            // The caller's own read passes straight through; the FLIGHT's read - the second one - is held, so
+            // the flight cannot reach the screen, the judge, or anything else while the assertions run.
+            if (Interlocked.Increment(ref stateReadsOnTheCallersThread) > 1)
+                flightIsHeld.Wait(TimeSpan.FromSeconds(30));
+            return new SessionDto
+            {
+                SessionId = sid,
+                Name = "devthrottle - the retention sweep",
+                Agent = "ClaudeCode",
+                ActivityState = "WaitingForInput",
+            };
+        };
 
-        seat.StartSnoozeExpiryReJudge(Tenant, "dir-1", Sid);
+        var reading = seat.StartSnoozeExpiryReJudge(Tenant, "dir-1", Sid);
 
+        Assert.True(reading);
         Assert.True(seat.IsReading(Tenant, Sid));
         Assert.Equal(0, env.ScreenReads);
+        Assert.Equal(0, env.JudgeCalls);
 
-        screenIsOpen.Set();
+        flightIsHeld.Set();
     }
 
     [Fact]
@@ -150,9 +173,19 @@ public sealed class SnoozeExpiryStampsReadingBeforeItReadsTests
         Assert.True(seat.StartSnoozeExpiryReJudge(Tenant, "dir-1", Sid));
         var second = seat.StartSnoozeExpiryReJudge(Tenant, "dir-1", Sid);
 
+        // It reports what the running judgement stamped, and it stamped nothing of its own.
         Assert.True(second);
-        Assert.Equal(1, env.StateReads);
 
+        // ONE MODEL CALL BETWEEN THE TWO OF THEM, asked once everything has finished rather than while it is
+        // still running - a count taken mid-flight answers "how far has that thread got", which is not a claim
+        // about the seat at all. Reading the count here is race-free because nothing is left to run.
         screenIsOpen.Set();
+        var until = DateTime.UtcNow + TimeSpan.FromSeconds(30);
+        while (seat.IsReading(Tenant, Sid) && DateTime.UtcNow < until)
+            Thread.Sleep(10);
+
+        Assert.False(seat.IsReading(Tenant, Sid));
+        Assert.Equal(1, env.JudgeCalls);
+        Assert.Equal(1, env.ScreenReads);
     }
 }
