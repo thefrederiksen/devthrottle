@@ -124,13 +124,14 @@ def variants_for(secret: str, username: str = "") -> List[str]:
     # Base64 of the secret, and of "username:secret", in EVERY encoding - not only UTF-8. A page's btoa() and an
     # HTTP Basic authorization header use single-byte ISO-8859-1, so a password with an accented letter came
     # out different from its UTF-8 Base64 and was not recognised (review of pull request 2891 at fbe4293e).
-    for encoded, codec_name in encoded_secret_bytes(secret).items():
+    for encoded in encoded_secret_bytes(secret):
         forms |= _base64_forms(encoded)
-        if username:
-            try:
-                forms |= _base64_forms(f"{username}:{secret}".encode(codec_name))
-            except (LookupError, UnicodeError, TypeError, ValueError):
-                continue
+    if username:
+        # The pair is encoded by every codec on its own. Taking the codecs from the secret alone collapses them to
+        # one per distinct byte form of the SECRET, and for an ASCII password that one may not encode an accented
+        # username at all - which lost even the UTF-8 form (review of pull request 2891 at 08ee570e).
+        for encoded in encoded_secret_bytes(f"{username}:{secret}"):
+            forms |= _base64_forms(encoded)
     # How Python prints those bytes: print(s.encode('utf-16-le')), a bytearray, a list of them.
     forms |= {repr(encoded)[2:-1] for encoded in encoded_secret_bytes(secret)}
     return sorted((f for f in forms if f), key=len, reverse=True)

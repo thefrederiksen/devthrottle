@@ -140,3 +140,24 @@ def test_Base64OfTheSecretInASingleByteEncoding_IsScrubbed():
 
     for form in forms:
         assert form not in scrubber.scrub(f"Authorization: Basic {form}")
+
+
+@pytest.mark.parametrize("encoding", ["utf-8", "latin-1"])
+def test_Run_BasicHeaderWithAnAccentedUsername_IsScrubbedFromOutput(store, encoding):
+    # The review's case (08ee570e): an ASCII password with an accented username. The Base64 of the pair was
+    # derived from the codecs of the password alone, which lost every form of it - UTF-8 included.
+    import base64
+
+    username = "u" + chr(0xE9) + "s"
+    secret = "Password42" + new_secret()[:6]
+    add_entry(store, name="accented-user", secret=secret, username=username)
+    entry = store.get("accented-user")
+    token = base64.b64encode(f"{username}:{secret}".encode(encoding)).decode()
+    script = ("import base64, os; print('Authorization: Basic ' + base64.b64encode(("
+              + repr(username) + " + ':' + os.environ['CC_SECRET']).encode(" + repr(encoding) + ")).decode())")
+
+    result = run_with_secret(entry, [PY, "-c", script], "env")
+
+    assert result.exit_code == 0, result.stderr
+    assert "Authorization: Basic" in result.stdout, "the command printed nothing, so this test shows nothing"
+    assert token not in result.stdout + result.stderr
