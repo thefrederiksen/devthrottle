@@ -40,8 +40,10 @@ const judged = {
   },
 };
 
+let rosterRead: () => Promise<unknown[]> = () => Promise.resolve([judged]);
+
 vi.mock("@devthrottle/client-core/api/client", () => ({
-  listSessions: () => Promise.resolve([judged]),
+  listSessions: () => rosterRead(),
   holdSession: vi.fn(),
   stopSession: vi.fn(),
   gatewayErrorMessage: (err: unknown) => String(err),
@@ -68,7 +70,10 @@ vi.mock("../components/ViewTabs", () => ({ ViewTabs: () => <div /> }));
 
 import { Chat } from "./Chat";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  rosterRead = () => Promise.resolve([judged]);
+});
 
 function renderChat() {
   return render(
@@ -107,21 +112,23 @@ describe("what the chat screen spends its height on", () => {
     expect(screen.queryByRole("button", { name: "Enter" })).toBeNull();
   });
 
-  it("opens the verdict receipt COLLAPSED, because it restates the conversation below it", async () => {
+  it("carries no Wingman verdict panel, even for a judged row", async () => {
+    // Owner, 2026-09-16: "I can't use the chat window anymore. It is completely useless." The panel sat on top
+    // of the conversation on a screen that does not scroll. It was taken off this tab, and this test is what
+    // stops it coming back quietly - the row in this file IS judged, so a remount would show here.
     renderChat();
-    // The panel is there and says whose words the receipt holds...
-    const summary = await screen.findByText("Codex said");
-    const receipt = summary.closest("details");
-    expect(receipt).not.toBeNull();
-    // ...and it is shut, so it costs one line instead of the reply twice over.
-    expect((receipt as HTMLDetailsElement).open).toBe(false);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send" })).toBeTruthy());
+    expect(document.querySelector(".verdict-panel")).toBeNull();
+    expect(screen.queryByRole("button", { name: "This is wrong" })).toBeNull();
+    expect(screen.queryByText("Apply the migration now?")).toBeNull();
   });
 
-  it("still shows the verdict's own words, which are NOT a duplicate of anything", async () => {
-    // The collapse must not be read as "hide the panel". The label and summary are the Wingman's
-    // judgement and appear nowhere else on this screen; only the quoted reply is a duplicate.
+  it("still says when the roster could not be read, because the Snoozed pill may be stale", async () => {
+    // Caught in review of the panel removal: this notice was not only about the panel. A failed roster read
+    // keeps the last snooze state on the app bar, and this is the one place on the phone that says so.
+    rosterRead = () => Promise.reject(new Error("gateway unreachable"));
     renderChat();
-    expect(await screen.findByText("Apply the migration now?")).toBeTruthy();
-    expect(screen.getByText("The session is asking before it changes the database.")).toBeTruthy();
+    expect(await screen.findByText(/Could not read the roster, so this session's snooze state may be out of date/)).toBeTruthy();
+    expect(document.querySelector(".verdict-panel")).toBeNull();
   });
 });

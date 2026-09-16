@@ -133,7 +133,7 @@ export function useSessionManage(sessionId: string | undefined): SessionManage {
       if (!match) {
         // The roster answered and does not hold this session: nothing survives to be pressed.
         setSession(null);
-        setSessionProblem("This session is not on the roster right now, so there is nothing here to answer.");
+        setSessionProblem("This session is not on the roster right now, so its snooze state may be out of date.");
       }
       if (match) {
         setSession(match);
@@ -163,7 +163,7 @@ export function useSessionManage(sessionId: string | undefined): SessionManage {
       if (signal?.aborted || routeRef.current !== sessionId) return;
       // A failed read confirms nothing, so no row survives it: the answer buttons go, and the reason is shown.
       setSession(null);
-      setSessionProblem(`Could not read the roster, so this session's Wingman verdict is not shown: ${err instanceof Error ? err.message : String(err)}`);
+      setSessionProblem(`Could not read the roster, so this session's snooze state may be out of date: ${err instanceof Error ? err.message : String(err)}`);
     }
   }, [sessionId]);
 

@@ -4,7 +4,6 @@ import { listSessions } from "@devthrottle/client-core/api/client";
 import { useSessionChat } from "@devthrottle/client-core/history/useSessionChat";
 import { chatLinkLabel } from "@devthrottle/client-core/history/chatView";
 import { DictationStatusStrip } from "@devthrottle/client-core/dictation/DictationStatusStrip";
-import { VerdictPanel } from "@devthrottle/client-core/sessions/VerdictPanel";
 import { SessionAppBar } from "../components/SessionAppBar";
 import { SessionControls } from "../components/SessionControls";
 import { useSessionManage } from "../components/useSessionManage";
@@ -139,19 +138,15 @@ export function Chat() {
       {/* Live dictation status so a Speak Send from Chat is never silent (#1139). */}
       <DictationStatusStrip sessionId={sessionId} />
 
-      {/* What the Wingman read at this stop, and the owner's answer to it - the shared client-core panel, fed
-          from the same roster poll as the snooze state. THIS SHELL DECIDES NOTHING ABOUT WHAT IT SHOWS: it hands
-          over this route's row and this route's session id, and the panel owns the rest - whether there is
-          anything to show at all, what is shown, and which of its controls are live. A shell that knew when the
-          panel would render would be a second answer to a question the panel already answers, and the two would
-          drift. With no row to hand over - a read pending, failed or missing this session - there is nothing to
-          mount, only the reason. */}
-      {manage.session && sessionId && (
-        // compact: the receipt is the agent's last reply, which is ALSO the top of the conversation
-        // directly below - so expanded it spent the phone's scarcest resource restating what the
-        // reader can already see. It is one tap away.
-        <VerdictPanel sessionId={sessionId} session={manage.session} compact />
-      )}
+      {/* NO WINGMAN VERDICT PANEL ON THIS SCREEN (owner, 2026-09-16). It sat on top of the conversation and
+          took the room the conversation needed on a screen that does not scroll: "I can't use the chat window
+          anymore. It is completely useless." This tab is the conversation and nothing else. The verdict is still
+          spoken on the Voice mode tab, still colours and labels the row on the session list, and still has its
+          full panel in the Cockpit. */}
+
+      {/* A READ FAILURE IS STILL SHOWN, and removing it with the panel was caught in review. The panel was not the
+          only thing this notice explained: a failed or partial roster read leaves the app bar's Snoozed pill
+          holding the last value it saw, and this is the one place on the phone that says it may be stale. */}
       {manage.sessionProblem !== null && <div className="chat-stale" role="status">{manage.sessionProblem}</div>}
 
       {/* ABOVE the scrolling conversation, not inside it. A long conversation opens at the BOTTOM, so a
