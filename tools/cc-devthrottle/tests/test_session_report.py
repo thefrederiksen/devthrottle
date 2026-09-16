@@ -252,7 +252,7 @@ def test_a_session_a_fleet_manager_owns_sends_nothing_and_says_the_gateway_tells
     assert result.exit_code == 0, result.output
     assert sent == {}
     assert "Nothing sent: a Fleet Manager owns you" in result.output
-    assert "next turn end" in result.output
+    assert "when it is next waiting for a prompt" in result.output
 
 
 def test_an_owner_the_gateway_does_not_call_a_fleet_manager_still_gets_the_report(monkeypatch, sent):

@@ -9,8 +9,11 @@ namespace CcDirector.Gateway.Data.Entities;
 /// delivered what the old one never acknowledged.
 ///
 /// Delivery is recorded, never inferred: <see cref="DeliveredTo"/> is the Fleet Manager session the event last
-/// reached, and an event is not delivered to that same session a second time - so an unacknowledged event does
-/// not wake its Fleet Manager at every turn end.
+/// reached. Delivery is AT LEAST ONCE: the prompt is typed before the delivery is saved, so a Gateway that stops
+/// between the two sends the same event again, and the Fleet Manager ignores an event id it has already handled.
+///
+/// A STOP IS STORED THE MOMENT IT IS SEEN, before the Wingman has read it: <see cref="ReadingPending"/> is true
+/// until the reading is attached (or the reason there is none), and a pending stop is not delivered.
 /// </summary>
 public sealed class FleetManagerEventEntity : GatewayMintedKeyEntity
 {
@@ -38,6 +41,21 @@ public sealed class FleetManagerEventEntity : GatewayMintedKeyEntity
 
     /// <summary>Why a stop carries no reading, in plain words, or null.</summary>
     public string? NoVerdictReason { get; set; }
+
+    /// <summary>On a stop: true from the moment the stop is seen until the Wingman's reading of it, or the reason
+    /// there is none, is attached. False on a died event.</summary>
+    public bool ReadingPending { get; set; }
+
+    /// <summary>On a stop: the moment the Gateway observed the turn end, or null when the stop was first learned
+    /// from a reading that nothing observed in this process (a snooze expiry after a restart).</summary>
+    public DateTime? StopObservedAtUtc { get; set; }
+
+    /// <summary>The Director the session was last reported by, or null when that is not known.</summary>
+    public string? DirectorId { get; set; }
+
+    /// <summary>On a died event: how the death was learned, and anything that is not known about it, in plain
+    /// words. Null on a stop.</summary>
+    public string? Detail { get; set; }
 
     public DateTime CreatedAtUtc { get; set; }
 

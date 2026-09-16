@@ -78,6 +78,8 @@ public sealed class TurnEndWatcher : IDisposable
     private readonly TimeSpan _interval;
     // (tenant, sessionId, directorId): a session this watcher had seen alive has moved to Exited. Optional.
     private readonly Action<TenantId, string, string>? _onSessionExited;
+    // (tenant, sessionId, directorId): a session this watcher had seen alive was removed from its Director's list. Optional.
+    private readonly Action<TenantId, string, string>? _onSessionRemoved;
     // MTR-10 Gap C: keyed by (tenant, sessionId), never the bare session id. Two accounts can run sessions with
     // the SAME id; a bare key let one tenant's last-seen state suppress - or fabricate - the other tenant's
     // Working -> Waiting transition (and so its voice refresh / stale-cache clear). The owning tenant is
@@ -95,14 +97,18 @@ public sealed class TurnEndWatcher : IDisposable
     /// <param name="onSessionExited">Raised once when a session this watcher had already seen in another state
     /// moves to Exited - by the same feed that takes the transition, so two racing feeds raise it once. A session
     /// FIRST seen already exited (a Gateway restart) does not raise it: that exit is not news.</param>
+    /// <param name="onSessionRemoved">Raised once when a session this watcher had seen, and not seen exit, is removed
+    /// from its Director's list (<see cref="ObserveRemoval"/>).</param>
     public TurnEndWatcher(
         Action<TurnEndSignal> onTurnEnd,
         Action<TenantId, string, string> onSessionWorking,
         TimeSpan? reconcileInterval = null,
         PushedSessionStore? pushedSessions = null,
         TimeSpan? streamStale = null,
-        Action<TenantId, string, string>? onSessionExited = null)
+        Action<TenantId, string, string>? onSessionExited = null,
+        Action<TenantId, string, string>? onSessionRemoved = null)
     {
+        _onSessionRemoved = onSessionRemoved;
         _onSessionExited = onSessionExited;
         _pushedSessions = pushedSessions;
         _streamStale = streamStale ?? TimeSpan.FromSeconds(Core.Configuration.GatewayConfig.DefaultStreamStaleAfterSeconds);
@@ -195,6 +201,18 @@ public sealed class TurnEndWatcher : IDisposable
             _onTurnEnd(new TurnEndSignal(
                 sessionId, directorId, tenant, DateTime.UtcNow, isNewTurn, hadPrev ? prev : null));
         }
+    }
+
+    /// <summary>
+    /// A session was removed from its Director's list (an accepted remove). Its transition memory is dropped, and a
+    /// session this watcher had seen and not seen exit raises the removal callback once - two racing removes raise
+    /// it once, because only the caller that takes the memory away raises it.
+    /// </summary>
+    public void ObserveRemoval(TenantId tenant, string sessionId, string directorId)
+    {
+        if (_disposed || string.IsNullOrEmpty(sessionId)) return;
+        if (_lastActivity.TryRemove((tenant, sessionId), out var last) && last != "Exited")
+            _onSessionRemoved?.Invoke(tenant, sessionId, directorId);
     }
 
     // Timer callbacks must never overlap (a slow Director would stack) and never throw.

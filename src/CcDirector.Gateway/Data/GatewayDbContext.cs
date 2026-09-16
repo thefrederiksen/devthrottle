@@ -338,6 +338,9 @@ public sealed class GatewayDbContext : DbContext
     /// death per row, kept until the Fleet Manager acknowledges it.</summary>
     public DbSet<FleetManagerEventEntity> FleetManagerEvents => Set<FleetManagerEventEntity>();
 
+    /// <summary>The sessions the Gateway last saw alive while the account's Fleet Manager owned them
+    /// (<c>fleet_manager_owned_sessions</c>, step 4), so a death is raised even across a Gateway restart.</summary>
+    public DbSet<FleetManagerOwnedSessionEntity> FleetManagerOwnedSessions => Set<FleetManagerOwnedSessionEntity>();
 
     /// <summary>Per-tenant setting overrides (<c>tenant_settings</c>, issue #2017) - the per-tenant home the
     /// AI / voice / car-mode / notification settings needed before they could be served on the hosted Gateway.
@@ -910,9 +913,23 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.AddressedTo).HasMaxLength(64);
             b.Property(e => e.DeliveredTo).HasMaxLength(64);
             b.Property(e => e.VerdictId).HasMaxLength(64);
+            b.Property(e => e.DirectorId).HasMaxLength(256);
             // "The account's unacknowledged events, oldest first" is the read every delivery and every digest makes.
             b.HasIndex(e => new { e.TenantId, e.AcknowledgedAtUtc, e.CreatedAtUtc });
             b.HasIndex(e => new { e.TenantId, e.SessionId });
+        });
+
+        modelBuilder.Entity<FleetManagerOwnedSessionEntity>(b =>
+        {
+            b.ToTable("fleet_manager_owned_sessions");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.SessionId).HasMaxLength(64);
+            b.Property(e => e.FleetManagerSessionId).HasMaxLength(64);
+            b.Property(e => e.DirectorId).HasMaxLength(256);
+            // One row per owned session per account.
+            b.HasIndex(e => new { e.TenantId, e.SessionId }).IsUnique();
+            // The reconcile reads "every owned session still believed alive".
+            b.HasIndex(e => new { e.TenantId, e.EndedAtUtc });
         });
 
         modelBuilder.Entity<SessionHistoryEntity>(b =>
@@ -1335,6 +1352,7 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<FleetPreferenceEntity>(modelBuilder);
         ApplyTenantScope<FleetManagerMarkEntity>(modelBuilder);
         ApplyTenantScope<FleetManagerEventEntity>(modelBuilder);
+        ApplyTenantScope<FleetManagerOwnedSessionEntity>(modelBuilder);
 
         ApplyCommonSubsetConventions(modelBuilder);
 
@@ -1429,6 +1447,9 @@ public sealed class GatewayDbContext : DbContext
             modelBuilder.Entity<FleetManagerEventEntity>().Property(e => e.SessionId).UseCollation("C");
             modelBuilder.Entity<FleetManagerEventEntity>().Property(e => e.DeliveredTo).UseCollation("C");
             modelBuilder.Entity<FleetManagerEventEntity>().Property(e => e.VerdictId).UseCollation("C");
+            // fleet_manager_owned_sessions: the session ids are exact keys, compared byte-ordinally.
+            modelBuilder.Entity<FleetManagerOwnedSessionEntity>().Property(e => e.SessionId).UseCollation("C");
+            modelBuilder.Entity<FleetManagerOwnedSessionEntity>().Property(e => e.FleetManagerSessionId).UseCollation("C");
             // Known-repository lookups use these normalized values as exact indexed predicates. Pin both
             // to byte-ordinal equality so SQLite and Postgres select the same bounded candidate set.
             modelBuilder.Entity<KnownRepositoryEntity>().Property(e => e.MachineKey).UseCollation("C");

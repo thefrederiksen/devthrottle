@@ -655,6 +655,10 @@ public sealed class DirectorHub : Hub
         // superseded connection's stale remove would stick, because only "interrupted" reopens.
         if (accepted)
             _sessionHistory?.ObserveRemoval(RequireBoundTenant(), directorId, sessionId);
+        // The Fleet Manager's events (step 4): a session removed without an exit is a death to its Fleet Manager.
+        // Gated on acceptance for the same reason: a stale remove from a superseded connection removed nothing.
+        if (accepted)
+            _turnEnds?.ObserveRemoval(RequireBoundTenant(), sessionId, directorId);
     }
 
     /// <summary>

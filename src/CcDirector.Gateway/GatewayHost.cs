@@ -899,9 +899,11 @@ public sealed class GatewayHost : IAsyncDisposable
     private Wingman.TurnVerdictService? _turnVerdictService;
     // The Fleet Manager's events (the Fleet Manager mission, step 4): the store the routes and the digest read, and
     // the service that records a stop or a death of a session a Fleet Manager owns and delivers it at the Fleet
-    // Manager's turn-end boundary.
+    // Manager only while it is waiting for a prompt.
     private Fleet.FleetManagerEventStore? _fleetManagerEventStore;
     private Fleet.FleetManagerEventService? _fleetManagerEvents;
+    private Fleet.FleetManagerEventSweep? _fleetManagerEventSweep;
+    private Timer? _fleetManagerEventTimer;
     // Voice mode is a standing intent, not a one-time action: a tenant that is in voice mode wants EVERY one
     // of its sessions narrating, including the ones that do not exist yet. This timer is how that intent
     // reaches them - it walks each tenant that has voice mode on and switches on any session that is not a
@@ -2689,7 +2691,27 @@ public sealed class GatewayHost : IAsyncDisposable
     /// session however the Gateway was started.
     /// </summary>
     private Wingman.TurnVerdictService EnsureTurnVerdictService()
-        => _turnVerdictService ??= new Wingman.TurnVerdictService(EnsureTurnVerdictEnvironment());
+    {
+        if (_turnVerdictService is { } built) return built;
+        var seat = new Wingman.TurnVerdictService(EnsureTurnVerdictEnvironment());
+        SubscribeFleetManagerEvents(seat);
+        return _turnVerdictService = seat;
+    }
+
+    /// <summary>The Fleet Manager's events (step 4) hear EVERY reading the seat finishes - at a turn end or at a
+    /// snooze expiry. Made where the seat is built, once. The handler reads the events service when it fires, so the
+    /// seat being built before that service (it is) loses nothing.</summary>
+    private void SubscribeFleetManagerEvents(Wingman.TurnVerdictService seat)
+        => seat.ReadingCompleted += completed => _fleetManagerEvents?.OnReadingCompleted(completed);
+
+    /// <summary>Run the Fleet Manager events reconcile for every account now. For host tests.</summary>
+    internal Task ReconcileFleetManagerEventsForTestAsync() => _fleetManagerEventSweep!.SweepAsync();
+
+    /// <summary>The Fleet Manager events service, for host tests to wait on its work.</summary>
+    internal Fleet.FleetManagerEventService? FleetManagerEventsForTest => _fleetManagerEvents;
+
+    /// <summary>The Fleet Manager events store, for host tests to read what was stored.</summary>
+    internal Fleet.FleetManagerEventStore? FleetManagerEventStoreForTest => _fleetManagerEventStore;
 
     private Wingman.GatewayTurnVerdictEnvironment? _turnVerdictEnvironment;
 
@@ -2977,9 +2999,15 @@ public sealed class GatewayHost : IAsyncDisposable
                     Api.DirectorCommandRouter.SendDirectorCommandAsync sendCommand = SendCommandAsync;
                     return new Api.SessionVerbClient(director, sendCommand);
                 },
-                verdictsShown: tenant => _tenantSettingsResolver.TurnVerdict(tenant).ColourEnabled,
                 mark: _tenantSettingsResolver.FleetManagerSessionId,
                 enterTenantScope: tenant => _tenantBoundary.EnterScope(tenant)));
+        // THE RECONCILE: at start (stops a stopped Gateway left waiting, owned sessions that died while it was down)
+        // and then on the heartbeat's cadence, per account.
+        _fleetManagerEventSweep = new Fleet.FleetManagerEventSweep(_tenantBoundary, TenantRegistry, _tenantContext,
+            _fleetManagerEvents);
+        if (Fleet.FleetManagerEventSweep.Enabled)
+            _fleetManagerEventTimer = new Timer(_ => _ = _fleetManagerEventSweep.SweepSafeAsync(), null,
+                TimeSpan.FromSeconds(5), Fleet.FleetManagerEventSweep.Interval);
 
         _turnEndWatcher = new TurnEndWatcher(
             onTurnEnd: signal =>
@@ -3004,26 +3032,26 @@ public sealed class GatewayHost : IAsyncDisposable
                 // Returns immediately; nothing below waits on it.
                 _turnLogRecorder?.OnTurnEnd(signal);
 
+                // The Fleet Manager's events (step 4), the ONE turn-end hook, BEFORE the reading starts: a stop of a
+                // session the account's Fleet Manager owns is STORED here, synchronously, and waits for the reading
+                // below (which reaches it through the seat's ReadingCompleted); the Fleet Manager's own turn end is
+                // where what it is owed is delivered. It never throws.
+                _fleetManagerEvents?.OnTurnEnd(signal, wingmanRunning: _turnVerdictService is not null);
+
                 // The turn verdict (the Wingman-on-every-turn mission, slice C). AFTER the turn log, so the capture
                 // is ahead of this screen read. It returns immediately: the settle, the read and the judgement run
                 // on a background task. The gate it takes here is SYNCHRONOUS, so the voice refresh further down
                 // joins this judgement instead of asking the model a second time. NOT ORDERED against the session
                 // supervisor or the rules launcher below - see the gap written on TurnVerdictService.
-                Task<Wingman.TurnVerdictOutcome>? verdict = null;
                 try
                 {
                     using (_tenantBoundary.EnterScope(tenant))
-                        verdict = _turnVerdictService?.StartTurnEnd(signal);
+                        _turnVerdictService?.OnTurnEnd(signal);
                 }
                 catch (Exception ex)
                 {
                     FileLog.Write($"[GatewayHost] turn-end verdict FAILED: sid={signal.SessionId}: {ex.Message}");
                 }
-
-                // The Fleet Manager's events (step 4), the ONE hook: a stop of a session a Fleet Manager owns is
-                // recorded once the reading above is stored, and a Fleet Manager's own turn end is where what it is
-                // owed is delivered. Fire and forget; it never throws.
-                _fleetManagerEvents?.OnTurnEnd(signal, verdict);
 
                 // Governance capture (issue #1771, spine item 3): record this session's cumulative spend at
                 // turn-end from the pushed roster snapshot. Runs for EVERY session (not just voice), and is
@@ -3118,13 +3146,19 @@ public sealed class GatewayHost : IAsyncDisposable
                 // engine incapable of sending into a session that is working.
                 if (tenant.IsValid)
                     _sessionSupervisor?.OnSessionWorking(tenant, sid);
+                // The Fleet Manager's events (step 4): an owned session seen working is remembered alive, so its
+                // death is raised even across a restart.
+                if (tenant.IsValid)
+                    _fleetManagerEvents?.OnSessionWorking(tenant, sid, directorId);
             },
             // Gateway Cleanup mission, Phase 2: under stream mode the catch-up / reconcile reads the push
             // store instead of HTTP-pulling each Director's session list (no dial).
             pushedSessions: PushedSessions,
             // The Fleet Manager's events (step 4): a session a Fleet Manager owns has exited or crashed. The watcher
             // is where every feed's state transitions meet and are taken once, so this is raised once per exit.
-            onSessionExited: (tenant, sid, _) => _fleetManagerEvents?.OnSessionExited(tenant, sid));
+            onSessionExited: (tenant, sid, directorId) => _fleetManagerEvents?.OnSessionExited(tenant, sid, directorId),
+            // And one its Director removed from its list: the row is gone, so what the Gateway last knew answers.
+            onSessionRemoved: (tenant, sid, directorId) => _fleetManagerEvents?.OnSessionRemoved(tenant, sid, directorId));
         // First tick = the startup catch-up sweep; then the 15s reconcile poll for
         // Directors that never push (file-discovered locals, old builds).
         _turnEndWatcher.Start();
@@ -5437,6 +5471,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // ladder holding a token and re-sending into a fleet this process no longer owns.
         try { _sessionSupervisor?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] session supervisor dispose error: {ex.Message}"); }
         try { _turnVerdictService?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] turn verdict dispose error: {ex.Message}"); }
+        try { _fleetManagerEventTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] fleet manager events timer dispose error: {ex.Message}"); }
         try { _fleetManagerEvents?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] fleet manager events dispose error: {ex.Message}"); }
         // THE INSPECTOR'S TRACES, in the order that keeps them: first the verdict flights the service just cancelled are
         // let finish, so each hands in its cancelled trace while the writer still takes them; then the writer is drained

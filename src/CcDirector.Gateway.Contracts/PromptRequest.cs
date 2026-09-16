@@ -71,6 +71,22 @@ public sealed class PromptRequest
     public bool MenuGuard { get; set; }
 
     /// <summary>
+    /// TYPE THIS ONLY IF THE SESSION IS WAITING FOR A PROMPT RIGHT NOW (the Fleet Manager mission, step 4). When
+    /// true, the DIRECTOR - the one process that knows the session's state at the moment it types - refuses the
+    /// prompt unless the session is <c>Idle</c> or <c>WaitingForInput</c> at that instant, and answers
+    /// <see cref="PromptResponse.RefusedBusy"/> instead. Nothing is typed and no Enter is pressed. A session that is
+    /// working, starting, waiting on a permission question, or exited is refused.
+    ///
+    /// It exists for text the product sends on its own - the Fleet Manager's events - which must never land in a
+    /// turn the owner has just started. A Gateway reading the pushed state and then sending cannot promise that: the
+    /// owner can submit between the read and the send. The Director checks and types in the same step.
+    ///
+    /// A Director older than this field ignores it and types; <see cref="PromptResponse.IdleChecked"/> is how the
+    /// sender can tell afterwards. Off by default: every other caller is unchanged.
+    /// </summary>
+    public bool OnlyWhenWaitingForInput { get; set; }
+
+    /// <summary>
     /// A client's CLAIM about which characters of <see cref="Text"/> came from which transcript (source logging,
     /// 2026-09-05). A browser composer tracks the ranges its dictation occupies as the person edits around them
     /// and sends them here, so a turn that mixes typing and speech still says WHICH characters were spoken.
@@ -149,6 +165,21 @@ public sealed class PromptResponse
     /// cannot work this out for itself - it does not know the account's language - so the Gateway states it.
     /// </summary>
     public string? BlockedSpokenLanguage { get; set; }
+
+    /// <summary>
+    /// True when this prompt was NOT typed because the caller asked for
+    /// <see cref="PromptRequest.OnlyWhenWaitingForInput"/> and the session was not waiting for a prompt at the moment
+    /// the Director would have typed it. <see cref="ActivityState"/> says what it was. A refusal, not a failure: it
+    /// rides a success with <see cref="Accepted"/> false, and the caller tries again at the session's next idle moment.
+    /// </summary>
+    public bool RefusedBusy { get; set; }
+
+    /// <summary>
+    /// True when the Director checked <see cref="PromptRequest.OnlyWhenWaitingForInput"/> before typing. False on an
+    /// accepted prompt means the Director did not check it (it is older than the field), so the text was typed
+    /// whatever the session was doing.
+    /// </summary>
+    public bool IdleChecked { get; set; }
 }
 
 /// <summary>

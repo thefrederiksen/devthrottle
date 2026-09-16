@@ -837,7 +837,7 @@ def report_to_parent(summary: Optional[str], target: Optional[str] = None) -> No
     wanted to say in the report.
 
     A FLEET MANAGER PARENT IS TOLD BY THE GATEWAY, AND THEN THERE IS NOTHING TO SEND either: the Gateway
-    delivers the stop, with the Wingman's reading, at the Fleet Manager's own turn end.
+    delivers the stop, with the Wingman's reading, when the Fleet Manager is waiting for a prompt.
 
     NO PARENT MEANS THE USER, AND THEN THERE IS NOTHING TO SEND. A session the user owns is already
     red and already in his queue - that red IS the report, and messaging him a second time through a
@@ -921,12 +921,12 @@ def report_to_parent(summary: Optional[str], target: Optional[str] = None) -> No
         parent_id = parent_id.strip()
 
     # A FLEET MANAGER IS TOLD BY THE GATEWAY (the Fleet Manager mission, step 4): its stop events are delivered
-    # at its own turn end, so a message here would only interrupt it with the same news. Whether the owner is a
+    # while it is waiting for a prompt, so a message here would only interrupt it with the same news. Whether the owner is a
     # Fleet Manager is the Gateway's answer, stamped on the roster row - never worked out here. Read straight off
     # the dict for the reason given above.
     if supervised and me.get("ownedByFleetManager", me.get("OwnedByFleetManager", False)) is True:
         console.print(
-            "Nothing sent: a Fleet Manager owns you, and the Gateway tells it that you stopped at its next turn end."
+            "Nothing sent: a Fleet Manager owns you, and the Gateway tells it that you stopped when it is next waiting for a prompt."
         )
         axi_cli.print_next(["cc-devthrottle session whoami", "cc-devthrottle session done"])
         return

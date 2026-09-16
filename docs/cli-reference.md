@@ -1164,12 +1164,18 @@ the Fleet Manager, or two Gateway instances - exactly one answer is kept, and th
 `fleet events` lists the events about sessions a Fleet Manager owns - a `stop` (with the Wingman's
 reading of it, or why there is none) or a `died` (exited or crashed) - oldest first. By default only
 the unacknowledged ones; `--all` includes acknowledged ones. The Gateway also delivers them to the
-Fleet Manager itself: one prompt, starting `[Fleet Manager events]`, typed only when the Fleet
-Manager is idle (at its own turn end, or a few seconds after an event arrives while it is already
-idle). An event is never sent twice to the same Fleet Manager session; a new Fleet Manager session is
-sent whatever the old one did not acknowledge. `fleet ack` takes full ids or the start of each, or
-`--all`; if one id is not an event of this account nothing is acknowledged. `fleet digest` lists the
-unacknowledged events too.
+Fleet Manager itself: one prompt, starting `[Fleet Manager events]`, at its own turn end or a few
+seconds after an event arrives while it is idle - and typed only if the Director finds the Fleet
+Manager waiting for a prompt at that moment; otherwise the events wait for its next idle moment.
+Delivery is at least once: every event carries its id, the same event can be sent again (a Gateway
+that stops between typing and saving the delivery), and the Fleet Manager ignores an id it has
+already handled. A stop is stored the moment it is seen and delivered once the Wingman's reading (or
+the reason there is none) is attached; a death is stored when an owned session exits, crashes or is
+removed, and after a Gateway restart for any owned session that is gone. `fleet ack` takes full ids
+or the start of each, or `--all`, which closes only the events delivered to the calling session; if
+one id is not an event of this account nothing is acknowledged. Only the account's marked Fleet
+Manager session may acknowledge. `fleet digest` lists the unacknowledged events too. Pull request and
+report events are not built yet (a later part of phase 1).
 
 `session report` from a session a Fleet Manager owns sends nothing and says so: the Gateway tells the
 Fleet Manager. Whether the owner is a Fleet Manager is the roster row's `ownedByFleetManager`, which
@@ -1179,7 +1185,8 @@ Gateway routes: `/gateway/fleet-manager/outcomes` (GET, POST), `/outcomes/{id}` 
 `/outcomes/{id}/answer` (POST, 409 when already answered), `/preferences` (GET, POST),
 `/preferences/{id}` (DELETE), `/digest?session=<id>` (GET),
 `/events?status=unacknowledged|all&count=` (GET), `/events/ack` (POST `{ ids: [...] }` or
-`{ all: true }`, 404 naming any unknown id). `GET /outcomes` takes `status`, `kind`,
+`{ all: true }`, 404 naming any unknown id; only the Fleet Manager's own session key may acknowledge, and
+`all` closes only the events delivered to that session). `GET /outcomes` takes `status`, `kind`,
 `count` and `cursor`, and answers `count` (this page), `total` (every match, counted by the Gateway),
 `hasMore`, `nextCursor` (null on the last page) and `outcomes`. A cursor the Gateway did not issue is
 refused with 400. A refused caller gets 403 with

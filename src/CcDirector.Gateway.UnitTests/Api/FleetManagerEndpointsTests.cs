@@ -34,7 +34,8 @@ public sealed class FleetManagerEndpointsTests : IDisposable
     private const string FleetManager = "10000000-0000-4000-8000-000000000001";
     private static readonly string OwnedWorking = "10000000-0000-4000-8000-000000000002";
     private static readonly string OwnedStopped = "10000000-0000-4000-8000-000000000003";
-    private static readonly string NotOwned = "10000000-0000-4000-8000-000000000004";
+    private const string NotOwnedConst = "10000000-0000-4000-8000-000000000004";
+    private static readonly string NotOwned = NotOwnedConst;
     private static readonly string OwnedExited = "10000000-0000-4000-8000-000000000005";
     private static readonly string FormerFleetManager = "10000000-0000-4000-8000-000000000006";
     private static readonly string OwnedByFormer = "10000000-0000-4000-8000-000000000007";
@@ -713,19 +714,27 @@ public sealed class FleetManagerEndpointsTests : IDisposable
     // ---- events (step 4) ---------------------------------------------------------------------------------
 
     private FleetManagerEventDto Stop(TenantId tenant, string sid, TurnVerdictDto? verdict = null)
-        => _events.Enqueue(tenant, new FleetManagerEventDraft(FleetManagerEventStore.KindStop, sid, "a session " + sid,
-            FleetManager, Verdict: verdict, NoVerdictReason: verdict is null ? "this account's Wingman judge switch is off" : null),
-            DateTime.UtcNow)!;
+    {
+        Assert.NotNull(_events.RecordStop(tenant,
+            new FleetManagerStopSighting(sid, "a session " + sid, FleetManager, "director-a", DateTime.UtcNow, IsCatchUp: false),
+            DateTime.UtcNow));
+        var (_, events) = _events.AttachReading(tenant, sid, verdict,
+            verdict is null ? "this account's Wingman judge switch is off" : null, owner: null, DateTime.UtcNow);
+        return Assert.Single(events);
+    }
+
+    private IResult ListEvents(TenantId tenant, string? caller, string query = "")
+        => FleetManagerEndpoints.ListEvents(Request(tenant, caller, query: query), ResolveTenant, Access(), _events);
 
     private FleetManagerEventListDto Events(TenantId tenant, string query = "", string? caller = Owner)
     {
-        var result = FleetManagerEndpoints.ListEvents(Request(tenant, caller, query: query), ResolveTenant, _events);
+        var result = ListEvents(tenant, caller, query);
         Assert.Equal(StatusCodes.Status200OK, Status(result));
         return Body<FleetManagerEventListDto>(result);
     }
 
-    private async Task<IResult> AckAsync(TenantId tenant, object body)
-        => await FleetManagerEndpoints.AcknowledgeEventsAsync(Request(tenant, FleetManager, body), ResolveTenant, _events);
+    private async Task<IResult> AckAsync(TenantId tenant, object body, string? caller = FleetManager)
+        => await FleetManagerEndpoints.AcknowledgeEventsAsync(Request(tenant, caller, body), ResolveTenant, Access(), _events);
 
     [Fact]
     public async Task Ack_RemovesTheEventFromTheDigestAndFromTheDefaultList_ButAllStillShowsIt()
@@ -745,24 +754,64 @@ public sealed class FleetManagerEndpointsTests : IDisposable
         Assert.Equal(new[] { first.Id }, ack.Ids);
         var after = Body<FleetDigestDto>(Digest(TenantA, FleetManager, FleetManager));
         Assert.Equal(new[] { second.Id }, after.Events.Select(e => e.Id));
-        Assert.Equal(new[] { second.Id }, Events(TenantA).Events.Select(e => e.Id));
+        Assert.Equal(new[] { second.Id }, Events(TenantA, caller: FleetManager).Events.Select(e => e.Id));
         var all = Events(TenantA, "status=all");
         Assert.Equal(2, all.Count);
         Assert.NotNull(all.Events.Single(e => e.Id == first.Id).AcknowledgedAtUtc);
     }
 
+    /// <summary>ACKNOWLEDGING ALL CLOSES ONLY WHAT THIS SESSION WAS SENT. An event not yet delivered, or delivered to
+    /// another Fleet Manager session, stays open.</summary>
     [Fact]
-    public async Task Ack_All_AcknowledgesEveryOpenEvent_AndCountsTheOnesAlreadyDone()
+    public async Task Ack_All_AcknowledgesOnlyTheEventsDeliveredToTheCallingSession()
     {
-        Stop(TenantA, OwnedStopped);
-        Stop(TenantA, OwnedWorking);
-        Stop(TenantB, OtherAccountSession);
+        var sent = Stop(TenantA, OwnedStopped);
+        var sentElsewhere = Stop(TenantA, OwnedWorking);
+        var notSent = Stop(TenantA, OwnedExited);
+        var other = Stop(TenantB, OtherAccountSession);
+        _events.MarkDelivered(TenantA, new[] { Guid.Parse(sent.Id) }, FleetManager, DateTime.UtcNow);
+        _events.MarkDelivered(TenantA, new[] { Guid.Parse(sentElsewhere.Id) }, FormerFleetManager, DateTime.UtcNow);
+        _events.MarkDelivered(TenantB, new[] { Guid.Parse(other.Id) }, FleetManager, DateTime.UtcNow);
 
         var ack = Body<FleetManagerEventAckDto>(await AckAsync(TenantA, new { all = true }));
 
-        Assert.Equal(2, ack.Acknowledged);
-        Assert.Equal(0, Events(TenantA).Count);
+        Assert.Equal(new[] { sent.Id }, ack.Ids);
+        Assert.Equal(new[] { sentElsewhere.Id, notSent.Id }, Events(TenantA).Events.Select(e => e.Id));
         Assert.Equal(1, Events(TenantB).Count);
+    }
+
+    /// <summary>ONLY THE MARKED FLEET MANAGER ACKNOWLEDGES: another session of the same account, the owner's device
+    /// and a Director's key are each refused with a reason, and nothing is closed.</summary>
+    [Theory]
+    [InlineData(NotOwnedConst, "is not it")]
+    [InlineData(Owner, "the owner does not acknowledge events")]
+    [InlineData(DirectorKey, "credential")]
+    public async Task Ack_AnyoneButTheMarkedFleetManager_IsRefusedWithAReason(string caller, string reason)
+    {
+        var sent = Stop(TenantA, OwnedStopped);
+        _events.MarkDelivered(TenantA, new[] { Guid.Parse(sent.Id) }, FleetManager, DateTime.UtcNow);
+
+        var byId = await AckAsync(TenantA, new { ids = new[] { sent.Id } }, caller);
+        var all = await AckAsync(TenantA, new { all = true }, caller);
+
+        foreach (var result in new[] { byId, all })
+        {
+            Assert.Equal(StatusCodes.Status403Forbidden, Status(result));
+            Assert.Equal("not_fleet_manager", Field(result, "code"));
+            Assert.Contains(reason, (string)Field(result, "error")!);
+        }
+        Assert.Equal(new[] { sent.Id }, Events(TenantA).Events.Select(e => e.Id));
+    }
+
+    [Fact]
+    public void ListEvents_AnotherSessionOfTheAccount_IsRefused()
+    {
+        Stop(TenantA, OwnedStopped);
+
+        var result = ListEvents(TenantA, NotOwned);
+
+        Assert.Equal(StatusCodes.Status403Forbidden, Status(result));
+        Assert.Equal("not_fleet_manager", Field(result, "code"));
     }
 
     [Fact]
@@ -772,9 +821,9 @@ public sealed class FleetManagerEndpointsTests : IDisposable
 
         Assert.Equal(0, Events(TenantB, "status=all").Count);
 
+        // Account B has no Fleet Manager marked, so the same session id is refused there before any lookup.
         var foreign = await AckAsync(TenantB, new { ids = new[] { mine.Id } });
-        Assert.Equal(StatusCodes.Status404NotFound, Status(foreign));
-        Assert.Contains(mine.Id, (string)Field(foreign, "error")!);
+        Assert.Equal(StatusCodes.Status403Forbidden, Status(foreign));
 
         // One good id and one unknown: refused by name, and the good one is NOT acknowledged.
         var unknown = Guid.NewGuid().ToString();
@@ -799,7 +848,7 @@ public sealed class FleetManagerEndpointsTests : IDisposable
     [Fact]
     public void ListEvents_BadStatus_Is400NamingTheValidValues()
     {
-        var result = FleetManagerEndpoints.ListEvents(Request(TenantA, Owner, query: "status=open"), ResolveTenant, _events);
+        var result = ListEvents(TenantA, Owner, "status=open");
 
         Assert.Equal(StatusCodes.Status400BadRequest, Status(result));
         Assert.Equal("status 'open' is not valid; use one of: unacknowledged, all", Field(result, "error"));

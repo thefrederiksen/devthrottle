@@ -32,6 +32,19 @@ public sealed class FleetManagerEventDto
     /// <summary>On a stop with no reading: why the Wingman did not read it, in plain words. Read the session yourself.</summary>
     public string? NoVerdictReason { get; set; }
 
+    /// <summary>On a <c>stop</c>: true while the Wingman's reading of it has not been stored yet. Such a stop is not
+    /// delivered until its reading, or the reason there is none, is attached.</summary>
+    public bool ReadingPending { get; set; }
+
+    /// <summary>On a <c>stop</c>: when the Gateway observed the turn end, or null when that is not known.</summary>
+    public DateTime? StopObservedAtUtc { get; set; }
+
+    /// <summary>The Director the session was last reported by, or null when that is not known.</summary>
+    public string? DirectorId { get; set; }
+
+    /// <summary>On a <c>died</c> event: how the death was learned, and what is not known about it. Null on a stop.</summary>
+    public string? Detail { get; set; }
+
     public DateTime CreatedAtUtc { get; set; }
 
     /// <summary>When it was last delivered to a Fleet Manager session, or null while undelivered.</summary>
@@ -40,7 +53,8 @@ public sealed class FleetManagerEventDto
     /// <summary>The Fleet Manager session it was last delivered to, or null.</summary>
     public string? DeliveredTo { get; set; }
 
-    /// <summary>How many times it has been delivered (once per Fleet Manager session it reached).</summary>
+    /// <summary>How many times it has been sent. Delivery is at least once, so this can be more than one for the
+    /// same session: the Fleet Manager ignores an event id it has already handled.</summary>
     public int DeliveryCount { get; set; }
 
     /// <summary>When it was acknowledged, or null while it is still open.</summary>

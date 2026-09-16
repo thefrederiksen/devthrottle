@@ -177,7 +177,8 @@ _ACTIONS = [
         "id": "fleet-events",
         "description": (
             "The events about sessions the Fleet Manager owns - each stop (with the Wingman's reading) or death - "
-            "kept until acknowledged. The Gateway also delivers them as one prompt at the Fleet Manager's turn end."
+            "kept until acknowledged. The Gateway also delivers them, at least once, as one prompt while the Fleet "
+            "Manager is waiting for a prompt."
         ),
         "command": "cc-devthrottle fleet events [--all] [--count N] [--json]",
         "mutatesState": False,
@@ -185,7 +186,10 @@ _ACTIONS = [
     },
     {
         "id": "fleet-ack",
-        "description": "Acknowledge Fleet Manager events once acted on; all or nothing when an id is unknown.",
+        "description": (
+            "Acknowledge Fleet Manager events by id once acted on (only the marked Fleet Manager may); --all closes "
+            "only the events delivered to this session; all or nothing when an id is unknown."
+        ),
         "command": "cc-devthrottle fleet ack <id> [<id> ...] | cc-devthrottle fleet ack --all",
         "mutatesState": True,
         "args": [{"name": "id", "required": False}],
@@ -1454,7 +1458,7 @@ def report(
     queue, so that red is your report. Leave your answer in this session where he will read it.
 
     If a FLEET MANAGER owns you, nothing is sent either: the Gateway tells it that you stopped, with the
-    Wingman's reading, at its own next turn end.
+    Wingman's reading, when it is next waiting for a prompt.
     """
     report_to_parent(summary, target)
 
@@ -2726,7 +2730,7 @@ def fleet_events(
 def fleet_ack(
     event_ids: Optional[List[str]] = typer.Argument(
         None, metavar="[ID]...", help="The event ids, or the start of each."),
-    ack_all: bool = typer.Option(False, "--all", help="Acknowledge every unacknowledged event."),
+    ack_all: bool = typer.Option(False, "--all", help="Acknowledge every unacknowledged event delivered to this session."),
     json_output: bool = _JSON_OPT,
 ) -> None:
     """Acknowledge events once you have acted on them. Nothing is acknowledged if one id is unknown."""

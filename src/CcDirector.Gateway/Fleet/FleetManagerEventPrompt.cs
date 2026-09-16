@@ -6,6 +6,10 @@ namespace CcDirector.Gateway.Fleet;
 /// <summary>
 /// The ONE prompt a delivery sends to a Fleet Manager session: every event it is owed, oldest first.
 ///
+/// EVERY EVENT CARRIES ITS ID, AND DELIVERY IS AT LEAST ONCE: the same event can arrive again (a Gateway that
+/// stopped between typing and saving the delivery sends it again), so the prompt tells the Fleet Manager to ignore an
+/// id it has already handled and to acknowledge by id.
+///
 /// COMPACT AND PLAIN. The framing is ASCII: a fixed first line the Fleet Manager's conduct names, one block per
 /// event, and the acknowledge command at the end. The Wingman's words are copied as stored - the evidence exactly,
 /// never reworded and never cut short, between markers of its own so a line break inside it cannot be mistaken
@@ -20,10 +24,9 @@ internal static class FleetManagerEventPrompt
     public const string EvidenceOpen = "<<<";
     public const string EvidenceClose = ">>>";
 
-    /// <param name="events">The events, oldest first. At least one.</param>
-    /// <param name="verdictsShown">False while the account's readings are a shadow record: the reading is left
-    /// out of the prompt and the prompt says so, as the turn verdict route does for a session key.</param>
-    public static string Build(IReadOnlyList<FleetManagerEventDto> events, bool verdictsShown)
+    /// <param name="events">The events, oldest first. At least one. The Wingman's readings are served to the Fleet
+    /// Manager whatever the account's colour switch says, as the digest serves them.</param>
+    public static string Build(IReadOnlyList<FleetManagerEventDto> events)
     {
         ArgumentNullException.ThrowIfNull(events);
         if (events.Count == 0) throw new ArgumentException("a delivery carries at least one event", nameof(events));
@@ -34,7 +37,8 @@ internal static class FleetManagerEventPrompt
         sb.Append(FirstLinePrefix).Append(' ')
           .Append(Count(stops, "stop", "stops")).Append(" and ")
           .Append(died).Append(" died since your last turn.\n");
-        sb.Append("Sessions you own. Act on each, then acknowledge it. Readings are the Wingman's, not the session's.\n");
+        sb.Append("Sessions you own. Act on each, then acknowledge it by its id. Readings are the Wingman's, not the session's.\n");
+        sb.Append("An event can be sent more than once: if you have already handled an event id, do not act on it again - acknowledge it.\n");
 
         for (var i = 0; i < events.Count; i++)
         {
@@ -46,6 +50,7 @@ internal static class FleetManagerEventPrompt
             if (e.Kind == FleetManagerEventStore.KindDied)
             {
                 sb.Append("how: ").Append(e.Crashed == true ? "crashed" : "exited").Append('\n');
+                if (!string.IsNullOrEmpty(e.Detail)) sb.Append("detail: ").Append(e.Detail).Append('\n');
                 continue;
             }
 
@@ -53,11 +58,6 @@ internal static class FleetManagerEventPrompt
             {
                 sb.Append("verdict: none - ").Append(e.NoVerdictReason ?? "the Wingman did not read this stop")
                   .Append(". Read the session yourself.\n");
-                continue;
-            }
-            if (!verdictsShown)
-            {
-                sb.Append("verdict: withheld - this account's Wingman readings are still a shadow record. Read the session yourself.\n");
                 continue;
             }
 
@@ -91,7 +91,7 @@ internal static class FleetManagerEventPrompt
 
         sb.Append('\n');
         sb.Append("When you have acted on an event (filed an outcome, answered it, or decided it needs nothing): ")
-          .Append("cc-devthrottle fleet ack <event id>. List what is still open: cc-devthrottle fleet events.\n");
+          .Append("cc-devthrottle fleet ack <event id> [<event id> ...]. List what is still open: cc-devthrottle fleet events.\n");
         return sb.ToString();
     }
 

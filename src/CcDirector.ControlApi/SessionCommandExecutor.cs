@@ -201,6 +201,28 @@ internal static class SessionCommandExecutor
         if (session.Status is SessionStatus.Exited or SessionStatus.Failed)
             return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, "session has exited");
 
+        // ONLY WHEN WAITING FOR A PROMPT (the Fleet Manager's events): the state is read HERE, at the moment of
+        // typing, with nothing awaited between this check and the send below - a Gateway reading a pushed state
+        // seconds old cannot promise the owner has not started a turn since. A refusal types nothing.
+        if (request.OnlyWhenWaitingForInput)
+        {
+            var state = session.ActivityState;
+            if (state is not (ActivityState.WaitingForInput or ActivityState.Idle))
+            {
+                FileLog.Write($"[SessionCommandExecutor] SendPromptAsync: REFUSED session={session.Id}: it is {state}, " +
+                              "not waiting for a prompt, and the caller asked to type only then; nothing was typed");
+                return DirectorCommandResult.Success(Serialize(new PromptResponse
+                {
+                    Accepted = false,
+                    RefusedBusy = true,
+                    IdleChecked = true,
+                    SentAt = DateTime.UtcNow,
+                    ActivityState = state.ToString(),
+                    Error = $"the session is {state}, not waiting for a prompt; nothing was typed",
+                }));
+            }
+        }
+
         var bufferCursor = session.Buffer?.TotalBytesWritten ?? 0;
 
         // DevThrottle Stats: build the origin for the Director's choke-point tally. Modality is voice for a
@@ -245,6 +267,7 @@ internal static class SessionCommandExecutor
             SentAt = DateTime.UtcNow,
             BufferCursor = bufferCursor,
             ActivityState = session.ActivityState.ToString(),
+            IdleChecked = request.OnlyWhenWaitingForInput,
         };
         return DirectorCommandResult.Success(Serialize(response));
     }

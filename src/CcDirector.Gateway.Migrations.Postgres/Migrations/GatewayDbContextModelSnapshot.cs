@@ -807,6 +807,13 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<int>("DeliveryCount")
                         .HasColumnType("integer");
 
+                    b.Property<string>("Detail")
+                        .HasColumnType("text");
+
+                    b.Property<string>("DirectorId")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
                     b.Property<string>("Kind")
                         .IsRequired()
                         .HasMaxLength(16)
@@ -815,6 +822,9 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
 
                     b.Property<string>("NoVerdictReason")
                         .HasColumnType("text");
+
+                    b.Property<bool>("ReadingPending")
+                        .HasColumnType("boolean");
 
                     b.Property<string>("SessionId")
                         .IsRequired()
@@ -825,6 +835,9 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<string>("SessionName")
                         .IsRequired()
                         .HasColumnType("text");
+
+                    b.Property<DateTime?>("StopObservedAtUtc")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("TenantId")
                         .IsRequired()
@@ -880,6 +893,58 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .IsUnique();
 
                     b.ToTable("fleet_manager_marks", "gateway");
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FleetManagerOwnedSessionEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("DirectorId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<DateTime?>("EndedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("FirstSeenAliveUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FleetManagerSessionId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .UseCollation("C");
+
+                    b.Property<DateTime>("LastSeenAliveUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SessionId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .UseCollation("C");
+
+                    b.Property<string>("SessionName")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("TenantId")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "EndedAtUtc");
+
+                    b.HasIndex("TenantId", "SessionId")
+                        .IsUnique();
+
+                    b.ToTable("fleet_manager_owned_sessions", "gateway");
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FleetMessageEntity", b =>

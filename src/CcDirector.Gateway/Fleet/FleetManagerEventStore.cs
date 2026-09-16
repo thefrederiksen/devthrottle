@@ -8,17 +8,47 @@ using Microsoft.EntityFrameworkCore;
 
 namespace CcDirector.Gateway.Fleet;
 
-/// <summary>What to record for one event. <see cref="IsCatchUp"/> marks a stop the detector saw for the first
-/// time already stopped (after a Gateway restart), which may be one this store already holds.</summary>
-public sealed record FleetManagerEventDraft(
-    string Kind,
+/// <summary>A stop the Gateway has just seen, stored before anything reads it.</summary>
+/// <param name="IsCatchUp">The detector saw this stop for the first time already stopped (after a Gateway
+/// restart), so it may be one this store already holds.</param>
+public sealed record FleetManagerStopSighting(
     string SessionId,
     string SessionName,
     string AddressedTo,
-    bool? Crashed = null,
-    TurnVerdictDto? Verdict = null,
-    string? NoVerdictReason = null,
-    bool IsCatchUp = false);
+    string? DirectorId,
+    DateTime ObservedAtUtc,
+    bool IsCatchUp);
+
+/// <summary>A death, as it was learned.</summary>
+/// <param name="Detail">How it was learned, and what is not known about it, in plain words.</param>
+public sealed record FleetManagerDeath(
+    string SessionId,
+    string SessionName,
+    string AddressedTo,
+    string? DirectorId,
+    bool Crashed,
+    string Detail);
+
+/// <summary>What became of a reading offered to the stops of one session.</summary>
+public enum FleetManagerReadingResult
+{
+    /// <summary>It was attached to the stop that was waiting for it.</summary>
+    Attached,
+
+    /// <summary>No stop was waiting, so a new stop event carrying it was stored.</summary>
+    StoredNew,
+
+    /// <summary>Nothing changed: no stop was waiting, and this reading is already held (or there was no reading).</summary>
+    AlreadyHeld,
+}
+
+/// <summary>A session the Gateway last knew alive while a Fleet Manager owned it.</summary>
+public sealed record FleetManagerOwnedSession(
+    string SessionId,
+    string FleetManagerSessionId,
+    string SessionName,
+    string DirectorId,
+    DateTime LastSeenAliveUtc);
 
 /// <summary>What an acknowledgement did.</summary>
 public enum FleetManagerEventAckStatus
@@ -43,9 +73,18 @@ public sealed record FleetManagerEventAckResult(
 /// mission, step 4). An event is kept until it is acknowledged, across a Gateway restart and across a restart or a
 /// move of the Fleet Manager.
 ///
-/// ONE EVENT PER HAPPENING. The store refuses a second copy itself, so no caller has to remember to: a stop whose
-/// stored reading this store already holds, a second death of one session, and a stop seen again on a Gateway
-/// restart while the session still has an unacknowledged stop are not stored again.
+/// A STOP IS STORED BEFORE IT IS READ (<see cref="RecordStop"/>), and its reading is attached when the reading
+/// completes (<see cref="AttachReading"/>), whatever started that reading. So a stop is never lost because the
+/// session left the roster, a Director disconnected or the Gateway stopped while it was being read: at worst it is
+/// delivered with the reason there is no reading (<see cref="ExpirePendingStops"/>).
+///
+/// ONE EVENT PER HAPPENING. The store refuses a second copy itself, so no caller has to remember to: a stop sighted
+/// again while one is still waiting for its reading, a reading it already holds offered with no stop waiting, a
+/// second death of one session, and a stop seen again on a Gateway restart while the session still has an
+/// unacknowledged stop are not stored again.
+///
+/// DEATHS ACROSS A RESTART. The owned sessions the Gateway has seen alive are kept
+/// (<see cref="NoteOwnedAlive"/>), so a reconcile after a restart can raise the death of every one that is gone.
 ///
 /// AN ACKNOWLEDGEMENT IS ALL OR NOTHING. If one named id is not an event of this account, nothing is changed and
 /// the result names it - another account's id answers exactly as an unknown one does.
@@ -80,67 +119,315 @@ public sealed class FleetManagerEventStore
         _db = db ?? throw new ArgumentNullException(nameof(db));
     }
 
-    /// <summary>Record one event. Null when this store already holds it (see the class remarks).</summary>
-    /// <exception cref="ArgumentException">A field is missing or wrong.</exception>
-    public FleetManagerEventDto? Enqueue(TenantId tenant, FleetManagerEventDraft draft, DateTime nowUtc)
+    /// <summary>
+    /// Store a stop THE MOMENT IT IS SEEN, before anything reads it: pending until its reading, or the reason there is
+    /// none, is attached. Null when this store already holds it - a stop of this session is already waiting for its
+    /// reading (the same stop, sighted again), or this is a catch-up sighting and the session still has an
+    /// unacknowledged stop.
+    /// </summary>
+    /// <exception cref="ArgumentException">A field is missing.</exception>
+    public FleetManagerEventDto? RecordStop(TenantId tenant, FleetManagerStopSighting stop, DateTime nowUtc)
     {
-        FileLog.Write($"[FleetManagerEventStore] Enqueue: tenant={tenant}, kind={draft?.Kind}, sid={draft?.SessionId}, " +
-                      $"to={draft?.AddressedTo}, verdict={draft?.Verdict?.VerdictId}, catchUp={draft?.IsCatchUp}");
+        FileLog.Write($"[FleetManagerEventStore] RecordStop: tenant={tenant.ToLogString()}, sid={stop?.SessionId}, " +
+                      $"to={stop?.AddressedTo}, observed={stop?.ObservedAtUtc:O}, catchUp={stop?.IsCatchUp}");
         try
         {
-            if (draft is null) throw new ArgumentException("an event is required");
-            if (!Kinds.Contains(draft.Kind))
-                throw new ArgumentException($"kind '{draft.Kind}' is not valid; use one of: {string.Join(", ", Kinds)}");
-            if (string.IsNullOrWhiteSpace(draft.SessionId)) throw new ArgumentException("sessionId is required");
-            if (string.IsNullOrWhiteSpace(draft.AddressedTo)) throw new ArgumentException("addressedTo is required");
-            if (draft.Kind == KindStop && draft.Verdict is null && string.IsNullOrWhiteSpace(draft.NoVerdictReason))
-                throw new ArgumentException("a stop with no reading must say why the Wingman did not read it");
+            if (stop is null) throw new ArgumentException("a stop is required");
+            if (string.IsNullOrWhiteSpace(stop.SessionId)) throw new ArgumentException("sessionId is required");
+            if (string.IsNullOrWhiteSpace(stop.AddressedTo)) throw new ArgumentException("addressedTo is required");
 
-            var verdictId = draft.Verdict?.VerdictId;
             lock (_gate)
             {
                 using var ctx = _db.CreateContext(tenant);
-                var sid = draft.SessionId;
-                var duplicate = draft.Kind switch
+                var sid = stop.SessionId;
+                var held = ctx.FleetManagerEvents.Any(e => e.SessionId == sid && e.Kind == KindStop
+                    && (e.ReadingPending || (stop.IsCatchUp && e.AcknowledgedAtUtc == null)));
+                if (held)
                 {
-                    KindDied => ctx.FleetManagerEvents.Any(e => e.SessionId == sid && e.Kind == KindDied),
-                    _ when !string.IsNullOrEmpty(verdictId) =>
-                        ctx.FleetManagerEvents.Any(e => e.SessionId == sid && e.Kind == KindStop && e.VerdictId == verdictId),
-                    _ when draft.IsCatchUp =>
-                        ctx.FleetManagerEvents.Any(e => e.SessionId == sid && e.Kind == KindStop && e.AcknowledgedAtUtc == null),
-                    _ => false,
-                };
-                if (duplicate)
-                {
-                    FileLog.Write($"[FleetManagerEventStore] Enqueue: sid={sid}, kind={draft.Kind} - already held, not stored again");
+                    FileLog.Write($"[FleetManagerEventStore] RecordStop: sid={sid} - this stop is already held, not stored again");
                     return null;
                 }
 
                 var entity = new FleetManagerEventEntity
                 {
-                    Kind = draft.Kind,
+                    Kind = KindStop,
                     SessionId = sid,
-                    SessionName = draft.SessionName ?? "",
-                    AddressedTo = draft.AddressedTo,
-                    Crashed = draft.Kind == KindDied ? draft.Crashed ?? false : null,
-                    VerdictId = string.IsNullOrEmpty(verdictId) ? null : verdictId,
-                    VerdictJson = draft.Verdict is null ? null : JsonSerializer.Serialize(draft.Verdict, VerdictJsonOptions),
-                    NoVerdictReason = draft.Verdict is null ? draft.NoVerdictReason : null,
+                    SessionName = stop.SessionName ?? "",
+                    AddressedTo = stop.AddressedTo,
+                    DirectorId = stop.DirectorId,
+                    ReadingPending = true,
+                    StopObservedAtUtc = Utc(stop.ObservedAtUtc),
                     CreatedAtUtc = Utc(nowUtc),
                 };
                 entity.TenantId = ctx.ActiveTenant!;
                 ctx.FleetManagerEvents.Add(entity);
                 ctx.SaveChanges();
-                FileLog.Write($"[FleetManagerEventStore] Enqueue: stored id={entity.Id}, kind={entity.Kind}, sid={sid}");
+                FileLog.Write($"[FleetManagerEventStore] RecordStop: stored id={entity.Id}, sid={sid}, pending its reading");
                 return ToDto(entity);
             }
         }
         catch (Exception ex)
         {
-            FileLog.Write($"[FleetManagerEventStore] Enqueue FAILED: {ex.Message}");
+            FileLog.Write($"[FleetManagerEventStore] RecordStop FAILED: {ex.Message}");
             throw;
         }
     }
+
+    /// <summary>
+    /// A reading of this session has completed: attach it to the stop waiting for it. With no stop waiting, a real
+    /// reading this store does not already hold is stored as a stop of its own (a stop the Gateway did not see end
+    /// in this process - a snooze expiry after a restart); a reason with no reading changes nothing then, because
+    /// no stop is owed one.
+    /// </summary>
+    /// <param name="verdict">The stored reading (accepted or failed), or null.</param>
+    /// <param name="noVerdictReason">Why there is no reading, when <paramref name="verdict"/> is null.</param>
+    /// <param name="owner">Who to address a new stop to, and its name and Director; used only when no stop waits.</param>
+    /// <exception cref="ArgumentException">Neither a reading nor a reason was given.</exception>
+    public (FleetManagerReadingResult Result, IReadOnlyList<FleetManagerEventDto> Events) AttachReading(
+        TenantId tenant, string sessionId, TurnVerdictDto? verdict, string? noVerdictReason,
+        FleetManagerStopSighting? owner, DateTime nowUtc)
+    {
+        FileLog.Write($"[FleetManagerEventStore] AttachReading: tenant={tenant.ToLogString()}, sid={sessionId}, " +
+                      $"verdict={verdict?.VerdictId}, reason={noVerdictReason}");
+        try
+        {
+            if (string.IsNullOrWhiteSpace(sessionId)) throw new ArgumentException("sessionId is required");
+            if (verdict is null && string.IsNullOrWhiteSpace(noVerdictReason))
+                throw new ArgumentException("a stop with no reading must say why the Wingman did not read it");
+
+            var verdictId = string.IsNullOrEmpty(verdict?.VerdictId) ? null : verdict!.VerdictId;
+            var json = verdict is null ? null : JsonSerializer.Serialize(verdict, VerdictJsonOptions);
+            lock (_gate)
+            {
+                using var ctx = _db.CreateContext(tenant);
+                var pending = ctx.FleetManagerEvents
+                    .Where(e => e.SessionId == sessionId && e.Kind == KindStop && e.ReadingPending)
+                    .ToList();
+                if (pending.Count > 0)
+                {
+                    foreach (var row in pending)
+                    {
+                        row.ReadingPending = false;
+                        row.VerdictId = verdictId;
+                        row.VerdictJson = json;
+                        row.NoVerdictReason = verdict is null ? noVerdictReason : null;
+                    }
+                    ctx.SaveChanges();
+                    FileLog.Write($"[FleetManagerEventStore] AttachReading: sid={sessionId}, attached to {pending.Count} waiting stop(s)");
+                    return (FleetManagerReadingResult.Attached, pending.Select(ToDto).ToList());
+                }
+
+                if (verdict is null || owner is null
+                    || (verdictId is not null && ctx.FleetManagerEvents.Any(
+                        e => e.SessionId == sessionId && e.Kind == KindStop && e.VerdictId == verdictId)))
+                {
+                    FileLog.Write($"[FleetManagerEventStore] AttachReading: sid={sessionId} - no stop waiting and nothing new to store");
+                    return (FleetManagerReadingResult.AlreadyHeld, Array.Empty<FleetManagerEventDto>());
+                }
+
+                var entity = new FleetManagerEventEntity
+                {
+                    Kind = KindStop,
+                    SessionId = sessionId,
+                    SessionName = owner.SessionName ?? "",
+                    AddressedTo = owner.AddressedTo,
+                    DirectorId = owner.DirectorId,
+                    VerdictId = verdictId,
+                    VerdictJson = json,
+                    StopObservedAtUtc = Utc(owner.ObservedAtUtc),
+                    CreatedAtUtc = Utc(nowUtc),
+                };
+                entity.TenantId = ctx.ActiveTenant!;
+                ctx.FleetManagerEvents.Add(entity);
+                ctx.SaveChanges();
+                FileLog.Write($"[FleetManagerEventStore] AttachReading: sid={sessionId}, no stop waiting - stored id={entity.Id}");
+                return (FleetManagerReadingResult.StoredNew, new[] { ToDto(entity) });
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[FleetManagerEventStore] AttachReading FAILED: {ex.Message}");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// The session went back to work (or exited) before its stop was read: it is not stopped, so the stop waiting for
+    /// a reading is removed. Only a PENDING stop is removed, and a pending stop has never been delivered.
+    /// </summary>
+    /// <returns>How many were removed.</returns>
+    public int WithdrawPendingStops(TenantId tenant, string sessionId)
+    {
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var pending = ctx.FleetManagerEvents
+                .Where(e => e.SessionId == sessionId && e.Kind == KindStop && e.ReadingPending)
+                .ToList();
+            if (pending.Count == 0) return 0;
+            ctx.FleetManagerEvents.RemoveRange(pending);
+            ctx.SaveChanges();
+            FileLog.Write($"[FleetManagerEventStore] WithdrawPendingStops: tenant={tenant.ToLogString()}, sid={sessionId}, removed={pending.Count}");
+            return pending.Count;
+        }
+    }
+
+    /// <summary>
+    /// Give every stop still waiting for a reading since before <paramref name="createdBeforeUtc"/> the reason there is
+    /// none, so it is delivered rather than held for ever - a Gateway that stopped mid-reading, or a reading that
+    /// never reported back.
+    /// </summary>
+    /// <returns>The stops that were given the reason.</returns>
+    public IReadOnlyList<FleetManagerEventDto> ExpirePendingStops(TenantId tenant, DateTime createdBeforeUtc, string reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason)) throw new ArgumentException("a reason is required", nameof(reason));
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var cutoff = Utc(createdBeforeUtc);
+            var rows = ctx.FleetManagerEvents
+                .Where(e => e.Kind == KindStop && e.ReadingPending && e.CreatedAtUtc < cutoff)
+                .ToList();
+            foreach (var row in rows)
+            {
+                row.ReadingPending = false;
+                row.NoVerdictReason = reason;
+            }
+            if (rows.Count > 0)
+            {
+                ctx.SaveChanges();
+                FileLog.Write($"[FleetManagerEventStore] ExpirePendingStops: tenant={tenant.ToLogString()}, expired={rows.Count}: {reason}");
+            }
+            return rows.Select(ToDto).ToList();
+        }
+    }
+
+    /// <summary>Record a death. Null when this store already holds a death of this session.</summary>
+    /// <exception cref="ArgumentException">A field is missing.</exception>
+    public FleetManagerEventDto? RecordDeath(TenantId tenant, FleetManagerDeath death, DateTime nowUtc)
+    {
+        FileLog.Write($"[FleetManagerEventStore] RecordDeath: tenant={tenant.ToLogString()}, sid={death?.SessionId}, " +
+                      $"to={death?.AddressedTo}, crashed={death?.Crashed}, detail={death?.Detail}");
+        try
+        {
+            if (death is null) throw new ArgumentException("a death is required");
+            if (string.IsNullOrWhiteSpace(death.SessionId)) throw new ArgumentException("sessionId is required");
+            if (string.IsNullOrWhiteSpace(death.AddressedTo)) throw new ArgumentException("addressedTo is required");
+            if (string.IsNullOrWhiteSpace(death.Detail)) throw new ArgumentException("a death must say how it was learned");
+
+            lock (_gate)
+            {
+                using var ctx = _db.CreateContext(tenant);
+                var sid = death.SessionId;
+                // Ending the owned-session row and storing the death are one save, so a restart finds either both or neither.
+                var tracked = ctx.FleetManagerOwnedSessions.FirstOrDefault(o => o.SessionId == sid);
+                if (tracked is not null && tracked.EndedAtUtc is null) tracked.EndedAtUtc = Utc(nowUtc);
+                // A died session's stop can no longer be read.
+                foreach (var row in ctx.FleetManagerEvents.Where(e => e.SessionId == sid && e.Kind == KindStop && e.ReadingPending))
+                {
+                    row.ReadingPending = false;
+                    row.NoVerdictReason = "the session died before the Wingman's reading of this stop was stored";
+                }
+
+                if (ctx.FleetManagerEvents.Any(e => e.SessionId == sid && e.Kind == KindDied))
+                {
+                    ctx.SaveChanges();
+                    FileLog.Write($"[FleetManagerEventStore] RecordDeath: sid={sid} - its death is already held, not stored again");
+                    return null;
+                }
+
+                var entity = new FleetManagerEventEntity
+                {
+                    Kind = KindDied,
+                    SessionId = sid,
+                    SessionName = death.SessionName ?? "",
+                    AddressedTo = death.AddressedTo,
+                    DirectorId = death.DirectorId,
+                    Crashed = death.Crashed,
+                    Detail = death.Detail,
+                    CreatedAtUtc = Utc(nowUtc),
+                };
+                entity.TenantId = ctx.ActiveTenant!;
+                ctx.FleetManagerEvents.Add(entity);
+                ctx.SaveChanges();
+                FileLog.Write($"[FleetManagerEventStore] RecordDeath: stored id={entity.Id}, sid={sid}");
+                return ToDto(entity);
+            }
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[FleetManagerEventStore] RecordDeath FAILED: {ex.Message}");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Remember that this session was seen alive while <see cref="FleetManagerOwnedSession.FleetManagerSessionId"/>
+    /// owned it. Written again only when its owner, name or Director changed, or a new session is seen. A session
+    /// whose death is already recorded is not brought back.
+    /// </summary>
+    /// <returns>True when a row was written.</returns>
+    public bool NoteOwnedAlive(TenantId tenant, FleetManagerOwnedSession owned, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(owned);
+        if (string.IsNullOrWhiteSpace(owned.SessionId)) throw new ArgumentException("sessionId is required", nameof(owned));
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var row = ctx.FleetManagerOwnedSessions.FirstOrDefault(o => o.SessionId == owned.SessionId);
+            if (row is null)
+            {
+                row = new FleetManagerOwnedSessionEntity
+                {
+                    SessionId = owned.SessionId,
+                    FirstSeenAliveUtc = Utc(nowUtc),
+                };
+                row.TenantId = ctx.ActiveTenant!;
+                ctx.FleetManagerOwnedSessions.Add(row);
+            }
+            else if (row.EndedAtUtc is not null
+                     || (row.FleetManagerSessionId == owned.FleetManagerSessionId && row.SessionName == owned.SessionName
+                         && row.DirectorId == owned.DirectorId))
+            {
+                return false;
+            }
+
+            row.FleetManagerSessionId = owned.FleetManagerSessionId;
+            row.SessionName = owned.SessionName ?? "";
+            row.DirectorId = owned.DirectorId ?? "";
+            row.LastSeenAliveUtc = Utc(nowUtc);
+            ctx.SaveChanges();
+            FileLog.Write($"[FleetManagerEventStore] NoteOwnedAlive: tenant={tenant.ToLogString()}, sid={owned.SessionId}, " +
+                          $"owner={owned.FleetManagerSessionId}, director={owned.DirectorId}");
+            return true;
+        }
+    }
+
+    /// <summary>The owned session this store last knew alive, or null (never seen, or already dead).</summary>
+    public FleetManagerOwnedSession? OwnedAlive(TenantId tenant, string sessionId)
+    {
+        using var ctx = _db.CreateContext(tenant);
+        return ctx.FleetManagerOwnedSessions.AsNoTracking()
+            .Where(o => o.SessionId == sessionId && o.EndedAtUtc == null)
+            .AsEnumerable()
+            .Select(ToOwned)
+            .FirstOrDefault();
+    }
+
+    /// <summary>Every owned session this account's store still believes alive.</summary>
+    public IReadOnlyList<FleetManagerOwnedSession> AllOwnedAlive(TenantId tenant)
+    {
+        using var ctx = _db.CreateContext(tenant);
+        return ctx.FleetManagerOwnedSessions.AsNoTracking()
+            .Where(o => o.EndedAtUtc == null)
+            .AsEnumerable()
+            .Select(ToOwned)
+            .ToList();
+    }
+
+    private static FleetManagerOwnedSession ToOwned(FleetManagerOwnedSessionEntity o)
+        => new(o.SessionId, o.FleetManagerSessionId, o.SessionName, o.DirectorId,
+            DateTime.SpecifyKind(o.LastSeenAliveUtc, DateTimeKind.Utc));
 
     /// <summary>This account's events, OLDEST FIRST.</summary>
     /// <param name="status"><c>unacknowledged</c> or <c>all</c>.</param>
@@ -165,7 +452,8 @@ public sealed class FleetManagerEventStore
         return rows.Select(ToDto).ToList();
     }
 
-    /// <summary>Every unacknowledged event of this account, oldest first, up to <see cref="MaxCount"/>.</summary>
+    /// <summary>Every unacknowledged event of this account, oldest first, up to <see cref="MaxCount"/> - including
+    /// stops still waiting for their reading, which say so.</summary>
     public IReadOnlyList<FleetManagerEventDto> Unacknowledged(TenantId tenant) => List(tenant, StatusUnacknowledged, MaxCount);
 
     /// <summary>Record that these events were delivered to <paramref name="fleetManagerSessionId"/>.</summary>
@@ -194,18 +482,24 @@ public sealed class FleetManagerEventStore
     }
 
     /// <summary>
-    /// Acknowledge the named events, or every unacknowledged one when <paramref name="all"/> is true. All or nothing:
-    /// one id that is not an event of this account changes nothing.
+    /// Acknowledge the named events, or, when <paramref name="all"/> is true, every unacknowledged event that was
+    /// delivered to <paramref name="deliveredTo"/> - never one that session has not been sent. All or nothing: one id
+    /// that is not an event of this account changes nothing.
     /// </summary>
-    /// <exception cref="ArgumentException">Neither ids nor all were given, or both were, or too many ids.</exception>
-    public FleetManagerEventAckResult Acknowledge(TenantId tenant, IReadOnlyCollection<Guid>? ids, bool all, DateTime nowUtc)
+    /// <param name="deliveredTo">The acknowledging Fleet Manager session. Required with <paramref name="all"/>.</param>
+    /// <exception cref="ArgumentException">Neither ids nor all were given, or both were, or too many ids, or all
+    /// without the acknowledging session.</exception>
+    public FleetManagerEventAckResult Acknowledge(TenantId tenant, IReadOnlyCollection<Guid>? ids, bool all,
+        string? deliveredTo, DateTime nowUtc)
     {
-        FileLog.Write($"[FleetManagerEventStore] Acknowledge: tenant={tenant}, ids={ids?.Count}, all={all}");
+        FileLog.Write($"[FleetManagerEventStore] Acknowledge: tenant={tenant}, ids={ids?.Count}, all={all}, deliveredTo={deliveredTo}");
         try
         {
             var named = ids?.Distinct().ToList() ?? new List<Guid>();
             if (all && named.Count > 0) throw new ArgumentException("give either ids or all, not both");
             if (!all && named.Count == 0) throw new ArgumentException("give the event ids to acknowledge, or all: true");
+            if (all && string.IsNullOrWhiteSpace(deliveredTo))
+                throw new ArgumentException("acknowledging all needs the session the events were delivered to");
             if (named.Count > MaxAckIds)
                 throw new ArgumentException($"{named.Count} ids given; the most one acknowledgement accepts is {MaxAckIds}");
 
@@ -215,7 +509,9 @@ public sealed class FleetManagerEventStore
                 List<FleetManagerEventEntity> rows;
                 if (all)
                 {
-                    rows = ctx.FleetManagerEvents.Where(e => e.AcknowledgedAtUtc == null).ToList();
+                    // Only what this session was sent: an event it has not seen is not its to close.
+                    rows = ctx.FleetManagerEvents
+                        .Where(e => e.AcknowledgedAtUtc == null && e.DeliveredTo == deliveredTo).ToList();
                 }
                 else
                 {
@@ -268,5 +564,9 @@ public sealed class FleetManagerEventStore
         DeliveredTo = e.DeliveredTo,
         DeliveryCount = e.DeliveryCount,
         AcknowledgedAtUtc = Utc(e.AcknowledgedAtUtc),
+        ReadingPending = e.ReadingPending,
+        StopObservedAtUtc = Utc(e.StopObservedAtUtc),
+        DirectorId = e.DirectorId,
+        Detail = e.Detail,
     };
 }

@@ -1,6 +1,9 @@
 using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests.Data;
@@ -32,9 +35,12 @@ public sealed class GatewayHostBootSmokeTests
     // The Message Load mission's inbox, which landed on main first; the step 3 pair must sort after it.
     private const string FleetMessagesPostgresMigration = "20260916195948_AddFleetMessages";
     private const string FleetMessagesSqliteMigration = "20260916195943_AddFleetMessages";
-    // Step 4's events.
+    // Step 4's events, then what their delivery needs: the stop stored before it is read, how a death was
+    // learned, and the owned sessions the Gateway last knew alive.
     private const string FleetManagerEventsPostgresMigration = "20260916192001_AddFleetManagerEvents";
     private const string FleetManagerEventsSqliteMigration = "20260916191951_AddFleetManagerEvents";
+    private const string FleetManagerEventDeliveryPostgresMigration = "20260916192119_AddFleetManagerEventDelivery";
+    private const string FleetManagerEventDeliverySqliteMigration = "20260916192110_AddFleetManagerEventDelivery";
 
     /// <summary>A Fact that skips itself unless the runtime Postgres selector CC_GATEWAY_DB_CONNECTION is set
     /// to a non-blank value, so CI never reaches out to the hosted database and never needs the secret.</summary>
@@ -74,6 +80,7 @@ public sealed class GatewayHostBootSmokeTests
         Assert.Contains(FleetManagerOutcomesPostgresMigration, migrations);
         Assert.Contains(FleetManagerMarkHistoryPostgresMigration, migrations);
         Assert.Contains(FleetManagerEventsPostgresMigration, migrations);
+        Assert.Contains(FleetManagerEventDeliveryPostgresMigration, migrations);
     }
 
     /// <summary>
@@ -111,9 +118,50 @@ public sealed class GatewayHostBootSmokeTests
         Assert.Contains(FleetManagerOutcomesSqliteMigration, sqliteAll);
         Assert.Contains(FleetManagerMarkHistorySqliteMigration, sqliteAll);
         Assert.Contains(FleetManagerEventsSqliteMigration, sqliteAll);
+        Assert.Contains(FleetManagerEventDeliverySqliteMigration, sqliteAll);
         Assert.Contains("AddFleetManagerMarkHistory", sqliteSince);
 
         Assert.Equal(sqliteSince.OrderBy(n => n, StringComparer.Ordinal), postgresSince.OrderBy(n => n, StringComparer.Ordinal));
+    }
+
+    /// <summary>
+    /// THE FLEET MANAGER'S EVENT TABLES ARE THE SAME ON BOTH DATABASES, COLUMN FOR COLUMN: each provider's model
+    /// snapshot - what its migrations build - is read, and every column of <c>fleet_manager_events</c> and
+    /// <c>fleet_manager_owned_sessions</c> must have the same name, type, nullability and length on both. A column
+    /// added for one provider only makes the hosted Gateway fail the first time it writes that column.
+    /// </summary>
+    [Theory]
+    [InlineData("fleet_manager_events", "ReadingPending")]
+    [InlineData("fleet_manager_owned_sessions", "EndedAtUtc")]
+    public void FleetManagerEventTables_MatchColumnForColumn_OnSqliteAndPostgres(string table, string mustHave)
+    {
+        using var postgres = new GatewayDbContext(
+            new DbContextOptionsBuilder<GatewayDbContext>()
+                .UseNpgsql("Host=pg.invalid;Database=none;Username=none;Password=none",
+                    o => o.MigrationsAssembly(PostgresMigrationsAssembly))
+                .Options);
+        using var sqlite = new GatewayDbContext(
+            new DbContextOptionsBuilder<GatewayDbContext>()
+                .UseSqlite("Data Source=:memory:")
+                .Options);
+
+        var sqliteColumns = Columns(sqlite, table);
+        var postgresColumns = Columns(postgres, table);
+
+        // A PRESENCE, so an empty read cannot pass.
+        Assert.Contains(sqliteColumns, c => c.Name == mustHave);
+        Assert.Equal(sqliteColumns, postgresColumns);
+    }
+
+    private static List<(string Name, Type Type, bool Nullable, int? MaxLength)> Columns(GatewayDbContext ctx, string table)
+    {
+        var snapshot = ctx.GetService<IMigrationsAssembly>().ModelSnapshot;
+        Assert.NotNull(snapshot);
+        var entity = snapshot!.Model.GetEntityTypes().Single(e => e.GetTableName() == table);
+        return entity.GetProperties()
+            .Select(p => (p.GetColumnName(), p.ClrType, p.IsNullable, p.GetMaxLength()))
+            .OrderBy(c => c.Item1, StringComparer.Ordinal)
+            .ToList();
     }
 
     /// <summary>
