@@ -287,3 +287,37 @@ def test_write_launchers_Windows_CmdAndGitBashLauncher(tmp_path):
     assert (tmp_path / "cc-ship").read_bytes().startswith(b"#!/bin/sh\n")
     assert b"\r" not in (tmp_path / "cc-ship").read_bytes()
     assert b"%*" in (tmp_path / "cc-ship.cmd").read_bytes()
+
+
+def test_wait_for_output_MissingFromOneListThenBack_NotGone(tmp_path, monkeypatch, clock):
+    # Live, 2026-09-16: the fleet list briefly left out a working reviewer.
+    out = tmp_path / "review.json"
+    fake = _FakeFleet([_row(), None, None, _row(), _row(pending=True)], output=out, write_at=4)
+    monkeypatch.setattr(fleet, "find_session", fake.find)
+    result = fleet.wait_for_output("s1", out, 600, poll_seconds=10)
+    assert result.outcome == fleet.FINISHED
+
+
+def test_wait_for_output_MissingForAFullMinute_Crashed(tmp_path, monkeypatch, clock):
+    monkeypatch.setattr(fleet, "find_session", lambda sid: None)
+    result = fleet.wait_for_output("s1", tmp_path / "review.json", 600, poll_seconds=10)
+    assert result.outcome == fleet.CRASHED
+    assert len(result.observations) >= fleet.GONE_CONFIRM_SECONDS // 10  # not a single poll
+
+
+def test_wait_for_output_MissingButFinishedWithMarker_FinishedAtOnce(tmp_path, monkeypatch, clock):
+    out = tmp_path / "review.json"
+    out.write_text("{}", encoding="ascii")
+    fleet.done_marker(out).write_text("done", encoding="ascii")
+    monkeypatch.setattr(fleet, "find_session", lambda sid: None)
+    result = fleet.wait_for_output("s1", out, 600, poll_seconds=10)
+    assert result.outcome == fleet.FINISHED and len(result.observations) == 1
+
+
+def test_wait_for_output_MissingConfirmationSpansSeparateCalls(tmp_path, monkeypatch, clock):
+    watch = {}
+    monkeypatch.setattr(fleet, "find_session", lambda sid: None)
+    first = fleet.wait_for_output("s1", tmp_path / "r.json", 30, poll_seconds=10, watch=watch)
+    assert first.outcome == fleet.TIMED_OUT
+    second = fleet.wait_for_output("s1", tmp_path / "r.json", 60, poll_seconds=10, watch=watch)
+    assert second.outcome == fleet.CRASHED
