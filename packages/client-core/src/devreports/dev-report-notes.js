@@ -474,8 +474,10 @@
         state.queued.push(item);
         return copy(item);
       },
-      // One queued answer per question: queueing again replaces the earlier one in place - unless the
-      // earlier one is already with the host (pending), which gets a new id so the host cannot confuse them.
+      // One unsent answer per question: queueing again replaces the LATEST queued answer to that question in
+      // place - unless that one is already with the host (pending), in which case the new answer is added
+      // with a new id so the host cannot confuse the two. So a pending answer plus any number of revisions is
+      // at most two queued items: the pending one, and the newest revision.
       queueAnswer: function (answer) {
         var item = {
           id: "",
@@ -486,15 +488,15 @@
           optionLabel: String(answer.optionLabel || ""),
           comment: String(answer.comment || "").trim()
         };
+        var latest = -1;
         for (var i = 0; i < state.queued.length; i++) {
-          var existing = state.queued[i];
-          if (existing.kind === "answer" && existing.questionId === item.questionId) {
-            item.id = existing.pending ? nextId("a") : existing.id;
-            if (!validItem(item)) throw new Error("queueAnswer: the answer is not valid");
-            if (existing.pending) state.queued.push(item);
-            else state.queued[i] = item;
-            return copy(item);
-          }
+          if (state.queued[i].kind === "answer" && state.queued[i].questionId === item.questionId) latest = i;
+        }
+        if (latest >= 0 && !state.queued[latest].pending) {
+          item.id = state.queued[latest].id;
+          if (!validItem(item)) throw new Error("queueAnswer: the answer is not valid");
+          state.queued[latest] = item;
+          return copy(item);
         }
         item.id = nextId("a");
         if (!validItem(item)) throw new Error("queueAnswer: the answer is not valid");
@@ -564,6 +566,9 @@
       setDraft: function (draft) {
         state.draft = draft ? copy(draft) : null;
       },
+      clearAnswerDraft: function (questionId) {
+        state.answerDrafts = state.answerDrafts.filter(function (d) { return d.questionId !== questionId; });
+      },
       setAnswerDraft: function (questionId, optionValue, comment) {
         var draft = { questionId: String(questionId), optionValue: String(optionValue), comment: String(comment) };
         if (!validAnswerDraft(draft)) throw new Error("setAnswerDraft: the draft is not valid");
@@ -584,9 +589,16 @@
   // The page UI
   // ---------------------------------------------------------------------------------------------
 
+  // The only rules this script puts on the report itself: the picking cursor and the hover outline.
+  var PAGE_CSS = [
+    ".drn-picking, .drn-picking * { cursor: crosshair !important; }",
+    ".drn-hover { outline: 2px solid #0066B8 !important; outline-offset: 2px; }"
+  ].join("\n");
+
+  // The tray's own rules. They live inside the tray's shadow root, where the report's CSS cannot reach.
   var CSS_TEXT = [
-    "[data-dev-report-ui] { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px; line-height: 1.4; color: #16181D; box-sizing: border-box; }",
-    "[data-dev-report-ui] * { box-sizing: border-box; }",
+    ":host { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px; line-height: 1.4; color: #16181D; }",
+    "* { box-sizing: border-box; }",
     ".drn-tray { position: fixed; right: 16px; bottom: 16px; z-index: 2147483000; width: 360px; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow: auto; background: #FFFFFF; border: 1px solid #D5D8DE; border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.14); }",
     ".drn-tray.drn-collapsed .drn-body { display: none; }",
     ".drn-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #E6E8EC; }",
@@ -597,14 +609,12 @@
     ".drn-where { font-size: 12px; color: #5A616B; }",
     ".drn-status { font-size: 12px; font-weight: 600; color: #0066B8; }",
     ".drn-empty { font-size: 13px; color: #8A909A; }",
-    "[data-dev-report-ui] button { font: inherit; font-weight: 600; border-radius: 8px; padding: 6px 12px; cursor: pointer; border: 1px solid #D5D8DE; background: #F5F6F8; color: #16181D; }",
-    "[data-dev-report-ui] button.drn-primary { background: #0066B8; border-color: #0066B8; color: #FFFFFF; }",
-    "[data-dev-report-ui] button:disabled { opacity: .5; cursor: default; }",
-    "[data-dev-report-ui] textarea { width: 100%; min-height: 64px; font: inherit; padding: 6px 8px; border: 1px solid #D5D8DE; border-radius: 8px; }",
+    "button { font: inherit; font-weight: 600; border-radius: 8px; padding: 6px 12px; cursor: pointer; border: 1px solid #D5D8DE; background: #F5F6F8; color: #16181D; }",
+    "button.drn-primary { background: #0066B8; border-color: #0066B8; color: #FFFFFF; }",
+    "button:disabled { opacity: .5; cursor: default; }",
+    "textarea { width: 100%; min-height: 64px; font: inherit; padding: 6px 8px; border: 1px solid #D5D8DE; border-radius: 8px; }",
     ".drn-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }",
     ".drn-payload { white-space: pre-wrap; overflow-wrap: anywhere; font-family: Consolas, monospace; font-size: 12px; background: #F5F6F8; border: 1px solid #E6E8EC; border-radius: 8px; padding: 8px; }",
-    ".drn-picking, .drn-picking * { cursor: crosshair !important; }",
-    ".drn-hover { outline: 2px solid #0066B8 !important; outline-offset: 2px; }",
     ".drn-q-state { font-size: 13px; color: #5A616B; margin-left: 8px; }",
     "@media (max-width: 600px) { .drn-tray { right: 0; left: 0; bottom: 0; width: auto; max-width: none; max-height: 70vh; border-radius: 12px 12px 0 0; } }"
   ].join("\n");
@@ -678,6 +688,22 @@
     return ownedBy(q, q.querySelectorAll("textarea[data-dev-report-comment]"))[0] || null;
   }
 
+  // An element in the report that holds part of the notes interface in its own shadow root. The report's CSS
+  // cannot select anything inside the root, and the inline !important rules on the host element outrank any
+  // stylesheet rule that targets the host itself.
+  function shadowHost(doc) {
+    var host = doc.createElement("div");
+    host.setAttribute("data-dev-report-ui", "");
+    host.style.cssText = "all: initial !important; display: block !important; visibility: visible !important; " +
+      "opacity: 1 !important; position: static !important; transform: none !important; filter: none !important; " +
+      "clip-path: none !important; pointer-events: auto !important;";
+    var shadow = host.attachShadow({ mode: "open" });
+    var style = doc.createElement("style");
+    style.textContent = CSS_TEXT;
+    shadow.appendChild(style);
+    return { host: host, shadow: shadow };
+  }
+
   function el(doc, name, attrs, text) {
     var node = doc.createElement(name);
     if (attrs) {
@@ -708,9 +734,16 @@
     var scrollTimer = null;
     var lastPayload = null;
 
+    // The host channel. The page makes a MessageChannel, hands one end to its parent inside ready, and from
+    // then on everything - both ways - goes over that private port. A page the frame is later navigated to
+    // never holds the port, so it can neither receive what the host pushes nor pass for this page.
+    var port = null;
+    var channel = framed ? new win.MessageChannel() : null;
+    if (channel) port = channel.port1;
+
     function post(type, payload) {
-      if (!framed) return;
-      win.parent.postMessage(envelope(type, payload), "*");
+      if (!port) return;
+      port.postMessage(envelope(type, payload));
     }
 
     function emitState() {
@@ -718,12 +751,14 @@
     }
 
     // --- tray -----------------------------------------------------------------------------------
-    var style = el(doc, "style", { "data-dev-report-ui": "" });
-    style.textContent = CSS_TEXT;
-    (doc.head || doc.documentElement).appendChild(style);
-    uiRoots.push(style);
+    var pageStyle = el(doc, "style", { "data-dev-report-ui": "" });
+    pageStyle.textContent = PAGE_CSS;
+    (doc.head || doc.documentElement).appendChild(pageStyle);
+    uiRoots.push(pageStyle);
 
-    var tray = el(doc, "aside", { "data-dev-report-ui": "", "class": "drn-tray drn-collapsed", "aria-label": "Notes for the agent" });
+    var trayRoot = shadowHost(doc);
+    uiRoots.push(trayRoot.host);
+    var tray = el(doc, "aside", { "class": "drn-tray drn-collapsed", "aria-label": "Notes for the agent" });
     var head = el(doc, "div", { "class": "drn-head" });
     var toggle = el(doc, "button", { type: "button", "data-drn": "toggle", "aria-expanded": "false" }, "Notes");
     var noteBtn = el(doc, "button", { type: "button", "data-drn": "pick" }, "Add a note");
@@ -771,8 +806,8 @@
     body.appendChild(el(doc, "div", { "class": "drn-h" }, "Replies from the agent"));
     body.appendChild(replyList);
     tray.appendChild(body);
-    doc.body.appendChild(tray);
-    uiRoots.push(tray);
+    trayRoot.shadow.appendChild(tray);
+    doc.body.appendChild(trayRoot.host);
 
     function setOpen(open) {
       if (open) tray.classList.remove("drn-collapsed");
@@ -977,13 +1012,15 @@
           if (r.hasAttribute("data-recommended")) r.checked = true;
         });
       }
-      var row = el(doc, "div", { "data-dev-report-ui": "", "class": "drn-row" });
-      uiRoots.push(row);
+      var rowRoot = shadowHost(doc);
+      uiRoots.push(rowRoot.host);
+      var row = el(doc, "div", { "class": "drn-row" });
       var queueBtn = el(doc, "button", { type: "button", "class": "drn-primary", "data-drn": "queue-answer", "data-question-id": id }, "Queue answer");
       var stateText = el(doc, "span", { "class": "drn-q-state", "data-drn": "question-state" }, "");
       row.appendChild(queueBtn);
       row.appendChild(stateText);
-      q.appendChild(row);
+      rowRoot.shadow.appendChild(row);
+      q.appendChild(rowRoot.host);
       questionStates.set(id, stateText);
       var comment = commentIn(q);
       if (comment) comment.setAttribute("maxlength", String(MAX_STRING));
@@ -1020,6 +1057,7 @@
           return;
         }
         model.queueAnswer(answer);
+        model.clearAnswerDraft(id);
         changed();
       });
     });
@@ -1038,7 +1076,8 @@
       });
     }
 
-    // After a restore: first what the owner had picked and typed, then any queued answer on top of it.
+    // After a restore, put back what the inputs showed. Queueing an answer clears that question's draft, so a
+    // draft that exists is newer than any queued answer and wins; otherwise the queued answer is shown.
     function applyAnswersToInputs() {
       var drafts = model.snapshot().answerDrafts;
       questions.forEach(function (q) {
@@ -1046,8 +1085,7 @@
         var comment = commentIn(q);
         var fill = null;
         for (var i = 0; i < drafts.length; i++) if (drafts[i].questionId === id) fill = drafts[i];
-        var answer = model.queuedAnswerFor(id);
-        if (answer) fill = answer;
+        if (!fill) fill = model.queuedAnswerFor(id);
         if (!fill) return;
         if (fill.optionValue !== "") radiosIn(q).forEach(function (r) { r.checked = String(r.value) === fill.optionValue; });
         if (comment) comment.value = fill.comment;
@@ -1065,8 +1103,7 @@
     });
 
     // --- host messages --------------------------------------------------------------------------
-    win.addEventListener("message", function (event) {
-      if (!framed || event.source !== win.parent) return;
+    function onHostMessage(event) {
       var message = parseInbound(event.data);
       if (!message) return;
       if (message.type === "restore") {
@@ -1086,10 +1123,14 @@
         setOpen(true);
         changed();
       }
-    });
+    }
 
     render();
-    post("ready", { questionIds: questions.map(function (q) { return q.getAttribute("data-dev-report-question"); }) });
+    if (channel) {
+      port.onmessage = onHostMessage;
+      var ready = envelope("ready", { questionIds: questions.map(function (q) { return q.getAttribute("data-dev-report-question"); }) });
+      win.parent.postMessage(ready, "*", [channel.port2]);
+    }
 
     return {
       model: model,

@@ -44,6 +44,19 @@ function load(): Api {
   return globals.DevReportNotes;
 }
 
+// The notes interface lives in shadow roots, so page queries cannot see it. Look inside every host.
+function uiAll<T extends Element = HTMLElement>(selector: string): T[] {
+  const found: T[] = [];
+  for (const host of Array.from(document.querySelectorAll("[data-dev-report-ui]"))) {
+    if (host.shadowRoot) found.push(...Array.from(host.shadowRoot.querySelectorAll<T>(selector)));
+  }
+  return found;
+}
+
+function ui<T extends Element = HTMLElement>(selector: string): T | null {
+  return uiAll<T>(selector)[0] ?? null;
+}
+
 function envelope(type: string, payload: unknown) {
   return { channel: "devthrottle.dev-report", version: 1, type, payload };
 }
@@ -180,8 +193,21 @@ describe("svg and element anchors", () => {
   it("never anchors to the notes tray the script added", () => {
     document.body.innerHTML = `<p>text</p>`;
     api.start({ window });
-    expect(api.anchorFor(document.querySelector("[data-drn=send]")!)).toBeNull();
-    expect(api.anchorFor(document.querySelector("[data-drn=queued]")!)).toBeNull();
+    const hosts = Array.from(document.querySelectorAll("[data-dev-report-ui]")).filter((h) => h.shadowRoot);
+    expect(hosts.length).toBe(1);
+    // A click inside a shadow root reaches the page as a click on its host, so the host is what is checked.
+    expect(api.anchorFor(hosts[0])).toBeNull();
+    expect(ui("[data-drn=send]")).not.toBeNull();
+  });
+
+  it("keeps the tray out of reach of the report's CSS", () => {
+    // Second review, finding 6: a report stylesheet could hide the tray by its class name.
+    document.body.innerHTML = `<p>text</p>`;
+    api.start({ window });
+    expect(document.querySelector(".drn-tray")).toBeNull();
+    const host = Array.from(document.querySelectorAll<HTMLElement>("[data-dev-report-ui]")).find((h) => h.shadowRoot)!;
+    expect(host.shadowRoot!.querySelector(".drn-tray")).not.toBeNull();
+    expect(host.style.getPropertyPriority("display")).toBe("important");
   });
 
   it("does not let report markup copy the tray's attribute to opt out of notes", () => {
@@ -264,6 +290,17 @@ describe("the queue", () => {
     expect(model.snapshot().queued.map((i) => i.id)).toEqual(["a1", "a2"]);
   });
 
+  it("keeps at most the pending answer and the newest revision when an answer is changed twice", () => {
+    // Second review, new finding B.
+    const model = api.createModel();
+    const answer = (v: string) => ({ questionId: "q1", question: "Q?", optionValue: v, optionLabel: v, comment: "" });
+    model.queueAnswer(answer("A"));
+    model.markPending();
+    model.queueAnswer(answer("B"));
+    model.queueAnswer(answer("C"));
+    expect(model.sendMessage().payload.items.map((i) => `${i.id}:${i.optionValue}`)).toEqual(["a1:A", "a2:C"]);
+  });
+
   it("does not reuse an id already in the sent list", () => {
     const model = api.createModel();
     model.queueNote(anchor, "one");
@@ -330,38 +367,38 @@ describe("the page", () => {
     const page = api.start({ window });
     const tonight = document.querySelector<HTMLInputElement>("input[value=tonight]")!;
     expect(tonight.checked).toBe(true);
-    const buttons = document.querySelectorAll("[data-drn=queue-answer]");
+    const buttons = uiAll("[data-drn=queue-answer]");
     expect(buttons).toHaveLength(1);
     document.querySelector<HTMLTextAreaElement>("textarea[data-dev-report-comment]")!.value = "after 8pm";
     click(buttons[0]);
     expect(page.model.snapshot().queued).toEqual([
       { id: "a1", kind: "answer", questionId: "deploy", question: "When should we deploy?", optionValue: "tonight", optionLabel: "Tonight", comment: "after 8pm" },
     ]);
-    expect(document.querySelector("[data-drn=question-state]")!.textContent).toContain("Queued: Tonight");
+    expect(ui("[data-drn=question-state]")!.textContent).toContain("Queued: Tonight");
   });
 
   it("notes a clicked element through the tray and shows it as queued, not sent", () => {
     document.body.innerHTML = report;
     const page = api.start({ window });
-    click(document.querySelector("[data-drn=pick]")!);
+    click(ui("[data-drn=pick]")!);
     click(document.getElementById("para")!);
-    const text = document.querySelector<HTMLTextAreaElement>("[data-drn=composer-text]")!;
+    const text = ui<HTMLTextAreaElement>("[data-drn=composer-text]")!;
     text.value = "Say more here";
-    click(document.querySelector("[data-drn=composer-queue]")!);
+    click(ui("[data-drn=composer-queue]")!);
     const queued = page.model.snapshot().queued;
     expect(queued).toHaveLength(1);
     expect(queued[0]).toMatchObject({ kind: "note", text: "Say more here", anchor: { type: "element", selector: "#para" } });
-    expect(document.querySelector("[data-drn=queued]")!.textContent).toContain("Say more here");
-    expect(document.querySelector("[data-drn=sent]")!.textContent).not.toContain("Say more here");
+    expect(ui("[data-drn=queued]")!.textContent).toContain("Say more here");
+    expect(ui("[data-drn=sent]")!.textContent).not.toContain("Say more here");
   });
 
   it("with no host, Send shows the exact payload and keeps the queue", () => {
     document.body.innerHTML = report;
     const page = api.start({ window });
-    click(document.querySelector("[data-drn=queue-answer]")!);
-    click(document.querySelector("[data-drn=send]")!);
+    click(ui("[data-drn=queue-answer]")!);
+    click(ui("[data-drn=send]")!);
     expect(page.isHosted()).toBe(false);
-    const shown = JSON.parse(document.querySelector("[data-drn=payload]")!.textContent!);
+    const shown = JSON.parse(ui("[data-drn=payload]")!.textContent!);
     expect(shown).toEqual(page.lastPayload());
     expect(shown).toMatchObject({ type: "send", payload: { items: [{ questionId: "deploy" }] } });
     expect(page.model.snapshot().queued).toHaveLength(1);
@@ -380,7 +417,7 @@ describe("the page", () => {
         </div>
       </div>`;
     const page = api.start({ window });
-    click(document.querySelector("[data-question-id=outer]")!);
+    click(ui("[data-question-id=outer]")!);
     expect(page.model.snapshot().queued[0]).toMatchObject({ questionId: "outer", optionValue: "o1", optionLabel: "Outer 1" });
   });
 
@@ -391,18 +428,34 @@ describe("the page", () => {
     const comment = document.querySelector<HTMLTextAreaElement>("textarea[data-dev-report-comment]")!;
     expect(comment.getAttribute("maxlength")).toBe("20000");
     comment.value = "x".repeat(20001);
-    expect(() => click(document.querySelector("[data-drn=queue-answer]")!)).not.toThrow();
+    expect(() => click(ui("[data-drn=queue-answer]")!)).not.toThrow();
     expect(page.model.snapshot().queued).toEqual([]);
-    expect(document.querySelector("[data-drn=question-state]")!.textContent).toContain("the comment is longer than 20000 characters");
+    expect(ui("[data-drn=question-state]")!.textContent).toContain("the comment is longer than 20000 characters");
   });
 
   it("gives a question with the id __proto__ its state line like any other", () => {
     // Review finding 11.
     document.body.innerHTML = report.split('"deploy"').join('"__proto__"');
     const page = api.start({ window });
-    click(document.querySelector("[data-drn=queue-answer]")!);
+    click(ui("[data-drn=queue-answer]")!);
     expect(page.model.snapshot().queued).toHaveLength(1);
-    expect(document.querySelector("[data-drn=question-state]")!.textContent).toContain("Queued: Tonight");
+    expect(ui("[data-drn=question-state]")!.textContent).toContain("Queued: Tonight");
+  });
+
+  it("clears a question's draft when its answer is queued, so a later edit is the newer thing", () => {
+    // Second review, finding 8.
+    document.body.innerHTML = report;
+    const page = api.start({ window });
+    const comment = document.querySelector<HTMLTextAreaElement>("textarea[data-dev-report-comment]")!;
+    comment.value = "first";
+    comment.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(page.model.snapshot().answerDrafts).toHaveLength(1);
+    click(ui("[data-drn=queue-answer]")!);
+    expect(page.model.snapshot().answerDrafts).toEqual([]);
+    comment.value = "unfinished";
+    comment.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(page.model.snapshot().answerDrafts).toEqual([{ questionId: "deploy", optionValue: "tonight", comment: "unfinished" }]);
+    expect(page.model.snapshot().queued[0]).toMatchObject({ comment: "first" });
   });
 
   it("keeps an unqueued choice and comment in the state it hands the host", () => {
@@ -423,7 +476,7 @@ describe("the page", () => {
     document.documentElement.setAttribute("data-dev-report-notes-started", "1");
     document.body.innerHTML = report + `<div id="DEV_REPORT_NOTES_MANUAL_START"></div>`;
     expect(() => api.start({ window })).not.toThrow();
-    expect(document.querySelector("[data-drn=send]")).not.toBeNull();
+    expect(ui("[data-drn=send]")).not.toBeNull();
     document.documentElement.removeAttribute("data-dev-report-notes-started");
   });
 
