@@ -19,6 +19,7 @@ from . import settings_ops
 from . import setup_ops
 from . import skill_ops
 from . import workflow_ops
+from .usage_errors import AxiGroup
 from .session_ops import (
     ask_session,
     compact_session,
@@ -43,64 +44,77 @@ from .session_ops import (
 )
 
 app = typer.Typer(
+    cls=AxiGroup,
     name="cc-devthrottle",
     help="Unified DevThrottle command-line surface.",
     add_completion=False,
     # With no arguments the tool shows live state, not the help (docs/axi-standard.md, principle 8).
     invoke_without_command=True,
 )
-session_app = typer.Typer(help="Manage running sessions.", add_completion=False)
-repo_app = typer.Typer(help="List the fleet's repositories.", add_completion=False)
-worktree_app = typer.Typer(help="List the fleet's worktrees and who is in them.", add_completion=False)
+session_app = typer.Typer(cls=AxiGroup, help="Manage running sessions.", add_completion=False)
+repo_app = typer.Typer(cls=AxiGroup, help="List the fleet's repositories.", add_completion=False)
+worktree_app = typer.Typer(cls=AxiGroup, help="List the fleet's worktrees and who is in them.", add_completion=False)
 machine_app = typer.Typer(
+    cls=AxiGroup,
     help="Search and start applications on another computer.",
     add_completion=False,
     no_args_is_help=True,
 )
 director_app = typer.Typer(
+    cls=AxiGroup,
     help="List the Directors this account is running, on every machine.",
     add_completion=False,
     no_args_is_help=True,
 )
 mission_app = typer.Typer(
+    cls=AxiGroup,
     help="Create and list Missions (the unit of work sessions attach to).",
     add_completion=False,
     no_args_is_help=True,
 )
-message_app = typer.Typer(help="Send messages between sessions.", add_completion=False)
+message_app = typer.Typer(cls=AxiGroup, help="Send messages between sessions.", add_completion=False)
 settings_app = typer.Typer(
+    cls=AxiGroup,
     help="Read and write CC Director settings.", add_completion=False, no_args_is_help=True
 )
 schedule_app = typer.Typer(
+    cls=AxiGroup,
     help="Manage Gateway schedules.", add_completion=False, no_args_is_help=True
 )
 workflow_app = typer.Typer(
+    cls=AxiGroup,
     help="Read and author fleet Workflows (cross-agent conduct stored on the Gateway).",
     add_completion=False,
     no_args_is_help=True,
 )
 skill_app = typer.Typer(
+    cls=AxiGroup,
     help="Read and author fleet Skills (central capabilities held on the Gateway, fetched on use).",
     add_completion=False,
     no_args_is_help=True,
 )
 setup_app = typer.Typer(
+    cls=AxiGroup,
     help="Install, update, and repair DevThrottle.", add_completion=False, no_args_is_help=True
 )
 email_app = typer.Typer(
+    cls=AxiGroup,
     help="Send email to the account owner.", add_completion=False, no_args_is_help=True
 )
 diag_app = typer.Typer(
+    cls=AxiGroup,
     help="Run network diagnostics (Tailscale direct-vs-relay, speed results).",
     add_completion=False,
     no_args_is_help=True,
 )
 autostart_app = typer.Typer(
+    cls=AxiGroup,
     help="Start the Gateway at login (issue #2022): on | off | status.",
     add_completion=False,
     no_args_is_help=True,
 )
 browser_app = typer.Typer(
+    cls=AxiGroup,
     # The verb stays "browser": it is the resource name agents already hold, in the actions registry
     # and in the attach command baked into the fold. The HELP says "profile", which is what the thing
     # actually is - a dedicated signed-in profile inside Chrome or Edge, not a browser we installed.

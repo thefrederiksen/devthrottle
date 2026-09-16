@@ -258,17 +258,12 @@ def _usage_error(message: str) -> None:
     raise typer.Exit(axi_output.USAGE_ERROR_EXIT_CODE)
 
 
-def _ascii_text(block: str) -> str:
-    """The rendered blocks are ASCII already; a sentence quoting a mission name or a filter may not be."""
-    return block if block.isascii() else axi_output.escape_ascii(block)
-
-
 def _mission_state(mission: Dict[str, Any]) -> str:
     """The mission's state as the Gateway sent it. A missing or unknown state is a broken answer and
     fails loudly: listing it under a guessed state would put finished work in the active list."""
     raw = mission.get("state", mission.get("State"))
     if raw not in MISSION_STATES:
-        mid = mission.get("missionId", mission.get("MissionId"))
+        mid = _shown_id(mission.get("missionId", mission.get("MissionId")))
         shown = "missing" if raw is None else axi_output.format_value(raw) if isinstance(raw, str) else repr(raw)
         print(
             f"Error: the Gateway returned mission {mid} with state {shown}; "
@@ -279,11 +274,16 @@ def _mission_state(mission: Dict[str, Any]) -> str:
     return raw
 
 
+def _shown_id(mid: Any) -> str:
+    """A mission id from the Gateway, as one line of ASCII for an error sentence."""
+    return axi_output.escape_ascii(str(mid))
+
+
 def _bad_mission(mid: Any, what: str, row: Optional[int] = None) -> None:
     """Refuse a mission row the Gateway would never send, naming the mission and what is wrong with it."""
     where = f" (row {row})" if row is not None else ""
     print(
-        f"Error: the Gateway returned mission {mid} with {what}{where}. "
+        f"Error: the Gateway returned mission {_shown_id(mid)} with {what}{where}. "
         "This tool will not list it as if it were sound; --json shows the raw rows.",
         file=sys.stderr,
     )
@@ -327,7 +327,7 @@ def _require_mission_rows(missions: List[Any]) -> None:
         name = mission.get("missionName", mission.get("MissionName"))
         if not isinstance(name, str):
             print(
-                f"Error: the Gateway returned mission {mid} with no mission name (row {row}). "
+                f"Error: the Gateway returned mission {_shown_id(mid)} with no mission name (row {row}). "
                 "This tool will not list or filter a mission without its name; --json shows the raw rows.",
                 file=sys.stderr,
             )
@@ -424,7 +424,7 @@ def list_missions(
         try:
             missions = MissionClient().list_all(state=state)
         except GatewayError as err:
-            print(f"Error: {err}", file=sys.stderr)
+            print(f"Error: {axi_output.escape_ascii(str(err))}", file=sys.stderr)
             raise typer.Exit(1)
         if name is not None:
             # Filtering reads the rows, so every row is checked in full first; the unfiltered answer is not.
@@ -438,7 +438,7 @@ def list_missions(
     try:
         everything = MissionClient().list_all(state="all")
     except GatewayError as err:
-        print(f"Error: {err}", file=sys.stderr)
+        print(f"Error: {axi_output.escape_ascii(str(err))}", file=sys.stderr)
         raise typer.Exit(1)
     _require_mission_rows(everything)
     states = [_mission_state(m) for m in everything]
@@ -471,7 +471,7 @@ def list_missions(
             if wanted is not None:
                 conditions.append(f"state '{wanted}'")
             if name is not None:
-                conditions.append(f"a name containing '{name.strip()}'")
+                conditions.append(f"a name containing '{axi_output.escape_ascii(name.strip())}'")
             blocks.append(f"No missions with {' and '.join(conditions)}.")
     elif "why" not in chosen_fields:
         # A mission with no WHY is FLAGGED, not hidden - the same rule the Cockpit card follows. A
@@ -482,7 +482,7 @@ def list_missions(
             blocks.append(f"{unset} of these {noun} no why set.")
 
     blocks.append(axi_output.format_help(_mission_list_help(rows, bool(everything), wanted, name, chosen_fields)))
-    axi_output.write_blocks(sys.stdout, *(_ascii_text(block) for block in blocks))
+    axi_output.write_blocks(sys.stdout, *blocks)
 
 
 def _mission_list_help(

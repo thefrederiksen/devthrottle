@@ -114,17 +114,18 @@ def _stop(target, *reason_args):
 
 
 @pytest.fixture(autouse=True)
-def wide_console(monkeypatch):
-    """Render into a wide console so no assertion depends on where the terminal wrapped a line.
+def narrow_console(monkeypatch):
+    """Render into a console far narrower than any sentence, so every test proves the stop output
+    is never wrapped.
 
-    Rich wraps to the console width, so a sentence that is one line on a wide terminal arrives in the
-    capture with a newline through the middle of it. Asserting on the raw capture would pin the width
-    of whatever machine the test ran on rather than the words the reader sees. Wrapping is the
-    terminal's business; these tests are about the words and the exit code.
+    These tests used to force a WIDE console instead, and still failed on Windows with Rich 14.3.2
+    and FORCE_COLOR=1: six assertions found a Gateway sentence split across two lines. The output is
+    now printed unwrapped, whatever the width, and a narrow console is what shows that. Every other
+    setting - colour, terminal detection - is left to the environment the suite runs in.
     """
     from rich.console import Console
 
-    monkeypatch.setattr(session_ops, "console", Console(width=200))
+    monkeypatch.setattr(session_ops, "console", Console(width=20))
 
 
 # ===== the three verdicts: every one of them is a success =====

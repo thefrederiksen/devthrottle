@@ -126,7 +126,9 @@ def _get_fleet() -> Tuple[List[Dict[str, Any]], Optional[bool], Optional[str], O
     try:
         return gateway.get_fleet()
     except gateway.GatewayError as err:
-        console.print(f"[red]Error:[/red] {err}")
+        # Plain and escaped: the sentence is the Gateway's, and Rich markup would read a token like
+        # [/tmp/x] in it as a tag, while a control character in it would split the line.
+        print(f"Error: {axi_output.escape_ascii(str(err))}", file=sys.stderr)
         raise typer.Exit(1)
 
 
@@ -173,13 +175,22 @@ def _refuse_ambiguous_target(
     resolver (see _stop_target), still refuses an ambiguous target in exactly these words. Two
     wordings for one refusal is how the tool comes to answer the same question two ways.
     """
-    console.print(f"[yellow]'{target}' is ambiguous - {len(matches)} matches:[/yellow]")
+    # Unwrapped, and every value escaped twice over: to ASCII, so a newline in a name cannot split
+    # its line, and for Rich, so a name like [bold] is printed rather than read as markup.
+    def _text(value: str) -> str:
+        return escape(axi_output.escape_ascii(value))
+
+    console.print(
+        f"[yellow]'{_text(target)}' is ambiguous - {len(matches)} matches:[/yellow]", soft_wrap=True
+    )
     for s in matches:
         sid = gateway.field(s, "sessionId", "SessionId")
         name = gateway.field(s, "name", "Name") or "(unnamed)"
         machine = gateway.field(s, "machineName", "MachineName") or "-"
-        console.print(f"  {gateway.short_id(sid)}  {name}  ({machine})")
-    console.print(f"Re-run {command_name} with a longer id prefix.")
+        console.print(
+            f"  {_text(gateway.short_id(sid))}  {_text(name)}  ({_text(machine)})", soft_wrap=True
+        )
+    console.print(f"Re-run {command_name} with a longer id prefix.", soft_wrap=True)
     raise typer.Exit(1)
 
 
@@ -397,11 +408,11 @@ def list_sessions(
         # The cautions are the Gateway's sentences and may not be ASCII; stderr is escaped exactly
         # as the plain output is.
         if caveat:
-            print(_ascii_text(f"WARNING: the fleet list may be incomplete. {caveat}"), file=sys.stderr)
+            print(f"WARNING: the fleet list may be incomplete. {axi_output.escape_ascii(caveat)}", file=sys.stderr)
         # An EMPTY machine-readable answer is a negative answer too, and the agent parsing it is the
         # reader most likely to act on "nothing is running" as a fact.
         if not rows and stale_caution:
-            print(_ascii_text(f"WARNING: {stale_caution}"), file=sys.stderr)
+            print(f"WARNING: {axi_output.escape_ascii(stale_caution)}", file=sys.stderr)
         return
 
     records = [_session_record(s, st) for s, st in rows]
@@ -425,19 +436,14 @@ def list_sessions(
     # Issue #1051: printed AFTER the rows, so the rows the reader can trust come first and the
     # qualification lands on what they have just read.
     if caveat:
-        blocks.append(f"This is not the whole fleet. {caveat}")
+        blocks.append(f"This is not the whole fleet. {axi_output.escape_ascii(caveat)}")
     # The stale caution qualifies a negative answer only. Both cautions can be live at once, and on an
     # empty answer they say different things, so this is printed after the other, never instead of it.
     if not rows and stale_caution:
-        blocks.append(stale_caution)
+        blocks.append(axi_output.escape_ascii(stale_caution))
 
     blocks.append(axi_output.format_help(_session_list_help(rows, filtered, chosen_fields)))
-    axi_output.write_blocks(sys.stdout, *(_ascii_text(block) for block in blocks))
-
-
-def _ascii_text(block: str) -> str:
-    """The rendered blocks are ASCII already; a caution sentence from the Gateway may not be."""
-    return block if block.isascii() else axi_output.escape_ascii(block)
+    axi_output.write_blocks(sys.stdout, *blocks)
 
 
 def _session_list_help(rows: List[Tuple[Dict[str, Any], str]], filtered: bool, chosen_fields: List[str]) -> List[str]:
@@ -475,7 +481,7 @@ def show_live_state() -> None:
     try:
         sessions, complete, reason, stale_caution = gateway.get_fleet()
     except gateway.GatewayError as err:
-        print(_ascii_text(f"Error: {err}"), file=sys.stderr)
+        print(f"Error: {axi_output.escape_ascii(str(err))}", file=sys.stderr)
         print(
             "Nothing about the fleet can be shown without the Gateway. "
             "Run cc-devthrottle setup status to check this machine, or cc-devthrottle --help for the commands.",
@@ -510,13 +516,13 @@ def show_live_state() -> None:
     blocks.append(axi_output.format_count(len(sessions), breakdown=breakdown))
     blocks.append(f"needs-you: {needs_you}")
     if caveat:
-        blocks.append(f"This is not the whole fleet. {caveat}")
+        blocks.append(f"This is not the whole fleet. {axi_output.escape_ascii(caveat)}")
     # A count of zero is a negative answer, which is the one case the stale caution qualifies.
     if needs_you == 0 and stale_caution:
-        blocks.append(stale_caution)
+        blocks.append(axi_output.escape_ascii(stale_caution))
 
     blocks.append(axi_output.format_help(_live_state_help(sid is not None, needs_you, len(sessions))))
-    axi_output.write_blocks(sys.stdout, *(_ascii_text(block) for block in blocks))
+    axi_output.write_blocks(sys.stdout, *blocks)
 
 
 def _live_state_help(inside_session: bool, needs_you: int, total: int) -> List[str]:
@@ -997,7 +1003,8 @@ def undo_done(target: Optional[str], reason: Optional[str] = None) -> Dict[str, 
             "[red]Nothing was changed:[/red] --undo and --reason cannot be used together. "
             "--reason is shown while a session winds down, and --undo is what cancels that "
             "wind-down, so there is nothing left for the reason to be shown on. Re-run "
-            "cc-devthrottle session done --undo on its own, or drop --undo to flag the session."
+            "cc-devthrottle session done --undo on its own, or drop --undo to flag the session.",
+            soft_wrap=True,
         )
         raise typer.Exit(1)
 
@@ -1008,11 +1015,12 @@ def undo_done(target: Optional[str], reason: Optional[str] = None) -> Dict[str, 
         # escape(): the server's sentence can quote a path or a fragment of another session's output,
         # and a token shaped like [/tmp/x] raises MarkupError out of the branch whose only job is to
         # report a failure.
-        console.print(f"[red]Error:[/red] {escape(str(err))}")
+        console.print(f"[red]Error:[/red] {escape(str(err))}", soft_wrap=True)
         raise typer.Exit(1)
 
     console.print(
-        f"[green]Cleared[/green] {gateway.short_id(sid)} is no longer marked for deletion."
+        f"[green]Cleared[/green] {gateway.short_id(sid)} is no longer marked for deletion.",
+        soft_wrap=True,
     )
     return resp if isinstance(resp, dict) else {}
 
@@ -1121,6 +1129,10 @@ def stop_session(target: str, reason: Optional[str], json_output: bool = False) 
     late may all have ended the session first, and the Gateway says as much in words. So a refused
     request is announced as "Not stopped:" and everything else as "Outcome unknown:" - see
     _refused_outright for which is which, and why the unknown side is the default.
+
+    Every sentence is printed with soft_wrap: Rich would otherwise break it at the console width,
+    and a reader - an agent above all - searching the output for the Gateway's sentence would find
+    it split across two lines.
     """
     if reason is None or not reason.strip():
         # Refused before the round trip - there is no point asking the Gateway to tell us what we
@@ -1129,7 +1141,8 @@ def stop_session(target: str, reason: Optional[str], json_output: bool = False) 
         # answer it.
         console.print(
             f"[red]{STOP_REFUSED_PREFIX}[/red] a reason is required to stop a session, and none was "
-            "given. " + STOP_REASON_FLAG_HINT
+            "given. " + STOP_REASON_FLAG_HINT,
+            soft_wrap=True,
         )
         raise typer.Exit(1)
 
@@ -1150,21 +1163,22 @@ def stop_session(target: str, reason: Optional[str], json_output: bool = False) 
         # Gateway. escape() for the reason it is used everywhere else in this module: it is text from
         # somewhere else, and a token shaped like [/tmp/x] raises MarkupError.
         text = str(err)
-        console.print(f"[red]{_failure_prefix(err.status)}[/red] {escape(text)}")
+        console.print(f"[red]{_failure_prefix(err.status)}[/red] {escape(text)}", soft_wrap=True)
         if not _refused_outright(err.status):
             # Said ONCE, after the server's own words, and only where the outcome is genuinely
             # unknown. Without it the reader is left with a sentence about a lost reply and no idea
             # what to do next.
             console.print(
                 "This cannot say whether the session is still running. Run "
-                "cc-devthrottle session list to see whether it is still there."
+                "cc-devthrottle session list to see whether it is still there.",
+                soft_wrap=True,
             )
         # The one thing only this command knows. Added AFTER the server's words, never instead of
         # them. Still tested textually rather than on the status alone: the sentence is what names
         # the reason as the missing thing, and a refusal that is about something else must not send
         # the caller off to fix a flag that was never wrong.
         if _refused_outright(err.status) and "reason" in text.lower():
-            console.print(STOP_REASON_FLAG_HINT)
+            console.print(STOP_REASON_FLAG_HINT, soft_wrap=True)
         raise typer.Exit(1)
 
     body = resp if isinstance(resp, dict) else {}
@@ -1178,7 +1192,8 @@ def stop_session(target: str, reason: Optional[str], json_output: bool = False) 
         console.print(
             "[red]No answer:[/red] the Gateway returned nothing that says what happened to "
             f"{gateway.short_id(sid)}, so this cannot report whether it was stopped. "
-            "Run cc-devthrottle session list to see whether it is still there."
+            "Run cc-devthrottle session list to see whether it is still there.",
+            soft_wrap=True,
         )
         raise typer.Exit(1)
 
@@ -1192,7 +1207,7 @@ def stop_session(target: str, reason: Optional[str], json_output: bool = False) 
         print(json.dumps(body, indent=2))
         return body
 
-    console.print(escape(headline))
+    console.print(escape(headline), soft_wrap=True)
     details = body.get("details", body.get("Details"))
     if isinstance(details, list):
         # In the order the Gateway gave them. The order is part of the answer - the worktree line
@@ -1200,7 +1215,7 @@ def stop_session(target: str, reason: Optional[str], json_output: bool = False) 
         # matters, which is the one thing it must never do.
         for line in details:
             if isinstance(line, str) and line.strip():
-                console.print(escape(line))
+                console.print(escape(line), soft_wrap=True)
     return body
 
 

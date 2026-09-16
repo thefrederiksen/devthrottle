@@ -219,11 +219,6 @@ def _usage_error(message: str) -> None:
     raise typer.Exit(axi_output.USAGE_ERROR_EXIT_CODE)
 
 
-def _ascii_text(block: str) -> str:
-    """The rendered blocks are ASCII already; a sentence quoting a filter value may not be."""
-    return block if block.isascii() else axi_output.escape_ascii(block)
-
-
 def _bad_job(job_id: Any, what: str) -> None:
     """Refuse a schedule the Gateway would never send, naming it and what is wrong with it."""
     print(
@@ -262,7 +257,7 @@ def _check_jobs(jobs: List[Any]) -> None:
         if not isinstance(machine, str) or not machine.strip():
             _bad_job(job_id, "no target machine; every schedule must have one")
         if not isinstance(job.get("enabled"), bool):
-            _bad_job(job_id, f"enabled {job.get('enabled')!r}; it must be true or false")
+            _bad_job(job_id, f"enabled {axi_output.escape_ascii(repr(job.get('enabled')))}; it must be true or false")
         # Every other field is checked here too, before any filter runs, so a broken row fails on every
         # path that reads the rows - never only when its field happens to be on screen.
         for field in SCHEDULE_LIST_FIELDS:
@@ -379,7 +374,7 @@ def list_jobs(
     try:
         jobs = _client().list_jobs()
     except GatewayError as ex:
-        print(f"Error: {ex}", file=sys.stderr)
+        print(f"Error: {axi_output.escape_ascii(str(ex))}", file=sys.stderr)
         raise typer.Exit(1)
 
     filtered = enabled is not None or machine is not None
@@ -410,7 +405,7 @@ def list_jobs(
     if not rows:
         blocks.append("No schedule matches the filter." if jobs else "No schedules on the Gateway.")
     blocks.append(axi_output.format_help(_schedule_list_help(rows, bool(jobs), filtered, chosen_fields)))
-    axi_output.write_blocks(sys.stdout, *(_ascii_text(block) for block in blocks))
+    axi_output.write_blocks(sys.stdout, *blocks)
 
 
 def _schedule_list_help(
