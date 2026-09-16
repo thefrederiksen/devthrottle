@@ -145,10 +145,10 @@ def _atomic_write(path: Path, text: str) -> None:
 
 def _lost_entry(path: Path, reason: str = STATE_LOST) -> dict:
     return {"path": str(path), "state": HELD, "holder": None, "lease": None, "reason": reason,
-            "updated": _now(), "gitdir": None}
+            "updated": _now(), "gitdir": None, "reflog_count": None, "reflog_newest": None}
 
 
-ENTRY_KEYS = {"path", "state", "holder", "lease", "reason", "updated", "gitdir"}
+ENTRY_KEYS = {"path", "state", "holder", "lease", "reason", "updated", "gitdir", "reflog_count", "reflog_newest"}
 
 
 class _InvalidState(Exception):
@@ -168,10 +168,18 @@ def _check_entry(repo: Path, name: str, entry: object) -> None:
         raise _InvalidState(f"{name}: updated is not text")
     if not all(_optional_text(entry[key]) for key in ("holder", "lease", "reason", "gitdir")):
         raise _InvalidState(f"{name}: holder, lease, reason or gitdir is not text")
+    count, newest = entry["reflog_count"], entry["reflog_newest"]
+    if count is None:
+        if newest is not None:
+            raise _InvalidState(f"{name}: a newest reflog entry without a count")
+    elif isinstance(count, bool) or not isinstance(count, int) or count < 0 or not _optional_text(newest) \
+            or (count == 0) != (newest is None):
+        raise _InvalidState(f"{name}: the reflog count and newest entry do not fit together")
     state, holder, lease, reason = entry["state"], entry["holder"], entry["lease"], entry["reason"]
     if state == FREE:
         # A free slot was proven landed, so its git metadata was proven then too.
-        ok = holder is None and lease is None and reason is None and entry["gitdir"] is not None
+        ok = (holder is None and lease is None and reason is None and entry["gitdir"] is not None
+              and count is not None)
     elif state == IN_USE:
         ok = holder is not None and lease is not None and reason is None
     elif state == HELD:
@@ -366,12 +374,21 @@ def _reset_to_tip(pool: Pool, name: str, tip: landed.RemoteTip | None) -> tuple[
     entry = pool.slots[name]
     path = Path(entry["path"])
     try:
-        checked = landed.check(path, pool.repo, tip, entry["gitdir"])
+        checked = landed.check(path, pool.repo, tip, entry["gitdir"], _mark(entry))
         landed.reset(path, pool.repo, checked)
+        mark = landed.reflog_mark(path)
     except NotLanded as ex:
         return None, str(ex)
-    entry["gitdir"] = str(checked.gitdir)
+    entry.update(gitdir=str(checked.gitdir), reflog_count=mark.count, reflog_newest=mark.newest)
     return checked.tip, None
+
+
+def _mark(entry: dict) -> landed.ReflogMark | None:
+    """Where the reflog stood when the slot was last proven or made. None: nothing on record, so every
+    reflog entry must pass the check."""
+    if entry["reflog_count"] is None:
+        return None
+    return landed.ReflogMark(entry["reflog_count"], entry["reflog_newest"])
 
 
 def _hold(pool: Pool, name: str, reason: str) -> None:
@@ -425,13 +442,15 @@ def get(repo_path: str, holder: str, pool_size: int) -> dict:
                             [f"cc-worktrees list --repo {repo}"]) from ex
         try:
             gitdir = landed.require_bound(path, repo, None)
+            mark = landed.reflog_mark(path)
         except NotLanded as ex:
             pool.slots[name] = {**_lost_entry(path, f"created, but not proven sound: {ex}")}
             pool.save()
             raise ToolError("create-failed", f"{name} was created but is held: {ex}",
                             [f"cc-worktrees list --repo {repo}"]) from ex
         pool.slots[name] = {"path": str(path), "state": IN_USE, "holder": holder, "lease": _new_lease(),
-                            "reason": None, "updated": _now(), "gitdir": str(gitdir)}
+                            "reason": None, "updated": _now(), "gitdir": str(gitdir),
+                            "reflog_count": mark.count, "reflog_newest": mark.newest}
         pool.save()
         return _lease_view(pool, name, tip, reused=False)
 

@@ -57,7 +57,12 @@ A worktree is reset only when all of these are positively proven, in this order:
      the commits it combined. It counts as landed while its commits are still on a remote branch (for
      example the pull request branch). A later phase may prove a squash through the pull request.
    - A merge commit on no remote branch is held: `git cherry` does not compare merge commits.
-6. The caller's lease matches. The lease is required, because without it the tool has no evidence the holder let go.
+6. Every commit the slot's HEAD reflog gained since the slot was handed out passes the same check. A
+   commit abandoned with `git reset --hard` lives only in that reflog, which a later destroy deletes.
+   A reflog that shrank or was rewritten since then, or `core.logAllRefUpdates` turned off, cannot be
+   vouched for and holds the slot. A slot with no record of where its reflog stood (its state was lost)
+   has every reflog entry checked.
+7. The caller's lease matches. The lease is required, because without it the tool has no evidence the holder let go.
 
 Any failure - including a fetch that fails for an unreachable remote, bad credentials or an expired
 token - holds the worktree with a plain reason such as `1 commit is on no remote: <commit>`,

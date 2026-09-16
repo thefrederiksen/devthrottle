@@ -223,15 +223,66 @@ def require_commits_landed(worktree: Path, tip: RemoteTip, tips: list[str]) -> N
 
 
 @dataclass(frozen=True)
+class ReflogMark:
+    """Where the slot's HEAD reflog stood when the slot was last proven landed or made."""
+    count: int
+    newest: str | None   # "<commit> HEAD@{<unix time>}" of the newest entry then, None when there was none
+
+
+_OFF = ("false", "no", "off", "0")
+
+
+def reflog_entries(worktree: Path) -> list[str]:
+    """The slot's HEAD reflog, newest first. A commit abandoned with reset --hard lives only here."""
+    setting = gitrun.run(worktree, "config", "--get", "core.logAllRefUpdates", check=False)
+    if setting.returncode not in (0, 1):
+        raise cannot_verify(f"cannot read core.logAllRefUpdates: {setting.stderr.strip()[:200]}")
+    if setting.returncode == 0 and setting.stdout.strip().lower() in _OFF:
+        raise cannot_verify("core.logAllRefUpdates is off, so commits abandoned in the worktree cannot be seen")
+    try:
+        text = gitrun.run(worktree, "reflog", "show", "--date=unix", "--format=%H %gd", "HEAD").stdout
+    except GitError as ex:
+        raise cannot_verify(f"cannot read the HEAD reflog: {ex.short()}") from ex
+    return [line.strip() for line in text.splitlines() if line.strip()]
+
+
+def reflog_mark(worktree: Path) -> ReflogMark:
+    entries = reflog_entries(worktree)
+    return ReflogMark(len(entries), entries[0] if entries else None)
+
+
+def reflog_commits_since(entries: list[str], mark: ReflogMark | None) -> list[str]:
+    """The commits the HEAD reflog gained after `mark`, newest first. With no mark on record, every
+    entry counts. A reflog that shrank or was rewritten since the mark cannot be vouched for."""
+    if mark is None:
+        new = entries
+    else:
+        if len(entries) < mark.count:
+            raise cannot_verify("the HEAD reflog lost entries since the slot was handed out")
+        if mark.count and entries[len(entries) - mark.count] != mark.newest:
+            raise cannot_verify("the HEAD reflog was rewritten since the slot was handed out")
+        new = entries[:len(entries) - mark.count]
+    commits: list[str] = []
+    for entry in new:
+        commit = entry.split()[0]
+        if commit not in commits:
+            commits.append(commit)
+    return commits
+
+
+@dataclass(frozen=True)
 class Checked:
-    tip: RemoteTip   # the remote default branch the work was checked against
-    head: str        # the HEAD that was proven landed
-    gitdir: Path     # the slot's own git metadata directory, proven bound to it
+    tip: RemoteTip      # the remote default branch the work was checked against
+    head: str           # the HEAD that was proven landed
+    gitdir: Path        # the slot's own git metadata directory, proven bound to it
+    reflog: ReflogMark  # the HEAD reflog as it stood when checked
 
 
-def check(worktree: Path, repo: Path, tip: RemoteTip | None, recorded_gitdir: str | None) -> Checked:
+def check(worktree: Path, repo: Path, tip: RemoteTip | None, recorded_gitdir: str | None,
+          mark: ReflogMark | None) -> Checked:
     """Prove the worktree's work landed, at this moment. Raises NotLanded with the plain reason.
 
+    Checked: HEAD's commits, and every commit the HEAD reflog gained since `mark` (None: all of them).
     Pass `tip` only when the remote was fetched moments ago by the same command.
     """
     if not worktree.is_dir():
@@ -239,10 +290,12 @@ def check(worktree: Path, repo: Path, tip: RemoteTip | None, recorded_gitdir: st
     gitdir = require_bound(worktree, repo, recorded_gitdir)
     require_clean(worktree)
     head = head_commit(worktree)
+    entries = reflog_entries(worktree)
+    since = reflog_commits_since(entries, mark)
     if tip is None:
         tip = fetch_default(worktree)
-    require_commits_landed(worktree, tip, [head])
-    return Checked(tip, head, gitdir)
+    require_commits_landed(worktree, tip, [head, *(c for c in since if c != head)])
+    return Checked(tip, head, gitdir, ReflogMark(len(entries), entries[0] if entries else None))
 
 
 def reset(worktree: Path, repo: Path, checked: Checked) -> None:
@@ -267,6 +320,8 @@ def reset(worktree: Path, repo: Path, checked: Checked) -> None:
             raise NotLanded("the worktree's git metadata changed after the check")
         if head_commit(worktree) != expected_head:
             raise NotLanded("HEAD moved after the check")
+        if reflog_mark(worktree) != checked.reflog:
+            raise NotLanded("the HEAD reflog changed after the check")
         require_clean(worktree)
         try:
             gitrun.run(worktree, "read-tree", "--reset", "-u", target)
