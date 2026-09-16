@@ -206,6 +206,27 @@ public sealed class SnoozeExpiryLedgerIsDurableTests : IDisposable
         Assert.Equal(ActivityEventTypes.All.Count + ActivityCauses.All.Count, rows.Count);
         // And the words really did land, rather than the count merely adding up.
         Assert.All(rows, r => Assert.Equal(r.EventType, Assert.Single(StoredFor(r.SessionId)).EventType));
+
+        // BOTH SLICES' WORDS WERE ACTUALLY EXERCISED, named rather than left implicit in a total. The lists
+        // above are walked, so this cannot drift - but a reader asking "did this cover slice G too?" deserves
+        // the answer in the file rather than in a count they have to reconstruct. If a merge ever takes one
+        // side's list wholesale, the membership guard fails first and this fails second.
+        Assert.Contains(ActivityEventTypes.TurnVerdictSnoozeExpiry, ActivityEventTypes.All);
+        Assert.Contains(ActivityEventTypes.TurnVerdictFeedbackRefused, ActivityEventTypes.All);
+        foreach (var f in new[]
+                 {
+                     ActivityCauses.SnoozeNothingNew, ActivityCauses.SnoozeVerdictRules,
+                     ActivityCauses.SnoozeReJudgeRequested, ActivityCauses.SnoozeReadInFlight,
+                 })
+            Assert.Contains(f, ActivityCauses.All);
+        foreach (var g in new[]
+                 {
+                     ActivityCauses.FeedbackMalformed, ActivityCauses.FeedbackVerdictNotFound,
+                     ActivityCauses.FeedbackUnknownVerdict, ActivityCauses.FeedbackShadowRecord,
+                     ActivityCauses.FeedbackUnavailable, ActivityCauses.FeedbackSessionNotFound,
+                     ActivityCauses.FeedbackInvalidSessionId,
+                 })
+            Assert.Contains(g, ActivityCauses.All);
     }
 
     [Fact]
