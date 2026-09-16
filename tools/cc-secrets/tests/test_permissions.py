@@ -556,3 +556,67 @@ def test_MacOS_StoreOnAVolumeThatIgnoresOwnership_IsRefused_AndNothingIsSaved(ow
         add_entry(store)
 
     assert not paths.store_path().exists()
+
+
+def test_MacOS_StatfsSymbol_MatchesTheDeclaredLayoutOnEachArchitecture():
+    # Second review of pull request 2960: on x86_64 plain statfs returns the legacy layout.
+    assert permissions._statfs_symbol("arm64") == "statfs"
+    assert permissions._statfs_symbol("x86_64") == "statfs$INODE64"
+    with pytest.raises(permissions.StorePermissionError, match="does not know"):
+        permissions._statfs_symbol("ppc")
+
+
+def _legacy_x86_64_statfs(ctypes):
+    # struct statfs from <sys/mount.h> when __DARWIN_64_BIT_INO_T is 0 - what plain statfs fills on x86_64.
+    class LegacyStatFs(ctypes.Structure):
+        _fields_ = [("f_otype", ctypes.c_short), ("f_oflags", ctypes.c_short), ("f_bsize", ctypes.c_long),
+                    ("f_iosize", ctypes.c_long), ("f_blocks", ctypes.c_long), ("f_bfree", ctypes.c_long),
+                    ("f_bavail", ctypes.c_long), ("f_files", ctypes.c_long), ("f_ffree", ctypes.c_long),
+                    ("f_fsid", ctypes.c_int32 * 2), ("f_owner", ctypes.c_uint32), ("f_reserved1", ctypes.c_short),
+                    ("f_type", ctypes.c_short), ("f_flags", ctypes.c_long), ("f_reserved2", ctypes.c_long * 2),
+                    ("f_fstypename", ctypes.c_char * 15), ("f_mntonname", ctypes.c_char * 90),
+                    ("f_mntfromname", ctypes.c_char * 90), ("f_reserved3", ctypes.c_char),
+                    ("f_reserved4", ctypes.c_long * 4)]
+
+    return LegacyStatFs
+
+
+@pytest.mark.skipif(not MACOS, reason="macOS volume ownership check")
+def test_MacOS_LegacyLayoutReadAsTheNewOne_IsRefusedNotTrusted(tmp_path):
+    # What plain statfs does on an Intel Mac: the kernel fills the legacy layout, for a volume that ignores
+    # ownership, and the reader interprets it with the 64-bit layout.
+    import ctypes
+
+    legacy_type = _legacy_x86_64_statfs(ctypes)
+    assert ctypes.sizeof(ctypes.c_long) == 8 and legacy_type.f_fsid.offset == 64 and legacy_type.f_flags.offset == 80
+    real = os.statvfs(tmp_path)
+    legacy = legacy_type(f_otype=26, f_bsize=real.f_frsize, f_iosize=real.f_bsize, f_type=26,
+                         f_flags=permissions._MNT_IGNORE_OWNERSHIP, f_fstypename=b"apfs",
+                         f_mntonname=b"/Volumes/external")
+    legacy.f_fsid[0], legacy.f_fsid[1] = 16777239, 26
+    raw = bytes(legacy)
+
+    def legacy_statfs(path, buffer):
+        ctypes.memmove(buffer, raw, len(raw))
+        return 0
+
+    new_type = permissions._statfs_structure(ctypes)
+    # The premise: reading f_flags at the 64-bit layout's offset misses the ownership flag entirely.
+    assert not new_type.from_buffer_copy(raw.ljust(ctypes.sizeof(new_type), b"\0")).f_flags & permissions._MNT_IGNORE_OWNERSHIP
+
+    with pytest.raises(permissions.StorePermissionError, match="does not match the volume"):
+        permissions._read_volume(ctypes, legacy_statfs, new_type, tmp_path)
+
+
+@pytest.mark.skipif(not MACOS, reason="macOS volume ownership check")
+def test_MacOS_VolumeRead_DescribesThisPathsVolume(tmp_path):
+    import platform
+
+    ctypes_module, libc, structure = permissions._mac_api()
+    statfs_function = getattr(libc, permissions._statfs_symbol(platform.machine()))
+
+    info = permissions._read_volume(ctypes_module, statfs_function, structure, tmp_path)
+
+    assert info.f_bsize == os.statvfs(tmp_path).f_frsize
+    assert info.f_fstypename in (b"apfs", b"hfs")
+    assert not info.f_flags & permissions._MNT_IGNORE_OWNERSHIP

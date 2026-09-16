@@ -27,6 +27,7 @@ the user the agent runs as.
 from __future__ import annotations
 
 import os
+import platform
 import stat
 import subprocess
 import sys
@@ -261,16 +262,6 @@ def _mac_api():
     import ctypes
     import ctypes.util
 
-    class StatFs(ctypes.Structure):
-        # struct statfs from <sys/mount.h> (the 64-bit inode layout, the only one on current macOS).
-        _fields_ = [("f_bsize", ctypes.c_uint32), ("f_iosize", ctypes.c_int32), ("f_blocks", ctypes.c_uint64),
-                    ("f_bfree", ctypes.c_uint64), ("f_bavail", ctypes.c_uint64), ("f_files", ctypes.c_uint64),
-                    ("f_ffree", ctypes.c_uint64), ("f_fsid", ctypes.c_int32 * 2), ("f_owner", ctypes.c_uint32),
-                    ("f_type", ctypes.c_uint32), ("f_flags", ctypes.c_uint32), ("f_fssubtype", ctypes.c_uint32),
-                    ("f_fstypename", ctypes.c_char * 16), ("f_mntonname", ctypes.c_char * 1024),
-                    ("f_mntfromname", ctypes.c_char * 1024), ("f_flags_ext", ctypes.c_uint32),
-                    ("f_reserved", ctypes.c_uint32 * 7)]
-
     libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
     void_p, c_int = ctypes.c_void_p, ctypes.c_int
     signatures = {
@@ -283,13 +274,42 @@ def _mac_api():
         "acl_free": ([void_p], c_int),
         "mbr_uid_to_uuid": ([ctypes.c_uint32, void_p], c_int),
         "mbr_uuid_to_id": ([void_p, ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(c_int)], c_int),
-        "statfs": ([ctypes.c_char_p, ctypes.POINTER(StatFs)], c_int),
     }
+    signatures[_statfs_symbol(platform.machine())] = ([ctypes.c_char_p, void_p], c_int)
     for name, (argtypes, restype) in signatures.items():
         function = getattr(libc, name)
         function.argtypes, function.restype = argtypes, restype
-    _mac_api_cache = (ctypes, libc, StatFs)
+    _mac_api_cache = (ctypes, libc, _statfs_structure(ctypes))
     return _mac_api_cache
+
+
+def _statfs_symbol(machine: str) -> str:
+    """The libc symbol whose result has the layout _statfs_structure declares, for a process on `machine`.
+
+    <sys/mount.h> declares statfs with __DARWIN_INODE64, so a C compiler links arm64 to plain `statfs` (only
+    the 64-bit inode layout exists there) and x86_64 to `statfs$INODE64`; plain `statfs` on x86_64 is the
+    legacy layout, where offset 64 is f_fsid, not f_flags (second review of pull request 2960). A process
+    under Rosetta reports x86_64 here, which is what it is.
+    """
+    if machine == "arm64":
+        return "statfs"
+    if machine == "x86_64":
+        return "statfs$INODE64"
+    raise StorePermissionError(f"cc-secrets does not know how to read volume flags on a {machine} Mac.")
+
+
+def _statfs_structure(ctypes):
+    class StatFs(ctypes.Structure):
+        # struct statfs from <sys/mount.h> in its 64-bit inode layout (__DARWIN_STRUCT_STATFS64).
+        _fields_ = [("f_bsize", ctypes.c_uint32), ("f_iosize", ctypes.c_int32), ("f_blocks", ctypes.c_uint64),
+                    ("f_bfree", ctypes.c_uint64), ("f_bavail", ctypes.c_uint64), ("f_files", ctypes.c_uint64),
+                    ("f_ffree", ctypes.c_uint64), ("f_fsid", ctypes.c_int32 * 2), ("f_owner", ctypes.c_uint32),
+                    ("f_type", ctypes.c_uint32), ("f_flags", ctypes.c_uint32), ("f_fssubtype", ctypes.c_uint32),
+                    ("f_fstypename", ctypes.c_char * 16), ("f_mntonname", ctypes.c_char * 1024),
+                    ("f_mntfromname", ctypes.c_char * 1024), ("f_flags_ext", ctypes.c_uint32),
+                    ("f_reserved", ctypes.c_uint32 * 7)]
+
+    return StatFs
 
 
 def _uuid_text(raw: bytes) -> str:
@@ -397,6 +417,27 @@ def _mac_acl_problem(path: Path) -> Optional[str]:
     return None
 
 
+def _read_volume(ctypes, statfs_function, structure, path: Path):
+    """Call `statfs_function` on `path` and read the result as `structure`, refusing a result that does not
+    describe this path's volume - so a symbol and a layout that do not match fail loudly instead of reading
+    some other field as the flags. The call writes into a buffer larger than any statfs layout, so a
+    mismatch can never overrun it."""
+    buffer = ctypes.create_string_buffer(8192)
+    if statfs_function(os.fsencode(str(path)), buffer) != 0:
+        error = ctypes.get_errno()
+        raise StorePermissionError(f"Could not read the volume of {path} ({os.strerror(error)}).")
+    info = structure.from_buffer_copy(buffer.raw[:ctypes.sizeof(structure)])
+    expected = os.statvfs(path)
+    consistent = (info.f_fsid[1] == info.f_type and info.f_bsize == expected.f_frsize
+                  and info.f_iosize == expected.f_bsize and info.f_mntonname.startswith(b"/"))
+    if not consistent:
+        raise StorePermissionError(
+            f"The volume information read for {path} does not match the volume (block sizes {info.f_bsize} and "
+            f"{info.f_iosize}, expected {expected.f_frsize} and {expected.f_bsize}), so its ownership setting "
+            "cannot be trusted. Nothing was read or written.")
+    return info
+
+
 def _mac_volume_problem(path: Path) -> Optional[str]:
     """Why the volume holding `path` cannot keep anything private, or None.
 
@@ -404,11 +445,8 @@ def _mac_volume_problem(path: Path) -> Optional[str]:
     macOS mounts that way by default) every account is treated as the owner of every file, so neither the
     mode nor the owner means anything there (review of pull request 2960).
     """
-    ctypes, libc, StatFs = _mac_api()
-    info = StatFs()
-    if libc.statfs(os.fsencode(str(path)), ctypes.byref(info)) != 0:
-        error = ctypes.get_errno()
-        raise StorePermissionError(f"Could not read the volume of {path} ({os.strerror(error)}).")
+    ctypes, libc, structure = _mac_api()
+    info = _read_volume(ctypes, getattr(libc, _statfs_symbol(platform.machine())), structure, path)
     if info.f_flags & _MNT_IGNORE_OWNERSHIP:
         volume = info.f_mntonname.decode("utf-8", "replace")
         return (f"{path} is on {volume}, a volume set to ignore ownership, where every account can open every "
