@@ -24,7 +24,10 @@ Owner rulings are in the issue. These are the Architect's, settling the inferred
 5. The note-taking script is ONE self-contained plain JavaScript file with no dependencies, built from
    one source, injected into the report by the host. The same file serves Cockpit, phone and Director.
 6. Size limit on publish: 10 MB of HTML, refused with a clear error above it.
-7. Deploy: the owner approved ONE deploy through the `deploy-hosted-gateway` skill after phase 3 merges.
+7. Deploy (owner, 2026-09-16, widened the same day): deploy through the `deploy-hosted-gateway` skill
+   and nothing else, as soon as there is something to test and at the latest when phase 3 merges; deploy
+   again after every later phase that changes the Gateway, the Cockpit or the phone. After each deploy,
+   tell the owner what he can test and how, on the phone and in the Cockpit.
 8. Report scripts are blocked (upheld 2026-09-16, from the phase 1 review). A script in an agent-written
    report shares the frame with the note-taking script, so it could forge the owner's notes and read restored
    state. Every host MUST follow `packages/client-core/src/devreports/CONTRACT.md` section 4: a
@@ -32,12 +35,16 @@ Owner rulings are in the issue. These are the Architect's, settling the inferred
    on that script carried by every message, and any frame load the host did not cause ends the token. The
    shape check refuses `<script>` and inline event handlers. Cost accepted: no script-drawn charts; images
    are `data:` URLs.
+9. The shape check parses with a real HTML5 parser (AngleSharp, MIT), not a hand-written scanner
+   (from the phase 1 inspection: four review rounds kept finding parser gaps - comments inside templates,
+   implied end tags, hidden sections). It checks the DOM a browser would build. The shape check is guidance
+   for agents at publish time; it is NOT the security boundary. The host policy of ruling 8 is.
 
 ## Phases
 
 | Phase | State |
 |---|---|
-| 1. Note-taking script and shape check | built and reviewed; pull request after the second review pass |
+| 1. Note-taking script and shape check | pull request #2948; inspection found 2 high, 3 medium, 1 low - fixing |
 | 2. Gateway record and delivery | not started |
 | 3. Cockpit and phone viewer (then deploy) | not started |
 | 4. Director pane | not started |

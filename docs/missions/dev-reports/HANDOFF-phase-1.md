@@ -42,7 +42,7 @@ markers the check looks for and write them down beside the script's markup contr
   test host page: note a table cell, answer a question, Send, and capture the payload the host got.
 - Shape check tests: a good report passes; each rule has a failing report.
 - `.\scripts\test-local.ps1` green; the web workspace tests you touched run and pass.
-- A Codex review session (different family) reads the change before the pull request is opened.
+- A reviewer session from a different agent family reads the change before the pull request is opened.
 
 ## Done means
 
