@@ -29,6 +29,11 @@ export function Chat() {
   const [status, setStatus] = useState(STATUS_BASE);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  // The Enter/Esc/Stop and arrow rows, hidden by default - the same default the Terminal has always
+  // had. They are two rows of large buttons and they were ALWAYS on here, so on a phone they took a
+  // fifth of the screen from the conversation they sit under. The input row, Send, Speak and Attach
+  // are never behind this: replying is what this screen is for.
+  const [showKeys, setShowKeys] = useState(false);
   const manage = useSessionManage(sessionId);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -94,6 +99,9 @@ export function Chat() {
       <div className="term-statusbar">
         <span className="term-status" role="status">{status}</span>
         <span className="chat-live">live</span>
+        <button type="button" className="term-keys-toggle" onClick={() => setShowKeys((v) => !v)}>
+          {showKeys ? "Hide keys" : "Keys"}
+        </button>
       </div>
 
       {/* Compact "Show:" filter, mirroring the desktop History tab: reveal tool calls, tool results,
@@ -135,7 +143,12 @@ export function Chat() {
           from the same roster poll as the snooze state. It renders nothing unless the row carries a judged verdict.
           The hook hands over only THIS route's row, and the panel answers with THIS route's session id. With no row
           to act on - a read pending, failed or missing this session - there is no panel, only the reason. */}
-      {manage.session && sessionId && <VerdictPanel sessionId={sessionId} session={manage.session} />}
+      {manage.session && sessionId && (
+        // compact: the receipt is the agent's last reply, which is ALSO the top of the conversation
+        // directly below - so expanded it spent the phone's scarcest resource restating what the
+        // reader can already see. It is one tap away.
+        <VerdictPanel sessionId={sessionId} session={manage.session} compact />
+      )}
       {manage.sessionProblem !== null && <div className="chat-stale" role="status">{manage.sessionProblem}</div>}
 
       {/* ABOVE the scrolling conversation, not inside it. A long conversation opens at the BOTTOM, so a
@@ -201,7 +214,7 @@ export function Chat() {
 
       {/* The SAME controls as Terminal (shared SessionControls). The input row + Speak + Send is
           always visible for replying; a Keys toggle reveals the Enter/Esc/Stop + arrow rows. */}
-      <SessionControls sessionId={sessionId} onFlash={flash} onError={setError} showKeyRows />
+      <SessionControls sessionId={sessionId} onFlash={flash} onError={setError} showKeyRows={showKeys} />
     </div>
   );
 }
