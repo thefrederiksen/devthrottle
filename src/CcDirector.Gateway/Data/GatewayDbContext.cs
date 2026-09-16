@@ -304,6 +304,19 @@ public sealed class GatewayDbContext : DbContext
     /// cleared when a session works again, kept seven days.</summary>
     public DbSet<TurnVerdictTraceEntity> TurnVerdictTraces => Set<TurnVerdictTraceEntity>();
 
+    /// <summary>Dev reports (<c>dev_reports</c>, issue #2958): one row per report an agent published for its own
+    /// session. Written only through <see cref="DevReports.DevReportStore"/>.</summary>
+    public DbSet<DevReportEntity> DevReports => Set<DevReportEntity>();
+
+    /// <summary>Every published version of a dev report, bytes as sent (<c>dev_report_versions</c>).</summary>
+    public DbSet<DevReportVersionEntity> DevReportVersions => Set<DevReportVersionEntity>();
+
+    /// <summary>The owner's notes and answers on a dev report, with their delivery state (<c>dev_report_items</c>).</summary>
+    public DbSet<DevReportItemEntity> DevReportItems => Set<DevReportItemEntity>();
+
+    /// <summary>The agent's replies on a dev report (<c>dev_report_replies</c>).</summary>
+    public DbSet<DevReportReplyEntity> DevReportReplies => Set<DevReportReplyEntity>();
+
     /// <summary>Per-tenant setting overrides (<c>tenant_settings</c>, issue #2017) - the per-tenant home the
     /// AI / voice / car-mode / notification settings needed before they could be served on the hosted Gateway.
     /// Tenant-scoped: an absent row means "no override" and the typed resolver returns the operator global
@@ -748,6 +761,48 @@ public sealed class GatewayDbContext : DbContext
             b.HasIndex(e => new { e.TenantId, e.RecordedAtUtc });
         });
 
+        // ---- dev reports (issue #2958): the report, its versions, the owner's items, the agent's replies -----
+
+        modelBuilder.Entity<DevReportEntity>(b =>
+        {
+            b.ToTable("dev_reports");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.SessionId).HasMaxLength(64);
+            b.Property(e => e.Status).HasMaxLength(32);
+            // Publishing the same key again for the same session is a new version of the same report, never a
+            // second report - so the natural key is unique, led by the tenant.
+            b.HasIndex(e => new { e.TenantId, e.SessionId, e.Key }).IsUnique();
+        });
+
+        modelBuilder.Entity<DevReportVersionEntity>(b =>
+        {
+            b.ToTable("dev_report_versions");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.ByteHash).HasMaxLength(64);
+            b.Property(e => e.Status).HasMaxLength(32);
+            b.HasIndex(e => new { e.TenantId, e.ReportId, e.Version }).IsUnique();
+        });
+
+        modelBuilder.Entity<DevReportItemEntity>(b =>
+        {
+            b.ToTable("dev_report_items");
+            b.HasKey(e => e.Id);
+            b.Property(e => e.SessionId).HasMaxLength(64);
+            b.Property(e => e.Kind).HasMaxLength(16);
+            b.Property(e => e.Status).HasMaxLength(32);
+            // The client item id is the idempotency key: an id already accepted is the same item.
+            b.HasIndex(e => new { e.TenantId, e.ReportId, e.ClientItemId }).IsUnique();
+            // A turn end drains everything held for one session, across its reports.
+            b.HasIndex(e => new { e.TenantId, e.SessionId, e.Status });
+        });
+
+        modelBuilder.Entity<DevReportReplyEntity>(b =>
+        {
+            b.ToTable("dev_report_replies");
+            b.HasKey(e => e.Id);
+            b.HasIndex(e => new { e.TenantId, e.ReportId, e.AtUtc });
+        });
+
         modelBuilder.Entity<TurnVerdictFeedbackEntity>(b =>
         {
             b.ToTable("turn_verdict_feedback");
@@ -1173,6 +1228,10 @@ public sealed class GatewayDbContext : DbContext
         ApplyTenantScope<TurnVerdictEntity>(modelBuilder);
         ApplyTenantScope<TurnVerdictFeedbackEntity>(modelBuilder);
         ApplyTenantScope<TurnVerdictTraceEntity>(modelBuilder);
+        ApplyTenantScope<DevReportEntity>(modelBuilder);
+        ApplyTenantScope<DevReportVersionEntity>(modelBuilder);
+        ApplyTenantScope<DevReportItemEntity>(modelBuilder);
+        ApplyTenantScope<DevReportReplyEntity>(modelBuilder);
 
         ApplyCommonSubsetConventions(modelBuilder);
 
@@ -1244,6 +1303,13 @@ public sealed class GatewayDbContext : DbContext
             // selects a session's history on - both compared byte-ordinally, for the reasons above.
             modelBuilder.Entity<TurnVerdictTraceEntity>().Property(e => e.TraceId).UseCollation("C");
             modelBuilder.Entity<TurnVerdictTraceEntity>().Property(e => e.SessionId).UseCollation("C");
+            // dev reports: the session id, the report key and the client item id are caller-supplied strings in
+            // unique natural keys - byte-ordinal, so the two providers agree on what is "the same report" and
+            // "the same item".
+            modelBuilder.Entity<DevReportEntity>().Property(e => e.SessionId).UseCollation("C");
+            modelBuilder.Entity<DevReportEntity>().Property(e => e.Key).UseCollation("C");
+            modelBuilder.Entity<DevReportItemEntity>().Property(e => e.SessionId).UseCollation("C");
+            modelBuilder.Entity<DevReportItemEntity>().Property(e => e.ClientItemId).UseCollation("C");
             // Known-repository lookups use these normalized values as exact indexed predicates. Pin both
             // to byte-ordinal equality so SQLite and Postgres select the same bounded candidate set.
             modelBuilder.Entity<KnownRepositoryEntity>().Property(e => e.MachineKey).UseCollation("C");

@@ -851,6 +851,12 @@ public sealed class GatewayHost : IAsyncDisposable
     // somebody has to remember.
     private Rules.RuleTurnEndLauncher? _ruleLauncher;
 
+    // Dev reports (issue #2958): the record of what agents published and the owner answered, and the delivery
+    // that holds the owner's items while a session works and drains them at its turn end.
+    private readonly DevReports.DevReportStore _devReports;
+    private readonly DevReports.DevReportDelivery _devReportDelivery;
+    private readonly DevReports.DevReportTurnEndLauncher _devReportLauncher;
+
     // The turn log: one self-contained record per turn end, on the machines an administrator has switched
     // capture on for. It rides the SAME boundary as the supervisor and the rules engine but is deliberately
     // NOT part of either - the turns worth capturing most are the ones they never acted on, and a log living
@@ -1833,6 +1839,16 @@ public sealed class GatewayHost : IAsyncDisposable
         // through, resolved at call time (the dictionary-screening precedent) - summarisation is a
         // background digest, and the fast leg is the cheap one. The per-pass caps live in the sweep.
         _sessionHistory = new History.SessionHistoryStore(_gatewayDb);
+        _devReports = new DevReports.DevReportStore(_gatewayDb);
+        _devReportDelivery = new DevReports.DevReportDelivery(_devReports, DevReportSessionLiveness,
+            route: (tenant, directorId) =>
+            {
+                var director = Registry.Get(tenant, directorId);
+                if (director is null) return null;
+                Api.DirectorCommandRouter.SendDirectorCommandAsync sendCommand = SendCommandAsync;
+                return new Api.SessionVerbClient(director, sendCommand);
+            });
+        _devReportLauncher = new DevReports.DevReportTurnEndLauncher(_devReportDelivery);
         _knownRepositories = new History.KnownRepositoryStore(_gatewayDb);
         _sessionTurns = new History.SessionTurnStore(_gatewayDb);
         // The Wingman-on-every-turn mission: the judged-stop record, and its seven-day purge on the same
@@ -3015,6 +3031,11 @@ public sealed class GatewayHost : IAsyncDisposable
                 // and which the feature's own guards can therefore see. It never throws.
                 _ruleLauncher?.OnTurnEnd(tenant, signal.DirectorId, signal.SessionId);
 
+                // Dev reports (issue #2958): everything the owner sent while this session worked goes in now, as
+                // one prompt. A catch-up turn end after a restart drains what the database still holds. Fire and
+                // forget, never throws - see DevReportTurnEndLauncher.
+                _devReportLauncher.OnTurnEnd(tenant, signal.SessionId, signal.IsNewTurn);
+
                 // Voice sessions (issue #531): the turn just finished on its own, so re-make the
                 // spoken summary + audio in the background. It is then "voice ready" in the session
                 // list with no wait. Non-voice sessions do nothing here - the watcher is voice-only.
@@ -4165,6 +4186,11 @@ public sealed class GatewayHost : IAsyncDisposable
             directorSessions: (tenant, directorId) => PushedSessions.GetLastKnown(tenant, directorId),
             findSession: (tenant, sessionId) => PushedSessions.TryLocate(tenant, sessionId, _streamStaleAfter)?.Session,
             sendCommand: (directorId, command, ct) => SendCommandAsync(directorId, command, ct));
+        // Dev reports (issue #2958): four session routes (publish, list, read, reply - a session key, its own
+        // session only) and four owner routes (list, read, the HTML, send). The session routes are on the
+        // SessionKeyGuard allow list; the owner routes deliberately are not.
+        Api.DevReportEndpoints.Map(_app, _devReports, _devReportDelivery, _tenantBoundary);
+
         Api.DirectorRestartRequestEndpoints.Map(_app, restartRequests, _tenantBoundary,
             listForAccount: tenant => DirectorRestartRequests.List(tenant),
             listForMachine: (tenant, machine) => DirectorRestartRequests.List(tenant, machine),
@@ -5142,6 +5168,33 @@ public sealed class GatewayHost : IAsyncDisposable
     /// Director that holds the tunnel open and answers nothing cancels the InvokeAsync below rather than
     /// hanging forever. Do not add a second timeout here; two would drift.
     /// </summary>
+    /// <summary>
+    /// Whether a session can take the owner's dev report items now (issue #2958, PLAN-phase-2.md rules 3 and 4),
+    /// from the Gateway's own records - never by dialing the session. Live on the fresh roster and waiting for
+    /// input: idle. Live and working: busy. Exited on the roster, or absent from it with an ending on its history
+    /// row: ended. Absent with no ending - its machine is merely not connected - is busy, so its items are held.
+    /// </summary>
+    private DevReports.DevReportSessionLiveness DevReportSessionLiveness(TenantId tenant, string sessionId)
+    {
+        var located = PushedSessions.TryLocate(tenant, sessionId, _streamStaleAfter);
+        if (located is { } loc)
+        {
+            var state = loc.Session.ActivityState ?? "";
+            if (state is "Exited" or "Failed")
+                return new(DevReports.DevReportSessionReach.Ended, null, $"the roster shows the session {state}");
+            if (state is "WaitingForInput" or "Idle")
+                return new(DevReports.DevReportSessionReach.Idle, loc.DirectorId, $"waiting for input on director {loc.DirectorId}");
+            return new(DevReports.DevReportSessionReach.Busy, loc.DirectorId, $"the roster shows the session {state}");
+        }
+
+        Contracts.WorkHistorySessionDto? history;
+        using (_tenantBoundary.EnterScope(tenant))
+            history = _sessionHistory.Get(sessionId);
+        if (!string.IsNullOrEmpty(history?.EndingKind))
+            return new(DevReports.DevReportSessionReach.Ended, null, $"not on the roster, and its history says {history.EndingKind}");
+        return new(DevReports.DevReportSessionReach.Busy, null, "not on the roster, and nothing says it ended - its machine is not connected");
+    }
+
     public async Task<DirectorCommandResult?> SendCommandAsync(string directorId, DirectorCommand command, CancellationToken ct = default)
     {
         if (command is null) throw new ArgumentNullException(nameof(command));
