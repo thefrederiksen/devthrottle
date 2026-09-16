@@ -1,8 +1,9 @@
 """Work landed by a squash merge or a rebase gets new commit ids on the default branch.
 
-A rebase keeps each patch, so each commit is recognised as landed on its own. A squash does not: the
-squashed commit is not the same patch as any one of the worktree's commits, so squashed work is held
-unless its commits are also on a remote branch (for example the pull request branch, not yet deleted).
+A rebase keeps each patch, so each commit is recognised as landed on its own, while its content is still
+the default tip's. A squash does not: the squashed commit is not the same patch as any one of the
+worktree's commits, so squashed work is held unless its commits are also on a remote branch (for example
+the pull request branch, not yet deleted).
 
 The merges are simulated in the bare remote from a second clone, the way a host would do them."""
 
@@ -58,7 +59,7 @@ def test_squash_merged_work_whose_branch_is_still_on_the_remote_is_landed(local_
     assert w.slot(got["slot"])["state"] == "free"
 
 
-def test_rebased_work_is_landed_even_after_the_file_changed_again(local_world):
+def test_rebased_work_whose_file_changed_again_upstream_is_held(local_world):
     w = local_world
     got = w.get()
     path = Path(got["path"])
@@ -68,15 +69,16 @@ def test_rebased_work_is_landed_even_after_the_file_changed_again(local_world):
     commit_file(other, "unrelated.txt", "moved on\n", "the default branch moved on")
     git(other, "fetch", "-q", str(w.repo), sha)
     git(other, "cherry-pick", sha)
-    # A later change to the same file: the content check alone could no longer prove it;
-    # the patch-id match (git cherry) does.
+    # A later change to the same file. The patch is in the default branch's history, but the slot's
+    # content is not the tip's any more, and history alone is not proof (fix round 2): held. Nothing is
+    # lost here; the hold is the accepted cost of that rule.
     commit_file(other, "rebased.txt", "v2\n", "later edit")
     git(other, "push", "-q", "origin", w.default_branch)
 
     res = w.run("return", got["path"], "--lease", got["lease"], "--json")
 
-    assert res.code == 0, res.out + res.err
-    assert w.slot(got["slot"])["state"] == "free"
+    assert res.code == EXIT_HELD, res.out + res.err
+    assert "not in the current default branch" in w.slot(got["slot"])["reason"]
 
 
 def test_partly_landed_work_is_held(local_world):
@@ -94,5 +96,7 @@ def test_partly_landed_work_is_held(local_world):
     res = w.run("return", got["path"], "--lease", got["lease"], "--json")
 
     assert res.code == EXIT_HELD, res.out + res.err
-    assert "1 commit is on no remote" in w.slot(got["slot"])["reason"]
+    # The stranded commit's file is not in the default branch, so the content of the slot is not the
+    # tip's and the landed patch is not proven either: both are named.
+    assert "2 commits are on no remote" in w.slot(got["slot"])["reason"]
     assert (path / "stranded.txt").exists()

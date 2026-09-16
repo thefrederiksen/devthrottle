@@ -34,7 +34,8 @@ Pooled git worktrees. A worktree is only reset when its work has provably landed
 
 A slot is reset only when: nothing uncommitted or untracked, the remote was fetched just now, the
 default branch was read from the remote, and every commit is on a remote branch or already in the
-default branch as the same patch, each commit on its own. Anything unproven means held.
+default branch as the same patch, each commit on its own, with that content still in the default
+branch's current tip. Anything unproven means held.
 
 Add --json to any command for machine-readable output.
 

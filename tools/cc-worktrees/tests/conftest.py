@@ -193,3 +193,19 @@ def pytest_terminal_summary(terminalreporter):
         names = ", ".join(sorted(HOSTED_ENV[k] for k in _SKIPPED_HOSTED))
         terminalreporter.write_sep("!", "HOSTED REMOTE RUNS WERE SKIPPED - A SKIP IS NOT A PASS")
         terminalreporter.write_line(f"Not set: {names}")
+
+
+@pytest.fixture
+def in_process(local_world, monkeypatch):
+    """The local world, with the pool driven in this process so a test can put a step between two of
+    its calls. Returns (world, pool module, landed module)."""
+    monkeypatch.setenv("CC_WORKTREES_HOME", str(local_world.home))
+    for key, value in GIT_ENV.items():
+        monkeypatch.setenv(key, value)
+    import landed
+    import pool
+    return local_world, pool, landed
+
+
+def on_any_ref(repo: Path, commit: str) -> bool:
+    return commit in git(repo, "rev-list", "--all").split()

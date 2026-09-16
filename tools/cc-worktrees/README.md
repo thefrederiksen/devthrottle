@@ -48,8 +48,14 @@ A worktree is reset only when all of these are positively proven, in this order:
    assumed to be `main` and the local `origin/HEAD` is never used.
 4. The remote was fetched just now (`git fetch --prune origin +refs/heads/*:refs/remotes/origin/*`).
    `--prune` matters: a tracking ref for a branch deleted on the remote must not count as proof.
-5. Every commit reachable from HEAD is checked on its own: it is on an `origin` branch, or it is the
-   same patch as a commit in the default branch (`git cherry`, which recognises a rebase). Files that
+5. Every commit reachable from HEAD is checked on its own. It counts as landed only when it is on an
+   `origin` branch, or when both of these hold: it is the same patch as a commit in the default
+   branch's history (`git cherry`, which recognises a rebase), AND, for every path that any commit on
+   no remote branch touches, the slot's content equals the content of the current default branch tip.
+   A patch in the history is not content in the tip: a patch that was landed and then reverted is held.
+   So is landed work whose paths upstream changed again afterwards, even though nothing is lost there;
+   that is accepted, and a later phase may release it through the host's own record of the merge. For
+   a commit found only in the reflog, the same comparison uses that commit's own content. Files that
    merely end up the same are never proof for the commits behind them.
    - A commit that differs from a landed one only in its message counts as landed, so the message
      itself is not protected.

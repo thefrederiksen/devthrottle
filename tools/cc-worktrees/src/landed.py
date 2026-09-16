@@ -6,8 +6,8 @@ A worktree may be reset only when every one of these is positively proven:
 2. The remote was fetched successfully just now.
 3. The default branch was read from the remote itself (never assumed, never the local origin/HEAD).
 4. Every commit reachable from HEAD and on no remote branch is, on its own, the same patch as a commit
-   in the default branch (a rebase). A matching final snapshot is never proof for the commits behind
-   it, so work landed only by a squash is not proven here.
+   in the default branch (a rebase), and that content is in the CURRENT default tip. A matching final
+   snapshot is never proof for the commits behind it, so work landed only by a squash is not proven here.
 
 Anything that cannot be proven is NOT landed. The caller holds the worktree with the reason.
 
@@ -201,15 +201,43 @@ def _short_list(commits: list[str], limit: int = 5) -> str:
     return shown + (f" and {len(commits) - limit} more" if len(commits) > limit else "")
 
 
-def unproven_commits(worktree: Path, tip: RemoteTip, tips: list[str]) -> list[str]:
+def _z_paths(worktree: Path, *args: str) -> set[str]:
+    return {item for item in gitrun.run(worktree, *args).stdout.split("\0") if item}
+
+
+def _content_differs(worktree: Path, tip: RemoteTip, start: str, stray: list[str]) -> bool:
+    """True when `start` and the current default tip differ at any path a stray commit touches.
+
+    Paths are compared as exact bytes, merges against every parent, a root commit against nothing."""
+    touched: set[str] = set()
+    for commit in stray:
+        touched |= _z_paths(worktree, "diff-tree", "-r", "-m", "--root", "--no-commit-id", "--name-only", "-z",
+                            "--no-renames", commit)
+    if not touched:
+        return False
+    differing = _z_paths(worktree, "diff", "--name-only", "-z", "--no-renames", tip.commit, start)
+    return bool(touched & differing)
+
+
+@dataclass(frozen=True)
+class Unproven:
+    commits: list[str]      # every commit not proven landed, newest first
+    not_current: list[str]  # of those, the ones that are the same patch but whose content is not in the tip
+
+
+def unproven_commits(worktree: Path, tip: RemoteTip, tips: list[str]) -> Unproven:
     """Every commit reachable from `tips` that is not individually proven landed, newest first.
 
     A commit is landed only when it is on a remote branch, or when it is the same patch as a commit in
-    the default branch (git cherry marks it "-"). Nothing else counts: a squash, or a final snapshot
-    that happens to match, says nothing about the commits behind it. An empty git answer where commits
-    exist proves nothing, so a tip with no stray commits must also be positively found on a remote.
+    the default branch (git cherry marks it "-") AND that content is in the default branch NOW: for every
+    path that any stray commit of the same start touches, the start's content equals the current default
+    tip's. A patch that was landed and then reverted, or whose paths were changed again since, is not
+    landed. A squash, or a final snapshot that happens to match, says nothing about the commits behind
+    it. An empty git answer where commits exist proves nothing, so a tip with no stray commits must also
+    be positively found on a remote.
     """
     unproven: list[str] = []
+    not_current: list[str] = []
     seen: set[str] = set()
     for start in tips:
         stray = gitrun.out(worktree, "rev-list", start, "--not", f"--remotes={REMOTE}").split()
@@ -219,28 +247,37 @@ def unproven_commits(worktree: Path, tip: RemoteTip, tips: list[str]) -> list[st
             if not on_remote:
                 raise cannot_verify(f"{start[:12]} lists no commit to check and is on no remote branch")
             continue
-        # "- <sha>": the same patch is already in the default branch. "+ <sha>", a merge commit (git
-        # cherry never lists one) or a commit git cherry does not mention at all stays unproven.
+        # "- <sha>": the same patch is already in the default branch's history. "+ <sha>", a merge commit
+        # (git cherry never lists one) or a commit git cherry does not mention at all stays unproven.
         cherry = gitrun.out(worktree, "cherry", tip.commit, start)
         same_patch = {line.split()[1] for line in cherry.splitlines() if line.startswith("- ")}
+        # History is not content: a matched patch counts only while its content is in the tip now.
+        stale = bool(same_patch & set(stray)) and _content_differs(worktree, tip, start, stray)
         for commit in stray:
             if commit in seen:
                 continue
             seen.add(commit)
             if commit not in same_patch:
                 unproven.append(commit)
-    return unproven
+            elif stale:
+                unproven.append(commit)
+                not_current.append(commit)
+    return Unproven(unproven, not_current)
 
 
 def require_commits_landed(worktree: Path, tip: RemoteTip, tips: list[str]) -> None:
     try:
-        unproven = unproven_commits(worktree, tip, tips)
+        found = unproven_commits(worktree, tip, tips)
     except GitError as ex:
         raise cannot_verify(ex.short()) from ex
-    if unproven:
-        count = len(unproven)
+    if found.commits:
+        count = len(found.commits)
         noun = "1 commit is" if count == 1 else f"{count} commits are"
-        raise NotLanded(f"{noun} on no remote: {_short_list(unproven)}")
+        reason = f"{noun} on no remote: {_short_list(found.commits)}"
+        if found.not_current:
+            reason += (f"; the same patch is in the default branch's history, but its content is not in the "
+                       f"current default branch: {_short_list(found.not_current)}")
+        raise NotLanded(reason)
 
 
 @dataclass(frozen=True)
