@@ -28,9 +28,11 @@ cut from `origin/main` at `66609c3c`. Rebase onto origin/main before each slice.
 
 ## State
 
-- Phase: slice 1 (the inbox and the gate) is BUILT, committed and pushed on `mission/message-load`,
-  rebased onto origin/main at `e6f763f2` on 16 September 2026. No pull request opened (the Architect's).
-- Next: the Architect's Codex inspection of slice 1, then slice 2 (the doorbell).
+- Phase: slice 1 (the inbox and the gate) is BUILT, inspected (FAIL), and its FIX ROUND is pushed on
+  `mission/message-load` (16 September 2026; see "Slice 1 fix round" at the end). No pull request opened
+  (the Architect's).
+- Next: the Architect's decision on the open question in the fix round section, a re-inspection if wanted,
+  then slice 2 (the doorbell).
 - Open decisions: none new. Judgement calls made inside the brief are listed below for the inspector.
 
 ## Slice 1 - what was built
@@ -178,3 +180,107 @@ Inspection 1 verdict: FAIL for merge. Every finding is accepted. Rulings, in the
 
 Then: the full Gateway unit and route suites, the cc-devthrottle tests, each new guard watched
 failing. Update this note, commit, push, `session raise "slice 1 fix round pushed"`, stop.
+
+## Slice 1 fix round (16 September 2026)
+
+Six commits on `mission/message-load`, one per ruling, in order, on top of `2d529de5` (the Postgres
+proofs). Every guard below was watched failing with the fix reverted, then restored and seen green.
+
+### What changed, per item
+
+1. **Verdict answer closed** (`1682086d`). `SessionKeyGuard.IsAgentInput` now refuses
+   `POST /sessions/{sid}/turn-verdict/answer` with `AgentInputRefusal.Typing`; the allow entry is gone. The
+   feedback route beside it stays allowed. The route's own shadow rule is kept as a second wall (comment
+   says so). `TurnVerdictAnswerRouteTests` rewritten: a session key now gets the guard's 403
+   `session_key_out_of_scope` with colours ON and a live verdict; the device key on the same verdict still
+   reaches the screen read.
+   Red with the fix reverted: 2 guard cases (the literal path and a case-folded one) and 2 route tests - the
+   session key got 409 "screen unreadable", meaning it had reached the typing step.
+2. **No invented supervisor** (`e1cf6b5c`). `SpawnOrigin.TryEstablish`: a session key may declare only its
+   own id (compared as a GUID, stored in the Gateway's spelling) or `none`. Any other id is refused 403 with
+   `SpawnOrigin.NamedAnotherOwner` (pinned to a literal). Device keys and Director relays are unchanged.
+   Tests: unit (refused, self accepted, device unchanged, relay unchanged, wording pinned) and three route
+   tests on the real host with the tunnel Director (stranger named: 403 and no `create` sent; self named:
+   `create` sent with controller and parent = caller; owner's token naming the stranger: created).
+   Command line help (`--controlled-by`, and the "say who owns it" error block) no longer offers
+   `--controlled-by <another id>`.
+   Red with the fix reverted: the unit refusal test, and the route test answered **201 Created** for a
+   session owned by the stranger.
+3. **`session raise` works** (`f9b087d6`). `needs-manager` added to the guard's session POST list; the route
+   refuses a session key raising any hand but its own (403, `GatewayEndpoints.NeedsManagerNotYours`, pinned
+   in the test). **Found while doing this: the route carried the only `.RequireAuthorization()` in the
+   Gateway, and the Gateway registers no authorization middleware, so the route answered 500 on every
+   Gateway to every caller - owner included.** The marker is removed (comment says why). Route tests: own
+   hand 200 with the reason echoed and nothing sent to the Director; another session's hand 403.
+   Red, three separate reverts: guard entry removed (both route tests and the guard case red, the own raise
+   403); own-id check removed (raising worker B's hand from worker A answered 200); marker restored (both
+   route tests 500).
+4. **Inbox recovery widened** (`b717f0d6`). `FleetMessageLimits.RecentReadWindow` = 24 hours;
+   `FleetMessageStore.ReadInbox` returns every message whose READ time is within the window, no count cap
+   (`RecentReadCount` deleted). The service passes the limit. Help for `message inbox --all`, its action
+   catalogue entry, the function docstring and the contract comment say "every message read in the last 24
+   hours" and why (a lost read is recovered this way). Tests: 30 separately-read messages all return; the
+   window is measured from the read, not the write (a message written three days earlier and read a minute
+   ago comes back), inclusive at 24 hours, gone a minute later; the service uses the product window; the
+   24 hours pinned; the help text asserted.
+   Red: cap of 20 restored (30-message test); window filter removed (2 tests); window set to 48 hours
+   (3 tests); help reworded (help test).
+5. **Constants pinned** (`2b3b14ac`). `MaxTextLength` asserted as 16,000 and the boundary test uses the
+   literals 16,000 / 16,001; both advice sentences asserted against their full literal text; a test that the
+   policy tests run with `FleetMessageLimits.Default`.
+   Red: cap 8,000 (2 tests); each sentence reworded (1 test each).
+6. **Broadcast exit code stated** (`d09930fd`). One sentence, identical in `message send --help` and the
+   `_report_broadcast` docstring (`BROADCAST_EXIT_RULE`, referenced on the exit line): exit 0 when queued or
+   an identical message already waits unread (for `all`, true of at least one worker), 1 when nothing was
+   queued and nothing was waiting. Behaviour unchanged. Tests: an all-duplicate broadcast exits 0; the
+   sentence is in both places.
+   Red: exit condition narrowed to "queued only" (the all-duplicate test); help sentence reworded (the
+   wording test).
+
+### OPEN - needs the Architect: item 2 breaks the Director-restart restore command as written
+
+`DrainRestoreCommand.Build` (`src/CcDirector.ControlApi/Drain/DrainRestoreCommand.cs`) writes restore
+commands of the form `cc-devthrottle session spawn ... --controlled-by <the controller's id>` (a placeholder
+for a controller restarted in the same drain, the real id for one on another Director). Whoever runs those
+commands is normally a session (the director-restart skill), and the controller is normally not that
+session. Under ruling 2 the Gateway now **refuses** every such spawn with 403. The drain itself is
+unchanged and its tests stay green, because they only check the command text; nothing here runs it. The
+same `--controlled-by <session-id>` line is still taught in the shipped `fleet-comms` skill
+(`src/CcDirector.Gateway/Skills/Content/fleet-comms.skill.md` and its `.claude/skills` copy) and in
+`docs/cli-reference.md` - those are slice 5 words and were not edited here.
+Recommendation: keep ruling 2 (it is the relationship boundary) and change the restore so the restoring
+session spawns with `--controlled-by self` and hands the seat to its real controller some other way, or let
+the owner's device run the restore. That is a design choice, so it is left for the Architect.
+
+### What is proven
+
+The six rulings, each by a guard watched failing as listed above, on unit tests and, for items 1-3, on a
+real Gateway host with a recording tunnel Director.
+
+### What is NOT proven
+
+- Nothing ran against the hosted Gateway or a live Director. `session raise` from this session will only
+  work once this branch is deployed - until then the hosted Gateway refuses it at the guard, and had the
+  guard let it through, the route would have answered 500.
+- Item 2 on a live spawn: the route test proves the Gateway refuses before sending `create`; it does not
+  exercise a real Director's create path. The relayed-spawn arm (a Director's own key) is still trusted for
+  whatever controller the body names, as before - that is the boundary `SpawnOrigin` already documents.
+- Item 4 on PostgreSQL: the new `ReadAtUtc >= readSince` filter ran on SQLite only. No schema change.
+- The read-marks-read gap itself (inspection finding 3) is narrowed, not closed: a lost read is recoverable
+  for 24 hours with `--all`, and the recipient has to know to ask.
+- `scripts/test-local.ps1` not run (no PowerShell on the Mac); suites run directly.
+
+### Test totals (Mac, this tree, 16 September 2026)
+
+- Gateway unit tests: 4982 total, 4967 passed, 8 skipped, **7 failed - the same 7 named above**
+  (CronJobStore 1, WorkListStorePersistence 1, SessionCommandExecutorLiveness 3, RuleCandidateFilter 1,
+  RulePrimitives 1). No new failure.
+- Gateway route tests (full suite): 2522 total, 2458 passed, 48 skipped, **16 failed - exactly the 16
+  already named above** (ContextLessRouteCensus 1, FleetSpawnMissionAttach 2, FleetSpawnOrigin 4,
+  TunnelRosterPushReadProof 3, WorkflowSeat 2, GatewayTestSuiteLock 2, HostedProcessControlDeny 2). No new
+  failure; the two attribution failures from slice 1 stay fixed.
+- cc-devthrottle tests: 1741 passed (1738 before, plus 3 new).
+- `tools/cc_shared` tests (a sanity run, not touched here): 220 passed, 1 failed with
+  `ModuleNotFoundError: mdit_py_plugins` - a package missing from this machine's scratch environment, not
+  a code failure.
+- Core tests: not rerun - nothing in Core changed in this round.
