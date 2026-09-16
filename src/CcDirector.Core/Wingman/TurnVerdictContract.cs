@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using System.Text.Json;
 using CcDirector.Core.Claude;
 using CcDirector.Core.Utilities;
@@ -34,8 +34,18 @@ public static class TurnVerdictContract
     /// v1: the judge contract as slice C shipped it. v2 (slice D): the prompt gained finishedKind and the
     /// owned-sessions facts, and validation requires finishedKind on a finished verdict and refuses it on
     /// every other. Records stored under v1 keep their v1 stamp and stay readable; nothing reads the
-    /// version to decide whether a record may be shown.</summary>
-    public const string Version = "v2";
+    /// version to decide whether a record may be shown.
+    ///
+    /// v2.1 (2026-09-16): the SPOKEN section only. The judge no longer writes the session title - it is
+    /// prepended from the record after the answer - and it is told plainly that no downstream step LOOKS
+    /// FOR an identifier it leaves in. (A general Markdown pass does run before synthesis and drops fenced
+    /// blocks whole; it is not identifier-specific and is no safety net, which is what the judge is told.) An earlier draft of this note said the opposite, promising a scrub that
+    /// was written, reviewed three times and then deleted because no pattern separates an identifier from
+    /// a number in prose without deleting real answers. Nothing about the JSON shape or validation changed, which is why the
+    /// resource file keeps its v2 name and the grading tool keeps its path: renaming it would move a file
+    /// the grader reads, for a revision that cannot change how any stored record is read. The stamp still
+    /// moves, so a record can say which wording produced it.</summary>
+    public const string Version = "v2.1";
 
     /// <summary>The embedded name of the prompt template. The grading tool reads the same file off
     /// disk at src/CcDirector.Core/Wingman/Prompts/turn-verdict-v2.txt; a test pins the two to be

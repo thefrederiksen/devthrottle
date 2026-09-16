@@ -2210,16 +2210,6 @@ public sealed class GatewayHost : IAsyncDisposable
     }
 
     /// <summary>
-    /// The title of a session, for the wingman to speak first (WingmanTranslator.FidelityPrompt
-    /// v5.2). Reads the pushed-session store, so it costs no round trip and stays inside the same
-    /// stream-freshness window as every other stream-mode read.
-    ///
-    /// Returns null when the session is unknown or has no name, and that is deliberate rather than
-    /// a placeholder: the prompt rule no-ops on a missing title, so the listener gets an untitled
-    /// narration - whereas inventing something ("unknown session", the raw id) would either mislead
-    /// or read out an identifier, which the same instructions explicitly forbid.
-    /// </summary>
-    /// <summary>
     /// The fresh fleet snapshot for the tenant of the CURRENT unit of work (Hosted Multi-Tenancy,
     /// session-serving PR2) - the request scope, the tunnel connection scope, or the per-tenant background
     /// pass. Self-host always resolves Local, so this is the same read as before. On hosted with no scope in
@@ -2324,6 +2314,23 @@ public sealed class GatewayHost : IAsyncDisposable
         return !_turnPushCapabilities.PushesTurns(tenant, located.DirectorId);
     }
 
+    /// <summary>
+    /// The title of a session, which every narration is spoken with in front of it. Reads the
+    /// pushed-session store, so it costs no round trip and stays inside the same stream-freshness window
+    /// as every other stream-mode read.
+    ///
+    /// THE TITLE IS PREFIXED FROM THIS RESULT, by <c>SpokenForEar</c> when the audio is assembled. It used
+    /// to be the judge's job, and the judge got it wrong - a session called "Wingman Inspector - Cockpit
+    /// tab" was narrated "Wingman Inspector mobile" - so from contract v2.1 the prompt tells it not to
+    /// write one. This doc block used to cite WingmanTranslator.FidelityPrompt as the mechanism; that is
+    /// the legacy translator path and has no production caller. It was also attached to the WRONG MEMBER,
+    /// sitting above AmbientSnapshotFresh with nothing documenting this method at all.
+    ///
+    /// Returns null when the session is unknown or has no name, and that is deliberate rather than a
+    /// placeholder: the assembly no-ops on a missing title, so the listener gets an untitled narration -
+    /// whereas inventing something ("unknown session", the raw id) would either mislead or read out an
+    /// identifier, which the spoken instructions explicitly forbid.
+    /// </summary>
     private string? ResolveSessionTitle(TenantId tenant, string sessionId)
     {
         if (!tenant.IsValid)
@@ -2851,9 +2858,11 @@ public sealed class GatewayHost : IAsyncDisposable
         // #186 by Director doorbell pings and heartbeat snapshots (wired into the endpoints below);
         // the only pull left is the one-time startup catch-up sweep.
         FileLog.Write("[GatewayHost] StartAsync: starting the turn-end watcher (voice auto-refresh only; turn-brief pipeline retired in #549)");
-        // sessionTitleResolver: the wingman opens every narration with the session's title, so a
-        // listener with the phone in a pocket knows WHICH session is talking before anything else
-        // (WingmanTranslator.FidelityPrompt v5.2). Push-store read - no dial. See ResolveSessionTitle.
+        // sessionTitleResolver: every narration opens with the session's title, so a listener with the
+        // phone in a pocket knows WHICH session is talking before anything else. The title is prefixed
+        // from THIS record by SpokenForEar at assembly - it is no longer written by the model, which got
+        // it wrong (the cited FidelityPrompt is the legacy translator path and has no production caller).
+        // Push-store read - no dial. See ResolveSessionTitle.
         _voiceService ??= new Wingman.WingmanVoiceService(WingmanBrainAsync, _keyVault, _tenantSettingsResolver,
             instructionsProvider: () => _instructionsStore.ActiveContent,
             sessionTitleResolver: ResolveSessionTitle,
@@ -3736,9 +3745,11 @@ public sealed class GatewayHost : IAsyncDisposable
         // Wingman-voice surface for the Cockpit's Voice tab (issue #531): drive one turn of a
         // session and have the persistent wingman brain translate the reply into speakable form,
         // plus the direct-to-wingman path. Backed by the same warm Brain the brief agent uses.
-        // sessionTitleResolver: the wingman opens every narration with the session's title, so a
-        // listener with the phone in a pocket knows WHICH session is talking before anything else
-        // (WingmanTranslator.FidelityPrompt v5.2). Push-store read - no dial. See ResolveSessionTitle.
+        // sessionTitleResolver: every narration opens with the session's title, so a listener with the
+        // phone in a pocket knows WHICH session is talking before anything else. The title is prefixed
+        // from THIS record by SpokenForEar at assembly - it is no longer written by the model, which got
+        // it wrong (the cited FidelityPrompt is the legacy translator path and has no production caller).
+        // Push-store read - no dial. See ResolveSessionTitle.
         _voiceService ??= new Wingman.WingmanVoiceService(WingmanBrainAsync, _keyVault, _tenantSettingsResolver,
             instructionsProvider: () => _instructionsStore.ActiveContent,
             sessionTitleResolver: ResolveSessionTitle,

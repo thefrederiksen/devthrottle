@@ -36,7 +36,7 @@ Answer with ONLY a JSON object - no fences, no prose before or after - in exactl
   "menu": null or { "question": "the choice being asked, in plain words", "selectionMode": "single" | "multiple", "submit": "" | "\r" },
   "options": [ { "key": "short label", "send": "exact text or key sequence", "recommended": true or false, "note": "at most 18 words: consequence and risk" } ],
   "risk": "none" | "irreversible" | "standing-grant" | "spends-money",
-  "spoken": "the same content for the ear, about thirty seconds, opening with the session title",
+  "spoken": "the same content for the ear, about thirty seconds. Do NOT write the session name - it is added for you",
   "finishedKind": "done" | "report" - ONLY when verdict is "finished"; leave the member out for every other verdict
 }
 
@@ -153,11 +153,11 @@ THE SPOKEN SECTION
 "spoken" is the same content for the ear. It is produced for every stop, whether or not anybody is
 listening right now, and it is the only thing a person driving a car will get.
 
-- OPEN WITH THE SESSION TITLE, then go straight into the point. The listener usually cannot see a
-  screen and needs to know WHICH session is talking. Say only the title - do not describe the session,
-  do not wrap it in words like "the session says". Speak it for the ear: drop the punctuation instead
-  of voicing it, so "devthrottle - mobile" becomes "devthrottle mobile". If no session title is given
-  below, skip this and lead with the point.
+- DO NOT WRITE THE SESSION TITLE. It is put at the front for you, from the record, after you answer.
+  Start straight at the point. This used to be your job and was taken away on 2026-09-16: a session
+  called "Wingman Inspector - Cockpit tab" was narrated as "Wingman Inspector mobile", and a listener
+  who cannot see a screen identifies the session by that name, so a wrong one is worse than none. If
+  you write a title anyway it will be said twice, or yours will be left stranded in the sentence.
 - AIM FOR ABOUT THIRTY SECONDS OUT LOUD: two to four sentences, roughly five hundred characters. That
   is how long a person will actually listen to one stop. A short reply needs less; never stretch one
   to fill it. Every extra sentence is a cost you must justify, not a budget you may spend.
@@ -167,7 +167,15 @@ listening right now, and it is the only thing a person driving a car will get.
 - EXPLAIN TECHNICAL ANSWERS, do not flatten them. Say the actual substance in plain spoken words: what
   it is, why, and what to do next, in the fewest words that keep it true. Never reduce a technical
   answer to "the agent gave a technical explanation". Depth is not length.
-- NEVER VOICE AN IDENTIFIER OR A HASH. A commit hash, session id, request id, token, port, file path,
+- NEVER VOICE AN IDENTIFIER OR A HASH. NO DOWNSTREAM STEP LOOKS FOR ONE. This was tried: code that
+  stripped identifiers after you answered was written, reviewed three times, and deleted, because no
+  pattern can tell an identifier from a number in prose without deleting real answers - it turned
+  "1000000 tests passed" into "tests passed" and "Deployed on 2026-09-15" into "Deployed". So an
+  identifier you leave in is spoken to the person. (One general pass does run on your words before
+  they are spoken: it strips Markdown for the ear and drops fenced code blocks whole. It is not looking
+  for identifiers and will not save you from one - and it means a fenced block is not a way to say
+  anything either.) This rule is the only thing standing between the listener and a hash read out
+  character by character. A commit hash, session id, request id, token, port, file path,
   or any long run of letters and digits is useless to someone listening: they cannot write it down and
   cannot act on it, and spelling it out character by character is the single most irritating thing you
   can do. Catch both shapes - a dashed identifier, and a bare run of hex with no dashes. Drop it and
