@@ -145,11 +145,19 @@ jobs:
   # on main with nobody to see it. A guard nobody runs cannot fail, and a red nobody sees is
   # indistinguishable from green. Found while cutting cc-playwright from the toolbelt (#1002).
   #
-  # Windows on purpose: these tools are installed and run on Windows, and that is where this suite
-  # was verified. The dependencies are named explicitly rather than installed from cc-devthrottle's
-  # pyproject, because that package depends on the local cc-shared distribution which is not on
-  # PyPI. If a dependency is added this job fails loudly with a ModuleNotFoundError rather than
-  # quietly skipping anything.
+  # All three operating systems on purpose. This job used to run on Windows alone, because that is
+  # where the tools are installed and where the suite was first verified - and a suite that only
+  # ever runs on one operating system proves the tool works on one operating system. The AXI work
+  # (#2922) requires cc-devthrottle to be proven on Windows, macOS and Linux, so the matrix came
+  # first and the output changes came after. It found a real Windows-shaped assumption on the first
+  # run: the setup doctor test put only the install bin directory on PATH, which is where the shim
+  # lives on Windows, while on macOS and Linux the shim is a link in the user's own ~/.local/bin -
+  # so the doctor correctly reported the tool as unresolvable and the test called that a failure.
+  #
+  # The dependencies are named explicitly rather than installed from cc-devthrottle's pyproject,
+  # because that package depends on the local cc-shared distribution which is not on PyPI. If a
+  # dependency is added this job fails loudly with a ModuleNotFoundError rather than quietly
+  # skipping anything.
   #
   # cc-devthrottle's own tests run here too. Adding them was the first thing this job did, and it
   # immediately found why they had never survived an unattended run: five asserted plain substrings
@@ -158,7 +166,14 @@ jobs:
   # the suite is required to be green both with colour and without.
   tool-contracts:
     name: Tool contracts (Python)
-    runs-on: windows-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Never stop the other operating systems when one fails. A failure on one of them is exactly
+      # the information this matrix exists to produce, and cancelling the rest hides whether the
+      # fault is platform-specific or everywhere.
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
 
     steps:
       - uses: actions/checkout@v5

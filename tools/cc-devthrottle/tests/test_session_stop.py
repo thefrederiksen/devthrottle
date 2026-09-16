@@ -772,7 +772,9 @@ def test_json_is_valid_json_even_when_a_line_is_far_wider_than_a_console(gateway
     import json as _json
 
     answer = _stopped()
-    answer["details"] = ["the worktree " + ("C:\Repos\a-very-long-path" * 12) + " was left untouched"]
+    answer["details"] = [
+        "the worktree " + (r"C:\Repos\a-very-long-path" * 12) + " was left untouched"
+    ]
     gateway_stub(answer)
 
     result = runner.invoke(app, ["session", "stop", SHORT_ID, "-r", "why", "--json"])

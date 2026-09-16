@@ -19,6 +19,10 @@ def _script_target(root: Path, script: str) -> Path:
     return root / "pyenv" / "bin" / script
 
 
+def _user_bin() -> Path:
+    return Path.home() / ".local" / "bin"
+
+
 def _write_healthy_script(root: Path, script: str) -> None:
     target = _script_target(root, script)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -29,7 +33,7 @@ def _write_healthy_script(root: Path, script: str) -> None:
         (bin_dir / f"{script}.cmd").write_text("@echo off\r\n", encoding="utf-8")
         (bin_dir / script).write_text("#!/bin/sh\n", encoding="utf-8")
     else:
-        user_bin = Path.home() / ".local" / "bin"
+        user_bin = _user_bin()
         user_bin.mkdir(parents=True, exist_ok=True)
         shim = user_bin / script
         shim.write_text("#!/bin/sh\n", encoding="utf-8")
@@ -43,7 +47,16 @@ def isolated_install(monkeypatch, tmp_path):
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
     monkeypatch.setenv("USERPROFILE", str(tmp_path / "profile"))
     monkeypatch.setenv("HOME", str(tmp_path / "profile"))
-    monkeypatch.setenv("PATH", str(root / "bin"))
+    # On Windows the shim that makes a tool resolvable is written into the install bin
+    # directory; on macOS and Linux it is a link in the user's own ~/.local/bin. Both
+    # directories have to be on PATH or `shutil.which` cannot see the healthy install
+    # this fixture is standing up, and the doctor reports a problem that does not exist.
+    # PATH held only the install bin directory, so the suite was green on Windows and
+    # red everywhere else.
+    search_path = [str(root / "bin")]
+    if os.name != "nt":
+        search_path.append(str(Path(tmp_path / "profile") / ".local" / "bin"))
+    monkeypatch.setenv("PATH", os.pathsep.join(search_path))
     if os.name == "nt":
         monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
     return root
