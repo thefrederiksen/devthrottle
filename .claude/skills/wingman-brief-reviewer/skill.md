@@ -1,9 +1,34 @@
 ---
 name: wingman-brief-reviewer
-description: Adversarial cold-reader review of saved wingman turn briefs - blind-judges the brief alone, then checks it against TurnPackage terminal evidence, scores content + visual presentation, emits an HTML verdict report with a should-be rewrite. Triggers on "/wingman-brief-reviewer", "review briefs", "review the wingman", "wingman review loop".
+description: RETIRED 2026-09-16 - do not run it. It reviewed saved wingman turn BRIEFS, whose writer was retired in issue #549 and whose contract class was deleted by the Wingman-on-every-turn mission. What a stop means is now decided by the turn VERDICT (docs/architecture/wingman/TURN_VERDICT.md), and a wrong verdict is reported by the owner from the verdict panel rather than reviewed by a model. Kept only as the record of the cold-reader reasoning the verdict inherited.
 ---
 
 # Wingman Brief Reviewer
+
+> **RETIRED, 2026-09-16. Do not run this skill; there is nothing left for it to review.**
+>
+> It reviewed saved turn BRIEFS. The writer that produced them was retired in issue #549, the
+> Gateway surface that served them went with it, and on 2026-09-16 the mission "Wingman On Every
+> Turn" deleted `TurnBriefContract.cs` - the contract this skill names as "the contract under
+> review". The brief store it reads, `gateway-turnbriefs`, has not been written to since #549,
+> so every path in the tables below points at either a deleted class or a frozen directory.
+>
+> **What replaced it:** the turn VERDICT - one structured question per stop, answered against a
+> closed vocabulary and validated mechanically. Its specification is
+> `docs/architecture/wingman/TURN_VERDICT.md`; the charter section is `docs/wingman/WINGMAN.md`
+> section 3b.
+>
+> **What replaced this review loop:** the owner's own correction. A verdict panel on the Cockpit
+> and the phone carries "This is wrong", which records a correction through
+> `POST /sessions/{sid}/turn-verdict/feedback`; the labelling tool in the internal repository
+> pulls those into the labelled corpus, where an owner label outranks a two-family reviewer
+> label. A cold-reader review by a model is no longer how a verdict is judged wrong - the owner
+> is.
+>
+> **Kept rather than deleted, deliberately.** The cold-reader framing below, and the rounds of
+> findings that produced it, are the reasoning behind the verdict's own label, summary and
+> receipt rules. Deleting it would leave a hole where the argument is. Read it as history.
+
 
 Automated cold-reader review of wingman turn briefs (epic #203; feeds #208 wingman-learn
 and #209 eval harness). The reviewer simulates the person the brief exists for: someone

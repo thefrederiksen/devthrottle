@@ -17,8 +17,9 @@ namespace CcDirector.Core.Wingman;
 /// </summary>
 public static class DictatedPromptResolver
 {
-    /// <summary>Substitution cap; mirrors the user-prompt truncation budget in
-    /// <see cref="TurnBriefContract"/>'s prompt assembly.</summary>
+    /// <summary>Substitution cap. It mirrored the user-prompt truncation budget of the turn-brief
+    /// contract, which was deleted with that pipeline in 2026-09; the number is kept as this class's
+    /// own bound rather than re-pointed at a different document's budget.</summary>
     public const int MaxChars = 4_000;
 
     private static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(50);

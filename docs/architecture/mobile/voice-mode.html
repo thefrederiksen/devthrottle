@@ -349,7 +349,7 @@ turn runs ........ bytes .....> turn-end detected
   <table>
     <tr><th>Capability</th><th>Where</th><th>Status</th></tr>
     <tr><td>Wingman charter: strong model (Opus), read-only, one write chokepoint, fail-closed</td><td><code>src/CcDirector.Core/Wingman/</code>, <code>docs/wingman/WINGMAN.md</code></td><td><span class="pill exists">EXISTS</span></td></tr>
-    <tr><td>Per-turn narrative with <code>needsYou.selectionMode (single|multiple)</code> + <code>options[]</code> + <code>railLine</code> + evidence</td><td><code>TurnBriefContract.cs</code>, <code>docs/architecture/wingman/TURN_BRIEFING.md</code></td><td><span class="pill exists">EXISTS</span></td></tr>
+    <tr><td>Per-turn narrative with a menu selection mode, options and a verbatim receipt</td><td><code>TurnVerdictContract.cs</code>, <code>docs/architecture/wingman/TURN_VERDICT.md</code> (this row named <code>TurnBriefContract.cs</code> and <code>TURN_BRIEFING.md</code> until 2026-09-16; both were superseded by the turn verdict and the contract class was deleted)</td><td><span class="pill exists">EXISTS</span></td></tr>
     <tr><td>The "warm brain": one persistent Wingman session (a real session, NOT print mode, billed to subscription)</td><td><code>src/CcDirector.Gateway/Wingman/WingmanTranslator.cs</code></td><td><span class="pill exists">EXISTS</span></td></tr>
     <tr><td>Text-to-speech (OpenAI "nova"), returned as <code>audio/mpeg</code> bytes (not base64)</td><td><code>POST /wingman/tts</code></td><td><span class="pill exists">EXISTS</span></td></tr>
     <tr><td>Per-session audio + metadata cache, survives Gateway restart (issue #553)</td><td><code>WingmanVoiceService.cs</code>, <code>/voice-audio/</code></td><td><span class="pill exists">EXISTS</span></td></tr>

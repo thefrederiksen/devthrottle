@@ -65,9 +65,11 @@ public sealed class TurnBriefDto
     /// wingman never acts. Null on pre-v2.4 and degrade-tier briefs.</summary>
     public TurnBriefSuggestedAction? SuggestedAction { get; set; }
 
-    /// <summary>Which TurnBriefContract version produced this brief (v3.1, issue #208):
-    /// stamped mechanically at validation time so review rounds and the eval harness can
-    /// compare briefs across contract deploys. Null on pre-v3.1 briefs.</summary>
+    /// <summary>Which turn-brief contract version produced this brief (v3.1, issue #208):
+    /// stamped mechanically at validation time so review rounds and the eval harness could
+    /// compare briefs across contract deploys. Null on pre-v3.1 briefs. NOTHING STAMPS THIS ANY
+    /// MORE: the writer was retired in issue #549 and the contract class was deleted in 2026-09,
+    /// so every value here is historical data read back out of an old store.</summary>
     public string? ContractVersion { get; set; }
 
     /// <summary>The user prompt that started this turn, as the wingman saw it (v3.2,
