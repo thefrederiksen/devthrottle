@@ -130,3 +130,19 @@ The proof runs the full Chromium in its new headless mode, not Playwright's defa
 headless shell's renderer crashed on the built phone app every time a session on the rig was working (three
 tries in three), before any Reports code existed; the same page in a headed browser and in the new headless mode
 did not crash. This is recorded as a property of the test browser, not proven to be one: no real phone was tried.
+
+## Results on the merged phase 3 branch (2026-09-17)
+
+Run on this branch after merging `origin/mission/dev-reports-p3` at d94e3bd8b (main with phase 2, and the viewer
+4be0f5aee). The rig was rebuilt from that tree (every component reports version `2.4.0+e29932676`), and torn down
+afterwards: no process runs from the rig root, both rig tasks are unregistered, nothing listens on 7931 or 7941.
+
+- `rig-frame-e2e-2026-09-17.json`: **33 passed, 1 failed.** R1-R5, F1-F8 in both apps and E1-E8 pass. **E9 fails,
+  a product defect** (reported to the phase 3 Manager, not fixed here): the Cockpit, as a second browser, numbers
+  its notes from `n1` again; the phone already delivered `n1`, so the Gateway treats the Cockpit's first note as
+  that one, never holds its text, and the in-report tray lists it under Sent as "Delivered to the session". The
+  note is lost while reading as delivered. `steps.E9` holds the posted ids, the Gateway's items and both lists.
+- `frame-2026-09-17-<removal>.json`: all five guard removals print `RED CONFIRMED` - every claim each must turn
+  red went red in both the phone app and the Cockpit, and each removal matched in both bundles.
+- The earlier run on the viewer branch alone is kept in `evidence/dry-run-viewer-4be0f5aee/`; it shows the same
+  results, including the same E9 failure.
