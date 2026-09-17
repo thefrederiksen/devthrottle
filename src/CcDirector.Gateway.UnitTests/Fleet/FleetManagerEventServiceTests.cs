@@ -677,11 +677,13 @@ public sealed class FleetManagerEventServiceTests : IDisposable
             await _seat.StartTurnEnd(signal);
         }
         Assert.Empty(_env.Sends);
-        Assert.Equal(1, _env.DelaysStarted);   // the second stop rode on the batch the first one booked
 
         _env.ReleaseDelay();
         await _service.WhenIdleAsync();
 
+        // Counted once all the work has finished: the batch's wait starts on a pool thread, so a count taken before
+        // that could run reads nothing. The second stop rode on the batch the first one booked.
+        Assert.Equal(1, _env.DelaysStarted);
         var sent = Assert.Single(_env.Sends);
         Assert.StartsWith("[Fleet Manager events] 2 stops and 0 died", sent.Text);
     }
@@ -819,11 +821,14 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         Assert.Contains(e.Id, sent.Text);
     }
 
-    /// <summary>A reading that fails is delivered as a failure, with or without a stored record, never left waiting.</summary>
+    /// <summary>A reading that fails is delivered as a failure, with or without a stored record, never left waiting.
+    /// The batch is held until both readings are recorded: the first reading books the delivery, and without the hold
+    /// it can run before the second is recorded - then the second stop is rightly left for the next idle moment.</summary>
     [Fact]
     public async Task AStopWhoseReadingFails_IsDeliveredAsFailed()
     {
         await FleetManagerTurnEndAsync();
+        _env.HoldDelay();
         var failed = new TurnVerdictDto { VerdictId = "failed-1", Failed = true, FailureReason = "the judge did not answer" };
         _service.OnTurnEnd(Signal("worker-1"), wingmanRunning: true);
         _service.OnTurnEnd(Signal("worker-2"), wingmanRunning: true);
@@ -831,10 +836,13 @@ public sealed class FleetManagerEventServiceTests : IDisposable
             _now, new TurnVerdictOutcome { Kind = TurnVerdictOutcomeKind.Failed, Verdict = failed }));
         _service.OnReadingCompleted(new TurnVerdictReadingCompleted(Tenant, "worker-2", "dir-1", TurnVerdictTrigger.TurnEnd,
             _now, new TurnVerdictOutcome { Kind = TurnVerdictOutcomeKind.Failed }));
+        Assert.Empty(_env.Sends);
+
+        _env.ReleaseDelay();
         await _service.WhenIdleAsync();
 
         Assert.All(Open(), e => Assert.False(e.ReadingPending));
-        var text = string.Concat(_env.Sends.Select(x => x.Text));
+        var text = Assert.Single(_env.Sends).Text;
         Assert.Contains("verdict: failed - the judge did not answer. Read the session yourself.", text);
         Assert.Contains("verdict: none - the Wingman's reading failed and no record of it was stored. Read the session yourself.", text);
         Assert.All(Open(), e => Assert.Equal("fm", e.DeliveredTo));
