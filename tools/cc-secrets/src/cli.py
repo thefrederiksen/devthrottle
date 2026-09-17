@@ -36,7 +36,8 @@ from .browser_login import OUTCOME_LOGGED_IN, OUTCOME_REFUSED, login as browser_
 from .errors import CcSecretsError, InputError
 from .redact import SCRUBBER
 from .runner import DEFAULT_ENV_NAME, VIA_CHOICES, run_with_secrets
-from .store import ENV_NAME_PATTERN, MIN_SECRET_LENGTH, USES, EntryNotAvailableError, SecretStore, make_entry, validate_name
+from .store import (ENV_NAME_PATTERN, KIND_SECRET, KIND_SETTING, MIN_SECRET_LENGTH, USES, EntryNotAvailableError,
+                    SecretStore, make_entry, validate_name)
 from .storefile import UserOnlyFile
 
 # Make cc_shared importable when running from source, matching the other cc-* tools.
@@ -186,6 +187,8 @@ def add(
     agents: Optional[bool] = typer.Option(None, "--agents/--no-agents", help="Whether sessions on this machine may use it."),
     uses: Optional[str] = typer.Option(None, "--uses", help="Comma-separated: login, run. Default both."),
     replace: bool = typer.Option(False, "--replace", help="Replace an existing entry without asking."),
+    setting: bool = typer.Option(False, "--setting", help="Store a setting that is not secret (a host, an email address): readable with get, not hidden from output."),
+    env_name: Optional[str] = typer.Option(None, "--env-name", help="The variable run supplies it in. Default CC_SECRET."),
 ):
     """OWNER: add or replace an entry. The secret comes from a hidden prompt, or piped on stdin."""
     _owner_only("add")
@@ -213,8 +216,10 @@ def add(
             agents = typer.confirm("May sessions on this machine use it?", default=False)
         use_list = _split_list(uses) if uses is not None else list(USES)
         secret = _read_secret_from_owner()
-        SCRUBBER.add(secret, username)
-        entry = make_entry(name, username, secret, _split_list(domains), notes, agents, use_list)
+        if not setting:
+            SCRUBBER.add(secret, username)
+        entry = make_entry(name, username, secret, _split_list(domains), notes, agents, use_list,
+                           env_name=env_name or "", kind=KIND_SETTING if setting else KIND_SECRET)
         replaced = store.put(entry)
         _audit().record(name, "add", "ok", "replaced" if replaced else "added")
         _say(f"{'Replaced' if replaced else 'Added'} '{name}' in {store.location}. "
@@ -263,6 +268,9 @@ def list_entries(
         store = _store()
         entries = sorted(store.entries(), key=lambda e: e.name) if all_entries else store.agent_entries()
         views = [e.public_view() for e in entries]
+        for view, entry in zip(views, entries):
+            if entry.is_setting:
+                view["value"] = entry.secret.reveal()
         if json_output:
             _say_json({"entries": views})
             return
@@ -270,10 +278,11 @@ def list_entries(
             _say("No secrets are available to agents on this machine." if not all_entries else "The store is empty.")
             return
         table = Table(show_lines=False)
-        for column in ("Name", "Variable", "Username", "Allowed addresses", "Uses") + (("Agents",) if all_entries else ()) + ("Notes",):
+        for column in ("Name", "Kind", "Variable", "Value", "Username", "Allowed addresses", "Uses") + (("Agents",) if all_entries else ()) + ("Notes",):
             table.add_column(column)
         for v in views:
-            row = [v["name"], v["envName"], v["username"], ", ".join(v["allowedDomains"]), ", ".join(v["uses"])]
+            row = [v["name"], v["kind"], v["envName"], v.get("value", ""), v["username"], ", ".join(v["allowedDomains"]),
+                   ", ".join(v["uses"])]
             if all_entries:
                 row.append("yes" if v["agentsMayUse"] else "no")
             row.append(v["notes"])
@@ -283,6 +292,26 @@ def list_entries(
         _log_failure("list", exc)
         _say(f"list failed: {_describe(exc)}", err=True)
         raise typer.Exit(EXIT_FAILED)
+
+
+@app.command()
+def get(
+    name: str = typer.Argument(..., help="Setting name."),
+    json_output: bool = typer.Option(False, "--json", help="Print JSON."),
+):
+    """Print a SETTING's value (a host, an email address). A secret is refused: it is never printed."""
+    try:
+        entry = _store().setting_for_agent(name)
+    except EntryNotAvailableError as exc:
+        _refused(name, "get", exc, json_output)
+    except Exception as exc:
+        _fail("get", name, "get", exc)
+    _audit().record(name, "get", "ok")
+    value = entry.secret.reveal()
+    if json_output:
+        _say_json({"entry": name, "value": value})
+    else:
+        _say(value)
 
 
 def _refused(name: str, label: str, exc: EntryNotAvailableError, json_output: bool) -> NoReturn:
@@ -358,13 +387,15 @@ def run(
     raise typer.Exit(result.exit_code if result.exit_code != 0 else (EXIT_FAILED if result.timed_out else 0))
 
 
-def register_env_file_values(text: str) -> None:
+def register_env_file_values(text: str, settings: frozenset = frozenset()) -> None:
     """Hand every value of a KEY=VALUE file to the scrubber BEFORE the file is checked. A malformed line is then
     reported by its number alone, and any key that happens to be another line's value is hidden wherever it is
     printed (review of pull request 2978). Keys themselves are not registered, so the report stays readable."""
     for raw in text.splitlines():
         if "=" in raw:
-            value = raw.split("=", 1)[1]
+            key, value = raw.split("=", 1)
+            if key.strip() in settings:
+                continue  # declared a setting by the owner: not secret, and not to be hidden
             if value.strip():
                 SCRUBBER.add(value)
 
@@ -446,7 +477,8 @@ def import_entries(
     file: Path = typer.Argument(..., help="A KEY=VALUE file, for example credentials.env. Blank lines and # comments are skipped."),
     agents: Optional[bool] = typer.Option(None, "--agents/--no-agents", help="Whether sessions on this machine may use the imported entries. Required."),
     uses: str = typer.Option("run", "--uses", help="Comma-separated: login, run. Default run."),
-    skip: Optional[str] = typer.Option(None, "--skip", help="Comma-separated keys NOT to import - settings that are not secret."),
+    settings: Optional[str] = typer.Option(None, "--settings", help="Comma-separated keys to import as SETTINGS - not secret (hosts, email addresses, identifiers): readable with get and not hidden from output."),
+    skip: Optional[str] = typer.Option(None, "--skip", help="Comma-separated keys NOT to import."),
     replace: bool = typer.Option(False, "--replace", help="Replace entries that already exist."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show what would happen, by name only, and change nothing."),
 ):
@@ -460,20 +492,25 @@ def import_entries(
             raise typer.Exit(EXIT_FAILED)
         use_list = _split_list(uses)
         skipped = set(_split_list(skip or ""))
+        as_settings = set(_split_list(settings or ""))
+        both = sorted(skipped & as_settings)
+        if both:
+            _say(f"Keys given to both --skip and --settings: {', '.join(both)}. Nothing was imported.", err=True)
+            raise typer.Exit(EXIT_FAILED)
         text = file.read_text(encoding="utf-8-sig")
-        register_env_file_values(text)
+        register_env_file_values(text, frozenset(as_settings))
         for value in commented_values(text):
             if value.strip():
                 SCRUBBER.add(value)
         pairs = parse_env_file(text)
-        unknown_skips = sorted(skipped - {key for _, key, _ in pairs})
-        if unknown_skips:
-            _say(f"--skip names keys that are not in the file: {', '.join(unknown_skips)}. Nothing was imported.", err=True)
+        unknown = sorted((skipped | as_settings) - {key for _, key, _ in pairs})
+        if unknown:
+            _say(f"--skip or --settings names keys that are not in the file: {', '.join(unknown)}. Nothing was imported.", err=True)
             raise typer.Exit(EXIT_FAILED)
         store = _store()
         stored = store.entries()
-        protected = [e.secret.reveal() for e in stored] + commented_values(text) + \
-            [value for _, key, value in pairs if key not in skipped]
+        protected = [e.secret.reveal() for e in stored if not e.is_setting] + commented_values(text) + \
+            [value for _, key, value in pairs if key not in skipped and key not in as_settings]
         check_keys_hold_no_secret(pairs, skipped, protected)
         notes = f"imported from {file.name}"
         built, failed = [], {}
@@ -482,7 +519,8 @@ def import_entries(
                 continue
             try:
                 name = validate_name(entry_name_for_key(key))
-                built.append(make_entry(name, "", value, [], notes, agents, use_list, env_name=key))
+                kind = KIND_SETTING if key in as_settings else KIND_SECRET
+                built.append(make_entry(name, "", value, [], notes, agents, use_list, env_name=key, kind=kind))
             except InputError as exc:
                 failed[key] = str(exc)
         existing = {e.name for e in stored}
@@ -498,7 +536,8 @@ def import_entries(
                 else:
                     entry_name = entry_name_for_key(key)
                     state = ("replaced" if replace else "left as it is (exists)") if entry_name in existing else "added"
-                    row = (key, entry_name, state)
+                    kind = "setting" if key in as_settings else "secret"
+                    row = (key, entry_name, f"{state} as a {kind}")
                 # Scrubbed like every other line: a key can be the same text as another line's value.
                 table.add_row(*[SCRUBBER.scrub(cell) for cell in row])
             console.print(table)
@@ -509,8 +548,10 @@ def import_entries(
             _audit().record(entry.name, "import", "ok" if outcomes[entry.name] != "exists" else "unchanged",
                             f"{outcomes[entry.name]} from {file.name} as {entry.env_name}")
         counts = {k: sum(1 for o in outcomes.values() if o == k) for k in ("added", "replaced", "exists")}
+        setting_count = sum(1 for e in built if e.is_setting and outcomes[e.name] != "exists")
         _say(f"Imported into {store.location}: {counts['added']} added, {counts['replaced']} replaced, "
-             f"{counts['exists']} already there and left as they are, {len(skipped)} skipped as settings, "
+             f"{counts['exists']} already there and left as they are ({setting_count} of the changed ones are settings), "
+             f"{len(skipped)} skipped, "
              f"{len(failed)} not importable. Agents may use them: {'yes' if agents else 'no'}. Uses: {', '.join(use_list)}.")
         for key, reason in failed.items():
             _say(f"  NOT imported: {key}: {reason}", err=True)
