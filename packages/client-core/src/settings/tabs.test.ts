@@ -56,9 +56,9 @@ describe("visibleTabs", () => {
     for (const t of visibleTabs("mobile")) expect(cockpit.get(t.id)).toBe(t.label);
   });
 
-  // The Fleet Manager mission, step 5: the Fleet Manager tab takes the Assistant's place on both surfaces, and the
-  // Assistant is hidden - not deleted - until step 9 removes the Assistant from the product.
-  it("offers Fleet Manager where Assistant was, on both surfaces, and hides Assistant", () => {
+  // The Fleet Manager mission: the Fleet Manager tab takes the Assistant's place on both surfaces (step 5), and
+  // the Assistant tab is gone from the product (step 9).
+  it("offers Fleet Manager where Assistant was, on both surfaces, and no Assistant", () => {
     for (const surface of ["cockpit", "mobile"] as const) {
       const tabs = visibleTabs(surface);
       const ids = tabs.map((t) => t.id);
@@ -79,9 +79,8 @@ describe("visibleTabs", () => {
     expect(visibleTabs("mobile").map((t) => t.id)).not.toContain("injectedtext");
   });
 
-  // Car Mode was removed from the product (#1028). The tab it used to own is now the Assistant tab - the
-  // one setting it held that was never Car Mode's alone - so "carmode" is a retired id like the others: an
-  // old link lands on the default rather than on a tab that no longer exists.
+  // Car Mode was removed from the product (#1028), so "carmode" is a retired id like the others: an old link
+  // lands on the default rather than on a tab that no longer exists.
   it("no longer offers a Car Mode tab on either surface", () => {
     for (const surface of ["cockpit", "mobile"] as const) {
       expect(visibleTabs(surface).map((t) => t.id as string)).not.toContain("carmode");

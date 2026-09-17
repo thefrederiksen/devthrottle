@@ -16,7 +16,6 @@
 export type NavIconName =
   | "fleet-manager"
   | "fleet-map"
-  | "assistant"
   | "sessions"
   | "history"
   | "directors"
@@ -56,15 +55,6 @@ const PAINT: Record<NavIconName, JSX.Element> = {
       <path d="M14.1 5.55a2 2 0 0 1-1.79 0L8.1 3.45a2 2 0 0 0-1.79 0L3.55 4.83A1 1 0 0 0 3 5.72v12.76a1 1 0 0 0 1.45.9l2.86-1.43a2 2 0 0 1 1.79 0l4.21 2.11a2 2 0 0 0 1.79 0l3.66-1.83a1 1 0 0 0 .55-.9V4.62a1 1 0 0 0-1.45-.9z" />
       <path d="M9 3.24v15" />
       <path d="M15 5.76v15" />
-    </>
-  ),
-  // A speech bubble with text lines: the fleet-level chat + voice assistant. Rounded outline keeps
-  // it distinct from the square-cornered terminal beside it.
-  assistant: (
-    <>
-      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-      <path d="M8 8h8" />
-      <path d="M8 12h5" />
     </>
   ),
   // A terminal prompt: the thing a session actually is.

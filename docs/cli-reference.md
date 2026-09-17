@@ -1364,13 +1364,19 @@ Those routes are the owner's and refuse a session key: `/gateway/fleet-manager/p
 start runs on the saved computer only, and the launcher starts a Director there when none is running.
 A restart or move closes the old Fleet Manager only after its current turn ends.
 
-The Cockpit's Fleet Manager page (`/fleet-manager`, where the Cockpit opens; `/assistant` now redirects
-there) reads `/gateway/fleet-manager/page` (GET, the owner's; a session key is refused and reads the
+The Cockpit's Fleet Manager page (`/fleet-manager`, where the Cockpit opens) reads `/gateway/fleet-manager/page` (GET, the owner's; a session key is refused and reads the
 digest instead): the cards drawn from the records, the right panel (waiting on you, under way, answered
 today, and the sessions that still ask the owner directly - their count, and the list of them with a
 hand-over button each) and the rail's badge count. A card button answers the record and then sends the
 same words to the Fleet Manager as a prompt. Hand over is `POST /gateway/fleet-manager/hand-over` (see
 Session Hand-Over).
+
+The Fleet Manager replaced the Assistant, which is gone from the Cockpit, the phone and Settings. Its
+old Cockpit address `/assistant` redirects to `/fleet-manager`, and the phone's `/assistant` lands on
+the session list. The Gateway routes that served only the Assistant were removed with it:
+`/assistant/turn`, `/brain/warmup`, `/gateway/ai/car-mode-model` and `/gateway/ai/car-mode-end-phrase`.
+`/gateway/ai-provider` no longer carries `carModeModel` or `carModeEndPhrase`, and the stored values of
+those two settings are deleted when the Gateway next migrates its database.
 
 "Take me through them" (`/fleet-manager/walkthrough` in the Cockpit, opened from the Waiting on you
 panel) reads `/gateway/fleet-manager/walkthrough?round=<id>,<id>` (GET): one round of the waiting

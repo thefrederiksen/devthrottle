@@ -16,7 +16,6 @@ export type TabId =
   | "ai"
   | "language"
   | "transcription"
-  | "assistant"
   | "fleetmanager"
   | "injectedtext";
 
@@ -57,25 +56,22 @@ interface TabDef {
 }
 
 // The full ordered set. The order is the order you meet them: how the fleet reaches you, what language it
-// speaks to you in, how it hears you, the assistant built on all three, and last the text it hands your
+// speaks to you in, how it hears you, the Fleet Manager built on all three, and last the text it hands your
 // agents.
 //
 // Language takes the place AI held in the strip (issue #1010). The AI row is still here and still hidden -
 // see the `hidden` note below; the two are separate decisions that happen to concern the same slot.
 //
-// The Fleet Manager takes the Assistant's place (the Fleet Manager mission, step 5): where the Fleet Manager runs,
-// and the Wingman's turn verdict switches it is built on. The Assistant row is hidden, not deleted - the same
-// one-word reversibility the AI row has - until step 9 removes the Assistant from the product.
-//
-// Assistant is the tab that used to be Car Mode. Car Mode was removed from the product (#1028), and the one
-// setting it held that was never Car Mode's alone - the model the fleet brain thinks with - belongs to the
-// Assistant, the surface that still drives that brain.
+// The Fleet Manager tab holds where the Fleet Manager runs, and the Wingman's turn verdict switches it is built
+// on. It took the place of the Assistant tab, which had itself been the Car Mode tab: Car Mode was removed from
+// the product (#1028), and the Assistant was removed by the Fleet Manager mission (step 9), taking with it the
+// one setting that tab still held - the model the Assistant's fleet brain thought with. "carmode" and
+// "assistant" are retired ids now, like "machine" below.
 const ALL_TABS: TabDef[] = [
   { id: "notifications", label: "Notifications", surface: "all" },
   { id: "ai", label: "AI", surface: "all", hidden: true },
   { id: "language", label: "Language", surface: "all" },
   { id: "transcription", label: "Transcription", surface: "all" },
-  { id: "assistant", label: "Assistant", surface: "all", hidden: true },
   { id: "fleetmanager", label: "Fleet Manager", surface: "all" },
   { id: "injectedtext", label: "Injected text", surface: "cockpit" },
 ];
@@ -107,9 +103,9 @@ export function visibleTabs(surface: Surface): { id: TabId; label: string }[] {
  * ?tab=injectedtext must land on a real tab, not select a tab that its own strip does not list and its
  * own panel cannot draw. A deep link is not permission to render something.
  *
- * "machine", "telemetry", and "privacy" are retired ids (the "This machine" tab left in issue #2022; the
+ * "machine", "telemetry", "privacy", "carmode" and "assistant" are retired ids (the "This machine" tab left in issue #2022; the
  * old standalone Telemetry page redirected to /settings?tab=telemetry, issue #1405; the Privacy tab was
- * removed by issue #2017). They no longer resolve to a tab, so an old bookmark lands on the default rather
+ * removed by issue #2017; Car Mode by issue #1028; the Assistant by the Fleet Manager mission, step 9). They no longer resolve to a tab, so an old bookmark lands on the default rather
  * than on a tab that no longer exists. A hidden tab behaves exactly the same way, by the same rule and
  * with no special case: it is not in the list this reads, so an old link to it lands on the default.
  */

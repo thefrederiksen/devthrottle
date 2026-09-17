@@ -62,13 +62,6 @@ function fakeGateway(judge?: boolean, colour?: boolean) {
           headers: { "Content-Type": "application/json" },
         });
       }
-      // The Assistant tab's model card; answer its snapshot so a test that mounts it can.
-      if (url === "/gateway/ai-provider") {
-        return new Response(
-          JSON.stringify({ provider: "devthrottle", carModeModel: "m", catalogAvailable: false }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        );
-      }
       throw new Error(`unexpected request: ${method} ${url}`);
     }),
   );

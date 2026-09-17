@@ -27,8 +27,8 @@ import "./settings.css";
 // (the Cockpit's ConfirmDialog lives in the Cockpit), so the question is asked in place, the way the restart
 // requests panel and the accounts panel already do it.
 //
-// The Wingman's turn verdict switches live here too: the Fleet Manager is built on those verdicts, and the
-// Assistant tab they used to sit on is hidden.
+// The Wingman's turn verdict switches live here too: the Fleet Manager is built on those verdicts. They used
+// to sit on the Assistant tab, which was removed with the Assistant.
 
 /** How often the tab reads the Gateway's answer again while it is open. */
 export const REFRESH_MS = 15_000;

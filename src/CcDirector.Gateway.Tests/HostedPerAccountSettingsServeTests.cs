@@ -25,7 +25,7 @@ namespace CcDirector.Gateway.Tests;
 ///      Local partition. This is the unresolved-tenant matrix: on shared infrastructure an unattributable
 ///      request must be refused, not served a wrong tenant's data.
 ///   3. ISOLATED - a write by tenant A is invisible to tenant B's read of the same setting. One account's
-///      snooze length, time zone, voice, models and car-mode phrase never reach another's, endpoint to
+///      snooze length, time zone, voice and models never reach another's, endpoint to
 ///      endpoint. (The endpoint-to-RUNTIME half - the consumers reading per tenant - is
 ///      TenantSettingsRuntimeThreadingTests, from the integrated consumer commit.)
 ///
@@ -127,14 +127,12 @@ public sealed class HostedPerAccountSettingsServeTests : IAsyncLifetime
         ("PUT", "gateway/fleet-manager",            "{\"sessionId\":\"77777777-7777-7777-7777-777777777777\"}"),
         ("GET", "gateway/injected-text",            null),
         ("PUT", "gateway/injected-text",            "{\"use_yours\":true,\"yours\":\"words for one account only\"}"),
-        // Issue #1360: these three setters REFUSE any id that is not a devthrottle/ included
+        // Issue #1360: these setters REFUSE any id that is not a devthrottle/ included
         // model, and that refusal is the feature - so the ids here must be real included ones.
         // Taken from the product constants rather than written out, so a rename moves the test
         // with it instead of leaving another stale literal behind.
         ("PUT", "gateway/ai/wingman-model",         "{\"model\":\"" + TranscriptionEndpointResolver.DevThrottleWingmanModel + "\"}"),
         ("PUT", "gateway/ai/wingman-fast-model",    "{\"model\":\"" + TranscriptionEndpointResolver.DevThrottleWingmanFastModel + "\"}"),
-        ("PUT", "gateway/ai/car-mode-model",        "{\"model\":\"" + TranscriptionEndpointResolver.DevThrottleWingmanModel + "\"}"),
-        ("PUT", "gateway/ai/car-mode-end-phrase",   "{\"phrase\":\"alpha out\"}"),
         ("PUT", "gateway/ai/tts-model",             "{\"model\":\"m-speech\"}"),
     };
 
@@ -327,17 +325,6 @@ public sealed class HostedPerAccountSettingsServeTests : IAsyncLifetime
 
         Assert.Equal(alphaModel, await ReadString(_httpA, "gateway/ai-provider", "wingmanModel"));
         Assert.NotEqual(alphaModel, await ReadString(_httpB, "gateway/ai-provider", "wingmanModel"));
-    }
-
-    /// <summary>ISOLATED - the Car Mode end phrase, written through AiModelsEndpoint, read via the snapshot.</summary>
-    [Fact]
-    public async Task Car_mode_end_phrase_written_by_one_tenant_is_invisible_to_another_on_hosted()
-    {
-        (await OwnerSettingsRoutes.SendAsync(_httpA, "PUT", "gateway/ai/car-mode-end-phrase", "{\"phrase\":\"alpha signing off\"}"))
-            .EnsureSuccessStatusCode();
-
-        Assert.Equal("alpha signing off", await ReadString(_httpA, "gateway/ai-provider", "carModeEndPhrase"));
-        Assert.NotEqual("alpha signing off", await ReadString(_httpB, "gateway/ai-provider", "carModeEndPhrase"));
     }
 
     /// <summary>

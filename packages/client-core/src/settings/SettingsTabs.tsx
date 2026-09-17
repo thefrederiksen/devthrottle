@@ -1,5 +1,4 @@
 import { AiTab } from "./AiTab";
-import { AssistantTab } from "./AssistantTab";
 import { FleetManagerTab } from "./FleetManagerTab";
 import { LanguageTab } from "./LanguageTab";
 import { NotificationsTab } from "./NotificationsTab";
@@ -60,8 +59,6 @@ export function SettingsTabPanel({ tab, accountHref, transcriptionHealthHref, se
       return <LanguageTab />;
     case "transcription":
       return <TranscriptionTab healthHref={transcriptionHealthHref} />;
-    case "assistant":
-      return <AssistantTab />;
     case "fleetmanager":
       return <FleetManagerTab sessionHref={sessionHref} />;
     // Cockpit-only tabs are rendered by the Cockpit shell, not from here: their content is desktop-only

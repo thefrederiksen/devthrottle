@@ -18,8 +18,8 @@ import { useVoiceModeAll } from "@devthrottle/client-core/voice/useVoiceModeAll"
 // Deliberately NOT a confirmation dialog: this is the escape hatch, and an escape hatch that asks "are you
 // sure?" while a voice is talking over you is not one. Turning voice mode back on is one tap on the roster.
 //
-// IT PUBLISHES ITS OWN HEIGHT AS --voicemode-h, and that is not a detail (owner, 2026-07-25). The session,
-// Car Mode and Assistant screens are PINNED OUT OF THE DOCUMENT FLOW - fixed to the top of the window and
+// IT PUBLISHES ITS OWN HEIGHT AS --voicemode-h, and that is not a detail (owner, 2026-07-25). The session
+// screens are PINNED OUT OF THE DOCUMENT FLOW - fixed to the top of the window and
 // sized to the whole visible height - so nothing rendered above them in the markup can push them down.
 // Shipped as a plain sticky bar, this banner simply PAINTED OVER the session screen's own header, taking
 // the back arrow to the roster and the overflow menu with it: you could Respond and Snooze, and you could

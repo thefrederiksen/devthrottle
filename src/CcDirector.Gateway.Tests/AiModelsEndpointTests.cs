@@ -86,11 +86,10 @@ public sealed class AiModelsEndpointTests : IAsyncLifetime
     [Theory]
     [InlineData("gateway/ai/wingman-model")]
     [InlineData("gateway/ai/wingman-fast-model")]
-    [InlineData("gateway/ai/car-mode-model")]
     public async Task Put_model_setters_refuse_catalog_ids(string route)
     {
-        // Included AI revert-proof (issue #1360): the wingman and Car Mode are internal included
-        // features, and a catalog id would bill credits - the setter must refuse it loudly, never
+        // Included AI revert-proof (issue #1360): the wingman is an internal included
+        // feature, and a catalog id would bill credits - the setter must refuse it loudly, never
         // store it. Put the old accept-anything setter back and this goes red.
         var resp = await _http.PutAsJsonAsync(route, new { model = "kimi-k2" });
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
@@ -99,7 +98,6 @@ public sealed class AiModelsEndpointTests : IAsyncLifetime
         var mode = TranscriptionModeConfig.Get();
         Assert.Equal("devthrottle/wingman", _gateway.TenantSettingsResolver.WingmanModel(TenantId.Local, mode, WingmanModelRole.Thinking).Value);
         Assert.Equal("devthrottle/wingman-fast", _gateway.TenantSettingsResolver.WingmanModel(TenantId.Local, mode, WingmanModelRole.Fast).Value);
-        Assert.Equal("devthrottle/wingman-fast", _gateway.TenantSettingsResolver.CarModeModel(TenantId.Local).Value);
     }
 
     [Fact]

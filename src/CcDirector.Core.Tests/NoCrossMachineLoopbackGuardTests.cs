@@ -61,7 +61,8 @@ public sealed class NoCrossMachineLoopbackGuardTests
         // promises.
         ["src/CcDirector.Gateway/Data/GatewayDbContextDesignTimeFactory.cs"] = "Design-time-only EF tooling factory (dotnet ef migrations): the localhost Postgres connection string is a THROWAWAY design value - migrations add builds the model and writes source without ever opening the connection, and the running Gateway wires its context through GatewayDatabase instead.",
         ["src/CcDirector.Gateway.Migrations.Postgres/GatewayStatsDbContextPostgresDesignTimeFactory.cs"] = "Design-time-only EF tooling factory for the statistics context's POSTGRES migration chain, same shape as GatewayDbContextDesignTimeFactory.cs above: the localhost connection string is a THROWAWAY design value that migrations add never opens, and the running Gateway selects its statistics connection through StatsConnectionSelection instead.",
-        ["src/CcDirector.Gateway/CarMode/LoopbackCarModeFleet.cs"] = "The Car Mode brain's fleet tools call THIS Gateway's own endpoints over http://127.0.0.1:{port} (same-machine self-call), the same pattern the Web Push needs-you notifier uses to read its own /sessions - so the brain sees the identical aggregated roster every client sees with no re-implementation.",
+        // The Fleet Manager mission, step 9: LoopbackCarModeFleet.cs no longer appears here. It was the
+        // Assistant's fleet brain calling this Gateway over loopback, and it went with the Assistant.
         ["src/CcDirector.GatewayApp/Program.cs"] = "Local Gateway bootstrap.",
         // Remove-the-network-port mission, phase 4: DirectorSupervisor.cs no longer appears here. It
         // supervised the Director by posting to its loopback Control API; it now reads the files the

@@ -23,8 +23,6 @@ const SNAPSHOT = {
   provider: "devthrottle",
   wingmanModel: "test-thinking-model",
   wingmanFastModel: "test-fast-model",
-  carModeModel: "test-carmode-model",
-  carModeEndPhrase: "over and out",
   ttsModel: "test-speech-model",
   ttsVoice: "test-voice",
   voices: ["test-voice"],
@@ -37,7 +35,6 @@ vi.mock("../api/ai", () => ({
   getAiModels: vi.fn(async () => []),
   setWingmanModel: vi.fn(),
   setWingmanFastModel: vi.fn(),
-  setCarModeModel: vi.fn(),
   setTtsModel: vi.fn(),
   setTtsVoice: vi.fn(),
   testChat: vi.fn(),
@@ -156,6 +153,19 @@ describe("the Settings tab strip", () => {
     }
   });
 
+  // The Assistant was removed from the product (the Fleet Manager mission, step 9). Its tab must not come
+  // back on either surface, hidden or not.
+  it("offers no Assistant button on either surface", () => {
+    for (const surface of ["cockpit", "mobile"] as const) {
+      const { unmount } = mount(
+        <SettingsTabStrip active="notifications" onSelect={() => {}} surface={surface} />,
+      );
+      expect(screen.getAllByRole("tab").length).toBeGreaterThan(0);
+      expect(screen.queryByRole("tab", { name: "Assistant" })).toBeNull();
+      unmount();
+    }
+  });
+
   it("marks exactly the active tab selected", () => {
     mount(<SettingsTabStrip active="transcription" onSelect={() => {}} surface="cockpit" />);
     const selected = screen.getAllByRole("tab").filter((t) => t.getAttribute("aria-selected") === "true");
@@ -218,20 +228,13 @@ describe("the AI tab, hidden but kept", () => {
 });
 
 describe("what moved off the AI tab", () => {
-  // The phone used to carry the fleet-brain model on its AI screen while the desktop carried it on the Car
-  // Mode tab. Car Mode was removed from the product (#1028) and that model went with the surface that still
-  // uses it - the Assistant - so it is on the Assistant tab now, on both surfaces, and in one place only.
-  //
-  // The end phrase and its live tester are NOT here, and that is the deletion being asserted: both were
-  // about hands-free turn-taking, nothing else spoke them, and they went with Car Mode.
-  it("puts the fleet-brain model on the Assistant tab and nowhere else", async () => {
-    const { unmount } = mount(<SettingsTabPanel tab="ai" />);
+  // The fleet-brain model moved from the AI screen to the Car Mode tab, then to the Assistant tab, and left
+  // the product with the Assistant (the Fleet Manager mission, step 9). The end phrase and its live tester
+  // went with Car Mode (#1028). None of them may come back onto the AI tab.
+  it("offers no fleet-brain model and no end phrase on the AI tab", async () => {
+    mount(<SettingsTabPanel tab="ai" />);
     expect(await screen.findByLabelText("Thinking model")).toBeTruthy();
     expect(screen.queryByLabelText("Model")).toBeNull();
-    unmount();
-
-    mount(<SettingsTabPanel tab="assistant" />);
-    expect(await screen.findByLabelText("Model")).toBeTruthy();
     expect(screen.queryByLabelText("End phrase (say this to finish your turn)")).toBeNull();
   });
 

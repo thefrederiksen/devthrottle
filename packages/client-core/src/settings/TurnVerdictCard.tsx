@@ -18,11 +18,12 @@ import "./settings.css";
 // is allowed to make a session look calm. So the second box is deliberately reachable only once the first
 // is on: a colour switch with nothing judging it would be a control that does nothing.
 //
-// WHY THIS CARD IS ON THE ASSISTANT TAB and not the AI tab the mission's plan named: the AI tab is HIDDEN
+// WHY THIS CARD IS ON THE FLEET MANAGER TAB and not the AI tab the mission's plan named: the AI tab is HIDDEN
 // on both surfaces (see tabs.ts - it showed hosting model identities to customers and most of it is inert
 // on the hosted Gateway). A settings card on a tab nobody can open is a setting nobody can change, and the
-// mission needs the owner to be able to turn these on without a database edit. The Assistant tab is where
-// the model the fleet brain thinks with already lives, which is the same machinery this judging runs on.
+// mission needs the owner to be able to turn these on without a database edit. It sat on the Assistant tab
+// first; it moved to the Fleet Manager tab, because the Fleet Manager is built on these verdicts, and the
+// Assistant has since been removed.
 //
 // Shared by both surfaces, like every other settings card - the desktop and the phone mount this one file.
 

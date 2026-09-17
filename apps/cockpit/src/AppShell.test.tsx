@@ -78,6 +78,21 @@ describe("Cockpit left rail", () => {
     expect(entry.querySelector(".nav-badge")).toBeNull();
   });
 
+  // The Assistant was removed from the product (the Fleet Manager mission, step 9). No rail entry - main list
+  // or foot - may name it or link to its old address.
+  it("has no Assistant entry anywhere in the rail", () => {
+    render(
+      <MemoryRouter initialEntries={["/sessions"]}>
+        <AppShell />
+      </MemoryRouter>,
+    );
+
+    const links = Array.from(document.querySelectorAll(".nav-list a"));
+    expect(links.length).toBeGreaterThan(10);
+    expect(links.map((a) => a.textContent ?? "").filter((t) => /assistant/i.test(t))).toEqual([]);
+    expect(links.map((a) => a.getAttribute("href")).filter((h) => h === "/assistant")).toEqual([]);
+  });
+
   it("leaves the rest of the rail where it was", () => {
     render(
       <MemoryRouter initialEntries={["/sessions"]}>

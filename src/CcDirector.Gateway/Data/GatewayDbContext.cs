@@ -343,7 +343,7 @@ public sealed class GatewayDbContext : DbContext
     public DbSet<FleetManagerOwnedSessionEntity> FleetManagerOwnedSessions => Set<FleetManagerOwnedSessionEntity>();
 
     /// <summary>Per-tenant setting overrides (<c>tenant_settings</c>, issue #2017) - the per-tenant home the
-    /// AI / voice / car-mode / notification settings needed before they could be served on the hosted Gateway.
+    /// AI / voice / notification settings needed before they could be served on the hosted Gateway.
     /// Tenant-scoped: an absent row means "no override" and the typed resolver returns the operator global
     /// default, never another tenant's value.</summary>
     public DbSet<TenantSettingEntity> TenantSettings => Set<TenantSettingEntity>();

@@ -26,12 +26,6 @@ public static class TenantSettingKeys
     /// <summary>The voice the text-to-speech engine uses (global default: <c>tts_voice</c>).</summary>
     public const string TtsVoice = "tts_voice";
 
-    /// <summary>The conversational model Car Mode drives (global default: <c>car_mode_model</c>).</summary>
-    public const string CarModeModel = "car_mode_model";
-
-    /// <summary>The spoken phrase that ends a Car Mode turn (global default: <c>car_mode_end_phrase</c>).</summary>
-    public const string CarModeEndPhrase = "car_mode_end_phrase";
-
     /// <summary>The snooze lengths every Snooze menu offers, as the serialized presets list (global default:
     /// <c>snooze_presets</c>).</summary>
     public const string SnoozePresets = "snooze_presets";
@@ -204,7 +198,7 @@ public static class TenantSettingKeys
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
         WingmanModel, WingmanFastModel, TtsModel, TtsVoice,
-        CarModeModel, CarModeEndPhrase, SnoozePresets, SnoozeDefaultMinutes, TimeZone, InjectedText,
+        SnoozePresets, SnoozeDefaultMinutes, TimeZone, InjectedText,
         VoiceModeAll, DictationSuggestionsInDailyEmail, DictationEmailCadence, DailyReportCadence,
         MentorReportEnabled, SpokenLanguage, SpokenVoiceByLanguage,
         SessionSupervisorEnabled, SessionSupervisorFirstRetrySeconds, SessionSupervisorRetryCadenceMinutes,

@@ -1,7 +1,6 @@
 using CcDirector.AgentBrain;
 using CcDirector.Core.Drivers;
 using CcDirector.Core.Tenancy;
-using CcDirector.Gateway.CarMode;
 using CcDirector.Gateway.Speech;
 using CcDirector.Gateway.Wingman;
 using Mono.Cecil;
@@ -158,28 +157,6 @@ public sealed class SpokenLanguageContractTests
     }
 
     /// <summary>
-    /// The fleet brain - the generator the language never reached - resolves it from the tenant.
-    ///
-    /// This was a theory over two surfaces, the hands-free phone one and the desk Assistant. Car Mode was
-    /// removed from the product (#1028) and the brain's prompt no longer branches on a surface, so there is
-    /// one case to check and it is the surface that ships.
-    /// </summary>
-    [Fact]
-    public async Task The_fleet_brain_speaks_the_tenants_language()
-    {
-        var chat = new RecordingChat("Trois sessions vous attendent.");
-        var brain = new CarModeBrain(
-            chat, _ => new UnusedFleet(), new CarModeConversationStore(), new CarModePendingStore(_ => { }),
-            new CarModeSubjectStore(_ => { }), _ => SpokenLanguages.French, _ => { });
-
-        await brain.RunTurnAsync(TenantId.Local, "device-a", "who needs me", CancellationToken.None);
-
-        var messages = Assert.Single(chat.SeenMessages);
-        Assert.Contains("SPEAK ENTIRELY IN FRENCH", messages);
-        Assert.DoesNotContain("SPEAK ENTIRELY IN ENGLISH", messages);
-    }
-
-    /// <summary>
     /// A wingman brain wired to a provider that returns null is a wiring bug, and it FAILS LOUD rather
     /// than quietly speaking English. Silently defaulting is how "the language reached one generator"
     /// stayed invisible for four rounds of fixes - the product kept working, in the wrong language.
@@ -195,36 +172,8 @@ public sealed class SpokenLanguageContractTests
     }
 
     // ----------------------------------------------------------------------------------------------
-    // The post-processor is applied uniformly - Car Mode included.
+    // The post-processor leaves content alone.
     // ----------------------------------------------------------------------------------------------
-
-    /// <summary>
-    /// CAR MODE'S SPOKEN OUTPUT IS SANITIZED FOR SPEECH. It never was: the pass was a private habit of
-    /// the wingman translator, which Car Mode does not go through, so a model that emitted a bullet or a
-    /// bold marker had "star star" and "hashtag" read out loud in the car and nowhere else. Three of the
-    /// four generators had it; the fourth did not; nobody could tell, because you have to be listening.
-    ///
-    /// Revert-proof: remove the <c>SpeechContract.Finish</c> call from <c>RunTurnAsync</c> and this goes
-    /// red with the raw Markdown in the message.
-    /// </summary>
-    [Fact]
-    public async Task Car_mode_spoken_output_is_sanitized_for_speech()
-    {
-        var chat = new RecordingChat("**Three sessions** need you.\n- the first one\n## Next steps");
-        var brain = new CarModeBrain(
-            chat, _ => new UnusedFleet(), new CarModeConversationStore(), new CarModePendingStore(_ => { }),
-            new CarModeSubjectStore(_ => { }), _ => SpokenLanguages.English, _ => { });
-
-        var result = await brain.RunTurnAsync(TenantId.Local, "device-a", "who needs me", CancellationToken.None);
-
-        Assert.DoesNotContain("**", result.Spoken);
-        Assert.DoesNotContain("##", result.Spoken);
-        Assert.DoesNotContain("- the first one", result.Spoken);
-        // The WORDS all survive - the pass changes how text is spoken, never what is said.
-        Assert.Contains("Three sessions", result.Spoken);
-        Assert.Contains("the first one", result.Spoken);
-        Assert.Contains("Next steps", result.Spoken);
-    }
 
     /// <summary>Accented letters and non-Latin scripts are CONTENT, not formatting. A sanitize pass that
     ///  mangled them would break French and Spanish at the last step, after everything above got the
@@ -278,8 +227,8 @@ public sealed class SpokenLanguageContractTests
     /// model not to wrap JSON in a Markdown fence is a different rule about a different output and is
     /// none of this test's business.
     ///
-    /// Revert-proof: paste a "no markdown" instruction back into <c>CarModeBrain</c> or
-    /// <c>WingmanTranslator</c> - both of which reference a spoken language - and this goes red naming
+    /// Revert-proof: paste a "no markdown" instruction back into
+    /// <c>WingmanTranslator</c> - which references a spoken language - and this goes red naming
     /// the file and the line.
     /// </summary>
     [Fact]
@@ -378,7 +327,6 @@ public sealed class SpokenLanguageContractTests
         Assert.Contains("WingmanTranslator.BuildPrompt", found);
         Assert.Contains("WingmanTranslator.BuildDirectPrompt", found);
         Assert.Contains("WingmanTranslator.BuildDevThrottlePrompt", found);
-        Assert.Contains("CarModeBrain.BuildSystemPrompt", found);
         Assert.Contains("WingmanTranslator.BuildMenuDetectPrompt", found);
     }
 
@@ -681,46 +629,5 @@ public sealed class SpokenLanguageContractTests
         public Task KillAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task<BrainHealth> GetHealthAsync(CancellationToken ct = default) => Task.FromResult(new BrainHealth { IsAlive = true });
         public void Dispose() { }
-    }
-
-    /// <summary>A Car Mode chat that records the serialized messages (system prompt included) and answers
-    ///  with one speak_answer call.</summary>
-    private sealed class RecordingChat : ICarModeChat
-    {
-        private readonly string _spoken;
-        public List<string> SeenMessages { get; } = new();
-        public RecordingChat(string spoken) => _spoken = spoken;
-
-        public Task<CarModeAssistantTurn> CompleteAsync(TenantId tenant, string messagesJson, string toolsJson, CancellationToken ct)
-        {
-            SeenMessages.Add(messagesJson);
-            return Task.FromResult(new CarModeAssistantTurn(null, new[]
-            {
-                new CarModeToolCall("call_speak", "speak_answer",
-                    "{\"text\":" + System.Text.Json.JsonSerializer.Serialize(_spoken) + "}"),
-            }));
-        }
-    }
-
-    /// <summary>A fleet no test in this file reaches - the turns here answer without calling a fleet
-    ///  tool. Every member throws, so a turn that unexpectedly reads the fleet fails loudly rather than
-    ///  passing against an empty stub.</summary>
-    private sealed class UnusedFleet : ICarModeFleet
-    {
-        private static Exception Unused([System.Runtime.CompilerServices.CallerMemberName] string member = "")
-            => new InvalidOperationException($"ICarModeFleet.{member} must not be reached by a language test.");
-
-        public Task<IReadOnlyList<CarModeSessionInfo>> ListSessionsAsync(CancellationToken ct) => throw Unused();
-        public Task<CarModeActivity?> GetSessionActivityAsync(string reference, CancellationToken ct) => throw Unused();
-        public Task<CarModeSessionInfo?> ResolveSessionAsync(string reference, CancellationToken ct) => throw Unused();
-        public Task<CarModeExplain> ExplainSessionAsync(string sessionId, CancellationToken ct) => throw Unused();
-        public Task<string> StartSessionAsync(string repo, CancellationToken ct) => throw Unused();
-        public Task MessageSessionAsync(string sessionId, string message, CancellationToken ct) => throw Unused();
-        public Task ApproveSessionAsync(string sessionId, CancellationToken ct) => throw Unused();
-        public Task SwitchVoiceModeAsync(string sessionId, bool on, CancellationToken ct) => throw Unused();
-        public Task SnoozeSessionAsync(string sessionId, CancellationToken ct) => throw Unused();
-        public Task DeleteSessionAsync(string sessionId, CancellationToken ct) => throw Unused();
-        public Task<IReadOnlyList<CarModeMachineInfo>> ListMachinesAsync(CancellationToken ct) => throw Unused();
-        public Task<IReadOnlyList<CarModeScheduleInfo>> ListSchedulesAsync(CancellationToken ct) => throw Unused();
     }
 }

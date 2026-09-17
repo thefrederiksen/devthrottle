@@ -897,20 +897,6 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>Issue #2576: how long each session has been waiting for its voice. A SECOND clock beside
     /// the needs-you one because they time different episodes - see VoiceWaitingClock.</summary>
     private readonly Wingman.VoiceWaitingClock _voiceWaitingClock = new();
-    // Car Mode (Car Mode mission): the server-side, per-device conversation context behind the fleet
-    // tool-calling brain (POST /carmode/turn), so multi-turn references ("the latest one") resolve.
-    // In-memory by design; one instance for the whole Gateway.
-    private readonly CarMode.CarModeConversationStore _carModeConversations = new();
-    // Car Mode (decision 3): the per-device store of a destructive action armed and awaiting the owner's
-    // spoken confirmation, so a delete never runs without a clear spoken "confirm".
-    private readonly CarMode.CarModePendingStore _carModePending = new();
-    // Car Mode (Voice-screen-actions phase, design B): the per-device "current subject" - the session the
-    // owner is talking about - so "it" / "answer it" / "snooze it" resolve after a focus or a read.
-    private readonly CarMode.CarModeSubjectStore _carModeSubjects = new();
-    // Car Mode offline resilience Phase 4b (issue #1427): idempotency + single-flight cache for
-    // POST /carmode/turn keyed by the client's turn id, so an already-sent turn whose result was lost in a
-    // dead zone auto-retries and ACTS at most once. In-memory, one instance for the whole Gateway.
-    private readonly CarMode.CarModeTurnCache _carModeTurnCache = new();
     // Gateway-owned set of sessions whose dictated utterance is being transcribed in the background
     // (the phone released the Speak dialog and the audio is uploading/transcribing). Stamps the
     // orange "Transcribing..." roster color so nobody else grabs the session mid-dictation.
@@ -4041,38 +4027,6 @@ public sealed class GatewayHost : IAsyncDisposable
             audioArchive: _transcriptionAudioArchive,
             tenantBoundary: _tenantBoundary,
             transcripts: _transcripts);
-
-        // The fleet brain: the tool-calling loop behind POST /assistant/turn. The chat transport resolves the
-        // fast wingman model + the vault key at CALL
-        // time (a settings change applies on the next turn, no restart); the fleet tools reach THIS
-        // Gateway's own endpoints over loopback (the same aggregated roster every client sees); the
-        // conversation context is kept server-side per device. Inherits the host-wide auth gate (the
-        // caller's per-device key), like every other data route.
-        var carModeChat = new CarMode.HostedCarModeChat(CarMode.HostedCarModeChat.DefaultResolver(_keyVault.Get, _tenantSettingsResolver));
-        // The fleet view is created PER TURN, as the CALLING DEVICE (issue #2129): the loopback calls
-        // authenticate with the caller's own credential, so on hosted every read and act resolves to the
-        // caller's tenant exactly as it would for any client - the machine token (which hosted rejects,
-        // and which carries no tenant) never authenticates a tenant's fleet read. The empty-credential arm
-        // exists ONLY for self-host with the auth gate off (single-tenant Local): there is no caller
-        // credential on the request at all, and the machine token is the same identity every client uses.
-        Func<string, CarMode.ICarModeFleet> carModeFleetForCaller = callerCredential =>
-            new CarMode.LoopbackCarModeFleet(Port, string.IsNullOrEmpty(callerCredential) ? Token : callerCredential);
-        // The Assistant (POST /assistant/turn) is the ONE surface on this brain now: Car Mode was removed from
-        // the product (#1028) and its own brain instance and turn door went with it. The loop, the tools, the
-        // per-device stores and the turn cache were always shared and are untouched.
-        var assistantBrain = new CarMode.CarModeBrain(carModeChat, carModeFleetForCaller, _carModeConversations, _carModePending, _carModeSubjects, _tenantSettingsResolver.SpokenLanguage);
-        // Keep-warm (Car Mode performance round): warm the SAME hosted model the brain uses and the SAME
-        // text-to-speech target /wingman/tts uses, resolved fresh each warmup so a settings change applies.
-        var carModeWarmup = new CarMode.CarModeWarmup(
-            CarMode.HostedCarModeChat.DefaultResolver(_keyVault.Get, _tenantSettingsResolver),
-            tenant =>
-            {
-                var mode = Core.Configuration.TranscriptionModeConfig.Get();
-                var tts = Core.Configuration.TranscriptionEndpointResolver.ResolveTts(mode);
-                var key = _keyVault.Get(tts.KeyName) ?? "";
-                return (tts.BaseUrl, _tenantSettingsResolver.TtsVoice(tenant, mode), _tenantSettingsResolver.TtsModel(tenant, mode), key);
-            });
-        Api.FleetBrainEndpoint.Map(_app, assistantBrain, _carModeTurnCache, carModeWarmup, _tenantBoundary);
 
         // The browser error channel (client error logging build): every error a browser app shows the
         // user is also reported here and lands in the Gateway log, tenant-partitioned, with a queryable

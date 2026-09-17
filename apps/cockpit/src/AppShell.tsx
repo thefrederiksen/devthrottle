@@ -70,8 +70,8 @@ interface NavItem {
 // and it is next to the place you start work rather than filed away under settings.
 //
 // The Fleet Manager sits at the TOP (the Fleet Manager mission, step 6): it is the one place the owner talks to
-// about all the work, and the page the Cockpit opens on. It replaced the Assistant's entry; the Assistant page and
-// the Gateway's Assistant still exist (step 9 removes them) but have no route or rail entry of their own. Its red
+// about all the work, and the page the Cockpit opens on. It replaced the Assistant, which step 9 removed from the
+// product; the old /assistant address redirects here. Its red
 // badge is the Gateway's count of what is waiting on the owner.
 const NAV_MAIN: ReadonlyArray<NavItem> = [
   { to: "/fleet-manager", label: "Fleet Manager", icon: "fleet-manager" },

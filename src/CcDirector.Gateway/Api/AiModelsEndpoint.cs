@@ -35,8 +35,8 @@ namespace CcDirector.Gateway.Api;
 /// DevThrottle serves a typed catalog (GET /models?type=chat|speech) where each speech model carries
 /// its own voices.
 ///
-/// SPLIT ON HOSTED (issues #1863, #2022). The five per-account MODEL/VOICE SETTERS (wingman-model,
-/// wingman-fast-model, car-mode-model, car-mode-end-phrase, tts-model) now write only the CALLER's tenant
+/// SPLIT ON HOSTED (issues #1863, #2022). The per-account MODEL/VOICE SETTERS (wingman-model,
+/// wingman-fast-model, tts-model) now write only the CALLER's tenant
 /// override through <see cref="TenantSettingsResolver"/> (issue #2017 runtime threading), answering 403 on an
 /// unresolved identity - never Local - so they SERVE on hosted, mapped onto the ungrouped builder in
 /// <see cref="MapServedRoutes"/>. The CATALOG (GET /gateway/ai/models) and TEST-CHAT (POST /gateway/ai/test-chat)
@@ -240,43 +240,6 @@ internal static class AiModelsEndpoint
             catch (JsonException) { return Results.BadRequest(new { error = "invalid JSON" }); }
         });
 
-        app.MapPut("/gateway/ai/car-mode-model", async (HttpContext ctx) =>
-        {
-            var t = GatewayEndpoints.ResolveReadTenant(ctx, tenantBoundary);
-            if (t is null) return TenantRequired();
-            try
-            {
-                var body = await JsonSerializer.DeserializeAsync<ModelBody>(ctx.Request.Body, JsonOpts, ctx.RequestAborted);
-                if (body is null || string.IsNullOrWhiteSpace(body.Model))
-                    return Results.BadRequest(new { error = "body { \"model\": \"<id>\" } is required" });
-                var model = body.Model.Trim();
-                if (RejectNonIncludedModel(model, "Car Mode model") is { } refusal) return refusal;
-                resolver.SetCarModeModel(t.Value, model, DateTime.UtcNow);
-                FileLog.Write($"[AiModelsEndpoint] car mode model set: {model} for tenant={t.Value.ToLogString()}");
-                return Results.Json(new { model });
-            }
-            catch (JsonException) { return Results.BadRequest(new { error = "invalid JSON" }); }
-        });
-
-        app.MapPut("/gateway/ai/car-mode-end-phrase", async (HttpContext ctx) =>
-        {
-            var t = GatewayEndpoints.ResolveReadTenant(ctx, tenantBoundary);
-            if (t is null) return TenantRequired();
-            try
-            {
-                var body = await JsonSerializer.DeserializeAsync<EndPhraseBody>(ctx.Request.Body, JsonOpts, ctx.RequestAborted);
-                // A blank phrase resets this tenant to the operator default (an empty phrase would end every
-                // turn): the resolver CLEARS the tenant override on blank so the read falls back to the default.
-                resolver.SetCarModeEndPhrase(t.Value, body?.Phrase ?? string.Empty, DateTime.UtcNow);
-                var phrase = resolver.CarModeEndPhrase(t.Value);
-                // The phrase is something the member SAYS out loud - spoken customer content - so it
-                // stays out of the log (data-map promise); the length is enough to see a set happened.
-                FileLog.Write($"[AiModelsEndpoint] car mode end phrase set: length={phrase.Length} for tenant={t.Value.ToLogString()}");
-                return Results.Json(new { phrase });
-            }
-            catch (JsonException) { return Results.BadRequest(new { error = "invalid JSON" }); }
-        });
-
         app.MapPut("/gateway/ai/tts-model", async (HttpContext ctx) =>
         {
             var t = GatewayEndpoints.ResolveReadTenant(ctx, tenantBoundary);
@@ -368,6 +331,5 @@ internal static class AiModelsEndpoint
     }
 
     private sealed record ModelBody(string? Model);
-    private sealed record EndPhraseBody(string? Phrase);
     private sealed record ModelDto(string Id, string Description, List<string> Voices, string? DefaultVoice);
 }

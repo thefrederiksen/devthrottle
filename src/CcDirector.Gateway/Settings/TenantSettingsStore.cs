@@ -9,7 +9,7 @@ namespace CcDirector.Gateway.Settings;
 /// <summary>
 /// The Gateway-owned, restart-surviving store of per-tenant setting OVERRIDES (issue #2017): one
 /// <c>tenant_settings</c> row per (tenant, key). This is the per-tenant home the hosted deny (issue #1863)
-/// required before the AI / voice / car-mode / notification settings could be served on the shared Gateway.
+/// required before the AI / voice / notification settings could be served on the shared Gateway.
 ///
 /// EXPLICIT TENANT ON EVERY CALL - the coordination boundary with the MTR mission is that this layer performs
 /// NO ambient or static tenant inference: every read and write takes the <see cref="TenantId"/> the route

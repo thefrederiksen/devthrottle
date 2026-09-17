@@ -164,20 +164,6 @@ public sealed class TenantSettingsResolver
     public string TtsModel(TenantId tenant, TranscriptionMode mode)
         => NonEmptyOverride(tenant, TenantSettingKeys.TtsModel) ?? TtsModelConfig.Resolve(mode);
 
-    /// <summary>
-    /// The tenant's Car Mode model, or the operator global default when unset. Car Mode is an internal
-    /// feature, so the same included-id rule as <see cref="WingmanModel"/> applies (issue #1360): a
-    /// catalog-id override falls forward to the included default instead of billing credits. Returns
-    /// the PROVEN <see cref="IncludedModelId"/>.
-    /// </summary>
-    public IncludedModelId CarModeModel(TenantId tenant)
-        => IncludedModelId.MintOrFallForward(
-            NonEmptyOverride(tenant, TenantSettingKeys.CarModeModel), CarModeModelConfig.Resolve());
-
-    /// <summary>The tenant's Car Mode end phrase, or the operator global default when unset.</summary>
-    public string CarModeEndPhrase(TenantId tenant)
-        => NonEmptyOverride(tenant, TenantSettingKeys.CarModeEndPhrase) ?? CarModeEndPhraseConfig.Get();
-
     /// <summary>The tenant's default snooze length in minutes, or the operator global default when unset or
     /// when the stored override fails validation.</summary>
     public int SnoozeDefaultMinutes(TenantId tenant)
@@ -442,23 +428,6 @@ public sealed class TenantSettingsResolver
     public void SetTtsModel(TenantId tenant, string model, DateTime nowUtc)
         => _store.Set(tenant, TenantSettingKeys.TtsModel, RequireNonEmpty(model, nameof(model)), nowUtc);
 
-    /// <summary>Set the tenant's Car Mode model.</summary>
-    /// <exception cref="ArgumentException">The model is null/empty.</exception>
-    public void SetCarModeModel(TenantId tenant, string model, DateTime nowUtc)
-        => _store.Set(tenant, TenantSettingKeys.CarModeModel, RequireNonEmpty(model, nameof(model)), nowUtc);
-
-    /// <summary>Set the tenant's Car Mode end phrase. A blank phrase RESETS this tenant to the operator
-    /// default by CLEARING the override (an empty phrase would end every turn), mirroring the global setter's
-    /// blank-resets-to-default behaviour - per tenant.</summary>
-    public void SetCarModeEndPhrase(TenantId tenant, string phrase, DateTime nowUtc)
-    {
-        var trimmed = (phrase ?? "").Trim();
-        if (trimmed.Length == 0)
-            _store.Remove(tenant, TenantSettingKeys.CarModeEndPhrase);
-        else
-            _store.Set(tenant, TenantSettingKeys.CarModeEndPhrase, trimmed, nowUtc);
-    }
-
     /// <summary>Set the tenant's display time zone (an IANA id).</summary>
     /// <exception cref="ArgumentException">The id is not a valid IANA time-zone id.</exception>
     public void SetTimeZone(TenantId tenant, string timeZone, DateTime nowUtc)
@@ -477,8 +446,8 @@ public sealed class TenantSettingsResolver
             System.Text.Json.JsonSerializer.Serialize(settings), nowUtc);
 
     /// <summary>Reset this tenant's AI model/voice choices to the operator defaults by CLEARING those
-    /// overrides (the legacy "reset to provider defaults" action). Snooze, time zone, and car-mode settings are
-    /// left untouched.</summary>
+    /// overrides (the legacy "reset to provider defaults" action). Snooze and time zone settings are left
+    /// untouched.</summary>
     public void ClearAiProviderOverrides(TenantId tenant)
     {
         _store.Remove(tenant, TenantSettingKeys.WingmanModel);

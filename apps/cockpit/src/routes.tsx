@@ -116,9 +116,8 @@ export const COCKPIT_ROUTES: RouteObject[] = [
           // repository and day, from the Gateway's durable per-session record (GET /history/report).
           // Running sessions appear as the entries that have not ended yet.
           { path: "/history", element: <HistoryView /> },
-          // The Assistant was replaced by the Fleet Manager (step 6). Its page (assistant/AssistantView.tsx) and
-          // the Gateway's Assistant still exist - step 9 removes them - but it has no route of its own any more:
-          // its old address lands on the Fleet Manager so a bookmark still reaches the surface that replaced it.
+          // The Assistant was replaced by the Fleet Manager (the Fleet Manager mission, steps 6 and 9) and is gone
+          // from the product. Its old address stays only so a bookmark lands on the Fleet Manager.
           { path: "/assistant", element: <Navigate to="/fleet-manager" replace /> },
           // Missions (issue #1405) is no longer its own page: it is the "Missions" pivot of the Fleet
           // Map (the fleet has one home). The old /missions route redirects there so existing bookmarks

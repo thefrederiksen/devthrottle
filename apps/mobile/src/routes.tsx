@@ -7,7 +7,6 @@ import { Chat } from "./pages/Chat";
 import { FileView } from "./pages/FileView";
 import { VoiceMode } from "./pages/VoiceMode";
 import { DEV_REPORT_ROUTES } from "./pages/reportRoutes";
-import { Assistant } from "./pages/Assistant";
 import { Settings } from "./pages/Settings";
 import { Recorder } from "./pages/Recorder";
 import { About } from "./pages/About";
@@ -117,14 +116,12 @@ export const MOBILE_ROUTES: RouteObject[] = [
         ),
         children: [
           { path: "/", element: <Home /> },
-          // /car was Car Mode, removed from the product (#1028). The route stays only to catch an
-          // installed shortcut or a stale service-worker shell and land it on the Assistant - the surface
-          // that still talks to the whole fleet by voice - rather than on a dead route or a blank screen.
-          { path: "/car", element: <Navigate to="/assistant" replace /> },
-          // The Assistant (fleet assistant build): fleet-level chat + voice, not tied to any
-          // session - the phone view of the same client-core turn machine the cockpit mounts.
-          // Distinct from Car Mode: button turns (tap to talk), no auto turn taking, hands-on.
-          { path: "/assistant", element: <Assistant /> },
+          // /car was Car Mode (removed, #1028) and /assistant was the Assistant (removed by the Fleet
+          // Manager mission, step 9; the Fleet Manager is on the Cockpit only). The routes stay only to
+          // catch an installed shortcut or a stale service-worker shell and land it on the session list
+          // rather than on a dead route or a blank screen.
+          { path: "/car", element: <Navigate to="/" replace /> },
+          { path: "/assistant", element: <Navigate to="/" replace /> },
           // Settings: the same tabbed page the Cockpit shows, from the same components
           // (client-core/settings). The tab rides in ?tab=.
           { path: "/settings", element: <Settings /> },

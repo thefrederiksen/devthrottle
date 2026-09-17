@@ -49,6 +49,9 @@ public sealed class GatewayHostBootSmokeTests
     // Step 7: the Fleet Manager's advice and pick on a record, and the owner's note (a snooze from the walkthrough).
     private const string FleetOutcomeAdvicePostgresMigration = "20260917040647_AddFleetOutcomeAdvice";
     private const string FleetOutcomeAdviceSqliteMigration = "20260917040637_AddFleetOutcomeAdvice";
+    // Step 9: the Assistant's two settings rows are deleted on both databases.
+    private const string RemoveAssistantSettingsPostgresMigration = "20260917060010_RemoveAssistantSettings";
+    private const string RemoveAssistantSettingsSqliteMigration = "20260917060000_RemoveAssistantSettings";
 
     /// <summary>A Fact that skips itself unless the runtime Postgres selector CC_GATEWAY_DB_CONNECTION is set
     /// to a non-blank value, so CI never reaches out to the hosted database and never needs the secret.</summary>
@@ -90,6 +93,7 @@ public sealed class GatewayHostBootSmokeTests
         Assert.Contains(FleetManagerEventsPostgresMigration, migrations);
         Assert.Contains(FleetManagerEventDeliveryPostgresMigration, migrations);
         Assert.Contains(FleetOutcomeAdvicePostgresMigration, migrations);
+        Assert.Contains(RemoveAssistantSettingsPostgresMigration, migrations);
     }
 
     /// <summary>
@@ -129,6 +133,7 @@ public sealed class GatewayHostBootSmokeTests
         Assert.Contains(FleetManagerEventsSqliteMigration, sqliteAll);
         Assert.Contains(FleetManagerEventDeliverySqliteMigration, sqliteAll);
         Assert.Contains(FleetOutcomeAdviceSqliteMigration, sqliteAll);
+        Assert.Contains(RemoveAssistantSettingsSqliteMigration, sqliteAll);
         Assert.Contains("AddFleetManagerMarkHistory", sqliteSince);
 
         Assert.Equal(sqliteSince.OrderBy(n => n, StringComparer.Ordinal), postgresSince.OrderBy(n => n, StringComparer.Ordinal));

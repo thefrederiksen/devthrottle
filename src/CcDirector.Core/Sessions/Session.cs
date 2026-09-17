@@ -1603,15 +1603,11 @@ public sealed class Session : IDisposable
     ///  - The Exes payload does carry it (ExesEndpoints, beside effectiveColor/stateLabel), and that one
     ///    genuinely is carrying: the live page renders the fold.
     ///
-    /// ONE PRESENTATION READER IS LEFT, AND IT IS NOT THIS FIELD - it is the wire copy, SessionDto
-    /// .StatusColor, at LoopbackCarModeFleet.ToInfo: <c>StateLabel ?? (EffectiveColor ?? StatusColor)</c>,
-    /// which Car Mode SPEAKS. It is a fallback chain that ends at the Director's cooked colour, so on paper
-    /// a client still renders a Director decision. It appears unreachable - SessionOrdering.StateLabel
-    /// returns a non-empty literal on every arm, and the Gateway stamps it for every session in the fleet
-    /// pass - but "appears unreachable" is not a proof, and the one hole (a blank DictationStatus returns
-    /// blank) is real. NOT changed here: what Car Mode says when the fold's label is blank is a question
-    /// about Car Mode's spoken output, not about this field, and it is raised with the Architect rather
-    /// than guessed at.
+    /// THE LAST PRESENTATION READER OF THE WIRE COPY IS GONE. SessionDto.StatusColor was read by
+    /// LoopbackCarModeFleet.ToInfo, as the end of a spoken fallback chain
+    /// (<c>StateLabel ?? (EffectiveColor ?? StatusColor)</c>). That chain went with the Assistant's fleet brain
+    /// (the Fleet Manager mission, step 9), and SessionOrdering.StateLabel is pinned never blank
+    /// (StateLabelIsNeverBlankTests) in any case.
     /// </summary>
     public string StatusColor { get; private set; } = "blue";
 
