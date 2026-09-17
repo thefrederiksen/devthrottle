@@ -7,8 +7,7 @@ import { Terminal } from "./pages/Terminal";
 import { Chat } from "./pages/Chat";
 import { FileView } from "./pages/FileView";
 import { VoiceMode } from "./pages/VoiceMode";
-import { Reports } from "./pages/Reports";
-import { ReportView } from "./pages/ReportView";
+import { DEV_REPORT_ROUTES } from "./pages/reportRoutes";
 import { Assistant } from "./pages/Assistant";
 import { Settings } from "./pages/Settings";
 import { Recorder } from "./pages/Recorder";
@@ -19,7 +18,7 @@ import { Repos } from "./pages/Repos";
 import { Account } from "./pages/Account";
 import { SignIn } from "@devthrottle/client-core/auth/SignIn";
 import { DeviceCallback } from "@devthrottle/client-core/auth/DeviceCallback";
-import { hasDeviceKey } from "@devthrottle/client-core/auth/deviceKey";
+import { RequireDeviceKey } from "./components/RequireDeviceKey";
 import { ensureGatewayCookie, configureUnauthorizedRedirect, mobileSignInRedirect } from "@devthrottle/client-core/api/client";
 import { ensurePushSubscribed } from "@devthrottle/client-core/push/register";
 import { installGlobalErrorReporting } from "@devthrottle/client-core/errors/reportClientError";
@@ -35,14 +34,6 @@ import { resumePendingDictations } from "@devthrottle/client-core/dictation/back
 import { resumePendingRecordingUploads } from "@devthrottle/client-core/recorder/ingestUpload";
 import { RouteRecoveryBoundary, RootLayout } from "./components/StaleShellRecovery";
 import "./styles.css";
-
-// The auth gate (issue #908): every real screen requires an enrolled device key. Without one, the
-// phone is sent to Sign in. /signin and /device-callback sit OUTSIDE the gate so an unenrolled phone
-// can reach them. hasDeviceKey() is read at navigation time, so enrolling (or a 401-triggered
-// clear) re-gates on the next route.
-function RequireDeviceKey() {
-  return hasDeviceKey() ? <GatedLayout /> : <Navigate to="/signin" replace />;
-}
 
 // The layout wrapping every gated page. It owns the app-level screen wake lock (issue #981) so the
 // phone stays awake on ANY page (roster, Chat, Voice, New session, AI settings, Terminal) while the
@@ -159,7 +150,11 @@ const router = createBrowserRouter(
         { path: "/device-callback", element: <DeviceCallback /> },
         // Gated: everything real requires an enrolled device key.
         {
-          element: <RequireDeviceKey />,
+          element: (
+            <RequireDeviceKey>
+              <GatedLayout />
+            </RequireDeviceKey>
+          ),
           children: [
             { path: "/", element: <Home /> },
             // /car was Car Mode, removed from the product (#1028). The route stays only to catch an
@@ -209,8 +204,7 @@ const router = createBrowserRouter(
             // Dev reports (dev reports mission, phase 3): the session's reports, and one report full screen
             // with its conversation in a bottom sheet. The list, the frame and the conversation are the
             // shared client-core view the Cockpit's Reports tab also mounts.
-            { path: "/session/:sessionId/reports", element: <Reports /> },
-            { path: "/session/:sessionId/reports/:reportId", element: <ReportView /> },
+            ...DEV_REPORT_ROUTES,
             // Local Files (Phase 3): the full-screen file viewer. Reached from a clicked file path in
             // the session's Chat or Terminal; the absolute path rides as ?path=. Not a tab in ViewTabs
             // (it is a leaf view of the session, dismissed with Back), matching the Cockpit modal.
