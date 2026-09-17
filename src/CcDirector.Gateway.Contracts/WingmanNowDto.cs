@@ -123,6 +123,42 @@ public sealed class WingmanNowResponse
     /// when it is not; it never has both to choose between.
     /// </summary>
     public WingmanNowDeadlineDto? CarryingOnDeadline { get; set; }
+
+    /// <summary>What the session was last asked, and by whom when that is KNOWN. Null when nothing has been asked
+    /// of it, or its computer sends no conversation.</summary>
+    public WingmanNowAskedDto? LastAsked { get; set; }
+
+    /// <summary>The stop before this moment, as one line. On a working session it is where the row has just been;
+    /// null when the Wingman has never explained a stop for this session.</summary>
+    public WingmanNowPastDto? LastStop { get; set; }
+}
+
+/// <summary>
+/// What the session was last asked: the words, when, and who asked.
+///
+/// WHO IS NEVER GUESSED. It is the sender's name when the message came through the fleet in a frame this Gateway
+/// wrote and can read back, or "You" when the owner's own turn is stamped within half a minute of it. Anything
+/// else leaves it null and the card says nothing about who - a name in front of the owner that nobody verified is
+/// worse than no name.
+/// </summary>
+public sealed class WingmanNowAskedDto
+{
+    /// <summary>The card's heading.</summary>
+    public string Heading { get; set; } = "";
+
+    /// <summary>What was asked, word for word.</summary>
+    public string Text { get; set; } = "";
+
+    /// <summary>When it was asked (UTC), for the client to format into local time.</summary>
+    public DateTime AtUtc { get; set; }
+
+    /// <summary>Who asked, when it is known: "You", or the sending session's name. Null when it is not.</summary>
+    public string? By { get; set; }
+
+    /// <summary>The finished words before the time - "You, at", "Dev Reports - Architect, at", or just "at" when
+    /// nobody is named. The client joins this and the local time, and chooses neither the words nor the
+    /// punctuation.</summary>
+    public string WhenLead { get; set; } = "";
 }
 
 /// <summary>
@@ -198,6 +234,15 @@ public sealed class WingmanNowWhenDto
     /// <summary>True when the client also shows how long ago it was ("8 minutes ago"). False on a stop where nothing
     /// is pending and the elapsed time would only add noise.</summary>
     public bool ShowAgo { get; set; }
+
+    /// <summary>
+    /// True when the sentence is the ELAPSED TIME ALONE and the clock time is not shown at all: "Working for 6
+    /// minutes", not "Working for 11:14 AM". <see cref="AtUtc"/> is then the moment to measure from.
+    ///
+    /// The client is still deciding no words - it is told which of the two shapes this sentence is, rather than
+    /// working it out from the state, which is the branch the dumb-client rule exists to remove.
+    /// </summary>
+    public bool ElapsedOnly { get; set; }
 }
 
 /// <summary>Something that was said, and who said it.</summary>

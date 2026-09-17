@@ -15,8 +15,8 @@ namespace CcDirector.Gateway.Tests.Wingman;
 /// own tests, and that the route really hands this fold a real row and a real store is proven through the handler in
 /// <see cref="WingmanNowRouteTests"/>, not here.
 ///
-/// WHAT IS NOT COVERED YET, said plainly rather than implied by silence: working and just answered (slices 4 and 5),
-/// and the voice control (slice 6). A row in one of those states folds to
+/// WHAT IS NOT COVERED YET, said plainly rather than implied by silence: just answered (slice 5) and the voice
+/// control (slice 6). A row in one of those states folds to
 /// "other" today, and no test here pins that - pinning an interim answer would only have to be deleted by the slice
 /// that gives it its real one. Reading, failed and switched off ARE covered, below.
 ///
@@ -761,7 +761,7 @@ public sealed class WingmanNowFoldTests
 
         var now = FoldWith(row, NoHistory, switchedOff: true);
 
-        Assert.NotEqual(WingmanNowStates.SwitchedOff, now.State);
+        Assert.Equal(WingmanNowStates.Working, now.State);
         Assert.Equal("Working", now.PillText);
         Assert.Null(now.SwitchedOff);
     }
@@ -969,5 +969,312 @@ public sealed class WingmanNowFoldTests
             Fold(Row(done), done).CalmCard!.Body);
         Assert.Equal("Nothing is needed from you, and the work is not finished yet.",
             Fold(Row(report), report).CalmCard!.Body);
+    }
+
+    // ================================================================ slice 4: working, and what it was asked
+
+    private static SessionDto WorkingRow(DateTime? ownerTurn = null)
+    {
+        var row = Row(null, colour: "blue", label: "Working");
+        row.ActivityState = "Working";
+        row.LastOwnerTurnAtUtc = ownerTurn;
+        return row;
+    }
+
+    /// <summary>A stop that has been superseded - the session went back to work at that moment.</summary>
+    private static AnsweredTurnVerdict Superseded(DateTime supersededAt, string word = TurnVerdictVocabulary.NeededYou)
+    {
+        var verdict = Verdict(word);
+        verdict.SupersededAtUtc = supersededAt;
+        return new AnsweredTurnVerdict(verdict, null);
+    }
+
+    private static WingmanNowConversation Asked(string text, DateTime? at = null) => new(true, new List<HistoryMessageDto>
+    {
+        new() { Role = "Assistant", Parts = { new HistoryPartDto { Kind = "Text", Text = "Earlier reply." } } },
+        new()
+        {
+            Role = "User",
+            Parts = { new HistoryPartDto { Kind = "Text", Text = text } },
+            Timestamp = new DateTimeOffset(at ?? Stopped.AddMinutes(2), TimeSpan.Zero),
+        },
+    });
+
+    // ---------------------------------------------------------------- how long it has been working
+
+    /// <summary>
+    /// WORKING MEASURES FORWARD. The sentence is the elapsed time alone - "Working for 6 minutes" - so the client
+    /// is told there is no clock time in it, rather than working that out from the state itself.
+    /// </summary>
+    [Fact]
+    public void A_working_session_says_how_long_it_has_been_working_and_names_no_clock_time()
+    {
+        var wentBackToWork = Stopped.AddMinutes(1);
+
+        var now = FoldWith(WorkingRow(), new[] { Superseded(wentBackToWork) });
+
+        Assert.Equal(WingmanNowStates.Working, now.State);
+        Assert.Equal("Working", now.PillText);
+        Assert.Equal("Working for", now.When!.Lead);
+        Assert.Equal(wentBackToWork, now.When.AtUtc);
+        Assert.True(now.When.ElapsedOnly);
+        Assert.Equal("Send it something while it works - it is queued until it is ready.", now.ReplyPlaceholder);
+    }
+
+    /// <summary>The moment is when the last stop stopped being the live one, NOT when that stop happened - the
+    /// number is the length of this working stretch, not the age of a stop that is over.</summary>
+    [Fact]
+    public void The_working_moment_is_when_it_went_back_to_work_and_not_when_it_stopped()
+    {
+        var now = FoldWith(WorkingRow(), new[] { Superseded(Stopped.AddMinutes(6)) });
+
+        Assert.Equal(Stopped.AddMinutes(6), now.When!.AtUtc);
+        Assert.NotEqual(Stopped, now.When.AtUtc);
+    }
+
+    /// <summary>A session that has not stopped since this Gateway learned of it has no superseded record, so
+    /// nothing knows when the stretch began. The pill still says Working; no number is invented.</summary>
+    [Fact]
+    public void A_session_that_has_never_stopped_says_it_is_working_and_invents_no_duration()
+    {
+        var now = FoldWith(WorkingRow(), NoHistory);
+
+        Assert.Equal(WingmanNowStates.Working, now.State);
+        Assert.Equal("Working", now.PillText);
+        Assert.Null(now.When);
+    }
+
+    // ---------------------------------------------------------------- what it was last asked, and by whom
+
+    /// <summary>A FLEET MESSAGE names its sender, because the frame is one this Gateway wrote and can read back -
+    /// and the owner is shown the message, not our delivery wrapper.</summary>
+    [Fact]
+    public void A_fleet_message_names_the_sending_session_and_hides_the_frame()
+    {
+        var framed = FleetMessaging.BuildFramedMessage("22222222-2222-2222-2222-222222222222",
+            "Dev Reports - Architect", "SOREN_NORTH", "Please rebase before you push.");
+
+        var now = FoldWith(WorkingRow(), new[] { Superseded(Stopped.AddMinutes(1)) }, Asked(framed));
+
+        Assert.Equal("What it was last asked", now.LastAsked!.Heading);
+        Assert.Equal("Please rebase before you push.", now.LastAsked.Text);
+        Assert.Equal("Dev Reports - Architect", now.LastAsked.By);
+        Assert.Equal("Dev Reports - Architect, at", now.LastAsked.WhenLead);
+        Assert.DoesNotContain("message from", now.LastAsked.Text);
+    }
+
+    /// <summary>THE OWNER IS NAMED ONLY ON THE STAMP. His recorded turn sits within half a minute of the message,
+    /// and at or after the previous stop.</summary>
+    [Fact]
+    public void The_owner_is_named_when_his_own_recorded_turn_sits_beside_the_message()
+    {
+        var askedAt = Stopped.AddMinutes(2);
+
+        var now = FoldWith(WorkingRow(ownerTurn: askedAt.AddSeconds(3)), new[] { Superseded(Stopped.AddMinutes(1)) },
+            Asked("Allow the merge.", askedAt));
+
+        Assert.Equal("You", now.LastAsked!.By);
+        Assert.Equal("You, at", now.LastAsked.WhenLead);
+        Assert.Equal("Allow the merge.", now.LastAsked.Text);
+        Assert.Equal(askedAt, now.LastAsked.AtUtc);
+    }
+
+    /// <summary>
+    /// NOBODY IS NAMED WHEN NOTHING SAYS WHO. The card still says what was asked and when - a name in front of
+    /// the owner that nothing verified is worse than an honest silence.
+    /// </summary>
+    [Fact]
+    public void Nobody_is_named_when_the_owners_stamp_is_too_far_from_the_message()
+    {
+        var askedAt = Stopped.AddMinutes(2);
+
+        // His turn is well outside the tolerance - a different message, earlier in the same conversation.
+        var now = FoldWith(WorkingRow(ownerTurn: askedAt.AddMinutes(-10)), new[] { Superseded(Stopped.AddMinutes(1)) },
+            Asked("Allow the merge.", askedAt));
+
+        Assert.Null(now.LastAsked!.By);
+        Assert.Equal("at", now.LastAsked.WhenLead);
+        Assert.Equal("Allow the merge.", now.LastAsked.Text);
+    }
+
+    /// <summary>
+    /// THE TOLERANCE IS A REAL CHECK, not a formality - this is the case that proves it.
+    ///
+    /// The owner's turn here is AFTER the previous stop, so the first half of the rule is satisfied and only the
+    /// half-minute decides. It was unguarded until this test: the tolerance was replaced with "always true" and
+    /// every other test stayed green, because in all of them the stamp also failed the previous-stop half and
+    /// never reached this one.
+    ///
+    /// What it protects against is the ordinary case of him typing into a session, walking away, and another
+    /// session messaging it twenty minutes later - which would otherwise be shown to him as his own words.
+    /// </summary>
+    [Fact]
+    public void An_owner_turn_after_the_previous_stop_but_long_before_the_message_names_nobody()
+    {
+        var ownerTurn = Stopped.AddMinutes(1);          // after the stop at Stopped - the first half passes
+        var askedAt = ownerTurn.AddMinutes(20);         // and far outside the half-minute
+
+        var now = FoldWith(WorkingRow(ownerTurn), new[] { Superseded(Stopped.AddSeconds(30)) },
+            Asked("Please rebase before you push.", askedAt));
+
+        Assert.Null(now.LastAsked!.By);
+        Assert.Equal("at", now.LastAsked.WhenLead);
+    }
+
+    /// <summary>
+    /// A FLEET MESSAGE IS NEVER CREDITED TO THE OWNER, even when it names nobody.
+    ///
+    /// Two of the three frame forms carry no sender name, and this was unguarded: with the fleet branch allowed to
+    /// fall through to the owner check, everything stayed green. The owner's stamp can sit beside another
+    /// session's message by coincidence - he typed into this session moments before it arrived - and the card
+    /// would then show him another session's words under his own name.
+    ///
+    /// A message that came through the fleet came through the fleet. That is settled by the frame, and the owner
+    /// check is not consulted at all.
+    /// </summary>
+    [Fact]
+    public void An_unnamed_fleet_message_is_never_credited_to_the_owner()
+    {
+        var askedAt = Stopped.AddMinutes(2);
+        var framed = FleetMessaging.BuildFramedMessage("22222222-2222-2222-2222-222222222222", null,
+            "SOREN_NORTH", "Please rebase before you push.");
+
+        // His own turn sits right beside it - the owner check would say yes if it were ever asked.
+        var now = FoldWith(WorkingRow(ownerTurn: askedAt.AddSeconds(2)), new[] { Superseded(Stopped.AddMinutes(1)) },
+            Asked(framed, askedAt));
+
+        Assert.Null(now.LastAsked!.By);
+        Assert.Equal("at", now.LastAsked.WhenLead);
+        // The frame is still taken off: he reads the message, not our delivery wrapper.
+        Assert.Equal("Please rebase before you push.", now.LastAsked.Text);
+    }
+
+    /// <summary>Nobody is named when the Director recorded no owner turn at all for this session.</summary>
+    [Fact]
+    public void Nobody_is_named_when_no_owner_turn_was_ever_recorded()
+    {
+        var now = FoldWith(WorkingRow(ownerTurn: null), new[] { Superseded(Stopped.AddMinutes(1)) },
+            Asked("Allow the merge."));
+
+        Assert.Null(now.LastAsked!.By);
+        Assert.Equal("at", now.LastAsked.WhenLead);
+    }
+
+    /// <summary>
+    /// THE STAMP ALONE IS NOT ENOUGH. An owner turn from BEFORE the previous stop cannot be the answer to a
+    /// message sent after it, however close the two happen to sit - otherwise every message arriving after he
+    /// last typed would be credited to him.
+    /// </summary>
+    [Fact]
+    public void An_owner_turn_from_before_the_previous_stop_does_not_claim_a_later_message()
+    {
+        var stoppedAgain = Stopped;                        // the previous stop, from the verdict
+        var askedAt = stoppedAgain.AddSeconds(-20);        // a message just BEFORE that stop
+        var ownerTurn = askedAt.AddSeconds(2);             // and his turn beside it - within the tolerance
+
+        var now = FoldWith(WorkingRow(ownerTurn), new[] { Superseded(Stopped.AddMinutes(1)) },
+            Asked("Something from before the stop.", askedAt));
+
+        Assert.Null(now.LastAsked!.By);
+        Assert.Equal("at", now.LastAsked.WhenLead);
+    }
+
+    /// <summary>A message with no recorded time cannot be placed, so no card is drawn rather than one that says
+    /// "at" and nothing after it.</summary>
+    [Fact]
+    public void A_message_with_no_recorded_time_draws_no_card()
+    {
+        var conversation = new WingmanNowConversation(true, new List<HistoryMessageDto>
+        {
+            new() { Role = "User", Parts = { new HistoryPartDto { Kind = "Text", Text = "Allow the merge." } } },
+        });
+
+        Assert.Null(FoldWith(WorkingRow(), NoHistory, conversation).LastAsked);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void There_is_no_asked_card_when_the_conversation_is_unsupported_or_absent(bool unsupported)
+    {
+        var conversation = unsupported
+            ? new WingmanNowConversation(false, Asked("Allow the merge.").Messages)
+            : null;
+
+        Assert.Null(FoldWith(WorkingRow(), NoHistory, conversation).LastAsked);
+    }
+
+    // ---------------------------------------------------------------- the stop it came from
+
+    [Fact]
+    public void A_working_session_shows_the_stop_it_has_just_come_from()
+    {
+        var now = FoldWith(WorkingRow(), new[] { Superseded(Stopped.AddMinutes(1)) });
+
+        Assert.Equal("Last stop", now.LastStop!.Lead);
+        Assert.Equal(Stopped, now.LastStop.AtUtc);
+        Assert.Equal("Needs you - Merge pull request 3002, or allow me to merge it", now.LastStop.Text);
+    }
+
+    /// <summary>A SUPERSEDED record is the normal case here, not an edge: going back to work is what superseded
+    /// it. A session whose last stop was never superseded still shows it.</summary>
+    [Fact]
+    public void The_stop_it_came_from_is_shown_whether_or_not_the_record_was_superseded()
+    {
+        var notSuperseded = new AnsweredTurnVerdict(Verdict(TurnVerdictVocabulary.NeededYou), null);
+
+        var now = FoldWith(WorkingRow(), new[] { notSuperseded });
+
+        Assert.Equal("Last stop", now.LastStop!.Lead);
+        Assert.Equal(Stopped, now.LastStop.AtUtc);
+    }
+
+    /// <summary>A session the Wingman has never explained a stop for shows none, rather than an empty line.
+    /// </summary>
+    [Fact]
+    public void A_session_with_no_explained_stop_shows_none()
+    {
+        Assert.Null(FoldWith(WorkingRow(), NoHistory).LastStop);
+    }
+
+    /// <summary>A refused record is not the stop it came from either - the same rule the last good explanation
+    /// keeps, for the same reason: the Gateway threw that judgement away.</summary>
+    [Fact]
+    public void A_refused_record_is_not_shown_as_the_stop_it_came_from()
+    {
+        var refused = Verdict(TurnVerdictVocabulary.NeededYou);
+        refused.VerdictId = "verdict-refused";
+        refused.Failed = true;
+        refused.FailureReason = "It contradicted itself.";
+        refused.SupersededAtUtc = Stopped.AddMinutes(1);
+
+        var good = Verdict(TurnVerdictVocabulary.ContinuesAlone, label: "Carrying on with the slice");
+        good.VerdictId = "verdict-good";
+        good.TurnEndObservedAtUtc = Stopped.AddMinutes(-30);
+
+        var now = FoldWith(WorkingRow(), new[]
+        {
+            new AnsweredTurnVerdict(refused, null),
+            new AnsweredTurnVerdict(good, null),
+        });
+
+        Assert.Equal("Carrying on - Carrying on with the slice", now.LastStop!.Text);
+    }
+
+    /// <summary>Working shows what it is DOING, and claims nothing about a stop it is not in. No headline, no
+    /// story, no agent's sentence, no needs, no calm card - those all describe a stop.</summary>
+    [Fact]
+    public void A_working_session_claims_nothing_about_a_stop_it_is_not_in()
+    {
+        var now = FoldWith(WorkingRow(), new[] { Superseded(Stopped.AddMinutes(1)) }, Asked("Allow the merge."));
+
+        Assert.Null(now.Headline);
+        Assert.Null(now.Story);
+        Assert.Null(now.AgentSaid);
+        Assert.Null(now.Needs);
+        Assert.Null(now.CalmCard);
+        Assert.Null(now.LastWords);
+        Assert.Null(now.CarryingOnDeadline);
+        Assert.False(now.Unsure);
     }
 }

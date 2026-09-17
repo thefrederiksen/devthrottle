@@ -552,4 +552,86 @@ public sealed class WingmanNowRouteTests : IDisposable
         Assert.True(TurnVerdictWatchdog.IsExpired(verdict, at));
         Assert.False(TurnVerdictWatchdog.IsExpired(verdict, at.AddTicks(-1)));
     }
+
+    // ------------------------------------------- a working session, served through the real handler
+
+    /// <summary>This session, WORKING, pushed by its Director.</summary>
+    private PushedSessionStore PushedWorking(DateTime? ownerTurn = null)
+    {
+        _registry.RegisterFromStream(DirectorId, "SOREN_NORTH", "u", "test", 1, DateTime.UtcNow, Account);
+        var pushed = new PushedSessionStore();
+        pushed.RegisterConnection(Account, DirectorId, "conn-working");
+        Assert.True(pushed.ApplySnapshot(Account, DirectorId, "conn-working", 1, new List<SessionDto>
+        {
+            new()
+            {
+                SessionId = Sid,
+                Name = "Wingman Inspector - Manager",
+                Agent = "ClaudeCode",
+                ActivityState = "Working",
+                LastActivityAt = Stopped.AddMinutes(2),
+                LastOwnerTurnAtUtc = ownerTurn,
+            },
+        }));
+        return pushed;
+    }
+
+    /// <summary>
+    /// A WORKING SESSION IS SERVED WHAT IT IS DOING, from the real store and the real conversation.
+    ///
+    /// The fold's tests prove what it says when handed a superseded record and a conversation. This drives the
+    /// whole path: the verdict is stored and then invalidated the way a Working transition invalidates it, so the
+    /// superseding moment is the store's own rather than a number a test wrote onto a hand-built object, and the
+    /// message is read out of the stored conversation.
+    /// </summary>
+    [Fact]
+    public void A_working_session_is_served_how_long_it_has_worked_and_what_it_was_asked()
+    {
+        var wentBackToWork = Stopped.AddMinutes(1);
+        var verdicts = StoreHolding(NeedsYouVerdict());
+        Assert.Equal(1, verdicts.Invalidate(Account, Sid, wentBackToWork));
+
+        var askedAt = Stopped.AddMinutes(2);
+        var turns = ConversationHolding(("Assistant", "Either merge 3002 yourself, or allow that command."));
+
+        var now = BodyOf(Read(Caller.Device, Sid, verdicts, PushedWorking(askedAt.AddSeconds(2)), turns,
+            streamStale: TimeSpan.FromMinutes(5)));
+
+        Assert.Equal(WingmanNowStates.Working, now.State);
+        Assert.Equal("Working", now.PillText);
+        Assert.Equal("Working for", now.When!.Lead);
+        Assert.Equal(wentBackToWork, now.When.AtUtc);
+        Assert.True(now.When.ElapsedOnly);
+
+        // The stop it came from, read back out of the store it was superseded in.
+        Assert.Equal("Last stop", now.LastStop!.Lead);
+        Assert.Equal(Stopped, now.LastStop.AtUtc);
+        Assert.Contains("Needs you - ", now.LastStop.Text);
+
+        // And nothing is claimed about a stop it is not in.
+        Assert.Null(now.Needs);
+        Assert.Null(now.CalmCard);
+    }
+
+    /// <summary>The message the owner sent, read out of the STORED conversation, with his own name on it because
+    /// the Director's record of his turn sits beside it.</summary>
+    [Fact]
+    public void The_message_a_working_session_was_last_sent_is_read_from_the_stored_conversation()
+    {
+        var verdicts = StoreHolding(NeedsYouVerdict());
+        verdicts.Invalidate(Account, Sid, Stopped.AddMinutes(1));
+
+        // ConversationHolding times message n at Stopped + n seconds, so the user message below is Stopped + 1s.
+        var turns = ConversationHolding(
+            ("Assistant", "Either merge 3002 yourself, or allow that command."),
+            ("User", "Allow the merge, and tag straight after it."));
+
+        var now = BodyOf(Read(Caller.Device, Sid, verdicts, PushedWorking(Stopped.AddSeconds(1)), turns,
+            streamStale: TimeSpan.FromMinutes(5)));
+
+        Assert.Equal("What it was last asked", now.LastAsked!.Heading);
+        Assert.Equal("Allow the merge, and tag straight after it.", now.LastAsked.Text);
+        Assert.Equal("You", now.LastAsked.By);
+        Assert.Equal("You, at", now.LastAsked.WhenLead);
+    }
 }

@@ -53,8 +53,8 @@ public sealed record WingmanNowConversation(bool Supported, IReadOnlyList<Histor
 /// WHAT THIS FOLD DOES NOT DECIDE YET. It rules on the stopped states the Wingman explained - needs you (sure and not
 /// sure), done, report and carrying on (slice 1) - and on the three with no explanation to show: being read, refused,
 /// and switched off (slice 2). Everything else folds to <see cref="WingmanNowStates.Other"/>, which wears the row's
-/// own label so the view is never blank. Working and just answered (slices 4 and 5) and the voice control
-/// (slice 6) arrive in their own slices, and a WORKING session is "other" until slice 4. An "other" answer is therefore not a claim that the row has no better state - it is a claim that
+/// own label so the view is never blank. Just answered (slice 5) and the voice control (slice 6) arrive in their
+/// own slices, so a session that has just been answered reads as plain "working" until slice 5 separates them. An "other" answer is therefore not a claim that the row has no better state - it is a claim that
 /// this fold has not been taught one.
 /// </summary>
 public static class WingmanNowFold
@@ -153,6 +153,45 @@ public static class WingmanNowFold
     public const string CarryingOnDeadlineAfter =
         ", and none of the sessions it owns is still working, this turns red and says so.";
 
+    // ------------------------------------------------------------------ slice 4: working, and what it was asked
+
+    /// <summary>The pill while the session is working.</summary>
+    public const string PillWorking = "Working";
+
+    /// <summary>The lead on how long it has been working. The sentence is the elapsed time alone - "Working for 6
+    /// minutes" - so there is no clock time in it.</summary>
+    public const string WorkingForLead = "Working for";
+
+    /// <summary>The heading over what the session was last asked.</summary>
+    public const string LastAskedHeading = "What it was last asked";
+
+    /// <summary>Who asked, when it was the owner himself.</summary>
+    public const string AskedByYou = "You";
+
+    /// <summary>The words before the time when nobody is named.</summary>
+    public const string AskedWhenLeadUnnamed = "at";
+
+    /// <summary>The words between a named asker and the time.</summary>
+    public const string AskedWhenLeadSuffix = ", at";
+
+    /// <summary>The lead on the stop a working session has just come from.</summary>
+    public const string LastStopLead = "Last stop";
+
+    /// <summary>The reply box while it works. It says what actually happens, because a message sent to a working
+    /// session is not lost and is not delivered either - it waits.</summary>
+    public const string ReplyPlaceholderWorking =
+        "Send it something while it works - it is queued until it is ready.";
+
+    /// <summary>
+    /// How close the owner's own recorded turn must be to a message before it is called HIS.
+    ///
+    /// The Director stamps when the owner last typed into a session, and the conversation stores when a message
+    /// was recorded; neither is the other, so they are compared with a tolerance. Half a minute is wide enough to
+    /// cover the gap between typing and the transcript being written, and narrow enough that an unrelated message
+    /// arriving later is not credited to him. Outside it, nobody is named at all.
+    /// </summary>
+    public static readonly TimeSpan OwnerTurnTolerance = TimeSpan.FromSeconds(30);
+
     /// <summary>
     /// The carrying-on sentence while the session still has one of its OWN sessions running: no clock is counting,
     /// so there is no instant to name.
@@ -191,10 +230,20 @@ public static class WingmanNowFold
             // THE ONE STATE THAT HIDES THE LINK: with the Wingman switched off there is no verdict behind the
             // colour, so "why this colour?" would open an explanation of a rule that did not run.
             ShowWhyColour = !string.Equals(state, WingmanNowStates.SwitchedOff, StringComparison.Ordinal),
-            When = When(state, live, row),
+            When = When(state, live, row, verdicts),
             VerdictId = live?.VerdictId,
             ReplyPlaceholder = ReplyPlaceholder(state),
         };
+
+        // WORKING. Most of a session's life, and the state that outranks every other - see StateOf. There is no
+        // stop to explain, so the view says what it is doing instead: how long it has been at it, what it was
+        // last asked, and the stop it has just come from.
+        if (string.Equals(state, WingmanNowStates.Working, StringComparison.Ordinal))
+        {
+            answer.LastAsked = LastAsked(inputs.Conversation, row, verdicts);
+            answer.LastStop = LastStop(verdicts, LastStopLead);
+            return answer;
+        }
 
         // THE THREE STATES WITH NO WINGMAN ACCOUNT OF THE STOP TO SHOW - it has not finished reading, its answer was
         // refused, or it was never switched on. Each shows the SESSION's own last words instead, so the owner can act
@@ -304,7 +353,8 @@ public static class WingmanNowFold
 
         // SWITCHED OFF IS AN ACCOUNT FACT, so it outranks every stopped state below: when nothing reads this
         // session's stops, "the Wingman is reading it" and "the Wingman could not explain it" are both false.
-        if (wingmanSwitchedOff == true && !working) return WingmanNowStates.SwitchedOff;
+        if (working) return WingmanNowStates.Working;
+        if (wingmanSwitchedOff == true) return WingmanNowStates.SwitchedOff;
 
         if (row is not null)
         {
@@ -340,6 +390,7 @@ public static class WingmanNowFold
     {
         WingmanNowStates.NeedsYou => PillNeedsYou,
         WingmanNowStates.Reading => PillReading,
+        WingmanNowStates.Working => PillWorking,
         WingmanNowStates.SwitchedOff => PillSwitchedOff,
         WingmanNowStates.CarryingOn => PillCarryingOn,
         WingmanNowStates.Done => PillDone,
@@ -349,8 +400,25 @@ public static class WingmanNowFold
         _ => NullIfBlank(row?.StateLabel) ?? OtherWithNoLabel,
     };
 
-    private static WingmanNowWhenDto? When(string state, TurnVerdictDto? live, SessionDto? row)
+    private static WingmanNowWhenDto? When(string state, TurnVerdictDto? live, SessionDto? row,
+        IReadOnlyList<AnsweredTurnVerdict> verdicts)
     {
+        // WORKING MEASURES FORWARD, not back: "Working for 6 minutes". The moment it started is the moment its last
+        // stop stopped being the live one, which is what SupersededAtUtc records - so the number is the length of
+        // this working stretch and not the age of a stop that is over.
+        if (string.Equals(state, WingmanNowStates.Working, StringComparison.Ordinal))
+        {
+            var since = WorkingSince(verdicts);
+            // No superseded record means nothing here knows when this stretch began - a session that has not
+            // stopped since the Gateway learned of it. The pill still says Working; no number is invented.
+            return since is null ? null : new WingmanNowWhenDto
+            {
+                Lead = WorkingForLead,
+                AtUtc = since.Value,
+                ElapsedOnly = true,
+            };
+        }
+
         var at = live is not null && live.TurnEndObservedAtUtc != default
             ? live.TurnEndObservedAtUtc
             : row?.WaitingSince;
@@ -371,6 +439,7 @@ public static class WingmanNowFold
         WingmanNowStates.NeedsYou => ReplyPlaceholderNeedsYou,
         WingmanNowStates.Report => ReplyPlaceholderReport,
         WingmanNowStates.Reading => ReplyPlaceholderReading,
+        WingmanNowStates.Working => ReplyPlaceholderWorking,
         // Failed and switched off both fall to the "other" words below on purpose - with no judgement to answer,
         // the box goes to the SESSION, which is exactly what those words say.
         WingmanNowStates.Failed or WingmanNowStates.SwitchedOff => ReplyPlaceholderOther,
@@ -577,6 +646,127 @@ public static class WingmanNowFold
         WingmanNowStates.Report => PillReport,
         _ => null,
     };
+
+    /// <summary>When this working stretch began: the newest superseded record's superseding moment. Null when no
+    /// record has been superseded, which is a session that has not stopped since this Gateway learned of it.
+    /// </summary>
+    private static DateTime? WorkingSince(IReadOnlyList<AnsweredTurnVerdict> verdicts)
+    {
+        foreach (var stored in verdicts)
+        {
+            if (stored.Verdict.SupersededAtUtc is { } at) return at;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The stop the row has just come from, as one line - the newest ACCEPTED record, superseded or not.
+    ///
+    /// Superseded is the normal case here rather than an edge: a working session's last stop is superseded by
+    /// definition, because going back to work is what superseded it.
+    /// </summary>
+    private static WingmanNowPastDto? LastStop(IReadOnlyList<AnsweredTurnVerdict> verdicts, string lead)
+    {
+        foreach (var stored in verdicts)
+        {
+            var verdict = stored.Verdict;
+            if (verdict.Failed) continue;
+
+            var words = PastPillWords(verdict);
+            if (words is null) continue;
+
+            var at = verdict.TurnEndObservedAtUtc != default ? verdict.TurnEndObservedAtUtc : verdict.JudgedAtUtc;
+            if (at == default) continue;
+
+            var label = NullIfBlank(verdict.Label);
+            return new WingmanNowPastDto
+            {
+                Lead = lead,
+                AtUtc = at,
+                Text = label is null ? words : words + " - " + label,
+            };
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// What the session was last asked, and by whom WHEN THAT IS KNOWN.
+    ///
+    /// Three outcomes for who, and the third is the important one:
+    ///
+    /// 1. A FLEET MESSAGE, recognised by reading back the frame this Gateway itself wrote
+    ///    (<see cref="FleetMessaging.TryParseFrame"/>). The sender's own name is then a fact, and the text shown
+    ///    is the message without the frame - the owner should not be reading our delivery wrapper.
+    /// 2. THE OWNER, but only when the Director's record of his last turn in this session sits at or after the
+    ///    previous stop and within <see cref="OwnerTurnTolerance"/> of the message. Both conditions matter: the
+    ///    stamp alone would credit him with every message that arrived after he last typed, however much later.
+    /// 3. NOBODY NAMED. The card says what was asked and when, and nothing about who. A guess here is a name in
+    ///    front of the owner that nothing verified, which is worse than an honest silence.
+    /// </summary>
+    private static WingmanNowAskedDto? LastAsked(WingmanNowConversation? conversation, SessionDto? row,
+        IReadOnlyList<AnsweredTurnVerdict> verdicts)
+    {
+        if (conversation is null || !conversation.Supported) return null;
+
+        var messages = conversation.Messages;
+        for (var i = messages.Count - 1; i >= 0; i--)
+        {
+            var message = messages[i];
+            if (!string.Equals(message.Role, "User", StringComparison.OrdinalIgnoreCase)) continue;
+
+            var text = NullIfBlank(string.Join("\n\n", message.Parts
+                .Where(p => string.Equals(p.Kind, "Text", StringComparison.OrdinalIgnoreCase))
+                .Select(p => p.Text)
+                .Where(t => !string.IsNullOrWhiteSpace(t))));
+            if (text is null) return null;
+            if (message.Timestamp is not { } stamp) return null;
+
+            var at = stamp.UtcDateTime;
+            string? by = null;
+            if (FleetMessaging.TryParseFrame(text, out var frame))
+            {
+                by = NullIfBlank(frame.SenderName);
+                text = NullIfBlank(frame.Text) ?? text;
+            }
+            else if (OwnerAskedIt(row, verdicts, at))
+            {
+                by = AskedByYou;
+            }
+
+            return new WingmanNowAskedDto
+            {
+                Heading = LastAskedHeading,
+                Text = text,
+                AtUtc = at,
+                By = by,
+                WhenLead = by is null ? AskedWhenLeadUnnamed : by + AskedWhenLeadSuffix,
+            };
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Was this message the owner's own? Only when his recorded turn in this session is at or after the previous
+    /// stop AND within the tolerance of the message.
+    ///
+    /// The "at or after the previous stop" half is what stops a stamp from a much earlier conversation being read
+    /// as an answer to this one. With no previous stop recorded there is nothing to be after, so the tolerance
+    /// alone decides.
+    /// </summary>
+    private static bool OwnerAskedIt(SessionDto? row, IReadOnlyList<AnsweredTurnVerdict> verdicts, DateTime askedAt)
+    {
+        if (row?.LastOwnerTurnAtUtc is not { } owner) return false;
+        var ownerUtc = owner.Kind == DateTimeKind.Utc ? owner : owner.ToUniversalTime();
+
+        var previousStop = LastStop(verdicts, LastStopLead)?.AtUtc;
+        if (previousStop is { } stop && ownerUtc < stop) return false;
+
+        var gap = ownerUtc > askedAt ? ownerUtc - askedAt : askedAt - ownerUtc;
+        return gap <= OwnerTurnTolerance;
+    }
 
     private static string? NullIfBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
 }
