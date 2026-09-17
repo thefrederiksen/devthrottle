@@ -1,7 +1,8 @@
 """The worktree pool: state on disk, and the get / return / lease / destroy / list operations.
 
-One JSON state file per repository, all under one machine-wide lock, written atomically. The
-network is never touched under that lock: each repository's fetch has a lock of its own. A slot is
+One JSON state file per repository, all under one machine-wide lock, written atomically. The fetch
+never runs under that lock: each repository's fetch has a lock of its own. The one network call made
+under it is the check's confirmation of remote branches, bounded by the network timeout. A slot is
 free, in-use or held. Anything the state cannot vouch for is held, never free.
 
 Portions adapted from treehouse (https://github.com/kunchenguid/treehouse), internal/pool/pool.go,

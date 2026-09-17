@@ -1,5 +1,5 @@
 """File locks: one machine-wide lock around every read and write of pool state, and one lock per
-repository around its fetch, so the network never runs under the machine-wide lock.
+repository around its fetch, so the fetch never runs under the machine-wide lock.
 
 Portions adapted from treehouse (https://github.com/kunchenguid/treehouse), internal/pool/lock_*.go
 and state.go. Copyright (c) 2026 kunchenguid. MIT License - see THIRD_PARTY_NOTICES.md.

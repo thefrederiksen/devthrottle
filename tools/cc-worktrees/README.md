@@ -54,9 +54,25 @@ A worktree is reset only when all of these are positively proven, in this order:
 3. The default branch is read from the remote with `git ls-remote --symref origin HEAD`. It is never
    assumed to be `main` and the local `origin/HEAD` is never used.
 4. The remote was fetched just now (`git fetch --prune origin +refs/heads/*:refs/remotes/origin/*`).
-   `--prune` matters: a tracking ref for a branch deleted on the remote must not count as proof.
-5. Every commit reachable from HEAD is checked on its own. It counts as landed only when it is on an
-   `origin` branch, or when both of these hold: it is the same patch as a commit in the default
+   `--prune` matters: a tracking ref for a branch deleted on the remote must not count as proof. The
+   refspec is named on the command line because `--prune` only prunes what the refspec maps: a clone whose
+   configured refspec covers only the default branch (what `git clone --single-branch` leaves) would keep
+   a stale tracking ref for every other branch forever.
+5. Nothing in the slot is a git repository of its own. The slot is walked for any entry named `.git`
+   (a directory, a file or a link; compared without regard to case on Windows and macOS) other than its
+   own top-level `.git`, never following a symlink, a junction or any other reparse point out of the slot.
+   A clone under an ignored path is invisible to `git status`, its commits are on no ref of this
+   repository, and `git worktree remove` would delete it with its history, so any such entry holds the
+   slot, naming the path. A registered submodule is held by the same rule: `git status` proves a
+   submodule matches the commit this repository records, not that the submodule's own HEAD, or the
+   commits abandoned in it, are on its remote. A directory that cannot be listed holds the slot. The walk
+   runs in the check and again as the last step before `read-tree` and before `git worktree remove`;
+   measured on a slot with 60,000 ignored files in 600 directories it took 0.1 to 0.2 seconds, and from its
+   end to `read-tree` starting took under 0.1 milliseconds. A repository created inside that last gap is
+   not seen.
+6. Every commit reachable from HEAD is checked on its own. It counts as landed only when it is in the
+   default branch tip's history, or on another `origin` branch that the remote itself confirms at the
+   moment of the check, or when both of these hold: it is the same patch as a commit in the default
    branch's history (`git cherry`, which recognises a rebase), AND, for every path that any commit on
    no remote branch touches, the slot's content equals the content of the current default branch tip.
    A patch in the history is not content in the tip: a patch that was landed and then reverted is held.
@@ -70,7 +86,15 @@ A worktree is reset only when all of these are positively proven, in this order:
      the commits it combined. It counts as landed while its commits are still on a remote branch (for
      example the pull request branch). A later phase may prove a squash through the pull request.
    - A merge commit on no remote branch is held: `git cherry` does not compare merge commits.
-6. Every commit in the slot's HEAD reflog after the tool's own mark passes the same check. A commit
+   - The tracking refs come from the fetch, which runs before the command waits for the machine-wide
+     lock, and that wait can last up to 300 seconds. Ancestry of the default tip needs nothing more: an
+     older default tip loses nothing. A commit whose only proof is another remote branch has those
+     branches asked for again with one `git ls-remote origin refs/heads/<name> ...`, inside the locked
+     section that resets or removes the slot. A branch the remote no longer has, one moved to a commit
+     that does not contain the proved commit, or a remote that does not answer, holds the slot. This is
+     the one network call made while the machine-wide lock is held; it is bounded by the network timeout
+     (120 seconds by default), and when no commit needs it, it is not made.
+7. Every commit in the slot's HEAD reflog after the tool's own mark passes the same check. A commit
    abandoned with `git reset --hard` lives only in that reflog, which a later destroy deletes. The mark
    is a reflog line the tool itself writes, while it holds `HEAD.lock`, each time it resets or creates a
    slot: `cc-worktrees: reset to <commit> <nonce>`, with a new random nonce. Still under the lock, the
@@ -78,21 +102,51 @@ A worktree is reset only when all of these are positively proven, in this order:
    that line's position, commit and nonce. It never saves "whatever entry is newest", so a commit made
    after the reset is after the mark and is checked next time. A mark that is not found as that line at
    its recorded position, a reflog that lost it, or `core.logAllRefUpdates` turned off, cannot be
-   vouched for and holds the slot. A slot with no mark on record (its state was lost) has every reflog
-   entry checked.
-7. The caller's lease matches. The lease is required, because without it the tool has no evidence the holder let go.
+   vouched for and holds the slot.
+
+   The reflog after the mark is only proof while nothing has removed lines from it. `git reflog expire`
+   and `git gc` do: they write a new file and rename it over the old one, even when they expire nothing
+   (measured on git 2.49; `git gc --auto` with nothing to do leaves it alone), and an expired commit
+   leaves no trace in the file. So the tool also records the log file as it stood right after its line
+   was verified - its identity, its size, and a hash of its bytes - and the check requires the same file,
+   no shorter, with the same bytes up to that line. Anything else holds the slot ("the HEAD reflog was
+   rewritten since cc-worktrees wrote its line"), however old or new the mark is: a hand-run
+   `git reflog expire --expire-unreachable=now` ignores every configured expiry, so no age proves it did
+   not happen. **This means one `git gc` in the repository holds every slot of its pool**, free ones
+   included, and there is no command in this version that releases a slot held that way; measured, a
+   pool of four free slots answered `pool-full` to the next `get` after one ordinary `git gc`. A slot with
+   no mark on record (its state was lost) is held the same way, and every reflog entry is checked.
+
+   Gap: a file system that reuses file identities (inode numbers, as ext4 can) could give a log rewritten
+   twice the old identity; if the rewrite also left every byte before the mark unchanged and the file no
+   shorter, the tool would not see it. On git 2.49 a rewrite also changed a byte before the mark in every
+   log measured (a line with an empty message gains a tab), which the hash sees, but that is git's
+   formatting, not a guarantee.
+8. Every commit the check cannot prove landed is pinned: the tool writes
+   `refs/cc-worktrees/<slot>/<commit>` in the main repository (never under `refs/heads` or `refs/remotes`,
+   never pushed; the fetch names its own refspec, so a fetch cannot write there). A pinned commit cannot be
+   removed by `git gc` or reflog expiry, and every later check reads the slot's pins as commits to prove,
+   so it stays held until the normal rule proves it landed. A pin is never proof. A check that holds the
+   slot for another reason (uncommitted changes, a hidden flag, a nested repository, a rewritten reflog)
+   still runs the commit proof and pins what it cannot prove, and names those commits after the first
+   reason. A pin that cannot be written is named in the reason. The pins are removed only after a passing
+   check's reset or removal succeeded, in the same locked section. So `destroy --allow-held` of a slot
+   with a pin refuses, naming the commits, unless every one of them is proven landed at that moment.
+   Only commits some check saw are pinned: a commit expired from the reflog before any check looked at it
+   is not, and `git gc` may remove it later; its slot is held by rule 7.
+9. The caller's lease matches. The lease is required, because without it the tool has no evidence the holder let go.
 
 Any failure - including a fetch that fails for an unreachable remote, bad credentials or an expired
 token - holds the worktree with a plain reason such as `1 commit is on no remote: <commit>`,
 `2 uncommitted changes`, or `cannot verify: <git's error>`. Every git call runs with
 `GIT_TERMINAL_PROMPT=0` and `GCM_INTERACTIVE=never`, so a credential problem fails at once instead of
-waiting at a prompt. The two network calls, `ls-remote` and `fetch`, are stopped after 120 seconds
+waiting at a prompt. The network calls, `ls-remote` and `fetch`, are each stopped after 120 seconds
 (`CC_WORKTREES_NETWORK_TIMEOUT` sets another number of seconds); a timeout holds the worktree as
 `cannot verify: timed out after N seconds`. Only the git process the tool started is stopped. A remote
 helper that git itself started may keep running until its own network call ends.
 
 Immediately before the reset the tool takes `HEAD.lock` in the worktree's git directory and re-checks
-the `.git` binding, HEAD, the whole reflog and cleanliness under it. It then refreshes the index
+the `.git` binding, HEAD, the whole reflog, cleanliness and the index flags under it. It then refreshes the index
 (`git update-index --refresh`; a tracked file that changed holds the slot) and resets with a two-tree
 merge from the checked HEAD. That merge checks every path it would write before writing any, and refuses
 (held, nothing written) when an untracked file or a local change sits on one of them, so a file an editor
@@ -103,7 +157,11 @@ The reset never writes over or deletes an ignored file, as far as the tool can s
 way to keep an ignored file on a path it writes, in either mode, so the tool compares the ignored files
 with the target tree under the lock, as late as it can: if the default branch now tracks a path that is
 an ignored file in the slot (or a directory above one), the slot is held and the reason names the files.
-An ignored file created in the few milliseconds between that comparison and `read-tree` is not seen.
+An ignored file created between that comparison and `read-tree` is not seen. That window is not a few
+milliseconds: measured on a slot with 60,000 ignored files in 600 directories (Windows, git 2.49), listing
+the ignored files took 0.25 to 0.65 seconds on its own, and from that listing's end to `read-tree`
+starting took 0.1 to 0.2 seconds, most of it the nested-repository walk of rule 5. A build that writes an
+ignored file inside that window, on a path the default branch has newly started to track, loses that file.
 There is no `git clean`: after `read-tree` the only untracked files left can be ones the new default
 branch no longer ignores, and those are kept; the slot is then held, naming them. If the reset fails part
 way (for example a file locked by another process on Windows) the slot is held with the reason.
@@ -120,6 +178,14 @@ The tool never kills a process, never deletes a branch, and never pushes, merges
   can already read every slot on disk, whoever holds it.
 - **The lease is a coordination token, not authentication.** It stops one session returning a slot
   another session holds by mistake. Anyone who can read the state file can read the lease.
+- **A slot does not survive `git gc` as free.** Any `git gc` or `git reflog expire` in the repository,
+  including one git starts by itself when it decides the repository needs it, holds every slot of the
+  pool (rule 7), and this version has no command that releases them.
+- **A slot is not a place to keep another repository**, a sparse checkout, or files flagged
+  assume-unchanged or skip-worktree: each holds the slot.
+- **The tool writes refs.** `refs/cc-worktrees/<slot>/<commit>` pins live in the main repository while
+  a commit is unproven (rule 8). They are never pushed, and removing one by hand removes that commit's
+  protection from `git gc`.
 
 ## Exit codes
 
@@ -136,7 +202,8 @@ The tool never kills a process, never deletes a branch, and never pushes, merges
 One JSON file per repository pool under `pools/`, all guarded by one machine-wide lock file (an OS
 lock: `msvcrt.locking` on Windows, `flock` elsewhere), written to a temp file and replaced.
 
-The network is never touched under the machine-wide lock. A command fetches first, under a lock for
+The fetch never runs under the machine-wide lock; the one network call that does is the remote-branch
+confirmation in rule 6, bounded by the network timeout. A command fetches first, under a lock for
 that repository only (`fetch-locks/`), and keeps that lock until its act is done. It then takes the
 machine-wide lock, reads the state again, reads the default branch's tracking ref again, and runs the
 whole landed check and the reset against THAT commit, never the one the fetch returned. The order is
