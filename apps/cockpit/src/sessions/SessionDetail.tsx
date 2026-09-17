@@ -149,11 +149,6 @@ export function SessionDetail() {
           {selected && <SessionMenu session={selected} variant="page" onClosed={() => navigate("/sessions")} />}
         </div>
 
-        {/* What the Wingman read at this stop, and the owner's answer to it - the shared client-core panel.
-            THIS SHELL DECIDES NOTHING ABOUT WHAT IT SHOWS: it hands over the selected row and this route's
-            session id, and the panel owns whether there is anything to show and what is live on it. */}
-        {selected && sessionId && <VerdictPanel sessionId={sessionId} session={selected} />}
-
         <div className="session-content">
           {/* The terminal is ALWAYS mounted (hidden, not unmounted, when Chat or Voice is active) so its
               live WebSocket is never torn down on a tab switch (issue #1213). */}
@@ -177,6 +172,12 @@ export function SessionDetail() {
           )}
           {mainTab === "wingman" && sessionId && (
             <div className="session-pane">
+              {/* What the Wingman read at this stop, and the owner's answer to it - the shared client-core panel.
+                  It shows on the Wingman tab ONLY (the owner, 2026-09-17): above every tab it crowded the
+                  terminal, chat, voice and source control views it has nothing to do with.
+                  THIS SHELL DECIDES NOTHING ABOUT WHAT IT SHOWS: it hands over the selected row and this route's
+                  session id, and the panel owns whether there is anything to show and what is live on it. */}
+              {selected && <VerdictPanel sessionId={sessionId} session={selected} />}
               <WingmanTab sessionId={sessionId} />
             </div>
           )}
