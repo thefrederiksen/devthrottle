@@ -1,0 +1,287 @@
+/* The Wingman tab (the Wingman inspector, phase 3). Uses the mounting shell's tokens only; the Cockpit is the one
+   shell that mounts it. Long text sits in monospace blocks whose scrollbars are always shown, so a cut-off prompt
+   never looks complete. */
+.wingman-tab {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+  color: var(--text);
+}
+
+.wingman-state {
+  margin: 24px 0;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.wingman-state-error {
+  color: var(--attention);
+  font-style: normal;
+}
+
+.wingman-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.wingman-chip {
+  padding: 4px 10px;
+  font-size: 12.5px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-dim);
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.wingman-chip b {
+  margin-left: 6px;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.wingman-chip.on {
+  border-color: var(--accent);
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.wingman-split {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 340px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.wingman-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  min-height: 0;
+  overflow-y: scroll;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.wingman-item {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 12px 1fr auto;
+  gap: 3px 10px;
+  align-items: center;
+  padding: 9px 12px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.wingman-item:hover {
+  background: var(--surface-2);
+}
+
+.wingman-item.on {
+  background: var(--surface-2);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.wingman-item-verdict {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.wingman-item-time {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.wingman-item-label {
+  grid-column: 2 / 4;
+  font-size: 13px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.wingman-item-meta {
+  grid-column: 2 / 4;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.wingman-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  display: inline-block;
+  flex: 0 0 auto;
+}
+
+.wingman-dot-none {
+  border: 1px dashed var(--text-dim);
+}
+
+.wingman-detail {
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.wingman-strip {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wingman-strip-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.wingman-strip-label {
+  font-size: 16px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.wingman-strip-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.wingman-pill {
+  font-size: 11.5px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.wingman-kv {
+  display: grid;
+  grid-template-columns: minmax(80px, max-content) minmax(0, 1fr);
+  gap: 4px 10px;
+  margin: 0;
+  font-size: 12.5px;
+}
+
+.wingman-kv dt {
+  color: var(--text-dim);
+}
+
+.wingman-kv dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Two blocks a row when the pane is wide enough to read them side by side, one when it is not - never a squeezed
+   column of single words. */
+.wingman-blocks {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr));
+  gap: 12px;
+}
+
+.wingman-block {
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 14px 12px;
+}
+
+.wingman-block h4 {
+  display: flex;
+  align-items: center;
+  margin: 0 -14px 10px;
+  padding: 9px 14px;
+  font-size: 13px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+  border-radius: 8px 8px 0 0;
+}
+
+.wingman-block-aside {
+  margin-left: auto;
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.wingman-block h5 {
+  margin: 12px 0 0;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+/* Scrollbars always visible: overflow is scroll, never auto. */
+.wingman-text {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  max-height: 320px;
+  overflow: scroll;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: "Cascadia Mono", Consolas, Menlo, monospace;
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* A terminal screen keeps its columns; a wide row scrolls sideways instead of wrapping. */
+.wingman-screen {
+  white-space: pre;
+  overflow-wrap: normal;
+}
+
+.wingman-decision {
+  margin: 0 0 6px;
+  font-weight: 600;
+}
+
+.wingman-note {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+.wingman-clock p {
+  margin: 8px 0 6px;
+}
+
+.wingman-link {
+  margin-left: 8px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
