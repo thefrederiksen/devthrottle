@@ -79,7 +79,10 @@ public sealed class PromptRequest
     ///
     /// It exists for text the product sends on its own - the Fleet Manager's events - which must never land in a
     /// turn the owner has just started. A Gateway reading the pushed state and then sending cannot promise that: the
-    /// owner can submit between the read and the send. The Director checks and types in the same step.
+    /// owner can submit between the read and the send. The Director checks and types in the same step, and holds the
+    /// session's input from the check to the prompt's Enter (at most five seconds): the owner's keystrokes in that time
+    /// are written after the prompt, in order. A send that cannot finish in that time is abandoned, the text it typed is
+    /// removed from the composer, and it is answered <see cref="PromptResponse.RefusedBusy"/>.
     ///
     /// A Director older than this field ignores it and types. So a sender that relies on it sends only to a Director
     /// whose Hello said <see cref="DirectorStreamHello.ChecksIdleBeforeTyping"/>, and counts an accepted answer without

@@ -234,10 +234,11 @@ internal static class SessionCommandExecutor
             request.AgentDriven ? SubmissionRoutes.FleetMessage
             : !string.IsNullOrWhiteSpace(request.DeliveryUploadId) ? SubmissionRoutes.GatewayDictation
             : SubmissionRoutes.GatewayPrompt);
-        // ONLY WHEN WAITING FOR A PROMPT (the Fleet Manager's events): the session makes the check and types under the
-        // input lock the owner's own keystrokes take. It refuses a session that is not waiting, and it abandons the send
-        // before the Enter if any other input reaches the session after the check. A Gateway reading a pushed state
-        // seconds old cannot promise either. A refusal is a success with Accepted false, so the events wait.
+        // ONLY WHEN WAITING FOR A PROMPT (the Fleet Manager's events): the session makes the check and holds its input
+        // from the check to the Enter, so the owner's keystrokes are written after the prompt. It refuses a session that
+        // is not waiting, and a send it abandons has its text removed from the composer and is refused. A Gateway
+        // reading a pushed state seconds old cannot promise either. A refusal is a success with Accepted false, so the
+        // events wait.
         if (request.OnlyWhenWaitingForInput)
         {
             var sent = await session.SendTextOnlyWhenWaitingForInputAsync(

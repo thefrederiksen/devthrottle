@@ -1173,8 +1173,11 @@ is stored - or, after 5 minutes without one, until it is given the reason there 
 as that. A reading that ends as `cannot-tell` or fails is delivered as that. The Gateway also delivers them to the
 Fleet Manager itself: one prompt, starting `[Fleet Manager events]`, at its own turn end or a few
 seconds after an event arrives while it is idle - and typed only if the Director finds the Fleet
-Manager waiting for a prompt at that moment, with no other input reaching the session before the Enter;
-otherwise the events wait for its next idle moment. A Director too old to make that check is sent
+Manager waiting for a prompt at that moment. The Director then holds the session's input from that check
+until the prompt's Enter, at most 5 seconds: anything the owner types meanwhile is written after it, in
+order, so the owner's Enter can never submit the event text. A send that cannot finish in that time is
+abandoned, the text it typed is removed from the composer, and it counts as refused. A refused send
+leaves the events for the Fleet Manager's next idle moment. A Director too old to make that check is sent
 nothing, and an answer that does not say the check was made does not count as a delivery.
 One prompt carries at most 200 events, the oldest owed; it says how many more wait, and those are sent
 at the next idle moment. Delivery is at least once: every event carries its id, the same event can be sent again (a Gateway
