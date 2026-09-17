@@ -2445,3 +2445,85 @@ inspected per slice. Order of work:
    words).
 3. Fix rounds if they fail; then the pull request, merged the moment its checks are green.
 4. Publish the director-restart skill draft, cut the release, write the report.
+
+## Merge with main (17 September 2026, merge Manager seat)
+
+Merge commit `93e3f573` brings `origin/main` (`ef411aa0`, 10 commits past the last merge base `dc6d6547`: dev reports
+phase 2, the Wingman stops route and Cockpit tab, the Wingman narration call, cc-secrets settings and edit,
+credentials from cc-secrets, pull-request-scoped continuous integration jobs, and the AXI mission record) into
+`mission/message-load`. Then `f21cb495`, the regenerated client schema. No pull request opened, no fleet message
+sent, nothing published.
+
+### What conflicted, and how it was resolved
+
+Only two files conflicted. Main did not touch `cli.py`, `session_ops.py`, `machine_ops.py`, the actions fixture, the
+preamble template or its approved file, the shipped skills, or `docs/new_architecture/sessions.html`.
+
+- **`GatewayHost.cs` and `GatewayEndpoints.cs`, the display fold.** Main moved every input of the display push's fold
+  into one class, `Fleet.DisplayFold` (so the Wingman inspector's trace colour and the push cannot name different
+  inputs), and added a `writes` parameter to `StampFleetRolesAndFold` and `EnrichVoiceThenFoldForPush`. Slice 4 had
+  added `inboxLines` to the same two parameter lists and to the push's inline lambda. Resolved:
+  - Both parameters kept on both methods (`inboxLines`, then `writes`); the inner call passes both.
+  - The push's inline lambda is main's `_displayFold.Push(...)`.
+  - `DisplayFold` gains an optional `Func<IFleetInboxLineSource?> inboxLines` (read at fold time, because the store is
+    built later in the host's constructor); the host passes `() => _fleetMessages`.
+  - **Judgement call for the inspector:** only the push stamps the row line (`inboxLines: writes ? ... : null`). A
+    trace records the colour and label only, and slice 4 ruling 12 says the row line reads nothing they read, so the
+    trace skips a database read it has no use for. This is a difference between the two callers beyond the three
+    main's class comment lists; the class comment now names it.
+  - Proven: with the push's source replaced by null, `FleetMessageRouteTests.The_roster_the_session_read_and_the_desktop_push_carry_the_row_line_until_it_is_read`
+    went red (`Assert.NotNull() Failure`); restored, 42 of 42 green. Main's `DisplayFoldTraceMatchesPushTests`
+    (only `DisplayFold` calls the push fold) passes.
+- **Auto-merged, checked by reading main's side:** `SessionKeyGuard.cs` and its tests (dev-reports shapes and the
+  wingman-stops refusal; no overlap with the fleet message shapes), `GatewayDbContext.cs` and both model snapshots
+  (dev-report tables and the trace row colour beside `fleet_messages`), `SessionManager.cs` (one doc comment),
+  `docs/cli-reference.md` (cc-dev-reports and cc-secrets sections only).
+- **Migrations:** main's `AddDevReports` and `AddTurnVerdictTraceRowAndClock` sort after this branch's
+  `AddFleetMessageReplyMarks`; the merged snapshots carry both. Their designer files do not carry each other's
+  entities, which EF does not read at apply time. Not run against PostgreSQL.
+- **Retired words:** main added no text that offers `message ask`, says a message interrupts, or offers
+  `--controlled-by <another id>` on any surface this mission owns. The only hits are inside other missions' records
+  under `docs/missions/` (the AXI and dev-reports missions), which are history and were left alone. The retired-words
+  guard passes.
+
+### Pinned files
+
+- **Client schema** regenerated with `openapi-typescript` from the document an in-process Gateway served (a scratch
+  console host on an operating-system port, home directory redirected to a scratch folder). Additions only, 343
+  lines: main's `wingman-stops` and `dev-reports` routes, and slice 6's `/gateway/workspaces/{id}/restore/marks`, which
+  the committed file had never carried. Typecheck clean after.
+- **Actions fixture** and **preamble approved file**: not regenerated, because their pin tests pass against real
+  output on the merged tree (`test_actions_json_is_unchanged`; the golden preamble test is not among the Core test
+  failures). Main touched neither source.
+
+### Test totals (Mac mini, merged tree, 17 September 2026)
+
+- **Build**: Core unit tests, Core tests, Gateway unit tests, Gateway route tests, ControlApi, Avalonia app and
+  Avalonia tests: 0 errors.
+- **Core unit tests**: 594 passed, 0 failed.
+- **Core tests**: 4447 total, 4378 passed, 8 skipped, **61 failed (56 methods) - every one by name in
+  `slice-2-evidence/fix-round/full-suite-failures.txt`**. No new one.
+- **Gateway unit tests** (hold the ControlApi drain and restore tests): 5586 total, 5571 passed, 8 skipped, **7
+  failed - the known 7 Mac-only** (CronJobStore 1, RuleCandidateFilter 1, RulePrimitives 1,
+  SessionCommandExecutorLiveness 3, WorkListStorePersistence 1).
+- **Gateway route tests** (full, 21 minutes): 2626 total, 2558 passed, 52 skipped, **16 failed - the known 16**
+  (ContextLessRouteCensus 1, FleetSpawnMissionAttach 2, FleetSpawnOrigin 4, GatewayTestSuiteLock 2,
+  HostedProcessControlDeny 2, TunnelRosterPushReadProof 3, WorkflowSeat 2).
+- **cc-devthrottle** (fresh scratch virtual environment with the local `cc_storage`, `cc_shared`, the tool and
+  pytest): 3241 passed, 0 failed; with `FORCE_COLOR=1`: 3241 passed; with `TERM=dumb FORCE_COLOR=1`: 3241 passed.
+- **Web**: typecheck clean on every workspace; mobile and Cockpit `vite build` succeed. Tests: client-core 1239
+  total, 23 failed; Cockpit 355 total, 24 failed; phone 81 total, 30 failed; cc-assistant 106 passed. The 77 failing
+  names are exactly those in `slice-4-evidence/web-failures-before-and-after.txt`; the new totals are main's Wingman
+  tab and stops tests, all passing.
+
+### What is NOT proven
+
+- **Avalonia tests** built, not run.
+- **`scripts/test-local.ps1`** not run (no PowerShell on the Mac); every suite above was run directly.
+- **PostgreSQL**: nothing ran against it, including the interleaved migrations.
+- **Live**: no Director, agent, hosted Gateway or phone was used.
+- **Windows and Linux**: not run.
+- **Main's dev-report delivery against this mission's rules**: dev reports type the OWNER's notes into a session at
+  its turn end. That is the owner's typing, which this mission leaves to him, so no conflict was assumed; no test
+  exercises a dev-report delivery and a fleet doorbell on the same session.
+- **cc-dev-reports and cc-secrets tests** (main's tools, not this mission's) were not run.
