@@ -31,6 +31,7 @@ namespace CcDirector.Gateway.Tests.Api;
 /// PARKED SUITE. Gateway.UnitTests does not run in the default gate; these run under -Parked. They need
 /// no host and take no lock.
 /// </summary>
+[Collection(AdminServiceTokenCollection.Name)]
 public sealed class AdminTurnVerdictFeedbackEndpointScopeTests : IDisposable
 {
     private const string Token = "test-admin-service-token-feedback-9f1a";

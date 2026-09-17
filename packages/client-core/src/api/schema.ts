@@ -10616,9 +10616,8 @@ export interface components {
         };
         FleetMessageRequest: {
             text?: string;
+            kind?: null | string;
             waitForIdle?: boolean;
-            /** Format: int32 */
-            timeoutMs?: number | string;
         };
         FleetTeamBroadcastRequest: {
             text?: string;

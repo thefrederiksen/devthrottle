@@ -667,8 +667,8 @@ COMMANDS:
   session report   Tell the session that owns you what you did, at the end of your turn.
   director list    List every Director this account runs, with the id --director accepts.
   mission list     List the missions on the Gateway, active ones by default.
-  message send     Send a message to one session, or broadcast with all.
-  message ask      Ask one session a question and print its answer.
+  message send     Queue a message for your supervisor or a worker ('all' for every worker).
+  message inbox    Read your unread messages in full, which marks them read.
   fleet-manager    Show, set, or clear which session is this account's one Fleet Manager.
   skill list       List every skill in the fleet library.
   skill get        Print a skill in full, ready to follow.
@@ -768,7 +768,8 @@ groups, `selftest`, and `cc-devthrottle` itself (`docs/axi-standard.md`):
   ```
   $ cc-devthrottle session interrupt 9b2f
   Error: could not interrupt session 9b2f41c0-7d1e-4a55-9c1a-2f6e0d3b8a71: <the Gateway's reason>
-  help[2]:
+  help[3]:
+    cc-devthrottle message send 9b2f41c0-7d1e-4a55-9c1a-2f6e0d3b8a71 "<message>"
     cc-devthrottle session list
     cc-devthrottle setup status
   ```
@@ -967,45 +968,40 @@ no mark.
 USAGE: cc-devthrottle message send TARGET MESSAGE
 
 ARGUMENTS:
-  TARGET   Session id, id prefix, or name - or 'all' to broadcast [required]
+  TARGET   Session id, id prefix, or name - or 'all' for each of your workers [required]
   MESSAGE  The message text to send [required]
 ```
 
-The recipient sees a framed message that names the sender and how to reply:
-
-```
-[message from feature-work (machine-A), id 4c810000] run the integration tests on your branch  (to reply: cc-devthrottle message send 4c810000 "<your reply>")
-```
+A message is QUEUED, never typed. The Gateway writes it to the recipient's inbox and the command
+prints `Queued`; the recipient reads the full text with `message inbox` when it is free. You may
+message only the session that started you and the sessions you started, at most 6 messages an hour
+and 1 per recipient every 10 minutes. Anything else is refused, and the refusal says why - put what
+you would have said in your report instead.
 
 An ambiguous id prefix or name is refused with the list of candidates. No message is sent.
 
 `--everyone`, `--reason` and `--grant` apply only to a fleet-wide broadcast (`message send all
 --everyone`). Given anywhere else they exit 2 and nothing is sent, rather than being ignored. A
-message the Gateway does not accept exits 1 with `Not delivered:` and its reason on standard error.
-A broadcast counts a recipient as reached only when the Gateway's row for it says `idle`; if any
-recipient was not reached (`failed`, `timeout`, `not_found`, or any other status), the command prints
-how many were reached, then exits 1 with `Not delivered:` naming each session that was not, with its
-full id, status and reason. Resend only to those sessions. A team with nobody else on it is still a
-success.
+message the Gateway does not queue exits 1 with `Not queued:` and the Gateway's reason, verbatim, on
+standard error. An identical message already waiting unread is not queued again, and that is a
+success. `message send all` prints how many copies were queued and names each worker, by full id,
+whose copy was not. It exits 0 when a copy was queued or an identical one is already waiting for at
+least one worker, and 1 when nothing was queued and nothing was waiting - including when you have no
+workers.
 
-### Message Ask
+### Message Inbox
 
 ```
-USAGE: cc-devthrottle message ask [OPTIONS] TARGET QUESTION
-
-ARGUMENTS:
-  TARGET    Session id, id prefix, or name - a single session, not 'all' [required]
-  QUESTION  The question to ask [required]
+USAGE: cc-devthrottle message inbox [OPTIONS]
 
 OPTIONS:
-  --timeout-ms INTEGER  How long to wait for the answer (default 120000)
+  --all        Also show the messages you read in the last 24 hours, newest first, at most 200
+  --json, -j   Output the Gateway's answer as JSON
 ```
 
-The answer is printed only when the Gateway says the target finished its turn (`waitStatus` is
-`idle`). If the target does not finish within the timeout (`timeout`), exits or fails while answering
-(`failed`), or the Gateway gives any other `waitStatus`, the command prints whatever the target wrote
-so far under a "partial output" heading, writes an error naming the verdict to standard error, and
-exits 1. `message ask all`, a blank question and a `--timeout-ms` below 1 exit 2.
+Prints every unread message in full, and reading marks them read - that is the acknowledgement the
+sender is waiting for. Because a read marks messages read before their text reaches you, a read that
+failed part way is recovered with `--all`, and only for 24 hours after that read.
 
 ### Session Spawn
 

@@ -23,6 +23,11 @@ namespace CcDirector.Gateway.Api;
 
 internal static class GatewayEndpoints
 {
+    /// <summary>Why a session key may not raise a hand on another session's row.</summary>
+    internal const string NeedsManagerNotYours =
+        "a session may raise only its own hand: run cc-devthrottle session raise from inside the session that " +
+        "needs its supervisor";
+
     /// <summary>
     /// Web-shaped options for the few places this file has to READ a JSON body a Director produced. The
     /// Director serializes verb results web-shaped (camelCase), so a default-cased reader would silently
@@ -214,12 +219,11 @@ internal static class GatewayEndpoints
         // Null (older callers, tests without a brain) makes a tripwire-positive screen refuse outright:
         // fail closed, because the guard exists to keep an Enter out of a real picker.
         Wingman.WingmanTranslator? wingmanTranslator = null,
-        // Remove-the-network-port mission, phase 2: the fleet-message steward (dedupe plus a per-sender rate
-        // limit on outgoing messages), consulted by POST /sessions/{sid}/message. It used to sit on the
-        // Director, because the command line reached the fleet through its own Director's loopback port; with
-        // that port going away the check has to move to the end still in the path. Null (older callers,
-        // tests, a Gateway with the steward switched off) ALLOWS every message, byte-identical to today.
-        Core.Fleet.MessageSteward? messageSteward = null,
+        // The Message Load mission: the fleet message inbox. POST /sessions/{sid}/message and POST
+        // /fleet/broadcast write through it and GET /fleet/inbox reads through it. Null (a test harness that maps
+        // the routes without a database) answers those three routes 503 - a message that cannot be kept cannot
+        // be sent, and typing it into the recipient instead is exactly what this mission removed.
+        Messaging.FleetMessageService? fleetMessages = null,
         // Whether the database is connected yet (issue #2383's real fix). A delegate, not a bool: Map
         // runs before the listener binds and the database is opened AFTER it, so the value is not known
         // here. Null means "assume ready", which is what every self-host and test caller wants.
@@ -2718,8 +2722,19 @@ internal static class GatewayEndpoints
         //
         // THE REASON IS REQUIRED. A hand up with no words tells a supervisor almost nothing and turns this
         // into the "notice me" ping the roles design specifically rejects - messages are for CONTENT.
+        //
+        // A SESSION KEY RAISES ONLY ITS OWN HAND (the Message Load mission, inspection 1, ruling 3). A hand raised
+        // on another session's row would put words in that session's mouth on its supervisor's roster.
         app.MapPost("/sessions/{sid}/needs-manager", async (HttpContext ctx, string sid, NeedsManagerRequest req, CancellationToken ct) =>
         {
+            var raiser = AuthMiddleware.CallingSession(ctx);
+            if (raiser is not null
+                && !(Guid.TryParse(sid, out var raisedFor) && raisedFor == raiser.SessionId))
+            {
+                FileLog.Write($"[GatewayEndpoints] needs-manager REFUSED sid={sid}: the session key belongs to {raiser.SessionId}");
+                return Results.Json(new { error = NeedsManagerNotYours }, statusCode: StatusCodes.Status403Forbidden);
+            }
+
             var (director, session) = await LocateSessionForRequestAsync(ctx, tenantBoundary, registry, sid, pushedSessions, streamStaleResolved, owners);
             if (session is null || director is null)
                 return SessionUnavailable(ctx, tenantBoundary, pushedSessions, sid);
@@ -2750,7 +2765,10 @@ internal static class GatewayEndpoints
             var raise = handRaises.Raise(reqTenant.Value, sid, reason);
             FileLog.Write($"[GatewayEndpoints] needs-manager RAISED sid={sid}: {reason}");
             return Results.Ok(new { sessionId = sid, raised = true, reason = raise.Reason, raisedAt = raise.RaisedAtUtc });
-        }).RequireAuthorization();
+            // NO .RequireAuthorization() here. It was the only route that carried it, and the Gateway registers no
+            // ASP.NET authorization middleware - AuthMiddleware authenticates every route - so the marker made this
+            // route answer 500 on every Gateway (found in the Message Load mission's slice 1 fix round).
+        });
 
         app.MapPost("/sessions/{sid}/hold", async (HttpContext ctx, string sid, HoldRequest req, CancellationToken ct) =>
         {
@@ -3164,17 +3182,21 @@ internal static class GatewayEndpoints
             return (identity, row, owner);
         }
 
-        // The frame the recipient sees, built from the sender's OWN roster row. A sender the roster cannot
-        // produce is framed by its id alone rather than refused: the message is still worth delivering and
-        // "which session" is the part that matters most.
-        string FrameFromSender(Pairing.SessionCredentialIdentity identity, SessionDto? row, DirectorDto? owner, string text, bool includeReplyHint)
+        // One end of a message as the roster describes it. The machine falls back to the owning Director's when
+        // the session row does not carry one, and a blank name is no name.
+        static Messaging.FleetParty PartyFrom(string sessionId, SessionDto? row, DirectorDto? owner)
         {
-            var name = row is null ? null : (string.IsNullOrWhiteSpace(row.Name) ? null : row.Name);
+            var name = row is null || string.IsNullOrWhiteSpace(row.Name) ? null : row.Name;
             var machine = row is not null && !string.IsNullOrWhiteSpace(row.MachineName)
                 ? row.MachineName
-                : (owner?.MachineName ?? "");
-            return FleetMessaging.BuildFramedMessage(identity.SessionId.ToString(), name, machine, text, includeReplyHint);
+                : (string.IsNullOrWhiteSpace(owner?.MachineName) ? null : owner!.MachineName);
+            var controller = row is null || string.IsNullOrWhiteSpace(row.ControllerSessionId) ? null : row.ControllerSessionId;
+            return new Messaging.FleetParty(sessionId, controller, name, machine);
         }
+
+        IResult InboxUnavailable() => Results.Json(
+            new { error = "the fleet message inbox is not available on this Gateway, so nothing can be queued or read" },
+            statusCode: StatusCodes.Status503ServiceUnavailable);
 
         // Every live session in one account, paired with the Director that owns it. This is the candidate set
         // POST /fleet/broadcast filters down to the sender's team, and it is deliberately built from the same
@@ -3200,90 +3222,75 @@ internal static class GatewayEndpoints
             }
         }
 
-        // POST /sessions/{sid}/message - one agent sends one message to one session, ANYWHERE in the account
-        // (Remove-the-network-port mission, phase 2).
+        // POST /sessions/{sid}/message - one session writes one message into another session's INBOX (the Message
+        // Load mission, slice 1; the route itself dates from the Remove-the-network-port mission, phase 2).
         //
-        // WHY THIS IS NOT JUST /prompt. A prompt is raw text typed into a session, exactly what a person at
-        // the keyboard would type. A MESSAGE is from somebody: it carries a sender header and, for a one-way
-        // message, the command to reply with, and it passes the fleet-message steward. Until now the Director
-        // added all of that on the way past, because the command line reached the fleet through its own
-        // Director's loopback port. That port is being removed, so the framing and the steward move to the end
-        // that is still in the path. Doing it in the client instead was never an option - a sender name, a
-        // machine and a steward verdict are RULINGS, and this repository's standing rule is that the Gateway
-        // owns every ruling and the client only renders.
+        // THE RECORD IS THE DELIVERY. Nothing is typed into the recipient's terminal: a message typed mid-turn
+        // redirected whatever the recipient was doing, and that interruption is what the owner ordered stopped.
+        // The answer is "queued", never "delivered"; the recipient reads the full text with `message inbox`.
         //
-        // `waitForIdle` is what makes this route serve `message ask` as well as `message send`: ask is the
-        // same framed delivery, minus the reply hint (the asker is already waiting and reads the answer from
-        // the target's own output, so telling the recipient to send a SEPARATE reply makes it answer into a
-        // channel nobody is listening on), plus a wait for the session to finish.
+        // WHO MAY SEND, AND HOW OFTEN, IS ONE RULING: FleetMessagePolicy, reached through FleetMessageService.
+        // The sender is the session whose key authenticated the request - never a body field - and both
+        // parties' supervisors are read from the roster this Gateway already holds.
+        //
+        // `message ask` is gone (ruling 10). An older command line still sends waitForIdle; it is refused with a
+        // sentence rather than queued, because queueing it would hand that caller an empty "answer".
         app.MapPost("/sessions/{sid}/message", async (HttpContext ctx, string sid, FleetMessageRequest req) =>
         {
-            if (req is null || string.IsNullOrWhiteSpace(req.Text))
-                return Results.BadRequest(new { error = "text is required" });
+            if (req is null)
+                return Results.BadRequest(new { error = "a message body is required" });
+            if (req.WaitForIdle)
+                return Results.BadRequest(new
+                {
+                    error = "message ask was removed: no session waits for another any more. Send it with " +
+                            "cc-devthrottle message send; the recipient reads it from its inbox when it is free.",
+                });
+
+            var kind = string.IsNullOrWhiteSpace(req.Kind) ? Messaging.FleetMessageKinds.Message : req.Kind.Trim().ToLowerInvariant();
+            if (!Messaging.FleetMessageKinds.IsCallerChoosable(kind))
+                return Results.BadRequest(new { error = $"kind must be '{Messaging.FleetMessageKinds.Message}' or '{Messaging.FleetMessageKinds.Report}'" });
+
+            if (fleetMessages is null)
+                return InboxUnavailable();
 
             var (identity, senderRow, senderOwner) = await ResolveSenderAsync(ctx);
             if (identity is null)
                 return Results.Json(new { error = "this route identifies the sender from the session key that authenticated the request; the caller presented no session key" },
                     statusCode: StatusCodes.Status403Forbidden);
 
+            var tenant = ResolveReadTenant(ctx, tenantBoundary);
+            if (tenant is null)
+                return Results.Json(new { error = "no tenant is bound to this request" }, statusCode: StatusCodes.Status403Forbidden);
+
             var (director, session) = await LocateSessionForRequestAsync(ctx, tenantBoundary, registry, sid, pushedSessions, streamStaleResolved, owners);
             if (session is null || director is null)
                 return SessionUnavailable(ctx, tenantBoundary, pushedSessions, sid);
 
-            // The fleet-message steward: dedupe plus a per-sender rate limit on OUTGOING messages. Never
-            // silent - a drop is logged AND returned to the sender. Not wired => allow, byte-identical.
             var from = identity.SessionId.ToString();
-            if (messageSteward is not null)
-            {
-                var decision = messageSteward.CheckMessage(from, sid, req.Text);
-                if (!decision.Allowed)
-                {
-                    FileLog.Write($"[GatewayEndpoints] POST message steward {decision.Outcome}: from={FleetMessaging.ShortId(from)} to={FleetMessaging.ShortId(sid)} - {decision.Reason}");
-                    return Results.Json(new PromptResponse { Accepted = false, Error = decision.Reason },
-                        statusCode: decision.Outcome == Core.Fleet.StewardOutcome.DuplicateSuppressed
-                            ? StatusCodes.Status200OK
-                            : StatusCodes.Status429TooManyRequests);
-                }
-            }
-
-            var framed = FrameFromSender(identity, senderRow, senderOwner, req.Text, includeReplyHint: !req.WaitForIdle);
-            FileLog.Write($"[GatewayEndpoints] POST message: from={FleetMessaging.ShortId(from)} to={FleetMessaging.ShortId(sid)}, director={director.DirectorId}, waitForIdle={req.WaitForIdle}");
-
-            return await DeliverPromptAsync(director, session, sid, new PromptRequest
-            {
-                Text = framed,
-                AppendEnter = true,
-                WaitForIdle = req.WaitForIdle,
-                TimeoutMs = req.TimeoutMs,
-                // ONE AGENT PROMPTING ANOTHER, SAID OUT LOUD. This route is reached only by a caller that
-                // authenticated with a SESSION key, so the sender is a session by construction and there is
-                // nothing to infer. Without the marker the Director records the turn as an ordinary
-                // UserInput with no origin, and it is then left out of the person's figures only because no
-                // surface resolved for it - the right answer by the wrong road - while the agent-driven
-                // lane, which exists precisely to count these, never sees it at all. Over the owner's week
-                // of 2026-W35 that was 292 of 296 fleet messages: absent from both numbers. See ruling R12
-                // of the "Clean up Your Throttle" mission (2026-09-05).
-                AgentDriven = true,
-            });
+            var outcome = fleetMessages.Send(tenant.Value,
+                PartyFrom(from, senderRow, senderOwner),
+                PartyFrom(session.SessionId, session, director),
+                req.Text ?? "", kind);
+            FileLog.Write($"[GatewayEndpoints] POST message: from={FleetMessaging.ShortId(from)} to={FleetMessaging.ShortId(sid)} kind={kind} status={outcome.Response.Status}");
+            return Results.Json(outcome.Response, statusCode: outcome.StatusCode);
         });
 
-        // POST /fleet/broadcast - "message send all": one message to the SENDER'S OWN TEAM, or (with
-        // everyone + a reason + a human grant) the whole account (Remove-the-network-port mission, phase 2).
+        // POST /fleet/broadcast - "message send all": one copy of a message into the inbox of each of the SENDER'S
+        // OWN WORKERS (the Message Load mission narrowed it from the sender's team: ruling 1 lets a session message
+        // only its supervisor and its workers, and a broadcast is not a way round that).
         //
-        // WHY THIS EXISTS BESIDE /fanout. /fanout takes an explicit list of session ids and rules on whether
-        // the sender may reach them. Somebody still has to WORK OUT the list, and that is the sender's team -
-        // which is a ruling made from the roster, off the same BroadcastScope this Gateway already enforces.
-        // The Director used to compute it and hand /fanout the finished list; with the Director out of the
-        // path the computation belongs here, next to the rule it has to agree with. Putting it in the command
-        // line would put the definition of "my team" in Python, one process removed from the Gateway that
-        // decides whether the answer was allowed - two definitions of one thing, drifting by default.
+        // `everyone` reaches the whole ACCOUNT, and only with a reason and a human-issued grant (issue #1229). The
+        // grant machinery is unchanged; what changed is that its copies are QUEUED like every other message - a
+        // grant is permission to reach everybody, not permission to interrupt them (ruling 13).
         //
-        // It then delegates to the SAME fanout path, so the scope decision, the grant check, the rate limit
-        // and the delivery are all evaluated exactly once, in one place.
+        // Each copy is decided on its own by the same service a single send uses, so a worker the sender wrote to
+        // two minutes ago is refused on its own row while the others are queued, and the answer says which.
         app.MapPost("/fleet/broadcast", async (HttpContext ctx, FleetTeamBroadcastRequest req) =>
         {
             if (req is null || string.IsNullOrWhiteSpace(req.Text))
                 return Results.BadRequest(new { error = "text is required" });
+            if (fleetMessages is null)
+                return InboxUnavailable();
 
             var (identity, senderRow, senderOwner) = await ResolveSenderAsync(ctx);
             if (identity is null)
@@ -3295,56 +3302,74 @@ internal static class GatewayEndpoints
                 return Results.Json(new { error = "no tenant is bound to this request" },
                     statusCode: StatusCodes.Status403Forbidden);
 
-            if (senderRow is null)
-                return Results.Json(new FanoutResponse
-                {
-                    Denied = true,
-                    DeniedReason = "The broadcasting session is not on the fleet roster, so its team cannot be resolved.",
-                    StartedAt = DateTime.UtcNow,
-                    FinishedAt = DateTime.UtcNow,
-                }, statusCode: StatusCodes.Status404NotFound);
-
-            // The candidate set is this ACCOUNT's roster, read from the Gateway's own tenant-scoped view.
             var from = identity.SessionId.ToString();
-            // The owner is non-null whenever the row is (they come from one lookup), but the scope is built
-            // from a real DirectorDto either way: the machine name falls back to the Director's when the
-            // session record does not carry one, and a missing machine would silently widen "same machine".
-            var senderScope = BuildBroadcastScope(senderOwner ?? new DirectorDto { DirectorId = identity.DirectorId }, senderRow);
-            var targetIds = new List<string>();
+            var sender = PartyFrom(from, senderRow, senderOwner);
+
+            if (req.Everyone)
+            {
+                if (string.IsNullOrWhiteSpace(req.Reason) || !broadcastGovernor.IsGrantValid(reqTenant.Value, req.GrantId))
+                {
+                    FileLog.Write($"[GatewayEndpoints] POST fleet/broadcast everyone DENIED: from={FleetMessaging.ShortId(from)} reason={(string.IsNullOrWhiteSpace(req.Reason) ? "missing" : "given")} grant={(string.IsNullOrWhiteSpace(req.GrantId) ? "missing" : "invalid")}");
+                    return Results.Json(new FleetBroadcastResponse
+                    {
+                        Denied = true,
+                        DeniedReason = "Reaching the whole account needs a --reason and a valid human-issued --grant. " +
+                                       "An agent cannot mint its own grant (issue #1229).",
+                    });
+                }
+                var rate = broadcastGovernor.TryRecordSend(reqTenant.Value, from);
+                if (!rate.Allowed)
+                {
+                    FileLog.Write($"[GatewayEndpoints] POST fleet/broadcast everyone RATE-LIMITED: from={FleetMessaging.ShortId(from)}");
+                    return Results.Json(new FleetBroadcastResponse
+                    {
+                        Denied = true,
+                        DeniedReason = $"Too many whole-account broadcasts in a short time (limit {rate.LimitPerWindow} per {rate.WindowSeconds} seconds).",
+                    });
+                }
+            }
+
+            var targets = new List<(DirectorDto Director, SessionDto Session)>();
             foreach (var (d, s) in EnumerateTenantSessions(reqTenant.Value))
             {
                 if (string.Equals(s.SessionId, from, StringComparison.OrdinalIgnoreCase)) continue;
-                if (req.Everyone || senderScope.Includes(BuildBroadcastScope(d, s)))
-                    targetIds.Add(s.SessionId);
+                if (req.Everyone || string.Equals(s.ControllerSessionId, from, StringComparison.OrdinalIgnoreCase))
+                    targets.Add((d, s));
             }
 
-            if (targetIds.Count == 0)
-                return Results.Json(new FanoutResponse
+            FileLog.Write($"[GatewayEndpoints] POST fleet/broadcast: from={FleetMessaging.ShortId(from)}, everyone={req.Everyone}, targets={targets.Count}");
+            if (targets.Count == 0)
+                return Results.Json(new FleetBroadcastResponse
                 {
-                    Results = new List<FanoutResult>(),
-                    StartedAt = DateTime.UtcNow,
-                    FinishedAt = DateTime.UtcNow,
-                    Warning = req.Everyone ? "No other sessions in the fleet." : "No other sessions on your team.",
+                    Warning = req.Everyone ? "No other sessions in the account." : "You have no workers to message.",
                 });
 
-            FileLog.Write($"[GatewayEndpoints] POST fleet/broadcast: from={FleetMessaging.ShortId(from)}, everyone={req.Everyone}, targets={targetIds.Count}");
+            var kind = req.Everyone ? Messaging.FleetMessageKinds.Everyone : Messaging.FleetMessageKinds.Team;
+            var exemption = req.Everyone ? Messaging.FleetMessageExemption.HumanGrant : Messaging.FleetMessageExemption.None;
+            var response = new FleetBroadcastResponse();
+            foreach (var (d, s) in targets)
+                response.Results.Add(fleetMessages.Send(reqTenant.Value, sender, PartyFrom(s.SessionId, s, d), req.Text, kind, exemption).Response);
+            return Results.Json(response);
+        });
 
-            // A plain team broadcast passes no reason and no grant - every target is in scope by construction.
-            // `everyone` carries the reason and the human grant the policy requires to reach past the team.
-            return await RunFanoutAsync(ctx, new FanoutRequest
-            {
-                SessionIds = targetIds,
-                Text = FrameFromSender(identity, senderRow, senderOwner, req.Text, includeReplyHint: true),
-                FromSessionId = from,
-                // DELIVER AND RETURN - do NOT wait for every recipient to finish. FanoutRequest defaults
-                // WaitForIdle to true, which is right for a caller collecting answers and badly wrong here:
-                // "message send all" is a notification, and waiting would hold the sender for as long as the
-                // slowest recipient takes to go idle - up to the per-session timeout, on a command whose
-                // predecessor returned as soon as the message was accepted.
-                WaitForIdle = false,
-                Reason = req.Everyone ? req.Reason : null,
-                GrantId = req.Everyone ? req.GrantId : null,
-            });
+        // GET /fleet/inbox - the CALLING session's own inbox (the Message Load mission, ruling 9). Every unread
+        // message comes back in full and is marked read by this call: reading is the acknowledgement. `all=true`
+        // adds the most recent messages read before.
+        //
+        // There is no session id in the path, and that is the access rule: the inbox is the key-holder's, so no
+        // session can read - and so acknowledge - another session's messages. A device key has no inbox.
+        app.MapGet("/fleet/inbox", (HttpContext ctx, bool? all) =>
+        {
+            if (fleetMessages is null)
+                return InboxUnavailable();
+            var identity = AuthMiddleware.CallingSession(ctx);
+            if (identity is null)
+                return Results.Json(new { error = "an inbox belongs to a session; call this with that session's own key" },
+                    statusCode: StatusCodes.Status403Forbidden);
+            var tenant = ResolveReadTenant(ctx, tenantBoundary);
+            if (tenant is null)
+                return Results.Json(new { error = "no tenant is bound to this request" }, statusCode: StatusCodes.Status403Forbidden);
+            return Results.Json(fleetMessages.ReadInbox(tenant.Value, identity.SessionId.ToString(), all == true));
         });
 
         app.MapPost("/sessions/{sid}/prompt", async (string sid, PromptRequest req, HttpContext httpCtx) =>
@@ -4378,6 +4403,16 @@ internal static class GatewayEndpoints
         // own 2-minute compaction wait so the inner bound always fires first and says what did not happen.
         app.MapPost("/sessions/{sid}/compact-context", async (HttpContext ctx, string sid, CompactContextRequest? req) =>
         {
+            // COMPACT-AND-CONTINUE IS TYPING INTO A SESSION, and an agent may not do that (the Message Load
+            // mission, ruling 17). A plain compaction sends nothing afterwards and stays open to a session key;
+            // the continue prompt is refused to one. The session-key guard cannot make this call - it sees a
+            // method and a path, never a body - so it is made here.
+            if (AuthMiddleware.CallingSession(ctx) is not null && !string.IsNullOrWhiteSpace(req?.ContinuePrompt))
+            {
+                FileLog.Write($"[GatewayEndpoints] POST /compact-context REFUSED: sid={sid}, a session key asked to continue the session");
+                return Results.Json(new { error = AgentInputRefusal.CompactContinue }, statusCode: StatusCodes.Status403Forbidden);
+            }
+
             var (director, session) = await LocateSessionForRequestAsync(ctx, tenantBoundary, registry, sid, pushedSessions, streamStaleResolved, owners);
             if (session is null || director is null)
                 return SessionUnavailable(ctx, tenantBoundary, pushedSessions, sid);
@@ -5622,6 +5657,8 @@ internal static class GatewayEndpoints
 
             // THE SHADOW RULE, the read routes' rule applied to the write: while the account's colours are off its
             // verdicts are a shadow record, and a session key - the product's own automation - may not act on one.
+            // SessionKeyGuard now refuses every session key on this route before it runs (the Message Load mission,
+            // inspection 1: answering types into the session), so this line is a second wall, not the first.
             var callingSession = AuthMiddleware.CallingSession(ctx);
             if (!tenantSettings.TurnVerdict(tenant.Value).ColourEnabled && callingSession is not null)
                 return Answer(turnVerdictAnswers.RefuseBeforeLookup(tenant.Value, directorId, sid, verdictId,

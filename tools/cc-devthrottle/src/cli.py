@@ -24,7 +24,6 @@ from .usage_errors import AxiGroup
 # cc_shared is importable here: the ops modules above put tools/ on the path when run from source.
 from cc_shared import axi_output  # noqa: E402
 from .session_ops import (
-    ask_session,
     compact_session,
     hold_session,
     interrupt_session,
@@ -33,6 +32,7 @@ from .session_ops import (
     mark_done,
     prompt_session,
     raise_hand,
+    read_inbox,
     report_to_parent,
     read_session_buffer,
     rename_session,
@@ -446,13 +446,9 @@ _ACTIONS = [
     {
         "id": "session-compact-continue",
         "description": (
-            "Compact a session's context and THEN send it a message - the rescue for a stuck session. A "
-            "session whose context window is full cannot read anything sent to it: every message is "
-            "swallowed and the tool reprints its context-limit line. This unblocks it and gets it moving "
-            "again, so a supervising agent can rescue a worker with nobody at its keyboard. The message "
-            "(default 'continue') is sent only once the compaction has actually FINISHED, never on a "
-            "timer. Tools that cannot report finishing are refused rather than guessed at - compact those "
-            "with session-compact and send the message yourself."
+            "Compact a session's context and THEN type a prompt into it - the owner's rescue for a stuck "
+            "session. The Gateway REFUSES this to every agent: only the owner types into a session. An "
+            "agent compacts with session-compact and then queues a message with message-send."
         ),
         "command": 'cc-devthrottle session compact-continue [target] ["<message>"]',
         "mutatesState": True,
@@ -500,7 +496,14 @@ _ACTIONS = [
     },
     {
         "id": "message-send",
-        "description": "Send a one-way message to a session, or broadcast to all sessions.",
+        "description": (
+            "Queue a message for a session. You may message only the session that started you and the "
+            "sessions you started; the Gateway refuses anyone else, and limits you to 6 messages an hour "
+            "and 1 per recipient every 10 minutes. Nothing is typed into the recipient: it reads the full "
+            "text from its inbox when it is free, so the answer is 'queued', never 'delivered'. Target "
+            "'all' queues one copy for each of your workers. Messages are rare - put what you would have "
+            "said in your report instead."
+        ),
         "command": 'cc-devthrottle message send <target|all> "<message>"',
         "mutatesState": True,
         "args": [
@@ -509,13 +512,18 @@ _ACTIONS = [
         ],
     },
     {
-        "id": "message-ask",
-        "description": "Ask one session a question and print its answer.",
-        "command": 'cc-devthrottle message ask <target> "<question>"',
+        "id": "message-inbox",
+        "description": (
+            "Read THIS session's inbox: every unread message in full, each marked read by this call. "
+            "Reading is the acknowledgement - a message stays open until its recipient runs this. "
+            "--all adds the newest 200 messages read in the last 24 hours, so a read whose answer was lost "
+            "can be recovered - for 24 hours, and only by asking."
+        ),
+        "command": "cc-devthrottle message inbox [--all] [--json]",
         "mutatesState": True,
         "args": [
-            {"name": "target", "required": True},
-            {"name": "question", "required": True},
+            {"name": "all", "required": False},
+            {"name": "json", "required": False},
         ],
     },
     {
@@ -1289,10 +1297,10 @@ def prompt(
         False, "--no-submit", help="Type the text but do not press Enter - leave it in the composer."
     ),
 ) -> None:
-    """Send raw text into a session, as if you had typed it.
+    """Type raw text into a session. REFUSED to agents: only the owner may type.
 
-    Unlike `message send`, the text is NOT framed with a sender - the session sees exactly what
-    you passed. Use `message send` for agent-to-agent messages, and this to drive a session.
+    The Gateway refuses this to every session key and says what to do instead - queue a message
+    with `message send`, which the recipient reads when it is free.
     """
     prompt_session(target, text, no_submit=no_submit)
 
@@ -1303,7 +1311,7 @@ def interrupt(
         None, help="Session to interrupt. Defaults to THIS session (CC_SESSION_ID)."
     ),
 ) -> None:
-    """Stop what a session is currently doing."""
+    """Interrupt a session. REFUSED to agents: only the owner interrupts a session."""
     interrupt_session(target)
 
 
@@ -1320,9 +1328,8 @@ def report(
 
     This is the last step of delegated work, not a courtesy. Your parent asked you to do something;
     getting back to them is part of doing it - so you send it yourself, in your own words, the moment
-    your turn ends. It INTERRUPTS them, deliberately: a parent that took ownership of a session took
-    on being interrupted when that work comes back, and the alternative - a flag they have to
-    remember to look at - is how finished work sits quiet with nobody ever told.
+    your turn ends. It is QUEUED in their inbox, never typed into them: they read it when they are
+    free, and it stays open until they do.
 
     If NO live parent owns you, the USER does, and nothing is sent: you are already red and in his
     queue, so that red is your report. Leave your answer in this session where he will read it.
@@ -1605,9 +1612,10 @@ def spawn(
         "--controlled-by",
         help="WHO OWNS the new session. REQUIRED when you spawn from inside a session - there is no "
         "default, because who a session answers to is too important to be decided by an environment "
-        "variable. Pass 'self' to own it yourself (it stays quiet and reports back to you), an explicit "
-        "session id to hand it to another session, or 'none' (same as --standalone) to spawn a peer that "
-        "answers to the USER. A person spawning from the desktop or the Cockpit needs none of this: a "
+        "variable. Pass 'self' to own it yourself (it stays quiet and reports back to you), or 'none' (same "
+        "as --standalone) to spawn a peer that answers to the USER. An explicit session id is accepted only "
+        "when it is your own: the Gateway refuses a session that names another session as the owner, "
+        "because the owner is who the new session may message. A person spawning from the desktop or the Cockpit needs none of this: a "
         "session a person opens is the user's.",
     ),
     why: Optional[str] = typer.Option(
@@ -1843,15 +1851,14 @@ def diag_results(
 
 @message_app.command("send")
 def message_send(
-    target: str = typer.Argument(..., help="Target session id, id prefix, or name - or 'all' for your team."),
-    message: str = typer.Argument(..., help="The message text to send."),
+    target: str = typer.Argument(..., help="Target session id, id prefix, or name - or 'all' for your workers."),
+    message: str = typer.Argument(..., help="The message text. It may span lines; it is read, never typed."),
     everyone: bool = typer.Option(
         False,
         "--everyone",
-        help="Broadcast to the WHOLE fleet, not just your own team. Every message interrupts the "
-        "receiving agent, so this is gated by the Gateway Hub: it needs a human-issued grant (--grant) "
-        "and a --reason, and is refused otherwise (issue #1229). Without this flag, 'all' reaches only "
-        "your team - the sessions in your Mission, or (solo) the same repository on the same machine.",
+        help="Queue a copy for EVERY session in the account, not just your workers. It needs a "
+        "human-issued grant (--grant) and a --reason, and is refused otherwise (issue #1229). Without "
+        "this flag, 'all' reaches only the sessions you started.",
     ),
     reason: Optional[str] = typer.Option(
         None,
@@ -1864,23 +1871,36 @@ def message_send(
         help="A human-issued broadcast grant id authorizing a fleet-wide broadcast (--everyone).",
     ),
 ) -> None:
-    """Send a message to one session, or to your team with the target 'all'.
+    """Queue a message for your supervisor or a worker ('all' for every worker).
 
-    Add --everyone (with --reason and --grant) to reach the whole fleet.
+    Nothing is typed into the recipient; it reads the message from its inbox when it is free. The
+    Gateway refuses any other recipient, and more than 6 messages an hour or 1 per recipient every
+    10 minutes - put what you would have said in your report instead.
+
+    Add --everyone (with --reason and --grant) to reach the whole fleet; it is queued the same way.
+
+    Exit code: 0 when the message was queued or an identical one is already waiting unread - for 'all', when that is true of at least one worker - and 1 when nothing was queued and nothing was waiting.
     """
     send_message(target, message, everyone=everyone, reason=reason, grant=grant)
 
 
-@message_app.command("ask")
-def message_ask(
-    target: str = typer.Argument(..., help="Target session id, id prefix, or name (single session)."),
-    question: str = typer.Argument(..., help="The question to ask."),
-    timeout_ms: int = typer.Option(
-        120000, "--timeout-ms", help="How long to wait for the answer, in milliseconds."
+@message_app.command("inbox")
+def message_inbox(
+    include_read: bool = typer.Option(
+        False,
+        "--all",
+        help="Also show the messages you read in the last 24 hours, newest first, at most 200. A read "
+        "marks messages read before their text reaches you, so if a read failed part way they are "
+        "gone from the plain inbox: this is the only way to get them back, and only for 24 hours after "
+        "that read.",
     ),
+    json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
 ) -> None:
-    """Ask one session a question, wait, and print its answer."""
-    ask_session(target, question, timeout_ms)
+    """Read your unread messages in full, which marks them read.
+
+    Reading is the acknowledgement: the sender's message stays open until you read it.
+    """
+    read_inbox(include_read=include_read, json_output=json_output)
 
 
 @app.command()

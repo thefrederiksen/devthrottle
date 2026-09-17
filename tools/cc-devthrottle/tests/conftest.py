@@ -40,6 +40,25 @@ def plain():
     return strip_ansi
 
 
+@pytest.fixture(params=["colour terminal", "not a terminal"])
+def either_console(request, monkeypatch):
+    """Run the test once on a colour terminal and once on a console that is not a terminal.
+
+    For the sentences the Gateway writes and this tool only QUOTES - a refusal, a note - `plain` is the
+    wrong tool: those must reach the reader verbatim, so the test asserts on the raw output, and it has to
+    hold whether or not the console styles. The continuous integration job forces colour, a developer's
+    captured run usually does not, and a test that ran only one way hid exactly this: the console coloured
+    the "6" in "the limit is 6". The width is wide so wrapping does not split a sentence either.
+    """
+    from rich.console import Console
+    from src import session_ops
+
+    terminal = request.param == "colour terminal"
+    console = Console(force_terminal=terminal, color_system="standard" if terminal else None, width=500)
+    monkeypatch.setattr(session_ops, "console", console)
+    return request.param
+
+
 @pytest.fixture(autouse=True)
 def inside_a_session(monkeypatch):
     """Run every test as if it were inside a DevThrottle session with a Gateway.

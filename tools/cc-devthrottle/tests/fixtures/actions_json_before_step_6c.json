@@ -350,7 +350,7 @@
     },
     {
       "id": "session-compact-continue",
-      "description": "Compact a session's context and THEN send it a message - the rescue for a stuck session. A session whose context window is full cannot read anything sent to it: every message is swallowed and the tool reprints its context-limit line. This unblocks it and gets it moving again, so a supervising agent can rescue a worker with nobody at its keyboard. The message (default 'continue') is sent only once the compaction has actually FINISHED, never on a timer. Tools that cannot report finishing are refused rather than guessed at - compact those with session-compact and send the message yourself.",
+      "description": "Compact a session's context and THEN type a prompt into it - the owner's rescue for a stuck session. The Gateway REFUSES this to every agent: only the owner types into a session. An agent compacts with session-compact and then queues a message with message-send.",
       "command": "cc-devthrottle session compact-continue [target] [\"<message>\"]",
       "mutatesState": true,
       "args": [
@@ -406,7 +406,7 @@
     },
     {
       "id": "message-send",
-      "description": "Send a one-way message to a session, or broadcast to all sessions.",
+      "description": "Queue a message for a session. You may message only the session that started you and the sessions you started; the Gateway refuses anyone else, and limits you to 6 messages an hour and 1 per recipient every 10 minutes. Nothing is typed into the recipient: it reads the full text from its inbox when it is free, so the answer is 'queued', never 'delivered'. Target 'all' queues one copy for each of your workers. Messages are rare - put what you would have said in your report instead.",
       "command": "cc-devthrottle message send <target|all> \"<message>\"",
       "mutatesState": true,
       "args": [
@@ -421,18 +421,18 @@
       ]
     },
     {
-      "id": "message-ask",
-      "description": "Ask one session a question and print its answer.",
-      "command": "cc-devthrottle message ask <target> \"<question>\"",
+      "id": "message-inbox",
+      "description": "Read THIS session's inbox: every unread message in full, each marked read by this call. Reading is the acknowledgement - a message stays open until its recipient runs this. --all adds the newest 200 messages read in the last 24 hours, so a read whose answer was lost can be recovered - for 24 hours, and only by asking.",
+      "command": "cc-devthrottle message inbox [--all] [--json]",
       "mutatesState": true,
       "args": [
         {
-          "name": "target",
-          "required": true
+          "name": "all",
+          "required": false
         },
         {
-          "name": "question",
-          "required": true
+          "name": "json",
+          "required": false
         }
       ]
     },

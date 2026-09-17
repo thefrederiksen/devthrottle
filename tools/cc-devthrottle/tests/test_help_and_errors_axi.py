@@ -80,9 +80,11 @@ def _default_answers():
         ("POST", f"sessions/{SID}/interrupt"): {"accepted": True},
         ("POST", f"sessions/{SID}/hold"): lambda body: {"onHold": body["onHold"], "pending": False},
         ("POST", f"sessions/{SID}/needs-manager"): lambda body: {"sessionId": SID, "raised": body["raised"]},
-        ("POST", f"sessions/{PARENT}/message"): {"accepted": True},
-        ("POST", f"sessions/{SID}/message"): {"accepted": True, "output": "the answer", "waitStatus": "idle"},
-        ("POST", "fleet/broadcast"): {"results": [{"sessionId": SID, "status": "idle"}, {"sessionId": PARENT, "status": "idle"}]},
+        ("POST", f"sessions/{PARENT}/message"): {"status": "queued", "messageId": "m1"},
+        ("POST", f"sessions/{SID}/message"): {"status": "queued", "messageId": "m1"},
+        ("POST", "fleet/broadcast"): {"results": [{"recipientSessionId": SID, "status": "queued"},
+                                            {"recipientSessionId": PARENT, "status": "queued"}]},
+        ("GET", "fleet/inbox"): {"unread": []},
         ("POST", f"sessions/{SID}/compact-context"): lambda body: {
             "submitted": True, "compactionObserved": True, "detail": "Done.",
             "continued": bool(body.get("continuePrompt")),
@@ -198,11 +200,11 @@ MUTATIONS = [
     ("session rename", ["session", "rename", SID, "new name"], None,
      ["cc-devthrottle session list", f'cc-devthrottle message send {SID} "<message>"']),
     ("session prompt", ["session", "prompt", SID, "hello"], None,
-     [f"cc-devthrottle session buffer {SID}", f"cc-devthrottle session interrupt {SID}"]),
+     [f"cc-devthrottle session buffer {SID}"]),
     ("session interrupt", ["session", "interrupt", SID], None,
-     [f"cc-devthrottle session buffer {SID}", f'cc-devthrottle session prompt {SID} "<text>"']),
+     [f"cc-devthrottle session buffer {SID}"]),
     ("session report", ["session", "report", "did the work"], AS_SID,
-     [f"cc-devthrottle session buffer {PARENT}", "cc-devthrottle session done"]),
+     ["cc-devthrottle message inbox", "cc-devthrottle session done"]),
     ("session raise", ["session", "raise", "which branch?"], AS_SID,
      ["cc-devthrottle session raise --clear"]),
     ("session raise --target", ["session", "raise", "which branch?", "--target", SID], None,
@@ -229,11 +231,12 @@ MUTATIONS = [
      AS_SID,
      [f'cc-devthrottle message send {NEW} "<message>"', f"cc-devthrottle session buffer {NEW}"]),
     ("message send", ["message", "send", SID, "hello"], None,
-     [f"cc-devthrottle session buffer {SID}", f'cc-devthrottle message ask {SID} "<question>"']),
+     ["cc-devthrottle message inbox", "cc-devthrottle session list"]),
     ("message send all", ["message", "send", "all", "hello"], AS_SID,
-     ["cc-devthrottle session list", 'cc-devthrottle message send <session-id> "<message>"']),
-    ("message ask", ["message", "ask", SID, "which branch?"], None,
-     [f"cc-devthrottle session buffer {SID}", f'cc-devthrottle message send {SID} "<message>"']),
+     ["cc-devthrottle message inbox", "cc-devthrottle session workers"]),
+    ("message inbox", ["message", "inbox"], AS_SID,
+     ["cc-devthrottle message inbox --all", 'cc-devthrottle message send <id> "<message>"',
+      'cc-devthrottle session report "<what you did>"']),
     ("mission create", ["mission", "create", "AXI"], None,
      [f"cc-devthrottle session spawn <repo> --mission {MID} --controlled-by self",
       f"cc-devthrottle mission attach <session-id> {MID}", "cc-devthrottle mission list"]),
@@ -643,24 +646,24 @@ ERRORS = [
     ("send everyone to one", ["message", "send", SID, "x", "--everyone"], None, None, USAGE,
      ["--everyone", "message send all"]),
     ("send blank", ["message", "send", SID, " "], None, None, USAGE, ["blank"]),
-    ("send not delivered", ["message", "send", SID, "x"], None,
-     _set(**{f"POST sessions/{SID}/message": {"accepted": False, "error": "session is busy"}}), FAILURE,
-     ["Not delivered: session is busy", "cc-devthrottle session list"]),
-    ("send not delivered no reason", ["message", "send", SID, "x"], None,
-     _set(**{f"POST sessions/{SID}/message": {"accepted": False}}), FAILURE,
+    ("send refused", ["message", "send", SID, "x"], None,
+     _set(**{f"POST sessions/{SID}/message": {"status": "refused", "error": "not your worker"}}), FAILURE,
+     ["Not queued: not your worker", "cc-devthrottle session list"]),
+    ("send refused no reason", ["message", "send", SID, "x"], None,
+     _set(**{f"POST sessions/{SID}/message": {"status": "refused"}}), FAILURE,
      ["gave no reason", "cc-devthrottle session list"]),
+    ("send gateway", ["message", "send", SID, "x"], None,
+     _set(**{f"POST sessions/{SID}/message": _raise("the limit is 6")}), FAILURE,
+     ["Not queued:", "the limit is 6", 'cc-devthrottle session report "<what you would have said>"']),
     ("broadcast refused", ["message", "send", "all", "x"], AS_SID,
      _set(**{"POST fleet/broadcast": {"denied": True, "deniedReason": "no grant"}}), FAILURE,
-     ["Not delivered: no grant", "cc-devthrottle session list"]),
+     ["Not queued: no grant", "cc-devthrottle session list"]),
     ("broadcast gateway", ["message", "send", "all", "x"], AS_SID,
      _set(**{"POST fleet/broadcast": _raise("nope")}), FAILURE, ["nope", "cc-devthrottle setup status"]),
-    ("ask all", ["message", "ask", "all", "q"], None, None, USAGE, ["single session", "message send all"]),
-    ("ask blank", ["message", "ask", SID, " "], None, None, USAGE, ["blank"]),
-    ("ask timeout", ["message", "ask", SID, "q", "--timeout-ms", "0"], None, None, USAGE, ["--timeout-ms"]),
-    ("ask gateway", ["message", "ask", SID, "q"], None, _set(**{f"POST sessions/{SID}/message": _raise("timed out")}),
-     FAILURE, ["timed out", f"cc-devthrottle session buffer {SID}"]),
-    ("ask no answer object", ["message", "ask", SID, "q"], None, _set(**{f"POST sessions/{SID}/message": None}),
-     FAILURE, ["gave nothing for accepted", f"cc-devthrottle session buffer {SID}"]),
+    ("inbox gateway", ["message", "inbox"], AS_SID, _set(**{"GET fleet/inbox": _raise("nope")}), FAILURE,
+     ["could not read your inbox: nope", "cc-devthrottle setup status"]),
+    ("inbox not an inbox", ["message", "inbox"], AS_SID, _set(**{"GET fleet/inbox": None}), FAILURE,
+     ["did not return an inbox", "cc-devthrottle message inbox --all"]),
     ("mission create blank", ["mission", "create", " "], None, None, USAGE, ["blank", "mission create"]),
     ("mission rename blank", ["mission", "rename", MID, " "], None, None, USAGE, ["blank", "mission rename"]),
     ("mission blank query", ["mission", "complete", " "], None, None, USAGE, ["no mission was named", "mission list"]),
@@ -985,10 +988,10 @@ UNCONFIRMED = [
      _set(**{f"POST sessions/{SID}/message": {}}), "did not accept"),
     ("send all empty", ["message", "send", "all", "hello"], AS_SID,
      _set(**{"POST fleet/broadcast": {}}), "did not accept"),
-    ("ask empty", ["message", "ask", SID, "which?"], None,
-     _set(**{f"POST sessions/{SID}/message": {}}), "gave nothing for accepted"),
-    ("ask no wait", ["message", "ask", SID, "which?"], None,
-     _set(**{f"POST sessions/{SID}/message": {"accepted": True, "output": "x"}}), "gave nothing for waitStatus"),
+    ("inbox empty", ["message", "inbox"], AS_SID,
+     _set(**{"GET fleet/inbox": {}}), "gave nothing for unread"),
+    ("inbox unread not a list", ["message", "inbox"], AS_SID,
+     _set(**{"GET fleet/inbox": {"unread": None}}), "gave null for unread"),
     ("mission create empty", ["mission", "create", "AXI"], None,
      _mission_create({}), "did not return a mission id"),
     ("mission create no name", ["mission", "create", "AXI"], None,
@@ -1121,21 +1124,20 @@ def test_selftest_NotWindows_RefusesBeforeSpawningAnything(gw, monkeypatch):
     assert gw.calls == []
 
 
-RESPONDER, RECIPIENT = NEW, "0e0e0e0e-aaaa-bbbb-cccc-dddddddddddd"
+RECIPIENT = "0e0e0e0e-aaaa-bbbb-cccc-dddddddddddd"
 
 
 def _selftest_gateway(gw, monkeypatch, deletion_answer):
-    """Both throwaways spawn, both messages land, and the roster KEEPS listing both after they are
-    flagged - as the real Director does for its 30-second grace period and until its next reaper sweep."""
+    """The one throwaway spawns, the message to it is queued, and the roster KEEPS listing it after it is
+    flagged - as the real Director does for its 30-second grace period and until its next reaper sweep.
+    (One throwaway, not two: the Message Load mission removed `message ask`, and with it the responder.)"""
     monkeypatch.setattr(session_ops, "_runs_on_windows", lambda: True)
     monkeypatch.setattr(session_ops.time, "sleep", lambda seconds: None)
-    spawned = iter([{"sessionId": RESPONDER}, {"sessionId": RECIPIENT}])
-    gw.roster = ([{"sessionId": RESPONDER}, {"sessionId": RECIPIENT}], True, None, None)
+    spawned = iter([{"sessionId": RECIPIENT}])
+    gw.roster = ([{"sessionId": RECIPIENT}], True, None, None)
     gw.answers[("POST", f"directors/{DIRECTOR}/sessions")] = lambda body: next(spawned)
-    gw.answers[("POST", f"sessions/{RECIPIENT}/message")] = {"accepted": True}
-    gw.answers[("POST", f"sessions/{RESPONDER}/message")] = {"accepted": True, "output": "FLEETPONG>", "waitStatus": "idle"}
+    gw.answers[("POST", f"sessions/{RECIPIENT}/message")] = {"status": "queued", "messageId": "m1"}
     gw.answers[("POST", f"sessions/{RECIPIENT}/request-deletion")] = deletion_answer
-    gw.answers[("POST", f"sessions/{RESPONDER}/request-deletion")] = deletion_answer
 
 
 def test_selftest_Windows_NamesAndOwnsItsThrowawaysAtBirthAndEndsWithHelp(gw, monkeypatch, plain):
@@ -1145,7 +1147,7 @@ def test_selftest_Windows_NamesAndOwnsItsThrowawaysAtBirthAndEndsWithHelp(gw, mo
 
     assert result.exit_code == 0, result.output
     spawns = [c[2] for c in gw.calls if c[1] == f"directors/{DIRECTOR}/sessions"]
-    assert [s["name"] for s in spawns] == ["selftest-responder", "selftest-recipient"]
+    assert [s["name"] for s in spawns] == ["selftest-recipient"]
     assert all(s["controllerSessionId"] == SID for s in spawns)
     assert not [c for c in gw.calls if c[0] == "PATCH"], "the throwaways were renamed after birth"
     assert _help_block(result.stdout)[1] == [
@@ -1154,21 +1156,22 @@ def test_selftest_Windows_NamesAndOwnsItsThrowawaysAtBirthAndEndsWithHelp(gw, mo
 
 
 def test_selftest_Windows_FlaggedSessionsStillListed_PassesOnTheAcceptedFlags(gw, monkeypatch, plain):
-    # The inspection's reproduction: every step succeeds and the roster still lists both flagged
-    # sessions, because the Director keeps them through its grace period. That is not a leak.
+    # The inspection's reproduction: every step succeeds and the roster still lists the flagged
+    # session, because the Director keeps them through its grace period. That is not a leak.
     _selftest_gateway(gw, monkeypatch, {"pendingDeletion": True})
 
     result = _run(["selftest"], AS_SID, monkeypatch)
 
     assert result.exit_code == 0, result.output
     out = " ".join(plain(result.stdout).split())
-    assert "PASS throwaway sessions flagged for deletion - 2/2 accepted;" in out
+    assert "PASS throwaway sessions flagged for deletion - 1/1 accepted;" in out
     # Removal is stated with its condition, never claimed and never given a deadline: the Director
     # skips a flagged session on every sweep while it is working.
     assert "after its 30-second grace period, on a later reaper sweep once they are no longer working" in out
     assert "within" not in out and "next reaper sweep" not in out
     assert "cleaned up" not in out and "FAIL" not in out
-    assert "5/5 checks passed" in out
+    assert "PASS message send queues" in out
+    assert "4/4 checks passed" in out
 
 
 @pytest.mark.parametrize("answer", [{}, {"pendingDeletion": False}, None])
@@ -1179,9 +1182,9 @@ def test_selftest_Windows_DeletionNotConfirmed_IsAFailure(gw, monkeypatch, plain
 
     assert result.exit_code == 1
     out = " ".join(plain(result.stdout).split())
-    assert "FAIL throwaway sessions flagged for deletion - 0/2 accepted" in out
+    assert "FAIL throwaway sessions flagged for deletion - 0/1 accepted" in out
     assert "did not say pendingDeletion: true" in out
-    assert RESPONDER in result.stderr and RECIPIENT in result.stderr
+    assert RECIPIENT in result.stderr
 
 
 def test_selftest_Windows_AFailedCheckIsAnErrorNamingTheLeftovers(gw, monkeypatch):
@@ -1364,53 +1367,64 @@ def test_confirmed_NullWithoutAccept_ExitsOneSayingNull(capsys):
 # ===== re-check 5 audit (pull request 2965): unknown answers and failure verdicts ================
 
 
-@pytest.mark.parametrize("rows, delivered", [
-    # Every row failed: the old count said "Delivered to your team (0 session(s))" and exited 0.
-    ([{"sessionId": SID, "status": "failed", "error": "director not connected to the tunnel"},
-      {"sessionId": PARENT, "status": "not_found", "error": "session not found"}], 0),
-    # A failed row with no error: the old count called it delivered.
-    ([{"sessionId": SID, "status": "failed", "error": None}], 0),
-    # A row with no status, or one this tool does not know, is not a delivery either.
-    ([{"sessionId": SID}], 0),
-    ([{"sessionId": SID, "status": "queued"}], 0),
-    # Some delivered and some not: still a failure, naming only the ones that did not receive it.
-    ([{"sessionId": SID, "status": "idle"},
-      {"sessionId": PARENT, "status": "timeout", "error": None}], 1),
+@pytest.mark.parametrize("rows", [
+    # Every row refused: nothing was queued, so the broadcast failed.
+    [{"recipientSessionId": SID, "status": "refused", "error": "not your worker"},
+     {"recipientSessionId": PARENT, "status": "refused", "error": "the limit is 6"}],
+    # A refused row with no reason, a row with no status, or one this tool does not know: none is queued.
+    [{"recipientSessionId": SID, "status": "refused"}],
+    [{"recipientSessionId": SID}],
+    [{"recipientSessionId": SID, "status": "idle"}],
 ])
-def test_messageSendAll_UndeliveredRows_ExitOneNamingEachSession(gw, monkeypatch, plain, rows, delivered):
+def test_messageSendAll_NothingQueued_ExitOneNamingEachSession(gw, monkeypatch, plain, rows):
     gw.answers[("POST", "fleet/broadcast")] = {"results": rows}
 
     result = _run(["message", "send", "all", "hello"], AS_SID, monkeypatch)
 
     assert result.exit_code == 1, result.output
     stderr = " ".join(result.stderr.split())
-    assert stderr.startswith("Not delivered:")
-    undelivered = [r for r in rows if r.get("status") != "idle"]
-    assert f"{len(undelivered)} of {len(rows)} recipient(s)" in stderr
-    for r in undelivered:
-        assert f"{r['sessionId']}: status {r.get('status')!r}" in stderr
-    if delivered:
-        assert f"Delivered to {delivered} of {len(rows)} session(s)" in " ".join(plain(result.stdout).split())
-        assert "do not resend to them" in stderr
-    else:
-        assert "Delivered" not in result.stdout
+    assert stderr.startswith("Not queued:")
+    assert f"none of the {len(rows)} recipient(s)" in stderr
+    out = " ".join(plain(result.stdout).split())
+    assert f"Queued for 0 of {len(rows)} session(s)" in out
+    for r in rows:
+        # The full id, never a shortened one: an agent cannot act on a cut id.
+        assert f"{r['recipientSessionId']} not queued:" in out
 
 
-def test_messageSendAll_EveryRowIdle_IsDelivered(gw, monkeypatch, plain):
+def test_messageSendAll_SomeQueued_SucceedsNamingTheOthers(gw, monkeypatch, plain):
+    gw.answers[("POST", "fleet/broadcast")] = {"results": [
+        {"recipientSessionId": SID, "status": "queued"},
+        {"recipientSessionId": PARENT, "status": "refused", "error": "not your worker"},
+    ]}
+
     result = _run(["message", "send", "all", "hello"], AS_SID, monkeypatch)
 
     assert result.exit_code == 0, result.output
-    assert "Delivered to your team (2 session(s))." in " ".join(plain(result.stdout).split())
+    out = " ".join(plain(result.stdout).split())
+    assert "Queued for 1 of 2 session(s) in your workers." in out
+    assert f"{PARENT} not queued: not your worker" in out
+
+
+def test_messageSendAll_EveryRowQueued_IsQueued(gw, monkeypatch, plain):
+    result = _run(["message", "send", "all", "hello"], AS_SID, monkeypatch)
+
+    assert result.exit_code == 0, result.output
+    out = " ".join(plain(result.stdout).split())
+    assert "Queued for 2 of 2 session(s) in your workers." in out
+    assert "Delivered" not in out
     assert result.stderr == ""
 
 
-def test_messageSendAll_EmptyTeam_IsStillASuccessWithTheNote(gw, monkeypatch):
-    gw.answers[("POST", "fleet/broadcast")] = {"results": [], "warning": "No other sessions on your team."}
+def test_messageSendAll_NoWorkers_IsAFailureWithTheNote(gw, monkeypatch):
+    # Inspection 2 of the Message Load mission, ruling 4: nothing queued and nothing waiting exits 1.
+    gw.answers[("POST", "fleet/broadcast")] = {"results": [], "warning": "You have started no sessions."}
 
     result = _run(["message", "send", "all", "hello"], AS_SID, monkeypatch)
 
-    assert result.exit_code == 0, result.output
-    assert "No other sessions on your team." in result.stdout
+    assert result.exit_code == 1, result.output
+    stderr = " ".join(result.stderr.split())
+    assert "Not queued: no workers to send to. You have started no sessions." in stderr
 
 
 @pytest.mark.parametrize("complete, reason", [(False, "machine m2 is offline"), (None, None)])
@@ -1491,19 +1505,19 @@ def test_sessionCompactContinue_FollowUpSent_Succeeds(gw, monkeypatch):
 
 
 @pytest.mark.parametrize("answer", [
-    {"accepted": True, "output": "FLEETPONG>", "waitStatus": "timeout"},
-    {"accepted": True, "output": "FLEETPONG>", "waitStatus": "failed"},
-    {"accepted": True, "output": "FLEETPONG>"},
-    {"accepted": False, "output": "FLEETPONG>", "waitStatus": "idle"},
+    {"accepted": True},
+    {"status": "duplicate"},
+    {"status": "refused", "error": "not your worker"},
+    {},
 ])
-def test_selftest_Windows_AskMarkerWithoutAnIdleVerdict_IsAFailure(gw, monkeypatch, plain, answer):
-    # The responder's prompt prints the marker on every redraw, so a timed-out wait can carry it.
+def test_selftest_Windows_MessageNotQueued_IsAFailure(gw, monkeypatch, plain, answer):
+    # Only "queued" proves the Gateway recorded the message; the old "accepted" answer does not.
     _selftest_gateway(gw, monkeypatch, {"pendingDeletion": True})
-    gw.answers[("POST", f"sessions/{RESPONDER}/message")] = answer
+    gw.answers[("POST", f"sessions/{RECIPIENT}/message")] = answer
 
     result = _run(["selftest"], AS_SID, monkeypatch)
 
     assert result.exit_code == 1, result.output
     out = " ".join(plain(result.stdout).split())
-    assert "FAIL message ask returns the answer" in out
-    assert f"waitStatus={answer.get('waitStatus')!r}" in out
+    assert "FAIL message send queues" in out
+    assert f"status={answer.get('status', '')}" in out

@@ -233,34 +233,25 @@ public sealed class PromptAttributionIsGatewayAuthoritativeTests : IAsyncLifetim
     }
 
     [Fact]
-    public async Task A_session_key_caller_is_agent_driven_whatever_its_body_says()
+    public async Task A_session_key_caller_cannot_prompt_at_all_whatever_its_body_says()
     {
-        // A session key minted for another session of this Director, registered exactly as the Director's
-        // Hello registers them, and presented as the Bearer.
+        // CHANGED BY THE MESSAGE LOAD MISSION (16 September 2026, ruling 17). This test used to prove that a
+        // session key's prompt was recorded as agent-driven whatever the body claimed. A session key now cannot
+        // prompt at all - the session key guard refuses the route before it runs - which is the stronger form of
+        // the same guarantee: no agent turn can be counted as the person's, because no agent turn arrives. The
+        // route's own agent-driven stamp stays as a second line behind the guard.
         var key = GatewaySessionKey.Mint();
         Assert.True(_gateway.SessionKeys.Register(TenantId.Local, DirectorId, Guid.NewGuid().ToString(),
             GatewaySessionKey.Hash(key), DateTime.UtcNow.AddHours(1)));
 
         var resp = await PostPrompt(new { text = "do the next task", appendEnter = true, agentDriven = false }, bearer: key);
-        await AssertOk(resp);
 
-        var arrived = LastArrived();
-        Assert.True(arrived.AgentDriven);
-        Assert.Null(arrived.DeliveryUploadId);
-
-        var snap = _session.InputStats.Snapshot();
-        Assert.Equal(1, snap.AgentDrivenTurns);
-        Assert.Empty(snap.Buckets);
-        var entry = Assert.Single(_ledger);
-        Assert.Equal(SendSource.Agent, entry.Source);
-        Assert.Null(entry.Origin);
-        // A session calling is a FLEET MESSAGE at the door, behind a session credential.
-        Assert.Equal(SubmissionRoutes.FleetMessage, entry.Evidence.Provenance.Route);
-        Assert.Equal(SubmissionIdentityKinds.Session, entry.Evidence.Provenance.IdentityKind);
-        Assert.Equal(SubmissionEvidence.Sha256Of("do the next task"), entry.Evidence.ContentSha256);
+        Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+        Assert.Contains("An agent may not type into", await resp.Content.ReadAsStringAsync());
+        lock (_arrived) Assert.Empty(_arrived);
+        Assert.Empty(_ledger);
+        Assert.Equal(0, _session.InputStats.Snapshot().AgentDrivenTurns);
     }
-
-    // ---- I2-03: a spoken claim is evidence tied to one transcription, spent once ---------------------
 
     [Fact]
     public async Task The_words_the_gateway_transcribed_sent_under_their_own_id_are_one_voice_turn()
@@ -542,7 +533,8 @@ public sealed class PromptAttributionIsGatewayAuthoritativeTests : IAsyncLifetim
     [Fact]
     public async Task A_session_credential_cannot_claim_that_any_of_its_characters_were_spoken()
     {
-        // A session did not speak - the same rule the whole-text claim already follows, applied to spans.
+        // A session did not speak. Since the Message Load mission (ruling 17) a session key cannot reach the
+        // prompt route at all, so the claim - even naming a real, unspent transcript - records nothing.
         var id = await TranscribeAnUtterance();
         var key = GatewaySessionKey.Mint();
         Assert.True(_gateway.SessionKeys.Register(TenantId.Local, DirectorId, Guid.NewGuid().ToString(),
@@ -554,12 +546,10 @@ public sealed class PromptAttributionIsGatewayAuthoritativeTests : IAsyncLifetim
             appendEnter = true,
             spokenSpans = new[] { new { start = 0, length = Transcript.Length, transcriptId = id } },
         }, bearer: key);
-        await AssertOk(resp);
 
-        var entry = Assert.Single(_ledger);
-        Assert.Equal(SubmissionRoutes.FleetMessage, entry.Evidence.Provenance.Route);
-        Assert.Empty(entry.Evidence.Provenance.SpokenSpans);
-        Assert.Null(entry.Evidence.Provenance.TranscriptId);
+        Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+        lock (_arrived) Assert.Empty(_arrived);
+        Assert.Empty(_ledger);
     }
 
     [Fact]

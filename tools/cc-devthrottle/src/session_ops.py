@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 
 
 # --- ASCII-only output (project house rule): Rich truncates an overflowing table cell with the
@@ -162,7 +163,7 @@ def _resolve_target(target: str, *, command_name: str) -> Dict[str, Any]:
             details.append(f"The fleet list searched may be incomplete. {caveat}")
         # THE negative answer the second caution exists for. A machine whose tunnel is up but whose
         # pushes are late can be hiding the very session being addressed, and every target-resolving
-        # verb comes through here - message send, message ask, rename, done, hold, compact. Printed on
+        # verb comes through here - message send, rename, done, hold, compact. Printed on
         # this path only, so it stays rare enough to be read.
         if stale_caution:
             details.append(stale_caution)
@@ -653,8 +654,9 @@ def rename_session(target: Optional[str], new_name: str) -> Dict[str, Any]:
 def prompt_session(target: str, text: str, no_submit: bool = False) -> Dict[str, Any]:
     """Send raw text into a session - what a human typing into it would produce.
 
-    Unlike `message send`, this does NOT frame the text with a sender. Restores the old
-    POST /sessions/{sid}/prompt.
+    THE GATEWAY REFUSES THIS TO EVERY AGENT (the Message Load mission, ruling 17): only the owner
+    types into a session, from his own screens. This command always runs with a session key, so it
+    prints the Gateway's refusal, which names the queued message to send instead.
     """
     if not text.strip():
         axi_cli.usage_error(
@@ -667,34 +669,38 @@ def prompt_session(target: str, text: str, no_submit: bool = False) -> Dict[str,
             f"sessions/{sid}/prompt", {"text": text, "appendEnter": not no_submit}
         )
     except gateway.GatewayError as err:
-        axi_cli.fail(f"could not send the prompt to session {sid}: {err}", _CHECK_SESSION)
+        axi_cli.fail(
+            f"could not send the prompt to session {sid}: {err}",
+            [f'cc-devthrottle message send {axi_cli.bare(sid, "<session-id>")} "<message>"', *_CHECK_SESSION],
+        )
     # A 200 can still carry accepted: false - a menu on the screen blocks typing - so the verdict is read.
     _accepted_or_fail(resp, f"the prompt to session {sid}", [
         f"cc-devthrottle session buffer {axi_cli.bare(sid, '<session-id>')}", *_CHECK_SESSION,
     ])
     console.print(f"[green]Sent[/green] prompt to {sid}.")
-    axi_cli.print_next([
-        f"cc-devthrottle session buffer {axi_cli.bare(sid, '<session-id>')}",
-        f"cc-devthrottle session interrupt {axi_cli.bare(sid, '<session-id>')}",
-    ])
+    axi_cli.print_next([f"cc-devthrottle session buffer {axi_cli.bare(sid, '<session-id>')}"])
     return resp if isinstance(resp, dict) else {}
 
 
 def interrupt_session(target: Optional[str]) -> Dict[str, Any]:
-    """Stop what a session is currently doing. Restores the old POST /sessions/{sid}/interrupt."""
+    """Stop what a session is currently doing.
+
+    THE GATEWAY REFUSES THIS TO EVERY AGENT (the Message Load mission, ruling 17), for the same reason
+    as `session prompt`; the refusal is printed as the Gateway wrote it.
+    """
     sid = resolve_target_or_current(target, "cc-devthrottle session interrupt")
     try:
         resp = gateway.post_json(f"sessions/{sid}/interrupt")
     except gateway.GatewayError as err:
-        axi_cli.fail(f"could not interrupt session {sid}: {err}", _CHECK_SESSION)
+        axi_cli.fail(
+            f"could not interrupt session {sid}: {err}",
+            [f'cc-devthrottle message send {axi_cli.bare(sid, "<session-id>")} "<message>"', *_CHECK_SESSION],
+        )
     _accepted_or_fail(resp, f"the interrupt of session {sid}", [
         f"cc-devthrottle session buffer {axi_cli.bare(sid, '<session-id>')}", *_CHECK_SESSION,
     ])
     console.print(f"[green]Interrupted[/green] {sid}.")
-    axi_cli.print_next([
-        f"cc-devthrottle session buffer {axi_cli.bare(sid, '<session-id>')}",
-        f'cc-devthrottle session prompt {axi_cli.bare(sid, "<session-id>")} "<text>"',
-    ])
+    axi_cli.print_next([f"cc-devthrottle session buffer {axi_cli.bare(sid, '<session-id>')}"])
     return resp if isinstance(resp, dict) else {}
 
 
@@ -823,14 +829,12 @@ def report_to_parent(summary: Optional[str], target: Optional[str] = None) -> No
     getting back to them is part of doing it. This is the session doing that itself, in its own
     words - not the roster hoping somebody wanders past a grey row and wonders about it.
 
-    IT INTERRUPTS, DELIBERATELY (owner's ruling, 2026-09-13). Every fleet message lands mid-turn in
-    the receiving agent, and that is the right cost here: a parent that took ownership of a session
-    took on being interrupted when it comes back. The alternative already existed and is what failed
-    - the hand-raise registry is pull-only, so a supervisor learns nothing unless it thinks to look,
-    which is how a finished session sits quiet and finished with nobody ever told. A signal nobody is
-    obliged to read is a signal that does not exist. The load is bounded by how many sessions a
-    parent CHOSE to own, and since ownership must now be declared at spawn, owning five of them is a
-    deliberate act rather than an accident of an environment variable.
+    IT IS QUEUED, NOT TYPED (the Message Load mission, 16 September 2026, reversing the owner's
+    ruling of 13 September that a report interrupts). The report is written to the parent's inbox as
+    a message of kind "report" and the parent reads it when it is free - nothing lands mid-turn. It is
+    still not a pull-only flag: the record stays open until the parent reads it. A report is not held
+    to the one-message-per-ten-minutes spacing, because every refused message is told to put what it
+    wanted to say in the report.
 
     NO PARENT MEANS THE USER, AND THEN THERE IS NOTHING TO SEND. A session the user owns is already
     red and already in his queue - that red IS the report, and messaging him a second time through a
@@ -923,11 +927,12 @@ def report_to_parent(summary: Optional[str], target: Optional[str] = None) -> No
         return
 
     try:
-        resp = gateway.post_json(f"sessions/{parent_id}/message", {"text": text})
+        resp = gateway.post_json(f"sessions/{parent_id}/message", {"text": text, "kind": "report"})
     except gateway.GatewayError as err:
         axi_cli.fail(
-            f"could not deliver the report to the parent session {parent_id}: {err}",
+            f"the report for the parent session {parent_id} was not queued: {err}",
             ["cc-devthrottle session list", axi_cli.CHECK_GATEWAY],
+            label="Not queued:",
         )
 
     parent_name = None
@@ -936,11 +941,8 @@ def report_to_parent(summary: Optional[str], target: Optional[str] = None) -> No
             parent_name = gateway.field(s, "name", "Name")
             break
     # The full id always: a shortened one can match a second session and cannot be pasted back.
-    _report_delivery(resp, f"{parent_name} ({parent_id})" if parent_name else parent_id)
-    axi_cli.print_next([
-        f"cc-devthrottle session buffer {axi_cli.bare(parent_id, '<session-id>')}",
-        "cc-devthrottle session done",
-    ])
+    _report_queued(resp, f"{parent_name} ({parent_id})" if parent_name else parent_id)
+    axi_cli.print_next(["cc-devthrottle message inbox", "cc-devthrottle session done"])
 
 
 # --- session workers (AXI standard, docs/axi-standard.md; issue #2922) ---
@@ -1520,77 +1522,123 @@ def stop_session(target: str, reason: Optional[str], json_output: bool = False) 
     return body
 
 
-# The fan-out row status that means the message reached that session. Without waiting, the Gateway
-# stamps a delivered row "idle" (GatewayEndpoints.cs, POST /fleet/broadcast's fan-out).
-FANOUT_DELIVERED = "idle"
+def _say_gateway(label: str, sentence: Any) -> None:
+    """Print a label this tool owns, then a sentence the Gateway wrote, exactly as the Gateway wrote it.
 
-
-def _report_delivery(resp: Any, who: str) -> None:
-    """Report a delivery from either of the Gateway's two answer shapes.
-
-    A message to ONE session answers with the prompt result - accepted plus an error - and a broadcast
-    answers with the fan-out: a per-recipient result row each, a refusal, or a note that there was
-    nobody to send to. Both are read here rather than at the two call sites so the sentence the user
-    reads cannot drift between "message send" and "message send all".
-
-    The counting is the part worth being careful about. A fan-out row with no error was delivered; a
-    row with one was not, and counting rows rather than successes would report a storm of failures as
-    a successful broadcast. A refusal is an error even though it arrives with a 200 - the Hub answers
-    scope refusals in the body, not the status code.
+    The sentence is QUOTED TEXT - a refusal, a note, a warning - and is printed verbatim: escaped, so a
+    bracket in it is not read as markup, and with highlighting off, so the console does not colour the
+    numbers and paths inside it. With colour on, "the limit is 6" otherwise reaches the reader as
+    "the limit is <colour>6<reset>", which is no longer the sentence the Gateway sent and no longer
+    matches it. The label is ours, so it keeps its markup; an empty label prints the sentence alone.
     """
-    accepted = False
-    count = 0
-    err: Optional[str] = None
-    warning: Optional[str] = None
+    text = escape(str(sentence))
+    console.print(f"{label} {text}" if label else text, highlight=False)
+
+
+def _report_queued(resp: Any, who: str) -> None:
+    """Report what the Gateway did with ONE message: queued, dropped as a duplicate, or refused.
+
+    QUEUED, NEVER DELIVERED. The message is a record in the recipient's inbox; nothing was typed into
+    it, and it reads the message when it is next free. Saying "delivered" would claim the recipient
+    has seen it, which nothing here knows.
+
+    A refusal usually arrives as an HTTP error, which the caller turns into the same "Not queued"
+    line; this also handles a refusal that arrives in a 200 body, so the sentence cannot drift.
+    """
+    status = ""
     if isinstance(resp, dict):
-        warning = resp.get("warning") or resp.get("Warning")
-        results = resp.get("results", resp.get("Results"))
-        if bool(resp.get("denied", resp.get("Denied", False))):
-            err = resp.get("deniedReason") or resp.get("DeniedReason") or "the broadcast was refused"
-        elif isinstance(results, list):
-            # A row is delivered only when its status says so. The Gateway stamps every recipient
-            # idle | timeout | failed | not_found (FanoutRequest.cs), and a failed row can carry no
-            # error at all (a Director that answered OK with an unreadable body), so the error field
-            # is not the verdict - the status is. A status this tool does not know is not a delivery.
-            delivered = [r for r in results if isinstance(r, dict)
-                         and r.get("status", r.get("Status")) == FANOUT_DELIVERED]
-            undelivered = [r for r in results if r not in delivered]
-            count = len(delivered)
-            accepted = True
-            if undelivered:
-                if delivered:
-                    console.print(f"[green]Delivered[/green] to {count} of {len(results)} session(s) in "
-                                  f"{axi_cli.shown(who)}.")
-                lines = []
-                for r in undelivered:
-                    if not isinstance(r, dict):
-                        lines.append(f"{r!r}: not a result row")
-                        continue
-                    rid = r.get("sessionId") or r.get("SessionId") or "(no session id)"
-                    status = r.get("status", r.get("Status"))
-                    why = r.get("error") or r.get("Error") or "no reason given"
-                    lines.append(f"{rid}: status {status!r}, {why}")
-                axi_cli.fail(
-                    f"{len(undelivered)} of {len(results)} recipient(s) in {who} did not receive it"
-                    f"{' (the rest did - do not resend to them)' if delivered else ''}: " + "; ".join(lines),
-                    ["cc-devthrottle session list",
-                     'cc-devthrottle message send <session-id> "<message>"'],
-                    label="Not delivered:",
-                )
-        else:
-            accepted = bool(resp.get("accepted", resp.get("Accepted", False)))
-            count = 1 if accepted else 0
-            err = resp.get("error") or resp.get("Error")
-    if accepted:
-        console.print(f"[green]Delivered[/green] to {axi_cli.shown(who)} ({count} session(s)).")
-        if warning:
-            console.print(f"[yellow]Note:[/yellow] {axi_cli.shown(warning)}")
-    else:
-        # The Gateway said nothing about why: say THAT, rather than a sentence that reads like a reason.
+        status = str(resp.get("status", resp.get("Status", "")) or "")
+    if status == "queued":
+        mid = str(resp.get("messageId", resp.get("MessageId", "")) or "")
+        console.print(
+            f"[green]Queued[/green] for {axi_cli.shown(who)} (message {axi_cli.shown(mid)}). Nothing was "
+            "typed into it; it reads the message from its inbox when it is free.",
+            highlight=False,
+        )
+        return
+    if status == "duplicate":
+        note = resp.get("note") or resp.get("Note") or "an identical message is already waiting unread."
+        _say_gateway("[yellow]Not queued again:[/yellow]", note)
+        return
+    err = None
+    if isinstance(resp, dict):
+        err = resp.get("error") or resp.get("Error")
+    axi_cli.fail(
+        str(err) if err else (
+            f"the Gateway did not accept the message: its answer said neither queued nor duplicate "
+            f"(status {status!r}) and gave no reason."
+        ),
+        _NOT_QUEUED_NEXT,
+        label="Not queued:",
+    )
+
+
+# Where to go after a message was not queued: the Gateway's refusal names why, and the report is where
+# what would have been said belongs (ruling 3).
+_NOT_QUEUED_NEXT = [
+    'cc-devthrottle session report "<what you would have said>"',
+    "cc-devthrottle session list",
+]
+
+
+def _recipient_id(row: Any) -> str:
+    """The full recipient id of one broadcast row, never shortened: a short one cannot be pasted back."""
+    if not isinstance(row, dict):
+        return "(not a result row)"
+    return str(row.get("recipientSessionId", row.get("RecipientSessionId", "")) or "(no session id)")
+
+
+def _report_broadcast(resp: Any, who: str) -> None:
+    """Report a broadcast: one row per recipient, each queued, dropped or refused on its own.
+
+    Counting is by OUTCOME, not by row - a broadcast where every row was refused queued nothing, and
+    saying "sent to 4 sessions" about it would be the failure this report exists to prevent. Rows that
+    were not queued are listed either way.
+
+    BROADCAST_EXIT_RULE (inspection 1, ruling 6), the same words as `message send --help`:
+    Exit code: 0 when the message was queued or an identical one is already waiting unread - for 'all', when that is true of at least one worker - and 1 when nothing was queued and nothing was waiting.
+    So an all-duplicate broadcast exits 0, exactly as a duplicate single send does: the message is
+    already in every one of those inboxes.
+    """
+    if not isinstance(resp, dict):
+        axi_cli.fail("the Gateway gave no answer this tool understands.", _NOT_QUEUED_NEXT, label="Not queued:")
+    if bool(resp.get("denied", resp.get("Denied", False))):
+        reason = resp.get("deniedReason") or resp.get("DeniedReason") or "the broadcast was refused."
+        axi_cli.fail(str(reason), _NOT_QUEUED_NEXT, label="Not queued:")
+    warning = resp.get("warning") or resp.get("Warning")
+    results = resp.get("results", resp.get("Results"))
+    # An absent list is not an empty one: only a list the Gateway sent says who it went to.
+    if not isinstance(results, list):
         axi_cli.fail(
-            str(err) if err else "the Gateway did not accept the message and gave no reason.",
-            ["cc-devthrottle session list"],
-            label="Not delivered:",
+            "the Gateway did not accept the broadcast: its answer carried no results list.",
+            [*_NOT_QUEUED_NEXT, axi_cli.CHECK_GATEWAY],
+            label="Not queued:",
+        )
+    if not results:
+        # Inspection 2, ruling 4: nothing queued and nothing waiting is a failure, even with nobody to
+        # send to - BROADCAST_EXIT_RULE has no exception for an empty recipient list.
+        line = "no workers to send to."
+        if warning:
+            line += f" {warning}"
+        axi_cli.fail(line, ["cc-devthrottle session workers", *_NOT_QUEUED_NEXT], label="Not queued:")
+    queued = [r for r in results if isinstance(r, dict) and r.get("status", r.get("Status")) == "queued"]
+    dupes = [r for r in results if isinstance(r, dict) and r.get("status", r.get("Status")) == "duplicate"]
+    refused = [r for r in results if r not in queued and r not in dupes]
+    console.print(
+        f"Queued for {len(queued)} of {len(results)} session(s) in {axi_cli.shown(who)}. Nothing was typed "
+        "into any of them; each reads it from its inbox when it is free.",
+        highlight=False,
+    )
+    for r in dupes:
+        _say_gateway(f"  [yellow]{_recipient_id(r)} not queued again:[/yellow]", r.get("note") or r.get("Note") or "")
+    for r in refused:
+        why = (r.get("error") or r.get("Error")) if isinstance(r, dict) else None
+        _say_gateway(f"  [red]{_recipient_id(r)} not queued:[/red]", why or "refused")
+    if not queued and not dupes:  # BROADCAST_EXIT_RULE, see the docstring
+        axi_cli.fail(
+            f"none of the {len(results)} recipient(s) in {who} took it; each reason is listed above.",
+            _NOT_QUEUED_NEXT,
+            label="Not queued:",
         )
 
 
@@ -1600,12 +1648,13 @@ def send_message(
     everyone: bool = False,
     reason: str | None = None,
     grant: str | None = None,
+    kind: str = "message",
 ) -> None:
-    """Send a message to one session, or broadcast with target 'all'.
+    """Queue a message for one session, or for each of your workers with target 'all'.
 
-    A plain 'all' reaches only the sender's team (its Mission, or - solo - the same repository on the
-    same machine). --everyone asks to reach the whole fleet, which the Gateway Hub gates on a human
-    grant plus a reason (issue #1229)."""
+    The Gateway decides who you may write to: the session that started you, and the sessions you
+    started. Anything else is refused with the reason. --everyone reaches the whole account and needs
+    a human grant plus a reason (issue #1229); its copies are queued like any other message."""
     is_broadcast = target.strip().lower() == "all"
     # Refused before anything is sent: each of these flags only means something on a fleet-wide
     # broadcast, and a flag that is silently dropped is a defect (docs/axi-standard.md).
@@ -1629,152 +1678,126 @@ def send_message(
 
     if is_broadcast:
         # No sender field: the Gateway takes it from the session key that authenticated the call, so
-        # the team it resolves and the message it frames are about the same session by construction.
-        body = {"text": message}
+        # the workers it finds and the sender it records are about the same session by construction.
+        body: Dict[str, Any] = {"text": message}
         if everyone:
             body["everyone"] = True
             if reason:
                 body["reason"] = reason
             if grant:
                 body["grantId"] = grant
-        who = "the whole fleet" if everyone else "your team"
+        who = "the whole account" if everyone else "your workers"
         try:
             resp = gateway.post_json("fleet/broadcast", body)
         except gateway.GatewayError as err:
             axi_cli.fail(
-                f"could not broadcast to {who}: {err}",
-                ["cc-devthrottle session list", axi_cli.CHECK_GATEWAY],
+                f"the broadcast to {who} was not queued: {err}",
+                [*_NOT_QUEUED_NEXT, axi_cli.CHECK_GATEWAY],
+                label="Not queued:",
             )
-        _report_delivery(resp, who)
-        axi_cli.print_next(["cc-devthrottle session list", 'cc-devthrottle message send <session-id> "<message>"'])
+        _report_broadcast(resp, who)
+        axi_cli.print_next(["cc-devthrottle message inbox", "cc-devthrottle session workers"])
         return
 
     chosen = _resolve_target(target, command_name="cc-devthrottle message send")
     target_sid = gateway.field(chosen, "sessionId", "SessionId")
+    body = {"text": message}
+    if kind != "message":
+        body["kind"] = kind
     try:
-        resp = gateway.post_json(f"sessions/{target_sid}/message", {"text": message})
-    except gateway.GatewayError as err:
-        axi_cli.fail(f"could not send the message to session {target_sid}: {err}", _CHECK_SESSION)
-
-    name = gateway.field(chosen, "name", "Name")
-    _report_delivery(resp, f"{name} ({target_sid})" if name else target_sid)
-    axi_cli.print_next([
-        f"cc-devthrottle session buffer {axi_cli.bare(target_sid, '<session-id>')}",
-        f'cc-devthrottle message ask {axi_cli.bare(target_sid, "<session-id>")} "<question>"',
-    ])
-
-
-# The one waitStatus the Gateway gives when the target finished its turn (GatewayEndpoints.cs,
-# DeliverPromptAsync: Idle or WaitingForInput -> "idle"; Exited or Failed -> "failed"; else "timeout").
-ASK_ANSWERED = "idle"
-
-
-_MISSING = object()
-
-
-def _answer_output(resp: Dict[str, Any]) -> Any:
-    """The answer's output field as the Gateway gave it (None when null), or _MISSING when it has none."""
-    value: Any = _MISSING
-    for key in ("output", "Output"):
-        if key in resp:
-            value = resp[key]
-            if value is not None:
-                break
-    return value
-
-
-def ask_session(target: str, question: str, timeout_ms: int) -> None:
-    """Ask one session a question and print its answer."""
-    if target.strip().lower() == "all":
-        axi_cli.usage_error(
-            "message ask targets a single session, not 'all'. "
-            'Use cc-devthrottle message send all "<message>" for a broadcast, or name one session.',
-        )
-    if not question.strip():
-        axi_cli.usage_error(
-            "the question is blank. "
-            'Pass the question: cc-devthrottle message ask <session-id> "<question>"',
-        )
-    if timeout_ms < 1:
-        axi_cli.usage_error(
-            f"--timeout-ms must be at least 1, not {timeout_ms}. "
-            "Pass how long to wait in milliseconds, for example --timeout-ms 120000.",
-        )
-
-    chosen = _resolve_target(target, command_name="cc-devthrottle message ask")
-    target_sid = gateway.field(chosen, "sessionId", "SessionId")
-
-    http_timeout = max(30.0, timeout_ms / 1000.0 + 15.0)
-    try:
-        # An ask is a message that WAITS. waitForIdle also drops the reply hint from the frame: the
-        # asker is already holding the line and reads the answer from the target's own output, so a
-        # "reply with this command" line would make the recipient answer into a channel nobody reads.
-        resp = gateway.post_json(
-            f"sessions/{target_sid}/message",
-            {"text": question, "waitForIdle": True, "timeoutMs": timeout_ms},
-            timeout=http_timeout,
-        )
+        resp = gateway.post_json(f"sessions/{target_sid}/message", body)
     except gateway.GatewayError as err:
         axi_cli.fail(
-            f"no answer from session {target_sid}: {err}",
-            [f"cc-devthrottle session buffer {axi_cli.bare(target_sid, '<session-id>')}"],
+            f"the message to session {target_sid} was not queued: {err}",
+            [*_NOT_QUEUED_NEXT, axi_cli.CHECK_GATEWAY],
+            label="Not queued:",
         )
 
-    # The question was delivered only if the answer says accepted: true, and the wait happened only if
-    # it names how the wait ended. Without both, "(the target produced no output)" would be a guess.
-    ask_next = [f"cc-devthrottle session buffer {axi_cli.bare(target_sid, '<session-id>')}"]
-    _accepted_or_fail(resp, f"the question to session {target_sid}", ask_next)
-    wait_status = axi_cli.confirmed(
-        resp, ("waitStatus", "WaitStatus"), f"the question to session {target_sid}", ask_next
+    name = gateway.field(chosen, "name", "Name")
+    # The full id always: a shortened one can match a second session and cannot be pasted back.
+    _report_queued(resp, f"{name} ({target_sid})" if name else target_sid)
+    axi_cli.print_next(["cc-devthrottle message inbox", "cc-devthrottle session list"])
+
+
+INBOX_HELP = [
+    "cc-devthrottle message inbox --all",
+    'cc-devthrottle message send <id> "<message>"',
+    'cc-devthrottle session report "<what you did>"',
+]
+
+
+def _inbox_block(m: Dict[str, Any], index: int, total: int) -> str:
+    """One message, in full, as ASCII lines. The text is never cut: reading it marked it read, so a
+    truncated body would be a message the recipient can never see the rest of."""
+    sender_id = m.get("fromSessionId") or m.get("FromSessionId")
+    sender_name = m.get("fromName") or m.get("FromName")
+    machine = m.get("fromMachine") or m.get("FromMachine")
+    if sender_id:
+        who = f"{sender_name} ({sender_id})" if sender_name else str(sender_id)
+        if machine:
+            who += f" on {machine}"
+    else:
+        who = "the Gateway"
+    text = str(m.get("text", m.get("Text", "")) or "")
+    lines = [
+        f"message {index} of {total}",
+        f"  id: {axi_output.escape_ascii(str(m.get('messageId', m.get('MessageId', ''))))}",
+        f"  from: {axi_output.escape_ascii(who)}",
+        f"  kind: {axi_output.escape_ascii(str(m.get('kind', m.get('Kind', ''))))}",
+        f"  sent: {axi_output.escape_ascii(str(m.get('sentAtUtc', m.get('SentAtUtc', ''))))}",
+        "  text:",
+    ]
+    lines.extend("    " + axi_output.escape_ascii(line) for line in text.split("\n"))
+    return "\n".join(lines)
+
+
+def read_inbox(include_read: bool = False, json_output: bool = False) -> Dict[str, Any]:
+    """Read THIS session's inbox: every unread message in full, each marked read by this call.
+
+    Reading is the acknowledgement. A message stays open - and its sender can see it is still unread -
+    until the recipient runs this. `--all` adds the newest 200 messages read in the last 24 hours:
+    reading marks a message read before its text reaches you, so this is how a lost read is recovered.
+    That interval is an accepted gap (inspection 2, ruling 2): after 24 hours a lost read is gone.
+    """
+    path = "fleet/inbox?all=true" if include_read else "fleet/inbox"
+    try:
+        resp = gateway.get_json(path)
+    except gateway.GatewayError as err:
+        axi_cli.fail(f"could not read your inbox: {err}", ["cc-devthrottle session whoami", axi_cli.CHECK_GATEWAY])
+    if not isinstance(resp, dict):
+        axi_cli.fail(
+            "the Gateway did not return an inbox, so nothing was read.",
+            ["cc-devthrottle message inbox --all", axi_cli.CHECK_GATEWAY],
+        )
+    # Absent is not empty: the messages were marked read by this call, so an answer without the unread
+    # list must not be shown as "0 unread" - the text is recoverable with --all, and that is the next step.
+    axi_cli.confirmed(
+        resp, ("unread", "Unread"), "the inbox read", ["cc-devthrottle message inbox --all"],
+        accept=lambda value: isinstance(value, list),
     )
-    # AN ABSENT ANSWER IS NOT AN EMPTY ONE. "(the target produced no output)" and "partial output" are
-    # claims about what the target printed, so they are made only from an output field the answer
-    # carries as text. An empty string is a real empty answer; a missing, null or non-text output says
-    # nothing about what was printed, whatever the wait verdict is.
-    raw_output = _answer_output(resp)
-    if not isinstance(raw_output, str):
-        given = ("gave no output field" if raw_output is _MISSING
-                 else f"gave output as {'null' if raw_output is None else type(raw_output).__name__}, not text")
-        axi_cli.fail(
-            f"the Gateway's answer to the question to session {target_sid} {given} "
-            f"(waitStatus: {wait_status}), so what the target printed is unknown. "
-            "Read its screen to see what it answered.",
-            ask_next,
-        )
-    answer = raw_output.strip()
-    name = gateway.field(chosen, "name", "Name")
-    source = f"{axi_cli.shown(name)} ({target_sid})" if name else target_sid
+    if json_output:
+        print(json.dumps(resp, indent=2))
+        return resp
 
-    # AN ACCEPTED DELIVERY IS NOT A COMPLETED ANSWER. The Gateway rules how the wait ended and says so
-    # in a successful HTTP answer (GatewayEndpoints.DeliverPromptAsync): "idle" is the only value that
-    # means the target finished its turn. "timeout" and "failed" are verdicts, and any other value is
-    # one this tool does not know - none of them may be printed as an answer.
-    if wait_status != ASK_ANSWERED:
-        if answer:
-            console.print(f"[dim]-- partial output from {source} --[/dim]")
-            print(axi_cli.ascii_text(answer))
-        verdicts = {
-            "timeout": f"session {target_sid} did not finish its turn within the wait (waitStatus: timeout). "
-                       "What it printed so far, if anything, is above; it may still be working.",
-            "failed": f"session {target_sid} exited or failed while answering (waitStatus: failed). "
-                      "What it printed before that, if anything, is above.",
-        }
-        axi_cli.fail(
-            verdicts.get(
-                wait_status,
-                f"the Gateway ended the wait on session {target_sid} with waitStatus {wait_status!r}, "
-                "which this tool does not know, so whether the target answered is unknown.",
-            ),
-            ask_next,
-        )
-
-    console.print(f"[dim]-- answer from {source} --[/dim]")
-    # The answer is another session's own words: printed as text, never read as markup.
-    print(axi_cli.ascii_text(answer) if answer else "(the target produced no output)")
-    axi_cli.print_next([
-        f"cc-devthrottle session buffer {axi_cli.bare(target_sid, '<session-id>')}",
-        f'cc-devthrottle message send {axi_cli.bare(target_sid, "<session-id>")} "<message>"',
-    ])
+    unread = [m for m in (resp.get("unread", resp.get("Unread")) or []) if isinstance(m, dict)]
+    recent = [m for m in (resp.get("recent", resp.get("Recent")) or []) if isinstance(m, dict)]
+    blocks = [f"count: {len(unread)} unread" + (" (now marked read)" if unread else "")]
+    for n, m in enumerate(unread, 1):
+        blocks.append(_inbox_block(m, n, len(unread)))
+    if include_read:
+        # Inspection 2, ruling 1: the Gateway returns at most the newest 200 read messages and says so. A
+        # truncated answer must say it is one, or the reader takes 200 for the whole day.
+        truncated = bool(resp.get("truncated", resp.get("Truncated", False)))
+        total = resp.get("recentTotal", resp.get("RecentTotal"))
+        if truncated:
+            blocks.append(f"earlier: showing {len(recent)} of {total} read in the last 24 hours")
+        else:
+            blocks.append(f"earlier: {len(recent)} read before")
+        for n, m in enumerate(recent, 1):
+            blocks.append(_inbox_block(m, n, len(recent)))
+    blocks.append(axi_output.format_help(INBOX_HELP))
+    axi_output.write_blocks(sys.stdout, *blocks)
+    return resp
 
 
 def _controller_mission(controller_session_id: str) -> Optional[Dict[str, Any]]:
@@ -1879,7 +1902,8 @@ def spawn_session(
             "this spawn has to say who will OWN the new session: you are spawning from inside a session, "
             "so there are two possible owners and no safe default between them. Pass --controlled-by self "
             "if YOU own it (it stays quiet and reports back to you), --standalone if the USER owns it (it "
-            "goes red and asks him when it finishes), or --controlled-by <session-id> if another session owns it."
+            "goes red and asks him when it finishes). Naming another session with --controlled-by is refused by the "
+            "Gateway: the owner is who the new session may message, so a session may only name itself."
         )
 
     # HANDING WORK TO THE USER IS A DELIBERATE ACT, SO IT STATES A REASON (owner's ruling, 2026-09-14).
@@ -2195,23 +2219,23 @@ SELFTEST_REMOVAL_NOTE = (
 
 
 def selftest(timeout_ms: int) -> None:
-    """Run the fleet messaging self-test against the local Director."""
-    # The responder sessions are Windows command prompts (cmd /k prompt ...), and they start on THIS
-    # session's own Director, which runs on this machine. Anywhere else they cannot start, so say so
-    # before anything is spawned rather than report a failure that reads like a messaging fault.
+    """Run the fleet messaging self-test against the local Director.
+
+    It spawns one throwaway it controls, queues a message for it, and checks the Gateway answered
+    "queued". It cannot read the throwaway's inbox - only the throwaway's own key can - so what it
+    proves is that a message to your own worker is accepted and recorded, not that it was read.
+    `timeout_ms` is kept for callers that still pass it; nothing waits any more.
+    """
+    # The throwaway is a Windows command prompt (cmd /k), and it starts on THIS session's own Director,
+    # which runs on this machine. Anywhere else it cannot start, so say so before anything is spawned
+    # rather than report a failure that reads like a messaging fault.
     if not _runs_on_windows():
         axi_cli.fail(
             f"selftest drives Windows command prompt sessions, so it runs only on Windows (this is {sys.platform}).",
             ["cc-devthrottle session list", axi_cli.CHECK_GATEWAY],
         )
-    if timeout_ms < 1:
-        axi_cli.usage_error(
-            f"--timeout-ms must be at least 1, not {timeout_ms}. "
-            "Pass how long the ask step waits in milliseconds, for example --timeout-ms 25000.",
-        )
     repo = tempfile.gettempdir()
     results: List[Tuple[str, bool, str]] = []
-    responder: Optional[str] = None
     recipient: Optional[str] = None
 
     def record(step: str, ok: bool, detail: str = "") -> None:
@@ -2220,47 +2244,18 @@ def selftest(timeout_ms: int) -> None:
         console.print(f"  {mark}  {axi_cli.shown(step)}{('  - ' + axi_cli.shown(detail)) if detail else ''}")
 
     try:
-        responder = _spawn_selftest(repo, f"/k prompt {SELFTEST_MARKER}$G", "selftest-responder")
         recipient = _spawn_selftest(repo, "/k", "selftest-recipient")
-        record(
-            "spawn two sessions",
-            True,
-            f"responder={responder} recipient={recipient}",
-        )
+        record("spawn a worker", True, f"recipient={recipient}")
         time.sleep(2)
 
         ids = _fleet_ids()
-        listed = responder in ids and recipient in ids
-        record("session list includes both", listed)
+        record("session list includes it", recipient in ids)
 
-        # The self-test's messages are sent AS THIS SESSION, not as the throwaway it spawned: the
-        # Gateway takes the sender from the key that authenticated the call, and this process holds
-        # its own session's key, not the throwaways'. What is under test is that a message reaches a
-        # session and that an ask comes back with its answer, and both still are.
         send = gateway.post_json(
             f"sessions/{recipient}/message", {"text": "fleet self-test message"},
         )
-        accepted = isinstance(send, dict) and send.get("accepted", send.get("Accepted")) is True
-        record("message send delivers", accepted, str(gateway.field(send, "error", "Error") or ""))
-
-        ask = gateway.post_json(
-            f"sessions/{responder}/message",
-            {"text": "selftest ping", "waitForIdle": True, "timeoutMs": timeout_ms},
-            timeout=timeout_ms / 1000.0 + 15.0,
-        )
-        answer = gateway.field(ask, "output", "Output") if isinstance(ask, dict) else ""
-        got_marker = SELFTEST_MARKER in answer
-        # The marker alone is not an answer: the responder's prompt prints it on every redraw, so a
-        # timed-out or failed wait can carry it too. The Gateway's verdict must say the turn finished.
-        ask_accepted = isinstance(ask, dict) and ask.get("accepted", ask.get("Accepted")) is True
-        wait_status = ask.get("waitStatus", ask.get("WaitStatus")) if isinstance(ask, dict) else None
-        answered = ask_accepted and wait_status == ASK_ANSWERED and got_marker
-        record(
-            "message ask returns the answer",
-            answered,
-            "marker found" if answered else
-            f"accepted={ask_accepted} waitStatus={wait_status!r} marker={'found' if got_marker else 'missing'}",
-        )
+        status = gateway.field(send, "status", "Status") if isinstance(send, dict) else ""
+        record("message send queues", status == "queued", f"status={status}")
 
     except gateway.GatewayError as err:
         record("fleet messaging reachable", False, str(err))
@@ -2270,10 +2265,10 @@ def selftest(timeout_ms: int) -> None:
         # Director answers pendingDeletion: true. Removal from the roster is not immediate and is not
         # checked here: the Director keeps a flagged session for its grace period and removes it on its
         # next reaper sweep (SessionManager.DeletionGraceMs and DeletionReaperIntervalMs, 30 seconds
-        # each), so a roster read a second later still lists both, correctly.
+        # each), so a roster read a second later still lists it, correctly.
         flagged = 0
         wanted = 0
-        for sid in (responder, recipient):
+        for sid in (recipient,):
             if not sid:
                 continue
             wanted += 1
@@ -2300,7 +2295,7 @@ def selftest(timeout_ms: int) -> None:
         axi_cli.print_next(["cc-devthrottle session list", 'cc-devthrottle message send <session-id> "<message>"'])
         raise typer.Exit(0)
     # Throwaways that may still be listed; removing one that is already gone is harmless.
-    leftovers = [sid for sid in (responder, recipient) if sid]
+    leftovers = [sid for sid in (recipient,) if sid]
     axi_cli.fail(
         f"fleet messaging self-test: {passed}/{total} checks passed. The failed checks are marked FAIL above.",
         [axi_cli.CHECK_GATEWAY, *(f"cc-devthrottle session done {axi_cli.bare(sid, '<session-id>')}" for sid in leftovers)],
