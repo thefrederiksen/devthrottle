@@ -1,0 +1,182 @@
+Live run on devthrottle-mac-mini from origin/main 56fcdde9 (run from source with the installed tool's Python 3.12, Typer 0.27.2, Rich 15.0.0), 2026-09-17T02:36Z
+
+$ cc-devthrottle 
+session[1]{id,name,state,repo}:
+  (live data rows withheld - public repository)
+count: 33 (needs-you 8, working 10, ready 4, snoozed 11)
+needs-you: 8
+help[4]:
+  cc-devthrottle session list --state needs-you
+  cc-devthrottle session list
+  cc-devthrottle session spawn <repo> --controlled-by self
+  cc-devthrottle --help
+(exit 0)
+
+$ cc-devthrottle session list --state needs-you
+count: 8 of 33 total (needs-you 8)
+sessions[8]{id,name,state,repo}:
+  (live data rows withheld - public repository)
+help[5]:
+  cc-devthrottle session list --state needs-you|working|ready|snoozed|crashed
+  cc-devthrottle message send <session-id> "<message>"
+  cc-devthrottle session list --fields id,name,state,repo,machine,number,model,agent,mission,path
+  cc-devthrottle session list --json
+  cc-devthrottle session whoami
+(exit 0)
+
+$ cc-devthrottle session list --state crashed
+count: 0 of 33 total
+sessions[0]{id,name,state,repo}:
+No session matches the filter.
+help[3]:
+  cc-devthrottle session list
+  cc-devthrottle session list --state needs-you|working|ready|snoozed|crashed
+  cc-devthrottle session list --help
+(exit 0)
+
+$ cc-devthrottle session list --fields id,name,state,machine --machine <machine>
+count: 1 of 33 total (snoozed 1)
+sessions[1]{id,name,state,machine}:
+  (live data rows withheld - public repository)
+help[4]:
+  cc-devthrottle session list --state needs-you|working|ready|snoozed|crashed
+  cc-devthrottle message send <session-id> "<message>"
+  cc-devthrottle session list --json
+  cc-devthrottle session whoami
+(exit 0)
+
+$ cc-devthrottle session list --fields id,name --json
+Error: --fields does not apply to --json, which always carries every field. Use --fields to show a few fields, or --json to get every field.
+Usage: python -m src.cli session list [OPTIONS]
+Valid options: --json, -j, --state, --repo, --machine, --fields, --help
+help[1]:
+  python -m src.cli session list --help
+(exit 2)
+
+$ cc-devthrottle session list --bogus
+Error: No such option: --bogus
+Usage: python -m src.cli session list [OPTIONS]
+Valid options: --json, -j, --state, --repo, --machine, --fields, --help
+help[1]:
+  python -m src.cli session list --help
+(exit 2)
+
+$ cc-devthrottle director list
+count: 5 (online 5)
+directors[5]{id,name,machine,state}:
+  (live data rows withheld - public repository)
+help[4]:
+  cc-devthrottle director list --state offline
+  cc-devthrottle director list --fields id,name,machine,state,version,pid,user,started,last-seen
+  cc-devthrottle session spawn <repo> --director <id> --controlled-by self
+  cc-devthrottle session list --machine <machine>
+(exit 0)
+
+$ cc-devthrottle machine list
+count: 3 (online 3)
+machines[3]{name,state,version}:
+  (live data rows withheld - public repository)
+1 more machine has a Director but no launcher, so it is not listed: <machine>. See them with: cc-devthrottle director list
+help[5]:
+  cc-devthrottle machine list --state offline
+  cc-devthrottle machine list --fields name,state,version,pid,started,last-seen
+  cc-devthrottle director list --machine <name>
+  cc-devthrottle machine apps <name> "<query>"
+  cc-devthrottle machine restart-capability <name>
+(exit 0)
+
+$ cc-devthrottle mission list
+count: 71 of 79 total (active 71)
+missions[71]{id,name,state}:
+  (data rows withheld - public repository)
+39 of these missions have no why set.
+help[5]:
+  cc-devthrottle mission list --all
+  cc-devthrottle mission list --fields id,name,state,why,why-updated,state-changed,run
+  cc-devthrottle mission list --json
+  cc-devthrottle mission attach <session> <id>
+  cc-devthrottle session spawn <repo> --controlled-by self --mission <id>
+(exit 0)
+
+$ cc-devthrottle schedule list
+count: 39 (enabled 23, disabled 16)
+schedules[39]{id,name,enabled,next-run}:
+  (data rows withheld - public repository)
+help[5]:
+  cc-devthrottle schedule list --enabled
+  cc-devthrottle schedule list --fields id,name,enabled,next-run,machine,kind,cron,run-at,time-zone,work-list,path,last-fired,last-status,notify,created
+  cc-devthrottle schedule list --json
+  cc-devthrottle schedule get <id>
+  cc-devthrottle schedule runs <id>
+(exit 0)
+
+$ cc-devthrottle repo list --machine devthrottle-mac-mini
+count: 3 of 171 total (dirty 1, clean 2)
+repositories[3]{name,path,machine,state}:
+  (data rows withheld - public repository)
+worktrees in these repositories: 25, safe to reap: 10
+help[3]:
+  cc-devthrottle repo list --fields name,path,machine,state,branch,uncommitted,ahead,behind,behind-main,worktrees,safe-to-reap,worktree-bytes,provider,org,remote,director,provisional
+  cc-devthrottle worktree list --repo <name>
+  cc-devthrottle repo list --json
+(exit 0)
+
+$ cc-devthrottle worktree list --machine devthrottle-mac-mini --state safe-to-reap
+count: 10 of 248 total (safe-to-reap 10)
+worktrees[10]{path,repo,machine,state}:
+  (data rows withheld - public repository)
+reclaimable: 7.1 GB in 10 safe-to-reap worktrees. Reaping runs on the owning Director.
+help[3]:
+  cc-devthrottle worktree list --fields path,repo,machine,state,branch,reason,sessions,bytes,last-activity,repo-path,director,data-age,provisional
+  cc-devthrottle worktree list --json
+  cc-devthrottle repo list
+(exit 0)
+
+$ cc-devthrottle session workers
+Sessions driven by <architect-session-id>.
+count: 1 (snoozed 1)
+hands-up: 0
+workers[1]{id,name,state,hand,need}:
+  (live data rows withheld - public repository)
+A hand lowers itself when its session stops working. A stopped worker has finished or is stuck - read it to find out which.
+help[4]:
+  cc-devthrottle session buffer <session-id>
+  cc-devthrottle message send <session-id> "<message>"
+  cc-devthrottle session workers --fields id,name,state,repo,machine,number,model,agent,mission,path,hand,need
+  cc-devthrottle session workers --json
+(exit 0)
+
+$ cc-devthrottle skill --help
+                                                                                
+ Usage: python -m src.cli skill [OPTIONS] COMMAND [ARGS]...                     
+                                                                                
+ Read and author fleet Skills, held on the Gateway.                             
+                                                                                
++- Options --------------------------------------------------------------------+
+| --gateway        <str>  Override the Gateway base URL.                       |
+| --help                  Show this message and exit.                          |
++------------------------------------------------------------------------------+
++- Commands -------------------------------------------------------------------+
+| list      List every Skill the fleet holds - one line each, no bodies.       |
+| get       Print a Skill's full instructions; run it just before using it.    |
+| show      Show one Skill's metadata without its body.                        |
+| versions  Show a Skill's version history, newest first.                      |
+| pull      Pull a Skill into a directory for editing.                         |
+| push      Push a directory as a Skill's draft; unseen until published.       |
+| publish   Publish a Skill's draft; every agent gets it on its next fetch.    |
+| clone     Clone a Skill into one you own; how a built-in is customized.      |
+| enable    Make a Skill available again - back in every agent's briefing.     |
+| disable   Switch a Skill off: out of briefings, fetch refused, kept.         |
+| delete    Archive a Skill (never a built-in); its versions stay readable.    |
++------------------------------------------------------------------------------+
+
+(exit 0)
+
+$ cc-devthrottle message send
+Error: Missing argument 'target'.
+Usage: python -m src.cli message send [OPTIONS] {target} {message}
+Valid options: --everyone, --reason, --grant, --help
+help[1]:
+  python -m src.cli message send --help
+(exit 2)
+
