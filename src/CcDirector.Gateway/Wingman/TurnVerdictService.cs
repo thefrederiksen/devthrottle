@@ -43,6 +43,9 @@ public interface ITurnVerdictEnvironment
     /// <summary>The account's own narration instructions when it has replaced the shipped default, else null.</summary>
     string? CustomSpokenRules();
 
+    /// <summary>Whether this account's plan includes the Wingman's narration (see <see cref="NarrationPlanRule"/>).</summary>
+    NarrationPlan PlanForNarration(TenantId tenant);
+
     /// <summary>The model id the judge runs on for this account, recorded on every verdict including a failed one.</summary>
     string JudgeModel(TenantId tenant);
 
@@ -1446,6 +1449,18 @@ public sealed class TurnVerdictService : IDisposable
     {
         if (outcome.Verdict is not { } verdict || outcome.NarrationPackage is not { } lazyPackage)
             throw new ArgumentException("A narration call needs a verdict and the package it was formed from.", nameof(outcome));
+
+        // THE PLAN FIRST (owner ruling, 2026-09-17): an account whose plan does not include the Wingman gets the Pro
+        // sentence as its narration, with no model call; a plan that could not be read gets nothing, and no call.
+        switch (_env.PlanForNarration(tenant))
+        {
+            case NarrationPlan.NeedsPro:
+                FileLog.Write($"[TurnVerdictService] narration call sid={sid} verdict={verdict.VerdictId}: the account's plan does not include the Wingman - the Pro sentence stands in, no model call");
+                return new NarrationCallResult(NarrationPlanRule.NeedsProText, null, "", 0);
+            case NarrationPlan.Unknown:
+                FileLog.Write($"[TurnVerdictService] narration call sid={sid} verdict={verdict.VerdictId} NOT MADE: the account's plan could not be read");
+                return new NarrationCallResult(null, "the account's plan could not be read, so the narration call was not made", "", 0);
+        }
 
         // A refused record carries no decision of its own; the call is given the one its readable answer held.
         var decision = verdict.Failed && outcome.NarrationDecision is { } salvaged ? salvaged : verdict;

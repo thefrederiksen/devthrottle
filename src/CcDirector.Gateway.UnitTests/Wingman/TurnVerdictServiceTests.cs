@@ -76,7 +76,8 @@ public sealed class TurnVerdictServiceTests : IDisposable
             language: _ => SpokenLanguages.English,
             customSpokenRules: () => null,
             isVoiceSession: (_, _) => false,
-            fleetManagerSessionId: _ => null);
+            fleetManagerSessionId: _ => null,
+            narrationPlan: _ => NarrationPlan.Allowed);
         var service = new TurnVerdictService(env);
 
         var held = await service.StartTurnEnd(Signal("child-1"));

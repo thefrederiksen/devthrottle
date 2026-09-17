@@ -2744,8 +2744,34 @@ public sealed class GatewayHost : IAsyncDisposable
             isVoiceSession: (tenant, sid) => _voiceService?.IsVoiceSession(tenant, sid) ?? false,
             // The ACCOUNT's Fleet Manager mark: the one session whose direct Workers are judged while held.
             fleetManagerSessionId: _tenantSettingsResolver.FleetManagerSessionId,
+            narrationPlan: ResolveNarrationPlan,
             ledger: _activityEvents,
             enterTenantScope: tenant => _tenantBoundary.EnterScope(tenant));
+
+    /// <summary>
+    /// Whether this account's plan includes the Wingman's narration: the account subject its tenant maps to, that
+    /// subject's entitlement, and <see cref="Wingman.NarrationPlanRule"/> for the answer. A read that throws is a
+    /// read that could not be made - Unknown, never "needs Pro", so a paying account is never told it must upgrade
+    /// because the database hiccuped.
+    /// </summary>
+    private Wingman.NarrationPlan ResolveNarrationPlan(TenantId tenant)
+    {
+        if (!GatewayHostedMode.IsHosted)
+            return Wingman.NarrationPlanRule.Decide(hosted: false, subject: null, decision: null);
+        try
+        {
+            var subject = TenantRegistry.SubjectForTenant(tenant);
+            var decision = string.IsNullOrWhiteSpace(subject) ? null : EntitlementRegistry.Evaluate(subject, DateTime.UtcNow);
+            var plan = Wingman.NarrationPlanRule.Decide(hosted: true, subject, decision);
+            FileLog.Write($"[GatewayHost] ResolveNarrationPlan: tenant={tenant.ToLogString()} outcome={decision?.Outcome.ToString() ?? "no subject"} tier={decision?.Tier ?? "none"} plan={plan}");
+            return plan;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayHost] ResolveNarrationPlan FAILED: tenant={tenant.ToLogString()}: {ex.GetType().Name}: {ex.Message} - the plan is Unknown");
+            return Wingman.NarrationPlan.Unknown;
+        }
+    }
 
     /// <summary>
     /// Wire the session supervisor (issue #915) to the live Gateway. Every leg reuses machinery that already

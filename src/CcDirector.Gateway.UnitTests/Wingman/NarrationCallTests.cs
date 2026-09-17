@@ -212,6 +212,51 @@ public sealed class NarrationCallTests : IDisposable
         Assert.Null(owned.Env.Latest(Tenant, Sid)!.Narration);
     }
 
+    // ================================================================= the narration needs a Pro account
+
+    [Fact]
+    public async Task AnAccountWhosePlanLacksTheWingman_GetsTheProSentenceAsItsNarration_AndNoModelCall()
+    {
+        var rig = Build();
+        rig.Env.Narrator = (_, _) => Task.FromResult(Narrated);
+        rig.Env.Plan = () => NarrationPlan.NeedsPro;
+
+        await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
+        await rig.Verdicts.WaitForUserNarrationsAsync();
+
+        Assert.Equal(0, rig.Env.NarratorCalls);
+        Assert.Equal(NarrationPlanRule.NeedsProText, rig.Env.Latest(Tenant, Sid)!.Narration);
+    }
+
+    [Fact]
+    public async Task AVoiceSessionOnAPlanWithoutTheWingman_HearsTheProSentence()
+    {
+        var rig = Build();
+        rig.Env.Narrator = (_, _) => Task.FromResult(Narrated);
+        rig.Env.Plan = () => NarrationPlan.NeedsPro;
+        rig.Voice.Mark(Tenant, Sid);
+
+        await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
+        await rig.Voice.WaitForNarrationCallsAsync();
+
+        Assert.Equal(0, rig.Env.NarratorCalls);
+        Assert.EndsWith(NarrationPlanRule.NeedsProText, rig.Voice.Get(Tenant, Sid)!.Spoken);
+    }
+
+    [Fact]
+    public async Task AnAccountWhosePlanCouldNotBeRead_GetsNoNarration_AndIsNeverToldToUpgrade()
+    {
+        var rig = Build();
+        rig.Env.Narrator = (_, _) => Task.FromResult(Narrated);
+        rig.Env.Plan = () => NarrationPlan.Unknown;
+
+        await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
+        await rig.Verdicts.WaitForUserNarrationsAsync();
+
+        Assert.Equal(0, rig.Env.NarratorCalls);
+        Assert.Null(rig.Env.Latest(Tenant, Sid)!.Narration);
+    }
+
     [Fact]
     public async Task ASavedNarration_IsNotMadeAgain_AndIsWhatVoiceSpeaksWhenVoiceIsTurnedOnLater()
     {
