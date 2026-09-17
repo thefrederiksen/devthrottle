@@ -613,10 +613,11 @@ public sealed class FleetMessageReplyStoreTests : IDisposable
         var (store, service) = NewRig();
         var question = Ask(service, within: TimeSpan.FromMinutes(1));
         _now = T0.AddMinutes(2);
-        var tiny = FleetMessageLimits.Default with { MaxTextLength = 10 };
+        // The smallest cap the limits accept (inspection 8, ruling 2), and a notice longer than it.
+        var tiny = FleetMessageLimits.Default with { MaxTextLength = FleetMessageLimits.MinTextLength };
 
         var marked = store.MarkReplyOverdueWithNotices(Tenant, _now,
-            m => NoticeDraft(m, "far longer than ten characters"), tiny);
+            m => NoticeDraft(m, new string('x', FleetMessageLimits.MinTextLength + 1)), tiny);
 
         Assert.Empty(marked);
         Assert.Null(Peek(question.MessageId!).ReplyOverdueAtUtc);
