@@ -20,6 +20,9 @@
     "./sessions/VerdictPanel": "./src/sessions/VerdictPanel.tsx",
     "./stats/ThrottleWindowSelector": "./src/stats/ThrottleWindowSelector.tsx",
     "./transcription/MicrophoneQualityPanel": "./src/transcription/MicrophoneQualityPanel.tsx",
+    "./devreports/DevReportList": "./src/devreports/DevReportList.tsx",
+    "./devreports/DevReportViewer": "./src/devreports/DevReportViewer.tsx",
+    "./devreports/DevReportConversation": "./src/devreports/DevReportConversation.tsx",
     "./*": "./src/*.ts"
   },
   "scripts": {
