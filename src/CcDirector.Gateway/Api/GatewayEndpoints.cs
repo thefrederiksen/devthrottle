@@ -3109,7 +3109,8 @@ internal static class GatewayEndpoints
         // ReadWingmanNow.
         app.MapGet("/sessions/{sid}/wingman-now", (HttpContext ctx, string sid)
             => ReadWingmanNow(ctx, sid, tenantBoundary, registry, pushedSessions, turnVerdicts, sessionTurns,
-                snoozeRegistry, handRaises, turnVerdictRows, snoozeExpiry, turnVerdictSettings));
+                snoozeRegistry, handRaises, turnVerdictRows, snoozeExpiry, turnVerdictSettings,
+                streamStaleResolved));
 
         // ANSWER A JUDGED STOP (the Wingman-on-every-turn mission, slice E; ruling 12). The ONE server-owned write
         // path for a verdict's options: the owner's tap, never the Wingman. TurnVerdictAnswerService holds the rules
@@ -6010,7 +6011,8 @@ internal static class GatewayEndpoints
         Fleet.HandRaiseRegistry? handRaises,
         Wingman.ITurnVerdictRowSource? turnVerdictRows,
         Wingman.SnoozeExpiryReJudge? snoozeExpiry,
-        Func<Core.Tenancy.TenantId, Wingman.TurnVerdictSettings>? turnVerdictSettings = null)
+        Func<Core.Tenancy.TenantId, Wingman.TurnVerdictSettings>? turnVerdictSettings = null,
+        TimeSpan? streamStaleAfter = null)
     {
         FileLog.Write($"[GatewayEndpoints] GET wingman-now: sid={sid}");
         var tenant = ResolveReadTenant(ctx, tenantBoundary);
@@ -6083,8 +6085,16 @@ internal static class GatewayEndpoints
             wingmanSwitchedOff = !settings.JudgeEnabled || !settings.ColourEnabled;
         }
 
+        // WHAT THIS SESSION'S OWN SESSIONS ARE DOING, read the way the carrying-on clock's own seat reads them -
+        // GatewayTurnVerdictEnvironment.OwnedSessions is this same call over the same fresh snapshot. The clock
+        // does not run while one of them is still alive, so the card can only name a deadline when this says so,
+        // and reading it a second way here is how the card and the clock would come to disagree.
+        Wingman.OwnedSessionsFacts? ownedSessions = null;
+        if (pushedSessions is not null && streamStaleAfter is { } stale)
+            ownedSessions = Wingman.TurnVerdictOwnedSessions.For(pushedSessions.SnapshotFresh(tenant.Value, stale), sid);
+
         var answer = Wingman.WingmanNowFold.Fold(
-            new Wingman.WingmanNowInputs(sid, row, verdicts, conversation, wingmanSwitchedOff));
+            new Wingman.WingmanNowInputs(sid, row, verdicts, conversation, wingmanSwitchedOff, ownedSessions));
         FileLog.Write($"[GatewayEndpoints] GET wingman-now: sid={sid} state={answer.State}");
         return Results.Json(answer);
     }

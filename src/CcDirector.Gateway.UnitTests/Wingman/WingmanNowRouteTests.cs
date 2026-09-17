@@ -189,9 +189,10 @@ public sealed class WingmanNowRouteTests : IDisposable
     }
 
     private IResult Read(Caller caller, string sid, TurnVerdictStore? verdicts, PushedSessionStore? pushed,
-        SessionTurnStore? turns = null, Func<TenantId, TurnVerdictSettings>? settings = null)
+        SessionTurnStore? turns = null, Func<TenantId, TurnVerdictSettings>? settings = null,
+        TimeSpan? streamStale = null)
         => GatewayEndpoints.ReadWingmanNow(Request(caller), sid, SelfHostBoundary(), _registry, pushed, verdicts,
-            turns, null, null, verdicts is null ? null : RowSourceOver(verdicts), null, settings);
+            turns, null, null, verdicts is null ? null : RowSourceOver(verdicts), null, settings, streamStale);
 
     // ---------------------------------------------------------------- the refusals
 
@@ -458,5 +459,97 @@ public sealed class WingmanNowRouteTests : IDisposable
         Assert.Equal(WingmanNowStates.NeedsYou, now.State);
         Assert.Null(now.SwitchedOff);
         Assert.True(now.ShowWhyColour);
+    }
+
+    // ------------------------------------------- the session's own sessions reach the clock sentence
+
+    /// <summary>A carrying-on stop: the session said it would keep going by itself, so nothing is needed.</summary>
+    private static TurnVerdictDto CarryingOnVerdict() => new()
+    {
+        VerdictId = "verdict-carrying-on",
+        JudgedAtUtc = Stopped.AddSeconds(4),
+        TurnEndObservedAtUtc = Stopped,
+        Verdict = Core.Wingman.TurnVerdictVocabulary.ContinuesAlone,
+        Confidence = "high",
+        Label = "Waiting for its Worker to finish the slice J test run",
+        Summary = "The Worker is running the full test gate on pull request 2977.",
+    };
+
+    /// <summary>This session, plus one session it OWNS, pushed by the same Director.</summary>
+    private PushedSessionStore PushedWithAnOwnedSession(string ownedState, DateTime ownedLastActivity)
+    {
+        _registry.RegisterFromStream(DirectorId, "SOREN_NORTH", "u", "test", 1, DateTime.UtcNow, Account);
+        var pushed = new PushedSessionStore();
+        pushed.RegisterConnection(Account, DirectorId, "conn-owned");
+        Assert.True(pushed.ApplySnapshot(Account, DirectorId, "conn-owned", 1, new List<SessionDto>
+        {
+            new()
+            {
+                SessionId = Sid,
+                Name = "Wingman Inspector - Architect",
+                Agent = "ClaudeCode",
+                ActivityState = "WaitingForInput",
+                WaitingSince = Stopped,
+                LastActivityAt = Stopped,
+                CreatedAt = Stopped.AddHours(-1),
+            },
+            new()
+            {
+                SessionId = Guid.NewGuid().ToString(),
+                Name = "Wingman Inspector - Worker",
+                Agent = "ClaudeCode",
+                ActivityState = ownedState,
+                LastActivityAt = ownedLastActivity,
+                CreatedAt = Stopped.AddMinutes(-30),
+                IsControlled = true,
+                ControllerSessionId = Sid,
+            },
+        }));
+        return pushed;
+    }
+
+    /// <summary>
+    /// THE ROUTE READS THE SESSION'S OWN SESSIONS, AND THE CLOCK SENTENCE CHANGES BECAUSE OF THEM.
+    ///
+    /// The fold's tests prove what the card says when it is HANDED the owned-session facts. Nothing there watches
+    /// whether the route gathers them at all - and a route that never did would leave every one of them green
+    /// while promising the owner a deadline the clock was not counting towards, on exactly the session that owns a
+    /// running Worker. So this drives the handler with a real roster holding a real owned session.
+    /// </summary>
+    [Theory]
+    [InlineData("Working")]            // the Worker is working
+    [InlineData("WaitingForInput")]    // the Worker is alive but quiet - inside one long silent command
+    public void A_session_with_a_live_session_under_it_is_served_no_deadline(string ownedState)
+    {
+        var verdicts = StoreHolding(CarryingOnVerdict());
+        var pushed = PushedWithAnOwnedSession(ownedState, DateTime.UtcNow);
+
+        var now = BodyOf(Read(Caller.Device, Sid, verdicts, pushed, streamStale: TimeSpan.FromMinutes(5)));
+
+        Assert.Equal(WingmanNowStates.CarryingOn, now.State);
+        Assert.Null(now.CarryingOnDeadline);
+        Assert.Equal("It turns red if it stops working and none of the sessions it owns is still working.",
+            now.CalmCard!.Body);
+    }
+
+    /// <summary>The positive control: the SAME stop on a session that owns nothing is served a real deadline, and
+    /// it is the moment the clock expires on. Without this, the test above would pass on a route that answered
+    /// "no deadline" to everything.</summary>
+    [Fact]
+    public void The_same_stop_with_nothing_under_it_is_served_the_moment_the_clock_expires_on()
+    {
+        var verdict = CarryingOnVerdict();
+        var verdicts = StoreHolding(verdict);
+        var pushed = PushedHolding(Sid);
+
+        var now = BodyOf(Read(Caller.Device, Sid, verdicts, pushed, streamStale: TimeSpan.FromMinutes(5)));
+
+        Assert.Equal(WingmanNowStates.CarryingOn, now.State);
+        Assert.Equal("If it has not worked again by", now.CarryingOnDeadline!.Before);
+        Assert.Null(now.CalmCard!.Body);
+
+        var at = now.CarryingOnDeadline.AtUtc;
+        Assert.True(TurnVerdictWatchdog.IsExpired(verdict, at));
+        Assert.False(TurnVerdictWatchdog.IsExpired(verdict, at.AddTicks(-1)));
     }
 }

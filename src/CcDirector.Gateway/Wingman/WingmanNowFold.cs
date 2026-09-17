@@ -18,12 +18,16 @@ namespace CcDirector.Gateway.Wingman;
 /// colour switch off every row is stamped "none" and no verdict reaches the screen, which is indistinguishable to a
 /// reader from the judge never having run. NULL means the route was not told, and then no claim is made: a Gateway
 /// that cannot see the account's settings says nothing about them rather than guessing that they are on.</param>
+/// <param name="OwnedSessions">What this session's OWN sessions are doing, or null when it owns none. The
+/// carrying-on clock does not run while one of them is still alive, so this is what decides whether the
+/// carrying-on card can name a deadline at all.</param>
 public sealed record WingmanNowInputs(
     string SessionId,
     SessionDto? Row,
     IReadOnlyList<AnsweredTurnVerdict> VerdictsNewestFirst,
     WingmanNowConversation? Conversation,
-    bool? WingmanSwitchedOff = null);
+    bool? WingmanSwitchedOff = null,
+    OwnedSessionsFacts? OwnedSessions = null);
 
 /// <summary>One session's stored conversation as the Now fold reads it.</summary>
 /// <param name="Supported">False when the session's agent tool does not produce a conversation this Gateway can
@@ -49,9 +53,8 @@ public sealed record WingmanNowConversation(bool Supported, IReadOnlyList<Histor
 /// WHAT THIS FOLD DOES NOT DECIDE YET. It rules on the stopped states the Wingman explained - needs you (sure and not
 /// sure), done, report and carrying on (slice 1) - and on the three with no explanation to show: being read, refused,
 /// and switched off (slice 2). Everything else folds to <see cref="WingmanNowStates.Other"/>, which wears the row's
-/// own label so the view is never blank. The carrying-on deadline sentence (slice 3), working and just answered
-/// (slices 4 and 5) and the voice control (slice 6) arrive in their own slices, and a WORKING session is "other"
-/// until slice 4. An "other" answer is therefore not a claim that the row has no better state - it is a claim that
+/// own label so the view is never blank. Working and just answered (slices 4 and 5) and the voice control
+/// (slice 6) arrive in their own slices, and a WORKING session is "other" until slice 4. An "other" answer is therefore not a claim that the row has no better state - it is a claim that
 /// this fold has not been taught one.
 /// </summary>
 public static class WingmanNowFold
@@ -139,6 +142,25 @@ public static class WingmanNowFold
     /// <summary>How much of the last reply stands in for a headline. Long enough to recognise the stop, short
     /// enough that it does not become the whole reply in a slot that is not built for one.</summary>
     public const int LastWordsLength = 200;
+
+    // ------------------------------------------------------------------ slice 3: the carrying-on deadline
+
+    /// <summary>The words before the deadline instant.</summary>
+    public const string CarryingOnDeadlineBefore = "If it has not worked again by";
+
+    /// <summary>The words after it. The comma opens the clause, so the client joins the three parts with single
+    /// spaces and nothing else.</summary>
+    public const string CarryingOnDeadlineAfter =
+        ", and none of the sessions it owns is still working, this turns red and says so.";
+
+    /// <summary>
+    /// The carrying-on sentence while the session still has one of its OWN sessions running: no clock is counting,
+    /// so there is no instant to name.
+    ///
+    /// This is the design's own sentence, kept verbatim. Its "it" is the session, as in the dated form beside it.
+    /// </summary>
+    public const string CarryingOnNoDeadlineBody =
+        "It turns red if it stops working and none of the sessions it owns is still working.";
 
     /// <summary>The Now view for one session.</summary>
     public static WingmanNowResponse Fold(WingmanNowInputs inputs)
@@ -236,6 +258,30 @@ public static class WingmanNowFold
         else
         {
             answer.CalmCard = CalmCard(state);
+            if (string.Equals(state, WingmanNowStates.CarryingOn, StringComparison.Ordinal))
+            {
+                // THE INSTANT COMES FROM THE FUNCTION THE CLOCK ITSELF EXPIRES ON, never from arithmetic repeated
+                // here. The sentence promises the owner a moment; if this file worked that moment out a second
+                // way, the promise and the expiry would be free to disagree, and the one he would notice is the
+                // row going red at a time the card told him it would not.
+                var deadline = TurnVerdictWatchdog.DeadlineFor(live, inputs.OwnedSessions);
+                if (deadline is { } at)
+                {
+                    answer.CarryingOnDeadline = new WingmanNowDeadlineDto
+                    {
+                        Before = CarryingOnDeadlineBefore,
+                        AtUtc = at,
+                        After = CarryingOnDeadlineAfter,
+                    };
+                }
+                else
+                {
+                    // No clock is counting, because a session it owns is still running. The card says so in words
+                    // that name no time - there is none to name - rather than leaving the owner to wonder why the
+                    // sentence he saw last time has gone.
+                    answer.CalmCard!.Body = CarryingOnNoDeadlineBody;
+                }
+            }
         }
 
         return answer;
@@ -338,10 +384,10 @@ public static class WingmanNowFold
     {
         WingmanNowStates.Done => new WingmanNowCardDto { Heading = DoneHeading, Body = DoneBody },
         WingmanNowStates.Report => new WingmanNowCardDto { Heading = ReportHeading, Body = ReportBody },
-        // THE HEADING WITHOUT ITS SENTENCE, ON PURPOSE, UNTIL SLICE 3. The body of this one is the deadline - "if it
-        // has not worked again by ..." - and that instant must come from the same function the carrying-on clock
-        // expires on, or the sentence and the expiry can disagree. Writing an approximation here to fill the card
-        // would be the disagreement, so the card carries the heading alone until the clock is wired in.
+        // THE HEADING ALONE, and its body is filled in by the caller. The sentence under this one is about the
+        // clock, and it takes two forms - a deadline with an instant in the middle of it, or no clock at all
+        // because a session it owns is still running - so the caller, which has the verdict and the owned
+        // sessions, decides which. Both forms are this fold's words; neither is the client's.
         WingmanNowStates.CarryingOn => new WingmanNowCardDto { Heading = CarryingOnHeading },
         _ => null,
     };
