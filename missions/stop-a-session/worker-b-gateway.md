@@ -176,6 +176,6 @@ Run `.\scripts\test-local.ps1` and make sure it is green before you report.
 
 ## When you are finished
 
-Tell your Manager (session `ee59e5d0`) in ONE line - fleet messages truncate at the first newline.
-Put the detail in `missions/stop-a-session/worker-b-notes.md` and point at it. Do not narrate
-progress while you work; a message interrupts the session that receives it.
+Tell your Manager (session `ee59e5d0`) once, in ONE line, pointing at the file.
+Put the detail in `missions/stop-a-session/worker-b-notes.md`. Do not narrate progress while you work;
+a message is queued in its inbox and read in full, but every one is one more thing to read.

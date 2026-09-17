@@ -2,7 +2,7 @@
 
 You are a Worker on the "Stop a session" mission, issue #2633, Phase B. Your supervisor is the
 Phase B Manager (session `578d8e29`). Report to it and to nobody else. **Do not narrate progress at
-it** - a message interrupts the session that receives it. Finish, then say so once, in one line.
+it** - a message is queued in its inbox and read in full, but every one is one more thing to read. Finish, then say so once, in one line.
 
 ## Where you work
 
@@ -159,5 +159,5 @@ fourteen months.
 
 Write `missions/stop-a-session/worker-d-notes.md`: what you built, the mutation table, the test
 numbers, anything you found that contradicts this brief or a ruling, and every gap you did NOT close
-named as a gap. Then send the Manager (`578d8e29`) ONE line pointing at that file. Fleet messages are
-cut off at the first line break, so the detail goes in the file, never in the message.
+named as a gap. Then send the Manager (`578d8e29`) ONE line pointing at that file. The detail goes in
+the file, never in the message.

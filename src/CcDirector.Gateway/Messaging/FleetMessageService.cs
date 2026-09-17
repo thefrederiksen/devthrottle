@@ -67,7 +67,7 @@ public sealed class FleetMessageService
     /// <param name="text">The full text.</param>
     /// <param name="kind">One of <see cref="FleetMessageKinds"/>.</param>
     /// <param name="exemption">Why, if at all, the relationship and rate rules are waived.</param>
-    /// <param name="replyWithin">When set, the message asks for a reply within this long (slice 3): it gets a
+    /// <param name="replyWithin">When set, the sender wants a reply within this long (slice 3): it gets a
     /// correlation id and a deadline, and the sender gets one no-reply notice if the deadline passes unanswered.
     /// Must be inside <see cref="FleetMessageLimits.MinReplyWindow"/> and <see cref="FleetMessageLimits.MaxReplyWindow"/>
     /// (see <see cref="TryReplyWindow"/>).</param>

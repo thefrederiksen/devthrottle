@@ -118,8 +118,8 @@ Commit and push on the branch as you go. Write your notes to
 `missions/stop-a-session/worker-i-notes.md`: what you changed, the wording you chose for each client
 and why, the mutation table with the red messages as they actually printed, the suite numbers you
 actually ran, and - named honestly - what your tests still do not cover. Then send your manager
-(`e7ea69df`) ONE single-line message saying you are done and pointing at that file. Fleet messages
-truncate at the first newline.
+(`e7ea69df`) ONE single-line message saying you are done and pointing at that file. The detail
+belongs in the file, not the message.
 
 ## Pushing, when you are not the only seat on this branch
 
