@@ -140,6 +140,21 @@ public sealed class SkillStoreTests : IDisposable
     }
 
     [Fact]
+    public void Fleet_manager_skill_table_reads_a_session_only_for_a_settled_stop_with_no_verdict()
+    {
+        // Steps 1 and 4 inspection, finding 2: the capability table told the Fleet Manager to treat ANY missing reading
+        // as "cannot tell" and read the session - including a stop still waiting for its reading, which the rest of the
+        // skill and the workflow say to leave alone.
+        var body = BuiltInSkills.BodyFor("fleet-manager");
+        var row = body.Split('\n').Single(l => l.StartsWith("| The Wingman reading the sessions YOU own |", StringComparison.Ordinal));
+
+        Assert.DoesNotContain("or the reading failed) - treat that as \"cannot tell\"", row);
+        Assert.Contains("verdict is `waiting` is still waiting for its reading - leave it alone", row);
+        Assert.Contains("Only a settled stop with no verdict to act on", row);
+        Assert.Contains("`cannot-tell` or failed", row);
+    }
+
+    [Fact]
     public void Changed_shipped_content_republishes_as_the_next_version_and_supersedes_the_old()
     {
         var db = _h.Open();
