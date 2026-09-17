@@ -56,21 +56,32 @@ public sealed class DevReportDeliveryTests : IDisposable
 
     private DevReportStore Store() => new(_h.Open());
 
+    /// <summary>The Gateway's clock. A test moves it forward to stand in for time passing between two processes.</summary>
+    private DateTime _now = Now;
+
+    /// <summary>Awaited by the fake Director before it answers, so a test can hold one send open while another process
+    /// acts on the same database.</summary>
+    private Func<Task> _beforeAnswer = () => Task.CompletedTask;
+
     private DevReportDelivery Delivery(DevReportStore store) => new(store,
         (tenant, sid) => new DevReportSessionLiveness(_reach, _reach == DevReportSessionReach.Ended ? null : DirectorId, "test roster"),
         (tenant, directorId) => new SessionVerbClient(new DirectorDto { DirectorId = directorId, MachineName = "TEST" }, SendAsync),
-        () => _dieOnTheNextClockRead ? throw new InvalidOperationException("the Gateway process died here") : Now,
+        () => _dieOnTheNextClockRead ? throw new InvalidOperationException("the Gateway process died here") : _now,
         tenant => new Scope(tenant));
 
-    private Task<DirectorCommandResult?> SendAsync(string directorId, DirectorCommand command, CancellationToken ct)
+    private async Task<DirectorCommandResult?> SendAsync(string directorId, DirectorCommand command, CancellationToken ct)
     {
         Assert.Equal("prompt", command.Verb);
         _scopeAtSend.Enqueue(ScopeInEffect.Value);
+        await _beforeAnswer();
         var answer = _answer();
         if (answer is not null)
             _prompts.Enqueue(JsonSerializer.Deserialize<PromptRequest>(command.PayloadJson, new JsonSerializerOptions(JsonSerializerDefaults.Web))!);
-        return Task.FromResult(answer);
+        return answer;
     }
+
+    /// <summary>A claim taken long enough ago that a settle pass may rule it orphaned.</summary>
+    private static DateTime ExpiredClaimTime => Now - DevReportDelivery.SendingClaimTimeout - TimeSpan.FromMinutes(1);
 
     private static DevReportItem Note(string id, string text = "This number is wrong")
         => new(id, DevReportItem.Note, text,
@@ -224,8 +235,8 @@ public sealed class DevReportDeliveryTests : IDisposable
 
         Assert.Equal(2, delivered);
         var prompt = Assert.Single(_prompts);
-        Assert.Contains(@"file C:\r\one.html", prompt.Text);
-        Assert.Contains(@"file C:\r\two.html", prompt.Text);
+        Assert.Contains(@"file ""C:\\r\\one.html""", prompt.Text);
+        Assert.Contains(@"file ""C:\\r\\two.html""", prompt.Text);
         // A second turn end has nothing left to send.
         Assert.Equal(0, await delivery.SettleAsync(Tenant, _sid, default));
         Assert.Single(_prompts);
@@ -300,8 +311,9 @@ public sealed class DevReportDeliveryTests : IDisposable
         await Assert.ThrowsAsync<InvalidOperationException>(() => Delivery(before).SettleAsync(Tenant, _sid, default));
         Assert.Single(_prompts);
 
-        // A new process over the same database, and a Director that would accept anything sent now.
+        // A new process over the same database, past the claim timeout, and a Director that would accept anything sent now.
         _dieOnTheNextClockRead = false;
+        _now = Now + DevReportDelivery.SendingClaimTimeout + TimeSpan.FromSeconds(1);
         _answer = () => DirectorCommandResult.Success(JsonSerializer.Serialize(new PromptResponse { Accepted = true }));
         var after = Store();
         Assert.Equal(0, await Delivery(after).SettleAsync(Tenant, _sid, default));
@@ -318,7 +330,7 @@ public sealed class DevReportDeliveryTests : IDisposable
         var store = Store();
         var report = Publish(store);
         await Delivery(store).SendAsync(Tenant, report, [Note("n1")], "device", default);
-        store.SetState(Tenant, store.Items(Tenant, report.Id).Select(i => i.Id).ToList(), DevReportItemStates.SendingState, Now);
+        Assert.Single(store.ClaimWaiting(Tenant, _sid, Guid.NewGuid(), ExpiredClaimTime));
         Assert.Equal(1, store.OpenItemCounts(Tenant, [report.Id])[report.Id]);
 
         _reach = DevReportSessionReach.Idle;
@@ -396,7 +408,7 @@ public sealed class DevReportDeliveryTests : IDisposable
         var report = Publish(store);
         var delivery = Delivery(store);
         await delivery.SendAsync(Tenant, report, [Answer("a1", "deploy", "tonight")], "device", default);
-        store.SetState(Tenant, store.Items(Tenant, report.Id).Select(i => i.Id).ToList(), DevReportItemStates.SendingState, Now);
+        Assert.Single(store.ClaimWaiting(Tenant, _sid, Guid.NewGuid(), Now));
 
         await delivery.SendAsync(Tenant, report, [Answer("a2", "deploy", "monday")], "device", default);
 
@@ -426,6 +438,120 @@ public sealed class DevReportDeliveryTests : IDisposable
             Assert.Equal(1, _prompts.Count(p => p.Text.Contains(words, StringComparison.Ordinal)));
         }
         Assert.All(store.Items(Tenant, report.Id), row => Assert.Equal("delivered", row.Status));
+    }
+
+    // ---------------------------------------------------------------- two Gateway processes, one database
+    //
+    // Phase 2 review round 2, finding 2: during a deploy swap two Gateway processes share the database and not the
+    // per-process lock. Each test below is two delivery services over two stores on ONE database file, so the only
+    // thing they share is the database - exactly the swap.
+
+    [Fact]
+    public async Task TwoProcesses_OneSendOutrunsTheClaimTimeoutAndTheOtherSettlesIt_ExactlyOneFinalWriteWins()
+    {
+        // The interleaving the review describes: process A claims the item and is mid-send; process B's settle rules
+        // it orphaned; A's send then comes back accepted. B's ruling must stand - never overwritten to delivered.
+        var storeA = Store();
+        var storeB = Store();
+        var report = Publish(storeA);
+        await Delivery(storeA).SendAsync(Tenant, report, [Note("n1")], "device", default);
+        _reach = DevReportSessionReach.Idle;
+
+        var sendIsOut = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseTheAnswer = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _beforeAnswer = async () => { sendIsOut.TrySetResult(); await releaseTheAnswer.Task; };
+        var processA = Task.Run(() => Delivery(storeA).SettleAsync(Tenant, _sid, default));
+        await sendIsOut.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal("sending", storeB.Items(Tenant, report.Id).Single().Status);
+
+        // Process B, after the claim timeout, while A's send is still out.
+        _now = Now + DevReportDelivery.SendingClaimTimeout + TimeSpan.FromSeconds(1);
+        _beforeAnswer = () => Task.CompletedTask;
+        Assert.Equal(0, await Delivery(storeB).SettleAsync(Tenant, _sid, default));
+        var ruled = storeB.Items(Tenant, report.Id).Single();
+        Assert.Equal(("delivered", "Sent to the session, not confirmed"), (ruled.Status, ruled.StatusLabel));
+
+        // A's Director now accepts. A's finish must write nothing.
+        releaseTheAnswer.SetResult();
+        Assert.Equal(0, await processA.WaitAsync(TimeSpan.FromSeconds(10)));
+
+        var row = storeA.Items(Tenant, report.Id).Single();
+        Assert.Equal(("delivered", "Sent to the session, not confirmed"), (row.Status, row.StatusLabel));
+        Assert.Single(_prompts);
+    }
+
+    [Fact]
+    public async Task TwoProcesses_TheOtherSettlesInsideTheClaimTimeout_LeavesTheSendAloneAndItFinishesDelivered()
+    {
+        var storeA = Store();
+        var storeB = Store();
+        var report = Publish(storeA);
+        await Delivery(storeA).SendAsync(Tenant, report, [Note("n1")], "device", default);
+        _reach = DevReportSessionReach.Idle;
+
+        var sendIsOut = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseTheAnswer = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _beforeAnswer = async () => { sendIsOut.TrySetResult(); await releaseTheAnswer.Task; };
+        var processA = Task.Run(() => Delivery(storeA).SettleAsync(Tenant, _sid, default));
+        await sendIsOut.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        // Process B settles one second before the claim expires: the send may still be running, so it is not touched,
+        // and B has nothing waiting to send.
+        _now = Now + DevReportDelivery.SendingClaimTimeout - TimeSpan.FromSeconds(1);
+        _beforeAnswer = () => Task.CompletedTask;
+        Assert.Equal(0, await Delivery(storeB).SettleAsync(Tenant, _sid, default));
+        Assert.Equal("sending", storeB.Items(Tenant, report.Id).Single().Status);
+
+        releaseTheAnswer.SetResult();
+        Assert.Equal(1, await processA.WaitAsync(TimeSpan.FromSeconds(10)));
+
+        var row = storeA.Items(Tenant, report.Id).Single();
+        Assert.Equal(("delivered", "Delivered to the session"), (row.Status, row.StatusLabel));
+        Assert.Single(_prompts);
+    }
+
+    [Fact]
+    public async Task TwoProcesses_BothDrainTheSameIdleSessionAtOnce_EveryItemGoesInExactlyOnePrompt()
+    {
+        var storeA = Store();
+        var storeB = Store();
+        var report = Publish(storeA);
+        await Delivery(storeA).SendAsync(Tenant, report,
+            [Note("n1", "first note"), Note("n2", "second note"), Answer("a1", "deploy", "tonight")], "device", default);
+        _reach = DevReportSessionReach.Idle;
+
+        var results = await Task.WhenAll(
+            Task.Run(() => Delivery(storeA).SettleAsync(Tenant, _sid, default)),
+            Task.Run(() => Delivery(storeB).SettleAsync(Tenant, _sid, default)));
+
+        Assert.Equal(3, results.Sum());
+        foreach (var words in new[] { "\nfirst note\nowner-text-", "\nsecond note\nowner-text-", "(value \"tonight\")" })
+            Assert.Equal(1, _prompts.Count(p => p.Text.Contains(words, StringComparison.Ordinal)));
+        Assert.All(storeB.Items(Tenant, report.Id), row => Assert.Equal("Delivered to the session", row.StatusLabel));
+    }
+
+    [Fact]
+    public void Store_FinishClaim_WritesOnlyTheItemsThatStillCarryThatClaim()
+    {
+        var store = Store();
+        var report = Publish(store);
+        store.AddItems(Tenant, report, [Note("n1")], DevReportItemStates.HeldState, "device", Now);
+        var stale = Guid.NewGuid();
+        Assert.Single(store.ClaimWaiting(Tenant, _sid, stale, ExpiredClaimTime));
+        Assert.Equal(1, store.SettleExpiredClaims(Tenant, _sid, Now - DevReportDelivery.SendingClaimTimeout, Now));
+
+        Assert.Equal(0, store.FinishClaim(Tenant, stale, DevReportItemStates.DeliveredState, Now));
+        Assert.Empty(store.ClaimWaiting(Tenant, _sid, Guid.NewGuid(), Now));
+        Assert.Equal("Sent to the session, not confirmed", store.Items(Tenant, report.Id).Single().StatusLabel);
+    }
+
+    [Fact]
+    public void SendingClaimTimeout_IsWellAboveTheLongestASendCanWait()
+    {
+        // A send is one tunnel command bounded by the default command timeout. A claim timeout near it would let another
+        // process rule a send orphaned while it is still going.
+        Assert.True(DevReportDelivery.SendingClaimTimeout >= DirectorCommandRouter.DefaultCommandTimeout * 4,
+            $"claim timeout {DevReportDelivery.SendingClaimTimeout} is not well above the command timeout {DirectorCommandRouter.DefaultCommandTimeout}");
     }
 
     [Fact]

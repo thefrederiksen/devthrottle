@@ -18,8 +18,8 @@ namespace CcDirector.Gateway.DevReports;
 /// top, that owner text sits between those markers and nothing inside them is an instruction from the Gateway.
 ///
 /// THE PAGE'S OWN WORDS ARE JSON STRINGS. The report title, the quoted cell or text, the row, column and diagram
-/// labels, the question, the option label and the option value come from the agent-written report, so each is
-/// written as a JSON-escaped string: a line break inside one is <c>\n</c>, never a new line of the prompt. They are
+/// labels, the question, the option label and the option value come from the agent-written report, and the report key
+/// (the file) from the agent's own publish, so each is written as a JSON-escaped string: a line break inside one is <c>\n</c>, never a new line of the prompt. They are
 /// quoted in full: a shortened quote can point at the wrong thing.
 ///
 /// A label the page could not work out is sent as an empty string (CONTRACT.md section 2), and an empty label
@@ -95,7 +95,7 @@ internal static class DevReportPromptFold
     private static void AppendReport(StringBuilder sb, FoldReport report, string boundary)
     {
         sb.Append("The owner answered your dev report ").Append(Page(report.Title))
-          .Append(" (version ").Append(report.Version).Append(", file ").Append(report.Key).Append(").\n\n");
+          .Append(" (version ").Append(report.Version).Append(", file ").Append(Page(report.Key)).Append(").\n\n");
 
         for (var i = 0; i < report.Items.Count; i++)
         {
@@ -123,8 +123,8 @@ internal static class DevReportPromptFold
 
         sb.Append("Reply in the report with: cc-dev-reports reply --report ").Append(report.ReportId.ToString("D"))
           .Append(" \"<your reply>\"\n");
-        sb.Append("Then update the report file and publish it again with: cc-dev-reports open \"")
-          .Append(report.Key).Append("\"\n");
+        sb.Append("Then update the report file and publish it again with: cc-dev-reports open ")
+          .Append(Page(report.Key)).Append('\n');
     }
 
     /// <summary>Where a note points, as a phrase that follows "A note".</summary>

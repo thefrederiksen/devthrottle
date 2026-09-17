@@ -354,6 +354,12 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<string>("AnchorJson")
                         .HasColumnType("text");
 
+                    b.Property<Guid?>("ClaimId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ClaimedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("ClientItemId")
                         .IsRequired()
                         .HasColumnType("text")

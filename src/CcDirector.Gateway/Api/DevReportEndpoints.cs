@@ -180,13 +180,17 @@ internal static class DevReportEndpoints
 
         // ---------------------------------------------------------------- owner routes
 
-        app.MapGet("/dev-reports", (HttpContext ctx) =>
+        app.MapGet("/dev-reports", async (HttpContext ctx, CancellationToken ct) =>
         {
             if (RefuseSessionIdentity(ctx) is { } refused) return refused;
             if (ReqTenant(ctx, boundary) is not { } tenant) return NoTenant();
             var sessionFilter = ctx.Request.Query["sessionId"].ToString();
             var reports = store.List(tenant,
                 string.IsNullOrWhiteSpace(sessionFilter) ? null : DevReportDelivery.NormalizeSessionId(sessionFilter.Trim()));
+            // Settle the sessions this answer names - and only those - BEFORE counting, so openItems never counts an item
+            // an ended session still holds or one an idle session could have taken (phase 2 review round 2).
+            foreach (var sessionId in reports.Select(r => r.SessionId).Distinct(StringComparer.Ordinal))
+                await delivery.SettleAsync(tenant, sessionId, ct);
             return Results.Json(new { count = reports.Count, reports = Summaries(store, delivery, tenant, reports) });
         });
 

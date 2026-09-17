@@ -16,9 +16,10 @@ namespace CcDirector.Gateway.DevReports;
 /// therefore not found - the global query filter never returns its row - so its existence does not leak.
 ///
 /// This store records; it does not rule. Whether an item is held or delivered, and the words for it, are decided
-/// by <see cref="DevReportDelivery"/> and <see cref="DevReportItemStates"/>. Serialising a send against a turn
-/// end is the delivery service's per-session lock; this store's own lock only keeps two writes on this process
-/// from interleaving (the Gateway is a single writer).
+/// by <see cref="DevReportDelivery"/> and <see cref="DevReportItemStates"/>. Every change of an item's delivery
+/// state is a conditional update in the database (see "state changes" below), because during a deploy swap two
+/// Gateway processes write this database at once and no in-memory lock spans both. This store's own lock only
+/// keeps a publish or an item insert on this process from interleaving with another.
 /// </summary>
 internal sealed class DevReportStore
 {
@@ -186,7 +187,7 @@ internal sealed class DevReportStore
         {
             using var ctx = _db.CreateContext(tenant);
             using var tx = ctx.Database.BeginTransaction();
-            var existing = ctx.DevReportItems.Where(i => i.ReportId == report.Id).ToList();
+            var existing = ctx.DevReportItems.AsNoTracking().Where(i => i.ReportId == report.Id).ToList();
             var sequence = existing.Count == 0 ? 0 : existing.Max(i => i.Sequence);
             var added = new List<DevReportItemEntity>(items.Count);
 
@@ -194,15 +195,28 @@ internal sealed class DevReportStore
             {
                 if (item.Kind == DevReportItem.Answer)
                 {
-                    foreach (var earlier in existing.Concat(added).Where(i =>
-                                 i.Kind == DevReportItem.Answer
-                                 && string.Equals(i.QuestionId, item.QuestionId, StringComparison.Ordinal)
-                                 && DevReportItemStates.IsWaiting(i.Status)))
+                    // An earlier answer in this batch is not in the database yet, so it is replaced in memory.
+                    foreach (var earlier in added.Where(i => IsEarlierAnswer(i, item.QuestionId) && DevReportItemStates.IsWaiting(i.Status)))
                     {
                         earlier.Status = DevReportItemStates.ReplacedState.Status;
                         earlier.StatusLabel = DevReportItemStates.ReplacedState.Label;
                         earlier.ReplacedBy = item.Id;
                         FileLog.Write($"[DevReportStore] AddItems: report={report.Id} item={earlier.ClientItemId} replaced by {item.Id}");
+                    }
+
+                    // A stored one is replaced only WHERE IT IS STILL WAITING, in the database: another Gateway process
+                    // may have claimed it for a send since it was read, and an item that is going must not be relabelled.
+                    foreach (var earlier in existing.Where(i => IsEarlierAnswer(i, item.QuestionId)))
+                    {
+                        var replaced = ctx.DevReportItems
+                            .Where(i => i.Id == earlier.Id
+                                        && (i.Status == DevReportItemStates.Queued || i.Status == DevReportItemStates.Held))
+                            .ExecuteUpdate(set => set
+                                .SetProperty(i => i.Status, DevReportItemStates.ReplacedState.Status)
+                                .SetProperty(i => i.StatusLabel, DevReportItemStates.ReplacedState.Label)
+                                .SetProperty(i => i.ReplacedBy, item.Id));
+                        if (replaced > 0)
+                            FileLog.Write($"[DevReportStore] AddItems: report={report.Id} item={earlier.ClientItemId} replaced by {item.Id}");
                     }
                 }
 
@@ -249,14 +263,97 @@ internal sealed class DevReportStore
             .ToList();
     }
 
-    /// <summary>Every item of a session committed to <c>sending</c>, across all its reports.</summary>
-    public IReadOnlyList<DevReportItemEntity> SendingItemsForSession(TenantId tenant, string sessionId)
+    // ---------------------------------------------------------------- state changes
+    //
+    // EVERY STATE CHANGE BELOW IS ONE CONDITIONAL UPDATE IN THE DATABASE, never a read followed by a write. Two
+    // Gateway processes share this database during a deploy swap, and neither holds the other's lock, so the
+    // database is the only place a "still held" or "still mine" check can be true at the moment of the write.
+
+    /// <summary>
+    /// Claim every item of a session that is still waiting (queued or held) for ONE send: each moves to
+    /// <c>sending</c> and carries <paramref name="claimId"/>, only where it is still waiting at the moment of the
+    /// update. Returns the rows this claim took, in send order - never a row another claim took first.
+    /// </summary>
+    public IReadOnlyList<DevReportItemEntity> ClaimWaiting(TenantId tenant, string sessionId, Guid claimId, DateTime nowUtc)
     {
+        ArgumentException.ThrowIfNullOrEmpty(sessionId);
         using var ctx = _db.CreateContext(tenant);
+        var claimed = ctx.DevReportItems
+            .Where(i => i.SessionId == sessionId
+                        && (i.Status == DevReportItemStates.Queued || i.Status == DevReportItemStates.Held))
+            .ExecuteUpdate(set => set
+                .SetProperty(i => i.Status, DevReportItemStates.SendingState.Status)
+                .SetProperty(i => i.StatusLabel, DevReportItemStates.SendingState.Label)
+                .SetProperty(i => i.ClaimId, claimId)
+                .SetProperty(i => i.ClaimedAtUtc, nowUtc));
+        FileLog.Write($"[DevReportStore] ClaimWaiting: sid={sessionId} claim={claimId} claimed={claimed}");
+        if (claimed == 0) return [];
         return ctx.DevReportItems.AsNoTracking()
-            .Where(i => i.SessionId == sessionId && i.Status == DevReportItemStates.Sending)
+            .Where(i => i.ClaimId == claimId && i.Status == DevReportItemStates.Sending)
+            .ToList()
+            .OrderBy(i => i.SentAtUtc).ThenBy(i => i.ReportId).ThenBy(i => i.Sequence)
             .ToList();
     }
+
+    /// <summary>
+    /// Write the state a send came to - only on the items that still carry <paramref name="claimId"/> AND are still
+    /// <c>sending</c>. An item a settle pass has already ruled orphaned is not touched: exactly one final write wins.
+    /// Returns how many items took this state.
+    /// </summary>
+    public int FinishClaim(TenantId tenant, Guid claimId, DevReportItemStates.State state, DateTime nowUtc)
+    {
+        using var ctx = _db.CreateContext(tenant);
+        var mine = ctx.DevReportItems.Where(i => i.ClaimId == claimId && i.Status == DevReportItemStates.Sending);
+        var written = state.Status == DevReportItemStates.Delivered
+            ? mine.ExecuteUpdate(set => set
+                .SetProperty(i => i.Status, state.Status)
+                .SetProperty(i => i.StatusLabel, state.Label)
+                .SetProperty(i => i.DeliveredAtUtc, nowUtc))
+            : mine.ExecuteUpdate(set => set
+                .SetProperty(i => i.Status, state.Status)
+                .SetProperty(i => i.StatusLabel, state.Label));
+        FileLog.Write($"[DevReportStore] FinishClaim: claim={claimId} -> {state.Status} ({state.Label}) items={written}");
+        return written;
+    }
+
+    /// <summary>
+    /// Settle a session's items still <c>sending</c> under a claim taken at or before <paramref name="claimedAtOrBeforeUtc"/>:
+    /// they become delivered, not confirmed, and are never sent again. A claim younger than that is left alone - its
+    /// send may still be running in another process. Returns how many items were settled.
+    /// </summary>
+    public int SettleExpiredClaims(TenantId tenant, string sessionId, DateTime claimedAtOrBeforeUtc, DateTime nowUtc)
+    {
+        using var ctx = _db.CreateContext(tenant);
+        var state = DevReportItemStates.UnconfirmedState;
+        var settled = ctx.DevReportItems
+            .Where(i => i.SessionId == sessionId && i.Status == DevReportItemStates.Sending
+                        && i.ClaimedAtUtc != null && i.ClaimedAtUtc <= claimedAtOrBeforeUtc)
+            .ExecuteUpdate(set => set
+                .SetProperty(i => i.Status, state.Status)
+                .SetProperty(i => i.StatusLabel, state.Label)
+                .SetProperty(i => i.DeliveredAtUtc, nowUtc));
+        if (settled > 0)
+            FileLog.Write($"[DevReportStore] SettleExpiredClaims: sid={sessionId} settled={settled} (claimed at or before {claimedAtOrBeforeUtc:O})");
+        return settled;
+    }
+
+    /// <summary>Refuse every item of a session still waiting (queued or held) - only where it is still waiting at the
+    /// moment of the update. Returns how many were refused.</summary>
+    public int RefuseWaiting(TenantId tenant, string sessionId, DevReportItemStates.State state)
+    {
+        using var ctx = _db.CreateContext(tenant);
+        var refused = ctx.DevReportItems
+            .Where(i => i.SessionId == sessionId
+                        && (i.Status == DevReportItemStates.Queued || i.Status == DevReportItemStates.Held))
+            .ExecuteUpdate(set => set
+                .SetProperty(i => i.Status, state.Status)
+                .SetProperty(i => i.StatusLabel, state.Label));
+        FileLog.Write($"[DevReportStore] RefuseWaiting: sid={sessionId} -> {state.Status} ({state.Label}) items={refused}");
+        return refused;
+    }
+
+    private static bool IsEarlierAnswer(DevReportItemEntity row, string questionId)
+        => row.Kind == DevReportItem.Answer && string.Equals(row.QuestionId, questionId, StringComparison.Ordinal);
 
     /// <summary>The sessions of the account that have any item not yet settled (queued, held or sending) - what the
     /// settle sweep visits.</summary>
@@ -280,25 +377,5 @@ internal sealed class DevReportStore
         return ctx.DevReportItems.AsNoTracking().Any(i =>
             i.ReportId == reportId && i.Kind == DevReportItem.Answer && i.QuestionId == questionId
             && i.Status == DevReportItemStates.Delivered);
-    }
-
-    /// <summary>Move items to a state. The delivered time is stamped only when the state is a delivered one.</summary>
-    public void SetState(TenantId tenant, IReadOnlyCollection<Guid> itemIds, DevReportItemStates.State state, DateTime nowUtc)
-    {
-        if (itemIds.Count == 0) return;
-        lock (_gate)
-        {
-            using var ctx = _db.CreateContext(tenant);
-            var rows = ctx.DevReportItems.Where(i => itemIds.Contains(i.Id)).ToList();
-            foreach (var row in rows)
-            {
-                row.Status = state.Status;
-                row.StatusLabel = state.Label;
-                if (state.Status == DevReportItemStates.Delivered)
-                    row.DeliveredAtUtc = nowUtc;
-            }
-            ctx.SaveChanges();
-            FileLog.Write($"[DevReportStore] SetState: {rows.Count} item(s) -> {state.Status} ({state.Label})");
-        }
     }
 }

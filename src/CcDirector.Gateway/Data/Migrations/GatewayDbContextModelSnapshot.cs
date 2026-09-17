@@ -344,6 +344,12 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<string>("AnchorJson")
                         .HasColumnType("TEXT");
 
+                    b.Property<Guid?>("ClaimId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ClaimedAtUtc")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("ClientItemId")
                         .IsRequired()
                         .HasColumnType("TEXT");

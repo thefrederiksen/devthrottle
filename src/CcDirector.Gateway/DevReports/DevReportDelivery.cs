@@ -43,17 +43,25 @@ internal sealed record DevReportItemUpdate(string Id, string Status, string Stat
 /// what it holds, an idle one takes it all as ONE prompt across all its reports, a busy one keeps it. Three
 /// things call that pass - the turn end, a Gateway timer, and the owner's own read and send - so no held item
 /// depends on a transition the turn-end watcher might never see.</item>
-/// <item>Deciding held-or-deliver and settling run under ONE lock per (tenant, session), so a send racing a turn
-/// end can neither deliver an item twice nor strand it.</item>
+/// <item>Deciding held-or-deliver and settling run under ONE lock per (tenant, session) in this process. That lock
+/// keeps this process's own sends in order; it is NOT the at-most-once guarantee, which lives in the database.</item>
 /// </list>
 ///
-/// AT MOST ONCE, ACROSS A CRASH. The items a prompt carries are committed to <c>sending</c> BEFORE it is sent. After
-/// the answer: accepted is delivered; unanswered is delivered-not-confirmed and never retried; a send that never
-/// left this Gateway, or a definite Director refusal, typed nothing and goes back to held. An item found in
-/// <c>sending</c> by a settle pass is one no drain in this process owns - the only drain that could own it holds the
-/// same per-session lock and commits a final state before releasing it, so what is left is a restart or a drain
-/// that threw - and it is settled delivered-not-confirmed and NEVER sent again. Typing the owner's words into a
-/// session twice is worse than telling him we cannot confirm the once.
+/// AT MOST ONCE, ACROSS A CRASH AND ACROSS TWO PROCESSES. During a deploy swap two Gateway processes share the
+/// database and neither sees the other's lock, so every step of a send is a conditional update in the database:
+/// <list type="number">
+/// <item>CLAIM. The items a prompt carries move from held to <c>sending</c> stamped with a fresh claim id and time,
+/// only where they are still held at that moment. The prompt is composed from the rows this claim took and no
+/// others, so an item another process claimed first is never in this prompt.</item>
+/// <item>FINISH. After the answer - accepted is delivered; unanswered is delivered-not-confirmed and never retried; a
+/// send that never left this Gateway, or a definite Director refusal, typed nothing and goes back to held - the
+/// state is written only where the item still carries THIS claim and is still <c>sending</c>.</item>
+/// <item>ORPHAN. A settle pass rules an item still <c>sending</c> orphaned - delivered-not-confirmed, never sent again
+/// - only once its claim is older than <see cref="SendingClaimTimeout"/>, which is longer than any send can run. That
+/// ruling is the same conditional update, so when it lands the late send's own finish writes nothing: exactly one
+/// final write wins, and an item is never both delivered and not confirmed.</item>
+/// </list>
+/// Typing the owner's words into a session twice is worse than telling him we cannot confirm the once.
 ///
 /// KNOWN GAP, NOT CLOSED HERE (review High 3): the idle verdict is read from the pushed roster and the prompt is
 /// sent afterwards with <c>WaitForIdle = false</c>, and the Director's prompt verb does not check idle. A turn that
@@ -62,6 +70,15 @@ internal sealed record DevReportItemUpdate(string Id, string Status, string Stat
 /// </summary>
 internal sealed class DevReportDelivery
 {
+    /// <summary>
+    /// How old a claim must be before a settle pass may rule its items orphaned. It must be longer than the longest
+    /// a send can run, or a settle in another process would rule a send that is still going. A send is one tunnel
+    /// command bounded by <see cref="DirectorCommandRouter.DefaultCommandTimeout"/> (30 seconds), plus the database
+    /// work around it; five minutes is ten times that bound. The cost of the margin: an item a crash leaves
+    /// <c>sending</c> reads "Sending to the session" for up to five minutes before it settles.
+    /// </summary>
+    public static readonly TimeSpan SendingClaimTimeout = TimeSpan.FromMinutes(5);
+
     private readonly DevReportStore _store;
     private readonly Func<TenantId, string, DevReportSessionLiveness> _liveness;
     private readonly Func<TenantId, string, SessionVerbClient?> _route;
@@ -157,8 +174,8 @@ internal sealed class DevReportDelivery
     }
 
     /// <summary>
-    /// THE ONE SETTLE PASS for a session's unsettled items. Any item left in <c>sending</c> is settled
-    /// delivered-not-confirmed and never sent again. Then, by the session's reach: ended refuses every held item
+    /// THE ONE SETTLE PASS for a session's unsettled items. Any item left in <c>sending</c> under a claim older than
+    /// <see cref="SendingClaimTimeout"/> is settled delivered-not-confirmed and never sent again. Then, by the session's reach: ended refuses every held item
     /// "This session has ended"; idle delivers them all as one prompt; busy leaves them held. Returns how many
     /// items this pass sent.
     /// </summary>
@@ -200,44 +217,108 @@ internal sealed class DevReportDelivery
         }
     }
 
-    /// <summary>Items in <c>sending</c> that no drain owns are settled delivered-not-confirmed and never sent again.
-    /// Called only under the session's lock, and every drain commits a final state before it releases that lock, so an
-    /// item still in <c>sending</c> here was left by a restart or by a drain that threw.</summary>
+    /// <summary>Items in <c>sending</c> under a claim older than <see cref="SendingClaimTimeout"/> are settled
+    /// delivered-not-confirmed and never sent again. A younger claim is left alone: its send may still be running,
+    /// in this process or in another one sharing the database.</summary>
     private void SettleOrphanedSends(TenantId tenant, string sessionId)
     {
-        var orphaned = _store.SendingItemsForSession(tenant, sessionId);
-        if (orphaned.Count == 0) return;
-        _store.SetState(tenant, orphaned.Select(i => i.Id).ToList(), DevReportItemStates.UnconfirmedState, _nowUtc());
-        FileLog.Write($"[DevReportDelivery] Settle: sid={sessionId} {orphaned.Count} item(s) were left sending with no drain; " +
-                      "settled as sent, not confirmed, and not sent again");
+        var now = _nowUtc();
+        var settled = _store.SettleExpiredClaims(tenant, sessionId, now - SendingClaimTimeout, now);
+        if (settled > 0)
+            FileLog.Write($"[DevReportDelivery] Settle: sid={sessionId} {settled} item(s) were left sending past the claim timeout; " +
+                          "settled as sent, not confirmed, and not sent again");
     }
 
     private void RefuseWaitingForEndedSession(TenantId tenant, string sessionId, DevReportSessionLiveness live)
     {
-        var waiting = _store.WaitingItemsForSession(tenant, sessionId);
-        if (waiting.Count == 0) return;
-        _store.SetState(tenant, waiting.Select(i => i.Id).ToList(), DevReportItemStates.SessionEndedState, _nowUtc());
-        FileLog.Write($"[DevReportDelivery] Settle: sid={sessionId} has ended ({live.Why}); refused {waiting.Count} held item(s)");
+        var refused = _store.RefuseWaiting(tenant, sessionId, DevReportItemStates.SessionEndedState);
+        if (refused > 0)
+            FileLog.Write($"[DevReportDelivery] Settle: sid={sessionId} has ended ({live.Why}); refused {refused} held item(s)");
     }
 
     private async Task<int> DrainLockedAsync(TenantId tenant, string sessionId, DevReportSessionLiveness live, CancellationToken ct)
     {
-        var open = _store.WaitingItemsForSession(tenant, sessionId);
-        if (open.Count == 0) return 0;
+        var waiting = _store.WaitingItemsForSession(tenant, sessionId).Count;
+        if (waiting == 0) return 0;
 
         if (string.IsNullOrEmpty(live.DirectorId))
         {
-            FileLog.Write($"[DevReportDelivery] Drain: sid={sessionId} {open.Count} item(s) stay held, no Director named ({live.Why})");
+            FileLog.Write($"[DevReportDelivery] Drain: sid={sessionId} {waiting} item(s) stay held, no Director named ({live.Why})");
             return 0;
         }
 
         var route = _route(tenant, live.DirectorId);
         if (route is null)
         {
-            FileLog.Write($"[DevReportDelivery] Drain: sid={sessionId} {open.Count} item(s) stay held, director {live.DirectorId} is not connected");
+            FileLog.Write($"[DevReportDelivery] Drain: sid={sessionId} {waiting} item(s) stay held, director {live.DirectorId} is not connected");
             return 0;
         }
 
+        // CLAIM, in the database, BEFORE the prompt is composed: the prompt carries exactly the rows this claim took. A
+        // crash from here until the finish below leaves them sending, and a settle pass rules them sent-not-confirmed
+        // once the claim is past the timeout - never re-sent.
+        var claimId = Guid.NewGuid();
+        var open = _store.ClaimWaiting(tenant, sessionId, claimId, _nowUtc());
+        if (open.Count == 0)
+        {
+            FileLog.Write($"[DevReportDelivery] Drain: sid={sessionId} claim={claimId} took nothing; another send claimed the items first");
+            return 0;
+        }
+
+        string text;
+        PromptRequest request;
+        try
+        {
+            (text, request) = ComposePrompt(tenant, open);
+        }
+        catch
+        {
+            // Nothing left the Gateway, so the claim is released rather than left to be ruled "sent, not confirmed".
+            _store.FinishClaim(tenant, claimId, DevReportItemStates.HeldState, _nowUtc());
+            throw;
+        }
+
+        // THE ACCOUNT'S SCOPE IS ENTERED FOR THE SEND, HERE, whatever called us. A turn end from a live push arrives
+        // inside the tunnel connection's scope and an owner's send inside the request's, but the watcher's catch-up
+        // sweep and the settle timer carry none, and the tunnel then drops the command as "never left the Gateway".
+        SessionVerbClient.PromptSendOutcome sent;
+        using (_enterTenantScope?.Invoke(tenant))
+            sent = await route.SendPromptAsync(sessionId, request, ct).ConfigureAwait(false);
+        var outcome = sent.Kind switch
+        {
+            SessionVerbClient.PromptSendKind.Accepted => DevReportItemStates.SendOutcome.Accepted,
+            SessionVerbClient.PromptSendKind.NeverLeftTheGateway => DevReportItemStates.SendOutcome.NeverLeft,
+            SessionVerbClient.PromptSendKind.DirectorRefused => DevReportItemStates.SendOutcome.Refused,
+            SessionVerbClient.PromptSendKind.Unanswered => DevReportItemStates.SendOutcome.Unconfirmed,
+            _ => throw new InvalidOperationException($"a prompt send kind this delivery does not know: {sent.Kind}"),
+        };
+
+        // FINISH, only where the items still carry this claim and are still sending. Fewer written than claimed means a
+        // settle pass ruled this send orphaned first; that ruling stands and is not overwritten.
+        var written = _store.FinishClaim(tenant, claimId, DevReportItemStates.AfterSend(outcome), _nowUtc());
+        FileLog.Write($"[DevReportDelivery] Drain: sid={sessionId} claim={claimId} items={open.Count} outcome={outcome} written={written} " +
+                      $"chars={text.Length}{(sent.Detail.Length > 0 ? " detail=" + sent.Detail : "")}");
+        if (written != open.Count)
+            FileLog.Write($"[DevReportDelivery] Drain: sid={sessionId} claim={claimId} {open.Count - written} item(s) were settled by another " +
+                          "pass before this send finished; their state was left as that pass wrote it");
+
+        if (outcome == DevReportItemStates.SendOutcome.Refused)
+        {
+            // The Director refused and typed nothing, so the items are held again. Settle on what the Gateway knows now:
+            // an ended session refuses them. Otherwise they wait for the next settle pass - never re-sent in this one, so
+            // a Director that keeps refusing a session the roster still shows idle cannot loop here.
+            var now = _liveness(tenant, sessionId);
+            if (now.Reach == DevReportSessionReach.Ended)
+                RefuseWaitingForEndedSession(tenant, sessionId, now);
+            else
+                FileLog.Write($"[DevReportDelivery] Drain: sid={sessionId} the Director refused; {written} item(s) held for the next settle pass, reach={now.Reach} ({now.Why})");
+        }
+
+        return outcome is DevReportItemStates.SendOutcome.Accepted or DevReportItemStates.SendOutcome.Unconfirmed ? written : 0;
+    }
+
+    private (string Text, PromptRequest Request) ComposePrompt(TenantId tenant, IReadOnlyList<DevReportItemEntity> open)
+    {
         var reports = new List<DevReportPromptFold.FoldReport>();
         foreach (var group in open.GroupBy(i => i.ReportId))
         {
@@ -265,43 +346,7 @@ internal sealed class DevReportDelivery
                 IdentityKind = senders.Count == 1 && senders[0].Length > 0 ? senders[0] : SubmissionIdentityKinds.Unknown,
             },
         };
-
-        // AT MOST ONCE: the items are committed to sending BEFORE the prompt leaves. A crash from here until the final
-        // state below leaves them in sending, and the next settle pass rules them sent-not-confirmed, never re-sent.
-        var itemIds = open.Select(i => i.Id).ToList();
-        _store.SetState(tenant, itemIds, DevReportItemStates.SendingState, _nowUtc());
-
-        // THE ACCOUNT'S SCOPE IS ENTERED FOR THE SEND, HERE, whatever called us. A turn end from a live push arrives
-        // inside the tunnel connection's scope and an owner's send inside the request's, but the watcher's catch-up
-        // sweep and the settle timer carry none, and the tunnel then drops the command as "never left the Gateway".
-        SessionVerbClient.PromptSendOutcome sent;
-        using (_enterTenantScope?.Invoke(tenant))
-            sent = await route.SendPromptAsync(sessionId, request, ct).ConfigureAwait(false);
-        var outcome = sent.Kind switch
-        {
-            SessionVerbClient.PromptSendKind.Accepted => DevReportItemStates.SendOutcome.Accepted,
-            SessionVerbClient.PromptSendKind.NeverLeftTheGateway => DevReportItemStates.SendOutcome.NeverLeft,
-            SessionVerbClient.PromptSendKind.DirectorRefused => DevReportItemStates.SendOutcome.Refused,
-            SessionVerbClient.PromptSendKind.Unanswered => DevReportItemStates.SendOutcome.Unconfirmed,
-            _ => throw new InvalidOperationException($"a prompt send kind this delivery does not know: {sent.Kind}"),
-        };
-        _store.SetState(tenant, itemIds, DevReportItemStates.AfterSend(outcome), _nowUtc());
-        FileLog.Write($"[DevReportDelivery] Drain: sid={sessionId} reports={reports.Count} items={open.Count} outcome={outcome} " +
-                      $"chars={text.Length}{(sent.Detail.Length > 0 ? " detail=" + sent.Detail : "")}");
-
-        if (outcome == DevReportItemStates.SendOutcome.Refused)
-        {
-            // The Director refused and typed nothing, so the items are held again. Settle on what the Gateway knows now:
-            // an ended session refuses them. Otherwise they wait for the next settle pass - never re-sent in this one, so
-            // a Director that keeps refusing a session the roster still shows idle cannot loop here.
-            var now = _liveness(tenant, sessionId);
-            if (now.Reach == DevReportSessionReach.Ended)
-                RefuseWaitingForEndedSession(tenant, sessionId, now);
-            else
-                FileLog.Write($"[DevReportDelivery] Drain: sid={sessionId} the Director refused; {open.Count} item(s) held for the next settle pass, reach={now.Reach} ({now.Why})");
-        }
-
-        return outcome is DevReportItemStates.SendOutcome.Accepted or DevReportItemStates.SendOutcome.Unconfirmed ? open.Count : 0;
+        return (text, request);
     }
 
     /// <summary>A session id in the one form reports are stored under: a GUID's canonical lower-case form, the

@@ -55,6 +55,15 @@ public sealed class DevReportItemEntity : GatewayMintedKeyEntity
     /// <summary>When it went into the session (UTC), or null while it has not.</summary>
     public DateTime? DeliveredAtUtc { get; set; }
 
+    /// <summary>The claim of the send that took this item to <c>sending</c>, or null while no send has claimed it. A
+    /// send writes its final state only where the item still carries its own claim and is still <c>sending</c>, so
+    /// two Gateway processes on one database cannot both write a final state (phase 2 review round 2).</summary>
+    public Guid? ClaimId { get; set; }
+
+    /// <summary>When that claim was taken (UTC). A settle pass rules an item still <c>sending</c> orphaned only once
+    /// this is older than <see cref="DevReports.DevReportDelivery.SendingClaimTimeout"/>.</summary>
+    public DateTime? ClaimedAtUtc { get; set; }
+
     /// <summary>The client item id of the later answer that replaced this one, or null.</summary>
     public string? ReplacedBy { get; set; }
 }

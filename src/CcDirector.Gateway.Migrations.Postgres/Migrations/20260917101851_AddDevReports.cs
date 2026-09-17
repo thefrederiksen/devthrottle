@@ -34,6 +34,8 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     SenderKind = table.Column<string>(type: "text", nullable: false),
                     SentAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
                     DeliveredAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
+                    ClaimId = table.Column<Guid>(type: "uuid", nullable: true),
+                    ClaimedAtUtc = table.Column<DateTime>(type: "timestamp with time zone", nullable: true),
                     ReplacedBy = table.Column<string>(type: "text", nullable: true),
                     tenant_id = table.Column<string>(type: "text", nullable: false)
                 },

@@ -33,6 +33,8 @@ namespace CcDirector.Gateway.Data.Migrations
                     SenderKind = table.Column<string>(type: "TEXT", nullable: false),
                     SentAtUtc = table.Column<DateTime>(type: "TEXT", nullable: false),
                     DeliveredAtUtc = table.Column<DateTime>(type: "TEXT", nullable: true),
+                    ClaimId = table.Column<Guid>(type: "TEXT", nullable: true),
+                    ClaimedAtUtc = table.Column<DateTime>(type: "TEXT", nullable: true),
                     ReplacedBy = table.Column<string>(type: "TEXT", nullable: true),
                     tenant_id = table.Column<string>(type: "TEXT", nullable: false)
                 },

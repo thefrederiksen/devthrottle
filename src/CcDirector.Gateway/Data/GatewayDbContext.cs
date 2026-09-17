@@ -316,6 +316,7 @@ public sealed class GatewayDbContext : DbContext
 
     /// <summary>The agent's replies on a dev report (<c>dev_report_replies</c>).</summary>
     public DbSet<DevReportReplyEntity> DevReportReplies => Set<DevReportReplyEntity>();
+
     /// <summary>The fleet message inbox (<c>fleet_messages</c>, the Message Load mission): one row per message,
     /// held until the recipient reads it. The row IS the delivery - nothing is typed into the recipient's
     /// terminal. Kept thirty days, matching the activity ledger.</summary>

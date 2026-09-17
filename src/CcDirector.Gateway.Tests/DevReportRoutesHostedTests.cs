@@ -463,6 +463,31 @@ public sealed class DevReportRoutesHostedTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task HeldItem_ThenTheSessionCloses_TheOwnersListCountsNothingOpen()
+    {
+        // Phase 2 review round 2, finding 1: the list settles the sessions it returns before counting. The 30-second
+        // timer never fires inside this test, so the only thing that can settle the item is the list route itself.
+        await ConnectDirectorAsync();
+        await _director!.PushSnapshotAsync(Row(_sessionA, "Working"));
+        var reportId = await PublishAsync(_sessionA, @"C:\work\held-then-listed.html", _sessionKeyA);
+        using var owner = Client(_deviceKeyA);
+        var (_, sent) = await Send(owner, HttpMethod.Post, $"dev-reports/{reportId}/send", new { items = new[] { AnswerTonight("a1") } });
+        Assert.Equal("held", sent.GetProperty("updates")[0].GetProperty("status").GetString());
+
+        await _director.PushSnapshotAsync();
+        await WaitUntil(() => _gateway.PushedSessions.TryLocate(_tenantA, _sessionA, TimeSpan.FromMinutes(5)) is null,
+            "the roster to drop the closed session");
+
+        var (status, list) = await Send(owner, HttpMethod.Get, $"dev-reports?sessionId={_sessionA}");
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        var summary = Assert.Single(list.GetProperty("reports").EnumerateArray());
+        Assert.True(summary.GetProperty("sessionEnded").GetBoolean());
+        Assert.Equal(0, summary.GetProperty("openItems").GetInt32());
+        Assert.Empty(_prompts);
+    }
+
+    [Fact]
     public async Task HeldItem_DirectorDropsAndReconnectsAlreadyIdle_TheSettleTimerDeliversItOnce()
     {
         // This test's own Gateway runs the settle timer at a short interval; every other test here leaves it at 30s.
@@ -507,10 +532,11 @@ public sealed class DevReportRoutesHostedTests : IAsyncLifetime
         using (var owner = Client(_deviceKeyA))
             await Send(owner, HttpMethod.Post, $"dev-reports/{reportId}/send", new { items = new[] { NoteOnTheCell("n1") } });
 
-        // The Gateway dies mid-send: the item is in sending, exactly as a crash between the send and its answer leaves it.
+        // The Gateway dies mid-send: the item is claimed and in sending, exactly as a crash between the send and its
+        // answer leaves it - and the claim is older than the claim timeout, so the next Gateway may rule it orphaned.
         var store = _gateway.DevReportsForTest;
-        var ids = store.Items(_tenantA, Guid.Parse(reportId)).Select(i => i.Id).ToList();
-        store.SetState(_tenantA, ids, DevReportItemStates.SendingState, DateTime.UtcNow);
+        Assert.Single(store.ClaimWaiting(_tenantA, _sessionA, Guid.NewGuid(),
+            DateTime.UtcNow - DevReportDelivery.SendingClaimTimeout - TimeSpan.FromMinutes(1)));
         await _director.DisposeAsync();
         _director = null;
         await _gateway.StopAsync();
