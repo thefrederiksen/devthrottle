@@ -115,8 +115,8 @@ how I verified it. What I did NOT check is at the end.
 
 ### Low 5 - public-repository hygiene: one mission handoff names assistant products, and the rule is absolute
 
-- File and line: `docs/missions/dev-reports/HANDOFF-phase-2-finish.md` line 39 - "A Codex session is
-  out of usage until 22 September; Gemini has no key. If you seat any non-Claude session, confirm it..."
+- File and line: `docs/missions/dev-reports/HANDOFF-phase-2-finish.md` line 39 - a sentence naming two reviewer products (since reworded by the Architect).
+
 - The repository rule bans naming assistant products anywhere that reaches GitHub, with no exception
   for internal notes, and this repository is public. There is precedent on origin/main (mission
   documents there name them too), so this follows house practice rather than breaking it - but the
