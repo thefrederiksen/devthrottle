@@ -294,6 +294,9 @@ internal static class ControlEndpoints
             // Only a Director can see this: desktop typing never leaves the machine, and the origin is
             // known only at the input choke points. The Gateway rules on what it means.
             LastOwnerTurnAtUtc = s.LastOwnerTurnAtUtc,
+            // Who started the current work (the Message Load mission): the Gateway's working edge spares an
+            // armed snooze for agent-origin work only. A fact, like the one above; the Gateway rules on it.
+            WorkingOrigin = s.WorkingOrigin,
             // Prompts that did not go (issue internal#811). Only this machine can see a delivery fail, so
             // the counts and the unresolved flag are reported here as FACTS; the Gateway folds the words.
             // Before this they existed solely as a line in a Director log file, which is how two spoken

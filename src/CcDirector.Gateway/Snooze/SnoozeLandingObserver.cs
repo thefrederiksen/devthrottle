@@ -67,7 +67,10 @@ public sealed class SnoozeLandingObserver
     ///  * WORKING (Working or Starting) - there is activity on this terminal again, so an ARMED snooze is
     ///    spent and is DELETED outright (not merely outranked): the owner's law (17 July 2026), "if you
     ///    snooze it, it's a human thing; as soon as there's any work on that terminal it comes out of
-    ///    snooze, period, full stop." A DEFERRED hold is the single exception - see below.
+    ///    snooze, period, full stop." A DEFERRED hold is one exception - see below. Work the Director
+    ///    reports as started by an agent-origin send (<see cref="SessionDto.WorkingOrigin"/>) is the other:
+    ///    the Message Load mission's ruling 15, set by that mission's Architect on 17 September 2026, keeps
+    ///    the snooze so the fleet doorbell cannot end it.
     ///  * SETTLED (anything that is not Working, Starting or Exited) - the work the deferral was waiting
     ///    for has ended, so the deferral lands and the clock starts. The owner's ruling (14 July 2026):
     ///    "snooze me for 12 hours when this finishes" means twelve hours of quiet AFTER it finishes.
@@ -121,6 +124,18 @@ public sealed class SnoozeLandingObserver
         // ClearIfArmed so it cannot be got wrong here.
         if (IsWorking(activity))
         {
+            // AGENT-ORIGIN WORK KEEPS AN ARMED SNOOZE (the Message Load mission, ruling 15; inspection 4,
+            // ruling 8). The fleet doorbell makes a snoozed session work, and a doorbell must not end the
+            // owner's snooze; the same holds for any agent or product send. The Director reports who started
+            // the work. The owner's half of the rule is untouched: owner-started work ends the snooze here,
+            // and an owner turn at any time ends it above. Work NO submission explains - the agent starting on
+            // its own - still ends it, as the 17 July 2026 law says.
+            if (string.Equals(session.WorkingOrigin, WorkingOrigins.Agent, StringComparison.Ordinal))
+            {
+                if (_registry.SnoozeUntilFor(session.SessionId) is not null)
+                    FileLog.Write($"[SnoozeLandingObserver] sid={session.SessionId}: working on an agent-origin send -> armed snooze kept (ruling 15)");
+                return;
+            }
             if (_registry.ClearIfArmed(session.SessionId))
                 FileLog.Write($"[SnoozeLandingObserver] sid={session.SessionId}: working again -> armed snooze deleted (work ends a snooze)");
             return;

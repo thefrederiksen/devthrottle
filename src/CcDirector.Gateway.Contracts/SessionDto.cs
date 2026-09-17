@@ -236,6 +236,17 @@ public sealed class SessionDto
     public DateTime? LastOwnerTurnAtUtc { get; set; }
 
     /// <summary>
+    /// WHO STARTED THE WORK THIS SESSION IS DOING NOW - one of <see cref="WorkingOrigins"/>, or null when no
+    /// submission explains it (the agent started on its own, the terminal repainted, or a Director too old to
+    /// say). Reported by the owning Director from the last submission since the session last settled.
+    ///
+    /// A FACT, like <see cref="LastOwnerTurnAtUtc"/>, and read for one ruling only: the Gateway's working edge
+    /// spares an ARMED snooze when the work was started by an agent-origin send - the fleet doorbell, another
+    /// product send - and ends it otherwise (the Message Load mission, ruling 15, inspection 4 ruling 8).
+    /// </summary>
+    public string? WorkingOrigin { get; set; }
+
+    /// <summary>
     /// How many prompts to this session have FAILED to be delivered - the send threw, so the user's words
     /// never reached the agent (issue internal#811). Reported by the owning Director from
     /// <c>PromptDeliveryFailures</c>; 0 from a Director too old to count them. Counts survive a recovery,
@@ -1046,4 +1057,14 @@ public sealed class SessionDto
         copy.DriverCapabilities = new List<string>(DriverCapabilities);
         return copy;
     }
+}
+
+/// <summary>The values of <see cref="SessionDto.WorkingOrigin"/>.</summary>
+public static class WorkingOrigins
+{
+    /// <summary>The owner started it: typed, spoke, or sent from one of his screens.</summary>
+    public const string Owner = "owner";
+
+    /// <summary>The product or an agent started it with a send: the fleet doorbell, a handover, a queue drain.</summary>
+    public const string Agent = "agent";
 }

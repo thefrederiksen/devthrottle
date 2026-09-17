@@ -2580,6 +2580,19 @@ public sealed class Session : IDisposable
     /// </summary>
     public DateTime? LastOwnerTurnAtUtc { get; private set; }
 
+    /// <summary>
+    /// WHO STARTED THE CURRENT WORK: <see cref="Gateway.Contracts.WorkingOrigins.Owner"/> when the last submission
+    /// since this session last settled was the owner's, <see cref="Gateway.Contracts.WorkingOrigins.Agent"/> when
+    /// it was an agent or product send (the fleet doorbell among them), and null when no submission explains the
+    /// work. Set at the submission choke point, cleared when the session settles or exits.
+    ///
+    /// A FACT THIS SESSION REPORTS, like <see cref="LastOwnerTurnAtUtc"/>. The Gateway reads it to keep an armed
+    /// snooze through agent-origin work (the Message Load mission, ruling 15); this session does not know it is
+    /// snoozed. A settle clears it, so a detector flicker in the middle of a doorbell turn makes the next working
+    /// edge unexplained - and an unexplained edge ends a snooze, which errs toward the owner's rule.
+    /// </summary>
+    public string? WorkingOrigin { get; private set; }
+
     /// <summary>Record that the owner just drove a turn. Idempotent by nature - it is a timestamp.</summary>
     private void StampOwnerTurn()
     {
@@ -2629,6 +2642,10 @@ public sealed class Session : IDisposable
         ArgumentNullException.ThrowIfNull(evidence);
         var characters = (int)Math.Min(evidence.ContentLength, int.MaxValue);
         LastSubmissionAtUtc = DateTime.UtcNow;
+        // The same test as IsOwnerDriven; on the raw-byte path (no source) only a human origin is the owner.
+        WorkingOrigin = origin is not null || source is SendSource.UserInput or SendSource.Delivery
+            ? Gateway.Contracts.WorkingOrigins.Owner
+            : Gateway.Contracts.WorkingOrigins.Agent;
         // A human origin is a human turn, on its own (modality, surface) bucket.
         if (origin is InputOrigin o)
         {
@@ -3003,6 +3020,10 @@ public sealed class Session : IDisposable
         // briefing re-evaluates from scratch. Only WaitingForInput/WaitingForPerm preserve it.
         if (newState is not (ActivityState.WaitingForInput or ActivityState.WaitingForPerm))
             IsBackgroundRunning = false;
+        // The work that a submission explained is over once the session settles or exits; the next working
+        // edge is explained only by the next submission.
+        if (newState is not (ActivityState.Working or ActivityState.Starting))
+            WorkingOrigin = null;
         // A real state change opens a new "generation". This releases any sticky
         // positive-evidence color from the previous generation (issue #136 option C):
         // e.g. a red pending-question survives cosmetic repaints while the session is

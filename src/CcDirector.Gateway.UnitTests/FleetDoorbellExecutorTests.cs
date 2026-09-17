@@ -120,6 +120,29 @@ public sealed class FleetDoorbellExecutorTests
     }
 
     [Fact]
+    public async Task The_sessions_push_carries_who_started_the_work()
+    {
+        // The Director's roster push is built by ControlEndpoints.Map; the Gateway's snooze edge reads this
+        // field from it (the Message Load mission, ruling 15).
+        var sm = new SessionManager(new Core.Configuration.AgentOptions());
+        try
+        {
+            var backend = new ExecuteActionTestBackend();
+            var session = sm.CreateEmbeddedSession(Path.GetTempPath(), null, backend);
+            session.MarkRunning();
+            Assert.Null(ControlEndpoints.Map(session, "dir-A").WorkingOrigin);
+
+            await session.SendTextAsync("[DevThrottle doorbell] 1 fleet message is waiting", SendSource.Agent);
+
+            Assert.Equal("agent", ControlEndpoints.Map(session, "dir-A").WorkingOrigin);
+        }
+        finally
+        {
+            sm.Dispose();
+        }
+    }
+
+    [Fact]
     public async Task An_unknown_session_is_not_found()
     {
         var sm = new SessionManager(new Core.Configuration.AgentOptions());
