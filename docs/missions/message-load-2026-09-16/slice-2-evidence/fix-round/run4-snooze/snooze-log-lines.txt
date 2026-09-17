@@ -1,0 +1,8 @@
+2026-09-17 04:46:05.871 [SnoozeRegistry] Snooze: sid=1140bf90-20b6-4613-afc8-2e3ee45cc976, untilUtc=2026-09-17T20:46:05.8572540Z, director=doorbell-proof-director
+2026-09-17 04:46:19.418 [SnoozeLandingObserver] sid=1140bf90-20b6-4613-afc8-2e3ee45cc976: working on an agent-origin send -> armed snooze kept (ruling 15)
+2026-09-17 04:46:22.117 [SnoozeLandingObserver] sid=1140bf90-20b6-4613-afc8-2e3ee45cc976: working on an agent-origin send -> armed snooze kept (ruling 15)
+2026-09-17 04:46:25.119 [SnoozeLandingObserver] sid=1140bf90-20b6-4613-afc8-2e3ee45cc976: working on an agent-origin send -> armed snooze kept (ruling 15)
+2026-09-17 04:46:28.134 [SnoozeLandingObserver] sid=1140bf90-20b6-4613-afc8-2e3ee45cc976: working on an agent-origin send -> armed snooze kept (ruling 15)
+2026-09-17 04:46:31.132 [SnoozeLandingObserver] sid=1140bf90-20b6-4613-afc8-2e3ee45cc976: working on an agent-origin send -> armed snooze kept (ruling 15)
+2026-09-17 04:46:43.258 [SnoozeRegistry] ClearIfArmed: sid=1140bf90-20b6-4613-afc8-2e3ee45cc976 (armed snooze deleted - the session is working again, and work ends a snooze)
+2026-09-17 04:46:43.258 [SnoozeLandingObserver] sid=1140bf90-20b6-4613-afc8-2e3ee45cc976: working again -> armed snooze deleted (work ends a snooze)

@@ -1,0 +1,107 @@
+2026-09-17 04:33:51.236 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=0 sessions=0  took=67ms
+2026-09-17 04:34:06.162 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=0 sessions=0  took=3ms
+2026-09-17 04:34:21.165 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=0 sessions=0  took=1ms
+2026-09-17 04:34:36.162 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=0 sessions=0  took=1ms
+2026-09-17 04:34:38.360 [FleetMessageService] Send QUEUED: from=ecdb8c99 to=d3763e2e kind=message exemption=None id=58bb5aba42534195a057136486eca5cc len=114
+2026-09-17 04:34:51.176 [FleetDoorbellRinger] RingAsync: session=d3763e2e-1d85-48e1-98a1-2b54b4ea8147, unread=1
+2026-09-17 04:34:51.557 [FleetDoorbellRinger] RUNG: session=d3763e2e-1d85-48e1-98a1-2b54b4ea8147, unread=1, line="[DevThrottle doorbell] 1 fleet message is waiting for you. To read, run: cc-devthrottle message inbox"
+2026-09-17 04:34:51.580 [DirectorCommandRouter] ring sid=d3763e2e-1d85-48e1-98a1-2b54b4ea8147 director=doorbell-proof-director: stream status=Ok
+2026-09-17 04:34:51.586 [FleetDoorbell] RUNG: sid=d3763e2e trigger=heartbeat unread=1 ids=[58bb5aba42534195a057136486eca5cc]
+2026-09-17 04:34:51.586 [FleetDoorbell] heartbeat recorded 1 ring(s) for 1 session(s)
+2026-09-17 04:34:51.587 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=1 sessions=1 Rung=1 took=422ms
+2026-09-17 04:34:54.446 [FleetMessageService] ReadInbox: sid=d3763e2e unread=1 recent=0/0 truncated=False ids=[58bb5aba42534195a057136486eca5cc]
+2026-09-17 04:35:06.167 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=0 sessions=0  took=1ms
+2026-09-17 04:35:21.165 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=0 sessions=0  took=1ms
+2026-09-17 04:35:40.788 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=0 sessions=0  took=24ms
+2026-09-17 04:35:55.756 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=0 sessions=0  took=0ms
+2026-09-17 04:36:10.765 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=0 sessions=0  took=0ms
+2026-09-17 04:36:25.759 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=0 sessions=0  took=0ms
+2026-09-17 04:36:31.820 [FleetMessageService] Send QUEUED: from=96b275a1 to=7cd43026 kind=message exemption=None id=c129345e3dcb4f7a9fc08d1631d8b8ce len=163
+2026-09-17 04:36:40.759 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=1 sessions=1 SkippedWorking=1 took=0ms
+2026-09-17 04:36:51.984 [FleetDoorbellRinger] RingAsync: session=7cd43026-1210-4ad7-b57f-b83ada0a214a, unread=1
+2026-09-17 04:36:52.330 [FleetDoorbellRinger] RUNG: session=7cd43026-1210-4ad7-b57f-b83ada0a214a, unread=1, line="[DevThrottle doorbell] 1 fleet message is waiting for you. To read, run: cc-devthrottle message inbox"
+2026-09-17 04:36:52.335 [DirectorCommandRouter] ring sid=7cd43026-1210-4ad7-b57f-b83ada0a214a director=doorbell-proof-director: stream status=Ok
+2026-09-17 04:36:52.336 [FleetDoorbell] RUNG: sid=7cd43026 trigger=settled unread=1 counted=1 ids=[c129345e3dcb4f7a9fc08d1631d8b8ce]
+2026-09-17 04:36:55.069 [FleetMessageService] ReadInbox: sid=7cd43026 unread=1 recent=0/0 truncated=False ids=[c129345e3dcb4f7a9fc08d1631d8b8ce]
+2026-09-17 04:36:55.757 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=0 sessions=0  took=1ms
+2026-09-17 04:37:00.683 [FleetMessageService] ReadInbox: sid=7cd43026 unread=0 recent=1/1 truncated=False ids=[]
+2026-09-17 04:37:17.517 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=0 sessions=0  took=31ms
+2026-09-17 04:37:32.486 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=0 sessions=0  took=2ms
+2026-09-17 04:37:47.491 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=0 sessions=0  took=1ms
+2026-09-17 04:38:02.492 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=0 sessions=0  took=0ms
+2026-09-17 04:38:10.689 [FleetMessageService] Send QUEUED: from=b8ea5d41 to=30e2bc43 kind=message exemption=None id=6f0dd199358944f38f5394e8c29fbbd5 len=51
+2026-09-17 04:38:17.488 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=1 sessions=1 SkippedWorking=1 took=1ms
+2026-09-17 04:38:20.507 [FleetDoorbellRinger] RingAsync: session=30e2bc43-ef0b-45a0-b9a7-4c7d639ae2aa, unread=1
+2026-09-17 04:38:20.881 [FleetDoorbellRinger] RUNG: session=30e2bc43-ef0b-45a0-b9a7-4c7d639ae2aa, unread=1, line="[DevThrottle doorbell] 1 fleet message is waiting for you. To read, run: cc-devthrottle message inbox"
+2026-09-17 04:38:20.892 [DirectorCommandRouter] ring sid=30e2bc43-ef0b-45a0-b9a7-4c7d639ae2aa director=doorbell-proof-director: stream status=Ok
+2026-09-17 04:38:20.893 [FleetDoorbell] RUNG: sid=30e2bc43 trigger=settled unread=1 counted=1 ids=[6f0dd199358944f38f5394e8c29fbbd5]
+2026-09-17 04:38:32.487 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=1 sessions=1 NotDue=1 took=0ms
+2026-09-17 04:38:47.487 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=1 sessions=1 NotDue=1 took=1ms
+2026-09-17 04:39:02.486 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=1 sessions=1 NotDue=1 took=0ms
+2026-09-17 04:39:17.493 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=1 sessions=1 NotDue=1 took=1ms
+2026-09-17 04:39:32.485 [FleetDoorbellRinger] RingAsync: session=30e2bc43-ef0b-45a0-b9a7-4c7d639ae2aa, unread=1
+2026-09-17 04:39:32.881 [FleetDoorbellRinger] RUNG: session=30e2bc43-ef0b-45a0-b9a7-4c7d639ae2aa, unread=1, line="[DevThrottle doorbell] 1 fleet message is waiting for you. To read, run: cc-devthrottle message inbox"
+2026-09-17 04:39:32.888 [DirectorCommandRouter] ring sid=30e2bc43-ef0b-45a0-b9a7-4c7d639ae2aa director=doorbell-proof-director: stream status=Ok
+2026-09-17 04:39:32.889 [FleetDoorbell] RUNG: sid=30e2bc43 trigger=heartbeat unread=1 ids=[6f0dd199358944f38f5394e8c29fbbd5]
+2026-09-17 04:39:32.889 [FleetDoorbell] heartbeat recorded 1 ring(s) for 1 session(s)
+2026-09-17 04:39:32.889 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=1 sessions=1 Rung=1 took=405ms
+2026-09-17 04:39:47.485 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=1 sessions=1 NotDue=1 took=1ms
+2026-09-17 04:40:02.484 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=1 sessions=1 NotDue=1 took=1ms
+2026-09-17 04:40:17.491 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=1 sessions=1 NotDue=1 took=5ms
+2026-09-17 04:40:32.501 [FleetDoorbellRinger] RingAsync: session=30e2bc43-ef0b-45a0-b9a7-4c7d639ae2aa, unread=1
+2026-09-17 04:40:32.879 [FleetDoorbellRinger] RUNG: session=30e2bc43-ef0b-45a0-b9a7-4c7d639ae2aa, unread=1, line="[DevThrottle doorbell] 1 fleet message is waiting for you. To read, run: cc-devthrottle message inbox"
+2026-09-17 04:40:32.881 [DirectorCommandRouter] ring sid=30e2bc43-ef0b-45a0-b9a7-4c7d639ae2aa director=doorbell-proof-director: stream status=Ok
+2026-09-17 04:40:32.881 [FleetDoorbell] RUNG: sid=30e2bc43 trigger=heartbeat unread=1 ids=[6f0dd199358944f38f5394e8c29fbbd5]
+2026-09-17 04:40:32.881 [FleetDoorbell] heartbeat recorded 1 ring(s) for 1 session(s)
+2026-09-17 04:40:32.881 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=1 sessions=1 Rung=1 took=390ms
+2026-09-17 04:40:47.483 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=1 sessions=1 NotDue=1 took=1ms
+2026-09-17 04:41:02.484 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=1 sessions=1 NotDue=1 took=1ms
+2026-09-17 04:41:17.486 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=1 sessions=1 NotDue=1 took=1ms
+2026-09-17 04:41:32.485 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=1 sessions=1 NotDue=1 took=1ms
+2026-09-17 04:41:47.497 [FleetDoorbell] STUCK: id=6f0dd199358944f38f5394e8c29fbbd5 to=30e2bc43 from=b8ea5d41 rings=3 notice=3c4d062fca61403b83317de69d4180f6
+2026-09-17 04:41:47.499 [FleetDoorbellRinger] RingAsync: session=b8ea5d41-e2dc-4f9b-833f-9a538ed5c160, unread=1
+2026-09-17 04:41:47.848 [FleetDoorbellRinger] RUNG: session=b8ea5d41-e2dc-4f9b-833f-9a538ed5c160, unread=1, line="[DevThrottle doorbell] 1 fleet message is waiting for you. To read, run: cc-devthrottle message inbox"
+2026-09-17 04:41:47.852 [DirectorCommandRouter] ring sid=b8ea5d41-e2dc-4f9b-833f-9a538ed5c160 director=doorbell-proof-director: stream status=Ok
+2026-09-17 04:41:47.854 [FleetDoorbell] RUNG: sid=b8ea5d41 trigger=heartbeat unread=1 ids=[3c4d062fca61403b83317de69d4180f6]
+2026-09-17 04:41:47.854 [FleetDoorbell] heartbeat recorded 1 ring(s) for 1 session(s)
+2026-09-17 04:41:47.854 [FleetDoorbell] heartbeat tick: tenant=local stuck=1 unread=2 sessions=1 Rung=1 took=371ms
+2026-09-17 04:41:52.101 [FleetMessageService] ReadInbox: sid=b8ea5d41 unread=1 recent=0/0 truncated=False ids=[3c4d062fca61403b83317de69d4180f6]
+2026-09-17 04:41:54.432 [FleetMessageService] ReadInbox: sid=b8ea5d41 unread=0 recent=1/1 truncated=False ids=[]
+2026-09-17 04:42:02.485 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=1 sessions=0  took=1ms
+2026-09-17 04:42:18.531 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=0 sessions=0  took=116ms
+2026-09-17 04:42:33.418 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=0 sessions=0  took=4ms
+2026-09-17 04:42:48.416 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=0 sessions=0  took=2ms
+2026-09-17 04:43:03.416 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=0 sessions=0  took=1ms
+2026-09-17 04:43:04.980 [FleetMessageService] Send QUEUED: from=dd4f1781 to=4f28aac9 kind=message exemption=None id=e6a0a6bc22814ed495f9aea638077eea len=50
+2026-09-17 04:43:18.416 [FleetDoorbellRinger] RingAsync: session=4f28aac9-edf4-4e26-a58c-def0e9799fb7, unread=1
+2026-09-17 04:43:18.540 [FleetDoorbellRinger] DEFERRED (composer-holds-text): session=4f28aac9-edf4-4e26-a58c-def0e9799fb7: the composer holds text
+2026-09-17 04:43:18.540 [DirectorCommandRouter] ring sid=4f28aac9-edf4-4e26-a58c-def0e9799fb7 director=doorbell-proof-director: stream status=Ok
+2026-09-17 04:43:18.540 [FleetDoorbell] ring DEFERRED (composer-holds-text): sid=4f28aac9 trigger=heartbeat unread=1 detail=the composer holds text
+2026-09-17 04:43:18.540 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=1 sessions=1 Deferred=1 took=125ms
+2026-09-17 04:43:33.416 [FleetDoorbellRinger] RingAsync: session=4f28aac9-edf4-4e26-a58c-def0e9799fb7, unread=1
+2026-09-17 04:43:33.536 [FleetDoorbellRinger] DEFERRED (composer-holds-text): session=4f28aac9-edf4-4e26-a58c-def0e9799fb7: the composer holds text
+2026-09-17 04:43:33.537 [DirectorCommandRouter] ring sid=4f28aac9-edf4-4e26-a58c-def0e9799fb7 director=doorbell-proof-director: stream status=Ok
+2026-09-17 04:43:33.537 [FleetDoorbell] ring DEFERRED (composer-holds-text): sid=4f28aac9 trigger=heartbeat unread=1 detail=the composer holds text
+2026-09-17 04:43:33.537 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=1 sessions=1 Deferred=1 took=122ms
+2026-09-17 04:43:48.415 [FleetDoorbellRinger] RingAsync: session=4f28aac9-edf4-4e26-a58c-def0e9799fb7, unread=1
+2026-09-17 04:43:48.537 [FleetDoorbellRinger] DEFERRED (composer-holds-text): session=4f28aac9-edf4-4e26-a58c-def0e9799fb7: the composer holds text
+2026-09-17 04:43:48.538 [DirectorCommandRouter] ring sid=4f28aac9-edf4-4e26-a58c-def0e9799fb7 director=doorbell-proof-director: stream status=Ok
+2026-09-17 04:43:48.538 [FleetDoorbell] ring DEFERRED (composer-holds-text): sid=4f28aac9 trigger=heartbeat unread=1 detail=the composer holds text
+2026-09-17 04:43:48.538 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=1 sessions=1 Deferred=1 took=123ms
+2026-09-17 04:44:03.417 [FleetDoorbellRinger] RingAsync: session=4f28aac9-edf4-4e26-a58c-def0e9799fb7, unread=1
+2026-09-17 04:44:03.539 [FleetDoorbellRinger] DEFERRED (composer-holds-text): session=4f28aac9-edf4-4e26-a58c-def0e9799fb7: the composer holds text
+2026-09-17 04:44:03.539 [DirectorCommandRouter] ring sid=4f28aac9-edf4-4e26-a58c-def0e9799fb7 director=doorbell-proof-director: stream status=Ok
+2026-09-17 04:44:03.539 [FleetDoorbell] ring DEFERRED (composer-holds-text): sid=4f28aac9 trigger=heartbeat unread=1 detail=the composer holds text
+2026-09-17 04:44:03.539 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=1 sessions=1 Deferred=1 took=124ms
+2026-09-17 04:44:18.417 [FleetDoorbellRinger] RingAsync: session=4f28aac9-edf4-4e26-a58c-def0e9799fb7, unread=1
+2026-09-17 04:44:18.540 [FleetDoorbellRinger] DEFERRED (composer-holds-text): session=4f28aac9-edf4-4e26-a58c-def0e9799fb7: the composer holds text
+2026-09-17 04:44:18.541 [DirectorCommandRouter] ring sid=4f28aac9-edf4-4e26-a58c-def0e9799fb7 director=doorbell-proof-director: stream status=Ok
+2026-09-17 04:44:18.541 [FleetDoorbell] ring DEFERRED (composer-holds-text): sid=4f28aac9 trigger=heartbeat unread=1 detail=the composer holds text
+2026-09-17 04:44:18.542 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=1 sessions=1 Deferred=1 took=127ms
+2026-09-17 04:44:33.424 [FleetDoorbellRinger] RingAsync: session=4f28aac9-edf4-4e26-a58c-def0e9799fb7, unread=1
+2026-09-17 04:44:33.909 [FleetDoorbellRinger] RUNG: session=4f28aac9-edf4-4e26-a58c-def0e9799fb7, unread=1, line="[DevThrottle doorbell] 1 fleet message is waiting for you. To read, run: cc-devthrottle message inbox"
+2026-09-17 04:44:33.921 [DirectorCommandRouter] ring sid=4f28aac9-edf4-4e26-a58c-def0e9799fb7 director=doorbell-proof-director: stream status=Ok
+2026-09-17 04:44:33.922 [FleetDoorbell] RUNG: sid=4f28aac9 trigger=heartbeat unread=1 ids=[e6a0a6bc22814ed495f9aea638077eea]
+2026-09-17 04:44:33.922 [FleetDoorbell] heartbeat recorded 1 ring(s) for 1 session(s)
+2026-09-17 04:44:33.922 [FleetDoorbell] heartbeat tick: tenant=local stuck=0 unread=1 sessions=1 Rung=1 took=500ms
+2026-09-17 04:44:36.709 [FleetMessageService] ReadInbox: sid=4f28aac9 unread=1 recent=0/0 truncated=False ids=[e6a0a6bc22814ed495f9aea638077eea]

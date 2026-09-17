@@ -474,7 +474,10 @@ slice small, rebase right before opening the pull request, and merge the moment 
 
 ## State
 
-- Phase: slice 2 (the doorbell) is BUILT and pushed on `mission/message-load`, rebased on origin/main
+- Phase (17 September 2026, latest): the slice 2 FIX ROUND is pushed on `mission/message-load` - see "Slice 2
+  fix round" at the end. Next: inspection 5, and the Architect's decision on the snooze reading under item 8.
+  No pull request opened.
+- Earlier: slice 2 (the doorbell) is BUILT and pushed on `mission/message-load`, rebased on origin/main
   `dc6d6547` (17 September 2026). See "Slice 2" below. No pull request opened (the Architect's). Next: the
   Architect's inspection of slice 2, and the decisions in "Findings the Architect should decide on".
 - Open decision, the owner's: the Director-restart restore step versus the spawn owner pin (see
@@ -824,3 +827,191 @@ items are folded in here because the inspector is right that they are merge prer
 
 Then: the touched suites in full, each guard watched failing, this note updated, commit, push,
 `session raise`, stop. Inspection 5 follows.
+
+## Slice 2 fix round (17 September 2026, Manager seat 3)
+
+Eleven commits on `mission/message-load` after `56206340`, one per ruling plus one follow-up and one
+for the live proof. Every guard was watched failing: the fix reverted or the code mutated, the named tests
+red with the symptom, the file restored. The breaks and their results are in
+`slice-2-evidence/fix-round/guards-watched-failing/`; the live runs are in `slice-2-evidence/fix-round/`
+with their own README. No fleet message was sent.
+
+### What changed, per item
+
+1. **A last look before the first byte** (`a27bdbe2`). After the check approves two frames, the ringer
+   re-reads the Director's state, its exited state and a third frame immediately before typing, and defers
+   (`working`, or `exited`) if anything moved - rows, cursor column, cursor row or visibility. The ringer
+   now drives an `IDoorbellTarget` (the product's is `SessionDoorbellTarget`) so every step is testable on
+   the captured screens (`FleetDoorbellRingerTests`, Core unit). The remaining interval is written into the
+   ringer's comment, into `DoorbellSafety`'s "not covered" list, and into ruling 7 of the brief as its
+   limit. Red: the whole last look removed (6 tests); each of the Director state, the third frame, the
+   cursor and the exit check removed (1 to 3 tests each).
+2. **One Enter, no nudges, `rung` only when verified** (`de619615`). The doorbell no longer goes through
+   the shared submit. `TerminalSubmit.DoorbellSubmitAsync` types the line, waits for its echo (bytes, or
+   the rendered composer holding exactly the line), presses Enter ONCE and watches the screen for ten
+   seconds: no nudge ladder, no Escape, no retype, no retained-composer step. "Verified" means the screen
+   shows the line out of the composer AND either the working marker or one more doorbell row in the
+   transcript than before the send (`DoorbellSafety.ShowsDoorbellSubmitted`). Not verified: a composer
+   holding exactly the line (wrapping ignored) is erased one Backspace at a time and re-read until empty
+   -> `deferred, not-submitted`; an empty composer -> `deferred, not-submitted`, nothing erased; anything
+   else -> `deferred, composer-holds-text`, untouched. New reason `not-submitted`. The byte-count fallback
+   from slice 2 (judgement call 11) is gone. Guards: a backend that swallows Enter (exactly one Enter, no
+   Escape); a line the interface cleared (not verified, not counted); owner text typed after the Enter
+   (never submitted by the doorbell); a line that never echoes (no Enter, no Escape); plus ringer tests for
+   each composer outcome and for an older doorbell already on screen. Red: nudges restored (3 tests);
+   Escape on an echo miss; Enter without an echo; verified on Enter alone (3); last look ignored; the old
+   "empty means rung" rule (1 and 6 tests); erase skipped (4); anything erased (1); erase trusted without a
+   re-read (1); a parked line counted as submitted (5); the transcript witness ignored (3) or counting rows
+   already there (1, after a new test - it was green first); the working witness ignored (1); wrapping not
+   ignored (1).
+3. **Whitespace is text** (`7b498adc`). Rows reach the reader trailing-trimmed, so a draft of spaces leaves
+   nothing on the row; the cursor is the witness. Both readers now strip exactly one separator after the
+   glyph (Claude Code draws a non-breaking space, Codex a space) and treat any further character as text;
+   an empty Claude composer additionally needs the VISIBLE cursor on the prompt row at column 2
+   (`EmptyComposerCursorColumn`), a hidden cursor over a bare prompt is unreadable, and a blank
+   continuation row holding the cursor is text; an empty Codex row needs the cursor at column 2. Two
+   derived fixtures (`claude-idle-whitespace-draft-after-turn` and `-fresh`: the idle captures with the
+   cursor at column 5, which is what three spaces produce) are documented as derived in the fixture
+   README. **The live run confirmed the derivation:** three real spaces gave row `❯` and cursor (27, 5)
+   (`fix-round/run2/02b-whitespace-draft.json`). Red: the whole pre-item reader against the new tests (11
+   tests, both fixtures among them); each rule removed (1 to 5 tests each), including one that was green
+   until a test for an untrimmed whitespace continuation row was added.
+4. **Stuck and its notice are one write** (`079de73d`). `FleetMessageStore.MarkStuckWithNotices` stages the
+   marks and the system notices (judged by the same policy, including the unread-duplicate rule) in one
+   context and saves once under the store lock; `MarkStuckAndNotify` uses it. Guards: a throw between
+   staging and the save (`BeforeStuckSave` seam) persists neither; a notice that cannot be built (the
+   roster read throws) leaves the message open; the sweep after that crash marks and notifies exactly once;
+   the mark and the notice carry the same moment. Red: the slice 2 method restored (2 tests - the crash and
+   the retry); marks saved first (3); the save moved ahead of the failure point (1); notice never staged
+   (5).
+5. **The store enforces the cap and the recipient** (`4fa4d463`). `MarkRung(tenant, rungSession, ids, now,
+   cap)` leaves alone - and logs - a row for another session or one already at the cap. Red: recipient not
+   checked; cap not checked (2); cap off by one (2); recipient spelling not normalised (1); the doorbell
+   recording against the wrong session (16). **Green by design:** the doorbell passing no cap - the
+   schedule never offers a row at the cap, so the store's cap is a second wall only a direct caller can
+   reach, and the store tests cover it.
+6. **The heartbeat is bounded** (`8f8843a7`). One tick: the stuck scan loads only rows at the ring cap; one
+   read (`UnreadForScheduling`) fetches every unread row with its recipient and WITHOUT its text; rings run
+   8 at a time (`RingParallelism`), each abandoned after 5 seconds (`RingTimeout`, also a cancellation);
+   the rings are recorded by `MarkRungMany` in one read and ONE update statement (SQLite otherwise issued
+   one update per row - measured 43 commands for 40 rings before the change); a rung session stays held
+   until its ring is recorded; the tick logs its duration and its attempt counts. Measured with a command
+   counter on the framework's own diagnostic events: 40 recipients, all deferred -> 2 commands; all rung
+   -> 4 commands (3 queries and 1 update). Red: the slice 2 heartbeat restored (4 tests); one ring at a
+   time (1); no effective timeout (1, the tick took 30 seconds); session released before the record (1);
+   stuck scan ignoring its floor (1); text in the scheduling read (1); one update per row (1). **Green by
+   design:** the doorbell not passing the cap as the stuck-scan floor - the schedule's own rule filters the
+   same rows; only the rows loaded change.
+7. **Wire strings pinned** (`c48e865c`). `FleetRingDeferReasons.All` and `IsKnown`; the Gateway refuses an
+   answer whose outcome is not `rung`/`deferred` or whose reason is not in the list (new attempt
+   `InvalidAnswer`, logged, never counted). Literals asserted on the Director's side
+   (`FleetDoorbellExecutorTests`: the body read as text, the command built with the literal `ring`) and on
+   the Gateway's (`FleetDoorbellTests`: answers parsed from literal JSON; the route test asserts the verb
+   the Director receives is `ring`). Red: a reason renamed on both sides at once - the inspector's case (3
+   tests); the verb renamed (4); an outcome renamed (9); a reason missing from the list (2); a
+   case-insensitive check (1); unknown reason or outcome accepted (3 and 1).
+8. **A doorbell does not end a snooze** (`9b2d9dd0`, follow-up `b3d2f8ff`). The Director reports
+   `SessionDto.WorkingOrigin` (`owner`, `agent`, or null) - set at the submission choke point with the
+   same test as `IsOwnerDriven`, cleared when the session settles or exits, carried by
+   `ControlEndpoints.Map`. The Gateway's working edge in `SnoozeLandingObserver` keeps an ARMED snooze
+   when the origin is exactly `agent`, and logs it. The owner-driven half is untouched: an owner turn
+   (`ClearIfSupersededByOwnerTurn`) still runs first, and owner-started work still deletes the snooze.
+   **Follow-up found by writing the live run:** the origin was stamped only after a submit was verified,
+   so a Working push during verification carried no origin and would have ended the snooze. The origin is
+   now set before a send (put back if it fails) and, for the doorbell, immediately before its Enter. Red:
+   the edge exemption removed (4 tests); any origin sparing the snooze (4); unexplained work sparing it
+   (6); a loose comparison (2); the owner-turn edge skipped for agent work (1); every submission reported
+   as the owner's (4); voice-as-framework reported as agent (3); origin never cleared (5); the push
+   dropping the field (1); origin set after the submit (1); a failed send keeping it (1); the doorbell hook
+   never called, called after Enter, or called before the echo (1, 1, 2). Host-level test on the real
+   Gateway (`SnoozeEndToEndTests`) and live run 4, both green.
+9. **The ring respects the dictation lock** (`b7628d01`). `FleetDoorbell` takes `dictationInFlight`; the host
+   wires it to a running transcription, the phone's Speak mark, or a PENDING dictation record. In flight
+   -> the Gateway defers with reason `dictation` (`DeferredDictation`) and asks no Director. Guards with a
+   fake lock (defers, rings once the lock ends, another session's dictation does not hold this one, 30
+   minutes of lock moves nothing towards stuck) and one route test through the real host with the Speak
+   mark. Red: lock not consulted (2); consulted for the wrong session (3); counted as a ring (3); the host
+   not wiring the Speak mark (1); the literal renamed (3).
+
+Also committed (`07953d0d`): the live proof reads real frames with the cursor (its composer check used a
+fake cursor that item 3 now rejects), run 2 gained the whitespace step, and run 4 (snooze) is new.
+
+### DECISION FOR THE ARCHITECT - item 8 against the owner's written law
+
+`docs/new_architecture/sessions.html` records the owner's rules of 14 July 2026, restored 17 July: "Working
+knocks a session out of snooze. Always."; "It does not matter WHO woke the terminal - any activity ends the
+snooze."; "Do not weaken rule 1". The 17 July text names another agent's fleet message as exactly the case
+that must end a snooze. Ruling 8 reverses that for agent-origin work. It was implemented as ruled, because
+the Architect ruled it knowing the conflict, and **in its narrowest reading**: only work the Director
+attributes to an agent or product SEND keeps the snooze. Work no submission explains (the agent starting
+on its own, a repaint, an older Director) still ends it, as the law says. The ruling's literal words ("ends
+an armed snooze only on an owner-driven edge") would also spare that case; switching is one condition in
+`SnoozeLandingObserver.Observe` and the test `Work_no_submission_explains_still_ends_an_armed_snooze`.
+`sessions.html` was NOT edited: it is the owner's law and the words are slice 5. **Recommendation:** put the
+exception to the owner in one sentence before this merges, and update the law in `sessions.html` with his
+answer.
+
+### Judgement calls for inspection 5
+
+1. An empty composer after an unverified submit is `not-submitted` rather than `composer-holds-text` (the
+   ruling names only "exactly the line" and "anything else"); neither is counted.
+2. The verification witness is the screen alone. Byte growth is no longer used for the doorbell.
+3. An erase is one Backspace per character, 5 milliseconds apart, re-read up to 10 times.
+4. An exit seen at the last look is reported as `exited`, not `working`.
+5. The dictation lock includes the PENDING record, which never expires by design; a dictation that never
+   completes holds the doorbell until it is delivered or abandoned (the messages wait; nothing goes stuck).
+6. A ring answered after the 5-second timeout is not counted; if the line was typed, the next ring may type
+   a second one (ruling 8 calls that harmless).
+7. A detector flicker to a settled state in the middle of a doorbell turn clears the origin; the next
+   working push is then unexplained and ends the snooze - the error falls on the owner's side of the law.
+
+### Live runs (Mac mini, Claude Code 2.1.274, one-minute grace)
+
+All four pass; details in `slice-2-evidence/fix-round/README.md`.
+- **Run 1** (1 minute 34 seconds): mid-turn message, nothing typed during the turn, one doorbell verified from
+  the screen, one ring, all three lines in the agent's record, read.
+- **Run 2** (2 minutes 33 seconds): owner draft held the ring for 50 seconds, untouched; three live spaces
+  held it for 35 more (two `composer-holds-text` deferrals, the frame saved); cleared, rung, read.
+- **Run 3** (4 minutes 58 seconds): three rings at 08:38:20, 08:39:32 and 08:40:32 UTC, each answered with
+  one word and each verified from the screen, three lines on screen, stuck at 08:41:47, notice read by the
+  sender.
+- **Run 4, snooze** (1 minute 43 seconds, second attempt): the armed snooze was kept through the doorbell
+  turn ("kept (ruling 15)" logged 5 times), still armed after it settled, and deleted by the owner's first
+  working push. The first attempt (kept as `run4-snooze-attempt1`) showed the same snooze behaviour, then
+  failed in the proof's own owner prompt. That prompt asked for one word, so the SHARED submit check
+  pressed Enter six more times and threw. This is the pre-existing nudge defect (Architect finding 3), seen
+  live on an owner send. The prompt now asks for a long answer.
+- 15 doorbell submits in all, every one verified; no `not-submitted`, refused or timed-out ring.
+
+### What is NOT proven
+
+- **The erase path and `not-submitted` live.** No live ring went unverified, so erasing a parked line from a
+  real Claude Code composer is proven only on scripted screens. Whether a burst of Backspaces behaves the
+  same in every agent is not known.
+- **Codex live**, as in slice 2. The Codex whitespace and cursor rules are proven on written rows.
+- **The remaining race** (ruling 1's limit) is disclosed, not closed.
+- **PostgreSQL**: `MarkStuckWithNotices`, `MarkRungMany` (its `ExecuteUpdate`) and `UnreadForScheduling`
+  ran on SQLite only. There is no schema change. The command counts are SQLite's.
+- **The hosted Gateway's per-tenant pass** with more than one tenant.
+- **The host wiring of the PENDING-record and running-transcription arms** of the dictation lock. The route
+  test drives the Speak mark only.
+- **The tick's duration log line** is written but no test reads it.
+- **The desktop window and the owner's installed Director**; `scripts/test-local.ps1` (no PowerShell on the
+  Mac). The suites were run directly.
+- **The short-turn nudge defect in the shared submit check** is untouched and was seen live on an owner
+  send (run 4, first attempt).
+
+### Test totals (Mac, this tree, 17 September 2026)
+
+- **Core unit tests**: 555 passed, 0 failed.
+- **Core tests**: 4445 total, 4376 passed, 8 skipped, **61 failed**. That is the known Mac-only count, and
+  every one is a Windows path, process, worktree reaper, lifecycle signal, tool path, link or mutation-pin
+  test that this round does not touch. The list is in `fix-round/full-suite-failures.txt`; the slice 2
+  timing flake did not recur. No new failure.
+- **Gateway unit tests**: 5246 total, 5231 passed, 8 skipped, **7 failed - the same 7 named in slice 1**.
+- **Gateway route tests** (full suite, 35 minutes): 2578 total, 2510 passed, 52 skipped, **16 failed -
+  exactly the 16 named in slice 1**. The 52 skipped include the four live proofs, which run only with
+  their variables set.
+- **cc-devthrottle tests** (scratch environment): 3176 passed, 0 failed. No Python changed.
+- **Live proofs**: 4 of 4 passed (run 4 on its second attempt; see above).
+

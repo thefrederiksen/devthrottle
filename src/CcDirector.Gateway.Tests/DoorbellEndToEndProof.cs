@@ -340,13 +340,16 @@ public sealed class DoorbellEndToEndProof : IAsyncLifetime
         Note($"after the doorbell turn: snoozed={stillSnoozed}, until {_gateway.SnoozeRegistry.SnoozeUntilFor(sid)?.ToString("o") ?? "(none)"}");
         Assert.True(stillSnoozed, "the doorbell turn ended the owner's snooze");
 
-        // The owner types a prompt: the snooze is over.
-        await Owner(worker, "Write the single word BACK and nothing else.");
+        // The owner types a prompt: the snooze is over. The answer is long on purpose: an owner send goes through
+        // the shared submit check, which calls a submit proven only after 2,048 bytes of output and presses Enter
+        // again on every quiet beat until then (the pre-existing short-turn blind spot the Architect filed
+        // separately). The first attempt of this run asked for one word, and that check threw.
+        await Owner(worker, "Write the numbers from 1 to 120 as English words, one per line, then a last line saying BACK.");
         Note($"owner typed; worker working origin '{worker.WorkingOrigin}', owner turn {worker.LastOwnerTurnAtUtc:o}");
         await WaitUntil(() => !_gateway.SnoozeRegistry.Contains(sid), TimeSpan.FromSeconds(30), "the owner's turn to end the snooze");
         Note("snooze ended by the owner's turn");
         await WaitOn(worker, () => Screen(worker).Contains("BACK") && !Screen(worker).Contains(DoorbellSafetyMarker),
-            TimeSpan.FromMinutes(2), "the owner's turn to end");
+            TimeSpan.FromMinutes(3), "the owner's turn to end");
         Capture(dir, "02-after-the-owner-typed", worker);
         var logs = ReadLog().Where(l => l.Contains("[SnoozeLandingObserver]") || l.Contains("[SnoozeRegistry]")).ToList();
         File.WriteAllLines(Path.Combine(dir, "snooze-log-lines.txt"), logs);

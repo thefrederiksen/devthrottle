@@ -1,0 +1,43 @@
+# 01-worker-mid-turn-before-send - session 7cd43026-1210-4ad7-b57f-b83ada0a214a (Proof - Worker) at 2026-09-17T08:36:31.8068810Z
+# director activity state: Working
+# visible screen rows:
+|  thirty-three
+|  thirty-four
+|  thirty-five
+|  thirty-six
+|  thirty-seven
+|  thirty-eight
+|  thirty-nine
+|  forty
+|  forty-one
+|  forty-two
+|  forty-three
+|  forty-four
+|  forty-five
+|  forty-six
+|  forty-seven
+|  forty-eight
+|  forty-nine
+|  fifty
+|  fifty-one
+|  fifty-two
+|  fifty-three
+|  fifty-four
+|  fifty-five
+|  fifty-six
+|  fifty-seven
+|
+|────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+|❯
+|────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+|  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt · ← for agents
+|
+|
+|
+|
+|
+|
+|
+|
+|
+|
