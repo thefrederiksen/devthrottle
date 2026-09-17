@@ -137,7 +137,7 @@ Run on this branch after merging `origin/mission/dev-reports-p3` at d94e3bd8b (m
 4be0f5aee). The rig was rebuilt from that tree (every component reports version `2.4.0+e29932676`), and torn down
 afterwards: no process runs from the rig root, both rig tasks are unregistered, nothing listens on 7931 or 7941.
 
-- `rig-frame-e2e-2026-09-17.json`: **33 passed, 1 failed.** R1-R5, F1-F8 in both apps and E1-E8 pass. **E9 fails,
+- `rig-frame-e2e-2026-09-17-before-e9-fix.json`: **33 passed, 1 failed.** R1-R5, F1-F8 in both apps and E1-E8 pass. **E9 fails,
   a product defect** (reported to the phase 3 Manager, not fixed here): the Cockpit, as a second browser, numbers
   its notes from `n1` again; the phone already delivered `n1`, so the Gateway treats the Cockpit's first note as
   that one, never holds its text, and the in-report tray lists it under Sent as "Delivered to the session". The
@@ -146,3 +146,19 @@ afterwards: no process runs from the rig root, both rig tasks are unregistered, 
   red went red in both the phone app and the Cockpit, and each removal matched in both bundles.
 - The earlier run on the viewer branch alone is kept in `evidence/dry-run-viewer-4be0f5aee/`; it shows the same
   results, including the same E9 failure.
+
+## Results after the E9 fix (2026-09-17)
+
+Two fixes: the note script makes every item id random (`n-` or `a-` and 32 hex digits from
+`crypto.getRandomValues`) instead of a per-page counter, and the Gateway refuses an id it already holds with
+different content instead of answering with the stored item's state. The rig was rebuilt from this branch at
+fa7f09d16 (every component and both shells report that commit) and torn down afterwards the same way.
+
+- `rig-frame-e2e-2026-09-17.json`: **34 passed, 0 failed.** E9 now also fails if any id the Cockpit posts names a
+  different item the Gateway holds; the posted ids were `n-9dffe708...` and `n-7de3f19d...`, none collided, and
+  both notes stayed queued with "This session has ended".
+- **What this run does not show:** the session had ended by E9, so the Cockpit's notes were refused for that
+  reason and the Gateway's new collision refusal was never reached end to end. That refusal is proven by the
+  Gateway unit tests `SendAsync_SameIdDifferentContent_IsRefusedNotReadAsTheStoredItem` and
+  `SendAsync_SameAnswerIdDifferentOption_IsRefusedAndTheStoredAnswerStands`, which go red with the refusal removed.
+- The guard-removal runs were not repeated: neither fix touches the frame host they exercise.

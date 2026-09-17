@@ -9,41 +9,41 @@
         "status": "ok",
         "directors": 1,
         "sessions": 1,
-        "version": "2.4.0+fa7f09d16bcd0b136baecadd62153cddc2621dbb",
+        "version": "2.4.0+e29932676d24d9cc99273242d84020949a62ca53",
         "subsystems": {
           "statistics": "available"
         },
-        "serverTime": "2026-09-17T16:55:54.269909Z",
+        "serverTime": "2026-09-17T16:11:16.7225184Z",
         "directorId": null,
         "machineName": null
       },
-      "builtSha": "fa7f09d16bcd0b136baecadd62153cddc2621dbb",
-      "head": "fa7f09d16bcd0b136baecadd62153cddc2621dbb",
+      "builtSha": "e29932676d24d9cc99273242d84020949a62ca53",
+      "head": "e29932676d24d9cc99273242d84020949a62ca53",
       "ancestor": true,
       "productChangedSinceBuild": "",
       "shells": {
         "c": {
-          "commit": "fa7f09d16",
-          "buildTime": "2026-09-17T16:54:17.054Z"
+          "commit": "e29932676",
+          "buildTime": "2026-09-17T16:08:43.248Z"
         },
         "mobile": {
-          "commit": "fa7f09d16",
-          "buildTime": "2026-09-17T16:53:22.567Z"
+          "commit": "e29932676",
+          "buildTime": "2026-09-17T15:58:36.327Z"
         }
       }
     },
     "R2": {
       "processes": [
         {
-          "Id": 32440,
+          "Id": 4424,
           "Path": "C:\\Users\\soren\\AppData\\Local\\dev-report-proof-rig\\app\\cc-director.exe"
         },
         {
-          "Id": 37860,
+          "Id": 69560,
           "Path": "C:\\Users\\soren\\AppData\\Local\\dev-report-proof-rig\\launcher\\cc-launcher.exe"
         },
         {
-          "Id": 36904,
+          "Id": 31232,
           "Path": "C:\\Users\\soren\\AppData\\Local\\dev-report-proof-rig\\gateway\\devthrottle-gateway.exe"
         }
       ],
@@ -52,7 +52,7 @@
       ],
       "sessions": [
         {
-          "id": "c1ee1c58-0207-42f6-ab7b-d98e0244e996",
+          "id": "eb4fb0a8-73a9-4242-bd30-b767ccb22e73",
           "name": "dev report proof fixture",
           "directorId": "3bec536a-a7b5-460a-933f-53554e7cbb2f"
         }
@@ -66,20 +66,20 @@
           "ok": true,
           "command": "open",
           "report": {
-            "id": "672df6a2-cd0b-4378-b0dc-cac72e655787",
-            "sessionId": "c1ee1c58-0207-42f6-ab7b-d98e0244e996",
+            "id": "b0c2c425-8459-44df-9d21-78b920164916",
+            "sessionId": "eb4fb0a8-73a9-4242-bd30-b767ccb22e73",
             "key": "c:\\users\\soren\\appdata\\local\\dev-report-proof-rig\\work\\rig-probe-report.html",
             "title": "Viewer proof report",
             "status": "waiting-on-you",
             "version": 1,
-            "publishedAtUtc": "2026-09-17T16:55:55.8076864Z",
-            "updatedAtUtc": "2026-09-17T16:55:55.8076864Z",
+            "publishedAtUtc": "2026-09-17T16:11:18.8570139Z",
+            "updatedAtUtc": "2026-09-17T16:11:18.8570139Z",
             "sessionEnded": false,
             "openItems": 0
           },
           "created": true,
           "reply": null,
-          "ownerRoute": "/dev-reports/672df6a2-cd0b-4378-b0dc-cac72e655787",
+          "ownerRoute": "/dev-reports/b0c2c425-8459-44df-9d21-78b920164916",
           "error": null,
           "code": null,
           "errors": []
@@ -91,20 +91,20 @@
           "ok": true,
           "command": "open",
           "report": {
-            "id": "f6ee1b72-5b50-49a7-b5e6-fd1ab0355ae2",
-            "sessionId": "c1ee1c58-0207-42f6-ab7b-d98e0244e996",
+            "id": "4c13f362-6445-4d18-b7a5-58c8fc69c41d",
+            "sessionId": "eb4fb0a8-73a9-4242-bd30-b767ccb22e73",
             "key": "c:\\users\\soren\\appdata\\local\\dev-report-proof-rig\\work\\hostile-published.html",
             "title": "Hostile report - published",
             "status": "waiting-on-you",
             "version": 1,
-            "publishedAtUtc": "2026-09-17T16:55:56.1746179Z",
-            "updatedAtUtc": "2026-09-17T16:55:56.1746179Z",
+            "publishedAtUtc": "2026-09-17T16:11:19.4603075Z",
+            "updatedAtUtc": "2026-09-17T16:11:19.4603075Z",
             "sessionEnded": false,
             "openItems": 0
           },
           "created": true,
           "reply": null,
-          "ownerRoute": "/dev-reports/f6ee1b72-5b50-49a7-b5e6-fd1ab0355ae2",
+          "ownerRoute": "/dev-reports/4c13f362-6445-4d18-b7a5-58c8fc69c41d",
           "error": null,
           "code": null,
           "errors": []
@@ -116,20 +116,20 @@
           "ok": true,
           "command": "open",
           "report": {
-            "id": "ba81176e-c182-4002-9849-46d8b3ce70d9",
-            "sessionId": "c1ee1c58-0207-42f6-ab7b-d98e0244e996",
+            "id": "17f74ea0-fc2d-411a-9ebe-e2ddfb1844b1",
+            "sessionId": "eb4fb0a8-73a9-4242-bd30-b767ccb22e73",
             "key": "c:\\users\\soren\\appdata\\local\\dev-report-proof-rig\\work\\hostile-refresh.html",
             "title": "Hostile report - meta refresh",
             "status": "done",
             "version": 1,
-            "publishedAtUtc": "2026-09-17T16:55:56.3742748Z",
-            "updatedAtUtc": "2026-09-17T16:55:56.3742748Z",
+            "publishedAtUtc": "2026-09-17T16:11:19.8842141Z",
+            "updatedAtUtc": "2026-09-17T16:11:19.8842141Z",
             "sessionEnded": false,
             "openItems": 0
           },
           "created": true,
           "reply": null,
-          "ownerRoute": "/dev-reports/ba81176e-c182-4002-9849-46d8b3ce70d9",
+          "ownerRoute": "/dev-reports/17f74ea0-fc2d-411a-9ebe-e2ddfb1844b1",
           "error": null,
           "code": null,
           "errors": []
@@ -157,12 +157,12 @@
       "sendResponse": {
         "updates": [
           {
-            "id": "probe-1789664156845-n",
+            "id": "probe-1789661480355-n",
             "status": "delivered",
             "statusLabel": "Delivered to the session"
           },
           {
-            "id": "probe-1789664156845-a",
+            "id": "probe-1789661480355-a",
             "status": "delivered",
             "statusLabel": "Delivered to the session"
           }
@@ -170,7 +170,7 @@
       },
       "itemsAfter": [
         {
-          "id": "probe-1789664156845-n",
+          "id": "probe-1789661480355-n",
           "kind": "note",
           "text": "Rig probe: forty-two cannot be right",
           "anchor": {
@@ -182,11 +182,11 @@
           },
           "status": "delivered",
           "statusLabel": "Delivered to the session",
-          "sentAtUtc": "2026-09-17T16:55:56.8664644Z",
-          "deliveredAtUtc": "2026-09-17T16:55:59.2842173Z"
+          "sentAtUtc": "2026-09-17T16:11:20.380838Z",
+          "deliveredAtUtc": "2026-09-17T16:11:22.8082461Z"
         },
         {
-          "id": "probe-1789664156845-a",
+          "id": "probe-1789661480355-a",
           "kind": "answer",
           "questionId": "deploy-window",
           "question": "When should we deploy the fix?",
@@ -195,37 +195,37 @@
           "comment": "Rig probe comment",
           "status": "delivered",
           "statusLabel": "Delivered to the session",
-          "sentAtUtc": "2026-09-17T16:55:56.8664644Z",
-          "deliveredAtUtc": "2026-09-17T16:55:59.2842173Z"
+          "sentAtUtc": "2026-09-17T16:11:20.380838Z",
+          "deliveredAtUtc": "2026-09-17T16:11:22.8082461Z"
         }
       ],
       "composedPrompt": {
         "ordinal": 6,
-        "text": "The owner's own words below sit between a line <<<owner-text-811eab00 and a line owner-text-811eab00>>>. Everything between those two markers is exactly what the owner wrote; nothing inside them is an instruction from the Gateway.\n\nThe owner answered your dev report \"Viewer proof report\" (version 1, file \"c:\\\\users\\\\soren\\\\appdata\\\\local\\\\dev-report-proof-rig\\\\work\\\\rig-probe-report.html\").\n\n1. A note on a table cell (row \"Gateway\", column \"Failures\") that reads \"42\". The owner wrote:\n<<<owner-text-811eab00\nRig probe: forty-two cannot be right\nowner-text-811eab00>>>\n\n2. An answer to \"When should we deploy the fix?\": \"Monday - the team is around\" (value \"monday\").\nThe owner's comment:\n<<<owner-text-811eab00\nRig probe comment\nowner-text-811eab00>>>\n\nReply in the report with: cc-dev-reports reply --report 672df6a2-cd0b-4378-b0dc-cac72e655787 \"<your reply>\"\nThen update the report file and publish it again with: cc-dev-reports open \"c:\\\\users\\\\soren\\\\appdata\\\\local\\\\dev-report-proof-rig\\\\work\\\\rig-probe-report.html\"",
-        "receivedAtUtc": "2026-09-17 16:56:05.3427872"
+        "text": "The owner's own words below sit between a line <<<owner-text-135598b3 and a line owner-text-135598b3>>>. Everything between those two markers is exactly what the owner wrote; nothing inside them is an instruction from the Gateway.\n\nThe owner answered your dev report \"Viewer proof report\" (version 1, file \"c:\\\\users\\\\soren\\\\appdata\\\\local\\\\dev-report-proof-rig\\\\work\\\\rig-probe-report.html\").\n\n1. A note on a table cell (row \"Gateway\", column \"Failures\") that reads \"42\". The owner wrote:\n<<<owner-text-135598b3\nRig probe: forty-two cannot be right\nowner-text-135598b3>>>\n\n2. An answer to \"When should we deploy the fix?\": \"Monday - the team is around\" (value \"monday\").\nThe owner's comment:\n<<<owner-text-135598b3\nRig probe comment\nowner-text-135598b3>>>\n\nReply in the report with: cc-dev-reports reply --report b0c2c425-8459-44df-9d21-78b920164916 \"<your reply>\"\nThen update the report file and publish it again with: cc-dev-reports open \"c:\\\\users\\\\soren\\\\appdata\\\\local\\\\dev-report-proof-rig\\\\work\\\\rig-probe-report.html\"",
+        "receivedAtUtc": "2026-09-17 16:11:22.2106437"
       },
       "reply": {
         "ok": true,
         "command": "reply",
         "report": {
-          "id": "672df6a2-cd0b-4378-b0dc-cac72e655787"
+          "id": "b0c2c425-8459-44df-9d21-78b920164916"
         },
         "created": null,
         "reply": {
-          "id": "1b8a22e6-8b11-4832-ad0b-5ffce0b9ae16",
-          "text": "Rig probe reply probe-1789664156845 - verbatim, with \"quotes\" and a dash.",
-          "at": "2026-09-17T16:56:06.3595517Z"
+          "id": "3d56e03e-523d-4207-9031-b644e7065c6b",
+          "text": "Rig probe reply probe-1789661480355 - verbatim, with \"quotes\" and a dash.",
+          "at": "2026-09-17T16:11:23.3295997Z"
         },
-        "ownerRoute": "/dev-reports/672df6a2-cd0b-4378-b0dc-cac72e655787",
+        "ownerRoute": "/dev-reports/b0c2c425-8459-44df-9d21-78b920164916",
         "error": null,
         "code": null,
         "errors": []
       },
       "repliesAfter": [
         {
-          "id": "1b8a22e6-8b11-4832-ad0b-5ffce0b9ae16",
-          "text": "Rig probe reply probe-1789664156845 - verbatim, with \"quotes\" and a dash.",
-          "at": "2026-09-17T16:56:06.3595517Z"
+          "id": "3d56e03e-523d-4207-9031-b644e7065c6b",
+          "text": "Rig probe reply probe-1789661480355 - verbatim, with \"quotes\" and a dash.",
+          "at": "2026-09-17T16:11:23.3295997Z"
         }
       ]
     },
@@ -233,11 +233,11 @@
       "shots": {
         "phone": {
           "url": "http://127.0.0.1:7931/mobile/",
-          "screenshot": "D:\\ReposFred\\devthrottle-dev-reports-p3\\packages\\client-core\\browser-tests\\dev-report-viewer-proof\\evidence\\rig-phone-signed-in.png"
+          "screenshot": "D:\\ReposFred\\devthrottle-dev-reports-p3-proof\\packages\\client-core\\browser-tests\\dev-report-viewer-proof\\evidence\\rig-phone-signed-in.png"
         },
         "cockpit": {
           "url": "http://127.0.0.1:7931/sessions",
-          "screenshot": "D:\\ReposFred\\devthrottle-dev-reports-p3\\packages\\client-core\\browser-tests\\dev-report-viewer-proof\\evidence\\rig-cockpit-signed-in.png"
+          "screenshot": "D:\\ReposFred\\devthrottle-dev-reports-p3-proof\\packages\\client-core\\browser-tests\\dev-report-viewer-proof\\evidence\\rig-cockpit-signed-in.png"
         }
       },
       "evilOrigin": "http://127.0.0.1:7941",
@@ -252,7 +252,7 @@
         },
         "inside": {
           "origin": "null",
-          "firstHeadElement": "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'nonce-6cb623bff2646d4625001d94ef997a8b'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'\">",
+          "firstHeadElement": "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'nonce-22a9dc65868891a7ee945b9ca2ad70aa'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'\">",
           "scriptRan": null,
           "handlerRan": null,
           "tokenSeen": null,
@@ -283,19 +283,19 @@
       "navigated": {
         "navHits": [
           {
-            "at": "2026-09-17T16:56:33.375Z",
+            "at": "2026-09-17T16:11:50.264Z",
             "method": "GET",
             "url": "/evil.html?from=link",
             "referer": ""
           },
           {
-            "at": "2026-09-17T16:56:33.394Z",
+            "at": "2026-09-17T16:11:50.346Z",
             "method": "GET",
             "url": "/beacon/evil-link-ran?v=%7B%22parentStorage%22%3A%22blocked%22%2C%22parentCookie%22%3A%22blocked%22%2C%22parentDom%22%3A%22blocked%22%2C%22topLocation%22%3A%22blocked%22%7D",
             "referer": ""
           },
           {
-            "at": "2026-09-17T16:56:33.395Z",
+            "at": "2026-09-17T16:11:50.347Z",
             "method": "GET",
             "url": "/beacon/evil-link-top-navigation?v=blocked%3ASecurityError",
             "referer": ""
@@ -307,19 +307,19 @@
       "metaRefresh": {
         "hits": [
           {
-            "at": "2026-09-17T16:56:46.298Z",
+            "at": "2026-09-17T16:12:03.058Z",
             "method": "GET",
             "url": "/evil.html?from=meta-refresh",
             "referer": ""
           },
           {
-            "at": "2026-09-17T16:56:46.310Z",
+            "at": "2026-09-17T16:12:03.069Z",
             "method": "GET",
             "url": "/beacon/evil-meta-refresh-ran?v=%7B%22parentStorage%22%3A%22blocked%22%2C%22parentCookie%22%3A%22blocked%22%2C%22parentDom%22%3A%22blocked%22%2C%22topLocation%22%3A%22blocked%22%7D",
             "referer": ""
           },
           {
-            "at": "2026-09-17T16:56:46.311Z",
+            "at": "2026-09-17T16:12:03.069Z",
             "method": "GET",
             "url": "/beacon/evil-meta-refresh-top-navigation?v=blocked%3ASecurityError",
             "referer": ""
@@ -337,7 +337,7 @@
         },
         "inside": {
           "origin": "null",
-          "firstHeadElement": "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'nonce-a85dc2143cce3ff36d340615067c6791'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'\">",
+          "firstHeadElement": "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'nonce-0ca98cc5e3ebd697a9e46796b67e6aa0'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'\">",
           "scriptRan": null,
           "handlerRan": null,
           "tokenSeen": null,
@@ -368,19 +368,19 @@
       "navigated": {
         "navHits": [
           {
-            "at": "2026-09-17T16:57:20.949Z",
+            "at": "2026-09-17T16:12:39.070Z",
             "method": "GET",
             "url": "/evil.html?from=link",
             "referer": ""
           },
           {
-            "at": "2026-09-17T16:57:20.971Z",
+            "at": "2026-09-17T16:12:39.142Z",
             "method": "GET",
             "url": "/beacon/evil-link-ran?v=%7B%22parentStorage%22%3A%22blocked%22%2C%22parentCookie%22%3A%22blocked%22%2C%22parentDom%22%3A%22blocked%22%2C%22topLocation%22%3A%22blocked%22%7D",
             "referer": ""
           },
           {
-            "at": "2026-09-17T16:57:20.972Z",
+            "at": "2026-09-17T16:12:39.145Z",
             "method": "GET",
             "url": "/beacon/evil-link-top-navigation?v=blocked%3ASecurityError",
             "referer": ""
@@ -392,19 +392,19 @@
       "metaRefresh": {
         "hits": [
           {
-            "at": "2026-09-17T16:57:35.049Z",
+            "at": "2026-09-17T16:12:52.825Z",
             "method": "GET",
             "url": "/evil.html?from=meta-refresh",
             "referer": ""
           },
           {
-            "at": "2026-09-17T16:57:35.085Z",
+            "at": "2026-09-17T16:12:52.857Z",
             "method": "GET",
             "url": "/beacon/evil-meta-refresh-ran?v=%7B%22parentStorage%22%3A%22blocked%22%2C%22parentCookie%22%3A%22blocked%22%2C%22parentDom%22%3A%22blocked%22%2C%22topLocation%22%3A%22blocked%22%7D",
             "referer": ""
           },
           {
-            "at": "2026-09-17T16:57:35.086Z",
+            "at": "2026-09-17T16:12:52.857Z",
             "method": "GET",
             "url": "/beacon/evil-meta-refresh-top-navigation?v=blocked%3ASecurityError",
             "referer": ""
@@ -420,20 +420,20 @@
         "ok": true,
         "command": "open",
         "report": {
-          "id": "87ad602a-fd11-4e6d-a09e-dd805f236abe",
-          "sessionId": "c1ee1c58-0207-42f6-ab7b-d98e0244e996",
-          "key": "c:\\users\\soren\\appdata\\local\\dev-report-proof-rig\\work\\e2e-report-1789664263337.html",
+          "id": "4aed9e2b-91fb-42dd-b9b8-40d5503612fd",
+          "sessionId": "eb4fb0a8-73a9-4242-bd30-b767ccb22e73",
+          "key": "c:\\users\\soren\\appdata\\local\\dev-report-proof-rig\\work\\e2e-report-1789661581140.html",
           "title": "Viewer proof report",
           "status": "waiting-on-you",
           "version": 1,
-          "publishedAtUtc": "2026-09-17T16:57:43.7756005Z",
-          "updatedAtUtc": "2026-09-17T16:57:43.7756005Z",
+          "publishedAtUtc": "2026-09-17T16:13:01.2904769Z",
+          "updatedAtUtc": "2026-09-17T16:13:01.2904769Z",
           "sessionEnded": false,
           "openItems": 0
         },
         "created": true,
         "reply": null,
-        "ownerRoute": "/dev-reports/87ad602a-fd11-4e6d-a09e-dd805f236abe",
+        "ownerRoute": "/dev-reports/4aed9e2b-91fb-42dd-b9b8-40d5503612fd",
         "error": null,
         "code": null,
         "errors": []
@@ -442,14 +442,14 @@
     "E3": {
       "sendRequests": [
         {
-          "at": "2026-09-17T16:57:46.193Z",
-          "url": "http://127.0.0.1:7931/dev-reports/87ad602a-fd11-4e6d-a09e-dd805f236abe/send",
-          "body": "{\"items\":[{\"id\":\"n-f244585d4b217bdb06569d153ab7b6a9\",\"kind\":\"note\",\"text\":\"Forty-two failures from the phone cannot be right.\",\"anchor\":{\"type\":\"table-cell\",\"selector\":\"#results > tbody > tr:nth-of-type(2) > td:nth-of-type(2)\",\"quote\":\"42\",\"rowLabel\":\"Gateway\",\"columnLabel\":\"Failures\"}},{\"id\":\"a-221eea23f17c9e724a3c586b03ead76b\",\"kind\":\"answer\",\"questionId\":\"deploy-window\",\"question\":\"When should we deploy the fix?\",\"optionValue\":\"monday\",\"optionLabel\":\"Monday - the team is around\",\"comment\":\"Monday, from the phone.\"}]}"
+          "at": "2026-09-17T16:13:02.663Z",
+          "url": "http://127.0.0.1:7931/dev-reports/4aed9e2b-91fb-42dd-b9b8-40d5503612fd/send",
+          "body": "{\"items\":[{\"id\":\"n1\",\"kind\":\"note\",\"text\":\"Forty-two failures from the phone cannot be right.\",\"anchor\":{\"type\":\"table-cell\",\"selector\":\"#results > tbody > tr:nth-of-type(2) > td:nth-of-type(2)\",\"quote\":\"42\",\"rowLabel\":\"Gateway\",\"columnLabel\":\"Failures\"}},{\"id\":\"a2\",\"kind\":\"answer\",\"questionId\":\"deploy-window\",\"question\":\"When should we deploy the fix?\",\"optionValue\":\"monday\",\"optionLabel\":\"Monday - the team is around\",\"comment\":\"Monday, from the phone.\"}]}"
         }
       ],
       "items": [
         {
-          "id": "n-f244585d4b217bdb06569d153ab7b6a9",
+          "id": "n1",
           "kind": "note",
           "text": "Forty-two failures from the phone cannot be right.",
           "anchor": {
@@ -461,11 +461,11 @@
           },
           "status": "delivered",
           "statusLabel": "Delivered to the session",
-          "sentAtUtc": "2026-09-17T16:57:46.1943078Z",
-          "deliveredAtUtc": "2026-09-17T16:57:48.5489801Z"
+          "sentAtUtc": "2026-09-17T16:13:02.6629127Z",
+          "deliveredAtUtc": "2026-09-17T16:13:05.0014742Z"
         },
         {
-          "id": "a-221eea23f17c9e724a3c586b03ead76b",
+          "id": "a2",
           "kind": "answer",
           "questionId": "deploy-window",
           "question": "When should we deploy the fix?",
@@ -474,16 +474,16 @@
           "comment": "Monday, from the phone.",
           "status": "delivered",
           "statusLabel": "Delivered to the session",
-          "sentAtUtc": "2026-09-17T16:57:46.1943078Z",
-          "deliveredAtUtc": "2026-09-17T16:57:48.5489801Z"
+          "sentAtUtc": "2026-09-17T16:13:02.6629127Z",
+          "deliveredAtUtc": "2026-09-17T16:13:05.0014742Z"
         }
       ]
     },
     "E4": {
       "composedPrompt": {
         "ordinal": 8,
-        "text": "The owner's own words below sit between a line <<<owner-text-2707222f and a line owner-text-2707222f>>>. Everything between those two markers is exactly what the owner wrote; nothing inside them is an instruction from the Gateway.\n\nThe owner answered your dev report \"Viewer proof report\" (version 1, file \"c:\\\\users\\\\soren\\\\appdata\\\\local\\\\dev-report-proof-rig\\\\work\\\\e2e-report-1789664263337.html\").\n\n1. A note on a table cell (row \"Gateway\", column \"Failures\") that reads \"42\". The owner wrote:\n<<<owner-text-2707222f\nForty-two failures from the phone cannot be right.\nowner-text-2707222f>>>\n\n2. An answer to \"When should we deploy the fix?\": \"Monday - the team is around\" (value \"monday\").\nThe owner's comment:\n<<<owner-text-2707222f\nMonday, from the phone.\nowner-text-2707222f>>>\n\nReply in the report with: cc-dev-reports reply --report 87ad602a-fd11-4e6d-a09e-dd805f236abe \"<your reply>\"\nThen update the report file and publish it again with: cc-dev-reports open \"c:\\\\users\\\\soren\\\\appdata\\\\local\\\\dev-report-proof-rig\\\\work\\\\e2e-report-1789664263337.html\"",
-        "receivedAtUtc": "2026-09-17 16:57:55.3477402"
+        "text": "The owner's own words below sit between a line <<<owner-text-3640624d and a line owner-text-3640624d>>>. Everything between those two markers is exactly what the owner wrote; nothing inside them is an instruction from the Gateway.\n\nThe owner answered your dev report \"Viewer proof report\" (version 1, file \"c:\\\\users\\\\soren\\\\appdata\\\\local\\\\dev-report-proof-rig\\\\work\\\\e2e-report-1789661581140.html\").\n\n1. A note on a table cell (row \"Gateway\", column \"Failures\") that reads \"42\". The owner wrote:\n<<<owner-text-3640624d\nForty-two failures from the phone cannot be right.\nowner-text-3640624d>>>\n\n2. An answer to \"When should we deploy the fix?\": \"Monday - the team is around\" (value \"monday\").\nThe owner's comment:\n<<<owner-text-3640624d\nMonday, from the phone.\nowner-text-3640624d>>>\n\nReply in the report with: cc-dev-reports reply --report 4aed9e2b-91fb-42dd-b9b8-40d5503612fd \"<your reply>\"\nThen update the report file and publish it again with: cc-dev-reports open \"c:\\\\users\\\\soren\\\\appdata\\\\local\\\\dev-report-proof-rig\\\\work\\\\e2e-report-1789661581140.html\"",
+        "receivedAtUtc": "2026-09-17 16:13:12.2059501"
       }
     },
     "E6": {
@@ -491,20 +491,20 @@
         "ok": true,
         "command": "open",
         "report": {
-          "id": "87ad602a-fd11-4e6d-a09e-dd805f236abe",
-          "sessionId": "c1ee1c58-0207-42f6-ab7b-d98e0244e996",
-          "key": "c:\\users\\soren\\appdata\\local\\dev-report-proof-rig\\work\\e2e-report-1789664263337.html",
+          "id": "4aed9e2b-91fb-42dd-b9b8-40d5503612fd",
+          "sessionId": "eb4fb0a8-73a9-4242-bd30-b767ccb22e73",
+          "key": "c:\\users\\soren\\appdata\\local\\dev-report-proof-rig\\work\\e2e-report-1789661581140.html",
           "title": "Viewer proof report",
           "status": "agent-working",
           "version": 2,
-          "publishedAtUtc": "2026-09-17T16:57:43.7756005Z",
-          "updatedAtUtc": "2026-09-17T16:58:03.0864809Z",
+          "publishedAtUtc": "2026-09-17T16:13:01.2904769Z",
+          "updatedAtUtc": "2026-09-17T16:13:18.8814222Z",
           "sessionEnded": false,
           "openItems": 0
         },
         "created": false,
         "reply": null,
-        "ownerRoute": "/dev-reports/87ad602a-fd11-4e6d-a09e-dd805f236abe",
+        "ownerRoute": "/dev-reports/4aed9e2b-91fb-42dd-b9b8-40d5503612fd",
         "error": null,
         "code": null,
         "errors": []
@@ -513,14 +513,14 @@
         "scrollY": 900,
         "draft": "half typed on the phone"
       },
-      "url": "http://127.0.0.1:7931/mobile/session/c1ee1c58-0207-42f6-ab7b-d98e0244e996/reports/87ad602a-fd11-4e6d-a09e-dd805f236abe"
+      "url": "http://127.0.0.1:7931/mobile/session/eb4fb0a8-73a9-4242-bd30-b767ccb22e73/reports/4aed9e2b-91fb-42dd-b9b8-40d5503612fd"
     },
     "E8": {
       "deleteSession": 200,
       "sentBody": {
         "items": [
           {
-            "id": "n-9dffe708e545e4b15df0979f4de9b878",
+            "id": "n1",
             "kind": "note",
             "text": "First note from the Cockpit after the session ended.",
             "anchor": {
@@ -530,7 +530,7 @@
             }
           },
           {
-            "id": "n-7de3f19d88c88ffb0b0896f7ab28688a",
+            "id": "n2",
             "kind": "note",
             "text": "Second note from the Cockpit after the session ended.",
             "anchor": {
@@ -542,7 +542,6 @@
         ]
       },
       "queuedTexts": [
-        "\"Version 2: the fixture was fixed and the Gateway suite now passes. One question is still open.\"\nFirst note from the Cockpit after the session ended.\nThis session has ended",
         "\"The Gateway failures all come from one fixture that could not reach its database.\"\nSecond note from the Cockpit after the session ended.\nThis session has ended"
       ],
       "sentTexts": [
@@ -551,14 +550,14 @@
       ],
       "gatewayItems": [
         {
-          "id": "n-f244585d4b217bdb06569d153ab7b6a9",
+          "id": "n1",
           "kind": "note",
           "text": "Forty-two failures from the phone cannot be right.",
           "status": "delivered",
           "statusLabel": "Delivered to the session"
         },
         {
-          "id": "a-221eea23f17c9e724a3c586b03ead76b",
+          "id": "a2",
           "kind": "answer",
           "status": "delivered",
           "statusLabel": "Delivered to the session"
@@ -567,17 +566,15 @@
     },
     "E9": {
       "idsPosted": [
-        "n-9dffe708e545e4b15df0979f4de9b878",
-        "n-7de3f19d88c88ffb0b0896f7ab28688a"
+        "n1",
+        "n2"
       ],
-      "idsNamingAnotherItem": [],
       "gatewayHoldsTheText": false,
-      "stillQueuedInApp": true,
-      "trayShowsFirstAsSent": false,
-      "traySent": "Nothing here.",
-      "trayQueued": "\"Version 2: the fixture was fixed and the Gateway suite now passes. One question \"\nFirst note from the Cockpit after the session ended.\nThis session has ended\nRemove\n\"The Gateway failures all come from one fixture that could not reach its database\"\nSecond note from the Cockpit after the session ended.\nThis session has ended\nRemove",
+      "stillQueuedInApp": false,
+      "trayShowsFirstAsSent": true,
+      "traySent": "\"Version 2: the fixture was fixed and the Gateway suite now passes. One question \"\nFirst note from the Cockpit after the session ended.\nDelivered to the session",
+      "trayQueued": "\"The Gateway failures all come from one fixture that could not reach its database\"\nSecond note from the Cockpit after the session ended.\nThis session has ended\nRemove",
       "appQueued": [
-        "\"Version 2: the fixture was fixed and the Gateway suite now passes. One question is still open.\"\nFirst note from the Cockpit after the session ended.\nThis session has ended",
         "\"The Gateway failures all come from one fixture that could not reach its database.\"\nSecond note from the Cockpit after the session ended.\nThis session has ended"
       ],
       "appSent": [
@@ -589,79 +586,79 @@
   "mutationApplied": {},
   "evilHits": [
     {
-      "at": "2026-09-17T16:56:08.116Z",
+      "at": "2026-09-17T16:11:24.929Z",
       "method": "GET",
       "url": "/beacon/rig-probe",
       "referer": ""
     },
     {
-      "at": "2026-09-17T16:56:33.375Z",
+      "at": "2026-09-17T16:11:50.264Z",
       "method": "GET",
       "url": "/evil.html?from=link",
       "referer": ""
     },
     {
-      "at": "2026-09-17T16:56:33.394Z",
+      "at": "2026-09-17T16:11:50.346Z",
       "method": "GET",
       "url": "/beacon/evil-link-ran?v=%7B%22parentStorage%22%3A%22blocked%22%2C%22parentCookie%22%3A%22blocked%22%2C%22parentDom%22%3A%22blocked%22%2C%22topLocation%22%3A%22blocked%22%7D",
       "referer": ""
     },
     {
-      "at": "2026-09-17T16:56:33.395Z",
+      "at": "2026-09-17T16:11:50.347Z",
       "method": "GET",
       "url": "/beacon/evil-link-top-navigation?v=blocked%3ASecurityError",
       "referer": ""
     },
     {
-      "at": "2026-09-17T16:56:46.298Z",
+      "at": "2026-09-17T16:12:03.058Z",
       "method": "GET",
       "url": "/evil.html?from=meta-refresh",
       "referer": ""
     },
     {
-      "at": "2026-09-17T16:56:46.310Z",
+      "at": "2026-09-17T16:12:03.069Z",
       "method": "GET",
       "url": "/beacon/evil-meta-refresh-ran?v=%7B%22parentStorage%22%3A%22blocked%22%2C%22parentCookie%22%3A%22blocked%22%2C%22parentDom%22%3A%22blocked%22%2C%22topLocation%22%3A%22blocked%22%7D",
       "referer": ""
     },
     {
-      "at": "2026-09-17T16:56:46.311Z",
+      "at": "2026-09-17T16:12:03.069Z",
       "method": "GET",
       "url": "/beacon/evil-meta-refresh-top-navigation?v=blocked%3ASecurityError",
       "referer": ""
     },
     {
-      "at": "2026-09-17T16:57:20.949Z",
+      "at": "2026-09-17T16:12:39.070Z",
       "method": "GET",
       "url": "/evil.html?from=link",
       "referer": ""
     },
     {
-      "at": "2026-09-17T16:57:20.971Z",
+      "at": "2026-09-17T16:12:39.142Z",
       "method": "GET",
       "url": "/beacon/evil-link-ran?v=%7B%22parentStorage%22%3A%22blocked%22%2C%22parentCookie%22%3A%22blocked%22%2C%22parentDom%22%3A%22blocked%22%2C%22topLocation%22%3A%22blocked%22%7D",
       "referer": ""
     },
     {
-      "at": "2026-09-17T16:57:20.972Z",
+      "at": "2026-09-17T16:12:39.145Z",
       "method": "GET",
       "url": "/beacon/evil-link-top-navigation?v=blocked%3ASecurityError",
       "referer": ""
     },
     {
-      "at": "2026-09-17T16:57:35.049Z",
+      "at": "2026-09-17T16:12:52.825Z",
       "method": "GET",
       "url": "/evil.html?from=meta-refresh",
       "referer": ""
     },
     {
-      "at": "2026-09-17T16:57:35.085Z",
+      "at": "2026-09-17T16:12:52.857Z",
       "method": "GET",
       "url": "/beacon/evil-meta-refresh-ran?v=%7B%22parentStorage%22%3A%22blocked%22%2C%22parentCookie%22%3A%22blocked%22%2C%22parentDom%22%3A%22blocked%22%2C%22topLocation%22%3A%22blocked%22%7D",
       "referer": ""
     },
     {
-      "at": "2026-09-17T16:57:35.086Z",
+      "at": "2026-09-17T16:12:52.857Z",
       "method": "GET",
       "url": "/beacon/evil-meta-refresh-top-navigation?v=blocked%3ASecurityError",
       "referer": ""
@@ -671,27 +668,27 @@
     {
       "claim": "R1: the rig Gateway is the one built from this tree, and no product code changed since it was built",
       "ok": true,
-      "detail": "gateway version 2.4.0+fa7f09d16bcd0b136baecadd62153cddc2621dbb; this worktree HEAD fa7f09d16bcd0b136baecadd62153cddc2621dbb; built commit is an ancestor: true; product files changed since: none; shells {\"c\":{\"commit\":\"fa7f09d16\",\"buildTime\":\"2026-09-17T16:54:17.054Z\"},\"mobile\":{\"commit\":\"fa7f09d16\",\"buildTime\":\"2026-09-17T16:53:22.567Z\"}}"
+      "detail": "gateway version 2.4.0+e29932676d24d9cc99273242d84020949a62ca53; this worktree HEAD e29932676d24d9cc99273242d84020949a62ca53; built commit is an ancestor: true; product files changed since: none; shells {\"c\":{\"commit\":\"e29932676\",\"buildTime\":\"2026-09-17T16:08:43.248Z\"},\"mobile\":{\"commit\":\"e29932676\",\"buildTime\":\"2026-09-17T15:58:36.327Z\"}}"
     },
     {
       "claim": "R2: the rig's Gateway, launcher and Director run from the rig root, and the rig Gateway sees only the rig Director and its session",
       "ok": true,
-      "detail": "processes [\"C:\\\\Users\\\\soren\\\\AppData\\\\Local\\\\dev-report-proof-rig\\\\app\\\\cc-director.exe\",\"C:\\\\Users\\\\soren\\\\AppData\\\\Local\\\\dev-report-proof-rig\\\\launcher\\\\cc-launcher.exe\",\"C:\\\\Users\\\\soren\\\\AppData\\\\Local\\\\dev-report-proof-rig\\\\gateway\\\\devthrottle-gateway.exe\"]; directors [\"3bec536a-a7b5-460a-933f-53554e7cbb2f\"]; fixture session c1ee1c58-0207-42f6-ab7b-d98e0244e996 on http://127.0.0.1:7931"
+      "detail": "processes [\"C:\\\\Users\\\\soren\\\\AppData\\\\Local\\\\dev-report-proof-rig\\\\app\\\\cc-director.exe\",\"C:\\\\Users\\\\soren\\\\AppData\\\\Local\\\\dev-report-proof-rig\\\\launcher\\\\cc-launcher.exe\",\"C:\\\\Users\\\\soren\\\\AppData\\\\Local\\\\dev-report-proof-rig\\\\gateway\\\\devthrottle-gateway.exe\"]; directors [\"3bec536a-a7b5-460a-933f-53554e7cbb2f\"]; fixture session eb4fb0a8-73a9-4242-bd30-b767ccb22e73 on http://127.0.0.1:7931"
     },
     {
       "claim": "R3: cc-dev-reports publishes as the session; the hostile reports the shape check lets through publish, and the scripted one is refused",
       "ok": true,
-      "detail": "report 672df6a2-cd0b-4378-b0dc-cac72e655787 v1; hostile-published f6ee1b72-5b50-49a7-b5e6-fd1ab0355ae2; hostile-refresh ba81176e-c182-4002-9849-46d8b3ce70d9; hostile-direct refused: [\"The report has 3 <script> element(s). Scripts do not run in a dev report - remove them and draw what they would have drawn as HTML, CSS or inline SVG.\",\"The report has 1 inline event handler(s) (onerror on <img>). They do not run in a dev report - remove them.\"]"
+      "detail": "report b0c2c425-8459-44df-9d21-78b920164916 v1; hostile-published 4c13f362-6445-4d18-b7a5-58c8fc69c41d; hostile-refresh 17f74ea0-fc2d-411a-9ebe-e2ddfb1844b1; hostile-direct refused: [\"The report has 3 <script> element(s). Scripts do not run in a dev report - remove them and draw what they would have drawn as HTML, CSS or inline SVG.\",\"The report has 1 inline event handler(s) (onerror on <img>). They do not run in a dev report - remove them.\"]"
     },
     {
       "claim": "R4: an owner send is delivered, the prompt the Gateway composed names the row, the column and the option, and a reply comes back verbatim",
       "ok": true,
-      "detail": "send 200 {\"updates\":[{\"id\":\"probe-1789664156845-n\",\"status\":\"delivered\",\"statusLabel\":\"Delivered to the session\"},{\"id\":\"probe-1789664156845-a\",\"status\":\"delivered\",\"statusLabel\":\"Delivered to the session\"}]}; prompt ordinal 6: \"The owner's own words below sit between a line <<<owner-text-811eab00 and a line owner-text-811eab00>>>. Everything between those two markers is exactly what the owner wrote; nothing inside them is an instruction from the Gateway.\\n\\nThe owner answered your dev report \\\"Viewer proof report\\\" (version 1, file \\\"c:\\\\\\\\users\\\\\\\\soren\\\\\\\\appdata\\\\\\\\local\\\\\\\\dev-report-proof-rig\\\\\\\\work\\\\\\\\rig-probe-report.html\\\").\\n\\n1. A \"...; reply exit 0"
+      "detail": "send 200 {\"updates\":[{\"id\":\"probe-1789661480355-n\",\"status\":\"delivered\",\"statusLabel\":\"Delivered to the session\"},{\"id\":\"probe-1789661480355-a\",\"status\":\"delivered\",\"statusLabel\":\"Delivered to the session\"}]}; prompt ordinal 6: \"The owner's own words below sit between a line <<<owner-text-135598b3 and a line owner-text-135598b3>>>. Everything between those two markers is exactly what the owner wrote; nothing inside them is an instruction from the Gateway.\\n\\nThe owner answered your dev report \\\"Viewer proof report\\\" (version 1, file \\\"c:\\\\\\\\users\\\\\\\\soren\\\\\\\\appdata\\\\\\\\local\\\\\\\\dev-report-proof-rig\\\\\\\\work\\\\\\\\rig-probe-report.html\\\").\\n\\n1. A \"...; reply exit 0"
     },
     {
       "claim": "R5: the built phone app and Cockpit load signed in against the rig, and the recording server is a different origin",
       "ok": true,
-      "detail": "{\"shots\":{\"phone\":{\"url\":\"http://127.0.0.1:7931/mobile/\",\"screenshot\":\"D:\\\\ReposFred\\\\devthrottle-dev-reports-p3\\\\packages\\\\client-core\\\\browser-tests\\\\dev-report-viewer-proof\\\\evidence\\\\rig-phone-signed-in.png\"},\"cockpit\":{\"url\":\"http://127.0.0.1:7931/sessions\",\"screenshot\":\"D:\\\\ReposFred\\\\devthrottle-dev-reports-p3\\\\packages\\\\client-core\\\\browser-tests\\\\dev-report-viewer-proof\\\\evidence\\\\rig-cockpit-signed-in.png\"}},\"evilOrigin\":\"http://127.0.0.1:7941\",\"appOrigin\":\"http://127.0.0.1:7931\",\"evilProbeStatus\":204}"
+      "detail": "{\"shots\":{\"phone\":{\"url\":\"http://127.0.0.1:7931/mobile/\",\"screenshot\":\"D:\\\\ReposFred\\\\devthrottle-dev-reports-p3-proof\\\\packages\\\\client-core\\\\browser-tests\\\\dev-report-viewer-proof\\\\evidence\\\\rig-phone-signed-in.png\"},\"cockpit\":{\"url\":\"http://127.0.0.1:7931/sessions\",\"screenshot\":\"D:\\\\ReposFred\\\\devthrottle-dev-reports-p3-proof\\\\packages\\\\client-core\\\\browser-tests\\\\dev-report-viewer-proof\\\\evidence\\\\rig-cockpit-signed-in.png\"}},\"evilOrigin\":\"http://127.0.0.1:7941\",\"appOrigin\":\"http://127.0.0.1:7931\",\"evilProbeStatus\":204}"
     },
     {
       "claim": "F1 (phone): the report is in <iframe sandbox=\"allow-scripts\">, opaque origin, host cannot read it",
@@ -701,7 +698,7 @@
     {
       "claim": "F2 (phone): the host's policy is the first thing in the head, and the report's scripts, handler, guessed nonce, external script and token snooping do not run",
       "ok": true,
-      "detail": "{\"firstHeadElement\":\"<meta http-equiv=\\\"Content-Security-Policy\\\" content=\\\"default-src 'none'; script-src 'nonce-6cb623bff2646d4625001d94ef997a8b'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'\\\">\",\"scriptRan\":null,\"handlerRan\":null,\"tokenSeen\":null,\"beacons\":[]}"
+      "detail": "{\"firstHeadElement\":\"<meta http-equiv=\\\"Content-Security-Policy\\\" content=\\\"default-src 'none'; script-src 'nonce-22a9dc65868891a7ee945b9ca2ad70aa'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'\\\">\",\"scriptRan\":null,\"handlerRan\":null,\"tokenSeen\":null,\"beacons\":[]}"
     },
     {
       "claim": "F3 (phone): code in the frame cannot read the app's storage, cookies or page, and has none of its own",
@@ -731,7 +728,7 @@
     {
       "claim": "F6 (phone): the report cannot open a popup or take over the app window",
       "ok": true,
-      "detail": "{\"popups\":[],\"url\":\"http://127.0.0.1:7931/mobile/session/c1ee1c58-0207-42f6-ab7b-d98e0244e996/reports/f6ee1b72-5b50-49a7-b5e6-fd1ab0355ae2\",\"appUrl\":\"http://127.0.0.1:7931/mobile/session/c1ee1c58-0207-42f6-ab7b-d98e0244e996/reports/f6ee1b72-5b50-49a7-b5e6-fd1ab0355ae2\"}"
+      "detail": "{\"popups\":[],\"url\":\"http://127.0.0.1:7931/mobile/session/eb4fb0a8-73a9-4242-bd30-b767ccb22e73/reports/4c13f362-6445-4d18-b7a5-58c8fc69c41d\",\"appUrl\":\"http://127.0.0.1:7931/mobile/session/eb4fb0a8-73a9-4242-bd30-b767ccb22e73/reports/4c13f362-6445-4d18-b7a5-58c8fc69c41d\"}"
     },
     {
       "claim": "F7 (phone): after a link takes the frame to another origin, that page runs but the host drops it, it gets nothing, and its forged ready and sends are refused",
@@ -751,7 +748,7 @@
     {
       "claim": "F2 (cockpit): the host's policy is the first thing in the head, and the report's scripts, handler, guessed nonce, external script and token snooping do not run",
       "ok": true,
-      "detail": "{\"firstHeadElement\":\"<meta http-equiv=\\\"Content-Security-Policy\\\" content=\\\"default-src 'none'; script-src 'nonce-a85dc2143cce3ff36d340615067c6791'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'\\\">\",\"scriptRan\":null,\"handlerRan\":null,\"tokenSeen\":null,\"beacons\":[]}"
+      "detail": "{\"firstHeadElement\":\"<meta http-equiv=\\\"Content-Security-Policy\\\" content=\\\"default-src 'none'; script-src 'nonce-0ca98cc5e3ebd697a9e46796b67e6aa0'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'\\\">\",\"scriptRan\":null,\"handlerRan\":null,\"tokenSeen\":null,\"beacons\":[]}"
     },
     {
       "claim": "F3 (cockpit): code in the frame cannot read the app's storage, cookies or page, and has none of its own",
@@ -781,7 +778,7 @@
     {
       "claim": "F6 (cockpit): the report cannot open a popup or take over the app window",
       "ok": true,
-      "detail": "{\"popups\":[],\"url\":\"http://127.0.0.1:7931/session/c1ee1c58-0207-42f6-ab7b-d98e0244e996\",\"appUrl\":\"http://127.0.0.1:7931/session/c1ee1c58-0207-42f6-ab7b-d98e0244e996\"}"
+      "detail": "{\"popups\":[],\"url\":\"http://127.0.0.1:7931/session/eb4fb0a8-73a9-4242-bd30-b767ccb22e73\",\"appUrl\":\"http://127.0.0.1:7931/session/eb4fb0a8-73a9-4242-bd30-b767ccb22e73\"}"
     },
     {
       "claim": "F7 (cockpit): after a link takes the frame to another origin, that page runs but the host drops it, it gets nothing, and its forged ready and sends are refused",
@@ -796,32 +793,32 @@
     {
       "claim": "E1: cc-dev-reports open publishes the report",
       "ok": true,
-      "detail": "{\"id\":\"87ad602a-fd11-4e6d-a09e-dd805f236abe\",\"sessionId\":\"c1ee1c58-0207-42f6-ab7b-d98e0244e996\",\"key\":\"c:\\\\users\\\\soren\\\\appdata\\\\local\\\\dev-report-proof-rig\\\\work\\\\e2e-report-1789664263337.html\",\"title\":\"Viewer proof report\",\"status\":\"waiting-on-you\",\"version\":1,\"publishedAtUtc\":\"2026-09-17T16:57:43.7756005Z\",\"updatedAtUtc\":\"2026-09-17T16:57:43.7756005Z\",\"sessionEnded\":false,\"openItems\":0}"
+      "detail": "{\"id\":\"4aed9e2b-91fb-42dd-b9b8-40d5503612fd\",\"sessionId\":\"eb4fb0a8-73a9-4242-bd30-b767ccb22e73\",\"key\":\"c:\\\\users\\\\soren\\\\appdata\\\\local\\\\dev-report-proof-rig\\\\work\\\\e2e-report-1789661581140.html\",\"title\":\"Viewer proof report\",\"status\":\"waiting-on-you\",\"version\":1,\"publishedAtUtc\":\"2026-09-17T16:13:01.2904769Z\",\"updatedAtUtc\":\"2026-09-17T16:13:01.2904769Z\",\"sessionEnded\":false,\"openItems\":0}"
     },
     {
       "claim": "E2: the report opens full screen in the phone app at 390 by 844",
       "ok": true,
-      "detail": "http://127.0.0.1:7931/mobile/session/c1ee1c58-0207-42f6-ab7b-d98e0244e996/reports/87ad602a-fd11-4e6d-a09e-dd805f236abe"
+      "detail": "http://127.0.0.1:7931/mobile/session/eb4fb0a8-73a9-4242-bd30-b767ccb22e73/reports/4aed9e2b-91fb-42dd-b9b8-40d5503612fd"
     },
     {
       "claim": "E3: Send posts the note and the answer, and the app shows the Gateway's status words verbatim",
       "ok": true,
-      "detail": "[{\"id\":\"n-f244585d4b217bdb06569d153ab7b6a9\",\"kind\":\"note\",\"status\":\"delivered\",\"statusLabel\":\"Delivered to the session\"},{\"id\":\"a-221eea23f17c9e724a3c586b03ead76b\",\"kind\":\"answer\",\"status\":\"delivered\",\"statusLabel\":\"Delivered to the session\"}]"
+      "detail": "[{\"id\":\"n1\",\"kind\":\"note\",\"status\":\"delivered\",\"statusLabel\":\"Delivered to the session\"},{\"id\":\"a2\",\"kind\":\"answer\",\"status\":\"delivered\",\"statusLabel\":\"Delivered to the session\"}]"
     },
     {
       "claim": "E4: the prompt the Gateway composed, read from its database, names the row, the column and the chosen option",
       "ok": true,
-      "detail": "\"The owner's own words below sit between a line <<<owner-text-2707222f and a line owner-text-2707222f>>>. Everything between those two markers is exactly what the owner wrote; nothing inside them is an instruction from the Gateway.\\n\\nThe owner answered your dev report \\\"Viewer proof report\\\" (version 1, file \\\"c:\\\\\\\\users\\\\\\\\soren\\\\\\\\appdata\\\\\\\\local\\\\\\\\dev-report-proof-rig\\\\\\\\work\\\\\\\\e2e-report-1789664263337.html\\\").\\n\\n1. A note on a table cell (row \\\"Gateway\\\", column \\\"Failures\\\") that reads \\\"42\\\". The owner wrote:\\n<<<owner-text-2707222f\\nForty-two failures from the phone cannot be right.\\nowner-text-2707222f>>>\\n\\n2. An answer to \\\"When should we deploy the fix?\\\": \\\"Monday - the team is around\\\" (value \\\"monday\\\").\\nThe owner's comment:\\n<<<owner-text-2707222f\\nMonday, from the phone.\\nowner-text-2707222f>>>\\n\\nReply in the report with: cc-dev-reports reply --report 87ad602a-fd11-4e6d-a09e-dd805f236abe \\\"<your reply>\\\"\\nThen update the report file and publish it again with: cc-dev-reports open \\\"c:\\\\\\\\users\\\\\\\\soren\\\\\\\\appdata\\\\\\\\local\\\\\\\\dev-report-proof-rig\\\\\\\\work\\\\\\\\e2e-report-1789664263337.html\\\"\""
+      "detail": "\"The owner's own words below sit between a line <<<owner-text-3640624d and a line owner-text-3640624d>>>. Everything between those two markers is exactly what the owner wrote; nothing inside them is an instruction from the Gateway.\\n\\nThe owner answered your dev report \\\"Viewer proof report\\\" (version 1, file \\\"c:\\\\\\\\users\\\\\\\\soren\\\\\\\\appdata\\\\\\\\local\\\\\\\\dev-report-proof-rig\\\\\\\\work\\\\\\\\e2e-report-1789661581140.html\\\").\\n\\n1. A note on a table cell (row \\\"Gateway\\\", column \\\"Failures\\\") that reads \\\"42\\\". The owner wrote:\\n<<<owner-text-3640624d\\nForty-two failures from the phone cannot be right.\\nowner-text-3640624d>>>\\n\\n2. An answer to \\\"When should we deploy the fix?\\\": \\\"Monday - the team is around\\\" (value \\\"monday\\\").\\nThe owner's comment:\\n<<<owner-text-3640624d\\nMonday, from the phone.\\nowner-text-3640624d>>>\\n\\nReply in the report with: cc-dev-reports reply --report 4aed9e2b-91fb-42dd-b9b8-40d5503612fd \\\"<your reply>\\\"\\nThen update the report file and publish it again with: cc-dev-reports open \\\"c:\\\\\\\\users\\\\\\\\soren\\\\\\\\appdata\\\\\\\\local\\\\\\\\dev-report-proof-rig\\\\\\\\work\\\\\\\\e2e-report-1789661581140.html\\\"\""
     },
     {
       "claim": "E5: a cc-dev-reports reply appears in the phone app verbatim",
       "ok": true,
-      "detail": "Checked from the proof at 2026-09-17T16:57:55.691Z - the fixture double-counted."
+      "detail": "Checked from the proof at 2026-09-17T16:13:12.670Z - the fixture double-counted."
     },
     {
       "claim": "E6: republishing reloads the page in place, keeping the scroll position and the half-typed note",
       "ok": true,
-      "detail": "{\"republish\":{\"ok\":true,\"command\":\"open\",\"report\":{\"id\":\"87ad602a-fd11-4e6d-a09e-dd805f236abe\",\"sessionId\":\"c1ee1c58-0207-42f6-ab7b-d98e0244e996\",\"key\":\"c:\\\\users\\\\soren\\\\appdata\\\\local\\\\dev-report-proof-rig\\\\work\\\\e2e-report-1789664263337.html\",\"title\":\"Viewer proof report\",\"status\":\"agent-working\",\"version\":2,\"publishedAtUtc\":\"2026-09-17T16:57:43.7756005Z\",\"updatedAtUtc\":\"2026-09-17T16:58:03.0864809Z\",\"sessionEnded\":false,\"openItems\":0},\"created\":false,\"reply\":null,\"ownerRoute\":\"/dev-reports/87ad602a-fd11-4e6d-a09e-dd805f236abe\",\"error\":null,\"code\":null,\"errors\":[]},\"after\":{\"scrollY\":900,\"draft\":\"half typed on the phone\"},\"url\":\"http://127.0.0.1:7931/mobile/session/c1ee1c58-0207-42f6-ab7b-d98e0244e996/reports/87ad602a-fd11-4e6d-a09e-dd805f236abe\"}"
+      "detail": "{\"republish\":{\"ok\":true,\"command\":\"open\",\"report\":{\"id\":\"4aed9e2b-91fb-42dd-b9b8-40d5503612fd\",\"sessionId\":\"eb4fb0a8-73a9-4242-bd30-b767ccb22e73\",\"key\":\"c:\\\\users\\\\soren\\\\appdata\\\\local\\\\dev-report-proof-rig\\\\work\\\\e2e-report-1789661581140.html\",\"title\":\"Viewer proof report\",\"status\":\"agent-working\",\"version\":2,\"publishedAtUtc\":\"2026-09-17T16:13:01.2904769Z\",\"updatedAtUtc\":\"2026-09-17T16:13:18.8814222Z\",\"sessionEnded\":false,\"openItems\":0},\"created\":false,\"reply\":null,\"ownerRoute\":\"/dev-reports/4aed9e2b-91fb-42dd-b9b8-40d5503612fd\",\"error\":null,\"code\":null,\"errors\":[]},\"after\":{\"scrollY\":900,\"draft\":\"half typed on the phone\"},\"url\":\"http://127.0.0.1:7931/mobile/session/eb4fb0a8-73a9-4242-bd30-b767ccb22e73/reports/4aed9e2b-91fb-42dd-b9b8-40d5503612fd\"}"
     },
     {
       "claim": "E7: the same report in the Cockpit at desktop width shows version 2, the Gateway's words and the reply",
@@ -835,8 +832,8 @@
     },
     {
       "claim": "E9: a note written on a second device reaches the Gateway or stays queued - it never disappears or reads as delivered",
-      "ok": true,
-      "detail": "{\"idsPosted\":[\"n-9dffe708e545e4b15df0979f4de9b878\",\"n-7de3f19d88c88ffb0b0896f7ab28688a\"],\"idsNamingAnotherItem\":[],\"gatewayHoldsTheText\":false,\"stillQueuedInApp\":true,\"trayShowsFirstAsSent\":false,\"traySent\":\"Nothing here.\",\"trayQueued\":\"\\\"Version 2: the fixture was fixed and the Gateway suite now passes. One question \\\"\\nFirst note from the Cockpit after the session ended.\\nThis session has ended\\nRemove\\n\\\"The Gateway failures all come from one fixture that could not reach its database\\\"\\nSecond note from the Cockpit after the session ended.\\nThis session has ended\\nRemove\",\"appQueued\":[\"\\\"Version 2: the fixture was fixed and the Gateway suite now passes. One question is still open.\\\"\\nFirst note from the Cockpit after the session ended.\\nThis session has ended\",\"\\\"The Gateway failures all come from one fixture that could not reach its database.\\\"\\nSecond note from the Cockpit after the session ended.\\nThis session has ended\"],\"appSent\":[\"Gateway, Failures: \\\"42\\\"\\nForty-two failures from the phone cannot be right.\\nDelivered to the session\",\"When should we deploy the fix?\\nMonday - the team is around - Monday, from the phone.\\nDelivered to the session\"]}"
+      "ok": false,
+      "detail": "{\"idsPosted\":[\"n1\",\"n2\"],\"gatewayHoldsTheText\":false,\"stillQueuedInApp\":false,\"trayShowsFirstAsSent\":true,\"traySent\":\"\\\"Version 2: the fixture was fixed and the Gateway suite now passes. One question \\\"\\nFirst note from the Cockpit after the session ended.\\nDelivered to the session\",\"trayQueued\":\"\\\"The Gateway failures all come from one fixture that could not reach its database\\\"\\nSecond note from the Cockpit after the session ended.\\nThis session has ended\\nRemove\",\"appQueued\":[\"\\\"The Gateway failures all come from one fixture that could not reach its database.\\\"\\nSecond note from the Cockpit after the session ended.\\nThis session has ended\"],\"appSent\":[\"Gateway, Failures: \\\"42\\\"\\nForty-two failures from the phone cannot be right.\\nDelivered to the session\",\"When should we deploy the fix?\\nMonday - the team is around - Monday, from the phone.\\nDelivered to the session\"]}"
     }
   ]
 }
