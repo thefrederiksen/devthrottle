@@ -225,24 +225,44 @@ describe("svg and element anchors", () => {
 
 describe("the queue", () => {
   const anchor: Anchor = { type: "element", selector: "p", quote: "x" };
+  const RANDOM_NOTE_ID = /^n-[0-9a-f]{32}$/;
+  const RANDOM_ANSWER_ID = /^a-[0-9a-f]{32}$/;
 
   it("keeps queued items in order with unique ids", () => {
     const model = api.createModel();
     model.queueNote(anchor, "first");
     model.queueAnswer({ questionId: "q1", question: "Q?", optionValue: "a", optionLabel: "A", comment: "" });
     model.queueNote(anchor, "second");
-    const ids = model.snapshot().queued.map((i) => i.id);
-    expect(ids).toEqual(["n1", "a2", "n3"]);
+    const queued = model.snapshot().queued;
+    expect(queued.map((i) => i.text ?? i.optionValue)).toEqual(["first", "a", "second"]);
+    expect(queued[0].id).toMatch(RANDOM_NOTE_ID);
+    expect(queued[1].id).toMatch(RANDOM_ANSWER_ID);
+    expect(queued[2].id).toMatch(RANDOM_NOTE_ID);
+    expect(new Set(queued.map((i) => i.id)).size).toBe(3);
+  });
+
+  it("gives a second browser's first note an id the first browser's note does not have", () => {
+    // Phase 3 proof, E9: the phone and the Cockpit each keep their own state for one report. A per-page counter
+    // named both first notes n1, the Gateway took the Cockpit's as the phone's, and the note was lost while
+    // reading as delivered. Each browser here is a fresh model, exactly as each app starts one.
+    const phone = api.createModel();
+    const cockpit = api.createModel();
+    const fromPhone = phone.queueNote(anchor, "from the phone");
+    const fromCockpit = cockpit.queueNote(anchor, "from the Cockpit");
+    expect(fromCockpit.id).not.toBe(fromPhone.id);
+    expect(cockpit.queueAnswer({ questionId: "q1", question: "Q?", optionValue: "a", optionLabel: "A", comment: "" }).id)
+      .not.toBe(phone.queueAnswer({ questionId: "q1", question: "Q?", optionValue: "a", optionLabel: "A", comment: "" }).id);
   });
 
   it("replaces the earlier answer to the same question in place", () => {
     const model = api.createModel();
-    model.queueAnswer({ questionId: "q1", question: "Q?", optionValue: "a", optionLabel: "A", comment: "" });
+    const first = model.queueAnswer({ questionId: "q1", question: "Q?", optionValue: "a", optionLabel: "A", comment: "" });
     model.queueNote(anchor, "note");
     model.queueAnswer({ questionId: "q1", question: "Q?", optionValue: "b", optionLabel: "B", comment: "changed my mind" });
     const queued = model.snapshot().queued;
     expect(queued).toHaveLength(2);
-    expect(queued[0]).toMatchObject({ id: "a1", optionValue: "b", comment: "changed my mind" });
+    expect(queued[0]).toMatchObject({ kind: "answer", optionValue: "b", comment: "changed my mind" });
+    expect(queued[0].id).toBe(first.id);
   });
 
   it("refuses an empty note", () => {
@@ -252,8 +272,8 @@ describe("the queue", () => {
   it("keeps sent items in the queue until the host confirms each one", () => {
     // Review finding 2: posting a message is not the host accepting it.
     const model = api.createModel();
-    model.queueNote(anchor, "one");
-    model.queueNote(anchor, "two");
+    const one = model.queueNote(anchor, "one");
+    const two = model.queueNote(anchor, "two");
     expect(model.sendMessage()).toMatchObject({ channel: "devthrottle.dev-report", version: 1, type: "send" });
     expect(model.sendMessage().payload.items.map((i) => i.text)).toEqual(["one", "two"]);
     model.markPending();
@@ -261,55 +281,59 @@ describe("the queue", () => {
     expect(model.snapshot().sent).toEqual([]);
     expect(model.sendMessage().payload.items[0]).not.toHaveProperty("pending");
 
-    model.applyStatus([{ id: "n2", status: "held", statusLabel: "Delivered when the agent finishes" }, { id: "zz", status: "x", statusLabel: "x" }]);
+    model.applyStatus([{ id: two.id, status: "held", statusLabel: "Delivered when the agent finishes" }, { id: "zz", status: "x", statusLabel: "x" }]);
     const s = model.snapshot();
-    expect(s.queued.map((i) => i.id)).toEqual(["n1"]);
-    expect(s.sent).toEqual([{ id: "n2", kind: "note", text: "two", anchor, status: "held", statusLabel: "Delivered when the agent finishes" }]);
+    expect(s.queued.map((i) => i.id)).toEqual([one.id]);
+    expect(s.sent).toEqual([{ id: two.id, kind: "note", text: "two", anchor, status: "held", statusLabel: "Delivered when the agent finishes" }]);
   });
 
   it("keeps a refused item queued with the host's reason, ready to send again", () => {
     const model = api.createModel();
-    model.queueNote(anchor, "one");
+    const one = model.queueNote(anchor, "one");
     model.markPending();
-    model.applyStatus([{ id: "n1", status: "refused", statusLabel: "This session has ended" }]);
-    expect(model.snapshot().queued).toEqual([{ id: "n1", kind: "note", text: "one", anchor, pending: false, statusLabel: "This session has ended" }]);
+    model.applyStatus([{ id: one.id, status: "refused", statusLabel: "This session has ended" }]);
+    expect(model.snapshot().queued).toEqual([{ id: one.id, kind: "note", text: "one", anchor, pending: false, statusLabel: "This session has ended" }]);
     expect(model.snapshot().sent).toEqual([]);
   });
 
   it("cannot remove an item the host already has", () => {
     const model = api.createModel();
-    model.queueNote(anchor, "one");
+    const one = model.queueNote(anchor, "one");
     model.markPending();
-    model.remove("n1");
+    model.remove(one.id);
     expect(model.snapshot().queued).toHaveLength(1);
   });
 
   it("gives a re-answer a new id when the earlier answer is already with the host", () => {
     const model = api.createModel();
-    model.queueAnswer({ questionId: "q1", question: "Q?", optionValue: "a", optionLabel: "A", comment: "" });
+    const first = model.queueAnswer({ questionId: "q1", question: "Q?", optionValue: "a", optionLabel: "A", comment: "" });
     model.markPending();
     const again = model.queueAnswer({ questionId: "q1", question: "Q?", optionValue: "b", optionLabel: "B", comment: "" });
-    expect(again.id).toBe("a2");
-    expect(model.snapshot().queued.map((i) => i.id)).toEqual(["a1", "a2"]);
+    expect(again.id).toMatch(RANDOM_ANSWER_ID);
+    expect(again.id).not.toBe(first.id);
+    expect(model.snapshot().queued.map((i) => i.id)).toEqual([first.id, again.id]);
   });
 
   it("keeps at most the pending answer and the newest revision when an answer is changed twice", () => {
     // Second review, new finding B.
     const model = api.createModel();
     const answer = (v: string) => ({ questionId: "q1", question: "Q?", optionValue: v, optionLabel: v, comment: "" });
-    model.queueAnswer(answer("A"));
+    const a = model.queueAnswer(answer("A"));
     model.markPending();
-    model.queueAnswer(answer("B"));
-    model.queueAnswer(answer("C"));
-    expect(model.sendMessage().payload.items.map((i) => `${i.id}:${i.optionValue}`)).toEqual(["a1:A", "a2:C"]);
+    const b = model.queueAnswer(answer("B"));
+    const c = model.queueAnswer(answer("C"));
+    expect(c.id).toBe(b.id);
+    expect(model.sendMessage().payload.items.map((i) => `${i.id}:${i.optionValue}`)).toEqual([`${a.id}:A`, `${b.id}:C`]);
   });
 
   it("does not reuse an id already in the sent list", () => {
     const model = api.createModel();
-    model.queueNote(anchor, "one");
+    const one = model.queueNote(anchor, "one");
     model.markPending();
-    model.applyStatus([{ id: "n1", status: "delivered", statusLabel: "Delivered" }]);
-    expect(model.queueNote(anchor, "two").id).toBe("n2");
+    model.applyStatus([{ id: one.id, status: "delivered", statusLabel: "Delivered" }]);
+    const two = model.queueNote(anchor, "two");
+    expect(two.id).toMatch(RANDOM_NOTE_ID);
+    expect(two.id).not.toBe(one.id);
   });
 });
 
@@ -375,7 +399,7 @@ describe("the page", () => {
     document.querySelector<HTMLTextAreaElement>("textarea[data-dev-report-comment]")!.value = "after 8pm";
     click(buttons[0]);
     expect(page.model.snapshot().queued).toEqual([
-      { id: "a1", kind: "answer", questionId: "deploy", question: "When should we deploy?", optionValue: "tonight", optionLabel: "Tonight", comment: "after 8pm" },
+      { id: expect.stringMatching(/^a-[0-9a-f]{32}$/), kind: "answer", questionId: "deploy", question: "When should we deploy?", optionValue: "tonight", optionLabel: "Tonight", comment: "after 8pm" },
     ]);
     expect(ui("[data-drn=question-state]")!.textContent).toContain("Queued: Tonight");
   });

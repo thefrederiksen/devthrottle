@@ -496,14 +496,22 @@
   function createModel() {
     var state = emptyState();
 
+    // An item id is GLOBALLY unique, never a per-page counter. The same report is open in more than one
+    // browser - the phone and the Cockpit - and each keeps its own state, so a counter starts again at 1 in
+    // the second one and names a note the Gateway already holds from the first. The Gateway treats a known
+    // id as the same item, so that note would be lost while reading as delivered (phase 3 proof, E9).
+    // crypto.getRandomValues works in the sandboxed, opaque-origin frame; when it is missing the note cannot
+    // be given a safe id, so queueing fails loud rather than fall back to a guessable one.
     function nextId(prefix) {
-      var max = 0;
-      var all = state.queued.concat(state.sent);
-      for (var i = 0; i < all.length; i++) {
-        var m = /^[a-z]+(\d+)$/.exec(all[i].id);
-        if (m && Number(m[1]) > max) max = Number(m[1]);
+      var cryptoApi = typeof crypto !== "undefined" ? crypto : null;
+      if (!cryptoApi || typeof cryptoApi.getRandomValues !== "function") {
+        throw new Error("nextId: crypto.getRandomValues is not available, so an item cannot be given a unique id");
       }
-      return prefix + (max + 1);
+      var bytes = new Uint8Array(16);
+      cryptoApi.getRandomValues(bytes);
+      var hex = "";
+      for (var i = 0; i < bytes.length; i++) hex += (bytes[i] < 16 ? "0" : "") + bytes[i].toString(16);
+      return prefix + "-" + hex;
     }
 
     function indexOfId(list, id) {
