@@ -140,7 +140,10 @@ Any failure - including a fetch that fails for an unreachable remote, bad creden
 token - holds the worktree with a plain reason such as `1 commit is on no remote: <commit>`,
 `2 uncommitted changes`, or `cannot verify: <git's error>`. Every git call runs with
 `GIT_TERMINAL_PROMPT=0` and `GCM_INTERACTIVE=never`, so a credential problem fails at once instead of
-waiting at a prompt. The network calls, `ls-remote` and `fetch`, are each stopped after 120 seconds
+waiting at a prompt, and with `GIT_NO_REPLACE_OBJECTS=1`, whatever the caller's environment says. A replace
+ref (`git replace`) makes git read another commit wherever the replaced one is named; replacing an unlanded
+commit with a landed one made every answer above say "landed", and `return` freed the slot and `destroy`
+removed it. With replace refs ignored, the commit the slot really holds is the one checked. The network calls, `ls-remote` and `fetch`, are each stopped after 120 seconds
 (`CC_WORKTREES_NETWORK_TIMEOUT` sets another number of seconds); a timeout holds the worktree as
 `cannot verify: timed out after N seconds`. Only the git process the tool started is stopped. A remote
 helper that git itself started may keep running until its own network call ends.
@@ -186,6 +189,29 @@ The tool never kills a process, never deletes a branch, and never pushes, merges
 - **The tool writes refs.** `refs/cc-worktrees/<slot>/<commit>` pins live in the main repository while
   a commit is unproven (rule 8). They are never pushed, and removing one by hand removes that commit's
   protection from `git gc`.
+
+## Known gaps
+
+Each of these needs an unusual git state or a hand-run command at an unlucky moment. None is closed in this
+version; each is stated so nobody reads the rules above as covering it.
+
+- **A graft file** (`.git/info/grafts`, deprecated by git) rewrites parents the way a replace ref does, and
+  `GIT_NO_REPLACE_OBJECTS` does not turn it off. Not reproduced as a loss; not guarded.
+- **Other `GIT_*` variables** inherited from the caller's environment (for example `GIT_GRAFT_FILE`,
+  `GIT_OBJECT_DIRECTORY`) reach every git call. `GIT_DIR` and `GIT_WORK_TREE` are caught by the binding check
+  (rule 1); the others were not examined.
+- **A stale `git status`**: `core.fsmonitor` with a daemon that missed a change, or `core.untrackedCache`
+  trusting a directory time that did not change, could report a dirty slot as clean. Argued only; the tool
+  does not turn either off.
+- **No pins without a check.** A slot held because the fetch failed (for example an expired token), or because
+  its HEAD reflog could not be read, never reaches the commit proof, so nothing is pinned. A long outage plus
+  git's own reflog expiry can remove an abandoned commit from a slot that stays held (rule 7 keeps it held).
+- **Reused file identities** could hide a rewritten reflog (rule 7), a **repository created** in the last
+  microseconds before `read-tree` or `git worktree remove` is not seen (rule 5), an **ignored file written**
+  inside the measured window before `read-tree` can be overwritten, and a **hand-run `git fetch` or
+  `update-ref`** can move tracking refs at any moment (State).
+- **A reparse point that is not a link** (for example a cloud-files placeholder directory) is not descended
+  into by the rule 5 walk, so a repository inside one is not seen.
 
 ## Exit codes
 
