@@ -76,7 +76,8 @@ public static class WingmanStopsFold
         // A verdict the tab shows: one a judge answered and the contract accepted, the same one reused for an unchanged
         // screen, or the one the carrying-on clock wrote. A refused or failed record carries no verdict word.
         var accepted = verdict is { Failed: false }
-                       && t.Outcome is TurnVerdictTraceOutcomes.Judged or TurnVerdictTraceOutcomes.Reused or TurnVerdictTraceOutcomes.Expired;
+                       && t.Outcome is TurnVerdictTraceOutcomes.Judged or TurnVerdictTraceOutcomes.Reused
+                           or TurnVerdictTraceOutcomes.Expired or TurnVerdictTraceOutcomes.ExpiryUndone;
         var outcomeText = OutcomeText(t.Outcome);
         var rowRecorded = !string.IsNullOrEmpty(t.RowColour);
 
@@ -118,6 +119,7 @@ public static class WingmanStopsFold
     {
         TurnVerdictTraceOutcomes.Judged => verdict is { Failed: false } && IsCalm(verdict.Verdict) ? GroupCalm : GroupNeedsYou,
         TurnVerdictTraceOutcomes.Expired => GroupNeedsYou,
+        TurnVerdictTraceOutcomes.ExpiryUndone => GroupCalm,
         TurnVerdictTraceOutcomes.Refused or TurnVerdictTraceOutcomes.DidNotAnswer
             or TurnVerdictTraceOutcomes.RateLimited or TurnVerdictTraceOutcomes.Unavailable => GroupFailed,
         TurnVerdictTraceOutcomes.Reused or TurnVerdictTraceOutcomes.Skipped
@@ -151,6 +153,7 @@ public static class WingmanStopsFold
         TurnVerdictTraceOutcomes.Unavailable => "The verdict could not be formed",
         TurnVerdictTraceOutcomes.Reused => "The screen was unchanged, so the stored verdict was used again",
         TurnVerdictTraceOutcomes.Expired => "Said it would continue and did not",
+        TurnVerdictTraceOutcomes.ExpiryUndone => "Carrying on after all - its own sessions are running",
         TurnVerdictTraceOutcomes.Skipped => "Skipped",
         TurnVerdictTraceOutcomes.Cancelled => "Cancelled",
         TurnVerdictTraceOutcomes.Joined => "Joined a judgement already running",
@@ -270,6 +273,7 @@ public static class WingmanStopsFold
     {
         TurnVerdictTraceOutcomes.Reused => "Not asked - the screen was unchanged, so the stored verdict was used again",
         TurnVerdictTraceOutcomes.Expired => "Not asked - the carrying-on clock wrote this verdict, no model did",
+        TurnVerdictTraceOutcomes.ExpiryUndone => "Not asked - the carrying-on clock took its own verdict back, no model did",
         TurnVerdictTraceOutcomes.Joined => "Not asked - this stop joined a judgement already running",
         _ => "The judge was not asked",
     };
@@ -287,6 +291,7 @@ public static class WingmanStopsFold
                 TurnVerdictTraceOutcomes.Judged when accepted => "Accepted",
                 TurnVerdictTraceOutcomes.Reused when accepted => "Used again - accepted when it was first judged",
                 TurnVerdictTraceOutcomes.Expired when accepted => "Written by the carrying-on clock",
+                TurnVerdictTraceOutcomes.ExpiryUndone when accepted => "Written by the carrying-on clock, taking back its own expiry",
                 TurnVerdictTraceOutcomes.Refused => "Refused",
                 _ when verdict is { Failed: true } => "No verdict formed",
                 _ => "Not asked",

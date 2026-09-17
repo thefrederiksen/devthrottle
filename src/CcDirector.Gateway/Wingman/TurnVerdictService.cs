@@ -1248,6 +1248,11 @@ public sealed class TurnVerdictService : IDisposable
                     record = TurnVerdictContract.ParseAndValidate(answer.Raw, package, answer.Model, observedAt);
                     // The carrying-on clock's first source travels on the stored record, so it survives a restart.
                     record.NextScheduledWakeUtc = package.NextScheduledWakeUtc;
+                    // THE SCREEN DECIDES WHETHER THERE IS A PICKER (issue 2976). A keys answer the read screen does
+                    // not support is corrected to a reply here, before the record is stored, so nothing downstream -
+                    // the row's buttons, the narration's menu shape - is built on a menu the judge invented.
+                    if (InventedMenuCheck.Correct(record, rows))
+                        FileLog.Write($"[TurnVerdictService] invented menu corrected: sid={sid} id={record.VerdictId} - the judge answered keys and the read screen carries no drawn menu; stored as a reply with no options");
                     answerWasReadable = TurnVerdictContract.IsReadableJsonObject(answer.Raw);
                     if (record.Failed)
                     {
@@ -1329,6 +1334,10 @@ public sealed class TurnVerdictService : IDisposable
                 var narrationDecision = failure == TurnVerdictFailureKind.Refused
                     ? TurnVerdictContract.SalvageNarrationDecision(rawReply)
                     : null;
+                // A refused answer's salvaged decision is checked against the screen too (issue 2976): it reaches the
+                // narration call, which would otherwise tell a listener to press a button that is not there.
+                if (InventedMenuCheck.Correct(narrationDecision, rows))
+                    FileLog.Write($"[TurnVerdictService] invented menu corrected on a refused record's salvaged decision: sid={sid} id={record.VerdictId}");
                 if (narrationDecision is not null)
                     _refusedNarrationDecisions[key] = (record.VerdictId, narrationDecision);
                 _env.Record(new TurnVerdictRecord(tenant, directorId, sid, ActivityEventTypes.TurnVerdictFailed,
@@ -2104,6 +2113,11 @@ public sealed class TurnVerdictService : IDisposable
     /// "continues-alone" verdict whose deadline has passed is replaced by a "needed-you" verdict labelled "Said it
     /// would continue and did not". Returns how many expired.
     ///
+    /// THE SAME TICK UNDOES AN EXPIRY (the owner's ruling, 2026-09-17, and <see cref="UndoExpiry"/>): a record the
+    /// CLOCK wrote, for a session that owns a live session again, goes back to carrying on and the clock starts
+    /// again from that moment. Undos are not counted in the return value, which is what the sweep logs as verdicts
+    /// that ran out of time; they carry their own log line, their own trace outcome and their own ledger row.
+    ///
     /// For every account whose JUDGE switch is on, whether or not its colour switch is (the Architect's ruling on
     /// slice D, decision 5 reversed). A shadow account's stored verdicts are what the product would have shown,
     /// so its purple must expire exactly like a live one; a purple that never expires overstates "carrying on" in
@@ -2129,8 +2143,17 @@ public sealed class TurnVerdictService : IDisposable
 
         var now = _env.NowUtc();
         var expired = 0;
+        var undone = 0;
         foreach (var (sid, snapshot) in _env.SnapshotLatest(tenant))
         {
+            // THE UNDO (the owner's ruling, 2026-09-17) runs on the same tick as the expiry, before it: a record the
+            // clock itself wrote is the one kind of verdict that can be taken back, and a session that owns a live
+            // session again is carrying on after all. Only a record the clock wrote costs a roster read here.
+            if (TurnVerdictWatchdog.IsClockExpiry(snapshot))
+            {
+                if (UndoExpiry(tenant, sid, snapshot, now, settings)) undone++;
+                continue;
+            }
             // Only a carrying-on verdict has a clock at all, so only one of those costs a roster read.
             if (TurnVerdictWatchdog.DeadlineFor(snapshot) is null) continue;
             // THE OWNER'S OWN SESSIONS (owner ruling, 2026-09-15): while any session this one owns is working its
@@ -2171,8 +2194,61 @@ public sealed class TurnVerdictService : IDisposable
             FileLog.Write($"[TurnVerdictService] ExpireCarryingOn: sid={sid} tenant={tenant.ToLogString()} said it would continue and did not; verdict {snapshot.VerdictId} replaced by {replacement.VerdictId}");
         }
 
+        if (undone > 0)
+            FileLog.Write($"[TurnVerdictService] ExpireCarryingOn: tenant={tenant.ToLogString()} {undone} expiry(ies) undone - the session owns a live session again");
+
         return expired;
     }
+
+    /// <summary>
+    /// ONE EXPIRY UNDONE, or false when this one stands. The session owns a LIVE session again - one in the fresh
+    /// roster that has not exited and is not snoozed - so the clock's own red is taken back: a carrying-on verdict
+    /// is stored in its place and the clock runs again from this moment
+    /// (<see cref="TurnVerdictWatchdog.CarryOnAgain"/>).
+    ///
+    /// IT GOES THROUGH THE SAME STORE-IF-CURRENT PATH AS THE EXPIRY, for the same reason: the latest verdict is
+    /// re-read inside the gate <see cref="OnSessionWorking"/> invalidates under, and nothing is stored unless it is
+    /// still the same record this tick read. A session judged again in between has a different verdict, and the
+    /// judge's answer must not be overwritten by a clock. The owned sessions are read again inside the gate too,
+    /// so an undo cannot be written off a roster that went stale while the tick ran.
+    ///
+    /// ONLY A RECORD THE CLOCK WROTE. The caller has already asked <see cref="TurnVerdictWatchdog.IsClockExpiry"/>,
+    /// and it is asked again here against the record read inside the gate.
+    /// </summary>
+    private bool UndoExpiry(TenantId tenant, string sid, TurnVerdictDto snapshot, DateTime now, TurnVerdictSettings settings)
+    {
+        if (!OwnsALiveSession(_env.OwnedSessions(tenant, sid))) return false;
+
+        TurnVerdictDto replacement;
+        lock (_storeGate)
+        {
+            var current = _env.Latest(tenant, sid);
+            if (current is null
+                || !string.Equals(current.VerdictId, snapshot.VerdictId, StringComparison.Ordinal)
+                || !TurnVerdictWatchdog.IsClockExpiry(current))
+                return false;
+            if (!OwnsALiveSession(_env.OwnedSessions(tenant, sid))) return false;
+
+            replacement = TurnVerdictWatchdog.CarryOnAgain(current, now);
+            _env.Store(tenant, sid, replacement);
+            _knownEmpty.TryRemove((tenant, sid), out _);
+        }
+
+        var directorId = _env.ReadSessionState(tenant, sid).Facts?.DirectorId ?? "";
+        TraceStop(tenant, sid, ClockTrigger, TurnVerdictTraceOutcomes.ExpiryUndone, replacement.TurnEndObservedAtUtc, settings,
+            colour => NewTrace(sid, directorId, ClockTrigger, TurnVerdictTraceOutcomes.ExpiryUndone, replacement, colour)
+                with { ReplacedVerdictId = snapshot.VerdictId });
+        _env.Record(new TurnVerdictRecord(tenant, directorId, sid,
+            ActivityEventTypes.TurnVerdictExpiryUndone, ActivityCauses.CarryingOnAgain,
+            $"undone={snapshot.VerdictId} id={replacement.VerdictId}"));
+        FileLog.Write($"[TurnVerdictService] UndoExpiry: sid={sid} tenant={tenant.ToLogString()} owns a live session again; expiry {snapshot.VerdictId} replaced by carrying-on {replacement.VerdictId}");
+        return true;
+    }
+
+    /// <summary>Does this session own a session that is still running underneath it? The one question the undo
+    /// turns on, and the same one the clock stops on - alive, never "worked in the last ten seconds".</summary>
+    private static bool OwnsALiveSession(OwnedSessionsFacts? owned)
+        => owned is { Live: > 0 } or { Working: > 0 };
 
     /// <summary>The three-word screen verdict the menu cache has always held, read off the verdict: a picker
     /// the answer selects from is a menu; a stop that needs a person is waiting on an answer; anything else
