@@ -273,16 +273,6 @@ public sealed class SnoozeExpiryReJudge
     }
 
     /// <summary>
-    /// One session whose snooze has elapsed: take the edge if it is still there to take, otherwise hold.
-    ///
-    /// THE EDGE IS WON, NOT OBSERVED. The roster, the single-session read and every accepted Director push all
-    /// fold through here, concurrently, over ONE shared memory - so "was it expired last time?" read and then
-    /// written is two steps a second fold can slip between, and both would ask the judge about the same stop.
-    /// The transition is a compare-and-swap instead: whoever swaps the session's entry from not-expired to
-    /// expired is the one caller that acts, and everybody else goes round and takes the hold path. This is the
-    /// same defect, and the same fix, as the one-stop-raised-twice finding on slice E.
-    /// </summary>
-    /// <summary>
     /// What <see cref="Observe"/> would stamp on <see cref="SessionDto.SnoozeEndedNothingNew"/>, WITHOUT arming,
     /// pruning, spending an expiry edge, writing a ledger line or asking for a read. For a fold that records what the
     /// display push shows (the Wingman inspector's trace colour), which must not move the product.
@@ -311,6 +301,16 @@ public sealed class SnoozeExpiryReJudge
         }
     }
 
+    /// <summary>
+    /// One session whose snooze has elapsed: take the edge if it is still there to take, otherwise hold.
+    ///
+    /// THE EDGE IS WON, NOT OBSERVED. The roster, the single-session read and every accepted Director push all
+    /// fold through here, concurrently, over ONE shared memory - so "was it expired last time?" read and then
+    /// written is two steps a second fold can slip between, and both would ask the judge about the same stop.
+    /// The transition is a compare-and-swap instead: whoever swaps the session's entry from not-expired to
+    /// expired is the one caller that acts, and everybody else goes round and takes the hold path. This is the
+    /// same defect, and the same fix, as the one-stop-raised-twice finding on slice E.
+    /// </summary>
     private void StampExpired(TenantId tenant, (TenantId, string) key, SessionDto s, DateTime? until)
     {
         while (true)
