@@ -250,6 +250,11 @@ public sealed class FleetPanelItemDto
 
     /// <summary>The session the row belongs to, when there is one, so the page can open it.</summary>
     public string? SessionId { get; set; }
+
+    /// <summary>The change of owner offered on this row's session (step 8), or null: "Hand to the Fleet Manager" in
+    /// the list of sessions that ask the owner directly, while the Fleet Manager is running. The same rule and words
+    /// the session list carries.</summary>
+    public SessionOwnerChangeDto? Action { get; set; }
 }
 
 /// <summary>The honest count of live sessions that are neither the Fleet Manager nor owned by it, and that go
@@ -263,4 +268,22 @@ public sealed class FleetNotMineDto
 
     /// <summary>The rest of the sentence, for example "They still ask you directly."</summary>
     public string Rest { get; set; } = "";
+
+    /// <summary>The words of the control that opens the list of these sessions (step 8), or null when there is no
+    /// list to open - no session asks the owner directly.</summary>
+    public string? ShowLabel { get; set; }
+
+    /// <summary>The words of the control that closes the list again.</summary>
+    public string HideLabel { get; set; } = "";
+
+    /// <summary>The heading over the list.</summary>
+    public string ListTitle { get; set; } = "";
+
+    /// <summary>A sentence over the list that says what handing over does - or, when the account has no running
+    /// Fleet Manager, why nothing can be handed over now.</summary>
+    public string ListNote { get; set; } = "";
+
+    /// <summary>Every one of these sessions, those that need the owner now first and then the oldest, each with its hand-over action
+    /// when one can be made now. Its length is <see cref="Count"/>.</summary>
+    public List<FleetPanelItemDto> Sessions { get; set; } = new();
 }

@@ -667,6 +667,8 @@ COMMANDS:
   session report   Tell the session that owns you what you did, at the end of your turn
                    (sends nothing when a Fleet Manager owns you: the Gateway tells it).
   session raise    Put your hand up to the session driving you when you are blocked.
+  session hand-over  Hand a running session to the Fleet Manager, or back to the owner
+                   (the owner's change: the Gateway refuses it from any session key).
   director list    List every Director this account runs, with the id --director accepts.
   worktree list    List the fleet's worktrees; --pool lists this machine's cc-worktrees pool.
   worktree get     Take a pooled worktree to work in (runs cc-worktrees).
@@ -973,6 +975,50 @@ session owns is not treated as one while that ownership stands.
 `fleet-manager: none`. `--json` prints `{"sessionId": "<id>"}`, or `{"sessionId": null}` when there is
 no mark.
 
+### Session Hand-Over
+
+```
+USAGE: cc-devthrottle session hand-over SESSION --to fleet-manager|owner [--json]
+
+ARGUMENTS:
+  SESSION  The session: its number, an id prefix, a full id, or its exact name [required]
+
+OPTIONS:
+  --to     Who owns it afterwards: fleet-manager, or owner (no owning session) [required]
+  --json   Print the Gateway's answer unchanged
+```
+
+Changes who owns a session that is already running (the Fleet Manager mission, step 8). Handed to the
+Fleet Manager, the session stops going red for the owner, and its stops and its death go to the Fleet
+Manager as events; handed back, they stop going there and it asks the owner directly again. The owner is
+changed where it lives - on the session's Director, through its `set-controller` command - and the
+change is recorded in the governance audit trail (event type `handed-over`, with the owner's device as
+the actor).
+
+**This is the owner's change.** The Gateway allows it only from the owner's own signed-in phone or
+browser - in the Cockpit, the "Hand sessions to the Fleet Manager..." list on the Fleet Manager page and
+the session menu's "Hand to the Fleet Manager" and "Hand back to me". It refuses a session key, the Fleet
+Manager's own included, so run from a session this command prints the Gateway's refusal and exits 1.
+
+Every refusal is the Gateway's sentence: a session this account is not running now (another account's
+session answers the same), the Fleet Manager itself, handing to a Fleet Manager the account has not
+marked or that is not running, a session another RUNNING session owns (it is never taken from it), a
+session already where it is being sent, a session that has ended, and a session whose Director is too
+old to change an owner (update DevThrottle on that computer). A session whose owner has ended asks the
+owner directly and may be handed over.
+
+The plain output is the Gateway's sentence, `session: <id>` and `owner: <id>` (or `owner: you`), then
+`help[2]:`. The change is reported from the Gateway's answer, never from the request: an answer that does
+not name the session, or names an owner that does not match `--to`, exits 1 saying whether it changed is
+unknown. An unknown or missing `--to` exits 2 and sends nothing.
+
+Gateway route: `POST /gateway/fleet-manager/hand-over` with `{ "session": "<full id>", "to":
+"fleet-manager" | "owner" }`, answering `{ sessionId, to, ownerSessionId, previousOwnerSessionId,
+sentence, session }`; a refusal is `{ error }` with 400, 403, 404, 409 or 502 (a 403 from the
+owner-only rule also carries `code: "owner_only"`, the same answer the walkthrough routes give). The session list's rows
+carry `pin` (the pinned Fleet Manager and its words) and `ownerChange` (the one change of owner offered
+on that row), both decided by the Gateway.
+
 ### Message Send
 
 ```
@@ -1214,8 +1260,8 @@ the account marked before it that still controls at least one live session, EVER
 rather than print a list that disagrees with the Gateway's count), the sessions owned by the current
 Fleet Manager or by any earlier one (each with its state - `needs-you`, `working` or `stopped` - its
 owning session, and the Wingman's latest reading), and the standing preferences. A session an
-earlier Fleet Manager started is shown with that owner; handing it over to the new Fleet Manager is a
-later step. The Gateway remembers the 20 sessions the account marked most recently; an earlier one is
+earlier Fleet Manager started is shown with that owner; once that earlier one has ended, the owner can
+hand it to the new Fleet Manager (`session hand-over`). The Gateway remembers the 20 sessions the account marked most recently; an earlier one is
 forgotten, and its sessions are no longer listed.
 
 `fleet outcomes` lists the open records by default, newest first, one page at a time. When the
@@ -1321,8 +1367,10 @@ A restart or move closes the old Fleet Manager only after its current turn ends.
 The Cockpit's Fleet Manager page (`/fleet-manager`, where the Cockpit opens; `/assistant` now redirects
 there) reads `/gateway/fleet-manager/page` (GET, the owner's; a session key is refused and reads the
 digest instead): the cards drawn from the records, the right panel (waiting on you, under way, answered
-today, and the count of sessions that still ask the owner directly) and the rail's badge count. A card
-button answers the record and then sends the same words to the Fleet Manager as a prompt.
+today, and the sessions that still ask the owner directly - their count, and the list of them with a
+hand-over button each) and the rail's badge count. A card button answers the record and then sends the
+same words to the Fleet Manager as a prompt. Hand over is `POST /gateway/fleet-manager/hand-over` (see
+Session Hand-Over).
 
 "Take me through them" (`/fleet-manager/walkthrough` in the Cockpit, opened from the Waiting on you
 panel) reads `/gateway/fleet-manager/walkthrough?round=<id>,<id>` (GET): one round of the waiting

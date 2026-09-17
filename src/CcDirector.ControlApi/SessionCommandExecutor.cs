@@ -94,6 +94,8 @@ internal static class SessionCommandExecutor
         // The Gateway stamping a session's FOLDED display state down onto this Director, so the desktop
         // rail renders the Gateway's answer instead of re-folding from local facts it cannot see.
         new FleetDisplayStateExecutor(),
+        // The Fleet Manager mission, step 8: the Gateway changing which session owns an existing session.
+        new SessionOwnerExecutor(),
         // Remove-the-network-port mission, phase 2: the automation browsers. Machine-local by construction -
         // a loopback debug port and a profile directory on this disk - so the Gateway never drives one; it
         // carries the command to the Director that does.

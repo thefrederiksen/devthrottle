@@ -628,6 +628,143 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         Assert.Contains(e.Id, Assert.Single(_env.Sends).Text);
     }
 
+    // ---- step 8: a change of owner. Everything follows the CURRENT owner.
+
+    /// <summary>The Director's report of a hand over, and the route's word to the service, as production does both.</summary>
+    private SessionDto ChangeOwner(string sid, string? owner, bool tellTheService = true)
+    {
+        var row = _fleet[sid];
+        row.IsControlled = owner is not null;
+        row.ControllerSessionId = owner;
+        Push(row);
+        if (tellTheService) _service.OnOwnerChanged(Tenant, "dir-1", row.Clone());
+        return row;
+    }
+
+    private SessionDto Folded(string sid)
+    {
+        var roster = _pushed.SnapshotFresh(Tenant, Stale).Select(r => r.Session).ToList();
+        GatewayEndpoints.StampFleetRolesAndFold(roster, roster, tenant: Tenant, fleetManagerMark: _ => _marked);
+        return roster.Single(s => s.SessionId == sid);
+    }
+
+    [Fact]
+    public async Task OwnerChanged_HandedOverAfterItStarted_ItsStopsAndItsDeathGoToTheFleetManager()
+    {
+        await TurnEndAsync("plain");
+        Assert.Empty(Open());
+        Assert.Equal("red", Folded("plain").EffectiveColor);
+
+        ChangeOwner("plain", "fm");
+        await TurnEndAsync("plain");
+
+        var stop = Assert.Single(Open());
+        Assert.Equal(("stop", "plain", "fm"), (stop.Kind, stop.SessionId, stop.AddressedTo));
+        Assert.Equal(Evidence, stop.Verdict!.Evidence);
+        // No longer red for the owner, and handed back from the list.
+        var folded = Folded("plain");
+        Assert.NotEqual("red", folded.EffectiveColor);
+        Assert.True(folded.OwnedByFleetManager);
+        Assert.Equal("owner", folded.OwnerChange!.To);
+
+        Assert.True(_pushed.ApplyRemove(Tenant, "dir-1", "conn-1", ++_sequence, "plain"));
+        _service.OnSessionRemoved(Tenant, "plain", "dir-1");
+
+        var died = Assert.Single(Open(), e => e.Kind == "died");
+        Assert.Equal(("plain", "fm"), (died.SessionId, died.AddressedTo));
+    }
+
+    [Fact]
+    public async Task OwnerChanged_HandedBack_ItsStopsAndItsDeathStopGoingToTheFleetManager_AndItIsRedForTheOwner()
+    {
+        _service.OnSessionWorking(Tenant, "worker-1", "dir-1");
+        Assert.NotEqual("red", Folded("worker-1").EffectiveColor);
+
+        ChangeOwner("worker-1", null);
+        await TurnEndAsync("worker-1");
+
+        Assert.Empty(Open());
+        var folded = Folded("worker-1");
+        Assert.Equal("red", folded.EffectiveColor);
+        Assert.Equal("needsYou", folded.TriageBucket);
+        Assert.False(folded.OwnedByFleetManager);
+        Assert.Equal("fleet-manager", folded.OwnerChange!.To);
+
+        // Its end is not the Fleet Manager's news: not by the removal, not by the reconcile.
+        Assert.True(_pushed.ApplyRemove(Tenant, "dir-1", "conn-1", ++_sequence, "worker-1"));
+        _service.OnSessionRemoved(Tenant, "worker-1", "dir-1");
+        await _service.ReconcileAsync(Tenant);
+        Assert.Empty(Open());
+    }
+
+    [Fact]
+    public async Task OwnerChanged_HandedBackWhileItsStopWaitedForItsReading_TheStopIsWithdrawn()
+    {
+        _brain.Hold();
+        var signal = Signal("worker-1");
+        _service.OnTurnEnd(signal, wingmanRunning: true);
+        Assert.True(Assert.Single(Open()).ReadingPending);
+
+        ChangeOwner("worker-1", null);
+        var reading = _seat.StartTurnEnd(signal);
+        _brain.Release();
+        await reading;
+        await _service.WhenIdleAsync();
+
+        Assert.Empty(Open());
+    }
+
+    [Fact]
+    public async Task OwnerChanged_HandedBackThenOverAgain_IsTrackedAgain_AndItsDeathIsTheFleetManagers()
+    {
+        _service.OnSessionWorking(Tenant, "worker-2", "dir-1");
+        ChangeOwner("worker-2", null);
+        ChangeOwner("worker-2", "fm");
+        Restart();
+
+        // A restarted Gateway still knows it is owned: the Director reports it gone, and that is a death.
+        _pushed.RegisterConnection(Tenant, "dir-1", "conn-2");
+        Assert.True(_pushed.ApplySnapshot(Tenant, "dir-1", "conn-2", 1,
+            _fleet.Values.Where(s => s.SessionId != "worker-2").ToList()));
+        await _service.ReconcileAsync(Tenant);
+
+        var died = Assert.Single(Open());
+        Assert.Equal(("died", "worker-2", "fm"), (died.Kind, died.SessionId, died.AddressedTo));
+    }
+
+    /// <summary>However the owner changed - the route, or a Director that came back reporting another owner - the
+    /// reconcile forgets a session that is no longer the Fleet Manager's, so its later end is nobody's death.</summary>
+    [Fact]
+    public async Task Reconcile_ASessionWhoseRowNamesAnotherOwner_IsForgotten_AndItsExitIsNotADeath()
+    {
+        _service.OnSessionWorking(Tenant, "worker-2", "dir-1");
+        ChangeOwner("worker-2", "architect", tellTheService: false);
+
+        await _service.ReconcileAsync(Tenant);
+        SetState("worker-2", "Exited");
+        _service.OnSessionExited(Tenant, "worker-2", "dir-1");
+        await _service.ReconcileAsync(Tenant);
+
+        Assert.Empty(Open());
+        Assert.Null(_events.OwnedAlive(Tenant, "worker-2"));
+    }
+
+    [Fact]
+    public void Wingman_HeldCheck_FollowsTheCurrentOwner()
+    {
+        Assert.False(TurnVerdictHeldCheck.Resolve(_pushed.SnapshotFresh(Tenant, Stale), "plain", _marked).OwnedByFleetManager);
+
+        ChangeOwner("plain", "fm");
+        var over = TurnVerdictHeldCheck.Resolve(_pushed.SnapshotFresh(Tenant, Stale), "plain", _marked);
+        Assert.True(over.Held);
+        Assert.True(over.OwnedByFleetManager);
+
+        ChangeOwner("plain", null);
+        var back = TurnVerdictHeldCheck.Resolve(_pushed.SnapshotFresh(Tenant, Stale), "plain", _marked);
+        Assert.False(back.Held);
+        Assert.False(back.OwnedByFleetManager);
+    }
+
     private void Restart()
     {
         _service.Dispose();

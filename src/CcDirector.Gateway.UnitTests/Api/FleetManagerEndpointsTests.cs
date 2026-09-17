@@ -599,6 +599,34 @@ public sealed class FleetManagerEndpointsTests : IDisposable
     }
 
     /// <summary>
+    /// THE DIGEST FOLLOWS THE CURRENT OWNER (step 8). The owner's own session is handed to the Fleet Manager after it
+    /// started - its Director reports the new owner - and the digest lists it; handed back, it leaves the digest.
+    /// </summary>
+    [Fact]
+    public void Digest_SessionHandedOverAfterItStarted_IsListed_AndHandedBack_IsNot()
+    {
+        SetOwner(NotOwned, FleetManager, sequence: 2);
+        var over = Body<FleetDigestDto>(Digest(TenantA, FleetManager, FleetManager));
+        Assert.Contains(NotOwned, over.OwnedSessions.Select(s => s.SessionId));
+        Assert.Equal(FleetManager, over.OwnedSessions.Single(s => s.SessionId == NotOwned).OwnerSessionId);
+        Assert.Equal(3, over.OwnedSessionCounts.Total);
+
+        SetOwner(NotOwned, null, sequence: 3);
+        var back = Body<FleetDigestDto>(Digest(TenantA, FleetManager, FleetManager));
+        Assert.DoesNotContain(NotOwned, back.OwnedSessions.Select(s => s.SessionId));
+        Assert.Equal(2, back.OwnedSessionCounts.Total);
+    }
+
+    /// <summary>The Director's report after a hand over: the same row with its new owner, as a delta.</summary>
+    private void SetOwner(string sessionId, string? owner, long sequence)
+    {
+        var row = _pushed.TryGetLastKnownSession(TenantA, sessionId)!.Value.Session.Clone();
+        row.IsControlled = owner is not null;
+        row.ControllerSessionId = owner;
+        Assert.True(_pushed.ApplyDelta(TenantA, "director-a", "conn-a", sequence, row));
+    }
+
+    /// <summary>
     /// A REPLACEMENT FLEET MANAGER STILL SEES WHAT THE OLD ONE STARTED. The account marked the former session
     /// first and the current one after it; the former one's session is still controlled by the former id (no hand
     /// over has happened), and the digest lists it with that owner.

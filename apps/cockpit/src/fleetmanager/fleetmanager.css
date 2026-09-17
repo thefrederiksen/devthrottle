@@ -576,3 +576,61 @@ a.fmp-item:hover { background: var(--surface-2); }
 }
 .fmw-end-title { margin: 0 0 8px; font-size: 20px; }
 .fmw-end-text { margin: 0 0 16px; color: var(--text-dim); line-height: 1.5; }
+
+/* Hand over (step 8): the toggle under the count, and the list it opens. */
+.fmp-notmine-toggle {
+  display: block;
+  margin-top: 6px;
+  padding: 0;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--accent-text);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.fmp-notmine-toggle:hover { text-decoration: underline; }
+.fmp-ho {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fmp-ho-note {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.45;
+}
+.fmp-ho-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.fmp-ho-row .fmp-item-text { flex: 1 1 auto; }
+.fmp-ho-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: none;
+  word-break: break-word;
+}
+.fmp-ho-title:hover { text-decoration: underline; }
+.fmp-ho-btn {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: #ffffff;
+  background: var(--accent);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.fmp-ho-btn:disabled { opacity: 0.5; cursor: default; }
+.fmp-ho-done { margin-top: 4px; font-size: 12px; color: var(--ok-text); }
+.fmp-ho-error { margin-top: 4px; font-size: 12px; color: var(--attention); }

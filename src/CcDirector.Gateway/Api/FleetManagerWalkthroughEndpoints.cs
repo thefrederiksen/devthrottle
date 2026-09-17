@@ -343,31 +343,13 @@ internal static class FleetManagerWalkthroughEndpoints
 
     // ---- shared --------------------------------------------------------------------------------------------
 
-    /// <summary>The owner on their own signed-in phone or browser, and nobody else.</summary>
+    /// <summary>The owner on their own signed-in phone or browser, and nobody else (<see cref="FleetManagerOwnerDevice"/>).</summary>
     internal static IResult? OwnerOnly(HttpContext ctx, string what)
     {
-        if (AuthMiddleware.CallingSession(ctx) is not null)
-        {
-            FileLog.Write($"[FleetManagerWalkthroughEndpoints] REFUSED: a session key asked to {what}");
-            return Results.Json(new
-            {
-                code = "owner_only",
-                error = "The walkthrough is the owner's. A session reads GET /gateway/fleet-manager/digest.",
-            }, statusCode: StatusCodes.Status403Forbidden);
-        }
-        var deviceType = ctx.Items.TryGetValue(AuthMiddleware.DeviceTypeItemKey, out var dt) ? dt as string : null;
-        if (SessionOriginSurfaces.FromDeviceType(deviceType) == SessionOriginSurfaces.Unknown)
-        {
-            var kind = AuthMiddleware.IdentityKind(ctx);
-            var credential = deviceType is null ? kind : $"{kind} ({deviceType})";
-            FileLog.Write($"[FleetManagerWalkthroughEndpoints] REFUSED: a {credential} credential asked to {what}");
-            return Results.Json(new
-            {
-                code = "owner_only",
-                error = $"only the owner on their own signed-in phone or browser may {what}; this request was made with a {credential} credential",
-            }, statusCode: StatusCodes.Status403Forbidden);
-        }
-        return null;
+        FleetManagerOwnerDevice.Require(ctx, what,
+            "The walkthrough is the owner's. A session reads GET /gateway/fleet-manager/digest.",
+            nameof(FleetManagerWalkthroughEndpoints), out var refusal);
+        return refusal;
     }
 
     private static IResult AnswerResult(string id, FleetOutcomeAnswerResult result)

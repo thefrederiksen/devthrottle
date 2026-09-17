@@ -180,12 +180,41 @@ public sealed class Session : IDisposable
     /// group header. Same for every member of a group; null for a solo session.</summary>
     public string? GroupName { get; internal set; }
 
-    /// <summary>When this session was spawned to be controlled by ANOTHER session (issue #815) -
-    /// a "Supporting" sub-agent - the id of the controlling session; null for a normal session.
-    /// Set ONLY at birth and immutable afterwards (stamped by the create/restore paths, like
-    /// <see cref="GroupId"/>). Drives the recessive "Supporting" status color, which is honored
-    /// only while the controlling session still exists; a red "needs you" still breaks through.</summary>
+    /// <summary>When this session is controlled by ANOTHER session (issue #815) - a "Supporting"
+    /// sub-agent - the id of the controlling session (its OWNER); null for a normal session, which the
+    /// user owns. Stamped at birth by the create/restore paths, and changed afterwards only by the
+    /// Gateway's hand over (<see cref="SetController"/>, the Fleet Manager mission, step 8). Drives the
+    /// recessive "Supporting" status color, which is honored only while the controlling session still
+    /// exists; a red "needs you" still breaks through.</summary>
     public Guid? ControllerSessionId { get; internal set; }
+
+    /// <summary>Raised after <see cref="SetController"/> changed the owner, so the change is pushed to the
+    /// Gateway at once instead of waiting for the next full re-push.</summary>
+    public event Action? OnControllerChanged;
+
+    /// <summary>
+    /// Change which session owns this one (the Fleet Manager mission, step 8): <paramref name="controllerSessionId"/>
+    /// owns it from now on, or nobody when null. The GATEWAY decides - it checked the account, the caller and both
+    /// owners before sending the verb - so this only stores what it is given, as <see cref="AttachToMission"/> does.
+    /// Returns false, and raises nothing, when the owner is already that.
+    /// </summary>
+    public bool SetController(Guid? controllerSessionId)
+    {
+        if (controllerSessionId == Id)
+            throw new ArgumentException($"session {Id} cannot own itself", nameof(controllerSessionId));
+        if (ControllerSessionId == controllerSessionId)
+        {
+            FileLog.Write($"[Session] {Id} SetController: already owned by {controllerSessionId?.ToString() ?? "(the user)"}");
+            return false;
+        }
+        var previous = ControllerSessionId;
+        ControllerSessionId = controllerSessionId;
+        FileLog.Write($"[Session] {Id} SetController: owner {previous?.ToString() ?? "(the user)"} -> " +
+                      $"{controllerSessionId?.ToString() ?? "(the user)"}");
+        try { OnControllerChanged?.Invoke(); }
+        catch (Exception ex) { FileLog.Write($"[Session] {Id} OnControllerChanged handler threw: {ex.Message}"); }
+        return true;
+    }
 
     /// <summary>True when this session is a controlled sub-agent (issue #815) - it carries a
     /// <see cref="ControllerSessionId"/>. Whether the recessive "Supporting" color is actually

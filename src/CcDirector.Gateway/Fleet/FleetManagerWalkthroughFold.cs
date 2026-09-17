@@ -148,8 +148,7 @@ internal static class FleetManagerWalkthroughFold
         var moreOutside = outside.Count - snoozedOutside;
         var working = fleetManager is null
             ? 0
-            : input.LiveRoster.Count(s => string.Equals(s.ControllerSessionId, fleetManager, StringComparison.OrdinalIgnoreCase)
-                                          && !string.Equals(s.SessionId, fleetManager, StringComparison.OrdinalIgnoreCase)
+            : input.LiveRoster.Count(s => FleetManagerSessions.IsOwnedBy(s, fleetManager)
                                           && SessionTree.CrewState(s) == SessionTree.CrewStateWorking);
         var parts = new List<string>();
         if (moreOutside > 0) parts.Add($"{moreOutside} more waiting, for the next round");
@@ -275,9 +274,13 @@ internal static class FleetManagerWalkthroughFold
         if (row.CreatedAt.Year >= 2000)
         {
             var when = FleetManagerPlacementFold.FormatWhen(row.CreatedAt, tz, now);
-            parts.Add(fleetManager is not null && string.Equals(row.ControllerSessionId, fleetManager, StringComparison.OrdinalIgnoreCase)
+            // Who STARTED it is the lineage (ParentSessionId); who OWNS it now is the controller. They differ for a
+            // session the owner handed to the Fleet Manager (step 8), which the Fleet Manager did not start.
+            parts.Add(fleetManager is not null && FleetManagerSessions.SameId(row.ParentSessionId, fleetManager)
                 ? $"started by the Fleet Manager {when}"
-                : $"started {when}");
+                : fleetManager is not null && FleetManagerSessions.IsOwnedBy(row, fleetManager)
+                    ? $"handed to the Fleet Manager - started {when}"
+                    : $"started {when}");
         }
         return string.Join(" - ", parts);
     }

@@ -688,6 +688,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
                 PushesTurns = true,   // this build carries the TurnPusher (turn-push mission)
                 ChecksIdleBeforeTyping = true,   // this build honours PromptRequest.OnlyWhenWaitingForInput
                 CreatesFleetManagerHome = true,   // this build honours NewSessionRequest.FleetManagerHome
+                ChangesOwner = true,              // this build carries out the set-controller verb (hand over)
             });
             awaitGateway += DateTime.UtcNow - helloStarted;
             ReportGatewayCapabilities(capabilities);

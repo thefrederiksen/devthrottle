@@ -5498,6 +5498,9 @@ internal static class GatewayEndpoints
         // work, and a session absent from the universe fails loud.
         var marked = tenant is { IsValid: true } markTenant ? fleetManagerMark?.Invoke(markTenant) : null;
         Fleet.FleetRoleResolver.Stamp(roleUniverse, all, marked);
+        // The pin and the offered change of owner (the Fleet Manager mission, step 8), read from the same resolved
+        // account, so every surface pins the same row and offers the same change.
+        Fleet.FleetManagerRosterFold.Stamp(roleUniverse, all, marked);
 
         // THE WINGMAN'S VERDICT, stamped before the loop because the loop's colour, label and bucket read it. ONE
         // snapshot of the account's verdicts for the whole fold, and no read at all while the account's colour

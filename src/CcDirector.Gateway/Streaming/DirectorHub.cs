@@ -228,7 +228,7 @@ public sealed class DirectorHub : Hub
         // What this build can do, kept against the CONNECTION: the same machine can come back on an older
         // or a newer Director, and a stale answer here would put the wrong sentence on an empty Chat screen.
         _turnPushCapabilities?.Record(tenant, directorId, hello.PushesTurns, hello.ChecksIdleBeforeTyping);
-        _fleetManagerHomeCapabilities?.Record(tenant, directorId, hello.CreatesFleetManagerHome);
+        _fleetManagerHomeCapabilities?.Record(tenant, directorId, hello.CreatesFleetManagerHome, hello.ChangesOwner);
         FileLog.Write($"[DirectorHub] Hello: director={directorId} bound to conn={Short(Context.ConnectionId)} (version={hello.Version}, machine={hello.MachineName})");
         return CapabilitiesFor(tenant, directorId);
     }

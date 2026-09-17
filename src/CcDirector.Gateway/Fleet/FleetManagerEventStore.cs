@@ -442,6 +442,29 @@ public sealed class FleetManagerEventStore
         }
     }
 
+    /// <summary>
+    /// Forget that this session is owned (the Fleet Manager mission, step 8): its owner changed, so it is no longer the
+    /// session this row was kept for, and its end is not that owner's news. The row is removed rather than ended - an
+    /// ended row is a death, and a session handed back and later handed over again must be tracked again. A row that
+    /// has already ended is kept.
+    /// </summary>
+    /// <returns>True when a row was removed.</returns>
+    public bool ForgetOwnedAlive(TenantId tenant, string sessionId, string why)
+    {
+        if (string.IsNullOrWhiteSpace(sessionId)) throw new ArgumentException("sessionId is required", nameof(sessionId));
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var row = ctx.FleetManagerOwnedSessions.FirstOrDefault(o => o.SessionId == sessionId && o.EndedAtUtc == null);
+            if (row is null) return false;
+            ctx.FleetManagerOwnedSessions.Remove(row);
+            ctx.SaveChanges();
+            FileLog.Write($"[FleetManagerEventStore] ForgetOwnedAlive: tenant={tenant.ToLogString()}, sid={sessionId}, " +
+                          $"owner was {row.FleetManagerSessionId}: {why}");
+            return true;
+        }
+    }
+
     /// <summary>The owned session this store last knew alive, or null (never seen, or already dead).</summary>
     public FleetManagerOwnedSession? OwnedAlive(TenantId tenant, string sessionId)
     {

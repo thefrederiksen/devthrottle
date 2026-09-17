@@ -426,4 +426,69 @@ public sealed class FleetManagerRoutesHostTests : IAsyncLifetime
         Assert.Equal(new[] { (_ownedId, _fleetManagerId), (_ownedByNextId, _nextFleetManagerId) },
             digest.OwnedSessions.Select(s => (s.SessionId, s.OwnerSessionId)));
     }
+
+    // ---- step 8: pinning and hand over, through the booted host ----------------------------------------
+
+    [Fact]
+    public async Task The_session_list_pins_the_Fleet_Manager_and_offers_each_row_its_change_of_owner()
+    {
+        var (status, body) = await Send(_ownerA, "GET", "sessions");
+        Assert.Equal(HttpStatusCode.OK, status);
+        var rows = JsonSerializer.Deserialize<List<SessionDto>>(body, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        SessionDto Row(string id) => rows.Single(r => r.SessionId == id);
+
+        Assert.Equal(_fleetManagerId, Assert.Single(rows, r => r.Pin is not null).SessionId);
+        Assert.Equal("Fleet Manager", Row(_fleetManagerId).Pin!.Mark);
+        Assert.Null(Row(_fleetManagerId).OwnerChange);
+        Assert.Equal("owner", Row(_ownedId).OwnerChange!.To);
+        Assert.Equal("fleet-manager", Row(_otherSessionId).OwnerChange!.To);
+        // Owned by another running session: nothing is offered.
+        Assert.Null(Row(_ownedByNextId).OwnerChange);
+    }
+
+    [Fact]
+    public async Task Hand_over_is_refused_to_the_Fleet_Managers_own_session_key()
+    {
+        var (status, _) = await Send(_fleetManager, "POST", "gateway/fleet-manager/hand-over",
+            new { session = _otherSessionId, to = "fleet-manager" });
+
+        Assert.Equal(HttpStatusCode.Forbidden, status);
+    }
+
+    [Fact]
+    public async Task Hand_over_is_refused_to_a_Directors_key_with_the_reason()
+    {
+        var (status, body) = await Send(_directorA, "POST", "gateway/fleet-manager/hand-over",
+            new { session = _otherSessionId, to = "fleet-manager" });
+
+        Assert.Equal(HttpStatusCode.Forbidden, status);
+        Assert.Equal("owner_only", Root(body).GetProperty("code").GetString());
+        Assert.Equal("only the owner on their own signed-in phone or browser may hand a session over; "
+                     + "this request was made with a device (workstation) credential",
+            Root(body).GetProperty("error").GetString());
+    }
+
+    /// <summary>The owner's browser reaches the whole route. This Director never said it can change an owner (no
+    /// Hello was sent), so the Gateway refuses before sending anything - an older Director's answer.</summary>
+    [Fact]
+    public async Task Hand_over_from_the_owner_on_a_Director_that_never_said_it_can_is_refused_with_the_reason()
+    {
+        var (status, body) = await Send(_ownerA, "POST", "gateway/fleet-manager/hand-over",
+            new { session = _otherSessionId, to = "fleet-manager" });
+
+        Assert.Equal(HttpStatusCode.Conflict, status);
+        Assert.Contains("is older than hand over and cannot change a session's owner",
+            Root(body).GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task Hand_over_of_another_accounts_session_answers_as_an_unknown_one()
+    {
+        var (status, body) = await Send(_ownerB, "POST", "gateway/fleet-manager/hand-over",
+            new { session = _otherSessionId, to = "fleet-manager" });
+
+        Assert.Equal(HttpStatusCode.NotFound, status);
+        Assert.StartsWith($"No session {_otherSessionId} is running in this account",
+            Root(body).GetProperty("error").GetString());
+    }
 }

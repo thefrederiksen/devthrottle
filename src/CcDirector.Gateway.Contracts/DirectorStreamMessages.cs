@@ -52,6 +52,14 @@ public sealed class DirectorStreamHello
     /// </summary>
     public bool CreatesFleetManagerHome { get; set; }
 
+    /// <summary>
+    /// This Director understands the <c>set-controller</c> verb (<see cref="SetControllerRequest"/>): it changes
+    /// which session owns an existing session (the Fleet Manager mission, step 8). False from an older build,
+    /// which answers the verb as unknown - so the Gateway refuses a hand-over itself, with a sentence that says
+    /// the Director on that computer must be updated, instead of sending a verb the Director cannot carry out.
+    /// </summary>
+    public bool ChangesOwner { get; set; }
+
     /// <summary>Gateway Cleanup mission (tunnel-only): when the Director process started (UTC).</summary>
     public DateTime StartedAt { get; set; }
 

@@ -348,7 +348,7 @@ public sealed class FleetManagerPageFoldTests
         {
             Session(Marked, "Fleet Manager"),
             Session(OwnedA, "Owned", "Working", Marked, true),
-            // Still the Fleet Manager's while it is not running: hand-over is a later step, so it is not counted.
+            // The Fleet Manager's, whatever its liveness answer says: it is handed back, not counted.
             Session(OwnedB, "Owned, its owner stopped", "Idle", Marked, false),
             // The owner's own sessions: they ask the owner directly.
             Session(Loose, "Loose one"),
@@ -387,6 +387,66 @@ public sealed class FleetManagerPageFoldTests
         var dto = FleetManagerPageFold.Fold(Inputs(roster: roster, marked: null));
 
         Assert.Equal(2, dto.NotMine.Count);
+    }
+
+    [Fact]
+    public void Fold_NotMine_ListIsTheCountedSessions_ThoseThatNeedYouFirst_EachOfferingTheHandOver()
+    {
+        var roster = new[]
+        {
+            Session(Marked, "Fleet Manager"),
+            Session(OwnedA, "Owned", "Working", Marked, true),
+            Session(Loose, "Oldest, working", "Working", created: Now.AddHours(-3), repo: "/src/widgets"),
+            Session("60000000-0000-4000-8000-000000000030", "Newer, needs you", "WaitingForInput", created: Now.AddMinutes(-10)),
+            Session(OtherCrew, "Crew member", "Working", OtherBoss, true),
+            Session(OtherBoss, "Crew boss", "Idle", created: Now.AddHours(-1)),
+        };
+        roster[3].StateLabel = "Needs you";
+        roster[5].OnHold = true;   // snoozed: a grey dot, and still the owner's
+
+        var dto = FleetManagerPageFold.Fold(Inputs(roster: roster));
+
+        Assert.Equal(3, dto.NotMine.Count);
+        Assert.Equal(dto.NotMine.Count, dto.NotMine.Sessions.Count);
+        Assert.Equal(new[] { "Newer, needs you", "Oldest, working", "Crew boss" }, dto.NotMine.Sessions.Select(i => i.Title));
+        Assert.Equal(new[] { "red", "blue", "grey" }, dto.NotMine.Sessions.Select(i => i.Dot));
+        Assert.True(dto.NotMine.Sessions[0].Attention);
+        Assert.Equal("Needs you - started 10m", dto.NotMine.Sessions[0].Meta);
+        Assert.Equal("widgets - started 3h", dto.NotMine.Sessions[1].Meta);
+        Assert.All(dto.NotMine.Sessions, i =>
+        {
+            Assert.Equal(i.Id, i.SessionId);
+            Assert.Equal("fleet-manager", i.Action!.To);
+            Assert.Equal("Hand to the Fleet Manager", i.Action.Label);
+        });
+        Assert.Equal("Hand sessions to the Fleet Manager...", dto.NotMine.ShowLabel);
+        Assert.Equal("Hide the list", dto.NotMine.HideLabel);
+        Assert.Equal("Sessions that ask you directly", dto.NotMine.ListTitle);
+        Assert.Equal("Hand a session over and the Fleet Manager owns it: when it stops, the Fleet Manager is told instead of you. "
+                     + "You can hand it back from its menu in the session list.", dto.NotMine.ListNote);
+    }
+
+    [Fact]
+    public void Fold_NotMine_WithNoRunningFleetManager_ListsTheSessionsWithNoActionAndSaysWhy()
+    {
+        var roster = new[] { Session(Marked, "Was the Fleet Manager", "Exited"), Session(Loose, "Loose one") };
+
+        var dto = FleetManagerPageFold.Fold(Inputs(roster: roster));
+
+        var item = Assert.Single(dto.NotMine.Sessions);
+        Assert.Equal(Loose, item.SessionId);
+        Assert.Null(item.Action);
+        Assert.Equal("There is no running Fleet Manager, so no session can be handed over now. Start the Fleet Manager from Settings.",
+            dto.NotMine.ListNote);
+    }
+
+    [Fact]
+    public void Fold_NotMine_NothingToHandOver_OffersNoList()
+    {
+        var dto = FleetManagerPageFold.Fold(Inputs(roster: new[] { Session(Marked, "Fleet Manager"), Session(OwnedA, "Owned", "Working", Marked, true) }));
+
+        Assert.Empty(dto.NotMine.Sessions);
+        Assert.Null(dto.NotMine.ShowLabel);
     }
 
     // ---- cards --------------------------------------------------------------------------------------------

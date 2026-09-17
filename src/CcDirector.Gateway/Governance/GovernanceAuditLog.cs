@@ -49,6 +49,8 @@ public sealed class GovernanceAuditLog
         // null actor records that something ended a session and nothing about who - which is the one shape
         // of row that would make the ledger worse than no ledger.
         GovernanceAuditEventType.Stopped,
+        // Who moved a session between owners is the fact the row exists to hold.
+        GovernanceAuditEventType.HandedOver,
     };
 
     public GovernanceAuditLog(GatewayDatabase db)

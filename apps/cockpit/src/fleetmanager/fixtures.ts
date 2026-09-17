@@ -189,7 +189,47 @@ export function morningPage(): FleetManagerPage {
       emptyText: null,
       note: "What landed today needs the merge itself, which the Gateway does not record yet. (fake)",
     },
-    notMine: { count: 26, lead: "26 sessions are not the Fleet Manager's. (fake)", rest: "They still ask you directly. (fake)" },
+    notMine: {
+      count: 2,
+      lead: "2 sessions are not the Fleet Manager's. (fake)",
+      rest: "They still ask you directly. (fake)",
+      showLabel: "Hand sessions to the Fleet Manager... (fake)",
+      hideLabel: "Hide the list (fake)",
+      listTitle: "Sessions that ask you directly (fake)",
+      listNote: "Hand a session over and the Fleet Manager owns it. (fake)",
+      sessions: [
+        {
+          id: "sess-loose-1",
+          title: "Invoice export - waiting on a question",
+          meta: "Needs you - started 2h (fake)",
+          age: null,
+          dot: "red",
+          attention: true,
+          sessionId: "sess-loose-1",
+          action: {
+            to: "fleet-manager",
+            label: "Hand to the Fleet Manager (fake)",
+            title: "The Fleet Manager owns it from now on. (fake)",
+            busyLabel: "Handing it over... (fake)",
+          },
+        },
+        {
+          id: "sess-loose-2",
+          title: "Docs site - working",
+          meta: "docs - started 40m (fake)",
+          age: null,
+          dot: "blue",
+          attention: false,
+          sessionId: "sess-loose-2",
+          action: {
+            to: "fleet-manager",
+            label: "Hand to the Fleet Manager (fake)",
+            title: "The Fleet Manager owns it from now on. (fake)",
+            busyLabel: "Handing it over... (fake)",
+          },
+        },
+      ],
+    },
   };
 }
 
@@ -204,6 +244,15 @@ export function emptyPage(): FleetManagerPage {
     waiting: { title: "Waiting on you", count: 0, tone: "plain", items: [], emptyText: "Nothing is waiting on you. (fake)", note: null },
     underWay: { title: "Under way", count: 0, tone: "plain", items: [], emptyText: "No Fleet Manager is marked. (fake)", note: null },
     landed: { title: "Answered today", count: 0, tone: "plain", items: [], emptyText: "No Ready card was answered today. (fake)", note: null },
-    notMine: { count: 0, lead: "No session asks you directly. (fake)", rest: "Every live session is owned. (fake)" },
+    notMine: {
+      count: 0,
+      lead: "No session asks you directly. (fake)",
+      rest: "Every live session is owned. (fake)",
+      showLabel: null,
+      hideLabel: "Hide the list (fake)",
+      listTitle: "Sessions that ask you directly (fake)",
+      listNote: "There is no running Fleet Manager. (fake)",
+      sessions: [],
+    },
   };
 }

@@ -43,6 +43,8 @@ of what the app actually uses; keep it in step with that file.
 | `--decision-bg` | `#1b1522` | A Decision card's tint |
 | `--panel-deep` | `#0f1528` | The Fleet Manager page's right panel, and the walkthrough's round column |
 | `--dot-idle` | `#5b6480` | A stopped session's dot |
+| `--pin-bg` | `#16254a` | The pinned Fleet Manager row in the session list |
+| `--pin-mark-border` | `#3a4f7a` | The edge of its "Fleet Manager" mark |
 
 Non-colour token:
 

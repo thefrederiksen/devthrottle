@@ -4324,6 +4324,24 @@ public sealed class GatewayHost : IAsyncDisposable
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             service: _fleetManagerPlacement);
 
+        // Hand over (the Fleet Manager mission, step 8): the owner changes who owns a running session. The owner's route:
+        // SessionKeyGuard refuses a session key, and the handler allows only the owner's own phone or browser.
+        FleetManagerHandOverEndpoints.Map(_app,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            service: new Fleet.FleetManagerHandOverService(new GatewayFleetManagerHandOverEnvironment
+            {
+                Pushed = PushedSessions,
+                StaleAfter = _streamStaleAfter,
+                Directors = Registry,
+                Capabilities = _fleetManagerHomeCapabilities,
+                SendCommand = SendCommandAsync,
+                Mark = _tenantSettingsResolver.FleetManagerSessionId,
+                AuditLog = _governanceAudit,
+                // Read when a hand over happens: the events service is created when the host starts.
+                Events = () => _fleetManagerEvents,
+                EnterTenantScope = tenant => _tenantBoundary.EnterScope(tenant),
+            }));
+
         // The Fleet Manager page (the Fleet Manager mission, step 6): the cards, the live right panel and the rail's
         // badge, folded once. The owner's read: SessionKeyGuard refuses a session key.
         FleetManagerPageEndpoints.Map(_app,

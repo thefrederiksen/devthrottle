@@ -4,7 +4,7 @@
 // Everything here is folded on the Gateway (CLAUDE.md rule 7): every heading, sentence, age, tone, count and
 // button - with the exact words it sends. This file only carries it. A refusal throws a GatewayError carrying the
 // Gateway's own sentence, which the page shows as it is.
-import { authHeaders, GatewayError } from "../api/client";
+import { authHeaders, GatewayError, type SessionOwnerChange } from "../api/client";
 
 export interface FleetManagerQuickPrompt {
   label: string;
@@ -87,6 +87,8 @@ export interface FleetPanelItem {
   dot: "red" | "blue" | "green" | "grey";
   attention: boolean;
   sessionId?: string | null;
+  /** The change of owner offered on this row's session (step 8), or null. */
+  action?: SessionOwnerChange | null;
 }
 
 export interface FleetPanelSection {
@@ -102,6 +104,13 @@ export interface FleetNotMine {
   count: number;
   lead: string;
   rest: string;
+  /** The words of the control that opens the list (step 8); null when there is nothing to list. */
+  showLabel?: string | null;
+  hideLabel: string;
+  listTitle: string;
+  listNote: string;
+  /** Every session that asks the owner directly, each with its hand-over action when one can be made now. */
+  sessions: FleetPanelItem[];
 }
 
 export interface FleetManagerPage {

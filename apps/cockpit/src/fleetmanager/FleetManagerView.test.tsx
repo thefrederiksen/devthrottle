@@ -171,7 +171,7 @@ describe("FleetManagerView", () => {
     expect(landed.textContent).toContain("You said \"Merge: Session tree on the web\" at 01:52");
     expect(landed.textContent).toContain("which the Gateway does not record yet. (fake)");
     expect(screen.getByTestId("fmp-notmine").textContent).toBe(
-      "26 sessions are not the Fleet Manager's. (fake) They still ask you directly. (fake)",
+      "2 sessions are not the Fleet Manager's. (fake) They still ask you directly. (fake)Hand sessions to the Fleet Manager... (fake)",
     );
     // The three cards are in the conversation.
     expect(screen.getByText("Ready for you (fake)")).toBeTruthy();

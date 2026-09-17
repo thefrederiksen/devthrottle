@@ -13,17 +13,27 @@ namespace CcDirector.Gateway.Streaming;
 /// tells an older Director apart for conversations (<see cref="TurnPushCapabilityRegistry"/>).
 ///
 /// Keyed by account AND Director, for the reason that registry gives: a Director id is written by the client.
+///
+/// STEP 8 records a second capability here on the same terms: whether the Director carries out the
+/// <c>set-controller</c> verb (<see cref="Contracts.DirectorStreamHello.ChangesOwner"/>), which a hand over needs.
 /// </summary>
 public sealed class FleetManagerHomeCapabilityRegistry
 {
     private readonly System.Collections.Concurrent.ConcurrentDictionary<(TenantId Tenant, string DirectorId), bool> _creates = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<(TenantId Tenant, string DirectorId), bool> _changesOwner = new();
 
     /// <summary>Record what a Director said about itself on Hello, under the account its connection is bound to.</summary>
-    public void Record(TenantId tenant, string directorId, bool createsFleetManagerHome)
+    public void Record(TenantId tenant, string directorId, bool createsFleetManagerHome, bool changesOwner = false)
     {
         if (string.IsNullOrEmpty(directorId)) return;
         _creates[(tenant, directorId)] = createsFleetManagerHome;
+        _changesOwner[(tenant, directorId)] = changesOwner;
     }
+
+    /// <summary>Whether this account's Director said it carries out the <c>set-controller</c> verb. False for one that
+    /// never said so.</summary>
+    public bool ChangesOwner(TenantId tenant, string? directorId)
+        => !string.IsNullOrEmpty(directorId) && _changesOwner.TryGetValue((tenant, directorId), out var changes) && changes;
 
     /// <summary>Whether this account's Director said it understands the flag. False for one that never said so - an
     /// older build, or one this Gateway has not heard from since it started.</summary>

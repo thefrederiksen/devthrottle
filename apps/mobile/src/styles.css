@@ -10,6 +10,11 @@
   --accent: #3b82f6;
   --attention: #f14c4c;
   --warn: #f59e0b;
+  /* The pinned Fleet Manager row (the Fleet Manager mission, step 8): the Cockpit's pin tint and edges. */
+  --pin-bg: #16254a;
+  --pin-edge: #2c5391;
+  --pin-mark-text: #9cc2ff;
+  --pin-mark-border: #3a4f7a;
 
   /* THE TOP CHROME STACK. Two bars can be pinned above every screen at once - the network banner
      (.conn-banner, only when the network is in trouble) and the voice-mode banner (.voicemode-banner,
@@ -5259,4 +5264,34 @@ a.banner-btn {
 .report-sheet-body {
   min-height: 0;
   overflow-y: auto;
+}
+
+/* ---- the pinned Fleet Manager (the Fleet Manager mission, step 8) ---- */
+.group-pinned {
+  margin-top: 12px;
+}
+
+.row.row-pinned {
+  background: var(--pin-bg);
+  box-shadow: inset 0 0 0 1px var(--pin-edge);
+}
+
+.row-pin-mark {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 0 5px;
+  border: 1px solid var(--pin-mark-border);
+  border-radius: 4px;
+  color: var(--pin-mark-text);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  vertical-align: 2px;
+}
+
+.pinned-others-head {
+  margin-top: 18px;
+  margin-bottom: 0;
 }

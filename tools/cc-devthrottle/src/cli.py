@@ -1071,6 +1071,17 @@ _ACTIONS = [
         "args": [],
     },
     {
+        "id": "session-hand-over",
+        "description": (
+            "Hand a running session to the Fleet Manager, or back to the owner. The owner's change: the Gateway "
+            "allows it only from the owner's own phone or browser and refuses every session key, the Fleet "
+            "Manager's included."
+        ),
+        "command": "cc-devthrottle session hand-over <session> --to fleet-manager|owner [--json]",
+        "mutatesState": True,
+        "args": [{"name": "session", "required": True}, {"name": "to", "required": True}],
+    },
+    {
         "id": "browser-list",
         "description": "List this machine's drivable browser profiles (name, browser, status, account).",
         "command": "cc-devthrottle browser list --json",
@@ -1662,6 +1673,31 @@ def machine_launch(
     from .machine_ops import launch
 
     launch(machine, app, path, args, cwd, headless, json_output)
+
+
+@session_app.command(name="hand-over")
+def hand_over(
+    target: str = typer.Argument(..., help="Session to hand over (full id, id prefix, number, or exact name)."),
+    to: Optional[str] = typer.Option(
+        None, "--to", help="Who owns it afterwards: fleet-manager, or owner (no owning session)."
+    ),
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output raw JSON: the Gateway's answer, unchanged."
+    ),
+) -> None:
+    """Hand a running session to the Fleet Manager, or back to the owner.
+
+    This is the OWNER'S change. The Gateway allows it only from the owner's own signed-in phone or
+    browser (the Cockpit's Fleet Manager page and session menu), and refuses a session's key - the Fleet
+    Manager's included - so run from a session this prints the Gateway's refusal.
+
+    The Gateway also refuses: a session this account is not running, the Fleet Manager itself, handing to
+    a Fleet Manager the account does not have running, a session another running session owns, a session
+    that is already where it is being sent, and a session whose Director is too old to change an owner.
+    """
+    from .fleet_manager_ops import hand_over as _hand_over
+
+    _hand_over(target, to, json_output)
 
 
 @session_app.command()

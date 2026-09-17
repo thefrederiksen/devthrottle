@@ -384,6 +384,37 @@ public sealed class FleetManagerEventService : IDisposable
     }
 
     /// <summary>
+    /// A session's owner was changed by a hand over (step 8). <paramref name="row"/> is the session as its Director
+    /// reported it after the change. Owned by the account's Fleet Manager now: it is remembered alive, so its stops and
+    /// its death are the Fleet Manager's from this moment. Owned by anyone else, or nobody: what was kept of it is
+    /// forgotten, and a stop still waiting for its reading is withdrawn, so its stops and its death go to its new owner
+    /// and no longer to the Fleet Manager. Never throws.
+    /// </summary>
+    public void OnOwnerChanged(TenantId tenant, string directorId, SessionDto row)
+    {
+        if (_disposed || row is null || string.IsNullOrEmpty(row.SessionId)) return;
+        var sid = row.SessionId;
+        try
+        {
+            var marked = _env.MarkedFleetManager(tenant);
+            if (!string.IsNullOrEmpty(marked) && IsOwnedBy(row, marked) && !IsExited(row))
+            {
+                FileLog.Write($"[FleetManagerEventService] owner changed: sid={sid} is now owned by the Fleet Manager {marked}");
+                NoteAlive(tenant, row, directorId, marked);
+                return;
+            }
+            FileLog.Write($"[FleetManagerEventService] owner changed: sid={sid} is owned by {row.ControllerSessionId ?? "the owner"} " +
+                          "now; its stops and its death are no longer the Fleet Manager's");
+            Forget(tenant, sid, $"its owner is {row.ControllerSessionId ?? "the owner"} now");
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[FleetManagerEventService] owner changed FAILED: sid={sid} tenant={tenant.ToLogString()}: " +
+                          $"{ex.GetType().FullName}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// THE RECONCILE, run at start and on a timer: stops left waiting by an earlier Gateway get their reason, owned
     /// sessions seen alive are remembered, and every owned session this Gateway last knew alive is counted dead ONLY
     /// when it is reported exited, when a connected Director that has reported its sessions leaves it out, or when
@@ -410,6 +441,15 @@ public sealed class FleetManagerEventService : IDisposable
         foreach (var owned in _store.AllOwnedAlive(tenant))
         {
             var known = _env.LastKnown(tenant, owned.SessionId);
+            // HANDED OVER ELSEWHERE (step 8): the session is running and its row names another owner than the one this
+            // was kept for - handed back to the owner, or to someone else. Its end is not that Fleet Manager's news.
+            if (known is { } running && !IsExited(running.Session)
+                && !(running.Session.IsControlled && SameId(running.Session.ControllerSessionId, owned.FleetManagerSessionId)))
+            {
+                Forget(tenant, owned.SessionId,
+                    $"its row now names {running.Session.ControllerSessionId ?? "no owner"}, not {owned.FleetManagerSessionId}");
+                continue;
+            }
             string? detail = null;
             var crashed = false;
             var directorId = known?.DirectorId ?? owned.DirectorId;
@@ -490,6 +530,13 @@ public sealed class FleetManagerEventService : IDisposable
         _store.NoteOwnedAlive(tenant, new FleetManagerOwnedSession(row.SessionId, owner, row.Name ?? "", directorId,
             _env.NowUtc()), _env.NowUtc());
         _noted[key] = value;
+    }
+
+    private void Forget(TenantId tenant, string sid, string why)
+    {
+        _store.ForgetOwnedAlive(tenant, sid, why);
+        _noted.TryRemove((tenant, sid), out _);
+        Withdraw(tenant, sid, $"its owner changed before its reading arrived ({why})");
     }
 
     private void ApplyReading(TenantId tenant, string sid, TurnVerdictDto? verdict, string? reason,

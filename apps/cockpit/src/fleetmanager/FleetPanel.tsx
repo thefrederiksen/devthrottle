@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { FleetManagerPage, FleetPanelItem, FleetPanelSection } from "@devthrottle/client-core/fleetmanager/pageClient";
 import type { PollState } from "@devthrottle/client-core/polling/pollingStore";
+import { HandOverList } from "./HandOverList";
 
 // The live right panel of the Fleet Manager page (the Fleet Manager mission, step 6). Facts from the Gateway, not
 // the model: every heading, count, age, dot and sentence is folded there and rendered here as sent. It fails on its
@@ -51,8 +53,19 @@ function Section({ section, name, walkthroughLabel }: { section: FleetPanelSecti
   );
 }
 
-export function FleetPanel({ state }: { state: PollState<FleetManagerPage> }) {
+export function FleetPanel({
+  state,
+  openHandOver = false,
+  onChanged,
+}: {
+  state: PollState<FleetManagerPage>;
+  /** Open the list of sessions to hand over at first (the session list links here with it open). */
+  openHandOver?: boolean;
+  /** Called after a session changed owner, so the page reads the Gateway again. */
+  onChanged: () => void;
+}) {
   const page = state.data;
+  const [showList, setShowList] = useState(openHandOver);
   return (
     <aside className="fmp-side" aria-label="What the Gateway knows">
       {state.error !== null && (
@@ -73,7 +86,18 @@ export function FleetPanel({ state }: { state: PollState<FleetManagerPage> }) {
           <Section section={page.landed} name="landed" />
           <div className="fmp-notmine" data-testid="fmp-notmine">
             <b>{page.notMine.lead}</b> {page.notMine.rest}
+            {page.notMine.showLabel && (
+              <button
+                type="button"
+                className="fmp-notmine-toggle"
+                aria-expanded={showList}
+                onClick={() => setShowList((v) => !v)}
+              >
+                {showList ? page.notMine.hideLabel : page.notMine.showLabel}
+              </button>
+            )}
           </div>
+          {showList && page.notMine.sessions.length > 0 && <HandOverList notMine={page.notMine} onChanged={onChanged} />}
         </>
       )}
     </aside>

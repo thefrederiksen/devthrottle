@@ -272,3 +272,54 @@ describe("the colour legend on the phone roster", () => {
     expect(rule(".legend-row")).toContain("display: flex");
   });
 });
+
+// PINNING (the Fleet Manager mission, step 8): the Gateway's pinned row is the first card in both orders, wearing its
+// mark verbatim, with its team folded into its band; the Gateway's heading follows; the rest keep their order.
+describe("the phone pins the Fleet Manager first", () => {
+  const pin = {
+    rank: 0,
+    mark: "Fleet Manager (fake mark)",
+    title: "Your Fleet Manager. (fake)",
+    othersHeading: "Not its own - they ask you (fake heading)",
+    handOverLinkLabel: "Hand sessions over... (fake link)",
+  };
+  const fm = session({ sessionId: "140", number: 140, name: "The Fleet Manager", sortOrder: 9, pin } as Partial<SessionDto> & { sessionId: string; name: string });
+  const teamA = session({ sessionId: "141", number: 141, name: "Team member A", sortOrder: 1, controllerSessionId: "140" });
+  const teamB = session({ sessionId: "142", number: 142, name: "Team member B", sortOrder: 2, controllerSessionId: "141" });
+
+  it("opens with the pinned card first, marked, its team collapsed, then the heading and the attention order", async () => {
+    await renderHome([alone, architect, worker, stopped, teamA, teamB, fm]);
+
+    expect(cardNames()).toEqual([
+      "The Fleet ManagerFleet Manager (fake mark)",
+      "Rule Factory - Architect",
+      "devthrottle_internal - wingman",
+    ]);
+    const pinned = screen.getByTestId("roster-pinned");
+    expect(within(pinned).getByText("Fleet Manager (fake mark)").getAttribute("title")).toBe("Your Fleet Manager. (fake)");
+    expect(pinned.querySelector(".row-pinned")).not.toBeNull();
+    const band = within(pinned).getByRole("button", { name: /Expand the 2 sessions under The Fleet Manager/ });
+    expect(band.textContent).toContain("2 under it: 2 working, 0 stopped, 0 need you");
+    const headings = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
+    expect(headings).toEqual(["Not its own - they ask you (fake heading)", "Needs you", "Working"]);
+    // The phone has no Fleet Manager page, so it offers no hand-over link.
+    expect(screen.queryByText("Hand sessions over... (fake link)")).toBeNull();
+  });
+
+  it("keeps the pinned card first in my order too, and expands its team in place", async () => {
+    await renderHome([alone, architect, teamA, fm]);
+    fireEvent.click(screen.getByRole("button", { name: "My order" }));
+
+    expect(cardNames()[0]).toBe("The Fleet ManagerFleet Manager (fake mark)");
+    fireEvent.click(screen.getByRole("button", { name: /Expand the 1 sessions under The Fleet Manager/ }));
+    const kids = screen.getByRole("list", { name: "Sessions under The Fleet Manager" });
+    expect(within(kids).getAllByRole("link").map((a) => a.textContent)).toEqual(["141Team member AWorking"]);
+  });
+
+  it("pins nothing the Gateway did not pin", async () => {
+    await renderHome([alone, architect, session({ sessionId: "150", name: "Fleet Manager", sortOrder: 1 })]);
+
+    expect(screen.queryByTestId("roster-pinned")).toBeNull();
+    expect(document.querySelector(".row-pin-mark")).toBeNull();
+  });
+});

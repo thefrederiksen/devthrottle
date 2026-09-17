@@ -52,6 +52,11 @@ internal static class FleetManagerPageFold
         ArgumentNullException.ThrowIfNull(input);
         var marked = string.IsNullOrWhiteSpace(input.MarkedSessionId) ? null : input.MarkedSessionId.Trim();
         var fleetManager = FleetManagerSessions.IsFleetManager(input.MarkedSession, marked) ? marked : null;
+        // A change of owner needs the Fleet Manager RUNNING (step 8); the conversation above does not.
+        var runningFleetManager = input.MarkedSession is { } row
+                                  && FleetManagerSessions.LiveFleetManager(new[] { row }, marked) is not null
+            ? marked
+            : null;
         var live = input.Roster.Where(s => !IsGone(s)).ToList();
         var byId = live
             .Where(s => !string.IsNullOrEmpty(s.SessionId))
@@ -79,7 +84,7 @@ internal static class FleetManagerPageFold
             Waiting = Waiting(input, byId),
             UnderWay = UnderWay(live, marked, fleetManager, input.NowUtc),
             Landed = Landed(input),
-            NotMine = NotMine(live, fleetManager),
+            NotMine = NotMine(live, fleetManager, runningFleetManager, input.NowUtc),
         };
         dto.WaitingCount = dto.Waiting.Count;
         // The way into the walkthrough (step 7), offered only when something is waiting.
@@ -308,12 +313,7 @@ internal static class FleetManagerPageFold
                 Id = s.SessionId,
                 Title = string.IsNullOrWhiteSpace(s.Name) ? s.SessionId : s.Name!,
                 Meta = string.Join(" - ", meta),
-                Dot = SessionTree.CrewState(s) switch
-                {
-                    SessionTree.CrewStateWorking => FleetPanelItemDto.DotBlue,
-                    SessionTree.CrewStateNeedsYou => FleetPanelItemDto.DotRed,
-                    _ => FleetPanelItemDto.DotGrey,
-                },
+                Dot = DotFor(s),
                 SessionId = s.SessionId,
             };
         }).ToList();
@@ -370,24 +370,62 @@ internal static class FleetManagerPageFold
     }
 
     /// <summary>
-    /// Live sessions that are not the Fleet Manager, not owned by it, and that go red for the owner - those with no
-    /// live owner of their own. Sessions another live session owns report to that session, not to the owner, so they
-    /// are not counted.
+    /// The sessions that still ask the owner directly (<see cref="FleetManagerSessions.AsksOwnerDirectly"/>): live, not
+    /// the Fleet Manager, not owned by it, and with no live owner of their own. Sessions another live session owns
+    /// report to that session, not to the owner, so they are not counted. The count and the list are one list (step
+    /// 8), those that need the owner now first, then the oldest first, each with the hand-over the session list offers.
     /// </summary>
-    private static FleetNotMineDto NotMine(IReadOnlyList<SessionDto> live, string? marked)
+    private static FleetNotMineDto NotMine(IReadOnlyList<SessionDto> live, string? fleetManager, string? runningFleetManager,
+        DateTime now)
     {
-        var count = live.Count(s =>
-            !(marked is not null && string.Equals(s.SessionId, marked, StringComparison.OrdinalIgnoreCase))
-            && !(marked is not null && IsOwnedBy(s, marked))
-            && !s.HasLiveSupervisor);
+        var sessions = live
+            .Where(s => FleetManagerSessions.AsksOwnerDirectly(s, fleetManager))
+            .OrderBy(s => SessionTree.CrewState(s) == SessionTree.CrewStateNeedsYou ? 0 : 1)
+            .ThenBy(s => s.CreatedAt)
+            .ThenBy(s => s.SessionId, StringComparer.Ordinal)
+            .Select(s =>
+            {
+                var meta = new List<string>();
+                if (SessionOrdering.RepoName(s) is { } repo) meta.Add(repo);
+                if (!string.IsNullOrWhiteSpace(s.StateLabel)) meta.Add(s.StateLabel!);
+                if (Age(s.CreatedAt, now) is { } age) meta.Add($"started {age}");
+                return new FleetPanelItemDto
+                {
+                    Id = s.SessionId,
+                    Title = string.IsNullOrWhiteSpace(s.Name) ? s.SessionId : s.Name!,
+                    Meta = string.Join(" - ", meta),
+                    Dot = DotFor(s),
+                    Attention = SessionTree.CrewState(s) == SessionTree.CrewStateNeedsYou,
+                    SessionId = s.SessionId,
+                    Action = FleetManagerRosterFold.OwnerChangeFor(s, runningFleetManager),
+                };
+            })
+            .ToList();
+        var count = sessions.Count;
 
-        return count switch
+        var dto = count switch
         {
             0 => new FleetNotMineDto { Count = 0, Lead = "No session asks you directly.", Rest = "Every live session is the Fleet Manager's or owned by another session." },
             1 => new FleetNotMineDto { Count = 1, Lead = "1 session is not the Fleet Manager's.", Rest = "It still asks you directly." },
             _ => new FleetNotMineDto { Count = count, Lead = $"{count} sessions are not the Fleet Manager's.", Rest = "They still ask you directly." },
         };
+        dto.Sessions = sessions;
+        dto.ShowLabel = count > 0 ? FleetManagerRosterFold.HandOverLinkLabel : null;
+        dto.HideLabel = "Hide the list";
+        dto.ListTitle = "Sessions that ask you directly";
+        dto.ListNote = runningFleetManager is not null
+            ? "Hand a session over and the Fleet Manager owns it: when it stops, the Fleet Manager is told instead of you. "
+              + "You can hand it back from its menu in the session list."
+            : "There is no running Fleet Manager, so no session can be handed over now. Start the Fleet Manager from Settings.";
+        return dto;
     }
+
+    private static string DotFor(SessionDto s) => SessionTree.CrewState(s) switch
+    {
+        SessionTree.CrewStateWorking => FleetPanelItemDto.DotBlue,
+        SessionTree.CrewStateNeedsYou => FleetPanelItemDto.DotRed,
+        _ => FleetPanelItemDto.DotGrey,
+    };
 
     /// <summary>Why the marked session is not the Fleet Manager, in the words the conversation shows instead.</summary>
     private static string NotTheFleetManager(SessionDto? row, string marked)
@@ -399,12 +437,9 @@ internal static class FleetManagerPageFold
 
     // ---- shared --------------------------------------------------------------------------------------------
 
-    private static bool IsOwnedBy(SessionDto s, string marked)
-        => string.Equals(s.ControllerSessionId, marked, StringComparison.OrdinalIgnoreCase)
-           && !string.Equals(s.SessionId, marked, StringComparison.OrdinalIgnoreCase);
+    private static bool IsOwnedBy(SessionDto s, string marked) => FleetManagerSessions.IsOwnedBy(s, marked);
 
-    private static bool IsGone(SessionDto s)
-        => s.Crashed || string.Equals(s.ActivityState, "Exited", StringComparison.OrdinalIgnoreCase);
+    private static bool IsGone(SessionDto s) => FleetManagerSessions.IsGone(s);
 
     private static DateTime Local(DateTime utc, TimeZoneInfo tz)
         => TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), tz);

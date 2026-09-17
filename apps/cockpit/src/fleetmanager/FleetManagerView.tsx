@@ -1,5 +1,5 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { sendPrompt } from "@devthrottle/client-core/api/client";
 import { describeAndReport } from "@devthrottle/client-core/errors/reportClientError";
 import { useSessionChat } from "@devthrottle/client-core/history/useSessionChat";
@@ -61,6 +61,9 @@ function usePlacement() {
 
 export function FleetManagerView() {
   const page = usePollingStore(fleetManagerPageStore);
+  // The session list's "Hand sessions to the Fleet Manager..." link opens the page with that list open (step 8).
+  const [search] = useSearchParams();
+  const openHandOver = search.get("handover") === "1";
   const { placement, setPlacement, error: placementError, refresh: refreshPlacement } = usePlacement();
   const status = placement?.status;
   // The marked session, from the setting's answer; the page's answer carries the same mark.
@@ -281,7 +284,7 @@ export function FleetManagerView() {
           </div>
         </div>
 
-        <FleetPanel state={page} />
+        <FleetPanel state={page} openHandOver={openHandOver} onChanged={refreshAll} />
       </div>
     </div>
   );

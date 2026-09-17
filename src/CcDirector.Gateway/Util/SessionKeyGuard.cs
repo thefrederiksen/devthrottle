@@ -529,6 +529,9 @@ public static class SessionKeyGuard
             // THE OWNER'S WALKTHROUGH (step 7): the same readings as the page, and the owner's own answers, snoozes and
             // closes recorded as the owner's.
             case "walkthrough":
+            // THE OWNER'S CHOICE (step 8). Who a session reports to is the owner's to change; a session - the Fleet
+            // Manager included - taking sessions for itself would quieten them for the owner with nobody asking.
+            case "hand-over":
                 return false;
             default:
                 return false;

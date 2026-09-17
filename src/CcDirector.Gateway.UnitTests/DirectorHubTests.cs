@@ -198,6 +198,24 @@ public sealed class DirectorHubTests : IDisposable
     }
 
     [Fact]
+    public void Hello_RecordsWhetherThisDirectorChangesASessionsOwner()
+    {
+        // The Fleet Manager mission, step 8: the Gateway refuses a hand over on a Director that did not say this, because
+        // an older one answers the set-controller verb as unknown.
+        var caps = new CcDirector.Gateway.Streaming.FleetManagerHomeCapabilityRegistry();
+        var newBuild = new DirectorHub(_store, _registry, InputStatsHandle.Available(_inputStats), new GatewayStreamRegistry(), SelfHostBoundary(), fleetManagerHomeCapabilities: caps) { Context = new FakeHubCallerContext("conn-1") };
+        var oldBuild = new DirectorHub(_store, _registry, InputStatsHandle.Available(_inputStats), new GatewayStreamRegistry(), SelfHostBoundary(), fleetManagerHomeCapabilities: caps) { Context = new FakeHubCallerContext("conn-2") };
+
+        newBuild.Hello(new DirectorStreamHello { DirectorId = "dir-new", Version = "test", ChangesOwner = true });
+        oldBuild.Hello(new DirectorStreamHello { DirectorId = "dir-old", Version = "test", CreatesFleetManagerHome = true });
+
+        Assert.True(caps.ChangesOwner(TenantId.Local, "dir-new"));
+        Assert.False(caps.ChangesOwner(TenantId.Local, "dir-old"));
+        Assert.False(caps.ChangesOwner(TenantId.Local, "dir-never-seen"));
+        Assert.False(caps.ChangesOwner(new TenantId("11111111-1111-1111-1111-111111111111"), "dir-new"));
+    }
+
+    [Fact]
     public void Hello_WithNothingStoredForThisDirector_SaysSo_RatherThanStayingSilent()
     {
         // An empty list that the Gateway VOUCHES for is a fact the Director acts on: it pushes every

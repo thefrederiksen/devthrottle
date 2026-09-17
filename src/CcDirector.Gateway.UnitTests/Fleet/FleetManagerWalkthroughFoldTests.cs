@@ -25,9 +25,11 @@ public sealed class FleetManagerWalkthroughFoldTests
 
     internal static SessionDto Session(string id, string name, string state = "WaitingForInput", string? controller = Marked,
         int? uncommitted = 0, string repo = "/work/widgets", DateTime? lastActivity = null, bool onHold = false,
-        DateTime? snoozeUntil = null) => new()
+        DateTime? snoozeUntil = null, bool handedOver = false) => new()
     {
         SessionId = id, Name = name, ActivityState = state, ControllerSessionId = controller,
+        // An ordinary spawn: the owning session also started it. A hand over (step 8) changes only the owner.
+        ParentSessionId = handedOver ? null : controller,
         IsControlled = controller is not null, HasLiveSupervisor = controller is not null,
         CreatedAt = Now.AddHours(-22), RepoPath = repo, DirectorId = Director, MachineName = "WORKSTATION-A",
         AgentToolDisplay = "Claude Code", UncommittedCount = uncommitted,
@@ -249,6 +251,26 @@ public sealed class FleetManagerWalkthroughFoldTests
         Assert.Equal("Everything in this round is settled. 2 more are waiting.", dto.EndText);
         Assert.Null(dto.AgainLabel);
         Assert.Equal("Start the next round", dto.NewRoundLabel);
+    }
+
+    [Fact]
+    public void Fold_SessionHandedToTheFleetManager_IsNotSaidToBeStartedByIt_ButCountsAsItsWorkingSession()
+    {
+        // Step 8: the owner started these and handed them over, so the Fleet Manager owns them without having
+        // started them. The line must not claim it did; the working one still counts as one of its sessions.
+        var w = new World();
+        w.Live.Add(Session(Layouts, "Layouts session", handedOver: true));
+        w.Live.Add(Session(Busy, "Busy session", state: "Working", handedOver: true));
+        w.Live.Add(Session(Napping, "Owner's own", controller: null));
+        w.Records.Add(Record(Id(1), "decision", "Pick a layout", Now.AddMinutes(-42), Layouts));
+        w.Records.Add(Record(Id(2), "decision", "Anything else", Now.AddMinutes(-40), Napping));
+
+        var dto = w.Fold();
+
+        Assert.Equal("widgets - WORKSTATION-A - Claude Code - handed to the Fleet Manager - started yesterday 16:30",
+            dto.Items[0].Meta);
+        Assert.Equal("widgets - WORKSTATION-A - Claude Code - started yesterday 16:30", dto.Items[1].Meta);
+        Assert.Equal("Not in this round: 1 of the Fleet Manager's sessions that is working.", dto.NotInRound);
     }
 
     [Fact]

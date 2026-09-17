@@ -339,6 +339,8 @@ _ACTIONS_ADDED_SINCE_PIN = {
     "worktree-get", "worktree-return", "worktree-lease", "worktree-destroy", "worktree-list-pool",
     "worktree-list",
     "fleet-advise",
+    # The Fleet Manager mission, step 8.
+    "session-hand-over",
 }
 
 

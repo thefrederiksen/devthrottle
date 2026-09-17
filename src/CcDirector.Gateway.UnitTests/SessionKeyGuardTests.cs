@@ -286,6 +286,17 @@ public sealed class SessionKeyGuardTests
     public void The_fleet_manager_placement_routes_are_the_owners(string method, string path)
         => Assert.False(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} must be refused to a session key");
 
+    // The Fleet Manager mission, step 8: who a session reports to is the owner's to change. A session - the Fleet Manager
+    // included - may not hand sessions over, in either direction, by any verb.
+    [Theory]
+    [InlineData("POST", "/gateway/fleet-manager/hand-over")]
+    [InlineData("POST", "/Gateway/Fleet-Manager/Hand-Over")]
+    [InlineData("GET", "/gateway/fleet-manager/hand-over")]
+    [InlineData("PUT", "/gateway/fleet-manager/hand-over")]
+    [InlineData("POST", "/gateway/fleet-manager/hand-over/5b1c2d3e-0000-4000-8000-000000000001")]
+    public void Check_HandOverRoute_IsRefusedToASessionKey(string method, string path)
+        => Assert.False(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} must be refused to a session key");
+
     [Fact]
     public void Restarting_a_Director_is_still_refused_even_though_capturing_its_fleet_is_not()
     {
