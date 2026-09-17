@@ -10,6 +10,11 @@ from pathlib import Path
 # A credential problem must fail at once as "cannot verify", never sit waiting at a prompt.
 _NO_PROMPT_ENV = {"GIT_TERMINAL_PROMPT": "0", "GCM_INTERACTIVE": "never"}
 
+# A replace ref (`git replace`) makes git read another commit wherever the replaced one is named, so an unlanded
+# commit replaced by a landed one would read as landed. Every call reads the objects as they really are. This
+# overrides any value inherited from the caller's environment.
+_REAL_OBJECTS_ENV = {"GIT_NO_REPLACE_OBJECTS": "1"}
+
 
 class GitError(Exception):
     """A git command exited non-zero."""
@@ -38,7 +43,7 @@ def run(cwd: Path | str, *args: str, check: bool = True, timeout: float | None =
     Output goes to temporary files, not pipes. A remote helper git started can outlive git itself, and
     on Windows it would hold a pipe open and make the wait for output as long as the hang.
     """
-    env = {**os.environ, **_NO_PROMPT_ENV}
+    env = {**os.environ, **_NO_PROMPT_ENV, **_REAL_OBJECTS_ENV}
     with tempfile.TemporaryFile() as out_file, tempfile.TemporaryFile() as err_file:
         proc = subprocess.Popen(["git", *args], cwd=str(cwd), env=env, stdin=subprocess.DEVNULL,
                                 stdout=out_file, stderr=err_file)
