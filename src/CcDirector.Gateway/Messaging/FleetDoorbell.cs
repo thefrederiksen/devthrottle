@@ -144,6 +144,20 @@ public sealed class FleetDoorbell
     private readonly Func<TenantId, string, bool> _dictationInFlight;
     private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), byte> _inFlight = new();
 
+    /// <summary>When each session's current run of dictation deferrals began, and whether it was warned about.</summary>
+    private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), (DateTime Since, bool Warned)> _dictationHeld = new();
+
+    /// <summary>
+    /// How long a session's rings may be deferred by the dictation lock before the Gateway writes one warning
+    /// (inspection 5, ruling 3). A PENDING dictation record holds the lock until it completes or the stale-upload
+    /// sweep abandons it (24 hours without activity, swept every 6 hours), and the session row does not show that
+    /// lock once the upload stops progressing - so a long hold is otherwise silent.
+    /// </summary>
+    public static readonly TimeSpan DictationWarnAfter = TimeSpan.FromMinutes(30);
+
+    /// <summary>Test seam: receives every warning line as it is written. Production never sets it.</summary>
+    internal Action<string>? OnWarning { get; set; }
+
     /// <param name="store">The inbox.</param>
     /// <param name="messages">Writes the stuck notice through the one send path.</param>
     /// <param name="locate">Where a session lives, from the pushed roster; null when it is not on a connected Director.</param>
@@ -315,6 +329,39 @@ public sealed class FleetDoorbell
     /// ring, so the heartbeat can record all of its rings in one save.
     /// </summary>
     private async Task<(FleetRingAttempt Attempt, IReadOnlyCollection<string> Due)> RingPlannedAsync(
+        TenantId tenant, RingPlan plan, string trigger, DateTime now, CancellationToken ct)
+    {
+        var result = await DecideAndAskAsync(tenant, plan, trigger, now, ct).ConfigureAwait(false);
+        TrackDictationHold(tenant, plan.SessionId, result.Attempt, now);
+        return result;
+    }
+
+    /// <summary>
+    /// A LONG DICTATION HOLD IS NOT SILENT (inspection 5, ruling 3). A run of dictation deferrals for one session
+    /// that lasts longer than <see cref="DictationWarnAfter"/> is logged once, as a warning, with the session id.
+    /// Any other outcome for the session ends the run.
+    /// </summary>
+    private void TrackDictationHold(TenantId tenant, string sid, FleetRingAttempt attempt, DateTime now)
+    {
+        var key = (tenant, sid);
+        if (attempt != FleetRingAttempt.DeferredDictation)
+        {
+            _dictationHeld.TryRemove(key, out _);
+            return;
+        }
+
+        var held = _dictationHeld.GetOrAdd(key, (now, false));
+        if (held.Warned || now - held.Since <= DictationWarnAfter) return;
+        if (!_dictationHeld.TryUpdate(key, (held.Since, true), held)) return;
+
+        var line = $"[FleetDoorbell] WARNING: rings for session {sid} (tenant {tenant}) have been deferred by the " +
+                   $"owner's dictation lock since {held.Since:u} ({(now - held.Since).TotalMinutes:0} minutes). A PENDING " +
+                   "dictation record holds the lock until it completes or the stale-upload sweep abandons it.";
+        FileLog.Write(line);
+        OnWarning?.Invoke(line);
+    }
+
+    private async Task<(FleetRingAttempt Attempt, IReadOnlyCollection<string> Due)> DecideAndAskAsync(
         TenantId tenant, RingPlan plan, string trigger, DateTime now, CancellationToken ct)
     {
         var sid = plan.SessionId;

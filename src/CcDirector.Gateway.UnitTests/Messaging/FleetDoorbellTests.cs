@@ -728,6 +728,67 @@ public sealed class FleetDoorbellTests : IDisposable
         Assert.Null(Peek(id).StuckAtUtc);
     }
 
+    // ---------- Inspection 5, ruling 3: a long dictation hold is logged once ----------
+
+    private static async Task SweepEvery15SecondsUntil(Rig rig, Func<DateTime> now, Action<DateTime> set, DateTime until)
+    {
+        for (var t = now(); t <= until; t += TimeSpan.FromSeconds(15))
+        {
+            set(t);
+            await rig.Doorbell.SweepAsync();
+        }
+    }
+
+    [Fact]
+    public async Task A_dictation_hold_past_thirty_minutes_is_warned_about_once_with_the_session_id()
+    {
+        var rig = NewRig();
+        var warnings = new List<string>();
+        rig.Doorbell.OnWarning = warnings.Add;
+        Send(rig);
+        _dictating.Add(Worker);
+
+        await SweepEvery15SecondsUntil(rig, () => _now, t => _now = t, T0.AddMinutes(30));
+        Assert.Empty(warnings);
+
+        await SweepEvery15SecondsUntil(rig, () => _now + TimeSpan.FromSeconds(15), t => _now = t, T0.AddHours(3));
+
+        var warning = Assert.Single(warnings);
+        Assert.Contains("WARNING", warning);
+        Assert.Contains(Worker, warning);
+        Assert.Contains("dictation", warning);
+    }
+
+    [Fact]
+    public async Task A_new_dictation_hold_after_a_ring_starts_its_own_thirty_minutes()
+    {
+        var rig = NewRig();
+        var warnings = new List<string>();
+        rig.Doorbell.OnWarning = warnings.Add;
+        Send(rig);
+        _dictating.Add(Worker);
+        await SweepEvery15SecondsUntil(rig, () => _now, t => _now = t, T0.AddMinutes(20));
+
+        // The lock ends; the session is rung; a new dictation starts.
+        _dictating.Remove(Worker);
+        await SweepEvery15SecondsUntil(rig, () => _now + TimeSpan.FromSeconds(15), t => _now = t, T0.AddMinutes(21));
+        Assert.Single(WorkerRings);
+        _dictating.Add(Worker);
+        // The next ring falls due five minutes after the one at 20:15, so the new hold starts at 25:15 and the first
+        // hold's twenty minutes do not count towards it.
+        await SweepEvery15SecondsUntil(rig, () => _now + TimeSpan.FromSeconds(15), t => _now = t, T0.AddMinutes(55.25));
+        Assert.Empty(warnings);
+
+        await SweepEvery15SecondsUntil(rig, () => _now + TimeSpan.FromSeconds(15), t => _now = t, T0.AddMinutes(56));
+        Assert.Single(warnings);
+    }
+
+    [Fact]
+    public void The_dictation_warning_comes_after_thirty_minutes()
+    {
+        Assert.Equal(TimeSpan.FromMinutes(30), FleetDoorbell.DictationWarnAfter);
+    }
+
     // ---------- What is and is not counted as a ring ----------
 
     [Fact]
