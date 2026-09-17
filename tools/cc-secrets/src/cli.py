@@ -358,26 +358,49 @@ def run(
     raise typer.Exit(result.exit_code if result.exit_code != 0 else (EXIT_FAILED if result.timed_out else 0))
 
 
+def register_env_file_values(text: str) -> None:
+    """Hand every value of a KEY=VALUE file to the scrubber BEFORE the file is checked. A malformed line is then
+    reported by its number alone, and any key that happens to be another line's value is hidden wherever it is
+    printed (review of pull request 2978). Keys themselves are not registered, so the report stays readable."""
+    for raw in text.splitlines():
+        if "=" in raw:
+            value = raw.split("=", 1)[1]
+            if value.strip():
+                SCRUBBER.add(value)
+
+
 def parse_env_file(text: str) -> List[tuple]:
     """[(line number, KEY, VALUE)] from KEY=VALUE text. Blank lines and lines starting with # are skipped.
-    A line that is not KEY=VALUE, a key that is not a variable name, or a key given twice raises InputError
-    naming the line - never the value."""
+
+    The value is everything after the first '=', exactly - never trimmed, because a credential can hold
+    spaces; a value that starts or ends with a space is refused instead of guessed at. A line that is not
+    KEY=VALUE, a key that is not a variable name, a key given twice, and two keys that would become the same
+    entry name are refused naming the LINES only - no text from the file is ever put in a message."""
     pairs = []
-    seen = {}
+    seen_keys = {}
+    seen_names = {}
     for number, raw in enumerate(text.splitlines(), start=1):
-        line = raw.strip()
-        if not line or line.startswith("#"):
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("#"):
             continue
-        if "=" not in line:
+        if "=" not in raw:
             raise InputError(f"Line {number} is not KEY=VALUE.")
-        key, value = line.split("=", 1)
-        key = key.strip()
-        if not ENV_NAME_PATTERN.match(key):
-            raise InputError(f"Line {number}: '{key}' is not a valid variable name.")
-        if key in seen:
-            raise InputError(f"Line {number}: {key} was already given on line {seen[key]}.")
-        seen[key] = number
-        pairs.append((number, key, value.strip()))
+        key, value = raw.split("=", 1)
+        if key != key.strip() or not ENV_NAME_PATTERN.match(key):
+            raise InputError(f"Line {number}: the part before '=' is not a variable name (letters, digits and "
+                             "underscores, nothing around it).")
+        if value != value.strip():
+            raise InputError(f"Line {number}: the value starts or ends with a space. Remove the space, or if the "
+                             "credential really has one, add that entry by hand with cc-secrets add.")
+        if key in seen_keys:
+            raise InputError(f"Line {number}: the same key was already given on line {seen_keys[key]}.")
+        name = entry_name_for_key(key)
+        if name in seen_names:
+            raise InputError(f"Lines {seen_names[name]} and {number} would both become entry '{name}'. "
+                             "Rename one of the keys.")
+        seen_keys[key] = number
+        seen_names[name] = number
+        pairs.append((number, key, value))
     return pairs
 
 
@@ -405,14 +428,13 @@ def import_entries(
             raise typer.Exit(EXIT_FAILED)
         use_list = _split_list(uses)
         skipped = set(_split_list(skip or ""))
-        pairs = parse_env_file(file.read_text(encoding="utf-8-sig"))
+        text = file.read_text(encoding="utf-8-sig")
+        register_env_file_values(text)
+        pairs = parse_env_file(text)
         unknown_skips = sorted(skipped - {key for _, key, _ in pairs})
         if unknown_skips:
             _say(f"--skip names keys that are not in the file: {', '.join(unknown_skips)}. Nothing was imported.", err=True)
             raise typer.Exit(EXIT_FAILED)
-        for _, _, value in pairs:
-            if value:
-                SCRUBBER.add(value)  # before anything is printed, so no message can carry a value
         notes = f"imported from {file.name}"
         built, failed = [], {}
         for _, key, value in pairs:
@@ -431,13 +453,15 @@ def import_entries(
                 table.add_column(column)
             for _, key, _ in pairs:
                 if key in skipped:
-                    table.add_row(key, "", "skipped (setting)")
+                    row = (key, "", "skipped (setting)")
                 elif key in failed:
-                    table.add_row(key, "", "NOT imported: " + failed[key])
+                    row = (key, "", "NOT imported: " + failed[key])
                 else:
                     entry_name = entry_name_for_key(key)
                     state = ("replaced" if replace else "left as it is (exists)") if entry_name in existing else "added"
-                    table.add_row(key, entry_name, state)
+                    row = (key, entry_name, state)
+                # Scrubbed like every other line: a key can be the same text as another line's value.
+                table.add_row(*[SCRUBBER.scrub(cell) for cell in row])
             console.print(table)
             _say(f"Dry run: nothing was changed. {len(built)} to import, {len(skipped)} skipped, {len(failed)} not importable.")
             raise typer.Exit(EXIT_FAILED if failed else 0)

@@ -33,7 +33,7 @@ def _values():
 
 def test_Import_CreatesOneEntryPerKey_NamedAfterIt_WithItsVariable_AndPrintsNoValue(store, tmp_path, plain):
     values = _values()
-    path = _env_file(tmp_path, ["# comment", "", f"API={values['API']}", f"OTHER_TOKEN = {values['OTHER_TOKEN']}",
+    path = _env_file(tmp_path, ["# comment", "", f"API={values['API']}", f"OTHER_TOKEN={values['OTHER_TOKEN']}",
                                 f"SERVICE_HOST={values['SERVICE_HOST']}"])
 
     result = runner.invoke(cli.app, ["import", str(path), "--agents", "--skip", "SERVICE_HOST"])
@@ -231,3 +231,57 @@ def test_Run_TimeoutZero_MeansNoLimit(store, tmp_path):
 
     assert result.exit_code == 0, _text(result)
     assert "done" in result.output
+
+
+def test_Import_AMalformedLineHoldingAnotherLinesValue_NeverPrintsOrLogsIt(store, tmp_path):
+    # The review's case: the value of line 1 sits in the key position of line 2, which is not a variable name.
+    value = new_secret()
+    path = _env_file(tmp_path, [f"A_KEY={value}", f"TOKEN:{value}={new_secret()}"])
+
+    result = runner.invoke(cli.app, ["import", str(path), "--agents"])
+
+    assert result.exit_code != 0
+    assert "Line 2" in _text(result)
+    assert value not in _text(result)
+    logged = "".join(f.read_text(encoding="utf-8") for f in paths.secrets_home().rglob("*.log"))
+    assert value not in logged
+    assert store.entries() == []
+
+
+def test_Import_DryRun_AKeyThatIsAlsoAValue_IsNotPrinted(store, tmp_path):
+    # The review's case: a value of one line is the key of another, and the dry-run table printed keys raw.
+    # Short enough that the table never wraps it - a wrapped cell would pass "not in the output" without redaction.
+    value = "SHARED_KEY_77"
+    path = _env_file(tmp_path, [f"A_KEY={value}", f"{value}={new_secret()}"])
+
+    result = runner.invoke(cli.app, ["import", str(path), "--agents", "--dry-run"])
+
+    assert "A_KEY" in _text(result), "the table did not print, so this test shows nothing"
+    assert value not in _text(result)
+
+
+@pytest.mark.parametrize("extra", [[], ["--replace"]])
+def test_Import_TwoKeysBecomingTheSameEntry_AreRefused_AndNothingIsSaved(store, tmp_path, extra):
+    path = _env_file(tmp_path, [f"API_KEY={new_secret()}", f"api_key={new_secret()}"])
+
+    result = runner.invoke(cli.app, ["import", str(path), "--agents", *extra])
+    dry = runner.invoke(cli.app, ["import", str(path), "--agents", "--dry-run", *extra])
+
+    assert result.exit_code != 0 and dry.exit_code != 0
+    assert "api-key" in _text(result)
+    assert store.entries() == []
+
+
+def test_Import_AValueIsStoredExactly_AndSurroundingSpacesAreRefusedNotTrimmed(store, tmp_path):
+    inner = "in ner " + new_secret()
+    spaced = _env_file(tmp_path, [f"SPACED={new_secret()}  "])
+
+    refused = runner.invoke(cli.app, ["import", str(spaced), "--agents"])
+    assert refused.exit_code != 0
+    assert store.entries() == []
+
+    exact = tmp_path / "exact.env"
+    exact.write_text(f"INNER={inner}\n", encoding="utf-8")
+    result = runner.invoke(cli.app, ["import", str(exact), "--agents"])
+    assert result.exit_code == 0, _text(result)
+    assert store.get("inner").secret.reveal() == inner
