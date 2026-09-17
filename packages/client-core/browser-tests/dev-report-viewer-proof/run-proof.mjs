@@ -723,8 +723,9 @@ async function stageE2e(browser) {
     JSON.stringify({ deskShown }));
 
   // ---- end the session; Send shows the Gateway's refusal sentence
-  // The Cockpit is a second browser, so its notes are numbered from the start again. Two notes are queued: the
-  // first takes an id the phone already used (n1), the second an id the Gateway has never seen.
+  // The Cockpit is a second browser with its own state for this report. Two notes are queued. When ids were a
+  // per-page counter the first took the id the phone already used (n1) and was lost while reading as delivered;
+  // ids are now random, and E9 also checks that no id posted here names a different item the Gateway holds.
   const ended = await owner("DELETE", `/sessions/${session.CC_SESSION_ID}`);
   await waitFor("the Gateway to rule the session ended", async () => (await owner("GET", `/dev-reports/${reportId}`)).json.report.sessionEnded === true, 90000, 1000);
   const td = tray(d);
@@ -756,10 +757,14 @@ async function stageE2e(browser) {
   const gatewayHasFirst = detailAfter.items.some((i) => i.text === first);
   const stillQueuedInApp = queuedTexts.some((x) => x.includes(first));
   const trayShowsFirstAsSent = traySent.includes(first);
-  evidence.steps.E9 = { idsPosted: sentBody && sentBody.items.map((i) => i.id), gatewayHoldsTheText: gatewayHasFirst,
+  const idsNamingAnotherItem = sentBody
+    ? sentBody.items.filter((i) => detailAfter.items.some((g) => g.id === i.id && g.text !== i.text)).map((i) => i.id)
+    : null;
+  evidence.steps.E9 = { idsPosted: sentBody && sentBody.items.map((i) => i.id), idsNamingAnotherItem, gatewayHoldsTheText: gatewayHasFirst,
     stillQueuedInApp, trayShowsFirstAsSent, traySent, trayQueued, appQueued: queuedTexts, appSent: sentTexts };
   check("E9: a note written on a second device reaches the Gateway or stays queued - it never disappears or reads as delivered",
-    gatewayHasFirst || (stillQueuedInApp && !trayShowsFirstAsSent),
+    idsNamingAnotherItem !== null && idsNamingAnotherItem.length === 0 &&
+      (gatewayHasFirst || (stillQueuedInApp && !trayShowsFirstAsSent)),
     JSON.stringify(evidence.steps.E9));
   await desk.ctx.close();
 }
