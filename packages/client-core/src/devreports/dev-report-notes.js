@@ -671,7 +671,10 @@
       "textarea { width: 100%; min-height: 64px; font: inherit; padding: 6px 8px; background: " + t.background + "; color: " + t.text + "; border: 1px solid " + t.border + "; border-radius: 8px; }",
       ".drn-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }",
       ".drn-payload { white-space: pre-wrap; overflow-wrap: anywhere; font-family: " + t.monoFont + "; font-size: 12px; background: " + t.background + "; border: 1px solid " + t.border + "; border-radius: 8px; padding: 8px; }",
-      ".drn-q-state { font-size: 13px; margin-left: 8px; }",
+      // The question row sits on the report's own background, whatever colour that is, so its words carry
+      // their own surface rather than relying on the page behind them.
+      ".drn-q-state { font-size: 13px; margin-left: 8px; padding: 4px 8px; border-radius: 6px; background: " + t.surface + "; color: " + t.text + "; }",
+      ".drn-q-state:empty { display: none; }",
       "@media (max-width: 600px) { .drn-tray { right: 0; left: 0; bottom: 0; width: auto; max-width: none; max-height: 70vh; border-radius: 12px 12px 0 0; } }"
     ].join("\n");
   }
