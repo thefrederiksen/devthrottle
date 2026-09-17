@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
 
@@ -44,6 +44,22 @@ namespace CcDirector.Gateway.Wingman;
 public sealed class VoiceWaitingClock
 {
     private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), DateTime> _since = new();
+    private readonly Func<DateTime> _utcNow;
+
+    /// <param name="utcNow">The clock a new wait starts from. Production passes nothing and reads the wall clock.</param>
+    public VoiceWaitingClock(Func<DateTime>? utcNow = null) => _utcNow = utcNow ?? (() => DateTime.UtcNow);
+
+    /// <summary>
+    /// What <see cref="Stamp"/> would answer right now, WITHOUT starting or clearing a wait. For a fold that records
+    /// what the display push shows and must not move the push's own clock (the Wingman inspector's trace colour): a wait
+    /// already running answers its start, one not yet started answers now - the moment Stamp would give it.
+    /// </summary>
+    public DateTime? Peek(TenantId tenant, string sessionId, bool isWaitingForVoice)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(sessionId);
+        if (!isWaitingForVoice) return null;
+        return _since.TryGetValue((tenant, sessionId), out var since) ? since : _utcNow();
+    }
 
     /// <summary>
     /// Apply the entry/hold/clear rule for one session and return the timestamp to stamp on its
@@ -70,10 +86,20 @@ public sealed class VoiceWaitingClock
         var since = _since.GetOrAdd(key, _ =>
         {
             added = true;
-            return DateTime.UtcNow;
+            return _utcNow();
         });
         if (added)
             FileLog.Write($"[VoiceWaitingClock] tenant={tenant.ToLogString()} sid={sessionId}: started waiting for voice, VoiceWaitingSince={since:o}");
         return since;
+    }
+
+    /// <summary>
+    /// Test-only: a wait that began at <paramref name="since"/>, so a test on a booted host can reach a wait that has
+    /// given up (three minutes) without sleeping. Production never calls it.
+    /// </summary>
+    internal void StartWaitForTest(TenantId tenant, string sessionId, DateTime since)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(sessionId);
+        _since[(tenant, sessionId)] = since;
     }
 }

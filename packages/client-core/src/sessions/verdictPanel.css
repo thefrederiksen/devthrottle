@@ -34,6 +34,11 @@
 .verdict-summary {
   margin: 0;
 }
+.verdict-narration {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .verdict-question {
   font-style: italic;
 }

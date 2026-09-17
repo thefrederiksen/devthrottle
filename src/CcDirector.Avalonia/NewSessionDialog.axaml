@@ -626,7 +626,7 @@
                                  TextChanged="GhField_Changed" />
 
                         <TextBlock x:Name="GhHintText" TextWrapping="Wrap" Foreground="#888888" FontSize="11"
-                                   Text="Token: reads GITHUB_TOKEN from credentials.env at launch (needs repo, actions, issues scopes)." />
+                                   Text="Token: reads the github-token entry from cc-secrets at launch (needs repo, actions, issues scopes). Add it with: cc-secrets add github-token" />
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

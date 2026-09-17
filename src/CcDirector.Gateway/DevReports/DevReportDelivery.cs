@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
@@ -83,12 +83,16 @@ internal sealed class DevReportDelivery
     private readonly Func<TenantId, string, DevReportSessionLiveness> _liveness;
     private readonly Func<TenantId, string, SessionVerbClient?> _route;
     private readonly Func<DateTime> _nowUtc;
+    private readonly CancellationToken _sendLifetime;
     private readonly Func<TenantId, IDisposable>? _enterTenantScope;
     private readonly ConcurrentDictionary<(string Tenant, string SessionId), SemaphoreSlim> _locks = new();
 
     /// <param name="store">The record.</param>
     /// <param name="liveness">The session's reach, from the pushed roster and the session history.</param>
     /// <param name="route">A tunnel caller for (tenant, director id), or null when that Director is not connected.</param>
+    /// <param name="sendLifetime">The token a claimed send runs on: the GATEWAY's lifetime, never a request's. A
+    /// drain that has claimed items runs to its end whoever called it, so an owner whose browser goes away mid-send
+    /// cannot strand his items in <c>sending</c> (phase 2 inspection, Medium 1).</param>
     /// <param name="nowUtc">The clock, as a seam.</param>
     /// <param name="enterTenantScope">Enters the account's scope for the send. REQUIRED on a hosted Gateway in
     /// practice: the tunnel refuses a command with no account in scope, and a settle raised by the watcher's
@@ -98,6 +102,7 @@ internal sealed class DevReportDelivery
         DevReportStore store,
         Func<TenantId, string, DevReportSessionLiveness> liveness,
         Func<TenantId, string, SessionVerbClient?> route,
+        CancellationToken sendLifetime,
         Func<DateTime>? nowUtc = null,
         Func<TenantId, IDisposable>? enterTenantScope = null)
     {
@@ -106,6 +111,7 @@ internal sealed class DevReportDelivery
         _liveness = liveness ?? throw new ArgumentNullException(nameof(liveness));
         _route = route ?? throw new ArgumentNullException(nameof(route));
         _nowUtc = nowUtc ?? (() => DateTime.UtcNow);
+        _sendLifetime = sendLifetime;
     }
 
     /// <summary>The session's reach right now, for the report's <c>sessionEnded</c> verdict.</summary>
@@ -114,6 +120,8 @@ internal sealed class DevReportDelivery
     /// <summary>
     /// The owner sends items on a report. Answers one update per item, in the order sent.
     /// </summary>
+    /// <param name="ct">Cancels only the wait for the session's lock. Once the lock is held the send runs to its end
+    /// on the Gateway's lifetime, whatever becomes of the caller.</param>
     /// <param name="senderKind">The credential kind behind the send, recorded on the delivered prompt.</param>
     public async Task<IReadOnlyList<DevReportItemUpdate>> SendAsync(
         TenantId tenant, DevReportEntity report, IReadOnlyList<DevReportItem> items, string senderKind, CancellationToken ct)
@@ -150,7 +158,7 @@ internal sealed class DevReportDelivery
 
             // Rules 4 and 5: the settle pass delivers to an idle session now, as one prompt with anything else held
             // for it, refuses what an ended session still holds, and leaves a busy session's items held.
-            await SettleLockedAsync(tenant, report.SessionId, live, ct).ConfigureAwait(false);
+            await SettleLockedAsync(tenant, report.SessionId, live).ConfigureAwait(false);
 
             var after = _store.FindItems(tenant, report.Id, ids);
             var updates = new List<DevReportItemUpdate>(items.Count);
@@ -179,6 +187,7 @@ internal sealed class DevReportDelivery
     /// "This session has ended"; idle delivers them all as one prompt; busy leaves them held. Returns how many
     /// items this pass sent.
     /// </summary>
+    /// <param name="ct">Cancels only the wait for the session's lock; a claimed send runs on the Gateway's lifetime.</param>
     public async Task<int> SettleAsync(TenantId tenant, string sessionId, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrEmpty(sessionId);
@@ -188,7 +197,7 @@ internal sealed class DevReportDelivery
         try
         {
             var live = _liveness(tenant, sessionId);
-            return await SettleLockedAsync(tenant, sessionId, live, ct).ConfigureAwait(false);
+            return await SettleLockedAsync(tenant, sessionId, live).ConfigureAwait(false);
         }
         finally
         {
@@ -196,7 +205,7 @@ internal sealed class DevReportDelivery
         }
     }
 
-    private async Task<int> SettleLockedAsync(TenantId tenant, string sessionId, DevReportSessionLiveness live, CancellationToken ct)
+    private async Task<int> SettleLockedAsync(TenantId tenant, string sessionId, DevReportSessionLiveness live)
     {
         SettleOrphanedSends(tenant, sessionId);
 
@@ -206,7 +215,7 @@ internal sealed class DevReportDelivery
                 RefuseWaitingForEndedSession(tenant, sessionId, live);
                 return 0;
             case DevReportSessionReach.Idle:
-                return await DrainLockedAsync(tenant, sessionId, live, ct).ConfigureAwait(false);
+                return await DrainLockedAsync(tenant, sessionId, live).ConfigureAwait(false);
             case DevReportSessionReach.Busy:
                 var waiting = _store.WaitingItemsForSession(tenant, sessionId).Count;
                 if (waiting > 0)
@@ -236,7 +245,7 @@ internal sealed class DevReportDelivery
             FileLog.Write($"[DevReportDelivery] Settle: sid={sessionId} has ended ({live.Why}); refused {refused} held item(s)");
     }
 
-    private async Task<int> DrainLockedAsync(TenantId tenant, string sessionId, DevReportSessionLiveness live, CancellationToken ct)
+    private async Task<int> DrainLockedAsync(TenantId tenant, string sessionId, DevReportSessionLiveness live)
     {
         var waiting = _store.WaitingItemsForSession(tenant, sessionId).Count;
         if (waiting == 0) return 0;
@@ -281,9 +290,35 @@ internal sealed class DevReportDelivery
         // THE ACCOUNT'S SCOPE IS ENTERED FOR THE SEND, HERE, whatever called us. A turn end from a live push arrives
         // inside the tunnel connection's scope and an owner's send inside the request's, but the watcher's catch-up
         // sweep and the settle timer carry none, and the tunnel then drops the command as "never left the Gateway".
+        //
+        // THE SEND RUNS ON THE GATEWAY'S LIFETIME, NEVER THE CALLER'S TOKEN, and the claim is always finished (phase 2
+        // inspection, Medium 1). A request token fired when the owner's browser went away; it used to escape here past
+        // every finish and strand the claimed items in "sending" for five minutes, then rule them "sent, not confirmed"
+        // though the prompt may never have left. Now: stopping before the send starts typed nothing, so the items go
+        // back to held; a send that throws once it has started may have reached the Director, so it is finished as
+        // not confirmed - never held, because a held item would be typed a second time.
         SessionVerbClient.PromptSendOutcome sent;
+        if (_sendLifetime.IsCancellationRequested)
+        {
+            _store.FinishClaim(tenant, claimId, DevReportItemStates.HeldState, _nowUtc());
+            FileLog.Write($"[DevReportDelivery] Drain: sid={sessionId} claim={claimId} the Gateway is stopping; {open.Count} item(s) back to held, nothing sent");
+            _sendLifetime.ThrowIfCancellationRequested();
+        }
         using (_enterTenantScope?.Invoke(tenant))
-            sent = await route.SendPromptAsync(sessionId, request, ct).ConfigureAwait(false);
+        {
+            try
+            {
+                sent = await route.SendPromptAsync(sessionId, request, _sendLifetime).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                var finished = _store.FinishClaim(tenant, claimId,
+                    DevReportItemStates.AfterSend(DevReportItemStates.SendOutcome.Unconfirmed), _nowUtc());
+                FileLog.Write($"[DevReportDelivery] Drain FAILED: sid={sessionId} claim={claimId} the send threw once started, " +
+                              $"{finished} item(s) finished sent-not-confirmed: {ex.Message}");
+                throw;
+            }
+        }
         var outcome = sent.Kind switch
         {
             SessionVerbClient.PromptSendKind.Accepted => DevReportItemStates.SendOutcome.Accepted,

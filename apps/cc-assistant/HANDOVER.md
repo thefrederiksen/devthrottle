@@ -32,7 +32,7 @@ check on the PC: curl, a real Chrome window, MagicDNS on, and the phone showing 
 the tailnet. The phone-side error text was never captured; that is the first thing to get next
 time (DNS failure, timeout, or certificate warning each mean something different). The Vercel
 project was deleted, so the Tailscale URL is the only Wilson. To resume: `Enable-ScheduledTask
-Wilson`, or `npm run serve` here with `WILSON_CREDENTIALS_FILE` set.
+Wilson`, or `cc-secrets run groq-api-key --timeout 0 -- npm run serve` here.
 
 ## Decisions already made, and why
 

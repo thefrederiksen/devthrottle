@@ -65,6 +65,59 @@ database the gate builds.
   it was not restarted. **2,160 of the 2,586 have not run on this commit.** Its PostgreSQL container was removed.
 - `Core.Tests` was not run: the merge of `main` touched code it covers, and the handoff did not ask for it.
 
+## The independent inspection, and what was fixed
+
+The inspection (`INSPECTION-phase-2.md`) found no high findings, two medium and five low. The Architect's rulings are
+in `HANDOFF-phase-2-fix-inspection.md`. Each fix below was broken on committed code, watched red, and restored.
+
+**Fixed - a browser that goes away no longer strands your notes (Medium 1).** Closing the tab or locking the phone
+while your notes were being sent used to cancel the send part-way: the notes sat at "Sending to the session" for five
+minutes and were then labelled "Sent to the session, not confirmed", even when the prompt had never left. The send
+now runs on the Gateway's own lifetime, never on the request, so it finishes whoever called it. And a claimed send
+always records an outcome: if the Gateway is stopping before the send starts, the notes go back to held; if the send
+throws once it has started, the prompt may have reached the session, so they are recorded as sent, not confirmed, at
+once - never held again, because that would type them twice. Proven:
+- The caller cancels mid-send; the notes must be delivered and none left sending. Broken (the send on the caller's
+  token, as before): red, the cancellation escapes the send.
+- The Gateway stops mid-send; the notes must read "Sent to the session, not confirmed". Broken (no finish when the
+  send throws): red, `Values differ`.
+- The Gateway stopped before the send; the notes must be held and nothing typed. Broken (no finish before the send):
+  red, `Values differ`.
+
+**Fixed - two Gateways publishing the same report at once (Low 1).** During a deploy both processes could read "no
+report yet" and both insert; the loser's agent got a raw server error. A publish the database refuses as a duplicate
+is now retried once, re-reading, and lands as a new version of the report the other Gateway wrote - the answer one
+Gateway gives. Proven: the database's refusal handed in at the write; the publish must come back as version 2 of the
+existing report. Broken (no retry): red, the refusal surfaces. **Not proven: the race itself.** SQLite takes its
+write lock when the transaction begins, so the second writer waits and the refusal cannot happen on it; it is a
+PostgreSQL case, and the refusal in the test stands in for the one PostgreSQL raises.
+**Accepted:** two notes added at the same moment by two Gateways during a deploy can get the same sequence number;
+their order then rests on the time each was sent.
+
+**Fixed - the report's HTML is marked never to be guessed as a page (Low 4).** The HTML route now sends
+`X-Content-Type-Options: nosniff`, so a browser cannot decide the plain text is a page. Proven on a real Gateway
+over HTTP. Broken (header removed): red, `The given header was not found`.
+
+**Accepted for version one:**
+- **Medium 2** - the narrow gap in which a note can arrive while the agent is working (below, under what is not
+  proven). The inspection adds that on your own send the idle reading is taken before your notes are stored.
+- **Low 2** - report versions have no retention rule yet. Every version is kept, up to ten megabytes each, and nothing
+  removes old ones.
+- **Low 3** - the publish route reads up to 128 megabytes of request before it measures the 10 megabyte report. Only a
+  session key or your own credentials can reach it, so no stranger can use it to press on the Gateway's memory.
+
+**The gates on the fix commit (0463d7f3b):**
+- `.\scripts	est-local.ps1`: exit 0, 2,046 tests in eight suites, every one Completed with all tests executed.
+- The dev report unit tests: 155 passed (151 before, plus the four new ones).
+- The dev report hosted tests on a real Gateway (`-Gateway -Filter DevReport`): 17 of 17, Completed.
+- `Gateway.UnitTests` in full: 5,247 passed, 2 skipped, **9 failed, none in dev report code.** Eight are the hosted
+  schema tests in `HostedSchemaRefusesAnUnownedRowTests`, which need a PostgreSQL server: run directly, not through
+  the gate's throwaway database, they could not connect (`Failed to connect to 127.0.0.1:55432`). The ninth is
+  `Turns_SupportedAgentWithNoTranscriptYet_ReportsNoTranscript_NotOk` for Grok (`Expected: "no_transcript"
+  Actual: "ok"`), which finds agent transcripts on the machine it runs on. This branch touches neither; whether they
+  fail the same way on `main` on this machine was not checked.
+- `Gateway.Tests` beyond the 17 and `Core.Tests` were not run, as the handoff directed.
+
 ## What is NOT proven
 
 - **A note can still arrive while the agent is working, in one narrow gap.** The Gateway reads "idle" from what the

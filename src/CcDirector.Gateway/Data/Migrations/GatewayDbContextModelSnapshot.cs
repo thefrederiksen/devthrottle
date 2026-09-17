@@ -2240,6 +2240,9 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
 
+                    b.Property<DateTime?>("ClockDeadlineUtc")
+                        .HasColumnType("TEXT");
+
                     b.Property<bool>("ColourEnabled")
                         .HasColumnType("INTEGER");
 
@@ -2279,6 +2282,13 @@ namespace CcDirector.Gateway.Data.Migrations
 
                     b.Property<double?>("ReplySeconds")
                         .HasColumnType("REAL");
+
+                    b.Property<string>("RowColour")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RowLabel")
+                        .HasColumnType("TEXT");
 
                     b.Property<string>("SessionId")
                         .IsRequired()

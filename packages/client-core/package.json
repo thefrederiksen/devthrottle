@@ -18,6 +18,7 @@
     "./restart/RestartRequestsPanel": "./src/restart/RestartRequestsPanel.tsx",
     "./sessions/ColourLegend": "./src/sessions/ColourLegend.tsx",
     "./sessions/VerdictPanel": "./src/sessions/VerdictPanel.tsx",
+    "./sessions/WingmanTab": "./src/sessions/WingmanTab.tsx",
     "./stats/ThrottleWindowSelector": "./src/stats/ThrottleWindowSelector.tsx",
     "./transcription/MicrophoneQualityPanel": "./src/transcription/MicrophoneQualityPanel.tsx",
     "./*": "./src/*.ts"
