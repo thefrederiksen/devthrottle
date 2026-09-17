@@ -12,7 +12,7 @@ namespace CcDirector.Gateway.Tests;
 
 /// <summary>
 /// Evidence harness for issue #1139 (long-clip transcription reliability). Transcription is the ONLY
-/// thing exercised here - cleanup is out of the path (TranscribeRawAsync). A long recording is split
+/// thing exercised here - cleanup is out of the path (TranscribeUncorrectedAsync). A long recording is split
 /// into ~60s chunks and transcribed up to 4 in parallel; the provider is a deterministic stub so we can
 /// inject the exact failure mode the #1139 logs show: the managed proxy returns 504 upstream_timeout for
 /// a chunk during a transient provider window.
@@ -51,7 +51,7 @@ public sealed class Issue1139LongClipReliabilityTests
         using var http = new HttpClient(stub);
         using var pipeline = new BatchTranscriptionPipeline(httpClient: http);
 
-        var text = await pipeline.TranscribeRawAsync(SilenceWav(360), "dictation.wav", Routing(), default);
+        var text = (await pipeline.TranscribeUncorrectedAsync(SilenceWav(360), "dictation.wav", Routing(), default)).Delivered;
 
         Assert.True(stub.ChunkCount >= 5, $"expected a genuine multi-chunk long clip, got {stub.ChunkCount}");
         // Joined in original order, every chunk present.
@@ -69,7 +69,7 @@ public sealed class Issue1139LongClipReliabilityTests
         using var pipeline = new BatchTranscriptionPipeline(httpClient: http);
 
         var ex = await Assert.ThrowsAsync<TranscriptionFailedException>(
-            () => pipeline.TranscribeRawAsync(SilenceWav(360), "dictation.wav", Routing(), default));
+            () => pipeline.TranscribeUncorrectedAsync(SilenceWav(360), "dictation.wav", Routing(), default));
 
         // The failure is correctly CLASSIFIED as transient (504) - a retry could plausibly clear it...
         Assert.Equal(504, ex.StatusCode);
@@ -89,7 +89,7 @@ public sealed class Issue1139LongClipReliabilityTests
         using var pipeline = new BatchTranscriptionPipeline(httpClient: http);
 
         var ex = await Assert.ThrowsAsync<TranscriptionFailedException>(
-            () => pipeline.TranscribeRawAsync(SilenceWav(180), "dictation.wav", Routing(), default));
+            () => pipeline.TranscribeUncorrectedAsync(SilenceWav(180), "dictation.wav", Routing(), default));
         Assert.Equal(502, ex.StatusCode);
         Assert.True(ex.IsTransient); // classified retryable, but surfaced to the caller as one opaque failure
     }
@@ -105,7 +105,7 @@ public sealed class Issue1139LongClipReliabilityTests
         using var pipeline = new BatchTranscriptionPipeline(httpClient: http, transcoder: transcoder);
 
         var webm = new byte[5_000_000]; // not a WAV, over the 4MB budget
-        var text = await pipeline.TranscribeRawAsync(webm, "dictation.webm", Routing(), default);
+        var text = (await pipeline.TranscribeUncorrectedAsync(webm, "dictation.webm", Routing(), default)).Delivered;
 
         Assert.Equal(1, transcoder.Calls);                 // transcode ran exactly once
         Assert.True(stub.ChunkCount >= 5, $"transcoded WAV should split into chunks, got {stub.ChunkCount}");
@@ -125,7 +125,7 @@ public sealed class Issue1139LongClipReliabilityTests
 
         var junk = new byte[5_000_000];
         var ex = await Assert.ThrowsAsync<TranscriptionPermanentException>(
-            () => pipeline.TranscribeRawAsync(junk, "dictation.webm", Routing(), default));
+            () => pipeline.TranscribeUncorrectedAsync(junk, "dictation.webm", Routing(), default));
 
         Assert.Equal(TranscriptionPermanentException.UnsupportedFormat, ex.Code);
         Assert.False(ex.IsTransient);

@@ -31,7 +31,7 @@ internal sealed class GatewayServiceRecordingTranscriber : IRecordingTranscriber
     }
 
     public Task<string> TranscribeChunkAsync(byte[] audio, string contentType, string fileName, CancellationToken ct = default)
-        => _service.TranscribeSegmentRawAsync(audio, fileName, contentType, ct);
+        => _service.TranscribeSegmentUncorrectedAsync(audio, fileName, contentType, ct);
 
     public Task<CleanupOutcome> CleanupAsync(string rawTranscript, CancellationToken ct = default)
         => _service.CleanupAsync(rawTranscript, _tenant, ct);
