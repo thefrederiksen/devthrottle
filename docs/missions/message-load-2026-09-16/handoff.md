@@ -784,3 +784,43 @@ integration .NET job passed.
 6. Judgement calls 1 to 12 stand, subject to inspection 4.
 
 Inspection 4 (Codex, adversarial) covers slice 2. Then slice 2b, then the slice 2 pull request.
+
+## Architect rulings on inspection 4 (17 September 2026) - the slice 2 fix round
+
+Verdict FAIL for merge. Every finding accepted. Rulings, in the order they are fixed; the two slice 2b
+items are folded in here because the inspector is right that they are merge prerequisites.
+
+1. **The window before the send is closed as far as a terminal allows** (high 1). The ringer samples a
+   third frame and the Director's activity state immediately before the first byte, and aborts with
+   `working` if anything changed. What remains is the interval between that last sample and the first
+   byte, milliseconds, plus a turn the agent starts on its own (a background task completing). The
+   worst case there is one short fixed line queued behind the current tool call, never lost text. That
+   residual is written into the code as a gap and into the brief's ruling 7 as its limit.
+2. **No nudges for the doorbell, and `rung` only when the submit was verified** (high 1, medium 4).
+   The doorbell send uses the echo-verified submit with the nudge ladder OFF. Verified: answer `rung`.
+   Not verified: if the composer now reads EXACTLY the doorbell line, the Director clears it (the text
+   is ours, so clearing is safe) and answers `deferred, not-submitted`; if it reads anything else, leave
+   it and answer `deferred, composer-holds-text`. A deferral is never counted as a ring. Guards: a
+   backend that swallows Enter; a backend that clears the line; owner text typed after the send.
+3. **Whitespace is text** (high 2). Any character after the prompt glyph, including spaces and tabs,
+   means the composer holds text. Fixture: both idle captures with spaces after the glyph, red on the
+   current reader.
+4. **Stuck and its notice are one write** (high 3). `MarkStuckAndNotify` writes the stuck marks and the
+   sender notices in one SaveChanges under the store lock. Guard: a throw between the two leaves neither
+   persisted; a sweep after a crash re-marks and re-notifies exactly once.
+5. **The store enforces the cap and the recipient** (medium 5). `MarkRung` never takes a count past the
+   cap and refuses an id whose recipient is not the session being rung. Guards for both.
+6. **The heartbeat is bounded** (medium 6). One query fetches every open message with its recipient;
+   the stuck scan reads only rows at the cap; ring calls run with a bounded degree of 8 and a per-call
+   timeout of 5 seconds, and the tick logs its duration. Guard: a tick over 40 recipients issues at most
+   three queries; a delayed ring does not delay the tick beyond the timeout.
+7. **Wire strings pinned** (low 7). Every deferral reason and the verb name are asserted as literals
+   on both sides, and the Gateway refuses an unknown reason with a log line.
+8. **A doorbell does not end a snooze** (slice 2b, ruling 15). The Director's activity push carries
+   whether the Working edge was owner-driven; the Gateway's snooze registry ends an armed snooze only on
+   an owner-driven edge. Guard: a doorbell on a snoozed session leaves it armed; owner typing ends it.
+9. **The ring respects the dictation lock** (slice 2b). Dictation in flight for the session defers the
+   ring with reason `dictation`. Guard with a fake lock.
+
+Then: the touched suites in full, each guard watched failing, this note updated, commit, push,
+`session raise`, stop. Inspection 5 follows.
