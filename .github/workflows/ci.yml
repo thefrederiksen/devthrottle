@@ -68,7 +68,7 @@ jobs:
   #   - An empty change list runs every job too. No files is not a clean result; it is a diff that did
   #     not work, and a broken instrument must not read as "nothing to test".
   #
-  # A PUSH TO MAIN IS UNTOUCHED: every flag is true, every job runs, on every commit, in its own group as
+  # A PUSH TO MAIN IS UNTOUCHED: every flag is true and every job runs, under the concurrency rule
   # described above. Main is where the backstop lives, and a backstop that skips is not one. The Python
   # floor leg follows the same split: on a pull request it runs on Ubuntu only, since the lowest declared
   # dependency versions are a property of the packages rather than of the operating system; on main it
