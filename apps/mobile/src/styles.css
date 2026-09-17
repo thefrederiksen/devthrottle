@@ -5171,15 +5171,27 @@ a.banner-btn {
   margin: 0 -12px;
 }
 
+/* An open report fills the screen and is CLIPPED here: the report page scrolls inside its own frame and
+   nothing in the phone's frame scrolls with it. `.terminal-screen` is already fixed and clipped, so this
+   is the last box between the screen and the report - one report, one scrollbar. */
 .terminal-screen > .dev-report-viewer {
   flex: 1 1 auto;
   min-height: 0;
   flex-direction: column;
+  overflow: hidden;
   margin: 0 -12px;
 }
 
+/* The bar carries the back link, the title and the session it came from; on a phone they stack rather
+   than compete for one line. */
 .report-screen .dev-report-viewer-bar {
   padding: 6px 12px;
+}
+
+.report-screen .dev-report-back {
+  flex: 0 0 auto;
+  min-height: 34px;
+  touch-action: manipulation;
 }
 
 .report-conversation-strip {
