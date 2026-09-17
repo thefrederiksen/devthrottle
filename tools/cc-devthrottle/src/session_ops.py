@@ -881,10 +881,39 @@ def report_to_parent(summary: Optional[str], target: Optional[str] = None) -> No
     # parent and sent its report into a dead session's mailbox. Delivered, unread, lost, with the
     # session believing it had handed its work back. The helper's own docstring says not to use it
     # for booleans; this comment is here because it was used for one anyway.
-    has_parent = me.get("hasLiveSupervisor", me.get("HasLiveSupervisor", False)) is True
-    parent_id = gateway.field(me, "controllerSessionId", "ControllerSessionId")
+    #
+    # AN ABSENT ANSWER IS NOT "NO PARENT". Only an explicit false is the user's session; a row with no
+    # boolean answer, or one that says a live supervisor exists without naming it, cannot say who owns
+    # this session, and reading either as "the user owns you" silently drops the report.
+    report_next = ["cc-devthrottle session whoami", "cc-devthrottle session list"]
+    supervised = None
+    for key in ("hasLiveSupervisor", "HasLiveSupervisor"):
+        if key in me and me[key] is not None:
+            supervised = me[key]
+            break
+    if not isinstance(supervised, bool):
+        shown_value = "nothing" if supervised is None else repr(supervised)
+        axi_cli.fail(
+            f"the roster row for session {sid} gave {shown_value} for hasLiveSupervisor, so who owns "
+            "this session is unknown. Nothing was sent. Refusing to guess.",
+            report_next,
+        )
+    parent_id = None
+    for key in ("controllerSessionId", "ControllerSessionId"):
+        if key in me and me[key] is not None:
+            parent_id = me[key]
+            break
+    if supervised and not (isinstance(parent_id, str) and parent_id.strip()):
+        shown_value = "nothing" if parent_id is None else repr(parent_id)
+        axi_cli.fail(
+            f"the roster row for session {sid} says it has a live supervisor but gave {shown_value} for "
+            "controllerSessionId, so the report has nowhere to go. Nothing was sent.",
+            report_next,
+        )
+    if supervised:
+        parent_id = parent_id.strip()
 
-    if not has_parent or not parent_id:
+    if not supervised:
         console.print(
             "[green]No parent - the USER owns you.[/green] Nothing was sent, and that is correct: "
             "you are red on his roster and in his queue the moment your turn ends, so that red IS "
@@ -967,6 +996,26 @@ def _worker_record(s: Dict[str, Any], state: str) -> Dict[str, object]:
     return record
 
 
+def controller_fields_or_exit(sessions: List[Dict[str, Any]]) -> None:
+    """Every roster row carries controllerSessionId as text or null, or the command exits 1.
+
+    ABSENT IS NOT "NO CONTROLLER". The Gateway always sends the field, null for a session nobody
+    drives; a row without it is a missing answer, and reading it as null would report "no workers" -
+    or, for `mission attach --with-children`, leave a controlled session behind."""
+    for s in sessions:
+        present = "controllerSessionId" in s or "ControllerSessionId" in s
+        controller = s.get("controllerSessionId", s.get("ControllerSessionId"))
+        if not present or (controller is not None and not isinstance(controller, str)):
+            sid = gateway.field(s, "sessionId", "SessionId")
+            shown = "missing" if not present else repr(controller)
+            axi_cli.fail(
+                f"the Gateway returned session {sid} with controllerSessionId "
+                f"{axi_output.escape_ascii(shown)}, not text or null, so whether it is yours "
+                "cannot be told. --json shows the raw rows.",
+                ["cc-devthrottle session list --json", axi_cli.CHECK_GATEWAY],
+            )
+
+
 def list_my_workers(
     target: Optional[str] = None,
     *,
@@ -991,20 +1040,7 @@ def list_my_workers(
 
     sessions, complete, reason, stale_caution = _get_fleet()
     caveat = _roster_caveat(complete, reason)
-    # ABSENT IS NOT "NO CONTROLLER". The Gateway always sends the field, null for a session nobody
-    # drives; a row without it is a missing answer, and reading it as null would report "no workers".
-    for s in sessions:
-        present = "controllerSessionId" in s or "ControllerSessionId" in s
-        controller = s.get("controllerSessionId", s.get("ControllerSessionId"))
-        if not present or (controller is not None and not isinstance(controller, str)):
-            sid = gateway.field(s, "sessionId", "SessionId")
-            shown = "missing" if not present else repr(controller)
-            axi_cli.fail(
-                f"the Gateway returned session {sid} with controllerSessionId "
-                f"{axi_output.escape_ascii(shown)}, not text or null, so whether it is yours "
-                "cannot be told. --json shows the raw rows.",
-                ["cc-devthrottle session list --json", axi_cli.CHECK_GATEWAY],
-            )
+    controller_fields_or_exit(sessions)
     mine = [
         s for s in sessions
         if (s.get("controllerSessionId", s.get("ControllerSessionId")) or "").lower() == me.lower()
@@ -1107,6 +1143,18 @@ def compact_session(target: Optional[str], continue_prompt: Optional[str]) -> Di
     observed = bool(body.get("compactionObserved", body.get("CompactionObserved", False)))
     label = "[green]Compacted[/green]" if observed else "[yellow]Compaction submitted[/yellow]"
     console.print(f"{label} {sid}. {axi_cli.shown(detail or '')}")
+    if continue_prompt is not None:
+        # A follow-up was asked for, so the answer must say it was sent: continued is the Gateway's
+        # verdict (CompactContextResponse.Continued), and a missing or false one is not a continued session.
+        continued = body.get("continued", body.get("Continued")) if isinstance(body, dict) else None
+        if continued is not True:
+            shown_value = "nothing" if continued is None else repr(continued)
+            axi_cli.fail(
+                f"the Gateway's answer gave {shown_value} for continued, so the follow-up message was not "
+                f"confirmed sent to session {sid}. Read its terminal before sending it again.",
+                [f"cc-devthrottle session buffer {axi_cli.bare(sid, '<session-id>')}",
+                 f'cc-devthrottle message send {axi_cli.bare(sid, "<session-id>")} "<message>"'],
+            )
     steps = [f"cc-devthrottle session buffer {sid}"]
     if continue_prompt is None:
         steps.append(f'cc-devthrottle message send {sid} "<message>"')
@@ -1472,6 +1520,11 @@ def stop_session(target: str, reason: Optional[str], json_output: bool = False) 
     return body
 
 
+# The fan-out row status that means the message reached that session. Without waiting, the Gateway
+# stamps a delivered row "idle" (GatewayEndpoints.cs, POST /fleet/broadcast's fan-out).
+FANOUT_DELIVERED = "idle"
+
+
 def _report_delivery(resp: Any, who: str) -> None:
     """Report a delivery from either of the Gateway's two answer shapes.
 
@@ -1495,12 +1548,35 @@ def _report_delivery(resp: Any, who: str) -> None:
         if bool(resp.get("denied", resp.get("Denied", False))):
             err = resp.get("deniedReason") or resp.get("DeniedReason") or "the broadcast was refused"
         elif isinstance(results, list):
-            count = sum(1 for r in results if isinstance(r, dict) and not (r.get("error") or r.get("Error")))
-            failed = [r for r in results if isinstance(r, dict) and (r.get("error") or r.get("Error"))]
+            # A row is delivered only when its status says so. The Gateway stamps every recipient
+            # idle | timeout | failed | not_found (FanoutRequest.cs), and a failed row can carry no
+            # error at all (a Director that answered OK with an unreadable body), so the error field
+            # is not the verdict - the status is. A status this tool does not know is not a delivery.
+            delivered = [r for r in results if isinstance(r, dict)
+                         and r.get("status", r.get("Status")) == FANOUT_DELIVERED]
+            undelivered = [r for r in results if r not in delivered]
+            count = len(delivered)
             accepted = True
-            if failed and not warning:
-                warning = (f"{len(failed)} of {len(results)} recipients did not receive it: "
-                           + "; ".join(str(r.get("error") or r.get("Error")) for r in failed[:3]))
+            if undelivered:
+                if delivered:
+                    console.print(f"[green]Delivered[/green] to {count} of {len(results)} session(s) in "
+                                  f"{axi_cli.shown(who)}.")
+                lines = []
+                for r in undelivered:
+                    if not isinstance(r, dict):
+                        lines.append(f"{r!r}: not a result row")
+                        continue
+                    rid = r.get("sessionId") or r.get("SessionId") or "(no session id)"
+                    status = r.get("status", r.get("Status"))
+                    why = r.get("error") or r.get("Error") or "no reason given"
+                    lines.append(f"{rid}: status {status!r}, {why}")
+                axi_cli.fail(
+                    f"{len(undelivered)} of {len(results)} recipient(s) in {who} did not receive it"
+                    f"{' (the rest did - do not resend to them)' if delivered else ''}: " + "; ".join(lines),
+                    ["cc-devthrottle session list",
+                     'cc-devthrottle message send <session-id> "<message>"'],
+                    label="Not delivered:",
+                )
         else:
             accepted = bool(resp.get("accepted", resp.get("Accepted", False)))
             count = 1 if accepted else 0
@@ -1588,6 +1664,11 @@ def send_message(
     ])
 
 
+# The one waitStatus the Gateway gives when the target finished its turn (GatewayEndpoints.cs,
+# DeliverPromptAsync: Idle or WaitingForInput -> "idle"; Exited or Failed -> "failed"; else "timeout").
+ASK_ANSWERED = "idle"
+
+
 def ask_session(target: str, question: str, timeout_ms: int) -> None:
     """Ask one session a question and print its answer."""
     if target.strip().lower() == "all":
@@ -1629,10 +1710,36 @@ def ask_session(target: str, question: str, timeout_ms: int) -> None:
     # it names how the wait ended. Without both, "(the target produced no output)" would be a guess.
     ask_next = [f"cc-devthrottle session buffer {axi_cli.bare(target_sid, '<session-id>')}"]
     _accepted_or_fail(resp, f"the question to session {target_sid}", ask_next)
-    axi_cli.confirmed(resp, ("waitStatus", "WaitStatus"), f"the question to session {target_sid}", ask_next)
+    wait_status = axi_cli.confirmed(
+        resp, ("waitStatus", "WaitStatus"), f"the question to session {target_sid}", ask_next
+    )
     answer = gateway.field(resp, "output", "Output").strip()
     name = gateway.field(chosen, "name", "Name")
     source = f"{axi_cli.shown(name)} ({target_sid})" if name else target_sid
+
+    # AN ACCEPTED DELIVERY IS NOT A COMPLETED ANSWER. The Gateway rules how the wait ended and says so
+    # in a successful HTTP answer (GatewayEndpoints.DeliverPromptAsync): "idle" is the only value that
+    # means the target finished its turn. "timeout" and "failed" are verdicts, and any other value is
+    # one this tool does not know - none of them may be printed as an answer.
+    if wait_status != ASK_ANSWERED:
+        if answer:
+            console.print(f"[dim]-- partial output from {source} --[/dim]")
+            print(axi_cli.ascii_text(answer))
+        verdicts = {
+            "timeout": f"session {target_sid} did not finish its turn within the wait (waitStatus: timeout). "
+                       "What it printed so far, if anything, is above; it may still be working.",
+            "failed": f"session {target_sid} exited or failed while answering (waitStatus: failed). "
+                      "What it printed before that, if anything, is above.",
+        }
+        axi_cli.fail(
+            verdicts.get(
+                wait_status,
+                f"the Gateway ended the wait on session {target_sid} with waitStatus {wait_status!r}, "
+                "which this tool does not know, so whether the target answered is unknown.",
+            ),
+            ask_next,
+        )
+
     console.print(f"[dim]-- answer from {source} --[/dim]")
     # The answer is another session's own words: printed as text, never read as markup.
     print(axi_cli.ascii_text(answer) if answer else "(the target produced no output)")
@@ -1655,21 +1762,37 @@ def _controller_mission(controller_session_id: str) -> Optional[Dict[str, Any]]:
     the missing mission is never a mystery. One 'mission attach' fixes it afterwards - which is the
     whole point of this issue existing.
     """
+    attach_later = "Attach it afterwards with: cc-devthrottle mission attach <session-id> <mission-id>"
     try:
-        sessions, _, _, _ = gateway.get_fleet()
+        sessions, complete, reason, _ = gateway.get_fleet()
     except gateway.GatewayError as err:
         axi_cli.warn(
             "could not read the fleet list to inherit the controlling "
             f"session's mission, so the new session starts attached to no mission: {err} "
-            "Attach it afterwards with: cc-devthrottle mission attach <session-id> <mission-id>"
+            + attach_later
         )
         return None
 
+    # A controller that is not on the roster, or whose row does not say which mission it is on, is an
+    # unknown mission - not "no mission". The spawn still proceeds, for the reason above, but says so.
     wanted = controller_session_id.strip().lower()
     for s in sessions:
         if gateway.field(s, "sessionId", "SessionId").lower() != wanted:
             continue
+        if "missionId" not in s and "MissionId" not in s:
+            axi_cli.warn(
+                f"the fleet list gave no missionId for the controlling session {controller_session_id}, "
+                "so its mission is unknown and the new session starts attached to no mission. "
+                + attach_later
+            )
+            return None
         return s if gateway.field(s, "missionId", "MissionId") else None
+    partial = "" if complete is True else (
+        f" The fleet list was not read in full{(' - ' + reason) if reason else ''}.")
+    axi_cli.warn(
+        f"the controlling session {controller_session_id} is not in the fleet list, so its mission is "
+        f"unknown and the new session starts attached to no mission.{partial} " + attach_later
+    )
     return None
 
 
@@ -2089,7 +2212,7 @@ def selftest(timeout_ms: int) -> None:
         send = gateway.post_json(
             f"sessions/{recipient}/message", {"text": "fleet self-test message"},
         )
-        accepted = bool(isinstance(send, dict) and send.get("accepted", send.get("Accepted", False)))
+        accepted = isinstance(send, dict) and send.get("accepted", send.get("Accepted")) is True
         record("message send delivers", accepted, str(gateway.field(send, "error", "Error") or ""))
 
         ask = gateway.post_json(
@@ -2099,10 +2222,16 @@ def selftest(timeout_ms: int) -> None:
         )
         answer = gateway.field(ask, "output", "Output") if isinstance(ask, dict) else ""
         got_marker = SELFTEST_MARKER in answer
+        # The marker alone is not an answer: the responder's prompt prints it on every redraw, so a
+        # timed-out or failed wait can carry it too. The Gateway's verdict must say the turn finished.
+        ask_accepted = isinstance(ask, dict) and ask.get("accepted", ask.get("Accepted")) is True
+        wait_status = ask.get("waitStatus", ask.get("WaitStatus")) if isinstance(ask, dict) else None
+        answered = ask_accepted and wait_status == ASK_ANSWERED and got_marker
         record(
             "message ask returns the answer",
-            got_marker,
-            "marker found" if got_marker else f"status={gateway.field(ask, 'waitStatus', 'WaitStatus')}",
+            answered,
+            "marker found" if answered else
+            f"accepted={ask_accepted} waitStatus={wait_status!r} marker={'found' if got_marker else 'missing'}",
         )
 
     except gateway.GatewayError as err:

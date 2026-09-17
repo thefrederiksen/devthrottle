@@ -51,14 +51,15 @@ MISSIONS = [
 # controls. The three-deep shape is the point: stopping at the first level would attach the Manager
 # and leave the Workers behind, which reads as success while producing the split view the whole
 # feature exists to end.
-ARCHITECT = {"sessionId": "sess-architect", "name": "Release - Architect"}
+# The Gateway always sends controllerSessionId, null for a session nobody drives.
+ARCHITECT = {"sessionId": "sess-architect", "name": "Release - Architect", "controllerSessionId": None}
 MANAGER = {"sessionId": "sess-manager", "name": "Release - Manager",
            "controllerSessionId": "sess-architect"}
 WORKER_ONE = {"sessionId": "sess-worker-1", "name": "Release - Worker one",
               "controllerSessionId": "sess-manager"}
 WORKER_TWO = {"sessionId": "sess-worker-2", "name": "Release - Worker two",
               "controllerSessionId": "sess-manager"}
-UNRELATED = {"sessionId": "sess-elsewhere", "name": "Something else entirely"}
+UNRELATED = {"sessionId": "sess-elsewhere", "name": "Something else entirely", "controllerSessionId": None}
 
 ROSTER = [ARCHITECT, MANAGER, WORKER_ONE, WORKER_TWO, UNRELATED]
 
@@ -184,9 +185,27 @@ def test_detach_reports_the_mission_the_session_left(wired, capsys, plain):
     assert "Voice cleanup" in out
 
 
-def test_detaching_a_session_that_had_no_mission_says_nothing_changed(monkeypatch, capsys, plain):
+def test_detaching_a_session_the_answer_says_had_no_mission_says_nothing_changed(monkeypatch, capsys, plain):
     # Claiming a detach that did not happen is the small lie that makes the next person distrust
-    # the whole command. Say what is true.
+    # the whole command. Say what is true - when the ANSWER says what the session left.
+    monkeypatch.setattr(session_ops.gateway, "get_fleet", lambda: (list(ROSTER), True, None, None))
+    monkeypatch.setattr(
+        session_ops.gateway, "post_json",
+        lambda path, body, timeout=30: _gateway_answer(
+            {"applied": True, "sessionId": path.split("/")[1], "previousMissionId": None}),
+    )
+
+    mission_ops.detach_session("sess-manager")
+    out = flowed(plain(capsys.readouterr().out))
+
+    assert "nothing changed" in out
+    assert "Detached" not in out
+
+
+def test_detaching_on_a_snapshot_that_shows_no_mission_does_not_claim_nothing_changed(monkeypatch, capsys, plain):
+    # The Gateway's answer (MissionAttachResultDto) never says what the session left, and the roster read
+    # before the call can predate an attach made moments ago. "On no mission" there is not proof that the
+    # detach changed nothing (AXI step 6b re-check 5 audit).
     monkeypatch.setattr(session_ops.gateway, "get_fleet", lambda: (list(ROSTER), True, None, None))
     monkeypatch.setattr(
         session_ops.gateway, "post_json",
@@ -196,8 +215,9 @@ def test_detaching_a_session_that_had_no_mission_says_nothing_changed(monkeypatc
     mission_ops.detach_session("sess-manager")
     out = flowed(plain(capsys.readouterr().out))
 
-    assert "nothing changed" in out
-    assert "Detached" not in out
+    assert "nothing changed" not in out
+    assert "now attached to no mission" in out
+    assert "whether it was attached before is unknown" in out
 
 
 def test_the_subtree_walk_survives_a_cycle_in_the_roster():

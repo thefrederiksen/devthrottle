@@ -770,6 +770,15 @@ def _previous_mission(
     )
 
 
+def _previous_mission_is_exact(resp: Dict[str, Any]) -> bool:
+    """True when the answer itself says what the session left - previousMissionId present, null included.
+
+    The Gateway's POST /sessions/{sid}/mission answer (MissionAttachResultDto) does not carry it, so for
+    a Gateway-relayed change the previous mission comes from the roster snapshot, which can lag a change
+    made moments earlier. A snapshot can name what was left; it cannot prove nothing was."""
+    return "previousMissionId" in resp or "PreviousMissionId" in resp
+
+
 def _seat_moved(resp: Dict[str, Any]) -> bool:
     """True when the call also moved (or cleared) the session's workflow seat."""
     value = resp.get("seatMoved", resp.get("SeatMoved"))
@@ -827,7 +836,19 @@ def attach_session(target: str, mission_query: str, with_children: bool) -> None
 
     targets = [chosen]
     if with_children:
-        sessions, _, _, _ = session_ops.fleet_or_exit()
+        sessions, complete, reason, _ = session_ops.fleet_or_exit()
+        # A roster with rows missing cannot say which sessions this one controls: a missing Manager
+        # takes its Workers out of the tree with it, and the attach would report success over a split
+        # pod. So an incomplete roster refuses before anything is attached.
+        if complete is not True:
+            axi_cli.fail(
+                f"the fleet roster could not be read in full{(' - ' + reason) if reason else ''}, so "
+                f"the sessions {session_id} controls cannot all be found. Nothing was attached.",
+                ["cc-devthrottle session list",
+                 f"cc-devthrottle mission attach {axi_cli.bare(session_id, '<session-id>')} "
+                 f"{axi_cli.bare(mission_id, '<mission-id>')}"],
+            )
+        session_ops.controller_fields_or_exit(sessions)
         targets.extend(_controlled_subtree(sessions, session_id))
         console.print(
             f"Attaching {len(targets)} session(s) to mission [bold]{axi_cli.shown(mission_name)}[/bold] "
@@ -907,9 +928,21 @@ def detach_session(target: str) -> None:
         )
 
     previous_id, previous = _previous_mission(resp, chosen)
-    if not previous_id:
+    if not previous_id and _previous_mission_is_exact(resp):
         # Say what is true rather than claiming a change: the session was already attached to nothing.
         console.print(f"{axi_cli.shown(_session_label(chosen))} was not attached to a mission; nothing changed.")
+        _print_seat_note(resp)
+        axi_cli.print_next([f"cc-devthrottle mission attach {axi_cli.bare(session_id, '<session-id>')} <mission-id>"])
+        return
+    if not previous_id:
+        # The answer does not say what the session left, and the roster read before the call is a
+        # snapshot: "on no mission" there can predate an attach made moments ago. So the only fact is
+        # the one the answer confirms - it is on no mission now - and whether that changed is unknown.
+        console.print(
+            f"[green]Detached[/green] {axi_cli.shown(_session_label(chosen))}: it is now attached to no mission. "
+            "The roster read before the call showed it on none, but that read can lag, so whether it "
+            "was attached before is unknown."
+        )
         _print_seat_note(resp)
         axi_cli.print_next([f"cc-devthrottle mission attach {axi_cli.bare(session_id, '<session-id>')} <mission-id>"])
         return

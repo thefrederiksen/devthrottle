@@ -982,6 +982,11 @@ An ambiguous id prefix or name is refused with the list of candidates. No messag
 `--everyone`, `--reason` and `--grant` apply only to a fleet-wide broadcast (`message send all
 --everyone`). Given anywhere else they exit 2 and nothing is sent, rather than being ignored. A
 message the Gateway does not accept exits 1 with `Not delivered:` and its reason on standard error.
+A broadcast counts a recipient as reached only when the Gateway's row for it says `idle`; if any
+recipient was not reached (`failed`, `timeout`, `not_found`, or any other status), the command prints
+how many were reached, then exits 1 with `Not delivered:` naming each session that was not, with its
+full id, status and reason. Resend only to those sessions. A team with nobody else on it is still a
+success.
 
 ### Message Ask
 
@@ -996,8 +1001,11 @@ OPTIONS:
   --timeout-ms INTEGER  How long to wait for the answer (default 120000)
 ```
 
-If the target does not answer within the timeout, the command writes a clear timeout message to
-standard error and exits 1. `message ask all`, a blank question and a `--timeout-ms` below 1 exit 2.
+The answer is printed only when the Gateway says the target finished its turn (`waitStatus` is
+`idle`). If the target does not finish within the timeout (`timeout`), exits or fails while answering
+(`failed`), or the Gateway gives any other `waitStatus`, the command prints whatever the target wrote
+so far under a "partial output" heading, writes an error naming the verdict to standard error, and
+exits 1. `message ask all`, a blank question and a `--timeout-ms` below 1 exit 2.
 
 ### Session Spawn
 

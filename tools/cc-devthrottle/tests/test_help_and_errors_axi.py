@@ -82,8 +82,11 @@ def _default_answers():
         ("POST", f"sessions/{SID}/needs-manager"): lambda body: {"sessionId": SID, "raised": body["raised"]},
         ("POST", f"sessions/{PARENT}/message"): {"accepted": True},
         ("POST", f"sessions/{SID}/message"): {"accepted": True, "output": "the answer", "waitStatus": "idle"},
-        ("POST", "fleet/broadcast"): {"results": [{"sessionId": SID}, {"sessionId": PARENT}]},
-        ("POST", f"sessions/{SID}/compact-context"): {"submitted": True, "compactionObserved": True, "detail": "Done."},
+        ("POST", "fleet/broadcast"): {"results": [{"sessionId": SID, "status": "idle"}, {"sessionId": PARENT, "status": "idle"}]},
+        ("POST", f"sessions/{SID}/compact-context"): lambda body: {
+            "submitted": True, "compactionObserved": True, "detail": "Done.",
+            "continued": bool(body.get("continuePrompt")),
+        },
         ("POST", f"sessions/{SID}/role"): {"sessionId": SID, "explicitRole": "Worker"},
         ("POST", f"sessions/{SID}/request-deletion"): {"pendingDeletion": True},
         ("DELETE", f"sessions/{SID}/request-deletion"): {"pendingDeletion": False},
@@ -416,12 +419,26 @@ def test_sessionSpawn_AnswerWithoutName_NamesTheSessionByIdNotByTheRequest(gw, m
 
 def test_missionDetach_NotAttached_SaysNothingChangedAndOffersAttach(gw, monkeypatch):
     gw.roster = ([dict(ROSTER[1])], True, None, None)
-    gw.answers[("POST", f"sessions/{PARENT}/mission")] = {"session": {"sessionId": PARENT, "missionId": None}}
+    gw.answers[("POST", f"sessions/{PARENT}/mission")] = {
+        "session": {"sessionId": PARENT, "missionId": None}, "previousMissionId": None}
 
     result = _run(["mission", "detach", PARENT], None, monkeypatch)
 
     assert result.exit_code == 0, result.output
     assert "nothing changed" in result.stdout
+    assert _help_block(result.stdout)[1] == [f"cc-devthrottle mission attach {PARENT} <mission-id>"]
+
+
+def test_missionDetach_SnapshotShowsNone_DoesNotClaimNothingChanged(gw, monkeypatch):
+    # The Gateway's real answer carries no previousMissionId; the roster snapshot can lag an attach.
+    gw.roster = ([dict(ROSTER[1])], True, None, None)
+    gw.answers[("POST", f"sessions/{PARENT}/mission")] = {"session": {"sessionId": PARENT, "missionId": None}}
+
+    result = _run(["mission", "detach", PARENT], None, monkeypatch)
+
+    assert result.exit_code == 0, result.output
+    assert "nothing changed" not in result.stdout
+    assert "now attached to no mission" in result.stdout
     assert _help_block(result.stdout)[1] == [f"cc-devthrottle mission attach {PARENT} <mission-id>"]
 
 
@@ -1116,7 +1133,7 @@ def _selftest_gateway(gw, monkeypatch, deletion_answer):
     gw.roster = ([{"sessionId": RESPONDER}, {"sessionId": RECIPIENT}], True, None, None)
     gw.answers[("POST", f"directors/{DIRECTOR}/sessions")] = lambda body: next(spawned)
     gw.answers[("POST", f"sessions/{RECIPIENT}/message")] = {"accepted": True}
-    gw.answers[("POST", f"sessions/{RESPONDER}/message")] = {"output": "FLEETPONG>"}
+    gw.answers[("POST", f"sessions/{RESPONDER}/message")] = {"accepted": True, "output": "FLEETPONG>", "waitStatus": "idle"}
     gw.answers[("POST", f"sessions/{RECIPIENT}/request-deletion")] = deletion_answer
     gw.answers[("POST", f"sessions/{RESPONDER}/request-deletion")] = deletion_answer
 
@@ -1342,3 +1359,151 @@ def test_confirmed_NullWithoutAccept_ExitsOneSayingNull(capsys):
         axi_cli.confirmed({"name": None}, ("name", "Name"), "the rename", ["cc-devthrottle session list"])
 
     assert "gave null for name" in capsys.readouterr().err
+
+
+# ===== re-check 5 audit (pull request 2965): unknown answers and failure verdicts ================
+
+
+@pytest.mark.parametrize("rows, delivered", [
+    # Every row failed: the old count said "Delivered to your team (0 session(s))" and exited 0.
+    ([{"sessionId": SID, "status": "failed", "error": "director not connected to the tunnel"},
+      {"sessionId": PARENT, "status": "not_found", "error": "session not found"}], 0),
+    # A failed row with no error: the old count called it delivered.
+    ([{"sessionId": SID, "status": "failed", "error": None}], 0),
+    # A row with no status, or one this tool does not know, is not a delivery either.
+    ([{"sessionId": SID}], 0),
+    ([{"sessionId": SID, "status": "queued"}], 0),
+    # Some delivered and some not: still a failure, naming only the ones that did not receive it.
+    ([{"sessionId": SID, "status": "idle"},
+      {"sessionId": PARENT, "status": "timeout", "error": None}], 1),
+])
+def test_messageSendAll_UndeliveredRows_ExitOneNamingEachSession(gw, monkeypatch, plain, rows, delivered):
+    gw.answers[("POST", "fleet/broadcast")] = {"results": rows}
+
+    result = _run(["message", "send", "all", "hello"], AS_SID, monkeypatch)
+
+    assert result.exit_code == 1, result.output
+    stderr = " ".join(result.stderr.split())
+    assert stderr.startswith("Not delivered:")
+    undelivered = [r for r in rows if r.get("status") != "idle"]
+    assert f"{len(undelivered)} of {len(rows)} recipient(s)" in stderr
+    for r in undelivered:
+        assert f"{r['sessionId']}: status {r.get('status')!r}" in stderr
+    if delivered:
+        assert f"Delivered to {delivered} of {len(rows)} session(s)" in " ".join(plain(result.stdout).split())
+        assert "do not resend to them" in stderr
+    else:
+        assert "Delivered" not in result.stdout
+
+
+def test_messageSendAll_EveryRowIdle_IsDelivered(gw, monkeypatch, plain):
+    result = _run(["message", "send", "all", "hello"], AS_SID, monkeypatch)
+
+    assert result.exit_code == 0, result.output
+    assert "Delivered to your team (2 session(s))." in " ".join(plain(result.stdout).split())
+    assert result.stderr == ""
+
+
+def test_messageSendAll_EmptyTeam_IsStillASuccessWithTheNote(gw, monkeypatch):
+    gw.answers[("POST", "fleet/broadcast")] = {"results": [], "warning": "No other sessions on your team."}
+
+    result = _run(["message", "send", "all", "hello"], AS_SID, monkeypatch)
+
+    assert result.exit_code == 0, result.output
+    assert "No other sessions on your team." in result.stdout
+
+
+@pytest.mark.parametrize("complete, reason", [(False, "machine m2 is offline"), (None, None)])
+def test_missionAttachWithChildren_IncompleteRoster_RefusesBeforeAttaching(gw, monkeypatch, complete, reason):
+    gw.roster = (ROSTER, complete, reason, None)
+
+    result = _run(["mission", "attach", PARENT, MID, "--with-children"], None, monkeypatch)
+
+    assert result.exit_code == 1, result.output
+    assert "could not be read in full" in result.stderr
+    assert "Nothing was attached" in result.stderr
+    if reason:
+        assert reason in result.stderr
+    assert not [c for c in gw.calls if c[1].endswith("/mission")]
+
+
+def test_missionAttachWithChildren_RowWithoutController_RefusesBeforeAttaching(gw, monkeypatch):
+    row = {k: v for k, v in ROSTER[0].items() if k != "controllerSessionId"}
+    gw.roster = ([row, ROSTER[1]], True, None, None)
+
+    result = _run(["mission", "attach", PARENT, MID, "--with-children"], None, monkeypatch)
+
+    assert result.exit_code == 1, result.output
+    assert f"session {SID} with controllerSessionId missing" in " ".join(result.stderr.split())
+    assert not [c for c in gw.calls if c[1].endswith("/mission")]
+
+
+def test_sessionSpawn_ControllerRowWithoutMissionField_WarnsAndOpensUnattached(gw, monkeypatch):
+    row = {k: v for k, v in ROSTER[0].items() if k not in ("missionId", "missionName")}
+    gw.roster = ([row, ROSTER[1]], True, None, None)
+
+    result = _run(["session", "spawn", "/repos/x", "--controlled-by", SID, "--name", "n"], None, monkeypatch)
+
+    assert result.exit_code == 0, result.output
+    assert "missionId" not in gw.calls[-1][2]
+    stderr = " ".join(result.stderr.split())
+    assert f"gave no missionId for the controlling session {SID}" in stderr
+    assert "cc-devthrottle mission attach" in stderr
+
+
+@pytest.mark.parametrize("complete, note", [(False, "not read in full - machine m2 is offline"), (True, None)])
+def test_sessionSpawn_ControllerNotOnRoster_WarnsAndOpensUnattached(gw, monkeypatch, complete, note):
+    gw.roster = ([ROSTER[1]], complete, "machine m2 is offline" if not complete else None, None)
+
+    result = _run(["session", "spawn", "/repos/x", "--controlled-by", SID, "--name", "n"], None, monkeypatch)
+
+    assert result.exit_code == 0, result.output
+    assert "missionId" not in gw.calls[-1][2]
+    stderr = " ".join(result.stderr.split())
+    assert f"the controlling session {SID} is not in the fleet list" in stderr
+    if note:
+        assert note in stderr
+    else:
+        assert "not read in full" not in stderr
+
+
+@pytest.mark.parametrize("continued", [False, None, "yes", "missing"])
+def test_sessionCompactContinue_FollowUpNotConfirmed_ExitsOne(gw, monkeypatch, continued):
+    answer = {"submitted": True, "compactionObserved": True, "detail": "Done."}
+    if continued != "missing":
+        answer["continued"] = continued
+    gw.answers[("POST", f"sessions/{SID}/compact-context")] = answer
+
+    result = _run(["session", "compact-continue", SID, "carry on"], None, monkeypatch)
+
+    assert result.exit_code == 1, result.output
+    stderr = " ".join(result.stderr.split())
+    shown = "nothing" if continued in (None, "missing") else repr(continued)
+    assert f"gave {shown} for continued" in stderr
+    assert f"cc-devthrottle session buffer {SID}" in stderr
+
+
+def test_sessionCompactContinue_FollowUpSent_Succeeds(gw, monkeypatch):
+    result = _run(["session", "compact-continue", SID, "carry on"], None, monkeypatch)
+
+    assert result.exit_code == 0, result.output
+    assert gw.calls[-1][2] == {"continuePrompt": "carry on"}
+
+
+@pytest.mark.parametrize("answer", [
+    {"accepted": True, "output": "FLEETPONG>", "waitStatus": "timeout"},
+    {"accepted": True, "output": "FLEETPONG>", "waitStatus": "failed"},
+    {"accepted": True, "output": "FLEETPONG>"},
+    {"accepted": False, "output": "FLEETPONG>", "waitStatus": "idle"},
+])
+def test_selftest_Windows_AskMarkerWithoutAnIdleVerdict_IsAFailure(gw, monkeypatch, plain, answer):
+    # The responder's prompt prints the marker on every redraw, so a timed-out wait can carry it.
+    _selftest_gateway(gw, monkeypatch, {"pendingDeletion": True})
+    gw.answers[("POST", f"sessions/{RESPONDER}/message")] = answer
+
+    result = _run(["selftest"], AS_SID, monkeypatch)
+
+    assert result.exit_code == 1, result.output
+    out = " ".join(plain(result.stdout).split())
+    assert "FAIL message ask returns the answer" in out
+    assert f"waitStatus={answer.get('waitStatus')!r}" in out
