@@ -1015,3 +1015,19 @@ All four pass; details in `slice-2-evidence/fix-round/README.md`.
 - **cc-devthrottle tests** (scratch environment): 3176 passed, 0 failed. No Python changed.
 - **Live proofs**: 4 of 4 passed (run 4 on its second attempt; see above).
 
+
+## Architect note after the slice 2 fix round (17 September 2026)
+
+All nine rulings landed and proven. Judgement calls 1 to 7 stand, subject to inspection 5.
+
+Two decisions are with the owner, asked on 17 September; neither blocks inspection 5:
+1. **Snooze versus the doorbell.** The owner's written law of 14 and 17 July 2026 says any activity ends
+   a snooze, naming another agent's message as the case. Ruling 15 and fix item 8 make an exception for
+   work the Director attributes to an agent-origin send (a doorbell, or any product send). Recommendation
+   to the owner: keep the exception in its narrow form as built; a snooze is the owner's wish to be left
+   alone, and a doorbell from another agent should not make his phone go red. If he agrees, slice 5
+   updates the law in `sessions.html` with the date. If not, one condition in `SnoozeLandingObserver`
+   and one test flip back.
+2. **Restore versus the spawn owner pin** (open since slice 1).
+
+Inspection 5 (Codex) covers the fix round. Then the slice 2 pull request, after the owner's answer on 1.
