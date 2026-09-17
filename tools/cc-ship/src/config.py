@@ -9,7 +9,9 @@ Shape:
   "checks": ["npm --prefix website run lint", "..."],
   "rules": ["No secrets ...", "..."],
   "reviewer_agent": "Codex",
+  "reviewer_model": "claude-fable-5-1",      (optional; ClaudeCode only)
   "verifier_agent": "ClaudeCode",
+  "verifier_model": "claude-opus-5",         (optional; ClaudeCode only)
   "verify": {"surface": "vercel-preview" | "none" | "skip"},
   "docs_only_paths": ["*.md", "docs/**"],
   "risk": {"high_paths": ["website/api/**", "..."]}
@@ -20,6 +22,7 @@ from __future__ import annotations
 
 import fnmatch
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -39,6 +42,8 @@ class ShipConfig:
     surface: str
     docs_only_paths: list[str]
     high_paths: list[str] = field(default_factory=list)
+    reviewer_model: str | None = None
+    verifier_model: str | None = None
 
 
 def _bad(detail: str) -> ShipError:
@@ -63,7 +68,7 @@ def parse(text: str) -> ShipConfig:
     if not isinstance(data, dict):
         raise _bad("the top level must be an object")
     known = {"checks", "rules", "reviewer_agent", "verifier_agent", "verify",
-             "docs_only_paths", "risk"}
+             "docs_only_paths", "risk", "reviewer_model", "verifier_model"}
     unknown = sorted(set(data) - known)
     if unknown:
         raise _bad(f"unknown keys: {', '.join(unknown)}")
@@ -79,6 +84,16 @@ def parse(text: str) -> ShipConfig:
     risk = data.get("risk", {})
     if not isinstance(risk, dict):
         raise _bad("'risk' must be an object")
+    models = {}
+    for role, agent in (("reviewer", reviewer), ("verifier", verifier)):
+        model = data.get(f"{role}_model")
+        if model is None:
+            continue
+        if not (isinstance(model, str) and re.fullmatch(r"[A-Za-z0-9._\[\]-]+", model)):
+            raise _bad(f"'{role}_model' must be a model id such as claude-fable-5-1")
+        if agent != "ClaudeCode":
+            raise _bad(f"'{role}_model' can be set only when {role}_agent is ClaudeCode")
+        models[role] = model
     return ShipConfig(
         checks=_string_list(data, "checks"),
         rules=_string_list(data, "rules"),
@@ -87,6 +102,8 @@ def parse(text: str) -> ShipConfig:
         surface=verify["surface"],
         docs_only_paths=_string_list(data, "docs_only_paths"),
         high_paths=_string_list(risk, "high_paths"),
+        reviewer_model=models.get("reviewer"),
+        verifier_model=models.get("verifier"),
     )
 
 

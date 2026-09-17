@@ -64,13 +64,15 @@ class World:
         self.prs: dict[int, dict] = {}
         self.merged: list[int] = []
         self.reaped: set[str] = set()   # sessions the Director has already removed
+        self.author_model: str | None = "claude-opus-5[1m]"
 
     # fleet
-    def spawn_session(self, repo, agent, controlled_by, name, brief):
+    def spawn_session(self, repo, agent, controlled_by, name, brief, model=None):
         sid = f"s{len(self.spawned) + 1}"
         role = name.split(" - ")[1]
         self.spawned.append({"id": sid, "agent": agent, "name": name, "role": role,
-                             "brief": Path(brief), "controlled_by": controlled_by})
+                             "brief": Path(brief), "controlled_by": controlled_by,
+                             "model": model})
         return sid
 
     def _session(self, sid):
@@ -87,7 +89,8 @@ class World:
 
     def find_session(self, sid):
         if sid == AUTHOR:
-            return {"sessionId": AUTHOR, "agent": "ClaudeCode", "missionName": "Test Mission"}
+            return {"sessionId": AUTHOR, "agent": "ClaudeCode", "missionName": "Test Mission",
+                    "modelDisplay": {"modelId": self.author_model}}
         if any(s["id"] == sid for s in self.spawned) and sid not in self.reaped:
             return {"sessionId": sid, "status": "Running", "activityState": "WaitingForInput"}
         return None
@@ -971,3 +974,63 @@ def test_run_InvalidVerifyFromReapedVerifier_FreshVerifierWithFreshCookie(world,
     assert out["state"] == "merged", out
     assert [s["role"] for s in world.spawned] == ["Reviewer", "Verifier", "Verifier"]
     assert len(cookies) == 2 and not cookies[0].exists()
+
+
+# ------------------------------------------------------------------ same family, different model
+
+def test_run_ClaudeReviewerOnADifferentModel_AllowedAndSaidOnThePullRequest(world, capsys):
+    # Owner decision 2026-09-16: a Claude Code reviewer on Fable may review Opus's work.
+    _set_main_config(world, dict(SHIP_YAML, reviewer_agent="ClaudeCode",
+                                 reviewer_model="claude-fable-5-1"))
+    world.outputs["Reviewer"].append(review())
+    world.outputs["Verifier"].append(GO)
+    code, out = ship_to_merge(world, capsys)
+    assert out["state"] == "merged", out
+    reviewer = world.spawned[0]
+    assert reviewer["agent"] == "ClaudeCode" and reviewer["model"] == "claude-fable-5-1"
+    assert world.spawned[1]["model"] is None
+    body = world.prs[1]["body"]
+    assert "Reviewed by ClaudeCode (claude-fable-5-1)" in body
+    assert "author's agent family (ClaudeCode) on a different model" in body
+
+
+def test_run_ClaudeReviewerOnTheAuthorsModel_Refused(world, capsys):
+    _set_main_config(world, dict(SHIP_YAML, reviewer_agent="ClaudeCode",
+                                 reviewer_model="claude-opus-5"))
+    code, out = run_cli("start", "--intent", str(world.intent), capsys=capsys)
+    assert out["failure"]["code"] == "same-model" and world.spawned == []
+
+
+def test_run_ClaudeReviewerWithoutAModel_StillRefused(world, capsys):
+    _set_main_config(world, dict(SHIP_YAML, reviewer_agent="ClaudeCode"))
+    code, out = run_cli("start", "--intent", str(world.intent), capsys=capsys)
+    assert out["failure"]["code"] == "same-family" and world.spawned == []
+
+
+def test_run_AuthorModelNotReported_Refused(world, capsys):
+    world.author_model = None
+    _set_main_config(world, dict(SHIP_YAML, reviewer_agent="ClaudeCode",
+                                 reviewer_model="claude-fable-5-1"))
+    code, out = run_cli("start", "--intent", str(world.intent), capsys=capsys)
+    assert out["failure"]["code"] == "author-model-unknown" and world.spawned == []
+
+
+def test_run_ReplacementReviewer_KeepsTheModel(world, capsys):
+    _set_main_config(world, dict(SHIP_YAML, reviewer_agent="ClaudeCode",
+                                 reviewer_model="claude-fable-5-1"))
+    world.outputs["Reviewer"] += ["CRASH", review()]
+    world.outputs["Verifier"].append(GO)
+    code, out = ship_to_merge(world, capsys)
+    assert out["state"] == "merged", out
+    assert [s["model"] for s in world.spawned[:2]] == ["claude-fable-5-1", "claude-fable-5-1"]
+
+
+@pytest.mark.parametrize("cfg, error", [
+    ({"reviewer_agent": "Codex", "reviewer_model": "gpt-5"}, "only when reviewer_agent is ClaudeCode"),
+    ({"reviewer_model": "has space"}, "model id"),
+])
+def test_config_BadModelSettings_Rejected(cfg, error):
+    import config
+    from errors import ShipError
+    with pytest.raises(ShipError, match=error):
+        config.parse(json.dumps(dict(SHIP_YAML, **cfg)))

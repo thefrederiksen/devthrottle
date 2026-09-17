@@ -138,31 +138,67 @@ def _session_name(run: dict, role: str) -> str:
     return f"{mission} - {role} - ship {run['branch']}"
 
 
-def _reviewer_agent(run: dict, cfg: config.ShipConfig) -> str:
+def _base_model(model: str | None) -> str | None:
+    """claude-opus-5[1m] and claude-opus-5 are the same model."""
+    return model.split("[", 1)[0].strip().lower() if model else None
+
+
+def _author_model(run: dict) -> str | None:
+    row = fleet.find_session(run["author_session"])
+    return ((row or {}).get("modelDisplay") or {}).get("modelId")
+
+
+def _reviewer_agent(run: dict, cfg: config.ShipConfig) -> tuple[str, str | None]:
+    """The reviewer's agent and model. The author never certifies its own work: the
+    reviewer is another agent family, or - only when the repository names a reviewer
+    model on main - the same family running a DIFFERENT model (owner decision,
+    2026-09-16, recorded on every pull request it reviews)."""
     agent = cfg.reviewer_agent or AUTHOR_FAMILY_DEFAULT_REVIEWER.get(run["author_agent"], "ClaudeCode")
-    if agent == run["author_agent"]:
+    model = cfg.reviewer_model
+    if agent != run["author_agent"]:
+        return agent, model
+    if model is None:
         raise ShipError(
             "same-family",
-            f"The reviewer would be {agent}, the same agent family as the author. "
-            "The author never certifies its own work.",
-            "Set reviewer_agent in .ship.yaml on main to a different family than the author's.",
+            f"The reviewer would be {agent}, the same agent family as the author, on the same "
+            "model. The author never certifies its own work.",
+            "Set reviewer_agent in .ship.yaml on main to a different family, or set "
+            "reviewer_model to a different model than the author's.",
         )
-    return agent
+    author_model = _author_model(run)
+    if author_model is None:
+        raise ShipError(
+            "author-model-unknown",
+            "The reviewer is the author's agent family, and the author's model is not reported "
+            "yet, so cc-ship cannot prove the reviewer runs a different model.",
+            "Finish one turn in the author session (the fleet reports its model at turn end), "
+            "then run: cc-ship continue",
+        )
+    if _base_model(author_model) == _base_model(model):
+        raise ShipError(
+            "same-model",
+            f"The reviewer would run {model}, the same model as the author ({author_model}).",
+            "Set reviewer_model in .ship.yaml on main to a different model, then run: cc-ship continue",
+        )
+    run["author_model"] = author_model
+    return agent, model
 
 
-def _spawn(run: dict, role: str, agent: str, brief: Path, output: Path) -> None:
+def _spawn(run: dict, role: str, agent: str, brief: Path, output: Path,
+           model: str | None = None) -> None:
     root = gitops.main_repo_root(_repo(run))
     trust.require_trust(agent, root)
     name = _session_name(run, role)
-    session_id = fleet.spawn_session(_repo(run), agent, run["author_session"], name, brief)
+    session_id = fleet.spawn_session(_repo(run), agent, run["author_session"], name, brief,
+                                     model=model)
     record = {
-        "role": role, "id": session_id, "name": name, "agent": agent,
+        "role": role, "id": session_id, "name": name, "agent": agent, "model": model,
         "brief": str(brief), "output": str(output), "started": time.time(),
         "corrections": 0, "replaced": False, "written_after": None,
         "watch": {"started": time.time()},
     }
     run["session"] = record
-    run["sessions"].append({k: record[k] for k in ("role", "id", "name", "agent")})
+    run["sessions"].append({k: record[k] for k in ("role", "id", "name", "agent", "model")})
 
 
 def _stop_session_quietly(session_id: str, reason: str) -> None:
@@ -324,7 +360,7 @@ def _step_checks(run: dict) -> bool:
 def _step_review(run: dict) -> dict:
     repo = _repo(run)
     cfg = config.load_from_main(repo)
-    agent = _reviewer_agent(run, cfg)
+    agent, model = _reviewer_agent(run, cfg)
     dirty = _worktree_dirty(run)
     if dirty:
         return dirty
@@ -347,7 +383,7 @@ def _step_review(run: dict) -> dict:
     ), encoding="utf-8")
     output.unlink(missing_ok=True)
     fleet.done_marker(output).unlink(missing_ok=True)
-    _spawn(run, "Reviewer", agent, brief, output)
+    _spawn(run, "Reviewer", agent, brief, output, model=model)
     run["review_round"] = rnd
     if run["first_reviewed_head"] is None:
         run["first_reviewed_head"] = head
@@ -395,7 +431,10 @@ def _review_done(run: dict, review: dict) -> dict:
         prev = run["history"][-1]
         prev["fixed_next_round"] = [t for k, t in prev["pending_fix"] if k not in current_keys]
     run["history"].append({
-        "round": rnd, "agent": run["session"]["agent"], "session": run["session"]["id"],
+        "round": rnd, "session": run["session"]["id"],
+        "agent": (f"{run['session']['agent']} ({run['session']['model']})"
+                  if run["session"].get("model") else run["session"]["agent"]),
+        "same_family": run["session"]["agent"] == run["author_agent"],
         "found": len(open_findings), "notes": notes, "suppressed": suppressed,
         "pending_fix": [], "fixed_next_round": [],
     })
@@ -557,7 +596,7 @@ def _step_verify(run: dict) -> bool:
         docs_only=docs_only,
     ), encoding="utf-8")
     try:
-        _spawn(run, "Verifier", cfg.verifier_agent, brief, output)
+        _spawn(run, "Verifier", cfg.verifier_agent, brief, output, model=cfg.verifier_model)
     except Exception:
         if state_file:
             preview.remove_bypass_state(state_file)
@@ -626,7 +665,8 @@ def _handle_session_result(run: dict, result: fleet.WaitResult) -> dict:
                 run["session"]["replaced"] = True
                 runstore.save(run)
             return run
-        _spawn(run, role, session["agent"], Path(session["brief"]), output)
+        _spawn(run, role, session["agent"], Path(session["brief"]), output,
+               model=session.get("model"))
         run["session"]["replaced"] = True
         return _set(run, WORKING, f"The {role.lower()} failed ({result.reason}); a replacement "
                                   f"is working ({run['session']['name']}). Run: cc-ship wait")
@@ -686,7 +726,7 @@ def _redo_in_fresh_session(run: dict, old: dict, output: Path) -> dict:
         run["session"] = None
         advance(run)  # a fresh cookie and brief for the fresh verifier
     else:
-        _spawn(run, role, old["agent"], Path(old["brief"]), output)
+        _spawn(run, role, old["agent"], Path(old["brief"]), output, model=old.get("model"))
     if run.get("session"):
         run["session"]["corrections"] = old["corrections"]
         run["session"]["replaced"] = old["replaced"]
