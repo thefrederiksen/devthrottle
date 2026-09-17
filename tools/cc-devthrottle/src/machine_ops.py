@@ -1030,6 +1030,13 @@ RESTORE_POLL_SECONDS = 3.0
 #: The placeholder the drain writes where the NEW Director's id goes. Passing it verbatim is a mistake.
 NEW_DIRECTOR_PLACEHOLDER = "<the NEW director id>"
 
+#: The exit code of a restore that was asked for and not waited on (inspection 7, ruling 6). It is neither
+#: success (nothing is known to have come back) nor failure (nothing is known to have failed).
+EXIT_ACCEPTED_NOT_WAITED = 3
+
+#: The sentence a restore that was not waited on prints, so a reader cannot take acceptance for completion.
+ACCEPTED_NOT_WAITED = "accepted, not waited"
+
 
 def _seat_attempt(seat: Dict[str, Any]) -> Tuple[str, str, str]:
     """(restoredSessionId, failure, attemptedAtUtc) for one workspace seat, each "" when absent."""
@@ -1069,6 +1076,7 @@ def restore_workspace(
     seeds: Sequence[str],
     wait_seconds: int,
     json_output: bool,
+    force_seats: Sequence[str] = (),
 ) -> None:
     """Ask a Director to bring a drained fleet back, and report each seat.
 
@@ -1078,7 +1086,12 @@ def restore_workspace(
     owner of what it starts, which is why the restore moved to the Director.
 
     Each seat's result is written on the workspace by the Director as it happens; this command reads it back
-    until every seat asked for has an answer or the wait runs out. Exit 0 only when every seat came back.
+    until every seat asked for has an answer or the wait runs out. Exit 0 only when every seat came back; 1 when
+    any seat failed or is still pending; 3 when the command did not wait (--wait-seconds 0), because then it
+    knows only that the restore was accepted.
+
+    A seat whose earlier start was sent and never recorded is not started again unless it is named with
+    --force-seat, after the caller has checked the session list.
     """
     if not director_id.strip() or director_id.strip() == NEW_DIRECTOR_PLACEHOLDER:
         axi_cli.usage_error(
@@ -1099,6 +1112,8 @@ def restore_workspace(
     parsed_seeds = _parse_seeds(seeds)
     if parsed_seeds:
         body["seeds"] = parsed_seeds
+    if force_seats:
+        body["forceSeats"] = list(force_seats)
 
     try:
         before = _read_workspace(workspace) if wait_seconds > 0 else {}
@@ -1111,20 +1126,25 @@ def restore_workspace(
               f"{reason or 'the Gateway did not say the Director took the restore'}", next_commands)
     asked = [str(s) for s in accepted.get("seats") or []]
     again = (f"cc-devthrottle director restore {axi_cli.bare(workspace, '<workspace>')} "
-             f"--director {director_id}   # brings back only what has not come back; refused while one runs")
+             f"--director {director_id}   # brings back only what has not come back; refused while one runs; "
+             "a seat that MAY have started needs --force-seat <id> after you have checked the session list")
 
     if wait_seconds == 0:
+        # ACCEPTANCE IS NOT COMPLETION (inspection 7, ruling 6). Exit 0 means every seat came back, and a
+        # restore nobody waited on has not shown that - so it has its own exit code and says so in words.
         if json_output:
             print(json.dumps({"workspaceId": workspace, "directorId": director_id, "taken": True,
+                              "waited": False, "status": ACCEPTED_NOT_WAITED,
                               "count": len(asked), "seats": asked}, indent=2))
-            return
-        console.print(f"[green]TAKEN[/] workspace {axi_cli.shown(workspace)} by Director {axi_cli.shown(director_id)}: "
-                      f"count: {len(asked)}")
-        for sid in asked:
-            console.print(f"  {sid}")
-        console.print("  Not waiting. Each seat's result is written on the workspace as the Director gets to it.")
-        axi_cli.print_next([again])
-        return
+        else:
+            console.print(f"[yellow]ACCEPTED, NOT WAITED[/] workspace {axi_cli.shown(workspace)} by Director "
+                          f"{axi_cli.shown(director_id)}: count: {len(asked)}")
+            for sid in asked:
+                console.print(f"  {sid}")
+            console.print(f"  {ACCEPTED_NOT_WAITED}: nothing is known to have come back yet. Each seat's result is "
+                          "written on the workspace as the Director gets to it; wait for it with --wait-seconds.")
+            axi_cli.print_next([again])
+        raise SystemExit(EXIT_ACCEPTED_NOT_WAITED)
 
     outcomes: Dict[str, Tuple[str, str, str]] = {}
     names: Dict[str, str] = {}

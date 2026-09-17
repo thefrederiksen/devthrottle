@@ -1486,6 +1486,41 @@ Verdict FAIL for merge. Findings accepted. Fixes on the pinned slice 3 branch in
 Then the touched suites, each guard watched failing, a 'Slice 3 fix round' section in this file on this
 branch, push, stop. Inspection 8 follows on this branch.
 
+## Architect rulings on inspection 7 (17 September 2026) - slice 6 fix round, on branch mission/message-load-slice6
+
+Verdict FAIL for merge. Every finding accepted. Fixes on the pinned slice 6 branch in the worktree
+`~/ReposFred/devthrottle-inspect-slice6`; merged back into `mission/message-load` after.
+
+1. **Restored ids are provenance, never judgment** (critical). `restoredSessionId`, `restore.failure`,
+   `attemptedAtUtc` and any new restore mark are written only by the Director's restore path, through
+   the Gateway's provenance stamp on that route; the store restores them from its stored copy on every
+   caller write, exactly as it does `ReportsTo`. A session key or device key may set only the decision
+   and the handover path. Guard: a PUT that changes `restoredSessionId` is ignored (route test), and the
+   inspector's owner-of-X sequence ends with the worker owned by B's restored id, never X.
+2. **Only a drained seat is restored** (high). A seat is a restore target only when its captured
+   session is closed (drain state closed, or its captured session id absent from the live roster). A
+   seat whose captured session is still running is refused with "still running", never started again.
+   Guard: capture a live seat, set its decision, restore: refused; the same after the seat closes: starts.
+3. **A seat starts at most once** (high). Before the create, the Director writes a started mark and a
+   restore token on the seat and saves; the create carries the token where the Gateway stores it on the
+   new session. On a retry, a seat with a started mark and no restored id is resolved by looking the
+   token up on the roster: found means restored (mark it), not found and the starting Director alive
+   means "in progress, ask later", otherwise "may have been started; check the roster before asking
+   again" and NO second create without an explicit `--force-seat <id>`. Guard: the timeout test now
+   retries and asserts one create; the die-after-create case resolves by token.
+4. **One restore per workspace across Directors** (high). The Gateway grants a per-workspace restore
+   lease to one Director for the run (expiring after 15 minutes without a save) before relaying; a
+   second Director is refused 409 with the holder named. Guard: two Directors, one lease.
+5. **Owners must be running** (medium). An outside or blocked owner is checked on the live roster; not
+   running means the seat fails with "owner not running", never a start under a dead id. Guard for both.
+6. **Ask-only is not success** (low). `--wait-seconds 0` prints "accepted, not waited" and exits 3; the
+   help says exit 0 means every seat came back. Guard on the exit code and the sentence.
+7. **The skill draft** is published in slice 5 only after this round passes inspection; the record
+   notes that v3 also carries the 7 September step 0 from the restart mission.
+
+Then the touched suites, each guard watched failing, a 'Slice 6 fix round' section in this file on this
+branch, push, stop. Inspection 9 follows on this branch.
+
 ## Slice 2 fix round 2 (17 September 2026, Manager seat 4)
 
 Three code commits on `mission/message-load-slice2` after `b7bdb3cf`, one per ruling that needed code. Items 4
@@ -1935,6 +1970,150 @@ results are in `slice-2-evidence/fix-round-3/` with a README. No fleet message w
   Python changed), `scripts/test-local.ps1` (no PowerShell on the Mac), live proofs.
 
 Next, as the Architect ruled: inspection 10, narrow, then the slice 2 pull request.
+
+## Slice 6 fix round (17 September 2026, Manager seat 6)
+
+On branch `mission/message-load-slice6`, worktree `~/ReposFred/devthrottle-inspect-slice6`. Code commit `f1cc4a05` on
+top of `24a9a4e4`; this record in the commit after it. No pull request opened. No fleet message sent, no skill
+published. Every mutation run is in `slice-6-evidence/fix-round-red-runs.md`.
+
+### What changed, per ruling
+
+**1. Restored ids are provenance (critical).** New route `POST /gateway/workspaces/{id}/restore/marks`
+(`WorkspaceEndpoints`), body `WorkspaceRestoreMark` (`WorkspaceRestoreDtos.cs`): kinds `started`, `restored`, `failed`,
+`finished`. It is the only writer of `restoredSessionId`, `restoredSeedFile`, `restore.failure`,
+`restore.attemptedAtUtc`, the new `restore.startedToken` / `startedAtUtc` / `startedByDirectorId`, and the document's
+`restoredBy`. It refuses a person's phone or browser (403); a session key never reaches it (`SessionKeyGuard` lists only
+`.../restore`, and a guard case now pins `.../restore/marks` refused); a Director credential must hold the workspace's
+live lease (409 otherwise). `WorkspaceStore.ApplyStoredProvenance` now puts back every one of those fields, and the
+lease, from the stored copy on every ordinary write (`RestoreStoredMarks`), including when the caller drops the whole
+`restore` block. The caller keeps the decision, its reason and command, and the handover path. The Director writes
+nothing through PUT any more (`IRestoreGateway.SaveWorkspaceAsync` is gone; `RecordMarkAsync` replaced it). Guards: the
+store test (a PUT setting all of them is ignored; a PUT clearing them keeps them), the inspector's sequence in the unit
+suite over the real store, and the same sequence on a booted host with an unrelated session key: the PUT is ignored,
+the Worker alone fails "has not been brought back yet", and after the Manager comes back the Worker is owned by the
+Manager's restored id, never X. Two older tests that wrote `restoredSessionId` through PUT
+(`WorkspaceOwedSeatsAndOriginRulesTests`, `WorkspaceProvenanceAndMalformedBodyTests`) now record it through a lease and
+marks, as a restore would.
+
+**2. Only a drained seat is restored.** `DirectorRestore.StillRunning`, read from the account's roster with each
+Director's reachability (`GET /sessions?envelope=true`, `RestoreRoster`). A seat whose captured session is on the roster
+under an online or wobbly Director is refused "still running" - even when its record says `closedAtUtc`, because that is
+a drain judgment a writer can set. A seat still listed under an unreachable Director is refused unless the drain recorded
+it closed (the Gateway keeps serving an unreachable Director's last rows, so "absent from the roster" alone would never
+be true after a crash, and "listed" alone would block every restore after one). A named seat that is still running
+refuses the whole request in `PrepareAsync`; asked for everything, a running seat gets its own failure and the rest come
+back; if every target is running the request is refused. Guards: unit (named refused then starts after close; all-owed;
+all running; unreachable Director with and without a close; recorded closed but running), route (capture a live seat,
+decide, restore: refused; the seat leaves the roster: starts).
+
+**3. A seat starts at most once.** Before a create, the Director writes a `started` mark with a fresh token; if that
+write fails the create is not sent and the run stops. The create carries `NewSessionRequest.RestoreClaim` (workspace,
+seat, token). The spawn door (`POST /directors/{id}/sessions`) refuses a claim from anything but a Director credential
+(403) and, after the Director confirms the create, calls `WorkspaceStore.RecordRestoredByClaim`, which writes the new
+id only onto the seat whose stored token matches, and never turns a recording failure into an HTTP failure. A late
+`failed` mark does not erase a seat the Gateway already recorded restored. Only a create the Gateway refused outright
+(a 4xx, `GatewaySpawnFailedException.NothingStarted`) clears the token; a timeout, a 5xx or an unreadable answer keeps
+it. On a later run, a seat with a token and no restored id is: "still in progress, ask again in a few minutes" when the
+start is younger than two minutes (`InProgressWindow`; the Gateway waits thirty seconds for a create); otherwise "MAY
+have been started already ... ask again with --force-seat <id>", naming any running session on that Director with the
+seat's name created since the start. `--force-seat` (`WorkspaceRestoreRequest.ForceSeats`, the command's
+`--force-seat`, the action catalogue and its pinned fixture) starts it with a new token. Guards: the timeout test now
+asks again three times and asserts one create until forced; create-then-timeout resolves by token and a retry is
+refused "restored once"; a Director that dies after the create leaves the seat recorded and the retry starts nothing; a
+relay error is a maybe; the token must match; a claim from a session key or a person is refused on a booted host; the
+spawn door records by token on a booted host.
+
+**4. One restore per workspace across Directors.** `WorkspaceDocument.RestoreLease` (Director, who asked, granted,
+renewed), written only by the store: `TakeRestoreLease` in the restore route before anything is relayed (409 naming the
+holder when another Director's lease is live), renewed by every mark, released by the `finished` mark the Director
+writes when its run ends (also when the run throws), and void fifteen minutes after the last mark. The route gives back
+a lease it granted when the Director is not connected or refuses (not on a timeout, and never a lease the Director
+already held). The route now refuses an authored workspace itself (409) before taking a lease. Guards: store (second
+Director refused by name, renew, lapse, finish), unit (a Director without the lease starts nothing), route (two
+Directors on the captured machine: the second is refused with the first named and receives no restore command; a
+refused restore gives the lease back).
+
+**5. Owners must be running.** `ResolveOwner` checks the roster for an owner outside the workspace, a blocked
+never-closed owner, and an owner restored in an EARLIER run (the ruling named the first two; the third has the same
+hole). An owner restored in this run is used without the check, because the roster may not show it yet. Not running,
+or running only on an unreachable Director, fails the seat "is not running on any Director this Gateway can reach".
+Guards: unit, for all three plus the unreachable case.
+
+**6. Ask-only is not success.** `director restore --wait-seconds 0` prints `ACCEPTED, NOT WAITED` and "accepted, not
+waited", adds `"waited": false, "status": "accepted, not waited"` to `--json`, and exits 3. The help and
+`docs/cli-reference.md` say exit 0 means every seat came back, 1 a seat failed or is pending, 3 accepted and not waited.
+Guards: the exit code and the sentence (text and JSON), the help text, `--force-seat` sent only when given.
+
+**7. No code.** The `director-restart` skill draft (v3) is still unpublished and still carries the 7 September step 0
+(`machine restart-capability`) from the restart mission. It is published in slice 5 only after this round passes
+inspection. Its "asking twice is safe" sentence is now true only with the qualification above - a seat that may have
+started needs `--force-seat` after a check - and slice 5 should say so when it publishes.
+
+### Judgement calls for inspection 9
+
+1. **The token lives on the seat, not on the session.** Ruling 3 said the Gateway stores the token "on the new session"
+   and a retry looks it up on the roster. There is no session field the Gateway stores and serves back without a
+   Director-side change and a migration, so the Gateway that performs the create writes the new id onto the seat whose
+   token matches - the lookup the ruling wanted, done at create time. What it does not cover: a Gateway process that
+   dies between the Director's confirmation and that write leaves a token and no id; that seat is reported "may have
+   been started" (with any same-named session on that Director listed) and needs `--force-seat`, never a blind retry.
+2. **"The starting Director alive" became a time window.** A new run on the same Director is never concurrent with its
+   old one (the process gate and the lease), so liveness of that Director says nothing about the old start. What can
+   still be under way is a create the Gateway is waiting on after the Director's ten-second client timeout; two minutes
+   covers the Gateway's thirty-second wait.
+3. **Ruling 2 is stricter than written.** "Closed, or absent from the roster" is implemented as: never while running on
+   a reachable Director (whatever the record says); listed under an unreachable Director only if recorded closed. The
+   reasons are above.
+4. **Drain judgments stay writable.** `drainState`, `closedAtUtc` and `blockedReason` are still judgments a session
+   writes (the drain is a session act). Neither can now start a seat or name an owner by itself: both rulings 2 and 5
+   read the roster, and the record only ever narrows what the roster allows.
+5. **The Director-credential test is "not a session and not a phone or browser".** A workstation key is not bound to one
+   Director id, so a workstation key of the same account could write marks claiming to be the lease holder. Only the
+   product holds those keys; this is the same boundary `SpawnOrigin` states.
+6. **`restoredBy` is provenance now** and is written by the `started` mark. The old hand restore wrote it through PUT;
+   there is no hand restore any more.
+7. **The restore claim is ignored, not refused, on the machine door** (`POST /machines/{machine}/sessions`): the
+   Director does not use that door, nothing is recorded from it, and the Director's create ignores the field.
+
+### What is NOT proven
+
+- No live Director restored anything; the route tests use the recording fake tunnel Director, and the unit suite uses a
+  fake Gateway over the real store. `ControlApiHost.StartWorkspaceRestoreAsync` still has no test (it now also refuses
+  when the roster cannot be read).
+- The critical symptom run (M1 with the "PUT ignored" assertion removed) shows the Worker SPAWNED although its boss never
+  came back, and on the host that the Worker-alone restore no longer fails; the failure message does not print the
+  controller id itself, so "under X" is read from the code path, not from the output.
+- The lease is in the workspace document, so it survives a Gateway restart; a Gateway that restarts mid-run leaves the
+  lease to lapse. Nothing measures the fifteen minutes against a real slow restore.
+- A seat whose Gateway died between create and record is not resolved (judgement call 1).
+- PostgreSQL: the new fields live in the workspace JSON document (no schema change); stores ran on SQLite only.
+- The full Gateway route suite was not run this round (only the Workspace and spawn filters below);
+  `scripts/test-local.ps1` not run (no PowerShell on the Mac).
+
+### Test totals (Mac, this tree, 17 September 2026, after the last code change and after every mutation was restored)
+
+- **Gateway unit tests, whole project** (it holds the ControlApi drain and restore tests; there is no separate ControlApi
+  test project): 5358 total, 5343 passed, 8 skipped, **7 failed - the same 7 Mac-only failures** (CronJobStore 1,
+  SessionCommandExecutorLiveness 3, RuleCandidateFilter 1, WorkListStorePersistence 1, RulePrimitives 1). No new one.
+  Filter `DirectorRestore|DirectorDrain|SessionKeyGuard|Workspace|DrainRestoreCommand`: 479 passed, 0 failed (was 330
+  under the inspector's narrower filter). New or rewritten: `DirectorRestoreTests` 36 (was 20),
+  `WorkspaceRestoreMarksTests` 10, one guard case.
+- **Gateway route tests**: `WorkspaceRestoreRouteTests` 14 passed (was 7); filter `Workspace` 28 passed, 0 failed.
+  Filter `ControlApi|GatewayClient|FleetSpawn|SpawnOrigin`: 29 total, 23 passed, **6 failed - the known
+  FleetSpawnMissionAttach 2 and FleetSpawnOrigin 4** (local Director create answers Error; they fail on origin/main).
+- **cc-devthrottle** (scratch virtual environment from the declared local `cc_storage`, `cc_shared` and
+  `cc-devthrottle` packages plus pytest): `test_director_restore.py` and `test_axi_step_6c_help_and_errors.py` 522
+  passed; the whole suite **3228 passed, 0 failed** (3225 before, compared by collecting both trees: two new tests,
+  one renamed and extended, and `test_usage_errors` gained a case for the new `--force-seat` option).
+- **Mutations**: 14 unit runs, 7 route runs, 2 symptom runs, 2 command-line runs - every one red with the named test,
+  every file restored, `git status` clean after each batch.
+
+## State after the slice 6 fix round (17 September 2026)
+
+- `mission/message-load-slice6` carries the fix round, pushed. Awaiting inspection 9 on this branch, then the merge back
+  into `mission/message-load`.
+- The `director-restart` skill draft (v3) is still unpublished (ruling 7).
 
 ## Slice 5 - the words (17 September 2026, Manager seat 7)
 

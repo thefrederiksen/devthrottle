@@ -102,6 +102,25 @@ public sealed class WorkspaceRestoreRouteTests : IAsyncLifetime
         await CaptureAndDecideAsync();
     }
 
+    /// <summary>What the drain's closes leave on the roster: the driver, and the owner that lives outside this
+    /// workspace. The drained seats are gone (inspection 7, ruling 2: only a drained seat comes back).</summary>
+    private Task DrainClosedTheSeatsAsync()
+        => _director.PushSnapshotAsync(
+            Row(_restoringSession, "Restore - driver", controller: null, role: "Standalone"),
+            Row(_ownerElsewhere, "Owner elsewhere", controller: null, role: "Manager"));
+
+    private GatewayClient DirectorClient(string directorId = DirectorId)
+        => new(new GatewayConfig { Url = $"http://127.0.0.1:{_gateway.Port}", Token = _directorKey }, directorId, "test");
+
+    /// <summary>Ask for the restore through the route, as a session does, with the fake Director answering
+    /// "taken" - which is what grants this Director the workspace's restore lease.</summary>
+    private async Task LeaseThroughTheRouteAsync(HttpClient who, string directorId = DirectorId)
+    {
+        _restoreAnswer = Taken;
+        var r = await AskRestore(who, $"{{\"directorId\":\"{directorId}\"}}");
+        Assert.Equal(HttpStatusCode.Accepted, r.StatusCode);
+    }
+
     public async Task DisposeAsync()
     {
         await _director.DisposeAsync();
@@ -183,8 +202,9 @@ public sealed class WorkspaceRestoreRouteTests : IAsyncLifetime
     [Fact]
     public async Task A_Director_restoring_controlled_seats_starts_each_under_its_real_owner()
     {
-        using var client = new GatewayClient(
-            new GatewayConfig { Url = $"http://127.0.0.1:{_gateway.Port}", Token = _directorKey }, DirectorId, "test");
+        await DrainClosedTheSeatsAsync();
+        await LeaseThroughTheRouteAsync(_asRestoringSession);
+        using var client = DirectorClient();
         var restore = new DirectorRestore(new GatewayClientRestoreGateway(client), DirectorId);
 
         var result = await restore.RunAsync(new WorkspaceRestoreOrder { WorkspaceId = WorkspaceId, RequestedBySessionId = _restoringSession });
@@ -212,6 +232,167 @@ public sealed class WorkspaceRestoreRouteTests : IAsyncLifetime
         Assert.False(string.IsNullOrWhiteSpace(stored[_worker].RestoredSessionId));
         Assert.False(string.IsNullOrWhiteSpace(stored[_outsideOwned].RestoredSessionId));
         Assert.Null(stored[_restoringSession].RestoredSessionId);
+
+        // Every create carried its seat's token, and the run gave the lease back.
+        Assert.All(creates, c => Assert.False(string.IsNullOrWhiteSpace(c.RestoreClaim?.Token)));
+        Assert.Null((await StoredAsync()).RestoreLease);
+    }
+
+    // =========================================================================================
+    // Inspection 7, ruling 1: what a restore did is written only by the Director holding the lease
+    // =========================================================================================
+
+    [Fact]
+    public async Task A_session_key_cannot_name_the_owner_of_a_restored_worker_by_writing_the_bosses_restored_id()
+    {
+        // The inspector's sequence on a real host: an unrelated session in the account PUTs the Manager's
+        // restoredSessionId to a live session X, sets the Worker's decision, and asks for the Worker alone.
+        var unrelated = Client(SessionKey(Guid.NewGuid().ToString()));
+        var x = _restoringSession;
+        await DrainClosedTheSeatsAsync();
+
+        var doc = (await unrelated.GetFromJsonAsync<WorkspaceDocument>($"gateway/workspaces/{WorkspaceId}", Web))!;
+        doc.Seats.Single(s => s.SessionId == _manager).RestoredSessionId = x;
+        var put = await unrelated.PutAsJsonAsync($"gateway/workspaces/{WorkspaceId}", doc);
+        Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+        Assert.Null((await StoredAsync()).Seats.Single(s => s.SessionId == _manager).RestoredSessionId);
+
+        await LeaseThroughTheRouteAsync(unrelated);
+        using var client = DirectorClient();
+        var workerOnly = await new DirectorRestore(new GatewayClientRestoreGateway(client), DirectorId)
+            .RunAsync(new WorkspaceRestoreOrder { WorkspaceId = WorkspaceId, Seats = new() { _worker } });
+        Assert.Contains("has not been brought back yet", Assert.Single(workerOnly.Seats).Failure);
+        Assert.Empty(CreatesSent());
+
+        // The owner really comes back, and only then the Worker - under the Manager's restored id, never X.
+        await LeaseThroughTheRouteAsync(unrelated);
+        await new DirectorRestore(new GatewayClientRestoreGateway(client), DirectorId)
+            .RunAsync(new WorkspaceRestoreOrder { WorkspaceId = WorkspaceId, Seats = new() { _manager, _worker } });
+        var newManager = (await StoredAsync()).Seats.Single(s => s.SessionId == _manager).RestoredSessionId;
+        Assert.NotEqual(x, newManager);
+        Assert.Equal(newManager, CreatesSent().Single(c => c.Name == "Restore - Worker").ControllerSessionId);
+        unrelated.Dispose();
+    }
+
+    [Fact]
+    public async Task Restore_marks_are_refused_to_a_session_key_to_the_owners_browser_and_to_a_Director_without_the_lease()
+    {
+        var mark = new WorkspaceRestoreMark
+        {
+            DirectorId = DirectorId, Kind = WorkspaceRestoreMarkKinds.Restored, SeatSessionId = _manager, RestoredSessionId = _restoringSession,
+        };
+
+        var asSession = await _asRestoringSession.PostAsJsonAsync($"gateway/workspaces/{WorkspaceId}/restore/marks", mark);
+        var asOwner = await _asOwner.PostAsJsonAsync($"gateway/workspaces/{WorkspaceId}/restore/marks", mark);
+        var asDirectorWithoutLease = await _asDirector.PostAsJsonAsync($"gateway/workspaces/{WorkspaceId}/restore/marks", mark);
+
+        Assert.Equal(HttpStatusCode.Forbidden, asSession.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, asOwner.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, asDirectorWithoutLease.StatusCode);
+        Assert.Contains("restore lease", await asDirectorWithoutLease.Content.ReadAsStringAsync());
+        Assert.Null((await StoredAsync()).Seats.Single(s => s.SessionId == _manager).RestoredSessionId);
+    }
+
+    // =========================================================================================
+    // Inspection 7, ruling 2: only a drained seat comes back
+    // =========================================================================================
+
+    [Fact]
+    public async Task A_captured_seat_still_running_is_refused_and_starts_once_it_has_closed()
+    {
+        // Captured while running, decided "restore", and asked for - with the seat still on the roster.
+        await LeaseThroughTheRouteAsync(_asRestoringSession);
+        using var client = DirectorClient();
+        var order = new WorkspaceRestoreOrder { WorkspaceId = WorkspaceId, Seats = new() { _manager } };
+
+        var refused = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => new DirectorRestore(new GatewayClientRestoreGateway(client), DirectorId).PrepareAsync(order));
+        Assert.Contains("still running", refused.Message);
+        var ran = await new DirectorRestore(new GatewayClientRestoreGateway(client), DirectorId).RunAsync(order);
+        Assert.Contains("still running", Assert.Single(ran.Seats).Failure);
+        Assert.Empty(CreatesSent());
+
+        await DrainClosedTheSeatsAsync();
+        await LeaseThroughTheRouteAsync(_asRestoringSession);
+        var started = await new DirectorRestore(new GatewayClientRestoreGateway(client), DirectorId).RunAsync(order);
+        Assert.Null(Assert.Single(started.Seats).Failure);
+        Assert.Equal("Restore - Manager", Assert.Single(CreatesSent()).Name);
+    }
+
+    // =========================================================================================
+    // Inspection 7, ruling 3: the spawn door records a restore's create by its token
+    // =========================================================================================
+
+    [Fact]
+    public async Task The_spawn_door_records_the_created_session_on_the_seat_whose_token_it_carries()
+    {
+        await DrainClosedTheSeatsAsync();
+        await LeaseThroughTheRouteAsync(_asRestoringSession);
+        using var client = DirectorClient();
+        await client.RecordRestoreMarkAsync(WorkspaceId, new WorkspaceRestoreMark
+        {
+            DirectorId = DirectorId, Kind = WorkspaceRestoreMarkKinds.Started, SeatSessionId = _manager, Token = "tok-1",
+        });
+
+        // The Director never writes the result - as if its answer was lost - and the Gateway has recorded it anyway.
+        var created = await client.SpawnOnThisDirectorAsync(new NewSessionRequest
+        {
+            RepoPath = "/repos/devthrottle", Agent = "ClaudeCode", Name = "Restore - Manager",
+            RestoreClaim = new WorkspaceRestoreClaim { WorkspaceId = WorkspaceId, SeatSessionId = _manager, Token = "tok-1" },
+        });
+
+        Assert.Equal(created.SessionId, (await StoredAsync()).Seats.Single(s => s.SessionId == _manager).RestoredSessionId);
+    }
+
+    [Fact]
+    public async Task A_restore_claim_from_a_session_key_or_a_person_is_refused_and_nothing_reaches_the_Director()
+    {
+        var claim = new { workspaceId = WorkspaceId, seatSessionId = _manager, token = "tok-1" };
+
+        var asSession = await _asRestoringSession.PostAsJsonAsync($"directors/{DirectorId}/sessions", new
+        {
+            repoPath = "/repos/devthrottle", agent = "ClaudeCode", name = "x", controllerSessionId = "none", restoreClaim = claim,
+        });
+        var asOwner = await _asOwner.PostAsJsonAsync($"directors/{DirectorId}/sessions", new
+        {
+            repoPath = "/repos/devthrottle", agent = "ClaudeCode", name = "x", restoreClaim = claim,
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, asSession.StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, asOwner.StatusCode);
+        Assert.Empty(CreatesSent());
+    }
+
+    // =========================================================================================
+    // Inspection 7, ruling 4: one Director restores a workspace at a time
+    // =========================================================================================
+
+    [Fact]
+    public async Task Two_Directors_on_the_captured_machine_get_one_lease()
+    {
+        const string second = "director-restore-second";
+        var toSecond = new ConcurrentQueue<DirectorCommand>();
+        await using var other = await FakeTunnelDirector.StartAsync(_gateway, _directorKey, second, Machine,
+            cmd => { toSecond.Enqueue(cmd); return Taken(cmd); });
+
+        await LeaseThroughTheRouteAsync(_asRestoringSession);
+        var r = await AskRestore(_asOwner, $"{{\"directorId\":\"{second}\"}}");
+
+        Assert.Equal(HttpStatusCode.Conflict, r.StatusCode);
+        Assert.Contains(DirectorId, await r.Content.ReadAsStringAsync());
+        Assert.DoesNotContain(toSecond, c => c.Verb == WorkspaceRestoreVerbs.Restore);
+        Assert.Equal(DirectorId, (await StoredAsync()).RestoreLease!.DirectorId);
+    }
+
+    [Fact]
+    public async Task A_restore_the_Director_refuses_gives_back_the_lease_it_was_granted()
+    {
+        _restoreAnswer = _ => DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, "no seat left to bring back");
+
+        var r = await AskRestore(_asRestoringSession, $"{{\"directorId\":\"{DirectorId}\"}}");
+
+        Assert.Equal(HttpStatusCode.Conflict, r.StatusCode);
+        Assert.Null((await StoredAsync()).RestoreLease);
     }
 
     [Fact]

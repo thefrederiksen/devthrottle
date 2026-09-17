@@ -162,7 +162,8 @@ def test_a_restore_the_gateway_refuses_says_nothing_was_restored(fake):
     assert "no seat left" in result.output
 
 
-def test_no_wait_reports_taken_and_reads_nothing(fake, monkeypatch):
+def test_no_wait_says_accepted_not_waited_reads_nothing_and_does_not_exit_0(fake, monkeypatch):
+    # Inspection 7, ruling 6: exit 0 means every seat came back. A restore nobody waited on has not shown that.
     fake([[]])
 
     def no_read(path, timeout=30):
@@ -170,11 +171,35 @@ def test_no_wait_reports_taken_and_reads_nothing(fake, monkeypatch):
 
     monkeypatch.setattr(machine_ops.gateway, "get_json", no_read)
 
-    result = _run("--wait-seconds", "0", "--json")
+    as_json = _run("--wait-seconds", "0", "--json")
+    as_text = _run("--wait-seconds", "0")
 
-    assert result.exit_code == 0, result.output
-    out = json.loads(result.output)
+    assert as_json.exit_code == 3, as_json.output
+    out = json.loads(as_json.output)
     assert out["taken"] is True and out["count"] == 2
+    assert out["waited"] is False and out["status"] == "accepted, not waited"
+    assert as_text.exit_code == 3, as_text.output
+    assert "accepted, not waited" in as_text.output
+    assert "TAKEN" not in as_text.output
+
+
+def test_the_help_says_what_each_exit_code_means():
+    result = runner.invoke(app, ["director", "restore", "--help"])
+
+    text = " ".join(result.output.split())
+    assert "Exit 0 means every seat asked for came back" in text
+    assert "Exit 3" in text and "accepted, not waited" in text
+
+
+def test_force_seat_is_sent_only_when_given(fake):
+    gw = fake([[_seat(MANAGER, "M - Manager", restored="new-m", attempted="t1")]],
+              accepted={"taken": True, "workspaceId": "drain-1", "directorId": NEW_DIRECTOR, "seats": [MANAGER]})
+
+    _run("--json")
+    _run("--force-seat", MANAGER, "--json")
+
+    assert "forceSeats" not in gw.posts[0][1]
+    assert gw.posts[1][1]["forceSeats"] == [MANAGER]
 
 
 def test_director_restore_is_in_the_action_catalogue_and_changes_state():

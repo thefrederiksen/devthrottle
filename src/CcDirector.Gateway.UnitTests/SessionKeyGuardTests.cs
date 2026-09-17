@@ -214,6 +214,8 @@ public sealed class SessionKeyGuardTests
     [InlineData("GET", "/gateway/workspaces/director-restart-2026-09-06/restore")]
     [InlineData("PUT", "/gateway/workspaces/director-restart-2026-09-06/restore")]
     [InlineData("POST", "/gateway/workspaces/director-restart-2026-09-06/restore/now")]
+    // What a restore did is written only by the Director running it (inspection 7, ruling 1). A session never.
+    [InlineData("POST", "/gateway/workspaces/director-restart-2026-09-06/restore/marks")]
     public void Workspace_shapes_the_Gateway_does_not_route_stay_refused(string method, string path)
         => Assert.False(SessionKeyGuard.Check(method, path).Allowed,
             $"{method} {path} is not a routed workspace shape and must not be authorized");

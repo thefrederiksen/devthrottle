@@ -3598,6 +3598,8 @@ public sealed class GatewayHost : IAsyncDisposable
             // The Message Load mission: POST /sessions/{sid}/message, POST /fleet/broadcast and GET /fleet/inbox
             // write and read the inbox through this one service. It replaced the per-process message steward.
             fleetMessages: _fleetMessageService,
+            // The Message Load mission, inspection 7, ruling 3: the spawn door records a restore's create by its token.
+            workspaces: _workspaces,
             requestShutdown: () =>
             {
                 var handler = OnShutdownRequested;

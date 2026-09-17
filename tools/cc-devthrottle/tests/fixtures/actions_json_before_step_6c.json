@@ -275,7 +275,7 @@
     {
       "id": "director-restore",
       "description": "Bring a drained fleet back onto a Director (after a restart, the NEW one). The DIRECTOR starts every seat on its own credential, under the owner the seat had when it was captured - an owner restarted in the same drain comes back first and is named by its new id. You name no owner and cannot. Each seat that fails is reported on that seat and the rest carry on; a seat that came back is never started twice. This is the restore step of the director-restart skill.",
-      "command": "cc-devthrottle director restore <workspace> --director <new director id> [--seat <id>] [--seed <id>=<path>] [--wait-seconds <n>]",
+      "command": "cc-devthrottle director restore <workspace> --director <new director id> [--seat <id>] [--seed <id>=<path>] [--force-seat <id>] [--wait-seconds <n>]",
       "mutatesState": true,
       "args": [
         {
@@ -292,6 +292,10 @@
         },
         {
           "name": "seed",
+          "required": false
+        },
+        {
+          "name": "force-seat",
           "required": false
         },
         {

@@ -135,18 +135,28 @@ public sealed class WorkspaceOwedSeatsAndOriginRulesTests : IDisposable
         store.Create(NameTheRestored(all), Now);
         Assert.Equal(WorkspaceSeatOutcomes.All_, store.Get("director-restart")!.SeatOutcome!.Scope);
 
+        // The restored ids are written by a restore, never by an ordinary write (the Message Load mission,
+        // inspection 7, ruling 1) - so the "some" record is a capture whose restore brought two seats back, and
+        // the outcome is then written onto it.
         var some = Captured(owed: 3);
-        some.DirectorOutcome = WorkspaceDirectorOutcomes.Restarted;
-        some.SeatOutcome = new WorkspaceSeatOutcome
+        some.Id = "director-restart-some";
+        store.Create(some, Now);
+        foreach (var (seat, i) in some.Seats.Where(x => x.Restore!.Decision == WorkspaceRestoreDecisions.Restore).Take(2).Select((x, i) => (x, i)))
+            RecordRestored(store, some.Id, seat.SessionId!, $"9a1b{i}c2d-0000-4000-8000-00000000000{i}");
+        var someOutcome = store.Get(some.Id)!;
+        someOutcome.DirectorOutcome = WorkspaceDirectorOutcomes.Restarted;
+        someOutcome.SeatOutcome = new WorkspaceSeatOutcome
         {
             RestoredCount = 2,
             NotRestoredCount = 1,
             NotRestoredWhy = "its work turned out to be finished",
         };
-        store.Save(NameTheRestored(some), Now);
-        Assert.Equal(WorkspaceSeatOutcomes.Some, store.Get("director-restart")!.SeatOutcome!.Scope);
+        store.Save(someOutcome, Now);
+        Assert.Equal(WorkspaceSeatOutcomes.Some, store.Get(some.Id)!.SeatOutcome!.Scope);
 
         var none = Captured(owed: 3);
+        none.Id = "director-restart-none";
+        store.Create(none, Now);
         none.DirectorOutcome = WorkspaceDirectorOutcomes.Restarted;
         none.SeatOutcome = new WorkspaceSeatOutcome
         {
@@ -154,7 +164,23 @@ public sealed class WorkspaceOwedSeatsAndOriginRulesTests : IDisposable
             NotRestoredWhy = "the restore was never run",
         };
         store.Save(none, Now);
-        Assert.Equal(WorkspaceSeatOutcomes.None, store.Get("director-restart")!.SeatOutcome!.Scope);
+        Assert.Equal(WorkspaceSeatOutcomes.None, store.Get(none.Id)!.SeatOutcome!.Scope);
+    }
+
+    /// <summary>Record one seat as restored the only way a restore can: a lease, a started mark, a restored mark.</summary>
+    internal static void RecordRestored(WorkspaceStore store, string workspaceId, string seatId, string newId)
+    {
+        const string director = "restoring-director";
+        store.TakeRestoreLease(workspaceId, director, null, Now);
+        store.RecordRestoreMark(workspaceId, new WorkspaceRestoreMark
+        {
+            DirectorId = director, Kind = WorkspaceRestoreMarkKinds.Started, SeatSessionId = seatId, Token = "t-" + seatId,
+        }, Now);
+        store.RecordRestoreMark(workspaceId, new WorkspaceRestoreMark
+        {
+            DirectorId = director, Kind = WorkspaceRestoreMarkKinds.Restored, SeatSessionId = seatId, RestoredSessionId = newId,
+        }, Now);
+        store.RecordRestoreMark(workspaceId, new WorkspaceRestoreMark { DirectorId = director, Kind = WorkspaceRestoreMarkKinds.Finished }, Now);
     }
 
     [Fact]

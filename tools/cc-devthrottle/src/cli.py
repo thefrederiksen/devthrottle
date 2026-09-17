@@ -497,13 +497,14 @@ _ACTIONS = [
             "cannot. Each seat that fails is reported on that seat and the rest carry on; a seat that came "
             "back is never started twice. This is the restore step of the director-restart skill."
         ),
-        "command": "cc-devthrottle director restore <workspace> --director <new director id> [--seat <id>] [--seed <id>=<path>] [--wait-seconds <n>]",
+        "command": "cc-devthrottle director restore <workspace> --director <new director id> [--seat <id>] [--seed <id>=<path>] [--force-seat <id>] [--wait-seconds <n>]",
         "mutatesState": True,
         "args": [
             {"name": "workspace", "required": True},
             {"name": "director", "required": True},
             {"name": "seat", "required": False},
             {"name": "seed", "required": False},
+            {"name": "force-seat", "required": False},
             {"name": "wait-seconds", "required": False},
         ],
     },
@@ -1319,18 +1320,22 @@ def director_restore(
     director: str = typer.Option(..., "--director", help="The Director that brings the seats back - after a restart, the NEW one. See 'director list'."),
     seat: List[str] = typer.Option([], "--seat", help="Only this seat (its captured session id). Repeat for several. Default: every seat decided restore that has not come back."),
     seed: List[str] = typer.Option([], "--seed", help="<captured session id>=<path>: start that seat from this seed file instead of its handover. Repeatable."),
-    wait_seconds: int = typer.Option(600, "--wait-seconds", help="How long to wait for every seat's answer. 0 asks and does not wait."),
+    force_seat: List[str] = typer.Option([], "--force-seat", help="Start this seat (its captured session id) even though an earlier start of it MAY have landed. Only after checking the session list. Repeatable."),
+    wait_seconds: int = typer.Option(600, "--wait-seconds", help="How long to wait for every seat's answer. 0 asks and does not wait, and exits 3 (accepted, not waited)."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
 ) -> None:
     """Bring a drained fleet back: the Director starts each seat under its old owner.
 
     Owners come from what the Gateway captured, never from you: an owner restarted in the same drain
     comes back first and is named by its new id. Each seat that fails is reported and the rest carry on.
-    Exit 0 only when every seat asked for came back.
+    A seat still running is not started again, and one whose earlier start may have landed needs --force-seat.
+
+    Exit 0 means every seat asked for came back. Exit 1: a seat failed or is still pending.
+    Exit 3: --wait-seconds 0 - accepted, not waited, so nothing is known to have come back.
     """
     from .machine_ops import restore_workspace
 
-    restore_workspace(workspace, director, seat, seed, wait_seconds, json_output)
+    restore_workspace(workspace, director, seat, seed, wait_seconds, json_output, force_seat)
 
 
 @machine_app.command("apps")
