@@ -36,7 +36,25 @@ public sealed class WingmanStopsWritePathTests : IDisposable
 
     private readonly GatewayDbTestHarness _harness = new();
 
-    public void Dispose() => _harness.Dispose();
+    private DeviceRegistry? _devices;
+
+    public void Dispose()
+    {
+        _devices?.Dispose();
+        _harness.Dispose();
+    }
+
+    // This test's own device store: the parameterless registry opens the default one, which every test class shares.
+    private DeviceRegistry Devices()
+    {
+        if (_devices is null)
+        {
+            var path = _harness.LegacyPath("devices.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            _devices = new DeviceRegistry(path);
+        }
+        return _devices;
+    }
 
     /// <summary>The live verdict source over the seat's own verdicts, as the production row source is over the store.</summary>
     private sealed class EnvRows : ITurnVerdictRowSource
@@ -80,10 +98,13 @@ public sealed class WingmanStopsWritePathTests : IDisposable
         return new Rig(env, new TurnVerdictService(env), writer, store, pushed, rows);
     }
 
-    private static WingmanStopsResponse Read(Rig rig)
+    private WingmanStopsResponse Read(Rig rig)
     {
-        var result = GatewayEndpoints.ReadWingmanStops(new DefaultHttpContext(), Sid, null,
-            new CcDirector.Gateway.Tenancy.HostedTenantBoundary(new SingleTenantContext(), new DeviceRegistry()), rig.Store, rig.Pushed);
+        var ctx = new DefaultHttpContext();
+        ctx.Items[CcDirector.Gateway.Util.AuthMiddleware.AuthenticatedDeviceItemKey] =
+            new DeviceCredentialIdentity("device-1", null, "phone", "active");
+        var result = GatewayEndpoints.ReadWingmanStops(ctx, Sid, null,
+            new CcDirector.Gateway.Tenancy.HostedTenantBoundary(new SingleTenantContext(), Devices()), rig.Store, rig.Pushed);
         return Assert.IsType<Microsoft.AspNetCore.Http.HttpResults.JsonHttpResult<WingmanStopsResponse>>(result).Value!;
     }
 

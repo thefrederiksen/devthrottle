@@ -5293,7 +5293,10 @@ internal static class GatewayEndpoints
         // a caller looking at only part of the account, and then nothing is pruned. Never inferred from either
         // list above: the display push carries one Director's sessions as both of them, and a filtered roster
         // read carries one machine's.
-        IReadOnlyCollection<string>? snoozeRosterSessionIds = null)
+        IReadOnlyCollection<string>? snoozeRosterSessionIds = null,
+        // FALSE ONLY FOR A FOLD THAT RECORDS WHAT THE PUSH SHOWS (the Wingman inspector's trace colour): the snooze-expiry
+        // memory is read and not moved - no edge spent, no ledger line, no re-judge asked for. Everything else is equal.
+        bool writes = true)
     {
         if (roleUniverse is null) throw new ArgumentNullException(nameof(roleUniverse));
         if (toStamp is null) throw new ArgumentNullException(nameof(toStamp));
@@ -5393,7 +5396,7 @@ internal static class GatewayEndpoints
         // inferred from the two lists above: a partial view cannot tell "this session is gone" from "this session
         // is not in the part I am looking at", and that distinction is the whole licence to drop an entry.
         Wingman.SnoozeExpiryRowStamp.Stamp(all, snoozeExpiry, verdictsOnTheWire, holds, tenant, foldNowUtc,
-            snoozeRosterSessionIds);
+            snoozeRosterSessionIds, writes);
 
         foreach (var s in all)
         {
@@ -5794,7 +5797,8 @@ internal static class GatewayEndpoints
     /// <c>GET /sessions/{sid}/wingman-stops?count=</c>: the Wingman inspector's read. Every stop the Wingman judged for one
     /// session, newest first, folded by <see cref="Wingman.WingmanStopsFold"/> into finished strings the tab renders.
     ///
-    /// THE REFUSALS, IN ORDER: no tenant (403); a SESSION KEY (403); a session id that is not an identifier (400); no
+    /// THE REFUSALS, IN ORDER: no tenant (403); a SESSION KEY (403); no authenticated DEVICE - the self-hosted shared
+    /// machine token, or no credential at all (403); a session id that is not an identifier (400); no
     /// trace store on this Gateway (404); a session that is not in the caller's account (404, the same answer an unknown
     /// session gets, so one account cannot learn which ids exist in another).
     ///
@@ -5824,6 +5828,20 @@ internal static class GatewayEndpoints
             {
                 error = "the Wingman's stops carry raw terminal screens, conversations, prompts and answers, and are served "
                       + "to the account's own devices only - never to a session key",
+            }, statusCode: StatusCodes.Status403Forbidden);
+        }
+        // A POSITIVE DEVICE IDENTITY, NOT MERELY "NOT A SESSION KEY" (inspection round 1). On a self-hosted Gateway the
+        // shared machine token authenticates with no device at all and resolves to the Local account, so refusing only a
+        // session key let that token read raw screens, prompts and answers. The only caller served is one whose own
+        // device key the middleware verified.
+        if (!ctx.Items.TryGetValue(AuthMiddleware.AuthenticatedDeviceItemKey, out var device)
+            || device is not Pairing.DeviceCredentialIdentity)
+        {
+            FileLog.Write($"[GatewayEndpoints] GET wingman-stops: sid={sid} REFUSED a caller with no device identity");
+            return Results.Json(new
+            {
+                error = "the Wingman's stops are served only to a device signed in with its own device key - not to the "
+                      + "shared machine token, and not to a request with no device",
             }, statusCode: StatusCodes.Status403Forbidden);
         }
         if (!Guid.TryParse(sid, out _))

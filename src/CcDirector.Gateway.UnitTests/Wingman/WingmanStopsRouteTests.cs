@@ -28,14 +28,31 @@ public sealed class WingmanStopsRouteTests : IDisposable
 {
     private readonly GatewayDbTestHarness _harness = new();
 
-    public void Dispose() => _harness.Dispose();
+    private DeviceRegistry? _devices;
+
+    public void Dispose()
+    {
+        _devices?.Dispose();
+        _harness.Dispose();
+    }
 
     // TenantId.Local is what the self-host boundary binds every request to.
     private static readonly TenantId Account = TenantId.Local;
     private static readonly string Sid = Guid.NewGuid().ToString();
     private static readonly DateTime T0 = new(2026, 9, 16, 15, 0, 0, DateTimeKind.Utc);
 
-    private static CcDirector.Gateway.Tenancy.HostedTenantBoundary SelfHostBoundary() => new(new SingleTenantContext(), new DeviceRegistry());
+    // The device registry lives in this test's own directory. The parameterless registry opens the default store, which
+    // every test class shares - two classes building it at once collide on its import marker.
+    private CcDirector.Gateway.Tenancy.HostedTenantBoundary SelfHostBoundary()
+    {
+        if (_devices is null)
+        {
+            var path = _harness.LegacyPath("devices.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            _devices = new DeviceRegistry(path);
+        }
+        return new(new SingleTenantContext(), _devices);
+    }
 
     // A JSON result with no explicit status is a 200: the framework writes the default when none is set.
     private static int Status(IResult result) => Assert.IsAssignableFrom<IStatusCodeHttpResult>(result).StatusCode ?? StatusCodes.Status200OK;
@@ -52,14 +69,38 @@ public sealed class WingmanStopsRouteTests : IDisposable
         return pushed;
     }
 
-    private static DefaultHttpContext Request(bool asSessionKey = false)
+    /// <summary>What the authentication middleware leaves on a request, by the credential that authenticated it: a
+    /// device's own key (a device identity), a session key (a session identity and no device), or the self-hosted
+    /// shared machine token (the credential and no identity at all).</summary>
+    public enum Caller { Device, SessionKey, SharedMachineToken, Nobody }
+
+    private static DefaultHttpContext Request(Caller caller = Caller.Device)
     {
         var ctx = new DefaultHttpContext();
         ctx.Request.Method = "GET";
-        if (asSessionKey)
-            ctx.Items[AuthMiddleware.AuthenticatedSessionItemKey] =
-                new SessionCredentialIdentity(Guid.Parse(Sid), Account, "director-stops");
+        switch (caller)
+        {
+            case Caller.Device:
+                ctx.Items[AuthMiddleware.AuthenticatedCredentialItemKey] = "device-key";
+                ctx.Items[AuthMiddleware.AuthenticatedDeviceItemKey] =
+                    new DeviceCredentialIdentity("device-1", null, "phone", "active");
+                break;
+            case Caller.SessionKey:
+                ctx.Items[AuthMiddleware.AuthenticatedCredentialItemKey] = "session-key";
+                ctx.Items[AuthMiddleware.AuthenticatedSessionItemKey] =
+                    new SessionCredentialIdentity(Guid.Parse(Sid), Account, "director-stops");
+                break;
+            case Caller.SharedMachineToken:
+                ctx.Items[AuthMiddleware.AuthenticatedCredentialItemKey] = "the-shared-machine-token";
+                break;
+        }
         return ctx;
+    }
+
+    private static string ErrorOf(IResult result)
+    {
+        var body = Assert.IsAssignableFrom<IValueHttpResult>(result).Value!;
+        return (string)body.GetType().GetProperty("error")!.GetValue(body)!;
     }
 
     private TurnVerdictTraceStore StoreHolding(int stops)
@@ -85,11 +126,10 @@ public sealed class WingmanStopsRouteTests : IDisposable
         var store = StoreHolding(1);
         var pushed = PushedHolding(Sid);
 
-        var refused = GatewayEndpoints.ReadWingmanStops(Request(asSessionKey: true), Sid, null, SelfHostBoundary(), store, pushed);
+        var refused = GatewayEndpoints.ReadWingmanStops(Request(Caller.SessionKey), Sid, null, SelfHostBoundary(), store, pushed);
         Assert.Equal(StatusCodes.Status403Forbidden, Status(refused));
         // The refusal SAYS WHICH refusal it is: a bare 403 is also what an unresolved tenant produces.
-        var body = Assert.IsAssignableFrom<IValueHttpResult>(refused).Value!;
-        Assert.Contains("never to a session key", body.GetType().GetProperty("error")!.GetValue(body) as string);
+        Assert.Contains("never to a session key", ErrorOf(refused));
 
         // THE POSITIVE CONTROL: the same session, the same store, a device's request - served.
         var served = GatewayEndpoints.ReadWingmanStops(Request(), Sid, null, SelfHostBoundary(), store, pushed);
@@ -97,13 +137,37 @@ public sealed class WingmanStopsRouteTests : IDisposable
         Assert.Equal("trace-0", Assert.Single(BodyOf(served).Stops).TraceId);
     }
 
+    [Theory]
+    [InlineData(Caller.SharedMachineToken)]
+    [InlineData(Caller.Nobody)]
+    public void A_caller_with_no_device_identity_is_refused_and_the_same_request_from_a_device_reads_the_stop(Caller caller)
+    {
+        // The self-hosted shared machine token authenticates with no device and resolves to the Local account - the
+        // account these stops belong to. Refusing only a session key served it raw screens, prompts and answers.
+        var store = StoreHolding(1);
+        var pushed = PushedHolding(Sid);
+
+        var refused = GatewayEndpoints.ReadWingmanStops(Request(caller), Sid, null, SelfHostBoundary(), store, pushed);
+        Assert.Equal(StatusCodes.Status403Forbidden, Status(refused));
+        Assert.Contains("only to a device signed in with its own device key", ErrorOf(refused));
+
+        // THE POSITIVE CONTROL: the same session and store, with a device's identity - served.
+        var served = GatewayEndpoints.ReadWingmanStops(Request(Caller.Device), Sid, null, SelfHostBoundary(), store, pushed);
+        Assert.Equal("trace-0", Assert.Single(BodyOf(served).Stops).TraceId);
+    }
+
+    [Fact]
+    public void A_caller_with_no_device_identity_is_refused_before_the_id_and_the_store_are_looked_at()
+        => Assert.Equal(StatusCodes.Status403Forbidden,
+            Status(GatewayEndpoints.ReadWingmanStops(Request(Caller.SharedMachineToken), "not-an-id", null, SelfHostBoundary(), null, null)));
+
     [Fact]
     public void A_session_key_is_refused_before_anything_else_is_looked_at()
     {
         // Ruling 5's order: the session-key refusal comes before the id check and before the store check, so a session
         // key learns nothing about which ids parse or whether this Gateway keeps the record.
         Assert.Equal(StatusCodes.Status403Forbidden,
-            Status(GatewayEndpoints.ReadWingmanStops(Request(asSessionKey: true), "not-an-id", null, SelfHostBoundary(), null, null)));
+            Status(GatewayEndpoints.ReadWingmanStops(Request(Caller.SessionKey), "not-an-id", null, SelfHostBoundary(), null, null)));
     }
 
     [Fact]

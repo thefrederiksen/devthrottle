@@ -704,6 +704,7 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>Writes the inspector's traces off the verdict path, so a verdict never waits for its copy.</summary>
     private readonly Wingman.TurnVerdictTraceWriter _turnVerdictTraceWriter;
     private readonly Wingman.TurnVerdictTraceRowStamp _turnVerdictTraceRowStamp;
+    private readonly Fleet.DisplayFold _displayFold;
     /// <summary>How long shutdown waits for queued traces to be written before the database is disposed.</summary>
     private static readonly TimeSpan TurnVerdictTraceDrainTimeout = TimeSpan.FromSeconds(5);
     /// <summary>Which Directors told this Gateway they send conversations (turn-push mission, phase 2).</summary>
@@ -1606,72 +1607,22 @@ public sealed class GatewayHost : IAsyncDisposable
         // nothing needed him on a machine he could have acted on immediately. The auto-dismiss sweeper still
         // takes AmbientSnapshotFresh and must: acting ON a session needs recent data, whereas TELLING THE
         // OWNER about one needs a reachable machine. Two questions, two snapshots.
+        // THE FOLD'S INPUTS ARE CHOSEN IN ONE PLACE, Fleet.DisplayFold, for this push and for the Wingman inspector's
+        // trace colour alike - see that class for why, and for the only three things the two callers may differ in.
+        // Everything the comments above say about the push's inputs (the ambient tenant, the voice partition guard, the
+        // clocks, the known roster to prune to) is now implemented there.
+        _displayFold = new Fleet.DisplayFold(
+            voice: () => _voiceService,
+            needsYou: _needsYouClock,
+            voiceWaiting: _voiceWaitingClock,
+            snoozes: _snoozeRegistry,
+            handRaises: _handRaises,
+            snoozeExpiry: () => _snoozeExpiry,
+            pushed: PushedSessions,
+            enterScope: tenant => _tenantBoundary.EnterScope(tenant));
         FleetDisplayState = new Fleet.FleetDisplayStateObserver(
             AmbientSnapshotConnected,
-            sessions => EnrichVoiceThenFoldForPush(
-                sessions,
-                // MTR-10 Gap D: read the AMBIENT tenant of this per-tenant display pass, byte-identical to the
-                // ROSTER's own enrichment (the roster map below resolves the REQUEST tenant and passes it to
-                // IsGenerating/HasVoice). This fold runs inside a tenant scope in both drivers - the periodic
-                // sweep wraps it in _tenantPass.ForEachTenant, and the DirectorHub push runs in the bound
-                // tenant's scope - so _tenantPass.Current is the owning tenant, never null on hosted. The earlier
-                // code read TenantId.Local, which #1973 made stale: the tenant-partitioned voice service IS live
-                // on hosted, and a Local read there is an EMPTY partition, folding VoiceAudioReady=false for
-                // every session and holding every voice-mode session permanently "Preparing voice" (yellow) on
-                // the push-only desktop while the roster served red. A null Current is a DENY (false), never a
-                // Local fall back, so an unscoped pass discloses nothing.
-                //
-                // WHY THE FIRST ATTEMPT (abf581ff) REGRESSED THE PUSH: the ambient tenant is whatever tenant a
-                // Director is BOUND to, which need not be a minted voice partition. WingmanVoiceService REFUSES
-                // to name a partition for such a tenant - IsGenerating/HasVoice THROW ArgumentException for it -
-                // and this fold runs synchronously inside DirectorHub.PushSnapshot (which scopes the whole handler
-                // to the bound tenant). An unminted-tenant Director's snapshot push therefore threw straight out
-                // of PushSnapshot as a HubException and took the WHOLE fleet's display push down. The guard makes
-                // an unnameable ambient tenant answer the design-documented "no voice state at all" (false)
-                // instead of throwing - see WingmanVoiceService.CanNameVoicePartition. Minted account tenants
-                // (production) and Local (self-host) are nameable, so Gap D's per-tenant read is unchanged there.
-                voiceGeneratingFor: sid => _tenantPass.Current is { } t
-                    && Wingman.WingmanVoiceService.CanNameVoicePartition(t)
-                    && _voiceService?.IsGenerating(t, sid) == true,
-                voiceAudioReadyFor: sid => _tenantPass.Current is { } t
-                    && Wingman.WingmanVoiceService.CanNameVoicePartition(t)
-                    && _voiceService?.HasVoice(t, sid) == true,
-                // The needs-you clock is partitioned per tenant too (Gap C coupled state): pass this pass's
-                // owning tenant so a session id shared across accounts keeps a per-tenant "waiting since".
-                tenant: _tenantPass.Current ?? TenantId.Local,
-                needsYouStampFor: (tenant, sid, isRed) => _needsYouClock.Stamp(tenant, sid, isRed),
-                handRaises: _handRaises,
-                snoozeRegistry: _snoozeRegistry,
-                // Same tenant guard as the two booleans above: an ambient tenant that cannot name a voice
-                // partition answers "no voice state at all" rather than throwing out of PushSnapshot.
-                voiceUnavailableFor: sid => _tenantPass.Current is { } t
-                    && Wingman.WingmanVoiceService.CanNameVoicePartition(t)
-                        ? _voiceService?.VoiceUnavailableFor(t, sid)
-                        : null,
-                nothingToNarrateFor: sid => _tenantPass.Current is { } t
-                    && Wingman.WingmanVoiceService.CanNameVoicePartition(t)
-                    && _voiceService?.NothingToNarrateFor(t, sid) == true,
-                directorCannotSendConversationFor: sid => _tenantPass.Current is { } t
-                    && Wingman.WingmanVoiceService.CanNameVoicePartition(t)
-                    && _voiceService?.DirectorCannotSendConversationFor(t, sid) == true,
-                narrationAbandonedFor: sid => _tenantPass.Current is { } t
-                    && Wingman.WingmanVoiceService.CanNameVoicePartition(t)
-                    && _voiceService?.NarrationAbandonedFor(t, sid) == true,
-                voiceWaitingStampFor: (sid, waiting) => _tenantPass.Current is { } t
-                    ? _voiceWaitingClock.Stamp(t, sid, waiting)
-                    : null,
-                // Slice D: the same verdict source the roster folds from, so the desktop is pushed the same colour
-                // and label every browser gets.
-                turnVerdictRows: _turnVerdictRows,
-                // Slice F: the same snooze memory, so the push and the roster see ONE expiry edge between them.
-                snoozeExpiry: _snoozeExpiry,
-                // And the ACCOUNT'S roster for it to prune to, not this one Director's push. Ids only: a
-                // membership question does not need a session cloned to answer it, and this is the hot path.
-                // KNOWN, not connected: a Director that has gone quiet still has its sessions on the roster, so
-                // dropping them here would read "I cannot see it this second" as "it is gone".
-                snoozeRosterSessionIds: _tenantPass.Current is { } snoozeTenant
-                    ? PushedSessions.KnownSessionIds(snoozeTenant)
-                    : null),
+            sessions => _displayFold.Push(_tenantPass.Current, sessions, _turnVerdictRows),
             SendCommandAsync,
             currentScopeKey: () => _tenantPass.Current?.Value);
         // Mission Screen mission (Phase 1b, issue #1405): the mission-WHY store, at a Gateway-side file
@@ -1874,7 +1825,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // The colour each stop produced is folded as its trace is written, on the writer's thread (the Wingman
         // inspector, phase 2), from the same verdict source and the same fold the display push uses.
         _turnVerdictTraceRowStamp = new Wingman.TurnVerdictTraceRowStamp(
-            tenant => PushedSessions.SnapshotConnected(tenant), _turnVerdictRows, FoldRowForTrace);
+            tenant => PushedSessions.SnapshotConnected(tenant), _turnVerdictRows, _displayFold.Record);
         _turnVerdictTraceWriter = new Wingman.TurnVerdictTraceWriter(_turnVerdictTraces.Append,
             stamp: _turnVerdictTraceRowStamp.Stamp);
         _turnVerdictWatchdogSweep = new Wingman.TurnVerdictWatchdogSweep(
@@ -4741,40 +4692,6 @@ public sealed class GatewayHost : IAsyncDisposable
     /// re-derives the same yellow every tick and the change gate suppresses the update permanently. This is
     /// exercised directly by the tests so the enrichment cannot silently regress again.
     /// </summary>
-    /// <summary>
-    /// The display push's fold for ONE account, named explicitly rather than read from the ambient scope, for the colour
-    /// a Wingman stop's trace records (<see cref="Wingman.TurnVerdictTraceRowStamp"/>). The same enrichment and the same
-    /// fold as the push above, with the inputs that CHANGE state when folded left out - the needs-you clock, the
-    /// voice-waiting clock and the snooze-expiry memory - because writing a record must not move the product.
-    /// </summary>
-    /// <remarks>
-    /// THE ACCOUNT'S SCOPE IS ENTERED HERE, because this runs on the trace writer's thread, which belongs to no request
-    /// and no per-tenant pass. The fold's snooze read is tenant-scoped through the ambient scope, and on the hosted
-    /// Gateway an unscoped read refuses to run - which failed every trace write in the hosted route test while every
-    /// self-hosted unit test stayed green.
-    /// </remarks>
-    private void FoldRowForTrace(TenantId tenant, List<SessionDto> sessions, Wingman.ITurnVerdictRowSource rows)
-    {
-        using var scope = _tenantBoundary.EnterScope(tenant);
-        var voiceNameable = Wingman.WingmanVoiceService.CanNameVoicePartition(tenant);
-        EnrichVoiceThenFoldForPush(
-            sessions,
-            voiceGeneratingFor: sid => voiceNameable && _voiceService?.IsGenerating(tenant, sid) == true,
-            voiceAudioReadyFor: sid => voiceNameable && _voiceService?.HasVoice(tenant, sid) == true,
-            tenant: tenant,
-            needsYouStampFor: null,
-            snoozeRegistry: _snoozeRegistry,
-            handRaises: _handRaises,
-            voiceUnavailableFor: sid => voiceNameable ? _voiceService?.VoiceUnavailableFor(tenant, sid) : null,
-            nothingToNarrateFor: sid => voiceNameable && _voiceService?.NothingToNarrateFor(tenant, sid) == true,
-            directorCannotSendConversationFor: sid => voiceNameable && _voiceService?.DirectorCannotSendConversationFor(tenant, sid) == true,
-            narrationAbandonedFor: sid => voiceNameable && _voiceService?.NarrationAbandonedFor(tenant, sid) == true,
-            voiceWaitingStampFor: null,
-            turnVerdictRows: rows,
-            snoozeExpiry: null,
-            snoozeRosterSessionIds: null);
-    }
-
     internal static void EnrichVoiceThenFoldForPush(
         List<SessionDto> sessions,
         Func<string, bool> voiceGeneratingFor,
@@ -4799,7 +4716,10 @@ public sealed class GatewayHost : IAsyncDisposable
         Wingman.SnoozeExpiryReJudge? snoozeExpiry = null,
         // Slice F: the ACCOUNT'S whole roster as session ids, for that memory to prune to. The push carries ONE
         // Director's sessions, and pruning to those would drop every other Director's watch on every push.
-        IReadOnlyCollection<string>? snoozeRosterSessionIds = null)
+        IReadOnlyCollection<string>? snoozeRosterSessionIds = null,
+        // See StampFleetRolesAndFold. The two clocks above are chosen by the caller; only Fleet.DisplayFold calls this in
+        // production, and it chooses them once for both of its callers.
+        bool writes = true)
     {
         foreach (var s in sessions)
         {
@@ -4833,7 +4753,8 @@ public sealed class GatewayHost : IAsyncDisposable
                 waitingSince: s.VoiceWaitingSince);
         }
         Api.GatewayEndpoints.StampFleetRolesAndFold(sessions, sessions, needsYouStampFor, snoozeRegistry, tenant,
-            handRaises, turnVerdictRows, snoozeExpiry, nowUtc: null, snoozeRosterSessionIds: snoozeRosterSessionIds);
+            handRaises, turnVerdictRows, snoozeExpiry, nowUtc: null, snoozeRosterSessionIds: snoozeRosterSessionIds,
+            writes: writes);
     }
 
     /// <summary>
