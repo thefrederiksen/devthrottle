@@ -36,6 +36,6 @@ No further review round from the builder side. The Architect calls the independe
 
 ## Watch your seats
 
-A Codex session is out of usage until 22 September; Gemini has no key. If you seat any non-Claude session, confirm it
-works by reading `cc-devthrottle session buffer <id>`, not its state, and never wait more than 20 minutes on a seat
-without reading its buffer.
+Some reviewer families are out of usage or not configured on this machine. If you seat a reviewer from another
+agent family, confirm it works by reading `cc-devthrottle session buffer <id>`, not its state, and never wait more
+than 20 minutes on a seat without reading its buffer.
