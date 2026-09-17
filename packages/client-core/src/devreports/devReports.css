@@ -1,0 +1,177 @@
+/* The dev report list, viewer and conversation, shared by the Cockpit and the phone. Colours come from the
+   shell's own tokens (both define --surface, --surface-2, --border, --text, --text-dim, --accent), so the
+   Reports view matches whichever shell mounts it. Each shell adds only its own frame layout. */
+
+.dev-report-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+}
+
+.dev-report-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 10px 12px;
+  text-align: left;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.dev-report-row:hover {
+  border-color: var(--accent);
+}
+
+.dev-report-row-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.dev-report-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.dev-report-status {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.dev-report-empty {
+  padding: 8px 0;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.dev-report-error {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(241, 76, 76, 0.12);
+  border: 1px solid rgba(241, 76, 76, 0.4);
+  color: #ffb4b4;
+  font-size: 13px;
+}
+
+.dev-report-viewer {
+  display: flex;
+  min-height: 0;
+  height: 100%;
+}
+
+.dev-report-viewer-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.dev-report-viewer-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+}
+
+.dev-report-viewer-title {
+  font-weight: 600;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.dev-report-frame-box {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+.dev-report-frame {
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #ffffff;
+}
+
+.dev-report-conversation {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.dev-report-h {
+  margin: 8px 0 6px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+}
+
+.dev-report-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.dev-report-item {
+  margin: 0 0 6px;
+  padding: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+
+.dev-report-item-where {
+  display: block;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.dev-report-item-status {
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.dev-report-send-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.dev-report-send {
+  align-self: flex-start;
+  padding: 8px 16px;
+  font: inherit;
+  font-weight: 700;
+  color: #ffffff;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.dev-report-send:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
