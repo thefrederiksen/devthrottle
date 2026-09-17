@@ -74,9 +74,12 @@ jobs:
   # dependency versions are a property of the packages rather than of the operating system; on main it
   # still runs on all three.
   #
-  # A job whose flag is false reports as SKIPPED, not failed and not green. If this job itself fails, the
-  # jobs that need it are skipped and the run is red, so a broken classifier can never pass as a clean
-  # pull request.
+  # A job whose flag is false shows as SKIPPED in the list of checks. That label is for people only:
+  # GitHub counts a skipped job as SUCCESSFUL when it evaluates a required check. So requiring any one
+  # of the build jobs below would be satisfied by that job being skipped, and if this job fails, every
+  # job that needs it is skipped too - which also passes as successful. Neither skip proves anything.
+  # That is why the last job in this file, "CI result", exists; read the comment on it before marking
+  # any check as required.
   changes:
     name: What changed
     runs-on: ubuntu-latest
@@ -389,3 +392,69 @@ jobs:
         run: |
           python -m pip install websockets
           python -m pytest tests/ -q
+
+  # THE ONE JOB TO MARK AS A REQUIRED CHECK. No required checks are configured on main today; if one is
+  # ever added, it must be this job and none of the others.
+  #
+  # Every other job can be SKIPPED, and GitHub counts a skipped job as successful for a required check
+  # (see the comment on "What changed"). This job never skips: `always()` makes it run whatever happened
+  # above it, and it turns what happened into a verdict that is honest about skips. It passes only on a
+  # positive match, never on the absence of a failure:
+  #   - "What changed" must have SUCCEEDED, and every flag it gave must be exactly true or false;
+  #   - a job whose flag is true must have SUCCEEDED;
+  #   - a job whose flag is false must have been SKIPPED - that is the classifier's decision, nothing else.
+  # Anything else fails it: a failed or cancelled job, a job skipped although its flag was true, a job
+  # that ran although its flag was false, or a classifier that did not finish. When "What changed"
+  # fails, its flags are empty, so every job fails the check - there is no path where a broken
+  # classifier reads as a clean pull request.
+  #
+  # If you add a job, add it to `needs` and to the checks below in the same pull request, or it is
+  # outside the verdict.
+  result:
+    name: CI result
+    needs: [changes, build-and-test, web, tool-contracts]
+    if: always()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check that every job did what the classifier decided
+        shell: bash
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          DOTNET_FLAG: ${{ needs.changes.outputs.dotnet }}
+          DOTNET_RESULT: ${{ needs.build-and-test.result }}
+          WEB_FLAG: ${{ needs.changes.outputs.web }}
+          WEB_RESULT: ${{ needs.web.result }}
+          TOOLS_FLAG: ${{ needs.changes.outputs.tools }}
+          TOOLS_RESULT: ${{ needs.tool-contracts.result }}
+        run: |
+          set -euo pipefail
+          bad=0
+
+          echo "What changed: $CHANGES_RESULT"
+          if [ "$CHANGES_RESULT" != "success" ]; then
+            echo "  FAIL: the classifier did not succeed, so no skip below is a decision"
+            bad=1
+          fi
+
+          check() {
+            local job="$1" flag="$2" result="$3"
+            echo "$job: flag='$flag' result=$result"
+            case "$flag:$result" in
+              true:success)   echo "  ok: ran and passed" ;;
+              false:skipped)  echo "  ok: skipped by the classifier's decision" ;;
+              true:*)         echo "  FAIL: the classifier asked for this job and it ended $result"; bad=1 ;;
+              false:*)        echo "  FAIL: the classifier skipped this job, yet it ended $result"; bad=1 ;;
+              *)              echo "  FAIL: the classifier gave no usable flag"; bad=1 ;;
+            esac
+          }
+
+          check "Build & Test (.NET)" "$DOTNET_FLAG" "$DOTNET_RESULT"
+          check "Build & Test (web)" "$WEB_FLAG" "$WEB_RESULT"
+          check "Tool contracts (Python)" "$TOOLS_FLAG" "$TOOLS_RESULT"
+
+          if [ "$bad" -ne 0 ]; then
+            echo "CI result: FAILED"
+            exit 1
+          fi
+          echo "CI result: passed"
