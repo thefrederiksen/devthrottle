@@ -1239,3 +1239,195 @@ spawn owner pin) are still open. Inspection 5 of the slice 2 fix round is separa
 - Next seat: slice 6, restore is a Director act (owner decision 2), because the spawn owner pin is
   live on main since slice 1 and a Director restart today would fail to restore controlled seats.
 - Then slice 4 (the row line), slice 5 (the words, including the snooze law), the record, the release.
+
+## Slice 6 - restore is a Director act (17 September 2026, Manager seat 5)
+
+Owner decision 2. The spawn owner pin from slice 1 stays exactly as it is. The restore moved instead: the
+Director starts every restored seat itself, through the spawn door the Gateway already trusts a Director
+to name owners on. Commits `5a9edbf2`, `668cb2eb`, `a7aab9d8`, `de7a512a`, `726e4a0f` on
+`mission/message-load`, on top of `ecf96447`. No pull request opened.
+
+### Design as built
+
+**Who triggers it, and where.** A new route, `POST /gateway/workspaces/{id}/restore`, body
+`{ directorId, seats?, seeds? }` (`src/CcDirector.Gateway/Api/WorkspaceEndpoints.cs`). Not a Control API
+verb: that listener no longer exists, and there was no restore endpoint to reuse - the only thing that
+"restored" before was a session running the drain's spawn lines. The owner's device key or a session key
+may call it (`SessionKeyGuard.IsWorkspaceRoute`, four-segment `restore`, POST only). The Gateway checks the
+workspace exists, the Director exists in the caller's account, and the Director is on the machine the
+workspace was captured on (409 otherwise). It stamps WHO ASKED from the verified credential (the session
+id of a session key, nothing for the owner) - never from the body - and relays a `workspace-restore` tunnel
+verb (`WorkspaceRestoreVerbs`, `src/CcDirector.Gateway.Contracts/WorkspaceRestoreDtos.cs`) to that
+Director. The Director's answer is relayed: 202 with the seats it took, or its refusal with its reason
+(400/404/409/504/502).
+
+**On the Director.** `ControlApiHost.StartWorkspaceRestoreAsync` claims a one-at-a-time gate, runs
+`DirectorRestore.PrepareAsync` (reads the workspace from the Gateway, refuses an authored workspace, a
+named seat that is not decided "restore" or has already come back, or nothing left to bring back), and
+only then answers "taken" and runs `DirectorRestore.RunAsync` in the background
+(`src/CcDirector.ControlApi/Drain/DirectorRestore.cs`). It answers before the spawns finish on purpose:
+every spawn rides back down this same stream as a `create`, so a command that waited for its own spawns
+would wait on itself.
+
+**The spawn.** For each seat, `GatewayClient.SpawnOnThisDirectorAsync` posts to
+`POST /directors/{this Director}/sessions` on the Director's own credential. That is the existing spawn
+door: the Gateway still resolves the mission and the workflow seat and still sends the ordinary `create`.
+`SpawnOrigin` leaves a Director's key alone (it is neither a person's device nor a session key), so the
+owner the Director names is kept. No second spawn path.
+
+**Where the owner comes from.** Only from the seat's `ReportsTo`, which the Gateway observed at capture and
+restores from its stored copy on every write (`WorkspaceStore`), so neither the caller nor anyone writing
+the workspace can change it. That is why an authored workspace is refused.
+
+**The placeholder, resolved in order.** Seats are ordered owners first (depth in the reporting chain among
+the seats in this run, then the drain's sort order), fixed once as ids; each seat is looked up in the
+freshly stored copy after every save. Per seat:
+- no owner: the user's (`controllerSessionId` null);
+- owner not a seat in this workspace (it lives elsewhere and survived): its id, verbatim;
+- owner is a seat that has come back (this run or an earlier one): its restored id;
+- owner is a seat that BLOCKED the drain and was never closed: its current id (the restore without a
+  restart after a blocked drain; that owner is still running) - added in `a7aab9d8`;
+- otherwise (the owner failed in this run, is decided close, or has not been restored): the seat FAILS
+  with that reason and is not started - never unowned, never under a dead id.
+
+**Who asked is recorded as the parent, never the owner.** A session's request gives each create
+`origin = agent`, `parentSessionId = that session`; the owner's gives `origin = human`. The workspace's
+`restoredBy` names the asking session (null for the owner) and the Director.
+
+**A failure per seat.** Two new judgment fields on `WorkspaceSeatRestore`: `failure` and
+`attemptedAtUtc` (capped like every other judgment; refused on an authored workspace). After every seat the
+Director writes `restoredSessionId` (success, failure cleared) or `restore.failure`, stamps the attempt, and
+saves. A refused spawn, a missing handover, a client-side timeout (recorded as "MAY have been started -
+check before asking again", `726e4a0f`) are all per-seat; only the seats that depended on a failed owner
+fail with it. A seat that already came back is never started again.
+
+**The restoring session's command line.** `DrainRestoreCommand.Build(workspaceId, sessionId)` now writes
+`cc-devthrottle director restore "<workspace>" --director "<the NEW director id>" --seat <id>` - no
+`--controlled-by` for anyone, not even the caller (the caller owns nothing it restores). The new command
+(`tools/cc-devthrottle/src/machine_ops.py restore_workspace`, `cli.py director restore`) takes
+`--director`, `--seat` (repeatable), `--seed <id>=<path>` (repeatable, the skill's seed files), and
+`--wait-seconds` (default 600, 0 = ask only). It refuses the literal placeholder. It reads the workspace
+back until each seat asked for has an answer: RESTORED, FAILED with the Director's reason, or PENDING when
+the wait runs out; an earlier run's failure is not taken for this run's answer (the attempt stamp must
+change). Exit 0 only when every seat came back. Action catalogue entry `director-restore`; command
+reference section added under `director list`.
+
+**The skill.** `director-restart` pulled, edited, pushed as a DRAFT, not published. Draft v3 existed
+already, unpublished, from 7 September (session `536bbef4`, it adds the `machine restart-capability`
+step 0 and its refusal table); I pulled that draft and built on it, so **publishing v3 publishes those
+7 September changes too**. My edits: step 4 says the restore reads the Gateway workspace and shows how a hand
+drain captures one before closing anything; step 8 replaces the `session spawn --controlled-by` block with
+"the Director does the spawning, you ask it", including decisions written onto the workspace first,
+`--seat` for head-first restores, `--seed` for seed files; the blocked-drain recovery names the command;
+the "write restoredSessionId only on a pass" rule becomes "the Director wrote it; a failed check goes in
+the report"; the open question becomes "what asks the Director to restore after a restart". The full diff
+against the pulled draft is `slice-6-evidence/director-restart-skill-draft.diff`. **The Architect
+publishes it with the words slice.** `.claude/skills` has no `director-restart` copy, so there is nothing to
+regenerate in the repository.
+
+### Judgement calls for the inspector
+
+1. **A session key may ask for a restore.** The charter said "the owner or the restoring session". It grants
+   no owner-naming: owners come from the capture, and the caller is recorded as parent. What it does let a
+   session do is bring back any captured, restore-decided, not-yet-restored seat in its own account, and it
+   could first PUT a seat's decision to "restore" (decisions are judgments any writer may set - that was
+   already true of the workspace routes). I judged that acceptable because the seats it can bring back had
+   exactly those owners before the drain.
+2. **The machine check.** A restore onto a Director on a different machine is refused (repository paths
+   belong to a machine). This also refuses a deliberate move of a fleet to another computer; that is a
+   different operation (the move-session skill).
+3. **A worker whose owner is not coming back fails** rather than starting unowned or under the dead id. The
+   old skill said "restore the head, not the tree", so this should be rare; when it happens the record says
+   why and the owner or the senior decides.
+4. **Blocked-and-never-closed means still running.** Read from `drainState == blocked` and no `closedAtUtc`.
+   If a blocked seat was later closed by hand without the record being updated, the restored worker is named
+   under a dead id. The drain writes `closedAtUtc` when it verifies a close; a hand close does not.
+5. **Answered "taken" before the spawns.** Reasoned, not measured: the SignalR client handles one incoming
+   invocation at a time on this connection, so a handler awaiting a create that comes back down the same
+   connection would stall until the Gateway's 30-second command timeout. The restart cycle already answers
+   "taken" for its own reason; this copies that shape.
+6. **Parent = the asking session**, origin agent. An alternative was parent = the resolved owner (mirroring a
+   manager spawning its worker). I kept "who made the call" because that is what `parentSessionId` means
+   everywhere else (`SessionOrigin`).
+7. **`seatOutcome` is not written by the Director.** It is a terminal answer with strict validation, and a
+   partial (`--seat`) run cannot give one honestly. The per-seat fields are the report; the restoring session
+   still writes the outcome, as the skill says.
+8. **No `--args` through a restore.** The old spawn line carried none either; a restored seat gets the
+   Director's default agent settings.
+
+### What is proven - every guard watched failing, then restored
+
+Every mutation below was applied, the named tests run and seen red, and the file restored; the record of
+each run is `slice-6-evidence/red-runs.md`.
+- **A restore of a controlled seat by a Director comes back with the right owner, on a real host.**
+  `WorkspaceRestoreRouteTests.A_Director_restoring_controlled_seats_starts_each_under_its_real_owner`: a
+  hosted Gateway, a tunnel Director on its own enrolled workstation key, a workspace captured by the real
+  capture route, the real `DirectorRestore` over the real `GatewayClient`. The `create` the Director receives
+  names the Manager's NEW id for the Worker, the other Director's session for the seat owned from elsewhere,
+  and nobody for the Manager. Red when the placeholder is not resolved (mutation 1b).
+- **The same request from a session key is refused.** `The_same_create_from_a_session_key_is_refused...`:
+  the identical create, sent with the restoring session's key, answers 403 and no `create` reaches the
+  Director. Red with the owner pin removed from `SpawnOrigin` (mutation 2).
+- **A placeholder resolves to the new controller's id.** Unit tests: worker listed before its manager, a
+  three-level chain, an owner restored in an earlier run. Red with the old id named (mutation 1), with no
+  ordering (4), with already-restored seats re-selected (9).
+- **A per-seat failure is reported and does not stop the rest.** Unit tests: one refused seat among three; an
+  owner's failure failing its worker with the owner's reason; a timeout recorded as maybe-started; a failed
+  seat retried and cleared. Red with the failure thrown (3), with the owner's failure unrecognised (5), with
+  the timeout escaping (18).
+- **The route stamps who asked and relays the Director's answer**: a session key's order names that session
+  even when the body claims another; the owner's names nobody; the Director's refusal comes back as 409 with
+  its words; another machine's Director is refused before anything is sent; no Director is a 400. Red with
+  the stamp dropped (6), the guard entry removed (7), the machine check removed (10).
+- **An authored workspace is refused; blocked owners handled; the drain's command names no owner; the new
+  fields are capped and refused on authored workspaces**: mutations 8, 16, 17, 11, 12, 13.
+- **Command line**: sends no owner; reports RESTORED / FAILED / PENDING; an old failure is not this run's
+  answer; exit 1 on any failed or pending seat; refuses the placeholder and a malformed seed; no read when
+  not waiting; in the action catalogue as state-changing. Red with the freshness check removed (14) and the
+  exit code dropped (15).
+
+### What is NOT proven
+
+- **No live run.** No real Director restored anything: the tunnel Director in the route test is the fake
+  that records commands, so the Director's own `create` handling of a restored seat (owner on another
+  Director, role, mission) is not exercised, and nothing checks the restored session actually reads its seed.
+- **`ControlApiHost.StartWorkspaceRestoreAsync` has no test.** The verb dispatch, the claim/release around
+  `PrepareAsync`, the "taken" body and the background run are exercised by no suite; the pieces it calls are.
+- **The stall that "taken first" avoids** (judgement call 5) was not reproduced.
+- **Concurrency.** Two different Directors restoring the same workspace are not serialised; a session writing
+  the workspace during a restore can overwrite a seat's result with its older copy (both stated in the class
+  comment). The one-at-a-time gate is per Director process.
+- **Nothing asks the Director to restore after a restart by itself.** A restart whose driver died still
+  restores nothing until someone runs the command. The drain inside the Director is still not wired into the
+  restart cycle on this tree (`NoDrainOnThisBuild`), unchanged by this slice.
+- **The 10-second client timeout** on the Director's Gateway client is shorter than the Gateway's 30-second
+  wait for a `create`; a slow create is recorded as "maybe started" rather than waited for.
+- **PostgreSQL**: the two new fields live inside the workspace's JSON document (no schema change); the store
+  tests ran on SQLite only.
+- **The skill draft** was not read by any agent performing a real restart.
+- `scripts/test-local.ps1` not run (no PowerShell on the Mac); suites run directly.
+
+### Test totals (Mac, this tree, 17 September 2026)
+
+- **Gateway unit tests** (which hold the ControlApi drain and restore tests; there is no separate ControlApi
+  test project): 5331 total, 5316 passed, 8 skipped, **7 failed - the same 7 Mac-only failures named in
+  slice 1** (CronJobStore 1, SessionCommandExecutorLiveness 3, RuleCandidateFilter 1, WorkListStorePersistence
+  1, RulePrimitives 1). Run again after the last code commit (`726e4a0f`). No new failure. New:
+  `DirectorRestoreTests` 20, three validation tests, the guard cases, the rewritten drain command test.
+- **Gateway route tests** (full suite, 20 minutes, run at `a7aab9d8`): 2596 total, 2528 passed, 52 skipped,
+  **16 failed - exactly the 16 named in slice 1** (ContextLessRouteCensus 1, FleetSpawnMissionAttach 2,
+  FleetSpawnOrigin 4, TunnelRosterPushReadProof 3, WorkflowSeat 2, GatewayTestSuiteLock 2,
+  HostedProcessControlDeny 2). The census failure is its existing `DELETE /exes/slots/{n}` difference and does
+  not involve the new route. `WorkspaceRestoreRouteTests` (7) was run again after `726e4a0f`: 7 passed.
+- **Core unit tests**: 555 passed, 0 failed. **Core tests**: 4445 total, 4376 passed, 8 skipped, **61 failed -
+  the known Mac-only count**; nothing in Core changed in this slice.
+- **cc-devthrottle tests** (scratch environment): 3225 passed, 0 failed (9 new in
+  `test_director_restore.py`; the action pin moved from 87 to 88 entries, adding only `director-restore`).
+
+## State after slice 6 (17 September 2026)
+
+- Slice 6 head is this commit on `mission/message-load`, awaiting inspection. No pull request opened.
+- **The `director-restart` skill draft (v3) is pushed and NOT published.** It also carries the unpublished
+  7 September changes that were already in that draft. The Architect publishes it with the words slice.
+- Unchanged: slice 2 awaiting inspection 5, slice 3 awaiting inspection 6. Next: slice 4 (the row line), then
+  slice 5 (the words), the record, the release.
