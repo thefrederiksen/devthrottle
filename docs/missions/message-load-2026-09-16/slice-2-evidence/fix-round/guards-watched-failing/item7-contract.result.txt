@@ -1,0 +1,29 @@
+== MUTATION a reason literal renamed on both sides at once (the inspector's case): exit=1
+    Failed!  - Failed:     3, Passed:    58, Skipped:     0, Total:    61, Duration: 8 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.FleetDoorbellExecutorTests.The_Director_names_its_reasons_with_these_literals [1 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.Every_named_reason_on_the_wire_is_a_deferral_and_not_a_ring(reason: "composer-holds-text") [35 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.The_contract_names_exactly_these_strings [1 ms]
+== MUTATION the verb literal renamed on both sides at once: exit=1
+    Failed!  - Failed:     4, Passed:    57, Skipped:     0, Total:    61, Duration: 6 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.FleetDoorbellExecutorTests.The_Director_names_its_reasons_with_these_literals [< 1 ms]
+    Failed CcDirector.Gateway.Tests.FleetDoorbellExecutorTests.The_verb_the_Director_answers_is_the_literal_ring_and_its_body_carries_literal_strings [< 1 ms]
+    Failed CcDirector.Gateway.Tests.FleetDoorbellExecutorTests.The_verb_is_spelled_ring [< 1 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.The_contract_names_exactly_these_strings [< 1 ms]
+== MUTATION an outcome literal renamed: exit=1
+    Failed!  - Failed:     9, Passed:    52, Skipped:     0, Total:    61, Duration: 8 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.FleetDoorbellExecutorTests.The_verb_the_Director_answers_is_the_literal_ring_and_its_body_carries_literal_strings [124 ms]
+    Failed CcDirector.Gateway.Tests.FleetDoorbellExecutorTests.The_verb_is_spelled_ring [< 1 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.Every_named_reason_on_the_wire_is_a_deferral_and_not_a_ring(reason: "menu-open") [42 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.Every_named_reason_on_the_wire_is_a_deferral_and_not_a_ring(reason: "composer-holds-text") [33 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.Every_named_reason_on_the_wire_is_a_deferral_and_not_a_ring(reason: "not-submitted") [34 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.Every_named_reason_on_the_wire_is_a_deferral_and_not_a_ring(reason: "working") [36 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.Every_named_reason_on_the_wire_is_a_deferral_and_not_a_ring(reason: "exited") [48 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.Every_named_reason_on_the_wire_is_a_deferral_and_not_a_ring(reason: "screen-unreadable") [52 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.The_contract_names_exactly_these_strings [< 1 ms]
+== MUTATION a reason missing from the known list: exit=1
+    Failed!  - Failed:     2, Passed:    59, Skipped:     0, Total:    61, Duration: 9 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.Every_named_reason_on_the_wire_is_a_deferral_and_not_a_ring(reason: "not-submitted") [45 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.The_contract_names_exactly_these_strings [2 ms]
+== MUTATION known-reason check case-insensitive: exit=1
+    Failed!  - Failed:     1, Passed:    60, Skipped:     0, Total:    61, Duration: 7 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.An_answer_the_contract_does_not_name_is_refused(outcome: "deferred", reason: "Working") [29 ms]

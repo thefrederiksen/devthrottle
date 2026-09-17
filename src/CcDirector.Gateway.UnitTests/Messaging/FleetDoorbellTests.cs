@@ -484,6 +484,72 @@ public sealed class FleetDoorbellTests : IDisposable
         Assert.Equal(Worker, row.RecipientSessionId);
     }
 
+    // ---------- Inspection 4, ruling 7: the wire strings, read as the Director sends them ----------
+
+    /// <summary>The Director's answer as it arrives: JSON text, parsed the way the Gateway parses it.</summary>
+    private static FleetRingResponse? Wire(string json) =>
+        System.Text.Json.JsonSerializer.Deserialize<FleetRingResponse>(json,
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+
+    [Theory]
+    [InlineData("working")]
+    [InlineData("composer-holds-text")]
+    [InlineData("menu-open")]
+    [InlineData("exited")]
+    [InlineData("screen-unreadable")]
+    [InlineData("not-submitted")]
+    public async Task Every_named_reason_on_the_wire_is_a_deferral_and_not_a_ring(string reason)
+    {
+        var rig = NewRig();
+        var id = Send(rig);
+        _answer = Wire($$"""{"outcome":"deferred","reason":"{{reason}}","detail":"x"}""");
+
+        var attempt = await rig.Doorbell.RingSessionAsync(Tenant, Worker, "test", CancellationToken.None);
+
+        Assert.Equal(FleetRingAttempt.Deferred, attempt);
+        Assert.Equal(0, Peek(id).RingCount);
+    }
+
+    [Fact]
+    public async Task A_rung_answer_on_the_wire_is_a_ring()
+    {
+        var rig = NewRig();
+        var id = Send(rig);
+        _answer = Wire("""{"outcome":"rung","reason":"","detail":"x"}""");
+
+        Assert.Equal(FleetRingAttempt.Rung, await rig.Doorbell.RingSessionAsync(Tenant, Worker, "test", CancellationToken.None));
+        Assert.Equal(1, Peek(id).RingCount);
+    }
+
+    [Theory]
+    [InlineData("deferred", "busy")]
+    [InlineData("deferred", "Working")]
+    [InlineData("deferred", "")]
+    [InlineData("rang", "")]
+    [InlineData("", "working")]
+    public async Task An_answer_the_contract_does_not_name_is_refused(string outcome, string reason)
+    {
+        var rig = NewRig();
+        var id = Send(rig);
+        _answer = Wire($$"""{"outcome":"{{outcome}}","reason":"{{reason}}"}""");
+
+        var attempt = await rig.Doorbell.RingSessionAsync(Tenant, Worker, "test", CancellationToken.None);
+
+        Assert.Equal(FleetRingAttempt.InvalidAnswer, attempt);
+        Assert.Equal(0, Peek(id).RingCount);
+    }
+
+    [Fact]
+    public void The_contract_names_exactly_these_strings()
+    {
+        Assert.Equal("ring", FleetDoorbellVerbs.Ring);
+        Assert.Equal("rung", FleetRingOutcomes.Rung);
+        Assert.Equal("deferred", FleetRingOutcomes.Deferred);
+        Assert.Equal(
+            new[] { "working", "composer-holds-text", "menu-open", "exited", "screen-unreadable", "not-submitted" },
+            FleetRingDeferReasons.All);
+    }
+
     // ---------- What is and is not counted as a ring ----------
 
     [Fact]

@@ -117,6 +117,7 @@ public sealed class FleetDoorbellRouteTests : IAsyncLifetime
 
         await WaitUntil(() => !_rings.IsEmpty, "a ring after the settled edge");
         var ring = Assert.Single(_rings);
+        Assert.Equal("ring", ring.Verb); // the literal the Director's command map answers (FleetDoorbellExecutorTests)
         Assert.Equal(_worker, ring.SessionId);
         var payload = System.Text.Json.JsonSerializer.Deserialize<FleetRingRequest>(ring.PayloadJson, FakeTunnelDirector.WebJson)!;
         Assert.Equal(1, payload.UnreadCount);

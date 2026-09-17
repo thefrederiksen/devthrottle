@@ -82,6 +82,10 @@ public enum FleetRingAttempt
 
     /// <summary>A ring for this session is already in flight.</summary>
     AlreadyRinging,
+
+    /// <summary>The Director answered with an outcome or a deferral reason the contract does not name. Refused and
+    /// logged; not a ring.</summary>
+    InvalidAnswer,
 }
 
 /// <summary>
@@ -342,6 +346,17 @@ public sealed class FleetDoorbell
 
         if (string.Equals(answer.Outcome, FleetRingOutcomes.Rung, StringComparison.Ordinal))
             return (FleetRingAttempt.Rung, due);
+
+        // THE WIRE IS CHECKED, NOT TRUSTED (inspection 4, ruling 7). A Director that says something the contract
+        // does not name - a renamed reason, a new outcome from a newer build - is refused and logged, never read as
+        // a deferral or a ring.
+        if (!string.Equals(answer.Outcome, FleetRingOutcomes.Deferred, StringComparison.Ordinal)
+            || !FleetRingDeferReasons.IsKnown(answer.Reason))
+        {
+            FileLog.Write($"[FleetDoorbell] ring answer REFUSED (not in the contract): sid={Short(sid)} trigger={trigger} " +
+                          $"outcome=\"{answer.Outcome}\" reason=\"{answer.Reason}\" detail={answer.Detail}");
+            return (FleetRingAttempt.InvalidAnswer, due);
+        }
 
         FileLog.Write($"[FleetDoorbell] ring DEFERRED ({answer.Reason}): sid={Short(sid)} trigger={trigger} unread={plan.UnreadCount} detail={answer.Detail}");
         return (FleetRingAttempt.Deferred, due);

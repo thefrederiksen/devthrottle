@@ -83,6 +83,43 @@ public sealed class FleetDoorbellExecutorTests
     }
 
     [Fact]
+    public async Task The_verb_the_Director_answers_is_the_literal_ring_and_its_body_carries_literal_strings()
+    {
+        // The Gateway side pins the same literals in FleetDoorbellTests; this is the Director's half. The command
+        // is built with the literal, not the constant, and the body is read as text, not through the contract.
+        var sm = new SessionManager(new Core.Configuration.AgentOptions());
+        try
+        {
+            var backend = new ExecuteActionTestBackend();
+            var session = sm.CreateEmbeddedSession(Path.GetTempPath(), null, backend);
+            var command = Ring(session.Id.ToString());
+            command.Verb = "ring";
+
+            var result = await SessionCommandExecutor.DispatchAsync(sm, "dir-A", command);
+
+            Assert.True(result.Ok, result.Error);
+            Assert.Contains("\"outcome\":\"deferred\"", result.BodyJson);
+            Assert.Contains("\"reason\":\"screen-unreadable\"", result.BodyJson);
+        }
+        finally
+        {
+            sm.Dispose();
+        }
+    }
+
+    [Fact]
+    public void The_Director_names_its_reasons_with_these_literals()
+    {
+        Assert.Equal("working", FleetRingDeferReasons.Working);
+        Assert.Equal("composer-holds-text", FleetRingDeferReasons.ComposerHoldsText);
+        Assert.Equal("menu-open", FleetRingDeferReasons.MenuOpen);
+        Assert.Equal("exited", FleetRingDeferReasons.Exited);
+        Assert.Equal("screen-unreadable", FleetRingDeferReasons.ScreenUnreadable);
+        Assert.Equal("not-submitted", FleetRingDeferReasons.NotSubmitted);
+        Assert.Equal("ring", FleetDoorbellVerbs.Ring);
+    }
+
+    [Fact]
     public async Task An_unknown_session_is_not_found()
     {
         var sm = new SessionManager(new Core.Configuration.AgentOptions());

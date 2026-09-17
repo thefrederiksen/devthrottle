@@ -210,6 +210,13 @@ public static class FleetRingDeferReasons
     /// <summary>The line was typed but its submit was not verified; the Director took its own line back (or it
     /// had already left without a visible turn). Not a ring.</summary>
     public const string NotSubmitted = "not-submitted";
+
+    /// <summary>Every reason a Director may send. The Gateway refuses an answer whose reason is not here.</summary>
+    public static IReadOnlyList<string> All { get; } =
+        [Working, ComposerHoldsText, MenuOpen, Exited, ScreenUnreadable, NotSubmitted];
+
+    /// <summary>True when <paramref name="reason"/> is exactly one of <see cref="All"/>.</summary>
+    public static bool IsKnown(string? reason) => reason is not null && All.Contains(reason, StringComparer.Ordinal);
 }
 
 /// <summary>The Director's answer to <c>ring</c>.</summary>
