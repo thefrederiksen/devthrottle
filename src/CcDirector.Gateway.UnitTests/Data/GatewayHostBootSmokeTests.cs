@@ -47,14 +47,14 @@ public sealed class GatewayHostBootSmokeTests
     private const string FleetManagerEventDeliveryPostgresMigration = "20260917110109_AddFleetManagerEventDelivery";
     private const string FleetManagerEventDeliverySqliteMigration = "20260917110100_AddFleetManagerEventDelivery";
     // Step 7: the Fleet Manager's advice and pick on a record, and the owner's note (a snooze from the walkthrough).
-    private const string FleetOutcomeAdvicePostgresMigration = "20260917040647_AddFleetOutcomeAdvice";
-    private const string FleetOutcomeAdviceSqliteMigration = "20260917040637_AddFleetOutcomeAdvice";
+    private const string FleetOutcomeAdvicePostgresMigration = "20260917090409_AddFleetOutcomeAdvice";
+    private const string FleetOutcomeAdviceSqliteMigration = "20260917090400_AddFleetOutcomeAdvice";
     // Step 9: the Assistant's two settings rows are deleted on both databases.
-    private const string RemoveAssistantSettingsPostgresMigration = "20260917060010_RemoveAssistantSettings";
-    private const string RemoveAssistantSettingsSqliteMigration = "20260917060000_RemoveAssistantSettings";
+    private const string RemoveAssistantSettingsPostgresMigration = "20260917090509_RemoveAssistantSettings";
+    private const string RemoveAssistantSettingsSqliteMigration = "20260917090500_RemoveAssistantSettings";
     // Steps 5 and 6 fixes: an owner's answer to a card is carried to the Fleet Manager as an event.
-    private const string FleetManagerEventOutcomeAnswerPostgresMigration = "20260917120010_AddFleetManagerEventOutcomeAnswer";
-    private const string FleetManagerEventOutcomeAnswerSqliteMigration = "20260917120000_AddFleetManagerEventOutcomeAnswer";
+    private const string FleetManagerEventOutcomeAnswerPostgresMigration = "20260917090609_AddFleetManagerEventOutcomeAnswer";
+    private const string FleetManagerEventOutcomeAnswerSqliteMigration = "20260917090600_AddFleetManagerEventOutcomeAnswer";
 
     /// <summary>A Fact that skips itself unless the runtime Postgres selector CC_GATEWAY_DB_CONNECTION is set
     /// to a non-blank value, so CI never reaches out to the hosted database and never needs the secret.</summary>
@@ -197,7 +197,7 @@ public sealed class GatewayHostBootSmokeTests
     /// each add a table each regenerate the model snapshot; merged by hand, the snapshot can silently drop one
     /// side's table, and the next migration anyone generates would then try to create it a second time. This
     /// applies every migration to a fresh in-memory database, proves the step 3 pair ran after the fleet message
-    /// inbox and step 4's pair ran after step 3's, and asks EF whether the model still differs from the snapshot.
+    /// inbox, step 4's pair ran after step 3's and steps 5 to 9's three ran after step 4's, and asks EF whether the model still differs from the snapshot.
     /// </summary>
     [Fact]
     public void SqliteMigrations_ApplyFromEmpty_LeaveNoPendingModelChange()
@@ -223,8 +223,11 @@ public sealed class GatewayHostBootSmokeTests
             DevReportsSqliteMigration,
             TraceRowAndClockSqliteMigration,
             FleetManagerEventsSqliteMigration,
-            FleetManagerEventDeliverySqliteMigration);
-        Assert.Equal(FleetManagerEventDeliverySqliteMigration, applied[^1]);
+            FleetManagerEventDeliverySqliteMigration,
+            FleetOutcomeAdviceSqliteMigration,
+            RemoveAssistantSettingsSqliteMigration,
+            FleetManagerEventOutcomeAnswerSqliteMigration);
+        Assert.Equal(FleetManagerEventOutcomeAnswerSqliteMigration, applied[^1]);
         Assert.Empty(ctx.Database.GetPendingMigrations());
         Assert.False(ctx.Database.HasPendingModelChanges(),
             "The SQLite model snapshot does not match the model - a migration is missing or the snapshot was merged wrong.");
@@ -232,7 +235,7 @@ public sealed class GatewayHostBootSmokeTests
 
     /// <summary>
     /// THE POSTGRESQL SNAPSHOT MATCHES THE MODEL, THE STEP 3 PAIR SORTS AFTER THE FLEET MESSAGE INBOX, AND STEP 4'S
-    /// PAIR SORTS AFTER STEP 3'S. Asking
+    /// PAIR SORTS AFTER STEP 3'S, AND STEPS 5 TO 9'S THREE SORT AFTER STEP 4'S. Asking
     /// whether the model has pending changes compares the compiled snapshot with the model and opens no
     /// connection, so this runs without a database. Applying the set to a real server is the Postgres-backed
     /// suite's job.
@@ -260,8 +263,11 @@ public sealed class GatewayHostBootSmokeTests
             DevReportsPostgresMigration,
             TraceRowAndClockPostgresMigration,
             FleetManagerEventsPostgresMigration,
-            FleetManagerEventDeliveryPostgresMigration);
-        Assert.Equal(FleetManagerEventDeliveryPostgresMigration, migrations[^1]);
+            FleetManagerEventDeliveryPostgresMigration,
+            FleetOutcomeAdvicePostgresMigration,
+            RemoveAssistantSettingsPostgresMigration,
+            FleetManagerEventOutcomeAnswerPostgresMigration);
+        Assert.Equal(FleetManagerEventOutcomeAnswerPostgresMigration, migrations[^1]);
         Assert.False(ctx.Database.HasPendingModelChanges(),
             "The PostgreSQL model snapshot does not match the model - a migration is missing or the snapshot was merged wrong.");
     }

@@ -13,8 +13,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CcDirector.Gateway.Migrations.Postgres.Migrations
 {
     [DbContext(typeof(GatewayDbContext))]
-    [Migration("20260917120010_AddFleetManagerEventOutcomeAnswer")]
-    partial class AddFleetManagerEventOutcomeAnswer
+    [Migration("20260917090409_AddFleetOutcomeAdvice")]
+    partial class AddFleetOutcomeAdvice
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -599,14 +599,6 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<string>("NoVerdictReason")
                         .HasColumnType("text");
 
-                    b.Property<string>("OutcomeId")
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .UseCollation("C");
-
-                    b.Property<string>("OutcomeTitle")
-                        .HasColumnType("text");
-
                     b.Property<bool>("ReadingPending")
                         .HasColumnType("boolean");
 
@@ -636,14 +628,9 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.Property<string>("VerdictJson")
                         .HasColumnType("text");
 
-                    b.Property<string>("Words")
-                        .HasColumnType("text");
-
                     b.HasKey("Id");
 
                     b.HasIndex("TenantId");
-
-                    b.HasIndex("TenantId", "OutcomeId");
 
                     b.HasIndex("TenantId", "SessionId");
 
@@ -734,6 +721,89 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .IsUnique();
 
                     b.ToTable("fleet_manager_owned_sessions", "gateway");
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FleetMessageEntity", b =>
+                {
+                    b.Property<string>("TenantId")
+                        .HasColumnType("text")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("MessageId")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .UseCollation("C");
+
+                    b.Property<string>("CorrelationId")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("InReplyToMessageId")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateTime?>("LastRungAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("ReadAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RecipientSessionId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .UseCollation("C");
+
+                    b.Property<DateTime?>("ReplyByUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("RingCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SenderMachine")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("SenderName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("SenderSessionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .UseCollation("C");
+
+                    b.Property<DateTime?>("StuckAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("TextHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("TenantId", "MessageId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "CreatedAtUtc");
+
+                    b.HasIndex("TenantId", "SenderSessionId", "CreatedAtUtc");
+
+                    b.HasIndex("TenantId", "RecipientSessionId", "ReadAtUtc", "CreatedAtUtc");
+
+                    b.ToTable("fleet_messages", "gateway");
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FleetOutcomeEntity", b =>

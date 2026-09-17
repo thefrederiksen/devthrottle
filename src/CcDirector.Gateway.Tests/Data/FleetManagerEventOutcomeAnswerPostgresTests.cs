@@ -19,8 +19,8 @@ namespace CcDirector.Gateway.Tests.Data;
 public sealed class FleetManagerEventOutcomeAnswerPostgresTests
 {
     private const string ConnectionEnvVar = "CC_GATEWAY_TEST_PG_CONNECTION";
-    private const string MigrationBefore = "20260917060010_RemoveAssistantSettings";
-    private const string MigrationUnderTest = "20260917120010_AddFleetManagerEventOutcomeAnswer";
+    private const string MigrationBefore = "20260917090509_RemoveAssistantSettings";
+    private const string MigrationUnderTest = "20260917090609_AddFleetManagerEventOutcomeAnswer";
 
     private sealed class RequiresPostgresFactAttribute : FactAttribute
     {

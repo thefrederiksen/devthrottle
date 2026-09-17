@@ -19,8 +19,8 @@ namespace CcDirector.Gateway.Tests.Data;
 /// </summary>
 public sealed class FleetManagerEventOutcomeAnswerMigrationTests
 {
-    private const string SqliteBefore = "20260917060000_RemoveAssistantSettings";
-    private const string SqliteUnderTest = "20260917120000_AddFleetManagerEventOutcomeAnswer";
+    private const string SqliteBefore = "20260917090500_RemoveAssistantSettings";
+    private const string SqliteUnderTest = "20260917090600_AddFleetManagerEventOutcomeAnswer";
 
     [Fact]
     public void AddFleetManagerEventOutcomeAnswer_FromEmpty_AddsTheColumnsAndKeepsAnEventStoredBefore()
@@ -77,8 +77,8 @@ public sealed class FleetManagerEventOutcomeAnswerMigrationTests
     /// and the provider's snapshot equals the model. Read with no database.
     /// </summary>
     [Theory]
-    [InlineData("sqlite", "20260917120000_AddFleetManagerEventOutcomeAnswer")]
-    [InlineData("postgres", "20260917120010_AddFleetManagerEventOutcomeAnswer")]
+    [InlineData("sqlite", "20260917090600_AddFleetManagerEventOutcomeAnswer")]
+    [InlineData("postgres", "20260917090609_AddFleetManagerEventOutcomeAnswer")]
     public void AddFleetManagerEventOutcomeAnswer_Designer_IsDiscoveredNewestAndCarriesTheCurrentModel(string provider, string id)
     {
         using var context = Context(provider);

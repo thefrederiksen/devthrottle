@@ -11,8 +11,8 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CcDirector.Gateway.Data.Migrations
 {
     [DbContext(typeof(GatewayDbContext))]
-    [Migration("20260917040637_AddFleetOutcomeAdvice")]
-    partial class AddFleetOutcomeAdvice
+    [Migration("20260917090500_RemoveAssistantSettings")]
+    partial class RemoveAssistantSettings
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -701,6 +701,86 @@ namespace CcDirector.Gateway.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("fleet_manager_owned_sessions", (string)null);
+                });
+
+            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FleetMessageEntity", b =>
+                {
+                    b.Property<string>("TenantId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("MessageId")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CorrelationId")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("InReplyToMessageId")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastRungAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ReadAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("RecipientSessionId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ReplyByUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("RingCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("SenderMachine")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SenderName")
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SenderSessionId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("StuckAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TextHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("TenantId", "MessageId");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "CreatedAtUtc");
+
+                    b.HasIndex("TenantId", "SenderSessionId", "CreatedAtUtc");
+
+                    b.HasIndex("TenantId", "RecipientSessionId", "ReadAtUtc", "CreatedAtUtc");
+
+                    b.ToTable("fleet_messages", (string)null);
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FleetOutcomeEntity", b =>
