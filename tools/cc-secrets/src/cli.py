@@ -409,9 +409,15 @@ def _folded(text: str) -> str:
 
 
 def commented_values(text: str) -> List[str]:
-    """Values on commented-out KEY=VALUE lines - old credentials are often kept that way."""
-    return [line.split("=", 1)[1] for line in (raw.strip() for raw in text.splitlines())
-            if line.startswith("#") and "=" in line]
+    """Values on commented-out KEY=VALUE lines - old credentials are often kept that way. Each comes both exactly
+    and trimmed: a comment is not parsed strictly, so '# OLD= value' means the value without the space (review of
+    pull request 2978)."""
+    found = []
+    for line in (raw.strip() for raw in text.splitlines()):
+        if line.startswith("#") and "=" in line:
+            value = line.split("=", 1)[1]
+            found.extend({value, value.strip()})
+    return found
 
 
 def check_keys_hold_no_secret(pairs: List[tuple], skipped: set, protected: List[str]) -> None:

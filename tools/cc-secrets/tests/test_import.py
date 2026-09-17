@@ -362,3 +362,20 @@ def test_Import_ASkippedSettingInsideACredentialKey_DoesNotBlockIt(store, tmp_pa
 
     assert result.exit_code == 0, _text(result)
     assert store.get("prod-api-key").secret.reveal() == secret
+
+
+def test_Import_AKeyHoldingACommentedValueWrittenWithASpace_IsRefused_AndNeverListedOrAudited(store, tmp_path):
+    # The review's case (847db16f): '# OLD= SECRET_KEY_77' - the space after '=' hid the value from the check.
+    old = "SECRET_KEY_77"
+    add_entry(store, name="older")
+    path = _env_file(tmp_path, [f"# OLD= {old}", f"{old}={new_secret()}"])
+
+    result = runner.invoke(cli.app, ["import", str(path), "--agents"])
+
+    assert result.exit_code != 0
+    assert "Line 2" in _text(result)
+    listed = runner.invoke(cli.app, ["list", "--json"])
+    assert "older" in listed.output, "list printed nothing, so this test shows nothing"
+    assert "secret-key-77" not in listed.output.lower()
+    audit = paths.audit_path()
+    assert "secret-key-77" not in (audit.read_text(encoding="utf-8").lower() if audit.exists() else "")
