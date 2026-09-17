@@ -358,6 +358,9 @@ def run(
     raise typer.Exit(result.exit_code if result.exit_code != 0 else (EXIT_FAILED if result.timed_out else 0))
 
 
+MIN_VALUE_IN_KEY = 4
+
+
 def register_env_file_values(text: str) -> None:
     """Hand every value of a KEY=VALUE file to the scrubber BEFORE the file is checked. A malformed line is then
     reported by its number alone, and any key that happens to be another line's value is hidden wherever it is
@@ -396,11 +399,22 @@ def parse_env_file(text: str) -> List[tuple]:
             raise InputError(f"Line {number}: the same key was already given on line {seen_keys[key]}.")
         name = entry_name_for_key(key)
         if name in seen_names:
-            raise InputError(f"Lines {seen_names[name]} and {number} would both become entry '{name}'. "
+            raise InputError(f"Lines {seen_names[name]} and {number} would both become the same entry name. "
                              "Rename one of the keys.")
         seen_keys[key] = number
         seen_names[name] = number
         pairs.append((number, key, value))
+    # A key becomes a public entry name and variable name, printed and audited. One that holds any value of the
+    # file - in any letter case, with - or _ - would carry that value there (review of pull request 2978).
+    def folded(text: str) -> str:
+        return text.lower().replace("-", "_")
+
+    values = [(number, folded(value)) for number, _, value in pairs if len(value) >= MIN_VALUE_IN_KEY]
+    for number, key, _ in pairs:
+        for value_line, value in values:
+            if value in folded(key):
+                raise InputError(f"Line {number}: the key contains the value given on line {value_line}. "
+                                 "Rename the key.")
     return pairs
 
 

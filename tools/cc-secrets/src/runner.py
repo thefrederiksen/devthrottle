@@ -126,7 +126,9 @@ def run_with_secrets(supplied: List[Tuple[Entry, str]], command: List[str], via:
     if len(supplied) > 1 and via != "env":
         raise InputError("Several entries can only be supplied with --via env, each in its own variable.")
     names = [env for _, env in supplied]
-    if len(set(names)) != len(names):
+    # Windows environment variable names ignore letter case: FOO_BAR and foo_bar are one variable there.
+    compared = [n.upper() for n in names] if sys.platform == "win32" else names
+    if len(set(compared)) != len(compared):
         raise InputError(f"Two entries would go into the same variable ({', '.join(names)}). Give each its own.")
     label = ",".join(entry.name for entry, _ in supplied)
     filelog.write(f"[runner] run_with_secrets: entries={label}, via={via}, program={Path(command[0]).name}")

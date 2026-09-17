@@ -256,7 +256,9 @@ def test_Import_DryRun_AKeyThatIsAlsoAValue_IsNotPrinted(store, tmp_path):
 
     result = runner.invoke(cli.app, ["import", str(path), "--agents", "--dry-run"])
 
-    assert "A_KEY" in _text(result), "the table did not print, so this test shows nothing"
+    # Refused outright now (a key holding a value would also leak through its entry name), by line number.
+    assert result.exit_code != 0
+    assert "Line 2" in _text(result), "the refusal did not print, so this test shows nothing"
     assert value not in _text(result)
 
 
@@ -268,7 +270,7 @@ def test_Import_TwoKeysBecomingTheSameEntry_AreRefused_AndNothingIsSaved(store, 
     dry = runner.invoke(cli.app, ["import", str(path), "--agents", "--dry-run", *extra])
 
     assert result.exit_code != 0 and dry.exit_code != 0
-    assert "api-key" in _text(result)
+    assert "Lines 1 and 2" in _text(result)
     assert store.entries() == []
 
 
@@ -285,3 +287,39 @@ def test_Import_AValueIsStoredExactly_AndSurroundingSpacesAreRefusedNotTrimmed(s
     result = runner.invoke(cli.app, ["import", str(exact), "--agents"])
     assert result.exit_code == 0, _text(result)
     assert store.get("inner").secret.reveal() == inner
+
+
+def test_Import_AKeyHoldingAnotherLinesValue_IsRefusedByLine_InEveryMode_AndNothingIsAudited(store, tmp_path):
+    # The review's case (de0f0259): the key becomes a public entry name (secret-key-77) that reveals the value.
+    value = "SECRET_KEY_77"
+    path = _env_file(tmp_path, [f"A_KEY={value}", f"{value}={new_secret()}", f"secret_key_77={new_secret()}"])
+    folded = value.lower().replace("_", "-")
+
+    for extra in ([], ["--dry-run"], ["--replace"]):
+        result = runner.invoke(cli.app, ["import", str(path), "--agents", *extra])
+        text = _text(result).lower()
+        assert result.exit_code != 0
+        assert "line" in text
+        assert folded not in text and value.lower() not in text
+
+    assert store.entries() == []
+    audit = paths.audit_path()
+    assert not audit.exists() or folded not in audit.read_text(encoding="utf-8").lower()
+    logged = "".join(f.read_text(encoding="utf-8") for f in paths.secrets_home().rglob("*.log")).lower()
+    assert folded not in logged and value.lower() not in logged
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows ignores letter case in variable names")
+def test_Run_TwoEntriesWhoseVariablesDifferOnlyInCase_AreRefusedOnWindows(store, tmp_path):
+    # The review's case: an entry without a variable name falls back to FOO_BAR; an imported foo_bar is the same
+    # variable on Windows, so one value would silently arrive under both.
+    add_entry(store, name="foo.bar")
+    _imported(store, tmp_path, [f"foo_bar={new_secret()}"])
+    marker = tmp_path / "ran.txt"
+
+    result = runner.invoke(cli.app, ["run", "foo.bar", "--with", "foo-bar", "--", PY, "-c",
+                                     f"open(r'{marker}', 'w').write('ran')"])
+
+    assert result.exit_code != 0
+    assert "same variable" in _text(result)
+    assert not marker.exists()
