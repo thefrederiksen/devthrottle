@@ -10,6 +10,7 @@ import { ensurePushSubscribed } from "@devthrottle/client-core/push/register";
 import { installGlobalErrorReporting } from "@devthrottle/client-core/errors/reportClientError";
 import { registerCockpitServiceWorker } from "./push/registerSw";
 import { AppShell } from "./AppShell";
+import { EmbedReportsView } from "./embed/EmbedReportsView";
 import { NotFound } from "./panes/NotFound";
 import { SessionsEmpty, SessionsView } from "./sessions/SessionsView";
 import { SessionDetail } from "./sessions/SessionDetail";
@@ -107,6 +108,14 @@ const router = createBrowserRouter(
     // cloud device key back - in the URL fragment only, never the query (issue #1082).
     { path: "/signin", element: <SignIn /> },
     { path: "/device-callback", element: <DeviceCallback /> },
+    // Ungated for a different reason, and the only route that is (dev reports mission, phase 4,
+    // issue #3019): one session's dev reports with no Cockpit chrome, for a HOST APPLICATION to embed.
+    // The Director shows it in a WebView2 pane and hands it the Director's own Gateway key over the
+    // WebView2 message bridge. It sits outside RequireDeviceKey because the browser profile behind that
+    // pane has never enrolled and never will - sending it to /signin would be sending it to a sign-in
+    // nobody can complete - and outside AppShell because the pane is the whole page: no rail, no tabs,
+    // no heading. It authenticates only on the host's key and renders nothing without one.
+    { path: "/embed/reports/:sessionId", element: <EmbedReportsView /> },
     // Gated: everything real requires an enrolled device key.
     {
       element: <RequireDeviceKey />,
