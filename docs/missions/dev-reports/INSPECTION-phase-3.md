@@ -76,8 +76,8 @@ answers afresh; the label does say exactly that, and no state is lost.
 
 ### Low 4 - private machine paths in committed evidence files
 
-Every viewer-proof evidence JSON records `"rigRoot": "C:\\Users\\soren\\AppData\\Local\\dev-report-proof-rig"`
-and the report keys under `c:\\users\\soren\\appdata\\...`, and `evidence/rig-2026-09-17.json` lists the
+Every viewer-proof evidence JSON recorded the rig root under the user profile folder (with the user name),
+and the report keys under that same folder, and `evidence/rig-2026-09-17.json` lists the
 rig processes' full image paths. The username-qualified profile path is now in the committed record of
 this repository. No evidence file on origin/main contains a machine path (checked the existing
 browser-proof evidence JSONs on main). Credentials ARE redacted: `run-proof.mjs` lines 104-115 replace the
