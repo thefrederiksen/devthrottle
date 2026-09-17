@@ -18,6 +18,7 @@ internal/vcs/gitvcs/gitvcs.go: the remote default branch read and the HEAD.lock-
 from __future__ import annotations
 
 import os
+import stat
 import time
 import uuid
 from dataclasses import dataclass
@@ -138,11 +139,17 @@ def git_metadata_dir(repo: Path, worktree: Path) -> Path:
     records = repo / ".git" / "worktrees"
     matches = []
     if records.is_dir():
-        for record in sorted(records.iterdir()):
+        try:
+            children = sorted(records.iterdir())
+        except OSError as ex:
+            raise cannot_verify(f"cannot list the worktree records in {records}: {ex}") from ex
+        for record in children:
+            # A record whose back-link cannot be read could be a second record naming this slot, so it is
+            # never skipped: missing, not a regular file, or unreadable is cannot verify.
             link = record / "gitdir"
-            if not link.is_file():
-                continue
             try:
+                if not stat.S_ISREG(link.stat().st_mode):
+                    raise cannot_verify(f"{link} is not a regular file, so it cannot be read")
                 text = link.read_text(encoding="utf-8").strip()
             except (OSError, UnicodeDecodeError) as ex:
                 raise cannot_verify(f"cannot read {link}: {ex}") from ex
