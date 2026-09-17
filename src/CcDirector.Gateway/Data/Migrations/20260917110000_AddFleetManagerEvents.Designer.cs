@@ -3,6 +3,7 @@ using System;
 using CcDirector.Gateway.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CcDirector.Gateway.Data.Migrations
 {
     [DbContext(typeof(GatewayDbContext))]
-    partial class GatewayDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260917110000_AddFleetManagerEvents")]
+    partial class AddFleetManagerEvents
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "9.0.2");
@@ -789,13 +792,6 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<int>("DeliveryCount")
                         .HasColumnType("INTEGER");
 
-                    b.Property<string>("Detail")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("DirectorId")
-                        .HasMaxLength(256)
-                        .HasColumnType("TEXT");
-
                     b.Property<string>("Kind")
                         .IsRequired()
                         .HasMaxLength(16)
@@ -804,9 +800,6 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<string>("NoVerdictReason")
                         .HasColumnType("TEXT");
 
-                    b.Property<bool>("ReadingPending")
-                        .HasColumnType("INTEGER");
-
                     b.Property<string>("SessionId")
                         .IsRequired()
                         .HasMaxLength(64)
@@ -814,9 +807,6 @@ namespace CcDirector.Gateway.Data.Migrations
 
                     b.Property<string>("SessionName")
                         .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("StopObservedAtUtc")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("TenantId")
@@ -871,56 +861,6 @@ namespace CcDirector.Gateway.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("fleet_manager_marks", (string)null);
-                });
-
-            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FleetManagerOwnedSessionEntity", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("DirectorId")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("EndedAtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("FirstSeenAliveUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("FleetManagerSessionId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("LastSeenAliveUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("SessionId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("SessionName")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("TenantId")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("tenant_id");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TenantId");
-
-                    b.HasIndex("TenantId", "EndedAtUtc");
-
-                    b.HasIndex("TenantId", "SessionId")
-                        .IsUnique();
-
-                    b.ToTable("fleet_manager_owned_sessions", (string)null);
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FleetMessageEntity", b =>

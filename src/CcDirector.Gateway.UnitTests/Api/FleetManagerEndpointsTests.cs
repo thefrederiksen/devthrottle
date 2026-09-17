@@ -34,7 +34,8 @@ public sealed class FleetManagerEndpointsTests : IDisposable
     private const string FleetManager = "10000000-0000-4000-8000-000000000001";
     private static readonly string OwnedWorking = "10000000-0000-4000-8000-000000000002";
     private static readonly string OwnedStopped = "10000000-0000-4000-8000-000000000003";
-    private static readonly string NotOwned = "10000000-0000-4000-8000-000000000004";
+    private const string NotOwnedConst = "10000000-0000-4000-8000-000000000004";
+    private static readonly string NotOwned = NotOwnedConst;
     private static readonly string OwnedExited = "10000000-0000-4000-8000-000000000005";
     private static readonly string FormerFleetManager = "10000000-0000-4000-8000-000000000006";
     private static readonly string OwnedByFormer = "10000000-0000-4000-8000-000000000007";
@@ -53,6 +54,8 @@ public sealed class FleetManagerEndpointsTests : IDisposable
     private readonly TurnVerdictStore _verdicts;
     private readonly FleetManagerMarkHistory _marks;
     private readonly Dictionary<TenantId, string?> _marked = new() { [TenantA] = FleetManager, [TenantB] = null };
+    private readonly FleetManagerEventStore _events;
+    private readonly Dictionary<TenantId, string> _deliveryNotes = new();
 
     public FleetManagerEndpointsTests()
     {
@@ -62,6 +65,7 @@ public sealed class FleetManagerEndpointsTests : IDisposable
         _preferences = new FleetPreferenceStore(_harness.Open());
         _verdicts = new TurnVerdictStore(_harness.Open());
         _marks = new FleetManagerMarkHistory(_harness.Open());
+        _events = new FleetManagerEventStore(_harness.Open());
         SeedFleet();
     }
 
@@ -137,11 +141,12 @@ public sealed class FleetManagerEndpointsTests : IDisposable
         FoldedRoster: tenant => GatewayEndpoints.FoldedAccountRoster(_registry, _pushed, tenant, null, null, null, null),
         SessionInAccount: (tenant, sid) => _pushed.TryLocateIgnoringFreshness(tenant, sid) is not null,
         LatestVerdict: (tenant, sid) => _verdicts.Latest(tenant, sid),
-        FormerFleetManagers: tenant => _marks.List(tenant).Select(m => m.SessionId).ToList());
+        FormerFleetManagers: tenant => _marks.List(tenant).Select(m => m.SessionId).ToList(),
+        EventsDeliveryNote: tenant => _deliveryNotes.TryGetValue(tenant, out var note) ? note : null);
 
     private IResult Digest(TenantId? tenant, string? caller, string session)
         => FleetManagerEndpoints.Digest(Request(tenant, caller, query: "session=" + session),
-            ResolveTenant, Access(), _outcomes, _preferences, Sources());
+            ResolveTenant, Access(), _outcomes, _preferences, Sources(), _events);
 
     private async Task<FleetOutcomeDto> FileAsync(TenantId tenant, FleetOutcomeFileRequest request, string caller = FleetManager)
     {
@@ -702,9 +707,367 @@ public sealed class FleetManagerEndpointsTests : IDisposable
     public void Digest_MissingOrMalformedSession_Is400(string query, string expected)
     {
         var result = FleetManagerEndpoints.Digest(Request(TenantA, Owner, query: query),
-            ResolveTenant, Access(), _outcomes, _preferences, Sources());
+            ResolveTenant, Access(), _outcomes, _preferences, Sources(), _events);
 
         Assert.Equal(StatusCodes.Status400BadRequest, Status(result));
         Assert.StartsWith(expected, (string)Field(result, "error")!);
+    }
+
+    // ---- events (step 4) ---------------------------------------------------------------------------------
+
+    private FleetManagerEventDto Stop(TenantId tenant, string sid, TurnVerdictDto? verdict = null)
+    {
+        Assert.NotNull(_events.RecordStop(tenant,
+            new FleetManagerStopSighting(sid, "a session " + sid, FleetManager, "director-a", DateTime.UtcNow, IsCatchUp: false),
+            DateTime.UtcNow));
+        var (_, events) = _events.AttachReading(tenant, sid, verdict,
+            verdict is null ? "this account's Wingman judge switch is off" : null, owner: null, DateTime.UtcNow);
+        return Assert.Single(events);
+    }
+
+    private IResult ListEvents(TenantId tenant, string? caller, string query = "")
+        => FleetManagerEndpoints.ListEvents(Request(tenant, caller, query: query), ResolveTenant, Access(), _events,
+            Sources().EventsDeliveryNote);
+
+    private FleetManagerEventListDto Events(TenantId tenant, string query = "", string? caller = Owner)
+    {
+        var result = ListEvents(tenant, caller, query);
+        Assert.Equal(StatusCodes.Status200OK, Status(result));
+        return Body<FleetManagerEventListDto>(result);
+    }
+
+    private async Task<IResult> AckAsync(TenantId tenant, object body, string? caller = FleetManager)
+        => await FleetManagerEndpoints.AcknowledgeEventsAsync(Request(tenant, caller, body), ResolveTenant, Access(), _events);
+
+    [Fact]
+    public async Task Ack_RemovesTheEventFromTheDigestAndFromTheDefaultList_ButAllStillShowsIt()
+    {
+        var first = Stop(TenantA, OwnedStopped, Verdict("verdict-a"));
+        var second = Stop(TenantA, OwnedWorking);
+
+        var before = Body<FleetDigestDto>(Digest(TenantA, FleetManager, FleetManager));
+        Assert.Equal(new[] { first.Id, second.Id }, before.Events.Select(e => e.Id));
+        Assert.Equal("Shall I publish the change now?", before.Events[0].Verdict!.Evidence);
+
+        var result = await AckAsync(TenantA, new { ids = new[] { first.Id } });
+
+        Assert.Equal(StatusCodes.Status200OK, Status(result));
+        var ack = Body<FleetManagerEventAckDto>(result);
+        Assert.Equal(1, ack.Acknowledged);
+        Assert.Equal(new[] { first.Id }, ack.Ids);
+        var after = Body<FleetDigestDto>(Digest(TenantA, FleetManager, FleetManager));
+        Assert.Equal(new[] { second.Id }, after.Events.Select(e => e.Id));
+        Assert.Equal(new[] { second.Id }, Events(TenantA, caller: FleetManager).Events.Select(e => e.Id));
+        var all = Events(TenantA, "status=all");
+        Assert.Equal(2, all.Count);
+        Assert.NotNull(all.Events.Single(e => e.Id == first.Id).AcknowledgedAtUtc);
+    }
+
+    /// <summary>ACKNOWLEDGING ALL CLOSES ONLY WHAT THIS SESSION WAS SENT. An event not yet delivered, or delivered to
+    /// another Fleet Manager session, stays open.</summary>
+    [Fact]
+    public async Task Ack_All_AcknowledgesOnlyTheEventsDeliveredToTheCallingSession()
+    {
+        var sent = Stop(TenantA, OwnedStopped);
+        var sentElsewhere = Stop(TenantA, OwnedWorking);
+        var notSent = Stop(TenantA, OwnedExited);
+        var other = Stop(TenantB, OtherAccountSession);
+        _events.MarkDelivered(TenantA, new[] { Guid.Parse(sent.Id) }, FleetManager, DateTime.UtcNow);
+        _events.MarkDelivered(TenantA, new[] { Guid.Parse(sentElsewhere.Id) }, FormerFleetManager, DateTime.UtcNow);
+        _events.MarkDelivered(TenantB, new[] { Guid.Parse(other.Id) }, FleetManager, DateTime.UtcNow);
+
+        var ack = Body<FleetManagerEventAckDto>(await AckAsync(TenantA, new { all = true }));
+
+        Assert.Equal(new[] { sent.Id }, ack.Ids);
+        Assert.Equal(new[] { sentElsewhere.Id, notSent.Id }, Events(TenantA).Events.Select(e => e.Id));
+        Assert.Equal(1, Events(TenantB).Count);
+    }
+
+    /// <summary>ONLY THE MARKED FLEET MANAGER ACKNOWLEDGES: another session of the same account, the owner's device
+    /// and a Director's key are each refused with a reason, and nothing is closed.</summary>
+    [Theory]
+    [InlineData(NotOwnedConst, "is not it")]
+    [InlineData(Owner, "the owner does not acknowledge events")]
+    [InlineData(DirectorKey, "credential")]
+    public async Task Ack_AnyoneButTheMarkedFleetManager_IsRefusedWithAReason(string caller, string reason)
+    {
+        var sent = Stop(TenantA, OwnedStopped);
+        _events.MarkDelivered(TenantA, new[] { Guid.Parse(sent.Id) }, FleetManager, DateTime.UtcNow);
+
+        var byId = await AckAsync(TenantA, new { ids = new[] { sent.Id } }, caller);
+        var all = await AckAsync(TenantA, new { all = true }, caller);
+
+        foreach (var result in new[] { byId, all })
+        {
+            Assert.Equal(StatusCodes.Status403Forbidden, Status(result));
+            Assert.Equal("not_fleet_manager", Field(result, "code"));
+            Assert.Contains(reason, (string)Field(result, "error")!);
+        }
+        Assert.Equal(new[] { sent.Id }, Events(TenantA).Events.Select(e => e.Id));
+    }
+
+    [Fact]
+    public void ListEvents_AnotherSessionOfTheAccount_IsRefused()
+    {
+        Stop(TenantA, OwnedStopped);
+
+        var result = ListEvents(TenantA, NotOwned);
+
+        Assert.Equal(StatusCodes.Status403Forbidden, Status(result));
+        Assert.Equal("not_fleet_manager", Field(result, "code"));
+    }
+
+    [Fact]
+    public async Task AnotherAccount_CannotReadOrAcknowledge_AndAMixedAckChangesNothing()
+    {
+        var mine = Stop(TenantA, OwnedStopped, Verdict("verdict-mine"));
+
+        Assert.Equal(0, Events(TenantB, "status=all").Count);
+
+        // Account B has no Fleet Manager marked, so the same session id is refused there before any lookup.
+        var foreign = await AckAsync(TenantB, new { ids = new[] { mine.Id } });
+        Assert.Equal(StatusCodes.Status403Forbidden, Status(foreign));
+
+        // One good id and one unknown: refused by name, and the good one is NOT acknowledged.
+        var unknown = Guid.NewGuid().ToString();
+        var mixed = await AckAsync(TenantA, new { ids = new[] { mine.Id, unknown } });
+        Assert.Equal(StatusCodes.Status404NotFound, Status(mixed));
+        Assert.Contains(unknown, (string)Field(mixed, "error")!);
+        Assert.Equal(new[] { mine.Id }, Events(TenantA).Events.Select(e => e.Id));
+    }
+
+    [Theory]
+    [InlineData("{}", "give the event ids to acknowledge, or all: true")]
+    [InlineData("{\"ids\":[\"abc\"]}", "'abc' is not an id")]
+    [InlineData("{\"all\":true,\"ids\":[\"5b1c2d3e-0000-4000-8000-000000000001\"]}", "give either ids or all, not both")]
+    public async Task Ack_BadBody_Is400(string body, string expected)
+    {
+        var result = await AckAsync(TenantA, body);
+
+        Assert.Equal(StatusCodes.Status400BadRequest, Status(result));
+        Assert.StartsWith(expected, (string)Field(result, "error")!);
+    }
+
+    [Fact]
+    public void ListEvents_BadStatus_Is400NamingTheValidValues()
+    {
+        var result = ListEvents(TenantA, Owner, "status=open");
+
+        Assert.Equal(StatusCodes.Status400BadRequest, Status(result));
+        Assert.Equal("status 'open' is not valid; use one of: unacknowledged, all", Field(result, "error"));
+    }
+
+    /// <summary>The reading is served to the Fleet Manager whatever the colour switch says, as the digest is.</summary>
+    [Fact]
+    public void ListEvents_TheFleetManager_IsServedTheReading()
+    {
+        Stop(TenantA, OwnedStopped, Verdict("verdict-event"));
+
+        var asSession = Assert.Single(Events(TenantA, caller: FleetManager).Events);
+
+        Assert.Equal("verdict-event", asSession.Verdict!.VerdictId);
+    }
+    // ---- a stop waiting for its reading, and paging (step 4 fixes, round 3) -----------------------------
+
+    private FleetManagerEventDto PendingStop(TenantId tenant, string sid)
+    {
+        var e = _events.RecordStop(tenant,
+            new FleetManagerStopSighting(sid, "a session " + sid, FleetManager, "director-a", DateTime.UtcNow, IsCatchUp: false),
+            DateTime.UtcNow);
+        Assert.NotNull(e);
+        Assert.True(e!.ReadingPending);
+        return e;
+    }
+
+    /// <summary>Deaths of distinct sessions, stored at moments where every third shares the moment before it, so the id
+    /// has to break the tie. Returned in the order they were stored; within one moment the Gateway's order is its own.</summary>
+    private List<FleetManagerEventDto> Deaths(TenantId tenant, int n)
+    {
+        var t0 = new DateTime(2026, 9, 16, 8, 0, 0, DateTimeKind.Utc);
+        var stored = new List<FleetManagerEventDto>();
+        for (var i = 0; i < n; i++)
+        {
+            var at = t0.AddSeconds(i - i / 3);
+            var e = _events.RecordDeath(tenant, new FleetManagerDeath(Guid.NewGuid().ToString(), "dead " + i, FleetManager,
+                "director-a", Crashed: false, "it exited"), at);
+            stored.Add(Assert.IsType<FleetManagerEventDto>(e));
+        }
+        return stored;
+    }
+
+    /// <summary>A STOP WAITING FOR ITS READING IS SHOWN AS WAITING, AND CANNOT BE ACKNOWLEDGED. The digest and the event
+    /// list both carry it with the Gateway's words for that, and an acknowledgement that names it is refused by name
+    /// with the reason - and closes nothing else it named either.</summary>
+    [Fact]
+    public async Task Ack_AStopWaitingForItsReading_IsRefusedWithTheReason_AndNothingIsAcknowledged()
+    {
+        var settled = Stop(TenantA, OwnedStopped, Verdict("verdict-settled"));
+        var waiting = PendingStop(TenantA, OwnedWorking);
+
+        var digest = Body<FleetDigestDto>(Digest(TenantA, FleetManager, FleetManager));
+        var shown = digest.Events.Single(e => e.Id == waiting.Id);
+        Assert.True(shown.ReadingPending);
+        Assert.Equal(FleetManagerEventStore.PendingNote, shown.ReadingNote);
+        Assert.Contains("cannot be acknowledged", shown.ReadingNote);
+        Assert.Null(digest.Events.Single(e => e.Id == settled.Id).ReadingNote);
+        Assert.Equal(1, digest.EventsWaitingForReading);
+        Assert.Equal(FleetManagerEventStore.PendingNote,
+            Events(TenantA, caller: FleetManager).Events.Single(e => e.Id == waiting.Id).ReadingNote);
+
+        var result = await AckAsync(TenantA, new { ids = new[] { settled.Id, waiting.Id } });
+
+        Assert.Equal(StatusCodes.Status409Conflict, Status(result));
+        Assert.Equal("reading_pending", Field(result, "code"));
+        var error = (string)Field(result, "error")!;
+        Assert.Contains(waiting.Id, error);
+        Assert.Contains("still waiting for the Wingman's reading", error);
+        Assert.Contains("after 5 minutes", error);
+        Assert.Equal(new[] { settled.Id, waiting.Id }, Events(TenantA).Events.Select(e => e.Id));
+
+        // Once its reading is stored, the same acknowledgement is accepted.
+        _events.AttachReading(TenantA, OwnedWorking, Verdict("verdict-late"), null, owner: null, DateTime.UtcNow);
+        var again = Body<FleetManagerEventAckDto>(await AckAsync(TenantA, new { ids = new[] { settled.Id, waiting.Id } }));
+        Assert.Equal(2, again.Acknowledged);
+    }
+
+    /// <summary>EVERY UNACKNOWLEDGED EVENT IS REACHABLE PAST 200: the list pages oldest first with an opaque cursor,
+    /// counts every event, and an acknowledgement between pages skips nothing and repeats nothing.</summary>
+    [Fact]
+    public void ListEvents_MoreThan200Unacknowledged_EveryOneIsReachedOnce_ByTheCursor()
+    {
+        var stored = Deaths(TenantA, 205);
+
+        var first = Events(TenantA, "count=200", FleetManager);
+        Assert.Equal((200, 205, true), (first.Count, first.Total, first.HasMore));
+        Assert.NotNull(first.NextCursor);
+        // The 200th and 201st were stored at different moments, so the first page is exactly the oldest 200.
+        Assert.NotEqual(stored[199].CreatedAtUtc, stored[200].CreatedAtUtc);
+        Assert.Equal(stored.Take(200).Select(e => e.Id).OrderBy(x => x), first.Events.Select(e => e.Id).OrderBy(x => x));
+        AssertOldestFirst(first.Events);
+
+        // Acknowledged between pages: the next page is not shifted by it.
+        _events.MarkDelivered(TenantA, new[] { Guid.Parse(first.Events[0].Id) }, FleetManager, DateTime.UtcNow);
+        _events.Acknowledge(TenantA, new[] { Guid.Parse(first.Events[0].Id) }, false, null, DateTime.UtcNow);
+
+        var second = Events(TenantA, "count=200&cursor=" + first.NextCursor, FleetManager);
+        Assert.Equal((5, 204, false), (second.Count, second.Total, second.HasMore));
+        Assert.Null(second.NextCursor);
+        Assert.Equal(stored.Skip(200).Select(e => e.Id).OrderBy(x => x), second.Events.Select(e => e.Id).OrderBy(x => x));
+        AssertOldestFirst(second.Events);
+    }
+
+    private static void AssertOldestFirst(IReadOnlyList<FleetManagerEventDto> events)
+    {
+        for (var i = 1; i < events.Count; i++)
+            Assert.True(events[i - 1].CreatedAtUtc <= events[i].CreatedAtUtc, $"event {i} is older than the one before it");
+    }
+
+    /// <summary>Small pages, each boundary inside a run of events stored at the same moment: the id breaks the tie,
+    /// and every event is still reached exactly once.</summary>
+    [Fact]
+    public void ListEvents_PagesThatSplitEventsStoredAtOneMoment_ReachEveryEventOnce()
+    {
+        var stored = Deaths(TenantA, 20);
+
+        var seen = new List<FleetManagerEventDto>();
+        string? cursor = null;
+        do
+        {
+            var page = Events(TenantA, "count=2" + (cursor is null ? "" : "&cursor=" + cursor), FleetManager);
+            seen.AddRange(page.Events);
+            cursor = page.NextCursor;
+        } while (cursor is not null);
+
+        Assert.Equal(stored.Select(e => e.Id).OrderBy(x => x), seen.Select(e => e.Id).OrderBy(x => x));
+        Assert.Equal(20, seen.Select(e => e.Id).Distinct().Count());
+        AssertOldestFirst(seen);
+    }
+
+    /// <summary>The history pages newest first, and reaches every event.</summary>
+    [Fact]
+    public void ListEvents_All_PagesNewestFirst_AndReachesEveryEvent()
+    {
+        var stored = Deaths(TenantA, 7);
+
+        var seen = new List<FleetManagerEventDto>();
+        string? cursor = null;
+        do
+        {
+            var page = Events(TenantA, "status=all&count=3" + (cursor is null ? "" : "&cursor=" + cursor));
+            Assert.Equal(7, page.Total);
+            seen.AddRange(page.Events);
+            cursor = page.NextCursor;
+            Assert.Equal(cursor is not null, page.HasMore);
+        } while (cursor is not null);
+
+        Assert.Equal(stored.Select(e => e.Id).OrderBy(x => x), seen.Select(e => e.Id).OrderBy(x => x));
+        Assert.Equal(7, seen.Select(e => e.Id).Distinct().Count());
+        for (var i = 1; i < seen.Count; i++)
+            Assert.True(seen[i - 1].CreatedAtUtc >= seen[i].CreatedAtUtc, $"event {i} is newer than the one before it");
+    }
+
+    [Fact]
+    public void ListEvents_ACursorNotIssuedForThatStatus_OrEmpty_Is400()
+    {
+        Deaths(TenantA, 3);
+        var cursor = Events(TenantA, "count=1").NextCursor!;
+
+        var otherStatus = ListEvents(TenantA, Owner, "status=all&cursor=" + cursor);
+        var forged = ListEvents(TenantA, Owner, "cursor=not-a-cursor");
+        var empty = ListEvents(TenantA, Owner, "cursor=");
+
+        Assert.Equal(StatusCodes.Status400BadRequest, Status(otherStatus));
+        Assert.Contains("is not one this Gateway issued for status all", (string)Field(otherStatus, "error")!);
+        Assert.Equal(StatusCodes.Status400BadRequest, Status(forged));
+        Assert.Equal(StatusCodes.Status400BadRequest, Status(empty));
+        Assert.StartsWith("cursor is empty", (string)Field(empty, "error")!);
+    }
+
+    /// <summary>THE DIGEST SAYS WHEN MORE EVENTS REMAIN: it carries the oldest 200, the database's count of all of them,
+    /// and the cursor that reaches the rest.</summary>
+    [Fact]
+    public void Digest_MoreThan200Events_CarriesTheOldestPage_AndSaysMoreRemain_WithTheCursor()
+    {
+        var stored = Deaths(TenantA, 203);
+
+        var digest = Body<FleetDigestDto>(Digest(TenantA, FleetManager, FleetManager));
+
+        Assert.Equal(stored.Take(200).Select(e => e.Id).OrderBy(x => x), digest.Events.Select(e => e.Id).OrderBy(x => x));
+        Assert.Equal((203, true), (digest.EventsTotal, digest.EventsHasMore));
+        var rest = Events(TenantA, "cursor=" + digest.EventsNextCursor, FleetManager);
+        Assert.Equal(stored.Skip(200).Select(e => e.Id).OrderBy(x => x), rest.Events.Select(e => e.Id).OrderBy(x => x));
+        Assert.False(rest.HasMore);
+    }
+
+    [Fact]
+    public void Digest_200OrFewerEvents_SaysNoneRemain()
+    {
+        Deaths(TenantA, 200);
+
+        var digest = Body<FleetDigestDto>(Digest(TenantA, FleetManager, FleetManager));
+
+        Assert.Equal((200, 200, false), (digest.Events.Count, digest.EventsTotal, digest.EventsHasMore));
+        Assert.Null(digest.EventsNextCursor);
+    }
+
+    /// <summary>
+    /// WHY THE EVENTS ARE WAITING, IN THE GATEWAY'S WORDS (round 2, finding 1): when the Fleet Manager's events are held
+    /// back by the owner's unsent text, the digest and the events list carry the Gateway's sentence, for the account it
+    /// belongs to only. With nothing held back, there is none.
+    /// </summary>
+    [Fact]
+    public void DigestAndEvents_CarryTheGatewaysDeliveryNote_ForTheirAccountOnly()
+    {
+        Deaths(TenantA, 1);
+        Assert.Null(Body<FleetDigestDto>(Digest(TenantA, FleetManager, FleetManager)).EventsDeliveryNote);
+        Assert.Null(Events(TenantA, "", FleetManager).DeliveryNote);
+
+        const string note = "The Fleet Manager has your unsent text; 1 event is waiting. It is sent after you send your text.";
+        _deliveryNotes[TenantA] = note;
+
+        Assert.Equal(note, Body<FleetDigestDto>(Digest(TenantA, FleetManager, FleetManager)).EventsDeliveryNote);
+        Assert.Equal(note, Body<FleetDigestDto>(Digest(TenantA, Owner, FleetManager)).EventsDeliveryNote);
+        Assert.Equal(note, Events(TenantA, "", FleetManager).DeliveryNote);
+        Assert.Null(Events(TenantB, "", Owner).DeliveryNote);
     }
 }

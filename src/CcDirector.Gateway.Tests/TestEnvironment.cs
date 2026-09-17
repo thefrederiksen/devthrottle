@@ -34,6 +34,8 @@ internal static class TestEnvironment
     internal static void Init()
     {
         CcDirector.Gateway.Briefing.TurnEndWatcher.SweepEnabled = false;
+        // The same isolation for the Fleet Manager events reconcile: a host test decides when it runs.
+        CcDirector.Gateway.Fleet.FleetManagerEventSweep.Enabled = false;
         Environment.SetEnvironmentVariable("CC_GATEWAY_NO_TAILSCALE", "1");
 
         // Issue #322: pin the Director instance-discovery directory to a throwaway per-process temp

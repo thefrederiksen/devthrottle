@@ -664,13 +664,15 @@ COMMANDS:
   session whoami   Show this session's own fleet identity.
   session rename   Rename a session, defaulting to the current session.
   session spawn    Open a new session - here, on another computer, or on one named Director.
-  session report   Tell the session that owns you what you did, at the end of your turn.
+  session report   Tell the session that owns you what you did, at the end of your turn
+                   (sends nothing when a Fleet Manager owns you: the Gateway tells it).
   director list    List every Director this account runs, with the id --director accepts.
   mission list     List the missions on the Gateway, active ones by default.
   fleet digest     Everything the Fleet Manager reads at the start of a conversation.
   fleet ready      File a Ready record (also: fleet finding, fleet decision).
   fleet outcomes   List the account's outcome records (also: fleet show, fleet answer).
   fleet prefer     Keep a standing preference (also: fleet preferences, fleet forget).
+  fleet events     List the stops and deaths of sessions the Fleet Manager owns (also: fleet ack).
   message send     Queue a message for your supervisor or a worker ('all' for every worker).
   message inbox    Read your unread messages in full, which marks them read.
   fleet-manager    Show, set, or clear which session is this account's one Fleet Manager.
@@ -1096,8 +1098,8 @@ its name, machine and id on the clipboard, for pasting to an agent.
 
 ### Fleet Manager
 
-The Fleet Manager's stored news, the owner's standing preferences, and the one digest it reads at the
-start of every conversation. All of it is kept on the Gateway and belongs to the account, so a
+The Fleet Manager's stored news, the owner's standing preferences, the one digest it reads at the
+start of every conversation, and the events about the sessions it owns. All of it is kept on the Gateway and belongs to the account, so a
 restarted or moved Fleet Manager reads back exactly what the old one filed. A record stays open until
 it is answered, and an answer is final.
 
@@ -1124,6 +1126,9 @@ USAGE: cc-devthrottle fleet answer ID "<the owner's words, exactly>" [--json]
 USAGE: cc-devthrottle fleet prefer "<preference, verbatim>" [--json]
 USAGE: cc-devthrottle fleet preferences [--json]
 USAGE: cc-devthrottle fleet forget ID [--json]
+USAGE: cc-devthrottle fleet events [--all] [--count/-n 1-200] [--cursor <nextCursor>] [--every-page] [--json]
+USAGE: cc-devthrottle fleet ack ID [ID ...] [--json]
+USAGE: cc-devthrottle fleet ack --all [--json]
 ```
 
 WHO MAY RUN THEM. Only the account's marked Fleet Manager session (`cc-devthrottle fleet-manager
@@ -1156,9 +1161,63 @@ the Fleet Manager, or two Gateway instances - exactly one answer is kept, and th
 (409, `already_answered`). The record keeps who answered (`answeredByRole`: `owner` or
 `fleet-manager`). A decision's answer need not be one of its options; the record says whether it was.
 
+`fleet events` lists the events about sessions a Fleet Manager owns - a `stop` (with the Wingman's
+reading of it, or why there is none) or a `died` (exited or crashed). By default only the
+unacknowledged ones, oldest first; `--all` includes acknowledged ones, newest first. One page at a
+time, exactly as `fleet outcomes` pages: past the page the count line says `count: <shown> of
+<total>`, the next line is `nextCursor: <cursor>`, and the help names `--cursor <cursor>` for the next
+page; `--every-page` follows every page. A cursor is issued for one of the two lists and is refused
+(400) for the other. A stop still waiting for the Wingman's reading is listed with verdict `waiting`
+and the Gateway's sentence saying so; it is not delivered and cannot be acknowledged until its reading
+is stored - or, after 5 minutes without one, until it is given the reason there is none and delivered
+as that. A reading that ends as `cannot-tell` or fails is delivered as that. The Gateway also delivers them to the
+Fleet Manager itself: one prompt, starting `[Fleet Manager events]`, at its own turn end or a few
+seconds after an event arrives while it is idle - and typed only if the Director finds the Fleet
+Manager waiting for a prompt at that moment. It is refused while the owner has typed text into the
+Fleet Manager and not sent it: nothing is typed after the owner's words, and the events wait until the
+owner sends them. The Director counts the draft from the owner's first typed character until it sees a
+submission - an Enter or a sent prompt; rubbing the text out with Backspace, or the Fleet Manager
+working, does not clear it. The Director then holds the session's input from that check until the
+prompt's Enter, at most 5 seconds: anything the owner types meanwhile is written after it, in order, so
+the owner's Enter can never submit the event text. A send that cannot finish in that time is abandoned,
+the text it typed is removed from the composer, and it counts as refused. The 5-second bound holds
+for every Fleet Manager that is sent events, because they are sent only to a terminal session, whose
+text is written a character at a time; a session whose terminal submits a whole turn in one call
+(embedded, pipe or studio) cannot take that call back once started, so it is sent no events and each
+attempt is refused with that reason. A refused send leaves the events for the Fleet Manager's next idle
+moment. When events are held back for the owner's unsent text or for such a terminal, `fleet events`
+prints `deliveryNote:` and `fleet digest` prints `eventsDeliveryNote:` with the Gateway's sentence
+(JSON: `deliveryNote`, `eventsDeliveryNote`); otherwise neither line is printed. A Director too old to make that check is sent
+nothing, and an answer that does not say the check was made does not count as a delivery.
+One prompt carries at most 200 events, the oldest owed; it says how many more wait, and those are sent
+at the next idle moment. Delivery is at least once: every event carries its id, the same event can be sent again (a Gateway
+that stops between typing and saving the delivery), and the Fleet Manager ignores an id it has
+already handled. A stop is stored the moment it is seen and delivered once the Wingman's reading (or
+the reason there is none) is attached; a death is stored when an owned session exits, crashes or is
+removed, when a connected Director that has reported its sessions leaves it out, or when its Director
+shut down - never while its Director is only disconnected or silent, however long, and never while
+another Director reports it running. `fleet ack` takes full ids
+or the start of each (matched against every event, every page followed), or `--all`, which closes
+only the events delivered to the calling session; if one id is not an event of this account, or is a
+stop still waiting for its reading (409, `reading_pending`), nothing is acknowledged. Only the
+account's marked Fleet Manager session may acknowledge. `fleet digest` lists the oldest 200
+unacknowledged events too, says `events: <shown> of <total> unacknowledged` and how many wait for
+their reading, and when more remain prints `eventsMoreRemain:` with the `fleet events --cursor`
+command that reaches them (JSON: `eventsTotal`, `eventsWaitingForReading`, `eventsHasMore`,
+`eventsNextCursor`). Pull request and
+report events are not built yet (a later part of phase 1).
+
+`session report` from a session a Fleet Manager owns sends nothing and says so: the Gateway tells the
+Fleet Manager. Whether the owner is a Fleet Manager is the roster row's `ownedByFleetManager`, which
+the Gateway works out.
+
 Gateway routes: `/gateway/fleet-manager/outcomes` (GET, POST), `/outcomes/{id}` (GET),
 `/outcomes/{id}/answer` (POST, 409 when already answered), `/preferences` (GET, POST),
-`/preferences/{id}` (DELETE), `/digest?session=<id>` (GET). `GET /outcomes` takes `status`, `kind`,
+`/preferences/{id}` (DELETE), `/digest?session=<id>` (GET),
+`/events?status=unacknowledged|all&count=&cursor=` (GET, answering `count`, `total`, `hasMore`,
+`nextCursor` and `events`), `/events/ack` (POST `{ ids: [...] }` or
+`{ all: true }`, 404 naming any unknown id, 409 `reading_pending` naming a stop still waiting for its reading; only the Fleet Manager's own session key may acknowledge, and
+`all` closes only the events delivered to that session). `GET /outcomes` takes `status`, `kind`,
 `count` and `cursor`, and answers `count` (this page), `total` (every match, counted by the Gateway),
 `hasMore`, `nextCursor` (null on the last page) and `outcomes`. A cursor the Gateway did not issue is
 refused with 400. A refused caller gets 403 with

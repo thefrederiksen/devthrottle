@@ -51,7 +51,7 @@ public sealed class SkillStoreTests : IDisposable
 
         var skills = store.ListPublished();
 
-        Assert.Equal(new[] { "dev-throttle", "fleet-comms", "move-session", "terminology" },
+        Assert.Equal(new[] { "dev-throttle", "fleet-comms", "move-session", "terminology", "fleet-manager" },
             skills.Select(s => s.Id).ToArray());
         Assert.All(skills, s =>
         {
@@ -73,11 +73,11 @@ public sealed class SkillStoreTests : IDisposable
         var store = new SkillStore(_h.Open());
 
         var skills = store.ListPublished();
-        Assert.Equal(4, skills.Count);
+        Assert.Equal(5, skills.Count);
         Assert.All(skills, s => Assert.Equal(1, s.Version));
 
         using var ctx = _h.Open().CreateContext();
-        Assert.Equal(4, ctx.SkillVersions.Count());
+        Assert.Equal(5, ctx.SkillVersions.Count());
     }
 
     [Fact]
@@ -86,12 +86,73 @@ public sealed class SkillStoreTests : IDisposable
         _ = new SkillStore(_h.Open());
 
         using var ctx = _h.Open().CreateContext();
-        foreach (var id in new[] { "dev-throttle", "fleet-comms", "move-session", "terminology" })
+        foreach (var id in new[] { "dev-throttle", "fleet-comms", "move-session", "terminology", "fleet-manager" })
         {
             var version = ctx.SkillVersions.Single(v => v.SkillId == id);
             Assert.Equal(BuiltInSkills.BodyFor(id), version.BodyMarkdown);
             Assert.Equal(SkillVersionStatus.Published, version.Status);
         }
+    }
+
+    [Fact]
+    public void Every_built_in_ships_a_non_empty_body()
+    {
+        // The comparison above cannot see an empty resource: the shipped body and the stored row would
+        // both be empty, and every session's briefing would point at a skill that says nothing.
+        var ids = BuiltInSkills.All().Select(s => s.Id).ToArray();
+        Assert.Contains("fleet-manager", ids);
+
+        foreach (var id in ids)
+            Assert.False(string.IsNullOrWhiteSpace(BuiltInSkills.BodyFor(id)),
+                $"Built-in skill '{id}' ships an empty body.");
+    }
+
+    [Fact]
+    public void Fleet_manager_skill_acknowledges_events_by_id_and_never_asks_for_reports()
+    {
+        // The owner ruled (2026-09-16) that the sessions a Fleet Manager starts never report to it: the Gateway's
+        // events carry each stop, and the Fleet Manager acknowledges them with the commands named here.
+        var body = BuiltInSkills.BodyFor("fleet-manager");
+
+        Assert.Contains("[Fleet Manager events]", body);
+        Assert.Contains("cc-devthrottle fleet ack <event id>", body);
+        Assert.Contains("cc-devthrottle fleet events", body);
+        Assert.DoesNotContain("devthrottle session report", body);
+        Assert.DoesNotContain("`session report`", body);
+        Assert.DoesNotContain("emporary", body);
+    }
+
+    [Fact]
+    public void Fleet_manager_skill_leaves_a_stop_waiting_for_its_reading_alone_and_follows_every_page()
+    {
+        // Step 4, round 3: a stop stored before its reading is listed as waiting and cannot be acknowledged, and
+        // events page past 200 by cursor - the skill must say both, in the commands as built. One phrase spans a
+        // wrapped line, and a Windows checkout embeds the body with CRLF.
+        var body = Normalize(BuiltInSkills.BodyFor("fleet-manager"));
+
+        Assert.Contains("verdict is `waiting`", body);
+        Assert.Contains("Do not\n  act on it and do not acknowledge it.", body);
+        Assert.Contains("reading_pending", body);
+        Assert.Contains("after 5 minutes", body);
+        Assert.Contains("eventsMoreRemain:", body);
+        Assert.Contains("cc-devthrottle fleet events --cursor <nextCursor>", body);
+        Assert.Contains("cc-devthrottle fleet events --every-page", body);
+        Assert.Contains("One prompt carries at most 200 events", body);
+    }
+
+    [Fact]
+    public void Fleet_manager_skill_table_reads_a_session_only_for_a_settled_stop_with_no_verdict()
+    {
+        // Steps 1 and 4 inspection, finding 2: the capability table told the Fleet Manager to treat ANY missing reading
+        // as "cannot tell" and read the session - including a stop still waiting for its reading, which the rest of the
+        // skill and the workflow say to leave alone. The body is split on "\n", so a Windows CRLF body is normalized first.
+        var body = Normalize(BuiltInSkills.BodyFor("fleet-manager"));
+        var row = body.Split('\n').Single(l => l.StartsWith("| The Wingman reading the sessions YOU own |", StringComparison.Ordinal));
+
+        Assert.DoesNotContain("or the reading failed) - treat that as \"cannot tell\"", row);
+        Assert.Contains("verdict is `waiting` is still waiting for its reading - leave it alone", row);
+        Assert.Contains("Only a settled stop with no verdict to act on", row);
+        Assert.Contains("`cannot-tell` or failed", row);
     }
 
     [Fact]
@@ -649,4 +710,6 @@ public sealed class SkillStoreTests : IDisposable
     /// <summary>The text of a served file, for the many assertions that are about text content.</summary>
     private static string? TextOf(SkillStore.SkillFilePayload? payload) =>
         payload is null ? null : System.Text.Encoding.UTF8.GetString(payload.Bytes);
+
+    private static string Normalize(string text) => text.Replace("\r\n", "\n");
 }

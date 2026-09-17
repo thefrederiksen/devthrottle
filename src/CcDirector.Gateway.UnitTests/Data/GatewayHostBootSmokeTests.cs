@@ -1,6 +1,9 @@
 using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests.Data;
@@ -32,6 +35,17 @@ public sealed class GatewayHostBootSmokeTests
     // The Message Load mission's inbox, which landed on main first; the step 3 pair must sort after it.
     private const string FleetMessagesPostgresMigration = "20260916195948_AddFleetMessages";
     private const string FleetMessagesSqliteMigration = "20260916195943_AddFleetMessages";
+    // The dev reports and the trace row and clock, which landed on main after step 3; step 4's pair must sort after them.
+    private const string DevReportsPostgresMigration = "20260917101851_AddDevReports";
+    private const string DevReportsSqliteMigration = "20260917101833_AddDevReports";
+    private const string TraceRowAndClockPostgresMigration = "20260917103105_AddTurnVerdictTraceRowAndClock";
+    private const string TraceRowAndClockSqliteMigration = "20260917103039_AddTurnVerdictTraceRowAndClock";
+    // Step 4's events, sorting after those, then what their delivery needs: the stop stored before it is read, how a
+    // death was learned, and the owned sessions the Gateway last knew alive.
+    private const string FleetManagerEventsPostgresMigration = "20260917110009_AddFleetManagerEvents";
+    private const string FleetManagerEventsSqliteMigration = "20260917110000_AddFleetManagerEvents";
+    private const string FleetManagerEventDeliveryPostgresMigration = "20260917110109_AddFleetManagerEventDelivery";
+    private const string FleetManagerEventDeliverySqliteMigration = "20260917110100_AddFleetManagerEventDelivery";
 
     /// <summary>A Fact that skips itself unless the runtime Postgres selector CC_GATEWAY_DB_CONNECTION is set
     /// to a non-blank value, so CI never reaches out to the hosted database and never needs the secret.</summary>
@@ -70,6 +84,8 @@ public sealed class GatewayHostBootSmokeTests
         Assert.Contains(InitialPostgresMigration, migrations);
         Assert.Contains(FleetManagerOutcomesPostgresMigration, migrations);
         Assert.Contains(FleetManagerMarkHistoryPostgresMigration, migrations);
+        Assert.Contains(FleetManagerEventsPostgresMigration, migrations);
+        Assert.Contains(FleetManagerEventDeliveryPostgresMigration, migrations);
     }
 
     /// <summary>
@@ -106,9 +122,51 @@ public sealed class GatewayHostBootSmokeTests
         // A PRESENCE, so an empty read cannot pass: the step 3 pair is in both lists.
         Assert.Contains(FleetManagerOutcomesSqliteMigration, sqliteAll);
         Assert.Contains(FleetManagerMarkHistorySqliteMigration, sqliteAll);
+        Assert.Contains(FleetManagerEventsSqliteMigration, sqliteAll);
+        Assert.Contains(FleetManagerEventDeliverySqliteMigration, sqliteAll);
         Assert.Contains("AddFleetManagerMarkHistory", sqliteSince);
 
         Assert.Equal(sqliteSince.OrderBy(n => n, StringComparer.Ordinal), postgresSince.OrderBy(n => n, StringComparer.Ordinal));
+    }
+
+    /// <summary>
+    /// THE FLEET MANAGER'S EVENT TABLES ARE THE SAME ON BOTH DATABASES, COLUMN FOR COLUMN: each provider's model
+    /// snapshot - what its migrations build - is read, and every column of <c>fleet_manager_events</c> and
+    /// <c>fleet_manager_owned_sessions</c> must have the same name, type, nullability and length on both. A column
+    /// added for one provider only makes the hosted Gateway fail the first time it writes that column.
+    /// </summary>
+    [Theory]
+    [InlineData("fleet_manager_events", "ReadingPending")]
+    [InlineData("fleet_manager_owned_sessions", "EndedAtUtc")]
+    public void FleetManagerEventTables_MatchColumnForColumn_OnSqliteAndPostgres(string table, string mustHave)
+    {
+        using var postgres = new GatewayDbContext(
+            new DbContextOptionsBuilder<GatewayDbContext>()
+                .UseNpgsql("Host=pg.invalid;Database=none;Username=none;Password=none",
+                    o => o.MigrationsAssembly(PostgresMigrationsAssembly))
+                .Options);
+        using var sqlite = new GatewayDbContext(
+            new DbContextOptionsBuilder<GatewayDbContext>()
+                .UseSqlite("Data Source=:memory:")
+                .Options);
+
+        var sqliteColumns = Columns(sqlite, table);
+        var postgresColumns = Columns(postgres, table);
+
+        // A PRESENCE, so an empty read cannot pass.
+        Assert.Contains(sqliteColumns, c => c.Name == mustHave);
+        Assert.Equal(sqliteColumns, postgresColumns);
+    }
+
+    private static List<(string Name, Type Type, bool Nullable, int? MaxLength)> Columns(GatewayDbContext ctx, string table)
+    {
+        var snapshot = ctx.GetService<IMigrationsAssembly>().ModelSnapshot;
+        Assert.NotNull(snapshot);
+        var entity = snapshot!.Model.GetEntityTypes().Single(e => e.GetTableName() == table);
+        return entity.GetProperties()
+            .Select(p => (p.GetColumnName(), p.ClrType, p.IsNullable, p.GetMaxLength()))
+            .OrderBy(c => c.Item1, StringComparer.Ordinal)
+            .ToList();
     }
 
     /// <summary>
@@ -116,7 +174,7 @@ public sealed class GatewayHostBootSmokeTests
     /// each add a table each regenerate the model snapshot; merged by hand, the snapshot can silently drop one
     /// side's table, and the next migration anyone generates would then try to create it a second time. This
     /// applies every migration to a fresh in-memory database, proves the step 3 pair ran after the fleet message
-    /// inbox, and asks EF whether the model still differs from the snapshot.
+    /// inbox and step 4's pair ran after step 3's, and asks EF whether the model still differs from the snapshot.
     /// </summary>
     [Fact]
     public void SqliteMigrations_ApplyFromEmpty_LeaveNoPendingModelChange()
@@ -135,13 +193,23 @@ public sealed class GatewayHostBootSmokeTests
             applied.IndexOf(FleetMessagesSqliteMigration) >= 0 &&
             applied.IndexOf(FleetMessagesSqliteMigration) < applied.IndexOf(FleetManagerOutcomesSqliteMigration),
             "The Fleet Manager migrations must sort after the fleet message inbox migration.");
+        AssertInOrder(applied,
+            FleetMessagesSqliteMigration,
+            FleetManagerOutcomesSqliteMigration,
+            FleetManagerMarkHistorySqliteMigration,
+            DevReportsSqliteMigration,
+            TraceRowAndClockSqliteMigration,
+            FleetManagerEventsSqliteMigration,
+            FleetManagerEventDeliverySqliteMigration);
+        Assert.Equal(FleetManagerEventDeliverySqliteMigration, applied[^1]);
         Assert.Empty(ctx.Database.GetPendingMigrations());
         Assert.False(ctx.Database.HasPendingModelChanges(),
             "The SQLite model snapshot does not match the model - a migration is missing or the snapshot was merged wrong.");
     }
 
     /// <summary>
-    /// THE POSTGRESQL SNAPSHOT MATCHES THE MODEL, AND THE STEP 3 PAIR SORTS AFTER THE FLEET MESSAGE INBOX. Asking
+    /// THE POSTGRESQL SNAPSHOT MATCHES THE MODEL, THE STEP 3 PAIR SORTS AFTER THE FLEET MESSAGE INBOX, AND STEP 4'S
+    /// PAIR SORTS AFTER STEP 3'S. Asking
     /// whether the model has pending changes compares the compiled snapshot with the model and opens no
     /// connection, so this runs without a database. Applying the set to a real server is the Postgres-backed
     /// suite's job.
@@ -162,8 +230,27 @@ public sealed class GatewayHostBootSmokeTests
             migrations.IndexOf(FleetMessagesPostgresMigration) < migrations.IndexOf(FleetManagerOutcomesPostgresMigration) &&
             migrations.IndexOf(FleetManagerOutcomesPostgresMigration) < migrations.IndexOf(FleetManagerMarkHistoryPostgresMigration),
             "The Fleet Manager migrations must sort after the fleet message inbox migration.");
+        AssertInOrder(migrations,
+            FleetMessagesPostgresMigration,
+            FleetManagerOutcomesPostgresMigration,
+            FleetManagerMarkHistoryPostgresMigration,
+            DevReportsPostgresMigration,
+            TraceRowAndClockPostgresMigration,
+            FleetManagerEventsPostgresMigration,
+            FleetManagerEventDeliveryPostgresMigration);
+        Assert.Equal(FleetManagerEventDeliveryPostgresMigration, migrations[^1]);
         Assert.False(ctx.Database.HasPendingModelChanges(),
             "The PostgreSQL model snapshot does not match the model - a migration is missing or the snapshot was merged wrong.");
+    }
+
+    /// <summary>Every name is present, and each sorts after the one before it.</summary>
+    private static void AssertInOrder(List<string> migrations, params string[] expected)
+    {
+        var positions = expected.Select(m => migrations.IndexOf(m)).ToList();
+        for (var i = 0; i < expected.Length; i++)
+            Assert.True(positions[i] >= 0, $"Migration {expected[i]} is missing.");
+        for (var i = 1; i < expected.Length; i++)
+            Assert.True(positions[i - 1] < positions[i], $"Migration {expected[i]} must sort after {expected[i - 1]}.");
     }
 
     /// <summary>

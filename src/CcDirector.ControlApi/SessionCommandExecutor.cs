@@ -234,7 +234,39 @@ internal static class SessionCommandExecutor
             request.AgentDriven ? SubmissionRoutes.FleetMessage
             : !string.IsNullOrWhiteSpace(request.DeliveryUploadId) ? SubmissionRoutes.GatewayDictation
             : SubmissionRoutes.GatewayPrompt);
-        if (request.AppendEnter)
+        // ONLY WHEN WAITING FOR A PROMPT (the Fleet Manager's events): the session makes the check and holds its input
+        // from the check to the Enter, so the owner's keystrokes are written after the prompt. It refuses a session that
+        // is not waiting, one whose owner has unsent text in the composer, and one whose terminal submits in one call;
+        // a send it abandons has its text removed from the composer and is refused. A Gateway
+        // reading a pushed state seconds old cannot promise either. A refusal is a success with Accepted false, so the
+        // events wait.
+        if (request.OnlyWhenWaitingForInput)
+        {
+            var sent = await session.SendTextOnlyWhenWaitingForInputAsync(
+                request.Text, provenance, effectiveSource, origin, request.AppendEnter);
+            if (sent.Exited)
+                return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, "session has exited");
+            if (!sent.Accepted)
+            {
+                FileLog.Write($"[SessionCommandExecutor] SendPromptAsync: REFUSED session={session.Id}: {sent.Reason}");
+                return DirectorCommandResult.Success(Serialize(new PromptResponse
+                {
+                    Accepted = false,
+                    RefusedBusy = true,
+                    IdleChecked = true,
+                    SentAt = DateTime.UtcNow,
+                    ActivityState = sent.ActivityState.ToString(),
+                    Error = sent.Reason,
+                    RefusedFor = sent.RefusedFor switch
+                    {
+                        PromptRefusal.OwnerDraft => PromptResponse.RefusedForOwnerDraft,
+                        PromptRefusal.OneCallSubmit => PromptResponse.RefusedForOneCallSubmit,
+                        _ => null,
+                    },
+                }));
+            }
+        }
+        else if (request.AppendEnter)
             await session.SendTextAsync(request.Text, provenance, effectiveSource, origin);
         else
             session.SendInput(Encoding.UTF8.GetBytes(request.Text), origin, provenance);
@@ -245,6 +277,7 @@ internal static class SessionCommandExecutor
             SentAt = DateTime.UtcNow,
             BufferCursor = bufferCursor,
             ActivityState = session.ActivityState.ToString(),
+            IdleChecked = request.OnlyWhenWaitingForInput,
         };
         return DirectorCommandResult.Success(Serialize(response));
     }

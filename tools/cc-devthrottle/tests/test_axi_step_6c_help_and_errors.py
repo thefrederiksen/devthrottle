@@ -333,7 +333,7 @@ _ACTIONS_JSON_BEFORE = Path(__file__).parent / "fixtures" / "actions_json_before
 # Actions added to the registry after the pin was taken, named one by one so an addition nobody
 # listed here still fails. Every action in the pin must still print exactly as it did.
 _ACTIONS_ADDED_SINCE_PIN = {
-    "fleet-digest", "fleet-ready", "fleet-finding", "fleet-decision", "fleet-outcomes",
+    "fleet-digest", "fleet-events", "fleet-ack", "fleet-ready", "fleet-finding", "fleet-decision", "fleet-outcomes",
     "fleet-show", "fleet-answer", "fleet-prefer", "fleet-preferences", "fleet-forget",
 }
 
