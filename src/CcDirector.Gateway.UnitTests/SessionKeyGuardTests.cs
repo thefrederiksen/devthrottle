@@ -272,6 +272,8 @@ public sealed class SessionKeyGuardTests
     [InlineData("POST", "/gateway/fleet-manager/move")]
     [InlineData("POST", "/Gateway/Fleet-Manager/Move")]
     [InlineData("GET", "/gateway/fleet-manager/start")]
+    [InlineData("GET", "/gateway/fleet-manager/page")]
+    [InlineData("HEAD", "/gateway/fleet-manager/page")]
     public void The_fleet_manager_placement_routes_are_the_owners(string method, string path)
         => Assert.False(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} must be refused to a session key");
 

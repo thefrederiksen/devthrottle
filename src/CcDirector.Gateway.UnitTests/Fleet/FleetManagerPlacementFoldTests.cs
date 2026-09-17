@@ -211,6 +211,8 @@ public sealed class FleetManagerPlacementFoldTests
         Assert.Equal("running", dto.Status.State);
         Assert.Equal("Running now: Claude Code on WORKSTATION-A, since 07:02. Watching 2 sessions.", dto.Status.Sentence);
         Assert.Equal(2, dto.Status.Watching);
+        Assert.Equal("thinking, watching 2 sessions", dto.Status.Line);
+        Assert.True(dto.Status.Thinking);
         Assert.Equal(MarkedId, dto.Status.SessionId);
         Assert.Equal(new DateTime(2026, 9, 16, 7, 2, 0, DateTimeKind.Utc), dto.Status.SinceUtc);
         Assert.True(dto.Status.Open.Offered);
@@ -233,6 +235,8 @@ public sealed class FleetManagerPlacementFoldTests
         var dto = FleetManagerPlacementFold.Fold(Inputs(new[] { WithDirector("WORKSTATION-A") }, marked: MarkedId, roster: roster));
 
         Assert.EndsWith("Watching 1 session.", dto.Status.Sentence);
+        Assert.Equal("idle, watching 1 session", dto.Status.Line);
+        Assert.False(dto.Status.Thinking);
     }
 
     [Fact]
@@ -267,6 +271,8 @@ public sealed class FleetManagerPlacementFoldTests
         Assert.Equal("not-running", dto.Status.State);
         Assert.Equal("The Fleet Manager is not running. Start it where the setting says: Claude Code on WORKSTATION-A.",
             dto.Status.Sentence);
+        Assert.Equal("not running", dto.Status.Line);
+        Assert.False(dto.Status.Thinking);
         Assert.True(dto.Status.Start.Offered);
         Assert.Equal("Start it", dto.Status.Start.Label);
         Assert.Equal("Starting can take up to 90 seconds when a Director has to be started first.", dto.Status.Start.Note);
@@ -296,6 +302,7 @@ public sealed class FleetManagerPlacementFoldTests
 
         Assert.Equal("unreachable", dto.Status.State);
         Assert.Equal("bad", dto.Status.Tone);
+        Assert.Equal("not running - WORKSTATION-A cannot be reached", dto.Status.Line);
         Assert.Equal("The Fleet Manager is not running, and its computer, WORKSTATION-A, cannot be reached, last seen 12 Sep 09:05. "
                      + "It does not move by itself: choose another computer below and save to move it.", dto.Status.Sentence);
         Assert.False(dto.Status.Start.Offered);
@@ -321,6 +328,7 @@ public sealed class FleetManagerPlacementFoldTests
         var dto = FleetManagerPlacementFold.Fold(Inputs(Array.Empty<FleetManagerMachineFacts>(), agent: null, machine: null));
 
         Assert.Equal("no-computer", dto.Status.State);
+        Assert.Equal("not running - this account has no computer for it", dto.Status.Line);
         Assert.Equal("The Fleet Manager is not running, and this account has no computer for it to run on. "
                      + "Install DevThrottle on a computer and sign in to this account.", dto.Status.Sentence);
         Assert.Null(dto.Machine);
@@ -386,6 +394,7 @@ public sealed class FleetManagerPlacementFoldTests
         Assert.Equal("Nothing is saved yet, and the Gateway has no record of which computer this account set up first, "
                      + "so there is no default. Choose an agent and a computer, then save.", dto.DefaultNote);
         Assert.Equal("not-running", dto.Status.State);
+        Assert.Equal("not running - nothing says where it runs yet", dto.Status.Line);
         Assert.Equal("The Fleet Manager is not running, and nothing says where it runs yet. Choose an agent and a "
                      + "computer below and save, then start it.", dto.Status.Sentence);
         Assert.False(dto.Status.Start.Offered);

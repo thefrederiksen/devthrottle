@@ -16,6 +16,9 @@ export interface HistoryBubble {
   kind: string;
   /** True for Gemini raw terminal scrollback: render verbatim, not as Markdown. */
   isRawText: boolean;
+  /** When the message was written (ISO), as the history carried it, or undefined when it carried none. A view
+   *  that places other items among the bubbles by time reads this; the bubble itself does not show it. */
+  timestamp?: string;
 }
 
 /**
@@ -56,7 +59,9 @@ export function mapHistory(
   const isRawText = history.isRawText;
   for (const message of history.messages) {
     const bubble = mapMessage(message, isRawText, filter);
-    if (bubble !== null) list.push(bubble);
+    if (bubble === null) continue;
+    if (message.timestamp) bubble.timestamp = message.timestamp;
+    list.push(bubble);
   }
   return list;
 }

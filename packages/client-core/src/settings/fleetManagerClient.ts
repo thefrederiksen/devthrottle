@@ -37,6 +37,10 @@ export interface FleetManagerMachineChoice {
 export interface FleetManagerStatus {
   state: "running" | "not-running" | "unreachable" | "no-computer";
   sentence: string;
+  /** The short state the Fleet Manager page shows under its title, for example "idle, watching 5 sessions". */
+  line: string;
+  /** True while the running Fleet Manager is in the middle of a turn. */
+  thinking: boolean;
   tone: "ok" | "idle" | "bad";
   sessionId?: string | null;
   sinceUtc?: string | null;

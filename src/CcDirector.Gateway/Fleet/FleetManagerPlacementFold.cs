@@ -270,6 +270,8 @@ internal static class FleetManagerPlacementFold
             status.Tone = ToneOk;
             status.SinceUtc = live.CreatedAt;
             status.Watching = watching;
+            status.Thinking = SessionOrdering.IsWorkingSession(live);
+            status.Line = $"{(status.Thinking ? "thinking" : "idle")}, watching {Plural(watching, "session")}";
             status.Sentence = $"Running now: {FleetManagerAgents.DisplayName(live.Agent)} on {live.MachineName}, since "
                               + $"{FormatWhen(live.CreatedAt, tz, now)}. Watching {Plural(watching, "session")}.";
             status.Open.Offered = true;
@@ -293,6 +295,7 @@ internal static class FleetManagerPlacementFold
         if (placement is null && input.Machines.Count > 0)
         {
             status.State = FleetManagerStatusDto.StateNotRunning;
+            status.Line = "not running - nothing says where it runs yet";
             status.Sentence = "The Fleet Manager is not running, and nothing says where it runs yet. Choose an agent and a "
                               + "computer below and save, then start it.";
             status.Start.Note = "Choose where it runs and save first.";
@@ -302,6 +305,7 @@ internal static class FleetManagerPlacementFold
         if (placement is null)
         {
             status.State = FleetManagerStatusDto.StateNoComputer;
+            status.Line = "not running - this account has no computer for it";
             status.Sentence = "The Fleet Manager is not running, and this account has no computer for it to run on. "
                               + "Install DevThrottle on a computer and sign in to this account.";
             return status;
@@ -311,6 +315,7 @@ internal static class FleetManagerPlacementFold
         {
             status.State = FleetManagerStatusDto.StateUnreachable;
             status.Tone = ToneBad;
+            status.Line = $"not running - {placement.Machine} cannot be reached";
             var since = placement.LastSeenUtc is { } seen ? $", last seen {FormatWhen(seen, tz, now)}" : "";
             status.Sentence = $"The Fleet Manager is not running, and its computer, {placement.Machine}, cannot be reached{since}. "
                               + "It does not move by itself: choose another computer below and save to move it.";
@@ -319,6 +324,7 @@ internal static class FleetManagerPlacementFold
         }
 
         status.State = FleetManagerStatusDto.StateNotRunning;
+        status.Line = "not running";
         status.Sentence = $"The Fleet Manager is not running. Start it where the setting says: {where}."
                           + (placement.State == FleetManagerMachineChoiceDto.StateLauncherWillStart
                               ? " No Director is running there, so the launcher starts one first."

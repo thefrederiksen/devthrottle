@@ -14,6 +14,7 @@
 // states, and the set reads as one family rather than fourteen separate drawings.
 
 export type NavIconName =
+  | "fleet-manager"
   | "fleet-map"
   | "assistant"
   | "sessions"
@@ -37,6 +38,18 @@ export type NavIconName =
 // The shapes, keyed by name. Each value is the icon's paint - the <svg> wrapper (grid, stroke, size)
 // is applied once below, so no glyph can drift off the shared geometry.
 const PAINT: Record<NavIconName, JSX.Element> = {
+  // A ring around a centre, with four sighting ticks: the one place everything is watched from (the Fleet
+  // Manager, step 6). The ticks keep it distinct from the plain circles (network, about, help) below it.
+  "fleet-manager": (
+    <>
+      <circle cx="12" cy="12" r="8" />
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 1v3" />
+      <path d="M12 20v3" />
+      <path d="M1 12h3" />
+      <path d="M20 12h3" />
+    </>
+  ),
   // A folded map: the fleet's spatial picture.
   "fleet-map": (
     <>

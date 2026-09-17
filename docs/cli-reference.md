@@ -1297,6 +1297,12 @@ Those routes are the owner's and refuse a session key: `/gateway/fleet-manager/p
 start runs on the saved computer only, and the launcher starts a Director there when none is running.
 A restart or move closes the old Fleet Manager only after its current turn ends.
 
+The Cockpit's Fleet Manager page (`/fleet-manager`, where the Cockpit opens; `/assistant` now redirects
+there) reads `/gateway/fleet-manager/page` (GET, the owner's; a session key is refused and reads the
+digest instead): the cards drawn from the records, the right panel (waiting on you, under way, answered
+today, and the count of sessions that still ask the owner directly) and the rail's badge count. A card
+button answers the record and then sends the same words to the Fleet Manager as a prompt.
+
 ### Skill Commands
 
 Read and author the fleet's skills. A skill is a directory in the Agent Skills standard - `SKILL.md`

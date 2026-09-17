@@ -34,6 +34,15 @@ of what the app actually uses; keep it in step with that file.
 | `--needsyou-text` | `#f1d8d8` | "needs you" panel text |
 | `--needsyou-fyi-bg` | `#262017` | Tinted "for your information" panel background |
 | `--needsyou-fyi-text` | `#e8dcc8` | "for your information" panel text |
+| `--owner-bubble-bg` | `#1e3a6b` | The owner's message on the Fleet Manager page |
+| `--owner-bubble-border` | `#2c5391` | Its edge; also the recommended option's edge |
+| `--accent-text` | `#9cc2ff` | Light accent text: the "(change)" link, a Finding card's heading |
+| `--ok` | `#22c55e` | Ready green: a Ready card's edge, a finished dot |
+| `--ok-text` | `#6ee79b` | Ready green text |
+| `--danger-text` | `#ff8b8b` | A Decision card's heading |
+| `--decision-bg` | `#1b1522` | A Decision card's tint |
+| `--panel-deep` | `#0f1528` | The Fleet Manager page's right panel |
+| `--dot-idle` | `#5b6480` | A stopped session's dot |
 
 Non-colour token:
 

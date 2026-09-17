@@ -42,6 +42,8 @@ function placement(running: boolean): FleetManagerPlacement {
     status: {
       state: running ? "running" : "not-running",
       sentence: running ? RUNNING : "The Fleet Manager is not running (fake).",
+      line: running ? "idle, watching 5 sessions (fake)" : "not running (fake)",
+      thinking: false,
       tone: running ? "ok" : "idle",
       sessionId: running ? SESSION : null,
       watching: running ? 5 : 0,

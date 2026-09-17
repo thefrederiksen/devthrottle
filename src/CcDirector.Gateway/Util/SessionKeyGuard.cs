@@ -517,6 +517,9 @@ public static class SessionKeyGuard
             case "start":
             case "restart":
             case "move":
+            // THE OWNER'S PAGE (step 6). It shows the Wingman's labels without the shadow rule the digest applies to
+            // a session key, and the Fleet Manager has the digest for the same facts.
+            case "page":
                 return false;
             default:
                 return false;

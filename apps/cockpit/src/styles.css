@@ -18,6 +18,17 @@
   --needsyou-text: #f1d8d8;
   --needsyou-fyi-bg: #262017;
   --needsyou-fyi-text: #e8dcc8;
+  /* The Fleet Manager page (the Fleet Manager mission, step 6), drawn from its mockups: the owner's bubble, the
+     light accent text, the ready green, the decision card's tint, the panel's deeper navy and the stopped dot. */
+  --owner-bubble-bg: #1e3a6b;
+  --owner-bubble-border: #2c5391;
+  --accent-text: #9cc2ff;
+  --ok: #22c55e;
+  --ok-text: #6ee79b;
+  --danger-text: #ff8b8b;
+  --decision-bg: #1b1522;
+  --panel-deep: #0f1528;
+  --dot-idle: #5b6480;
 
   --rail-left-width: 220px;
 }

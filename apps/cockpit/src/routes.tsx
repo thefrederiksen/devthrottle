@@ -8,7 +8,7 @@ import { SessionsEmpty, SessionsView } from "./sessions/SessionsView";
 import { SessionDetail } from "./sessions/SessionDetail";
 import { SessionRedirect } from "./sessions/SessionRedirect";
 import { ReportLanding } from "./sessions/ReportLanding";
-import { AssistantView } from "./assistant/AssistantView";
+import { FleetManagerView } from "./fleetmanager/FleetManagerView";
 import { FleetMapView } from "./fleet/FleetMapView";
 import { HistoryView } from "./history/HistoryView";
 import { DirectorsView } from "./fleet/DirectorsView";
@@ -65,9 +65,12 @@ export const COCKPIT_ROUTES: RouteObject[] = [
       {
         element: <AppShell />,
         children: [
-          // The default landing is the Fleet Map: a fresh boot at "/" redirects there so the Cockpit
-          // opens on the whole-fleet picture (the first rail item), not an empty session prompt.
-          { index: true, element: <Navigate to="/fleet-map" replace /> },
+          // The default landing is the Fleet Manager (the Fleet Manager mission, step 6; it was the Fleet
+          // Map): a fresh boot at "/" opens on the one place the owner talks to about all the work.
+          { index: true, element: <Navigate to="/fleet-manager" replace /> },
+          // The Fleet Manager page (step 6): the conversation with the account's Fleet Manager session, the
+          // cards drawn from its outcome records, and the live panel of what is waiting, under way and answered.
+          { path: "/fleet-manager", element: <FleetManagerView /> },
           // The Sessions experience (issue #972): the fleet roster stays mounted on the left while the
           // selected session's detail (the interactive terminal from #971, the action bar, the composer,
           // the queue, and the screenshots) routes into the right region. The /sessions home shows a
@@ -109,10 +112,10 @@ export const COCKPIT_ROUTES: RouteObject[] = [
           // repository and day, from the Gateway's durable per-session record (GET /history/report).
           // Running sessions appear as the entries that have not ended yet.
           { path: "/history", element: <HistoryView /> },
-          // The Assistant (fleet assistant build): a fleet-level chat + voice screen that is not
-          // tied to any session. It drives the Gateway brain at POST /assistant/turn - the desk
-          // surface of the same brain Car Mode uses on the phone.
-          { path: "/assistant", element: <AssistantView /> },
+          // The Assistant was replaced by the Fleet Manager (step 6). Its page (assistant/AssistantView.tsx) and
+          // the Gateway's Assistant still exist - step 9 removes them - but it has no route of its own any more:
+          // its old address lands on the Fleet Manager so a bookmark still reaches the surface that replaced it.
+          { path: "/assistant", element: <Navigate to="/fleet-manager" replace /> },
           // Missions (issue #1405) is no longer its own page: it is the "Missions" pivot of the Fleet
           // Map (the fleet has one home). The old /missions route redirects there so existing bookmarks
           // still land on the map; the pivot the map opens on is the last one the browser chose.

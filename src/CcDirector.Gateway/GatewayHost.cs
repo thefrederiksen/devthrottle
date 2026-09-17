@@ -4278,9 +4278,10 @@ public sealed class GatewayHost : IAsyncDisposable
         // Fleet Manager mission, step 3). Account-scoped client routes under /gateway, gated by the host-wide
         // middleware; each shape a session key may reach is listed in SessionKeyGuard, and the routes themselves
         // then allow only the account's marked Fleet Manager session or the owner's own device.
+        var fleetOutcomes = new Fleet.FleetOutcomeStore(_gatewayDb);
         FleetManagerEndpoints.Map(_app,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
-            outcomes: new Fleet.FleetOutcomeStore(_gatewayDb),
+            outcomes: fleetOutcomes,
             preferences: new Fleet.FleetPreferenceStore(_gatewayDb),
             events: _fleetManagerEventStore!,
             digest: new FleetDigestSources(
@@ -4317,6 +4318,29 @@ public sealed class GatewayHost : IAsyncDisposable
         FleetManagerPlacementEndpoints.Map(_app,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             service: _fleetManagerPlacement);
+
+        // The Fleet Manager page (the Fleet Manager mission, step 6): the cards, the live right panel and the rail's
+        // badge, folded once. The owner's read: SessionKeyGuard refuses a session key.
+        FleetManagerPageEndpoints.Map(_app,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            outcomes: fleetOutcomes,
+            sources: new FleetManagerPageSources(
+                LiveRoster: tenant =>
+                {
+                    var fresh = PushedSessions.SnapshotFresh(tenant, _streamStaleAfter)
+                        .Select(p => p.Session.SessionId)
+                        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    return GatewayEndpoints.FoldedAccountRoster(Registry, PushedSessions, tenant,
+                            _snoozeRegistry, _handRaises, _turnVerdictRows, _snoozeExpiry,
+                            _tenantSettingsResolver.FleetManagerSessionId)
+                        .Where(s => fresh.Contains(s.SessionId))
+                        .ToList();
+                },
+                MarkedSessionId: tenant => _tenantSettingsResolver.FleetManagerSessionId(tenant),
+                LastKnownSession: (tenant, sid) => GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, sid),
+                LatestVerdict: (tenant, sid) => _turnVerdicts.Latest(tenant, sid),
+                TimeZone: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)),
+                NowUtc: () => DateTime.UtcNow));
 
         // "DevThrottle emails me" relay (issue #1318 consumer): POST /account/email. A session or scheduled
         // run passes a subject + body (+ optional attachments); the Gateway injects its own stored account

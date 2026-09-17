@@ -93,9 +93,32 @@ export interface SessionComposerProps {
    * matching instruction straight away. Cleared on unmount so a stale focuser is never called.
    */
   focusHandleRef?: MutableRefObject<(() => void) | null>;
+  /**
+   * The Fleet Manager page (step 6) talks to one session like a chat: plain Enter sends and Shift+Enter starts a
+   * new line. Sessions keep Ctrl+Enter, because a prompt there is often several lines.
+   */
+  enterSends?: boolean;
+  /** The hint in the empty box. */
+  placeholder?: string;
+  /** False hides Queue and Attach, for a surface that only sends and dictates (the Fleet Manager page). */
+  showQueueAndAttach?: boolean;
+  /** Called with the words the moment a send succeeds, so the surface can show it went. */
+  onSent?: (text: string) => void;
 }
 
-export function SessionComposer({ sessionId, value, onChange, onQueued, focusHandleRef }: SessionComposerProps) {
+const DEFAULT_PLACEHOLDER = "Type a message... (Ctrl+Enter to send, Ctrl+Shift+Enter to queue)";
+
+export function SessionComposer({
+  sessionId,
+  value,
+  onChange,
+  onQueued,
+  focusHandleRef,
+  enterSends = false,
+  placeholder = DEFAULT_PLACEHOLDER,
+  showQueueAndAttach = true,
+  onSent,
+}: SessionComposerProps) {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -156,13 +179,14 @@ export function SessionComposer({ sessionId, value, onChange, onQueued, focusHan
     try {
       await sendPrompt(sessionId, text, true, undefined, undefined, sent.spans);
       setStatus("Sent");
+      onSent?.(text);
     } catch (err) {
       onChange(text); // restore so a failed send never loses the typed text
       setError(describeAndReport(SURFACE, "send that to the session", err));
     } finally {
       setBusy(false);
     }
-  }, [sessionId, busy, value, onChange]);
+  }, [sessionId, busy, value, onChange, onSent]);
 
   const queue = useCallback(async () => {
     if (!sessionId || busy) return;
@@ -184,8 +208,14 @@ export function SessionComposer({ sessionId, value, onChange, onQueued, focusHan
 
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      // Ctrl+Shift+Enter = Queue; Ctrl+Enter = Send; plain Enter = newline (default).
-      if (e.key === "Enter" && e.ctrlKey && e.shiftKey) {
+      // Ctrl+Shift+Enter = Queue; Ctrl+Enter = Send; plain Enter = newline (default). With enterSends, plain
+      // Enter sends and Shift+Enter is the newline. A key press that is composing text (an input method) is left alone.
+      if (enterSends && e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.nativeEvent.isComposing) {
+        e.preventDefault();
+        void send();
+        return;
+      }
+      if (e.key === "Enter" && e.ctrlKey && e.shiftKey && showQueueAndAttach) {
         e.preventDefault();
         void queue();
         return;
@@ -195,7 +225,7 @@ export function SessionComposer({ sessionId, value, onChange, onQueued, focusHan
         void send();
       }
     },
-    [queue, send],
+    [queue, send, enterSends, showQueueAndAttach],
   );
 
   // The ONE image-upload path (issue #1210): Attach, clipboard paste, and drag-and-drop all call this.
@@ -330,6 +360,7 @@ export function SessionComposer({ sessionId, value, onChange, onQueued, focusHan
       try {
         await sendPrompt(sessionId, combined, true, undefined, spoken, sent.spans);
         setStatus("Sent");
+        onSent?.(combined);
       } catch (err) {
         onChange(combined); // restore so a failed send never loses the typed + dictated text
         setError(describeAndReport(SURFACE, "send that to the session", err));
@@ -337,7 +368,7 @@ export function SessionComposer({ sessionId, value, onChange, onQueued, focusHan
         setBusy(false);
       }
     },
-    [sessionId, value, onChange],
+    [sessionId, value, onChange, onSent],
   );
 
   // Immediate (fire-and-forget) Send from the Speak dialog, the same shape as the mobile
@@ -392,7 +423,7 @@ export function SessionComposer({ sessionId, value, onChange, onQueued, focusHan
         ref={textareaRef}
         className="composer-input"
         rows={3}
-        placeholder="Type a message... (Ctrl+Enter to send, Ctrl+Shift+Enter to queue)"
+        placeholder={placeholder}
         value={value}
         onChange={(e) => {
           // The caret AFTER the change is what tells a deletion of the first of two identical copies from a
@@ -417,26 +448,30 @@ export function SessionComposer({ sessionId, value, onChange, onQueued, focusHan
         >
           Speak
         </button>
-        <button type="button" className="composer-btn" disabled={busy || empty} onClick={() => void queue()}>
-          Queue
-        </button>
-        <button
-          type="button"
-          className="composer-btn"
-          disabled={busy}
-          onClick={() => fileRef.current?.click()}
-          title="Upload a device-local image and insert its path (or paste / drag one in)"
-        >
-          Attach
-        </button>
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/*"
-          multiple
-          className="composer-file"
-          onChange={(e) => void onAttach(e)}
-        />
+        {showQueueAndAttach && (
+          <>
+            <button type="button" className="composer-btn" disabled={busy || empty} onClick={() => void queue()}>
+              Queue
+            </button>
+            <button
+              type="button"
+              className="composer-btn"
+              disabled={busy}
+              onClick={() => fileRef.current?.click()}
+              title="Upload a device-local image and insert its path (or paste / drag one in)"
+            >
+              Attach
+            </button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="composer-file"
+              onChange={(e) => void onAttach(e)}
+            />
+          </>
+        )}
         {status !== null && <span className="composer-status">{status}</span>}
         {error !== null && <span className="composer-error">{error}</span>}
       </div>

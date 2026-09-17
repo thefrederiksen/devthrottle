@@ -124,6 +124,14 @@ public sealed class FleetManagerStatusDto
     /// <summary>The whole sentence the bar shows.</summary>
     public string Sentence { get; set; } = "";
 
+    /// <summary>The short state the Fleet Manager page shows under its title (step 6): "idle, watching 5
+    /// sessions", "thinking, watching 5 sessions", or why it is not running.</summary>
+    public string Line { get; set; } = "";
+
+    /// <summary>True while the running Fleet Manager is in the middle of a turn: a message sent now queues
+    /// behind that turn.</summary>
+    public bool Thinking { get; set; }
+
     /// <summary>ok | idle | bad - the colour of the bar's dot.</summary>
     public string Tone { get; set; } = "";
 
