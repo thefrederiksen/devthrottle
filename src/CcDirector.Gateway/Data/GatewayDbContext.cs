@@ -761,6 +761,7 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.Cause).HasMaxLength(64);
             b.Property(e => e.VerdictId).HasMaxLength(64);
             b.Property(e => e.ReplacedVerdictId).HasMaxLength(64);
+            b.Property(e => e.RowColour).HasMaxLength(32);
             // The inspector reads one session newest-first; the purge cuts on time across every session.
             b.HasIndex(e => new { e.TenantId, e.SessionId, e.RecordedAtUtc });
             b.HasIndex(e => new { e.TenantId, e.RecordedAtUtc });
