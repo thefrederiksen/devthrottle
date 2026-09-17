@@ -100,7 +100,7 @@ def test_ignored_files_that_cannot_be_listed_are_held(in_process, monkeypatch):
     w, pool, landed = in_process
     got, path = _slot_moving_on(pool, w)
     head = git(path, "rev-parse", "HEAD")
-    _around_git(monkeypatch, lambda args: args[:1] == ("ls-files",), fail=True)
+    _around_git(monkeypatch, lambda args: args[:1] == ("ls-files",) and "--ignored" in args, fail=True)
 
     code = _outcome(lambda: pool.return_slot(str(path), got["lease"], None))
 

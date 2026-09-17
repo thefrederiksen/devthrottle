@@ -208,6 +208,32 @@ def require_clean(worktree: Path) -> None:
     raise NotLanded(" and ".join(parts))
 
 
+def require_no_hidden_flags(worktree: Path) -> None:
+    """Hold a slot with any tracked file flagged assume-unchanged or skip-worktree. Both flags make git
+    status, update-index --refresh and git worktree remove skip the file, so a local edit to it is
+    invisible to every cleanliness answer. `git ls-files -v` reads the flags themselves, so it cannot be
+    fooled by them. Whether the flagged file really changed is never decided: the flag alone holds. A
+    sparse checkout marks the files it leaves out skip-worktree, so a sparse slot is held too."""
+    try:
+        text = gitrun.run(worktree, "ls-files", "-v", "-z").stdout
+    except GitError as ex:
+        raise cannot_verify(f"cannot read the index flags: {ex.short()}") from ex
+    flagged = []
+    for item in text.split("\0"):
+        if not item:
+            continue
+        if len(item) < 3 or item[1] != " ":
+            raise cannot_verify("git ls-files -v gave an entry that could not be read")
+        tag, path = item[0], item[2:]
+        # A lower-case tag is assume-unchanged; S is skip-worktree (s: both).
+        if tag.islower() or tag == "S":
+            flagged.append(path)
+    if flagged:
+        count = len(flagged)
+        raise NotLanded(f"{count} tracked file{'s are' if count != 1 else ' is'} flagged assume-unchanged or "
+                        f"skip-worktree, which hides local edits from git status: {_names(flagged)}")
+
+
 def _short_list(commits: list[str], limit: int = 5) -> str:
     shown = ", ".join(c[:12] for c in commits[:limit])
     return shown + (f" and {len(commits) - limit} more" if len(commits) > limit else "")
@@ -380,6 +406,7 @@ def check(worktree: Path, repo: Path, tip: RemoteTip, recorded_gitdir: str | Non
         raise NotLanded("the worktree directory is missing")
     gitdir = require_bound(worktree, repo, recorded_gitdir)
     require_clean(worktree)
+    require_no_hidden_flags(worktree)
     head = head_commit(worktree)
     entries = reflog_entries(worktree)
     since = reflog_commits_since(entries, mark)
@@ -444,6 +471,7 @@ def _recheck_under_lock(worktree: Path, repo: Path, checked: Checked) -> None:
     if tuple(reflog_entries(worktree)) != checked.reflog:
         raise NotLanded("the HEAD reflog changed after the check")
     require_clean(worktree)
+    require_no_hidden_flags(worktree)
 
 
 def _append_tool_line(worktree: Path, gitdir: Path, examined: tuple[ReflogEntry, ...], old: str,

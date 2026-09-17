@@ -29,7 +29,7 @@ Every command takes `--json` and `--help`, and never prompts.
 | `return` | Runs the landed-work check. Landed: reset with the two-tree merge `git read-tree -m -u <checked HEAD> <default tip>` (ignored build output stays; there is no `git clean`) and free. Not landed or cannot tell: held with the reason, nothing reset. `--lease` is required: a return without it is a usage error (exit 2), and a lease that no longer matches is refused; neither changes anything. |
 | `list` | Every slot with its state (`free`, `in-use`, `held`), holder and reason. `--fields` picks from `repo,slot,path,state,holder,reason,updated`. |
 | `lease` | Takes one specific free slot (checked and reset like `get`). A held slot only with `--reclaim-held`, which takes it as it is, without a reset. |
-| `destroy` | Runs the full landed-work check at that moment, whatever the recorded state says - a free slot is only free as of its last check - and refuses (exit 3, held, with the reason) unless it passes. No flag skips that check. Dry run by default: says what it would remove. `--yes` removes it with `git worktree remove` under `HEAD.lock` (never `--force`, so git itself refuses a worktree with modified or untracked files). A held slot also needs `--allow-held`, an in-use slot `--allow-in-use`. A slot whose directory is gone cannot be checked, so it is refused too. One slot per call; there is no destroy-all. |
+| `destroy` | Runs the full landed-work check at that moment, whatever the recorded state says - a free slot is only free as of its last check - and refuses (exit 3, held, with the reason) unless it passes. No flag skips that check. Dry run by default: says what it would remove. `--yes` removes it with `git worktree remove` under `HEAD.lock` (never `--force`, so git itself refuses a worktree with modified or untracked files that git status can see; files git status skips are covered by the check, rule 2). A held slot also needs `--allow-held`, an in-use slot `--allow-in-use`. A slot whose directory is gone cannot be checked, so it is refused too. One slot per call; there is no destroy-all. |
 
 A slot is named `wt01` (with `--repo`; without it, the registered slot the current directory is inside,
 or else the repository of the current directory) or by its path. Both are looked up in the tool's own
@@ -47,7 +47,10 @@ A worktree is reset only when all of these are positively proven, in this order:
    another slot would make every later answer describe that other slot, so a mismatch holds the slot
    and nothing in either slot is touched.
 2. `git status --porcelain --untracked-files=all` is empty: nothing uncommitted, no untracked file
-   that is not ignored.
+   that is not ignored. Status skips a tracked file flagged assume-unchanged or skip-worktree, so an edit
+   to one is invisible to it, to `git update-index --refresh` and to `git worktree remove`. The flags are
+   read with `git ls-files -v`, and any flagged file holds the slot, naming it, whether or not it was
+   edited. A sparse checkout marks the files it leaves out skip-worktree, so a sparse slot is held too.
 3. The default branch is read from the remote with `git ls-remote --symref origin HEAD`. It is never
    assumed to be `main` and the local `origin/HEAD` is never used.
 4. The remote was fetched just now (`git fetch --prune origin +refs/heads/*:refs/remotes/origin/*`).
