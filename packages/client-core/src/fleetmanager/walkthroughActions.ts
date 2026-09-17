@@ -7,7 +7,8 @@
 //   - Here the words go to the SESSION, through the Wingman's one answer route, which refuses often and on purpose
 //     (the screen changed, a menu owns it, the computer is not connected). The record is final, so it must only ever
 //     carry an answer the session actually took. The Gateway enforces the same thing from its side: it records an
-//     answer only once the answer route has marked that verdict answered.
+//     answer only once the answer route has marked that verdict answered, and it records the options that route
+//     stored, not the ones this client names.
 // So a refused answer shows the route's sentence verbatim and NOTHING ELSE is sent - the record stays open. An answer
 // the session took whose record could not be updated says exactly that, with the Gateway's sentence.
 //

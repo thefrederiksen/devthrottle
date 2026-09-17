@@ -146,7 +146,9 @@ export async function getWalkthrough(roundIds?: readonly string[] | null, signal
 }
 
 /** POST .../walkthrough/{id}/answered - record, as the owner's answer, the options the session has just taken. The
- *  Gateway refuses unless the answer route marked that verdict answered. */
+ *  Gateway records the options its answer route stored for that verdict, never these; the positions sent here are
+ *  only compared with the stored ones, and a difference is refused. It also refuses unless the answer route marked
+ *  that verdict answered, and when the verdict is not the stop the record is waiting on. */
 export async function recordWalkthroughAnswer(recordId: string, verdictId: string, optionIndexes: readonly number[]): Promise<void> {
   const res = await gatewayFetch(`${PREFIX}/${encodeURIComponent(recordId)}/answered`, {
     method: "POST",

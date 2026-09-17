@@ -4374,6 +4374,7 @@ public sealed class GatewayHost : IAsyncDisposable
                 LastKnownSession: (tenant, sid) => GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, sid),
                 LatestVerdict: (tenant, sid) => _turnVerdicts.Latest(tenant, sid),
                 FindVerdict: (tenant, verdictId) => _turnVerdicts.FindById(tenant, verdictId),
+                NewestVerdict: (tenant, sid) => _turnVerdicts.NewestJudged(tenant, sid),
                 // Two days is the outer bound only: the close rule also refuses a report taken before the session's
                 // last activity.
                 Repositories: tenant => _repoState.ReadFresh(tenant, TimeSpan.FromDays(2), DateTime.UtcNow),

@@ -22,7 +22,8 @@ namespace CcDirector.Gateway.Tests.Api;
 /// a real verdict store and handed-in roster, repository and stop sources.
 ///
 /// What is pinned: only the owner's own device reaches them; another account's record is not found; a session's answer
-/// is recorded only once the answer route marked its verdict answered, and with the options' own words; a snooze is
+/// is recorded only once the answer route marked its verdict answered, with the options that route stored - never the
+/// client's - and only for the stop the record is waiting on; a snooze is
 /// recorded only when the session is snoozed; and close is decided again on the server - refused without calling the
 /// stop at all - and recorded only after a stop that happened.
 /// </summary>
@@ -118,6 +119,7 @@ public sealed class FleetManagerWalkthroughEndpointsTests : IDisposable
         LastKnownSession: (tenant, sid) => tenant == TenantA ? _live.FirstOrDefault(s => s.SessionId == sid) : null,
         LatestVerdict: (tenant, sid) => _verdicts.Latest(tenant, sid),
         FindVerdict: (tenant, id) => _verdicts.FindById(tenant, id),
+        NewestVerdict: (tenant, sid) => _verdicts.NewestJudged(tenant, sid),
         Repositories: tenant => tenant == TenantA ? new[] { Repo() } : Array.Empty<StoredRepoState>(),
         SnoozeMinutes: _ => 60,
         TimeZone: _ => TimeZoneInfo.Utc,
@@ -237,12 +239,15 @@ public sealed class FleetManagerWalkthroughEndpointsTests : IDisposable
         return verdict;
     }
 
+    /// <summary>What the answer route stores when the Director confirmed its write of these options.</summary>
+    private void SessionTook(TenantId tenant, TurnVerdictDto verdict, DateTime at, params int[] indexes)
+        => Assert.True(_verdicts.MarkAnswered(tenant, TurnVerdictStoredAnswer.For(verdict, indexes), at));
+
     [Fact]
     public async Task Answered_AfterTheSessionTookIt_RecordsTheOptionsOwnWords_AsTheOwner()
     {
         var record = File(TenantA, Layouts);
-        StoreMenu(TenantA, Layouts, "verdict-a");
-        _verdicts.MarkAnswered(TenantA, "verdict-a", Now);
+        SessionTook(TenantA, StoreMenu(TenantA, Layouts, "verdict-a"), Now, 1);
 
         var result = await Answered(TenantA, Owner, record.Id, new { verdictId = "verdict-a", optionIndexes = new[] { 1 } });
 
@@ -259,12 +264,99 @@ public sealed class FleetManagerWalkthroughEndpointsTests : IDisposable
     public async Task Answered_SeveralOptions_AreJoinedInTheOrderPicked()
     {
         var record = File(TenantA, Layouts);
-        StoreMenu(TenantA, Layouts, "verdict-multi");
-        _verdicts.MarkAnswered(TenantA, "verdict-multi", Now);
+        SessionTook(TenantA, StoreMenu(TenantA, Layouts, "verdict-multi"), Now, 1, 0);
 
         await Answered(TenantA, Owner, record.Id, new { verdictId = "verdict-multi", optionIndexes = new[] { 1, 0 } });
 
         Assert.Equal("B - single column, A - card grid", _outcomes.Get(TenantA, Guid.Parse(record.Id))!.Answer);
+    }
+
+    [Fact]
+    public async Task Answered_NamingNoOptions_RecordsWhatTheAnswerRouteSent()
+    {
+        var record = File(TenantA, Layouts);
+        SessionTook(TenantA, StoreMenu(TenantA, Layouts, "verdict-unnamed"), Now, 1);
+
+        var result = await Answered(TenantA, Owner, record.Id, new { verdictId = "verdict-unnamed" });
+
+        Assert.Equal(StatusCodes.Status200OK, Status(result));
+        Assert.Equal("B - single column", _outcomes.Get(TenantA, Guid.Parse(record.Id))!.Answer);
+    }
+
+    /// <summary>
+    /// The answer route sent option A. A delayed or mistaken request then names option B - or an option the verdict
+    /// does not have, one twice, or none. Each is refused, and the record stays open: only what was sent is recorded.
+    /// </summary>
+    [Theory]
+    [InlineData(new[] { 1 })]
+    [InlineData(new[] { 2 })]
+    [InlineData(new[] { 0, 0 })]
+    [InlineData(new[] { 1, 0 })]
+    [InlineData(new int[0])]
+    public async Task Answered_ARequestNamingOtherOptionsThanWereSent_IsRefusedAndRecordsNothing(int[] named)
+    {
+        var record = File(TenantA, Layouts);
+        SessionTook(TenantA, StoreMenu(TenantA, Layouts, "verdict-sent-a"), Now, 0);
+
+        var result = await Answered(TenantA, Owner, record.Id, new { verdictId = "verdict-sent-a", optionIndexes = named });
+
+        Assert.Equal(StatusCodes.Status409Conflict, Status(result));
+        Assert.Equal("answer_mismatch", Field(result, "code"));
+        Assert.StartsWith("the session was sent option [0] for verdict verdict-sent-a, not [", (string)Field(result, "error")!);
+        Assert.Equal("open", _outcomes.Get(TenantA, Guid.Parse(record.Id))!.Status);
+    }
+
+    /// <summary>An answer to an earlier stop never closes the record once the session has stopped again - even with the
+    /// options that stop was sent.</summary>
+    [Fact]
+    public async Task Answered_AVerdictTheSessionHasStoppedAgainSince_IsRefusedAndRecordsNothing()
+    {
+        var record = File(TenantA, Layouts);
+        SessionTook(TenantA, StoreMenu(TenantA, Layouts, "verdict-earlier"), Now.AddMinutes(-30), 0);
+        var later = Menu("verdict-later");
+        later.JudgedAtUtc = Now.AddMinutes(-2);
+        later.TurnEndObservedAtUtc = Now.AddMinutes(-3);
+        _verdicts.Store(TenantA, Layouts, later);
+        // The later stop is superseded too - the session is working again. It is still the last stop.
+        _verdicts.Invalidate(TenantA, Layouts);
+
+        var result = await Answered(TenantA, Owner, record.Id, new { verdictId = "verdict-earlier", optionIndexes = new[] { 0 } });
+
+        Assert.Equal(StatusCodes.Status409Conflict, Status(result));
+        Assert.Equal("later_stop", Field(result, "code"));
+        Assert.Equal("open", _outcomes.Get(TenantA, Guid.Parse(record.Id))!.Status);
+    }
+
+    /// <summary>A record filed after the stop was answered is about something the answer never saw.</summary>
+    [Fact]
+    public async Task Answered_AVerdictAnsweredBeforeTheRecordWasFiled_IsRefusedAndRecordsNothing()
+    {
+        SessionTook(TenantA, StoreMenu(TenantA, Layouts, "verdict-before"), Now.AddMinutes(-20), 0);
+        var record = File(TenantA, Layouts); // filed ten minutes before now, after the answer
+
+        var result = await Answered(TenantA, Owner, record.Id, new { verdictId = "verdict-before", optionIndexes = new[] { 0 } });
+
+        Assert.Equal(StatusCodes.Status409Conflict, Status(result));
+        Assert.Equal("answered_before_record", Field(result, "code"));
+        Assert.Equal("open", _outcomes.Get(TenantA, Guid.Parse(record.Id))!.Status);
+    }
+
+    /// <summary>The stored answer names the turn it was given to; a verdict re-stored under the same id for another turn
+    /// is not the stop that was answered.</summary>
+    [Fact]
+    public async Task Answered_AnAnswerStoredForAnotherTurnOfTheSameVerdictId_IsRefused()
+    {
+        var record = File(TenantA, Layouts);
+        SessionTook(TenantA, StoreMenu(TenantA, Layouts, "verdict-reused"), Now, 0);
+        var restored = Menu("verdict-reused");
+        restored.TurnEndObservedAtUtc = Now.AddMinutes(-40);
+        _verdicts.Store(TenantA, Layouts, restored);
+
+        var result = await Answered(TenantA, Owner, record.Id, new { verdictId = "verdict-reused", optionIndexes = new[] { 0 } });
+
+        Assert.Equal(StatusCodes.Status409Conflict, Status(result));
+        Assert.Equal("answer_other_verdict", Field(result, "code"));
+        Assert.Equal("open", _outcomes.Get(TenantA, Guid.Parse(record.Id))!.Status);
     }
 
     [Fact]
@@ -285,8 +377,7 @@ public sealed class FleetManagerWalkthroughEndpointsTests : IDisposable
     public async Task Answered_AVerdictOfAnotherSession_RecordsNothing()
     {
         var record = File(TenantA, Layouts);
-        StoreMenu(TenantA, Dirty, "verdict-other");
-        _verdicts.MarkAnswered(TenantA, "verdict-other", Now);
+        SessionTook(TenantA, StoreMenu(TenantA, Dirty, "verdict-other"), Now, 0);
 
         var result = await Answered(TenantA, Owner, record.Id, new { verdictId = "verdict-other", optionIndexes = new[] { 0 } });
 
@@ -296,16 +387,12 @@ public sealed class FleetManagerWalkthroughEndpointsTests : IDisposable
     }
 
     [Theory]
-    [InlineData("{\"verdictId\":\"verdict-bad\",\"optionIndexes\":[2]}", "optionIndexes 2 is not an option of that verdict, which has 2")]
-    [InlineData("{\"verdictId\":\"verdict-bad\",\"optionIndexes\":[0,0]}", "optionIndexes names an option more than once")]
-    [InlineData("{\"verdictId\":\"verdict-bad\",\"optionIndexes\":[]}", "optionIndexes is empty, and an empty list is only the confirm of a typed reply; that verdict has options")]
-    [InlineData("{\"verdictId\":\"verdict-bad\"}", "optionIndexes is required: the positions the session took, or an empty list for a confirmed typed reply")]
     [InlineData("{\"optionIndexes\":[0]}", "verdictId is required: the verdict whose options the session took")]
+    [InlineData("{\"verdictId\":\"  \"}", "verdictId is required: the verdict whose options the session took")]
     public async Task Answered_ABadBody_Is400AndRecordsNothing(string json, string expected)
     {
         var record = File(TenantA, Layouts);
-        StoreMenu(TenantA, Layouts, "verdict-bad");
-        _verdicts.MarkAnswered(TenantA, "verdict-bad", Now);
+        SessionTook(TenantA, StoreMenu(TenantA, Layouts, "verdict-bad"), Now, 0);
         var ctx = Request(TenantA, Owner);
         ctx.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes(json));
 
@@ -320,8 +407,7 @@ public sealed class FleetManagerWalkthroughEndpointsTests : IDisposable
     public async Task Answered_AnotherAccountsRecord_Is404()
     {
         var theirs = File(TenantB, null);
-        StoreMenu(TenantA, Layouts, "verdict-x");
-        _verdicts.MarkAnswered(TenantA, "verdict-x", Now);
+        SessionTook(TenantA, StoreMenu(TenantA, Layouts, "verdict-x"), Now, 0);
 
         var result = await Answered(TenantA, Owner, theirs.Id, new { verdictId = "verdict-x", optionIndexes = new[] { 0 } });
 

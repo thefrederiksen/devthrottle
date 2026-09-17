@@ -25,6 +25,7 @@ public sealed class FleetManagerLaterStepsMigrationChainTests
         "20260917090400_AddFleetOutcomeAdvice",
         "20260917090500_RemoveAssistantSettings",
         "20260917090600_AddFleetManagerEventOutcomeAnswer",
+        "20260917090700_AddTurnVerdictAnswerChoice",
     })]
     [InlineData("postgres", new[]
     {
@@ -32,6 +33,7 @@ public sealed class FleetManagerLaterStepsMigrationChainTests
         "20260917090409_AddFleetOutcomeAdvice",
         "20260917090509_RemoveAssistantSettings",
         "20260917090609_AddFleetManagerEventOutcomeAnswer",
+        "20260917090709_AddTurnVerdictAnswerChoice",
     })]
     public void LaterStepMigrations_EachFollowsTheLast_AndItsDesignerDiffersOnlyByItsOwnSchemaChange(string provider, string[] chain)
     {
@@ -56,8 +58,9 @@ public sealed class FleetManagerLaterStepsMigrationChainTests
             Assert.Equal(migrationChange, modelChange);
             changes += modelChange.Count;
         }
-        // Five advice columns, then three answer columns and their index: an empty comparison proves nothing.
-        Assert.Equal(9, changes);
+        // Five advice columns, then three answer columns and their index, then the verdict's answer column: an empty
+        // comparison proves nothing.
+        Assert.Equal(10, changes);
     }
 
     /// <summary>The schema operations, as sorted "kind table.name" lines. Data operations are not schema.</summary>

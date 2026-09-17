@@ -247,11 +247,15 @@ public sealed class FleetWalkthroughCloseDto
     public string BusyLabel { get; set; } = "";
 }
 
-/// <summary>The body of <c>POST /gateway/fleet-manager/walkthrough/{id}/answered</c>: the verdict and options the
-/// session just took, so the Gateway records the same words on the record.</summary>
+/// <summary>The body of <c>POST /gateway/fleet-manager/walkthrough/{id}/answered</c>: the verdict the session was
+/// just answered on. The Gateway records the options its answer route stored for that verdict.</summary>
 public sealed class FleetWalkthroughAnsweredRequest
 {
+    /// <summary>The verdict the answer route was asked to answer. Required.</summary>
     public string? VerdictId { get; set; }
+
+    /// <summary>Optional: the positions the client sent. Never recorded - only compared with what the answer route
+    /// stored, and a difference refuses the request.</summary>
     public List<int>? OptionIndexes { get; set; }
 }
 

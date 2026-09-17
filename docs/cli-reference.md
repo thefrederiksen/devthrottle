@@ -1009,6 +1009,11 @@ session already where it is being sent, a session that has ended, and a session 
 old to change an owner (update DevThrottle on that computer). A session whose owner has ended asks the
 owner directly and may be handed over.
 
+The change is compare-and-set: the Director changes the owner only if it is still the owner the Gateway
+checked, so a session another session acquired meanwhile is refused with a 409 (its owner changed while
+the hand over was on its way), and of two hand overs sent at once exactly one is made. A change the
+Director cannot write to disk is not made, and is answered 502.
+
 The plain output is the Gateway's sentence, `session: <id>` and `owner: <id>` (or `owner: you`), then
 `help[2]:`. The change is reported from the Gateway's answer, never from the request: an answer that does
 not name the session, or names an owner that does not match `--to`, exits 1 saying whether it changed is
@@ -1399,8 +1404,11 @@ records, in the page's order, each with the Wingman's reading of its session (or
 why there is none), the Fleet Manager's advice, both picks marked, and whether snooze and close are
 offered. The client sends the round's ids back so answered items stay in the list as done. Three owner
 routes record what happened, each only AFTER the session took it: `/walkthrough/{id}/answered` (POST
-`{ verdictId, optionIndexes }`; recorded only when the Wingman's answer route marked that verdict
-answered, with the options' own words), `/walkthrough/{id}/snoozed` (POST; writes the record's
+`{ verdictId, optionIndexes? }`; recorded only when the Wingman's answer route marked that verdict
+answered, with the words of the options that route stored as sent - `optionIndexes`, when given, is
+only compared with them, and a difference is 409 `answer_mismatch`; refused with 409 `later_stop` when
+the session has stopped again since, and `answered_before_record` when the answer came before the record
+was filed), `/walkthrough/{id}/snoozed` (POST; writes the record's
 `ownerNote` only when the session is snoozed; the record stays open) and `/walkthrough/{id}/close`
 (POST; decides again whether the session may be closed - never with uncommitted, unpushed or unmerged
 work, and never when the Gateway cannot tell (409 `close_refused` with the sentence) - then runs the one

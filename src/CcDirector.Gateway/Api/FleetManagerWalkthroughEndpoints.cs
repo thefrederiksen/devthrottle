@@ -32,6 +32,7 @@ internal sealed record FleetManagerWalkthroughSources(
     Func<TenantId, string, SessionDto?> LastKnownSession,
     Func<TenantId, string, TurnVerdictDto?> LatestVerdict,
     Func<TenantId, string, TurnVerdictLocated?> FindVerdict,
+    Func<TenantId, string, TurnVerdictDto?> NewestVerdict,
     Func<TenantId, IReadOnlyList<StoredRepoState>> Repositories,
     Func<TenantId, int> SnoozeMinutes,
     Func<TenantId, TimeZoneInfo> TimeZone,
@@ -42,7 +43,7 @@ internal sealed record FleetManagerWalkthroughSources(
 /// "Take me through them" (the Fleet Manager mission, step 7):
 ///
 ///   GET  /gateway/fleet-manager/walkthrough?round=&lt;id&gt;,&lt;id&gt;   the round, folded (FleetManagerWalkthroughFold)
-///   POST /gateway/fleet-manager/walkthrough/{id}/answered         record the options the session just took
+///   POST /gateway/fleet-manager/walkthrough/{id}/answered         record the options the answer route sent
 ///   POST /gateway/fleet-manager/walkthrough/{id}/snoozed          record that the owner snoozed the session
 ///   POST /gateway/fleet-manager/walkthrough/{id}/close            decide close again, stop, then record it
 ///
@@ -142,10 +143,16 @@ internal static class FleetManagerWalkthroughEndpoints
     // ---- answered ------------------------------------------------------------------------------------------
 
     /// <summary>
-    /// Record, as the owner's answer to the record, the options the session has just taken. The words are the options'
-    /// own keys, joined in the order they were picked - the Gateway reads them off the stored verdict, the client sends
-    /// only positions. Nothing is recorded unless the answer route marked that verdict answered (the Director confirmed
-    /// the write), and the verdict must be about the record's own session.
+    /// Record, as the owner's answer to the record, the options the session has just taken. THE WORDS ARE THE ANSWER
+    /// ROUTE'S, never the client's: the answer route stored, when the Director confirmed its write, exactly which
+    /// options it sent and for which verdict (its id and turn end), and that stored choice is what is recorded. A
+    /// client may still name the positions it sent, and a request whose positions differ from the stored ones is
+    /// refused - a delayed or mistaken request can never record an option the session was not sent.
+    ///
+    /// THE ANSWER MUST BE TO THE RECORD'S STOP. The walkthrough offers a record the session's current stop, so the
+    /// verdict answered must be the session's last judged stop - once the session has stopped again, an answer to the
+    /// earlier stop no longer answers anything open - and it must have been answered after the record was filed, so an
+    /// answer to an earlier stop never closes a later record. The verdict must be about the record's own session.
     /// </summary>
     internal static async Task<IResult> AnsweredAsync(HttpContext ctx, string id, Func<HttpContext, TenantId?> resolveTenant,
         FleetOutcomeStore outcomes, FleetManagerWalkthroughSources sources)
@@ -163,43 +170,43 @@ internal static class FleetManagerWalkthroughEndpoints
             if (record is null) return RecordNotFound(id);
             if (string.IsNullOrWhiteSpace(body!.VerdictId))
                 return BadRequest("verdictId is required: the verdict whose options the session took");
-            if (body.OptionIndexes is null)
-                return BadRequest("optionIndexes is required: the positions the session took, or an empty list for a confirmed typed reply");
+            var verdictId = body.VerdictId.Trim();
 
-            var located = sources.FindVerdict(tenant, body.VerdictId.Trim());
+            var located = sources.FindVerdict(tenant, verdictId);
             if (located is null)
-                return Results.Json(new { error = $"no verdict {body.VerdictId} in this account, so nothing was recorded" },
+                return Results.Json(new { error = $"no verdict {verdictId} in this account, so nothing was recorded" },
                     statusCode: StatusCodes.Status404NotFound);
             if (!string.Equals(located.SessionId, record.SessionId, StringComparison.OrdinalIgnoreCase))
                 return Conflict("verdict_other_session",
-                    $"verdict {body.VerdictId} is about another session than this record, so nothing was recorded");
-            if (located.AnsweredAtUtc is null)
+                    $"verdict {verdictId} is about another session than this record, so nothing was recorded");
+            if (located.AnsweredAtUtc is not { } answeredAt || located.Answer is not { } taken)
                 return Conflict("not_answered",
                     "the session has not taken an answer to that verdict, so nothing was recorded; answer it first");
+            if (!string.Equals(taken.VerdictId, located.Verdict.VerdictId, StringComparison.Ordinal)
+                || taken.TurnEndObservedAtUtc != located.Verdict.TurnEndObservedAtUtc)
+                return Conflict("answer_other_verdict",
+                    $"the answer stored with verdict {verdictId} was given to another stop, so nothing was recorded");
 
-            var options = located.Verdict.Options;
-            var indexes = body.OptionIndexes;
-            if (indexes.Distinct().Count() != indexes.Count)
-                return BadRequest("optionIndexes names an option more than once");
-            var outOfRange = indexes.Where(i => i < 0 || i >= options.Count).ToList();
-            if (outOfRange.Count > 0)
-                return BadRequest($"optionIndexes {string.Join(", ", outOfRange)} {(outOfRange.Count == 1 ? "is" : "are")} not "
-                                  + $"an option of that verdict, which has {options.Count}");
-            string words;
-            if (indexes.Count == 0)
-            {
-                if (options.Count > 0)
-                    return BadRequest("optionIndexes is empty, and an empty list is only the confirm of a typed reply; that verdict has options");
-                words = "Sent the reply typed on the screen.";
-            }
-            else
-            {
-                words = string.Join(", ", indexes.Select(i => options[i].Key));
-            }
+            var newest = sources.NewestVerdict(tenant, located.SessionId);
+            if (newest is null || !string.Equals(newest.VerdictId, located.Verdict.VerdictId, StringComparison.Ordinal))
+                return Conflict("later_stop",
+                    $"session {located.SessionId} has stopped again since verdict {verdictId} was answered, so that answer "
+                    + "is not recorded on this record; look at the session again");
+            if (answeredAt < record.CreatedAtUtc)
+                return Conflict("answered_before_record",
+                    $"verdict {verdictId} was answered at {answeredAt:O}, before this record was filed at "
+                    + $"{record.CreatedAtUtc:O}, so it does not answer this record and nothing was recorded");
 
-            var result = outcomes.Answer(tenant, guid, words, FleetOutcomeStore.OwnerCaller, FleetOutcomeStore.RoleOwner,
+            if (body.OptionIndexes is { } named && !named.SequenceEqual(taken.OptionIndexes))
+                return Conflict("answer_mismatch",
+                    $"the session was sent option{(taken.OptionIndexes.Count == 1 ? "" : "s")} "
+                    + $"[{string.Join(", ", taken.OptionIndexes)}] for verdict {verdictId}, not [{string.Join(", ", named)}], "
+                    + "so nothing was recorded");
+
+            var result = outcomes.Answer(tenant, guid, taken.Words, FleetOutcomeStore.OwnerCaller, FleetOutcomeStore.RoleOwner,
                 sources.NowUtc());
-            FileLog.Write($"[FleetManagerWalkthroughEndpoints] answered: id={id}, verdict={body.VerdictId}, status={result.Status}");
+            FileLog.Write($"[FleetManagerWalkthroughEndpoints] answered: id={id}, verdict={verdictId}, "
+                          + $"options=[{string.Join(",", taken.OptionIndexes)}], status={result.Status}");
             return AnswerResult(id, result);
         }
         catch (ArgumentException ex)

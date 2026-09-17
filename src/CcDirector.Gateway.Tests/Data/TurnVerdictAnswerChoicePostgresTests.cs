@@ -9,18 +9,18 @@ using Xunit;
 namespace CcDirector.Gateway.Tests.Data;
 
 /// <summary>
-/// The PostgreSQL half of the steps 5 and 6 fixes' storage: a real PostgreSQL database at the schema before the
-/// change, holding a stop stored as step 4 stores it, carried through <c>AddFleetManagerEventOutcomeAnswer</c>. The
-/// stop survives and the three new columns exist, empty on it.
+/// The PostgreSQL half of the step 7 fixes' storage: a real PostgreSQL database at the schema before the change,
+/// holding a verdict answered as the answer route marked it then, carried through <c>AddTurnVerdictAnswerChoice</c>. The
+/// verdict survives and the new column exists, empty on it.
 ///
-/// GATING. Like <see cref="RemoveAssistantSettingsPostgresTests"/>, the class is gated on
+/// GATING. Like <see cref="FleetManagerEventOutcomeAnswerPostgresTests"/>, the class is gated on
 /// <c>CC_GATEWAY_TEST_PG_CONNECTION</c> and reports SKIPPED when it is unset. Skipped is not passed.
 /// </summary>
-public sealed class FleetManagerEventOutcomeAnswerPostgresTests
+public sealed class TurnVerdictAnswerChoicePostgresTests
 {
     private const string ConnectionEnvVar = "CC_GATEWAY_TEST_PG_CONNECTION";
-    private const string MigrationBefore = "20260917090509_RemoveAssistantSettings";
-    private const string MigrationUnderTest = "20260917090609_AddFleetManagerEventOutcomeAnswer";
+    private const string MigrationBefore = "20260917090609_AddFleetManagerEventOutcomeAnswer";
+    private const string MigrationUnderTest = "20260917090709_AddTurnVerdictAnswerChoice";
 
     private sealed class RequiresPostgresFactAttribute : FactAttribute
     {
@@ -28,7 +28,7 @@ public sealed class FleetManagerEventOutcomeAnswerPostgresTests
         {
             if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(ConnectionEnvVar)))
                 Skip = $"Set {ConnectionEnvVar} to a Postgres connection string to run the real-Postgres " +
-                       "event answer columns proof.";
+                       "verdict answer column proof.";
         }
     }
 
@@ -55,7 +55,7 @@ public sealed class FleetManagerEventOutcomeAnswerPostgresTests
     }
 
     [RequiresPostgresFact]
-    public void AddFleetManagerEventOutcomeAnswer_FromEmpty_AddsTheColumnsAndKeepsAnEventStoredBefore()
+    public void AddTurnVerdictAnswerChoice_FromEmpty_AddsTheColumnAndKeepsAVerdictStoredBefore()
     {
         PostgresProofDatabase.GuardThrowawayDatabase();
         using (var ctx = NewContext())
@@ -67,29 +67,30 @@ public sealed class FleetManagerEventOutcomeAnswerPostgresTests
             var index = all.IndexOf(MigrationUnderTest);
             Assert.True(index > 0, $"'{MigrationUnderTest}' is not in the Postgres migration set.");
             Assert.Equal(MigrationBefore, all[index - 1]);
+            Assert.Equal(MigrationUnderTest, all[^1]);
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
         }
 
         Scalar("""
-            INSERT INTO gateway.fleet_manager_events ("Id", "Kind", "SessionId", "SessionName", "AddressedTo",
-                "CreatedAtUtc", "DeliveryCount", "ReadingPending", tenant_id)
-            VALUES ('0b000000-0000-4000-8000-000000000001', 'stop', 'worker-1', 'Worker', 'fm-1',
-                TIMESTAMPTZ '2026-09-17 06:00:00Z', 0, false, 'tenant-one');
+            INSERT INTO gateway.turn_verdicts (tenant_id, "SessionId", "JudgedAtUtc", "VerdictId", "TurnEndObservedAtUtc",
+                "ScreenHash", "Failed", "VerdictJson", "AnsweredAtUtc")
+            VALUES ('tenant-one', 'worker-1', TIMESTAMPTZ '2026-09-17 06:00:00Z', 'tv-before',
+                TIMESTAMPTZ '2026-09-17 05:59:48Z', 'hash-1', false, '{}', TIMESTAMPTZ '2026-09-17 06:01:00Z');
             """);
 
         using (var ctx = NewContext())
         {
-            ctx.GetService<IMigrator>().Migrate(MigrationUnderTest);
+            ctx.GetService<IMigrator>().Migrate();
             Assert.Equal(MigrationUnderTest, ctx.Database.GetAppliedMigrations().Last());
+            Assert.False(ctx.Database.HasPendingModelChanges());
         }
 
-        Assert.Equal("3", Scalar("""
+        Assert.Equal("1", Scalar("""
             SELECT count(*) FROM information_schema.columns
-            WHERE table_schema = 'gateway' AND table_name = 'fleet_manager_events'
-              AND column_name IN ('OutcomeId', 'OutcomeTitle', 'Words')
+            WHERE table_schema = 'gateway' AND table_name = 'turn_verdicts' AND column_name = 'AnswerJson'
             """));
-        Assert.Equal("stop|worker-1|null", Scalar("""
-            SELECT "Kind" || '|' || "SessionId" || '|' || COALESCE("OutcomeId", 'null') FROM gateway.fleet_manager_events
+        Assert.Equal("tv-before|null", Scalar("""
+            SELECT "VerdictId" || '|' || COALESCE("AnswerJson", 'null') FROM gateway.turn_verdicts
             """));
     }
 }

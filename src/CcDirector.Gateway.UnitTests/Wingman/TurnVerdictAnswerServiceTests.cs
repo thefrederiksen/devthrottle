@@ -236,6 +236,10 @@ public sealed class TurnVerdictAnswerServiceTests : IDisposable
         Assert.True(outcome.Accepted);
         Assert.Equal(new[] { ("31\r", false) }, channel.Writes);
         Assert.Equal(1, channel.Reads);
+        // What was sent is stored with the verdict, in the order sent, for the walkthrough's record.
+        var answer = _store.FindById(Tenant, v.VerdictId)!.Answer!;
+        Assert.Equal((v.VerdictId, v.TurnEndObservedAtUtc, "2,0", "the seed rows, the schema"),
+            (answer.VerdictId, answer.TurnEndObservedAtUtc, string.Join(",", answer.OptionIndexes), answer.Words));
     }
 
     [Fact]
@@ -252,6 +256,9 @@ public sealed class TurnVerdictAnswerServiceTests : IDisposable
 
         Assert.True(outcome.Accepted);
         Assert.Equal(new[] { ("\r", false) }, channel.Writes);
+        var answer = _store.FindById(Tenant, v.VerdictId)!.Answer!;
+        Assert.Empty(answer.OptionIndexes);
+        Assert.Equal(TurnVerdictStoredAnswer.TypedReplyWords, answer.Words);
     }
 
     [Fact]

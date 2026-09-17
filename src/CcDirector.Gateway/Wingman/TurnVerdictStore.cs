@@ -112,6 +112,7 @@ public sealed class TurnVerdictStore
                 if (!string.Equals(existing.VerdictId, verdict.VerdictId, StringComparison.Ordinal))
                 {
                     existing.AnsweredAtUtc = null;
+                    existing.AnswerJson = null;
                     existing.SupersededAtUtc = null;
                 }
                 existing.VerdictId = verdict.VerdictId;
@@ -173,30 +174,61 @@ public sealed class TurnVerdictStore
             .FirstOrDefault();
         if (row is null) return null;
         var dto = Deserialize(row);
-        return dto is null ? null : new TurnVerdictLocated(row.SessionId, dto, row.AnsweredAtUtc);
+        return dto is null ? null : new TurnVerdictLocated(row.SessionId, dto, row.AnsweredAtUtc, ReadAnswer(row));
     }
 
     /// <summary>
-    /// Record that the owner's answer to this verdict was written and confirmed. True when this call marked it;
-    /// false when this tenant holds no such verdict or it was already answered - the first mark stands and is
-    /// never moved.
-    ///
-    /// A stored fact rather than a flag in memory, so "this verdict was answered" is answerable by query and
-    /// holds across a Gateway restart, and so the answer route's check reads the same record it marks.
+    /// This session's most recently judged stop in this tenant, SUPERSEDED OR NOT, or null when it has none. Where
+    /// <see cref="Latest"/> answers "what does the screen show now", this answers "what is the last stop this session
+    /// made" - an answered verdict is superseded the moment its session goes back to work, and it is still the last
+    /// stop until the session stops again. The walkthrough asks it so that an answer to an earlier stop never closes a
+    /// record once a later stop exists.
     /// </summary>
-    public bool MarkAnswered(TenantId tenant, string verdictId, DateTime answeredAtUtc)
+    public TurnVerdictDto? NewestJudged(TenantId tenant, string sessionId)
     {
-        if (string.IsNullOrWhiteSpace(verdictId))
-            throw new ArgumentException("A verdict id is required.", nameof(verdictId));
+        var sid = RequireSessionId(sessionId);
+        using var ctx = _db.CreateContext(tenant);
+        var row = ctx.TurnVerdicts.AsNoTracking()
+            .Where(v => v.SessionId == sid)
+            .OrderByDescending(v => v.JudgedAtUtc)
+            .FirstOrDefault();
+        return row is null ? null : Deserialize(row);
+    }
+
+    private static TurnVerdictStoredAnswer? ReadAnswer(TurnVerdictEntity row)
+        => row.AnswerJson is null ? null : JsonSerializer.Deserialize<TurnVerdictStoredAnswer>(row.AnswerJson, VerdictJsonOptions)
+           ?? throw new InvalidOperationException($"verdict {row.VerdictId} carries an answer that does not read back");
+
+    /// <summary>
+    /// Record that the owner's answer to this verdict was written and confirmed, and WHAT it was. True when this call
+    /// marked it; false when this tenant holds no such verdict, the verdict stored under that id is for another turn
+    /// end than the answer names, or it was already answered - the first mark stands and is never moved.
+    ///
+    /// A stored fact rather than a flag in memory, so "this verdict was answered, and with what" is answerable by
+    /// query and holds across a Gateway restart, and so the answer route's check reads the same record it marks. The
+    /// moment and the answer are written in one save: there is never an answered verdict without its answer.
+    /// </summary>
+    public bool MarkAnswered(TenantId tenant, TurnVerdictStoredAnswer answer, DateTime answeredAtUtc)
+    {
+        ArgumentNullException.ThrowIfNull(answer);
+        if (string.IsNullOrWhiteSpace(answer.VerdictId))
+            throw new ArgumentException("A verdict id is required.", nameof(answer));
         lock (_gate)
         {
             using var ctx = _db.CreateContext(tenant);
             var row = ctx.TurnVerdicts
-                .Where(v => v.VerdictId == verdictId)
+                .Where(v => v.VerdictId == answer.VerdictId)
                 .OrderByDescending(v => v.JudgedAtUtc)
                 .FirstOrDefault();
             if (row is null || row.AnsweredAtUtc is not null) return false;
+            if (row.TurnEndObservedAtUtc != Utc(answer.TurnEndObservedAtUtc))
+            {
+                FileLog.Write($"[TurnVerdictStore] MarkAnswered: verdict={answer.VerdictId} is stored for turn end " +
+                              $"{row.TurnEndObservedAtUtc:O}, not {answer.TurnEndObservedAtUtc:O}; not marked");
+                return false;
+            }
             row.AnsweredAtUtc = Utc(answeredAtUtc);
+            row.AnswerJson = JsonSerializer.Serialize(answer with { TurnEndObservedAtUtc = row.TurnEndObservedAtUtc }, VerdictJsonOptions);
             ctx.SaveChanges();
             return true;
         }

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using CcDirector.Gateway.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CcDirector.Gateway.Migrations.Postgres.Migrations
 {
     [DbContext(typeof(GatewayDbContext))]
-    partial class GatewayDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260917090709_AddTurnVerdictAnswerChoice")]
+    partial class AddTurnVerdictAnswerChoice
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -295,233 +298,6 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.HasIndex("JobId", "Sequence");
 
                     b.ToTable("cron_runs", "gateway");
-                });
-
-            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.DevReportEntity", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Key")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .UseCollation("C");
-
-                    b.Property<DateTime>("PublishedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("SessionId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .UseCollation("C");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<string>("TenantId")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("tenant_id");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("UpdatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<int>("Version")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TenantId");
-
-                    b.HasIndex("TenantId", "SessionId", "Key")
-                        .IsUnique();
-
-                    b.ToTable("dev_reports", "gateway");
-                });
-
-            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.DevReportItemEntity", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("AnchorJson")
-                        .HasColumnType("text");
-
-                    b.Property<Guid?>("ClaimId")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime?>("ClaimedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("ClientItemId")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .UseCollation("C");
-
-                    b.Property<string>("Comment")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime?>("DeliveredAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Kind")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("character varying(16)");
-
-                    b.Property<string>("OptionLabel")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("OptionValue")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("Question")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("QuestionId")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("ReplacedBy")
-                        .HasColumnType("text");
-
-                    b.Property<Guid>("ReportId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("SenderKind")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("SentAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<long>("Sequence")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("SessionId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .UseCollation("C");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<string>("StatusLabel")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<string>("TenantId")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("tenant_id");
-
-                    b.Property<string>("Text")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TenantId");
-
-                    b.HasIndex("TenantId", "ReportId", "ClientItemId")
-                        .IsUnique();
-
-                    b.HasIndex("TenantId", "SessionId", "Status");
-
-                    b.ToTable("dev_report_items", "gateway");
-                });
-
-            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.DevReportReplyEntity", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("AtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("ReportId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("TenantId")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("tenant_id");
-
-                    b.Property<string>("Text")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TenantId");
-
-                    b.HasIndex("TenantId", "ReportId", "AtUtc");
-
-                    b.ToTable("dev_report_replies", "gateway");
-                });
-
-            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.DevReportVersionEntity", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("ByteHash")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)");
-
-                    b.Property<long>("ByteLength")
-                        .HasColumnType("bigint");
-
-                    b.Property<string>("Html")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<DateTime>("PublishedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<Guid>("ReportId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<string>("TenantId")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("tenant_id");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<int>("Version")
-                        .HasColumnType("integer");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TenantId");
-
-                    b.HasIndex("TenantId", "ReportId", "Version")
-                        .IsUnique();
-
-                    b.ToTable("dev_report_versions", "gateway");
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.DeviceCredentialEntity", b =>
@@ -999,13 +775,7 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasColumnType("character varying(64)")
                         .UseCollation("C");
 
-                    b.Property<DateTime?>("RepliedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<DateTime?>("ReplyByUtc")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<DateTime?>("ReplyOverdueAtUtc")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("RingCount")
@@ -1041,8 +811,6 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.HasIndex("TenantId");
 
                     b.HasIndex("TenantId", "CreatedAtUtc");
-
-                    b.HasIndex("TenantId", "ReplyByUtc");
 
                     b.HasIndex("TenantId", "SenderSessionId", "CreatedAtUtc");
 
@@ -2468,9 +2236,6 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
-                    b.Property<DateTime?>("ClockDeadlineUtc")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<bool>("ColourEnabled")
                         .HasColumnType("boolean");
 
@@ -2510,13 +2275,6 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
 
                     b.Property<double?>("ReplySeconds")
                         .HasColumnType("double precision");
-
-                    b.Property<string>("RowColour")
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<string>("RowLabel")
-                        .HasColumnType("text");
 
                     b.Property<string>("SessionId")
                         .IsRequired()

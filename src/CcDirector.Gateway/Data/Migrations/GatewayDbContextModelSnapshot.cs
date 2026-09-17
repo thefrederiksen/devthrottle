@@ -2319,6 +2319,9 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<DateTime?>("AnsweredAtUtc")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("AnswerJson")
+                        .HasColumnType("TEXT");
+
                     b.Property<bool>("Failed")
                         .HasColumnType("INTEGER");
 
