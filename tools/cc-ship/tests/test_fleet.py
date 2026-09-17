@@ -302,7 +302,7 @@ def test_wait_for_output_MissingForAFullMinute_Crashed(tmp_path, monkeypatch, cl
     monkeypatch.setattr(fleet, "find_session", lambda sid: None)
     result = fleet.wait_for_output("s1", tmp_path / "review.json", 600, poll_seconds=10)
     assert result.outcome == fleet.CRASHED
-    assert len(result.observations) >= fleet.GONE_CONFIRM_SECONDS // 10  # not a single poll
+    assert len(result.observations) >= 7  # T, T+10 ... T+60: a full minute, not one poll
 
 
 def test_wait_for_output_MissingButFinishedWithMarker_FinishedAtOnce(tmp_path, monkeypatch, clock):
@@ -315,9 +315,35 @@ def test_wait_for_output_MissingButFinishedWithMarker_FinishedAtOnce(tmp_path, m
 
 
 def test_wait_for_output_MissingConfirmationSpansSeparateCalls(tmp_path, monkeypatch, clock):
+    # The watch reaches the next cc-ship wait through run.json, so round-trip it as JSON,
+    # and give the second call a slice SHORTER than the window: only carried state can
+    # make it CRASHED.
+    import json
     watch = {}
     monkeypatch.setattr(fleet, "find_session", lambda sid: None)
-    first = fleet.wait_for_output("s1", tmp_path / "r.json", 30, poll_seconds=10, watch=watch)
+    first = fleet.wait_for_output("s1", tmp_path / "r.json", 50, poll_seconds=10, watch=watch)
     assert first.outcome == fleet.TIMED_OUT
-    second = fleet.wait_for_output("s1", tmp_path / "r.json", 60, poll_seconds=10, watch=watch)
+    watch = json.loads(json.dumps(watch))
+    second = fleet.wait_for_output("s1", tmp_path / "r.json", 20, poll_seconds=10, watch=watch)
     assert second.outcome == fleet.CRASHED
+
+
+def test_wait_for_output_MissingFiftySecondsThenBack_NotGone(tmp_path, monkeypatch, clock):
+    # Pins the window's length: fifty seconds missing is not yet gone.
+    out = tmp_path / "review.json"
+    rows = [_row()] + [None] * 6 + [_row(), _row(pending=True)]
+    fake = _FakeFleet(rows, output=out, write_at=8)
+    monkeypatch.setattr(fleet, "find_session", fake.find)
+    result = fleet.wait_for_output("s1", out, 600, poll_seconds=10)
+    assert result.outcome == fleet.FINISHED
+
+
+def test_wait_for_output_SecondBriefOmissionLater_StartsANewWindow(tmp_path, monkeypatch, clock):
+    # Pins the reset: a row that came back clears the clock, so a later single omission
+    # is not added to the first one.
+    out = tmp_path / "review.json"
+    rows = [_row(), None] + [_row()] * 7 + [None, _row(), _row(pending=True)]
+    fake = _FakeFleet(rows, output=out, write_at=11)
+    monkeypatch.setattr(fleet, "find_session", fake.find)
+    result = fleet.wait_for_output("s1", out, 600, poll_seconds=10)
+    assert result.outcome == fleet.FINISHED
