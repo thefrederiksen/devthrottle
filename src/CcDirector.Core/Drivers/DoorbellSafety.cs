@@ -100,9 +100,10 @@ public readonly record struct DoorbellVerdict(bool Ring, string Reason, string D
 ///  - A Codex placeholder not in <see cref="CodexPlaceholders"/> reads as text, so the ring is deferred until the
 ///    placeholder changes. Safe, but late.
 ///  - A Claude Code placeholder suggestion (dim text on an empty prompt row) would read as text, likewise.
-///  - Text the owner has typed but the agent has not yet repainted. The two frames are 120 milliseconds apart;
-///    a keystroke that lands after the second frame and before the doorbell's first keystroke is not seen. The
-///    submit then types onto it - the race is narrowed, not closed.
+///  - Text the owner has typed but the agent has not yet repainted, and a turn that starts after the last look.
+///    The ringer (<see cref="Sessions.FleetDoorbellRinger"/>) takes a third frame and re-reads the Director's
+///    state immediately before the first byte and defers if anything moved; a keystroke or a self-started turn
+///    inside the remaining interval is not seen. The race is narrowed to that interval, not closed.
 ///  - Composer text scrolled out of the visible rows (a very long draft) - the prompt row still shows text, so
 ///    this defers; but a draft whose visible window is blank would not be seen.
 ///  - Codex "working": the marker is the same "esc to interrupt" footer; no mid-turn Codex screen was captured

@@ -1,0 +1,24 @@
+== MUTATION item 1 reverted: no last look before the send: exit=1
+    Failed!  - Failed:     6, Passed:     0, Skipped:     0, Total:     6, Duration: 14 ms - CcDirector.Core.UnitTests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.A_cursor_that_moved_after_the_check_stops_the_send [9 ms]
+    Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.The_Director_turning_working_after_the_check_stops_the_send [< 1 ms]
+    Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.An_unchanged_session_is_rung_and_the_last_look_comes_immediately_before_the_send [5 ms]
+    Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.A_session_that_exits_after_the_check_is_never_typed_into [< 1 ms]
+    Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.A_turn_that_starts_after_the_second_frame_is_not_typed_into [< 1 ms]
+    Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.A_keystroke_that_lands_after_the_check_stops_the_send [< 1 ms]
+== MUTATION last look ignores the Director state: exit=1
+    Failed!  - Failed:     2, Passed:     4, Skipped:     0, Total:     6, Duration: 22 ms - CcDirector.Core.UnitTests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.The_Director_turning_working_after_the_check_stops_the_send [1 ms]
+    Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.An_unchanged_session_is_rung_and_the_last_look_comes_immediately_before_the_send [5 ms]
+== MUTATION last look ignores the third frame: exit=1
+    Failed!  - Failed:     3, Passed:     3, Skipped:     0, Total:     6, Duration: 17 ms - CcDirector.Core.UnitTests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.A_cursor_that_moved_after_the_check_stops_the_send [12 ms]
+    Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.A_turn_that_starts_after_the_second_frame_is_not_typed_into [< 1 ms]
+    Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.A_keystroke_that_lands_after_the_check_stops_the_send [< 1 ms]
+== MUTATION last look ignores the cursor: exit=1
+    Failed!  - Failed:     1, Passed:     5, Skipped:     0, Total:     6, Duration: 15 ms - CcDirector.Core.UnitTests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.A_cursor_that_moved_after_the_check_stops_the_send [9 ms]
+== MUTATION last look ignores an exit: exit=1
+    Failed!  - Failed:     2, Passed:     4, Skipped:     0, Total:     6, Duration: 21 ms - CcDirector.Core.UnitTests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.An_unchanged_session_is_rung_and_the_last_look_comes_immediately_before_the_send [4 ms]
+    Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.A_session_that_exits_after_the_check_is_never_typed_into [< 1 ms]

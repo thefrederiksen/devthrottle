@@ -1,4 +1,3 @@
-using System.Text.Json;
 using CcDirector.Core.Agents;
 using CcDirector.Core.Drivers;
 using CcDirector.Gateway.Contracts;
@@ -14,22 +13,7 @@ namespace CcDirector.Core.Tests.Sessions;
 /// </summary>
 public sealed class DoorbellSafetyTests
 {
-    private sealed class Capture
-    {
-        public string[] Rows { get; set; } = [];
-        public int CursorRow { get; set; }
-        public int CursorCol { get; set; }
-        public bool CursorVisible { get; set; }
-    }
-
-    private static ScreenFrame Load(string name)
-    {
-        var path = Path.Combine(AppContext.BaseDirectory, "TestData", "doorbell", name + ".json");
-        var capture = JsonSerializer.Deserialize<Capture>(File.ReadAllText(path),
-            new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
-        Assert.True(capture.Rows.Length == 40, $"{name} should be a full 40-row capture");
-        return new ScreenFrame(capture.Rows, capture.CursorRow, capture.CursorCol, capture.CursorVisible);
-    }
+    private static ScreenFrame Load(string name) => DoorbellCaptures.Load(name);
 
     /// <summary>The facts a quiet, healthy session presents, with the same capture as both frames.</summary>
     private static DoorbellFacts Quiet(AgentKind agent, string capture) =>

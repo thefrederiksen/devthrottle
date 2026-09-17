@@ -1,0 +1,7 @@
+[
+ {"name":"item 1 reverted: no last look before the send","old":"            var changed = ChangedSinceCheck(target, facts.Frames[^1]);\n            if (changed is { } c)\n                return Deferred(target, c.Reason, c.Detail);\n","new":""},
+ {"name":"last look ignores the Director state","old":"        if (target.DirectorSaysWorking)\n            return (FleetRingDeferReasons.Working, \"the Director's activity state turned working after the check\");","new":""},
+ {"name":"last look ignores the third frame","old":"        if (!SameFrame(approved, now))","new":"        if (false && !SameFrame(approved, now))"},
+ {"name":"last look ignores the cursor","old":"        if (a.CursorRow != b.CursorRow || a.CursorCol != b.CursorCol || a.CursorVisible != b.CursorVisible) return false;","new":""},
+ {"name":"last look ignores an exit","old":"        if (target.Exited)\n            return (FleetRingDeferReasons.Exited, \"the session exited after the check\");","new":""}
+]

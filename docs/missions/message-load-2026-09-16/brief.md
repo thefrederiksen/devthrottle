@@ -68,6 +68,11 @@ All five questions in `design-and-questions.html` were answered "all recommended
    "deferred, reason". The Gateway retries on the next settled edge and on its heartbeat. Nothing
    is typed into an exited session. *Inferred*: it follows from the unreliable turn-end signal
    (issue 2853) and the composer hazard (issue 2845).
+   **Its limit (inspection 4, ruling 1, 17 September 2026):** the Director takes a last look - a third
+   screen frame and its own activity state - immediately before the first byte, and defers if anything
+   changed. What a terminal cannot close is the interval between that look and the first byte, and a turn
+   the agent starts on its own inside it (a background task completing). The worst case there is one short
+   fixed doorbell line queued behind the current tool call; it carries no message text, so nothing is lost.
 8. **The doorbell is the only thing typed.** One fixed short line: how many messages wait and the
    command to read them. Message text may be multi-line and is never typed. A duplicate doorbell is
    harmless. Stated.
