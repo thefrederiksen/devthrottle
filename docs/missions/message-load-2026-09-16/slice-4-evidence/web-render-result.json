@@ -1,0 +1,22 @@
+{
+  "cockpit": {
+    "ok": true,
+    "lines": [
+      "2 messages waiting",
+      "1 message stuck, unread for 20 minutes",
+      "1 reply waiting; 1 notice from the Gateway waiting"
+    ],
+    "color": "rgb(59, 130, 246)",
+    "errors": []
+  },
+  "mobile": {
+    "ok": true,
+    "lines": [
+      "2 messages waiting",
+      "1 message stuck, unread for 20 minutes",
+      "1 reply waiting; 1 notice from the Gateway waiting"
+    ],
+    "color": "rgb(59, 130, 246)",
+    "errors": []
+  }
+}

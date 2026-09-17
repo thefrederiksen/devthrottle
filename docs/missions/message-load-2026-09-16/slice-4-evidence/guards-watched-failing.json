@@ -1,0 +1,632 @@
+[
+  {
+    "break": "fold: singular always",
+    "file": "src/CcDirector.Gateway/Messaging/FleetInboxLineFold.cs",
+    "applied": true,
+    "red_on_every_suite": true,
+    "runs": [
+      {
+        "command": "dotnet test src/CcDirector.Gateway.UnitTests --filter \"FullyQualifiedName~FleetInboxLineTests|FullyQualifiedName~FleetDisplayStateObserverTests|FullyQualifiedName~SessionCommandExecutorTests\"",
+        "exit": 1,
+        "summary": [
+          "Failed!  - Failed:    17, Passed:    99, Skipped:     0, Total:   116, Duration: 1 s - CcDirector.Gateway.UnitTests.dll (net10.0)"
+        ],
+        "failed": [
+          "Failed CcDirector.Gateway.Tests.Messaging.FleetInboxLineTests.The_age_is_rounded_down_in_minutes_then_hours_then_days(seconds: 7200, expected: \"2 hours\") [1 ms]",
+          "Failed CcDirector.Gateway.Tests.Messaging.FleetInboxLineTests.The_age_is_rounded_down_in_minutes_then_hours_then_days(seconds: 120, expected: \"2 minutes\") [< 1 ms]",
+          "Failed CcDirector.Gateway.Tests.Messaging.FleetInboxLineTests.The_age_is_rounded_down_in_minutes_then_hours_then_days(seconds: 172800, expected: \"2 days\") [< 1 ms]",
+          "Failed CcDirector.Gateway.Tests.Messaging.FleetInboxLineTests.The_age_is_rounded_down_in_minutes_then_hours_then_days(seconds: 172799, expected: \"47 hours\") [< 1 ms]",
+          "Failed CcDirector.Gateway.Tests.Messaging.FleetInboxLineTests.The_age_is_rounded_down_in_minutes_then_hours_then_days(seconds: 867600, expected: \"10 days\") [< 1 ms]",
+          "Failed CcDirector.Gateway.Tests.Messaging.FleetInboxLineTests.The_age_is_rounded_down_in_minutes_then_hours_then_days(seconds: 7199, expected: \"119 minutes\") [< 1 ms]",
+          "Failed CcDirector.Gateway.Tests.Messaging.FleetInboxLineTests.The_age_is_rounded_down_in_minutes_then_hours_then_days(seconds: 14340, expected: \"3 hours\") [< 1 ms]",
+          "Failed CcDirector.Gateway.Tests.Messaging.FleetInboxLineTests.Waiting_messages_are_counted_with_the_right_plural(n: 17, expected: \"17 messages waiting\") [< 1 ms]",
+          "Failed CcDirector.Gateway.Tests.Messaging.FleetInboxLineTests.Waiting_messages_are_counted_with_the_right_plural(n: 2, expected: \"2 messages waiting\") [< 1 ms]",
+          "Failed CcDirector.Gateway.Tests.Messaging.FleetInboxLineTests.Notices_say_who_wrote_them(n: 2, expected: \"2 notices from the Gateway waiting\") [< 1 ms]",
+          "Failed CcDirector.Gateway.Tests.Messaging.FleetInboxLineTests.One_stuck_message_says_how_long_it_has_been_unread [< 1 ms]",
+          "Failed CcDirector.Gateway.Tests.Messaging.FleetInboxLineTests.The_shared_fold_stamps_the_line_with_its_one_moment [7 ms]"
+        ]
+      }
+    ]
+  },
+  {
+    "break": "fold: stuck age measured to zero",
+    "file": "src/CcDirector.Gateway/Messaging/FleetInboxLineFold.cs",
+    "applied": true,
+    "red_on_every_suite": true,
+    "runs": [
+      {
+        "command": "dotnet test src/CcDirector.Gateway.UnitTests --filter \"FullyQualifiedName~FleetInboxLineTests|FullyQualifiedName~FleetDisplayStateObserverTests|FullyQualifiedName~SessionCommandExecutorTests\"",
+        "exit": 1,
+        "summary": [
+          "Failed!  - Failed:     5, Passed:   111, Skipped:     0, Total:   116, Duration: 1 s - CcDirector.Gateway.UnitTests.dll (net10.0)"
+        ],
+        "failed": [
+          "Failed CcDirector.Gateway.Tests.Messaging.FleetInboxLineTests.One_stuck_message_says_how_long_it_has_been_unread [< 1 ms]",
+          "Failed CcDirector.Gateway.Tests.Messaging.FleetInboxLineTests.The_shared_fold_stamps_the_line_with_its_one_moment [7 ms]",
+          "Failed CcDirector.Gateway.Tests.Messaging.FleetInboxLineTests.One_fold_over_forty_sessions_is_one_query_against_the_inbox [102 ms]",
+          "Failed CcDirector.Gateway.Tests.Messaging.FleetInboxLineTests.Several_stuck_messages_give_the_oldest_age [< 1 ms]",
+          "Failed CcDirector.Gateway.Tests.Messaging.FleetInboxLineTests.Every_part_together_leads_with_stuck_and_is_separated_by_semicolons [< 1 ms]"
+        ]
+      }
+    ]
+  },
+  {
+    "break": "fold: hours boundary at one hour",
+    "file": "src/CcDirector.Gateway/Messaging/FleetInboxLineFold.cs",
+    "applied": true,
+    "red_on_every_suite": true,
+    "runs": [
+      {
+        "command": "dotnet test src/CcDirector.Gateway.UnitTests --filter \"FullyQualifiedName~FleetInboxLineTests|FullyQualifiedName~FleetDisplayStateObserverTests|FullyQualifiedName~SessionCommandExecutorTests\"",
+        "exit": 1,
+        "summary": [
+          "Failed!  - Failed:     1, Passed:   115, Skipped:     0, Total:   116, Duration: 1 s - CcDirector.Gateway.UnitTests.dll (net10.0)"
+        ],
+        "failed": [
+          "Failed CcDirector.Gateway.Tests.Messaging.FleetInboxLineTests.The_age_is_rounded_down_in_minutes_then_hours_then_days(seconds: 7199, expected: \"119 minutes\") [< 1 ms]"
+        ]
+      }
+    ]
+  },
+  {
+    "break": "fold: stuck part not leading",
+    "file": "src/CcDirector.Gateway/Messaging/FleetInboxLineFold.cs",
+    "applied": true,
+    "red_on_every_suite": true,
+    "runs": [
+      {
+        "command": "dotnet test src/CcDirector.Gateway.UnitTests --filter \"FullyQualifiedName~FleetInboxLineTests|FullyQualifiedName~FleetDisplayStateObserverTests|FullyQualifiedName~SessionCommandExecutorTests\"",
+        "exit": 1,
+        "summary": [
+          "Failed!  - Failed:     1, Passed:   115, Skipped:     0, Total:   116, Duration: 1 s - CcDirector.Gateway.UnitTests.dll (net10.0)"
+        ],
+        "failed": [
+          "Failed CcDirector.Gateway.Tests.Messaging.FleetInboxLineTests.Every_part_together_leads_with_stuck_and_is_separated_by_semicolons [< 1 ms]"
+        ]
+      }
+    ],
+    "note": "Re-run: the first attempt of this break did not compile (an extra parenthesis in the break itself), which is not a watched failure."
+  },
+  {
+    "break": "fold: replies counted as messages",
+    "file": "src/CcDirector.Gateway/Messaging/FleetInboxLineFold.cs",
+    "applied": true,
+    "red_on_every_suite": true,
+    "runs": [
+      {
+        "command": "dotnet test src/CcDirector.Gateway.UnitTests --filter \"FullyQualifiedName~FleetInboxLineTests|FullyQualifiedName~FleetDisplayStateObserverTests|FullyQualifiedName~SessionCommandExecutorTests\"",
+        "exit": 1,
+        "summary": [
+          "Failed!  - Failed:     3, Passed:   113, Skipped:     0, Total:   116, Duration: 1 s - CcDirector.Gateway.UnitTests.dll (net10.0)"
+        ],
+        "failed": [
+          "Failed CcDirector.Gateway.Tests.Messaging.FleetInboxLineTests.Replies_are_their_own_part(n: 1, expected: \"1 reply waiting\") [< 1 ms]",
+          "Failed CcDirector.Gateway.Tests.Messaging.FleetInboxLineTests.Replies_are_their_own_part(n: 3, expected: \"3 replies waiting\") [< 1 ms]",
+          "Failed CcDirector.Gateway.Tests.Messaging.FleetInboxLineTests.Every_part_together_leads_with_stuck_and_is_separated_by_semicolons [< 1 ms]"
+        ]
+      }
+    ]
+  },
+  {
+    "break": "stamp: a row with no counts keeps its old line",
+    "file": "src/CcDirector.Gateway/Messaging/FleetInboxLineFold.cs",
+    "applied": true,
+    "red_on_every_suite": false,
+    "runs": [
+      {
+        "command": "dotnet test src/CcDirector.Gateway.UnitTests --filter \"FullyQualifiedName~FleetInboxLineTests|FullyQualifiedName~FleetDisplayStateObserverTests|FullyQualifiedName~SessionCommandExecutorTests\"",
+        "exit": 1,
+        "summary": [
+          "Failed!  - Failed:     1, Passed:   115, Skipped:     0, Total:   116, Duration: 1 s - CcDirector.Gateway.UnitTests.dll (net10.0)"
+        ],
+        "failed": [
+          "Failed CcDirector.Gateway.Tests.Messaging.FleetInboxLineTests.The_stamp_writes_each_rows_own_line_and_clears_the_rest [< 1 ms]"
+        ]
+      },
+      {
+        "command": "dotnet test src/CcDirector.Gateway.Tests --filter \"FullyQualifiedName~FleetMessageRouteTests.The_roster\"",
+        "exit": 0,
+        "summary": [
+          "Passed!  - Failed:     0, Passed:     1, Skipped:     0, Total:     1, Duration: 134 ms - CcDirector.Gateway.Tests.dll (net10.0)"
+        ],
+        "failed": []
+      }
+    ],
+    "note": "Red on the unit guard (The_stamp_writes_each_rows_own_line_and_clears_the_rest). Green on the route test by design: once every message is read the account has no unread rows, and the stamp takes the empty-answer branch that clears every row before this line is reached."
+  },
+  {
+    "break": "stamp: session id case not folded",
+    "file": "src/CcDirector.Gateway/Messaging/FleetInboxLineFold.cs",
+    "applied": true,
+    "red_on_every_suite": true,
+    "runs": [
+      {
+        "command": "dotnet test src/CcDirector.Gateway.UnitTests --filter \"FullyQualifiedName~FleetInboxLineTests|FullyQualifiedName~FleetDisplayStateObserverTests|FullyQualifiedName~SessionCommandExecutorTests\"",
+        "exit": 1,
+        "summary": [
+          "Failed!  - Failed:     1, Passed:   115, Skipped:     0, Total:   116, Duration: 1 s - CcDirector.Gateway.UnitTests.dll (net10.0)"
+        ],
+        "failed": [
+          "Failed CcDirector.Gateway.Tests.Messaging.FleetInboxLineTests.The_stamp_writes_each_rows_own_line_and_clears_the_rest [< 1 ms]"
+        ]
+      }
+    ]
+  },
+  {
+    "break": "stamp: one read per session",
+    "file": "src/CcDirector.Gateway/Messaging/FleetInboxLineFold.cs",
+    "applied": true,
+    "red_on_every_suite": true,
+    "runs": [
+      {
+        "command": "dotnet test src/CcDirector.Gateway.UnitTests --filter \"FullyQualifiedName~FleetInboxLineTests|FullyQualifiedName~FleetDisplayStateObserverTests|FullyQualifiedName~SessionCommandExecutorTests\"",
+        "exit": 1,
+        "summary": [
+          "Failed!  - Failed:     3, Passed:   113, Skipped:     0, Total:   116, Duration: 1 s - CcDirector.Gateway.UnitTests.dll (net10.0)"
+        ],
+        "failed": [
+          "Failed CcDirector.Gateway.Tests.Messaging.FleetInboxLineTests.The_shared_fold_stamps_the_line_with_its_one_moment [9 ms]",
+          "Failed CcDirector.Gateway.Tests.Messaging.FleetInboxLineTests.One_fold_over_forty_sessions_is_one_query_against_the_inbox [92 ms]",
+          "Failed CcDirector.Gateway.Tests.Messaging.FleetInboxLineTests.The_stamp_writes_each_rows_own_line_and_clears_the_rest [< 1 ms]"
+        ]
+      }
+    ]
+  },
+  {
+    "break": "store: stuck mark ignored",
+    "file": "src/CcDirector.Gateway/Messaging/FleetMessageStore.cs",
+    "applied": true,
+    "red_on_every_suite": true,
+    "runs": [
+      {
+        "command": "dotnet test src/CcDirector.Gateway.UnitTests --filter \"FullyQualifiedName~FleetInboxLineTests|FullyQualifiedName~FleetDisplayStateObserverTests|FullyQualifiedName~SessionCommandExecutorTests\"",
+        "exit": 1,
+        "summary": [
+          "Failed!  - Failed:     2, Passed:   114, Skipped:     0, Total:   116, Duration: 1 s - CcDirector.Gateway.UnitTests.dll (net10.0)"
+        ],
+        "failed": [
+          "Failed CcDirector.Gateway.Tests.Messaging.FleetInboxLineTests.The_store_counts_unread_by_recipient_kind_and_stuck_mark [1 s]",
+          "Failed CcDirector.Gateway.Tests.Messaging.FleetInboxLineTests.One_fold_over_forty_sessions_is_one_query_against_the_inbox [177 ms]"
+        ]
+      }
+    ]
+  },
+  {
+    "break": "store: read messages counted",
+    "file": "src/CcDirector.Gateway/Messaging/FleetMessageStore.cs",
+    "applied": true,
+    "red_on_every_suite": true,
+    "runs": [
+      {
+        "command": "dotnet test src/CcDirector.Gateway.UnitTests --filter \"FullyQualifiedName~FleetInboxLineTests|FullyQualifiedName~FleetDisplayStateObserverTests|FullyQualifiedName~SessionCommandExecutorTests\"",
+        "exit": 1,
+        "summary": [
+          "Failed!  - Failed:     1, Passed:   115, Skipped:     0, Total:   116, Duration: 1 s - CcDirector.Gateway.UnitTests.dll (net10.0)"
+        ],
+        "failed": [
+          "Failed CcDirector.Gateway.Tests.Messaging.FleetInboxLineTests.A_read_message_is_not_counted_and_a_read_inbox_is_absent [51 ms]"
+        ]
+      },
+      {
+        "command": "dotnet test src/CcDirector.Gateway.Tests --filter \"FullyQualifiedName~FleetMessageRouteTests.The_roster\"",
+        "exit": 1,
+        "summary": [
+          "Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 83 ms - CcDirector.Gateway.Tests.dll (net10.0)"
+        ],
+        "failed": [
+          "Failed CcDirector.Gateway.Tests.FleetMessageRouteTests.The_roster_the_session_read_and_the_desktop_push_carry_the_row_line_until_it_is_read [83 ms]"
+        ]
+      }
+    ]
+  },
+  {
+    "break": "store: oldest stuck taken as newest",
+    "file": "src/CcDirector.Gateway/Messaging/FleetMessageStore.cs",
+    "applied": true,
+    "red_on_every_suite": true,
+    "runs": [
+      {
+        "command": "dotnet test src/CcDirector.Gateway.UnitTests --filter \"FullyQualifiedName~FleetInboxLineTests|FullyQualifiedName~FleetDisplayStateObserverTests|FullyQualifiedName~SessionCommandExecutorTests\"",
+        "exit": 1,
+        "summary": [
+          "Failed!  - Failed:     1, Passed:   115, Skipped:     0, Total:   116, Duration: 1 s - CcDirector.Gateway.UnitTests.dll (net10.0)"
+        ],
+        "failed": [
+          "Failed CcDirector.Gateway.Tests.Messaging.FleetInboxLineTests.The_store_counts_unread_by_recipient_kind_and_stuck_mark [1 s]"
+        ]
+      }
+    ]
+  },
+  {
+    "break": "shared fold: line not stamped",
+    "file": "src/CcDirector.Gateway/Api/GatewayEndpoints.cs",
+    "applied": true,
+    "red_on_every_suite": true,
+    "runs": [
+      {
+        "command": "dotnet test src/CcDirector.Gateway.UnitTests --filter \"FullyQualifiedName~FleetInboxLineTests|FullyQualifiedName~FleetDisplayStateObserverTests|FullyQualifiedName~SessionCommandExecutorTests\"",
+        "exit": 1,
+        "summary": [
+          "Failed!  - Failed:     3, Passed:   113, Skipped:     0, Total:   116, Duration: 1 s - CcDirector.Gateway.UnitTests.dll (net10.0)"
+        ],
+        "failed": [
+          "Failed CcDirector.Gateway.Tests.Messaging.FleetInboxLineTests.The_shared_fold_stamps_the_line_with_its_one_moment [7 ms]",
+          "Failed CcDirector.Gateway.Tests.Messaging.FleetInboxLineTests.The_line_does_not_change_the_colour_the_label_or_the_bucket [< 1 ms]",
+          "Failed CcDirector.Gateway.Tests.Messaging.FleetInboxLineTests.One_fold_over_forty_sessions_is_one_query_against_the_inbox [158 ms]"
+        ]
+      },
+      {
+        "command": "dotnet test src/CcDirector.Gateway.Tests --filter \"FullyQualifiedName~FleetMessageRouteTests.The_roster\"",
+        "exit": 1,
+        "summary": [
+          "Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 62 ms - CcDirector.Gateway.Tests.dll (net10.0)"
+        ],
+        "failed": [
+          "Failed CcDirector.Gateway.Tests.FleetMessageRouteTests.The_roster_the_session_read_and_the_desktop_push_carry_the_row_line_until_it_is_read [62 ms]"
+        ]
+      }
+    ]
+  },
+  {
+    "break": "route: roster not given the inbox",
+    "file": "src/CcDirector.Gateway/Api/GatewayEndpoints.cs",
+    "applied": true,
+    "red_on_every_suite": true,
+    "runs": [
+      {
+        "command": "dotnet test src/CcDirector.Gateway.Tests --filter \"FullyQualifiedName~FleetMessageRouteTests.The_roster\"",
+        "exit": 1,
+        "summary": [
+          "Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 60 ms - CcDirector.Gateway.Tests.dll (net10.0)"
+        ],
+        "failed": [
+          "Failed CcDirector.Gateway.Tests.FleetMessageRouteTests.The_roster_the_session_read_and_the_desktop_push_carry_the_row_line_until_it_is_read [60 ms]"
+        ]
+      }
+    ]
+  },
+  {
+    "break": "route: single read not given the inbox",
+    "file": "src/CcDirector.Gateway/Api/GatewayEndpoints.cs",
+    "applied": true,
+    "red_on_every_suite": true,
+    "runs": [
+      {
+        "command": "dotnet test src/CcDirector.Gateway.Tests --filter \"FullyQualifiedName~FleetMessageRouteTests.The_roster\"",
+        "exit": 1,
+        "summary": [
+          "Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 72 ms - CcDirector.Gateway.Tests.dll (net10.0)"
+        ],
+        "failed": [
+          "Failed CcDirector.Gateway.Tests.FleetMessageRouteTests.The_roster_the_session_read_and_the_desktop_push_carry_the_row_line_until_it_is_read [72 ms]"
+        ]
+      }
+    ]
+  },
+  {
+    "break": "host: routes not given the store",
+    "file": "src/CcDirector.Gateway/GatewayHost.cs",
+    "applied": true,
+    "red_on_every_suite": true,
+    "runs": [
+      {
+        "command": "dotnet test src/CcDirector.Gateway.Tests --filter \"FullyQualifiedName~FleetMessageRouteTests.The_roster\"",
+        "exit": 1,
+        "summary": [
+          "Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 63 ms - CcDirector.Gateway.Tests.dll (net10.0)"
+        ],
+        "failed": [
+          "Failed CcDirector.Gateway.Tests.FleetMessageRouteTests.The_roster_the_session_read_and_the_desktop_push_carry_the_row_line_until_it_is_read [63 ms]"
+        ]
+      }
+    ]
+  },
+  {
+    "break": "host: display push not given the store",
+    "file": "src/CcDirector.Gateway/GatewayHost.cs",
+    "applied": true,
+    "red_on_every_suite": true,
+    "runs": [
+      {
+        "command": "dotnet test src/CcDirector.Gateway.Tests --filter \"FullyQualifiedName~FleetMessageRouteTests.The_roster\"",
+        "exit": 1,
+        "summary": [
+          "Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 10 s - CcDirector.Gateway.Tests.dll (net10.0)"
+        ],
+        "failed": [
+          "Failed CcDirector.Gateway.Tests.FleetMessageRouteTests.The_roster_the_session_read_and_the_desktop_push_carry_the_row_line_until_it_is_read [10 s]"
+        ]
+      }
+    ]
+  },
+  {
+    "break": "wire: renamed on the roster",
+    "file": "src/CcDirector.Gateway.Contracts/SessionDto.cs",
+    "applied": true,
+    "red_on_every_suite": true,
+    "runs": [
+      {
+        "command": "dotnet test src/CcDirector.Gateway.Tests --filter \"FullyQualifiedName~FleetMessageRouteTests.The_roster\"",
+        "exit": 1,
+        "summary": [
+          "Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 132 ms - CcDirector.Gateway.Tests.dll (net10.0)"
+        ],
+        "failed": [
+          "Failed CcDirector.Gateway.Tests.FleetMessageRouteTests.The_roster_the_session_read_and_the_desktop_push_carry_the_row_line_until_it_is_read [132 ms]"
+        ]
+      }
+    ]
+  },
+  {
+    "break": "push: payload drops the line",
+    "file": "src/CcDirector.Gateway/Fleet/FleetDisplayStateObserver.cs",
+    "applied": true,
+    "red_on_every_suite": true,
+    "runs": [
+      {
+        "command": "dotnet test src/CcDirector.Gateway.UnitTests --filter \"FullyQualifiedName~FleetInboxLineTests|FullyQualifiedName~FleetDisplayStateObserverTests|FullyQualifiedName~SessionCommandExecutorTests\"",
+        "exit": 1,
+        "summary": [
+          "Failed!  - Failed:     1, Passed:   115, Skipped:     0, Total:   116, Duration: 1 s - CcDirector.Gateway.UnitTests.dll (net10.0)"
+        ],
+        "failed": [
+          "Failed CcDirector.Gateway.Tests.FleetDisplayStateObserverTests.TheInboxLine_IsCarriedDown_AndAChangeToItAloneIsPushed [1 ms]"
+        ]
+      },
+      {
+        "command": "dotnet test src/CcDirector.Gateway.Tests --filter \"FullyQualifiedName~FleetMessageRouteTests.The_roster\"",
+        "exit": 1,
+        "summary": [
+          "Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 10 s - CcDirector.Gateway.Tests.dll (net10.0)"
+        ],
+        "failed": [
+          "Failed CcDirector.Gateway.Tests.FleetMessageRouteTests.The_roster_the_session_read_and_the_desktop_push_carry_the_row_line_until_it_is_read [10 s]"
+        ]
+      }
+    ]
+  },
+  {
+    "break": "push: signature ignores the line",
+    "file": "src/CcDirector.Gateway/Fleet/FleetDisplayStateObserver.cs",
+    "applied": true,
+    "red_on_every_suite": true,
+    "runs": [
+      {
+        "command": "dotnet test src/CcDirector.Gateway.UnitTests --filter \"FullyQualifiedName~FleetInboxLineTests|FullyQualifiedName~FleetDisplayStateObserverTests|FullyQualifiedName~SessionCommandExecutorTests\"",
+        "exit": 1,
+        "summary": [
+          "Failed!  - Failed:     1, Passed:   115, Skipped:     0, Total:   116, Duration: 1 s - CcDirector.Gateway.UnitTests.dll (net10.0)"
+        ],
+        "failed": [
+          "Failed CcDirector.Gateway.Tests.FleetDisplayStateObserverTests.TheInboxLine_IsCarriedDown_AndAChangeToItAloneIsPushed [1 ms]"
+        ]
+      },
+      {
+        "command": "dotnet test src/CcDirector.Gateway.Tests --filter \"FullyQualifiedName~FleetMessageRouteTests.The_roster\"",
+        "exit": 1,
+        "summary": [
+          "Failed!  - Failed:     1, Passed:     0, Skipped:     0, Total:     1, Duration: 10 s - CcDirector.Gateway.Tests.dll (net10.0)"
+        ],
+        "failed": [
+          "Failed CcDirector.Gateway.Tests.FleetMessageRouteTests.The_roster_the_session_read_and_the_desktop_push_carry_the_row_line_until_it_is_read [10 s]"
+        ]
+      }
+    ]
+  },
+  {
+    "break": "director: executor drops the line",
+    "file": "src/CcDirector.ControlApi/FleetDisplayStateExecutor.cs",
+    "applied": true,
+    "red_on_every_suite": true,
+    "runs": [
+      {
+        "command": "dotnet test src/CcDirector.Gateway.UnitTests --filter \"FullyQualifiedName~FleetInboxLineTests|FullyQualifiedName~FleetDisplayStateObserverTests|FullyQualifiedName~SessionCommandExecutorTests\"",
+        "exit": 1,
+        "summary": [
+          "Failed!  - Failed:     1, Passed:   115, Skipped:     0, Total:   116, Duration: 1 s - CcDirector.Gateway.UnitTests.dll (net10.0)"
+        ],
+        "failed": [
+          "Failed CcDirector.Gateway.Tests.SessionCommandExecutorTests.DispatchAsync_SetDisplayState_StoresTheInboxLine_AndMapEchoesItVerbatim [1 ms]"
+        ]
+      }
+    ]
+  },
+  {
+    "break": "director: Map does not echo",
+    "file": "src/CcDirector.ControlApi/ControlEndpoints.cs",
+    "applied": true,
+    "red_on_every_suite": true,
+    "runs": [
+      {
+        "command": "dotnet test src/CcDirector.Gateway.UnitTests --filter \"FullyQualifiedName~FleetInboxLineTests|FullyQualifiedName~FleetDisplayStateObserverTests|FullyQualifiedName~SessionCommandExecutorTests\"",
+        "exit": 1,
+        "summary": [
+          "Failed!  - Failed:     1, Passed:   115, Skipped:     0, Total:   116, Duration: 1 s - CcDirector.Gateway.UnitTests.dll (net10.0)"
+        ],
+        "failed": [
+          "Failed CcDirector.Gateway.Tests.SessionCommandExecutorTests.DispatchAsync_SetDisplayState_StoresTheInboxLine_AndMapEchoesItVerbatim [1 ms]"
+        ]
+      },
+      {
+        "command": "dotnet test src/CcDirector.Avalonia.Tests --filter \"FullyQualifiedName~SessionRailInboxLineRenderTests\"",
+        "exit": 1,
+        "summary": [
+          "Failed!  - Failed:     3, Passed:     1, Skipped:     0, Total:     4, Duration: 435 ms - CcDirector.Avalonia.Tests.dll (net10.0)"
+        ],
+        "failed": [
+          "Failed CcDirector.Avalonia.Tests.SessionRailInboxLineRenderTests.AStampThatClearsTheLine_RemovesItFromTheRow [351 ms]",
+          "Failed CcDirector.Avalonia.Tests.SessionRailInboxLineRenderTests.TheGatewaysLine_IsDrawnVerbatim_InsideTheRail [28 ms]",
+          "Failed CcDirector.Avalonia.Tests.SessionRailInboxLineRenderTests.ALineArrivingLater_IsDrawnWithoutARebuild [17 ms]"
+        ]
+      }
+    ]
+  },
+  {
+    "break": "director: change not noticed",
+    "file": "src/CcDirector.Core/Sessions/Session.cs",
+    "applied": true,
+    "red_on_every_suite": true,
+    "runs": [
+      {
+        "command": "dotnet test src/CcDirector.Core.Tests --filter \"FullyQualifiedName~GatewayDisplayStateSignalTests\"",
+        "exit": 1,
+        "summary": [
+          "Failed!  - Failed:     1, Passed:     5, Skipped:     0, Total:     6, Duration: 13 ms - CcDirector.Core.Tests.dll (net10.0)"
+        ],
+        "failed": [
+          "Failed CcDirector.Core.Tests.GatewayDisplayStateSignalTests.TheInboxLineChangingAlone_RaisesTheChange_AndIsCached [12 ms]"
+        ]
+      },
+      {
+        "command": "dotnet test src/CcDirector.Avalonia.Tests --filter \"FullyQualifiedName~SessionRailInboxLineRenderTests\"",
+        "exit": 1,
+        "summary": [
+          "Failed!  - Failed:     2, Passed:     2, Skipped:     0, Total:     4, Duration: 405 ms - CcDirector.Avalonia.Tests.dll (net10.0)"
+        ],
+        "failed": [
+          "Failed CcDirector.Avalonia.Tests.SessionRailInboxLineRenderTests.AStampThatClearsTheLine_RemovesItFromTheRow [335 ms]",
+          "Failed CcDirector.Avalonia.Tests.SessionRailInboxLineRenderTests.ALineArrivingLater_IsDrawnWithoutARebuild [16 ms]"
+        ]
+      }
+    ]
+  },
+  {
+    "break": "desktop: row not re-read on a stamp",
+    "file": "src/CcDirector.Avalonia/SessionViewModel.cs",
+    "applied": true,
+    "red_on_every_suite": true,
+    "runs": [
+      {
+        "command": "dotnet test src/CcDirector.Avalonia.Tests --filter \"FullyQualifiedName~SessionRailInboxLineRenderTests\"",
+        "exit": 1,
+        "summary": [
+          "Failed!  - Failed:     2, Passed:     2, Skipped:     0, Total:     4, Duration: 410 ms - CcDirector.Avalonia.Tests.dll (net10.0)"
+        ],
+        "failed": [
+          "Failed CcDirector.Avalonia.Tests.SessionRailInboxLineRenderTests.AStampThatClearsTheLine_RemovesItFromTheRow [336 ms]",
+          "Failed CcDirector.Avalonia.Tests.SessionRailInboxLineRenderTests.ALineArrivingLater_IsDrawnWithoutARebuild [17 ms]"
+        ]
+      }
+    ]
+  },
+  {
+    "break": "desktop: line not in the row template",
+    "file": "src/CcDirector.Avalonia/MainWindow.axaml",
+    "applied": true,
+    "red_on_every_suite": true,
+    "runs": [
+      {
+        "command": "dotnet test src/CcDirector.Avalonia.Tests --filter \"FullyQualifiedName~SessionRailInboxLineRenderTests\"",
+        "exit": 1,
+        "summary": [
+          "Failed!  - Failed:     3, Passed:     1, Skipped:     0, Total:     4, Duration: 384 ms - CcDirector.Avalonia.Tests.dll (net10.0)"
+        ],
+        "failed": [
+          "Failed CcDirector.Avalonia.Tests.SessionRailInboxLineRenderTests.AStampThatClearsTheLine_RemovesItFromTheRow [314 ms]",
+          "Failed CcDirector.Avalonia.Tests.SessionRailInboxLineRenderTests.TheGatewaysLine_IsDrawnVerbatim_InsideTheRail [25 ms]",
+          "Failed CcDirector.Avalonia.Tests.SessionRailInboxLineRenderTests.ALineArrivingLater_IsDrawnWithoutARebuild [17 ms]"
+        ]
+      }
+    ]
+  },
+  {
+    "break": "desktop: line never visible",
+    "file": "src/CcDirector.Avalonia/SessionViewModel.cs",
+    "applied": true,
+    "red_on_every_suite": true,
+    "runs": [
+      {
+        "command": "dotnet test src/CcDirector.Avalonia.Tests --filter \"FullyQualifiedName~SessionRailInboxLineRenderTests\"",
+        "exit": 1,
+        "summary": [
+          "Failed!  - Failed:     3, Passed:     1, Skipped:     0, Total:     4, Duration: 390 ms - CcDirector.Avalonia.Tests.dll (net10.0)"
+        ],
+        "failed": [
+          "Failed CcDirector.Avalonia.Tests.SessionRailInboxLineRenderTests.AStampThatClearsTheLine_RemovesItFromTheRow [318 ms]",
+          "Failed CcDirector.Avalonia.Tests.SessionRailInboxLineRenderTests.TheGatewaysLine_IsDrawnVerbatim_InsideTheRail [26 ms]",
+          "Failed CcDirector.Avalonia.Tests.SessionRailInboxLineRenderTests.ALineArrivingLater_IsDrawnWithoutARebuild [18 ms]"
+        ]
+      }
+    ]
+  },
+  {
+    "break": "cockpit: line dropped",
+    "file": "apps/cockpit/src/sessions/SessionRoster.tsx",
+    "applied": true,
+    "red_on_every_suite": true,
+    "runs": [
+      {
+        "command": "cd apps/cockpit && npx vitest run src/sessions/rosterInboxLine.test.tsx",
+        "exit": 1,
+        "summary": [
+          "Tests  2 failed | 2 passed (4)"
+        ],
+        "failed": [
+          "\u00d7 the roster's row line > renders the Gateway's words verbatim 29ms",
+          "\u00d7 the roster's row line > renders a reply line exactly as sent 6ms",
+          "FAIL  src/sessions/rosterInboxLine.test.tsx > the roster's row line > renders the Gateway's words verbatim",
+          "FAIL  src/sessions/rosterInboxLine.test.tsx > the roster's row line > renders a reply line exactly as sent"
+        ]
+      }
+    ]
+  },
+  {
+    "break": "cockpit: line reworded by the client",
+    "file": "apps/cockpit/src/sessions/SessionRoster.tsx",
+    "applied": true,
+    "red_on_every_suite": true,
+    "runs": [
+      {
+        "command": "cd apps/cockpit && npx vitest run src/sessions/rosterInboxLine.test.tsx",
+        "exit": 1,
+        "summary": [
+          "Tests  1 failed | 3 passed (4)"
+        ],
+        "failed": [
+          "\u00d7 the roster's row line > renders the Gateway's words verbatim 34ms",
+          "FAIL  src/sessions/rosterInboxLine.test.tsx > the roster's row line > renders the Gateway's words verbatim"
+        ]
+      }
+    ]
+  },
+  {
+    "break": "phone: line dropped",
+    "file": "apps/mobile/src/pages/Home.tsx",
+    "applied": true,
+    "red_on_every_suite": true,
+    "runs": [
+      {
+        "command": "cd apps/mobile && npx vitest run src/pages/HomeRosterCard.test.tsx -t \"row line\"",
+        "exit": 1,
+        "summary": [
+          "Tests  2 failed | 1 passed | 5 skipped (8)"
+        ],
+        "failed": [
+          "\u00d7 mobile roster card row line > renders the Gateway's inbox line verbatim 31ms",
+          "\u00d7 mobile roster card row line > carries the line through the assembled Home roster read 1009ms",
+          "FAIL  src/pages/HomeRosterCard.test.tsx > mobile roster card row line > renders the Gateway's inbox line verbatim",
+          "FAIL  src/pages/HomeRosterCard.test.tsx > mobile roster card row line > carries the line through the assembled Home roster read"
+        ]
+      }
+    ]
+  },
+  {
+    "break": "phone: line shown for every row",
+    "file": "apps/mobile/src/pages/Home.tsx",
+    "applied": true,
+    "red_on_every_suite": true,
+    "runs": [
+      {
+        "command": "cd apps/mobile && npx vitest run src/pages/HomeRosterCard.test.tsx -t \"row line\"",
+        "exit": 1,
+        "summary": [
+          "Tests  1 failed | 2 passed | 5 skipped (8)"
+        ],
+        "failed": [
+          "\u00d7 mobile roster card row line > renders no line when the Gateway sent none 4ms",
+          "FAIL  src/pages/HomeRosterCard.test.tsx > mobile roster card row line > renders no line when the Gateway sent none"
+        ]
+      }
+    ]
+  }
+]

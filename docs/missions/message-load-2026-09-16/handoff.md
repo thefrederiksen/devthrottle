@@ -1431,3 +1431,166 @@ each run is `slice-6-evidence/red-runs.md`.
   7 September changes that were already in that draft. The Architect publishes it with the words slice.
 - Unchanged: slice 2 awaiting inspection 5, slice 3 awaiting inspection 6. Next: slice 4 (the row line), then
   slice 5 (the words), the record, the release.
+
+## Slice 4 - the row line (17 September 2026, Manager seat 6)
+
+Built on `mission/message-load` on top of `f04aa97e`, with no rebase and nothing outside slice 4 touched. Four product
+commits: the Gateway and the Director (`a61df261`), the desktop row (`5b6d580e`), the generated client schema
+(`6f04c55c`), the Cockpit and phone rows (`773a7671`). No pull request opened, no fleet message sent. Evidence is in
+`slice-4-evidence/`, which has its own README.
+
+### What was built
+
+The fold (Gateway, `Messaging/FleetInboxLineFold.cs`):
+- `FleetInboxCounts` - per session: waiting (message, report, team, everyone), replies, notices (system), stuck (any
+  kind), and when the oldest stuck message was written.
+- `FleetInboxLineFold.Fold` - PURE. Parts in this order, joined with `"; "`, a zero part left out, null when nothing
+  waits:
+  - `1 message stuck, unread for 20 minutes` / `3 messages stuck, the oldest unread for 2 hours`
+  - `2 messages waiting`
+  - `1 reply waiting`
+  - `1 notice from the Gateway waiting`
+  - Age: whole minutes under two hours, whole hours under two days, whole days after, rounded down; "less than a
+    minute" under one minute and for a write time in the future. A stuck count with no write time and a negative
+    count throw.
+- `FleetInboxLineStamp.Stamp` - assigns `SessionDto.InboxLine` on EVERY row, both directions. No source or no
+  account stamps null and reads nothing. Session ids are matched lower-cased, as the store keeps them.
+- `IFleetInboxLineSource`, implemented by `FleetMessageStore.UnreadCountsByRecipient`: ONE grouped query per call
+  (unread rows grouped by recipient, kind and stuck mark; count and oldest write time), no text, no rows.
+
+Where it runs: inside `GatewayEndpoints.StampFleetRolesAndFold`, after the snooze-expiry stamp and before the colour
+loop, at the fold's one moment (`foldNowUtc`). It reads nothing the colour, label or bucket read, and they do not
+read it. Threaded (optional parameter `inboxLines`) through:
+- the roster (`GET /sessions`), `GET /sessions/{sid}`, `FoldedAccountRoster` (the Fleet Manager digest),
+- the display push (`GatewayHost.EnrichVoiceThenFoldForPush`), which also feeds the phone badge count's
+  `FoldedFleet`.
+The host passes its `FleetMessageStore` in all four.
+
+The wire and the Director:
+- `SessionDto.InboxLine` (JSON `inboxLine`) and `SetDisplayStateRequest.InboxLine`.
+- `FleetDisplayStateObserver` puts the line in the payload and in the change-gate signature.
+- `FleetDisplayStateExecutor` passes it to `Session.ApplyGatewayDisplayState` (new optional `inboxLine`), which
+  stores `Session.GatewayInboxLine` (blank is null) and raises the change event when only the line changed.
+- `ControlEndpoints.Map` echoes it as `SessionDto.InboxLine`.
+
+The clients, one edit each, rendering the string verbatim, a presence check being the only condition:
+- Desktop: `SessionViewModel.InboxLine` / `HasInboxLine`, raised with the rest of the fold projection; a
+  `TextBlock` under the state line in `MainWindow.axaml` (11 px, message-count blue `#3B82F6` from the style
+  guide, wraps).
+- Cockpit: `roster-inbox` line under `roster-state` in `SessionRoster.tsx`, `var(--accent)`.
+- Phone: `row-inbox` line under `row-meta` in `Home.tsx`, `var(--accent)`.
+- Schema: `packages/client-core/src/api/schema.ts` regenerated with `openapi-typescript` from the document an
+  in-process Gateway served (a test host on an operating-system port, not a standing Gateway). See judgement call 7.
+
+### Judgement calls for the inspector
+
+1. **Four parts, not two.** The brief names "waiting" and "stuck"; the charter adds replies and notices, so a
+   reply and a Gateway notice are their own parts with their own words. A report, a team copy and a granted
+   whole-account copy all count as "messages".
+2. **A stuck message is counted only as stuck**, whatever its kind, so "1 message stuck" can be a stuck reply. A
+   message is never in two parts.
+3. **"Unread for" is measured from when the message was WRITTEN**, not from when it was marked stuck; with several
+   stuck, the oldest is named.
+4. **One colour for every line.** The clients do not colour a stuck line differently: that would be the client
+   deciding what the words mean. If the owner wants stuck to stand out, that is a Gateway-folded tone field, not a
+   client branch.
+5. **The age ticks.** The line changes once a minute for a session with a stuck message, so the display push
+   re-sends that row once a minute (the change gate stops everything else). Nothing else re-sends.
+6. **The line does not change the colour, the label, the triage bucket, or the needs-you count** (a test pins
+   this). A waiting message is not the owner's queue.
+7. **The regenerated schema carries more than this slice.** The committed file was 31 routes and 8 schemas behind
+   main; the generator brought all of that in. It also DROPS the four Windows-only routes (`/exes/list`,
+   `/exes/slots/{n}`, `/exes/slots/{n}/build-start`, `POST /directors` and its `LaunchDirectorRequest`), because
+   the Gateway maps them only on Windows and the generator ran on macOS. No client uses them (checked). A later
+   generation on Windows puts them back. Every hunk was accounted for before committing.
+8. **The Exes page (`/exes/list`, Windows-only, a local diagnostics page) gets no row line**: it passes no inbox,
+   so the stamp writes null there.
+9. **The cost is one query per fold pass.** A fold runs on every roster read, every accepted Director push and
+   every 5-second display sweep per tenant, plus the phone badge count every 8 seconds; each of those is now one
+   more grouped query over the unread rows of one account (index `TenantId, RecipientSessionId, ReadAtUtc,
+   CreatedAtUtc`). No cache was added.
+
+### What is proven - every guard watched failing, then restored
+
+`slice-4-evidence/guards-watched-failing.json`: 29 breaks, each applied, the named suites run, the file restored.
+28 went red on every suite named. The one exception, "a row with no counts keeps its old line", went red on the
+unit guard and stayed green on the route test by design (an account with nothing unread takes the branch that
+clears every row first); the file says so. One break first failed to COMPILE (my own extra parenthesis), which is
+not a watched failure; it was fixed and re-run red.
+- **Fold shapes** (`FleetInboxLineTests`, Gateway unit, 36 tests): plurals, replies, notices, stuck with one and
+  several, all parts together, a zero part, the age boundaries, a future write time, the refusals, the separator.
+  Red: always singular; age zero; hours at one hour; stuck not leading; replies worded as messages.
+- **Store** (same class, real SQLite): the grouping over every kind with two stuck messages, read messages not
+  counted, the account partition. Red: stuck mark ignored; read rows counted; the newest stuck taken as oldest.
+- **Stamp**: both directions, no source or no account reads nothing. Red: a row keeping an old line; id case not
+  folded; one read per session.
+- **Cheap**: `One_fold_over_forty_sessions_is_one_query_against_the_inbox` - the whole shared fold over 40
+  sessions with 40 unread messages, counted on the framework's own command events (slice 2's
+  `DatabaseCommandCounter`): exactly 1 reader and 0 other commands. Red with one read per session.
+- **The wire, on a real host** (`FleetMessageRouteTests.The_roster_the_session_read_and_the_desktop_push_carry_the_row_line_until_it_is_read`):
+  a manager's message and a worker's report queued; `GET /sessions` shows `inboxLine: "1 message waiting"` on
+  both recipients and none on the sender; `GET /sessions/{sid}` the same; a display sweep sends
+  `set-display-state` with the line to the tunnel Director; after the worker reads, the roster line is gone and a
+  later sweep sends the push with no line; no input verb was sent. Red: the fold not stamping; the roster, the
+  single read, the host routes or the display push not given the store; the JSON name changed; the payload or the
+  signature dropping the line.
+- **The push** (`FleetDisplayStateObserverTests`): the line in the payload, a change to the line alone re-pushed,
+  a cleared line pushed. **The Director** (`SessionCommandExecutorTests`): the verb stores the line and `Map`
+  echoes it, and a stamp without it clears it. **Core** (`GatewayDisplayStateSignalTests`): the line alone raises
+  the change, a repeat does not, a clear does. Red: executor dropping it; `Map` not echoing; the change not noticed.
+- **Desktop** (`SessionRailInboxLineRenderTests`, Avalonia headless, the real row template at the rail's 264
+  pixels): the longest four-part line drawn whole and wrapped inside the rail; a clearing stamp removes it; a line
+  arriving later is drawn with no rebuild; no line draws nothing. Red: the projection not re-raised; the template
+  binding another property; never visible; `Map` not echoing; the change not noticed.
+- **Cockpit** (`rosterInboxLine.test.tsx`, 4) and **phone** (`HomeRosterCard.test.tsx`, 3 new): verbatim,
+  absent when not sent, colour and label untouched, and through the phone's assembled Home roster read. Red: the
+  line dropped; the client rewording it; the phone showing a line for every row.
+- **Pictures**: `director-rail-row-line.png` (Skia, in-process `RenderTargetBitmap`), `cockpit-row-line.png`
+  and `mobile-row-line.png` (headless Chrome), with the text read back in `web-render-result.json`.
+
+### What is NOT proven
+
+- **PostgreSQL.** The grouped query (`GroupBy` with `Count` and `Min` over a date) ran on SQLite only. No schema
+  change.
+- **Live.** No live Director, real agent, hosted Gateway or real phone. The pictures are the real row components
+  in proof pages, not the running apps (see the evidence README).
+- **Load.** The one-query-per-fold claim is measured; what one more grouped query per roster read and per push
+  costs on the hosted Gateway at fleet scale is not.
+- **The multi-tenant display pass** with more than one account was not exercised for this line; the fold takes
+  the account the pass already runs under.
+- **The minute tick** of a stuck line on the desktop is proven only as "a changed line is re-pushed"; no test
+  waits a real minute.
+- **Words (slice 5)**: no document mentions the row line.
+- **`scripts/test-local.ps1`** not run (no PowerShell on the Mac); suites run directly.
+
+### Test totals (Mac, this tree, 17 September 2026)
+
+- **Gateway unit tests**: 5369 total, 5354 passed, 8 skipped, **7 failed - the same 7 Mac-only failures named in
+  slice 1** (CronJobStore 1, RuleCandidateFilter 1, RulePrimitives 1, SessionCommandExecutorLiveness 3,
+  WorkListStorePersistence 1). No new failure.
+- **Core tests**: 4446 total, 4377 passed, 8 skipped, **61 failed - by name exactly the list in
+  `slice-2-evidence/fix-round/full-suite-failures.txt`**. **Core unit tests**: 555 passed.
+- **Avalonia tests**: 550 total, 543 passed, **7 failed, the identical 7 failing on the untouched head `f04aa97e`**
+  (run in a throwaway worktree): LegacyWorkspaceImport 1, MicCaptureConstructionQueriesNoDevice 2,
+  SpeakDialogCloseDuringStartup 1, SpeakDialogReadyCueBlanking 3 - microphone and workspace-import tests, not
+  listed in earlier slices because no earlier slice ran this suite. New: 4 render tests, all passing.
+- **Web** (typecheck clean on all workspaces; Cockpit and phone `vite build` succeed; lint clean on the changed
+  files): client-core 1226 total, 23 failed; Cockpit 354 total, 24 failed; phone 81 total, 30 failed;
+  cc-assistant 106 passed. **Every failure is present on the untouched head** (same names, listed in
+  `slice-4-evidence/web-failures-before-and-after.txt`); the new tests (4 Cockpit, 3 phone) all pass. Most are
+  this Mac's Node 26, where `localStorage` is undefined without `--localstorage-file`
+  ("Cannot read properties of undefined (reading 'clear')"), plus the Your Throttle contract, the account layout
+  and new-session tests.
+- **Gateway route tests** (full suite, 26 minutes): 2597 total, 2528 passed, 52 skipped, **17 failed - the 16
+  named in slice 1** (ContextLessRouteCensus 1, FleetSpawnMissionAttach 2, FleetSpawnOrigin 4,
+  TunnelRosterPushReadProof 3, WorkflowSeat 2, GatewayTestSuiteLock 2, HostedProcessControlDeny 2) **plus a third
+  GatewayTestSuiteLock test**, `TheLockFileNamesThisProcess_SoABlockedRunCanSayWhoIsBlockingIt`. Rerun alone, that
+  class fails exactly the usual 2 and passes this one, on this tree and on the untouched head alike. It reads the
+  machine-wide suite lock file, which other runs on this machine can touch; nothing in this slice goes near it.
+  The new route test passed.
+
+## State after slice 4 (17 September 2026)
+
+- Slice 4 head is this commit on `mission/message-load`, awaiting inspection. No pull request opened.
+- Unchanged: slice 2 awaiting inspection 5, slice 3 awaiting inspection 6, slice 6 awaiting inspection. Next:
+  slice 5 (the words - which should now mention the row line), the record, the release.

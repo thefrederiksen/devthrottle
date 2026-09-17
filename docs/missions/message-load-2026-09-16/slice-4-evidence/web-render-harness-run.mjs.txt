@@ -1,0 +1,63 @@
+// Slice 4 evidence: the REAL Cockpit roster card and the REAL phone roster card, bundled from source with
+// esbuild, served with each app's own styles.css, rendered in headless Chrome, captured as PNG. The Gateway is
+// simulated only by the session rows handed to the components (the same stamped fields the roster route
+// serves, inboxLine included); every other request answers 404.
+import { build } from "<repo>/node_modules/esbuild/lib/main.js";
+import { createServer } from "node:http";
+import { readFile, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
+const { chromium } = createRequire(import.meta.url)("<global node_modules>/@playwright/cli/node_modules/playwright");
+const R = "<repo>";
+const out = process.argv[2];
+const pages = {
+  cockpit: { entry: "cockpit-entry.tsx", css: R + "/apps/cockpit/src/styles.css", react: R + "/node_modules", width: 300 },
+  mobile: { entry: "mobile-entry.tsx", css: R + "/apps/mobile/src/styles.css", react: R + "/node_modules", width: 390 },
+};
+const bundles = {};
+for (const [name, p] of Object.entries(pages)) {
+  const r = await build({
+    entryPoints: [p.entry], bundle: true, format: "esm", write: false, target: "es2022", jsx: "automatic",
+    nodePaths: [p.react, R + "/node_modules"], logLevel: "error",
+    alias: { react: p.react + "/react", "react-dom": p.react + "/react-dom", "react-router-dom": p.react + "/react-router-dom", "react-router": p.react + "/react-router" },
+    define: { "import.meta.env.DEV": "false", "import.meta.env.PROD": "true", "import.meta.env.MODE": '"production"', "import.meta.env.BASE_URL": '"/"' },
+    loader: { ".svg": "text", ".png": "dataurl", ".css": "empty" },
+  });
+  bundles[name] = r.outputFiles[0].text;
+}
+const html = (name) => `<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="/${name}.css"></head>
+<body style="margin:0;padding:12px;background:#0b1020"><div id="root" style="width:${pages[name].width - 24}px"></div><script type="module" src="/${name}.js"></script></body></html>`;
+const server = createServer(async (req, res) => {
+  const m = (req.url || "/").match(/^\/(cockpit|mobile)(\.js|\.css|\.html)$/);
+  if (!m) { res.writeHead(404); res.end(); return; }
+  const [, name, ext] = m;
+  if (ext === ".js") { res.writeHead(200, { "content-type": "text/javascript" }); res.end(bundles[name]); }
+  else if (ext === ".css") { res.writeHead(200, { "content-type": "text/css" }); res.end(await readFile(pages[name].css)); }
+  else { res.writeHead(200, { "content-type": "text/html" }); res.end(html(name)); }
+}).listen(0, "127.0.0.1");
+await new Promise((r) => server.once("listening", r));
+const port = server.address().port;
+const browser = await chromium.launch({ channel: "chrome", headless: true });
+const result = {};
+let failed = false;
+for (const [name, p] of Object.entries(pages)) {
+  const page = await browser.newPage({ viewport: { width: p.width, height: 640 }, deviceScaleFactor: 2 });
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(String(e)));
+  page.on("console", (m) => { if (m.type() === "error") console.log("[" + name + " console] " + m.text()); });
+  await page.goto(`http://127.0.0.1:${port}/${name}.html`);
+  const cls = name === "cockpit" ? ".roster-inbox" : ".row-inbox";
+  try { await page.waitForSelector(cls, { timeout: 10000 }); }
+  catch (e) { console.log(name, "errors:", errors, "body:", (await page.content()).slice(0, 600)); throw e; }
+  const lines = await page.$$eval(cls, (els) => els.map((e) => e.textContent));
+  const color = await page.$eval(cls, (e) => getComputedStyle(e).color);
+  const want = ["2 messages waiting", "1 message stuck, unread for 20 minutes", "1 reply waiting; 1 notice from the Gateway waiting"];
+  const ok = JSON.stringify(lines) === JSON.stringify(want) && errors.length === 0;
+  if (!ok) failed = true;
+  result[name] = { ok, lines, color, errors };
+  await page.screenshot({ path: `${out}/${name}-row-line.png`, fullPage: true });
+  console.log(`${ok ? "PASS" : "FAIL"} ${name}: ${JSON.stringify(lines)} colour ${color} errors ${errors.length}`);
+}
+await browser.close();
+server.close();
+await writeFile(`${out}/web-render-result.json`, JSON.stringify(result, null, 2) + "\n");
+process.exit(failed ? 1 : 0);
