@@ -569,7 +569,7 @@ internal static class Commands
                 const string linuxLauncher = "The launcher is not started on Linux yet. The Director does not need it: "
                                              + "a downloaded update installs the next time the Director starts.";
                 if (json)
-                    Program.WriteJson(new { launcherTray = new { success = true, started = false, message = linuxLauncher } });
+                    Program.WriteJson(new { launcherTray = new { success = true, message = linuxLauncher, steps = Array.Empty<string>() } });
                 else
                 {
                     Console.WriteLine();

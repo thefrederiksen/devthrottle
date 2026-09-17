@@ -28,14 +28,14 @@ public class LinuxDesktopEntryTests : IDisposable
     [Fact]
     public void BuildEntry_NamesTheDirectorItsIconAndItsWindow()
     {
-        var text = LinuxDesktopEntry.BuildEntry("/home/someone/.local/share/cc-director/app/cc-director");
+        var text = LinuxDesktopEntry.BuildEntry(_exe);
         var lines = text.Split('\n');
 
         Assert.Equal("[Desktop Entry]", lines[0]);
         Assert.Contains("Type=Application", lines);
         Assert.Contains("Name=DevThrottle", lines);
-        Assert.Contains("Exec=/home/someone/.local/share/cc-director/app/cc-director", lines);
-        Assert.Contains("Path=/home/someone/.local/share/cc-director/app", lines);
+        Assert.Contains($"Exec={LinuxDesktopEntry.QuoteExec(_exe)}", lines);
+        Assert.Contains($"Path={LinuxDesktopEntry.EscapeString(Path.GetDirectoryName(_exe)!)}", lines);
         Assert.Contains("Icon=devthrottle", lines);
         Assert.Contains("Terminal=false", lines);
         // The window class the Director actually reports, so the dock matches the window to the entry.
@@ -46,7 +46,11 @@ public class LinuxDesktopEntryTests : IDisposable
     [InlineData("/opt/dev throttle/cc-director", "\"/opt/dev throttle/cc-director\"")]
     [InlineData("/opt/100%/cc-director", "/opt/100%%/cc-director")]
     [InlineData("/opt/plain/cc-director", "/opt/plain/cc-director")]
-    public void QuoteExec_QuotesOnlyWhatTheSpecificationRequires(string path, string expected)
+    // Inside quotes $ is backslash-escaped, and that backslash is then doubled by string escaping.
+    [InlineData("/opt/a$b/cc-director", "\"/opt/a\\\\$b/cc-director\"")]
+    // A literal backslash: escaped for the quotes, and both backslashes doubled again - four in the file.
+    [InlineData("/opt/a\\b/cc-director", "\"/opt/a\\\\\\\\b/cc-director\"")]
+    public void QuoteExec_QuotesAndEscapesAsTheSpecificationRequires(string path, string expected)
     {
         Assert.Equal(expected, LinuxDesktopEntry.QuoteExec(path));
     }

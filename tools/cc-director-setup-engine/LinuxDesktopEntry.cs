@@ -60,7 +60,7 @@ public static class LinuxDesktopEntry
             "Name=DevThrottle",
             "Comment=Run and watch your coding sessions",
             $"Exec={QuoteExec(directorExe)}",
-            $"Path={workingDirectory}",
+            $"Path={EscapeString(workingDirectory)}",
             $"Icon={IconName}",
             "Terminal=false",
             "Categories=Development;",
@@ -129,14 +129,31 @@ public static class LinuxDesktopEntry
         return steps;
     }
 
-    /// <summary>Quote a path for an Exec line when it contains a character the specification reserves.</summary>
+    /// <summary>
+    /// Write a path as an Exec value. Two layers, applied in this order, because a reader undoes them in
+    /// the reverse order: first the Exec quoting rule (double quotes around an argument holding a
+    /// reserved character, with <c>"</c>, <c>`</c>, <c>$</c> and <c>\</c> backslash-escaped inside
+    /// them), then the escaping every string value gets (each backslash doubled). Doing only the first
+    /// produced a value GLib refuses to read, so the entry was written but never shown.
+    /// </summary>
     internal static string QuoteExec(string path)
     {
         // A percent sign starts a field code in an Exec line, so a literal one is always doubled.
         path = path.Replace("%", "%%");
         const string reserved = " \t\n\"'\\><~|&;$*?#()`";
         if (path.IndexOfAny(reserved.ToCharArray()) < 0) return path;
-        var escaped = path.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("`", "\\`").Replace("$", "\\$");
-        return $"\"{escaped}\"";
+
+        var quoted = new System.Text.StringBuilder("\"");
+        foreach (var c in path)
+        {
+            if (c is '"' or '`' or '$' or '\\') quoted.Append('\\');
+            quoted.Append(c);
+        }
+        quoted.Append('"');
+        return EscapeString(quoted.ToString());
     }
+
+    /// <summary>The escaping every string value in a desktop entry gets: backslash and line breaks.</summary>
+    internal static string EscapeString(string value)
+        => value.Replace("\\", "\\\\").Replace("\n", "\\n").Replace("\t", "\\t").Replace("\r", "\\r");
 }
