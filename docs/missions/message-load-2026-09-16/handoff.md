@@ -460,3 +460,21 @@ The rerun of the .NET job (run 35176906244, attempt 2, job 105073863475) passed:
 succeeded, including the Gateway unit tests (5041 tests), and `AHealthyMicrophoneIsReportedWithNoAdvice`
 passed in 222 milliseconds. Every other job in the run passed too. The same commit, `dfdaf8b5`, failed once and
 passed once, which is what a timing race looks like.
+
+## Slice 1 landed (17 September 2026)
+
+Merged to main as `a8fa8041` (pull request 2970, squash). The mission branch `mission/message-load`
+was recreated from that main; the whole record above is on main. Three inspections, two fix rounds,
+two CI rounds, one merge with main, one flake investigation (the disposed SQLite failure is a
+pool-clear race already on main; see the section above and `sqlite-pool-race-repro.cs.txt`).
+
+Lesson for the remaining slices: the .NET check takes about an hour and a half and main moves several
+times an hour in the evening, so a pull request that waits is a pull request that conflicts. Keep each
+slice small, rebase right before opening the pull request, and merge the moment the checks are green.
+
+## State
+
+- Phase: slice 2, the doorbell. Next: seat the Manager.
+- Open decision, the owner's: the Director-restart restore step versus the spawn owner pin (see
+  "OPEN - needs the Architect" above and the Architect's recommendation: make restore a Director act).
+  Not blocking slice 2.
