@@ -222,13 +222,6 @@ public sealed class WingmanVoiceService
         public readonly ConcurrentDictionary<string, byte> NarrationAbandoned = new();
 
         /// <summary>
-        /// sid -> the verdict id this session's narration call (slice J) was last claimed for. A stop makes the call
-        /// at most once: the turn end, the sweep, a speech re-attempt and explain all claim here first, and only the
-        /// first claim for a verdict id makes the call. Keyed on the verdict id exactly as the clip is.
-        /// </summary>
-        public readonly ConcurrentDictionary<string, string> NarrationCallClaimedFor = new(StringComparer.Ordinal);
-
-        /// <summary>
         /// sid -> a counter bumped ONLY when the stop itself is superseded: the session works again, a later user
         /// message drops the clip, or voice is switched off. The narration call (slice J) checks it, not
         /// <see cref="TurnEpochs"/>, because every successful clip store moves the turn epoch - including a store of the
@@ -1563,10 +1556,15 @@ public sealed class WingmanVoiceService
             // SpokenForEar then puts the session's name in front, from the record, and changes nothing.
             // An earlier version of this comment said the narration was untouched here, which was true of
             // the naming and false of the pair.
-            var spoken = Speech.SpokenForEar.Assemble(
-                _sessionTitleResolver?.Invoke(tenant, sid),
-                Speech.SpeechContract.Finish(verdict.Spoken));
-            if (TurnVerdictService.ScreenNeeds(verdict) == "menu")
+            // A SAVED NARRATION IS SPOKEN AS IT IS (owner ruling, 2026-09-17): it was written for this stop by the narration
+            // call and already ends with its own press-a-button sentence on a menu, so the suffix is not added to it.
+            var saved = HasSavedNarration(verdict);
+            var spoken = saved
+                ? Speech.SpokenForEar.Assemble(_sessionTitleResolver?.Invoke(tenant, sid), verdict.Narration!)
+                : Speech.SpokenForEar.Assemble(
+                    _sessionTitleResolver?.Invoke(tenant, sid),
+                    Speech.SpeechContract.Finish(verdict.Spoken));
+            if (!saved && TurnVerdictService.ScreenNeeds(verdict) == "menu")
             {
                 spoken += Speech.SpokenPhrases.WaitingScreenMenuNarrationSuffix.In(_tenantSettings.SpokenLanguage(tenant));
                 FileLog.Write($"[WingmanVoiceService] narration announces a waiting menu (verdict): sid={sid}");
@@ -1601,33 +1599,15 @@ public sealed class WingmanVoiceService
             // The call runs DETACHED, as explain's does: awaiting it here held this session's in-flight gate for up to a
             // minute, and the next stop's turn end - which arrives exactly while the person answers the judge's clip -
             // was coalesced away and never narrated (inspection round 1, finding 2).
-            if (IsVoiceSession(tenant, sid) && TryClaimNarrationCall(state, sid, verdict.VerdictId))
+            if (!saved && IsVoiceSession(tenant, sid) && RequireVerdicts().TryClaimNarration(tenant, sid, verdict.VerdictId))
                 StartNarrationCall(tenant, sid, outcome);
             return true;
         }
         finally { if (showReadingWindow) EndGenerating(tenant, sid); }
     }
 
-    /// <summary>
-    /// Claim this stop's narration call. True for the first claim of a verdict id on a session, false for every later
-    /// one - so the turn end, the sweep, a speech re-attempt and explain never make the call twice for one stop.
-    /// </summary>
-    private static bool TryClaimNarrationCall(TenantVoiceState state, string sid, string verdictId)
-    {
-        if (string.IsNullOrWhiteSpace(verdictId)) return false;
-        while (true)
-        {
-            if (state.NarrationCallClaimedFor.TryGetValue(sid, out var claimed))
-            {
-                if (string.Equals(claimed, verdictId, StringComparison.Ordinal)) return false;
-                if (state.NarrationCallClaimedFor.TryUpdate(sid, verdictId, claimed)) return true;
-            }
-            else if (state.NarrationCallClaimedFor.TryAdd(sid, verdictId))
-            {
-                return true;
-            }
-        }
-    }
+    /// <summary>True when the narration call's text is already saved on this verdict, so it is spoken as it is.</summary>
+    private static bool HasSavedNarration(TurnVerdictDto verdict) => !string.IsNullOrWhiteSpace(verdict.Narration);
 
     /// <summary>
     /// Make one stop's narration call and, when it answers, replace the clip for that verdict id with its words. The
@@ -1646,6 +1626,9 @@ public sealed class WingmanVoiceService
             FileLog.Write($"[WingmanVoiceService] sid={sid} verdict={verdict.VerdictId}: narration call gave no words ({result.FailureDetail}) - the judge's text stays");
             return;
         }
+        // SAVED FOR READING FIRST, whether or not the clip below is still current: the text describes its own verdict, and
+        // the verdict service stores it only while that verdict is the session's latest.
+        RequireVerdicts().SaveNarration(tenant, sid, verdict.VerdictId, result.Spoken);
         // STILL THIS STOP: no Working edge, later user message or voice-off since the claim, and no clip for another
         // verdict. A store of this same verdict's words (explain, the voice-turn route) is NOT the stop moving on.
         bool StillCurrent()
@@ -1807,16 +1790,18 @@ public sealed class WingmanVoiceService
             {
                 // The on-request path assembles exactly as the turn-end path above does. Two callers, one
                 // assembly - a second spelling here is how the phone and the sweep come to say different things.
-                spokenNow = Speech.SpokenForEar.Assemble(
-                    _sessionTitleResolver?.Invoke(tenant, sid),
-                    Speech.SpeechContract.Finish(verdict.Spoken));
+                spokenNow = HasSavedNarration(verdict)
+                    ? Speech.SpokenForEar.Assemble(_sessionTitleResolver?.Invoke(tenant, sid), verdict.Narration!)
+                    : Speech.SpokenForEar.Assemble(
+                        _sessionTitleResolver?.Invoke(tenant, sid),
+                        Speech.SpeechContract.Finish(verdict.Spoken));
                 await StoreSpokenAsync(tenant, sid, spokenNow, outcome.SourceText ?? "", CancellationToken.None,
                     sourceIdentity: verdict.VerdictId, sourceKind: verdict.PackageKind, markAsVoiceSession: markAsVoiceSession);
             }
             // THE NARRATION CALL (slice J): a person asked, so the stop gets one unless one was already made for this
             // verdict id. The call runs Gateway-owned past this request and replaces the clip when it answers, so the
             // phone is never left waiting on a second model call.
-            if (TryClaimNarrationCall(StateFor(tenant), sid, verdict.VerdictId))
+            if (!HasSavedNarration(verdict) && verdicts.TryClaimNarration(tenant, sid, verdict.VerdictId))
                 StartNarrationCall(tenant, sid, outcome);
             FileLog.Write($"[WingmanVoiceService] narrate-on-request sid={sid}: {outcome.Kind} verdict={verdict.VerdictId} kind={verdict.PackageKind} spokenLen={spokenNow.Length} voiceSession={IsVoiceSession(tenant, sid)}");
             return new StopNarration(outcome.SourceText ?? "", spokenNow, outcome.ReplySeconds,
