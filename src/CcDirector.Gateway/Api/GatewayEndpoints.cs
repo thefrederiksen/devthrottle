@@ -278,7 +278,11 @@ internal static class GatewayEndpoints
         // The Wingman tab, version 3, item 1: the stored conversation GET /sessions/{sid}/wingman-now reads the
         // agent's whole last reply from. The same store GET /sessions/{sid}/history serves, read inside the
         // caller's tenant scope. Null leaves that one field null and changes nothing else about the view.
-        History.SessionTurnStore? sessionTurns = null)
+        History.SessionTurnStore? sessionTurns = null,
+        // The Wingman tab, version 3, item 2: the account's own Wingman switches, which decide whether Now says the
+        // Wingman is switched off. NULL means this Gateway was not given them, and then Now makes no claim about
+        // them either way - see ReadWingmanNow.
+        Func<Core.Tenancy.TenantId, Wingman.TurnVerdictSettings>? turnVerdictSettings = null)
     {
         // The old issue #1188 "session lock" (423 Locked on human input while a PENDING dictation record
         // existed) was removed deliberately (issue #1308). This is a single-operator tool: a collision
@@ -3105,7 +3109,7 @@ internal static class GatewayEndpoints
         // ReadWingmanNow.
         app.MapGet("/sessions/{sid}/wingman-now", (HttpContext ctx, string sid)
             => ReadWingmanNow(ctx, sid, tenantBoundary, registry, pushedSessions, turnVerdicts, sessionTurns,
-                snoozeRegistry, handRaises, turnVerdictRows, snoozeExpiry));
+                snoozeRegistry, handRaises, turnVerdictRows, snoozeExpiry, turnVerdictSettings));
 
         // ANSWER A JUDGED STOP (the Wingman-on-every-turn mission, slice E; ruling 12). The ONE server-owned write
         // path for a verdict's options: the owner's tap, never the Wingman. TurnVerdictAnswerService holds the rules
@@ -6005,7 +6009,8 @@ internal static class GatewayEndpoints
         Snooze.SnoozeRegistry? snoozeRegistry,
         Fleet.HandRaiseRegistry? handRaises,
         Wingman.ITurnVerdictRowSource? turnVerdictRows,
-        Wingman.SnoozeExpiryReJudge? snoozeExpiry)
+        Wingman.SnoozeExpiryReJudge? snoozeExpiry,
+        Func<Core.Tenancy.TenantId, Wingman.TurnVerdictSettings>? turnVerdictSettings = null)
     {
         FileLog.Write($"[GatewayEndpoints] GET wingman-now: sid={sid}");
         var tenant = ResolveReadTenant(ctx, tenantBoundary);
@@ -6065,8 +6070,21 @@ internal static class GatewayEndpoints
                 conversation = new Wingman.WingmanNowConversation(stored.Value.Head.IsSupported, stored.Value.Messages);
         }
 
+        // EITHER SWITCH OFF IS "SWITCHED OFF", which is the Architect's ruling and is what the screen can tell
+        // apart: with the colour switch off every row is stamped "none" and no verdict reaches the screen, so from
+        // the owner's side it is indistinguishable from the judge never having run. A Gateway that was handed no
+        // resolver passes null, and the fold then says NOTHING about the account's switches rather than assuming
+        // they are on - an assumed "on" would put "the Wingman could not explain this stop" on a session nothing
+        // was ever going to explain.
+        bool? wingmanSwitchedOff = null;
+        if (turnVerdictSettings is not null)
+        {
+            var settings = turnVerdictSettings(tenant.Value);
+            wingmanSwitchedOff = !settings.JudgeEnabled || !settings.ColourEnabled;
+        }
+
         var answer = Wingman.WingmanNowFold.Fold(
-            new Wingman.WingmanNowInputs(sid, row, verdicts, conversation));
+            new Wingman.WingmanNowInputs(sid, row, verdicts, conversation, wingmanSwitchedOff));
         FileLog.Write($"[GatewayEndpoints] GET wingman-now: sid={sid} state={answer.State}");
         return Results.Json(answer);
     }
