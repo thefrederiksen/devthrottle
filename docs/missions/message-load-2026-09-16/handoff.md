@@ -2917,3 +2917,95 @@ the Wingman's `answerVia: reply` option is described the same way, and the retir
 `session prompt` as a phrase no shipped conduct may teach to an agent, with the file in the inventory.
 The Fleet Manager mission's Architect learns this from this record and from the merged skill text; no
 message is sent.
+
+## Fleet Manager conduct words (17 September 2026)
+
+The Architect's ruling above, carried out. Nothing else was touched, no pull request exists, and no
+fleet message was sent.
+
+**The shipped conduct** (`src/CcDirector.Gateway/Skills/Content/fleet-manager.skill.md`, the one
+source; there is no `.claude/skills/fleet-manager` copy to regenerate, which is the cleanest state and
+what `BuiltInSkillsHaveOneSourceTests` allows):
+
+- "Answering a session" is now `cc-devthrottle message send <session> "<their words, exactly>"`. It
+  says why that is the only way the Fleet Manager has - typing is the owner's own, from the owner's own
+  screens, and the Gateway refuses every typing route to every session key, the Fleet Manager's
+  included - and that it may message the sessions it started, so the sessions it owns are exactly the
+  sessions it can answer.
+- It says the words reach the session **as a queued message and one doorbell at the next safe moment**:
+  `message send` answers `queued`, never `delivered`; the doorbell rings only when the session is not
+  working, its composer is empty, no menu is open and the owner is not dictating into it; the session
+  reads the words in full with `message inbox`; nothing is typed into its work and nothing is cut
+  short. A session that stopped to ask for exactly that answer is idle with an empty composer, so its
+  next safe moment is now.
+- The Wingman's `answerVia: reply` option is described the same way, in the same words.
+- `answerVia: keys` was the sentence that told the Fleet Manager to type a menu number and then check
+  the screen. It now says nothing it can run answers a menu - a key is typing, and the doorbell does
+  not ring while a menu is open, so queued words would simply wait - so the menu goes to the owner, who
+  answers it on their own screen. Never guess at keys.
+- Two other sentences: the Wingman-reading table now says `reply` is "words you can pass on as a
+  message" and `keys` is for the owner alone; the "Messages are rare" bullet says you QUEUE words for a
+  session in those two cases, and that either way they arrive as a queued message and one doorbell.
+
+**The guard** (`src/CcDirector.Core.UnitTests/Skills/RetiredMessagingWordsTests.cs`):
+
+- `cc-devthrottle session prompt` is now a phrase no text an agent reads may teach, in the taught
+  inventory AND in the whole-tree scan. It is held as `RetiredTypingCommand`, apart from the other
+  retired phrases, because unlike them it has a legitimate use in text an agent reads.
+- That legitimate use is written down as `TypingCommandExemptions`, three entries with a reason each,
+  and it is honest about what each one is: `tools/cc-devthrottle/src/session_ops.py` (the command
+  itself, whose docstring and blank-text usage name it and whose only behaviour is to print the
+  Gateway's refusal), `Skills/Content/fleet-comms.skill.md` (teaches that typing is the owner's alone by
+  naming the refused command) and `.claude/skills/fleet-comms/SKILL.md` (that skill's repository copy).
+  Both scans consult the list, so a file documenting the refusal is not forced to teach the ban by
+  silence. `docs/FleetMessaging.md` needs no exemption: it names the bare `session prompt`, not the
+  command line.
+- The fleet-manager skill is now named in `RequiredFiles`, so the inventory proves it read it rather
+  than relying on the `Skills/Content/*.md` glob. `The_preamble_and_the_skill_teach_the_inbox` also
+  asserts that skill still HAS an "Answering a session" section, that it teaches
+  `cc-devthrottle message send <session>`, and that it carries the sentence about a queued message and
+  one doorbell - so deleting the section could not pass the ban by teaching nothing.
+- `The_tree_scan_reads_the_files_this_round_fixed_and_every_exemption_exists` now also asserts every
+  typing-command exemption names a file that exists.
+- One instrument fix the new phrase exposed: the tree scan was reading
+  `tools/cc-devthrottle/build/lib/cc_devthrottle/session_ops.py`, a local Python build's copy of the
+  command line's own sources. `.gitignore` ignores `build/` and no tracked file lives under any
+  directory of that name, so `build` joined `bin`, `obj` and `dist` in the skipped directories, with
+  the reason written above the set. Without it the scan reported the same source twice and depended on
+  whether somebody had run a build.
+
+**The guard was watched failing.** With the old line restored
+(`cc-devthrottle session prompt <session> "<their words, exactly>"`) three tests go red naming the
+symptom - `Nothing_in_the_repository_outside_the_named_history_uses_the_retired_messaging_words` and
+`No_text_an_agent_reads_teaches_the_retired_messaging` both print
+`src/CcDirector.Gateway/Skills/Content/fleet-manager.skill.md:234: "cc-devthrottle session prompt"`,
+and `The_preamble_and_the_skill_teach_the_inbox` fails on the missing `message send <session>` - while
+the two control tests (`The_scan_reads_every_named_surface` and the fixed-files-and-exemptions test)
+stay green. Restored afterwards.
+
+**Runs (Mac mini, 17 September 2026, `dotnet test` directly - there is no PowerShell on this machine,
+so `scripts/test-local.ps1` was NOT the gate):**
+
+- Core unit `RetiredMessagingWords`: 5 of 5 passed.
+- Core unit, whole suite: 596 total, 596 passed, 0 failed, 0 skipped.
+- Core tests `FleetPreamble|RetiredMessagingWords`: 49 of 49 passed.
+- Gateway unit `BuiltInSkills|ShippedSkills`: 6 of 6 passed - `BuiltInSkillsHaveNoDeadDoorTests`, its
+  theory once per shipped skill file (the five: `dev-throttle`, `fleet-comms`, `fleet-manager`,
+  `move-session`, `terminology`) plus its own pattern check. Named accurately because the filter's other
+  two classes do NOT live in that project: `BuiltInSkillsHaveOneSourceTests` (2 facts) and
+  `ShippedSkillsTeachOwnershipTests` (2 facts) are in Core unit, and all four are inside the 596 above -
+  run again on their own here, 4 of 4 passed.
+
+**What is NOT proven, and one thing for the Architect:**
+
+- Nothing was run live: no Director, no Fleet Manager session, no Gateway. That the Gateway refuses
+  `POST /sessions/{id}/prompt` to a marked Fleet Manager's key is still read from `IsAgentInput` and its
+  262 passing tests, exactly as the open finding said; this round changed words, not behaviour.
+- The `fleet-manager` WORKFLOW (`src/CcDirector.Gateway/Workflows/Content/fleet-manager.instructions.md`,
+  main's) was deliberately left alone - the ruling names the skill, and the workflow names no command,
+  so the guard is green on it. Two of its sentences are now looser than the skill: "the owner's answer
+  goes straight to the session", and "send the Wingman's option exactly: keys when the session is
+  showing a menu, words otherwise", which asks for something the Fleet Manager cannot do. Whether that
+  conduct text is reworded is the Architect's call, and it belongs to the Fleet Manager mission's
+  Architect as much as to this one.
+- The words only reach the fleet when the Gateway is deployed, which is not this mission's step.

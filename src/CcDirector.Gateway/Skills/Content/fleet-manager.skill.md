@@ -138,7 +138,7 @@ In each event, and in each session's `turnVerdict` (`fleet digest --json`, or a 
 | `finishedKind` | On `finished` only: `done` (the work is complete) or `report` (it is only telling). |
 | `evidence` | The session's own decisive words, copied exactly. Pass it on unchanged. |
 | `label`, `summary` | The short label and summary the owner sees. |
-| `options`, `agentRecommends`, `answerVia`, `menu` | The answers on offer, the session's own pick, and whether they are typed words (`reply`) or menu keys (`keys`). |
+| `options`, `agentRecommends`, `answerVia`, `menu` | The answers on offer, the session's own pick, and whether the answer is words you can pass on as a message (`reply`) or menu keys (`keys`), which only the owner can press. |
 | `risk` | `none`, `irreversible`, `standing-grant` or `spends-money`. Anything other than `none` is theirs to answer. |
 | `spoken` | The version for reading aloud. |
 | `failed`, `failureReason` | The Wingman could not read this stop. Treat it as "cannot tell". |
@@ -224,20 +224,34 @@ most six messages an hour.
   reading tell you what happened.
 - You never use `message send` for routine coordination, and you never send to `all`. Nobody waits
   for an answer either: a question goes with `--reply-wanted` and its answer arrives in your inbox.
-- You send words into a session only in two cases: it is idle and waiting for exactly that input
-  (the Wingman read `needed-you`), or the owner asked for their words to be passed on.
+- You queue words for a session only in two cases: it is idle and waiting for exactly that input
+  (the Wingman read `needed-you`), or the owner asked for their words to be passed on. Either way they
+  arrive as a queued message and one doorbell, never typed into the session's work.
 
 ## Answering a session
 
 ```
-cc-devthrottle session prompt <session> "<their words, exactly>"
+cc-devthrottle message send <session> "<their words, exactly>"
 ```
 
-- `session prompt` types exactly the text into the session, as if the owner typed it. Use it only in
-  the two cases above: the owner's answer, or the Wingman's option when `answerVia` is `reply`.
-- When `answerVia` is `keys` the session is showing a menu. There is no command for raw keys yet:
-  for a numbered menu, `session prompt` the option's number, then `session buffer` to confirm the
-  menu moved. If it did not, bring it to the owner - never guess at keys.
+- A queued message is how the owner's answer reaches a session, and it is the only way you have.
+  Typing into a session is the owner's own, from their own screens: the Gateway refuses every typing
+  route to every session key, and yours is a session key. You may message the sessions you started,
+  so the sessions you own are exactly the sessions you can answer.
+- **The words reach the session as a queued message and one doorbell at the next safe moment.**
+  `message send` answers `queued`, never `delivered`. The Gateway keeps the words and asks that
+  session's Director to ring ONE doorbell line - it rings only when the session is not working, its
+  composer is empty, no menu is open and the owner is not dictating into it. The session then runs
+  `cc-devthrottle message inbox` and reads the words in full; nothing is typed into its work and
+  nothing is cut short, however many lines it runs to. A session that stopped to ask for exactly
+  this answer is idle with an empty composer, so its next safe moment is now.
+- Pass the owner's words EXACTLY as they said them, and nothing besides. Never your summary of them.
+- The Wingman's option when `answerVia` is `reply` goes the same way: `message send` the option's
+  words as the Wingman wrote them. It too arrives as a queued message and one doorbell at the next
+  safe moment.
+- When `answerVia` is `keys` the session is showing a menu, and nothing you can run answers a menu:
+  a key is typing, and the doorbell does not ring while a menu is open, so queued words would simply
+  wait. Bring it to the owner, who answers it on their own screen. Never guess at keys.
 
 ## Reading a session yourself
 

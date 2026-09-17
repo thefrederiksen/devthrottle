@@ -17,6 +17,10 @@ namespace CcDirector.Core.UnitTests.Skills;
 /// It scans TEXT, not code: the Gateway still recognises the old ask from an older command line in
 /// order to refuse it, and its comments and refusal sentence name it. Those are not taught to anyone.
 ///
+/// It also bans one COMMAND: <c>cc-devthrottle session prompt</c>, which the Gateway refuses to every
+/// session key, must not be taught to an agent as the way to answer a session. See
+/// <see cref="RetiredTypingCommand"/> for why that one carries its own exemption list.
+///
 /// Presence, not absence (skill checks-that-fail-open): the guard proves it read the files it names,
 /// and that the preamble still teaches the inbox, so a scan that found nothing cannot pass.
 /// </summary>
@@ -34,6 +38,47 @@ public sealed class RetiredMessagingWordsTests
         "--controlled-by takes any",
     };
 
+    /// <summary>
+    /// The typing command no shipped conduct may TEACH an agent to run (the Architect's ruling on the
+    /// second merge with main, 17 September 2026). The Gateway refuses
+    /// <c>POST /sessions/{id}/prompt</c> to every session key - <c>SessionKeyGuard.IsAgentInput</c>
+    /// matches it before the allow list is consulted - and the Fleet Manager is a session, so its key
+    /// is one of those keys. Main's new built-in Fleet Manager conduct nevertheless told it to run
+    /// <c>cc-devthrottle session prompt</c> to pass the owner's answer on, which is a command it would
+    /// be told 403 for. The owner's words reach a session as a queued message and one doorbell.
+    ///
+    /// This phrase is kept apart from the lists above because, unlike them, it has a LEGITIMATE use in
+    /// text an agent reads: the command still exists in order to print the Gateway's refusal, and two
+    /// skills name it to teach that typing is the owner's alone. Those files are named in
+    /// <see cref="TypingCommandExemptions"/>, one by one, with the reason.
+    /// </summary>
+    private const string RetiredTypingCommand = "cc-devthrottle session prompt";
+
+    /// <summary>
+    /// Paths (relative, forward slashes) that may name <see cref="RetiredTypingCommand"/> because they
+    /// document the refusal rather than teach the command. Nothing else may, in the inventory or the tree.
+    /// </summary>
+    private static readonly (string Path, string Why)[] TypingCommandExemptions =
+    {
+        ("tools/cc-devthrottle/src/session_ops.py",
+            "the command itself: its docstring and its blank-text usage name it, and running it prints the Gateway's refusal"),
+        ("src/CcDirector.Gateway/Skills/Content/fleet-comms.skill.md",
+            "teaches that typing into a session is the owner's alone, by naming the refused command"),
+        (".claude/skills/fleet-comms/SKILL.md",
+            "the repository copy of that skill, which is the shipped body plus frontmatter"),
+    };
+
+    /// <summary>The phrases to scan <paramref name="relative"/> for: the retired words always, and the
+    /// typing command unless this is one of the files that legitimately documents its refusal.</summary>
+    private static IReadOnlyList<string> PhrasesFor(string relative, IReadOnlyList<string> basePhrases)
+    {
+        var exempt = TypingCommandExemptions.Any(e => string.Equals(relative, e.Path, StringComparison.Ordinal));
+        if (exempt) return basePhrases;
+
+        var phrases = new List<string>(basePhrases) { RetiredTypingCommand };
+        return phrases;
+    }
+
     [Fact]
     public void No_text_an_agent_reads_teaches_the_retired_messaging()
     {
@@ -41,12 +86,14 @@ public sealed class RetiredMessagingWordsTests
         var offenders = new List<string>();
 
         foreach (var file in files)
-            offenders.AddRange(Scan(file, RetiredPhrases));
+            offenders.AddRange(Scan(file, PhrasesFor(Relative(RepoRoot(), file), RetiredPhrases)));
 
         Assert.True(offenders.Count == 0,
             "Text agents read still teaches the messaging the Message Load mission retired (a message " +
-            "interrupts, a blocking ask, one-line messages, or naming another session as owner). " +
-            "Rewrite it to the queue - see docs/FleetMessaging.md:\n  " + string.Join("\n  ", offenders));
+            "interrupts, a blocking ask, one-line messages, naming another session as owner, or typing " +
+            "into a session with 'cc-devthrottle session prompt', which the Gateway refuses to every " +
+            "session key). Rewrite it to the queue - the owner's words reach a session as a queued " +
+            "message and one doorbell; see docs/FleetMessaging.md:\n  " + string.Join("\n  ", offenders));
     }
 
     // =================================================================================================
@@ -100,9 +147,16 @@ public sealed class RetiredMessagingWordsTests
         ("tools/cc-devthrottle/tests/test_stale_answer_caution.py", "a docstring naming the commands the helper once served"),
     };
 
+    /// <summary>
+    /// Directories that hold build output rather than repository text. "build" is here because a local
+    /// Python build leaves a copy of the command line's own sources under
+    /// <c>tools/cc-devthrottle/build/lib/</c>; <c>.gitignore</c> ignores <c>build/</c> and no tracked
+    /// file lives under any directory of that name, so scanning it reports the same source twice and
+    /// depends on whether somebody happened to run a build.
+    /// </summary>
     private static readonly HashSet<string> TreeSkippedDirectories = new(StringComparer.Ordinal)
     {
-        ".git", "bin", "obj", "node_modules", "dist", ".venv", "venv", "__pycache__", ".pytest_cache", "TestResults",
+        ".git", "bin", "obj", "build", "node_modules", "dist", ".venv", "venv", "__pycache__", ".pytest_cache", "TestResults",
     };
 
     private static readonly HashSet<string> TreeTextExtensions = new(StringComparer.OrdinalIgnoreCase)
@@ -120,7 +174,7 @@ public sealed class RetiredMessagingWordsTests
         foreach (var file in TreeFiles(root))
         {
             read++;
-            offenders.AddRange(Scan(file, TreePhrases));
+            offenders.AddRange(Scan(file, PhrasesFor(Relative(root, file), TreePhrases)));
         }
 
         // Presence, not absence: a walk that read almost nothing would pass. The repository holds thousands
@@ -128,9 +182,11 @@ public sealed class RetiredMessagingWordsTests
         Assert.True(read > 1000, $"The tree scan read only {read} files under {root}; it is not reading the repository.");
         Assert.True(offenders.Count == 0,
             "The retired messaging words are back outside the named history (a blocking ask, a message that " +
-            "interrupts, one-line messages, or naming any session as owner). Rewrite the text to the queue - " +
-            "see docs/FleetMessaging.md - or, if it is genuinely a dated record, add it to TreeExemptions with " +
-            "the reason:\n  " + string.Join("\n  ", offenders));
+            "interrupts, one-line messages, naming any session as owner, or teaching " +
+            "'cc-devthrottle session prompt'). Rewrite the text to the queue - see docs/FleetMessaging.md - " +
+            "or, if it is genuinely a dated record, add it to TreeExemptions with the reason; a file that " +
+            "documents the typing refusal rather than teaching it belongs in TypingCommandExemptions:\n  " +
+            string.Join("\n  ", offenders));
     }
 
     [Fact]
@@ -146,6 +202,10 @@ public sealed class RetiredMessagingWordsTests
         foreach (var (path, _) in TreeExemptions)
             Assert.True(path.EndsWith('/') ? Directory.Exists(Path.Combine(root, path)) : File.Exists(Path.Combine(root, path)),
                 $"The exemption '{path}' names nothing in the repository; remove it.");
+
+        foreach (var (path, _) in TypingCommandExemptions)
+            Assert.True(File.Exists(Path.Combine(root, path)),
+                $"The typing-command exemption '{path}' names nothing in the repository; remove it.");
     }
 
     /// <summary>Files inspection 11 found with the old words and the final fix round rewrote.</summary>
@@ -253,6 +313,14 @@ public sealed class RetiredMessagingWordsTests
         Assert.Contains("cc-devthrottle message inbox", skill, StringComparison.Ordinal);
         Assert.Contains("--reply-wanted", skill, StringComparison.Ordinal);
         Assert.Contains("Most sessions can message nobody", skill, StringComparison.Ordinal);
+
+        // The Fleet Manager passes the owner's answer on, so its skill must teach the queue and the
+        // doorbell rather than just not teach the typing command: an empty section would pass a
+        // ban and teach nothing.
+        var fleetManager = File.ReadAllText(Path.Combine(RepoRoot(), "src", "CcDirector.Gateway", "Skills", "Content", "fleet-manager.skill.md"));
+        Assert.Contains("## Answering a session", fleetManager, StringComparison.Ordinal);
+        Assert.Contains("cc-devthrottle message send <session>", fleetManager, StringComparison.Ordinal);
+        Assert.Contains("queued message and one doorbell at the next safe moment", fleetManager, StringComparison.Ordinal);
     }
 
     private static readonly string[] RequiredFiles =
@@ -260,6 +328,7 @@ public sealed class RetiredMessagingWordsTests
         "src/CcDirector.Core/Sessions/FleetPreambleTemplate.cs",
         "src/CcDirector.Core/Sessions/SessionManager.cs",
         "src/CcDirector.Gateway/Skills/Content/fleet-comms.skill.md",
+        "src/CcDirector.Gateway/Skills/Content/fleet-manager.skill.md",
         "src/CcDirector.Gateway/Workflows/Content/mission.instructions.md",
         ".claude/skills/fleet-comms/SKILL.md",
         ".claude/skills/mission/SKILL.md",
