@@ -232,6 +232,9 @@ def test_a_abandoned_work_is_pinned_the_slot_goes_back_and_the_work_survives_gc(
     assert _pins(w.repo, got["slot"]) == [commit]
     assert [p["commit"] for p in res.data["pins"]] == [commit]
     assert res.data["pins"][0]["ref"] == f"refs/cc-worktrees/{got['slot']}/{commit}"
+    # The held return had already pinned this commit, so the release kept it rather than writing it:
+    # pinned counts every pin the slot has, pinned_now only what this call added.
+    assert res.data["pinned"] == 1 and res.data["pinned_now"] == 0, res.data
 
     git(w.repo, "gc", "-q", "--prune=now")
     assert _object_exists(w.repo, commit), "git gc took work the release said it had kept"

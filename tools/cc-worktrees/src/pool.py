@@ -684,8 +684,8 @@ def destroy_slot(target: str, yes: bool, allow_held: bool, allow_in_use: bool, r
         return view
 
 
-RELEASE_NOTE_PINNED = ("the work this slot could not prove landed is kept for ever by the refs above: "
-                       "read one with git log <ref>, and take it back with git branch <name> <ref>")
+RELEASE_NOTE_PINNED = ("the work this slot could not prove landed is kept for ever by the refs listed "
+                       "below: read one with git log <ref>, and take it back with git branch <name> <ref>")
 RELEASE_NOTE_NONE = ("nothing in this slot was unproven, so nothing needed pinning; the directory and "
                      "the ignored files in it are gone")
 
@@ -720,7 +720,11 @@ def release_slot(target: str, repo_opt: str | None) -> dict:
                             exit_code=EXIT_HELD, details={**view, "removed": False}) from ex
         del pool.slots[name]
         pool.save()
-        return {**view, "removed": done.removed, "pinned": len(done.pinned), "proven": len(done.proven),
+        # pinned is every pin the slot has now, which is what the list below shows; pinned_now is the
+        # part this release wrote. A commit an earlier check already pinned counts in the first and not
+        # the second, and "pinned: 0" beside a list of pins would read as a contradiction.
+        return {**view, "removed": done.removed, "pinned": len(done.pins), "pinned_now": len(done.pinned),
+                "proven": len(done.proven),
                 "pins": [{"ref": ref, "commit": commit} for ref, commit in done.pins],
                 "gone": list(done.gone),
                 "note": RELEASE_NOTE_PINNED if done.pins else RELEASE_NOTE_NONE}

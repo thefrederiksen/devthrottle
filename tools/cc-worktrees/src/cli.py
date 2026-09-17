@@ -200,7 +200,7 @@ def cmd_release(args: argparse.Namespace) -> int:
             "directory, the ignored files in it and all. Every commit it cannot prove landed is pinned "
             "first, and it refuses while anything in the slot cannot be pinned")
     result = pool.release_slot(args.target, args.repo)
-    keys = ["slot", "path", "removed", "pinned", "proven", "note"]
+    keys = ["slot", "path", "removed", "pinned", "pinned_now", "proven", "note"]
     if args.json:
         sys.stdout.write(json.dumps(result) + "\n")
         return EXIT_OK
