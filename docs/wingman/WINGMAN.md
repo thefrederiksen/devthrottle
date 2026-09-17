@@ -244,7 +244,10 @@ conversation; the pushed roster and the verdict store are consulted as well and 
    flight. A stop refused here costs NO reads.
 2. The screen read, and its one full-grid hash.
 3. The reuse check: a stored verdict formed on the same hash is reused and the judge is not
-   asked. A stop answered here costs ONE read.
+   asked. A stop answered here costs ONE read. The one exception is a rate limit's named wait:
+   while one is held for the session, this check reads the stored conversation as well, to tell
+   whether the reply is still the stop the wait was named for, and a stop answered by that wait
+   has read both.
 4. The speech re-attempt refusal: a caller that may not ask the judge stops here, before the
    conversation is read. A stop refused here costs ONE read.
 5. The conversation read.
