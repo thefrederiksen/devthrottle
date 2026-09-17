@@ -1242,7 +1242,8 @@ COMMANDS:
 An entry is a **secret** (the default: hidden from every output, never printed) or a **setting** - a value
 that is not secret, such as a host, an email address or an identifier. Settings live in cc-secrets beside
 the secrets so every credential has one home; a setting can be read with `get` and is never hidden from
-output, because hiding a host name would blank it out of everything that prints it.
+output, because hiding a host name would blank it out of everything that prints it. The kind is stored in
+`secrets.json` beside the value: editing a secret's kind to `setting` by hand makes `get` print it.
 
 `add`, `import` and `remove` refuse to run inside a DevThrottle session. There is no option that takes the
 secret as an argument. In Git Bash (mintty) typing cannot be hidden, so `add` refuses there: run it from

@@ -503,7 +503,7 @@ def import_entries(
         text = file.read_text(encoding="utf-8-sig")
         register_env_file_values(text, frozenset(as_settings | skipped))
         for value in commented_values(text):
-            if value.strip():
+            if len(value.strip()) >= MIN_SECRET_LENGTH:  # shorter is no secret cc-secrets holds
                 SCRUBBER.add(value)
         pairs = parse_env_file(text)
         unknown = sorted((skipped | as_settings) - {key for _, key, _ in pairs})
@@ -547,18 +547,24 @@ def import_entries(
             _say(f"Dry run: nothing was changed. {len(built)} to import, {len(skipped)} skipped, {len(failed)} not importable.")
             raise typer.Exit(EXIT_FAILED if failed else 0)
         audit = _audit()
+        # The exact line each entry will get is built - and checked - before the store changes; otherwise a refused
+        # line leaves the store saved and the import half recorded (review of pull request 2990).
+        expected = {e.name: ("exists" if e.name in existing and not replace else
+                             "replaced" if e.name in existing else "added") for e in built}
+        prepared = []
         for entry in built:
-            # Every audit line must be accepted before the store changes; otherwise a refused line leaves the store
-            # saved and the import half recorded.
             try:
-                audit.check(entry.name, "import", "ok", f"replaced from {file.name} as {entry.env_name}")
+                prepared.append(audit.prepare(entry.name, "import",
+                                              "unchanged" if expected[entry.name] == "exists" else "ok",
+                                              f"{expected[entry.name]} from {file.name} as {entry.env_name}"))
             except Exception as exc:
                 raise InputError(f"The audit line for entry '{entry.name}' would carry a secret, so nothing was imported. "
                                  "Rename the file or the key.") from exc
         outcomes = store.put_many(built, replace) if built else {}
-        for entry in built:
-            audit.record(entry.name, "import", "ok" if outcomes[entry.name] != "exists" else "unchanged",
-                         f"{outcomes[entry.name]} from {file.name} as {entry.env_name}")
+        if outcomes != expected:
+            raise CcSecretsError("The store changed while importing, so the audit lines prepared for it no longer "
+                                 "match. Run the import again.")
+        audit.write_prepared(prepared)
         counts = {k: sum(1 for o in outcomes.values() if o == k) for k in ("added", "replaced", "exists")}
         setting_count = sum(1 for e in built if e.is_setting and outcomes[e.name] != "exists")
         _say(f"Imported into {store.location}: {counts['added']} added, {counts['replaced']} replaced, "

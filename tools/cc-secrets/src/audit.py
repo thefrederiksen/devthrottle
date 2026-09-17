@@ -32,16 +32,22 @@ class AuditLog:
     def path(self) -> Path:
         return self._path
 
-    def check(self, entry_name: str, command: str, outcome: str, detail: str = "") -> None:
-        """Raise exactly as record would, without writing - so a caller can know every line it must write will be
-        accepted BEFORE it changes anything (live import on the owner's machine, pull request 2990)."""
-        self._line(entry_name, command, outcome, detail)
+    def prepare(self, entry_name: str, command: str, outcome: str, detail: str = "") -> str:
+        """Build and check one line exactly as record would, without writing it, and return it for write_prepared.
+        A caller that must not change anything unless every line will be accepted prepares them all first
+        (live import on the owner's machine, pull request 2990) - the time is fixed here, so the line checked is
+        the line written."""
+        return self._line(entry_name, command, outcome, detail)[1]
+
+    def write_prepared(self, lines: List[str]) -> None:
+        paths.ensure_home()
+        with open(self._path, "a", encoding="utf-8") as fh:
+            for text in lines:
+                fh.write(text + "\n")
 
     def record(self, entry_name: str, command: str, outcome: str, detail: str = "") -> Dict[str, str]:
         line, text = self._line(entry_name, command, outcome, detail)
-        paths.ensure_home()
-        with open(self._path, "a", encoding="utf-8") as fh:
-            fh.write(text + "\n")
+        self.write_prepared([text])
         return line
 
     def _line(self, entry_name: str, command: str, outcome: str, detail: str):

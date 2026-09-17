@@ -164,21 +164,75 @@ def test_Import_ASkippedOrSettingValueThatIsACommonWord_DoesNotBreakEntryNamesOr
         assert {"orbi-admin-password", "admin-service-token"} <= audited
 
 
-def test_Import_AnAuditLineThatWouldBeRefused_StopsTheImportBeforeTheStoreChanges(store, tmp_path, monkeypatch):
-    # Found on the owner's machine: the store was saved, then an audit line was refused, leaving the import half
-    # recorded. Every line is now checked before the store changes.
-    from src.audit import AuditLineContainsSecretError, AuditLog
+def test_Import_AnAuditLineThatWouldBeRefused_ThroughTheRealUnchangedPath_ChangesNothing(store, tmp_path, monkeypatch):
+    # The review's case (35b34779): an existing entry is recorded as "unchanged ... exists", which the old check
+    # never built. A secret that is part of those words passed the check and the record refused it after saving.
+    from src import paths
 
-    def refuse_second(self, entry_name, command, outcome, detail=""):
-        if entry_name == "second-token":
-            raise AuditLineContainsSecretError("Refused to write an audit line that contained a secret.")
-
-    monkeypatch.setattr(AuditLog, "check", refuse_second)
+    add_entry(store, name="api-token")
     path = tmp_path / "credentials.env"
-    path.write_text(f"FIRST_TOKEN={new_secret()}\nSECOND_TOKEN={new_secret()}\n", encoding="utf-8")
+    path.write_text(f"API_TOKEN={new_secret()}\nNEW_KEY=changed\n", encoding="utf-8")
 
     result = runner.invoke(cli.app, ["import", str(path), "--agents"])
 
     assert result.exit_code != 0
     assert "nothing was imported" in _text(result)
-    assert store.entries() == []
+    assert store.get("new-key") is None
+    audit = paths.audit_path()
+    assert not audit.exists() or "new-key" not in audit.read_text(encoding="utf-8")
+
+
+def test_Import_AShortCommentedValue_DoesNotBlockTheImport(store, tmp_path):
+    # The review's case: '# DEBUG=1' registered "1", and every audit line holds digits in its time.
+    secret = new_secret()
+    path = tmp_path / "credentials.env"
+    path.write_text(f"# DEBUG=1\n# ENV=dev\nAPI_KEY={secret}\n", encoding="utf-8")
+
+    result = runner.invoke(cli.app, ["import", str(path), "--agents"])
+
+    assert result.exit_code == 0, _text(result)
+    assert store.get("api-key").secret.reveal() == secret
+
+
+def test_AStoredEntryWithAMissingOrUnknownKind_LoadsAsASecret_HiddenAndRefusedByGet(store, tmp_path):
+    import json as _json
+    from src import paths
+    from src.storefile import UserOnlyFile
+
+    secrets_by_kind = {}
+    add_entry(store, name="no-kind")
+    add_entry(store, name="odd-kind")
+    document = _json.loads(paths.store_path().read_text(encoding="utf-8"))
+    for record in document["entries"]:
+        secrets_by_kind[record["name"]] = record["secret"]
+        if record["name"] == "no-kind":
+            record.pop("kind", None)
+        else:
+            record["kind"] = "Setting"
+    UserOnlyFile(paths.store_path()).write((_json.dumps(document) + "\n").encode("utf-8"))
+    SCRUBBER.clear()
+
+    entries = {e.name: e for e in store.entries()}
+    for name in ("no-kind", "odd-kind"):
+        assert entries[name].is_setting is False
+        assert SCRUBBER.scrub(secrets_by_kind[name]) == REDACTED
+        result = runner.invoke(cli.app, ["get", name])
+        assert result.exit_code == cli.EXIT_REFUSED
+        assert secrets_by_kind[name] not in _text(result)
+
+
+def test_ListTable_ASettingWhoseValueHoldsAStoredSecret_ShowsTheSecretHidden(store, tmp_path, plain, monkeypatch):
+    # Wide enough that no cell is cut short: a truncated table would pass "not in the output" without redaction.
+    from rich.console import Console
+    monkeypatch.setattr(cli, "console", Console(width=400))
+    secret = new_secret()
+    add_entry(store, name="service-token", secret=secret)
+    path = tmp_path / "credentials.env"
+    path.write_text(f"SERVICE_URL=https://x.example.com/?t={secret}\n", encoding="utf-8")
+    runner.invoke(cli.app, ["import", str(path), "--agents", "--settings", "SERVICE_URL"])
+
+    result = runner.invoke(cli.app, ["list"])
+
+    text = plain(result.output)
+    assert "service-url" in text and "https://x.example.com/?t=" in text, "the table did not print the row"
+    assert secret not in result.output
