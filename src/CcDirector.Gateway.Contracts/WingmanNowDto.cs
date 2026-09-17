@@ -87,6 +87,64 @@ public sealed class WingmanNowResponse
 
     /// <summary>The card on a stop that needs nothing from the owner. Null otherwise.</summary>
     public WingmanNowCardDto? CalmCard { get; set; }
+
+    /// <summary>
+    /// The session's OWN last words, with who said them - shown where there is no Wingman account of the stop to
+    /// show: while it is being read, when the reading failed, and when the Wingman is switched off. Null when the
+    /// session's agent tool sends no conversation, or nothing has been stored for it yet.
+    ///
+    /// Shortened, unlike <see cref="WholeReply"/>: this stands in place of a headline, so it is the opening of the
+    /// reply rather than all of it.
+    /// </summary>
+    public WingmanNowSaidDto? LastWords { get; set; }
+
+    /// <summary>The headline when the Wingman's answer about this stop was refused. Null in every other state.
+    /// </summary>
+    public string? FailedHeadline { get; set; }
+
+    /// <summary>Why it was refused, in the Wingman's own words, followed by what that leaves the row. Null in every
+    /// other state, and null on a refusal that recorded no reason.</summary>
+    public string? FailedStory { get; set; }
+
+    /// <summary>The last stop the Wingman DID explain, offered when the live one it could not. Null when this account
+    /// has no earlier accepted verdict for this session.</summary>
+    public WingmanNowPastDto? LastGood { get; set; }
+
+    /// <summary>The words for an account whose Wingman is switched off. Null in every other state.</summary>
+    public WingmanNowSwitchedOffDto? SwitchedOff { get; set; }
+}
+
+/// <summary>
+/// A stop that is PAST, as one line: a finished lead, the moment, and what it said.
+///
+/// The instant is separate for the reason <see cref="WingmanNowWhenDto"/> gives - the Gateway does not know the
+/// owner's time zone - and the text is already finished, so the client joins three values and decides nothing.
+/// </summary>
+public sealed class WingmanNowPastDto
+{
+    /// <summary>The words before the time: "Last good explanation".</summary>
+    public string Lead { get; set; } = "";
+
+    /// <summary>The moment (UTC) the client formats into local time.</summary>
+    public DateTime AtUtc { get; set; }
+
+    /// <summary>What that stop said, as the pill's words and the headline the Wingman gave it.</summary>
+    public string Text { get; set; } = "";
+}
+
+/// <summary>What Now says on an account whose Wingman is switched off: one sentence, and the way to switch it on.
+/// </summary>
+public sealed class WingmanNowSwitchedOffDto
+{
+    /// <summary>The headline.</summary>
+    public string Headline { get; set; } = "";
+
+    /// <summary>The one sentence under it.</summary>
+    public string Story { get; set; } = "";
+
+    /// <summary>The words on the link that leads to the switch. The client owns where the link GOES - that is a
+    /// route, not a word.</summary>
+    public string SettingsLinkText { get; set; } = "";
 }
 
 /// <summary>

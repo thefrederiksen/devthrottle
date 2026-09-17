@@ -3554,6 +3554,10 @@ public sealed class GatewayHost : IAsyncDisposable
             // The Wingman tab, version 3, item 1: the stored conversation GET /sessions/{sid}/wingman-now reads the
             // agent's whole last reply from - the same store the Chat screen's history read serves.
             sessionTurns: _sessionTurns,
+            // The Wingman tab, version 3, item 2: the account's own Wingman switches, from the SAME per-tenant
+            // resolver the row source reads them through - so what Now says about the switches and what the roster
+            // does about them cannot come from two answers.
+            turnVerdictSettings: _tenantSettingsResolver.TurnVerdict,
             // Slice E: the one write path for a verdict's options, recording into the same ledger the seat does.
             turnVerdictAnswers: new Wingman.TurnVerdictAnswerService(new Wingman.TurnVerdictAnswerRecords(
                 _turnVerdicts, record => EnsureTurnVerdictEnvironment().Record(record))),

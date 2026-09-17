@@ -1,4 +1,4 @@
-using CcDirector.Core.Wingman;
+﻿using CcDirector.Core.Wingman;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Wingman;
 using Xunit;
@@ -15,10 +15,10 @@ namespace CcDirector.Gateway.Tests.Wingman;
 /// own tests, and that the route really hands this fold a real row and a real store is proven through the handler in
 /// <see cref="WingmanNowRouteTests"/>, not here.
 ///
-/// WHAT SLICE 1 DOES NOT COVER, said plainly rather than implied by silence: reading, failed and switched off (slice
-/// 2), the carrying-on deadline sentence (slice 3), working and just answered (slices 4 and 5), and the voice control
-/// (slice 6). A row in one of those states folds to "other" today, and no test here pins that - pinning an interim
-/// answer would only have to be deleted by the slice that gives it its real one.
+/// WHAT IS NOT COVERED YET, said plainly rather than implied by silence: the carrying-on deadline sentence (slice 3),
+/// working and just answered (slices 4 and 5), and the voice control (slice 6). A row in one of those states folds to
+/// "other" today, and no test here pins that - pinning an interim answer would only have to be deleted by the slice
+/// that gives it its real one. Reading, failed and switched off ARE covered, below.
 ///
 /// PARKED SUITE. Gateway.UnitTests runs under -Parked.
 /// </summary>
@@ -401,8 +401,16 @@ public sealed class WingmanNowFoldTests
         Assert.Equal("Needs you", now.PillText);
     }
 
-    /// <summary>The row says the Wingman's answer was refused, so there is no verdict in force to narrate. Slice 2
-    /// gives this state its own words; what must be true today is that nothing is served as though it were live.</summary>
+    /// <summary>
+    /// The row says the Wingman's answer was refused, so there is no verdict in force to narrate - whatever words
+    /// that refused record happens to carry.
+    ///
+    /// The record on a refused row can still hold a label, a summary and a sentence: the judge answered, and the
+    /// answer was thrown out afterwards for contradicting itself. Serving those words would be serving a judgement
+    /// the Gateway REJECTED, so none of them appear. Slice 2 gave the state its own words (the refusal, its reason
+    /// and the last good explanation), and this pins the part that must stay true beside them: nothing from the
+    /// refused record is served as though it were live.
+    /// </summary>
     [Fact]
     public void A_refused_verdict_is_never_narrated_as_the_live_one()
     {
@@ -412,11 +420,16 @@ public sealed class WingmanNowFoldTests
 
         var now = Fold(row, verdict);
 
-        Assert.Equal(WingmanNowStates.Other, now.State);
-        Assert.Equal("Needs you", now.Headline);
+        Assert.Equal(WingmanNowStates.Failed, now.State);
+        // Not the refused record's own label, summary, sentence, options or id - none of it was accepted.
+        Assert.Null(now.Headline);
         Assert.Null(now.Story);
         Assert.Null(now.AgentSaid);
+        Assert.Null(now.Needs);
+        Assert.False(now.CanAnswerByOption);
         Assert.Null(now.VerdictId);
+        // What IS served is the refusal itself, in the Gateway's own words.
+        Assert.Equal("The Wingman could not explain this stop", now.FailedHeadline);
     }
 
     /// <summary>The tool's name is the row's to state. A row that does not name one says so plainly rather than
@@ -436,4 +449,393 @@ public sealed class WingmanNowFoldTests
         Role = role,
         Parts = parts.Select(p => new HistoryPartDto { Kind = p.Kind, Text = p.Text }).ToList(),
     };
+
+    // ================================================================ slice 2: reading, failed, switched off
+
+    /// <summary>A row the roster fold stamped as being READ - the Wingman has the stop and has not answered yet.
+    /// </summary>
+    private static SessionDto ReadingRow()
+    {
+        var row = Row(null, colour: "grey", label: "Wingman reading");
+        row.VerdictState = VerdictStates.Reading;
+        return row;
+    }
+
+    private const string RefusalReason =
+        "It said the session needs you but also marked the work as finished, which is not allowed";
+
+    /// <summary>A row whose verdict was REFUSED: the refused record is on the row with its reason, and the row stays
+    /// exactly the colour the detector made it.</summary>
+    private static SessionDto FailedRow(string? reason = RefusalReason, string verdictId = "verdict-refused")
+    {
+        var row = Row(null);
+        row.VerdictState = VerdictStates.Failed;
+        row.TurnVerdict = new TurnVerdictDto
+        {
+            VerdictId = verdictId,
+            JudgedAtUtc = Stopped.AddSeconds(4),
+            TurnEndObservedAtUtc = Stopped,
+            Failed = true,
+            FailureReason = reason,
+        };
+        return row;
+    }
+
+    private static WingmanNowConversation Said(string text) => new(true, new List<HistoryMessageDto>
+    {
+        new() { Role = "Assistant", Parts = { new HistoryPartDto { Kind = "Text", Text = text } } },
+    });
+
+    private static WingmanNowResponse FoldWith(SessionDto? row, IReadOnlyList<AnsweredTurnVerdict> history,
+        WingmanNowConversation? conversation = null, bool? switchedOff = null)
+        => WingmanNowFold.Fold(new WingmanNowInputs(Sid, row, history, conversation, switchedOff));
+
+    private static readonly AnsweredTurnVerdict[] NoHistory = Array.Empty<AnsweredTurnVerdict>();
+
+    // ---------------------------------------------------------------- reading
+
+    [Fact]
+    public void A_stop_the_wingman_is_still_reading_says_so_and_offers_the_reply_box_anyway()
+    {
+        var now = FoldWith(ReadingRow(), NoHistory,
+            Said("I need help with three things: the merge, the changelog and the tag."));
+
+        Assert.Equal(WingmanNowStates.Reading, now.State);
+        Assert.Equal("Stopped - the Wingman is reading it", now.PillText);
+        Assert.Equal("The session stopped. The Wingman is reading its screen...", now.Headline);
+        Assert.Equal("This usually takes a few seconds.", now.Story);
+        Assert.Equal("Claude Code's last words", now.LastWords!.Who);
+        Assert.Equal("I need help with three things: the merge, the changelog and the tag.", now.LastWords.Text);
+        Assert.Equal("You can answer now without waiting.", now.ReplyPlaceholder);
+        // Nothing is claimed about a stop nobody has read yet.
+        Assert.Null(now.AgentSaid);
+        Assert.Null(now.Needs);
+        Assert.Null(now.CalmCard);
+        Assert.False(now.Unsure);
+        // The colour came from the detector and there IS a rule behind it, so the link stands.
+        Assert.True(now.ShowWhyColour);
+    }
+
+    /// <summary>The moment shown while it is being read is the row's own waiting stamp: the verdict that would carry
+    /// one does not exist yet, and the owner still needs to know how long it has been sitting there.</summary>
+    [Fact]
+    public void A_stop_being_read_still_says_when_it_stopped_and_how_long_ago()
+    {
+        var now = FoldWith(ReadingRow(), NoHistory);
+
+        Assert.Equal("Stopped at", now.When!.Lead);
+        Assert.Equal(Stopped, now.When.AtUtc);
+        Assert.True(now.When.ShowAgo);
+    }
+
+    // ---------------------------------------------------------------- failed
+
+    [Fact]
+    public void A_refused_answer_says_the_wingman_could_not_explain_it_and_why()
+    {
+        var now = FoldWith(FailedRow(), NoHistory, Said("Two more fixes for steps 7 to 9 are in."));
+
+        Assert.Equal(WingmanNowStates.Failed, now.State);
+        Assert.Equal("The Wingman could not explain this stop", now.FailedHeadline);
+        Assert.Equal(
+            "It said the session needs you but also marked the work as finished, which is not allowed. "
+            + "The row stays red because the session stopped.",
+            now.FailedStory);
+        Assert.Equal("Claude Code's last words", now.LastWords!.Who);
+        Assert.Equal("Two more fixes for steps 7 to 9 are in.", now.LastWords.Text);
+        // The reply box goes to the SESSION: there is no judgement here to answer.
+        Assert.Equal("Answer the session directly.", now.ReplyPlaceholder);
+        // The headline and story slots stay empty - the failure has its own two fields, so a client cannot render
+        // the failure twice or render half of it.
+        Assert.Null(now.Headline);
+        Assert.Null(now.Story);
+        Assert.Null(now.Needs);
+        Assert.True(now.ShowWhyColour);
+    }
+
+    /// <summary>The pill keeps the row's own words on a refusal. The detector's colour and label are what the row
+    /// actually is; the Wingman having failed changes nothing about the session.</summary>
+    [Fact]
+    public void A_refused_answer_leaves_the_rows_own_words_on_the_pill()
+    {
+        var now = FoldWith(FailedRow(), NoHistory);
+
+        Assert.Equal("Needs you", now.PillText);
+        Assert.Equal("red", now.PillColour);
+    }
+
+    /// <summary>A refusal that recorded no reason gets no story at all. A sentence about the colour on its own would
+    /// be the Gateway explaining a refusal it cannot describe.</summary>
+    [Fact]
+    public void A_refusal_with_no_reason_recorded_says_nothing_it_cannot_support()
+    {
+        var now = FoldWith(FailedRow(reason: null), NoHistory);
+
+        Assert.Equal("The Wingman could not explain this stop", now.FailedHeadline);
+        Assert.Null(now.FailedStory);
+    }
+
+    /// <summary>The reason is carried VERBATIM. It is the record of a refusal, and a tidied-up version of it is a
+    /// different claim about what happened - only the sentence about the colour is added after it.</summary>
+    [Fact]
+    public void A_reason_that_already_ends_in_a_full_stop_is_not_given_a_second_one()
+    {
+        var now = FoldWith(FailedRow(reason: "The judge timed out."), NoHistory);
+
+        Assert.Equal("The judge timed out. The row stays red because the session stopped.", now.FailedStory);
+    }
+
+    /// <summary>A refusal on a row with no colour says only what it can: the reason, and nothing about a colour the
+    /// row does not carry.</summary>
+    [Fact]
+    public void A_refusal_on_a_row_with_no_colour_does_not_invent_one()
+    {
+        var row = FailedRow();
+        row.EffectiveColor = null;
+
+        Assert.Equal(RefusalReason, FoldWith(row, NoHistory).FailedStory);
+    }
+
+    // ---------------------------------------------------------------- the last good explanation
+
+    [Fact]
+    public void A_refused_answer_offers_the_last_stop_the_wingman_did_explain()
+    {
+        var earlier = Verdict(TurnVerdictVocabulary.ContinuesAlone,
+            label: "Fixes and inspections in progress", summary: "It is carrying on by itself.");
+        earlier.VerdictId = "verdict-earlier";
+        earlier.TurnEndObservedAtUtc = Stopped.AddHours(-1);
+
+        var now = FoldWith(FailedRow(), new[] { new AnsweredTurnVerdict(earlier, null) });
+
+        Assert.Equal("Last good explanation", now.LastGood!.Lead);
+        Assert.Equal(Stopped.AddHours(-1), now.LastGood.AtUtc);
+        Assert.Equal("Carrying on - Fixes and inspections in progress", now.LastGood.Text);
+    }
+
+    /// <summary>A session whose FIRST stop is the one the Wingman could not read has no earlier explanation, and Now
+    /// says nothing rather than reaching for the refused record it just reported on.</summary>
+    [Fact]
+    public void A_refused_answer_with_no_earlier_good_one_offers_none()
+    {
+        var refused = new TurnVerdictDto
+        {
+            VerdictId = "verdict-refused",
+            JudgedAtUtc = Stopped.AddSeconds(4),
+            TurnEndObservedAtUtc = Stopped,
+            Failed = true,
+            FailureReason = "The judge timed out.",
+        };
+
+        var now = FoldWith(FailedRow(), new[] { new AnsweredTurnVerdict(refused, null) });
+
+        Assert.Equal(WingmanNowStates.Failed, now.State);
+        Assert.Null(now.LastGood);
+    }
+
+    /// <summary>The record in force is never offered back as the last GOOD one, even when history still holds an
+    /// accepted row under that same id.</summary>
+    [Fact]
+    public void The_record_in_force_is_never_offered_as_the_last_good_explanation()
+    {
+        var live = Verdict(TurnVerdictVocabulary.NeededYou);
+        live.VerdictId = "verdict-live";
+
+        var now = FoldWith(FailedRow(reason: "It contradicted itself.", verdictId: "verdict-live"),
+            new[] { new AnsweredTurnVerdict(live, null) });
+
+        Assert.Null(now.LastGood);
+    }
+
+    /// <summary>
+    /// AN OLDER REFUSED RECORD IS NEVER THE "LAST GOOD EXPLANATION", even when it carries a verdict word.
+    ///
+    /// This is not the same case as the refusal in force - that one is skipped by its id - and it was UNGUARDED
+    /// until this test: the rule that skips refused records was removed and all sixty-four tests stayed green,
+    /// because the only refused record in any of them carried no verdict word, so the "no pill words for it" rule
+    /// happened to skip it for a different reason.
+    ///
+    /// It is a live case rather than a hypothetical one. A refused record CAN carry a decision - the invented-menu
+    /// correction salvages one out of a refusal - and the whole point of this line is that the Gateway threw that
+    /// judgement away. Offering it back under the words "last good explanation" would serve a rejected judgement as
+    /// the reassuring one.
+    /// </summary>
+    [Fact]
+    public void An_older_refused_record_is_never_offered_as_the_last_good_explanation()
+    {
+        var salvaged = Verdict(TurnVerdictVocabulary.Finished, finishedKind: "done",
+            label: "A decision salvaged out of an answer that was thrown away");
+        salvaged.VerdictId = "verdict-older-refusal";
+        salvaged.TurnEndObservedAtUtc = Stopped.AddMinutes(-20);
+        salvaged.Failed = true;
+        salvaged.FailureReason = "It contradicted itself.";
+
+        var good = Verdict(TurnVerdictVocabulary.ContinuesAlone, label: "Fixes in progress");
+        good.VerdictId = "verdict-good";
+        good.TurnEndObservedAtUtc = Stopped.AddMinutes(-45);
+
+        var now = FoldWith(FailedRow(), new[]
+        {
+            new AnsweredTurnVerdict(salvaged, null),
+            new AnsweredTurnVerdict(good, null),
+        });
+
+        // The older refusal is passed over for the accepted record behind it, however recent the refusal was.
+        Assert.Equal("Carrying on - Fixes in progress", now.LastGood!.Text);
+        Assert.Equal(Stopped.AddMinutes(-45), now.LastGood.AtUtc);
+    }
+
+    /// <summary>A past verdict whose word this Gateway draws no state for is skipped, not shown with half a line.
+    /// The line is "&lt;pill words&gt; - &lt;headline&gt;" and there are no pill words for a word it does not know.
+    /// </summary>
+    [Fact]
+    public void A_past_verdict_this_gateway_has_no_words_for_is_skipped_for_one_it_does()
+    {
+        var unknown = Verdict("a-word-from-a-newer-gateway", label: "Something happened");
+        unknown.VerdictId = "verdict-unknown";
+        unknown.TurnEndObservedAtUtc = Stopped.AddMinutes(-10);
+        var known = Verdict(TurnVerdictVocabulary.Finished, finishedKind: "done", label: "The release is tagged");
+        known.VerdictId = "verdict-known";
+        known.TurnEndObservedAtUtc = Stopped.AddMinutes(-30);
+
+        var now = FoldWith(FailedRow(), new[]
+        {
+            new AnsweredTurnVerdict(unknown, null),
+            new AnsweredTurnVerdict(known, null),
+        });
+
+        Assert.Equal("Done - The release is tagged", now.LastGood!.Text);
+        Assert.Equal(Stopped.AddMinutes(-30), now.LastGood.AtUtc);
+    }
+
+    // ---------------------------------------------------------------- switched off
+
+    [Theory]
+    [InlineData(VerdictStates.None)]
+    [InlineData(VerdictStates.Reading)]
+    [InlineData(VerdictStates.Failed)]
+    public void An_account_with_the_wingman_switched_off_says_so_whatever_the_row_carries(string verdictState)
+    {
+        var row = Row(null);
+        row.VerdictState = verdictState;
+
+        var now = FoldWith(row, NoHistory,
+            Said("I need help with three things: the merge, the changelog and the tag."), switchedOff: true);
+
+        Assert.Equal(WingmanNowStates.SwitchedOff, now.State);
+        Assert.Equal("Stopped", now.PillText);
+        Assert.Equal("The Wingman is switched off for your account", now.SwitchedOff!.Headline);
+        Assert.Equal("Nothing reads this session's stops.", now.SwitchedOff.Story);
+        Assert.Equal("Switch it on in Settings", now.SwitchedOff.SettingsLinkText);
+        Assert.Equal("Answer the session directly.", now.ReplyPlaceholder);
+        Assert.Equal("I need help with three things: the merge, the changelog and the tag.", now.LastWords!.Text);
+        // NOT "the Wingman could not explain this stop", and not "it is reading it" - neither is true when nothing
+        // was ever going to read it.
+        Assert.Null(now.FailedHeadline);
+        Assert.Null(now.Headline);
+    }
+
+    /// <summary>THE ONE STATE THAT HIDES THE LINK. With the Wingman off there is no verdict behind the colour, so
+    /// "why this colour?" would open an explanation of a rule that did not run.</summary>
+    [Fact]
+    public void Switched_off_is_the_only_state_that_hides_the_why_this_colour_link()
+    {
+        Assert.False(FoldWith(Row(null), NoHistory, switchedOff: true).ShowWhyColour);
+        Assert.True(FoldWith(Row(null), NoHistory, switchedOff: false).ShowWhyColour);
+    }
+
+    /// <summary>
+    /// WORKING OUTRANKS SWITCHED OFF, and that is the product's own law rather than a preference: if a session is
+    /// working it is blue, always, and nothing may be added above that check. The pill would otherwise read "Stopped"
+    /// about a session that is running.
+    /// </summary>
+    [Fact]
+    public void A_working_session_is_never_called_stopped_because_the_wingman_is_off()
+    {
+        var row = Row(null, colour: "blue", label: "Working");
+        row.ActivityState = "Working";
+
+        var now = FoldWith(row, NoHistory, switchedOff: true);
+
+        Assert.NotEqual(WingmanNowStates.SwitchedOff, now.State);
+        Assert.Equal("Working", now.PillText);
+        Assert.Null(now.SwitchedOff);
+    }
+
+    /// <summary>A Gateway that was not told about the account's switches says NOTHING about them. An assumed "on"
+    /// would put "the Wingman could not explain this stop" on a session nothing was ever going to explain.</summary>
+    [Fact]
+    public void A_fold_that_was_not_told_about_the_switches_makes_no_claim_about_them()
+    {
+        var verdict = Verdict(TurnVerdictVocabulary.NeededYou);
+
+        var now = FoldWith(Row(verdict), new[] { new AnsweredTurnVerdict(verdict, null) });
+
+        Assert.Equal(WingmanNowStates.NeedsYou, now.State);
+        Assert.Null(now.SwitchedOff);
+    }
+
+    // ---------------------------------------------------------------- the last words themselves
+
+    /// <summary>Cut on a WORD BOUNDARY, because this stands where a headline stands and a cut through the middle of
+    /// a word reads as a rendering fault rather than as an excerpt.</summary>
+    [Fact]
+    public void A_long_reply_is_cut_on_a_word_boundary_and_says_there_is_more()
+    {
+        var reply = string.Concat(Enumerable.Repeat("responsibility ", 30));   // far past the limit
+
+        var now = FoldWith(ReadingRow(), NoHistory, Said(reply));
+
+        var text = now.LastWords!.Text;
+        Assert.EndsWith(" ...", text);
+        Assert.True(text.Length <= WingmanNowFold.LastWordsLength + 4,
+            "the excerpt stays within the limit; it was " + text.Length);
+        // The boundary, not the character count: the last kept word is whole.
+        Assert.EndsWith("responsibility ...", text);
+    }
+
+    /// <summary>A reply already short enough is shown WHOLE, with no ellipsis promising words that do not exist.
+    /// </summary>
+    [Fact]
+    public void A_short_reply_is_shown_whole_with_nothing_promising_more()
+    {
+        var now = FoldWith(ReadingRow(), NoHistory, Said("Done."));
+
+        Assert.Equal("Done.", now.LastWords!.Text);
+    }
+
+    /// <summary>The slot is one line, so the reply's own line breaks are folded into single spaces rather than
+    /// travelling to a client that would render a paragraph in a one-line space.</summary>
+    [Fact]
+    public void The_last_words_are_one_line_however_many_the_reply_had()
+    {
+        var now = FoldWith(ReadingRow(), NoHistory, Said("Three things:\n\n  - the merge\n  - the changelog\n"));
+
+        Assert.Equal("Three things: - the merge - the changelog", now.LastWords!.Text);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void There_are_no_last_words_when_the_conversation_is_unsupported_or_absent(bool unsupported)
+    {
+        var conversation = unsupported
+            ? new WingmanNowConversation(false, new List<HistoryMessageDto>
+            {
+                new() { Role = "Assistant", Parts = { new HistoryPartDto { Kind = "Text", Text = "ignored" } } },
+            })
+            : null;
+
+        Assert.Null(FoldWith(ReadingRow(), NoHistory, conversation).LastWords);
+    }
+
+    /// <summary>Who said it is the row's own tool name, or "Its last words" - never a guessed tool.</summary>
+    [Fact]
+    public void The_last_words_name_no_tool_when_the_row_names_none()
+    {
+        var row = ReadingRow();
+        row.AgentToolDisplay = "";
+
+        Assert.Equal("Its last words", FoldWith(row, NoHistory, Said("Working on it.")).LastWords!.Who);
+    }
 }

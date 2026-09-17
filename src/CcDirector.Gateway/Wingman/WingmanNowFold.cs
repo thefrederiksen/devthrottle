@@ -14,11 +14,16 @@ namespace CcDirector.Gateway.Wingman;
 /// <param name="VerdictsNewestFirst">The session's stored verdicts, newest first, each with the moment the owner's
 /// answer to it was confirmed.</param>
 /// <param name="Conversation">The session's stored conversation, or null when nothing has been stored for it.</param>
+/// <param name="WingmanSwitchedOff">Whether this ACCOUNT's Wingman is switched off - either switch, because with the
+/// colour switch off every row is stamped "none" and no verdict reaches the screen, which is indistinguishable to a
+/// reader from the judge never having run. NULL means the route was not told, and then no claim is made: a Gateway
+/// that cannot see the account's settings says nothing about them rather than guessing that they are on.</param>
 public sealed record WingmanNowInputs(
     string SessionId,
     SessionDto? Row,
     IReadOnlyList<AnsweredTurnVerdict> VerdictsNewestFirst,
-    WingmanNowConversation? Conversation);
+    WingmanNowConversation? Conversation,
+    bool? WingmanSwitchedOff = null);
 
 /// <summary>One session's stored conversation as the Now fold reads it.</summary>
 /// <param name="Supported">False when the session's agent tool does not produce a conversation this Gateway can
@@ -41,12 +46,13 @@ public sealed record WingmanNowConversation(bool Supported, IReadOnlyList<Histor
 /// own <see cref="SessionDto.EffectiveColor"/>. A second colour authority in this file would be free to disagree with
 /// the Sessions list about the same session, which is exactly the defect the dumb-client rule exists to prevent.
 ///
-/// WHAT THIS SLICE DOES NOT DECIDE YET. Slice 1 rules on the stopped states the Wingman explained - needs you (sure
-/// and not sure), done, report and carrying on - and folds everything else to <see cref="WingmanNowStates.Other"/>,
-/// which wears the row's own label so the view is never blank. Reading, failed and switched off (slice 2), the
-/// carrying-on deadline sentence (slice 3), working and just answered (slices 4 and 5) and the voice control (slice 6)
-/// arrive in their own slices. An "other" answer today is therefore not a claim that the row has no better state - it
-/// is a claim that this fold has not been taught one.
+/// WHAT THIS FOLD DOES NOT DECIDE YET. It rules on the stopped states the Wingman explained - needs you (sure and not
+/// sure), done, report and carrying on (slice 1) - and on the three with no explanation to show: being read, refused,
+/// and switched off (slice 2). Everything else folds to <see cref="WingmanNowStates.Other"/>, which wears the row's
+/// own label so the view is never blank. The carrying-on deadline sentence (slice 3), working and just answered
+/// (slices 4 and 5) and the voice control (slice 6) arrive in their own slices, and a WORKING session is "other"
+/// until slice 4. An "other" answer is therefore not a claim that the row has no better state - it is a claim that
+/// this fold has not been taught one.
 /// </summary>
 public static class WingmanNowFold
 {
@@ -95,6 +101,45 @@ public static class WingmanNowFold
     /// so this is the answer for a session whose machine has gone away and left nothing folded.</summary>
     public const string OtherWithNoLabel = "Stopped";
 
+    // ------------------------------------------------------------------ slice 2: reading, failed, switched off
+
+    /// <summary>The pill while the Wingman is forming its answer. It says BOTH facts, because "reading" alone reads
+    /// as activity in the session rather than in the Wingman.</summary>
+    public const string PillReading = "Stopped - the Wingman is reading it";
+
+    /// <summary>The pill on an account whose Wingman is switched off: the session's PLAIN state, not a judgement.
+    /// The row's own label would read "Needs you" here - the words a red unjudged row wears - and nothing has read
+    /// this stop, so claiming it needs him would be the Gateway saying something no judge said.</summary>
+    public const string PillSwitchedOff = "Stopped";
+
+    public const string ReadingHeadline = "The session stopped. The Wingman is reading its screen...";
+    public const string ReadingStory = "This usually takes a few seconds.";
+
+    /// <summary>The reply box while the Wingman reads. Answering now is not a workaround - the owner may already
+    /// know what the session needs, and waiting for a judgement he does not need is pure delay.</summary>
+    public const string ReplyPlaceholderReading = "You can answer now without waiting.";
+
+    public const string FailedHeadline = "The Wingman could not explain this stop";
+
+    /// <summary>What the refusal leaves the row, appended after the Wingman's own reason. The row is EXACTLY what
+    /// the detector made it when a verdict is refused, so this says why the colour is what he is looking at.</summary>
+    public const string FailedRowSuffixBefore = "The row stays ";
+    public const string FailedRowSuffixAfter = " because the session stopped.";
+
+    /// <summary>The lead on the last stop the Wingman did manage to explain.</summary>
+    public const string LastGoodLead = "Last good explanation";
+
+    public const string SwitchedOffHeadline = "The Wingman is switched off for your account";
+    public const string SwitchedOffStory = "Nothing reads this session's stops.";
+    public const string SwitchedOffLinkText = "Switch it on in Settings";
+
+    /// <summary>Who said the last words, when the row does not name the agent tool.</summary>
+    public const string LastWordsWhoUnnamed = "Its last words";
+
+    /// <summary>How much of the last reply stands in for a headline. Long enough to recognise the stop, short
+    /// enough that it does not become the whole reply in a slot that is not built for one.</summary>
+    public const int LastWordsLength = 200;
+
     /// <summary>The Now view for one session.</summary>
     public static WingmanNowResponse Fold(WingmanNowInputs inputs)
     {
@@ -113,7 +158,7 @@ public static class WingmanNowFold
             ? accepted
             : null;
 
-        var state = StateOf(live);
+        var state = StateOf(live, row, inputs.WingmanSwitchedOff);
         var answer = new WingmanNowResponse
         {
             SessionId = inputs.SessionId,
@@ -121,13 +166,44 @@ public static class WingmanNowFold
             PillText = PillText(state, row),
             PillColour = row?.EffectiveColor,
             PillColourHex = row?.EffectiveColorHex,
-            // Every state slice 1 produces offers the link. Slice 2 adds the one state that hides it: with the
-            // Wingman switched off there is no verdict behind the colour to explain.
-            ShowWhyColour = true,
+            // THE ONE STATE THAT HIDES THE LINK: with the Wingman switched off there is no verdict behind the
+            // colour, so "why this colour?" would open an explanation of a rule that did not run.
+            ShowWhyColour = !string.Equals(state, WingmanNowStates.SwitchedOff, StringComparison.Ordinal),
             When = When(state, live, row),
             VerdictId = live?.VerdictId,
             ReplyPlaceholder = ReplyPlaceholder(state),
         };
+
+        // THE THREE STATES WITH NO WINGMAN ACCOUNT OF THE STOP TO SHOW - it has not finished reading, its answer was
+        // refused, or it was never switched on. Each shows the SESSION's own last words instead, so the owner can act
+        // on what the agent said without an explanation he may not need.
+        if (state is WingmanNowStates.Reading or WingmanNowStates.Failed or WingmanNowStates.SwitchedOff)
+        {
+            answer.LastWords = LastWords(inputs.Conversation, row);
+
+            if (string.Equals(state, WingmanNowStates.Reading, StringComparison.Ordinal))
+            {
+                answer.Headline = ReadingHeadline;
+                answer.Story = ReadingStory;
+            }
+            else if (string.Equals(state, WingmanNowStates.Failed, StringComparison.Ordinal))
+            {
+                answer.FailedHeadline = FailedHeadline;
+                answer.FailedStory = FailedStory(row);
+                answer.LastGood = LastGood(verdicts, row);
+            }
+            else
+            {
+                answer.SwitchedOff = new WingmanNowSwitchedOffDto
+                {
+                    Headline = SwitchedOffHeadline,
+                    Story = SwitchedOffStory,
+                    SettingsLinkText = SwitchedOffLinkText,
+                };
+            }
+
+            return answer;
+        }
 
         if (live is null)
         {
@@ -172,8 +248,28 @@ public static class WingmanNowFold
     /// judgement should be trusted on, so it goes to the owner rather than being quietly filed as calm. That is the
     /// same direction every rule in the verdict contract leans.
     /// </summary>
-    private static string StateOf(TurnVerdictDto? live)
+    private static string StateOf(TurnVerdictDto? live, SessionDto? row, bool? wingmanSwitchedOff)
     {
+        // WORKING OUTRANKS EVERYTHING, and that is the product's own law, not a preference here: if a session is
+        // working it is blue, always, and nothing may be added above that check. So a working session on an account
+        // whose Wingman is switched off is NOT "switched off" wearing the word "Stopped" - it falls through to the
+        // row's own state, which is true. (Working gets its own drawing in slice 4; until then it is "other".)
+        var working = row is not null && SessionOrdering.IsWorkingSession(row);
+
+        // SWITCHED OFF IS AN ACCOUNT FACT, so it outranks every stopped state below: when nothing reads this
+        // session's stops, "the Wingman is reading it" and "the Wingman could not explain it" are both false.
+        if (wingmanSwitchedOff == true && !working) return WingmanNowStates.SwitchedOff;
+
+        if (row is not null)
+        {
+            // The row's own verdict state, which the roster fold stamped. Reading and failed are facts ABOUT the
+            // Wingman rather than about the stop, so they are read from there and not from a verdict word.
+            if (string.Equals(row.VerdictState, VerdictStates.Reading, StringComparison.Ordinal))
+                return WingmanNowStates.Reading;
+            if (string.Equals(row.VerdictState, VerdictStates.Failed, StringComparison.Ordinal))
+                return WingmanNowStates.Failed;
+        }
+
         if (live is null) return WingmanNowStates.Other;
         return live.Verdict switch
         {
@@ -197,6 +293,8 @@ public static class WingmanNowFold
     private static string PillText(string state, SessionDto? row) => state switch
     {
         WingmanNowStates.NeedsYou => PillNeedsYou,
+        WingmanNowStates.Reading => PillReading,
+        WingmanNowStates.SwitchedOff => PillSwitchedOff,
         WingmanNowStates.CarryingOn => PillCarryingOn,
         WingmanNowStates.Done => PillDone,
         WingmanNowStates.Report => PillReport,
@@ -226,6 +324,10 @@ public static class WingmanNowFold
     {
         WingmanNowStates.NeedsYou => ReplyPlaceholderNeedsYou,
         WingmanNowStates.Report => ReplyPlaceholderReport,
+        WingmanNowStates.Reading => ReplyPlaceholderReading,
+        // Failed and switched off both fall to the "other" words below on purpose - with no judgement to answer,
+        // the box goes to the SESSION, which is exactly what those words say.
+        WingmanNowStates.Failed or WingmanNowStates.SwitchedOff => ReplyPlaceholderOther,
         // Done and carrying on offer no reply box: the session is finished, or it is about to work again on its own,
         // and a box that invites an answer to neither is an invitation to interrupt for no reason.
         WingmanNowStates.Done or WingmanNowStates.CarryingOn => null,
@@ -330,6 +432,105 @@ public static class WingmanNowFold
         }
         return null;
     }
+
+    /// <summary>
+    /// The session's own last words, shortened, with who said them.
+    ///
+    /// Cut on a WORD BOUNDARY and closed with an ellipsis, because this stands where a headline stands: a cut through
+    /// the middle of a word reads as a rendering fault rather than as an excerpt. A reply already shorter than the
+    /// limit is shown whole, with no ellipsis promising more.
+    /// </summary>
+    private static WingmanNowSaidDto? LastWords(WingmanNowConversation? conversation, SessionDto? row)
+    {
+        var text = WholeReply(conversation);
+        if (text is null) return null;
+
+        // One line: the slot is one line high, and a reply's own newlines would make it several.
+        text = string.Join(" ", text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        if (text.Length == 0) return null;
+
+        if (text.Length > LastWordsLength)
+        {
+            var cut = text.LastIndexOf(' ', LastWordsLength - 1);
+            // A first "word" longer than the whole limit has no boundary to cut on, so it is cut at the limit -
+            // an unbroken 200-character token is a URL or a hash, and showing none of it is worse.
+            text = (cut > 0 ? text[..cut] : text[..LastWordsLength]).TrimEnd() + " ...";
+        }
+
+        var tool = NullIfBlank(row?.AgentToolDisplay);
+        return new WingmanNowSaidDto
+        {
+            // "Claude Code's last words" when the row names the tool; never a guessed name.
+            Who = tool is null ? LastWordsWhoUnnamed : tool + "'s last words",
+            Text = text,
+        };
+    }
+
+    /// <summary>
+    /// Why the Wingman's answer was refused, in ITS OWN WORDS, then what the refusal leaves the row.
+    ///
+    /// The reason is carried verbatim and never rewritten: it is the record of a refusal, and a tidied-up version of
+    /// it is a different claim about what happened. When no reason was recorded there is no story - a sentence about
+    /// the colour alone would be the Gateway explaining a refusal it cannot describe.
+    /// </summary>
+    private static string? FailedStory(SessionDto? row)
+    {
+        var reason = NullIfBlank(row?.TurnVerdict?.FailureReason);
+        if (reason is null) return null;
+
+        var colour = NullIfBlank(row?.EffectiveColor);
+        if (colour is null) return reason;
+
+        var joined = reason.EndsWith('.') || reason.EndsWith('!') || reason.EndsWith('?') ? reason : reason + ".";
+        return joined + " " + FailedRowSuffixBefore + colour + FailedRowSuffixAfter;
+    }
+
+    /// <summary>
+    /// The last stop the Wingman DID explain - the newest ACCEPTED verdict in the stored history that is not the
+    /// record in force.
+    ///
+    /// The history arrives newest first, so the first accepted record that is not the live one is the answer. A
+    /// verdict whose word this Gateway has no pill words for is skipped rather than shown with a blank: the line is
+    /// "&lt;pill words&gt; - &lt;headline&gt;", and half of it missing is not a reassurance about anything.
+    /// </summary>
+    private static WingmanNowPastDto? LastGood(IReadOnlyList<AnsweredTurnVerdict> verdicts, SessionDto? row)
+    {
+        var liveId = row?.TurnVerdict?.VerdictId;
+        foreach (var stored in verdicts)
+        {
+            var verdict = stored.Verdict;
+            if (verdict.Failed) continue;
+            if (liveId is not null && string.Equals(verdict.VerdictId, liveId, StringComparison.Ordinal)) continue;
+
+            var words = PastPillWords(verdict);
+            if (words is null) continue;
+
+            var at = verdict.TurnEndObservedAtUtc != default ? verdict.TurnEndObservedAtUtc : verdict.JudgedAtUtc;
+            if (at == default) continue;
+
+            var label = NullIfBlank(verdict.Label);
+            return new WingmanNowPastDto
+            {
+                Lead = LastGoodLead,
+                AtUtc = at,
+                Text = label is null ? words : words + " - " + label,
+            };
+        }
+
+        return null;
+    }
+
+    /// <summary>The pill words a PAST verdict would have worn. Null for a verdict word this fold draws no state
+    /// for - the row's own label stands in for that live, and a past record has no row of its own to borrow.
+    /// </summary>
+    private static string? PastPillWords(TurnVerdictDto verdict) => StateOf(verdict, null, null) switch
+    {
+        WingmanNowStates.NeedsYou => PillNeedsYou,
+        WingmanNowStates.CarryingOn => PillCarryingOn,
+        WingmanNowStates.Done => PillDone,
+        WingmanNowStates.Report => PillReport,
+        _ => null,
+    };
 
     private static string? NullIfBlank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
 }

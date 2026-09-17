@@ -189,9 +189,9 @@ public sealed class WingmanNowRouteTests : IDisposable
     }
 
     private IResult Read(Caller caller, string sid, TurnVerdictStore? verdicts, PushedSessionStore? pushed,
-        SessionTurnStore? turns = null)
+        SessionTurnStore? turns = null, Func<TenantId, TurnVerdictSettings>? settings = null)
         => GatewayEndpoints.ReadWingmanNow(Request(caller), sid, SelfHostBoundary(), _registry, pushed, verdicts,
-            turns, null, null, verdicts is null ? null : RowSourceOver(verdicts), null);
+            turns, null, null, verdicts is null ? null : RowSourceOver(verdicts), null, settings);
 
     // ---------------------------------------------------------------- the refusals
 
@@ -410,5 +410,53 @@ public sealed class WingmanNowRouteTests : IDisposable
 
         // The scope is left behind it, so the next read on this thread is no more privileged than this one was.
         Assert.Throws<InvalidOperationException>(() => ambient.Current);
+    }
+
+    // --------------------------------------------- the account's own switches reach the view
+
+    /// <summary>
+    /// A SWITCHED-OFF ACCOUNT IS SERVED THE SWITCHED-OFF WORDS, THROUGH THE REAL HANDLER.
+    ///
+    /// <see cref="WingmanNowFoldTests"/> proves what the fold says when it is TOLD the account's Wingman is off.
+    /// Nothing there watches whether the route asks. A route that never reads the account's settings would leave
+    /// every one of those fold tests green while the screen showed "Needs you" on an account that judges nothing -
+    /// so this drives the handler with a real resolver and reads the answer.
+    /// </summary>
+    [Theory]
+    [InlineData(false, true)]    // the judge is off
+    [InlineData(true, false)]    // the judge runs, but no verdict may reach a screen
+    [InlineData(false, false)]   // both
+    public void An_account_whose_wingman_is_switched_off_is_served_the_switched_off_words(
+        bool judge, bool colour)
+    {
+        var verdicts = StoreHolding(NeedsYouVerdict());
+        var pushed = PushedHolding(Sid);
+        var settings = (TenantId _) => TurnVerdictSettings.Defaults with { JudgeEnabled = judge, ColourEnabled = colour };
+
+        var now = BodyOf(Read(Caller.Device, Sid, verdicts, pushed, settings: settings));
+
+        Assert.Equal(WingmanNowStates.SwitchedOff, now.State);
+        Assert.Equal("The Wingman is switched off for your account", now.SwitchedOff!.Headline);
+        Assert.Equal("Switch it on in Settings", now.SwitchedOff.SettingsLinkText);
+        // The link that would explain the colour is gone, because no rule produced one.
+        Assert.False(now.ShowWhyColour);
+    }
+
+    /// <summary>The positive control beside it: the SAME stored verdict on an account with the Wingman fully on is
+    /// served as the stop it is. Without this, the test above would pass just as well on a route that answered
+    /// "switched off" to everything.</summary>
+    [Fact]
+    public void The_same_stop_on_an_account_with_the_wingman_on_is_served_as_the_stop_it_is()
+    {
+        var verdicts = StoreHolding(NeedsYouVerdict());
+        var pushed = PushedHolding(Sid);
+        var settings = (TenantId _) =>
+            TurnVerdictSettings.Defaults with { JudgeEnabled = true, ColourEnabled = true };
+
+        var now = BodyOf(Read(Caller.Device, Sid, verdicts, pushed, settings: settings));
+
+        Assert.Equal(WingmanNowStates.NeedsYou, now.State);
+        Assert.Null(now.SwitchedOff);
+        Assert.True(now.ShowWhyColour);
     }
 }
