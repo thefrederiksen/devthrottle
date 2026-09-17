@@ -598,7 +598,17 @@ public sealed class TurnVerdictService : IDisposable
         // named for that stop, and a new stop on an unreadable screen with the same reply text is still a new stop
         // (slice I inspection, round three).
         if (signal.IsNewTurn) ClearRateLimitHold(key);
-        return TakeGateOrJoin(key, signal);
+        // The gate is still taken synchronously inside TakeGateOrJoin, before this returns; only the narration for the
+        // user waits on the outcome.
+        return NarrateForUserWhenJudgedAsync(signal.Tenant, signal.SessionId, TakeGateOrJoin(key, signal));
+    }
+
+    /// <summary>Hand a turn end's outcome back unchanged, after starting the narration call it is owed, if any.</summary>
+    private async Task<TurnVerdictOutcome> NarrateForUserWhenJudgedAsync(TenantId tenant, string sid, Task<TurnVerdictOutcome> judged)
+    {
+        var outcome = await judged.ConfigureAwait(false);
+        StartNarrationForUserIfOwed(tenant, sid, outcome);
+        return outcome;
     }
 
     private enum Admitted { Refused, TookGate, Joined, Queued }
@@ -1465,6 +1475,113 @@ public sealed class TurnVerdictService : IDisposable
             return new NarrationCallResult(null, ex.Message, prompt, 0);
         }
     }
+
+    /// <summary>
+    /// THE NARRATION FOR THE USER (owner ruling, 2026-09-17): every stop of a session that answers to the user gets the
+    /// narration call, voice mode or not, and its text is saved onto the verdict so it can always be read. A session
+    /// another live session owns is read by that owner, not by the user, and gets none. A voice session is left to the
+    /// voice path, which makes this same call, speaks it, and saves it through <see cref="SaveNarration"/>; both paths
+    /// share <see cref="TryClaimNarration"/>, so no verdict id is narrated twice by this process. Never throws: a failed
+    /// call is logged and the verdict simply has no narration.
+    /// </summary>
+    internal void StartNarrationForUserIfOwed(TenantId tenant, string sid, TurnVerdictOutcome outcome)
+    {
+        if (outcome.Verdict is not { } verdict || outcome.NarrationPackage is null) return;
+        var narratable = outcome.Kind switch
+        {
+            TurnVerdictOutcomeKind.Judged or TurnVerdictOutcomeKind.Reused => !verdict.Failed,
+            // A refused answer that still carried words is narrated, exactly as the voice path narrates it (slice I).
+            TurnVerdictOutcomeKind.Failed => verdict.Failed && !string.IsNullOrWhiteSpace(verdict.Spoken),
+            _ => false,
+        };
+        if (!narratable) return;
+        // Already saved (a reused record, or a record read back after a Gateway restart): the text is there to read.
+        if (!string.IsNullOrWhiteSpace(verdict.Narration)) return;
+        if (_env.IsVoiceSession(tenant, sid)) return;   // the voice path makes, speaks and saves it
+        if (_env.ReadSessionState(tenant, sid).Held)
+        {
+            FileLog.Write($"[TurnVerdictService] narration for the user: sid={sid} verdict={verdict.VerdictId} not made - a live session owns this one and reads it");
+            return;
+        }
+        if (!TryClaimNarration(tenant, sid, verdict.VerdictId)) return;
+
+        var call = Task.Run(async () =>
+        {
+            try
+            {
+                var result = await NarrateAsync(tenant, sid, outcome, CancellationToken.None).ConfigureAwait(false);
+                if (result.Spoken is { } spoken)
+                    SaveNarration(tenant, sid, verdict.VerdictId, spoken);
+            }
+            catch (Exception ex)
+            {
+                // A detached task has no caller to throw to; an unexpected fault is logged loudly, never swallowed silently.
+                FileLog.Write($"[TurnVerdictService] narration for the user FAILED: sid={sid} verdict={verdict.VerdictId}: {ex.GetType().Name}: {ex.Message}");
+            }
+        });
+        _userNarrationCalls[call] = 1;
+        _ = call.ContinueWith(done => _userNarrationCalls.TryRemove(done, out _), TaskScheduler.Default);
+    }
+
+    /// <summary>
+    /// Claim one verdict id's narration call for a session. True for the first claim of that id, false for every later
+    /// one, whichever path asks - the turn end for the user, the voice path, or a person's explain.
+    /// </summary>
+    internal bool TryClaimNarration(TenantId tenant, string sid, string verdictId)
+    {
+        if (string.IsNullOrWhiteSpace(verdictId)) return false;
+        var key = (tenant, sid);
+        while (true)
+        {
+            if (_narrationClaims.TryGetValue(key, out var claimed))
+            {
+                if (string.Equals(claimed, verdictId, StringComparison.Ordinal)) return false;
+                if (_narrationClaims.TryUpdate(key, verdictId, claimed)) return true;
+            }
+            else if (_narrationClaims.TryAdd(key, verdictId))
+            {
+                return true;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Save a narration onto the verdict it describes, when that verdict is still this session's latest. A newer verdict
+    /// has its own stop and its own narration, so text for an older one is dropped and logged. Returns whether it was saved.
+    /// </summary>
+    internal bool SaveNarration(TenantId tenant, string sid, string verdictId, string narration)
+    {
+        lock (_storeGate)
+        {
+            var latest = _env.Latest(tenant, sid);
+            if (latest is null || !string.Equals(latest.VerdictId, verdictId, StringComparison.Ordinal))
+            {
+                FileLog.Write($"[TurnVerdictService] SaveNarration: sid={sid} verdict={verdictId} is no longer the latest (latest={latest?.VerdictId ?? "none"}) - not saved");
+                return false;
+            }
+            var updated = Copy(latest);
+            updated.Narration = narration;
+            _env.Store(tenant, sid, updated);
+            FileLog.Write($"[TurnVerdictService] SaveNarration: sid={sid} verdict={verdictId} saved, length={narration.Length}");
+            return true;
+        }
+    }
+
+    /// <summary>Wait for every narration call for the user started so far. For tests; the product never waits on them.</summary>
+    internal async Task WaitForUserNarrationsAsync()
+    {
+        while (_userNarrationCalls.Keys.ToArray() is { Length: > 0 } running)
+        {
+            await Task.WhenAll(running).ConfigureAwait(false);
+            await Task.Delay(1).ConfigureAwait(false);   // the removal is a continuation; let it run
+        }
+    }
+
+    // The verdict id each session's narration call was last claimed for (see TryClaimNarration).
+    private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), string> _narrationClaims = new();
+
+    // The narration calls for the user running detached from the turn end that started them.
+    private readonly ConcurrentDictionary<Task, byte> _userNarrationCalls = new();
 
     /// <summary>How many times one stop may ask the judge when somebody is listening: the first call and ONE
     /// re-attempt. Every other stop asks once.</summary>

@@ -167,15 +167,82 @@ public sealed class NarrationCallTests : IDisposable
         Assert.Equal(0, rig.Env.NarratorCalls);
     }
 
+    // ================================================================= every stop of a session that answers to the user
+
     [Fact]
-    public async Task ATurnEndOnASessionNobodyIsListeningTo_MakesNoNarrationCall()
+    public async Task ATurnEndOnASessionThatAnswersToTheUser_WithVoiceOff_MakesOneNarrationCall_AndSavesItsTextOnTheVerdict()
     {
         var rig = Build();
+        rig.Env.Narrator = (_, _) => Task.FromResult(Narrated);
 
         await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
+        await rig.Verdicts.WaitForUserNarrationsAsync();
 
+        Assert.False(rig.Voice.IsVoiceSession(Tenant, Sid));
         Assert.Equal(1, rig.Env.JudgeCalls);
-        Assert.Equal(0, rig.Env.NarratorCalls);
+        Assert.Equal(1, rig.Env.NarratorCalls);
+        // Saved for reading; the judge's own short text is kept beside it, unchanged.
+        var verdict = rig.Env.Latest(Tenant, Sid)!;
+        Assert.Equal(Narrated, verdict.Narration);
+        Assert.Equal(JudgeSpoken, verdict.Spoken);
+        // Nobody is listening, so no audio was made.
+        Assert.Null(rig.Voice.Get(Tenant, Sid));
+    }
+
+    [Fact]
+    public async Task ATurnEndOnASessionAnotherSessionOwns_MakesNoNarrationCall()
+    {
+        var rig = Build();
+        rig.Env.Narrator = (_, _) => Task.FromResult(Narrated);
+        var judged = await rig.Verdicts.StartTurnEnd(new TurnEndSignal(Sid, "dir-1", Tenant, ObservedAt, IsNewTurn: true));
+        Assert.Equal(TurnVerdictOutcomeKind.Judged, judged.Kind);
+        await rig.Verdicts.WaitForUserNarrationsAsync();
+        Assert.Equal(1, rig.Env.NarratorCalls);   // control: the same stop, owned by the user, is narrated
+
+        var owned = Build();
+        owned.Env.Narrator = (_, _) => Task.FromResult(Narrated);
+        // Owned by a live session from the moment it was judged: the case of a session a Fleet Manager owns, which is
+        // still judged. The fake cannot say "held but judged", so ownership is answered by whether the judge has run.
+        owned.Env.Held = _ => owned.Env.JudgeCalls > 0;
+        var outcome = await owned.Verdicts.StartTurnEnd(new TurnEndSignal(Sid, "dir-1", Tenant, ObservedAt, IsNewTurn: true));
+        Assert.Equal(TurnVerdictOutcomeKind.Judged, outcome.Kind);
+        await owned.Verdicts.WaitForUserNarrationsAsync();
+
+        Assert.Equal(0, owned.Env.NarratorCalls);
+        Assert.Null(owned.Env.Latest(Tenant, Sid)!.Narration);
+    }
+
+    [Fact]
+    public async Task ASavedNarration_IsNotMadeAgain_AndIsWhatVoiceSpeaksWhenVoiceIsTurnedOnLater()
+    {
+        var rig = Build();
+        rig.Env.Narrator = (_, _) => Task.FromResult(Narrated);
+        await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
+        await rig.Verdicts.WaitForUserNarrationsAsync();
+        Assert.Equal(1, rig.Env.NarratorCalls);
+
+        // Voice is switched on afterwards: the saved text is spoken as it is, and no second call is made for this verdict.
+        rig.Voice.Mark(Tenant, Sid);
+        await rig.Voice.GenerateAsync(Tenant, Sid, RouteServing("dir-1", rig.Env.Screen), CancellationToken.None, showReadingWindow: false);
+        await rig.Voice.WaitForNarrationCallsAsync();
+
+        Assert.Equal(1, rig.Env.NarratorCalls);
+        Assert.Equal(1, rig.Env.JudgeCalls);
+        Assert.EndsWith(Narrated, rig.Voice.Get(Tenant, Sid)!.Spoken);
+    }
+
+    [Fact]
+    public async Task AVoiceSessionsNarration_IsSavedOnTheVerdictToo()
+    {
+        var rig = Build();
+        rig.Env.Narrator = (_, _) => Task.FromResult(Narrated);
+        rig.Voice.Mark(Tenant, Sid);
+
+        await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
+        await rig.Verdicts.WaitForUserNarrationsAsync();
+
+        Assert.Equal(1, rig.Env.NarratorCalls);
+        Assert.Equal(Narrated, rig.Env.Latest(Tenant, Sid)!.Narration);
     }
 
     [Fact]
@@ -409,13 +476,15 @@ public sealed class NarrationCallTests : IDisposable
         var rig = Build(menu: true);
         rig.Env.Judge = (_, _) => Task.FromResult(FakeTurnVerdictEnvironment.Menu(MenuQuestion, "a receipt the screen does not show", JudgeSpoken));
 
-        // Nobody is listening at the turn end: the record is judged and refused, with no narration call.
+        // Voice is on at the turn end, so the verdict seat leaves the call to the voice path; the record is judged and
+        // refused, and no call is made until the voice refresh below runs.
+        rig.Voice.Mark(Tenant, Sid);
         await rig.Verdicts.StartTurnEnd(new TurnEndSignal(Sid, "dir-1", Tenant, ObservedAt, IsNewTurn: true));
+        await rig.Verdicts.WaitForUserNarrationsAsync();
         Assert.Equal(0, rig.Env.NarratorCalls);
         Assert.True(rig.Env.Latest(Tenant, Sid)!.Failed);
 
         // A voice refresh reuses that refused record (it never asks the judge again) and the call it makes is given the menu.
-        rig.Voice.Mark(Tenant, Sid);
         await rig.Voice.GenerateAsync(Tenant, Sid, RouteServing("dir-1", rig.Env.Screen), CancellationToken.None, showReadingWindow: false);
         await rig.Voice.WaitForNarrationCallsAsync();
 

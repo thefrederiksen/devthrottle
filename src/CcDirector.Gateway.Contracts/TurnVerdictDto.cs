@@ -113,6 +113,15 @@ public sealed class TurnVerdictDto
     /// before the field existed carries null.
     /// </summary>
     public string? FinishedKind { get; set; }
+
+    /// <summary>
+    /// THE NARRATION: the faithful retelling of this stop, written by the narration call (the old version 9 fidelity
+    /// instructions) and saved onto the record when it answers - a few seconds after the verdict itself. Made for every
+    /// stop of a session that answers to the user, voice mode or not, so it can always be READ; voice mode speaks this
+    /// same text. Null until the call answers, when the call failed, and for a session another session owns (a Worker
+    /// under a live owner), whose stops are read by that owner rather than by the user.
+    /// </summary>
+    public string? Narration { get; set; }
 }
 
 /// <summary>The picker on the screen that a "keys" answer selects from.</summary>
