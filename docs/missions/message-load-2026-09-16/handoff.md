@@ -762,3 +762,25 @@ Slice 1's behaviour and wording were kept (rulings 2, 10, 17). Main's convention
 
 Gateway suites were not rerun locally. The merge changed no Gateway file, and the continuous
 integration .NET job passed.
+
+## Architect rulings on the slice 2 findings (17 September 2026)
+
+1. **A doorbell must not end a snooze** (ruling 15 stands; the Manager found the Gateway's 17 July
+   law deletes an armed snooze on any Working edge). Fix, as slice 2b after inspection: the Director's
+   activity push says whether the Working edge was owner-driven or agent-driven (it already knows, see
+   `IsOwnerDriven` in `Session.cs`), and the Gateway's snooze registry ends an armed snooze only on an
+   owner-driven edge. Guard: a doorbell on a snoozed session leaves the snooze armed; the owner typing
+   ends it. Same for any agent-origin send.
+2. **The ring respects the dictation lock** (slice 2b): while the owner's dictation for that session is
+   in flight, the ring is deferred with reason `dictation`. Guard with a fake lock.
+3. **The submit verifier's nudges** can submit the owner's half-typed words after ANY product send.
+   Pre-existing, every send, not this mission's. Filed as an issue on main by the Architect.
+4. **Collapsed paste (issue 2845).** The capture evidence (Escape does not clear it; a product send
+   welds onto it) is posted on the issue by the Architect. The doorbell is safe by construction; other
+   sends are not. Not this mission's.
+5. **Agents other than Claude Code and Codex are never rung.** Accepted for now: their messages wait
+   until read and never go stuck. The row line (slice 4) shows "N messages waiting" so the owner sees
+   it. A composer reader per agent is later work.
+6. Judgement calls 1 to 12 stand, subject to inspection 4.
+
+Inspection 4 (Codex, adversarial) covers slice 2. Then slice 2b, then the slice 2 pull request.
