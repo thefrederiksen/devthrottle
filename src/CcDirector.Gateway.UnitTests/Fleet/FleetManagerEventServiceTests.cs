@@ -2,6 +2,7 @@ using System.Text.Json;
 using CcDirector.AgentBrain;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Tenancy;
+using CcDirector.Core.Wingman;
 using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Briefing;
 using CcDirector.Gateway.Contracts;
@@ -152,11 +153,16 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         await _service.WhenIdleAsync();
     }
 
-    /// <summary>The Fleet Manager's own turn end: it is waiting for a prompt now.</summary>
+    /// <summary>The Fleet Manager's own turn end, fanned out as the host does it: this service, then the seat, whose
+    /// reading of it (the judge's set answer, "finished" unless a test changes it) is what lets events be typed. A
+    /// held judge is not waited for.</summary>
     private async Task FleetManagerTurnEndAsync(string sid = "fm")
     {
         SetState(sid, "WaitingForInput");
-        _service.OnTurnEnd(Signal(sid), wingmanRunning: true);
+        var signal = Signal(sid);
+        _service.OnTurnEnd(signal, wingmanRunning: true);
+        var reading = _seat.StartTurnEnd(signal);
+        if (!_brain.IsHeld) await reading;
         await _service.WhenIdleAsync();
     }
 
@@ -605,7 +611,7 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         _service.OnTurnEnd(Signal("worker-1"), wingmanRunning: true);
         _now += TimeSpan.FromSeconds(1);
         Restart();
-        SetState("fm", "WaitingForInput");
+        await FleetManagerTurnEndAsync();
 
         await _service.ReconcileAsync(Tenant);
         await _service.WhenIdleAsync();
@@ -659,7 +665,7 @@ public sealed class FleetManagerEventServiceTests : IDisposable
     [Fact]
     public async Task ABurstOfStopsWhileTheFleetManagerIsIdle_BecomesOnePrompt()
     {
-        SetState("fm", "WaitingForInput");
+        await FleetManagerTurnEndAsync();
         _env.HoldDelay();
 
         foreach (var sid in new[] { "worker-1", "worker-2" })
@@ -721,8 +727,8 @@ public sealed class FleetManagerEventServiceTests : IDisposable
     [Fact]
     public async Task AStopReadAsCannotTell_IsDeliveredAsCannotTell()
     {
+        await FleetManagerTurnEndAsync();
         _brain.Answer = FakeTurnVerdictEnvironment.CannotTell("The session stopped.");
-        SetState("fm", "WaitingForInput");
 
         await TurnEndAsync("worker-1");
 
@@ -738,7 +744,7 @@ public sealed class FleetManagerEventServiceTests : IDisposable
     [Fact]
     public async Task AStopWhoseReadingFails_IsDeliveredAsFailed()
     {
-        SetState("fm", "WaitingForInput");
+        await FleetManagerTurnEndAsync();
         var failed = new TurnVerdictDto { VerdictId = "failed-1", Failed = true, FailureReason = "the judge did not answer" };
         _service.OnTurnEnd(Signal("worker-1"), wingmanRunning: true);
         _service.OnTurnEnd(Signal("worker-2"), wingmanRunning: true);
@@ -762,7 +768,7 @@ public sealed class FleetManagerEventServiceTests : IDisposable
     {
         Assert.Equal(TimeSpan.FromMinutes(5), FleetManagerEventService.PendingLimit);
         _service.OnTurnEnd(Signal("worker-1"), wingmanRunning: true);
-        SetState("fm", "WaitingForInput");
+        await FleetManagerTurnEndAsync();
 
         _now = Start + FleetManagerEventService.PendingLimit - TimeSpan.FromSeconds(1);
         SetState("fm", "WaitingForInput");   // the Director keeps reporting it
@@ -841,7 +847,7 @@ public sealed class FleetManagerEventServiceTests : IDisposable
     [Fact]
     public async Task ADeliveredUnacknowledgedEvent_IsNotResentToTheSameSession_ButIsSentToANewlyMarkedFleetManager()
     {
-        SetState("fm", "WaitingForInput");
+        await FleetManagerTurnEndAsync();
         await TurnEndAsync("worker-1");
         Assert.Single(_env.Sends);
 
@@ -889,7 +895,7 @@ public sealed class FleetManagerEventServiceTests : IDisposable
     [Fact]
     public async Task AFailedSend_LeavesTheEventsUndelivered_AndTheNextTurnEndSendsThem()
     {
-        SetState("fm", "WaitingForInput");
+        await FleetManagerTurnEndAsync();
         _env.Result = FleetManagerPromptSend.Unanswered;
         await TurnEndAsync("worker-1");
         Assert.Single(_env.Sends);
@@ -900,6 +906,159 @@ public sealed class FleetManagerEventServiceTests : IDisposable
 
         Assert.Equal(2, _env.Sends.Count);
         Assert.Equal("fm", Assert.Single(Open()).DeliveredTo);
+    }
+
+    // ---- steps 5 and 6 inspection, round 2, finding 3: a finished turn, never an open question
+
+    /// <summary>A Wingman reading of the Fleet Manager's own stop, as the seat reports one.</summary>
+    private void FleetManagerReadAs(string verdict, string confidence = "high", string sid = "fm")
+        => _service.OnReadingCompleted(new TurnVerdictReadingCompleted(Tenant, sid, "dir-1", TurnVerdictTrigger.TurnEnd,
+            _now, new TurnVerdictOutcome
+            {
+                Kind = TurnVerdictOutcomeKind.Judged,
+                Verdict = new TurnVerdictDto
+                {
+                    VerdictId = "fm-" + verdict, Verdict = verdict, Confidence = confidence, TurnEndObservedAtUtc = _now,
+                },
+            }));
+
+    /// <summary>
+    /// THE FLEET MANAGER IS WAITING FOR THE OWNER'S ANSWER. The Director reports that as WaitingForInput, exactly as it
+    /// reports a finished turn, so the state alone lets it through; the Wingman's reading says it asked the owner, and
+    /// nothing is typed. The Gateway says why.
+    /// </summary>
+    [Fact]
+    public async Task AFleetManagerWaitingForTheOwnersAnswer_GetsNothingTyped_AndTheGatewaySaysWhy()
+    {
+        await TurnEndAsync("worker-1");
+        SetState("fm", "WaitingForInput");
+        _service.OnTurnEnd(Signal("fm"), wingmanRunning: true);
+
+        FleetManagerReadAs(TurnVerdictVocabulary.NeededYou);
+        await _service.WhenIdleAsync();
+
+        Assert.Equal(FleetManagerDeliveryResult.TurnNotFinished, await _service.DeliverToAsync(Tenant, "fm"));
+        Assert.Empty(_env.Sends);
+        Assert.Null(Assert.Single(Open()).DeliveredTo);
+        Assert.Equal("The Fleet Manager is waiting for your answer; events are sent after its next turn that asks you " +
+                     "nothing. 1 event is waiting.", _service.DeliveryNote(Tenant));
+
+        // The owner answers; the Fleet Manager works, and its next turn ends with nothing asked: the event goes.
+        SetState("fm", "Working");
+        _service.OnSessionWorking(Tenant, "fm", "dir-1");
+        _now += TimeSpan.FromSeconds(30);
+        await FleetManagerTurnEndAsync();
+
+        Assert.Contains(Assert.Single(Open()).Id, Assert.Single(_env.Sends).Text);
+        Assert.Null(_service.DeliveryNote(Tenant));
+    }
+
+    /// <summary>A Fleet Manager that finished its turn - read as finished, or as continuing alone - gets its events.</summary>
+    [Theory]
+    [InlineData("finished")]
+    [InlineData("continues-alone")]
+    public async Task AFleetManagerThatFinishedItsTurn_GetsItsEvents(string verdict)
+    {
+        await TurnEndAsync("worker-1");
+        SetState("fm", "WaitingForInput");
+        _service.OnTurnEnd(Signal("fm"), wingmanRunning: true);
+        await _service.WhenIdleAsync();
+        Assert.Empty(_env.Sends);
+
+        FleetManagerReadAs(verdict);
+        await _service.WhenIdleAsync();
+
+        var sent = Assert.Single(_env.Sends);
+        Assert.Equal("fm", sent.SessionId);
+        Assert.Equal("fm", Assert.Single(Open()).DeliveredTo);
+    }
+
+    /// <summary>A reading still being formed holds the events; its arrival sends them.</summary>
+    [Fact]
+    public async Task AFleetManagerWhoseReadingIsPending_HoldsTheEvents_UntilTheReadingSaysItAskedNothing()
+    {
+        await TurnEndAsync("worker-1");
+        _brain.Hold();
+        SetState("fm", "WaitingForInput");
+        var signal = Signal("fm");
+        _service.OnTurnEnd(signal, wingmanRunning: true);
+        var reading = _seat.StartTurnEnd(signal);
+        await _service.WhenIdleAsync();
+
+        Assert.Equal(FleetManagerDeliveryResult.TurnNotFinished, await _service.DeliverToAsync(Tenant, "fm"));
+        Assert.Empty(_env.Sends);
+        Assert.StartsWith("The Wingman is still reading the Fleet Manager's latest turn", _service.DeliveryNote(Tenant));
+
+        _brain.Release();
+        await reading;
+        await _service.WhenIdleAsync();
+
+        Assert.Single(_env.Sends);
+        Assert.Equal("fm", Assert.Single(Open()).DeliveredTo);
+    }
+
+    /// <summary>A reading of an EARLIER turn end says nothing about the latest one: a finished reading that arrives for
+    /// an older stop, or one that stood before the Fleet Manager went back to work, types nothing.</summary>
+    [Fact]
+    public async Task AReadingOlderThanTheLatestTurnEnd_HoldsTheEvents()
+    {
+        await TurnEndAsync("worker-1");
+        SetState("fm", "WaitingForInput");
+        var earlier = _now;
+        _now += TimeSpan.FromMinutes(1);
+        _service.OnTurnEnd(Signal("fm"), wingmanRunning: true);
+
+        _service.OnReadingCompleted(new TurnVerdictReadingCompleted(Tenant, "fm", "dir-1", TurnVerdictTrigger.TurnEnd,
+            earlier, new TurnVerdictOutcome
+            {
+                Kind = TurnVerdictOutcomeKind.Judged,
+                Verdict = new TurnVerdictDto { VerdictId = "old", Verdict = "finished", Confidence = "high" },
+            }));
+        await _service.WhenIdleAsync();
+        Assert.Equal(FleetManagerDeliveryResult.TurnNotFinished, await _service.DeliverToAsync(Tenant, "fm"));
+        Assert.Empty(_env.Sends);
+
+        // A finished reading of the latest turn end, then the Fleet Manager is seen working: the reading no longer
+        // describes it, even while a stale waiting state is still pushed.
+        FleetManagerReadAs(TurnVerdictVocabulary.NeededYou);
+        _service.OnSessionWorking(Tenant, "fm", "dir-1");
+        FleetManagerReadAs(TurnVerdictVocabulary.Finished);
+        await _service.WhenIdleAsync();
+        Assert.Equal(FleetManagerDeliveryResult.TurnNotFinished, await _service.DeliverToAsync(Tenant, "fm"));
+        Assert.Empty(_env.Sends);
+    }
+
+    /// <summary>A reading that cannot say the Fleet Manager asked nothing - stuck, cannot-tell, ambiguous, failed, or
+    /// none at all because no Wingman runs - holds the events.</summary>
+    [Theory]
+    [InlineData("stuck-needs-person", "high")]
+    [InlineData("cannot-tell", "ambiguous")]
+    [InlineData("finished", "ambiguous")]
+    public async Task AReadingThatCannotSayItAskedNothing_HoldsTheEvents(string verdict, string confidence)
+    {
+        await TurnEndAsync("worker-1");
+        SetState("fm", "WaitingForInput");
+        _service.OnTurnEnd(Signal("fm"), wingmanRunning: true);
+        FleetManagerReadAs(verdict, confidence);
+        await _service.WhenIdleAsync();
+
+        Assert.Equal(FleetManagerDeliveryResult.TurnNotFinished, await _service.DeliverToAsync(Tenant, "fm"));
+        Assert.Empty(_env.Sends);
+        Assert.Contains($"it read it as {verdict}, {confidence} confidence", _service.DeliveryNote(Tenant));
+    }
+
+    [Fact]
+    public async Task AFleetManagerTurnEndWithNoWingman_HoldsTheEvents_AndSaysWhy()
+    {
+        await TurnEndAsync("worker-1");
+        SetState("fm", "WaitingForInput");
+        _service.OnTurnEnd(Signal("fm"), wingmanRunning: false);
+        await _service.WhenIdleAsync();
+
+        Assert.Empty(_env.Sends);
+        Assert.Equal("The Fleet Manager's latest turn has no Wingman reading (the Wingman is not running on this Gateway), " +
+                     "so it cannot be told whether it is asking you something. 1 event is waiting.",
+            _service.DeliveryNote(Tenant));
     }
 
     // ---- round 2, finding 1: the owner's unsent draft in the Fleet Manager
@@ -917,7 +1076,7 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         _env.SendThrough(new GatewayFleetManagerEventEnvironment(_pushed, Stale,
             route: (_, directorId) => DirectorRoute(directorId, director, requests),
             mark: _ => _marked, checksIdleBeforeTyping: (_, _) => true, directorShutDown: (_, _) => false));
-        SetState("fm", "WaitingForInput");
+        await FleetManagerTurnEndAsync();
         ScriptedTerminal.OwnerTypes(director, "my draft ");
 
         await TurnEndAsync("worker-1");
@@ -946,7 +1105,7 @@ public sealed class FleetManagerEventServiceTests : IDisposable
     [Fact]
     public async Task DeliveryNote_CountsEveryWaitingEvent_AndBelongsToTheMarkedFleetManagerOnly()
     {
-        SetState("fm", "WaitingForInput");
+        await FleetManagerTurnEndAsync();
         _env.Result = FleetManagerPromptSend.OwnerDraft;
         await TurnEndAsync("worker-1");
         await TurnEndAsync("worker-2");
@@ -962,7 +1121,7 @@ public sealed class FleetManagerEventServiceTests : IDisposable
     [Fact]
     public async Task AFleetManagerWhoseTerminalSubmitsInOneCall_IsSentNothing_AndTheGatewaySaysWhy()
     {
-        SetState("fm", "WaitingForInput");
+        await FleetManagerTurnEndAsync();
         _env.Result = FleetManagerPromptSend.OneCallSubmit;
         await TurnEndAsync("worker-1");
 
@@ -987,7 +1146,7 @@ public sealed class FleetManagerEventServiceTests : IDisposable
             route: (_, directorId) => DirectorRoute(directorId, director, requests),
             mark: _ => _marked, checksIdleBeforeTyping: (_, _) => _checksIdle, directorShutDown: (_, d) => _shutDown.Contains(d));
         _env.SendThrough(production);
-        SetState("fm", "WaitingForInput");
+        await FleetManagerTurnEndAsync();
 
         // The owner's own turn, on the Director, after the Gateway's last push.
         director.ApplyTerminalActivityState(ActivityState.Working);
@@ -1023,7 +1182,7 @@ public sealed class FleetManagerEventServiceTests : IDisposable
             mark: _ => _marked, checksIdleBeforeTyping: (_, _) => _checksIdle, directorShutDown: (_, _) => false));
         director.ApplyTerminalActivityState(ActivityState.WaitingForInput);
         _checksIdle = false;
-        SetState("fm", "WaitingForInput");
+        await FleetManagerTurnEndAsync();
 
         await TurnEndAsync("worker-1");
         Assert.Equal(FleetManagerDeliveryResult.DirectorTooOld, await _service.DeliverToAsync(Tenant, "fm"));
@@ -1164,6 +1323,7 @@ public sealed class FleetManagerEventServiceTests : IDisposable
 
         public void Hold() => _gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         public void Release() => _gate.TrySetResult();
+        public bool IsHeld => !_gate.Task.IsCompleted;
 
         private static TaskCompletionSource CompletedGate()
         {

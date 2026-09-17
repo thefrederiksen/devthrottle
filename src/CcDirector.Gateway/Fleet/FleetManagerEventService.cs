@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
+using CcDirector.Core.Wingman;
 using CcDirector.Gateway.Briefing;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Streaming;
@@ -78,7 +79,23 @@ public enum FleetManagerDeliveryResult
     DirectorTooOld,
     OwnerDraft,
     OneCallSubmit,
+
+    /// <summary>Held on the Gateway: the Fleet Manager's turn is not known to be finished without a question for the
+    /// owner (no reading of its latest turn end yet, or the reading says it asked). Nothing was sent.</summary>
+    TurnNotFinished,
 }
+
+/// <summary>
+/// What the Gateway knows of the Fleet Manager's own latest turn end, and the Wingman's latest reading of it. In
+/// process only: after a restart the turn-end watcher's first sighting of a waiting session raises a catch-up turn
+/// end, which starts this again, and until then nothing is typed.
+/// </summary>
+internal sealed record FleetManagerTurn(
+    DateTime? LatestTurnEndUtc,
+    bool WorkingSinceTurnEnd,
+    DateTime? ReadingStopUtc,
+    TurnVerdictDto? Verdict,
+    string? NoReadingReason);
 
 /// <summary>
 /// THE GATEWAY TELLS THE FLEET MANAGER WHEN A SESSION IT OWNS STOPS OR DIES (the Fleet Manager mission, step 4),
@@ -104,8 +121,16 @@ public enum FleetManagerDeliveryResult
 /// counted dead, because a death is final and a partition is not. And no death is recorded while another Director
 /// reports the session alive.
 ///
-/// DELIVER ONLY WHEN THE FLEET MANAGER IS WAITING FOR A PROMPT. A delivery happens at the Fleet Manager's own turn
-/// end, or - when an event arrives while it is idle - after <see cref="BatchWindow"/>, so a burst becomes one prompt.
+/// DELIVER ONLY WHEN THE FLEET MANAGER'S TURN IS FINISHED AND IT IS NOT ASKING THE OWNER ANYTHING (the Architect's
+/// ruling on inspection round 2, finding 3). The Director reports a Claude Code session that finished its turn with
+/// nothing asked as WaitingForInput - the same state as one that asked the owner a question, because the terminal
+/// detector deliberately does not tell the two apart, and nothing in production ever assigns Idle. So WaitingForInput
+/// alone is never enough: the Wingman's reading of the Fleet Manager's LATEST turn end must say it did not ask
+/// (finished or continues-alone, with high confidence). A reading that says it needs the owner, a reading still being
+/// formed, a reading of an older turn end, a failed reading, or none at all holds the events, and the Gateway writes
+/// the reason (<see cref="DeliveryNote"/>). The reading's completion is itself a delivery trigger. Idle is accepted
+/// as it stands. A delivery happens then, or - when an event arrives while the Fleet Manager is already in such a
+/// state - after <see cref="BatchWindow"/>, so a burst becomes one prompt.
 /// The prompt is sent with <see cref="PromptRequest.OnlyWhenWaitingForInput"/>: the DIRECTOR checks the session's
 /// state at the moment it types and refuses otherwise, so a turn the owner has just started is never typed into. A
 /// refused send leaves the events undelivered for the Fleet Manager's next idle moment.
@@ -159,6 +184,9 @@ public sealed class FleetManagerEventService : IDisposable
     // What was last written for each owned session seen alive, so a sighting that changes nothing writes nothing.
     private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), (string Owner, string Name, string Director)> _noted = new();
 
+    // The Fleet Manager's own latest turn end and the Wingman's reading of it, per Fleet Manager session.
+    private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), FleetManagerTurn> _fleetManagerTurns = new();
+
     // Accounts whose stops left waiting by an earlier process have been given their reason.
     private readonly ConcurrentDictionary<TenantId, byte> _restartExpired = new();
 
@@ -193,14 +221,21 @@ public sealed class FleetManagerEventService : IDisposable
             var marked = _env.MarkedFleetManager(tenant);
             if (!string.IsNullOrEmpty(marked) && SameId(sid, marked))
             {
-                // THE FLEET MANAGER'S OWN TURN END: the boundary everything owed to it waits for. The Director makes
-                // the idle check at the send, so a pushed state a moment behind this turn end is only a first filter,
-                // and a busy answer books one batched retry.
-                Track(Task.Run(async () =>
-                {
-                    var result = await DeliverToAsync(tenant, marked).ConfigureAwait(false);
-                    if (result == FleetManagerDeliveryResult.Busy) ScheduleDelivery(tenant);
-                }));
+                // THE FLEET MANAGER'S OWN TURN END. It opens a new turn whose reading is not in yet, so everything
+                // owed waits for that reading (OnReadingCompleted), which is the delivery trigger. With no Wingman on
+                // this Gateway there will be no reading, and the reason is recorded now. The attempt below writes the
+                // reason the events are held, and delivers at once only to an Idle Fleet Manager.
+                var key = (tenant, marked.ToLowerInvariant());
+                var at = signal.ObservedAtUtc;
+                var opened = wingmanRunning
+                    ? new FleetManagerTurn(at, false, null, null, null)
+                    : new FleetManagerTurn(at, false, at, null, NoWingmanReason);
+                // An older turn end arriving late changes nothing.
+                _fleetManagerTurns.AddOrUpdate(key, opened,
+                    (_, t) => t.LatestTurnEndUtc is { } seen && seen > at ? t : opened);
+                FileLog.Write($"[FleetManagerEventService] Fleet Manager {sid} turn end at {signal.ObservedAtUtc:O}: " +
+                              $"events wait for the Wingman's reading of it (wingmanRunning={wingmanRunning})");
+                TrackDelivery(tenant, marked);
                 return;
             }
 
@@ -227,6 +262,11 @@ public sealed class FleetManagerEventService : IDisposable
         if (_disposed || string.IsNullOrEmpty(sessionId)) return;
         try
         {
+            // The Fleet Manager working again: the reading of its last turn end no longer describes it, even before
+            // the next turn end is seen - so a waiting state pushed ahead of that turn end is not taken as finished.
+            var fmKey = (tenant, sessionId.ToLowerInvariant());
+            if (_fleetManagerTurns.TryGetValue(fmKey, out var turn) && !turn.WorkingSinceTurnEnd)
+                _fleetManagerTurns[fmKey] = turn with { WorkingSinceTurnEnd = true };
             OwnedSighting(tenant, sessionId, directorId, _env.NowUtc(), isCatchUp: false, _env.MarkedFleetManager(tenant));
         }
         catch (Exception ex)
@@ -247,11 +287,18 @@ public sealed class FleetManagerEventService : IDisposable
         var sid = completed.SessionId;
         try
         {
+            var marked = _env.MarkedFleetManager(tenant);
+            if (!string.IsNullOrEmpty(marked) && SameId(sid, marked))
+            {
+                if (RecordFleetManagerReading(tenant, marked, completed)) TrackDelivery(tenant, marked);
+                return;
+            }
+
             var waiting = _waitingStops.ContainsKey((tenant, sid));
             FleetManagerStopSighting? owner = null;
             if (completed.Trigger is TurnVerdictTrigger.TurnEnd or TurnVerdictTrigger.SnoozeExpiry)
                 owner = OwnedSighting(tenant, sid, completed.DirectorId, completed.StopObservedAtUtc, isCatchUp: false,
-                    _env.MarkedFleetManager(tenant));
+                    marked);
             if (!waiting && owner is null) return;
 
             var outcome = completed.Outcome;
@@ -508,6 +555,115 @@ public sealed class FleetManagerEventService : IDisposable
         null => "the Wingman did not read this stop",
     };
 
+    // ================================================================= the Fleet Manager's own turn
+
+    private const string NoWingmanReason = "the Wingman is not running on this Gateway";
+
+    /// <summary>
+    /// Keep the Wingman's reading of the Fleet Manager's own stop, when it is a reading of the latest turn end this
+    /// Gateway saw. True when something was kept, so a delivery is worth attempting.
+    /// </summary>
+    private bool RecordFleetManagerReading(TenantId tenant, string marked, TurnVerdictReadingCompleted completed)
+    {
+        var outcome = completed.Outcome;
+        TurnVerdictDto? verdict = null;
+        string? reason = null;
+        switch (outcome.Kind)
+        {
+            case TurnVerdictOutcomeKind.Judged:
+            case TurnVerdictOutcomeKind.Reused:
+            case TurnVerdictOutcomeKind.Failed when outcome.Verdict is not null:
+                verdict = outcome.Verdict;
+                break;
+            case TurnVerdictOutcomeKind.Failed:
+                reason = "the Wingman's reading of its turn failed and no record of it was stored";
+                break;
+            case TurnVerdictOutcomeKind.Cancelled:
+                return false;
+            case TurnVerdictOutcomeKind.Skipped:
+                switch (outcome.SkipCause)
+                {
+                    case ActivityCauses.WorkingObservation:
+                    case ActivityCauses.SessionExit:
+                    case ActivityCauses.Unknown:
+                    case ActivityCauses.AlreadyJudging:
+                        return false;
+                }
+                reason = SkipReason(outcome.SkipCause);
+                break;
+            default:
+                throw new InvalidOperationException($"unhandled verdict outcome {outcome.Kind}");
+        }
+
+        var key = (tenant, marked.ToLowerInvariant());
+        var stop = completed.StopObservedAtUtc;
+        var kept = false;
+        _fleetManagerTurns.AddOrUpdate(key,
+            _ =>
+            {
+                kept = true;
+                return new FleetManagerTurn(stop, false, stop, verdict, reason);
+            },
+            (_, t) =>
+            {
+                if (t.LatestTurnEndUtc is { } latest && stop < latest) return t;
+                if (t.ReadingStopUtc is { } had && stop < had) return t;
+                kept = true;
+                return t with
+                {
+                    LatestTurnEndUtc = t.LatestTurnEndUtc is { } l && l > stop ? l : stop,
+                    ReadingStopUtc = stop,
+                    Verdict = verdict,
+                    NoReadingReason = reason,
+                };
+            });
+        FileLog.Write($"[FleetManagerEventService] Fleet Manager {completed.SessionId} reading of the stop at {stop:O}: " +
+                      $"{(kept ? "kept" : "ignored, it is older than the latest turn end")} " +
+                      $"(verdict={verdict?.Verdict ?? "none"}, failed={verdict?.Failed}, reason={reason ?? "none"})");
+        return kept;
+    }
+
+    /// <summary>
+    /// Null when the Fleet Manager's turn is finished and it is not asking the owner anything - Idle, or
+    /// WaitingForInput whose latest reading, of its latest turn end, is an accepted high-confidence finished or
+    /// continues-alone. Otherwise the sentence saying why its events are held.
+    /// </summary>
+    internal string? WhyTurnIsNotFinished(TenantId tenant, SessionDto s)
+    {
+        if (IsExited(s)) return "The Fleet Manager has exited.";
+        if (string.Equals(s.ActivityState, "Idle", StringComparison.OrdinalIgnoreCase)) return null;
+        if (!string.Equals(s.ActivityState, "WaitingForInput", StringComparison.OrdinalIgnoreCase))
+            return $"The Fleet Manager is not waiting for a prompt (it is {s.ActivityState}).";
+
+        if (!_fleetManagerTurns.TryGetValue((tenant, s.SessionId.ToLowerInvariant()), out var turn)
+            || turn.LatestTurnEndUtc is null)
+            return "This Gateway has not seen the Fleet Manager's turn end yet, so it cannot tell whether it is asking you something.";
+        if (turn.WorkingSinceTurnEnd)
+            return "The Fleet Manager went back to work after its last turn end; its next turn end has not been seen yet.";
+        if (turn.NoReadingReason is { } why && turn.ReadingStopUtc >= turn.LatestTurnEndUtc)
+            return $"The Fleet Manager's latest turn has no Wingman reading ({why}), so it cannot be told whether it is asking you something.";
+        if (turn.ReadingStopUtc is null || turn.ReadingStopUtc < turn.LatestTurnEndUtc || turn.Verdict is null)
+            return "The Wingman is still reading the Fleet Manager's latest turn; events are sent once it says the Fleet Manager is not asking you anything.";
+        var v = turn.Verdict;
+        if (v.Failed)
+            return $"The Wingman's reading of the Fleet Manager's latest turn failed ({v.FailureReason ?? "no reason was given"}), so it cannot be told whether it is asking you something.";
+        if (string.Equals(v.Verdict, TurnVerdictVocabulary.NeededYou, StringComparison.Ordinal))
+            return "The Fleet Manager is waiting for your answer; events are sent after its next turn that asks you nothing.";
+        if (!TurnVerdictVocabulary.IsCalm(v.Verdict) || !string.Equals(v.Confidence, "high", StringComparison.Ordinal))
+            return $"The Wingman could not say the Fleet Manager's latest turn asks you nothing (it read it as {v.Verdict}, " +
+                   $"{(string.IsNullOrEmpty(v.Confidence) ? "no" : v.Confidence)} confidence); events wait for a turn that does.";
+        return null;
+    }
+
+    private void TrackDelivery(TenantId tenant, string fleetManagerSessionId)
+    {
+        Track(Task.Run(async () =>
+        {
+            var result = await DeliverToAsync(tenant, fleetManagerSessionId).ConfigureAwait(false);
+            if (result == FleetManagerDeliveryResult.Busy) ScheduleDelivery(tenant);
+        }));
+    }
+
     // ================================================================= delivery
 
     /// <summary>Book one batched delivery for this account, unless one is already waiting.</summary>
@@ -553,10 +709,12 @@ public sealed class FleetManagerEventService : IDisposable
         return SameId(note.SessionId, _env.MarkedFleetManager(tenant)) ? note.Text : null;
     }
 
-    private void NoteDelivery(TenantId tenant, string sessionId, FleetManagerDeliveryResult result, int waiting)
+    private void NoteDelivery(TenantId tenant, string sessionId, FleetManagerDeliveryResult result, int waiting,
+        string? heldBecause)
     {
         var text = result switch
         {
+            FleetManagerDeliveryResult.TurnNotFinished => $"{heldBecause} {Capitalised(Waiting(waiting))}.",
             FleetManagerDeliveryResult.OwnerDraft => DeliveryNoteOwnerDraft(waiting),
             FleetManagerDeliveryResult.OneCallSubmit => DeliveryNoteOneCallSubmit(waiting),
             _ => null,
@@ -570,6 +728,8 @@ public sealed class FleetManagerEventService : IDisposable
         _deliveryNotes[tenant] = (sessionId, text);
         FileLog.Write($"[FleetManagerEventService] delivery note: tenant={tenant.ToLogString()}, session={sessionId}: {text}");
     }
+
+    private static string Capitalised(string text) => char.ToUpperInvariant(text[0]) + text[1..];
 
     private static string Waiting(int n) => n == 1 ? "1 event is waiting" : $"{n} events are waiting";
 
@@ -605,8 +765,8 @@ public sealed class FleetManagerEventService : IDisposable
 
         try
         {
-            var (result, waiting) = await DeliverOnceAsync(tenant, fleetManagerSessionId).ConfigureAwait(false);
-            NoteDelivery(tenant, fleetManagerSessionId, result, waiting);
+            var (result, waiting, heldBecause) = await DeliverOnceAsync(tenant, fleetManagerSessionId).ConfigureAwait(false);
+            NoteDelivery(tenant, fleetManagerSessionId, result, waiting, heldBecause);
             return result;
         }
         finally
@@ -616,14 +776,14 @@ public sealed class FleetManagerEventService : IDisposable
     }
 
     /// <summary>One delivery attempt, and how many events were owed when it was made.</summary>
-    private async Task<(FleetManagerDeliveryResult Result, int Waiting)> DeliverOnceAsync(TenantId tenant, string fleetManagerSessionId)
+    private async Task<(FleetManagerDeliveryResult Result, int Waiting, string? HeldBecause)> DeliverOnceAsync(TenantId tenant, string fleetManagerSessionId)
     {
         var marked = _env.MarkedFleetManager(tenant);
         var fm = _env.Roster(tenant).FirstOrDefault(r => SameId(r.Session.SessionId, fleetManagerSessionId));
         if (fm.Session is null || !FleetManagerSessions.IsFleetManager(fm.Session, marked) || IsExited(fm.Session))
         {
             FileLog.Write($"[FleetManagerEventService] deliver to {fleetManagerSessionId}: not the account's live Fleet Manager; events wait");
-            return (FleetManagerDeliveryResult.NotLive, 0);
+            return (FleetManagerDeliveryResult.NotLive, 0, null);
         }
         var target = fm.Session.SessionId;
 
@@ -631,15 +791,22 @@ public sealed class FleetManagerEventService : IDisposable
         // larger than one prompt carries leaves the rest for the next idle moment, and the prompt says so.
         var found = _store.Owed(tenant, target, FleetManagerEventStore.MaxDeliveryBatch);
         var owed = found.Events;
-        if (owed.Count == 0) return (FleetManagerDeliveryResult.NothingOwed, 0);
+        if (owed.Count == 0) return (FleetManagerDeliveryResult.NothingOwed, 0, null);
         var waiting = owed.Count + found.MoreOwed;
 
-        // A first filter on the pushed state; the Director makes the check that counts, at the moment it types.
-        if (!IsIdle(fm.Session))
+        // THE GATEWAY'S CHECK: its turn is finished and it is not asking the owner anything. The Director keeps its
+        // own checks at the moment it types (waiting for a prompt, no unsent owner text, the input held for the send).
+        if (!string.Equals(fm.Session.ActivityState, "Idle", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(fm.Session.ActivityState, "WaitingForInput", StringComparison.OrdinalIgnoreCase))
         {
             FileLog.Write($"[FleetManagerEventService] deliver to {target}: {owed.Count} owed, " +
-                          $"but it is {fm.Session.ActivityState} - waiting for it to wait for a prompt");
-            return (FleetManagerDeliveryResult.Busy, waiting);
+                          $"but it is {fm.Session.ActivityState} - waiting for its turn to end");
+            return (FleetManagerDeliveryResult.Busy, waiting, null);
+        }
+        if (WhyTurnIsNotFinished(tenant, fm.Session) is { } held)
+        {
+            FileLog.Write($"[FleetManagerEventService] deliver to {target}: {owed.Count} owed, HELD - {held}");
+            return (FleetManagerDeliveryResult.TurnNotFinished, waiting, held);
         }
 
         var text = FleetManagerEventPrompt.Build(owed, found.MoreOwed);
@@ -650,28 +817,28 @@ public sealed class FleetManagerEventService : IDisposable
                 _store.MarkDelivered(tenant, owed.Select(e => Guid.Parse(e.Id)).ToList(), target, _env.NowUtc());
                 FileLog.Write($"[FleetManagerEventService] delivered {owed.Count} event(s) to {target}, " +
                               $"{found.MoreOwed} more owed: " + string.Join(", ", owed.Select(e => e.Id)));
-                return (FleetManagerDeliveryResult.Delivered, waiting);
+                return (FleetManagerDeliveryResult.Delivered, waiting, null);
             case FleetManagerPromptSend.Busy:
                 FileLog.Write($"[FleetManagerEventService] deliver to {target}: the Director found it busy and typed nothing; " +
                               $"{owed.Count} event(s) wait for its next idle moment");
-                return (FleetManagerDeliveryResult.Busy, waiting);
+                return (FleetManagerDeliveryResult.Busy, waiting, null);
             case FleetManagerPromptSend.OwnerDraft:
                 FileLog.Write($"[FleetManagerEventService] deliver to {target}: the owner has unsent text in it, so the Director " +
                               $"typed nothing; {owed.Count} event(s) wait until the owner sends their text");
-                return (FleetManagerDeliveryResult.OwnerDraft, waiting);
+                return (FleetManagerDeliveryResult.OwnerDraft, waiting, null);
             case FleetManagerPromptSend.OneCallSubmit:
                 FileLog.Write($"[FleetManagerEventService] deliver to {target} REFUSED: its terminal submits in one call that " +
                               $"cannot be taken back, so no events are typed into it; {owed.Count} event(s) stay undelivered");
-                return (FleetManagerDeliveryResult.OneCallSubmit, waiting);
+                return (FleetManagerDeliveryResult.OneCallSubmit, waiting, null);
             case FleetManagerPromptSend.DirectorTooOld:
                 FileLog.Write($"[FleetManagerEventService] deliver to {target} REFUSED: its Director {fm.DirectorId} does not check " +
                               $"the session is waiting before it types, so no events are typed into it; {owed.Count} event(s) " +
                               "stay undelivered until the Fleet Manager runs on a Director that does");
-                return (FleetManagerDeliveryResult.DirectorTooOld, waiting);
+                return (FleetManagerDeliveryResult.DirectorTooOld, waiting, null);
             default:
                 FileLog.Write($"[FleetManagerEventService] deliver to {target} FAILED: send={sent}; " +
                               $"{owed.Count} event(s) stay undelivered until the next trigger");
-                return (FleetManagerDeliveryResult.SendFailed, waiting);
+                return (FleetManagerDeliveryResult.SendFailed, waiting, null);
         }
     }
 
@@ -681,13 +848,6 @@ public sealed class FleetManagerEventService : IDisposable
 
     private static bool IsOwnedBy(SessionDto s, string marked)
         => s.IsControlled && SameId(s.ControllerSessionId, marked);
-
-    /// <summary>Idle means waiting for a prompt. A session waiting on a permission question is not idle: typing
-    /// into it would answer the question.</summary>
-    private static bool IsIdle(SessionDto s)
-        => !IsExited(s)
-           && (string.Equals(s.ActivityState, "Idle", StringComparison.OrdinalIgnoreCase)
-               || string.Equals(s.ActivityState, "WaitingForInput", StringComparison.OrdinalIgnoreCase));
 
     private static bool IsExited(SessionDto s)
         => s.Crashed || string.Equals(s.ActivityState, "Exited", StringComparison.OrdinalIgnoreCase);
