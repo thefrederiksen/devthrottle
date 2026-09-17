@@ -379,7 +379,7 @@ def list_jobs(
     """List every schedule on the Gateway, optionally only enabled or disabled ones, or one machine's."""
     # Usage errors come before the fetch: a bad flag is the caller's to fix, whatever the Gateway holds.
     if json_output and fields is not None:
-        _usage_error("--fields does not apply to --json, which always carries every field. Drop one of them.")
+        _usage_error(axi_cli.FIELDS_WITH_JSON)
     chosen_fields = usage_errors.parse_fields(fields, SCHEDULE_LIST_FIELDS, SCHEDULE_LIST_DEFAULT_FIELDS)
     if machine is not None and not machine.strip():
         _usage_error("--machine needs a value.")

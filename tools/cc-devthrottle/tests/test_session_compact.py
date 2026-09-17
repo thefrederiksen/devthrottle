@@ -124,7 +124,8 @@ def test_a_watched_compaction_reports_it_as_compacted(posted, capsys):
 
     session_ops.compact_session(SESSION_ID, "continue")
 
-    out = capsys.readouterr().out
+    # Joined back into one line: the detail is long, and Rich wraps it at the console width.
+    out = " ".join(capsys.readouterr().out.split())
     assert "Compacted" in out
     assert "then sent the follow-up" in out
 
@@ -153,7 +154,10 @@ def test_a_failure_is_reported_and_exits_nonzero(posted, monkeypatch, capsys):
     with pytest.raises(typer.Exit):
         session_ops.compact_session(None, "continue")
 
-    assert "gateway returned Timeout" in capsys.readouterr().out
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "gateway returned Timeout" in captured.err
+    assert f"cc-devthrottle session buffer {SESSION_ID}" in captured.err
 
 
 def test_a_bracketed_error_does_not_crash_the_verb(posted, monkeypatch, capsys, plain):
@@ -170,7 +174,7 @@ def test_a_bracketed_error_does_not_crash_the_verb(posted, monkeypatch, capsys, 
     with pytest.raises(typer.Exit):
         session_ops.compact_session(None, "continue")
 
-    assert "no session at [/tmp/x] on that Director" in plain(capsys.readouterr().out)
+    assert "no session at [/tmp/x] on that Director" in plain(capsys.readouterr().err)
 
 
 def test_the_gateways_refusal_is_printed_verbatim(posted, monkeypatch, capsys, either_console):
@@ -188,7 +192,8 @@ def test_the_gateways_refusal_is_printed_verbatim(posted, monkeypatch, capsys, e
     with pytest.raises(typer.Exit):
         session_ops.compact_session(None, "continue")
 
-    assert sentence in capsys.readouterr().out
+    # An error goes to standard error (docs/axi-standard.md); the sentence inside it is unchanged.
+    assert sentence in capsys.readouterr().err
 
 
 def test_the_actions_are_discoverable_with_their_command_lines():

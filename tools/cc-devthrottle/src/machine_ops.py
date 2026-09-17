@@ -13,13 +13,11 @@ from __future__ import annotations
 
 import json
 import sys
+import urllib.parse
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-import typer
-from rich import box
 from rich.console import Console
-from rich.table import Table
 
 # Make cc_shared importable when running from source, matching the existing cc-* tools.
 _tools_dir = str(Path(__file__).resolve().parent.parent.parent)
@@ -28,39 +26,51 @@ if _tools_dir not in sys.path:
 
 from cc_shared import axi_output  # noqa: E402
 from cc_shared import gateway  # noqa: E402
+from . import axi_cli  # noqa: E402
 
 from . import usage_errors  # noqa: E402
 
-console = Console()
+# soft_wrap: a sentence is never broken across lines at the console width. An id or a session name
+# split in two cannot be read back or pasted; tables still fit their columns.
+console = Console(soft_wrap=True)
+
+#: The next step when a call about one machine failed: see which machines exist and are online.
+_CHECK_MACHINE = "cc-devthrottle machine list"
 
 
-def _fail(message: str) -> None:
-    console.print(f"[red]Error:[/red] {message}")
-    raise typer.Exit(1)
+def _fail(message: str, next_commands: Sequence[str] = (_CHECK_MACHINE,)) -> None:
+    axi_cli.fail(message, next_commands)
 
 
-def _call(path: str) -> Any:
+def _call(path: str, what: str) -> Dict[str, Any]:
+    """One machine question. The answer must be an object; anything else is refused, never read as empty."""
     try:
         payload = gateway.get_json(path)
     except gateway.GatewayError as err:
-        _fail(str(err))
+        _fail(f"could not {what}: {err}")
     if isinstance(payload, dict) and payload.get("error"):
-        _fail(str(payload["error"]))
+        _fail(f"could not {what}: {payload['error']}")
+    if not isinstance(payload, dict):
+        shown = "nothing" if payload is None else f"a {type(payload).__name__}"
+        _fail(f"could not {what}: the Gateway's answer was not an object (got {shown}).", [axi_cli.CHECK_GATEWAY])
     return payload
 
 
-def _size(size: Any) -> str:
-    try:
-        count = int(size)
-    except (TypeError, ValueError):
-        return "-"
-    if count >= 1_073_741_824:
-        return f"{count / 1_073_741_824:.1f}G"
-    if count >= 1_048_576:
-        return f"{count / 1_048_576:.1f}M"
-    if count >= 1024:
-        return f"{count / 1024:.0f}K"
-    return str(count)
+def _machine_path(machine: str, rest: str, query: Optional[Dict[str, Any]] = None) -> str:
+    """A path under machines/<machine>/, with the machine kept as ONE path segment and the query encoded.
+
+    Both are values the caller typed: a space, `&` or `#` in them would otherwise change what is asked."""
+    if not machine.strip():
+        axi_cli.usage_error("the machine name is blank. Pass a machine name from: cc-devthrottle machine list")
+    path = f"machines/{gateway.path_segment(machine)}/{rest}"
+    if query:
+        path += "?" + urllib.parse.urlencode(query, quote_via=urllib.parse.quote)
+    return path
+
+
+def _require_positive(flag: str, value: int, example: str) -> None:
+    if value < 1:
+        axi_cli.usage_error(f"{flag} must be at least 1, not {value}. Pass a whole number, for example {example}.")
 
 
 # --- machine list and director list (AXI standard, docs/axi-standard.md; issue #2922) ---
@@ -101,8 +111,7 @@ _usage_error = usage_errors.usage_error
 
 def _answer_error(message: str) -> None:
     """The Gateway's answer cannot be listed truthfully. Exit 1; --json never prints half an answer."""
-    print(f"Error: {axi_output.escape_ascii(message)}", file=sys.stderr)
-    raise typer.Exit(1)
+    axi_cli.fail(message, [axi_cli.CHECK_GATEWAY])
 
 
 def _get_or_exit(path: str) -> Any:
@@ -131,7 +140,7 @@ def _check_usage(json_output: bool, fields: Optional[str], valid: Tuple[str, ...
                  default: Tuple[str, ...]) -> List[str]:
     # Usage errors come before the fetch: a bad flag is the caller's to fix, whatever the fleet holds.
     if json_output and fields is not None:
-        _usage_error("--fields does not apply to --json, which always carries every field. Drop one of them.")
+        _usage_error(axi_cli.FIELDS_WITH_JSON)
     return usage_errors.parse_fields(fields, valid, default)
 
 
@@ -520,97 +529,265 @@ def _director_list_help(any_rows: bool, filtered: bool, chosen_fields: List[str]
     return commands
 
 
-def list_apps(machine: str, query: Optional[str], limit: int, json_output: bool) -> None:
+# --- machine apps and machine files (AXI standard, docs/axi-standard.md; issue #2922) ---
+#
+# Rendered through the shared output helper as `session list` is: a count line, the list with full names
+# and full paths - a path is how a launch names the application, so it is never cut or wrapped - and
+# help[] lines. `--json` prints the Gateway's answer unchanged.
+
+APPS_FIELDS = ("name", "source", "path")
+APPS_DEFAULT_FIELDS = APPS_FIELDS
+
+FILES_FIELDS = ("name", "size", "modified", "path")
+FILES_DEFAULT_FIELDS = FILES_FIELDS
+
+# Each field the plain output reads, and the kind the launcher's DTO sends it as (MachineQueryContracts.cs).
+_APP_DISPLAYED = (
+    ("name", "Name", _STRING),
+    ("source", "Source", _STRING),
+    ("path", "Path", _STRING),
+)
+_FILE_DISPLAYED = (
+    ("name", "Name", _STRING),
+    ("sizeBytes", "SizeBytes", _NUMBER),
+    ("modifiedUtc", "ModifiedUtc", _STRING),
+    ("path", "Path", _STRING),
+)
+
+
+_BOOLEAN = "true or false"
+_LIST = "a list"
+
+
+def _kind_ok_answer(value: Any, kind: str) -> bool:
+    if kind == _BOOLEAN:
+        return isinstance(value, bool)
+    if kind == _LIST:
+        return isinstance(value, list)
+    return _kind_ok(value, kind)
+
+
+def _answer_rows_or_exit(rows: List[Any], what: str, machine: str,
+                         spec: Tuple[Tuple[str, str, str], ...], next_commands: Sequence[str]) -> None:
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            _fail(
+                f"the Gateway's {what} answer for {machine} has a row that is not an object (row {index + 1}). "
+                "--json shows the raw answer.",
+                next_commands,
+            )
+        for camel, pascal, kind in spec:
+            present = camel in row or pascal in row
+            value = _value(row, camel, pascal)
+            if not present or not _kind_ok(value, kind):
+                shown = "missing" if not present else f"{type(value).__name__} {value!r}"
+                _fail(
+                    f"the Gateway's {what} answer for {machine} has a row whose {camel} is "
+                    f"{axi_output.escape_ascii(shown)}, not {kind} (row {index + 1}). --json shows the raw answer.",
+                    next_commands,
+                )
+
+
+def _check_answer(payload: Dict[str, Any], what: str, machine: str,
+                  spec: Tuple[Tuple[str, str, str], ...], next_commands: Sequence[str]) -> None:
+    for camel, pascal, kind in spec:
+        present = camel in payload or pascal in payload
+        value = _value(payload, camel, pascal)
+        if not present or not _kind_ok_answer(value, kind):
+            shown = "missing" if not present else f"{type(value).__name__} {value!r}"
+            _fail(
+                f"the Gateway's {what} answer for {machine} has {camel} {axi_output.escape_ascii(shown)}, "
+                f"not {kind}. --json shows the raw answer.",
+                next_commands,
+            )
+
+
+def list_apps(machine: str, query: Optional[str], limit: int, json_output: bool,
+              fields: Optional[str] = None) -> None:
     """What is installed on one machine."""
-    path = f"machines/{machine}/apps?q={query or ''}&limit={limit}"
-    payload: Dict[str, Any] = _call(path) or {}
-    apps: List[Dict[str, Any]] = payload.get("apps") or payload.get("Apps") or []
+    chosen_fields = _check_usage(json_output, fields, APPS_FIELDS, APPS_DEFAULT_FIELDS)
+    _require_positive("--count", limit, "--count 100")
+    path = _machine_path(machine, "apps", {"q": query or "", "limit": limit})
+    payload = _call(path, f"list the applications on {machine}")
+    raw_next = [f"cc-devthrottle machine apps {axi_cli.bare(machine, '<machine>')} --json", axi_cli.CHECK_GATEWAY]
+    apps = payload.get("apps", payload.get("Apps"))
+    if not isinstance(apps, list):
+        _fail(
+            f"the Gateway's answer for {machine} has no list of applications, so none can be shown. --json shows the raw answer.",
+            raw_next,
+        )
 
     if json_output:
         print(json.dumps(payload, indent=2))
         return
 
-    if not apps:
-        console.print(f"Nothing on {machine} matches {query or '(everything)'}.")
-        return
-
-    table = Table(show_header=True, header_style="bold", box=box.ASCII)
-    for column in ("APPLICATION", "SOURCE", "PATH"):
-        table.add_column(column)
-    for app in apps:
-        table.add_row(
-            str(gateway.field(app, "name", "Name") or "-"),
-            str(gateway.field(app, "source", "Source") or "-"),
-            str(gateway.field(app, "path", "Path") or "-"),
+    _answer_rows_or_exit(apps, "applications", machine, _APP_DISPLAYED, raw_next)
+    _check_answer(payload, "applications", machine, (
+        ("totalMatches", "TotalMatches", _NUMBER),
+        ("truncated", "Truncated", _BOOLEAN),
+        ("skipped", "Skipped", _LIST),
+    ), raw_next)
+    total = _value(payload, "totalMatches", "TotalMatches")
+    if total < len(apps):
+        _fail(
+            f"the Gateway's applications answer for {machine} says {total} matched but returned {len(apps)}. "
+            "--json shows the raw answer.",
+            raw_next,
         )
-    console.print(table)
+    truncated = _value(payload, "truncated", "Truncated")
+    skipped = _value(payload, "skipped", "Skipped")
 
-    total = payload.get("totalMatches", payload.get("TotalMatches", len(apps)))
-    line = f"{len(apps)} of {total} on {machine}"
-    if payload.get("truncated") or payload.get("Truncated"):
-        line += " - more matched than were returned; narrow the search or raise --count"
-    console.print(line)
-
+    records = [{
+        "name": _value(app, "name", "Name"),
+        "source": _value(app, "source", "Source"),
+        "path": _value(app, "path", "Path"),
+    } for app in apps]
+    blocks = [
+        # "of N total" whenever the launcher matched more than it returned, so a short list never reads
+        # as the whole catalogue.
+        axi_output.format_count(len(records), total=total if total != len(records) else None),
+        axi_output.render_list("apps", chosen_fields, records),
+    ]
+    if not records:
+        # "Nothing matches" is a claim about the whole machine. A search that skipped a directory or was
+        # cut short did not look everywhere, so it says it was incomplete instead, and why.
+        wanted = query or "(everything)"
+        gaps = []
+        if skipped:
+            gaps.append(f"{len(skipped)} directories could not be read")
+        if truncated:
+            gaps.append("the launcher returned fewer results than it found")
+        if gaps:
+            blocks.append(_note(
+                f"No application was returned for {wanted} on {machine}, but the search was incomplete "
+                f"({'; '.join(gaps)}), so this does not show that nothing matches."
+            ))
+        else:
+            blocks.append(_note(f"Nothing on {machine} matches {wanted}."))
+    if truncated:
+        blocks.append("More matched than were returned; narrow the search or raise --count.")
     # An unreadable directory means the catalogue is short by an unknown amount. Say so: a quietly
     # incomplete list looks exactly like a machine with less installed on it.
-    skipped = payload.get("skipped") or payload.get("Skipped") or []
     if skipped:
-        console.print(f"[yellow]{len(skipped)} directories could not be read, so this list may be incomplete.[/yellow]")
+        blocks.append(f"{len(skipped)} directories could not be read, so this list may be incomplete.")
+
+    m = axi_cli.bare(machine, "<machine>")
+    commands = []
+    if records:
+        commands.append(f'cc-devthrottle machine launch {m} --app "<name>"')
+    if list(chosen_fields) != list(APPS_FIELDS):
+        commands.append(f"cc-devthrottle machine apps {m} --fields " + ",".join(APPS_FIELDS))
+    commands.append(f'cc-devthrottle machine apps {m} "<query>"')
+    commands.append(f"cc-devthrottle machine apps {m} --json")
+    blocks.append(axi_output.format_help(commands))
+    _write(blocks)
 
 
-def search_files(machine: str, query: str, limit: int, timeout_seconds: int, json_output: bool) -> None:
+def search_files(machine: str, query: str, limit: int, timeout_seconds: int, json_output: bool,
+                 fields: Optional[str] = None) -> None:
     """Find files by name on one machine."""
-    path = (
-        f"machines/{machine}/files?q={query}"
-        f"&limit={limit}&timeoutMilliseconds={timeout_seconds * 1000}"
+    chosen_fields = _check_usage(json_output, fields, FILES_FIELDS, FILES_DEFAULT_FIELDS)
+    if not query.strip():
+        axi_cli.usage_error(
+            "the file name to find is blank. "
+            'Pass a name or a pattern: cc-devthrottle machine files <machine> "<name>"',
+        )
+    _require_positive("--count", limit, "--count 200")
+    _require_positive("--seconds", timeout_seconds, "--seconds 20")
+    path = _machine_path(
+        machine, "files", {"q": query, "limit": limit, "timeoutMilliseconds": timeout_seconds * 1000}
     )
-    payload: Dict[str, Any] = _call(path) or {}
-    files: List[Dict[str, Any]] = payload.get("files") or payload.get("Files") or []
+    payload = _call(path, f"search for files on {machine}")
+    m = axi_cli.bare(machine, "<machine>")
+    raw_next = [f'cc-devthrottle machine files {m} "<name>" --json', axi_cli.CHECK_GATEWAY]
+    files = payload.get("files", payload.get("Files"))
+    if not isinstance(files, list):
+        _fail(
+            f"the Gateway's answer for {machine} has no list of files, so no result can be shown. --json shows the raw answer.",
+            [axi_cli.CHECK_GATEWAY],
+        )
 
     if json_output:
         print(json.dumps(payload, indent=2))
         return
 
-    if not files:
-        console.print(f"No file on {machine} matches {query}.")
-    else:
-        table = Table(show_header=True, header_style="bold", box=box.ASCII)
-        for column in ("FILE", "SIZE", "MODIFIED", "PATH"):
-            table.add_column(column)
-        for hit in files:
-            modified = str(gateway.field(hit, "modifiedUtc", "ModifiedUtc") or "-")
-            table.add_row(
-                str(gateway.field(hit, "name", "Name") or "-"),
-                _size(hit.get("sizeBytes", hit.get("SizeBytes"))),
-                modified[:19].replace("T", " "),
-                str(gateway.field(hit, "path", "Path") or "-"),
-            )
-        console.print(table)
+    _answer_rows_or_exit(files, "file search", machine, _FILE_DISPLAYED, raw_next)
+    # abandonedRoots is newer than the rest (a launcher before it does not send it), so only its kind is
+    # checked when present; every other field is on every launcher that answers this query.
+    _check_answer(payload, "file search", machine, (
+        ("directoriesVisited", "DirectoriesVisited", _NUMBER),
+        ("elapsedMilliseconds", "ElapsedMilliseconds", _NUMBER),
+        ("truncated", "Truncated", _BOOLEAN),
+        ("truncationReason", "TruncationReason", _STRING_OR_NULL),
+        ("unreadableDirectories", "UnreadableDirectories", _NUMBER),
+    ), raw_next)
+    abandoned_present = "abandonedRoots" in payload or "AbandonedRoots" in payload
+    if abandoned_present:
+        _check_answer(payload, "file search", machine, (("abandonedRoots", "AbandonedRoots", _NUMBER),), raw_next)
 
-    elapsed = payload.get("elapsedMilliseconds", payload.get("ElapsedMilliseconds", 0))
-    visited = payload.get("directoriesVisited", payload.get("DirectoriesVisited", 0))
-    console.print(f"{len(files)} files - searched {visited} directories on {machine} in {elapsed} ms")
+    records = [{
+        "name": _value(hit, "name", "Name"),
+        # Bytes, as the launcher sent them: an exact number reads back exactly; "1.2M" does not.
+        "size": _value(hit, "sizeBytes", "SizeBytes"),
+        "modified": _value(hit, "modifiedUtc", "ModifiedUtc"),
+        "path": _value(hit, "path", "Path"),
+    } for hit in files]
+    elapsed = _value(payload, "elapsedMilliseconds", "ElapsedMilliseconds")
+    visited = _value(payload, "directoriesVisited", "DirectoriesVisited")
+    blocks = [
+        axi_output.format_count(len(records)),
+        _note(f"Searched {visited} directories on {machine} in {elapsed} ms."),
+        axi_output.render_list("files", chosen_fields, records),
+    ]
+    truncated = _value(payload, "truncated", "Truncated")
+    unreadable = _value(payload, "unreadableDirectories", "UnreadableDirectories")
+    abandoned = _value(payload, "abandonedRoots", "AbandonedRoots") if abandoned_present else 0
+    if not records:
+        # "No file matches" is a claim about the whole machine. A search that skipped, lost or stopped
+        # short of part of it did not establish that, so it says it was incomplete instead, and why.
+        gaps = []
+        if truncated:
+            gaps.append(f"it stopped early ({_value(payload, 'truncationReason', 'TruncationReason') or 'unknown'})")
+        if unreadable:
+            gaps.append(f"{unreadable} directories could not be read")
+        if abandoned:
+            gaps.append(f"{abandoned} search roots never answered")
+        if gaps:
+            blocks.append(_note(
+                f"No file was found for {query} on {machine}, but the search was incomplete "
+                f"({'; '.join(gaps)}), so this does not show that no file matches."
+            ))
+        else:
+            blocks.append(_note(f"No file on {machine} matches {query}."))
 
     # The whole point of the truncation fields: a partial answer must never read as a complete one, and the
     # advice differs by reason - a ceiling wants a narrower search, a deadline wants more time.
-    if payload.get("truncated") or payload.get("Truncated"):
-        reason = payload.get("truncationReason") or payload.get("TruncationReason") or "unknown"
+    if truncated:
+        reason = _value(payload, "truncationReason", "TruncationReason") or "unknown"
         if reason == "limit":
-            console.print(
-                "[yellow]Stopped at the result limit - this is NOT the whole answer. "
-                "Narrow the search or raise --count.[/yellow]"
-            )
+            blocks.append("Stopped at the result limit - this is NOT the whole answer. Narrow the search or raise --count.")
         elif reason == "timeout":
-            console.print(
-                "[yellow]Stopped at the time limit - this is NOT the whole answer. "
-                "Narrow the search or raise --seconds.[/yellow]"
-            )
+            blocks.append("Stopped at the time limit - this is NOT the whole answer. Narrow the search or raise --seconds.")
         else:
-            console.print(f"[yellow]Stopped early ({reason}) - this is NOT the whole answer.[/yellow]")
+            blocks.append(_note(f"Stopped early ({reason}) - this is NOT the whole answer."))
 
-    unreadable = payload.get("unreadableDirectories", payload.get("UnreadableDirectories", 0))
     if unreadable:
-        console.print(f"[yellow]{unreadable} directories could not be read and were not searched.[/yellow]")
+        blocks.append(f"{unreadable} directories could not be read and were not searched.")
+    if abandoned:
+        # A root that never answered is silent, not forbidden (on macOS, a privacy-protected folder), so
+        # this count is the only sign its contents are missing.
+        blocks.append(
+            f"Search roots given up on because they never answered: {abandoned}. Their files are missing "
+            "from this answer."
+        )
+
+    commands = []
+    if list(chosen_fields) != list(FILES_FIELDS):
+        commands.append(f'cc-devthrottle machine files {m} "<name>" --fields ' + ",".join(FILES_FIELDS))
+    commands.append(f'cc-devthrottle machine files {m} "<name>" --seconds <seconds>')
+    commands.append(f'cc-devthrottle machine files {m} "<name>" --json')
+    blocks.append(axi_output.format_help(commands))
+    _write(blocks)
 
 
 def restart_capability(machine: str, json_output: bool) -> None:
@@ -629,7 +806,7 @@ def restart_capability(machine: str, json_output: bool) -> None:
     The Gateway computes the verdict and writes both sentences; this command renders them and does
     not re-derive anything. A verdict this printed itself is the one an agent acts on.
     """
-    payload: Dict[str, Any] = _call(f"machines/{machine}/restart-capability") or {}
+    payload = _call(_machine_path(machine, "restart-capability"), f"ask whether {machine} can restart its Director")
 
     if json_output:
         print(json.dumps(payload, indent=2))
@@ -646,61 +823,110 @@ def restart_capability(machine: str, json_output: bool) -> None:
         "CanRestart": ("[green]", "CAN RESTART"),
         "CannotRestart": ("[red]", "CANNOT RESTART"),
     }.get(verdict, ("[yellow]", "UNKNOWN"))
-    console.print(f"{headline[0]}{headline[1]}[/] {machine}")
-    console.print(f"  {reason}")
+    console.print(f"{headline[0]}{headline[1]}[/] {axi_cli.shown(machine)}")
+    console.print(f"  {axi_cli.shown(reason)}")
     console.print("")
 
-    table = Table(show_header=True, header_style="bold", box=box.ASCII)
-    for column in ("FACT", "VALUE"):
-        table.add_column(column)
-    table.add_row("launcher version", str(gateway.field(payload, "launcherVersion", "LauncherVersion") or "-"))
-    table.add_row("reach", str(gateway.field(payload, "reach", "Reach") or "-"))
-    table.add_row("declaration", str(gateway.field(payload, "declaration", "Declaration") or "-"))
-    table.add_row("restart signal", str(gateway.field(payload, "restartSignal", "RestartSignal") or "-"))
+    # One fact per line, "name: value", never a table: a long root key or command list wrapped inside a
+    # table cell cannot be read back or pasted.
+    facts: List[Tuple[str, str]] = []
+    facts.append(("launcher version", str(gateway.field(payload, "launcherVersion", "LauncherVersion") or "-")))
+    facts.append(("reach", str(gateway.field(payload, "reach", "Reach") or "-")))
+    facts.append(("declaration", str(gateway.field(payload, "declaration", "Declaration") or "-")))
+    facts.append(("restart signal", str(gateway.field(payload, "restartSignal", "RestartSignal") or "-")))
     root_key = gateway.field(payload, "servingRootKey", "ServingRootKey")
-    table.add_row("serving root key", str(root_key or "(not declared)"))
-    instance_home = gateway.field(payload, "servingRootIsInstanceHome", "ServingRootIsInstanceHome")
-    table.add_row(
-        "serving an instance home",
-        "(not declared)" if instance_home is None else ("YES - this is the fault" if instance_home else "no"),
-    )
-    declared: List[str] = gateway.field(payload, "declaredCommands", "DeclaredCommands") or []
-    table.add_row("declares", ", ".join(str(d) for d in declared) if declared else "(nothing)")
-    table.add_row("seconds since heartbeat", str(gateway.field(payload, "quietForSeconds", "QuietForSeconds") or 0))
-    console.print(table)
+    facts.append(("serving root key", str(root_key or "(not declared)")))
+    # RAW values, not gateway.field: that helper turns every value into text, so false became the
+    # string "False" - which is truthy, and printed "YES - this is the fault" for a healthy machine -
+    # and a list became its printed form, which was then joined one character at a time.
+    instance_home = _value(payload, "servingRootIsInstanceHome", "ServingRootIsInstanceHome")
+    if instance_home is None:
+        home_text = "(not declared)"
+    elif isinstance(instance_home, bool):
+        home_text = "YES - this is the fault" if instance_home else "no"
+    else:
+        _fail(
+            f"the Gateway's servingRootIsInstanceHome for {machine} is {instance_home!r}, not true, false or null. --json shows the raw answer.",
+            [f"cc-devthrottle machine restart-capability {axi_cli.bare(machine, '<machine>')} --json", axi_cli.CHECK_GATEWAY],
+        )
+    facts.append(("serving an instance home", home_text))
+    declared = _value(payload, "declaredCommands", "DeclaredCommands")
+    if declared is None:
+        declared = []
+    if not isinstance(declared, list):
+        _fail(
+            f"the Gateway's declaredCommands for {machine} is not a list. --json shows the raw answer.",
+            [f"cc-devthrottle machine restart-capability {axi_cli.bare(machine, '<machine>')} --json", axi_cli.CHECK_GATEWAY],
+        )
+    facts.append(("declares", ", ".join(str(d) for d in declared) if declared else "(nothing)"))
+    facts.append(("seconds since heartbeat", str(gateway.field(payload, "quietForSeconds", "QuietForSeconds") or 0)))
+    for fact, value in facts:
+        console.print(f"  {fact}: {axi_cli.shown(value)}")
 
     # The guarded restart is printed as its own line and never folded into the verdict above. A
     # machine can be perfectly restartable and offer no guard - which is what every launcher built
     # before the guard existed looks like - so one sentence cannot carry both answers.
     console.print("")
-    console.print(f"Guarded restart (refuse while sessions are live): {guard}")
-    console.print(f"  {guard_reason}")
+    console.print(f"Guarded restart (refuse while sessions are live): {axi_cli.shown(guard)}")
+    console.print(f"  {axi_cli.shown(guard_reason)}")
 
 
 def launch(machine: str, app: Optional[str], path: Optional[str], args: Optional[str],
            cwd: Optional[str], headless: bool, json_output: bool) -> None:
     """Start an application on one machine, by catalogue name or by absolute path."""
     if not app and not path:
-        _fail("Name what to start: --app \"Chrome\" or --path \"C:\\\\Tools\\\\thing.exe\".")
+        axi_cli.usage_error(
+            "nothing to start was named. "
+            'Pass --app "<name>" (see cc-devthrottle machine apps <machine>) or --path <absolute-path>.',
+        )
+    if app and path:
+        axi_cli.usage_error(
+            "--app and --path cannot be used together: each names what to start. "
+            "Drop one of them.",
+        )
 
     # confirmProtected carries this command's explicit intent through the relay: the Gateway refuses any
     # launch without it (tenant-boundary hardening, CR-5). Typing `machine launch` IS the confirmation -
     # the flag exists to stop programs being started as a side effect of something else.
     body = {"app": app, "path": path, "args": args, "cwd": cwd, "headless": headless,
             "confirmProtected": True}
+    what = app or path
     try:
-        payload = gateway.post_json(f"machines/{machine}/launch", body, timeout=60)
+        payload = gateway.post_json(_machine_path(machine, "launch"), body, timeout=60)
     except gateway.GatewayError as err:
-        _fail(str(err))
+        _fail(f"{what} was not started on {machine}: {err}")
+
+    # An error answer is an error with or without --json: it exits non-zero and goes to standard error,
+    # where it used to be printed as JSON with exit 0 and read as a success.
+    if isinstance(payload, dict) and payload.get("error"):
+        _fail(
+            f"{what} was not started on {machine}: {payload['error']}",
+            [f'cc-devthrottle machine apps {axi_cli.bare(machine, "<machine>")} "<query>"'],
+        )
+    if not isinstance(payload, dict):
+        _fail(
+            f"the Gateway's answer to starting {what} on {machine} was not an object, so whether it started is unknown. Check before starting it again.",
+            [f"cc-devthrottle machine apps {axi_cli.bare(machine, '<machine>')}"],
+        )
+
+    # The Gateway relays the launch and answers with the launcher's own status (a RelayResult). That
+    # status is the only word that the launcher took the request: an answer without a success status -
+    # {} included - cannot be reported as started.
+    axi_cli.confirmed(
+        payload, ("relayStatus", "RelayStatus"), f"starting {what} on {machine}",
+        [f"cc-devthrottle machine apps {axi_cli.bare(machine, '<machine>')}"],
+        accept=lambda v: isinstance(v, int) and not isinstance(v, bool) and 200 <= v < 300,
+    )
 
     if json_output:
         print(json.dumps(payload, indent=2))
         return
 
-    if isinstance(payload, dict) and payload.get("error"):
-        _fail(str(payload["error"]))
-
-    console.print(f"Started {app or path} on {machine}.")
+    console.print(f"Started {axi_cli.shown(what)} on {axi_cli.shown(machine)}.")
+    axi_cli.print_next([
+        f'cc-devthrottle machine apps {axi_cli.bare(machine, "<machine>")} "<query>"',
+        f'cc-devthrottle machine files {axi_cli.bare(machine, "<machine>")} "<name>"',
+    ])
 
 
 def restart_request(machine: str, reason: str, director_id: Optional[str], json_output: bool) -> None:
@@ -714,46 +940,83 @@ def restart_request(machine: str, reason: str, director_id: Optional[str], json_
 
     The direct restart route stays refused to a session key. Asking is not doing.
     """
+    if not reason.strip():
+        axi_cli.usage_error(
+            "the reason is blank. The owner decides on this sentence. "
+            f'Pass it: cc-devthrottle machine restart-request {machine} --reason "<why>"',
+        )
     body: Dict[str, Any] = {"reason": reason}
     if director_id:
         body["directorId"] = director_id
     try:
-        payload = gateway.post_json(f"machines/{machine}/director/restart-requests", body)
+        payload = gateway.post_json(_machine_path(machine, "director/restart-requests"), body)
     except gateway.GatewayError as err:
-        _fail(str(err))
-    if isinstance(payload, dict) and payload.get("code") and payload.get("error"):
-        _fail(str(payload["error"]))
+        _fail(
+            f"no restart was requested for {machine}: {err}",
+            [f"cc-devthrottle machine restart-capability {axi_cli.bare(machine, '<machine>')}"],
+        )
+    if isinstance(payload, dict) and payload.get("error"):
+        _fail(
+            f"no restart was requested for {machine}: {payload['error']}",
+            [f"cc-devthrottle machine restart-capability {axi_cli.bare(machine, '<machine>')}"],
+        )
+    request_id = gateway.field(payload, "id", "Id") if isinstance(payload, dict) else ""
+    if not request_id:
+        _fail(
+            f"the Gateway's answer for {machine} carried no request id, so whether a request exists is unknown. Ask again only after checking.",
+            [f"cc-devthrottle machine restart-capability {axi_cli.bare(machine, '<machine>')}"],
+        )
 
     if json_output:
         print(json.dumps(payload, indent=2))
         return
 
-    request_id = str(gateway.field(payload, "id", "Id") or "-")
-    console.print(f"[green]REQUESTED[/] {machine} - request {request_id}")
-    console.print(f"  {gateway.field(payload, 'title', 'Title')}")
-    console.print(f"  {gateway.field(payload, 'askedBySentence', 'AskedBySentence')}")
-    console.print(f"  {gateway.field(payload, 'liveSessionsSentence', 'LiveSessionsSentence')}")
-    capability = payload.get("capability") if isinstance(payload, dict) else None
+    console.print(f"[green]REQUESTED[/] {axi_cli.shown(machine)} - request {request_id}")
+    for sentence in (
+        gateway.field(payload, "title", "Title"),
+        gateway.field(payload, "askedBySentence", "AskedBySentence"),
+        gateway.field(payload, "liveSessionsSentence", "LiveSessionsSentence"),
+    ):
+        console.print(f"  {axi_cli.shown(sentence)}")
+    capability = payload.get("capability")
     if isinstance(capability, dict):
-        console.print(f"  {gateway.field(capability, 'reason', 'Reason')}")
-        console.print(f"  {gateway.field(capability, 'guardedRestartReason', 'GuardedRestartReason')}")
-    console.print(f"  Expires at {gateway.field(payload, 'expiresAtUtc', 'ExpiresAtUtc')} UTC unless the owner accepts.")
-    console.print(f"  Read it back with: cc-devthrottle machine restart-request-status {machine} {request_id}")
+        console.print(f"  {axi_cli.shown(gateway.field(capability, 'reason', 'Reason'))}")
+        console.print(f"  {axi_cli.shown(gateway.field(capability, 'guardedRestartReason', 'GuardedRestartReason'))}")
+    console.print(
+        f"  Expires at {axi_cli.shown(gateway.field(payload, 'expiresAtUtc', 'ExpiresAtUtc'))} UTC unless the owner accepts."
+    )
+    axi_cli.print_next([
+        f"cc-devthrottle machine restart-request-status {axi_cli.bare(machine, '<machine>')} {axi_cli.bare(request_id, '<request-id>')}",
+        f"cc-devthrottle director list --machine {axi_cli.bare(machine, '<machine>')}",
+    ])
 
 
 def restart_request_status(machine: str, request_id: str, json_output: bool) -> None:
     """Where one restart request stands: pending, accepted and running, declined, expired, abandoned
     with the Director's reason, or completed."""
-    payload: Dict[str, Any] = _call(f"machines/{machine}/director/restart-requests/{request_id}") or {}
+    if not request_id.strip():
+        axi_cli.usage_error(
+            "the request id is blank. "
+            "Pass the id that cc-devthrottle machine restart-request printed.",
+        )
+    payload = _call(
+        _machine_path(machine, f"director/restart-requests/{gateway.path_segment(request_id)}"),
+        f"read restart request {request_id} for {machine}",
+    )
     if json_output:
         print(json.dumps(payload, indent=2))
         return
-    state = str(gateway.field(payload, "state", "State") or "-")
-    console.print(f"{state.upper()} {machine} - request {request_id}")
+    state = gateway.field(payload, "state", "State")
+    if not state:
+        _fail(
+            f"the Gateway's answer for restart request {request_id} carried no state. --json shows the raw answer.",
+            [axi_cli.CHECK_GATEWAY],
+        )
+    console.print(f"{axi_cli.shown(state.upper())} {axi_cli.shown(machine)} - request {axi_cli.shown(request_id)}")
     for key in ("title", "askedBySentence", "liveSessionsSentence", "stateReason", "progress"):
         value = gateway.field(payload, key)
         if value:
-            console.print(f"  {value}")
+            console.print(f"  {axi_cli.shown(value)}")
     workspace = gateway.field(payload, "workspaceId", "WorkspaceId")
     if workspace:
-        console.print(f"  Record: workspace {workspace}")
+        console.print(f"  Record: workspace {axi_cli.shown(workspace)}")

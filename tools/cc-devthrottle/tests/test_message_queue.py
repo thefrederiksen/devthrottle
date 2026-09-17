@@ -140,7 +140,7 @@ def test_send_all_goes_to_the_broadcast_route_and_counts_outcomes(posted, plain)
     assert calls[0]["body"] == {"text": "stand up"}
     out = " ".join(plain(result.output).split())
     assert "Queued for 2 of 3" in out
-    assert "bbbbbbbb not queued" in out
+    assert "bbbbbbbb-0000 not queued" in out
     assert "2 minutes ago" in out
 
 
@@ -355,7 +355,7 @@ def test_an_all_duplicate_broadcast_exits_zero_like_a_duplicate_single_send(post
     assert result.exit_code == 0
     out = " ".join(plain(result.output).split())
     assert "Queued for 0 of 2" in out
-    assert "aaaaaaaa not queued again" in out
+    assert "aaaaaaaa-0000 not queued again" in out
 
 
 def test_the_broadcast_exit_rule_is_stated_in_the_same_words_in_help_and_code(plain):

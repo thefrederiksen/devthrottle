@@ -468,16 +468,6 @@
   color: #94a3b8;
 }
 
-.msn-rmeta {
-  font-size: 10.5px;
-  color: var(--text-dim);
-  margin-top: 2px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 46ch;
-}
-
 .msn-machine {
   font-size: 10px;
   color: var(--text-dim);

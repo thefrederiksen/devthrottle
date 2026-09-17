@@ -59,7 +59,7 @@ repo_app = typer.Typer(cls=AxiGroup, help="List the fleet's repositories.", add_
 worktree_app = typer.Typer(cls=AxiGroup, help="List the fleet's worktrees and who is in them.", add_completion=False)
 machine_app = typer.Typer(
     cls=AxiGroup,
-    help="Search and start applications on another computer.",
+    help="List machines, search them, start applications and ask for restarts.",
     add_completion=False,
     no_args_is_help=True,
 )
@@ -71,7 +71,7 @@ director_app = typer.Typer(
 )
 mission_app = typer.Typer(
     cls=AxiGroup,
-    help="Create and list Missions (the unit of work sessions attach to).",
+    help="Create, list, attach and end Missions - the bodies of work sessions join.",
     add_completion=False,
     no_args_is_help=True,
 )
@@ -1135,7 +1135,10 @@ def machine_list(
         "Valid: name, state, version, pid, started, last-seen.",
     ),
 ) -> None:
-    """List the computers you can search and start applications on: name, state and launcher version."""
+    """List the machines you can search and start applications on.
+
+    Shows each machine's name, state and launcher version.
+    """
     from .machine_ops import list_machines
 
     list_machines(json_output, state=state, fields=fields)
@@ -1157,7 +1160,10 @@ def director_list(
         "Valid: id, name, machine, state, version, pid, user, started, last-seen.",
     ),
 ) -> None:
-    """List every Director this account is running, with the id to pass to 'session spawn --director'."""
+    """List every Director this account runs, with the id 'session spawn' takes.
+
+    Pass that id to 'cc-devthrottle session spawn <repo> --director <id>'.
+    """
     from .machine_ops import list_directors
 
     list_directors(json_output, state=state, machine=machine, fields=fields)
@@ -1169,11 +1175,14 @@ def machine_apps(
     query: str = typer.Argument(None, help="Filter by name. Omit to list everything installed."),
     count: int = typer.Option(100, "--count", "-n", help="Largest number of results to return."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
+    fields: str = typer.Option(
+        None, "--fields", help="Fields to show, comma separated. Default and valid: name, source, path."
+    ),
 ) -> None:
     """List the applications installed on another computer."""
     from .machine_ops import list_apps
 
-    list_apps(machine, query, count, json_output)
+    list_apps(machine, query, count, json_output, fields)
 
 
 @machine_app.command("files")
@@ -1183,6 +1192,9 @@ def machine_files(
     count: int = typer.Option(200, "--count", "-n", help="Largest number of results to return."),
     seconds: int = typer.Option(20, "--seconds", "-s", help="How long the search may run before it reports what it found."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
+    fields: str = typer.Option(
+        None, "--fields", help="Fields to show, comma separated. Default and valid: name, size, modified, path."
+    ),
 ) -> None:
     """Find files by name across every drive on another computer.
 
@@ -1191,7 +1203,7 @@ def machine_files(
     """
     from .machine_ops import search_files
 
-    search_files(machine, query, count, seconds, json_output)
+    search_files(machine, query, count, seconds, json_output, fields)
 
 
 @machine_app.command("restart-capability")
@@ -1216,8 +1228,9 @@ def machine_restart_request(
     director: Optional[str] = typer.Option(None, "--director", help="Which Director on that computer, when it runs several."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
 ) -> None:
-    """Ask for a Director restart. The machine scrutinises; the owner accepts once; then it runs alone.
+    """Ask for a Director restart on one machine; the owner accepts it once.
 
+    The machine scrutinises the request first; once accepted, the restart runs alone.
     A request, not a restart: it creates a pending record, refused on the spot when the machine cannot
     be restarted or another request is already pending. The direct restart stays refused to a session.
     """
@@ -1284,7 +1297,7 @@ def prompt(
         False, "--no-submit", help="Type the text but do not press Enter - leave it in the composer."
     ),
 ) -> None:
-    """Type raw text into a session. REFUSED to agents: only the owner types into a session.
+    """Type raw text into a session. REFUSED to agents: only the owner may type.
 
     The Gateway refuses this to every session key and says what to do instead - queue a message
     with `message send`, which the recipient reads when it is free.
@@ -1334,7 +1347,9 @@ def raise_(
     ),
     clear: bool = typer.Option(False, "--clear", help="Take the hand back down - the decision was answered."),
 ) -> None:
-    """Put your hand up to the session driving you, when you cannot go on without an answer.
+    """Put your hand up to the session driving you when you are blocked.
+
+    Use it when you cannot go on without an answer.
 
     A supervised session - a worker with a live supervisor, or a scheduled run - is quiet toward the
     owner by construction: it parks on every screen when it stops and it has no channel to him. This
@@ -1355,6 +1370,15 @@ def workers(
     target: Optional[str] = typer.Option(
         None, "--target", help="Whose workers to list. Defaults to THIS session (CC_SESSION_ID)."
     ),
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output raw JSON: the Gateway's rows for these sessions, a bare array."
+    ),
+    fields: str = typer.Option(
+        None,
+        "--fields",
+        help="Fields to show, comma separated. Default: id,name,state,hand,need. "
+        "Valid: id, name, state, repo, machine, number, model, agent, mission, path, hand, need.",
+    ),
 ) -> None:
     """List the sessions you are driving, and which of them have their hand up.
 
@@ -1362,7 +1386,7 @@ def workers(
     This is that read in one line - who you are driving, what state each is in, and what any of them
     is blocked on.
     """
-    list_my_workers(target)
+    list_my_workers(target, json_output=json_output, fields=fields)
 
 
 @session_app.command()
@@ -1421,7 +1445,9 @@ def compact_continue(
         "continue", help="What to send once the compaction finishes. Defaults to 'continue'."
     ),
 ) -> None:
-    """Compact a session's context, then send it a message - the rescue for a STUCK session.
+    """Compact a session's context, then send it a message to get it moving.
+
+    This is the rescue for a STUCK session.
 
     A session whose context window is full cannot read anything you send it: every message is
     swallowed and the tool just reprints its context-limit line. Compaction is the only thing that
@@ -1445,7 +1471,10 @@ def buffer(
         None, help="Session to read. Defaults to THIS session (CC_SESSION_ID)."
     ),
 ) -> None:
-    """Print what a session's terminal is showing - how you see what a session is actually doing."""
+    """Print what a session's terminal is showing right now.
+
+    This is how you see what a session is actually doing.
+    """
     read_session_buffer(target)
 
 
@@ -1532,8 +1561,8 @@ def done(
 ) -> None:
     """Flag a session for deletion (defaults to the current session).
 
-    Does NOT kill the session now - it is flagged, and the owning Director's reaper removes it
-    within about a minute once the grace window passes and it is no longer working. Use this at
+    Does NOT kill the session now - it is flagged, and the owning Director's reaper removes it on
+    a sweep after the grace period, once it is no longer working. Use this at
     the end of an unattended run that has nothing left for the user, so the session tears itself
     down instead of lingering in the fleet.
 
@@ -1645,7 +1674,10 @@ def spawn(
         "its PINNED version. Unknown run ids are rejected.",
     ),
 ) -> None:
-    """Open a new session - here, on another computer with --machine, or on one Director with --director."""
+    """Open a new session here, on another machine, or on one named Director.
+
+    Use --machine for another computer, or --director for one named Director.
+    """
     spawn_session(
         repo, agent, prompt, name, purpose, command, command_args, controlled_by, args, standalone, why, role,
         machine, mission, workflow_run, director,
@@ -1727,7 +1759,7 @@ def mission_rename(
     ),
     name: str = typer.Argument(..., help="The new display name."),
 ) -> None:
-    """Rename a Mission. Its id does not change, so every attached session stays attached."""
+    """Rename a Mission; its id stays, so attached sessions stay attached."""
     mission_ops.rename_mission(mission, name)
 
 
@@ -1737,7 +1769,10 @@ def mission_complete(
         ..., help="The Mission to complete: its id, an id prefix, or part of its name."
     ),
 ) -> None:
-    """Mark a Mission as finished. It leaves the default list but is kept - this is the outcome."""
+    """Mark a Mission as finished; it leaves the default list but is kept.
+
+    This is the ending to use when the work is done.
+    """
     mission_ops.end_mission(mission, "complete")
 
 
@@ -1747,7 +1782,10 @@ def mission_remove(
         ..., help="The Mission to remove: its id, an id prefix, or part of its name."
     ),
 ) -> None:
-    """Remove a Mission that should not exist (a duplicate, a mistake). Soft: the record is kept."""
+    """Remove a Mission that should not exist; soft, so the record is kept.
+
+    For a duplicate or a mistake. Use 'mission complete' for finished work.
+    """
     mission_ops.end_mission(mission, "removed")
 
 
@@ -1777,7 +1815,7 @@ def mission_attach(
         "bulk re-parent cannot be undone in one step.",
     ),
 ) -> None:
-    """Attach a session that already exists to a Mission (moving it if it already had one)."""
+    """Attach an existing session to a Mission, moving it from any other."""
     mission_ops.attach_session(session, mission, with_children)
 
 
@@ -1833,11 +1871,13 @@ def message_send(
         help="A human-issued broadcast grant id authorizing a fleet-wide broadcast (--everyone).",
     ),
 ) -> None:
-    """Queue a message for your supervisor or one of your workers, or for all your workers with 'all'.
+    """Queue a message for your supervisor or a worker ('all' for every worker).
 
     Nothing is typed into the recipient; it reads the message from its inbox when it is free. The
     Gateway refuses any other recipient, and more than 6 messages an hour or 1 per recipient every
     10 minutes - put what you would have said in your report instead.
+
+    Add --everyone (with --reason and --grant) to reach the whole fleet; it is queued the same way.
 
     Exit code: 0 when the message was queued or an identical one is already waiting unread - for 'all', when that is true of at least one worker - and 1 when nothing was queued and nothing was waiting.
     """
@@ -1856,7 +1896,10 @@ def message_inbox(
     ),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON."),
 ) -> None:
-    """Read your unread messages in full. Reading marks them read - that is the acknowledgement."""
+    """Read your unread messages in full, which marks them read.
+
+    Reading is the acknowledgement: the sender's message stays open until you read it.
+    """
     read_inbox(include_read=include_read, json_output=json_output)
 
 
