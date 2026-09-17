@@ -269,7 +269,7 @@ public sealed class TurnVerdictWatchdogTests
         var now = JudgedAt;
         var env = ColourOnEnv(() => now);
         env.Store(Tenant, "owner", CarryingOn());
-        env.Owned = sid => sid == "owner" ? new OwnedSessionsFacts(Working: 1, Stopped: 0, NeedYou: 0, LastActivityAtUtc: now) : null;
+        env.Owned = sid => sid == "owner" ? new OwnedSessionsFacts(Working: 1, Live: 1, Stopped: 0, NeedYou: 0, LastActivityAtUtc: now) : null;
         var service = new TurnVerdictService(env);
 
         now = JudgedAt.AddMinutes(25);
@@ -291,8 +291,8 @@ public sealed class TurnVerdictWatchdogTests
         env.Store(Tenant, "owner", CarryingOn());
         env.Owned = sid => sid != "owner" ? null
             : childStoppedAt is { } stopped
-                ? new OwnedSessionsFacts(Working: 0, Stopped: 1, NeedYou: 0, LastActivityAtUtc: stopped)
-                : new OwnedSessionsFacts(Working: 1, Stopped: 0, NeedYou: 0, LastActivityAtUtc: now);
+                ? new OwnedSessionsFacts(Working: 0, Live: 0, Stopped: 1, NeedYou: 0, LastActivityAtUtc: stopped)
+                : new OwnedSessionsFacts(Working: 1, Live: 1, Stopped: 0, NeedYou: 0, LastActivityAtUtc: now);
         var service = new TurnVerdictService(env);
 
         now = JudgedAt.AddMinutes(30);
@@ -323,8 +323,8 @@ public sealed class TurnVerdictWatchdogTests
         var now = JudgedAt;
         var env = ColourOnEnv(() => now);
         env.Store(Tenant, "owner", CarryingOn());
-        var stopped = new OwnedSessionsFacts(Working: 0, Stopped: 1, NeedYou: 0, LastActivityAtUtc: JudgedAt);
-        var working = new OwnedSessionsFacts(Working: 1, Stopped: 0, NeedYou: 0, LastActivityAtUtc: JudgedAt.AddMinutes(11));
+        var stopped = new OwnedSessionsFacts(Working: 0, Live: 0, Stopped: 1, NeedYou: 0, LastActivityAtUtc: JudgedAt);
+        var working = new OwnedSessionsFacts(Working: 1, Live: 1, Stopped: 0, NeedYou: 0, LastActivityAtUtc: JudgedAt.AddMinutes(11));
         var childWorking = false;
         env.Owned = sid => sid != "owner" ? null : childWorking ? working : stopped;
         env.AfterNextLatest = () => childWorking = true;
@@ -345,8 +345,15 @@ public sealed class TurnVerdictWatchdogTests
         Assert.DoesNotContain(env.Records, r => r.EventType == ActivityEventTypes.TurnVerdictExpired);
     }
 
+    /// <summary>
+    /// A CHILD THAT GOES RED IS STILL ALIVE, so the owner's clock never runs while it is there (the owner's ruling,
+    /// 2026-09-17: "if a session is running underneath it and there is no question for the user, the row must not be
+    /// red"). The person IS wanted - on the child's own row, which is red - and the owner stays purple however long
+    /// that lasts. This test asserted the opposite until 2026-09-17: the owner expired ten minutes after the child
+    /// went red, which put a second red row in his queue for one question.
+    /// </summary>
     [Fact]
-    public void ExpireCarryingOn_AChildThatGoesRed_FlipsNothingOnTheOwner()
+    public void ExpireCarryingOn_AChildThatGoesRed_LeavesTheOwnerCarryingOn_AndTheClockNeverRuns()
     {
         var now = JudgedAt;
         var childRed = false;
@@ -354,8 +361,8 @@ public sealed class TurnVerdictWatchdogTests
         env.Store(Tenant, "owner", CarryingOn());
         env.Owned = sid => sid != "owner" ? null
             : childRed
-                ? new OwnedSessionsFacts(Working: 0, Stopped: 0, NeedYou: 1, LastActivityAtUtc: JudgedAt.AddMinutes(5))
-                : new OwnedSessionsFacts(Working: 1, Stopped: 0, NeedYou: 0, LastActivityAtUtc: now);
+                ? new OwnedSessionsFacts(Working: 0, Live: 1, Stopped: 0, NeedYou: 1, LastActivityAtUtc: JudgedAt.AddMinutes(5))
+                : new OwnedSessionsFacts(Working: 1, Live: 1, Stopped: 0, NeedYou: 0, LastActivityAtUtc: now);
         var service = new TurnVerdictService(env);
 
         now = JudgedAt.AddMinutes(4);
@@ -373,11 +380,130 @@ public sealed class TurnVerdictWatchdogTests
         Assert.Equal(1, env.StoredCount(Tenant, "owner"));
         Assert.DoesNotContain(env.Records, r => r.EventType == ActivityEventTypes.TurnVerdictExpired);
 
-        // The child's stop is an ordinary stop for the owner's clock: ten minutes from it, and not before.
+        // Long past the ten minutes, and still nothing: a live child is a session running underneath.
+        now = JudgedAt.AddMinutes(45);
+        Assert.Equal(0, service.ExpireCarryingOn(Tenant));
+        Assert.Equal(TurnVerdictVocabulary.ContinuesAlone, env.Latest(Tenant, "owner")!.Verdict);
+    }
+
+    /// <summary>
+    /// THE CASE THE CLOCK EXISTS FOR, kept: the child EXITED, so nothing is running underneath, and an owner that
+    /// said it would carry on and then did not goes red ten minutes after that child stopped.
+    /// </summary>
+    [Fact]
+    public void ExpireCarryingOn_AChildThatExits_StillExpiresTheOwnerTenMinutesLater()
+    {
+        var now = JudgedAt;
+        var childGone = false;
+        var env = ColourOnEnv(() => now);
+        env.Store(Tenant, "owner", CarryingOn());
+        env.Owned = sid => sid != "owner" ? null
+            : childGone
+                ? new OwnedSessionsFacts(Working: 0, Live: 0, Stopped: 1, NeedYou: 0, LastActivityAtUtc: JudgedAt.AddMinutes(5))
+                : new OwnedSessionsFacts(Working: 1, Live: 1, Stopped: 0, NeedYou: 0, LastActivityAtUtc: now);
+        var service = new TurnVerdictService(env);
+
+        childGone = true;
         now = JudgedAt.AddMinutes(15).AddSeconds(-1);
         Assert.Equal(0, service.ExpireCarryingOn(Tenant));
         now = JudgedAt.AddMinutes(15);
         Assert.Equal(1, service.ExpireCarryingOn(Tenant));
+        Assert.Equal(TurnVerdictVocabulary.NeededYou, env.Latest(Tenant, "owner")!.Verdict);
+    }
+
+    /// <summary>
+    /// ISSUE 2992, THE TIMELINE THAT STARTED THIS. The owner said it would wait for its Worker; the Worker then ran
+    /// one foreground command that printed nothing for about eight minutes. Its terminal silence made the Director
+    /// report it as waiting, so the old rule - which stopped only on Working - counted the ten minutes and turned
+    /// the owner red while the Worker was mid test run. Liveness is what is actually being asked.
+    /// </summary>
+    [Fact]
+    public void ExpireCarryingOn_AChildInsideOneLongSilentCommand_NeverRedsItsOwner()
+    {
+        var now = JudgedAt;
+        var env = ColourOnEnv(() => now);
+        env.Store(Tenant, "owner", CarryingOn());
+        // Alive and in the roster, but its terminal has printed nothing since the moment the owner was judged.
+        env.Owned = sid => sid == "owner"
+            ? new OwnedSessionsFacts(Working: 0, Live: 1, Stopped: 0, NeedYou: 0, LastActivityAtUtc: JudgedAt)
+            : null;
+        var service = new TurnVerdictService(env);
+
+        now = JudgedAt.AddMinutes(33);
+
+        Assert.Equal(0, service.ExpireCarryingOn(Tenant));
+        Assert.Equal(TurnVerdictVocabulary.ContinuesAlone, env.Latest(Tenant, "owner")!.Verdict);
+        Assert.Equal("purple", SessionOrdering.EffectiveColor(RowFor(env.Latest(Tenant, "owner")!)));
+        Assert.DoesNotContain(env.Records, r => r.EventType == ActivityEventTypes.TurnVerdictExpired);
+    }
+
+    // ================================================================= the undo
+
+    /// <summary>
+    /// THE EXPIRY IS TAKEN BACK when a session is running underneath again (the owner's ruling, 2026-09-17). The
+    /// clock used to be a ratchet: the owner watched an Architect sit red for twenty-eight minutes with its Manager
+    /// plainly working, because only a real new stop could replace a stored verdict.
+    /// </summary>
+    [Fact]
+    public void ExpireCarryingOn_AnExpiryIsUndone_WhenTheSessionOwnsALiveSessionAgain()
+    {
+        var now = JudgedAt;
+        var childAlive = false;
+        var env = ColourOnEnv(() => now);
+        env.Store(Tenant, "owner", CarryingOn());
+        env.Owned = sid => sid != "owner" ? null
+            : childAlive
+                ? new OwnedSessionsFacts(Working: 1, Live: 1, Stopped: 0, NeedYou: 0, LastActivityAtUtc: now)
+                : null;
+        var service = new TurnVerdictService(env);
+
+        // Nothing underneath: the clock runs out and the row is red, as it should be.
+        now = JudgedAt.AddMinutes(10);
+        Assert.Equal(1, service.ExpireCarryingOn(Tenant));
+        var expired = env.Latest(Tenant, "owner")!;
+        Assert.Equal(TurnVerdictVocabulary.NeededYou, expired.Verdict);
+
+        // A session is running underneath again: the next tick takes the red back.
+        childAlive = true;
+        now = JudgedAt.AddMinutes(12);
+        Assert.Equal(0, service.ExpireCarryingOn(Tenant));
+
+        var undone = env.Latest(Tenant, "owner")!;
+        Assert.Equal(TurnVerdictVocabulary.ContinuesAlone, undone.Verdict);
+        Assert.Equal("purple", SessionOrdering.EffectiveColor(RowFor(undone)));
+        Assert.NotEqual(expired.VerdictId, undone.VerdictId);
+        Assert.Equal(now, undone.JudgedAtUtc);
+        Assert.Contains(env.Records, r => r.EventType == ActivityEventTypes.TurnVerdictExpiryUndone
+                                          && r.Cause == ActivityCauses.CarryingOnAgain);
+        // The receipt is kept; the expiry's sentence about not having worked is not.
+        Assert.Equal(ReplyText, undone.Evidence);
+        Assert.Equal(TurnVerdictWatchdog.CarryingOnAgainLabel, undone.Label);
+    }
+
+    /// <summary>
+    /// THE UNDO TOUCHES ONLY THE CLOCK'S OWN RECORD. A judge read a screen and said a person is wanted; no fact
+    /// about the sessions underneath it contradicts that, and a clock may not overrule a model's answer.
+    /// </summary>
+    [Fact]
+    public void ExpireCarryingOn_AJudgesOwnNeededYou_IsNeverUndone()
+    {
+        var now = JudgedAt.AddMinutes(12);
+        var env = ColourOnEnv(() => now);
+        var judged = CarryingOn(id: "judged-red");
+        judged.Verdict = TurnVerdictVocabulary.NeededYou;
+        judged.Label = "Asks before applying the migration";
+        env.Store(Tenant, "owner", judged);
+        env.Owned = sid => sid == "owner"
+            ? new OwnedSessionsFacts(Working: 1, Live: 1, Stopped: 0, NeedYou: 0, LastActivityAtUtc: now)
+            : null;
+        var service = new TurnVerdictService(env);
+
+        Assert.Equal(0, service.ExpireCarryingOn(Tenant));
+
+        var latest = env.Latest(Tenant, "owner")!;
+        Assert.Equal(TurnVerdictVocabulary.NeededYou, latest.Verdict);
+        Assert.Equal("judged-red", latest.VerdictId);
+        Assert.DoesNotContain(env.Records, r => r.EventType == ActivityEventTypes.TurnVerdictExpiryUndone);
     }
 
     private static string ContinuesAloneAnswer() => JsonSerializer.Serialize(new
