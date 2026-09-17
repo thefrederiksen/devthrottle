@@ -1217,3 +1217,25 @@ Each break below was made on purpose, the named tests went red, and the file was
 
 The two owner decisions after the slice 2 fix round (snooze versus the doorbell, and restore versus the
 spawn owner pin) are still open. Inspection 5 of the slice 2 fix round is separate from this slice.
+
+## Owner decisions, 17 September 2026 ("go with your recommendation")
+
+1. **Snooze.** The exception stands: work the Director attributes to an agent-origin send (a doorbell,
+   any product send) does not end an armed snooze; the owner's own work, and work nothing explains,
+   still do. Slice 5 updates the 14 and 17 July law in `docs/new_architecture/sessions.html` with this
+   date and the reason: a snooze is the owner's wish to be left alone, and another agent ringing must
+   not undo it.
+2. **Restore.** The spawn owner pin stays. The Director restart's restore step becomes a Director act:
+   the Director performs the restore spawns itself through its own relayed arm, which the Gateway
+   already trusts to name owners, instead of writing `--controlled-by <id>` commands for a session to
+   run. This is a slice of its own, after slice 3 and before the words: "Slice 6 - restore is a
+   Director act". The director-restart skill's restore step is reworded in the same slice.
+
+## State after slice 3 (17 September 2026)
+
+- Slice 2 head pinned at `e59622d1` on branch `mission/message-load-slice2`, awaiting inspection 5
+  (Codex, from 07:47 when its limit resets) and then its pull request.
+- Slice 3 head `80adce1e`, awaiting inspection 6.
+- Next seat: slice 6, restore is a Director act (owner decision 2), because the spawn owner pin is
+  live on main since slice 1 and a Director restart today would fail to restore controlled seats.
+- Then slice 4 (the row line), slice 5 (the words, including the snooze law), the record, the release.
