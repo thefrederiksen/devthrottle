@@ -397,7 +397,7 @@ public sealed class NarrationCallTests : IDisposable
     }
 
     [Fact]
-    public async Task AnExplainThatReusesARefusedRecordWithAMenu_IsStillGivenTheMenu()
+    public async Task AVoiceRefreshThatReusesARefusedRecordWithAMenu_IsStillGivenTheMenu()
     {
         var rig = Build(menu: true);
         rig.Env.Judge = (_, _) => Task.FromResult(FakeTurnVerdictEnvironment.Menu(MenuQuestion, "a receipt the screen does not show", JudgeSpoken));
