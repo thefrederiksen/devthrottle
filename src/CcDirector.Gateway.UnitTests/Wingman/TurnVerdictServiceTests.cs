@@ -77,7 +77,7 @@ public sealed class TurnVerdictServiceTests : IDisposable
             customSpokenRules: () => null,
             isVoiceSession: (_, _) => false,
             fleetManagerSessionId: _ => null,
-            turnState: (_, _) => null);
+            turnTail: (_, _) => null);
         var service = new TurnVerdictService(env);
 
         var held = await service.StartTurnEnd(Signal("child-1"));

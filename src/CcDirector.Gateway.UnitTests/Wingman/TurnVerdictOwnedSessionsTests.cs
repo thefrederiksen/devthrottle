@@ -1,4 +1,4 @@
-﻿using CcDirector.Core.Tenancy;
+using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Briefing;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Wingman;

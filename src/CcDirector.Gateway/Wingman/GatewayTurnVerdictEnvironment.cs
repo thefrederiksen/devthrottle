@@ -124,7 +124,7 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
     private readonly Func<string?> _customSpokenRules;
     private readonly Func<TenantId, string, bool> _isVoiceSession;
     private readonly Func<TenantId, string?> _fleetManagerSessionId;
-    private readonly Func<TenantId, string, SessionTurnState?> _turnState;
+    private readonly Func<TenantId, string, SessionTurnTail?> _turnTail;
     private readonly ActivityEventStore? _ledger;
     private readonly Func<TenantId, IDisposable>? _enterTenantScope;
     private readonly Func<DateTime> _nowUtc;
@@ -135,8 +135,8 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
     /// shipped default.</param>
     /// <param name="fleetManagerSessionId">The session an account has marked as its Fleet Manager, or null. Production
     /// reads the account's <c>fleet_manager_session_id</c> setting.</param>
-    /// <param name="turnState">A session's transcript turn signal, or null when it has none (issue #2992). Production
-    /// reads the session's stored turn head inside the account's scope.</param>
+    /// <param name="turnTail">The end of a session's stored conversation, or null when nothing was pushed (issue #2992). Production
+    /// reads the session's stored turns inside the account's scope.</param>
     public GatewayTurnVerdictEnvironment(
         Func<TenantId, TurnVerdictSettings> settings,
         PushedSessionStore pushedSessions,
@@ -151,7 +151,7 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
         Func<string?> customSpokenRules,
         Func<TenantId, string, bool> isVoiceSession,
         Func<TenantId, string?> fleetManagerSessionId,
-        Func<TenantId, string, SessionTurnState?> turnState,
+        Func<TenantId, string, SessionTurnTail?> turnTail,
         ActivityEventStore? ledger = null,
         Func<TenantId, IDisposable>? enterTenantScope = null,
         Func<DateTime>? nowUtc = null)
@@ -169,7 +169,7 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
         _customSpokenRules = customSpokenRules ?? throw new ArgumentNullException(nameof(customSpokenRules));
         _isVoiceSession = isVoiceSession ?? throw new ArgumentNullException(nameof(isVoiceSession));
         _fleetManagerSessionId = fleetManagerSessionId ?? throw new ArgumentNullException(nameof(fleetManagerSessionId));
-        _turnState = turnState ?? throw new ArgumentNullException(nameof(turnState));
+        _turnTail = turnTail ?? throw new ArgumentNullException(nameof(turnTail));
         _ledger = ledger;
         _enterTenantScope = enterTenantScope;
         _nowUtc = nowUtc ?? (() => DateTime.UtcNow);
@@ -225,7 +225,7 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
 
     public OwnedSessionsFacts? OwnedSessions(TenantId tenant, string sessionId)
         => TurnVerdictOwnedSessions.For(
-            _pushedSessions.SnapshotFresh(tenant, _streamStale), sessionId, owned => _turnState(tenant, owned));
+            _pushedSessions.SnapshotFresh(tenant, _streamStale), sessionId, owned => _turnTail(tenant, owned));
 
     public void Store(TenantId tenant, string sessionId, TurnVerdictDto verdict) => _store.Store(tenant, sessionId, verdict);
 

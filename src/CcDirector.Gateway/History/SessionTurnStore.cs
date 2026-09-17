@@ -243,6 +243,38 @@ public sealed class SessionTurnStore
     }
 
     /// <summary>
+    /// The END of the session's current conversation: the head's agent facts and the last
+    /// <paramref name="maxTurns"/> turns of the contiguous prefix, in order, with the flags the Chat rows do not
+    /// carry (a meta line, a sidechain line). Null when nothing has been pushed for the session. Cheaper than
+    /// <see cref="ReadCurrent"/> for a reader that only needs to know how the conversation ends - the carrying-on
+    /// clock asks this for every session an owner owns, on every sweep.
+    /// </summary>
+    public SessionTurnTail? ReadTail(string sessionId, int maxTurns)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(sessionId);
+        ArgumentOutOfRangeException.ThrowIfLessThan(maxTurns, 1);
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext();
+            var head = ctx.SessionTurnHeads.AsNoTracking().FirstOrDefault(h => h.SessionId == sessionId);
+            if (head is null) return null;
+            var rows = ctx.SessionTurns.AsNoTracking()
+                .Where(t => t.SessionId == sessionId && t.Generation == head.Generation
+                            && t.Ordinal < head.Count && t.Ordinal >= head.Count - maxTurns)
+                .OrderBy(t => t.Ordinal)
+                .ToList();
+            var turns = rows.Select(row => new StoredTurn(
+                    row.Role,
+                    JsonSerializer.Deserialize<List<HistoryPartDto>>(row.PartsJson, Json) ?? new List<HistoryPartDto>(),
+                    row.TimestampUtc is { } ts ? DateTime.SpecifyKind(ts, DateTimeKind.Utc) : null,
+                    row.IsMeta,
+                    row.IsSidechain))
+                .ToList();
+            return new SessionTurnTail(head.SessionId, head.Agent, head.IsSupported, head.HistoryState, turns);
+        }
+    }
+
+    /// <summary>
     /// Retention, whole sessions at a time: a session whose last push is older than the cutoff loses its
     /// head and every turn; a session still being pushed keeps its current generation intact and loses
     /// only the turns of generations it has LEFT that are older than the cutoff. Ninety days, the

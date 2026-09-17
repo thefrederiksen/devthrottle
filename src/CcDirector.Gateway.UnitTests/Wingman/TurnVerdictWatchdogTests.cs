@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Wingman;
 using CcDirector.Gateway.Briefing;
