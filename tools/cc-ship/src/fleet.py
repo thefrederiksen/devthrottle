@@ -102,14 +102,27 @@ def _run(args: list[str], timeout: int = 120) -> str:
     return proc.stdout
 
 
+# The command-line arguments a Claude Code session gets when cc-ship names its model.
+# The Director adds its own session id and hook settings after these.
+CLAUDE_ARGS_WITH_MODEL = "--dangerously-skip-permissions --model {model}"
+
+
 def spawn_session(
-    repo: Path, agent: str, controlled_by: str, name: str, brief: Path
+    repo: Path, agent: str, controlled_by: str, name: str, brief: Path,
+    model: str | None = None,
 ) -> str:
     """Open a tracked session whose whole task is the brief FILE. Returns its id.
 
     The prompt is one short line pointing at the brief: long spawn prompts can
-    fail to arrive, and fleet text truncates at the first newline.
+    fail to arrive, and fleet text truncates at the first newline. A model can be
+    named for Claude Code only; the session's model is set on its command line, so
+    the owner's default model is never changed.
     """
+    extra = []
+    if model is not None:
+        if agent != "ClaudeCode":
+            raise FleetError(f"cc-ship can name a model only for ClaudeCode, not {agent}")
+        extra = ["--args", CLAUDE_ARGS_WITH_MODEL.format(model=model)]
     prompt = f"Read the file {brief} and follow it exactly. It is your whole task."
     try:
         out = _run([
@@ -118,6 +131,7 @@ def spawn_session(
             "--controlled-by", controlled_by,
             "--name", name,
             "--prompt", prompt,
+            *extra,
         ])
     except FleetError as exc:
         # A Gateway timeout does not mean the spawn failed: the session may exist

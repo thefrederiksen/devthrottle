@@ -347,3 +347,27 @@ def test_wait_for_output_SecondBriefOmissionLater_StartsANewWindow(tmp_path, mon
     monkeypatch.setattr(fleet, "find_session", fake.find)
     result = fleet.wait_for_output("s1", out, 600, poll_seconds=10)
     assert result.outcome == fleet.FINISHED
+
+
+def test_spawn_session_ClaudeModel_SetOnTheCommandLineNotTheDefault(monkeypatch, clock):
+    seen = {}
+    def fake_run(args, timeout=120):
+        seen["args"] = args
+        return "id: 11111111-2222-3333-4444-555555555555\n"
+    monkeypatch.setattr(fleet, "_run", fake_run)
+    fleet.spawn_session(Path("."), "ClaudeCode", "me", "n", Path("b"), model="claude-fable-5-1")
+    i = seen["args"].index("--args")
+    assert seen["args"][i + 1] == "--dangerously-skip-permissions --model claude-fable-5-1"
+
+
+def test_spawn_session_ModelForCodex_Refused(monkeypatch, clock):
+    with pytest.raises(fleet.FleetError, match="only for ClaudeCode"):
+        fleet.spawn_session(Path("."), "Codex", "me", "n", Path("b"), model="gpt-5")
+
+
+def test_spawn_session_NoModel_NoArgsOverride(monkeypatch, clock):
+    seen = {}
+    monkeypatch.setattr(fleet, "_run", lambda args, timeout=120: seen.setdefault("a", args) and
+                        "id: 11111111-2222-3333-4444-555555555555\n")
+    fleet.spawn_session(Path("."), "Codex", "me", "n", Path("b"))
+    assert "--args" not in seen["a"]
