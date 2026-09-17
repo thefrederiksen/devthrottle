@@ -2339,3 +2339,95 @@ check run takes an hour and a half. The inspections were done per slice, which i
    inspections 9, 11 and 12 pass.
 Then: publish the fleet-comms and mission drafts if any exist on the Gateway (slice 5 found the shipped
 files are the source), publish the director-restart skill draft v3, cut the release, write the report.
+
+## Integration (17 September 2026, integration Manager seat 2)
+
+The slice 2, slice 3 and slice 6 fix branches merged into `mission/message-load`. The slice branches were not
+touched. No pull request opened, no fleet message sent, nothing published.
+
+### The three merge commits
+
+1. `fb42fcf6` - `origin/mission/message-load-slice2` (made by the previous integration Manager, whose account hit a
+   spend limit before it built or tested anything).
+2. `acdf35c7` - `origin/mission/message-load-slice3`.
+3. `0f81d590` - `origin/mission/message-load-slice6`.
+
+Then `11959d58`, the fix for the one failure a merge caused (below).
+
+### Every conflict and how it was resolved
+
+- **Slice 2, `handoff.md`**: both sides appended sections; every section kept, ordered by when it was written.
+- **Slice 2, `FleetMessageStore.MarkStuckWithNotices`**: the mission branch had moved notice staging into
+  `StageSystemNotice`; slice 2's body (inspection 5, ruling 2: the verdict tells a duplicate from a refusal) was
+  taken as written.
+- **Slice 3, `handoff.md`**: the previous Manager had already written the union but not staged it. Checked, not
+  trusted: against the slice 3 head the only line not present is judgement call 5's old wording, which slice 2
+  fix round 2 corrected (inspection 5, ruling 3); against the mission branch nothing is missing.
+- **Slice 3, `FleetMessageStore`** (auto-merged, plus an unstaged change the previous Manager left): the overdue
+  path's `JudgeOverdueNotice` and the stuck path's inline copy of the same judgement are now one helper,
+  `JudgeSystemNotice`, and the unused `StageSystemNotice` is gone. Same logic for both paths: queued writes the
+  mark and the notice; a duplicate writes the mark and no second notice; any other refusal leaves the row open
+  for the next sweep (inspection 5 ruling 2, inspection 6 ruling 1). Kept, and committed inside the merge.
+- **Slice 6, `handoff.md`**: union, ordered by commit time: inspection 7 rulings after inspection 6 rulings; the
+  slice 6 fix round and its state note after slice 2 fix round 3 and before slice 5. The same corrected judgement
+  call 5 line is the only branch line not kept.
+- **Slice 6, `GatewayEndpoints.Map` parameter list**: slice 4 added `inboxLines`, slice 6 fix round added
+  `workspaces`, both as the last optional parameter. Both kept (`inboxLines`, then `workspaces`); every caller
+  names its arguments, so nothing else changed.
+- **Auto-merged, checked**: for each file both sides touched (`Session.cs`, `FleetMessageRequests.cs`,
+  `FleetDoorbell.cs`, `FleetDoorbellTests.cs`, `FleetMessageLimits.cs`, `FleetMessagePolicy.cs`,
+  `FleetMessageService.cs`, `session_ops.py`, `GatewayHost.cs`, `cli.py`, `docs/cli-reference.md`, the actions
+  fixture), every line the branch added is present in the merged file, except the notice-judge lines folded into
+  `JudgeSystemNotice` above. Every file only the branch touched is identical to the branch head. No conflict
+  markers anywhere (`git diff --check` clean; no `<<<<<<<` under src, tools, packages, docs/missions).
+
+### The one failure a merge caused, fixed
+
+`FleetMessageReplyStoreTests.A_notice_the_policy_refuses_leaves_the_question_open_and_the_next_sweep_retries`
+(slice 3 fix round) built limits with a 10-character text cap; slice 2 fix round 3 (inspection 8, ruling 2)
+refuses any cap below 45, so the test threw before reaching the store. It now uses
+`FleetMessageLimits.MinTextLength` and a notice one character longer, so the policy still refuses the notice.
+Watched failing: with the overdue refusal branch changed to write the mark, it and
+`A_blank_notice_is_refused_and_leaves_the_question_open` went red (`Assert.Empty() Failure`); restored, 46 of 46
+green.
+
+### The actions fixture
+
+Not regenerated: `test_actions_json_is_unchanged` passes against the real `actions --json` output on the merged
+tree (88 actions, `message-reply` and `director-restore` both present), so the auto-merged pin is already what the
+tool prints.
+
+### Test totals (Mac mini, merged tree, 17 September 2026)
+
+- **Build**: Core unit tests, Core tests, Gateway unit tests, Gateway route tests, Avalonia tests and the Avalonia
+  app projects all build with 0 errors. The whole solution cannot build on a Mac (`CcClick` and
+  `CcDirector.Terminal` target Windows).
+- **Core unit tests**: 583 passed, 0 failed.
+- **Core tests**: 4447 total, 4378 passed, 8 skipped, **61 failed - every one by name in
+  `slice-2-evidence/fix-round/full-suite-failures.txt`**. No new one.
+- **Gateway unit tests** (after the fix): 5422 total, 5407 passed, 8 skipped, **7 failed - the known 7 Mac-only**
+  (CronJobStore 1, RuleCandidateFilter 1, RulePrimitives 1, SessionCommandExecutorLiveness 3,
+  WorkListStorePersistence 1). Before the fix: 8, the eighth being the merge-caused failure above.
+- **Gateway route tests** (full suite, 20 minutes, merged tree before the test-only fix, which is not in this
+  project): 2604 total, 2536 passed, 52 skipped, **16 failed - every one in the known list** (ContextLessRouteCensus
+  1, FleetSpawnMissionAttach 2, FleetSpawnOrigin 4, GatewayTestSuiteLock 2, HostedProcessControlDeny 2,
+  TunnelRosterPushReadProof 3, WorkflowSeat 2). No new one.
+- **cc-devthrottle** (scratch virtual environment with the local `cc_storage`, `cc_shared` and the tool, plus
+  pytest): **3241 passed, 0 failed**; with `TERM=dumb FORCE_COLOR=1`: 3241 passed; with `FORCE_COLOR=1` alone:
+  3241 passed. The colour failure slice 5 recorded is gone, as slice 3's fix round intended.
+- **Web**: typecheck clean on every workspace; mobile and Cockpit `vite build` succeed. Tests: client-core 1226
+  total, 23 failed; Cockpit 354 total, 24 failed; phone 81 total, 30 failed; cc-assistant 106 passed. The 77
+  failing names are exactly those in `slice-4-evidence/web-failures-before-and-after.txt`; no merge touched
+  `packages` or `apps`.
+
+### What is NOT proven
+
+- **Avalonia tests** were built but not run (not asked; no merge touched the desktop app).
+- **`scripts/test-local.ps1`** not run (no PowerShell on the Mac); every suite above was run directly.
+- **PostgreSQL**: nothing ran against it; every store ran on SQLite.
+- **Live**: no Director, agent, hosted Gateway or phone was used. Nothing here re-proves a slice's guards beyond
+  the suites passing; only the one repaired guard was watched failing again.
+- **Windows and Linux**: not run.
+- **The interaction of the three fix rounds** is covered only by the unit and route suites; no test exercises a
+  restore (slice 6) and the doorbell or replies (slices 2 and 3) together.
+- **Rebasing onto main** (landing plan, pull request B) is not done; this is the merged mission branch only.
