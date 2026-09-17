@@ -135,6 +135,7 @@ browser_app = typer.Typer(
 fleet_app = typer.Typer(
     cls=AxiGroup,
     help=(
+        "Fleet Manager records, standing preferences, and the digest.\n\n"
         "The Fleet Manager's stored news (ready, finding, decision), the owner's standing "
         "preferences, and the start-of-conversation digest."
     ),
@@ -2653,7 +2654,10 @@ def fleet_outcomes(
     every_page: bool = typer.Option(False, "--all", help="Follow every page to the end and list every record."),
     json_output: bool = _JSON_OPT,
 ) -> None:
-    """List the account's outcome records, newest first, one page at a time (or every page with --all)."""
+    """List the account's outcome records, newest first.
+
+    One page at a time, or every page with --all.
+    """
     fleet_ops.list_outcomes(status, kind, count, json_output, cursor=cursor, every_page=every_page)
 
 
@@ -2684,7 +2688,7 @@ def fleet_digest(
     ),
     json_output: bool = _JSON_OPT,
 ) -> None:
-    """Everything the Fleet Manager reads at the start of a conversation, in one answer."""
+    """Everything the Fleet Manager reads at the start of a conversation."""
     fleet_ops.digest(session, json_output)
 
 

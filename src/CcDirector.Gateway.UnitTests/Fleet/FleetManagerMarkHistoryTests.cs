@@ -7,7 +7,9 @@ namespace CcDirector.Gateway.Tests.Fleet;
 
 /// <summary>
 /// The history of which sessions an account has marked as its Fleet Manager (the Fleet Manager mission, step 3),
-/// against a real database file: only ever added to, one row per session, partitioned by account.
+/// against a real database file: one row per session, partitioned by account, and bounded - the store keeps
+/// the 20 most recently marked sessions of each account (<see cref="FleetManagerMarkHistory.MaxRememberedPerAccount"/>),
+/// not every session ever marked.
 /// </summary>
 public sealed class FleetManagerMarkHistoryTests : IDisposable
 {
@@ -21,8 +23,12 @@ public sealed class FleetManagerMarkHistoryTests : IDisposable
 
     public void Dispose() => _harness.Dispose();
 
+    /// <summary>
+    /// Two sessions, well under the cap of 20 most recently marked: both are kept, oldest first, a re-mark keeps the
+    /// first-marked time, and the rows survive a restart. The cap itself is proven by the test below.
+    /// </summary>
     [Fact]
-    public void Record_KeepsEverySessionEverMarked_OldestFirst_AndSurvivesARestart()
+    public void Record_UnderTheCapOfTwentyMostRecentlyMarked_KeepsEachSessionOnce_OldestFirst_AndSurvivesARestart()
     {
         var history = new FleetManagerMarkHistory(_harness.Open());
 
