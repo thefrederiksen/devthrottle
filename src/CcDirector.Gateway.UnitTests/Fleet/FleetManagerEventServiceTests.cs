@@ -48,6 +48,8 @@ public sealed class FleetManagerEventServiceTests : IDisposable
     private readonly GateableBrain _brain = new(FakeTurnVerdictEnvironment.Finished(Evidence, "The branch is pushed."));
     private bool _judgeEnabled = true;
     private string? _marked = "fm";
+    private bool _checksIdle = true;
+    private readonly HashSet<string> _shutDown = new(StringComparer.Ordinal);
     private readonly TurnVerdictService _seat;
     private int _readingsTold;
 
@@ -90,7 +92,7 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         _seat = new TurnVerdictService(verdictEnv);
 
         _env = new RecordingEnvironment(new GatewayFleetManagerEventEnvironment(_pushed, Stale,
-            route: (_, _) => null, mark: _ => _marked), () => _now);
+            route: (_, _) => null, mark: _ => _marked, checksIdleBeforeTyping: (_, _) => _checksIdle, directorShutDown: (_, d) => _shutDown.Contains(d)), () => _now);
         _service = new FleetManagerEventService(_events, _env);
         // As the host wires it: every reading the seat finishes reaches the service in use at that moment.
         _seat.ReadingCompleted += c =>
@@ -513,22 +515,73 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         Assert.Equal("it had crashed when the Gateway next looked", e.Detail);
     }
 
+    /// <summary>
+    /// ABSENCE IS NOT DEATH (inspection round 2, finding 2). The Gateway restarts - its push store is empty - and the
+    /// worker's Director stays disconnected for days, far past every timeout there is. The worker is not counted dead,
+    /// however many times the reconcile runs. Only the Director's own goodbye makes it a death.
+    /// </summary>
     [Fact]
-    public async Task Reconcile_ADirectorThatHasNotReportedYet_IsWaitedFor_ThenItsMissingSessionsDied()
+    public async Task Reconcile_AfterARestart_ADirectorDisconnectedForDays_NothingDies_UntilItsDirectorSaysGoodbye()
     {
         _service.OnSessionWorking(Tenant, "worker-1", "dir-1");
+        Assert.True(_pushed.UnregisterConnection(Tenant, "dir-1", "conn-1"));
         _pushed.Forget(Tenant, "dir-1");
         Restart();
 
-        await _service.ReconcileAsync(Tenant);
-        Assert.Empty(Open());
+        foreach (var wait in new[] { TimeSpan.Zero, TimeSpan.FromMinutes(11), TimeSpan.FromHours(2), TimeSpan.FromDays(3) })
+        {
+            _now += wait;
+            await _service.ReconcileAsync(Tenant);
+            Assert.Empty(Open());
+        }
 
-        _now += FleetManagerEventService.DirectorGrace;
+        _shutDown.Add("dir-1");
         await _service.ReconcileAsync(Tenant);
 
         var e = Assert.Single(Open());
         Assert.Equal(("died", "worker-1"), (e.Kind, e.SessionId));
-        Assert.Contains("has not reported its sessions", e.Detail);
+        Assert.Contains("its Director shut down", e.Detail);
+    }
+
+    /// <summary>The Director is known but disconnected, its rows still held; and then connected but not yet reporting.
+    /// Neither is a death, whatever the clock says.</summary>
+    [Fact]
+    public async Task Reconcile_ADirectorDisconnectedOrSilent_IsNeverADeath()
+    {
+        _service.OnSessionWorking(Tenant, "worker-1", "dir-1");
+        Assert.True(_pushed.UnregisterConnection(Tenant, "dir-1", "conn-1"));
+        _now += TimeSpan.FromDays(2);
+        await _service.ReconcileAsync(Tenant);
+        Assert.Empty(Open());
+
+        _pushed.Forget(Tenant, "dir-1");
+        _pushed.RegisterConnection(Tenant, "dir-1", "conn-2");
+        Assert.Equal(FleetObservation.ConnectedButSilent, _pushed.ConnectedFleet(Tenant, "dir-1").Observation);
+        _now += TimeSpan.FromDays(2);
+        await _service.ReconcileAsync(Tenant);
+        Assert.Empty(Open());
+
+        // It reports, without the worker: now it is a death.
+        Assert.True(_pushed.ApplySnapshot(Tenant, "dir-1", "conn-2", 1,
+            _fleet.Values.Where(s => s.SessionId != "worker-1").ToList()));
+        await _service.ReconcileAsync(Tenant);
+        Assert.Equal("worker-1", Assert.Single(Open()).SessionId);
+    }
+
+    /// <summary>A session that moved: its old Director reports the removal after the new Director reported it alive.
+    /// Neither the removal nor the reconcile counts it dead (inspection round 2, finding 5).</summary>
+    [Fact]
+    public async Task Removal_WhileAnotherDirectorReportsTheSessionAlive_IsNotADeath()
+    {
+        _service.OnSessionWorking(Tenant, "worker-2", "dir-1");
+        _pushed.RegisterConnection(Tenant, "dir-2", "conn-b");
+        Assert.True(_pushed.ApplySnapshot(Tenant, "dir-2", "conn-b", 1, new List<SessionDto> { Session("worker-2", controller: "fm") }));
+        Assert.True(_pushed.ApplyRemove(Tenant, "dir-1", "conn-1", ++_sequence, "worker-2"));
+
+        _service.OnSessionRemoved(Tenant, "worker-2", "dir-1");
+        await _service.ReconcileAsync(Tenant);
+
+        Assert.Empty(Open());
     }
 
     [Fact]
@@ -716,7 +769,7 @@ public sealed class FleetManagerEventServiceTests : IDisposable
             var requests = new List<PromptRequest>();
             var production = new GatewayFleetManagerEventEnvironment(_pushed, Stale,
                 route: (_, directorId) => DirectorRoute(directorId, director, requests),
-                mark: _ => _marked);
+                mark: _ => _marked, checksIdleBeforeTyping: (_, _) => _checksIdle, directorShutDown: (_, d) => _shutDown.Contains(d));
             _env.SendThrough(production);
             SetState("fm", "WaitingForInput");
 
@@ -741,6 +794,41 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         finally { manager.Dispose(); }
     }
 
+    /// <summary>
+    /// AN OLDER DIRECTOR GETS NOTHING TYPED INTO IT (inspection round 2, finding 3). Its Hello did not say it checks the
+    /// session is waiting before typing, so the production environment sends nothing - the Director never sees the
+    /// request - and the events stay undelivered. Once the Director says it checks, they are sent.
+    /// </summary>
+    [Fact]
+    public async Task ADirectorOlderThanTheIdleCheck_IsSentNothing_AndTheEventsWait()
+    {
+        var manager = new SessionManager(new Core.Configuration.AgentOptions());
+        try
+        {
+            var director = manager.CreateEmbeddedSession(Path.GetTempPath(), null, new ExecuteActionTestBackend());
+            var requests = new List<PromptRequest>();
+            _env.SendThrough(new GatewayFleetManagerEventEnvironment(_pushed, Stale,
+                route: (_, directorId) => DirectorRoute(directorId, director, requests),
+                mark: _ => _marked, checksIdleBeforeTyping: (_, _) => _checksIdle, directorShutDown: (_, _) => false));
+            director.ApplyTerminalActivityState(ActivityState.WaitingForInput);
+            _checksIdle = false;
+            SetState("fm", "WaitingForInput");
+
+            await TurnEndAsync("worker-1");
+            Assert.Equal(FleetManagerDeliveryResult.DirectorTooOld, await _service.DeliverToAsync(Tenant, "fm"));
+
+            Assert.Empty(requests);
+            Assert.Null(Assert.Single(Open()).DeliveredTo);
+            Assert.Equal(0, director.InputStats.Snapshot().AgentDrivenTurns);
+
+            _checksIdle = true;
+            Assert.Equal(FleetManagerDeliveryResult.Delivered, await _service.DeliverToAsync(Tenant, "fm"));
+            Assert.Single(requests);
+            Assert.Equal("fm", Assert.Single(Open()).DeliveredTo);
+        }
+        finally { manager.Dispose(); }
+    }
+
     // ---- minor 8: the Director's receipt is read, as the answer route reads it
 
     [Fact]
@@ -751,6 +839,9 @@ public sealed class FleetManagerEventServiceTests : IDisposable
 
         Assert.Equal(FleetManagerPromptSend.Accepted,
             GatewayFleetManagerEventEnvironment.Classify("fm", Ok(new PromptResponse { Accepted = true, IdleChecked = true })));
+        // A receipt that does not say the check was made is refused, not delivered (inspection round 2, finding 3).
+        Assert.Equal(FleetManagerPromptSend.DirectorTooOld,
+            GatewayFleetManagerEventEnvironment.Classify("fm", Ok(new PromptResponse { Accepted = true, IdleChecked = false })));
         Assert.Equal(FleetManagerPromptSend.Busy,
             GatewayFleetManagerEventEnvironment.Classify("fm", Ok(new PromptResponse { RefusedBusy = true, ActivityState = "Working" })));
         Assert.Equal(FleetManagerPromptSend.Unanswered,
@@ -828,6 +919,7 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         public IReadOnlyList<(string DirectorId, SessionDto Session)> Roster(TenantId tenant) => _inner.Roster(tenant);
         public (FleetObservation Observation, IReadOnlyList<SessionDto> Sessions) DirectorFleet(TenantId tenant, string directorId)
             => _inner.DirectorFleet(tenant, directorId);
+        public bool DirectorShutDown(TenantId tenant, string directorId) => _inner.DirectorShutDown(tenant, directorId);
 
         public async Task<FleetManagerPromptSend> SendPromptAsync(TenantId tenant, string directorId, string sessionId, string text, CancellationToken ct)
         {

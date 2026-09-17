@@ -23,6 +23,10 @@ public enum FleetManagerPromptSend
 
     /// <summary>It went out and nothing confirmed it was typed.</summary>
     Unanswered,
+
+    /// <summary>Refused: the Director has not said it checks the session is waiting for a prompt before typing (it is
+    /// older than that check), so nothing is sent to it - or it answered without saying it checked. Not a delivery.</summary>
+    DirectorTooOld,
 }
 
 /// <summary>Everything the Fleet Manager's events need from the Gateway around them, as one seam.</summary>
@@ -40,6 +44,10 @@ public interface IFleetManagerEventEnvironment
 
     /// <summary>Whether one Director is connected and has said what it runs, and what that is.</summary>
     (FleetObservation Observation, IReadOnlyList<SessionDto> Sessions) DirectorFleet(TenantId tenant, string directorId);
+
+    /// <summary>Whether this Director is CONFIRMED gone: it said goodbye (an orderly shutdown, which ends its sessions)
+    /// and has not come back. A Director that is merely disconnected or silent, for however long, is not.</summary>
+    bool DirectorShutDown(TenantId tenant, string directorId);
 
     /// <summary>Type one prompt into a session and press Enter, through the Gateway's ordinary prompt path - only if
     /// the Director finds the session waiting for a prompt at that moment.</summary>
@@ -60,6 +68,7 @@ public enum FleetManagerDeliveryResult
     NotLive,
     AlreadyDelivering,
     SendFailed,
+    DirectorTooOld,
 }
 
 /// <summary>
@@ -80,7 +89,11 @@ public enum FleetManagerDeliveryResult
 /// A DEATH is stored when an owned session is seen to exit (<see cref="OnSessionExited"/>), when it is removed from
 /// its Director's list (<see cref="OnSessionRemoved"/>), and by <see cref="ReconcileAsync"/>, which compares the
 /// owned sessions this Gateway last knew alive - kept in the database, so a restart forgets none - with what the
-/// Directors now report.
+/// Directors now report. A death is recorded ONLY on evidence: the session is reported exited, a connected Director
+/// that has reported leaves it out, or its Director is confirmed gone (it said goodbye). ABSENCE IS NOT DEATH: a
+/// session whose Director is disconnected or silent - after a Gateway restart, for any length of time - is not
+/// counted dead, because a death is final and a partition is not. And no death is recorded while another Director
+/// reports the session alive.
 ///
 /// DELIVER ONLY WHEN THE FLEET MANAGER IS WAITING FOR A PROMPT. A delivery happens at the Fleet Manager's own turn
 /// end, or - when an event arrives while it is idle - after <see cref="BatchWindow"/>, so a burst becomes one prompt.
@@ -101,9 +114,9 @@ public enum FleetManagerDeliveryResult
 ///
 /// NOT BUILT HERE: pull request and report events (a later part of phase 1).
 ///
-/// GAP, STATED: a session whose Director has disconnected while its row is still held by the push store is neither
-/// alive nor dead to the reconcile; its death is raised when the Director reports again, or when the push store
-/// forgets that Director.
+/// GAP, STATED: a session whose Director disconnects and never comes back, without saying goodbye, is never counted
+/// dead - not after the push store forgets that Director, and not after any timeout. Its death is raised when the
+/// Director reports again without it. That is the Architect's ruling: a missed death is better than a false one.
 /// </summary>
 public sealed class FleetManagerEventService : IDisposable
 {
@@ -112,10 +125,6 @@ public sealed class FleetManagerEventService : IDisposable
 
     /// <summary>How long a stop may wait for its reading before it is delivered with the reason there is none.</summary>
     public static readonly TimeSpan PendingLimit = TimeSpan.FromMinutes(5);
-
-    /// <summary>How long after this Gateway started a Director may stay silent before the owned sessions it last
-    /// reported, and that no Director reports now, are counted dead.</summary>
-    public static readonly TimeSpan DirectorGrace = TimeSpan.FromMinutes(10);
 
     private readonly FleetManagerEventStore _store;
     private readonly IFleetManagerEventEnvironment _env;
@@ -128,6 +137,9 @@ public sealed class FleetManagerEventService : IDisposable
 
     // A batch already waiting for this account. An event arriving meanwhile rides on it.
     private readonly ConcurrentDictionary<TenantId, byte> _batchPending = new();
+
+    // An owned session no Director reports, already logged as not counted dead - so the timer does not repeat it.
+    private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), byte> _unreportedLogged = new();
 
     // Sessions with a stop waiting for its reading in this process, so a reading of any other session costs no
     // database read unless the session is owned.
@@ -311,9 +323,10 @@ public sealed class FleetManagerEventService : IDisposable
 
     /// <summary>
     /// THE RECONCILE, run at start and on a timer: stops left waiting by an earlier Gateway get their reason, owned
-    /// sessions seen alive are remembered, and every owned session this Gateway last knew alive that is now exited,
-    /// or absent from a Director that has reported, is counted dead - as is one whose Director has stayed silent for
-    /// <see cref="DirectorGrace"/> since this Gateway started. Then anything owed is delivered.
+    /// sessions seen alive are remembered, and every owned session this Gateway last knew alive is counted dead ONLY
+    /// when it is reported exited, when a connected Director that has reported its sessions leaves it out, or when
+    /// its Director said goodbye - and never while another Director reports it alive. A session whose Director is
+    /// disconnected or silent is left alone, however long. Then anything owed is delivered.
     /// </summary>
     public async Task ReconcileAsync(TenantId tenant)
     {
@@ -338,22 +351,32 @@ public sealed class FleetManagerEventService : IDisposable
             var known = _env.LastKnown(tenant, owned.SessionId);
             string? detail = null;
             var crashed = false;
-            if (known is { } k)
+            var directorId = known?.DirectorId ?? owned.DirectorId;
+            if (known is { } k && IsExited(k.Session))
             {
-                if (!IsExited(k.Session)) continue;
                 crashed = k.Session.Crashed;
                 detail = crashed ? "it had crashed when the Gateway next looked" : "it had exited when the Gateway next looked";
             }
             else
             {
-                var (observation, _) = _env.DirectorFleet(tenant, owned.DirectorId);
-                if (observation == FleetObservation.Observed)
+                var (observation, sessions) = _env.DirectorFleet(tenant, directorId);
+                if (observation == FleetObservation.Observed
+                    && !sessions.Any(s => SameId(s.SessionId, owned.SessionId)))
                     detail = "it is no longer in its Director's session list; no exit was seen, so whether it crashed is not known";
-                else if (now - _startedAtUtc >= DirectorGrace)
-                    detail = $"its Director has not reported its sessions in the {DirectorGrace.TotalMinutes:F0} minutes since the "
-                             + "Gateway started and no Director reports it; it is presumed gone, and whether it crashed is not known";
+                else if (observation != FleetObservation.Observed && _env.DirectorShutDown(tenant, directorId))
+                    detail = "its Director shut down (it said goodbye) and has not come back; whether the session crashed first is not known";
+                else if (known is null && observation != FleetObservation.Observed && _unreportedLogged.TryAdd((tenant, owned.SessionId), 0))
+                    FileLog.Write($"[FleetManagerEventService] reconcile: sid={owned.SessionId} is not reported by any Director and its " +
+                                  $"Director {directorId} is {observation}; NOT counted dead - absence is not death");
             }
             if (detail is null) continue;
+            if (ReportedAliveElsewhere(tenant, owned.SessionId, directorId) is { } elsewhere)
+            {
+                FileLog.Write($"[FleetManagerEventService] reconcile: sid={owned.SessionId} NOT counted dead ({detail}): " +
+                              $"Director {elsewhere} reports it alive");
+                continue;
+            }
+            _unreportedLogged.TryRemove((tenant, owned.SessionId), out _);
 
             var death = _store.RecordDeath(tenant, new FleetManagerDeath(owned.SessionId, owned.SessionName,
                 owned.FleetManagerSessionId, owned.DirectorId, crashed, detail), now);
@@ -424,8 +447,26 @@ public sealed class FleetManagerEventService : IDisposable
             FileLog.Write($"[FleetManagerEventService] sid={sid}: the stop was withdrawn, not delivered - {why}");
     }
 
+    /// <summary>The Director other than <paramref name="exceptDirectorId"/> that reports this session alive in the fresh
+    /// roster, or null.</summary>
+    private string? ReportedAliveElsewhere(TenantId tenant, string sid, string exceptDirectorId)
+    {
+        foreach (var (directorId, row) in _env.Roster(tenant))
+            if (SameId(row.SessionId, sid) && !SameId(directorId, exceptDirectorId) && !IsExited(row))
+                return directorId;
+        return null;
+    }
+
     private void RecordDeathIfOwned(TenantId tenant, string sid, SessionDto? row, string directorId, bool crashed, string detail)
     {
+        // A SESSION ANOTHER DIRECTOR RUNS IS NOT DEAD. A moved session's old Director can report the removal after the
+        // new one has reported it alive; a death is final, so it is not recorded on that.
+        if (ReportedAliveElsewhere(tenant, sid, directorId) is { } elsewhere)
+        {
+            FileLog.Write($"[FleetManagerEventService] sid={sid}: NOT counted dead ({detail}, reported by Director {directorId}): " +
+                          $"Director {elsewhere} reports it alive");
+            return;
+        }
         var marked = _env.MarkedFleetManager(tenant);
         FleetManagerDeath? death = null;
         if (row is not null && !string.IsNullOrEmpty(marked) && IsOwnedBy(row, marked))
@@ -550,6 +591,11 @@ public sealed class FleetManagerEventService : IDisposable
                     FileLog.Write($"[FleetManagerEventService] deliver to {target}: the Director found it busy and typed nothing; " +
                                   $"{owed.Count} event(s) wait for its next idle moment");
                     return FleetManagerDeliveryResult.Busy;
+                case FleetManagerPromptSend.DirectorTooOld:
+                    FileLog.Write($"[FleetManagerEventService] deliver to {target} REFUSED: its Director {fm.DirectorId} does not check " +
+                                  $"the session is waiting before it types, so no events are typed into it; {owed.Count} event(s) " +
+                                  "stay undelivered until the Fleet Manager runs on a Director that does");
+                    return FleetManagerDeliveryResult.DirectorTooOld;
                 default:
                     FileLog.Write($"[FleetManagerEventService] deliver to {target} FAILED: send={sent}; " +
                                   $"{owed.Count} event(s) stay undelivered until the next trigger");
@@ -606,19 +652,29 @@ internal sealed class GatewayFleetManagerEventEnvironment : IFleetManagerEventEn
     private readonly TimeSpan _stale;
     private readonly Func<TenantId, string, Api.SessionVerbClient?> _route;
     private readonly Func<TenantId, string?> _mark;
+    private readonly Func<TenantId, string, bool> _checksIdleBeforeTyping;
+    private readonly Func<TenantId, string, bool> _directorShutDown;
     private readonly Func<TenantId, IDisposable>? _enterTenantScope;
 
     /// <param name="mark">The account's marked Fleet Manager session (the tenant setting).</param>
+    /// <param name="checksIdleBeforeTyping">Whether a Director said, on its Hello, that it honours
+    /// <see cref="PromptRequest.OnlyWhenWaitingForInput"/>. Nothing is sent to one that did not.</param>
+    /// <param name="directorShutDown">Whether a Director said goodbye and has not come back (the registry's stop stamp,
+    /// which the next Hello clears).</param>
     /// <param name="enterTenantScope">Enters the account's scope for the send: the tunnel lookup that carries the
     /// prompt is partitioned, and this runs on a background task with no scope of its own.</param>
     public GatewayFleetManagerEventEnvironment(Streaming.PushedSessionStore pushed, TimeSpan stale,
         Func<TenantId, string, Api.SessionVerbClient?> route, Func<TenantId, string?> mark,
+        Func<TenantId, string, bool> checksIdleBeforeTyping,
+        Func<TenantId, string, bool> directorShutDown,
         Func<TenantId, IDisposable>? enterTenantScope = null)
     {
         _pushed = pushed ?? throw new ArgumentNullException(nameof(pushed));
         _stale = stale;
         _route = route ?? throw new ArgumentNullException(nameof(route));
         _mark = mark ?? throw new ArgumentNullException(nameof(mark));
+        _checksIdleBeforeTyping = checksIdleBeforeTyping ?? throw new ArgumentNullException(nameof(checksIdleBeforeTyping));
+        _directorShutDown = directorShutDown ?? throw new ArgumentNullException(nameof(directorShutDown));
         _enterTenantScope = enterTenantScope;
     }
 
@@ -638,9 +694,20 @@ internal sealed class GatewayFleetManagerEventEnvironment : IFleetManagerEventEn
     public (FleetObservation Observation, IReadOnlyList<SessionDto> Sessions) DirectorFleet(TenantId tenant, string directorId)
         => _pushed.ConnectedFleet(tenant, directorId);
 
+    public bool DirectorShutDown(TenantId tenant, string directorId) => _directorShutDown(tenant, directorId);
+
     public async Task<FleetManagerPromptSend> SendPromptAsync(TenantId tenant, string directorId, string sessionId,
         string text, CancellationToken ct)
     {
+        // AN OLDER DIRECTOR GETS NOTHING TYPED INTO IT. It would ignore the request to check first and type whatever the
+        // session is doing, and no answer it gives afterwards can take the keystrokes back.
+        if (!_checksIdleBeforeTyping(tenant, directorId))
+        {
+            FileLog.Write($"[GatewayFleetManagerEventEnvironment] NOT sent sid={sessionId}: director {directorId} has not said it " +
+                          "checks the session is waiting for a prompt before typing (it is older than that check)");
+            return FleetManagerPromptSend.DirectorTooOld;
+        }
+
         using var scope = _enterTenantScope?.Invoke(tenant);
         var route = _route(tenant, directorId);
         if (route is null)
@@ -660,17 +727,19 @@ internal sealed class GatewayFleetManagerEventEnvironment : IFleetManagerEventEn
 
     /// <summary>
     /// What a send did, read from the Director's own answer - as the answer route's tunnel channel reads it. An Ok
-    /// with a body that does not say it was accepted is not a delivery.
+    /// with a body that does not say it was accepted, AND that the idle check was made, is not a delivery.
     /// </summary>
     internal static FleetManagerPromptSend Classify(string sessionId, Api.SessionVerbClient.PromptSendOutcome sent)
     {
         switch (sent.Kind)
         {
-            case Api.SessionVerbClient.PromptSendKind.Accepted when sent.Body is { Accepted: true } body:
-                if (!body.IdleChecked)
-                    FileLog.Write($"[GatewayFleetManagerEventEnvironment] sid={sessionId}: the Director typed the events WITHOUT " +
-                                  "checking the session was waiting for a prompt - it is older than that check");
+            case Api.SessionVerbClient.PromptSendKind.Accepted when sent.Body is { Accepted: true, IdleChecked: true }:
                 return FleetManagerPromptSend.Accepted;
+            case Api.SessionVerbClient.PromptSendKind.Accepted when sent.Body is { Accepted: true }:
+                // A receipt without the check is refused, not delivered: the events stay owed.
+                FileLog.Write($"[GatewayFleetManagerEventEnvironment] REFUSED receipt sid={sessionId}: the Director answered that it " +
+                              "typed WITHOUT saying it checked the session was waiting for a prompt; not counted as delivered");
+                return FleetManagerPromptSend.DirectorTooOld;
             case Api.SessionVerbClient.PromptSendKind.Accepted when sent.Body is { RefusedBusy: true } refused:
                 FileLog.Write($"[GatewayFleetManagerEventEnvironment] sid={sessionId}: refused by the Director - it is {refused.ActivityState}");
                 return FleetManagerPromptSend.Busy;

@@ -261,6 +261,35 @@ public sealed class FleetManagerEventsHostTests : IAsyncLifetime
         Assert.Contains("no longer in its Director's session list", died.Detail);
     }
 
+    /// <summary>
+    /// ABSENCE IS NOT DEATH, THROUGH THE HOST (inspection round 2, finding 2). The worker is seen working; the Gateway
+    /// restarts, and its Director - known to the new Gateway but never reconnecting - reports nothing. The reconcile
+    /// records no death, run as often as it likes: the service has no timeout after which silence becomes death (the
+    /// unit tests advance its clock by days). When the Director says goodbye through the registry the host reads, the
+    /// death is recorded.
+    /// </summary>
+    [Fact]
+    public async Task Restart_WithTheDirectorStillDisconnected_NothingDies_UntilTheDirectorSaysGoodbye()
+    {
+        Observe(_workerId, "Working");
+        await _gateway.StopAsync();
+
+        await BootAsync();
+        // Known to this Gateway, and not connected: no stream, nothing pushed.
+        _gateway.Registry.RegisterFromStream(DirectorId, "MACHINE-" + DirectorId, "someone", "1.0", pid: 4321,
+            startedAt: DateTime.UtcNow, tenant: _tenant);
+        for (var i = 0; i < 3; i++)
+            await _gateway.ReconcileFleetManagerEventsForTestAsync();
+        Assert.Empty(Events());
+
+        Assert.True(_gateway.Registry.MarkStopped(_tenant, DirectorId));
+        await _gateway.ReconcileFleetManagerEventsForTestAsync();
+
+        var died = Assert.Single(await EventsWhenAsync(e => e.Count == 1));
+        Assert.Equal(("died", _workerId), (died.Kind, died.SessionId));
+        Assert.Contains("its Director shut down", died.Detail);
+    }
+
     // ---- who may acknowledge -----------------------------------------------------------------------------
 
     /// <summary>Through the real middleware: the guard lets every session key reach the route, and the route lets

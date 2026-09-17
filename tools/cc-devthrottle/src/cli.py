@@ -135,9 +135,9 @@ browser_app = typer.Typer(
 fleet_app = typer.Typer(
     cls=AxiGroup,
     help=(
-        "Fleet Manager records, standing preferences, and the digest.\n\n"
-        "The Fleet Manager's stored news (ready, finding, decision), the owner's standing "
-        "preferences, the start-of-conversation digest, and the events about sessions it owns."
+        "The Fleet Manager's news, events, standing preferences and digest.\n\n"
+        "Stored news is a ready, finding or decision record; events are the stops and deaths of the "
+        "sessions it owns; the digest is what it reads at the start of a conversation."
     ),
     add_completion=False,
     no_args_is_help=True,
@@ -2722,7 +2722,7 @@ def fleet_events(
     count: int = typer.Option(50, "--count", "-n", help="Largest number of events to return (1-200)."),
     json_output: bool = _JSON_OPT,
 ) -> None:
-    """List the events about sessions a Fleet Manager owns (stops and deaths), oldest first."""
+    """List the stops and deaths of sessions a Fleet Manager owns, oldest first."""
     fleet_ops.list_events(show_all, count, json_output)
 
 
@@ -2733,7 +2733,10 @@ def fleet_ack(
     ack_all: bool = typer.Option(False, "--all", help="Acknowledge every unacknowledged event delivered to this session."),
     json_output: bool = _JSON_OPT,
 ) -> None:
-    """Acknowledge events once you have acted on them. Nothing is acknowledged if one id is unknown."""
+    """Acknowledge events once you have acted on them.
+
+    Nothing is acknowledged if one id is unknown.
+    """
     fleet_ops.acknowledge_events(event_ids, ack_all, json_output)
 
 

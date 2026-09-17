@@ -686,6 +686,7 @@ public sealed class GatewayStreamClient : IAsyncDisposable
                 StartedAt = _startedAt,
                 DisplayName = ReadDisplayName(),
                 PushesTurns = true,   // this build carries the TurnPusher (turn-push mission)
+                ChecksIdleBeforeTyping = true,   // this build honours PromptRequest.OnlyWhenWaitingForInput
             });
             awaitGateway += DateTime.UtcNow - helloStarted;
             ReportGatewayCapabilities(capabilities);

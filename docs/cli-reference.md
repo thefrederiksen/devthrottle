@@ -1166,12 +1166,16 @@ reading of it, or why there is none) or a `died` (exited or crashed) - oldest fi
 the unacknowledged ones; `--all` includes acknowledged ones. The Gateway also delivers them to the
 Fleet Manager itself: one prompt, starting `[Fleet Manager events]`, at its own turn end or a few
 seconds after an event arrives while it is idle - and typed only if the Director finds the Fleet
-Manager waiting for a prompt at that moment; otherwise the events wait for its next idle moment.
+Manager waiting for a prompt at that moment, with no other input reaching the session before the Enter;
+otherwise the events wait for its next idle moment. A Director too old to make that check is sent
+nothing, and an answer that does not say the check was made does not count as a delivery.
 Delivery is at least once: every event carries its id, the same event can be sent again (a Gateway
 that stops between typing and saving the delivery), and the Fleet Manager ignores an id it has
 already handled. A stop is stored the moment it is seen and delivered once the Wingman's reading (or
 the reason there is none) is attached; a death is stored when an owned session exits, crashes or is
-removed, and after a Gateway restart for any owned session that is gone. `fleet ack` takes full ids
+removed, when a connected Director that has reported its sessions leaves it out, or when its Director
+shut down - never while its Director is only disconnected or silent, however long, and never while
+another Director reports it running. `fleet ack` takes full ids
 or the start of each, or `--all`, which closes only the events delivered to the calling session; if
 one id is not an event of this account nothing is acknowledged. Only the account's marked Fleet
 Manager session may acknowledge. `fleet digest` lists the unacknowledged events too. Pull request and

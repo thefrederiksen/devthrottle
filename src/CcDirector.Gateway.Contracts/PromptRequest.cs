@@ -81,8 +81,9 @@ public sealed class PromptRequest
     /// turn the owner has just started. A Gateway reading the pushed state and then sending cannot promise that: the
     /// owner can submit between the read and the send. The Director checks and types in the same step.
     ///
-    /// A Director older than this field ignores it and types; <see cref="PromptResponse.IdleChecked"/> is how the
-    /// sender can tell afterwards. Off by default: every other caller is unchanged.
+    /// A Director older than this field ignores it and types. So a sender that relies on it sends only to a Director
+    /// whose Hello said <see cref="DirectorStreamHello.ChecksIdleBeforeTyping"/>, and counts an accepted answer without
+    /// <see cref="PromptResponse.IdleChecked"/> as refused. Off by default: every other caller is unchanged.
     /// </summary>
     public bool OnlyWhenWaitingForInput { get; set; }
 
@@ -177,7 +178,7 @@ public sealed class PromptResponse
     /// <summary>
     /// True when the Director checked <see cref="PromptRequest.OnlyWhenWaitingForInput"/> before typing. False on an
     /// accepted prompt means the Director did not check it (it is older than the field), so the text was typed
-    /// whatever the session was doing.
+    /// whatever the session was doing - and a sender that asked for the check counts that answer as refused.
     /// </summary>
     public bool IdleChecked { get; set; }
 }

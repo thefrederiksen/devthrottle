@@ -2324,6 +2324,41 @@ public sealed class Session : IDisposable
     /// </summary>
     public SessionInputStats InputStats { get; } = new();
 
+    // ===== The input lock =====
+    // Every input to this session - a keystroke, a prompt, an Enter, a driver verb - counts itself here under one
+    // lock. A send that must type ONLY while the session waits and nobody else is typing (the Fleet Manager's
+    // events) captures the count with its check, and makes each of its writes under the same lock only if the
+    // count has not moved since (InputGuardedBackend). Other input is never blocked by it for longer than one
+    // write.
+    private readonly object _inputLock = new();
+    private long _inputGeneration;
+
+    /// <summary>Test seam: runs after the guarded send's check and before its first write, so a test can put the
+    /// owner's input exactly in that gap. Null in every real session.</summary>
+    internal Action? AfterInputCheckForTests { get; set; }
+
+    /// <summary>Count one input that did not come through <see cref="SendInput"/>.</summary>
+    private void NoteInput()
+    {
+        lock (_inputLock) _inputGeneration++;
+    }
+
+    /// <summary>
+    /// Run <paramref name="write"/> under the input lock if no input has reached this session since
+    /// <paramref name="checkedGeneration"/> was read; otherwise write nothing and throw
+    /// <see cref="InputSupersededException"/>.
+    /// </summary>
+    internal void WriteIfNoInputSince(long checkedGeneration, Action write)
+    {
+        lock (_inputLock)
+        {
+            if (_inputGeneration != checkedGeneration)
+                throw new InputSupersededException(
+                    $"[Session] other input reached session {Id} after the check ({_inputGeneration - checkedGeneration} input(s)); nothing more of this send is written");
+            write();
+        }
+    }
+
     /// <summary>Send raw bytes to the backend. <paramref name="origin"/> tags this input for the
     /// DevThrottle Stats tally. A bare keystroke is the user COMPOSING and is not a turn; the write that
     /// carries the Enter IS the submitted turn and is counted as one, with the character volume of the
@@ -2338,7 +2373,19 @@ public sealed class Session : IDisposable
         ArgumentNullException.ThrowIfNull(provenance);
         if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return;
         FileLog.Write($"[Session] SendInput: session={Id}, bytes={data.Length}, firstByte=0x{(data.Length > 0 ? data[0].ToString("X2") : "00")}");
-        _backend.Write(data);
+        // Under the input lock, and counted as input, so a send that types only while nobody else does is
+        // either wholly before this keystroke or stops before its next byte (see WriteIfNoInputSince).
+        lock (_inputLock)
+        {
+            _inputGeneration++;
+            _backend.Write(data);
+        }
+        AfterRawInput(data, origin, provenance);
+    }
+
+    /// <summary>What a raw write means once it is written: composed characters, or a submitted turn.</summary>
+    private void AfterRawInput(byte[] data, InputOrigin? origin, SubmissionProvenance provenance)
+    {
         // Accumulate only. The tally is written at the submission below, by the one method that also
         // stamps the submission event, so the two can never disagree about how many turns there were
         // (see StampSubmission). Characters composed and never submitted are not counted, exactly as
@@ -2626,6 +2673,75 @@ public sealed class Session : IDisposable
         if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return;
 
         FileLog.Write($"[Session] SendTextAsync: session={Id}, source={source}, driver={Driver.Kind}, text=\"{(text.Length > 60 ? text[..60] + "..." : text)}\", len={text.Length}");
+        NoteInput();
+        await SubmitTextAsync(_backend, text, provenance, source, origin);
+    }
+
+    /// <summary>
+    /// Type <paramref name="text"/> and press Enter ONLY if this session is waiting for a prompt now and no other
+    /// input reaches it before the Enter (the Fleet Manager's events, step 4). The check and every byte of the send are
+    /// made under the input lock the owner's own keystrokes and prompts take; if any of those reaches the session after
+    /// the check, the send stops before its next byte - so before its Enter - and says so. It never waits for the
+    /// session to become free.
+    /// </summary>
+    /// <returns>Sent, or why nothing was submitted.</returns>
+    public async Task<GuardedSendResult> SendTextOnlyWhenWaitingForInputAsync(
+        string text, SubmissionProvenance provenance, SendSource source, InputOrigin? origin, bool appendEnter)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        ArgumentNullException.ThrowIfNull(provenance);
+        FileLog.Write($"[Session] SendTextOnlyWhenWaitingForInputAsync: session={Id}, source={source}, len={text.Length}, appendEnter={appendEnter}");
+
+        ActivityState state;
+        long checkedGeneration;
+        lock (_inputLock)
+        {
+            if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed)
+                return GuardedSendResult.NotRunning(ActivityState);
+            state = ActivityState;
+            checkedGeneration = _inputGeneration;
+        }
+        if (state is not (ActivityState.WaitingForInput or ActivityState.Idle))
+        {
+            FileLog.Write($"[Session] SendTextOnlyWhenWaitingForInputAsync: REFUSED session={Id}: it is {state}, not waiting for a prompt; nothing was typed");
+            return GuardedSendResult.Busy(state, $"the session is {state}, not waiting for a prompt; nothing was typed");
+        }
+
+        AfterInputCheckForTests?.Invoke();
+
+        var guarded = new InputGuardedBackend(_backend, this, checkedGeneration);
+        try
+        {
+            if (appendEnter)
+            {
+                await SubmitTextAsync(guarded, text, provenance, source, origin);
+            }
+            else
+            {
+                var data = System.Text.Encoding.UTF8.GetBytes(text);
+                guarded.Write(data);
+                AfterRawInput(data, origin, provenance);
+            }
+        }
+        catch (InputSupersededException ex)
+        {
+            var typed = guarded.WroteAny
+                ? "part of the text may be in the composer, and Enter was not pressed after the other input"
+                : "nothing was typed";
+            FileLog.Write($"[Session] SendTextOnlyWhenWaitingForInputAsync: ABANDONED session={Id}: other input reached the session " +
+                          $"after the check; {typed}. {ex.Message}");
+            if (guarded.WroteAny)
+                Drivers.ComposerRetention.MarkMayHoldText(_backend, "Session", text);
+            return GuardedSendResult.Busy(ActivityState,
+                $"other input reached the session while this was being typed; {typed}");
+        }
+
+        return GuardedSendResult.Sent(ActivityState);
+    }
+
+    /// <summary>The submission itself, through <paramref name="target"/>: the session's terminal, or a guarded view of it.</summary>
+    private async Task SubmitTextAsync(ISessionBackend target, string text, SubmissionProvenance provenance, SendSource source, InputOrigin? origin)
+    {
         // THE delivery boundary (issue internal#811). Everything below this try either delivered the
         // user's words or threw; there is no third outcome, and no other place in the Director knows both
         // "which session" and "did it go". A throw here used to travel up as an error string on whichever
@@ -2644,7 +2760,7 @@ public sealed class Session : IDisposable
             if (BackendType is SessionBackendType.ConPty)
             {
                 await Drivers.TerminalSubmit.SharedSubmitAsync(
-                    _backend,
+                    target,
                     text,
                     Driver.Kind.ToString(),
                     BracketedPasteEnabled,
@@ -2654,8 +2770,13 @@ public sealed class Session : IDisposable
             }
             else
             {
-                await _backend.SendTextAsync(text);
+                await target.SendTextAsync(text);
             }
+        }
+        catch (InputSupersededException)
+        {
+            // Not a lost prompt: the caller asked to stop if anyone else typed, and someone did. It reports that itself.
+            throw;
         }
         catch (Exception ex)
         {
@@ -2715,6 +2836,7 @@ public sealed class Session : IDisposable
     public async Task SendEnterAsync()
     {
         if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return;
+        NoteInput();
         await _backend.SendEnterAsync();
     }
 
@@ -2744,6 +2866,7 @@ public sealed class Session : IDisposable
     {
         if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return;
         FileLog.Write($"[Session] CancelTurnAsync: session={Id}, driver={Driver.Kind}");
+        NoteInput();
         await Driver.CancelAsync(_backend);
     }
 
@@ -2753,6 +2876,7 @@ public sealed class Session : IDisposable
     {
         if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return;
         FileLog.Write($"[Session] InterruptAsync: session={Id}, driver={Driver.Kind}");
+        NoteInput();
         await Driver.InterruptAsync(_backend);
     }
 
@@ -2761,6 +2885,7 @@ public sealed class Session : IDisposable
     {
         if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed) return;
         FileLog.Write($"[Session] ShowHistoryAsync: session={Id}, driver={Driver.Kind}");
+        NoteInput();
         await Driver.ShowHistoryAsync(_backend);
     }
 
@@ -2783,6 +2908,7 @@ public sealed class Session : IDisposable
         var oldId = ClaudeSessionId;
         FileLog.Write($"[Session] ClearContextAsync: session={Id}, driver={driver.Kind}, oldAgentSessionId={oldId ?? "(none)"}");
         var t0 = DateTime.UtcNow;
+        NoteInput();
         await driver.ClearContextAsync(_backend);
 
         if (!driver.Capabilities.HasFlag(Drivers.DriverCapabilities.TranscriptRead) || oldId is null)
@@ -2882,6 +3008,7 @@ public sealed class Session : IDisposable
                       $"agentSessionId={agentSessionId ?? "(none)"}, continue={(wantsContinue ? "yes" : "no")}");
 
         var t0 = DateTime.UtcNow;
+        NoteInput();
         await driver.CompactContextAsync(_backend);
         SetActivityState(ActivityState.Working);
 

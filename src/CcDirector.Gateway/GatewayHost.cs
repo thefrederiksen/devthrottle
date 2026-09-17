@@ -3000,6 +3000,8 @@ public sealed class GatewayHost : IAsyncDisposable
                     return new Api.SessionVerbClient(director, sendCommand);
                 },
                 mark: _tenantSettingsResolver.FleetManagerSessionId,
+                checksIdleBeforeTyping: _turnPushCapabilities.ChecksIdleBeforeTyping,
+                directorShutDown: (tenant, directorId) => Registry.Get(tenant, directorId)?.StoppedAtUtc is not null,
                 enterTenantScope: tenant => _tenantBoundary.EnterScope(tenant)));
         // THE RECONCILE: at start (stops a stopped Gateway left waiting, owned sessions that died while it was down)
         // and then on the heartbeat's cadence, per account.
