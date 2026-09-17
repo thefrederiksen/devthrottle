@@ -51,10 +51,15 @@ public sealed class NarrationCallTests : IDisposable
         private int _calls;
         public int Calls => _calls;
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        /// <summary>When set, the synthesis with this 1-based call number waits on <see cref="Release"/> before it answers.</summary>
+        public int HoldCall { get; set; }
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
-            Interlocked.Increment(ref _calls);
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(new byte[] { 1, 2, 3 }) });
+            var call = Interlocked.Increment(ref _calls);
+            if (call == HoldCall) await Release.Task;
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(new byte[] { 1, 2, 3 }) };
         }
     }
 
@@ -101,6 +106,7 @@ public sealed class NarrationCallTests : IDisposable
         if (rig.Voice.IsVoiceSession(signal.Tenant, signal.SessionId) && !rig.Verdicts.IsHeld(signal.Tenant, signal.SessionId))
             await rig.Voice.GenerateAsync(signal.Tenant, signal.SessionId, route, CancellationToken.None, showReadingWindow: signal.IsNewTurn);
         await judging;
+        await rig.Voice.WaitForNarrationCallsAsync();
     }
 
     private static string MenuSuffix => SpokenPhrases.WaitingScreenMenuNarrationSuffix.In(SpokenLanguages.English);
@@ -281,6 +287,7 @@ public sealed class NarrationCallTests : IDisposable
 
         await HostTurnEndAsync(rig, route);
         await rig.Voice.GenerateAsync(Tenant, Sid, route, CancellationToken.None, showReadingWindow: false);
+        await rig.Voice.WaitForNarrationCallsAsync();
 
         Assert.True(rig.Voice.HasVoice(Tenant, Sid));
         Assert.Equal(JudgeSpoken, rig.Voice.Get(Tenant, Sid)!.Spoken);
@@ -410,10 +417,136 @@ public sealed class NarrationCallTests : IDisposable
         // A voice refresh reuses that refused record (it never asks the judge again) and the call it makes is given the menu.
         rig.Voice.Mark(Tenant, Sid);
         await rig.Voice.GenerateAsync(Tenant, Sid, RouteServing("dir-1", rig.Env.Screen), CancellationToken.None, showReadingWindow: false);
+        await rig.Voice.WaitForNarrationCallsAsync();
 
         Assert.Equal(1, rig.Env.JudgeCalls);
         var prompt = Assert.Single(rig.Env.NarratorPrompts);
         Assert.Contains("How the person answers: KEYS", prompt);
         Assert.Contains("The menu's question: " + MenuQuestion, prompt);
+    }
+
+    // ================================================================= inspection round 1
+
+    [Fact]
+    public async Task Explain_AfterTheNarrationWasStored_KeepsTheNarration()
+    {
+        // The spoken reply in voice mode narrates the same stop twice: the turn end and the voice-turn route. Explain
+        // used to store the judge's words again over the narration, and the claim was spent, so it was lost for good.
+        var rig = Build();
+        rig.Voice.Mark(Tenant, Sid);
+        var route = RouteServing("dir-1", rig.Env.Screen);
+        await HostTurnEndAsync(rig, route);
+        Assert.Equal(Narrated, rig.Voice.Get(Tenant, Sid)!.Spoken);   // CONTROL: the narration is what plays
+
+        var narration = await rig.Voice.NarrateStopOnRequestAsync(Tenant, Sid, route, markAsVoiceSession: false);
+        await rig.Voice.WaitForNarrationCallsAsync();
+
+        Assert.Equal(1, rig.Env.NarratorCalls);
+        Assert.Equal(Narrated, rig.Voice.Get(Tenant, Sid)!.Spoken);
+        Assert.Equal(Narrated, narration.Spoken);
+        Assert.Equal(2, rig.Speech.Calls);   // nothing synthesised again
+    }
+
+    [Fact]
+    public async Task Explain_WhileTheVoicePathsNarrationCallRuns_DoesNotLoseTheNarration()
+    {
+        // A store of the same verdict's words used to move the epoch, so the call already running was discarded.
+        var rig = Build();
+        var release = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        rig.Env.Narrator = (_, _) => release.Task;
+        rig.Voice.Mark(Tenant, Sid);
+        var route = RouteServing("dir-1", rig.Env.Screen);
+        var turnEnd = rig.Voice.GenerateAsync(Tenant, Sid, route, CancellationToken.None, showReadingWindow: true);
+        Assert.True(await WaitUntil(() => rig.Env.NarratorCalls == 1));
+
+        await rig.Voice.NarrateStopOnRequestAsync(Tenant, Sid, route, markAsVoiceSession: false);
+        release.SetResult(Answer(Narrated));
+        await turnEnd;
+        await rig.Voice.WaitForNarrationCallsAsync();
+
+        Assert.Equal(1, rig.Env.NarratorCalls);
+        Assert.Equal(Narrated, rig.Voice.Get(Tenant, Sid)!.Spoken);
+    }
+
+    [Fact]
+    public async Task ANewStopsTurnEnd_WhileTheOldStopsNarrationCallRuns_IsNarrated()
+    {
+        // The voice path used to await the call inside the per-session gate, so the next stop's turn end was dropped.
+        var rig = Build();
+        var release = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        rig.Env.Narrator = (_, _) => release.Task;
+        rig.Voice.Mark(Tenant, Sid);
+        var first = rig.Voice.GenerateAsync(Tenant, Sid, RouteServing("dir-1", rig.Env.Screen), CancellationToken.None, showReadingWindow: true);
+        Assert.True(await WaitUntil(() => rig.Env.NarratorCalls == 1));
+
+        // The person answers; the session works and stops again on a new reply.
+        rig.Voice.OnSessionWorking(Tenant, Sid);
+        const string second = "I have merged the pull request.";
+        rig.Env.Screen = () => Screen(Sid, second, "> ");
+        rig.Env.Conversation = _ => Reply("merge it", second);
+        rig.Env.Judge = (_, _) => Task.FromResult(FakeTurnVerdictEnvironment.Finished(second, "The pull request is merged."));
+        var secondTurnEnd = rig.Voice.GenerateAsync(Tenant, Sid, RouteServing("dir-1", rig.Env.Screen), CancellationToken.None, showReadingWindow: true);
+        var finishedBeforeTheOldCallAnswered = await Task.WhenAny(secondTurnEnd, Task.Delay(TimeSpan.FromSeconds(10))) == secondTurnEnd;
+        var afterSecondTurnEnd = rig.Voice.Get(Tenant, Sid)?.Spoken;
+
+        release.SetResult(Answer(Narrated));
+        await first;
+        await secondTurnEnd;
+        await rig.Voice.WaitForNarrationCallsAsync();
+
+        Assert.True(finishedBeforeTheOldCallAnswered);
+        Assert.Equal("The pull request is merged.", afterSecondTurnEnd);
+        Assert.Equal(2, rig.Env.JudgeCalls);
+    }
+
+    [Fact]
+    public async Task ANarrationWhoseSpeechIsStillBeingMade_WhenTheSessionWorksAgain_IsNotStored()
+    {
+        // Staleness was checked before synthesis only: a Working edge during synthesis let the old stop's narration be
+        // written back as ready on a session that is working.
+        var rig = Build();
+        rig.Speech.HoldCall = 2;   // the judge's clip is call 1; the narration's is call 2
+        rig.Voice.Mark(Tenant, Sid);
+
+        var turnEnd = HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
+        Assert.True(await WaitUntil(() => rig.Speech.Calls == 2));
+        rig.Voice.OnSessionWorking(Tenant, Sid);
+        rig.Speech.Release.SetResult();
+        await turnEnd;
+        await rig.Voice.WaitForNarrationCallsAsync();
+
+        Assert.Equal(1, rig.Env.NarratorCalls);
+        Assert.Null(rig.Voice.Get(Tenant, Sid));
+        Assert.False(rig.Voice.HasVoice(Tenant, Sid));
+    }
+
+    [Fact]
+    public async Task AKeysStop_OnAnAccountWithItsOwnInstructions_IsStillToldToEndByPressingAButton()
+    {
+        // Custom instructions replace the whole fidelity prompt; the closing sentence for a menu lives in the code-owned
+        // decision block, so it cannot be edited away.
+        var rig = Build(menu: true);
+        rig.Env.Custom = "Speak briefly and plainly.";
+        rig.Voice.Mark(Tenant, Sid);
+
+        await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
+
+        var prompt = Assert.Single(rig.Env.NarratorPrompts);
+        Assert.DoesNotContain(WingmanTranslator.FidelityPrompt.Trim(), prompt);   // CONTROL: the shipped prompt was replaced
+        Assert.Contains("How the person answers: KEYS", prompt);
+        Assert.Contains("end by telling the person to press a button on the phone to choose", prompt);
+    }
+
+    [Fact]
+    public async Task AReplyStop_OnAnAccountWithItsOwnInstructions_IsNotToldToPressAButton()
+    {
+        var rig = Build();
+        rig.Env.Custom = "Speak briefly and plainly.";
+        rig.Voice.Mark(Tenant, Sid);
+
+        await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
+
+        var prompt = Assert.Single(rig.Env.NarratorPrompts);
+        Assert.DoesNotContain("press a button", prompt);
     }
 }

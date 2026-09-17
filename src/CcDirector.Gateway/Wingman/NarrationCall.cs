@@ -131,7 +131,13 @@ public static class NarrationCall
         }
         if (!string.IsNullOrWhiteSpace(verdict.AgentRecommends))
             sb.Append("What the agent recommends: ").Append(verdict.AgentRecommends.Trim()).Append('\n');
-        sb.Append("---\n\n");
+        sb.Append("---\n");
+        // THE MENU'S CLOSING SENTENCE IS CODE-OWNED. An account's own instructions replace the whole fidelity prompt, and
+        // the narration's words replace the judge's clip that carried the fixed menu sentence - so without this a menu
+        // stop on such an account would no longer tell the listener how to answer (inspection round 1, finding 4).
+        if (keys)
+            sb.Append("This stop is a menu: end by telling the person to press a button on the phone to choose.\n");
+        sb.Append('\n');
     }
 
     /// <summary>True when the judge said this stop is answered with keys - a menu.</summary>
