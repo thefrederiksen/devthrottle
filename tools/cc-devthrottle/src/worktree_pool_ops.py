@@ -67,7 +67,7 @@ def _argv_for(path: Path) -> list[str]:
 
 
 def resolve_tool() -> list[str]:
-    """The command that runs cc-worktrees, or ToolNotFound.
+    r"""The command that runs cc-worktrees, or ToolNotFound.
 
     The order is deliberate, and the middle step is the one that matters on Windows. The installer
     puts the real console script at `pyenv\Scripts\cc-worktrees.exe` and puts a `bin\cc-worktrees.cmd`

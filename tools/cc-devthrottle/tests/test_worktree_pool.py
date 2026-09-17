@@ -290,6 +290,15 @@ def no_tool_anywhere(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", str(empty))
 
 
+def test_resolution_refuses_rather_than_naming_a_tool_it_did_not_find(no_tool_anywhere):
+    # The refusal has to happen HERE, at resolution, and not by handing the bare name to the
+    # operating system and reading whatever it says. "cc-worktrees" as a command is a guess; the
+    # error it produces is the shell's, not this tool's, and on a machine where something else of
+    # that name is on PATH it is not an error at all.
+    with pytest.raises(worktree_pool_ops.ToolNotFound):
+        worktree_pool_ops.resolve_tool()
+
+
 def test_a_missing_tool_names_it_and_says_how_to_install_it(no_tool_anywhere):
     result = runner.invoke(app, ["worktree", "get", "--repo", r"D:\repo", "--holder", "x"])
 

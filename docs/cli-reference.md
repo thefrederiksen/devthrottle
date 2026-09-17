@@ -649,6 +649,9 @@ COMMANDS:
   session spawn    Open a new session - here, on another computer, or on one named Director.
   session report   Tell the session that owns you what you did, at the end of your turn.
   director list    List every Director this account runs, with the id --director accepts.
+  worktree list    List the fleet's worktrees; --pool lists this machine's cc-worktrees pool.
+  worktree get     Take a pooled worktree to work in (runs cc-worktrees).
+  worktree return  Give a pooled worktree back (runs cc-worktrees).
   message send     Send a message to one session, or broadcast with all.
   message ask      Ask one session a question and print its answer.
   skill list       List every skill in the fleet library.
@@ -931,6 +934,52 @@ COMMANDS:
   repair
   doctor [--json]
 ```
+
+### Worktree
+
+Two different things share this word.
+
+`cc-devthrottle worktree list` is the FLEET view, served by the Gateway: every machine's worktrees,
+with the Gateway's verdict, the size, and which session is in each. `--repo` there is a repository
+NAME and `--state` filters by verdict.
+
+Everything else is this machine's POOL of reusable worktrees, and every one of those commands runs
+the separate `cc-worktrees` tool: it is handed the arguments exactly as they were typed, its output
+is printed exactly as it printed it, and its exit code is this command's exit code. Nothing about
+worktrees is decided here. The rule that decides whether a worktree can be reset without throwing
+away a commit that never reached the remote lives in `cc-worktrees`, in one place, and is documented
+in `tools/cc-worktrees/README.md`.
+
+```
+USAGE: cc-devthrottle worktree COMMAND [ARGS]...
+
+COMMANDS:
+  list [--repo <name>] [--state <verdict>] [--json]
+  list --pool [--repo <path>] [--fields <a,b>] [--json]
+  get --repo <path> --holder <text> [--pool-size N] [--json]
+  return <path-or-slot> --lease <id> [--repo <path>] [--json]
+  lease <path-or-slot> --holder <text> [--reclaim-held] [--repo <path>] [--json]
+  destroy <path-or-slot> [--yes] [--allow-held] [--allow-in-use] [--repo <path>] [--json]
+```
+
+`worktree list --pool --json` prints exactly what `cc-worktrees list --json` prints for the same
+arguments, character for character.
+
+`--state` belongs to the fleet listing and `--fields` to the pool listing. Each is refused with a
+usage error (exit 2) on the other, rather than accepted and ignored.
+
+`destroy` is a dry run that says what it would remove unless `--yes` is given, and it is refused
+whatever the recorded state says unless the work in the worktree is proven landed at that moment.
+This command adds no flag of its own, so those defaults are `cc-worktrees`' own.
+
+Exit codes are `cc-worktrees`' own: 0 success, 1 error, 2 usage error, 3 the worktree is held with
+the reason, 4 the pool is full. A caller branches on 3 and 4, so neither is ever folded into a
+generic failure.
+
+If `cc-worktrees` is not installed, these commands refuse with a plain error naming it and saying to
+run `cc-devthrottle setup update`, and exit 1. They never answer locally instead. Point them at a
+`cc-worktrees` that is not the installed one - a build of your own, or the copy in a checkout - with
+`CC_WORKTREES_EXECUTABLE`, which takes the path to the executable or to the tool's `main.py`.
 
 ---
 
