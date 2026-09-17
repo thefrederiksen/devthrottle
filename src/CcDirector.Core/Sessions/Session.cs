@@ -2174,9 +2174,15 @@ public sealed class Session : IDisposable
         if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed || BackendType is not SessionBackendType.ConPty)
             return Drivers.DoorbellSubmitOutcome.NotTyped;
         FileLog.Write($"[Session] SubmitDoorbellLineAsync: session={Id}, driver={Driver.Kind}, len={line.Length}");
+        // The origin is reported from the moment Enter is pressed, before the submit is verified, so a Working
+        // push in between does not read as unexplained work (which would end an armed snooze).
+        var priorOrigin = WorkingOrigin;
         var outcome = await Drivers.TerminalSubmit.DoorbellSubmitAsync(
-            _backend, line, Driver.Kind.ToString(), mayTypeNow, composerShowsLine, turnStarted);
+            _backend, line, Driver.Kind.ToString(), mayTypeNow, composerShowsLine, turnStarted,
+            beforeEnter: () => WorkingOrigin = Gateway.Contracts.WorkingOrigins.Agent);
         FileLog.Write($"[Session] SubmitDoorbellLineAsync: session={Id}, outcome={outcome}");
+        if (outcome != Drivers.DoorbellSubmitOutcome.Verified && ActivityState is not (ActivityState.Working or ActivityState.Starting))
+            WorkingOrigin = priorOrigin;
         if (outcome == Drivers.DoorbellSubmitOutcome.Verified)
         {
             IsBrandNew = false;
@@ -2593,6 +2599,13 @@ public sealed class Session : IDisposable
     /// </summary>
     public string? WorkingOrigin { get; private set; }
 
+    /// <summary>The origin a submission gives the work: the same test as <see cref="IsOwnerDriven"/>; on the
+    /// raw-byte path (no source) only a human origin is the owner.</summary>
+    private static string OriginFor(SendSource? source, InputOrigin? origin) =>
+        origin is not null || source is SendSource.UserInput or SendSource.Delivery
+            ? Gateway.Contracts.WorkingOrigins.Owner
+            : Gateway.Contracts.WorkingOrigins.Agent;
+
     /// <summary>Record that the owner just drove a turn. Idempotent by nature - it is a timestamp.</summary>
     private void StampOwnerTurn()
     {
@@ -2642,10 +2655,7 @@ public sealed class Session : IDisposable
         ArgumentNullException.ThrowIfNull(evidence);
         var characters = (int)Math.Min(evidence.ContentLength, int.MaxValue);
         LastSubmissionAtUtc = DateTime.UtcNow;
-        // The same test as IsOwnerDriven; on the raw-byte path (no source) only a human origin is the owner.
-        WorkingOrigin = origin is not null || source is SendSource.UserInput or SendSource.Delivery
-            ? Gateway.Contracts.WorkingOrigins.Owner
-            : Gateway.Contracts.WorkingOrigins.Agent;
+        WorkingOrigin = OriginFor(source, origin);
         // A human origin is a human turn, on its own (modality, surface) bucket.
         if (origin is InputOrigin o)
         {
@@ -2709,6 +2719,12 @@ public sealed class Session : IDisposable
         // behaves exactly as it did before. The rule exists to stop a catch swallowing a failure and
         // continuing in a degraded state; this one exists to stop a failure being swallowed by SILENCE.
         // A test pins the rethrow so it cannot quietly become a handler.
+        // THE ORIGIN IS KNOWN BEFORE THE TURN STARTS, so it is reported before the turn starts. The submit below
+        // can take seconds to verify, and the terminal detector may push Working in the meantime; a push that
+        // said "no origin" then would end an armed snooze this send must not end (the Message Load mission,
+        // ruling 15). A send that fails puts the previous value back.
+        var priorOrigin = WorkingOrigin;
+        WorkingOrigin = OriginFor(source, origin);
         try
         {
             if (BackendType is SessionBackendType.ConPty)
@@ -2729,6 +2745,7 @@ public sealed class Session : IDisposable
         }
         catch (Exception ex)
         {
+            WorkingOrigin = priorOrigin;
             PromptDeliveryFailures.RecordFailedDelivery(Id, source.ToString(), ex.Message, text?.Length ?? 0);
             RaisePromptDeliveryChanged();
             throw;

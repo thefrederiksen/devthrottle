@@ -207,6 +207,32 @@ public sealed class SessionInteractiveTests
         Assert.Equal("agent", agent.WorkingOrigin);
     }
 
+    [Fact]
+    public async Task TheOrigin_IsReportedBeforeTheSubmitFinishes()
+    {
+        // The submit can take seconds to verify; a Working push in that time must already say who started it.
+        var backend = new RecordingBackend();
+        using var s = NewSession(backend, ActivityState.Idle);
+        string? seenDuringSubmit = "unset";
+        backend.OnSendText = _ => { seenDuringSubmit = s.WorkingOrigin; return Task.CompletedTask; };
+
+        await s.SendTextAsync("a doorbell", SendSource.Agent);
+
+        Assert.Equal("agent", seenDuringSubmit);
+    }
+
+    [Fact]
+    public async Task AFailedSend_PutsThePreviousOriginBack()
+    {
+        var backend = new RecordingBackend();
+        using var s = NewSession(backend, ActivityState.Idle);
+        backend.OnSendText = _ => throw new InvalidOperationException("the terminal refused the text");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => s.SendTextAsync("a doorbell", SendSource.Agent));
+
+        Assert.Null(s.WorkingOrigin);
+    }
+
     [Theory]
     [InlineData(ActivityState.WaitingForInput)]
     [InlineData(ActivityState.WaitingForPerm)]
@@ -384,7 +410,8 @@ public sealed class SessionInteractiveTests
 
         public void Start(string executable, string args, string workingDir, short cols, short rows, Dictionary<string, string>? environmentVars = null) { }
         public void Write(byte[] data) => Writes.Add(data);
-        public Task SendTextAsync(string text) { SentTexts.Add(text); return Task.CompletedTask; }
+        public Func<string, Task>? OnSendText { get; set; }
+        public Task SendTextAsync(string text) { SentTexts.Add(text); return OnSendText?.Invoke(text) ?? Task.CompletedTask; }
         public Task SendEnterAsync() => Task.CompletedTask;
         public void Resize(short cols, short rows) => Resizes.Add((cols, rows));
         public Task GracefulShutdownAsync(int timeoutMs = 5000) => Task.CompletedTask;

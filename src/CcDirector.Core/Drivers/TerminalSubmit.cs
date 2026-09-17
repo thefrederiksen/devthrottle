@@ -204,6 +204,7 @@ public static class TerminalSubmit
     /// for the echo when the byte stream misses it.</param>
     /// <param name="turnStarted">True when the screen proves the line was submitted.</param>
     /// <param name="pause">How to wait between polls; tests pass one that does not sleep.</param>
+    /// <param name="beforeEnter">Runs immediately before the one Enter is written.</param>
     public static async Task<DoorbellSubmitOutcome> DoorbellSubmitAsync(
         ISessionBackend backend,
         string line,
@@ -214,7 +215,8 @@ public static class TerminalSubmit
         TimeSpan? echoTimeout = null,
         TimeSpan? watch = null,
         TimeSpan? poll = null,
-        Func<TimeSpan, Task>? pause = null)
+        Func<TimeSpan, Task>? pause = null,
+        Action? beforeEnter = null)
     {
         ArgumentNullException.ThrowIfNull(backend);
         ArgumentNullException.ThrowIfNull(line);
@@ -247,6 +249,7 @@ public static class TerminalSubmit
         }
 
         await wait(TimeSpan.FromMilliseconds(40));
+        beforeEnter?.Invoke();
         backend.Write(DoorbellEnter);
         for (var i = 0; i < watchPolls; i++)
         {

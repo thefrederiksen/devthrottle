@@ -119,4 +119,30 @@ public sealed class DoorbellSubmitTests
         Assert.Equal(1, Enters(backend));
         Assert.Empty(backend.SubmittedTexts);
     }
+
+    [Fact]
+    public async Task The_before_Enter_hook_runs_before_the_Enter_and_only_once()
+    {
+        var backend = new RecordingSessionBackend { Buffer = new CircularTerminalBuffer() };
+        var entersWhenHookRan = new List<int>();
+
+        await TerminalSubmit.DoorbellSubmitAsync(backend, Line, "ClaudeCode", () => true, () => false,
+            () => backend.SubmittedTexts.Count > 0, pause: NoWait, beforeEnter: () => entersWhenHookRan.Add(Enters(backend)));
+
+        Assert.Equal([0], entersWhenHookRan);
+        Assert.Equal(1, Enters(backend));
+    }
+
+    [Fact]
+    public async Task The_before_Enter_hook_does_not_run_when_nothing_echoed()
+    {
+        var backend = new RecordingSessionBackend { Buffer = new CircularTerminalBuffer() };
+        backend.EchoScript.UseDefault(RecordingEchoStep.Withheld());
+        var ran = false;
+
+        await TerminalSubmit.DoorbellSubmitAsync(backend, Line, "ClaudeCode", () => true, () => false, () => false,
+            pause: NoWait, beforeEnter: () => ran = true);
+
+        Assert.False(ran);
+    }
 }
