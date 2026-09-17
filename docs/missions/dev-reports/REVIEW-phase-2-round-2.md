@@ -1,0 +1,39 @@
+Review phase 2, round 2
+
+Round 1 findings
+
+1. Critical 1 — OPEN
+   The sending state closes the same-process crash window, but it does not close the cross-process window the fix round itself admits. The core bug is in `DevReportDelivery`: `LockFor` is a per-process `ConcurrentDictionary`/`SemaphoreSlim`, not a shared database lock. A process A can set an item to `sending`, a process B can later `SettleAsync` it as orphaned and mark it `delivered`/`not confirmed`, and then A can still finish its send and overwrite the final state. This is the path around the fix the Worker log names directly: "Two Gateway processes at once (a deploy swap) share the database but not the lock... the other process's settle can rule an item this one is still sending 'not confirmed', and this one then overwrites it 'delivered'." The fix is therefore not an at-most-once guarantee across processes, only a same-process crash guard. File read: `src/CcDirector.Gateway/DevReports/DevReportDelivery.cs` around the `LockFor` and the `SettleOrphanedSends` / `DrainLockedAsync` pairing; the worker's own notes in `docs/missions/dev-reports/WORKER-phase-2-gateway.md` describe the exact path.
+
+2. High 1 — CLOSED for the reported bug path, but not universal
+   The fix does close the direct session-ended case: `DevReportDelivery.SettleAsync` is the single pass, and both the owner's detail read and the settle timer call it before answering. `DevReportEndpoints` now does `await delivery.SettleAsync(tenant, report.SessionId, ct);` on `GET /dev-reports/{reportId}` before returning the item list, and `DevReportSettleSweep` calls the same pass for every tenant/session with open items. This is the phase-2 fix for "held items remain open forever after a session ends". The path around the fix remains the list route: `GET /dev-reports` does not call `SettleAsync`, and its `openItems` count is stale until the next timer tick. So the bug is fixed for the owner-detail path the test exercises, not for every read path in the owner surface.
+
+3. High 2 — CLOSED for the idle reconnect path the test covers
+   The timer-driven settle pass is the real fix: `DevReportSettleSweep` iterates `SessionsWithOpenItems`, and `GatewayHost` runs it on a `System.Threading.Timer` every 30 seconds with tenant scoping. That is exactly the path that reaches a session whose Director reconnects already idle without a new turn-end transition. The same-process test seam (`GatewayHost.DevReportSettleSweepScheduleForTests`) is the case the fix round explicitly built. The remaining path around it is the stale list route and the 30-second tick: a list can stay stale for up to one interval, and an item can be delayed until the next timer pass.
+
+4. High 3 — OPEN as an accepted gap, not a fix
+   This remains a known gap, and the Manager's ruling explicitly accepted it. The code still reads the roster, then separately sends a prompt with `WaitForIdle = false`, and the Director's prompt verb still writes straight into the session without refusing a working turn. No Gateway-side re-check was added, and the fix round did not change that window. This is not re-raised as a new finding because the brief explicitly says not to unless the fix round made it worse; it did not.
+
+5. High 4 — CLOSED
+   The fix does split the outcomes: `SessionVerbClient.PromptSendKind.DirectorRefused` is returned for `Conflict` and `NotFound`, and that branch is preserved separately from `Unanswered`. `GatewayRuleEnvironment.TypeIntoSessionAsync` still maps `DirectorRefused` to `Unknown` exactly as before, and the turn verdict answer channel keeps it as `Unanswered`. For dev reports, a refusal now returns the items to `held` and then re-reads liveness; if the session has ended, they are refused. That closes the original misclassification. The path around it is that only the explicit Director refusal shapes are split out; unexplained failures still remain `Unanswered` and are not treated as definite refusals.
+
+6. Medium 1 — CLOSED
+   The fix does enforce the new limits before the database sees them: item ids are rejected above 128 characters and report keys above 512 characters. `DevReportEndpoints` enforces the key limit and the route text is local/CLI consistent, and the contract note in `packages/client-core/src/devreports/CONTRACT.md` records the new id limit. The path around the fix is that it is a validation-layer guard, not a migration-proof exercise on real PostgreSQL; the Worker note explicitly says the migration did not change and the Postgres proofs were not rerun.
+
+7. Medium 2 — CLOSED for the scope of the review
+   The prompt fold now uses a fresh boundary token and a fixed preamble saying the owner's words sit between those markers and are not instructions. The owner text is written verbatim between `<<<owner-text-<boundary>` and `<boundary>>>`, and the report-derived strings are JSON-escaped so they cannot span lines. This closes the forgery case as the review described it. The remaining path around it is not in the owner text itself: the report key in the emitted prompt is still written raw in the `file ...` and `cc-dev-reports open` lines, which is outside this review's scope because the review did not forbid raw key text.
+
+New findings
+
+1. MEDIUM — stale owner list and stale `openItems` until the next timer tick
+   File: `src/CcDirector.Gateway/Api/DevReportEndpoints.cs`, lines around the `/dev-reports` list route and the detail route; `src/CcDirector.Gateway/DevReports/DevReportSettleSweep.cs`, lines around `SweepAsync`; `src/CcDirector.Gateway/GatewayHost.cs`, timer setup.
+   Scenario: an owner reads `GET /dev-reports?sessionId=...` after a session has ended or after an idle reconnect has already been reached by the timer without a turn-end transition. The list route does not call `delivery.SettleAsync` at all, while `openItems` is computed from `OpenItemCounts` with no forced drain. The result is a stale, count-based view that can still say a session is holding items until the next settle sweep, despite the session already being ended or idle. This is a path around the promising fix because it is not a full owner-surface drain, only the detail route and timer path.
+   How established: the list route in `DevReportEndpoints` calls `store.List()` and returns summaries directly; it does not settle the report's session. The timer sweep lives in `DevReportSettleSweep` and is the only periodic trigger for sessions with open items, and `GatewayHost` binds it to a 30-second timer. The worker report itself says: "`GET /dev-reports` (the list) does not settle; its `openItems` can be stale for up to one timer tick."
+
+2. MEDIUM — the fix is still not a true cross-process invariant, and the `sending` state is only local to one process
+   File: `src/CcDirector.Gateway/DevReports/DevReportDelivery.cs`, lines around the `LockFor` and the `SettleOrphanedSends` / `DrainLockedAsync` sequence.
+   Scenario: two Gateway processes share the same database but each process has its own `ConcurrentDictionary`/`SemaphoreSlim`. If process A is still in the middle of `DrainLockedAsync` and process B runs `SettleAsync`, B can decide the item belongs to the orphan set and mark it `delivered`/`not confirmed` even while A is still in flight; A then writes its own final state after it reaches the endpoint. This is the same path the Worker log names in the fix round as a not-proven cross-process edge case. It is not a true multi-process at-most-once invariant, just a single-process crash guard.
+   How established: the worker's own fix-round notes say the issue is not proven and explicitly name the deploy-swap path. The code confirms the cause: the lock state lives in-memory in each process (`_locks`), and there is no shared database lease or transactional guard across processes.
+
+One line to the Manager:
+cc-devthrottle message send 2ba644bd "2 reopened and 1 stale-surface issue - round 2 review written"
