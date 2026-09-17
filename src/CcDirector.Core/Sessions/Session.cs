@@ -1603,11 +1603,11 @@ public sealed class Session : IDisposable
     ///  - The Exes payload does carry it (ExesEndpoints, beside effectiveColor/stateLabel), and that one
     ///    genuinely is carrying: the live page renders the fold.
     ///
-    /// THE LAST PRESENTATION READER OF THE WIRE COPY IS GONE. SessionDto.StatusColor was read by
-    /// LoopbackCarModeFleet.ToInfo, as the end of a spoken fallback chain
-    /// (<c>StateLabel ?? (EffectiveColor ?? StatusColor)</c>). That chain went with the Assistant's fleet brain
-    /// (the Fleet Manager mission, step 9), and SessionOrdering.StateLabel is pinned never blank
-    /// (StateLabelIsNeverBlankTests) in any case.
+    /// NO SCREEN OR VOICE RENDERS THE WIRE COPY. The Cockpit and the phone render the Gateway's fold
+    /// (EffectiveColor and StateLabel; SessionOrdering.StateLabel is pinned never blank by
+    /// StateLabelIsNeverBlankTests). The only client reader of SessionDto.StatusColor is the phone's voice screen,
+    /// which compares it between two polls to notice that a session changed (useVoiceMode's sameSession) and
+    /// shows nothing from it.
     /// </summary>
     public string StatusColor { get; private set; } = "blue";
 

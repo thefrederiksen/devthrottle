@@ -529,10 +529,13 @@ public static class SessionKeyGuard
             // THE OWNER'S WALKTHROUGH (step 7): the same readings as the page, and the owner's own answers, snoozes and
             // closes recorded as the owner's.
             case "walkthrough":
-            // THE OWNER'S CHOICE (step 8). Who a session reports to is the owner's to change; a session - the Fleet
-            // Manager included - taking sessions for itself would quieten them for the owner with nobody asking.
-            case "hand-over":
                 return false;
+            // HAND OVER (step 8). The owner's choice - and the Fleet Manager's, with its own key, when the owner has
+            // asked it: it may take a session that answers to the owner and hand back one it owns. The guard lets the
+            // one POST through; the route refuses every session key but the account's live Fleet Manager, with the
+            // reason (FleetManagerHandOverService).
+            case "hand-over":
+                return s.Length == 3 && verb == "POST";
             default:
                 return false;
         }

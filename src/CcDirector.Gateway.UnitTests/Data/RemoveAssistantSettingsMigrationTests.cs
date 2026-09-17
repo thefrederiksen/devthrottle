@@ -5,7 +5,9 @@ using CcDirector.Gateway.Tests.Data;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Migrations;
+using System.Reflection;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests.Data;
@@ -106,6 +108,42 @@ public sealed class RemoveAssistantSettingsMigrationTests
         Assert.Equal("Asia/Tokyo", store.Get(tenant, TenantSettingKeys.TimeZone));
         Assert.DoesNotContain("car_mode_model", TenantSettingKeys.All);
         Assert.DoesNotContain("car_mode_end_phrase", TenantSettingKeys.All);
+    }
+
+    /// <summary>
+    /// THE HAND-WRITTEN DESIGNER FILES ARE WHAT ENTITY FRAMEWORK WOULD HAVE GENERATED, as far as it can tell: for each
+    /// provider the migration is found through its <c>[DbContext]</c> and <c>[Migration]</c> attributes, it is the
+    /// newest migration, and the model its Designer carries has no difference from the current model - the schema did
+    /// not change - nor does the provider's snapshot (no pending model changes). Read with no database.
+    /// </summary>
+    [Theory]
+    [InlineData("sqlite", "20260917060000_RemoveAssistantSettings")]
+    [InlineData("postgres", "20260917060010_RemoveAssistantSettings")]
+    public void RemoveAssistantSettings_Designer_IsDiscoveredNewestAndCarriesTheCurrentModel(string provider, string id)
+    {
+        var builder = new DbContextOptionsBuilder<GatewayDbContext>();
+        if (provider == "sqlite")
+            builder.UseSqlite("Data Source=:memory:");
+        else
+            builder.UseNpgsql("Host=pg.invalid;Database=none;Username=none;Password=none",
+                o => o.MigrationsAssembly("CcDirector.Gateway.Migrations.Postgres"));
+        using var context = new GatewayDbContext(builder.Options);
+
+        var assembly = context.GetService<IMigrationsAssembly>();
+        Assert.True(assembly.Migrations.TryGetValue(id, out var type), $"'{id}' is not discovered for {provider}.");
+        Assert.Equal("RemoveAssistantSettings", type!.Name);
+        Assert.Equal(id, assembly.Migrations.Keys.Max(StringComparer.Ordinal));
+        Assert.Equal(typeof(GatewayDbContext), type.GetCustomAttribute<DbContextAttribute>()!.ContextType);
+
+        var migration = assembly.CreateMigration(type, context.Database.ProviderName!);
+        Assert.NotNull(migration.TargetModel);
+        var initializer = context.GetService<IModelRuntimeInitializer>();
+        var designed = initializer.Initialize((IModel)migration.TargetModel!, designTime: true, validationLogger: null);
+        var current = context.GetService<IDesignTimeModel>().Model;
+        var differ = context.GetService<IMigrationsModelDiffer>();
+        Assert.False(differ.HasDifferences(designed.GetRelationalModel(), current.GetRelationalModel()),
+            $"The {provider} Designer of '{id}' does not carry the current model.");
+        Assert.False(context.Database.HasPendingModelChanges(), $"The {provider} model snapshot is behind the model.");
     }
 
     private static void Execute(string connectionString, string sql)

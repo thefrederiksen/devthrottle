@@ -29,9 +29,12 @@ public interface IFleetManagerHandOverEnvironment
 }
 
 /// <summary>How a hand over ended: an HTTP status, and either the answer or the refusal sentence.</summary>
-public sealed record FleetHandOverResult(int Status, FleetHandOverResultDto? Answer, string? Error)
+public sealed record FleetHandOverResult(int Status, FleetHandOverResultDto? Answer, string? Error, string? Code = null)
 {
-    public static FleetHandOverResult Refused(int status, string sentence) => new(status, null, sentence);
+    /// <summary>The code on a refusal of a session key that is not the account's live Fleet Manager.</summary>
+    public const string NotFleetManager = "not_fleet_manager";
+
+    public static FleetHandOverResult Refused(int status, string sentence, string? code = null) => new(status, null, sentence, code);
 }
 
 /// <summary>
@@ -43,8 +46,15 @@ public sealed record FleetHandOverResult(int Status, FleetHandOverResultDto? Ans
 /// made there, through the <c>set-controller</c> verb, and a Director that has not said it has that verb is refused
 /// here with a sentence - an older one would answer "unknown verb", which says nothing about the fix.
 ///
-/// THE CALLER IS CHECKED BY THE ROUTE (the owner's own device only). Everything about the session is checked here, and
-/// each refusal is one sentence:
+/// THE CALLER. The route lets through the owner's own device and session keys. A session key is checked HERE, before
+/// the session asked about is even looked up: only the account's marked Fleet Manager, running as the Fleet Manager
+/// (<see cref="FleetManagerSessions.LiveFleetManager"/>), may hand over, and every other session is refused with
+/// <see cref="FleetHandOverResult.NotFleetManager"/> and the reason. The Fleet Manager then meets exactly the rules the
+/// owner meets, which already say what it may do: take a session that answers to the owner (to itself, the only Fleet
+/// Manager there is), and hand back a session it owns - never one another running session owns. The roster is the
+/// caller's own account's, so a session of another account is not found.
+///
+/// Everything about the session is checked here, and each refusal is one sentence:
 ///  - a session this account does not run now (another account's session answers exactly the same);
 ///  - the Fleet Manager itself;
 ///  - to the Fleet Manager when the account has none marked, or its marked one is not running as the Fleet Manager;
@@ -65,14 +75,15 @@ public sealed class FleetManagerHandOverService
         _env = environment ?? throw new ArgumentNullException(nameof(environment));
     }
 
+    /// <param name="callingSessionId">The session whose key made the request, or null when the owner made it.</param>
     public async Task<FleetHandOverResult> HandOverAsync(TenantId tenant, FleetHandOverRequest? request, string actor,
-        CancellationToken ct)
+        CancellationToken ct, string? callingSessionId = null)
     {
         FileLog.Write($"[FleetManagerHandOverService] HandOverAsync: tenant={tenant.ToLogString()}, " +
-                      $"session={request?.Session}, to={request?.To}, actor={actor}");
+                      $"session={request?.Session}, to={request?.To}, actor={actor}, callingSession={callingSessionId ?? "none"}");
         try
         {
-            var result = await HandOverCoreAsync(tenant, request, actor, ct).ConfigureAwait(false);
+            var result = await HandOverCoreAsync(tenant, request, actor, callingSessionId, ct).ConfigureAwait(false);
             FileLog.Write($"[FleetManagerHandOverService] HandOverAsync: status={result.Status}, " +
                           $"{(result.Error is null ? "changed" : "refused: " + result.Error)}");
             return result;
@@ -85,7 +96,7 @@ public sealed class FleetManagerHandOverService
     }
 
     private async Task<FleetHandOverResult> HandOverCoreAsync(TenantId tenant, FleetHandOverRequest? request, string actor,
-        CancellationToken ct)
+        string? callingSessionId, CancellationToken ct)
     {
         if (request is null)
             return FleetHandOverResult.Refused(400, "A body is required: { \"session\": \"<full session id>\", \"to\": \"fleet-manager\" or \"owner\" }.");
@@ -101,6 +112,10 @@ public sealed class FleetManagerHandOverService
         var sid = parsed.ToString();
 
         var roster = _env.Roster(tenant);
+        var marked = _env.MarkedFleetManager(tenant);
+        if (callingSessionId is not null && RefuseUnlessFleetManager(roster, marked, callingSessionId) is { } notFleetManager)
+            return notFleetManager;
+
         var found = roster.FirstOrDefault(r => FleetManagerSessions.SameId(r.Session.SessionId, sid));
         if (found.Session is null)
             return FleetHandOverResult.Refused(404,
@@ -108,7 +123,6 @@ public sealed class FleetManagerHandOverService
         var (directorId, session) = found;
         var name = NameOf(session);
 
-        var marked = _env.MarkedFleetManager(tenant);
         if (FleetManagerSessions.SameId(sid, marked))
             return FleetHandOverResult.Refused(409,
                 $"{name} is the Fleet Manager itself. It answers to you only, so it cannot be handed over.");
@@ -187,6 +201,24 @@ public sealed class FleetManagerHandOverService
             Sentence = sentence + (auditNote ?? ""),
             Session = after,
         }, null);
+    }
+
+    /// <summary>Null when <paramref name="callingSessionId"/> is the account's live Fleet Manager; otherwise the 403.</summary>
+    private static FleetHandOverResult? RefuseUnlessFleetManager(
+        IReadOnlyList<(string DirectorId, SessionDto Session)> roster, string? marked, string callingSessionId)
+    {
+        const string Owner = " The owner hands sessions over from the Cockpit or the phone.";
+        string? why = null;
+        if (string.IsNullOrEmpty(marked))
+            why = $"Only this account's Fleet Manager session may hand a session over, and this account has no Fleet Manager marked, so session {callingSessionId} may not.";
+        else if (!FleetManagerSessions.SameId(callingSessionId, marked))
+            why = $"Only this account's Fleet Manager session ({marked}) may hand a session over; session {callingSessionId} is not it.";
+        else if (FleetManagerSessions.LiveFleetManager(roster.Select(r => r.Session), marked) is null)
+            why = $"Session {callingSessionId} is marked as the Fleet Manager but is not running as the Fleet Manager " +
+                  "(it has ended, is owned by another session, or no computer of this account reports it), so it may not hand a session over.";
+        if (why is null) return null;
+        FileLog.Write($"[FleetManagerHandOverService] REFUSED session key {callingSessionId}: {why}");
+        return FleetHandOverResult.Refused(403, why + Owner, FleetHandOverResult.NotFleetManager);
     }
 
     private static string NameOf(SessionDto s)

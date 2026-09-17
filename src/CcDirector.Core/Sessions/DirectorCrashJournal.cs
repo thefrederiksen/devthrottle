@@ -13,6 +13,11 @@ public sealed class DirectorCrashJournalSession
     public string Agent { get; set; } = "ClaudeCode";
     public string? ClaudeSessionId { get; set; }
     public DateTimeOffset CreatedAtUtc { get; set; }
+
+    /// <summary>The session that owns this one, or null when the user owns it (the Fleet Manager mission, step 8).
+    /// Written the moment the owner changes (<see cref="DirectorCrashJournal.SetSessionOwner"/>), so a Director that
+    /// dies right after a hand over still says who owned the session.</summary>
+    public string? ControllerSessionId { get; set; }
 }
 
 /// <summary>The on-disk shape of a Director crash journal.</summary>
@@ -147,13 +152,42 @@ public sealed class DirectorCrashJournal
         {
             _data.Sessions = sessions.ToList();
             _data.LastUpdatedUtc = DateTimeOffset.UtcNow;
-            Directory.CreateDirectory(_directory);
-
-            var json = JsonSerializer.Serialize(_data, JsonOptions);
-            var tmp = FilePath + ".tmp";
-            File.WriteAllText(tmp, json);
-            File.Move(tmp, FilePath, overwrite: true);
+            Flush();
         }
+    }
+
+    /// <summary>
+    /// Record a change of owner on one session of the roster and flush to disk at once (the Fleet Manager mission,
+    /// step 8). A hand over is a decision the owner or the Fleet Manager made on the Gateway, and it must not wait for
+    /// the next roster save to become durable. Returns false when the session is not in the roster (the next
+    /// <see cref="Update"/> will carry it).
+    /// </summary>
+    public bool SetSessionOwner(string sessionId, string? controllerSessionId)
+    {
+        FileLog.Write($"[DirectorCrashJournal] SetSessionOwner: session={sessionId}, owner={controllerSessionId ?? "(the user)"}");
+        lock (_gate)
+        {
+            var row = _data.Sessions.FirstOrDefault(s => string.Equals(s.SessionId, sessionId, StringComparison.OrdinalIgnoreCase));
+            if (row is null)
+            {
+                FileLog.Write($"[DirectorCrashJournal] SetSessionOwner: session {sessionId} is not in the roster yet");
+                return false;
+            }
+            row.ControllerSessionId = controllerSessionId;
+            _data.LastUpdatedUtc = DateTimeOffset.UtcNow;
+            Flush();
+            return true;
+        }
+    }
+
+    // Callers hold _gate.
+    private void Flush()
+    {
+        Directory.CreateDirectory(_directory);
+        var json = JsonSerializer.Serialize(_data, JsonOptions);
+        var tmp = FilePath + ".tmp";
+        File.WriteAllText(tmp, json);
+        File.Move(tmp, FilePath, overwrite: true);
     }
 
     /// <summary>

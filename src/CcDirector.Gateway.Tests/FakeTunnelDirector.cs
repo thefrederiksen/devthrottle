@@ -57,12 +57,14 @@ public sealed class FakeTunnelDirector : IAsyncDisposable
     /// <param name="directorId">The Director id to register + connect under.</param>
     /// <param name="machineName">The advertised machine name (defaults to this machine so local-only reads surface it).</param>
     /// <param name="dispatch">Optional per-verb dispatcher; may be set later with <see cref="OnCommand"/>.</param>
+    /// <param name="changesOwner">Say on Hello that this Director carries out <c>set-controller</c> (hand over).</param>
     public static async Task<FakeTunnelDirector> StartAsync(
         GatewayHost gateway,
         string token,
         string directorId,
         string? machineName = null,
-        Func<DirectorCommand, DirectorCommandResult>? dispatch = null)
+        Func<DirectorCommand, DirectorCommandResult>? dispatch = null,
+        bool changesOwner = false)
     {
         // Registered UNREACHABLE: nothing listens on this advertised endpoint, so any working result
         // could only have come over the tunnel. The port is RESERVED for the fake's lifetime rather than
@@ -107,6 +109,7 @@ public sealed class FakeTunnelDirector : IAsyncDisposable
             User = "test",
             Pid = 1,
             StartedAt = DateTime.UtcNow,
+            ChangesOwner = changesOwner,
         });
         return fake;
     }

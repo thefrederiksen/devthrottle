@@ -1687,9 +1687,9 @@ def hand_over(
 ) -> None:
     """Hand a running session to the Fleet Manager, or back to the owner.
 
-    This is the OWNER'S change. The Gateway allows it only from the owner's own signed-in phone or
-    browser (the Cockpit's Fleet Manager page and session menu), and refuses a session's key - the Fleet
-    Manager's included - so run from a session this prints the Gateway's refusal.
+    The Gateway allows it from the owner's own signed-in phone or browser (the Cockpit's Fleet Manager
+    page and session menu), and from the account's Fleet Manager with its own session key - which takes
+    a session only when the owner has asked it to. Any other session's key is refused with the reason.
 
     The Gateway also refuses: a session this account is not running, the Fleet Manager itself, handing to
     a Fleet Manager the account does not have running, a session another running session owns, a session

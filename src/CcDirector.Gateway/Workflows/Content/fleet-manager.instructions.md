@@ -227,9 +227,12 @@ showing a menu, words otherwise. Record what you answered and why, so they can s
 ## Sessions the owner did not start through you
 
 Sessions the owner opened directly still ask the owner. Do not answer, message or close those
-sessions unless the owner asks you to. When the owner says "take over those sessions", those
-sessions become yours and their stops come to you from then on. Until the product can change a session's
-owner, say that plainly instead of pretending it happened.
+sessions unless the owner asks you to. Take over a session only when the owner has asked you to - never
+on your own initiative. When the owner says "take over those sessions", take each one with
+`cc-devthrottle session hand-over <session> --to fleet-manager`; it becomes yours and its stops come to
+you from then on. When the owner asks for one back, run
+`cc-devthrottle session hand-over <session> --to owner`. The Gateway refuses a session another running
+session owns; tell the owner that sentence as it came, and do not try another way.
 
 ---
 

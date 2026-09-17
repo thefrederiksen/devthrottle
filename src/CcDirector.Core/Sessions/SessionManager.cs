@@ -200,6 +200,65 @@ public sealed class SessionManager : IDisposable
     /// </summary>
     public bool PlacesSkillsOnLaunch { get; init; }
 
+    /// <summary>
+    /// Where this Director keeps its sessions on disk (<c>sessions.json</c>). Set by the app; null in tests that do not
+    /// persist. Written at once when a session's owner changes (<see cref="PersistOwnerChange"/>).
+    /// </summary>
+    public SessionStateStore? DurableStateStore { get; set; }
+
+    /// <summary>
+    /// This Director's crash journal - the roster a Director started after a crash reads back
+    /// (<see cref="DirectorCrashJournal.DetectAndClaim"/>). Set by the app once the Director's id is known. Written at
+    /// once when a session's owner changes (<see cref="PersistOwnerChange"/>).
+    /// </summary>
+    public DirectorCrashJournal? CrashJournal { get; set; }
+
+    /// <summary>The owner-change handler wired onto each tracked session, so a duplicate announce wires it once.</summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, Action> _ownerChangeHandlers = new();
+
+    /// <summary>
+    /// A session's owner changed (the Gateway's hand over, the Fleet Manager mission, step 8): write it to disk NOW,
+    /// before the verb answers, rather than on the next routine save - a Director that stops right after a hand over
+    /// must come back knowing who owns the session. Both records are written: this Director's crash journal (the one a
+    /// restarted Director reads) and <c>sessions.json</c>. A failed write is logged loudly and does not undo the change,
+    /// which the Gateway has already decided and the session already carries.
+    /// </summary>
+    internal void PersistOwnerChange(Session session)
+    {
+        var owner = session.ControllerSessionId?.ToString();
+        FileLog.Write($"[SessionManager] PersistOwnerChange: session={session.Id}, owner={owner ?? "(the user)"}, " +
+                      $"journal={(CrashJournal is null ? "none" : CrashJournal.FilePath)}, " +
+                      $"store={(DurableStateStore is null ? "none" : DurableStateStore.FilePath)}");
+        try
+        {
+            if (CrashJournal is { } journal && !journal.SetSessionOwner(session.Id.ToString(), owner))
+                journal.Update(BuildCrashJournalRoster());
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SessionManager] PersistOwnerChange FAILED to write the crash journal for {session.Id}: {ex.Message}");
+        }
+        if (DurableStateStore is { } store && !store.Save(BuildPersistedSessions()))
+            FileLog.Write($"[SessionManager] PersistOwnerChange FAILED to write {store.FilePath} for {session.Id}");
+    }
+
+    /// <summary>The crash-journal roster of every tracked session, in rail order.</summary>
+    public IReadOnlyList<DirectorCrashJournalSession> BuildCrashJournalRoster()
+        => _sessions.Values.OrderBy(s => s.SortOrder).Select(ToCrashJournalSession).ToList();
+
+    /// <summary>One session as its crash-journal row. The desktop's routine save builds its rows here too, so the two
+    /// writers of the journal can never disagree about what a row carries.</summary>
+    public static DirectorCrashJournalSession ToCrashJournalSession(Session s) => new()
+    {
+        SessionId = s.Id.ToString(),
+        Name = s.CustomName,
+        RepoPath = s.RepoPath,
+        Agent = s.AgentKind.ToString(),
+        ClaudeSessionId = s.ClaudeSessionId,
+        CreatedAtUtc = s.CreatedAt,
+        ControllerSessionId = s.ControllerSessionId?.ToString(),
+    };
+
     /// <summary>Invoke OnSessionCreated. Public so external endpoint mappers (web Control API)
     /// can announce sessions they created without going through CreateSession overloads.</summary>
     public void RaiseSessionCreated(Session session)
@@ -210,6 +269,11 @@ public sealed class SessionManager : IDisposable
         // (the "two sessions in the desktop, one with no claude" symptom). One-shot + idempotent
         // downstream, so a duplicate announce of the same session does no harm.
         WireSessionReaper(session);
+
+        // A change of owner is written to disk the moment it happens (PersistOwnerChange). Wired once per session.
+        var ownerChanged = _ownerChangeHandlers.GetOrAdd(session.Id, _ => () => PersistOwnerChange(session));
+        session.OnControllerChanged -= ownerChanged;
+        session.OnControllerChanged += ownerChanged;
 
         // Every creation route funnels through here, so this is also the one place to RESERVE the
         // session's working directory (inspection): while this session is alive, the worktree reaper
@@ -1306,6 +1370,8 @@ public sealed class SessionManager : IDisposable
             // Remove any Claude session mapping
             if (session.ClaudeSessionId != null)
                 _claudeSessionMap.TryRemove(session.ClaudeSessionId, out _);
+            if (_ownerChangeHandlers.TryRemove(id, out var ownerChanged))
+                session.OnControllerChanged -= ownerChanged;
 
             // Tell per-session subscribers to tear down BEFORE we dispose the
             // session (and its terminal buffer). A subscriber holding a background

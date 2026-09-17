@@ -122,17 +122,39 @@ public sealed class FleetManagerHandOverEndpointsTests
         Assert.Equal($"device {deviceType} device-7", _world.LastActor);
     }
 
-    [Theory]
-    [InlineData(Fm)]      // the Fleet Manager's own key
-    [InlineData(Plain)]   // the session being handed over
-    public async Task HandOverAsync_SessionKey_IsRefusedBeforeAnythingIsRead(string callingSession)
+    [Fact]
+    public async Task HandOverAsync_FleetManagersOwnKey_IsAllowedAndRecordedAsThatSession()
     {
         var result = await FleetManagerHandOverEndpoints.HandOverAsync(
-            Request(Tenant, Body(), sessionKeyFor: callingSession), ResolveTenant, _service);
+            Request(Tenant, Body(), sessionKeyFor: Fm), ResolveTenant, _service);
+
+        Assert.Equal(200, Status(result));
+        Assert.Equal(1, _world.Sends);
+        Assert.Equal($"session {Fm}", _world.LastActor);
+    }
+
+    [Fact]
+    public async Task HandOverAsync_AnotherSessionsKey_IsRefusedWithTheReasonAndNothingSent()
+    {
+        var result = await FleetManagerHandOverEndpoints.HandOverAsync(
+            Request(Tenant, Body(), sessionKeyFor: Plain), ResolveTenant, _service);
 
         Assert.Equal(403, Status(result));
-        Assert.Equal("Only the owner can hand a session over, from the Cockpit or the phone. A session's own key cannot - " +
-                     "not even the Fleet Manager's.", Error(result));
+        Assert.Equal($"Only this account's Fleet Manager session ({Fm}) may hand a session over; session {Plain} is not it. " +
+                     "The owner hands sessions over from the Cockpit or the phone.", Error(result));
+        Assert.Equal(0, _world.Sends);
+    }
+
+    [Fact]
+    public async Task HandOverAsync_SessionKeyOfAnotherAccount_IsRefusedBeforeAnythingIsRead()
+    {
+        var ctx = Request(Tenant, Body(), sessionKeyFor: Fm);
+        ctx.Items[AuthMiddleware.AuthenticatedSessionItemKey] =
+            new SessionCredentialIdentity(Guid.Parse(Fm), new TenantId("another-account"), "dir-1");
+
+        var result = await FleetManagerHandOverEndpoints.HandOverAsync(ctx, ResolveTenant, _service);
+
+        Assert.Equal(403, Status(result));
         Assert.Equal((0, 0), (_world.Reads, _world.Sends));
     }
 

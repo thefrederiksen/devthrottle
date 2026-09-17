@@ -18,15 +18,18 @@ namespace CcDirector.Gateway.Api;
 ///   POST /gateway/fleet-manager/hand-over   { "session": "&lt;full id&gt;", "to": "fleet-manager" | "owner" }
 ///
 /// 200 answers <see cref="FleetHandOverResultDto"/>. A refusal answers { "error": "&lt;sentence&gt;" } with 400 (a bad
-/// request), 403 (not the owner), 404 (no such running session in this account), 409 (the session or the account does
-/// not allow it) or 502 (the Director did not make the change).
+/// request), 403 (a caller that may not hand this over), 404 (no such running session in this account), 409 (the session
+/// or the account does not allow it) or 502 (the Director did not make the change).
 ///
-/// THE OWNER'S ROUTE, AND ONLY THE OWNER'S. The owner decides who a session reports to, from their own signed-in phone
-/// or browser. A session key is refused - <see cref="SessionKeyGuard"/> names this route, and the handler refuses one
-/// again - and that includes the Fleet Manager's own key: nothing in the design's rulings lets the Fleet Manager take a
-/// session for itself, and a Fleet Manager that could would quieten sessions for the owner with nobody asking. A
-/// Director's own key and the shared machine token are refused too. That rule is <see cref="FleetManagerOwnerDevice"/>,
-/// shared with the walkthrough (step 7), and its 403 also carries <c>code: "owner_only"</c>.
+/// WHO MAY CALL IT. Two callers, and nobody else:
+///  - THE OWNER, from their own signed-in phone or browser (<see cref="FleetManagerOwnerDevice"/>, shared with the
+///    walkthrough). A Director's own key and the shared machine token are refused with <c>code: "owner_only"</c>.
+///  - THE ACCOUNT'S FLEET MANAGER, with its own session key (the Architect's ruling on step 8). It may take to itself a
+///    session of its own account that answers to the owner, and hand a session it owns back to the owner - and nothing
+///    more: it never takes a session another running session owns, and its key only ever reaches its own account's
+///    roster. It does this only when the owner has asked; the Fleet Manager skill says so. Every other session key is
+///    refused by <see cref="FleetManagerHandOverService"/> with <c>code: "not_fleet_manager"</c> and the reason, after
+///    <see cref="SessionKeyGuard"/> has let the one POST through.
 /// </summary>
 internal static class FleetManagerHandOverEndpoints
 {
@@ -50,11 +53,27 @@ internal static class FleetManagerHandOverEndpoints
         {
             if (resolveTenant(ctx) is not { } tenant)
                 return Refuse(StatusCodes.Status403Forbidden, "no account is bound to this request");
-            var device = FleetManagerOwnerDevice.Require(ctx, "hand a session over",
-                "Only the owner can hand a session over, from the Cockpit or the phone. A session's own key cannot - " +
-                "not even the Fleet Manager's.",
-                nameof(FleetManagerHandOverEndpoints), out var refused);
-            if (device is null) return refused!;
+            string actor;
+            string? callingSessionId = null;
+            if (AuthMiddleware.CallingSession(ctx) is { } session)
+            {
+                // A session key names its own account; the account this request resolved to must be that one.
+                if (session.Tenant != tenant)
+                {
+                    FileLog.Write($"[FleetManagerHandOverEndpoints] REFUSED: session {session.SessionId} resolved to another account");
+                    return Refuse(StatusCodes.Status403Forbidden, "a session key may only hand over sessions of its own account");
+                }
+                callingSessionId = session.SessionId.ToString();
+                actor = SessionStopFold.ActorFor(callingSessionId, null, null, credentialAuthenticated: true);
+            }
+            else
+            {
+                var device = FleetManagerOwnerDevice.Require(ctx, "hand a session over",
+                    "Only the owner or the account's Fleet Manager can hand a session over.",
+                    nameof(FleetManagerHandOverEndpoints), out var refused);
+                if (device is null) return refused!;
+                actor = SessionStopFold.ActorFor(null, device.DeviceType, device.DeviceId, credentialAuthenticated: false);
+            }
 
             FleetHandOverRequest? body;
             try
@@ -66,11 +85,12 @@ internal static class FleetManagerHandOverEndpoints
                 return Refuse(StatusCodes.Status400BadRequest, $"The body is not valid JSON: {ex.Message}");
             }
 
-            var actor = SessionStopFold.ActorFor(null, device.DeviceType, device.DeviceId, credentialAuthenticated: false);
-            var result = await service.HandOverAsync(tenant, body, actor, ctx.RequestAborted);
-            FileLog.Write($"[FleetManagerHandOverEndpoints] POST hand-over: status={result.Status}");
-            return result.Answer is not null
-                ? Results.Json(result.Answer, statusCode: result.Status)
+            var result = await service.HandOverAsync(tenant, body, actor, ctx.RequestAborted, callingSessionId);
+            FileLog.Write($"[FleetManagerHandOverEndpoints] POST hand-over: status={result.Status}, caller={actor}");
+            if (result.Answer is not null)
+                return Results.Json(result.Answer, statusCode: result.Status);
+            return result.Code is not null
+                ? Results.Json(new { code = result.Code, error = result.Error }, statusCode: result.Status)
                 : Refuse(result.Status, result.Error ?? "The hand over was refused.");
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

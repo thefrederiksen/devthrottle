@@ -104,6 +104,10 @@ public sealed class FleetManagerHandOverServiceTests
     private Task<FleetHandOverResult> HandAsync(string session, string to)
         => _service.HandOverAsync(Tenant, new FleetHandOverRequest { Session = session, To = to }, Actor, CancellationToken.None);
 
+    private Task<FleetHandOverResult> HandAsSessionAsync(string caller, string session, string to)
+        => _service.HandOverAsync(Tenant, new FleetHandOverRequest { Session = session, To = to }, $"session {caller}",
+            CancellationToken.None, callingSessionId: caller);
+
     private void AssertRefused(FleetHandOverResult result, int status, string sentencePart)
     {
         Assert.Equal(status, result.Status);
@@ -287,5 +291,73 @@ public sealed class FleetManagerHandOverServiceTests
         Assert.Equal(200, result.Status);
         Assert.EndsWith("The change was made, but the audit trail could not record it.", result.Answer!.Sentence);
         Assert.Single(_world.OwnerChanges);
+    }
+
+    // ================================================================= the Fleet Manager's own key
+
+    [Fact]
+    public async Task FleetManagerKey_TakesASessionThatAnswersToTheOwner_ToItself()
+    {
+        var result = await HandAsSessionAsync(Fm, Plain, "fleet-manager");
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(Fm, result.Answer!.OwnerSessionId);
+        Assert.Equal(("dir-1", Plain, (string?)Fm), Assert.Single(_world.Sent));
+        Assert.Equal($"session {Fm}", Assert.Single(_world.Audited).Actor);
+    }
+
+    [Fact]
+    public async Task FleetManagerKey_HandsASessionItOwnsBackToTheOwner()
+    {
+        var result = await HandAsSessionAsync(Fm, Owned, "owner");
+
+        Assert.Equal(200, result.Status);
+        Assert.Null(result.Answer!.OwnerSessionId);
+        Assert.Equal(("dir-1", Owned, (string?)null), Assert.Single(_world.Sent));
+    }
+
+    [Fact]
+    public async Task FleetManagerKey_SessionAnotherRunningSessionOwns_IsRefusedAndNotTaken()
+        => AssertRefused(await HandAsSessionAsync(Fm, ArchitectWorker, "fleet-manager"), 409, "which is still running");
+
+    [Fact]
+    public async Task FleetManagerKey_HandBackOfASessionItDoesNotOwn_IsRefused()
+        => AssertRefused(await HandAsSessionAsync(Fm, ArchitectWorker, "owner"), 409, "not by the Fleet Manager");
+
+    [Fact]
+    public async Task FleetManagerKey_AnotherAccountsSession_AnswersAsAnUnknownOne()
+        => AssertRefused(await HandAsSessionAsync(Fm, Foreign, "fleet-manager"), 404, $"No session {Foreign} is running in this account");
+
+    [Theory]
+    [InlineData(Plain, "fleet-manager")]
+    [InlineData(Architect, "fleet-manager")]
+    [InlineData(Architect, "owner")]
+    public async Task AnyOtherSessionKey_IsRefusedAsNotTheFleetManagerWithTheReason(string caller, string to)
+    {
+        var result = await HandAsSessionAsync(caller, Owned, to);
+
+        AssertRefused(result, 403, $"Only this account's Fleet Manager session ({Fm}) may hand a session over; session {caller} is not it.");
+        Assert.Equal(FleetHandOverResult.NotFleetManager, result.Code);
+    }
+
+    [Fact]
+    public async Task SessionKey_WhenTheAccountHasNoFleetManager_IsRefusedWithTheReason()
+    {
+        _world.Mark = null;
+
+        var result = await HandAsSessionAsync(Fm, Plain, "fleet-manager");
+
+        AssertRefused(result, 403, "this account has no Fleet Manager marked");
+        Assert.Equal(FleetHandOverResult.NotFleetManager, result.Code);
+    }
+
+    [Fact]
+    public async Task MarkedSessionKey_ThatIsItselfOwned_IsRefusedWithTheReason()
+    {
+        _world.Rosters[Tenant][0] = ("dir-1", Row(Fm, "The Fleet Manager", controller: Architect));
+
+        var result = await HandAsSessionAsync(Fm, Plain, "fleet-manager");
+
+        AssertRefused(result, 403, "is marked as the Fleet Manager but is not running as the Fleet Manager");
     }
 }

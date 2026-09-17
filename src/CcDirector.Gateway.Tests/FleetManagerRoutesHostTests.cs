@@ -446,13 +446,15 @@ public sealed class FleetManagerRoutesHostTests : IAsyncLifetime
         Assert.Null(Row(_ownedByNextId).OwnerChange);
     }
 
+    // The Fleet Manager's own key reaching the hand over is proven in FleetManagerHandOverAuthorityHostTests.
     [Fact]
-    public async Task Hand_over_is_refused_to_the_Fleet_Managers_own_session_key()
+    public async Task Hand_over_is_refused_to_a_session_key_that_is_not_the_Fleet_Manager()
     {
-        var (status, _) = await Send(_fleetManager, "POST", "gateway/fleet-manager/hand-over",
-            new { session = _otherSessionId, to = "fleet-manager" });
+        var (status, body) = await Send(_otherSession, "POST", "gateway/fleet-manager/hand-over",
+            new { session = _ownedId, to = "owner" });
 
         Assert.Equal(HttpStatusCode.Forbidden, status);
+        Assert.Equal("not_fleet_manager", Root(body).GetProperty("code").GetString());
     }
 
     [Fact]

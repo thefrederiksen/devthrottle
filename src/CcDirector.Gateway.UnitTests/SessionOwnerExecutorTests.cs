@@ -146,4 +146,60 @@ public sealed class SessionOwnerExecutorTests
 
         Assert.Equal(DirectorCommandStatus.NotFound, result.Status);
     }
+
+    // ================================================================= durability (the Architect's ruling on step 8)
+
+    /// <summary>
+    /// A hand over is on disk when the verb answers - not on the Director's next routine save. The Director here stops
+    /// right after the change with no further save (its process is gone: the journal names a process id that is not
+    /// running), and a Director started next reads its crash journal the way the app does at start-up
+    /// (<see cref="DirectorCrashJournal.DetectAndClaim"/>): the session is owned by the Fleet Manager. The same holds
+    /// for <c>sessions.json</c>, and for a hand back.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task SetController_DirectorStopsRightAfter_ARestartedDirectorReadsTheNewOwner(bool handBackAfter)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "cc-owner-durability-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            const int GonePid = 2_000_000_001;
+            var journal = new DirectorCrashJournal("director-under-test", GonePid, "MACHINE", "someone",
+                DateTimeOffset.UtcNow, Path.Combine(dir, "crash-journal"));
+            using var manager = new SessionManager(new Core.Configuration.AgentOptions())
+            {
+                CrashJournal = journal,
+                DurableStateStore = new SessionStateStore(Path.Combine(dir, "sessions.json")),
+            };
+            var session = NewSession(manager);
+            var fleetManager = Guid.NewGuid().ToString();
+            if (handBackAfter)
+            {
+                session.SetController(Guid.Parse(fleetManager));
+            }
+            // The Director's routine save, before the change.
+            journal.Update(manager.BuildCrashJournalRoster());
+            manager.SaveCurrentState(manager.DurableStateStore!);
+
+            var result = await SendAsync(manager, session.Id.ToString(),
+                new SetControllerRequest { ControllerSessionId = handBackAfter ? null : fleetManager });
+            Assert.True(result.Ok, result.Error);
+            var expected = handBackAfter ? null : fleetManager;
+
+            // The Director stops here: nothing else is saved. A Director started next reads what is on disk.
+            var claimed = Assert.Single(DirectorCrashJournal.DetectAndClaim(Environment.ProcessId, Path.Combine(dir, "crash-journal")));
+            var row = Assert.Single(claimed.Data.Sessions);
+            Assert.Equal(session.Id.ToString(), row.SessionId);
+            Assert.Equal(expected, row.ControllerSessionId);
+
+            var stored = new SessionManager(new Core.Configuration.AgentOptions())
+                .LoadPersistedSessions(new SessionStateStore(Path.Combine(dir, "sessions.json")));
+            Assert.Equal(expected, Assert.Single(stored.Sessions, p => p.Id == session.Id).ControllerSessionId?.ToString());
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { /* scratch */ }
+        }
+    }
 }

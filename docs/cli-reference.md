@@ -668,7 +668,7 @@ COMMANDS:
                    (sends nothing when a Fleet Manager owns you: the Gateway tells it).
   session raise    Put your hand up to the session driving you when you are blocked.
   session hand-over  Hand a running session to the Fleet Manager, or back to the owner
-                   (the owner's change: the Gateway refuses it from any session key).
+                   (the owner's, or the Fleet Manager's when the owner asks it).
   director list    List every Director this account runs, with the id --director accepts.
   worktree list    List the fleet's worktrees; --pool lists this machine's cc-worktrees pool.
   worktree get     Take a pooled worktree to work in (runs cc-worktrees).
@@ -992,13 +992,15 @@ Changes who owns a session that is already running (the Fleet Manager mission, s
 Fleet Manager, the session stops going red for the owner, and its stops and its death go to the Fleet
 Manager as events; handed back, they stop going there and it asks the owner directly again. The owner is
 changed where it lives - on the session's Director, through its `set-controller` command - and the
-change is recorded in the governance audit trail (event type `handed-over`, with the owner's device as
-the actor).
+change is recorded in the governance audit trail (event type `handed-over`, with the owner's device, or
+the Fleet Manager's session, as the actor).
 
-**This is the owner's change.** The Gateway allows it only from the owner's own signed-in phone or
-browser - in the Cockpit, the "Hand sessions to the Fleet Manager..." list on the Fleet Manager page and
-the session menu's "Hand to the Fleet Manager" and "Hand back to me". It refuses a session key, the Fleet
-Manager's own included, so run from a session this command prints the Gateway's refusal and exits 1.
+**Who may make the change.** The owner, from their own signed-in phone or browser - in the Cockpit, the
+"Hand sessions to the Fleet Manager..." list on the Fleet Manager page and the session menu's "Hand to the
+Fleet Manager" and "Hand back to me". And the account's Fleet Manager, with its own session key, when the
+owner has asked it to: it may take a session that asks the owner directly (`--to fleet-manager`) and hand
+a session it owns back (`--to owner`). Every other session key is refused with code `not_fleet_manager`
+and the reason, so run from any other session this command prints the Gateway's refusal and exits 1.
 
 Every refusal is the Gateway's sentence: a session this account is not running now (another account's
 session answers the same), the Fleet Manager itself, handing to a Fleet Manager the account has not
