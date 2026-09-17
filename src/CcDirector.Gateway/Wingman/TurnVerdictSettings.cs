@@ -75,6 +75,13 @@ public sealed record TurnVerdictSettings
     /// </summary>
     public const int ListenedToReattemptTimeoutSeconds = 60;
 
+    /// <summary>
+    /// How long the narration call (slice J) may take: the old translator's sixty seconds, the same deadline a
+    /// listened-to stop's judge re-attempt gets. The judge's spoken text is already playable while it runs, so a
+    /// call that runs out only leaves that text in place.
+    /// </summary>
+    public const int NarrationCallTimeoutSeconds = 60;
+
     /// <summary>The shipped defaults, as one value.</summary>
     public static readonly TurnVerdictSettings Defaults = new();
 }

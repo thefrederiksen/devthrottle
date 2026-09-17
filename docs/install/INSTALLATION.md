@@ -256,8 +256,8 @@ Gateway refresh on machines that never needed one.
 
 Separately, and unrelated to install: a handful of standalone `cc-*` tools
 (cc-image, cc-voice, cc-whisper, cc-transcribe, cc-computer) call OpenAI directly
-and read their own `OPENAI_API_KEY` from the user's environment or
-`config\credentials.env`. That is a per-tool credential the user opts into. It is
+and read their own `OPENAI_API_KEY` from the user's environment (on a machine
+with cc-secrets: `cc-secrets run openai-api-key -- <tool>`). That is a per-tool credential the user opts into. It is
 not a DevThrottle requirement and it is not part of any install.
 
 No elevation: the Gateway is a per-user tray app; the installer extracts the

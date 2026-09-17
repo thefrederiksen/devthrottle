@@ -1371,15 +1371,23 @@ USAGE: cc-secrets [OPTIONS] COMMAND [ARGS]...
 COMMANDS:
   add      OWNER: add or replace an entry (hidden prompt, or secret piped on stdin)
   import   OWNER: import every KEY=VALUE line of a file (credentials.env) as its own entry
+  edit     OWNER: change an entry's username, addresses, uses, agents, notes or variable - not its secret
   remove   OWNER: remove an entry
   list     Entries agents may use: names, usernames, allowed addresses. Never secrets (--all, --json)
   run      Run a command with the secret supplied; output comes back with the secret removed
+  get      Print a SETTING's value (never a secret)
   login    Fill and submit the login form in a Director-owned browser; refuses any other address
   log      Show the audit log (-n, --json)
   version  Print the version
 ```
 
-`add`, `import` and `remove` refuse to run inside a DevThrottle session. There is no option that takes the
+An entry is a **secret** (the default: hidden from every output, never printed) or a **setting** - a value
+that is not secret, such as a host, an email address or an identifier. Settings live in cc-secrets beside
+the secrets so every credential has one home; a setting can be read with `get` and is never hidden from
+output, because hiding a host name would blank it out of everything that prints it. The kind is stored in
+`secrets.json` beside the value: editing a secret's kind to `setting` by hand makes `get` print it.
+
+`add`, `import`, `edit` and `remove` refuse to run inside a DevThrottle session. There is no option that takes the
 secret as an argument. In Git Bash (mintty) typing cannot be hidden, so `add` refuses there: run it from
 PowerShell or cmd, or pipe the secret in.
 
@@ -1399,9 +1407,32 @@ OPTIONS:
   --agents / --no-agents  Whether sessions on this machine may use it
   --uses TEXT             Comma-separated: login, run [default: both]
   --replace               Replace an existing entry without asking
+  --setting               Store a setting that is not secret: readable with get, not hidden
+  --env-name TEXT         The variable run supplies it in [default: CC_SECRET]
 ```
 
 With the secret piped on stdin, `--username`, `--domains` and `--agents`/`--no-agents` are required.
+
+### cc-secrets edit
+
+```
+USAGE: cc-secrets edit [OPTIONS] NAME
+
+OPTIONS:
+  --username TEXT         The user name that goes with it
+  --domains TEXT          Comma-separated site addresses login may fill; --domains= clears them
+  --uses TEXT             Comma-separated: login, run
+  --agents / --no-agents  Whether sessions on this machine may use it
+  --notes TEXT            A note for yourself; agents see it in list
+  --env-name TEXT         The variable run supplies it in
+```
+
+Changes only the details given; the secret (or a setting's value) is never touched, so no prompt. To clear a field
+write it with an equals sign and nothing after it (`--username=`, `--notes=`, `--domains=`): Windows PowerShell 5.1
+drops an empty `""` argument, so `--username "" --no-agents` would take `--no-agents` as the user name. A value
+that starts with `--` is refused for that reason, by `edit` and by `add`. For example,
+make an imported password usable by `login`:
+`cc-secrets edit mindzie-qa-password-local --username qa@mindzie.com --domains https://localhost:7330 --uses login,run`
 
 ### cc-secrets import
 
@@ -1411,7 +1442,8 @@ USAGE: cc-secrets import [OPTIONS] FILE
 OPTIONS:
   --agents / --no-agents  Whether sessions on this machine may use the imported entries [required]
   --uses TEXT             Comma-separated: login, run [default: run]
-  --skip TEXT             Comma-separated keys NOT to import - settings that are not secret
+  --settings TEXT         Comma-separated keys to import as SETTINGS (not secret)
+  --skip TEXT             Comma-separated keys NOT to import
   --replace               Replace entries that already exist
   --dry-run               Show what would happen, by name only, and change nothing
 ```
@@ -1422,10 +1454,11 @@ so `run` supplies it exactly where a program that read the file expects it. Blan
 are skipped. The whole store is saved once. No value is ever printed: a line that cannot be imported (too
 short, for example) is reported by its key, and the rest are imported.
 
-Skip settings that are not secret (hosts, project identifiers, email addresses): every stored value is
-hidden from every command's output, so a stored host name would vanish from everything that prints it.
+Name the keys that are not secret (hosts, project identifiers, email addresses) with `--settings`, so they
+are stored as settings: a secret is hidden from every command's output, and a host name stored as a secret
+would vanish from everything that prints it.
 
-Example: `cc-secrets import $env:LOCALAPPDATA\cc-director\config\credentials.env --agents --skip POSTHOG_HOST,POSTHOG_API_HOST --dry-run`
+Example: `cc-secrets import $env:LOCALAPPDATA\cc-director\config\credentials.env --agents --settings POSTHOG_HOST,POSTHOG_API_HOST --dry-run`
 
 ### cc-secrets run
 
@@ -1450,6 +1483,19 @@ Examples:
 
 The command's output is captured and returned when it ends, with every stored secret removed; it is not
 streamed.
+
+### cc-secrets get
+
+```
+USAGE: cc-secrets get [OPTIONS] NAME
+
+OPTIONS:
+  --json   Print JSON
+```
+
+Prints a setting's value, for example `cc-secrets get posthog-host`. A secret is refused - use it with `run`.
+A setting can also be supplied to a command with `run`, beside a secret:
+`cc-secrets run posthog-personal-api-key --with posthog-host -- python query.py`.
 
 ### cc-secrets login
 

@@ -965,7 +965,7 @@ public sealed class SessionManager : IDisposable
     /// <param name="config">Repo, branch, trigger mode, and initial prompt.</param>
     /// <param name="client">
     /// GitHub REST client. Pass null to build a real <see cref="GitHubRestClient"/>
-    /// using the token from credentials.env (read at point of use). Tests pass a stub.
+    /// using the github-token entry from the cc-secrets store (read at point of use). Tests pass a stub.
     /// </param>
     public Session CreateGitHubActionsSession(RemoteSessionConfig config, IGitHubClient? client = null)
     {

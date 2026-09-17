@@ -139,9 +139,13 @@ public sealed class WingmanTranslatorTests
     // have invented one. These prove the title actually REACHES the model, which is the real fix.
 
     [Fact]
-    public void FidelityPrompt_TellsTheWingmanToOpenWithTheSessionTitle()
+    public void FidelityPrompt_V10_TellsTheWingmanNotToSayTheSessionName_BecauseCodePutsItInFront()
     {
-        Assert.Contains("OPEN WITH THE SESSION TITLE", WingmanTranslator.FidelityPrompt);
+        // v10 (slice J): the prompt is the narration call's, and the name is prepended by SpokenForEar.Assemble as
+        // it is for the judge's spoken text. A prompt that still asked for the title would say it twice.
+        Assert.DoesNotContain("OPEN WITH THE SESSION TITLE", WingmanTranslator.FidelityPrompt);
+        Assert.Contains("DO NOT SAY THE SESSION'S NAME", WingmanTranslator.FidelityPrompt);
+        Assert.Equal("10", WingmanTranslator.DefaultInstructionsVersion);
     }
 
     [Fact]
@@ -225,8 +229,9 @@ public sealed class WingmanTranslatorTests
         Assert.Contains("CONSTRAINT", prompt);
         // v5.1: the framing needs a NUMBER next to it. v5 said "there is no length limit" - true of
         // the provider, irrelevant to the listener - and measured ~1m42 on a long reply against ~48s
-        // once the budget was stated. If this assertion ever goes, the essays come back.
-        Assert.Contains("THIRTY SECONDS", prompt);
+        // once the budget was stated. If this assertion ever goes, the essays come back. v10 (slice J) moved the
+        // number to forty five seconds, because the thirty second aim was measured keeping only the headline.
+        Assert.Contains("FORTY FIVE SECONDS", prompt);
         Assert.DoesNotContain("There is no length limit", prompt);
         Assert.Contains("what did you change?", prompt); // the person's message is present
     }

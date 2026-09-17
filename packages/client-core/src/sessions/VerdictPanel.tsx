@@ -15,7 +15,8 @@ import "./verdictPanel.css";
 // The Wingman-on-every-turn mission, slice E. ONE copy, mounted by the Cockpit session view and the phone
 // session screen; the desktop does not mount it (the Director wire carries colour and label only).
 //
-// In order: the risk, when there is one; the receipt - the agent's own words, open; the label; the summary;
+// In order: the risk, when there is one; the receipt - the agent's own words, open; the label; the narration when the
+// Gateway has saved one, otherwise the judge's summary;
 // the options as buttons wired to the answer route; and "this is wrong", wired by slice G to the feedback route.
 //
 // A ROW THAT CARRIES NO VERDICT STILL SHOWS THE LAST ONE, from the history read, COLLAPSED and with only "This
@@ -225,7 +226,13 @@ export function VerdictPanel({ sessionId, session, onReported }: VerdictPanelPro
       )}
 
       {verdict.label && <div className="verdict-label">{verdict.label}</div>}
-      {verdict.summary && <p className="verdict-summary">{verdict.summary}</p>}
+      {/* THE NARRATION, WHEN IT HAS ARRIVED, IS THE DESCRIPTION (owner ruling, 2026-09-17): the faithful retelling the
+          Gateway saved onto this verdict. Until then, or when its call failed, the judge's short summary stands in. */}
+      {verdict.narration ? (
+        <p className="verdict-narration">{verdict.narration}</p>
+      ) : (
+        verdict.summary && <p className="verdict-summary">{verdict.summary}</p>
+      )}
 
       {answerable && menu?.question && <div className="verdict-question">{menu.question}</div>}
 

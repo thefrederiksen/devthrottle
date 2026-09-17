@@ -247,8 +247,9 @@ public sealed class TurnVerdictServiceTests : IDisposable
 
         Assert.Equal(TurnVerdictOutcomeKind.Judged, outcome.Kind);
         // The wait carries the settings' value, it comes before the one read, and the roster is read again
-        // after it and before the screen.
-        Assert.Equal(new[] { "state", "settle:1500", "state", "screen" }, env.Steps.ToArray());
+        // after it and before the screen. The last read is after the verdict: whether the session answers to the user, and
+        // so is owed the narration call.
+        Assert.Equal(new[] { "state", "settle:1500", "state", "screen", "state" }, env.Steps.ToArray());
     }
 
     /// <summary>

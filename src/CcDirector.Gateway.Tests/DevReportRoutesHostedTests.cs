@@ -299,6 +299,8 @@ public sealed class DevReportRoutesHostedTests : IAsyncLifetime
 
         Assert.Equal("text/plain", latest.Content.Headers.ContentType!.MediaType);
         Assert.Equal("2", latest.Headers.GetValues("X-Dev-Report-Version").Single());
+        Assert.Equal("nosniff", latest.Headers.GetValues("X-Content-Type-Options").Single());
+        Assert.Equal("nosniff", first.Headers.GetValues("X-Content-Type-Options").Single());
         Assert.Equal("1", first.Headers.GetValues("X-Dev-Report-Version").Single());
         Assert.Equal(Report(), await first.Content.ReadAsStringAsync());
         Assert.Equal(HttpStatusCode.NotFound, (await owner.GetAsync($"dev-reports/{reportId}/html?version=9")).StatusCode);

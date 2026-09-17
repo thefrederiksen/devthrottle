@@ -134,7 +134,8 @@ def run_with_secrets(supplied: List[Tuple[Entry, str]], command: List[str], via:
     filelog.write(f"[runner] run_with_secrets: entries={label}, via={via}, program={Path(command[0]).name}")
 
     for entry, _ in supplied:
-        SCRUBBER.add(entry.secret.reveal(), entry.username)
+        if not entry.is_setting:
+            SCRUBBER.add(entry.secret.reveal(), entry.username)
     secret = supplied[0][0].secret.reveal()
     argv = _resolve_program(command)
     env = dict(os.environ)

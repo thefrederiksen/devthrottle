@@ -97,6 +97,45 @@ public sealed class TurnVerdictTraceWriterTests
     }
 
     [Fact]
+    public async Task AColourFoldThatThrows_LosesTheTraceUnderItsOwnName_NotAsAFailedWrite_AndTheNextTraceIsStillWritten()
+    {
+        // Inspection round 2, finding 3: the stamp ran inside the write's try, so a fold fault was counted and logged as
+        // "write failed" - the database refusing a write. The trace is still not written without its colour; the loss
+        // now says what it was.
+        var written = new List<string>();
+        using var writer = new TurnVerdictTraceWriter(
+            (_, t) => { lock (written) written.Add(t.TraceId); },
+            stamp: (_, t) => t.TraceId == "bad"
+                ? throw new InvalidOperationException("the roster fold broke")
+                : t with { RowColour = "cyan", RowLabel = "Finished" });
+
+        Assert.True(writer.Enqueue(Tenant, Trace("bad")));
+        Assert.True(writer.Enqueue(Tenant, Trace("good")));
+        await writer.CompleteAsync().WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(1, writer.ColourFoldFailed);
+        Assert.Equal(0, writer.Failed);
+        Assert.Equal(1, writer.Written);
+        Assert.Equal(new[] { "good" }, written);
+        Assert.Equal("colour fold failed: System.InvalidOperationException: the roster fold broke", writer.LastFailure);
+    }
+
+    [Fact]
+    public async Task AWriteThatThrowsAfterTheColourFold_IsAFailedWrite_NotAColourFoldFailure()
+    {
+        using var writer = new TurnVerdictTraceWriter(
+            (_, _) => throw new IOException("the database file is locked"),
+            stamp: (_, t) => t with { RowColour = "cyan", RowLabel = "Finished" });
+
+        Assert.True(writer.Enqueue(Tenant, Trace("one")));
+        await writer.CompleteAsync().WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(1, writer.Failed);
+        Assert.Equal(0, writer.ColourFoldFailed);
+        Assert.Equal("write failed: System.IO.IOException: the database file is locked", writer.LastFailure);
+    }
+
+    [Fact]
     public async Task AFullQueue_RefusesTheTracesPastItsCapacity_AndCountsEveryOne()
     {
         var entered = new ManualResetEventSlim(false);

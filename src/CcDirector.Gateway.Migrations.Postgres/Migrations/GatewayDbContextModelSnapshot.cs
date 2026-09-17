@@ -2288,6 +2288,9 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
+                    b.Property<DateTime?>("ClockDeadlineUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<bool>("ColourEnabled")
                         .HasColumnType("boolean");
 
@@ -2327,6 +2330,13 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
 
                     b.Property<double?>("ReplySeconds")
                         .HasColumnType("double precision");
+
+                    b.Property<string>("RowColour")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("RowLabel")
+                        .HasColumnType("text");
 
                     b.Property<string>("SessionId")
                         .IsRequired()

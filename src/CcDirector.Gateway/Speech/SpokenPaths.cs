@@ -53,6 +53,17 @@ public static class SpokenPaths
             language => WingmanTranslator.BuildPrompt(
                 language, WingmanTranslator.FidelityPrompt, "recent context", "an agent reply", "a session")),
 
+        // THE NARRATION CALL (slice J): the faithful retelling a stop somebody is listening to gets beside its verdict.
+        // Its whole output is spoken, so it carries the whole contract.
+        new SpokenPath(
+            "narration call for a listened-to stop (TurnVerdictService.NarrateAsync)",
+            "NarrationCall.BuildPrompt",
+            language => NarrationCall.BuildPrompt(
+                language,
+                null,
+                new Core.Wingman.TurnVerdictPackage { LatestReply = "an agent reply", ConversationAvailable = true },
+                new Contracts.TurnVerdictDto { Verdict = "finished", AnswerVia = "reply", Spoken = "a narration" })),
+
         new SpokenPath(
             "direct reply (WingmanTranslator.AskDirectAsync)",
             "WingmanTranslator.BuildDirectPrompt",

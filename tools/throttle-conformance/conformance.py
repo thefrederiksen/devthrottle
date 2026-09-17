@@ -31,17 +31,17 @@ kind, label and choices, the ledger's retention and earliest instant, the hourly
 the repository display names and checkouts. Every field the field inventory names as read by the report is
 compared here against the independent reading.
 
-Usage:
-  python tools/throttle-conformance/conformance.py --account soren --week 2026-W35
-  python tools/throttle-conformance/conformance.py --account mario --week 2026-W34 --report out.md
+Usage (the connection string comes from cc-secrets, in the variable DEVTHROTTLE_GATEWAY_DB_CONNECTION):
+  cc-secrets run devthrottle-gateway-db-connection --timeout 0 -- python tools/throttle-conformance/conformance.py --account soren --week 2026-W35
+  cc-secrets run devthrottle-gateway-db-connection --timeout 0 -- python tools/throttle-conformance/conformance.py --account mario --week 2026-W34 --report out.md
 
 Options:
   --account   a label from the mentor config's accounts (soren, mario)
   --week      an ISO week, in the account's time zone, Monday to Monday (the mentor's own week bounds)
   --mentor-dir      the mentor harness directory holding config.json, metrics.py and origin.py
                     (default: D:/ReposFred/devthrottle_internal/tools/mentor)
-  --connection-file a file holding the Gateway database connection string (default: the
-                    DEVTHROTTLE_GATEWAY_DB_CONNECTION key from the credentials file named in the mentor config)
+  --connection-file a file holding the Gateway database connection string (default: the environment
+                    variable DEVTHROTTLE_GATEWAY_DB_CONNECTION, which cc-secrets run supplies)
   --report          write a markdown report here as well as printing the verdict
   --break-predicate DELIBERATELY misapply the predicate on the mentor side (drop null-send-source rows), to
                     prove the check goes red. Never green with this flag.
@@ -85,18 +85,19 @@ def load_mentor(mentor_dir):
     return metrics, origin
 
 
-def read_connection(args, cfg):
+CONNECTION_ENV = "DEVTHROTTLE_GATEWAY_DB_CONNECTION"
+CONNECTION_ENTRY = "devthrottle-gateway-db-connection"
+
+
+def read_connection(args):
     if args.connection_file:
         return Path(args.connection_file).read_text(encoding="utf-8").strip()
-    env_path = Path(os.path.expandvars(cfg["credentials_env"]))
-    key = cfg["db_connection_key"]
-    if not env_path.exists():
-        fail("credentials file not found: " + str(env_path))
-    for line in env_path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if line.startswith(key + "="):
-            return line[len(key) + 1:].strip().strip('"')
-    fail("key " + key + " not found in " + str(env_path))
+    connection = os.environ.get(CONNECTION_ENV, "").strip()
+    if not connection:
+        fail(CONNECTION_ENV + " is not set. Run this through cc-secrets:\n"
+             "  cc-secrets run " + CONNECTION_ENTRY + " --timeout 0 -- python tools/throttle-conformance/conformance.py "
+             "--account <label> --week <week>")
+    return connection
 
 
 def library_provenance():
@@ -498,7 +499,7 @@ def main():
     # before it runs and returns the digest of the dll that answered, so the provenance line below names the
     # code that produced THIS figure and nothing else.
     provenance = library_provenance()
-    connection = read_connection(args, cfg)
+    connection = read_connection(args)
     out_path = Path(os.environ.get("TEMP", ".")) / ("throttle-library-%s-%s.json" % (account["label"], args.week))
     library, provenance["dll_sha256"] = run_library(tenant, start_utc, end_utc, connection, out_path)
 

@@ -214,6 +214,17 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
         return new TurnVerdictJudgeAnswer(result.Text ?? "", model, result.ReplySeconds);
     }
 
+    public async Task<TurnVerdictJudgeAnswer> AskNarratorAsync(TenantId tenant, string prompt, TimeSpan timeout, CancellationToken ct)
+    {
+        // The same model and the same builder as the judge, with the narration call's own deadline: slice I measured
+        // the old translator's prompt on this model, and a second provider would be a second thing to keep working.
+        var settings = _settings(tenant) with { JudgeTimeoutSeconds = (int)Math.Ceiling(timeout.TotalSeconds) };
+        var model = _judgeModel(tenant);
+        using var brain = _judgeBrain(tenant, settings);
+        var result = await brain.AskAsync(prompt, ct).ConfigureAwait(false);
+        return new TurnVerdictJudgeAnswer(result.Text ?? "", model, result.ReplySeconds);
+    }
+
     public TurnVerdictDto? Latest(TenantId tenant, string sessionId) => _store.Latest(tenant, sessionId);
 
     public IReadOnlyDictionary<string, TurnVerdictDto> SnapshotLatest(TenantId tenant) => _store.SnapshotLatest(tenant);

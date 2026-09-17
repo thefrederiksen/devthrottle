@@ -1,0 +1,306 @@
+<title>cc-devthrottle AXI Mission</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<style>
+:root{
+  --ground:#F4F6F9; --surface:#FFFFFF; --ink:#18202D; --muted:#5A6477; --rule:#D9DEE7;
+  --accent:#2C58C9; --accent-soft:#E4EBFB;
+  --good:#1D7F55; --good-soft:#E1F2EA; --warn:#9A6414; --warn-soft:#F7EEDC; --bad:#B23A3A;
+  --term:#101722; --term-ink:#D5DCE6; --term-dim:#7E8A9C; --term-hi:#8FB2FF; --term-cut:#E08A5A;
+  --bar-old:#B7BFCC; --bar-new:#2C58C9;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --cond:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#0E131B; --surface:#161D28; --ink:#E4E9F1; --muted:#9AA5B6; --rule:#2A3342;
+    --accent:#86A8FF; --accent-soft:#1C2A48;
+    --good:#5CC99A; --good-soft:#15302A; --warn:#E3B062; --warn-soft:#342A18; --bad:#EE8A8A;
+    --term:#080C12; --term-ink:#D5DCE6; --term-dim:#7E8A9C; --term-hi:#8FB2FF; --term-cut:#E9A078;
+    --bar-old:#465163; --bar-new:#86A8FF;
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#0E131B; --surface:#161D28; --ink:#E4E9F1; --muted:#9AA5B6; --rule:#2A3342;
+  --accent:#86A8FF; --accent-soft:#1C2A48;
+  --good:#5CC99A; --good-soft:#15302A; --warn:#E3B062; --warn-soft:#342A18; --bad:#EE8A8A;
+  --term:#080C12; --term-ink:#D5DCE6; --term-dim:#7E8A9C; --term-hi:#8FB2FF; --term-cut:#E9A078;
+  --bar-old:#465163; --bar-new:#86A8FF;
+}
+*{box-sizing:border-box}
+body{background:var(--ground);color:var(--ink);font:16px/1.6 var(--sans);padding-inline:20px;padding-block:40px 72px}
+.wrap{max-width:940px;margin:0 auto;display:flex;flex-direction:column;gap:56px}
+h1,h2,h3{font-family:var(--cond);line-height:1.15;text-wrap:balance;margin:0}
+h1{font-size:clamp(2rem,5vw,2.9rem);font-weight:700;letter-spacing:-.01em}
+h2{font-size:1.65rem;font-weight:600}
+h3{font-size:1.15rem;font-weight:600}
+p{margin:0;max-width:66ch}
+.eyebrow{font:500 .75rem/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+section{display:flex;flex-direction:column;gap:18px}
+.lede{font-size:1.12rem;color:var(--muted)}
+code,.mono{font-family:var(--mono);font-size:.88em}
+a{color:var(--accent)}
+a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+header{display:flex;flex-direction:column;gap:16px;border-bottom:1px solid var(--rule);padding-bottom:28px}
+.meta{display:flex;flex-wrap:wrap;gap:8px 20px;font:400 .85rem var(--mono);color:var(--muted)}
+
+.status{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.stat{background:var(--surface);border:1px solid var(--rule);border-radius:6px;padding:16px 18px;display:flex;flex-direction:column;gap:6px}
+.stat b{font:600 1.9rem/1 var(--cond);font-variant-numeric:tabular-nums}
+.stat span{font-size:.88rem;color:var(--muted)}
+.stat.lead{border-color:var(--accent);background:var(--accent-soft)}
+
+.compare{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:760px){.compare{grid-template-columns:1fr}}
+.term{background:var(--term);color:var(--term-ink);border-radius:6px;overflow:hidden;display:flex;flex-direction:column}
+.term .bar{display:flex;justify-content:space-between;gap:12px;padding:8px 14px;font:500 .72rem var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--term-dim);border-bottom:1px solid #ffffff14}
+.term pre{margin:0;padding:14px;font:400 .78rem/1.55 var(--mono);overflow-x:auto;white-space:pre}
+.term .hi{color:var(--term-hi)} .term .dim{color:var(--term-dim)} .term .cut{color:var(--term-cut)}
+.caption{font-size:.86rem;color:var(--muted)}
+
+table{border-collapse:collapse;width:100%;font-size:.93rem}
+.tablebox{overflow-x:auto;background:var(--surface);border:1px solid var(--rule);border-radius:6px}
+th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--rule);vertical-align:top}
+tr:last-child td{border-bottom:none}
+th{font:600 .74rem var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);background:var(--ground)}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+td.pr{font-family:var(--mono);font-size:.82rem;color:var(--muted)}
+
+.pill{display:inline-block;font:500 .72rem/1 var(--mono);padding:5px 8px;border-radius:999px;white-space:nowrap}
+.pill.good{background:var(--good-soft);color:var(--good)}
+.pill.warn{background:var(--warn-soft);color:var(--warn)}
+.pill.accent{background:var(--accent-soft);color:var(--accent)}
+
+.chart{background:var(--surface);border:1px solid var(--rule);border-radius:6px;padding:18px 18px 10px}
+.chart svg{width:100%;height:auto;display:block}
+.chart text{fill:var(--muted);font-family:var(--sans);font-size:12px}
+.chart .lbl{fill:var(--ink);font-size:12.5px}
+.chart .val{font-family:var(--mono);font-size:11px}
+.chart .grid{stroke:var(--rule);stroke-width:1}
+.legend{display:flex;gap:18px;flex-wrap:wrap;font-size:.85rem;color:var(--muted);padding:4px 0 8px}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:2px;vertical-align:-1px;margin-right:6px}
+
+.checklist{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px 28px;margin:0;padding:0;list-style:none}
+.checklist li{display:grid;grid-template-columns:22px 1fr;gap:8px;font-size:.95rem}
+.checklist li::before{content:"";width:14px;height:14px;margin-top:5px;border-radius:3px;background:var(--good);mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3 8.5l3 3 7-7' stroke='black' stroke-width='2.4' fill='none'/%3E%3C/svg%3E") center/contain no-repeat;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3 8.5l3 3 7-7' stroke='black' stroke-width='2.4' fill='none'/%3E%3C/svg%3E") center/contain no-repeat}
+.checklist b{font-weight:600}
+
+.os{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+@media (max-width:760px){.os{grid-template-columns:1fr}}
+.os div{background:var(--surface);border:1px solid var(--rule);border-radius:6px;padding:16px 18px;display:flex;flex-direction:column;gap:8px}
+.os dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:.88rem}
+.os dt{color:var(--muted)} .os dd{margin:0;font-variant-numeric:tabular-nums}
+
+.notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+.note{border-left:3px solid var(--warn);background:var(--surface);padding:12px 16px;border-radius:0 6px 6px 0;display:flex;flex-direction:column;gap:6px;font-size:.93rem}
+.note.open{border-left-color:var(--accent)}
+.note h3{font-size:1rem}
+footer{font-size:.82rem;color:var(--muted);border-top:1px solid var(--rule);padding-top:18px}
+</style>
+
+<div class="wrap">
+
+<header>
+  <span class="eyebrow">Mission report · issue 2922</span>
+  <h1>cc-devthrottle now speaks agent</h1>
+  <p class="lede">Every <code>cc-devthrottle</code> command now follows the AXI standard (Kun Chen, axi.md): compact list output, full ids and names, one plain state per session, filters that also narrow <code>--json</code>, and errors an agent can act on. It is proven on macOS, Windows and Linux, and re-measured with the issue 2920 benchmark.</p>
+  <div class="meta"><span>Mission 16 to 17 September 2026</span><span>main at 56fcdde9 for the tool</span><span>13 pull requests merged</span></div>
+</header>
+
+<section aria-label="Summary">
+  <div class="status">
+    <div class="stat lead"><b>-53%</b><span>tokens per agent task (206K to 97K), right answers 29/30 to 30/30</span></div>
+    <div class="stat"><b>2</b><span>commands per task, down from 5; every one of the six tasks now takes 2 or fewer</span></div>
+    <div class="stat"><b>26/26</b><span>sessions an agent can read back exactly from the default output (was 0/26)</span></div>
+    <div class="stat"><b>3</b><span>operating systems proven live: macOS, Windows and a real Linux machine</span></div>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">What an agent sees</span>
+  <h2>Before and after: <code>session list</code></h2>
+  <p>The old table was built for an 80-column person. It cut names, machines and states mid-word, so agents gave up on it, dumped 113 KB of JSON and wrote scripts to search it. The new output is a list an agent reads in one pass. Rows below are examples, not your fleet.</p>
+  <div class="compare">
+    <div class="term" role="img" aria-label="Old session list output: a boxed table with truncated values">
+      <div class="bar"><span>Before</span><span>Rich table</span></div>
+<pre><span class="dim">+-------------------------------------------------+</span>
+<span class="dim">| NO. | ID       | NAME      | MACHINE   | STATUS  |</span>
+<span class="dim">|-----+----------+-----------+-----------+---------|</span>
+| 12  | 11111111 | Release   | SOREN_<span class="cut">...</span> | Waiti<span class="cut">...</span>|
+|     |          | Notes -   |           |         |
+|     |          | Worker    |           |         |
+| 13  | 22222222 | Wingman   | devthr<span class="cut">...</span> | Worki<span class="cut">...</span>|
+|     |          | Inspector |           |         |
+<span class="dim">+-------------------------------------------------+</span>
+<span class="dim">(no count, no hint of what to run next)</span></pre>
+    </div>
+    <div class="term" role="img" aria-label="New session list output: a count line, one row per session, next steps">
+      <div class="bar"><span>After</span><span>AXI list</span></div>
+<pre><span class="hi">count: 4 (needs-you 1, working 2, ready 1)</span>
+sessions[4]{id,name,state,repo}:
+  11111111-...-aaaaaaaa,Release Notes - Worker,needs-you,site
+  22222222-...-bbbbbbbb,Wingman Inspector,working,devthrottle
+  33333333-...-cccccccc,"Docs, round 2",working,devthrottle
+  44444444-...-dddddddd,Fleet Map - Architect,ready,internal
+<span class="dim">help[4]:</span>
+  cc-devthrottle message send &lt;session-id&gt; "&lt;message&gt;"
+  cc-devthrottle session list --state needs-you|working|ready|snoozed|crashed
+  cc-devthrottle session list --fields id,name,state,repo,machine,...
+  cc-devthrottle session list --json</pre>
+    </div>
+  </div>
+  <p class="caption">Ids are shortened here for width only; the real output prints all 36 characters. A name with a comma is quoted, and anything non-ASCII is escaped, so a row always reads back exactly.</p>
+</section>
+
+<section>
+  <span class="eyebrow">Measured, not claimed</span>
+  <h2>The benchmark, re-run on the real change</h2>
+  <p>Same six fleet tasks as issue 2920, same frozen 26-session snapshot, five runs each, graded by exact comparison, with a second run of today's tool as the noise control (1.5% apart on tokens). Tokens per task, medians:</p>
+  <div class="chart">
+    <div class="legend"><span><i style="background:var(--bar-old)"></i>Today's tool</span><span><i style="background:var(--bar-new)"></i>Real merged change</span></div>
+    <svg viewBox="0 0 720 330" role="img" aria-labelledby="chart-title">
+<title id="chart-title">Tokens per task: today's tool against the real merged change, for six tasks</title>
+<g>
+<line class="grid" x1="250.0" y1="8" x2="250.0" y2="300"/>
+<text x="250.0" y="320" text-anchor="middle">0</text>
+<line class="grid" x1="337.5" y1="8" x2="337.5" y2="300"/>
+<text x="337.5" y="320" text-anchor="middle">50K</text>
+<line class="grid" x1="425.0" y1="8" x2="425.0" y2="300"/>
+<text x="425.0" y="320" text-anchor="middle">100K</text>
+<line class="grid" x1="512.5" y1="8" x2="512.5" y2="300"/>
+<text x="512.5" y="320" text-anchor="middle">150K</text>
+<line class="grid" x1="600.0" y1="8" x2="600.0" y2="300"/>
+<text x="600.0" y="320" text-anchor="middle">200K</text>
+<line class="grid" x1="687.5" y1="8" x2="687.5" y2="300"/>
+<text x="687.5" y="320" text-anchor="middle">250K</text>
+</g><g>
+<text class="lbl" x="0" y="32">Which sessions need the owner?</text>
+<rect x="250" y="14" width="364.0" height="14" fill="var(--bar-old)"/><text class="val" x="620.0" y="25">208K</text>
+<rect x="250" y="30" width="110.25" height="14" fill="var(--bar-new)"/><text class="val" x="366.25" y="41">63K</text>
+<text class="lbl" x="0" y="80">How many working in a repository?</text>
+<rect x="250" y="62" width="371.0" height="14" fill="var(--bar-old)"/><text class="val" x="627.0" y="73">212K</text>
+<rect x="250" y="78" width="110.25" height="14" fill="var(--bar-new)"/><text class="val" x="366.25" y="89">63K</text>
+<text class="lbl" x="0" y="128">Message a named session</text>
+<rect x="250" y="110" width="294.0" height="14" fill="var(--bar-old)"/><text class="val" x="550.0" y="121">168K</text>
+<rect x="250" y="126" width="168.0" height="14" fill="var(--bar-new)"/><text class="val" x="424.0" y="137">96K *</text>
+<text class="lbl" x="0" y="176">Which sessions are on one machine?</text>
+<rect x="250" y="158" width="420.0" height="14" fill="var(--bar-old)"/><text class="val" x="676.0" y="169">240K</text>
+<rect x="250" y="174" width="169.75" height="14" fill="var(--bar-new)"/><text class="val" x="425.75" y="185">97K</text>
+<text class="lbl" x="0" y="224">Has anything crashed?</text>
+<rect x="250" y="206" width="358.75" height="14" fill="var(--bar-old)"/><text class="val" x="614.75" y="217">205K</text>
+<rect x="250" y="222" width="168.0" height="14" fill="var(--bar-new)"/><text class="val" x="424.0" y="233">96K *</text>
+<text class="lbl" x="0" y="272">Which sessions run a given agent?</text>
+<rect x="250" y="254" width="295.75" height="14" fill="var(--bar-old)"/><text class="val" x="551.75" y="265">169K</text>
+<rect x="250" y="270" width="169.75" height="14" fill="var(--bar-new)"/><text class="val" x="425.75" y="281">97K</text>
+</g></svg>
+  </div>
+  <p class="caption">* Re-run after the follow-up fix. The first run of the real change left these two tasks at 163K and 200K, because the next-step lines named neither <code>message send</code> nor the <code>crashed</code> state; agents guessed wrong verbs or dumped the JSON. Adding both brought each to 2 commands. The other four tasks were measured once, before that fix.</p>
+  <div class="tablebox">
+    <table>
+      <thead><tr><th>Measure</th><th class="num">Today's tool</th><th class="num">Real change</th><th class="num">Change</th></tr></thead>
+      <tbody>
+        <tr><td>Right answers</td><td class="num">29 / 30</td><td class="num">30 / 30</td><td class="num">no loss</td></tr>
+        <tr><td>Tokens per task</td><td class="num">206K</td><td class="num">97K</td><td class="num">-53%</td></tr>
+        <tr><td>Commands per task</td><td class="num">5</td><td class="num">2</td><td class="num">-60%</td></tr>
+        <tr><td>Time per task</td><td class="num">27 s</td><td class="num">16 s</td><td class="num">-41%</td></tr>
+        <tr><td>Sessions readable back from the default output</td><td class="num">0 / 26</td><td class="num">26 / 26</td><td class="num"></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="caption">Whole-run figures come from the first run of the real change (before the follow-up fix), so they understate the final result on the two re-run tasks. Time is the least reliable measure; it moved several seconds between identical runs.</p>
+</section>
+
+<section>
+  <span class="eyebrow">What was built</span>
+  <h2>Six steps, in the order they landed</h2>
+  <div class="tablebox">
+    <table>
+      <thead><tr><th>Step</th><th>What changed</th><th>Pull requests</th><th>State</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>The <code>cc-devthrottle</code> tests run on Windows, macOS and Linux. The matrix found a Windows-only assumption in the setup doctor and a setup-tool download that pointed at the wrong release repository.</td><td class="pr">2932</td><td><span class="pill good">merged</span></td></tr>
+        <tr><td>2</td><td>One shared output helper: list rendering with quoting, the <code>count:</code> line, empty states, <code>help[]</code>, <code>--fields</code> checks, and a strict reader used by the recoverability tests. Plus a tested lowest-dependency run.</td><td class="pr">2934 · 2947 · 2959</td><td><span class="pill good">merged</span></td></tr>
+        <tr><td>3</td><td><code>session list</code>: full ids and names, one plain state from the Gateway's own triage, <code>--state</code>, <code>--repo</code> and <code>--machine</code> filters that also narrow <code>--json</code>, counts by state.</td><td class="pr">2944</td><td><span class="pill good">merged</span></td></tr>
+        <tr><td>4</td><td><code>cc-devthrottle</code> alone shows who this session is, the fleet count, how many need you, and what to run next.</td><td class="pr">2953</td><td><span class="pill good">merged</span></td></tr>
+        <tr><td>5</td><td>The same shape for <code>director</code>, <code>machine</code>, <code>mission</code>, <code>schedule</code>, <code>repo</code> and <code>worktree</code> lists, with every Gateway field they read checked.</td><td class="pr">2954 · 2955 · 2957</td><td><span class="pill good">merged</span></td></tr>
+        <tr><td>6</td><td>Every usage error in all 96 commands exits 2 and lists the valid options; next steps after every change; a short <code>--help</code> everywhere; errors that say what to do; changes confirmed from the Gateway's answer.</td><td class="pr">2963 · 2962 · 2965</td><td><span class="pill good">merged</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">Now true of every command</span>
+  <h2>The ten AXI principles, applied</h2>
+  <ul class="checklist">
+    <li><span><b>Compact output.</b> A count line, a header, one row per record.</span></li>
+    <li><span><b>Few default fields.</b> Three or four; <code>--fields</code> asks for more and lists the valid names.</span></li>
+    <li><span><b>Nothing cut.</b> Ids, names and paths are always whole.</span></li>
+    <li><span><b>Counts included.</b> Totals, breakdowns by state, <code>of N total</code> when filtered.</span></li>
+    <li><span><b>Definite empty results.</b> <code>count: 0</code> and a sentence, never blank output.</span></li>
+    <li><span><b>Exit codes.</b> 0 success, 1 error, 2 usage error with the valid values listed.</span></li>
+    <li><span><b>No silent fallback.</b> A missing or malformed Gateway answer is an error, never "nothing found".</span></li>
+    <li><span><b>Live state first.</b> No arguments shows the fleet, not the help screen.</span></li>
+    <li><span><b>Next steps.</b> <code>help[]</code> lines with placeholders, never guessed values.</span></li>
+    <li><span><b>Short help.</b> A one-line summary on every command and group; ASCII-only output.</span></li>
+  </ul>
+</section>
+
+<section>
+  <span class="eyebrow">Proof</span>
+  <h2>Working on all three operating systems</h2>
+  <p>Windows and Linux ran the full test suite and the finished commands from a clean copy of main; the Mac ran the commands from main and the suite in the last review of pull request 2965. Nothing in the fleet was changed.</p>
+  <div class="os">
+    <div><h3>macOS</h3><dl><dt>Machine</dt><dd>Mac Mini</dd><dt>Tests</dt><dd>3102 passed (last review of pull request 2965)</dd><dt>Live</dt><dd>15 commands: 12 succeeded, 3 deliberate mistakes exited 2</dd><dt>Non-ASCII</dt><dd>0 lines</dd></dl></div>
+    <div><h3>Windows</h3><dl><dt>Machine</dt><dd>SOREN_NORTH</dd><dt>Tests</dt><dd>3099 passed, 3 skipped</dd><dt>Live</dt><dd>16 commands, all as expected</dd><dt>Non-ASCII</dt><dd>0 bytes</dd></dl></div>
+    <div><h3>Linux</h3><dl><dt>Machine</dt><dd>devlinux (Ubuntu)</dd><dt>Tests</dt><dd>3101 passed, 1 skipped</dd><dt>Live</dt><dd>16 commands, all as expected</dd><dt>Non-ASCII</dt><dd>0 bytes in 32 streams</dd></dl></div>
+  </div>
+  <p class="caption">The skips are file-system tests that only apply where a machine has a short path limit or cannot create links. Continuous integration also runs the suite on all three systems, and at the lowest declared library versions.</p>
+</section>
+
+<section>
+  <span class="eyebrow">How it was checked</span>
+  <h2>Independent inspection before every merge</h2>
+  <p>Every pull request was reviewed by a different agent family, told to be adversarial and not to trust the builder's report, with two exceptions on your instruction: the last fix on pull request 2932 was merged before its re-check, and pull request 2986 was reviewed by the same family. That took 38 inspection rounds across the 12 tool pull requests. They found real defects every early round, among them:</p>
+  <div class="tablebox">
+    <table>
+      <thead><tr><th>Found by inspection</th><th>Where</th></tr></thead>
+      <tbody>
+        <tr><td>A partial Gateway answer could delete a skill's or workflow's local files on pull</td><td class="pr">2962</td></tr>
+        <tr><td><code>message ask</code> exited successfully on a timeout</td><td class="pr">2965</td></tr>
+        <tr><td><code>selftest</code> could never pass against a real Director (removal takes up to a minute)</td><td class="pr">2965</td></tr>
+        <tr><td>Changes reported success when the Gateway confirmed nothing</td><td class="pr">2965</td></tr>
+        <tr><td>Two Linux paths differing only in letter case were treated as one repository</td><td class="pr">2957 · 2963</td></tr>
+        <tr><td>Malformed Gateway rows turned into "no match" instead of an error, across every list</td><td class="pr">2954 · 2955 · 2957</td></tr>
+        <tr><td>The setup tool downloaded from a release repository that does not exist</td><td class="pr">2932</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">Beyond the brief</span>
+  <h2>Other improvements along the way</h2>
+  <div class="notes">
+    <div class="note open"><h3>Less waiting on continuous integration <span class="pill good">merged</span></h3><p>At your request (pull request 2986): a pull request now runs only the jobs its files can affect, and the lowest-version check runs on Linux only. A final <em>CI result</em> job fails on any failed, cancelled or wrongly skipped job; it protects nothing until you mark it as a required check.</p></div>
+    <div class="note open"><h3>Tested dependency floor <span class="pill good">merged</span></h3><p>The tool now declares Typer 0.16.1 and Click 8.2.1 as its minimums, and continuous integration installs exactly those, so the lower bound is tested rather than promised.</p></div>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">Honest gaps</span>
+  <h2>What is not finished, and what needs you</h2>
+  <div class="notes">
+    <div class="note"><h3>How the last reviews ran</h3><p>Every agent family used for inspection ran out of usage near the end. At your instruction, the final review of pull request 2986 was done by a session of the same agent family that built it, so that one change was not checked by a different family.</p></div>
+    <div class="note"><h3>Public data in edit history</h3><p>The repository is public. Live fleet rows (mission names, repository paths) had been pasted into eight pull request descriptions. They are redacted, but the old text stays in GitHub's edit history; purging it needs GitHub support, which is your call.</p></div>
+    <div class="note"><h3>Moved to issue 2972</h3><p>Skill and workflow pull can still leave a mixed folder if killed mid-write, and do not refuse Windows name aliases such as <code>SKILL.md.</code>. Both predate this mission.</p></div>
+    <div class="note"><h3>Reported, not changed</h3><p>These come from the Gateway and are printed as sent: <code>worktree list</code> counts a worktree twice when two Directors on one machine report it (the output says so); worktree paths use forward slashes while repository paths use backslashes; a disabled schedule shows an empty next-run cell.</p></div>
+    <div class="note"><h3>Not proven</h3><p>The benchmark covers one frozen fleet, one agent setting and Windows only; four of its six tasks were not re-run after the follow-up fix. <code>selftest</code> still runs only on Windows. The installed tool on the Mac is still the older release until the next update.</p></div>
+    <div class="note"><h3>Clean up on the Windows machine</h3><p>Two reviewers could not delete their temporary Python environments there; their locations are in the private mission notes.</p></div>
+  </div>
+</section>
+
+<footer>AXI principles by Kun Chen (axi.md), adopted in <code>docs/axi-standard.md</code>. Figures from the issue 2920 harness on SOREN_NORTH and the live-proof comments on issue 2922. Prepared 17 September 2026.</footer>
+</div>

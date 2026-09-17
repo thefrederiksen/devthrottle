@@ -265,6 +265,28 @@ check was also watched failing with its rule removed.
    nothing. And because the host sets the frame's content itself, a `load` event it did not cause means the
    frame shows something else: close the port and ignore the frame until the host loads the report again.
 
+### The tray's theme
+
+A host MAY give the notes interface the app's look by adding a second attribute to the same script element:
+`data-dev-report-theme`, holding a JSON object (HTML-escaped inside the attribute) with exactly these keys:
+
+```json
+{ "background": "#0b1020", "surface": "#141a2e", "surface2": "#1b2238", "border": "#28304a",
+  "text": "#e6e9f2", "textDim": "#99a0b8", "accent": "#3b82f6", "accentText": "#ffffff",
+  "font": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif",
+  "monoFont": "\"Cascadia Mono\", Consolas, Menlo, monospace" }
+```
+
+- Colours are `#rgb` or `#rrggbb`. Fonts are a font list made only of letters, digits, spaces, commas,
+  hyphens and double quotes, at most 200 characters.
+- A theme with a missing key, an extra key or any value outside those rules is ignored whole, and the
+  script uses the app's dark palette and type shown above - the same values it uses with no attribute.
+- The script reads the attribute once, removes it from the element with the token, and writes the values
+  into the stylesheet inside its shadow roots. The app's CSS custom properties do not cross into the frame
+  and a report's CSS cannot reach the shadow roots, so the tray looks like the app whatever the report sets.
+
+The theme is appearance only. It is not a secret and carries no authority.
+
 **What the page does for itself.** The notes tray and each question's Queue button live in shadow roots,
 so the report's CSS cannot select them, and their host elements carry inline `!important` rules for
 display, visibility, opacity, position, transform, filter and clip-path. This stops a report from hiding

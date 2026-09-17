@@ -228,9 +228,10 @@ that drops a throwaway database (the `ccpg`-prefixed `EnsureDeleted` path) does 
 real integration run instead: it applies the migration into the existing `gateway` schema and leaves it in
 place (deploy-ready), and it cleans up its own test rows so the tables are left empty.
 
-The connection string lives ONLY in the machine-local credential file
-(`%LOCALAPPDATA%/cc-director/config/credentials.env`, key `DEVTHROTTLE_GATEWAY_DB_CONNECTION`), read at the
-point of use and exported into `CC_GATEWAY_DB_CONNECTION`. It is never echoed, committed, or written to a
+The connection string lives ONLY in the machine-local secret store: the cc-secrets entry
+`devthrottle-gateway-db-connection`, which `cc-secrets run devthrottle-gateway-db-connection -- <command>`
+supplies at the point of use as `DEVTHROTTLE_GATEWAY_DB_CONNECTION`; the command exports it into
+`CC_GATEWAY_DB_CONNECTION`. It is never echoed, committed, or written to a
 log - the Gateway's Postgres path logs only a redacted host+database target.
 
 ### The proof (a real integration run)

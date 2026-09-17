@@ -47,7 +47,6 @@ public sealed class CcStorageProductionLocationTests : IDisposable
             (CcStorage.AgentPlugins(), Local("agent-plugins"), nameof(CcStorage.AgentPlugins)),
             (CcStorage.ClaudeHooks(), Local("claude-hooks"), nameof(CcStorage.ClaudeHooks)),
             (CcStorage.CodexHooks(), Local("codex-hooks"), nameof(CcStorage.CodexHooks)),
-            (CcStorage.CredentialsEnv(), Local("config", "credentials.env"), nameof(CcStorage.CredentialsEnv)),
             (CcStorage.Dictation(), Local("dictation"), nameof(CcStorage.Dictation)),
             (CcStorage.DictationDictionary(), Local("dictation", "dictionary.yaml"), nameof(CcStorage.DictationDictionary)),
             (CcStorage.DictationRecordings(), Local("dictation", "recordings"), nameof(CcStorage.DictationRecordings)),

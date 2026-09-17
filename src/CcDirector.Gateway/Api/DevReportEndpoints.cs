@@ -229,8 +229,10 @@ internal static class DevReportEndpoints
                 }, statusCode: 404);
 
             // Plain text on purpose: the host writes these bytes into the frame (CONTRACT.md section 4 rule 2).
-            // It is never served as a page.
+            // It is never served as a page, and nosniff says so to the browser rather than trusting it not to guess
+            // (phase 2 inspection, Low 4).
             ctx.Response.Headers["X-Dev-Report-Version"] = stored.Version.ToString();
+            ctx.Response.Headers["X-Content-Type-Options"] = "nosniff";
             return Results.Text(stored.Html, "text/plain; charset=utf-8", Encoding.UTF8);
         });
 
