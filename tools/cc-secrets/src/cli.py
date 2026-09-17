@@ -387,16 +387,19 @@ def run(
     raise typer.Exit(result.exit_code if result.exit_code != 0 else (EXIT_FAILED if result.timed_out else 0))
 
 
-def register_env_file_values(text: str, settings: frozenset = frozenset()) -> None:
+def register_env_file_values(text: str, not_secret: frozenset = frozenset()) -> None:
     """Hand every value of a KEY=VALUE file to the scrubber BEFORE the file is checked. A malformed line is then
     reported by its number alone, and any key that happens to be another line's value is hidden wherever it is
     printed (review of pull request 2978). Keys themselves are not registered, so the report stays readable."""
     for raw in text.splitlines():
         if "=" in raw:
             key, value = raw.split("=", 1)
-            if key.strip() in settings:
-                continue  # declared a setting by the owner: not secret, and not to be hidden
-            if value.strip():
+            if key.strip() in not_secret:
+                # A setting or a skipped key: the owner said it is not a secret to import. Hiding it anyway blanked
+                # the word "admin" (a user name) out of entry names like orbi-admin-password, and the audit refused
+                # them mid-import on the owner's machine (pull request 2990).
+                continue
+            if len(value.strip()) >= MIN_SECRET_LENGTH:  # shorter is no secret cc-secrets holds
                 SCRUBBER.add(value)
 
 
@@ -498,7 +501,7 @@ def import_entries(
             _say(f"Keys given to both --skip and --settings: {', '.join(both)}. Nothing was imported.", err=True)
             raise typer.Exit(EXIT_FAILED)
         text = file.read_text(encoding="utf-8-sig")
-        register_env_file_values(text, frozenset(as_settings))
+        register_env_file_values(text, frozenset(as_settings | skipped))
         for value in commented_values(text):
             if value.strip():
                 SCRUBBER.add(value)
@@ -543,10 +546,19 @@ def import_entries(
             console.print(table)
             _say(f"Dry run: nothing was changed. {len(built)} to import, {len(skipped)} skipped, {len(failed)} not importable.")
             raise typer.Exit(EXIT_FAILED if failed else 0)
+        audit = _audit()
+        for entry in built:
+            # Every audit line must be accepted before the store changes; otherwise a refused line leaves the store
+            # saved and the import half recorded.
+            try:
+                audit.check(entry.name, "import", "ok", f"replaced from {file.name} as {entry.env_name}")
+            except Exception as exc:
+                raise InputError(f"The audit line for entry '{entry.name}' would carry a secret, so nothing was imported. "
+                                 "Rename the file or the key.") from exc
         outcomes = store.put_many(built, replace) if built else {}
         for entry in built:
-            _audit().record(entry.name, "import", "ok" if outcomes[entry.name] != "exists" else "unchanged",
-                            f"{outcomes[entry.name]} from {file.name} as {entry.env_name}")
+            audit.record(entry.name, "import", "ok" if outcomes[entry.name] != "exists" else "unchanged",
+                         f"{outcomes[entry.name]} from {file.name} as {entry.env_name}")
         counts = {k: sum(1 for o in outcomes.values() if o == k) for k in ("added", "replaced", "exists")}
         setting_count = sum(1 for e in built if e.is_setting and outcomes[e.name] != "exists")
         _say(f"Imported into {store.location}: {counts['added']} added, {counts['replaced']} replaced, "

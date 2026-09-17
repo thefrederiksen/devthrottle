@@ -142,3 +142,43 @@ def test_AddSetting_PipedValue_IsStoredAsASetting(store):
     assert result.exit_code == 0, _text(result)
     entry = store.get("service-host")
     assert entry.kind == "setting" and entry.env_name == "SERVICE_HOST" and entry.secret.reveal() == HOST
+
+
+
+def test_Import_ASkippedOrSettingValueThatIsACommonWord_DoesNotBreakEntryNamesOrTheAudit(store, tmp_path):
+    # Found on the owner's machine: ORBI_ADMIN_USERNAME=admin was hidden during import, so entry names containing
+    # "admin" were refused by the audit guard after the store had been saved.
+    from src import paths
+    from src.audit import AuditLog
+
+    for mode in ("--skip", "--settings"):
+        home_values = [f"ORBI_ADMIN_USERNAME=admin", f"ORBI_ADMIN_PASSWORD={new_secret()}", f"ADMIN_SERVICE_TOKEN={new_secret()}"]
+        path = tmp_path / f"credentials{mode.strip('-')}.env"
+        path.write_text("\n".join(home_values) + "\n", encoding="utf-8")
+
+        result = runner.invoke(cli.app, ["import", str(path), "--agents", "--replace", mode, "ORBI_ADMIN_USERNAME"])
+
+        assert result.exit_code == 0, _text(result)
+        assert {"orbi-admin-password", "admin-service-token"} <= {e.name for e in store.entries()}
+        audited = {l["entry"] for l in AuditLog(paths.audit_path()).read(100) if l["command"] == "import"}
+        assert {"orbi-admin-password", "admin-service-token"} <= audited
+
+
+def test_Import_AnAuditLineThatWouldBeRefused_StopsTheImportBeforeTheStoreChanges(store, tmp_path, monkeypatch):
+    # Found on the owner's machine: the store was saved, then an audit line was refused, leaving the import half
+    # recorded. Every line is now checked before the store changes.
+    from src.audit import AuditLineContainsSecretError, AuditLog
+
+    def refuse_second(self, entry_name, command, outcome, detail=""):
+        if entry_name == "second-token":
+            raise AuditLineContainsSecretError("Refused to write an audit line that contained a secret.")
+
+    monkeypatch.setattr(AuditLog, "check", refuse_second)
+    path = tmp_path / "credentials.env"
+    path.write_text(f"FIRST_TOKEN={new_secret()}\nSECOND_TOKEN={new_secret()}\n", encoding="utf-8")
+
+    result = runner.invoke(cli.app, ["import", str(path), "--agents"])
+
+    assert result.exit_code != 0
+    assert "nothing was imported" in _text(result)
+    assert store.entries() == []

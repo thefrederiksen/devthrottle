@@ -32,7 +32,19 @@ class AuditLog:
     def path(self) -> Path:
         return self._path
 
+    def check(self, entry_name: str, command: str, outcome: str, detail: str = "") -> None:
+        """Raise exactly as record would, without writing - so a caller can know every line it must write will be
+        accepted BEFORE it changes anything (live import on the owner's machine, pull request 2990)."""
+        self._line(entry_name, command, outcome, detail)
+
     def record(self, entry_name: str, command: str, outcome: str, detail: str = "") -> Dict[str, str]:
+        line, text = self._line(entry_name, command, outcome, detail)
+        paths.ensure_home()
+        with open(self._path, "a", encoding="utf-8") as fh:
+            fh.write(text + "\n")
+        return line
+
+    def _line(self, entry_name: str, command: str, outcome: str, detail: str):
         line = {
             "time": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "entry": entry_name,
@@ -45,10 +57,7 @@ class AuditLog:
         text = json.dumps(line, ensure_ascii=True)
         if SCRUBBER.contains(text):
             raise AuditLineContainsSecretError("Refused to write an audit line that contained a secret.")
-        paths.ensure_home()
-        with open(self._path, "a", encoding="utf-8") as fh:
-            fh.write(text + "\n")
-        return line
+        return line, text
 
     def read(self, count: int) -> List[Dict[str, str]]:
         if not self._path.exists():
