@@ -1217,3 +1217,28 @@ Each break below was made on purpose, the named tests went red, and the file was
 
 The two owner decisions after the slice 2 fix round (snooze versus the doorbell, and restore versus the
 spawn owner pin) are still open. Inspection 5 of the slice 2 fix round is separate from this slice.
+
+## Architect rulings on inspection 6 (17 September 2026) - slice 3 fix round, on branch mission/message-load-slice3
+
+Verdict FAIL for merge. Findings accepted. Fixes on the pinned slice 3 branch in the worktree
+`~/ReposFred/devthrottle-inspect-slice3`; merged back into `mission/message-load` after.
+
+1. **No overdue mark without its notice** (high 1), the mirror of the stuck ruling: the no-reply
+   notice carries the question's message id so it is never a duplicate for another question; it is
+   built to fit the text cap whatever the names; if the policy still refuses it, the overdue mark is NOT
+   written, the refusal is logged with its reason, and the next sweep retries. Guards: a preloaded
+   identical unread notice for the SAME question leaves the mark written and adds no second notice; a
+   refusal for any other reason leaves the question open.
+2. **A duplicate is judged per question and per kind** (high 2, medium 3). The duplicate key is
+   recipient, sender, kind, the question it answers (`InReplyToMessageId`, null for none), whether a
+   reply is wanted, and the text. So a reply to question B is never dropped because a reply to A or a
+   plain message says the same words, and a send with `--reply-wanted` is never reduced to a plain
+   unread duplicate: it queues with its own correlation id. Guards: the inspector's two sequences,
+   both red on the current rule; the original same-question duplicate test stays green.
+3. **Colour terminals print Gateway sentences verbatim** (found by the inspector's run, not slice 3's
+   defect, fixed here because this branch holds the test): `test_broadcast_sentences_are_printed_verbatim`
+   (colour terminal) fails with `FORCE_COLOR=1`; make the broadcast rows print the sentence unstyled the
+   way single sends already do, and run the tool's tests with and without colour forced.
+
+Then the touched suites, each guard watched failing, a 'Slice 3 fix round' section in this file on this
+branch, push, stop. Inspection 8 follows on this branch.
