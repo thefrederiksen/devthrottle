@@ -1155,3 +1155,22 @@ red with the symptom, the file restored. The breaks and their results are in
   changed), `scripts/test-local.ps1` (no PowerShell on the Mac), live proofs.
 
 Next, as the Architect ruled: inspection 7 on this branch, then the slice 2 pull request.
+
+## Architect rulings on inspection 8 (17 September 2026) - slice 2 fix round 3
+
+Verdict FAIL for merge on one finding that is a limit of any screen witness, not a coding error.
+
+1. **The doorbell never erases** (high 1). The take-back path is removed. A doorbell line that was typed
+   but not verified as submitted stays in the composer; the Director answers `deferred, parked` (a new
+   reason, pinned on both sides), logs it with the session id, and the Gateway leaves the message due; the
+   next ring is deferred `composer-holds-text` until the owner clears the line (the row line in slice 4
+   shows the messages waiting). Nothing the product typed is ever deleted by the product, so no owner
+   character can be deleted with it. Guards: the unverified-submit frames from rounds 2 and 3 all end with
+   no erase and reason `parked`; the reason literal is pinned on the Director and the Gateway; a second
+   ring on a parked line is `composer-holds-text`.
+2. **The notice cap has a floor** (low 2). `FleetMessageLimits` refuses a `MaxTextLength` shorter than
+   the notice prefix plus a full id at construction, so a fitted notice always names its message. Guard
+   on the floor and on the fitting test at the floor.
+
+Then the touched suites, each guard watched failing, a 'Slice 2 fix round 3' section here, push, stop.
+Inspection 10 follows, narrow, then the slice 2 pull request.
