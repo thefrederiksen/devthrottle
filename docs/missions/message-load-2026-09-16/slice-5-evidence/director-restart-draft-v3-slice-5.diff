@@ -1,0 +1,40 @@
+--- draft-v3-before-slice-5
++++ draft-v3-as-pushed
+@@ -207,9 +207,16 @@
+ 
+ ## Step 2 - Message the chain, not the roster
+ 
+-A Director can hold twenty sessions. Messaging twenty sessions directly is twenty interrupts, twenty
++A Director can hold twenty sessions. Messaging twenty sessions directly is twenty doorbells, twenty
+ replies arriving at once, and a coordinator too busy to act on any of them.
+ 
++**KNOWN GAP (17 September 2026, the Message Load mission).** Messages are queued, never typed, and a
++session may message ONLY the session that started it and the sessions it started, at most six an hour.
++If you did not start the sessions you are draining, the Gateway refuses every message in this step,
++in step 3 and in step 5, and the drain cannot ask for handovers this way. Until the drain is redesigned, a drain of
++sessions you do not own has to be run by the owner from his own screens, or by the Director's own
++drain. Do not look for a way round the refusal.
++
+ Build the tree from `parentSessionId` and `controllerSessionId`, falling back to the naming
+ convention (`<mission> - Architect`, `<mission> - Manager`, `<mission> - Worker`) when those are
+ empty. Then:
+@@ -217,8 +224,8 @@
+ - **Message each mission's most senior seat** - its Architect, or its Manager where there is no
+   Architect. That seat drains its own workers and reports ONE result for the mission.
+ - **Message standalone sessions directly.** They have nobody to report through.
+-- **Never message the whole fleet.** `message send all` reaches your own team; a fleet-wide broadcast
+-  freezes every session on every machine and is refused without a human grant.
++- **Never message the whole fleet.** `message send all` reaches only the sessions you started; a
++  fleet-wide broadcast needs a human grant and is refused without one.
+ 
+ Workers report to their Manager, Managers report to their Architect, the Architect reports to you.
+ You collect one result per mission plus one per standalone session, and that is a list you can
+@@ -228,7 +235,7 @@
+ 
+ ## Step 3 - The drain message
+ 
+-Send this, adapted. Keep it to one line, per the fleet message rule; the content is what matters.
++Send this, adapted. Keep it short - a message may span lines now, but it is read once from an inbox; the content is what matters.
+ 
+ > This is the handover manager. Director `<name>` is being restarted, so every session on it will be
+ > destroyed - including yours. Finish the turn you are on and start nothing new. Then write a

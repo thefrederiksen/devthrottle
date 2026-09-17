@@ -485,12 +485,22 @@ not the Gateway inferring from a grey dot that somebody ought to go and look.</p
   was actually sent to somebody alive. No message, no grey.</li>
   <li><strong>An owner has a queue too.</strong> Being an owner means receiving these reports, which
   is what makes delegation real rather than decorative.</li>
-  <li><strong>It INTERRUPTS the owner, deliberately</strong> (owner's ruling, 13 September 2026).
-  Every fleet message lands mid-turn in the receiving session, and that is the right cost: a session
-  that took ownership took on being interrupted when the work comes back. The alternative already
-  existed and is exactly what failed - <span class="file">NeedsManager</span> is a pull-only flag, so
-  a supervisor learns nothing unless it thinks to look. <strong>A signal nobody is obliged to read is
-  a signal that does not exist.</strong></li>
+  <li><strong>It is QUEUED for the owner, never typed into it</strong> (owner's ruling, 16 September
+  2026, which REPLACES the ruling of 13 September 2026). On 13 September the owner ruled that a report
+  interrupts deliberately: every fleet message landed mid-turn in the receiving session, on the
+  reasoning that a session which took ownership took on being interrupted. Three days later he
+  reversed it: <em>"Messages interrupt what we do and it's really detrimental to the other
+  sessions."</em> No agent interrupts another any more, with or without a grant. A report is a record
+  in the owner session's inbox on the Gateway; when that session is not working and its composer is
+  empty, its Director types one fixed doorbell line telling it to run
+  <span class="file">cc-devthrottle message inbox</span>, and reading marks the report read. What the
+  13 September ruling was protecting still holds, because the record is not pull-only the way
+  <span class="file">NeedsManager</span> is: an unread report is rung again after five minutes,
+  marked stuck after three rings with a notice to the sender, and the owner session's row shows
+  "N messages waiting" on every screen. <strong>A signal nobody is obliged to read is a signal that
+  does not exist</strong> - so the doorbell keeps ringing until it is read. See
+  <span class="file">docs/FleetMessaging.md</span> and the Message Load mission record
+  (<span class="file">docs/missions/message-load-2026-09-16/</span>).</li>
   <li><strong>With no live owner it sends nothing, and succeeds.</strong> No owner means the user, and
   a session the user owns is already red and already in his queue the moment it stops - that red IS
   the report.</li>
@@ -1318,11 +1328,30 @@ That is why none of them can outrank blue: they are not competing with "working"
 <div class="callout law">
 <p><strong>The owner's rules, 14 July 2026.</strong></p>
 <ol>
-<li><strong>Working knocks a session out of snooze. Always.</strong></li>
+<li><strong>Working knocks a session out of snooze. Always.</strong> <em>Amended 17 September 2026 - see below: work the Director attributes to another agent's send does not.</em></li>
 <li><strong>An expired snooze is gone.</strong> Set it for twelve hours; twelve hours later there is no snooze.</li>
 <li><strong>Snooze pressed while working means "snooze me when the work ends"</strong> - otherwise an agent could never snooze its own session, because an agent asking for a snooze is by definition working at that moment.</li>
 <li><strong>Nothing else clears a snooze.</strong> Only: it starts working, you unsnooze it, or the timer expires.</li>
 </ol>
+</div>
+
+<div class="callout law">
+<p><strong>The owner's decision, 17 September 2026 - the exception to rule 1.</strong> Work that the
+Director attributes to an <strong>agent-origin send</strong> - a fleet doorbell, or any other text the
+product typed on an agent's behalf - does <strong>NOT</strong> end an armed snooze. The owner's own
+work (typing or speaking into the session) still ends it, and so does work nothing explains (the agent
+starting on its own, a repaint, an older Director that does not say where the work came from).</p>
+<p><strong>Why:</strong> a snooze is the owner's wish to be left alone. Another agent ringing the
+session must not undo that wish and turn his screen red again. The Message Load mission made every
+fleet message a queued record announced by a doorbell line, and a doorbell makes the session work, so
+under the July wording every doorbell would have ended the snooze. The owner chose the recommendation:
+keep the exception in its narrow form.</p>
+<p><strong>How it works:</strong> the Director reports <code>WorkingOrigin</code> (<code>owner</code>,
+<code>agent</code>, or nothing) on the session it pushes, set at the one place every submission passes
+and cleared when the session settles. <span class="file">SnoozeLandingObserver</span> keeps an armed
+snooze when the origin is exactly <code>agent</code>, and logs it; the owner-turn edge still runs first.
+A detector flicker that clears the origin mid-turn makes the next working push unexplained, so the
+error falls on the side of ending the snooze, which is the July law's side.</p>
 </div>
 
 <div class="callout">
@@ -1339,7 +1368,9 @@ collapsing them is how the working edge came to be dropped in the first place.</
 <p><strong class="good">All four rules are implemented correctly again as of 17 July 2026.</strong>
 <strong>Rule 1 regressed</strong> when snooze ownership moved to the Gateway: the Director-side working
 edge that used to lift a hold was deleted, and no Gateway edge replaced it, so a snoozed session woken by
-another agent's fleet message did its work and stayed silently snoozed. It is restored by adding the
+another agent's fleet message did its work and stayed silently snoozed. (Since 17 September 2026 that
+particular case is the owner's deliberate exception - see the decision above - because the message now
+arrives as an agent-origin doorbell; the regression was about every other kind of work.) It is restored by adding the
 working edge to <span class="file">SnoozeLandingObserver</span>, the Gateway push seam (see the row
 below). Rule 2 had earlier been broken for exactly the case rule 3 exists to serve - see the callout
 below the table, which records what was wrong and why, because that is the part worth not repeating.
@@ -1347,7 +1378,7 @@ Verified against this worktree:</p>
 
 <table>
 <tr><th>Rule</th><th>Where</th><th>How</th></tr>
-<tr><td>Working clears the hold</td><td><span class="file">SnoozeLandingObserver.cs</span> (the Gateway push seam)</td><td>When a Director pushes a session reporting <code>Working</code> or <code>Starting</code> and the registry holds an <strong>armed</strong> entry, <code>SnoozeRegistry.ClearIfArmed</code> deletes it - the timer dies with it - and the Gateway mirrors <code>None</code> down to the Director's rail. A <code>DeferredHold</code> is spared (rule 3). <strong>Restored 17 July 2026;</strong> it had stopped firing when snooze ownership moved to the Gateway. It does not matter WHO woke the terminal - any activity ends the snooze.</td></tr>
+<tr><td>Working clears the hold</td><td><span class="file">SnoozeLandingObserver.cs</span> (the Gateway push seam)</td><td>When a Director pushes a session reporting <code>Working</code> or <code>Starting</code> and the registry holds an <strong>armed</strong> entry, <code>SnoozeRegistry.ClearIfArmed</code> deletes it - the timer dies with it - and the Gateway mirrors <code>None</code> down to the Director's rail. A <code>DeferredHold</code> is spared (rule 3). <strong>Restored 17 July 2026;</strong> it had stopped firing when snooze ownership moved to the Gateway. It did not matter WHO woke the terminal - any activity ended the snooze. <strong>Amended 17 September 2026:</strong> a working push whose <code>WorkingOrigin</code> is <code>agent</code> keeps the armed snooze (the owner's exception above); owner work and unexplained work still end it.</td></tr>
 <tr><td>Snooze while working defers</td><td><span class="file">GatewayEndpoints.cs</span> (the hold endpoint)</td><td>The endpoint reads the <code>ActivityState</code> the Director already reported; <code>Working</code> &rarr; <code>SnoozeRegistry.SnoozeDeferred</code>, and the Director's <code>ApplyGatewayHold</code> mirror keeps the session blue and reading "Working" while it finishes. No <code>RequestHold</code>, no round-trip: the Gateway decides, from the one fact the Director reports.</td></tr>
 <tr><td>A deferral is a length with no clock</td><td><span class="file">SnoozeRegistry.cs</span> (<code>SnoozeDeferred</code>)</td><td>A deferred entry records its <strong>length and no deadline</strong>. <strong>The clock is NOT started at request time</strong> - it starts when the work ends (rule 3). Arming a clock at request time is exactly what made an agent-requested snooze permanent (defect 20).</td></tr>
 <tr><td>A deferral lands when work stops</td><td><span class="file">SnoozeLandingObserver.cs</span> (the settle edge)</td><td>When the Director pushes a <strong>settled</strong> activity (<code>WaitingForInput</code> / <code>WaitingForPerm</code> / <code>Idle</code>), <code>SnoozeRegistry.Land</code> converts <code>DeferredHold &rarr; Held</code> and starts the clock at <em>now + the remembered length</em>. The snooze the agent asked for takes effect exactly when the turn ends.</td></tr>
@@ -1561,7 +1592,7 @@ shipped this morning.</p>
 <div class="scroll">
 <table>
 <tr><th>Scenario</th><th>Before</th><th>Now</th></tr>
-<tr><td>A snoozed session's agent starts working again (e.g. another agent's fleet message wakes it)</td><td class="bad">Grey "Snoozed", sunk to the parked bucket, still snoozed - it did its work and stayed silently re-parked</td><td class="good">Blue "Working", Active - and the snooze is <strong>DELETED</strong>. The Gateway working edge (<span class="file">SnoozeLandingObserver</span>) clears the armed entry on the working push, so when the work settles it reads red "needs you", never grey "Snoozed", and carries no "Snooze ended" badge. Restored 17 July 2026.</td></tr>
+<tr><td>A snoozed session's agent starts working again on its own, or because the owner typed into it (before 17 September 2026 this row also covered another agent's fleet message; a doorbell now keeps the snooze - see the owner's decision of 17 September 2026)</td><td class="bad">Grey "Snoozed", sunk to the parked bucket, still snoozed - it did its work and stayed silently re-parked</td><td class="good">Blue "Working", Active - and the snooze is <strong>DELETED</strong>. The Gateway working edge (<span class="file">SnoozeLandingObserver</span>) clears the armed entry on the working push, so when the work settles it reads red "needs you", never grey "Snoozed", and carries no "Snooze ended" badge. Restored 17 July 2026.</td></tr>
 <tr><td>An agent asks to snooze its own session (so it is working when it asks)</td><td class="good">DeferredHold - stays blue, parks when the turn ends</td><td class="good">Unchanged, and correct. This is why DeferredHold exists.</td></tr>
 <tr><td>...and then that deferred snooze lands</td><td class="bad">Its 12-hour timer was deleted 15 seconds after it was asked for, so the snooze was PERMANENT</td><td class="good"><strong>Fixed - defect 20.</strong> The deferral is recorded with its length and no clock; the landing (pushed by the Director within milliseconds) starts the twelve hours <em>from the turn ending</em>. The sweep now reads all three hold states and never clears a deferral.</td></tr>
 <tr><td>A 12-hour snooze on a session that was NOT working when you pressed it</td><td class="good">Gateway overlays OnHold=false at expiry, returns to red, "Snooze ended" badge</td><td class="good">Unchanged, and correct. The timer survives because the hold landed immediately.</td></tr>

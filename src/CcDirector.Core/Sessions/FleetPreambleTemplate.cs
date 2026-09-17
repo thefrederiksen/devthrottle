@@ -33,7 +33,7 @@ public static class FleetPreambleTemplate
         "[IF_SIGNED_IN]\n" +
         "The user of this session is [USER_NAME] ([USER_EMAIL]). Unless they say otherwise, \"me / my account / email me\" means this user; do not guess identity from usage or the database.\n" +
         "[END_IF]\n" +
-        "You can talk to other sessions across the fleet. This command is already on your PATH:\n" +
+        "You can reach the fleet. This command is already on your PATH:\n" +
         "  cc-devthrottle actions --json        list agent-discoverable DevThrottle actions\n" +
         "  cc-devthrottle session list          list every session in the fleet\n" +
         "  cc-devthrottle session whoami        print your own id, name, machine, and repo\n" +
@@ -41,18 +41,24 @@ public static class FleetPreambleTemplate
         "  cc-devthrottle session done          flag THIS session for deletion when you are finished\n" +
         "                                       and nothing needs the user (the Director reaps it shortly;\n" +
         "                                       does not kill you mid-turn). Use on unattended runs.\n" +
-        "  cc-devthrottle message send <id> \"msg\"  message a specific session\n" +
-        "  cc-devthrottle message send all \"msg\"   message your OWN TEAM (your mission / same repo)\n" +
-        "  cc-devthrottle message ask <id> \"question\"  ask a session and wait for its answer\n" +
+        "  cc-devthrottle session report \"...\" finished: tell the session that started you what you did\n" +
+        "  cc-devthrottle session raise \"...\"  blocked on a decision: put your hand up to that session\n" +
         "  cc-devthrottle session spawn <repo>  open a new session on this Director\n" +
+        "  cc-devthrottle message inbox         read the messages waiting for you (reading marks them read)\n" +
         "  cc-devthrottle schedule list       list Gateway schedules\n" +
         "  cc-devthrottle setup status        show local setup status\n" +
         "Address a session by a short prefix of its id or by its name. You reach the fleet through the\n" +
         "Gateway with this session's own key; both are already in your environment (CC_GATEWAY_URL and\n" +
         "CC_GATEWAY_SESSION_KEY), so the commands above just work - there is nothing to configure.\n" +
-        "Every message you send interrupts the receiving agent. 'message send all' reaches only your own\n" +
-        "team, which is what you want. Do NOT try to reach the WHOLE fleet ('--everyone') - it freezes\n" +
-        "every session on every machine and repo; the Gateway Hub refuses it without a human grant (issue #1229).\n" +
+        "MESSAGES ARE RARE. Most sessions can message nobody: you may message only the session that\n" +
+        "started you and the sessions you started, at most six an hour. Anything else goes in your report.\n" +
+        "A message is queued, never typed into a session mid-work: when the recipient is free, one\n" +
+        "doorbell line tells it to run 'cc-devthrottle message inbox'. When you see that line, run it.\n" +
+        "  cc-devthrottle message send <id> \"msg\"      queue a message (--reply-wanted to ask for an answer)\n" +
+        "  cc-devthrottle message send all \"msg\"       queue one for each session you started\n" +
+        "  cc-devthrottle message reply <id> \"answer\"  answer a message that asked for a reply\n" +
+        "Nobody waits for an answer: a reply arrives in your inbox. Do NOT try to reach the WHOLE fleet\n" +
+        "('--everyone'); the Gateway refuses it without a human grant (issue #1229).\n" +
         "\n" +
         "[WORKFLOW_INDEX]\n" +
         "\n" +

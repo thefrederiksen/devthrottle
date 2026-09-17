@@ -2068,8 +2068,8 @@ def spawn_session(
             if not controller_session_id:
                 axi_cli.usage_error(
                     "--controlled-by self requires CC_SESSION_ID to be set, but it is not. "
-                    "Run this from inside a session, or pass an explicit controlling session id: "
-                    "--controlled-by <session-id>",
+                    "Run this from inside a session, or pass --standalone --why \"<reason>\" to give "
+                    "the new session to the user.",
                 )
         else:
             controller_session_id = controlled_by

@@ -129,6 +129,34 @@ public class FleetPreambleTests
         Assert.All(text, ch => Assert.True(ch < 128, $"non-ASCII character U+{(int)ch:X4} in preamble"));
     }
 
+    // Message Load mission, slice 5: every agent reads this text, so it must teach the queue - messages
+    // are rare, queued, rung by one doorbell line and read from the inbox - and must never again say a
+    // message interrupts or offer the removed blocking ask.
+    [Fact]
+    public void Build_TeachesTheQueuedInboxAndNotTheInterrupt()
+    {
+        var text = FleetPreamble.Build(
+            "a3dfb85e-49dd-442a-9e36-40fc44838783",
+            "devthrottle",
+            "MACHINE_A",
+            @"C:\repos\devthrottle");
+
+        Assert.Contains("MESSAGES ARE RARE", text);
+        Assert.Contains("Most sessions can message nobody", text);
+        Assert.Contains("only the session that\nstarted you and the sessions you started, at most six an hour", text);
+        Assert.Contains("Anything else goes in your report", text);
+        Assert.Contains("never typed into a session mid-work", text);
+        Assert.Contains("doorbell line tells it to run 'cc-devthrottle message inbox'", text);
+        Assert.Contains("cc-devthrottle message inbox", text);
+        Assert.Contains("--reply-wanted", text);
+        Assert.Contains("cc-devthrottle message reply <id>", text);
+        Assert.Contains("cc-devthrottle session raise", text);
+        Assert.Contains("cc-devthrottle session report", text);
+        Assert.DoesNotContain("message ask", text);
+        Assert.DoesNotContain("interrupts", text);
+        Assert.DoesNotContain("wait for its answer", text);
+    }
+
     [Fact]
     public void Build_NamedSession_IncludesIdentityAndFleetCommands()
     {
@@ -152,7 +180,8 @@ public class FleetPreambleTests
         Assert.Contains("session whoami", text);
         Assert.Contains("session rename", text);
         Assert.Contains("message send", text);
-        Assert.Contains("message ask", text);
+        Assert.Contains("message inbox", text);
+        Assert.DoesNotContain("message ask", text);
         Assert.Contains("session spawn", text);
         Assert.DoesNotContain("cc-rename", text);
         Assert.DoesNotContain("cc-sessions", text);

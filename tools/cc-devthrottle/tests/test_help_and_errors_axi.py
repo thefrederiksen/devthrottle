@@ -630,7 +630,8 @@ ERRORS = [
     ("spawn standalone no why", ["session", "spawn", "/r", "--name", "n", "--standalone"], AS_SID, None, USAGE,
      ["Say why", "--why"]),
     ("spawn self outside", ["session", "spawn", "/r", "--name", "n", "--controlled-by", "self"], None, None, USAGE,
-     ["CC_SESSION_ID", "--controlled-by <session-id>"]),
+     # Message Load slice 5: the next step is --standalone, never naming another session as the owner.
+     ["CC_SESSION_ID", "--standalone --why"]),
     ("spawn director ambiguous", ["session", "spawn", "/r", "--name", "n", "--director", "twin"], None,
      _set(**{"GET directors": [{"directorId": "d1", "displayName": "Twin", "machineName": "A"},
                                {"directorId": "d2", "displayName": "Twin", "machineName": "B"}]}), FAILURE,

@@ -46,11 +46,12 @@ You are a session, so when you spawn there are two possible owners and no safe d
 --controlled-by self           YOU own it. It stays quiet on the roster and reports back
                                to you when it finishes. For work you will collect.
 
---controlled-by <session-id>   Another session owns it.
-
 --standalone --why "<reason>"  The USER owns it. It goes RED and asks HIM when it
                                finishes, and you will not hear from it.
 ```
+
+You cannot give the new session to another session. The Gateway refuses a session that names any id
+but its own as the owner, because the owner is one of the few sessions the new one may message.
 
 **Reach for `--controlled-by self` by default.** You asked for the work; getting back with it is part
 of doing it. `--standalone` is for the narrow case where the work is genuinely the user's - he asked
@@ -158,9 +159,8 @@ important lost. Cheaper and sharper, every phase.
 At each phase boundary:
 1. Confirm the current Manager is stood down (its tree is clean, nothing in flight).
 2. Reap it. To reap ANOTHER session (a Manager reaping a Worker, or you reaping the outgoing
-   Manager), call the Gateway front door: `curl -X DELETE http://127.0.0.1:7878/sessions/<full-session-id>`
-   (the Gateway routes it to whichever Director hosts the session over the tunnel), or have the user
-   close its tab. A session reaps ITSELF with `cc-devthrottle session done`, which flags the current
+   Manager), run `cc-devthrottle session stop <target> --reason "<why>"` (the Gateway routes it to
+   whichever Director hosts the session over the tunnel), or have the user close its tab. A session reaps ITSELF with `cc-devthrottle session done`, which flags the current
    session (`CC_SESSION_ID`) for graceful removal without killing it mid-turn.
 3. Spawn a fresh Manager with a tight brief: `session spawn <repo> --name "<Mission> - Manager"`,
    pointing it at the mission document, stating plainly what is DONE and only THIS phase's goal.
@@ -168,38 +168,95 @@ At each phase boundary:
 This only works because the mission document and memory hold the state - keep them current so a reset
 never loses anything.
 
-## Messages
+## Messages are rare, and they queue
+
+**Most sessions can message nobody.** A session may message only two kinds of session: the session
+that started it (its owner), and the sessions it started (its workers). Siblings, sessions in the same
+mission, and sessions in the same repository are all refused by the Gateway. A session with no owner
+and no workers cannot send a message at all.
+
+**Six an hour.** The Gateway allows at most 6 messages an hour from one session, and 1 to the same
+recipient every 10 minutes. An identical message that is still unread is dropped as a duplicate. Every
+refusal says the same thing: put it in your report. `cc-devthrottle session report` at the end of your
+turn is where your news belongs; a message is for the rare thing that cannot wait for it.
+
+**A message never interrupts.** Nothing is typed into the receiving session while it works. The
+Gateway stores the message, and `message send` answers "queued" - never "delivered". When the
+recipient is not working and its composer is empty, its Director types ONE fixed doorbell line:
 
 ```
-cc-devthrottle message send 4c810000 "I finished the API layer - you can start the frontend."
-cc-devthrottle message send docs "Please update the API page when you get a chance."
-cc-devthrottle message send all "Heads up team: I am about to rebase our shared branch."
-cc-devthrottle message ask 9b2f "What database schema is loaded in your repo?"
-cc-devthrottle message ask docs "What is the title of the API page?" --timeout-ms 60000
+[DevThrottle doorbell] 2 fleet messages are waiting for you. To read, run: cc-devthrottle message inbox
 ```
 
-Send to the specific sessions that need to hear from you - by id prefix or name. `message ask` is
-always single-target and waits for the target's answer.
+The doorbell carries no message text. **When you see that line, run the command.** The text may span
+many lines and is never typed anywhere; you read it from your inbox:
 
-## Who you may message, and the broadcast rule
+```
+cc-devthrottle message inbox          every unread message, in full; reading marks them read
+cc-devthrottle message inbox --all    also what you read in the last 24 hours (at most 200)
+```
 
-Every incoming fleet message interrupts the receiving agent: it is typed into that agent's composer
-and starts a turn. So a message you send is a demand on someone else's attention. Keep it scoped.
+Reading is the acknowledgement. An unread message is rung again after 5 minutes; after 3 unanswered
+rings it is marked stuck, its sender gets a notice from the Gateway, and the recipient's row on every
+screen says so ("1 message stuck, unread for 20 minutes"). While messages wait, the row says "2
+messages waiting".
 
-- Default scope is your own team: the sessions in your Mission, or - if you are a solo session -
-  the sessions in the same repository on the same machine. A manager and its workers are one team.
-  Message those sessions freely.
-- `message send all` reaches ONLY your team, not the whole fleet. This is the everyday broadcast:
-  use it for a heads-up your teammates need. It never touches sessions in other repositories or
-  other missions, so it will not freeze the fleet.
-- For git coordination on a shared working tree, `message send all` already reaches only the
-  sessions that share your checkout - that is exactly who a shared-tree hold concerns.
-- A WHOLE-FLEET broadcast (`message send all --everyone`) is different: it interrupts every session
-  on every machine and repository. The Gateway Hub refuses it unless a human has issued a broadcast
-  grant, and it requires a `--reason`:
-  `cc-devthrottle message send all "..." --everyone --reason "why" --grant <id>`.
-  Almost nobody should need this. If you think you do, ask the human for a grant - do not try to
-  route around the Hub (it enforces the limit and also rate-limits repeated broadcasts). See issue #1229.
+```
+cc-devthrottle message send 4c810000 "The API layer is merged - start the frontend."
+cc-devthrottle message send all "Stop: main is red, do not rebase until I say so."
+```
+
+`message send all` queues one copy for each session YOU started - your workers - and nobody else.
+
+## Questions and replies - nobody waits
+
+There is no blocking ask any more: the command that waited for an answer was removed. To ask a
+question, send it with `--reply-wanted` and carry on with your work:
+
+```
+cc-devthrottle message send 9b2f "Which database schema is loaded in your checkout?" --reply-wanted
+cc-devthrottle message send 9b2f "Is the migration safe to run twice?" --reply-wanted --reply-by 30
+```
+
+The answer prints a correlation id. `--reply-by` is minutes, 1 to 1440, 60 when omitted. The reply
+arrives in YOUR inbox, and you are rung for it like any message. If nobody replies by the deadline, a
+no-reply notice from the Gateway arrives instead.
+
+The session that was asked answers with the id shown in its inbox:
+
+```
+cc-devthrottle message reply <correlation-id> "The schema is v42."
+```
+
+Only the session the question was sent to may answer, once, and only to whoever asked. A reply is not
+held to the message limits, and a late reply still arrives, marked late.
+
+## Raising your hand
+
+If you are a worker and you are blocked on something you cannot decide inside your mandate - an
+ambiguous requirement, an irreversible step, a real design fork - do not message. Put your hand up:
+
+```
+cc-devthrottle session raise "<what you are blocked on>"
+cc-devthrottle session raise --clear
+```
+
+The session that started you sees it with `cc-devthrottle session workers`. Your hand lowers itself
+when your turn ends.
+
+## The whole fleet
+
+`message send all --everyone` queues a copy for every session in the account. The Gateway refuses it
+unless a human has issued a broadcast grant, and it requires a `--reason`:
+`cc-devthrottle message send all "..." --everyone --reason "why" --grant <id>`. Almost nobody should
+need this. If you think you do, ask the human for a grant - do not try to route around the Gateway (it
+enforces the limit and also rate-limits repeated broadcasts). See issue #1229.
+
+## Typing into a session is the owner's alone
+
+`cc-devthrottle session prompt`, `session interrupt`, and `session compact-continue` with a message
+are refused to every session. Only the owner types into a session, from his own screens. To reach a
+session you own, queue a message.
 
 ## Health check
 
@@ -207,7 +264,8 @@ and starts a turn. So a message you send is a demand on someone else's attention
 cc-devthrottle selftest
 ```
 
-This spawns two throwaway local sessions, proves list/send/ask works, then tears them down.
+On Windows, this spawns one throwaway worker, checks it is listed and that a message to it is
+queued, then flags it for deletion. It does not prove the message was read.
 
 ## Related surfaces
 

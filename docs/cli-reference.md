@@ -665,6 +665,7 @@ COMMANDS:
   session rename   Rename a session, defaulting to the current session.
   session spawn    Open a new session - here, on another computer, or on one named Director.
   session report   Tell the session that owns you what you did, at the end of your turn.
+  session raise    Put your hand up to the session driving you when you are blocked.
   director list    List every Director this account runs, with the id --director accepts.
   mission list     List the missions on the Gateway, active ones by default.
   fleet digest     Everything the Fleet Manager reads at the start of a conversation.
@@ -672,6 +673,7 @@ COMMANDS:
   fleet outcomes   List the account's outcome records (also: fleet show, fleet answer).
   fleet prefer     Keep a standing preference (also: fleet preferences, fleet forget).
   message send     Queue a message for your supervisor or a worker ('all' for every worker).
+  message reply    Answer a message that asked for a reply; the answer goes to whoever asked.
   message inbox    Read your unread messages in full, which marks them read.
   fleet-manager    Show, set, or clear which session is this account's one Fleet Manager.
   skill list       List every skill in the fleet library.
@@ -687,7 +689,7 @@ COMMANDS:
   schedule run     Fire a schedule immediately.
   setup status     Show local DevThrottle setup status.
   setup install    Install DevThrottle from the latest GitHub release.
-  selftest         Run an end-to-end fleet messaging smoke test.
+  selftest         Windows only: check a message to a throwaway worker is queued.
 
 OPTIONS:
   --version -v
@@ -973,11 +975,20 @@ USAGE: cc-devthrottle message send TARGET MESSAGE
 
 ARGUMENTS:
   TARGET   Session id, id prefix, or name - or 'all' for each of your workers [required]
-  MESSAGE  The message text to send [required]
+  MESSAGE  The message text; it may span lines, and it is read, never typed [required]
+
+OPTIONS:
+  --reply-wanted     Ask the recipient for a reply. Prints a correlation id; nothing waits.
+                     One session only, not 'all'.
+  --reply-by INT     Minutes the recipient has to reply, with --reply-wanted: 1 to 1440 (default 60)
+  --everyone         Queue a copy for EVERY session in the account (needs --reason and --grant)
+  --reason TEXT      Why a fleet-wide broadcast is warranted. Required with --everyone
+  --grant TEXT       A human-issued broadcast grant id (issue #1229)
 ```
 
 A message is QUEUED, never typed. The Gateway writes it to the recipient's inbox and the command
-prints `Queued`; the recipient reads the full text with `message inbox` when it is free. You may
+prints `Queued`, never "delivered"; when the recipient is not working and its composer is empty, its
+Director types one doorbell line telling it to run `message inbox`, and it reads the full text there. You may
 message only the session that started you and the sessions you started, at most 6 messages an hour
 and 1 per recipient every 10 minutes. Anything else is refused, and the refusal says why - put what
 you would have said in your report instead.
@@ -993,6 +1004,31 @@ whose copy was not. It exits 0 when a copy was queued or an identical one is alr
 least one worker, and 1 when nothing was queued and nothing was waiting - including when you have no
 workers.
 
+With `--reply-wanted`, the command also prints `correlation id: <id> (reply wanted by <time>)`. The
+reply arrives in YOUR inbox and you are rung for it; if none arrives by the deadline, a no-reply
+notice from the Gateway arrives instead. `--reply-by` without `--reply-wanted`, and `--reply-wanted`
+with `all`, are usage errors (exit 2). A deadline outside 1 to 1440 is refused by the Gateway, and its
+sentence is printed verbatim. There is no command that waits for an answer: the old blocking ask was
+removed on 16 September 2026 (the Message Load mission).
+
+### Message Reply
+
+```
+USAGE: cc-devthrottle message reply ID TEXT
+
+ARGUMENTS:
+  ID    The correlation id (or message id) of the message you are answering, from 'message inbox'
+  TEXT  The answer; it may span lines, and it is read, never typed [required]
+```
+
+Queues the answer in the inbox of whoever sent the question and prints
+`Reply queued for <asker> (reply <id>, answering message <id>)`. Only the session the question was
+sent to may answer it, and only once; a second reply is refused. A reply is not held to the message
+limits, it still lands when the asker has since lost its relationship to you, and one sent after the
+deadline arrives marked late. An unknown id, or a message that did not ask for a reply, is refused
+with the Gateway's sentence on standard error (exit 1). An identical reply already waiting is a
+success (exit 0).
+
 ### Message Inbox
 
 ```
@@ -1004,7 +1040,9 @@ OPTIONS:
 ```
 
 Prints every unread message in full, and reading marks them read - that is the acknowledgement the
-sender is waiting for. Because a read marks messages read before their text reaches you, a read that
+sender is waiting for. Each row is headed `message`, `reply` or `no-reply notice`, using the Gateway's
+own labels. A message that asked for a reply shows its deadline, its correlation id and the exact
+`message reply` command that answers it; a reply or notice shows the question it is about. Because a read marks messages read before their text reaches you, a read that
 failed part way is recovered with `--all`, and only for 24 hours after that read.
 
 ### Session Spawn
@@ -1024,7 +1062,7 @@ OPTIONS:
   --director TEXT       Start it on ONE named Director, by Director id or display name
   --command TEXT        For --agent RawCli: the executable to run (e.g. cmd, pwsh)
   --command-args TEXT   For --agent RawCli: arguments for the command
-  --controlled-by TEXT  WHO OWNS IT: 'self', a session id, or 'none'. Required from a session
+  --controlled-by TEXT  WHO OWNS IT: 'self' or 'none'. Required from a session
   --standalone          The USER owns it: no controller (same as --controlled-by none)
 ```
 
@@ -1037,8 +1075,9 @@ go to standard error.
 owner and it is either another session or the user; no owner means the user. From inside a session
 both are possible, so there is no default between them and the spawn is refused until you say:
 `--controlled-by self` (you own it - it stays quiet and reports back to you), `--standalone` (the
-user owns it - it goes red and asks him, and you will not hear from it), or `--controlled-by <id>`
-(another session owns it). It is what the attention rule reads afterwards, so it decides whether
+user owns it - it goes red and asks him, and you will not hear from it). A session may not name
+another session as the owner: the Gateway refuses it, because the owner is one of the only sessions
+the new one may message. It is what the attention rule reads afterwards, so it decides whether
 that session's finished turn ever reaches the user.
 
 This used to default to `self` whenever `CC_SESSION_ID` was set. It no longer does. The default was
@@ -1255,12 +1294,14 @@ program survives the round trip byte for byte. A push updates the DRAFT only - n
 USAGE: cc-devthrottle selftest [OPTIONS]
 
 OPTIONS:
-  --timeout-ms INTEGER  How long the ask step waits for the responder (default 25000)
+  --timeout-ms INTEGER  Kept for callers that still pass it; nothing waits any more (default 25000)
 ```
 
-Spawns two throwaway sessions, lists them, sends to one, asks the other, flags both for deletion, and
-prints PASS/FAIL. The last check passes when the Director accepts both deletion flags. The sessions
-stay listed until the Director removes them: its reaper sweeps every 30 seconds and removes a flagged
+Windows only (it drives a command prompt session). Spawns one throwaway worker it owns, checks it is
+listed, queues a message for it and checks the Gateway answered `queued`, flags it for deletion, and
+prints PASS/FAIL. It does not prove the message was read: only the worker's own key can read its
+inbox. The last check passes when the Director accepts the deletion flag. The session
+stays listed until the Director removes it: its reaper sweeps every 30 seconds and removes a flagged
 session only once its 30-second grace period has passed and the session is no longer working. A
 session that stays working is skipped on every sweep, so no removal time is promised.
 

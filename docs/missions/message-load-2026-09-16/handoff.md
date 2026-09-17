@@ -1594,3 +1594,207 @@ not a watched failure; it was fixed and re-run red.
 - Slice 4 head is this commit on `mission/message-load`, awaiting inspection. No pull request opened.
 - Unchanged: slice 2 awaiting inspection 5, slice 3 awaiting inspection 6, slice 6 awaiting inspection. Next:
   slice 5 (the words - which should now mention the row line), the record, the release.
+
+## Slice 5 - the words (17 September 2026, Manager seat 7)
+
+Built on `mission/message-load` on top of `c89a5d7d`. Words only: no behaviour changed. No pull request
+opened, no fleet message sent, nothing published. The skill draft diffs are in `slice-5-evidence/`.
+
+The words describe the mission's product as a whole, including the slice 2 fix rounds 2 and 3 (the doorbell
+never erases; a parked line) and the slice 3 fix round (the duplicate key). Those live on
+`mission/message-load-slice2` and `mission/message-load-slice3` and are NOT merged into this branch yet, so
+on this branch alone a few details in `docs/FleetMessaging.md` are ahead of the code until those merges.
+
+### Every file changed, and why
+
+The preamble (every agent reads it, every session):
+- `src/CcDirector.Core/Sessions/FleetPreambleTemplate.cs` - `message ask` and "every message you send
+  interrupts the receiving agent" are gone. New: `message inbox` in the command list, `session report` and
+  `session raise` (the raise-your-hand command, which works again since slice 1), and a short block:
+  messages are rare; most sessions can message nobody; only the session that started you and the sessions
+  you started; six an hour; anything else goes in your report; queued, never typed; one doorbell line says
+  to run `cc-devthrottle message inbox`; `message send` (with `--reply-wanted`), `message send all` (the
+  sessions you started), `message reply`; nobody waits. 20 lines changed, net 6 longer.
+- `src/CcDirector.Core/Sessions/SessionManager.cs` - the `CC_FLEET_TOOLS` environment line (the one-line
+  command list every session gets) drops `message ask`, adds `message inbox` and `message reply`, and says
+  messages are rare, queued and limited to the two relationships. The Codex hook installer and the Pi
+  preamble writer have no text of their own: both print the same rendered template, so they changed with it.
+- `src/CcDirector.Core.Tests/Sessions/fleet-preamble-default.approved.txt` - regenerated from the real
+  output (the golden test's `.received.txt`), after watching the golden test fail on the new text.
+- `src/CcDirector.Core.Tests/Sessions/FleetPreambleTests.cs` - the existing command test now asserts
+  `message inbox` and the absence of `message ask`; new `Build_TeachesTheQueuedInboxAndNotTheInterrupt`.
+- `src/CcDirector.Core.Tests/Pi/PiPreambleWriterTests.cs` - the same swap for the Pi file.
+
+The built-in skills (shipped files are the only source; see "drafts" below):
+- `src/CcDirector.Gateway/Skills/Content/fleet-comms.skill.md` and its regenerated copy
+  `.claude/skills/fleet-comms/SKILL.md` (body identical; the frontmatter description no longer says "ask
+  another session a question and get its answer"). The Messages and broadcast sections are rewritten:
+  who may message whom, the limits, "put it in your report", queued not delivered, the real doorbell line,
+  `message inbox` and `--all`, re-rings, stuck, the row line, `--reply-wanted` / `--reply-by` /
+  `message reply`, `session raise`, the whole-fleet grant, and that typing into a session is the owner's
+  alone. The `--controlled-by <session-id>` owner line is removed (the Gateway refuses it since slice 1).
+  Two other false sentences in the same file fixed on the way: the reaping step no longer tells an agent to
+  `curl -X DELETE http://127.0.0.1:7878/...` (it says `session stop <target> --reason`), and the health
+  check describes the real self-test (Windows only, one throwaway, "queued").
+- `src/CcDirector.Gateway/Skills/BuiltInSkills.cs` - the fleet-comms summary (the line in every preamble's
+  skill index) no longer says "message, ask". String only.
+- `src/CcDirector.Gateway/Skills/Content/terminology.skill.md` and `.claude/skills/terminology/SKILL.md` -
+  said `message send all` reaches your mission or checkout; it reaches only the sessions you started. The
+  older-names table row changed to match.
+
+The mission workflow (built-in; shipped file is the source):
+- `src/CcDirector.Gateway/Workflows/Content/mission.instructions.md` and the `.claude/skills/mission/SKILL.md`
+  copy (it duplicates the workflow): "Fleet messages truncate at the first newline" is replaced by "the
+  review goes in a file", reported with one `session report` line; the Worker section says report with
+  `session report`, messages are rare and queued, blocked means `session raise`; the hygiene bullet "A
+  message interrupts the receiving agent" is replaced by the queue rules.
+
+Documents:
+- `docs/FleetMessaging.md` - rewritten: commands, who may message whom, how a message reaches its reader
+  (record, doorbell, inbox, re-ring, stuck, row line), replies, the snooze exception, and the honest limits
+  (only Claude Code and Codex are rung; a parked doorbell line is never erased).
+- `docs/cli-reference.md` - overview list gains `session raise` and `message reply`; Message Send gains its
+  options and the reply paragraph; new Message Reply section; Message Inbox describes the row headings;
+  Session Spawn no longer offers "a session id" as an owner; Selftest describes the real test.
+- `docs/SessionIntercommunication.md` - a dated STALE TRANSPORT note at the top pointing to
+  `FleetMessaging.md`, and a one-line retired note under sections 5, 7 and 8. The July design text is kept
+  as history.
+- `docs/new_architecture/sessions.html` - (1) the 13 September "It INTERRUPTS the owner, deliberately" bullet
+  is replaced by the 16 September ruling, dated, with the owner's words, saying it replaces the 13 September
+  one and why the doorbell still meets that ruling's purpose. (2) The 14 July snooze law: rule 1 carries a
+  dated amendment pointer; a new dated law callout records the owner's 17 September decision (agent-origin
+  work keeps an armed snooze; the owner's work and unexplained work still end it), the reason (a snooze is
+  the owner's wish to be left alone; another agent ringing must not undo it), and how it works
+  (`WorkingOrigin`, `SnoozeLandingObserver`). The 17 July paragraph, the "Working clears the hold" table row
+  ("it does not matter WHO woke the terminal") and the scenario row ("another agent's fleet message wakes
+  it") each say what changed on 17 September.
+- `docs/public/tools/01-overview.md` - `message ask` example replaced with inbox/reply; the owner sentence no
+  longer offers "a session id"; one paragraph on the queue.
+
+Plugins (shipped separately from the Gateway):
+- `plugins/devthrottle/skills/devthrottle-sessions/SKILL.md` and `plugins/devthrottle/README.md` - the
+  "every message interrupts" and "ask and wait" sections rewritten to the queue; the spawn examples now
+  declare an owner (they were refused since 13 September); the self-test paragraph corrected.
+- `plugins/agent-discipline/skills/checks-that-fail-open/SKILL.md` - the anecdote about `message ask` is put
+  in the past tense and says what the strong claim is now.
+
+Command line (help and docstrings only):
+- `tools/cc-devthrottle/src/cli.py` - `session report` says a doorbell line announces it and it is held to
+  the hourly limit but not the spacing; `session hold` says another agent's message does not end a hold, and
+  that owner work and unexplained work do (it used to say a repaint never does); `session compact-continue`
+  no longer says "a supervising agent can rescue a worker" - the Gateway refuses it to every session key;
+  `selftest` and its `--timeout-ms` no longer mention an ask step. Action catalogue: `session-hold` and
+  `fleet-selftest` descriptions reworded to match.
+- `tools/cc-devthrottle/src/session_ops.py` - the `--controlled-by self` usage error outside a session no
+  longer suggests `--controlled-by <session-id>`; it suggests `--standalone --why`.
+- `tools/cc-devthrottle/tests/fixtures/actions_json_before_step_6c.json` - regenerated from the real
+  `actions --json` output after the pin test failed on exactly the two reworded descriptions.
+- `tools/cc-devthrottle/tests/test_help_and_errors_axi.py` - the "spawn self outside" row asserted the old
+  `--controlled-by <session-id>` advice; it now asserts `--standalone --why`.
+- `tools/cc-devthrottle/tests/test_message_load_words.py` - new, 6 tests on the reworded help.
+
+The guard:
+- `src/CcDirector.Core.UnitTests/Skills/RetiredMessagingWordsTests.cs` - new. Fails if "message ask",
+  "interrupts the receiving", "interrupts the session that receives", "truncate at the first newline" or
+  "--controlled-by <session-id>" appears in: the preamble template, `SessionManager.cs`, every shipped
+  skill and workflow file, their `.claude/skills` copies, every plugin markdown file, `docs/public`,
+  `docs/FleetMessaging.md`, `docs/cli-reference.md`, and `tools/cc-devthrottle/src/*.py`. It scans text
+  surfaces, not Gateway code (the Gateway still names the old ask in order to refuse it). Presence checks:
+  every named file is read, each directory yields files, and the preamble and skill still teach the inbox.
+
+### Drafts pushed - and the two that could not be
+
+- **fleet-comms: NO draft.** `cc-devthrottle skill push fleet-comms` is refused: "'fleet-comms' is a built-in
+  DevThrottle skill and cannot be edited." That is the product's rule (the repository's project instructions, "A built-in skill is
+  changed in one place"). The shipped file above is the change; it reaches the fleet when the Gateway is
+  deployed. Nothing for the Architect to publish.
+- **mission workflow: NO draft.** `cc-devthrottle workflow push mission` is refused the same way (built-in).
+  Same answer: the shipped `mission.instructions.md` is the change, and it goes out with the Gateway deploy.
+- **fleet-naming: draft v5 pushed, NOT published.** Not a built-in and not in this repository. It still
+  taught the 13 September ruling ("It interrupts them, and that is intended", and "IT WILL INTERRUPT YOU"
+  in a spawn example). Rewritten to the queue. Diff: `slice-5-evidence/fleet-naming-v4-to-draft-v5.diff`.
+- **checks-that-fail-open: draft v9 pushed, NOT published.** Same anecdote as the plugin copy. Diff:
+  `slice-5-evidence/checks-that-fail-open-v8-to-draft-v9.diff`.
+- **director-restart: draft v3 updated, NOT published.** It already held slice 6's changes and the
+  7 September changes. Added: a KNOWN GAP note in step 2 (below), "twenty doorbells", the `send all`
+  sentence, and step 3 no longer says messages must be one line. Diff:
+  `slice-5-evidence/director-restart-draft-v3-slice-5.diff`. **Publishing v3 publishes slice 6's and
+  7 September's changes too.**
+- The three drafts were written back with LF line endings; the published fleet-naming v4 had CRLF, so a raw
+  version comparison shows every line changed. The diffs above ignore that.
+
+### Sentences that cannot be made true without a code change (left for the Architect)
+
+1. **move-session (built-in), step 2 and step 5** tell the mover to MESSAGE the source (for its handover)
+   and the target (late facts), and to message the source before closing it. The mover is usually neither
+   the source's owner nor its worker, so the Gateway refuses those messages since slice 1. Needs a design
+   decision (a file-based handover request, or a relationship for moves). Not edited.
+2. **director-restart, steps 2, 3 and 5** message every mission's senior seat and every drained session. A
+   restarting session that did not start them is refused. Written into the draft as a KNOWN GAP; the drain
+   needs a redesign (the Director's own drain, or the owner's screens).
+3. **The action catalogue has no `session-report` or `session-raise` entry**, although the preamble now
+   teaches both. Adding catalogue entries changes the pinned `actions --json` shape; left out as not "words".
+4. **The doorbell's deferral reason is the wire literal `parked`**, while the terminology skill says "say
+   snooze, not parked". Different idea (a line left in the composer), same word. Renaming it is a wire
+   change on both sides.
+5. **`FleetMessaging.BuildFramedMessage`** (unused since slice 1) and its doc comment still describe the old
+   framed, typed message and `message ask`. Dead code; removing it is a code change.
+6. **The skill index line in every preamble** comes from the Gateway's skill store. Whether the seeder
+   republishes a changed built-in SUMMARY (not only the body) on deploy was not checked.
+7. **The preamble this session received** still says "Every message you send interrupts the receiving
+   agent" and offers `message ask`: it comes from the installed Director, and changes only when a Director
+   built from this branch is released.
+
+### What is proven
+
+- The golden preamble test failed on the new template, the approved file was regenerated from its
+  `.received.txt`, and it passed. With the template put back to `HEAD`, the new preamble test, the reworded
+  command test and the Pi test all went red (3 failed), and passed again when restored.
+- The retired-words guard: eight breaks, each red, then restored green - "message ask" appended to the
+  preamble template; "interrupts the receiving" to the shipped skill; "truncate at the first newline" to the
+  workflow; "interrupts the session that receives" to the plugin skill; "--controlled-by <session-id>" to
+  the command reference; "message ask" to `cli.py`; the workflow file removed (the presence check); and
+  "MESSAGES ARE RARE" lowered in the preamble (the presence check).
+- The command-line help tests: with `cli.py` and `session_ops.py` put back to `HEAD`, 5 of the 6 new tests
+  went red (the sixth, "no `message ask` command", was already true since slice 1 and is a control). The
+  actions pin failed on exactly the two reworded descriptions before it was regenerated; the "spawn self
+  outside" row failed on the new advice before it was updated; the one-line summary test failed on a
+  92-character selftest summary, which was shortened.
+
+### What is NOT proven
+
+- **No agent read the new words.** No live session was started with the new preamble, and nobody followed
+  the rewritten skill or workflow.
+- **The built-in path to the fleet**: the new fleet-comms, terminology and mission bodies reach agents only
+  when the Gateway is deployed; that was not done (not this seat's).
+- **The three drafts** were not read by any agent and are not published.
+- **`FleetMessaging.md` against this branch alone**: the parked-line and duplicate-key details describe the
+  slice 2 and slice 3 fix-round branches, not yet merged here.
+- **Suites not run in full**: the full Core tests, the full Gateway unit and route suites, the web tests, and
+  `scripts/test-local.ps1` (no PowerShell on the Mac). Only the suites below.
+- **Colour terminal**: under `TERM=dumb FORCE_COLOR=1` one command-line test fails,
+  `test_message_queue.py::test_broadcast_sentences_are_printed_verbatim[colour terminal]`. That is the
+  defect slice 3's fix round (ruling 3) fixed on `mission/message-load-slice3`, not merged here; nothing in
+  this slice touches it.
+
+### Test totals (Mac, this tree, 17 September 2026)
+
+- **Core tests**, filter `FleetPreamble|PiPreambleWriter|InjectedText|WorkflowIndexStore`: 95 passed, 0
+  failed (94 before the new test).
+- **Core unit tests**, whole project: 558 passed, 0 failed (555 before, plus the 3 guard tests).
+- **Gateway unit tests**, filter `Skill|Workflow|Preamble`: 114 passed, 0 failed.
+- **Gateway route tests**, filter `Skill|Workflow|Preamble`: 52 total, 49 passed, 1 skipped (PostgreSQL),
+  **2 failed - the two `WorkflowSeatTests` already in the known 16** (`An_unseated_spawn_isUnaffected...`,
+  `A_gateway_resolved_seat_isStamped...`).
+- **cc-devthrottle tests** (scratch environment with `cc_storage`, `cc_shared` and the tool installed):
+  3231 passed, 0 failed; with `TERM=dumb FORCE_COLOR=1`, 3230 passed and the 1 colour failure above.
+
+## State after slice 5 (17 September 2026)
+
+- Slice 5 head is this commit on `mission/message-load`, awaiting inspection. No pull request opened.
+- Drafts pushed and NOT published: fleet-naming v5, checks-that-fail-open v9, director-restart v3 (which also
+  carries slice 6 and 7 September). fleet-comms and the mission workflow are built-ins: their change is the
+  shipped files and goes out with the Gateway deploy.
+- Open for the Architect: the seven sentences above that need code, above all move-session and the
+  director-restart drain, which message sessions the gate now refuses.
+- Next: the merges of the slice 2 and slice 3 branches, the record, the release.

@@ -541,8 +541,9 @@ _ACTIONS = [
             "Park a session so it stops asking for attention, for a set number of minutes. Defaults "
             "to THIS session. A session holding ITSELF is always mid-turn, so the hold is deferred "
             "automatically and lands when the turn ends - there is no separate verb for that, and the "
-            "reply says 'pending' when it deferred. Only the owner lifts a hold: releasing it, typing "
-            "or speaking into the session, or the timer expiring. Another agent's message does not."
+            "reply says 'pending' when it deferred. A hold ends when it is released, when the owner "
+            "types or speaks into the session, when the timer expires, or when the session starts work "
+            "nothing explains. Another agent's message does not end it."
         ),
         "command": "cc-devthrottle session hold [target] --minutes <n>",
         "mutatesState": True,
@@ -671,7 +672,7 @@ _ACTIONS = [
     },
     {
         "id": "fleet-selftest",
-        "description": "Run an end-to-end fleet messaging smoke test.",
+        "description": "Windows only: check that a message to a throwaway worker is queued.",
         "command": "cc-devthrottle selftest",
         "mutatesState": True,
         "args": [],
@@ -1491,8 +1492,9 @@ def report(
 
     This is the last step of delegated work, not a courtesy. Your parent asked you to do something;
     getting back to them is part of doing it - so you send it yourself, in your own words, the moment
-    your turn ends. It is QUEUED in their inbox, never typed into them: they read it when they are
-    free, and it stays open until they do.
+    your turn ends. It is QUEUED in their inbox, never typed into them: when they are not working, one
+    doorbell line tells them to run 'cc-devthrottle message inbox', and it stays open until they read
+    it. It is still held to the six-an-hour message limit, but not to the ten-minute spacing.
 
     If NO live parent owns you, the USER does, and nothing is sent: you are already red and in his
     queue, so that red is your report. Leave your answer in this session where he will read it.
@@ -1570,9 +1572,10 @@ def hold(
     session holds ITSELF, since it is mid-turn - is DEFERRED automatically: it applies the moment
     the turn finishes, and the reply tells you so with `pending`.
 
-    ONLY THE OWNER LIFTS A HOLD - by releasing it, by typing or speaking into the session, or by
-    the --minutes timer running out. Another agent messaging the session, or the terminal simply
-    repainting, no longer un-holds it, so a hold you set actually lasts as long as you asked for.
+    A hold ends when it is released, when the owner types or speaks into the session, when the
+    --minutes timer runs out, or when the session starts work the Director cannot attribute to
+    anyone. Another agent's message does NOT end it: the doorbell that announces a message is
+    agent-origin work, and the owner decided on 17 September 2026 that it leaves the hold in place.
     """
     hold_session(target, release=release, minutes=minutes)
 
@@ -1614,8 +1617,11 @@ def compact_continue(
 
     A session whose context window is full cannot read anything you send it: every message is
     swallowed and the tool just reprints its context-limit line. Compaction is the only thing that
-    unblocks it, and this verb also gets it moving again afterwards, so a supervising agent can
-    rescue a worker with nobody at its keyboard.
+    unblocks it, and this verb also gets it moving again afterwards.
+
+    THE OWNER'S TOOL. The message it sends afterwards is typed into the session, so the Gateway
+    refuses this verb to every session key (an agent may not type into a session). An agent rescuing
+    its own worker runs `cc-devthrottle session compact` and queues a message instead.
 
     The message is sent only once the compaction has actually FINISHED - never on a timer. A prompt
     fired while the tool is still summarizing gets swallowed exactly like the ones that were lost
@@ -2103,10 +2109,10 @@ def message_inbox(
 @app.command()
 def selftest(
     timeout_ms: int = typer.Option(
-        25000, "--timeout-ms", help="How long the ask step waits for the responder."
+        25000, "--timeout-ms", help="Kept for callers that still pass it; nothing waits any more."
     ),
 ) -> None:
-    """Run the fleet messaging self-test against the local Director."""
+    """Windows only: check that a message to a throwaway worker is queued."""
     run_selftest(timeout_ms)
 
 

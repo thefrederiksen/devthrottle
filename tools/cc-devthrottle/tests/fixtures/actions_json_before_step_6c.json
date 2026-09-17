@@ -350,7 +350,7 @@
     },
     {
       "id": "session-hold",
-      "description": "Park a session so it stops asking for attention, for a set number of minutes. Defaults to THIS session. A session holding ITSELF is always mid-turn, so the hold is deferred automatically and lands when the turn ends - there is no separate verb for that, and the reply says 'pending' when it deferred. Only the owner lifts a hold: releasing it, typing or speaking into the session, or the timer expiring. Another agent's message does not.",
+      "description": "Park a session so it stops asking for attention, for a set number of minutes. Defaults to THIS session. A session holding ITSELF is always mid-turn, so the hold is deferred automatically and lands when the turn ends - there is no separate verb for that, and the reply says 'pending' when it deferred. A hold ends when it is released, when the owner types or speaks into the session, when the timer expires, or when the session starts work nothing explains. Another agent's message does not end it.",
       "command": "cc-devthrottle session hold [target] --minutes <n>",
       "mutatesState": true,
       "args": [
@@ -490,7 +490,7 @@
     },
     {
       "id": "fleet-selftest",
-      "description": "Run an end-to-end fleet messaging smoke test.",
+      "description": "Windows only: check that a message to a throwaway worker is queued.",
       "command": "cc-devthrottle selftest",
       "mutatesState": true,
       "args": []

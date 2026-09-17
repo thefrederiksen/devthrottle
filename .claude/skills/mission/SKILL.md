@@ -137,9 +137,9 @@ the whole mechanism, and it works:
   own work, and it is exactly as persuasive as it is unreliable.
 - **Give it the sharp questions**: what does this claim that the code does not support? Where could
   a constant be substituted and the suite stay green? What is unguarded?
-- **Fleet messages truncate at the first newline.** Have the inspector write its review to a FILE and
-  reply with one single line. Do not ask for a review in a message; you will get the first heading
-  and nothing else.
+- **The review goes in a FILE, not a message.** Have the inspector write it into the mission folder,
+  commit it, and say where it is in one `cc-devthrottle session report` line. A message may span
+  lines, but it is capped, rationed and read once; a file is what the next seat can find.
 
 ### 4. Merged to origin/main is the only "done"
 
@@ -169,12 +169,14 @@ attention goes instead**, which is the part no machinery can do for you.
 **If you are a Worker:**
 
 - You report to the session that started you. Not to the owner, not to the fleet.
-- Finish, then say so once, to your supervisor. Do not narrate progress at it - a message
-  interrupts the receiving agent, and a worker that reports every step has just made its manager
-  read a novel, which is the same failure as bothering the owner one level down.
+- Finish, then say so once, to your supervisor, with `cc-devthrottle session report`. Do not
+  narrate progress at it. Messages are rare - six an hour at most, each one queued in the
+  supervisor's inbox and read when it is free - and a worker that reports every step has just made
+  its manager read a novel, which is the same failure as bothering the owner one level down.
 - Blocked on something you genuinely cannot decide inside your mandate - an ambiguous requirement,
-  an irreversible step, a real design fork, an authorisation you do not hold - tell your supervisor
-  and say what you need. Do not guess, and do not go around it to the owner.
+  an irreversible step, a real design fork, an authorisation you do not hold - put your hand up
+  with `cc-devthrottle session raise "<what you need>"`. Do not guess, and do not go around it to
+  the owner.
 - You have no channel to the owner. Do not look for one.
 
 **If you are a Manager:**
@@ -220,7 +222,11 @@ question a schedule answers is "was anyone there when this started?", and it out
   `git checkout -b` in the shared tree - other sessions are working in it.
 - **Name sessions `Mission - Role`**: `Session States - Architect`, `Session States - Manager`.
   Mission first, dash, not slash.
-- **A message interrupts the receiving agent.** `message send all` reaches your own team. Never
+- **Messages are rare, and they queue.** A session may message only the session that started it
+  and the sessions it started, at most six an hour; every refusal says "put it in your report".
+  Nothing is typed into a working session: when it is free, one doorbell line tells it to run
+  `cc-devthrottle message inbox`. `message send all` reaches only the sessions you started. Nobody
+  waits for an answer - ask with `message send --reply-wanted`, answer with `message reply`. Never
   broadcast to the whole fleet.
 
 ---
