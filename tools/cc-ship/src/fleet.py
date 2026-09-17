@@ -44,6 +44,12 @@ STALL_SECONDS = 90
 # too. Prompt delivery takes seconds; five minutes is far beyond it.
 NEVER_WORKED_SECONDS = 300
 
+# The fleet list can briefly leave out a live session (a Director that is slow to
+# answer the Gateway). Missing once proves nothing: a session counts as gone only
+# after it has been missing on every poll for this long. Seen live, 2026-09-16: a
+# reviewer that was working and then finished was called gone twice.
+GONE_CONFIRM_SECONDS = 60
+
 
 class FleetError(RuntimeError):
     """A fleet command failed; the message carries the command's own output."""
@@ -231,12 +237,22 @@ def wait_for_output(
     watch.setdefault("seen_done", False)
     watch.setdefault("idle_since", None)
     watch.setdefault("started", time.time())
+    watch.setdefault("missing_since", None)
     while True:
         row = find_session(session_id)
         ready = output_ready()
         watch["seen_done"] = (watch["seen_done"] or fresh(done_marker(output))
                               or bool(row and row.get("pendingDeletion")))
         outcome, reason = classify(ready, row, watch["seen_done"])
+        if row is not None:
+            watch["missing_since"] = None
+        elif outcome == CRASHED:
+            watch["missing_since"] = watch["missing_since"] or time.time()
+            missing_for = time.time() - watch["missing_since"]
+            if missing_for < GONE_CONFIRM_SECONDS:
+                outcome = None
+                reason = (f"not in the fleet list for {int(missing_for)}s; confirming it is gone "
+                          f"(after {GONE_CONFIRM_SECONDS}s)")
         if outcome is None and row is not None:
             if row["activityState"] == "Working":
                 watch["seen_working"], watch["idle_since"] = True, None
