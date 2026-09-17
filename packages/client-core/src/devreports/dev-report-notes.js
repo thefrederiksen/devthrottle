@@ -32,6 +32,50 @@
   var MAX_STRING = 20000;
   var QUOTE_LENGTH = 240;
   var TOKEN_ATTR = "data-dev-report-token";
+  var THEME_ATTR = "data-dev-report-theme";
+  var THEME_COLOUR_KEYS = ["background", "surface", "surface2", "border", "text", "textDim", "accent", "accentText"];
+  var THEME_FONT_KEYS = ["font", "monoFont"];
+
+  // The app's dark palette and type (apps/cockpit/src/styles.css). Used when the host passes no theme - a
+  // plain file opened in a browser - or passes one that is not exactly the documented shape.
+  var DEFAULT_THEME = {
+    background: "#0b1020",
+    surface: "#141a2e",
+    surface2: "#1b2238",
+    border: "#28304a",
+    text: "#e6e9f2",
+    textDim: "#99a0b8",
+    accent: "#3b82f6",
+    accentText: "#ffffff",
+    font: "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif",
+    monoFont: "\"Cascadia Mono\", Consolas, Menlo, monospace"
+  };
+
+  // A theme is a JSON object with exactly the colour and font keys: colours as #rgb or #rrggbb, fonts as a
+  // font list of letters, digits, spaces, commas, hyphens and double quotes. Anything else is refused whole,
+  // because every value is written into a stylesheet and a looser value could close the rule it sits in.
+  function parseTheme(text) {
+    var value;
+    try {
+      value = JSON.parse(String(text));
+    } catch (e) {
+      return null;
+    }
+    if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+    var keys = THEME_COLOUR_KEYS.concat(THEME_FONT_KEYS);
+    if (Object.keys(value).length !== keys.length) return null;
+    var theme = {};
+    for (var i = 0; i < keys.length; i++) {
+      var v = value[keys[i]];
+      if (typeof v !== "string") return null;
+      var ok = THEME_FONT_KEYS.indexOf(keys[i]) >= 0
+        ? /^[A-Za-z0-9 ,"-]{1,200}$/.test(v)
+        : /^#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(v);
+      if (!ok) return null;
+      theme[keys[i]] = v;
+    }
+    return theme;
+  }
   var STARTED = typeof Symbol === "function" ? Symbol.for("devthrottle.dev-report-notes.started") : "__devReportNotesStarted";
   var ANCHOR_TYPES = ["element", "text", "table-cell", "svg-part"];
 
@@ -39,12 +83,20 @@
   // Every message to the host carries it, so the host can refuse a message from anything else in the frame
   // (see CONTRACT.md, "Trust"). A plain file opened with no host has no token.
   var hostToken = "";
-  (function readToken() {
+  // The host's theme for the notes interface, read from the same script element (CONTRACT.md section 4,
+  // "The tray's theme"). CSS custom properties from the app do not cross into the frame, and a report can set
+  // its own, so the colours and type are baked into the shadow-root stylesheet rather than inherited.
+  var hostTheme = null;
+  (function readHostAttributes() {
     var doc = root.document;
     var current = doc && doc.currentScript;
     if (current && current.hasAttribute(TOKEN_ATTR)) {
       hostToken = current.getAttribute(TOKEN_ATTR);
       current.removeAttribute(TOKEN_ATTR);
+    }
+    if (current && current.hasAttribute(THEME_ATTR)) {
+      hostTheme = parseTheme(current.getAttribute(THEME_ATTR));
+      current.removeAttribute(THEME_ATTR);
     }
   })();
 
@@ -444,14 +496,22 @@
   function createModel() {
     var state = emptyState();
 
+    // An item id is GLOBALLY unique, never a per-page counter. The same report is open in more than one
+    // browser - the phone and the Cockpit - and each keeps its own state, so a counter starts again at 1 in
+    // the second one and names a note the Gateway already holds from the first. The Gateway treats a known
+    // id as the same item, so that note would be lost while reading as delivered (phase 3 proof, E9).
+    // crypto.getRandomValues works in the sandboxed, opaque-origin frame; when it is missing the note cannot
+    // be given a safe id, so queueing fails loud rather than fall back to a guessable one.
     function nextId(prefix) {
-      var max = 0;
-      var all = state.queued.concat(state.sent);
-      for (var i = 0; i < all.length; i++) {
-        var m = /^[a-z]+(\d+)$/.exec(all[i].id);
-        if (m && Number(m[1]) > max) max = Number(m[1]);
+      var cryptoApi = typeof crypto !== "undefined" ? crypto : null;
+      if (!cryptoApi || typeof cryptoApi.getRandomValues !== "function") {
+        throw new Error("nextId: crypto.getRandomValues is not available, so an item cannot be given a unique id");
       }
-      return prefix + (max + 1);
+      var bytes = new Uint8Array(16);
+      cryptoApi.getRandomValues(bytes);
+      var hex = "";
+      for (var i = 0; i < bytes.length; i++) hex += (bytes[i] < 16 ? "0" : "") + bytes[i].toString(16);
+      return prefix + "-" + hex;
     }
 
     function indexOfId(list, id) {
@@ -592,32 +652,41 @@
   // The only rules this script puts on the report itself: the picking cursor and the hover outline.
   var PAGE_CSS = [
     ".drn-picking, .drn-picking * { cursor: crosshair !important; }",
-    ".drn-hover { outline: 2px solid #0066B8 !important; outline-offset: 2px; }"
+    ".drn-hover { outline: 2px solid " + (hostTheme || DEFAULT_THEME).accent + " !important; outline-offset: 2px; }"
   ].join("\n");
 
   // The tray's own rules. They live inside the tray's shadow root, where the report's CSS cannot reach.
-  var CSS_TEXT = [
-    ":host { font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px; line-height: 1.4; color: #16181D; }",
-    "* { box-sizing: border-box; }",
-    ".drn-tray { position: fixed; right: 16px; bottom: 16px; z-index: 2147483000; width: 360px; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow: auto; background: #FFFFFF; border: 1px solid #D5D8DE; border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.14); }",
-    ".drn-tray.drn-collapsed .drn-body { display: none; }",
-    ".drn-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border-bottom: 1px solid #E6E8EC; }",
-    ".drn-body { padding: 10px 12px; }",
-    ".drn-h { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: #5A616B; margin: 12px 0 6px; }",
-    ".drn-list { list-style: none; margin: 0; padding: 0; }",
-    ".drn-list li { border: 1px solid #E6E8EC; border-radius: 8px; padding: 8px; margin: 0 0 6px; overflow-wrap: anywhere; }",
-    ".drn-where { font-size: 12px; color: #5A616B; }",
-    ".drn-status { font-size: 12px; font-weight: 600; color: #0066B8; }",
-    ".drn-empty { font-size: 13px; color: #8A909A; }",
-    "button { font: inherit; font-weight: 600; border-radius: 8px; padding: 6px 12px; cursor: pointer; border: 1px solid #D5D8DE; background: #F5F6F8; color: #16181D; }",
-    "button.drn-primary { background: #0066B8; border-color: #0066B8; color: #FFFFFF; }",
-    "button:disabled { opacity: .5; cursor: default; }",
-    "textarea { width: 100%; min-height: 64px; font: inherit; padding: 6px 8px; border: 1px solid #D5D8DE; border-radius: 8px; }",
-    ".drn-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }",
-    ".drn-payload { white-space: pre-wrap; overflow-wrap: anywhere; font-family: Consolas, monospace; font-size: 12px; background: #F5F6F8; border: 1px solid #E6E8EC; border-radius: 8px; padding: 8px; }",
-    ".drn-q-state { font-size: 13px; color: #5A616B; margin-left: 8px; }",
-    "@media (max-width: 600px) { .drn-tray { right: 0; left: 0; bottom: 0; width: auto; max-width: none; max-height: 70vh; border-radius: 12px 12px 0 0; } }"
-  ].join("\n");
+  // The font and colour sit on the tray and the question row themselves, not on :host: the host element
+  // carries an inline "all: initial !important", which outranks a :host rule and would put the interface
+  // back in the browser's default serif font.
+  function cssText(t) {
+    return [
+      "* { box-sizing: border-box; }",
+      ".drn-tray, .drn-row { font-family: " + t.font + "; font-size: 14px; line-height: 1.4; color: " + t.text + "; }",
+      ".drn-tray { position: fixed; right: 16px; bottom: 16px; z-index: 2147483000; width: 360px; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow: auto; background: " + t.surface + "; border: 1px solid " + t.border + "; border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.35); }",
+      ".drn-tray.drn-collapsed .drn-body { display: none; }",
+      ".drn-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border-bottom: 1px solid " + t.border + "; }",
+      ".drn-body { padding: 10px 12px; }",
+      ".drn-h { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: " + t.textDim + "; margin: 12px 0 6px; }",
+      ".drn-list { list-style: none; margin: 0; padding: 0; }",
+      ".drn-list li { background: " + t.surface2 + "; border: 1px solid " + t.border + "; border-radius: 8px; padding: 8px; margin: 0 0 6px; overflow-wrap: anywhere; }",
+      ".drn-where { font-size: 12px; color: " + t.textDim + "; }",
+      ".drn-status { font-size: 12px; font-weight: 600; color: " + t.accent + "; }",
+      ".drn-list li.drn-empty { background: transparent; border-color: transparent; padding: 0; font-size: 13px; color: " + t.textDim + "; }",
+      "button { font: inherit; font-weight: 600; border-radius: 8px; padding: 6px 12px; cursor: pointer; border: 1px solid " + t.border + "; background: " + t.surface2 + "; color: " + t.text + "; }",
+      "button.drn-primary { background: " + t.accent + "; border-color: " + t.accent + "; color: " + t.accentText + "; }",
+      "button:disabled { opacity: .5; cursor: default; }",
+      "textarea { width: 100%; min-height: 64px; font: inherit; padding: 6px 8px; background: " + t.background + "; color: " + t.text + "; border: 1px solid " + t.border + "; border-radius: 8px; }",
+      ".drn-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }",
+      ".drn-payload { white-space: pre-wrap; overflow-wrap: anywhere; font-family: " + t.monoFont + "; font-size: 12px; background: " + t.background + "; border: 1px solid " + t.border + "; border-radius: 8px; padding: 8px; }",
+      // The question row sits on the report's own background, whatever colour that is, so its words carry
+      // their own surface rather than relying on the page behind them.
+      ".drn-q-state { font-size: 13px; margin-left: 8px; padding: 4px 8px; border-radius: 6px; background: " + t.surface + "; color: " + t.text + "; }",
+      ".drn-q-state:empty { display: none; }",
+      "@media (max-width: 600px) { .drn-tray { right: 0; left: 0; bottom: 0; width: auto; max-width: none; max-height: 70vh; border-radius: 12px 12px 0 0; } }"
+    ].join("\n");
+  }
+  var CSS_TEXT = cssText(hostTheme || DEFAULT_THEME);
 
   function describeAnchor(anchor) {
     if (!anchor) return "";
@@ -1163,6 +1232,9 @@
     svgPartAnchor: svgPartAnchor,
     textSelectionAnchor: textSelectionAnchor,
     parseInbound: parseInbound,
+    parseTheme: parseTheme,
+    theme: function () { return hostTheme || DEFAULT_THEME; },
+    cssText: function () { return CSS_TEXT; },
     validState: validState,
     validItem: validItem,
     started: STARTED,

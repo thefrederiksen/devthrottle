@@ -224,7 +224,7 @@ public sealed class DirectorHub : Hub
             hello.DisplayName, AuthMiddleware.RegisteringCredential(Context.GetHttpContext()));
         // What this build can do, kept against the CONNECTION: the same machine can come back on an older
         // or a newer Director, and a stale answer here would put the wrong sentence on an empty Chat screen.
-        _turnPushCapabilities?.Record(tenant, directorId, hello.PushesTurns);
+        _turnPushCapabilities?.Record(tenant, directorId, hello.PushesTurns, hello.ChecksIdleBeforeTyping);
         FileLog.Write($"[DirectorHub] Hello: director={directorId} bound to conn={Short(Context.ConnectionId)} (version={hello.Version}, machine={hello.MachineName})");
         return CapabilitiesFor(tenant, directorId);
     }
@@ -657,6 +657,10 @@ public sealed class DirectorHub : Hub
         // superseded connection's stale remove would stick, because only "interrupted" reopens.
         if (accepted)
             _sessionHistory?.ObserveRemoval(RequireBoundTenant(), directorId, sessionId);
+        // The Fleet Manager's events (step 4): a session removed without an exit is a death to its Fleet Manager.
+        // Gated on acceptance for the same reason: a stale remove from a superseded connection removed nothing.
+        if (accepted)
+            _turnEnds?.ObserveRemoval(RequireBoundTenant(), sessionId, directorId);
     }
 
     /// <summary>

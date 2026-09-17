@@ -5169,3 +5169,82 @@ a.banner-btn {
   color: #9cc2ff;
   white-space: nowrap;
 }
+
+/* ===== Dev reports (dev reports mission, phase 3) =====
+   The phone's frame around the shared client-core list, viewer and conversation. The list scrolls inside
+   the session screen; an open report fills the screen, with the conversation in a bottom sheet. */
+.terminal-screen > .reports-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0 -12px;
+}
+
+.terminal-screen > .dev-report-viewer {
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+  margin: 0 -12px;
+}
+
+.report-screen .dev-report-viewer-bar {
+  padding: 6px 12px;
+}
+
+.report-conversation-strip {
+  flex: 0 0 auto;
+  min-height: 46px;
+  margin: 0;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: left;
+  color: var(--text);
+  background: var(--surface);
+  border: 0;
+  border-top: 1px solid var(--border);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.report-sheet-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: flex-end;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.report-sheet {
+  width: 100%;
+  max-width: 680px;
+  max-height: 80vh;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-radius: 14px 14px 0 0;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.report-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.report-sheet-title {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.report-sheet-body {
+  min-height: 0;
+  overflow-y: auto;
+}

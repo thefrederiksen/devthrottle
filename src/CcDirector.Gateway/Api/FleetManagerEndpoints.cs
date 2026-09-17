@@ -20,11 +20,14 @@ namespace CcDirector.Gateway.Api;
 /// <param name="LatestVerdict">The Wingman's latest stored reading of one session in this account.</param>
 /// <param name="FormerFleetManagers">Every session this account has ever marked as its Fleet Manager
 /// (<see cref="FleetManagerMarkHistory"/>).</param>
+/// <param name="EventsDeliveryNote">The Gateway's sentence saying why the account's events are not being delivered to
+/// its Fleet Manager right now, or null (<see cref="FleetManagerEventService.DeliveryNote"/>).</param>
 internal sealed record FleetDigestSources(
     Func<TenantId, IReadOnlyList<SessionDto>> FoldedRoster,
     Func<TenantId, string, bool> SessionInAccount,
     Func<TenantId, string, TurnVerdictDto?> LatestVerdict,
-    Func<TenantId, IReadOnlyList<string>> FormerFleetManagers);
+    Func<TenantId, IReadOnlyList<string>> FormerFleetManagers,
+    Func<TenantId, string?> EventsDeliveryNote);
 
 /// <summary>
 /// Where the Gateway reads the two facts that decide WHO may call these routes.
@@ -53,6 +56,8 @@ internal enum FleetManagerAction
     AddPreference,
     DeletePreference,
     ReadDigest,
+    ListEvents,
+    AcknowledgeEvents,
 }
 
 /// <summary>
@@ -68,6 +73,8 @@ internal enum FleetManagerAction
 ///   POST   /gateway/fleet-manager/preferences              -> 201
 ///   DELETE /gateway/fleet-manager/preferences/{id}
 ///   GET    /gateway/fleet-manager/digest?session=&lt;id&gt;
+///   GET    /gateway/fleet-manager/events                   ?status=unacknowledged|all &amp;count= &amp;cursor=   (step 4)
+///   POST   /gateway/fleet-manager/events/ack               { ids: [...] } or { all: true }
 ///
 /// AUTH. These sit under the non-public <c>/gateway/...</c> prefix, so the host-wide middleware demands a
 /// device key or a session key before a handler runs, and <see cref="SessionKeyGuard"/> lists each shape a
@@ -80,8 +87,9 @@ internal enum FleetManagerAction
 ///    owner's own session, an Architect - is refused, and the refusal says why. It may file, list, read and
 ///    answer records, read, add and forget preferences, and read its own digest.
 ///  - THE OWNER, on their own signed-in device (a phone or browser device key - never a Director's key, never
-///    a session key), may list, read and answer records, manage preferences, and read the digest. The owner does
-///    not file records: a record is the Fleet Manager's news for the owner.
+///    a session key), may list, read and answer records, manage preferences, read the digest and list the events.
+///    The owner does not file records (a record is the Fleet Manager's news for the owner) and does not
+///    acknowledge events (an event is the Fleet Manager's work).
 ///  - Anything else (a Director's own key, the shared machine token) is refused.
 ///
 /// GAP, STATED: the mark itself is set through <c>PUT /gateway/fleet-manager</c>, which step 2 lets any session
@@ -106,11 +114,13 @@ internal static class FleetManagerEndpoints
         FleetOutcomeStore outcomes,
         FleetPreferenceStore preferences,
         FleetDigestSources digest,
-        FleetManagerAccess access)
+        FleetManagerAccess access,
+        FleetManagerEventStore events)
     {
         ArgumentNullException.ThrowIfNull(resolveTenant);
         ArgumentNullException.ThrowIfNull(outcomes);
         ArgumentNullException.ThrowIfNull(preferences);
+        ArgumentNullException.ThrowIfNull(events);
         ArgumentNullException.ThrowIfNull(digest);
         ArgumentNullException.ThrowIfNull(access);
 
@@ -131,9 +141,14 @@ internal static class FleetManagerEndpoints
             => DeletePreference(ctx, id, resolveTenant, access, preferences));
 
         app.MapGet(Prefix + "/digest", (HttpContext ctx)
-            => Digest(ctx, resolveTenant, access, outcomes, preferences, digest));
+            => Digest(ctx, resolveTenant, access, outcomes, preferences, digest, events));
 
-        FileLog.Write($"[FleetManagerEndpoints] mapped {Prefix}/outcomes, /preferences and /digest");
+        app.MapGet(Prefix + "/events", (HttpContext ctx)
+            => ListEvents(ctx, resolveTenant, access, events, digest.EventsDeliveryNote));
+        app.MapPost(Prefix + "/events/ack",
+            (Func<HttpContext, Task<IResult>>)(ctx => AcknowledgeEventsAsync(ctx, resolveTenant, access, events)));
+
+        FileLog.Write($"[FleetManagerEndpoints] mapped {Prefix}/outcomes, /preferences, /digest and /events");
     }
 
     // ---- outcomes ----------------------------------------------------------------------------------------
@@ -344,6 +359,132 @@ internal static class FleetManagerEndpoints
         }
     }
 
+    // ---- events ------------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// The account's events about sessions a Fleet Manager owns, oldest first. Default: the unacknowledged ones.
+    /// Readable by the account's Fleet Manager and by the owner on their own device, like the records.
+    /// </summary>
+    internal static IResult ListEvents(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant,
+        FleetManagerAccess access, FleetManagerEventStore store, Func<TenantId, string?> deliveryNote)
+    {
+        FileLog.Write($"[FleetManagerEndpoints] ListEvents: query={ctx.Request.QueryString}");
+        try
+        {
+            if (resolveTenant(ctx) is not { } tenant) return NoTenant();
+            var (_, refused) = Authorise(ctx, tenant, access, FleetManagerAction.ListEvents);
+            if (refused is not null) return refused;
+            var q = ctx.Request.Query;
+            var status = q.TryGetValue("status", out var s) ? s.ToString() : FleetManagerEventStore.StatusUnacknowledged;
+            var count = FleetManagerEventStore.DefaultCount;
+            if (q.TryGetValue("count", out var c) && !int.TryParse(c.ToString(), out count))
+                return BadRequest($"count '{c}' is not a whole number between 1 and {FleetManagerEventStore.MaxCount}");
+
+            var cursor = q.TryGetValue("cursor", out var cur) ? cur.ToString() : null;
+            if (cursor is not null && cursor.Trim().Length == 0)
+                return BadRequest("cursor is empty; give the nextCursor of the page before, or leave cursor out to start from the first page");
+
+            var page = store.ListPage(tenant, status, count, cursor);
+            var total = store.Count(tenant, status);
+            FileLog.Write($"[FleetManagerEndpoints] ListEvents: returned={page.Events.Count}, total={total}, "
+                          + $"hasMore={page.NextCursor is not null}");
+            return Results.Json(new FleetManagerEventListDto
+            {
+                Count = page.Events.Count,
+                Total = total,
+                HasMore = page.NextCursor is not null,
+                NextCursor = page.NextCursor,
+                DeliveryNote = deliveryNote(tenant),
+                Events = page.Events.ToList(),
+            });
+        }
+        catch (ArgumentException ex)
+        {
+            FileLog.Write($"[FleetManagerEndpoints] ListEvents refused: {ex.Message}");
+            return BadRequest(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[FleetManagerEndpoints] ListEvents FAILED: {ex.Message}");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Acknowledge events by id, or every unacknowledged event that was delivered to the calling session. All or
+    /// nothing: an id that is not this account's event is refused by name (404) and nothing is changed, and a stop
+    /// still waiting for its Wingman reading is refused by name (409, <c>reading_pending</c>) and nothing is changed -
+    /// it has not been delivered, and it is acknowledged once it has.
+    ///
+    /// ONLY THE FLEET MANAGER ACKNOWLEDGES. An acknowledgement says "I have acted on this", and the events are the
+    /// Fleet Manager's work: only the account's marked Fleet Manager session key may close them. Every other
+    /// session key, and the owner's own device, is refused with a reason. Acknowledging all closes only the events
+    /// the Gateway delivered to that session, never one it has not been sent.
+    /// </summary>
+    internal static async Task<IResult> AcknowledgeEventsAsync(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant,
+        FleetManagerAccess access, FleetManagerEventStore store)
+    {
+        FileLog.Write("[FleetManagerEndpoints] AcknowledgeEvents");
+        try
+        {
+            if (resolveTenant(ctx) is not { } tenant) return NoTenant();
+            var (caller, refused) = Authorise(ctx, tenant, access, FleetManagerAction.AcknowledgeEvents);
+            if (refused is not null) return refused;
+            var (body, error) = await ReadBodyAsync<FleetManagerEventAckRequest>(ctx);
+            if (error is not null) return error;
+
+            var ids = new List<Guid>();
+            foreach (var raw in body!.Ids ?? new List<string>())
+            {
+                if (!Guid.TryParse(raw, out var id)) return BadId(raw ?? "");
+                ids.Add(id);
+            }
+
+            var result = store.Acknowledge(tenant, ids, body.All, caller!.Id, DateTime.UtcNow);
+            if (result.Status == FleetManagerEventAckStatus.NotFound)
+            {
+                var missing = string.Join(", ", result.Missing);
+                return Results.Json(new
+                {
+                    error = $"no event {missing} in this account; nothing was acknowledged. "
+                          + $"List them with GET {Prefix}/events?status=all",
+                    missing = result.Missing.Select(m => m.ToString()).ToList(),
+                }, statusCode: StatusCodes.Status404NotFound);
+            }
+            if (result.Status == FleetManagerEventAckStatus.ReadingPending)
+            {
+                var pending = string.Join(", ", result.Pending);
+                return Results.Json(new
+                {
+                    error = $"event {pending} is a stop still waiting for the Wingman's reading; nothing was acknowledged. "
+                          + "It is delivered to you when its reading is stored, or with the reason there is none after "
+                          + $"{FleetManagerEventStore.PendingLimit.TotalMinutes:F0} minutes - act on it and acknowledge it then",
+                    code = "reading_pending",
+                    pending = result.Pending.Select(p => p.ToString()).ToList(),
+                }, statusCode: StatusCodes.Status409Conflict);
+            }
+
+            FileLog.Write($"[FleetManagerEndpoints] AcknowledgeEvents: by={caller.Id}, all={body.All}, "
+                          + $"acknowledged={result.Acknowledged.Count}, already={result.AlreadyAcknowledged}");
+            return Results.Json(new FleetManagerEventAckDto
+            {
+                Acknowledged = result.Acknowledged.Count,
+                AlreadyAcknowledged = result.AlreadyAcknowledged,
+                Ids = result.Acknowledged.Select(id => id.ToString()).ToList(),
+            });
+        }
+        catch (ArgumentException ex)
+        {
+            FileLog.Write($"[FleetManagerEndpoints] AcknowledgeEvents refused: {ex.Message}");
+            return BadRequest(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[FleetManagerEndpoints] AcknowledgeEvents FAILED: {ex.Message}");
+            throw;
+        }
+    }
+
     // ---- digest ------------------------------------------------------------------------------------------
 
     /// <summary>
@@ -373,7 +514,7 @@ internal static class FleetManagerEndpoints
     /// </summary>
     internal static IResult Digest(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant,
         FleetManagerAccess access, FleetOutcomeStore outcomes, FleetPreferenceStore preferences,
-        FleetDigestSources sources)
+        FleetDigestSources sources, FleetManagerEventStore events)
     {
         var sid = ctx.Request.Query.TryGetValue("session", out var raw) ? raw.ToString().Trim() : "";
         FileLog.Write($"[FleetManagerEndpoints] Digest: session={sid}");
@@ -449,10 +590,20 @@ internal static class FleetManagerEndpoints
                     Total = owned.Count,
                 },
             };
+            // The oldest page of what is owed; the rest are reached by the cursor, and the digest says so.
+            var eventPage = events.ListPage(tenant, FleetManagerEventStore.StatusUnacknowledged,
+                FleetManagerEventStore.MaxCount, cursor: null);
+            answer.Events = eventPage.Events.ToList();
+            answer.EventsTotal = events.Count(tenant, FleetManagerEventStore.StatusUnacknowledged);
+            answer.EventsWaitingForReading = events.CountPending(tenant);
+            answer.EventsHasMore = eventPage.NextCursor is not null;
+            answer.EventsNextCursor = eventPage.NextCursor;
+            answer.EventsDeliveryNote = sources.EventsDeliveryNote(tenant);
 
             FileLog.Write($"[FleetManagerEndpoints] Digest: session={sid}, caller={caller.Role}, "
                           + $"isFleetManager={answer.IsFleetManager}, open={open.Count}, openCounted={counts.Total}, "
-                          + $"managers={managers.Count}, owned={owned.Count}, preferences={answer.Preferences.Count}");
+                          + $"managers={managers.Count}, owned={owned.Count}, preferences={answer.Preferences.Count}, "
+                          + $"events={answer.Events.Count}, eventsTotal={answer.EventsTotal}, eventsHasMore={answer.EventsHasMore}");
             return Results.Json(answer);
         }
         catch (ArgumentException ex)
@@ -471,7 +622,7 @@ internal static class FleetManagerEndpoints
 
     /// <summary>
     /// Who may do <paramref name="action"/> in <paramref name="tenant"/>: the account's marked Fleet Manager
-    /// session, or the owner on their own signed-in device (everything but filing). Everyone else is refused with
+    /// session, or the owner on their own signed-in device (everything but filing and acknowledging). Everyone else is refused with
     /// a 403 whose words say why. See the AUTHORITY note on this class.
     /// </summary>
     internal static (FleetManagerCaller? Caller, IResult? Refusal) Authorise(
@@ -511,6 +662,9 @@ internal static class FleetManagerEndpoints
             if (action == FleetManagerAction.FileRecord)
                 return Deny(action, $"device:{deviceType}", "the owner does not file records - a record is the Fleet "
                     + "Manager's news for the owner, filed with the Fleet Manager session's own key");
+            if (action == FleetManagerAction.AcknowledgeEvents)
+                return Deny(action, $"device:{deviceType}", "the owner does not acknowledge events - an event is the "
+                    + "Fleet Manager's work, closed with the Fleet Manager session's own key once it has acted on it");
             FileLog.Write($"[FleetManagerEndpoints] Authorise: {action} allowed for the owner ({deviceType})");
             return (new FleetManagerCaller(FleetOutcomeStore.OwnerCaller, FleetOutcomeStore.RoleOwner), null);
         }
@@ -540,6 +694,8 @@ internal static class FleetManagerEndpoints
         FleetManagerAction.AddPreference => "add a standing preference",
         FleetManagerAction.DeletePreference => "forget a standing preference",
         FleetManagerAction.ReadDigest => "read the digest",
+        FleetManagerAction.ListEvents => "list the events",
+        FleetManagerAction.AcknowledgeEvents => "acknowledge events",
         _ => throw new InvalidOperationException($"unhandled Fleet Manager action {action}"),
     };
 

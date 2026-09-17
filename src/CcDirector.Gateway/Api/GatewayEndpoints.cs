@@ -1637,7 +1637,8 @@ internal static class GatewayEndpoints
             StampFleetRolesAndFold(fleet, all, needsYouStampFor, snoozeRegistry, reqTenant.Value, handRaises,
                 turnVerdictRows, snoozeExpiry,
                 snoozeRosterSessionIds: unfilteredWholeAccount ? SnoozeRosterIds(fleet) : null,
-                inboxLines: inboxLines);
+                inboxLines: inboxLines,
+                fleetManagerMark: tenantSettings is null ? null : tenantSettings.FleetManagerSessionId);
 
             // DevThrottle Stats: fold the assembled roster's per-session input tallies into the always-
             // available aggregate that backs "Your Throttle". This is the ONE path that carries
@@ -1991,7 +1992,8 @@ internal static class GatewayEndpoints
             StampFleetRolesAndFold(fleet, new[] { session }, needsYouStampFor: null, snoozeRegistry: snoozeRegistry,
                 tenant: reqTenant.Value, handRaises: handRaises, turnVerdictRows: turnVerdictRows,
                 snoozeExpiry: snoozeExpiry, snoozeRosterSessionIds: SnoozeRosterIds(fleet),
-                inboxLines: inboxLines);
+                inboxLines: inboxLines,
+                fleetManagerMark: tenantSettings is null ? null : tenantSettings.FleetManagerSessionId);
             return Results.Json(session);
         });
 
@@ -5162,7 +5164,8 @@ internal static class GatewayEndpoints
         DirectorRegistry registry, Streaming.PushedSessionStore? pushedSessions, TenantId tenant,
         Snooze.SnoozeRegistry? snoozeRegistry, Fleet.HandRaiseRegistry? handRaises,
         Wingman.ITurnVerdictRowSource? turnVerdictRows, Wingman.SnoozeExpiryReJudge? snoozeExpiry,
-        Messaging.IFleetInboxLineSource? inboxLines = null)
+        Messaging.IFleetInboxLineSource? inboxLines = null,
+        Func<TenantId, string?>? fleetManagerMark = null)
     {
         var fleet = new List<SessionDto>();
         if (pushedSessions is null) return fleet;
@@ -5179,7 +5182,8 @@ internal static class GatewayEndpoints
         StampFleetRolesAndFold(fleet, fleet, needsYouStampFor: null, snoozeRegistry: snoozeRegistry,
             tenant: tenant, handRaises: handRaises, turnVerdictRows: turnVerdictRows,
             snoozeExpiry: snoozeExpiry, snoozeRosterSessionIds: SnoozeRosterIds(fleet),
-            inboxLines: inboxLines);
+            inboxLines: inboxLines,
+            fleetManagerMark: fleetManagerMark);
         return fleet;
     }
 
@@ -5395,7 +5399,10 @@ internal static class GatewayEndpoints
         Messaging.IFleetInboxLineSource? inboxLines = null,
         // FALSE ONLY FOR A FOLD THAT RECORDS WHAT THE PUSH SHOWS (the Wingman inspector's trace colour): the snooze-expiry
         // memory is read and not moved - no edge spent, no ledger line, no re-judge asked for. Everything else is equal.
-        bool writes = true)
+        bool writes = true,
+        // The Fleet Manager mission, step 4: the session the account has marked as its Fleet Manager, read for
+        // OwnedByFleetManager. Null (or no tenant) stamps false on every row, which is "report as before".
+        Func<TenantId, string?>? fleetManagerMark = null)
     {
         if (roleUniverse is null) throw new ArgumentNullException(nameof(roleUniverse));
         if (toStamp is null) throw new ArgumentNullException(nameof(toStamp));
@@ -5481,7 +5488,8 @@ internal static class GatewayEndpoints
         // mission's own defect shape (a consumer reading a value production never put there), pre-loaded for
         // the next caller. The overload makes it structurally impossible instead: references or copies both
         // work, and a session absent from the universe fails loud.
-        Fleet.FleetRoleResolver.Stamp(roleUniverse, all);
+        var marked = tenant is { IsValid: true } markTenant ? fleetManagerMark?.Invoke(markTenant) : null;
+        Fleet.FleetRoleResolver.Stamp(roleUniverse, all, marked);
 
         // THE WINGMAN'S VERDICT, stamped before the loop because the loop's colour, label and bucket read it. ONE
         // snapshot of the account's verdicts for the whole fold, and no read at all while the account's colour

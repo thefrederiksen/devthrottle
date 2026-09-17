@@ -136,9 +136,9 @@ browser_app = typer.Typer(
 fleet_app = typer.Typer(
     cls=AxiGroup,
     help=(
-        "Fleet Manager records, standing preferences, and the digest.\n\n"
-        "The Fleet Manager's stored news (ready, finding, decision), the owner's standing "
-        "preferences, and the start-of-conversation digest."
+        "The Fleet Manager's news, events, standing preferences and digest.\n\n"
+        "Stored news is a ready, finding or decision record; events are the stops and deaths of the "
+        "sessions it owns; the digest is what it reads at the start of a conversation."
     ),
     add_completion=False,
     no_args_is_help=True,
@@ -173,6 +173,29 @@ _ACTIONS = [
         "command": "cc-devthrottle fleet digest [--session <id>] [--json]",
         "mutatesState": False,
         "args": [{"name": "session", "required": False}],
+    },
+    {
+        "id": "fleet-events",
+        "description": (
+            "The events about sessions the Fleet Manager owns - each stop (with the Wingman's reading) or death - "
+            "kept until acknowledged, one page at a time with a cursor. A stop still waiting for its reading says so "
+            "and cannot be acknowledged yet. The Gateway also delivers them, at least once, as one prompt while the "
+            "Fleet Manager is waiting for a prompt."
+        ),
+        "command": "cc-devthrottle fleet events [--all] [--count N] [--cursor <nextCursor>] [--every-page] [--json]",
+        "mutatesState": False,
+        "args": [],
+    },
+    {
+        "id": "fleet-ack",
+        "description": (
+            "Acknowledge Fleet Manager events by id once acted on (only the marked Fleet Manager may); --all closes "
+            "only the events delivered to this session; all or nothing when an id is unknown or is a stop still "
+            "waiting for its reading."
+        ),
+        "command": "cc-devthrottle fleet ack <id> [<id> ...] | cc-devthrottle fleet ack --all",
+        "mutatesState": True,
+        "args": [{"name": "id", "required": False}],
     },
     {
         "id": "fleet-ready",
@@ -1503,6 +1526,9 @@ def report(
 
     If NO live parent owns you, the USER does, and nothing is sent: you are already red and in his
     queue, so that red is your report. Leave your answer in this session where he will read it.
+
+    If a FLEET MANAGER owns you, nothing is sent either: the Gateway tells it that you stopped, with the
+    Wingman's reading, when it is next waiting for a prompt.
     """
     report_to_parent(summary, target)
 
@@ -2796,6 +2822,35 @@ def fleet_digest(
 ) -> None:
     """Everything the Fleet Manager reads at the start of a conversation."""
     fleet_ops.digest(session, json_output)
+
+
+@fleet_app.command("events")
+def fleet_events(
+    show_all: bool = typer.Option(False, "--all", help="Include acknowledged events (newest first)."),
+    count: int = typer.Option(50, "--count", "-n", help="Largest number of events on one page (1-200)."),
+    cursor: Optional[str] = typer.Option(None, "--cursor", help="Continue after an earlier page: its nextCursor."),
+    every_page: bool = typer.Option(False, "--every-page", help="Follow every page to the end and list every event."),
+    json_output: bool = _JSON_OPT,
+) -> None:
+    """List the stops and deaths of sessions a Fleet Manager owns.
+
+    Unacknowledged ones oldest first, one page at a time.
+    """
+    fleet_ops.list_events(show_all, count, json_output, cursor=cursor, every_page=every_page)
+
+
+@fleet_app.command("ack")
+def fleet_ack(
+    event_ids: Optional[List[str]] = typer.Argument(
+        None, metavar="[ID]...", help="The event ids, or the start of each."),
+    ack_all: bool = typer.Option(False, "--all", help="Acknowledge every unacknowledged event delivered to this session."),
+    json_output: bool = _JSON_OPT,
+) -> None:
+    """Acknowledge events once you have acted on them.
+
+    Nothing is acknowledged if one id is unknown.
+    """
+    fleet_ops.acknowledge_events(event_ids, ack_all, json_output)
 
 
 @fleet_app.command("prefer")

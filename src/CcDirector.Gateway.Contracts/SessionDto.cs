@@ -814,6 +814,18 @@ public sealed class SessionDto
     public bool HasLiveSupervisor { get; set; }
 
     /// <summary>
+    /// FLEET-DERIVED FACT: IS THIS SESSION'S LIVE OWNER A FLEET MANAGER? True only when
+    /// <see cref="HasLiveSupervisor"/> is, and the controlling session is a Fleet Manager session
+    /// (<c>FleetManagerSessions.IsFleetManager</c>). Stamped beside it by <c>FleetRoleResolver</c> and discarded
+    /// at ingest the same way, so a Director's echo is never the answer.
+    ///
+    /// The Gateway tells a Fleet Manager itself when a session it owns stops or dies (the Fleet Manager mission,
+    /// step 4), so such a session sends no report of its own; the command line reads this field to know that.
+    /// Default false: a session that is not known to be a Fleet Manager's reports as before.
+    /// </summary>
+    public bool OwnedByFleetManager { get; set; }
+
+    /// <summary>
     /// A supervised session has its hand up: it is still WORKING and has hit something it cannot decide
     /// inside its mandate (issue #2662). Gateway-owned and Gateway-stamped, from the hand-raise registry.
     ///

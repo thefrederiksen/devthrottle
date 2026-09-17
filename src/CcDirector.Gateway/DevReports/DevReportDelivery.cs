@@ -33,8 +33,11 @@ internal sealed record DevReportItemUpdate(string Id, string Status, string Stat
 /// owns every ruling here (mission ruling 4):
 ///
 /// <list type="number">
-/// <item>An item id the report already holds is the same item. Its CURRENT state is returned and it is never
-/// stored or delivered again, whatever its text says now.</item>
+/// <item>An item id the report already holds WITH THE SAME CONTENT is the same item - a resend. Its CURRENT state is
+/// returned and it is never stored or delivered again. The same id with DIFFERENT content is a different item that
+/// collided with a stored one: it is refused, not stored, and never answered with the stored item's state - so it
+/// stays in the owner's queue instead of reading as delivered while the Gateway never held its words (phase 3
+/// proof, E9: a second browser numbered its first note like the first browser's).</item>
 /// <item>A later answer to the same question replaces an earlier one still waiting (the store applies it).</item>
 /// <item>An ended session refuses every new item, and nothing is stored as deliverable.</item>
 /// <item>A working session - or one whose machine is not connected - holds the items. It is never interrupted.
@@ -137,7 +140,15 @@ internal sealed class DevReportDelivery
             var ids = items.Select(i => i.Id).Distinct(StringComparer.Ordinal).ToList();
             var known = _store.FindItems(tenant, report.Id, ids);
 
-            // Rule 1: an id the report already holds is that item. Within one batch the first occurrence counts.
+            // Rule 1: an id the report already holds with the same content is that item; with different content it
+            // collided and is refused. Within one batch the first occurrence counts.
+            var collided = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var item in items)
+            {
+                if (known.TryGetValue(item.Id, out var stored) && !HasSameContent(stored, item) && collided.Add(item.Id))
+                    FileLog.Write($"[DevReportDelivery] SendAsync: report={report.Id} item={item.Id} collides with a stored " +
+                                  $"{stored.Kind} holding different content; refused");
+            }
             var seen = new HashSet<string>(known.Keys, StringComparer.Ordinal);
             var fresh = new List<DevReportItem>();
             foreach (var item in items)
@@ -164,7 +175,10 @@ internal sealed class DevReportDelivery
             var updates = new List<DevReportItemUpdate>(items.Count);
             foreach (var item in items)
             {
-                if (after.TryGetValue(item.Id, out var row))
+                if (collided.Contains(item.Id))
+                    updates.Add(new DevReportItemUpdate(item.Id, DevReportItemStates.IdCollisionState.Status,
+                        DevReportItemStates.IdCollisionState.Label));
+                else if (after.TryGetValue(item.Id, out var row))
                     updates.Add(new DevReportItemUpdate(item.Id, row.Status, row.StatusLabel));
                 else if (refused.Contains(item.Id))
                     updates.Add(new DevReportItemUpdate(item.Id, DevReportItemStates.SessionEndedState.Status,
@@ -180,6 +194,19 @@ internal sealed class DevReportDelivery
             gate.Release();
         }
     }
+
+    /// <summary>True when a stored item holds exactly the content of <paramref name="item"/> - every field the owner's
+    /// page sends, compared ordinally. The anchor is compared in its stored JSON form, which
+    /// <see cref="DevReportAnchor.ToJson"/> writes in one fixed order.</summary>
+    internal static bool HasSameContent(DevReportItemEntity stored, DevReportItem item)
+        => string.Equals(stored.Kind, item.Kind, StringComparison.Ordinal)
+           && string.Equals(stored.Text, item.Text, StringComparison.Ordinal)
+           && string.Equals(stored.AnchorJson, item.Anchor?.ToJson(), StringComparison.Ordinal)
+           && string.Equals(stored.QuestionId, item.QuestionId, StringComparison.Ordinal)
+           && string.Equals(stored.Question, item.Question, StringComparison.Ordinal)
+           && string.Equals(stored.OptionValue, item.OptionValue, StringComparison.Ordinal)
+           && string.Equals(stored.OptionLabel, item.OptionLabel, StringComparison.Ordinal)
+           && string.Equals(stored.Comment, item.Comment, StringComparison.Ordinal);
 
     /// <summary>
     /// THE ONE SETTLE PASS for a session's unsettled items. Any item left in <c>sending</c> under a claim older than

@@ -150,15 +150,19 @@ yet tell the frame has moved - and it cannot pass for the note-taking script.
 A queued or sent item is one of:
 
 ```json
-{ "id": "n3", "kind": "note", "text": "This number is wrong",
+{ "id": "n-3f9a0c1b7d2e4f6081a2b3c4d5e6f708", "kind": "note", "text": "This number is wrong",
   "anchor": { "type": "table-cell", "selector": "#results > tbody > tr:nth-of-type(2) > td:nth-of-type(3)",
               "quote": "42", "rowLabel": "Gateway", "columnLabel": "Failures" } }
 
-{ "id": "a1", "kind": "answer", "questionId": "deploy-window", "question": "When should we deploy?",
+{ "id": "a-0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e", "kind": "answer", "questionId": "deploy-window", "question": "When should we deploy?",
   "optionValue": "tonight", "optionLabel": "Tonight - quiet traffic", "comment": "" }
 ```
 
-`id` is unique within the report's state. `anchor.rowLabel`, `anchor.columnLabel` and `anchor.label` are
+`id` is **globally unique**: the script makes it from 16 random bytes (`crypto.getRandomValues`, which
+works in the sandboxed frame) as `n-` or `a-` followed by 32 lowercase hex digits, and never from a counter.
+One report is open in more than one browser - the phone and the Cockpit - and each keeps its own state, so a
+per-page counter names a second browser's first note the same as the first browser's, and a host that holds
+the first would take the second for it. When `crypto.getRandomValues` is missing the note is not queued. `anchor.rowLabel`, `anchor.columnLabel` and `anchor.label` are
 present only for the anchor types that carry them. Every string is at most 20000 characters, and `id` is at
 most 128 characters: the Gateway refuses the whole send (400) when any item's id is longer.
 
@@ -191,7 +195,9 @@ Posting a message is not the host accepting it. So Send does not empty the queue
      `statusLabel` shown as the reason (for example "This session has ended"), and can be sent again or
      removed.
 3. Pressing Send again re-sends everything still queued, pending items included. **A host MUST treat an id
-   it has already accepted as the same item**, not a new note.
+   it has already accepted, with the same content, as the same item**, not a new note. **An id it already
+   holds with DIFFERENT content is a different item that collided, and the host MUST refuse it** with a
+   reason, so it stays queued rather than read as the item the host holds.
 4. Answering a question again replaces the latest queued answer to it - unless that answer is pending, in
    which case the new answer is added with a new id. So one question has at most two queued answers: the
    pending one and the newest revision. **A host MUST treat a later answer to the same question as
@@ -264,6 +270,28 @@ check was also watched failing with its rule removed.
    that takes the frame to another page, whose scripts CAN run. That page never has the port, so it gets
    nothing. And because the host sets the frame's content itself, a `load` event it did not cause means the
    frame shows something else: close the port and ignore the frame until the host loads the report again.
+
+### The tray's theme
+
+A host MAY give the notes interface the app's look by adding a second attribute to the same script element:
+`data-dev-report-theme`, holding a JSON object (HTML-escaped inside the attribute) with exactly these keys:
+
+```json
+{ "background": "#0b1020", "surface": "#141a2e", "surface2": "#1b2238", "border": "#28304a",
+  "text": "#e6e9f2", "textDim": "#99a0b8", "accent": "#3b82f6", "accentText": "#ffffff",
+  "font": "-apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Helvetica, Arial, sans-serif",
+  "monoFont": "\"Cascadia Mono\", Consolas, Menlo, monospace" }
+```
+
+- Colours are `#rgb` or `#rrggbb`. Fonts are a font list made only of letters, digits, spaces, commas,
+  hyphens and double quotes, at most 200 characters.
+- A theme with a missing key, an extra key or any value outside those rules is ignored whole, and the
+  script uses the app's dark palette and type shown above - the same values it uses with no attribute.
+- The script reads the attribute once, removes it from the element with the token, and writes the values
+  into the stylesheet inside its shadow roots. The app's CSS custom properties do not cross into the frame
+  and a report's CSS cannot reach the shadow roots, so the tray looks like the app whatever the report sets.
+
+The theme is appearance only. It is not a secret and carries no authority.
 
 **What the page does for itself.** The notes tray and each question's Queue button live in shadow roots,
 so the report's CSS cannot select them, and their host elements carry inline `!important` rules for

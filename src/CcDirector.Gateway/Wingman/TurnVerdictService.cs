@@ -43,6 +43,9 @@ public interface ITurnVerdictEnvironment
     /// <summary>The account's own narration instructions when it has replaced the shipped default, else null.</summary>
     string? CustomSpokenRules();
 
+    /// <summary>Whether this account's plan includes the Wingman's narration (see <see cref="NarrationPlanRule"/>).</summary>
+    NarrationPlan PlanForNarration(TenantId tenant);
+
     /// <summary>The model id the judge runs on for this account, recorded on every verdict including a failed one.</summary>
     string JudgeModel(TenantId tenant);
 
@@ -179,6 +182,18 @@ public enum TurnVerdictTrigger
     /// </summary>
     SnoozeExpiry,
 }
+
+/// <summary>
+/// A verdict flight has ended, with its outcome: whatever started it (a turn end, a snooze expiry, a voice
+/// narration, a person). <see cref="StopObservedAtUtc"/> is the stop the flight stood on.
+/// </summary>
+public sealed record TurnVerdictReadingCompleted(
+    TenantId Tenant,
+    string SessionId,
+    string DirectorId,
+    TurnVerdictTrigger Trigger,
+    DateTime StopObservedAtUtc,
+    TurnVerdictOutcome Outcome);
 
 /// <summary>How a verdict request ended.</summary>
 public enum TurnVerdictOutcomeKind
@@ -559,6 +574,16 @@ public sealed class TurnVerdictService : IDisposable
 
     public TurnVerdictService(ITurnVerdictEnvironment environment)
         => _env = environment ?? throw new ArgumentNullException(nameof(environment));
+
+    /// <summary>
+    /// Raised once for every verdict flight that ends with an outcome, after the outcome is stored and every joined
+    /// caller is released - whatever started the flight. A reader that must hear of EVERY reading (the Fleet
+    /// Manager's events, step 4) listens here rather than on one trigger's entry point, so a stop read by a snooze
+    /// expiry is heard exactly as one read at its turn end. A handler that throws is logged and never reaches the
+    /// flight. Not raised for a stop that JOINED a flight (that flight raises it) nor for a flight admitted after
+    /// shutdown began.
+    /// </summary>
+    public event Action<TurnVerdictReadingCompleted>? ReadingCompleted;
 
     /// <summary>How many stops have been stood down by an account's in-flight ceiling since start.</summary>
     public long CapSkips => Interlocked.Read(ref _capSkips);
@@ -985,6 +1010,9 @@ public sealed class TurnVerdictService : IDisposable
             flight.Done.TrySetResult();
             flight.Cts.Dispose();
         }
+
+        RaiseReadingCompleted(new TurnVerdictReadingCompleted(key.Tenant, key.SessionId, directorId, trigger,
+            observedAt, outcome!));
 
         // Reaching here means an arm above assigned the outcome; a handler that threw left through the finally instead.
         return outcome!;
@@ -1447,6 +1475,18 @@ public sealed class TurnVerdictService : IDisposable
         if (outcome.Verdict is not { } verdict || outcome.NarrationPackage is not { } lazyPackage)
             throw new ArgumentException("A narration call needs a verdict and the package it was formed from.", nameof(outcome));
 
+        // THE PLAN FIRST (owner ruling, 2026-09-17): an account whose plan does not include the Wingman gets the Pro
+        // sentence as its narration, with no model call; a plan that could not be read gets nothing, and no call.
+        switch (_env.PlanForNarration(tenant))
+        {
+            case NarrationPlan.NeedsPro:
+                FileLog.Write($"[TurnVerdictService] narration call sid={sid} verdict={verdict.VerdictId}: the account's plan does not include the Wingman - the Pro sentence stands in, no model call");
+                return new NarrationCallResult(NarrationPlanRule.NeedsProText, null, "", 0);
+            case NarrationPlan.Unknown:
+                FileLog.Write($"[TurnVerdictService] narration call sid={sid} verdict={verdict.VerdictId} NOT MADE: the account's plan could not be read");
+                return new NarrationCallResult(null, "the account's plan could not be read, so the narration call was not made", "", 0);
+        }
+
         // A refused record carries no decision of its own; the call is given the one its readable answer held.
         var decision = verdict.Failed && outcome.NarrationDecision is { } salvaged ? salvaged : verdict;
         var prompt = NarrationCall.BuildPrompt(_env.Language(tenant), _env.CustomSpokenRules(), lazyPackage.Value, decision);
@@ -1783,6 +1823,21 @@ public sealed class TurnVerdictService : IDisposable
             TraceStop(key.Tenant, key.SessionId, TriggerWord(TurnVerdictTrigger.TurnEnd), TurnVerdictTraceOutcomes.Joined, observedAt, flight.Settings,
                 colour => NewUnjudgedTrace(key.SessionId, directorId, TurnVerdictTrigger.TurnEnd,
                     TurnVerdictTraceOutcomes.Joined, ActivityCauses.AlreadyJudging, observedAt, colour));
+        }
+    }
+
+    private void RaiseReadingCompleted(TurnVerdictReadingCompleted completed)
+    {
+        var observers = ReadingCompleted;
+        if (observers is null) return;
+        foreach (var observer in observers.GetInvocationList())
+        {
+            try { ((Action<TurnVerdictReadingCompleted>)observer)(completed); }
+            catch (Exception ex)
+            {
+                FileLog.Write($"[TurnVerdictService] ReadingCompleted handler FAILED: sid={completed.SessionId} " +
+                              $"trigger={completed.Trigger}: {ex.GetType().FullName}: {ex.Message}");
+            }
         }
     }
 

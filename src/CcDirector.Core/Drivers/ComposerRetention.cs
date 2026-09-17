@@ -33,13 +33,18 @@ internal static class ComposerRetention
 
     private static readonly ConditionalWeakTable<ISessionBackend, Mark> Marks = new();
 
+    /// <summary>A send guarded against other input writes through a wrapper; the mark belongs to the terminal under it,
+    /// so a guarded send and an ordinary one see the same mark.</summary>
+    private static ISessionBackend TerminalOf(ISessionBackend backend) =>
+        backend is Sessions.InputGuardedBackend guarded ? guarded.Inner : backend;
+
     /// <summary>
     /// Record that a submit gave up without being able to prove the composer was clear, along with the
     /// text it may have left there so the next send can look for exactly that.
     /// </summary>
     public static void MarkMayHoldText(ISessionBackend backend, string driverTag, string text)
     {
-        Marks.GetOrCreateValue(backend).RetainedText = text;
+        Marks.GetOrCreateValue(TerminalOf(backend)).RetainedText = text;
         FileLog.Write($"[{driverTag}] ComposerRetention: giving up WITHOUT clearing the composer - it may still hold " +
                       $"{text.Length} characters that were never submitted. The next send to this terminal will look " +
                       "for them before it types, so the two cannot run together.");
@@ -51,7 +56,7 @@ internal static class ComposerRetention
     /// </summary>
     public static string? TakeRetainedText(ISessionBackend backend)
     {
-        if (!Marks.TryGetValue(backend, out var mark) || mark.RetainedText is null) return null;
+        if (!Marks.TryGetValue(TerminalOf(backend), out var mark) || mark.RetainedText is null) return null;
 
         var text = mark.RetainedText;
         mark.RetainedText = null;
@@ -93,6 +98,6 @@ internal static class ComposerRetention
     /// </summary>
     public static void Clear(ISessionBackend backend)
     {
-        if (Marks.TryGetValue(backend, out var mark)) mark.RetainedText = null;
+        if (Marks.TryGetValue(TerminalOf(backend), out var mark)) mark.RetainedText = null;
     }
 }

@@ -66,6 +66,8 @@ const devProxy = proxyTarget
       "/voice-quality": { target: proxyTarget, changeOrigin: true },
       "/turnbriefs": { target: proxyTarget, changeOrigin: true },
       "/vault": { target: proxyTarget, changeOrigin: true },
+      // Dev reports (dev reports mission, phase 3): the four owner routes the Reports view calls.
+      "/dev-reports": { target: proxyTarget, changeOrigin: true },
       "/push": { target: proxyTarget, changeOrigin: true },
       // The Assistant screen: its turn calls POST /assistant/turn and its keep-warm ping POST /brain/warmup.
       "/assistant": { target: proxyTarget, changeOrigin: true },

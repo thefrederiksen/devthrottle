@@ -61,7 +61,7 @@ public sealed class SkillEndpointsTests : IAsyncLifetime
         var body = await _http.GetFromJsonAsync<JsonObject>("gateway/skills");
 
         var ids = body!["skills"]!.AsArray().Select(s => (string?)s!["id"]).ToArray();
-        Assert.Equal(new[] { "dev-throttle", "fleet-comms", "move-session", "terminology" }, ids);
+        Assert.Equal(new[] { "dev-throttle", "fleet-comms", "move-session", "terminology", "fleet-manager" }, ids);
     }
 
     [Fact]
@@ -89,6 +89,18 @@ public sealed class SkillEndpointsTests : IAsyncLifetime
         Assert.Equal("text/markdown", response.Content.Headers.ContentType!.MediaType);
         var body = await response.Content.ReadAsStringAsync();
         Assert.Contains("# Move Session", body);
+    }
+
+    [Fact]
+    public async Task The_fleet_manager_body_is_fetched_and_is_not_empty()
+    {
+        var response = await _http.GetAsync("gateway/skills/fleet-manager/body");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("text/markdown", response.Content.Headers.ContentType!.MediaType);
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.False(string.IsNullOrWhiteSpace(body), "The fleet-manager skill is served with an empty body.");
+        Assert.Contains("# The Fleet Manager's commands", body);
     }
 
     [Fact]

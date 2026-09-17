@@ -37,7 +37,10 @@ internal static class FleetRoleResolver
     /// <c>PushedSessionStore</c>, which is what makes that guarantee structural rather than incidental.
     /// </summary>
     /// <param name="all">The assembled fleet. Mutated in place.</param>
-    internal static void Stamp(List<SessionDto> all) => StampUniverse(all);
+    /// <param name="fleetManagerSessionId">The session this account has marked as its Fleet Manager, or null -
+    /// then no session is <see cref="SessionDto.OwnedByFleetManager"/>.</param>
+    internal static void Stamp(List<SessionDto> all, string? fleetManagerSessionId = null)
+        => StampUniverse(all, fleetManagerSessionId);
 
     /// <summary>
     /// Resolve roles across <paramref name="roleUniverse"/> (the UNFILTERED fleet) and stamp the answer onto
@@ -58,12 +61,13 @@ internal static class FleetRoleResolver
     /// </summary>
     /// <param name="roleUniverse">The UNFILTERED fleet. Every role is resolved from this. Mutated in place.</param>
     /// <param name="toStamp">The subset to stamp - references or copies, both work. Mutated in place.</param>
-    internal static void Stamp(List<SessionDto> roleUniverse, IReadOnlyList<SessionDto> toStamp)
+    internal static void Stamp(List<SessionDto> roleUniverse, IReadOnlyList<SessionDto> toStamp,
+        string? fleetManagerSessionId = null)
     {
         if (roleUniverse is null) throw new ArgumentNullException(nameof(roleUniverse));
         if (toStamp is null) throw new ArgumentNullException(nameof(toStamp));
 
-        StampUniverse(roleUniverse);
+        StampUniverse(roleUniverse, fleetManagerSessionId);
 
         // BOTH RESOLVED FACTS TRAVEL TOGETHER. The supervisor-liveness answer is carried across with the role
         // for the same reason the role is carried at all (defect 13): it is a question about sessions the
@@ -71,10 +75,10 @@ internal static class FleetRoleResolver
         // HasLiveSupervisor is still its default false - which surfaces a held worker to the owner. That is
         // the safe direction of this field, but it is not the right ANSWER, and a fold that is merely
         // safely wrong is still wrong.
-        var byId = new Dictionary<string, (string? Role, bool HasLiveSupervisor)>(StringComparer.Ordinal);
+        var byId = new Dictionary<string, (string? Role, bool HasLiveSupervisor, bool OwnedByFleetManager)>(StringComparer.Ordinal);
         foreach (var s in roleUniverse)
             if (!string.IsNullOrEmpty(s.SessionId))
-                byId[s.SessionId] = (s.SessionRole, s.HasLiveSupervisor);
+                byId[s.SessionId] = (s.SessionRole, s.HasLiveSupervisor, s.OwnedByFleetManager);
 
         foreach (var s in toStamp)
         {
@@ -86,20 +90,25 @@ internal static class FleetRoleResolver
                     "does not contain would silently fold it with a null role.");
             s.SessionRole = resolved.Role;
             s.HasLiveSupervisor = resolved.HasLiveSupervisor;
+            s.OwnedByFleetManager = resolved.OwnedByFleetManager;
         }
     }
 
-    private static void StampUniverse(List<SessionDto> all)
+    private static void StampUniverse(List<SessionDto> all, string? fleetManagerSessionId)
     {
         if (all is null) throw new ArgumentNullException(nameof(all));
 
         var liveIds = new HashSet<string>(StringComparer.Ordinal);
+        // The live Fleet Manager sessions, for OwnedByFleetManager below. The mark is read in its one place.
+        var liveFleetManagers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var controllersWithLiveChild = new HashSet<string>(StringComparer.Ordinal);
         foreach (var s in all)
         {
             var alive = !string.Equals(s.ActivityState, "Exited", StringComparison.OrdinalIgnoreCase);
             if (alive && !string.IsNullOrEmpty(s.SessionId))
                 liveIds.Add(s.SessionId);
+            if (alive && !string.IsNullOrEmpty(s.SessionId) && FleetManagerSessions.IsFleetManager(s, fleetManagerSessionId))
+                liveFleetManagers.Add(s.SessionId);
             if (alive && s.IsControlled && !string.IsNullOrEmpty(s.ControllerSessionId))
                 controllersWithLiveChild.Add(s.ControllerSessionId);
         }
@@ -119,6 +128,10 @@ internal static class FleetRoleResolver
                 s.IsControlled
                 && !string.IsNullOrEmpty(s.ControllerSessionId)
                 && liveIds.Contains(s.ControllerSessionId);
+
+            // IS THAT LIVE OWNER THE ACCOUNT'S MARKED FLEET MANAGER? Only the DIRECT owner counts: a Worker under an
+            // Architect the Fleet Manager started is the Architect's.
+            s.OwnedByFleetManager = s.HasLiveSupervisor && liveFleetManagers.Contains(s.ControllerSessionId!);
 
             var explicitRole = SessionRoles.Normalize(s.ExplicitRole);
             if (explicitRole is not null)

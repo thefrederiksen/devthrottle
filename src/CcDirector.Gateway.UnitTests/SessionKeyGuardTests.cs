@@ -237,6 +237,8 @@ public sealed class SessionKeyGuardTests
     [InlineData("POST", "/gateway/fleet-manager/preferences")]
     [InlineData("DELETE", "/gateway/fleet-manager/preferences/5b1c2d3e-0000-4000-8000-000000000002")]
     [InlineData("GET", "/gateway/fleet-manager/digest")]
+    [InlineData("GET", "/gateway/fleet-manager/events")]
+    [InlineData("POST", "/gateway/fleet-manager/events/ack")]
     public void The_fleet_manager_routes_are_allowed(string method, string path)
         => Assert.True(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} should be allowed");
 
@@ -250,6 +252,11 @@ public sealed class SessionKeyGuardTests
     [InlineData("DELETE", "/gateway/fleet-manager/preferences")]
     [InlineData("POST", "/gateway/fleet-manager/digest")]
     [InlineData("GET", "/gateway/fleet-manager/purge")]
+    [InlineData("POST", "/gateway/fleet-manager/events")]
+    [InlineData("DELETE", "/gateway/fleet-manager/events")]
+    [InlineData("GET", "/gateway/fleet-manager/events/ack")]
+    [InlineData("POST", "/gateway/fleet-manager/events/5b1c2d3e-0000-4000-8000-000000000001")]
+    [InlineData("POST", "/gateway/fleet-manager/events/ack/all")]
     public void Fleet_manager_shapes_the_gateway_does_not_route_stay_refused(string method, string path)
         => Assert.False(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} should be refused");
 

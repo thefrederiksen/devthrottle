@@ -217,6 +217,14 @@ question a schedule answers is "was anyone there when this started?", and it out
   kept** - a stale Manager burns context and starts inventing work. The Architect kills the Manager;
   the Manager kills its Workers. Never ask a session to kill itself. Never kill uncommitted work -
   make it commit and push first (law 2).
+- **Whoever starts a session stops it the moment its work is done.** Not at the end of the mission, not
+  when the owner asks - the moment its work is merged or pushed and nothing more is needed from it. The
+  Architect stops every Manager, Worker and Inspector it seated itself; the Manager stops every Worker it
+  seated. An idle finished session still costs tokens and clutters the owner's roster, and the owner
+  restarts sessions all the time precisely to keep that cost down. Stop it yourself with
+  `cc-devthrottle session stop <id> --reason "<why>"`. "Never kill a process" is about Director and build
+  processes; it never means leaving a finished session running. Before you report, list the sessions and
+  check that none you started is still open.
 - **Re-seat the Architect too**, at clean boundaries. It is not exempt from context rot.
 - **ONE worktree per mission**, cut from `origin/main`, never the shared checkout. Never
   `git checkout -b` in the shared tree - other sessions are working in it.

@@ -381,6 +381,7 @@ public sealed class PushedSessionStore
     {
         session.SessionRole = null;
         session.HasLiveSupervisor = false;
+        session.OwnedByFleetManager = false;
     }
 
     /// <summary>Apply a remove/tombstone: drop one session from the Director's set.</summary>
@@ -483,6 +484,27 @@ public sealed class PushedSessionStore
                 entry.ReceivedAtUtc == DateTime.MinValue ? null : entry.ReceivedAtUtc,
                 entry.ActiveConnectionId is not null);
         }
+    }
+
+    /// <summary>
+    /// ONE SESSION as the account's Directors last pushed it, however stale, with the Director that pushed it - a
+    /// copy of that one row only - or null when no Director of the tenant holds it. For a reader that must use what
+    /// is known of one session even after its Director's report has gone stale (the Fleet Manager's events).
+    /// </summary>
+    public (string DirectorId, SessionDto Session)? TryGetLastKnownSession(TenantId tenant, string sessionId)
+    {
+        if (string.IsNullOrEmpty(sessionId)) return null;
+        var now = _utcNow();
+        foreach (var kvp in DirectorsFor(tenant))
+        {
+            var entry = kvp.Value;
+            lock (entry.Gate)
+            {
+                if (entry.Sessions.TryGetValue(sessionId, out var row))
+                    return (kvp.Key, RecomputeClocks(row.Clone(), now));
+            }
+        }
+        return null;
     }
 
     /// <summary>

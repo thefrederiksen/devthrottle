@@ -2876,3 +2876,53 @@ body {
   padding-left: 4px;
   border-left: 1px solid var(--border);
 }
+
+/* ===== Reports tab (dev reports mission, phase 3) =====
+   The frame around the shared client-core list, viewer and conversation: the report fills the pane and the
+   conversation sits beside it. */
+.reports-tab {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.reports-tab-open {
+  overflow: hidden;
+}
+
+.reports-tab-bar {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.reports-back {
+  padding: 4px 12px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.reports-tab-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+.reports-tab-body .dev-report-viewer {
+  flex: 1 1 auto;
+}
+
+.reports-conversation {
+  flex: 0 0 340px;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+}

@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Viewer proof report</title>
+<style>
+  body { margin: 0; font-family: 'Segoe UI', system-ui, sans-serif; color: #16181D; background: #FFFFFF; line-height: 1.5; }
+  main { max-width: 900px; margin: 0 auto; padding: 24px 16px 320px; }
+  section { border-top: 1px solid #E6E8EC; padding: 20px 0; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid #E6E8EC; }
+  label { display: block; padding: 6px 0; }
+</style>
+</head>
+<body>
+<main>
+  <header data-dev-report="header" data-dev-report-status="agent-working">
+    <h1>Viewer proof report</h1>
+    <p id="version-marker">Report version 2</p>
+  </header>
+
+  <section data-dev-report="summary" id="summary">
+    <h2>Executive summary</h2>
+    <p>Version 2: the fixture was fixed and the Gateway suite now passes. One question is still open.</p>
+  </section>
+
+  <section data-dev-report="questions" id="questions">
+    <h2>Questions for you</h2>
+    <div data-dev-report-question="deploy-window" data-dev-report-question-text="When should we deploy the fix?">
+      <h3>When should we deploy the fix?</h3>
+      <label><input type="radio" name="deploy-window" value="tonight" data-recommended> Tonight - quiet traffic</label>
+      <label><input type="radio" name="deploy-window" value="monday"> Monday - the team is around</label>
+      <textarea data-dev-report-comment placeholder="Anything to add (optional)"></textarea>
+    </div>
+  </section>
+
+  <section data-dev-report="detail" id="results-section">
+    <h2>1. Results</h2>
+    <table id="results">
+      <thead><tr><th scope="col">Suite</th><th scope="col">Tests</th><th scope="col">Failures</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Core.UnitTests</th><td>812</td><td>0</td></tr>
+        <tr><th scope="row">Gateway</th><td>12</td><td>0</td></tr>
+        <tr><th scope="row">Director</th><td>810</td><td>0</td></tr>
+      </tbody>
+    </table>
+    <p id="explain">The Gateway failures all come from one fixture that could not reach its database.</p>
+  </section>
+
+  <section data-dev-report="detail" id="more">
+    <h2>2. More detail</h2>
+    <p id="filler-1">Paragraph 1 of the detail. The Gateway suite ran against a throwaway database, and this line is here so the report is long enough to scroll on a phone and on a desktop.</p>
+    <p id="filler-2">Paragraph 2 of the detail. The Gateway suite ran against a throwaway database, and this line is here so the report is long enough to scroll on a phone and on a desktop.</p>
+    <p id="filler-3">Paragraph 3 of the detail. The Gateway suite ran against a throwaway database, and this line is here so the report is long enough to scroll on a phone and on a desktop.</p>
+    <p id="filler-4">Paragraph 4 of the detail. The Gateway suite ran against a throwaway database, and this line is here so the report is long enough to scroll on a phone and on a desktop.</p>
+    <p id="filler-5">Paragraph 5 of the detail. The Gateway suite ran against a throwaway database, and this line is here so the report is long enough to scroll on a phone and on a desktop.</p>
+    <p id="filler-6">Paragraph 6 of the detail. The Gateway suite ran against a throwaway database, and this line is here so the report is long enough to scroll on a phone and on a desktop.</p>
+    <p id="filler-7">Paragraph 7 of the detail. The Gateway suite ran against a throwaway database, and this line is here so the report is long enough to scroll on a phone and on a desktop.</p>
+    <p id="filler-8">Paragraph 8 of the detail. The Gateway suite ran against a throwaway database, and this line is here so the report is long enough to scroll on a phone and on a desktop.</p>
+    <p id="filler-9">Paragraph 9 of the detail. The Gateway suite ran against a throwaway database, and this line is here so the report is long enough to scroll on a phone and on a desktop.</p>
+    <p id="filler-10">Paragraph 10 of the detail. The Gateway suite ran against a throwaway database, and this line is here so the report is long enough to scroll on a phone and on a desktop.</p>
+    <p id="filler-11">Paragraph 11 of the detail. The Gateway suite ran against a throwaway database, and this line is here so the report is long enough to scroll on a phone and on a desktop.</p>
+    <p id="filler-12">Paragraph 12 of the detail. The Gateway suite ran against a throwaway database, and this line is here so the report is long enough to scroll on a phone and on a desktop.</p>
+    <p id="filler-13">Paragraph 13 of the detail. The Gateway suite ran against a throwaway database, and this line is here so the report is long enough to scroll on a phone and on a desktop.</p>
+    <p id="filler-14">Paragraph 14 of the detail. The Gateway suite ran against a throwaway database, and this line is here so the report is long enough to scroll on a phone and on a desktop.</p>
+    <p id="filler-15">Paragraph 15 of the detail. The Gateway suite ran against a throwaway database, and this line is here so the report is long enough to scroll on a phone and on a desktop.</p>
+    <p id="filler-16">Paragraph 16 of the detail. The Gateway suite ran against a throwaway database, and this line is here so the report is long enough to scroll on a phone and on a desktop.</p>
+    <p id="filler-17">Paragraph 17 of the detail. The Gateway suite ran against a throwaway database, and this line is here so the report is long enough to scroll on a phone and on a desktop.</p>
+    <p id="filler-18">Paragraph 18 of the detail. The Gateway suite ran against a throwaway database, and this line is here so the report is long enough to scroll on a phone and on a desktop.</p>
+    <p id="filler-19">Paragraph 19 of the detail. The Gateway suite ran against a throwaway database, and this line is here so the report is long enough to scroll on a phone and on a desktop.</p>
+    <p id="filler-20">Paragraph 20 of the detail. The Gateway suite ran against a throwaway database, and this line is here so the report is long enough to scroll on a phone and on a desktop.</p>
+    <p id="filler-21">Paragraph 21 of the detail. The Gateway suite ran against a throwaway database, and this line is here so the report is long enough to scroll on a phone and on a desktop.</p>
+    <p id="filler-22">Paragraph 22 of the detail. The Gateway suite ran against a throwaway database, and this line is here so the report is long enough to scroll on a phone and on a desktop.</p>
+    <p id="filler-23">Paragraph 23 of the detail. The Gateway suite ran against a throwaway database, and this line is here so the report is long enough to scroll on a phone and on a desktop.</p>
+    <p id="filler-24">Paragraph 24 of the detail. The Gateway suite ran against a throwaway database, and this line is here so the report is long enough to scroll on a phone and on a desktop.</p>
+    <p id="filler-25">Paragraph 25 of the detail. The Gateway suite ran against a throwaway database, and this line is here so the report is long enough to scroll on a phone and on a desktop.</p>
+    <p id="filler-26">Paragraph 26 of the detail. The Gateway suite ran against a throwaway database, and this line is here so the report is long enough to scroll on a phone and on a desktop.</p>
+    <p id="filler-27">Paragraph 27 of the detail. The Gateway suite ran against a throwaway database, and this line is here so the report is long enough to scroll on a phone and on a desktop.</p>
+    <p id="filler-28">Paragraph 28 of the detail. The Gateway suite ran against a throwaway database, and this line is here so the report is long enough to scroll on a phone and on a desktop.</p>
+    <p id="filler-29">Paragraph 29 of the detail. The Gateway suite ran against a throwaway database, and this line is here so the report is long enough to scroll on a phone and on a desktop.</p>
+    <p id="filler-30">Paragraph 30 of the detail. The Gateway suite ran against a throwaway database, and this line is here so the report is long enough to scroll on a phone and on a desktop.</p>
+  </section>
+
+  <section data-dev-report="evidence" id="evidence">
+    <h2>Evidence, and what is not proven</h2>
+    <p>Not proven: whether the database outage was the only cause.</p>
+  </section>
+</main>
+</body>
+</html>

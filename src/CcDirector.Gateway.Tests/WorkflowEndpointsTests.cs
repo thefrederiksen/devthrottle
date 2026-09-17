@@ -13,7 +13,7 @@ namespace CcDirector.Gateway.Tests;
 /// endpoint is actually mapped on the host - not merely that BuiltInWorkflows returns a list.
 ///
 /// The point of the feature is that the Gateway is the HOME for workflows, so what is worth asserting
-/// is that a client asking the Gateway gets the three shapes back, each with the seats filled in.
+/// is that a client asking the Gateway gets the four built-ins back, each with the seats filled in.
 /// </summary>
 [Collection("DirectorRoot")]
 public sealed class WorkflowEndpointsTests : IAsyncLifetime
@@ -53,13 +53,13 @@ public sealed class WorkflowEndpointsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Get_workflows_serves_the_three_shapes_of_work()
+    public async Task Get_workflows_serves_the_four_built_ins()
     {
         var body = await _http.GetFromJsonAsync<JsonObject>("gateway/workflows");
 
         var workflows = body!["workflows"]!.AsArray();
         var ids = workflows.Select(w => (string?)w!["id"]).ToArray();
-        Assert.Equal(new[] { "mission", "standalone", "standalone-with-review" }, ids);
+        Assert.Equal(new[] { "mission", "standalone", "standalone-with-review", "fleet-manager" }, ids);
     }
 
     [Fact]
@@ -115,6 +115,18 @@ public sealed class WorkflowEndpointsTests : IAsyncLifetime
     {
         var body = await _http.GetFromJsonAsync<JsonObject>("gateway/workflows/MISSION");
         Assert.Equal("Mission", (string?)body!["name"]);
+    }
+
+    [Fact]
+    public async Task The_fleet_manager_instructions_are_fetched_and_are_not_empty()
+    {
+        var response = await _http.GetAsync("gateway/workflows/fleet-manager/instructions");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var instructions = await response.Content.ReadAsStringAsync();
+        Assert.False(string.IsNullOrWhiteSpace(instructions),
+            "The fleet-manager workflow is served with empty instructions.");
+        Assert.Contains("# How the Fleet Manager works", instructions);
     }
 
     [Fact]

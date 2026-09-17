@@ -224,4 +224,26 @@ public sealed class FleetDigestDto
 
     public FleetOutcomeCounts OutcomeCounts { get; set; } = new();
     public FleetOwnedSessionCounts OwnedSessionCounts { get; set; } = new();
+
+    /// <summary>The OLDEST unacknowledged events about sessions a Fleet Manager owns, delivered or not, up to one page
+    /// of 200 (step 4). A stop still waiting for its reading is among them and says so. When
+    /// <see cref="EventsHasMore"/> is true, more remain: follow <see cref="EventsNextCursor"/> with
+    /// <c>GET /gateway/fleet-manager/events?cursor=</c>.</summary>
+    public List<FleetManagerEventDto> Events { get; set; } = new();
+
+    /// <summary>Every unacknowledged event of the account, counted by the database.</summary>
+    public int EventsTotal { get; set; }
+
+    /// <summary>How many of those are stops still waiting for their reading.</summary>
+    public int EventsWaitingForReading { get; set; }
+
+    /// <summary>True when more unacknowledged events follow <see cref="Events"/>.</summary>
+    public bool EventsHasMore { get; set; }
+
+    /// <summary>The cursor for the unacknowledged events after <see cref="Events"/>, or null when there are none.</summary>
+    public string? EventsNextCursor { get; set; }
+
+    /// <summary>Why the events are not being delivered to the Fleet Manager right now, written by the Gateway for a page
+    /// to show as it is - for example, the owner has unsent text in the Fleet Manager. Null when nothing holds them back.</summary>
+    public string? EventsDeliveryNote { get; set; }
 }
