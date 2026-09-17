@@ -45,3 +45,30 @@ the owner did not complain about them.
 The page and proof seats were re-seated once: their first prompt never submitted - it sat corrupted and
 unsent in the input box and the seat never started. A spawn that returns an identifier is not a seat that
 started; read the terminal before believing one is working. The replacement prompts were one line each.
+
+## The signed-out landing is a FIFTH piece of work, and it is not done
+
+The apps Worker fixed the phone's device-key gate to carry `next=` - it found that itself - but that covers
+only the journey that starts INSIDE the app. The journey from the PRINTED ADDRESS, signed out, is still
+broken on both surfaces, exactly as `RULING-phase-3b-the-one-address.md` sets out:
+
+- desktop: `/r/{id}` bounces to `/signin?next=/r/{id}`, and after the round trip `DeviceCallback` does a
+  ROUTER navigate to `/r/{id}`, which is not a Cockpit route. It lands on Not found.
+- phone: the bounce to `/signin` is eaten by the mobile front door, which redirects to `/mobile/` and drops
+  the query string, so `next` never survives to be followed at all.
+
+Neither Worker built the ruling's answer (a public, tenant-free `/r/{id}` targeting a new `/report/:reportId`
+route in both shells), because the ruling did not reach them - see the note on messaging below. The Gateway
+Worker's route is authenticated and looks the report up; the apps Worker's shells have no `/report/:reportId`.
+
+**The plan:** merge all four branches into the mission branch first, then seat ONE Worker on the merged
+branch whose whole mandate is the ruling - the public route and the two shell routes are one small coupled
+change and splitting them across two branches would cost more than it saves.
+
+## Messaging my own Workers did not work, and I misread that once
+
+`cc-devthrottle message send` answered `Not delivered: unknown error` on almost every attempt (issue #3009),
+`message ask` has been removed, and an agent may not type into another session. One message reported
+`queued.`; the rest did not land. I briefly took the apps Worker's phone `next=` fix as proof that a message
+HAD landed - it was not: that Worker found the defect on its own and says so in its report. Read the
+terminals and read the branches; do not infer delivery from a Worker doing something you also asked for.
