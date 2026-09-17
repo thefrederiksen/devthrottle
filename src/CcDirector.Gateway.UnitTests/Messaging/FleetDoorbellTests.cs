@@ -473,6 +473,35 @@ public sealed class FleetDoorbellTests : IDisposable
     }
 
     [Fact]
+    public void The_text_cap_has_a_floor_of_the_notice_opening_and_a_whole_id()
+    {
+        // Inspection 8, finding 2: a cap below this cut the id out of the notice.
+        Assert.Equal("Your message ".Length + 32, FleetMessageLimits.MinTextLength);
+        Assert.Equal(45, FleetMessageLimits.MinTextLength);
+
+        Assert.Equal(45, (FleetMessageLimits.Default with { MaxTextLength = 45 }).MaxTextLength);
+        Assert.Throws<ArgumentOutOfRangeException>(() => FleetMessageLimits.Default with { MaxTextLength = 44 });
+        Assert.Throws<ArgumentOutOfRangeException>(() => new FleetMessageLimits { MaxTextLength = 20 });
+    }
+
+    [Fact]
+    public void A_notice_fitted_at_the_floor_names_its_whole_message_and_two_never_match()
+    {
+        var a = new FleetMessageEntity { MessageId = "a0000000000000000000000000000000", RecipientSessionId = Worker, RingCount = 3 };
+        var b = new FleetMessageEntity { MessageId = "b0000000000000000000000000000000", RecipientSessionId = Worker, RingCount = 3 };
+        var floor = FleetMessageLimits.MinTextLength;
+
+        var ta = FleetDoorbell.StuckNoticeText(a, "worker-one", FleetMessageLimits.Default, floor);
+        var tb = FleetDoorbell.StuckNoticeText(b, "worker-one", FleetMessageLimits.Default, floor);
+
+        Assert.Equal("Your message " + a.MessageId, ta);
+        Assert.Contains(b.MessageId, tb);
+        Assert.NotEqual(ta, tb);
+        Assert.Throws<ArgumentOutOfRangeException>(() => FleetDoorbell.StuckNoticeText(a, null, FleetMessageLimits.Default, floor - 1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => FleetDoorbell.StuckNoticeText(a, null, FleetMessageLimits.Default, 20));
+    }
+
+    [Fact]
     public void Two_messages_never_share_a_stuck_notice()
     {
         var a = new FleetMessageEntity { MessageId = "a0000000000000000000000000000000", RecipientSessionId = Worker, RingCount = 3 };
@@ -615,6 +644,7 @@ public sealed class FleetDoorbellTests : IDisposable
     [InlineData("exited")]
     [InlineData("screen-unreadable")]
     [InlineData("not-submitted")]
+    [InlineData("parked")]
     [InlineData("dictation")]
     public async Task Every_named_reason_on_the_wire_is_a_deferral_and_not_a_ring(string reason)
     {
@@ -664,7 +694,7 @@ public sealed class FleetDoorbellTests : IDisposable
         Assert.Equal("rung", FleetRingOutcomes.Rung);
         Assert.Equal("deferred", FleetRingOutcomes.Deferred);
         Assert.Equal(
-            new[] { "working", "composer-holds-text", "menu-open", "exited", "screen-unreadable", "not-submitted", "dictation" },
+            new[] { "working", "composer-holds-text", "menu-open", "exited", "screen-unreadable", "not-submitted", "parked", "dictation" },
             FleetRingDeferReasons.All);
     }
 

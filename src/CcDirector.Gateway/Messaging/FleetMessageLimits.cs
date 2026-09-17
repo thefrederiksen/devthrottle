@@ -44,8 +44,28 @@ public sealed record FleetMessageLimits
     public int RecentReadCap { get; init; } = 200;
 
     /// <summary>The longest message text accepted. A message is read from the inbox, never typed, so it may
-    /// be long - but not unbounded.</summary>
-    public int MaxTextLength { get; init; } = 16_000;
+    /// be long - but not unbounded. Never below <see cref="MinTextLength"/>: a shorter cap is refused when the
+    /// limits are built (inspection 8, ruling 2).</summary>
+    public int MaxTextLength
+    {
+        get => _maxTextLength;
+        init
+        {
+            if (value < MinTextLength)
+                throw new ArgumentOutOfRangeException(nameof(MaxTextLength), value,
+                    $"The text cap must be at least {MinTextLength} characters, so a stuck notice always names its whole message id.");
+            _maxTextLength = value;
+        }
+    }
+
+    private readonly int _maxTextLength = 16_000;
+
+    /// <summary>How long a message id is: a Guid written as 32 hex digits.</summary>
+    public const int MessageIdLength = 32;
+
+    /// <summary>The shortest text cap allowed: the stuck notice's fixed opening plus one whole message id, so a
+    /// notice fitted to any allowed cap still names its message (<see cref="FleetDoorbell.StuckNoticeText"/>).</summary>
+    public static int MinTextLength => FleetDoorbell.StuckNoticePrefix.Length + MessageIdLength;
 }
 
 /// <summary>The kinds of fleet message. Stored in <c>fleet_messages.Kind</c>.</summary>

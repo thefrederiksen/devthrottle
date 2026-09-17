@@ -40,9 +40,6 @@ public interface IDoorbellTarget
     /// <see cref="TerminalSubmit.DoorbellSubmitAsync"/>. Throws only when the terminal could not be written.
     /// </summary>
     Task<DoorbellSubmitOutcome> SubmitLineAsync(string line, Func<bool> mayTypeNow, Func<bool> composerShowsLine, Func<bool> turnStarted);
-
-    /// <summary>Press Backspace this many times - used only to take back the doorbell's own line.</summary>
-    Task EraseAsync(int characters);
 }
 
 /// <summary>The product's <see cref="IDoorbellTarget"/>: a live <see cref="Session"/>.</summary>
@@ -69,8 +66,6 @@ public sealed class SessionDoorbellTarget : IDoorbellTarget
 
     public Task<DoorbellSubmitOutcome> SubmitLineAsync(string line, Func<bool> mayTypeNow, Func<bool> composerShowsLine, Func<bool> turnStarted) =>
         _session.SubmitDoorbellLineAsync(line, mayTypeNow, composerShowsLine, turnStarted);
-
-    public Task EraseAsync(int characters) => _session.EraseComposerCharactersAsync(characters);
 }
 
 /// <summary>
@@ -93,7 +88,12 @@ public sealed class SessionDoorbellTarget : IDoorbellTarget
 /// <see cref="TerminalSubmit.DoorbellSubmitAsync"/>, which presses Enter once and never nudges. The submit is
 /// verified by the screen (<see cref="DoorbellSafety.ShowsDoorbellSubmitted"/>): the line is out of the composer
 /// and either the working marker is up or the transcript shows one more doorbell row than before. Anything less
-/// is a deferral, never a ring - see <c>TakeBackUnverifiedAsync</c> for what is done with the composer.
+/// is a deferral, never a ring - see <c>UnverifiedAnswer</c>.
+///
+/// THE DOORBELL NEVER ERASES (inspection 8, ruling 1). A line whose submit was not verified is left where it is.
+/// No screen frame can prove that the composer holds ONLY the product's line - a whitespace character the owner
+/// adds can leave the frame unchanged - so anything the product deleted could take an owner character with it.
+/// The parked line blocks the next ring (<c>composer-holds-text</c>) until the owner clears or sends it.
 ///
 /// THE LINE IS AGENT-ORIGIN (ruling 15). It is recorded with <see cref="SendSource.Agent"/>, so it does not
 /// stamp an owner turn and does not supersede the owner's snooze on this Director.
@@ -137,8 +137,7 @@ public static class FleetDoorbellRinger
     /// deferral; a terminal that could not be written propagates, because a line that may be half-typed is not a
     /// deferral.
     /// </summary>
-    /// <param name="pause">What separates the two checked frames, and the re-reads after an erase;
-    /// <see cref="BetweenFrames"/> of real time when null.</param>
+    /// <param name="pause">What separates the two checked frames; <see cref="BetweenFrames"/> of real time when null.</param>
     public static async Task<FleetRingResponse> RingAsync(IDoorbellTarget target, int unreadCount, Func<Task>? pause = null)
     {
         ArgumentNullException.ThrowIfNull(target);
@@ -172,7 +171,7 @@ public static class FleetDoorbellRinger
                     FileLog.Write($"[FleetDoorbellRinger] RUNG: session={target.Id}, unread={unreadCount}, line=\"{line}\"");
                     return new FleetRingResponse { Outcome = FleetRingOutcomes.Rung, Detail = "submitted; the screen shows the turn" };
                 default:
-                    return await TakeBackUnverifiedAsync(target, line, pause ?? (() => Task.Delay(BetweenFrames))).ConfigureAwait(false);
+                    return UnverifiedAnswer(target);
             }
         }
         catch (Exception ex)
@@ -215,41 +214,25 @@ public static class FleetDoorbellRinger
         return true;
     }
 
-    /// <summary>How many times the composer is re-read after the doorbell's own line is erased.</summary>
-    internal const int ErasePolls = 10;
-
     /// <summary>
     /// THE SUBMIT WAS NOT VERIFIED (ruling 2). A deferral is never counted as a ring, so the answer is always
-    /// <c>deferred</c>; what the composer holds decides which:
-    ///  - EXACTLY the doorbell line: the text is ours, so it is erased, and the answer is <c>not-submitted</c>.
-    ///  - Empty: the line left without a turn the screen could see - the interface discarded it, or the turn
-    ///    was too quick to catch. Nothing to take back: <c>not-submitted</c>. The next ring may type a second
-    ///    line, which ruling 8 calls harmless.
-    ///  - Anything else - the line with the owner's words after it, or the owner's words alone: left exactly as
-    ///    it is, <c>composer-holds-text</c>. Nothing is erased and nothing is pressed.
+    /// <c>deferred</c>, and NOTHING is erased or pressed (inspection 8, ruling 1). The composer is read once, only to
+    /// name the reason:
+    ///  - Empty: the line left without a turn the screen could see - the interface discarded it, or the turn was
+    ///    too quick to catch. <c>not-submitted</c>. The next ring may type a second line, which ruling 8 calls
+    ///    harmless.
+    ///  - Anything else - the doorbell line, the line with the owner's words, the owner's words alone, or a screen
+    ///    that does not read: <c>parked</c>. Whatever is there stays; the Gateway leaves the message due, and the
+    ///    next ring is deferred <c>composer-holds-text</c> until the owner clears the composer.
     /// </summary>
-    private static async Task<FleetRingResponse> TakeBackUnverifiedAsync(IDoorbellTarget target, string line, Func<Task> pause)
+    private static FleetRingResponse UnverifiedAnswer(IDoorbellTarget target)
     {
         var frame = target.TakeFrame();
-        if (DoorbellSafety.ComposerHoldsExactly(target.Agent, frame, line))
-        {
-            await target.EraseAsync(line.Length).ConfigureAwait(false);
-            for (var i = 0; i < ErasePolls; i++)
-            {
-                if (DoorbellSafety.ReadComposer(target.Agent, target.TakeFrame()) == ComposerReading.Empty)
-                    return Deferred(target, FleetRingDeferReasons.NotSubmitted,
-                        "the line was typed but its submit was not verified; the line was erased");
-                await pause().ConfigureAwait(false);
-            }
-            return Deferred(target, FleetRingDeferReasons.ComposerHoldsText,
-                "the line was typed but its submit was not verified, and erasing it did not leave the composer empty");
-        }
-
         return DoorbellSafety.ReadComposer(target.Agent, frame) == ComposerReading.Empty
             ? Deferred(target, FleetRingDeferReasons.NotSubmitted,
-                "the line left the composer but the screen showed no turn; nothing to erase")
-            : Deferred(target, FleetRingDeferReasons.ComposerHoldsText,
-                "the submit was not verified and the composer holds more than the doorbell line; left untouched");
+                "the line left the composer but the screen showed no turn")
+            : Deferred(target, FleetRingDeferReasons.Parked,
+                "the line was typed but its submit was not verified; it is left in the composer, nothing erased");
     }
 
     private static FleetRingResponse Deferred(IDoorbellTarget target, string reason, string detail)

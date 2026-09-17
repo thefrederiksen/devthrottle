@@ -1174,3 +1174,67 @@ Verdict FAIL for merge on one finding that is a limit of any screen witness, not
 
 Then the touched suites, each guard watched failing, a 'Slice 2 fix round 3' section here, push, stop.
 Inspection 10 follows, narrow, then the slice 2 pull request.
+
+## Slice 2 fix round 3 (17 September 2026, Manager seat 5)
+
+One commit on `mission/message-load-slice2` after `3dacd248`, holding both rulings, their guards and this record. Every guard was watched
+failing: ten breaks, each on the finished fix, the named tests red, the files restored. The breaks and their
+results are in `slice-2-evidence/fix-round-3/` with a README. No fleet message was sent. No live run was made.
+
+### What changed, per item
+
+1. **The doorbell never erases.** `FleetDoorbellRinger.TakeBackUnverifiedAsync` is gone, and with it
+   `IDoorbellTarget.EraseAsync`, `SessionDoorbellTarget.EraseAsync`, `Session.EraseComposerCharactersAsync`
+   (its only caller) and `ErasePolls`. The product now has no way to press Backspace for a doorbell. After an
+   unverified submit the ringer reads the composer once, only to name the reason, and writes nothing:
+   - composer empty: `deferred, not-submitted` (unchanged: the line left, no turn was seen);
+   - anything else - the doorbell line, the line with owner text, owner text alone, or an unreadable composer:
+     `deferred, parked`, logged by the Director with the session id; the Gateway logs it with the session id
+     and leaves the message due (its ring count is not raised). The next ring reads the parked line as text
+     and is deferred `composer-holds-text` until the owner clears or sends it.
+   `FleetRingDeferReasons.Parked = "parked"` is new and is in `All`, so the Gateway accepts it.
+   **`DoorbellSafety.ComposerHoldsExactly` is kept.** Something else still needs it: it is the rendered-composer
+   echo witness that `TerminalSubmit.DoorbellSubmitAsync` reads before its one Enter (`composerShowsLine`).
+   Its tests stay. Its comments no longer call it the licence to erase, and they now name inspection 8's
+   blind spot (a trimmed character that does not move the cursor).
+   Guards: every unverified-submit frame from rounds 2 and 3 - the exact line, the char-wrapped and
+   word-wrapped line, the line under an older doorbell row, the line extended by a space, tab and
+   non-breaking space (trimmed with the cursor one further, kept on the row, wrapped), a space inside the
+   line, an empty continuation row, owner words after the line, and inspection 8's frame (the owner's
+   character trimmed and the cursor NOT moved, asserted identical to the bare line's frame) - ends `parked`
+   with nothing after the send but screen reads; a second ring on a parked line is `composer-holds-text` and
+   types nothing; `parked` pinned on the Director (ringer tests) and the Gateway (executor tests, the
+   contract list, and a `parked` answer on the wire is a deferral that raises no ring count).
+   Red: round 2's take-back restored (19); the same with its erase answering `parked`, so only the erase can
+   fail (19, `Expected "frame", Actual "erase"`); `parked` answered as `not-submitted` (19) or as
+   `composer-holds-text` (19); the literal changed (20 Director, 3 Gateway); `parked` left out of the contract
+   (2); a parked doorbell line allowed to ring again (1).
+2. **The notice cap has a floor.** `FleetMessageLimits.MinTextLength` is the stuck notice's fixed opening
+   (`FleetDoorbell.StuckNoticePrefix`, "Your message ") plus `MessageIdLength` (32): 45. Setting
+   `MaxTextLength` below it throws `ArgumentOutOfRangeException` when the limits are built, `with` included.
+   `StuckNoticeText` refuses a cap below it the same way (it used to clamp to 1), so a notice fitted to any
+   allowed cap opens with the whole message id. Guards: the floor is 45 and equals the opening plus 32; 45
+   is accepted, 44 and 20 refused; at the floor two messages' notices are exactly "Your message <id>", differ,
+   and each holds its id; a cap of 44 or 20 is refused. Red: the floor not enforced (1); the floor without
+   the id (2); the notice cap not checked (1).
+
+### What is NOT proven
+
+- A live parked doorbell: no live run was made. That the next ring reads a parked line as
+  `composer-holds-text` rests on the scripted frame, not on a captured screen.
+- The row line that tells the owner messages are waiting behind a parked line is slice 4's; until then a
+  parked line is visible only in the terminal and in the two logs.
+- Codex frames for the parked path (the ringer tests are Claude Code frames; the reason mapping does not
+  depend on the agent beyond `ReadComposer`).
+
+### Test totals (Mac, this tree, 17 September 2026)
+
+- **Core unit tests** `DoorbellSafetyTests|FleetDoorbellRingerTests`: 87 passed, 0 failed (84 before; one
+  erase test removed, four added).
+- **Core tests** `DoorbellSubmitTests` (the one caller of the kept witness): 9 passed, 0 failed.
+- **Gateway unit tests** `FleetDoorbell*|FleetMessage*`: 142 passed, 0 failed (139 before; three added).
+- **Gateway route tests** `FleetDoorbell*|FleetMessageRouteTests`: 34 passed, 0 failed.
+- Not run this round: the full Core, Gateway unit and route suites, the cc-devthrottle Python tests (no
+  Python changed), `scripts/test-local.ps1` (no PowerShell on the Mac), live proofs.
+
+Next, as the Architect ruled: inspection 10, narrow, then the slice 2 pull request.

@@ -475,17 +475,22 @@ public sealed class FleetDoorbell
     /// The notice a sender receives when its message is marked stuck. It names the message, so it is never an exact
     /// copy of another message's notice, and it is built to fit <paramref name="maxLength"/> whatever the recipient's
     /// name (inspection 5, ruling 2): a long name is shortened first, then left out; only a cap shorter than the
-    /// name-less notice cuts the text itself.
+    /// name-less notice cuts the text itself. The cap is never below <see cref="FleetMessageLimits.MinTextLength"/>
+    /// (inspection 8, ruling 2), so even a cut notice opens with the whole message id.
     /// </summary>
     /// <param name="maxLength">The text cap the notice is judged by; <paramref name="limits"/>' own when null.</param>
+    /// <exception cref="ArgumentOutOfRangeException">The cap is below <see cref="FleetMessageLimits.MinTextLength"/>.</exception>
     public static string StuckNoticeText(FleetMessageEntity message, string? recipientName, FleetMessageLimits limits, int? maxLength = null)
     {
         ArgumentNullException.ThrowIfNull(message);
         ArgumentNullException.ThrowIfNull(limits);
-        var cap = Math.Max(1, maxLength ?? limits.MaxTextLength);
+        var cap = maxLength ?? limits.MaxTextLength;
+        if (cap < FleetMessageLimits.MinTextLength)
+            throw new ArgumentOutOfRangeException(nameof(maxLength), cap,
+                $"A stuck notice needs a cap of at least {FleetMessageLimits.MinTextLength} characters to name its message.");
         var shortId = Short(message.RecipientSessionId);
         string Text(string who) =>
-            $"Your message {message.MessageId} to {who} is stuck: its doorbell rang {message.RingCount} times, " +
+            $"{StuckNoticePrefix}{message.MessageId} to {who} is stuck: its doorbell rang {message.RingCount} times, " +
             $"{FleetMessagePolicy.Describe(limits.RingGrace)} apart, and the session has not read its inbox. " +
             "The message stays in that inbox and is delivered if the session reads it. Do not send it again. " +
             "If you needed an answer, carry on without it and say so in your report.";
@@ -502,6 +507,9 @@ public sealed class FleetDoorbell
         var room = name.Length - (full.Length - cap) - cut.Length;
         return room > 0 ? Text($"{name[..room]}{cut} ({shortId})") : bare;
     }
+
+    /// <summary>The fixed opening of every stuck notice; the message id follows it directly.</summary>
+    public const string StuckNoticePrefix = "Your message ";
 
     private static string Short(string? id) => string.IsNullOrEmpty(id) ? "(none)" : (id.Length <= 8 ? id : id[..8]);
 }

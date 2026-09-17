@@ -1,0 +1,2 @@
+  Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.The_text_cap_has_a_floor_of_the_notice_opening_and_a_whole_id [1 ms]
+Failed!  - Failed:     1, Passed:   141, Skipped:     0, Total:   142, Duration: 13 s - CcDirector.Gateway.UnitTests.dll (net10.0)

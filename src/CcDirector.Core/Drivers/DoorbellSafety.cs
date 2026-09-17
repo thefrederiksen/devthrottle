@@ -109,9 +109,9 @@ public readonly record struct DoorbellVerdict(bool Ring, string Reason, string D
 ///    The ringer (<see cref="Sessions.FleetDoorbellRinger"/>) takes a third frame and re-reads the Director's
 ///    state immediately before the first byte and defers if anything moved; a keystroke or a self-started turn
 ///    inside the remaining interval is not seen. The race is narrowed to that interval, not closed.
-///  - Erasing the doorbell's own line (<see cref="ComposerHoldsExactly"/>): a whitespace character the owner types
-///    exactly at a word-wrap break can be absorbed by the wrap without moving the cursor. Only a screen narrower
-///    than the line wraps it.
+///  - The rendered echo witness (<see cref="ComposerHoldsExactly"/>) cannot see a whitespace character the grid
+///    trims when the cursor does not move for it, nor one absorbed at a word-wrap break. It only decides whether
+///    Enter may be pressed; nothing the product typed is ever erased on its word (inspection 8, ruling 1).
 ///  - Composer text scrolled out of the visible rows (a very long draft) - the prompt row still shows text, so
 ///    this defers; but a draft whose visible window is blank would not be seen.
 ///  - Codex "working": the marker is the same "esc to interrupt" footer; no mid-turn Codex screen was captured
@@ -333,8 +333,10 @@ public static class DoorbellSafety
     }
 
     /// <summary>
-    /// True when the composer holds EXACTLY <paramref name="line"/> (inspection 5, ruling 1) - the only case in which
-    /// the doorbell's own text may be erased. The composer is read as its rows, not as a squeezed string:
+    /// True when the composer holds EXACTLY <paramref name="line"/> (inspection 5, ruling 1) - the rendered witness
+    /// that the typed line echoed, before the one Enter. It is never a licence to erase anything (inspection 8,
+    /// ruling 1): no frame can prove the composer holds only the line. The composer is read as its rows, not as a
+    /// squeezed string:
     ///  - Claude Code: the prompt row after the glyph and its one separator, then each continuation row after its
     ///    two-column indent. Codex: the cursor's '›' row alone (a wrapped Codex composer is never "exactly").
     ///  - The rows, joined, must equal the line character for character. The only difference allowed is the one a
@@ -343,8 +345,9 @@ public static class DoorbellSafety
     ///  - The rows arrive trailing-trimmed, so a trailing space, tab or non-breaking space the owner typed after the
     ///    line leaves the row unchanged. The cursor is the witness: it must be visible, on the last row, straight
     ///    after the line's last character. Anywhere else means something follows the line.
-    /// NOT COVERED: a whitespace character inserted exactly at a word-wrap break can be absorbed by the wrap and not
-    /// move the cursor. A wrap happens only on a screen narrower than the line (about a hundred columns).
+    /// NOT COVERED: a whitespace character the grid trims without moving the cursor, or one inserted exactly at a
+    /// word-wrap break, leaves the frame unchanged. A wrap happens only on a screen narrower than the line (about a
+    /// hundred columns).
     /// </summary>
     public static bool ComposerHoldsExactly(AgentKind agent, ScreenFrame frame, string line)
     {

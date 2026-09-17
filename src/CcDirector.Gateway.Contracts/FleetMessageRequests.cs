@@ -207,9 +207,13 @@ public static class FleetRingDeferReasons
     /// treated as empty.</summary>
     public const string ScreenUnreadable = "screen-unreadable";
 
-    /// <summary>The line was typed but its submit was not verified; the Director took its own line back (or it
-    /// had already left without a visible turn). Not a ring.</summary>
+    /// <summary>The line was typed and left the composer, but the screen showed no turn. Not a ring.</summary>
     public const string NotSubmitted = "not-submitted";
+
+    /// <summary>The line was typed but its submit was not verified, and the composer still holds text: the line is
+    /// left there, never erased. Not a ring; the message stays due, and the next ring is deferred as
+    /// <see cref="ComposerHoldsText"/> until the owner clears the composer.</summary>
+    public const string Parked = "parked";
 
     /// <summary>The owner's dictation for this session is in flight (the Gateway's dictation lock). Decided by the
     /// Gateway itself, which holds the lock, before any Director is asked.</summary>
@@ -218,7 +222,7 @@ public static class FleetRingDeferReasons
     /// <summary>Every deferral reason, including the Gateway's own. The Gateway refuses a Director's answer whose
     /// reason is not here.</summary>
     public static IReadOnlyList<string> All { get; } =
-        [Working, ComposerHoldsText, MenuOpen, Exited, ScreenUnreadable, NotSubmitted, Dictation];
+        [Working, ComposerHoldsText, MenuOpen, Exited, ScreenUnreadable, NotSubmitted, Parked, Dictation];
 
     /// <summary>True when <paramref name="reason"/> is exactly one of <see cref="All"/>.</summary>
     public static bool IsKnown(string? reason) => reason is not null && All.Contains(reason, StringComparer.Ordinal);
