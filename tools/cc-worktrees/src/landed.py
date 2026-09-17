@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 import stat
+import sys
 import time
 import uuid
 from dataclasses import dataclass
@@ -241,6 +242,60 @@ def require_no_hidden_flags(worktree: Path) -> None:
                         f"skip-worktree, which hides local edits from git status: {_names(flagged)}")
 
 
+_CASE_FOLDS_NAMES = os.name == "nt" or sys.platform == "darwin"
+_REPARSE_POINT = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+
+
+def _is_git_name(name: str) -> bool:
+    return (name.casefold() if _CASE_FOLDS_NAMES else name) == ".git"
+
+
+def nested_repositories(worktree: Path) -> list[str]:
+    """Every entry named .git anywhere inside the worktree other than its own top-level .git, as paths
+    relative to the worktree. A repository under an ignored path is invisible to git status, and its
+    commits are on no ref of this repository, so git worktree remove would delete it with its history.
+
+    The walk never follows a symlink, a junction or any other reparse point out of the slot, but an entry
+    NAMED .git counts whatever it is. A directory that cannot be listed, or an entry that cannot be stat-ed,
+    is cannot verify."""
+    found: list[str] = []
+    pending: list[tuple[str, str]] = [(str(worktree), "")]
+    while pending:
+        directory, relative = pending.pop()
+        try:
+            with os.scandir(directory) as listing:
+                entries = list(listing)
+        except OSError as ex:
+            raise cannot_verify(f"cannot list {relative or 'the worktree'} to look for nested repositories: "
+                                f"{ex.strerror or ex}") from ex
+        for entry in entries:
+            path = f"{relative}/{entry.name}" if relative else entry.name
+            if _is_git_name(entry.name):
+                if relative:
+                    found.append(path)
+                continue
+            try:
+                info = entry.stat(follow_symlinks=False)
+            except OSError as ex:
+                raise cannot_verify(f"cannot read {path} to look for nested repositories: "
+                                    f"{ex.strerror or ex}") from ex
+            if not stat.S_ISDIR(info.st_mode) or getattr(info, "st_file_attributes", 0) & _REPARSE_POINT:
+                continue
+            pending.append((entry.path, path))
+    return sorted(found)
+
+
+def require_no_nested_repositories(worktree: Path) -> None:
+    """Hold a slot with a git repository anywhere inside it. That includes a registered submodule: the
+    status check proves a submodule matches the commit this repository records, not that the submodule's
+    own HEAD, or the commits abandoned in it, are on its remote."""
+    found = nested_repositories(worktree)
+    if found:
+        count = len(found)
+        raise NotLanded(f"{count} git repositor{'ies are' if count != 1 else 'y is'} inside the worktree, and "
+                        f"its commits cannot be proven landed: {_names(found)}")
+
+
 def _short_list(commits: list[str], limit: int = 5) -> str:
     shown = ", ".join(c[:12] for c in commits[:limit])
     return shown + (f" and {len(commits) - limit} more" if len(commits) > limit else "")
@@ -414,6 +469,7 @@ def check(worktree: Path, repo: Path, tip: RemoteTip, recorded_gitdir: str | Non
     gitdir = require_bound(worktree, repo, recorded_gitdir)
     require_clean(worktree)
     require_no_hidden_flags(worktree)
+    require_no_nested_repositories(worktree)
     head = head_commit(worktree)
     entries = reflog_entries(worktree)
     since = reflog_commits_since(entries, mark)
@@ -559,6 +615,9 @@ def reset(worktree: Path, repo: Path, checked: Checked) -> ReflogMark:
         # Ignored build output stays, which is the point of a pool. There is no git clean: the tree was
         # proven clean, read-tree removes the files it untracks, so a clean could only ever delete a
         # file that was ignored before and is not ignored by the new tree.
+        # Again at the last moment: a repository cloned into the slot since the check would otherwise be
+        # handed to the next holder, or overwritten on a path the default branch now tracks.
+        require_no_nested_repositories(worktree)
         try:
             gitrun.run(worktree, "read-tree", "-m", "-u", checked.head, target)
         except GitError as ex:
@@ -589,11 +648,13 @@ def reset(worktree: Path, repo: Path, checked: Checked) -> ReflogMark:
 def remove(worktree: Path, repo: Path, checked: Checked) -> None:
     """Remove a worktree whose work was just proven landed, re-checked under HEAD.lock so nothing can
     commit between the check and the removal. `git worktree remove` is never forced: git itself still
-    refuses a worktree with modified or untracked files."""
+    refuses a worktree with modified or untracked files that git status can see. It deletes ignored files,
+    and would delete a repository under an ignored path, so the slot is walked for one again here."""
     fd, lock_path = _take_head_lock(checked.gitdir, "destroy")
     removed = False
     try:
         _recheck_under_lock(worktree, repo, checked)
+        require_no_nested_repositories(worktree)
         # The lock file stays on disk and is removed with the worktree's record; it only has to be
         # closed so that removal can delete it.
         os.close(fd)
