@@ -53,6 +53,17 @@ function placement(running: boolean): FleetManagerPlacement {
         confirmTitle: "Restart the Fleet Manager? (fake)",
         confirmMessage: "The old one closes after its turn (fake).",
       }),
+      page: {
+        changeLabel: "(change)",
+        composerUsable: running,
+        composerPlaceholder: "",
+        composerHint: "",
+        quickPromptsUsable: running,
+        quickPromptBusyLabel: "",
+        thinkingShown: false,
+        notRunningBarShown: !running,
+        settingsLabel: "",
+      },
     },
     save: running
       ? action("Save and move it", true, {
@@ -124,6 +135,27 @@ describe("the Fleet Manager tab", () => {
     expect(screen.getByText("Any agent installed on the chosen computer (fake).")).toBeTruthy();
     expect(screen.getByText("Saving starts a new Fleet Manager in the new place (fake).")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Save and move it" })).toBeTruthy();
+  });
+
+  it("while a restart or a move is under way, shows the Gateway's sentence about what it waits for", async () => {
+    const waiting = placement(true);
+    waiting.status.replacement = "The Fleet Manager running now is waiting for you, so it is not closed (fake).";
+    waiting.status.replacementTone = "bad";
+    waiting.status.restart = action("Restart it", false, { note: "A restart or a move is already under way (fake)." });
+    fakeGateway(true, { "GET /gateway/fleet-manager/placement": () => json(waiting) });
+    mount();
+
+    const line = await screen.findByText("The Fleet Manager running now is waiting for you, so it is not closed (fake).");
+    expect(line.className).toContain("fm-tone-bad");
+    expect(screen.queryByRole("button", { name: "Restart it" })).toBeNull();
+  });
+
+  it("says nothing about a replacement when none is under way", async () => {
+    fakeGateway(true);
+    mount();
+
+    await screen.findByText(RUNNING);
+    expect(document.querySelector(".fm-replacement")).toBeNull();
   });
 
   it("will not let an unreachable computer be chosen", async () => {

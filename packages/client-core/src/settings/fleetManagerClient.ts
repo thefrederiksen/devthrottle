@@ -48,6 +48,27 @@ export interface FleetManagerStatus {
   open: FleetManagerAction;
   start: FleetManagerAction;
   restart: FleetManagerAction;
+  /** While a restart or a move is under way: the Gateway's sentence saying what it waits for. */
+  replacement?: string | null;
+  replacementTone?: "ok" | "idle" | "bad" | null;
+  successorSessionId?: string | null;
+  /** What the Fleet Manager page may show and use now - decided on the Gateway. */
+  page: FleetManagerPageControls;
+}
+
+/** The Fleet Manager page's controls for the current state. The page renders these and decides nothing. */
+export interface FleetManagerPageControls {
+  where?: string | null;
+  changeLabel: string;
+  composerUsable: boolean;
+  composerPlaceholder: string;
+  composerOffText?: string | null;
+  composerHint: string;
+  quickPromptsUsable: boolean;
+  quickPromptBusyLabel: string;
+  thinkingShown: boolean;
+  notRunningBarShown: boolean;
+  settingsLabel: string;
 }
 
 export interface FleetManagerPlacement {

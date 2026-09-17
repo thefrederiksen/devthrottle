@@ -804,6 +804,13 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<string>("NoVerdictReason")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("OutcomeId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OutcomeTitle")
+                        .HasColumnType("TEXT");
+
                     b.Property<bool>("ReadingPending")
                         .HasColumnType("INTEGER");
 
@@ -831,9 +838,14 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.Property<string>("VerdictJson")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Words")
+                        .HasColumnType("TEXT");
+
                     b.HasKey("Id");
 
                     b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "OutcomeId");
 
                     b.HasIndex("TenantId", "SessionId");
 

@@ -58,6 +58,10 @@ export interface FleetCardAction {
   wordsPrefix?: string | null;
   placeholder?: string | null;
   sendLabel?: string | null;
+  /** The label of the button that puts the typing box away. */
+  cancelLabel?: string | null;
+  /** The label the button shows while the answer is being recorded. */
+  busyLabel: string;
 }
 
 export interface FleetOutcomeCard {
@@ -74,6 +78,10 @@ export interface FleetOutcomeCard {
   answered: boolean;
   answerLabel?: string | null;
   answer?: string | null;
+  /** On a card the owner answered: how far the answer has got on its way to the Fleet Manager, in the Gateway's words. */
+  answerDelivery?: string | null;
+  /** What the card says before the Gateway's refusal when an answer was not recorded. */
+  answerRefusedLead: string;
   actions: FleetCardAction[];
 }
 
@@ -142,8 +150,9 @@ export async function getFleetManagerPage(signal?: AbortSignal): Promise<FleetMa
   return (await res.json()) as FleetManagerPage;
 }
 
-/** POST /gateway/fleet-manager/outcomes/{id}/answer - close a record with the owner's words, exactly as given. A
- *  record that is already answered is refused (409) with the Gateway's sentence. */
+/** POST /gateway/fleet-manager/outcomes/{id}/answer - close a record with the owner's words, exactly as given. The
+ *  Gateway also queues the words to the Fleet Manager, in the same save. A record that is already answered is refused
+ *  (409) with the Gateway's sentence. */
 export async function answerFleetOutcome(id: string, answer: string): Promise<void> {
   const res = await fetch(`${PREFIX}/outcomes/${encodeURIComponent(id)}/answer`, {
     method: "POST",

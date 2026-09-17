@@ -57,6 +57,20 @@ function action(label: string, offered: boolean, note: string | null = null) {
 
 function placement(state: "running" | "not-running" | "unreachable", thinking = false): FleetManagerPlacement {
   const running = state === "running";
+  // What the Gateway decides for the page in each state (fake words, so a test proves they are rendered as sent).
+  const page = {
+    where: "Claude Code on WORKSTATION-A",
+    changeLabel: "(change)",
+    composerUsable: running,
+    composerPlaceholder: "Tell the Fleet Manager (fake)...",
+    composerOffText: running ? null : "not running (fake off text)",
+    composerHint: "Enter sends (fake hint).",
+    quickPromptsUsable: running,
+    quickPromptBusyLabel: "Sending (fake)...",
+    thinkingShown: running && thinking,
+    notRunningBarShown: !running,
+    settingsLabel: "Move it in Settings",
+  };
   return {
     agent: "ClaudeCode",
     agentLabel: "Claude Code",
@@ -79,6 +93,7 @@ function placement(state: "running" | "not-running" | "unreachable", thinking = 
       open: action("Open it", running),
       start: action("Start it", state === "not-running", state === "not-running" ? "Up to 90 seconds (fake)." : null),
       restart: action("Restart it", running),
+      page,
     },
   };
 }
@@ -111,6 +126,56 @@ describe("FleetManagerView", () => {
     const composer = await screen.findByTestId("composer");
     expect(composer.getAttribute("data-session")).toBe(FM_SESSION);
     expect(composer.getAttribute("data-enter-sends")).toBe("true");
+  });
+
+  it("renders the Gateway's page controls and decides nothing from the state itself", async () => {
+    // A running state whose controls say the composer and quick prompt are not usable and the bar shows: the page
+    // follows the controls, never its own reading of "running".
+    const p = placement("running", true);
+    p.status.page = {
+      ...p.status.page,
+      where: null,
+      composerUsable: false,
+      composerOffText: "held (fake)",
+      quickPromptsUsable: false,
+      thinkingShown: false,
+      notRunningBarShown: true,
+      settingsLabel: "Change it (fake)",
+    };
+    api.placement.mockResolvedValue(p);
+    api.page.mockResolvedValue(morningPage());
+    renderPage();
+
+    const bar = await screen.findByTestId("fmp-not-running");
+    expect(within(bar).getByRole("link", { name: "Change it (fake)" })).toBeTruthy();
+    expect(screen.queryByTestId("composer")).toBeNull();
+    expect(screen.getByText("held (fake)")).toBeTruthy();
+    expect(screen.getByText("Enter sends (fake hint).")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "What did I miss?" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByText("thinking, watching 2 sessions (fake)", { selector: ".fmp-thinking" })).toBeNull();
+    expect(screen.getByTestId("fmp-sub").textContent).toBe("(change) - thinking, watching 2 sessions (fake)");
+  });
+
+  it("uses the Gateway's placeholder for the composer when it is usable", async () => {
+    api.placement.mockResolvedValue(placement("running"));
+    api.page.mockResolvedValue(morningPage());
+    renderPage();
+
+    expect((await screen.findByTestId("composer")).textContent).toBe("Tell the Fleet Manager (fake)...");
+    expect(screen.queryByTestId("fmp-not-running")).toBeNull();
+  });
+
+  it("while a restart or a move is under way, shows the Gateway's sentence", async () => {
+    const p = placement("running");
+    p.status.replacement = "The Fleet Manager running now is waiting for you (fake).";
+    p.status.replacementTone = "bad";
+    api.placement.mockResolvedValue(p);
+    api.page.mockResolvedValue(morningPage());
+    renderPage();
+
+    const bar = await screen.findByTestId("fmp-replacement");
+    expect(bar.textContent).toBe("The Fleet Manager running now is waiting for you (fake).");
+    expect(bar.className).toContain("fmp-bar-bad");
   });
 
   it("when it is not running, says so in the Gateway's words and offers to start it where the setting says", async () => {

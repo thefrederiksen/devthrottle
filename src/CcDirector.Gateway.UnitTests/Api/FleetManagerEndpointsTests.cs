@@ -155,9 +155,11 @@ public sealed class FleetManagerEndpointsTests : IDisposable
         return Body<FleetOutcomeDto>(result);
     }
 
+    private readonly List<TenantId> _answersQueued = new();
+
     private async Task<IResult> AnswerAsync(TenantId tenant, string caller, string id, string words)
         => await FleetManagerEndpoints.AnswerOutcomeAsync(Request(tenant, caller, new { answer = words }), id,
-            ResolveTenant, Access(), _outcomes);
+            ResolveTenant, Access(), _outcomes, t => _answersQueued.Add(t));
 
     private void SeedFleet()
     {
@@ -429,6 +431,92 @@ public sealed class FleetManagerEndpointsTests : IDisposable
         Assert.Equal(0, Field(open, "total"));
         var all = FleetManagerEndpoints.ListOutcomes(Request(TenantA, Owner, query: "status=all"), ResolveTenant, Access(), _outcomes);
         Assert.Equal(1, Field(all, "count"));
+    }
+
+    // ---- one call: the owner's answer is recorded AND queued to the Fleet Manager (steps 5 and 6 fixes) ----
+
+    [Fact]
+    public async Task Answer_ByTheOwner_QueuesTheWordsToTheFleetManagerInTheSameCall()
+    {
+        var filed = await FileAsync(TenantA, FleetOutcomeStoreTests.Decision());
+        const string words = "Stable, but ask me \"again\" next week.";
+
+        var result = await AnswerAsync(TenantA, Owner, filed.Id, words);
+
+        Assert.Equal(StatusCodes.Status200OK, Status(result));
+        var e = Assert.Single(_events.Unacknowledged(TenantA));
+        Assert.Equal(("answered", filed.Id, filed.Title, words, FleetManager),
+            (e.Kind, e.OutcomeId, e.OutcomeTitle, e.Words, e.AddressedTo));
+        Assert.False(e.ReadingPending);
+        Assert.Null(e.DeliveredTo);
+        Assert.Equal(new[] { TenantA }, _answersQueued); // delivery booked at once
+        Assert.Empty(_events.Unacknowledged(TenantB));
+    }
+
+    [Fact]
+    public async Task Answer_ByTheOwnerWithNoFleetManagerMarked_IsStillQueued_ForWhicheverIsMarkedNext()
+    {
+        var filed = _outcomes.File(TenantB, FleetOutcomeStoreTests.Decision(), OtherAccountSession, DateTime.UtcNow);
+
+        await AnswerAsync(TenantB, Owner, filed.Id, "Stable");
+
+        var e = Assert.Single(_events.Unacknowledged(TenantB));
+        Assert.Equal(("answered", ""), (e.Kind, e.AddressedTo));
+    }
+
+    [Fact]
+    public async Task Answer_ByTheFleetManager_QueuesNothing()
+    {
+        var filed = await FileAsync(TenantA, FleetOutcomeStoreTests.Finding());
+
+        await AnswerAsync(TenantA, FleetManager, filed.Id, "Thanks, noted.");
+
+        Assert.Empty(_events.Unacknowledged(TenantA));
+        Assert.Empty(_answersQueued);
+    }
+
+    [Fact]
+    public async Task Answer_AlreadyAnswered_QueuesNothingMore()
+    {
+        var filed = await FileAsync(TenantA, FleetOutcomeStoreTests.Decision());
+        await AnswerAsync(TenantA, Owner, filed.Id, "Stable");
+
+        var second = await AnswerAsync(TenantA, Owner, filed.Id, "Beta");
+
+        Assert.Equal(StatusCodes.Status409Conflict, Status(second));
+        Assert.Equal("Stable", Assert.Single(_events.Unacknowledged(TenantA)).Words);
+        Assert.Single(_answersQueued);
+    }
+
+    [Fact]
+    public async Task Answer_TheEventCannotBeSaved_TheAnswerIsNotRecordedEither()
+    {
+        var filed = await FileAsync(TenantA, FleetOutcomeStoreTests.Decision());
+
+        // An event the database refuses (a required column left empty): the transaction rolls the answer back.
+        Assert.Throws<Microsoft.EntityFrameworkCore.DbUpdateException>(() => _outcomes.Answer(TenantA, Guid.Parse(filed.Id), "Stable",
+            FleetOutcomeStore.OwnerCaller, FleetOutcomeStore.RoleOwner, DateTime.UtcNow,
+            record =>
+            {
+                var e = FleetManagerEventStore.AnsweredEvent(record, FleetManager, DateTime.UtcNow);
+                e.AddressedTo = null!; // a required column
+                return e;
+            }));
+
+        Assert.Equal("open", _outcomes.Get(TenantA, Guid.Parse(filed.Id))!.Status);
+        Assert.Empty(_events.Unacknowledged(TenantA));
+    }
+
+    [Fact]
+    public async Task Digest_ARestartedFleetManager_SeesTheAnsweredButUnacknowledgedChoice()
+    {
+        var filed = await FileAsync(TenantA, FleetOutcomeStoreTests.Decision());
+        await AnswerAsync(TenantA, Owner, filed.Id, "Stable");
+
+        var digest = Body<FleetDigestDto>(Digest(TenantA, FleetManager, FleetManager));
+
+        var e = Assert.Single(digest.Events);
+        Assert.Equal(("answered", filed.Id, "Stable"), (e.Kind, e.OutcomeId, e.Words));
     }
 
     [Fact]

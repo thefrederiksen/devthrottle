@@ -920,9 +920,12 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.DeliveredTo).HasMaxLength(64);
             b.Property(e => e.VerdictId).HasMaxLength(64);
             b.Property(e => e.DirectorId).HasMaxLength(256);
+            b.Property(e => e.OutcomeId).HasMaxLength(64);
             // "The account's unacknowledged events, oldest first" is the read every delivery and every digest makes.
             b.HasIndex(e => new { e.TenantId, e.AcknowledgedAtUtc, e.CreatedAtUtc });
             b.HasIndex(e => new { e.TenantId, e.SessionId });
+            // The page asks, for each answered card, how far the owner's answer has got.
+            b.HasIndex(e => new { e.TenantId, e.OutcomeId });
         });
 
         modelBuilder.Entity<FleetManagerOwnedSessionEntity>(b =>
@@ -1453,6 +1456,7 @@ public sealed class GatewayDbContext : DbContext
             modelBuilder.Entity<FleetManagerEventEntity>().Property(e => e.SessionId).UseCollation("C");
             modelBuilder.Entity<FleetManagerEventEntity>().Property(e => e.DeliveredTo).UseCollation("C");
             modelBuilder.Entity<FleetManagerEventEntity>().Property(e => e.VerdictId).UseCollation("C");
+            modelBuilder.Entity<FleetManagerEventEntity>().Property(e => e.OutcomeId).UseCollation("C");
             // fleet_manager_owned_sessions: the session ids are exact keys, compared byte-ordinally.
             modelBuilder.Entity<FleetManagerOwnedSessionEntity>().Property(e => e.SessionId).UseCollation("C");
             modelBuilder.Entity<FleetManagerOwnedSessionEntity>().Property(e => e.FleetManagerSessionId).UseCollation("C");

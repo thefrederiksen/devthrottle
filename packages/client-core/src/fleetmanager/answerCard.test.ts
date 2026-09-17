@@ -1,62 +1,46 @@
 import { describe, it, expect, vi } from "vitest";
-import { answerCard, retellFleetManager } from "./answerCard";
+import { answerCard } from "./answerCard";
 
-// A card button's two calls (the Fleet Manager mission, step 6): answer first, then tell the Fleet Manager, with
-// the same words; each failure is reported, never swallowed.
+// A card button is ONE Gateway call (the steps 5 and 6 fixes): the Gateway records the answer and queues the words to
+// the Fleet Manager. The page never prompts the Fleet Manager itself.
 
 describe("answerCard", () => {
-  it("answers first, then prompts, with identical words", async () => {
-    const order: string[] = [];
-    const deps = {
-      answer: vi.fn(async (_id: string, w: string) => void order.push(`answer:${w}`)),
-      prompt: vi.fn(async (_sid: string, w: string) => void order.push(`prompt:${w}`)),
-    };
+  it("makes exactly one call, the answer, with the words exactly", async () => {
+    const deps = { answer: vi.fn(async () => undefined) };
 
-    const result = await answerCard("rec-1", "fm-1", "Always run both.", deps);
+    const result = await answerCard("rec-1", 'Always run "both".', deps);
 
-    expect(result).toEqual({ kind: "sent" });
-    expect(order).toEqual(["answer:Always run both.", "prompt:Always run both."]);
-    expect(deps.answer).toHaveBeenCalledWith("rec-1", "Always run both.");
-    expect(deps.prompt).toHaveBeenCalledWith("fm-1", "Always run both.");
-  });
-
-  it("does not prompt when the answer is refused", async () => {
-    const deps = { answer: vi.fn(async () => Promise.reject(new Error("already answered"))), prompt: vi.fn(async () => undefined) };
-
-    const result = await answerCard("rec-1", "fm-1", "Yes.", deps);
-
-    expect(result).toEqual({ kind: "answer-failed", error: "already answered" });
-    expect(deps.prompt).not.toHaveBeenCalled();
-  });
-
-  it("reports a recorded answer whose prompt failed", async () => {
-    const deps = { answer: vi.fn(async () => undefined), prompt: vi.fn(async () => Promise.reject(new Error("offline"))) };
-
-    expect(await answerCard("rec-1", "fm-1", "Yes.", deps)).toEqual({ kind: "prompt-failed", error: "offline" });
+    expect(result).toEqual({ kind: "recorded" });
     expect(deps.answer).toHaveBeenCalledTimes(1);
+    expect(deps.answer).toHaveBeenCalledWith("rec-1", 'Always run "both".');
   });
 
-  it("reports a recorded answer when no Fleet Manager is marked", async () => {
-    const deps = { answer: vi.fn(async () => undefined), prompt: vi.fn(async () => undefined) };
+  it("reports a refused answer in the Gateway's words", async () => {
+    const deps = { answer: vi.fn(async () => Promise.reject(new Error("already answered"))) };
 
-    const result = await answerCard("rec-1", null, "Yes.", deps);
-
-    expect(result.kind).toBe("prompt-failed");
-    expect(deps.prompt).not.toHaveBeenCalled();
+    expect(await answerCard("rec-1", "Yes.", deps)).toEqual({ kind: "refused", error: "already answered" });
   });
 
   it("refuses empty words before calling anything", async () => {
-    const deps = { answer: vi.fn(async () => undefined), prompt: vi.fn(async () => undefined) };
+    const deps = { answer: vi.fn(async () => undefined) };
 
-    await expect(answerCard("rec-1", "fm-1", "   ", deps)).rejects.toThrow();
+    await expect(answerCard("rec-1", "   ", deps)).rejects.toThrow();
     expect(deps.answer).not.toHaveBeenCalled();
   });
 
-  it("retells only the prompt", async () => {
-    const deps = { answer: vi.fn(async () => undefined), prompt: vi.fn(async () => undefined) };
+  it("uses the answer route and nothing else by default", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      expect(await answerCard("rec 1", "Yes.")).toEqual({ kind: "recorded" });
+    } finally {
+      vi.unstubAllGlobals();
+    }
 
-    expect(await retellFleetManager("fm-1", "Yes.", deps)).toEqual({ kind: "sent" });
-    expect(deps.answer).not.toHaveBeenCalled();
-    expect(deps.prompt).toHaveBeenCalledWith("fm-1", "Yes.");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/gateway/fleet-manager/outcomes/rec%201/answer");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({ answer: "Yes." });
   });
 });

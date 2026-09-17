@@ -13,6 +13,9 @@ public interface IFleetManagerHandOverEnvironment
     /// <summary>The account's fresh pushed roster, with every role and owner answer resolved across the whole of it.</summary>
     IReadOnlyList<(string DirectorId, SessionDto Session)> Roster(TenantId tenant);
 
+    /// <summary>The new Fleet Manager waiting to take over from the marked one (a restart or a move under way), or null.</summary>
+    string? WaitingFleetManager(TenantId tenant) => null;
+
     /// <summary>Whether this account's Director said it carries out the <c>set-controller</c> verb.</summary>
     bool ChangesOwner(TenantId tenant, string directorId);
 
@@ -126,6 +129,9 @@ public sealed class FleetManagerHandOverService
         if (FleetManagerSessions.SameId(sid, marked))
             return FleetHandOverResult.Refused(409,
                 $"{name} is the Fleet Manager itself. It answers to you only, so it cannot be handed over.");
+        if (FleetManagerSessions.SameId(sid, _env.WaitingFleetManager(tenant)))
+            return FleetHandOverResult.Refused(409,
+                $"{name} is the new Fleet Manager, waiting to take over. It answers to you only, so it cannot be handed over.");
         if (FleetManagerSessions.IsGone(session))
             return FleetHandOverResult.Refused(409, $"{name} has ended, so it cannot be handed over.");
 

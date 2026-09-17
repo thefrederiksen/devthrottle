@@ -396,6 +396,11 @@ public sealed class TenantSettingsResolver
     public string? FleetManagerMachine(TenantId tenant)
         => _store.Get(tenant, TenantSettingKeys.FleetManagerMachine);
 
+    /// <summary>The new Fleet Manager waiting to take over from the marked one, or null when no replacement is under
+    /// way.</summary>
+    public string? FleetManagerSuccessorSessionId(TenantId tenant)
+        => _store.Get(tenant, TenantSettingKeys.FleetManagerSuccessorSessionId);
+
     // ---- writes: validate like the global setters, then persist a per-tenant override -------------------
 
     /// <summary>Set the tenant's wingman model for a role.</summary>
@@ -622,6 +627,19 @@ public sealed class TenantSettingsResolver
         _store.Set(tenant, TenantSettingKeys.FleetManagerAgent, kind, nowUtc);
         _store.Set(tenant, TenantSettingKeys.FleetManagerMachine, machine.Trim(), nowUtc);
     }
+
+    /// <summary>Record the new Fleet Manager that takes over once the marked one has closed.</summary>
+    /// <exception cref="ArgumentException">The session id is not a session id.</exception>
+    public void SetFleetManagerSuccessorSessionId(TenantId tenant, string sessionId, DateTime nowUtc)
+    {
+        if (!Guid.TryParse(sessionId, out var parsed))
+            throw new ArgumentException($"'{sessionId}' is not a session id.", nameof(sessionId));
+        _store.Set(tenant, TenantSettingKeys.FleetManagerSuccessorSessionId, parsed.ToString("D"), nowUtc);
+    }
+
+    /// <summary>Forget the waiting replacement. Returns true when there was one.</summary>
+    public bool ClearFleetManagerSuccessorSessionId(TenantId tenant)
+        => _store.Remove(tenant, TenantSettingKeys.FleetManagerSuccessorSessionId);
 
     /// <summary>Remove this account's Fleet Manager mark. Returns true when there was one to remove.</summary>
     public bool ClearFleetManagerSessionId(TenantId tenant)

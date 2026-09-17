@@ -10,11 +10,16 @@ namespace CcDirector.Gateway.Fleet;
 /// not, or null when none has - what <see cref="FleetManagerSessions.IsFleetManager"/> is asked about.</param>
 /// <param name="Roster">The account's live sessions, stamped by the roster fold (so
 /// <see cref="SessionDto.HasLiveSupervisor"/> is set).</param>
-/// <param name="Open">Every open record of the account.</param>
-/// <param name="Recent">The account's most recent records of every status, newest first - the cards.</param>
+/// <param name="Open">Every open record of the account - every one is a card, never capped.</param>
+/// <param name="Recent">The account's most recently answered records, newest first - the answered history the cards
+/// show, which alone may be limited (<see cref="FleetManagerPageFold.CardCount"/>).</param>
 /// <param name="LatestVerdict">The Wingman's latest stored reading of one session in this account, or null.</param>
 /// <param name="TimeZone">The account's display time zone.</param>
 /// <param name="NowUtc">The clock.</param>
+/// <param name="AnswerEvents">For each owner's answer among the cards, the event carrying it to the Fleet Manager,
+/// keyed by record id.</param>
+/// <param name="SuccessorSessionId">The new Fleet Manager waiting to take over from the marked one, or null. It is
+/// not a session that asks the owner directly.</param>
 internal sealed record FleetManagerPageInputs(
     string? MarkedSessionId,
     SessionDto? MarkedSession,
@@ -23,7 +28,9 @@ internal sealed record FleetManagerPageInputs(
     IReadOnlyList<FleetOutcomeDto> Recent,
     Func<string, TurnVerdictDto?> LatestVerdict,
     TimeZoneInfo TimeZone,
-    DateTime NowUtc);
+    DateTime NowUtc,
+    IReadOnlyDictionary<string, FleetManagerEventDto>? AnswerEvents = null,
+    string? SuccessorSessionId = null);
 
 /// <summary>
 /// The Fleet Manager page, folded once on the Gateway (the Fleet Manager mission, step 6). Every heading, sentence,
@@ -42,8 +49,10 @@ internal sealed record FleetManagerPageInputs(
 /// </summary>
 internal static class FleetManagerPageFold
 {
-    /// <summary>How many recent records the conversation shows as cards.</summary>
+    /// <summary>How many answered records the conversation shows as cards. Open records are never limited.</summary>
     public const int CardCount = 100;
+
+    private const string Busy = "Recording...";
 
     private static readonly Regex PullRequestNumber = new(@"/pull/(\d+)(?:[/?#].*)?$", RegexOptions.CultureInvariant);
 
@@ -76,15 +85,22 @@ internal static class FleetManagerPageFold
             {
                 new FleetManagerQuickPromptDto { Label = "What did I miss?", Words = "What did I miss?" },
             },
+            // Every open record, then the answered history; a record in both (answered between the two reads) is
+            // drawn once, as it now stands.
             Cards = input.Recent
+                .Where(o => o.Status == FleetOutcomeStore.StatusAnswered)
+                .Concat(input.Open.Where(o => o.Status == FleetOutcomeStore.StatusOpen))
+                .GroupBy(o => o.Id, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.First())
                 .OrderBy(o => o.CreatedAtUtc)
                 .ThenBy(o => o.Id, StringComparer.Ordinal)
-                .Select(o => Card(o, input.TimeZone, input.NowUtc))
+                .Select(o => Card(o, input.TimeZone, input.NowUtc, input.AnswerEvents))
                 .ToList(),
             Waiting = Waiting(input, byId),
             UnderWay = UnderWay(live, marked, fleetManager, input.NowUtc),
             Landed = Landed(input),
-            NotMine = NotMine(live, fleetManager, runningFleetManager, input.NowUtc),
+            NotMine = NotMine(live.Where(s => !FleetManagerSessions.SameId(s.SessionId, input.SuccessorSessionId)).ToList(),
+                fleetManager, runningFleetManager, input.NowUtc),
         };
         dto.WaitingCount = dto.Waiting.Count;
         // The way into the walkthrough (step 7), offered only when something is waiting.
@@ -94,7 +110,8 @@ internal static class FleetManagerPageFold
 
     // ---- cards ---------------------------------------------------------------------------------------------
 
-    internal static FleetOutcomeCardDto Card(FleetOutcomeDto o, TimeZoneInfo tz, DateTime now)
+    internal static FleetOutcomeCardDto Card(FleetOutcomeDto o, TimeZoneInfo tz, DateTime now,
+        IReadOnlyDictionary<string, FleetManagerEventDto>? answerEvents = null)
     {
         var card = new FleetOutcomeCardDto
         {
@@ -104,6 +121,7 @@ internal static class FleetManagerPageFold
             FiledAtUtc = o.CreatedAtUtc,
             WhoLine = $"Fleet Manager - {FleetManagerPlacementFold.FormatWhen(o.CreatedAtUtc, tz, now)}",
             Answered = o.Status == FleetOutcomeStore.StatusAnswered,
+            AnswerRefusedLead = "Your answer was not recorded, and nothing was passed to the Fleet Manager:",
         };
         if (card.Answered)
         {
@@ -111,6 +129,8 @@ internal static class FleetManagerPageFold
                 ? $"Answered {FleetManagerPlacementFold.FormatWhen(at, tz, now)}"
                 : "Answered";
             card.Answer = o.Answer ?? "";
+            if (o.AnsweredByRole == FleetOutcomeStore.RoleOwner)
+                card.AnswerDelivery = AnswerDelivery(answerEvents is not null && answerEvents.TryGetValue(o.Id, out var told) ? told : null);
         }
 
         switch (o.Kind)
@@ -121,7 +141,7 @@ internal static class FleetManagerPageFold
                 card.Ready = ReadyCard(o.Ready ?? new FleetReadyDetails());
                 if (!card.Answered)
                 {
-                    card.Actions.Add(new FleetCardActionDto { Label = "Merge", Style = "primary", Words = $"Merge: {o.Title}" });
+                    card.Actions.Add(new FleetCardActionDto { Label = "Merge", Style = "primary", Words = $"Merge: {o.Title}", BusyLabel = Busy });
                     card.Actions.Add(new FleetCardActionDto
                     {
                         Label = "Send it back...",
@@ -130,6 +150,8 @@ internal static class FleetManagerPageFold
                         WordsPrefix = $"Send it back: {o.Title}. ",
                         Placeholder = "What should change?",
                         SendLabel = "Send it back",
+                        CancelLabel = "Cancel",
+                        BusyLabel = Busy,
                     });
                 }
                 break;
@@ -147,7 +169,7 @@ internal static class FleetManagerPageFold
                 // A finding stays open until it is answered, like every record, so it needs one way to say so -
                 // otherwise it would count as waiting on the owner for ever.
                 if (!card.Answered)
-                    card.Actions.Add(new FleetCardActionDto { Label = "Got it", Style = "secondary", Words = $"Got it: {o.Title}" });
+                    card.Actions.Add(new FleetCardActionDto { Label = "Got it", Style = "secondary", Words = $"Got it: {o.Title}", BusyLabel = Busy });
                 break;
 
             case FleetOutcomeStore.KindDecision:
@@ -173,6 +195,7 @@ internal static class FleetManagerPageFold
                             Label = opt.Text,
                             Style = opt.Recommended ? "primary" : "secondary",
                             Words = opt.Text,
+                            BusyLabel = Busy,
                         });
                 }
                 break;
@@ -181,6 +204,19 @@ internal static class FleetManagerPageFold
                 throw new InvalidOperationException($"outcome {o.Id} has kind '{o.Kind}', which the page does not draw");
         }
         return card;
+    }
+
+    /// <summary>How far an owner's answer has got, from the event that carries it.</summary>
+    private static string AnswerDelivery(FleetManagerEventDto? told)
+    {
+        if (told is null)
+            // An answer from the walkthrough (step 7) goes to the session itself, and one recorded before this change
+            // had no event either.
+            return "Recorded without being passed to the Fleet Manager as an event. It sees the answer among the "
+                   + "records answered in the last day.";
+        if (told.AcknowledgedAtUtc is not null) return "The Fleet Manager has acted on it.";
+        if (told.DeliveredAtUtc is not null) return "Passed to the Fleet Manager. It has not said it acted on it yet.";
+        return "Waiting to reach the Fleet Manager: it is passed on the next time the Fleet Manager is free.";
     }
 
     private static FleetReadyCardDto ReadyCard(FleetReadyDetails r)

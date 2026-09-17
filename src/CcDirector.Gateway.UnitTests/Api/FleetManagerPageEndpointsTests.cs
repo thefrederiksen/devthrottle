@@ -136,9 +136,9 @@ public sealed class FleetManagerPageEndpointsTests : IDisposable
     }
 
     [Fact]
-    public void Read_MoreOpenRecordsThanOnePage_AreAllWaiting()
+    public void Read_MoreOpenRecordsThanOnePage_AreAllWaiting_AndEveryOneIsACardWithItsButtons()
     {
-        // Every open record reaches the badge, not only the store's first page.
+        // Every open record reaches the badge AND the cards, not only the store's first page.
         for (var i = 0; i < FleetOutcomeStore.MaxCount + 5; i++)
             FileDecision(TenantA, $"Question {i}");
 
@@ -146,7 +146,28 @@ public sealed class FleetManagerPageEndpointsTests : IDisposable
             FleetManagerPageEndpoints.Read(Request(TenantA), ResolveTenant, _outcomes, Sources())).Value!;
 
         Assert.Equal(FleetOutcomeStore.MaxCount + 5, dto.WaitingCount);
-        Assert.Equal(FleetManagerPageFold.CardCount, dto.Cards.Count);
+        Assert.Equal(FleetOutcomeStore.MaxCount + 5, dto.Cards.Count);
+        Assert.All(dto.Cards, c => Assert.Equal(new[] { "Yes.", "No." }, c.Actions.Select(a => a.Words)));
+    }
+
+    [Fact]
+    public void Read_AnOpenDecisionOlderThanTheAnsweredWindow_KeepsItsCardAndButtons()
+    {
+        FileDecision(TenantA, "The oldest question");
+        for (var i = 0; i < FleetManagerPageFold.CardCount + 20; i++)
+        {
+            FileDecision(TenantA, $"Settled {i}");
+            var settled = Guid.Parse(_outcomes.ListOpen(TenantA).Single(o => o.Title == $"Settled {i}").Id);
+            _outcomes.Answer(TenantA, settled, "Yes.", FleetOutcomeStore.OwnerCaller, FleetOutcomeStore.RoleOwner, Now);
+        }
+
+        var dto = Assert.IsType<JsonHttpResult<FleetManagerPageDto>>(
+            FleetManagerPageEndpoints.Read(Request(TenantA), ResolveTenant, _outcomes, Sources())).Value!;
+
+        var oldest = Assert.Single(dto.Cards, c => c.Title == "The oldest question");
+        Assert.False(oldest.Answered);
+        Assert.Equal(new[] { "Yes.", "No." }, oldest.Actions.Select(a => a.Words));
+        Assert.Equal(FleetManagerPageFold.CardCount, dto.Cards.Count(c => c.Answered)); // only the history is limited
     }
 
     [Fact]

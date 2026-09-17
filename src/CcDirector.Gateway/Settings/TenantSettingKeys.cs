@@ -194,6 +194,14 @@ public static class TenantSettingKeys
     /// </summary>
     public const string FleetManagerMachine = "fleet_manager_machine";
 
+    /// <summary>
+    /// THE NEW FLEET MANAGER THAT IS WAITING TO TAKE OVER, as that session's id - the steps 5 and 6 fixes. Set when a
+    /// restart or a move has started a new Fleet Manager while the old one is still running; the mark stays on the
+    /// old one until its turn has ended and it has been closed, and then moves here and this row is removed. No row
+    /// means no replacement is under way. Kept in storage so a Gateway restart carries the replacement on.
+    /// </summary>
+    public const string FleetManagerSuccessorSessionId = "fleet_manager_successor_session_id";
+
     /// <summary>Every key this resolver serves, for validation and enumeration.</summary>
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -206,5 +214,6 @@ public static class TenantSettingKeys
         TurnVerdictJudgeEnabled, TurnVerdictColourEnabled,
         FleetManagerSessionId,
         FleetManagerAgent, FleetManagerMachine,
+        FleetManagerSuccessorSessionId,
     };
 }

@@ -14,10 +14,14 @@ namespace CcDirector.Gateway.Data.Entities;
 ///
 /// A STOP IS STORED THE MOMENT IT IS SEEN, before the Wingman has read it: <see cref="ReadingPending"/> is true
 /// until the reading is attached (or the reason there is none), and a pending stop is not delivered.
+///
+/// Two more kinds travel the same path (the steps 5 and 6 fixes): <c>marked</c> tells a new Fleet Manager that the
+/// account's mark has moved to it, and <c>answered</c> carries the owner's answer to a card - the record, and the
+/// owner's words exactly - so a choice is kept until the Fleet Manager acknowledges it.
 /// </summary>
 public sealed class FleetManagerEventEntity : GatewayMintedKeyEntity
 {
-    /// <summary><c>stop</c> or <c>died</c>.</summary>
+    /// <summary><c>stop</c>, <c>died</c>, <c>marked</c> or <c>answered</c>.</summary>
     public string Kind { get; set; } = "";
 
     /// <summary>The session the event is about.</summary>
@@ -56,6 +60,16 @@ public sealed class FleetManagerEventEntity : GatewayMintedKeyEntity
     /// <summary>On a died event: how the death was learned, and anything that is not known about it, in plain
     /// words. Null on a stop.</summary>
     public string? Detail { get; set; }
+
+    /// <summary>On an <c>answered</c> event: the outcome record the owner answered. Null on every other kind.</summary>
+    public string? OutcomeId { get; set; }
+
+    /// <summary>On an <c>answered</c> event: that record's title when it was answered. Null on every other kind.</summary>
+    public string? OutcomeTitle { get; set; }
+
+    /// <summary>On an <c>answered</c> event: the owner's words, exactly as the record stores them. Null on every
+    /// other kind.</summary>
+    public string? Words { get; set; }
 
     public DateTime CreatedAtUtc { get; set; }
 

@@ -215,7 +215,6 @@ export function WalkthroughView({ deps }: WalkthroughViewProps) {
               <WalkthroughItemPanel
                 key={current.id}
                 item={current}
-                fleetManagerSessionId={data.fleetManagerSessionId}
                 deps={deps}
                 onSettled={(sentence) => void settled(current.id, sentence)}
                 onSkip={skip}
@@ -252,14 +251,13 @@ export function WalkthroughView({ deps }: WalkthroughViewProps) {
 
 interface ItemPanelProps {
   item: FleetWalkthroughItem;
-  fleetManagerSessionId: string | null | undefined;
   deps?: WalkthroughActionDeps;
   /** The item was acted on; the sentence to keep on screen, if any. */
   onSettled: (sentence: string | null) => void;
   onSkip: () => void;
 }
 
-function WalkthroughItemPanel({ item, fleetManagerSessionId, deps, onSettled, onSkip }: ItemPanelProps) {
+function WalkthroughItemPanel({ item, deps, onSettled, onSkip }: ItemPanelProps) {
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
   const [recordFailed, setRecordFailed] = useState<string | null>(null);
@@ -409,7 +407,7 @@ function WalkthroughItemPanel({ item, fleetManagerSessionId, deps, onSettled, on
 
       {item.answerMode === "fleet-manager" && item.card && (
         <div className="fmw-card" data-testid="fmw-card">
-          <OutcomeCard card={item.card} fleetManagerSessionId={fleetManagerSessionId} onAnswered={() => onSettled(null)} />
+          <OutcomeCard card={item.card} onAnswered={() => onSettled(null)} />
         </div>
       )}
 

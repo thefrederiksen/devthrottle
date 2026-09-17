@@ -28,7 +28,7 @@ public sealed class FleetManagerPlacementServiceTests : IDisposable
     public FleetManagerPlacementServiceTests()
     {
         _settings = new TenantSettingsResolver(new TenantSettingsStore(_harness.Open()));
-        _service = new FleetManagerPlacementService(_settings, _world, retirePoll: TimeSpan.Zero, retireGiveUp: TimeSpan.FromMinutes(5));
+        _service = new FleetManagerPlacementService(_settings, _world, retirePoll: TimeSpan.Zero);
     }
 
     public void Dispose()
@@ -71,6 +71,8 @@ public sealed class FleetManagerPlacementServiceTests : IDisposable
         Assert.Contains("fleet_manager_agent", TenantSettingKeys.All);
         Assert.Contains("fleet_manager_machine", TenantSettingKeys.All);
         Assert.Contains("fleet_manager_session_id", TenantSettingKeys.All);
+        Assert.Equal("fleet_manager_successor_session_id", TenantSettingKeys.FleetManagerSuccessorSessionId);
+        Assert.Contains("fleet_manager_successor_session_id", TenantSettingKeys.All);
     }
 
     // ---- read -------------------------------------------------------------------------------------------
@@ -290,6 +292,21 @@ public sealed class FleetManagerPlacementServiceTests : IDisposable
 
     // ---- restart ----------------------------------------------------------------------------------------
 
+    /// <summary>The replacement Director reports the new session once it has started.</summary>
+    private void NewOneReports(string state = "WaitingForInput", string machine = "WORKSTATION-A")
+        => _world.Roster.Add(("dir-a", Live(NewId, state, machine)));
+
+    /// <summary>Stop the retirement loop after <paramref name="looks"/> looks, as a Gateway shutting down would.</summary>
+    private void StopAfter(int looks, Action? eachLook = null)
+    {
+        var seen = 0;
+        _world.OnDelay = () =>
+        {
+            eachLook?.Invoke();
+            if (++seen >= looks) _service.Dispose();
+        };
+    }
+
     [Fact]
     public async Task RestartAsync_NotRunning_IsRefused()
     {
@@ -316,70 +333,266 @@ public sealed class FleetManagerPlacementServiceTests : IDisposable
         Assert.Equal(502, result.Status);
         Assert.Equal("The Fleet Manager could not be started on WORKSTATION-A: the Director refused the create", result.Error);
         Assert.Equal(OldId, _settings.FleetManagerSessionId(Tenant));
+        Assert.Null(_settings.FleetManagerSuccessorSessionId(Tenant));
         Assert.Empty(_world.Closed);
+        Assert.Empty(_world.MarkMovedTo);
     }
 
     [Fact]
-    public async Task RestartAsync_OldOneWorking_IsClosedOnlyAfterItsTurnEnds()
+    public async Task RestartAsync_OldOneWorking_StaysMarkedUntilItIsIdleAndClosed_ThenTheMarkMovesAndTheNewOneIsToldOnce()
     {
         _world.Machines.Add(Running("WORKSTATION-A"));
         _settings.SetFleetManagerPlacement(Tenant, "ClaudeCode", "WORKSTATION-A", Now);
         MarkRunning("Working");
+        NewOneReports();
 
-        // The old one stays Working for three looks, then its turn ends.
+        // The old one stays Working for three looks, then its turn ends and its Director reports it Idle.
         var looks = 0;
         _world.OnDelay = () =>
         {
             looks++;
+            // While it works it is still THE Fleet Manager: the mark (which every Fleet Manager route checks) is its.
+            Assert.Equal(OldId, _settings.FleetManagerSessionId(Tenant));
+            Assert.Equal(NewId, _settings.FleetManagerSuccessorSessionId(Tenant));
+            Assert.Empty(_world.Closed);
+            Assert.Empty(_world.MarkMovedTo);
             if (looks == 3) _world.SetState(OldId, "Idle");
-            Assert.Empty(_world.Closed); // never closed while it was still working
         };
 
         var result = await _service.RestartAsync(Tenant, NoStamp, default);
+        Assert.Equal(200, result.Status);
+        Assert.Equal(OldId, result.Placement!.Status.SessionId); // the answer to the restart: the old one is still marked
+        Assert.Equal(NewId, result.Placement.Status.SuccessorSessionId);
         await _service.WhenIdleAsync();
 
-        Assert.Equal(200, result.Status);
-        Assert.Equal(NewId, _settings.FleetManagerSessionId(Tenant));
         Assert.Equal(3, looks);
+        Assert.Equal(FleetManagerPlacementService.WaitForMarkPrompt, Assert.Single(_world.Spawns).Request.PrePrompt);
         var closed = Assert.Single(_world.Closed);
-        Assert.Equal(OldId, closed.SessionId);
-        Assert.Equal("dir-a", closed.DirectorId);
-        Assert.Equal("A new Fleet Manager replaced it (restarted or moved from Settings).", closed.Reason);
+        Assert.Equal((OldId, "dir-a", "A new Fleet Manager replaced it (restarted or moved from Settings)."),
+            (closed.SessionId, closed.DirectorId, closed.Reason));
+        Assert.Equal(NewId, _settings.FleetManagerSessionId(Tenant));
+        Assert.Null(_settings.FleetManagerSuccessorSessionId(Tenant));
+        Assert.Equal(new[] { NewId }, _world.MarksRecorded);
+        // ONE event, and only after the close.
+        Assert.Equal(new[] { (NewId, 1) }, _world.MarkMovedTo);
     }
 
-    [Fact]
-    public async Task RestartAsync_OldOneAskingAPermissionQuestion_IsNotClosed()
+    [Theory]
+    [InlineData("WaitingForInput")]
+    [InlineData("WaitingForPerm")]
+    [InlineData("Working")]
+    [InlineData("Starting")]
+    public async Task RestartAsync_OldOneNotIdle_IsNeverClosed_AndStaysTheMarkedFleetManager(string state)
     {
         _world.Machines.Add(Running("WORKSTATION-A"));
         _settings.SetFleetManagerPlacement(Tenant, "ClaudeCode", "WORKSTATION-A", Now);
-        MarkRunning("WaitingForPerm");
-        _world.OnDelay = () => _world.Advance(TimeSpan.FromMinutes(1));
+        MarkRunning(state);
+        NewOneReports();
+        StopAfter(50, () => _world.Advance(TimeSpan.FromHours(1)));
 
         var result = await _service.RestartAsync(Tenant, NoStamp, default);
         await _service.WhenIdleAsync();
 
         Assert.Equal(200, result.Status);
-        Assert.Empty(_world.Closed); // the give-up window passed and it was left running, never force-closed
+        Assert.Empty(_world.Closed); // fifty hours of looking, never closed
+        Assert.Equal(OldId, _settings.FleetManagerSessionId(Tenant));
+        Assert.Equal(NewId, _settings.FleetManagerSuccessorSessionId(Tenant)); // still under way, not given up
+        Assert.Empty(_world.MarkMovedTo);
+        Assert.Empty(_world.MarksRecorded);
+    }
+
+    [Theory]
+    [InlineData("WaitingForInput")]
+    [InlineData("WaitingForPerm")]
+    public async Task ReadAsync_OldOneWaitingForTheOwner_SaysSoInTheGatewaysSentence_AndOffersNoSecondMove(string state)
+    {
+        _world.Machines.Add(Running("WORKSTATION-A"));
+        _world.Machines.Add(LauncherOnly("WORKSTATION-B"));
+        _settings.SetFleetManagerPlacement(Tenant, "ClaudeCode", "WORKSTATION-A", Now);
+        MarkRunning(state);
+        _settings.SetFleetManagerSuccessorSessionId(Tenant, NewId, Now);
+        _world.Roster.Add(("dir-b", Live(NewId, "WaitingForInput", "WORKSTATION-B")));
+
+        var dto = await _service.ReadAsync(Tenant, default);
+
+        Assert.Equal("running", dto.Status.State);
+        Assert.Equal(OldId, dto.Status.SessionId);
+        Assert.Equal(NewId, dto.Status.SuccessorSessionId);
+        Assert.Equal("bad", dto.Status.ReplacementTone);
+        Assert.Equal("A new Fleet Manager has started (Claude Code on WORKSTATION-B). The Fleet Manager running now has "
+                     + "stopped and is waiting for you, so it is not closed: read it and answer it, or close it yourself once "
+                     + "its work is done. It stays the Fleet Manager until it has closed, and then the new one takes over.",
+            dto.Status.Replacement);
+        Assert.False(dto.Status.Restart.Offered);
+        Assert.False(dto.Save.Offered);
     }
 
     [Fact]
-    public async Task RestartAsync_OldOneAlreadyExited_IsNotClosedAgain()
+    public async Task ReadAsync_OldOneWorking_SaysTheNewOneTakesOverAfterItsTurn()
     {
         _world.Machines.Add(Running("WORKSTATION-A"));
         _settings.SetFleetManagerPlacement(Tenant, "ClaudeCode", "WORKSTATION-A", Now);
         MarkRunning("Working");
+        _settings.SetFleetManagerSuccessorSessionId(Tenant, NewId, Now);
+
+        var dto = await _service.ReadAsync(Tenant, default);
+
+        Assert.Equal("idle", dto.Status.ReplacementTone);
+        Assert.Equal("A new Fleet Manager has started. It takes over once the Fleet Manager running now has finished its "
+                     + "current turn and closed. Until then the one running now is still the Fleet Manager.", dto.Status.Replacement);
+    }
+
+    [Fact]
+    public async Task ReadAsync_NoReplacement_SaysNothingAboutOne()
+    {
+        _world.Machines.Add(Running("WORKSTATION-A"));
+        _settings.SetFleetManagerPlacement(Tenant, "ClaudeCode", "WORKSTATION-A", Now);
+        MarkRunning("WaitingForInput");
+
+        var dto = await _service.ReadAsync(Tenant, default);
+
+        Assert.Null(dto.Status.Replacement);
+        Assert.Null(dto.Status.SuccessorSessionId);
+        Assert.True(dto.Status.Restart.Offered);
+    }
+
+    [Fact]
+    public async Task RestartAsync_OldOneClosedByTheOwner_TheMarkMovesWithoutASecondClose()
+    {
+        _world.Machines.Add(Running("WORKSTATION-A"));
+        _settings.SetFleetManagerPlacement(Tenant, "ClaudeCode", "WORKSTATION-A", Now);
+        MarkRunning("WaitingForInput");
+        NewOneReports();
         _world.OnDelay = () => _world.SetState(OldId, "Exited");
 
         await _service.RestartAsync(Tenant, NoStamp, default);
         await _service.WhenIdleAsync();
 
         Assert.Empty(_world.Closed);
+        Assert.Equal(NewId, _settings.FleetManagerSessionId(Tenant));
+        Assert.Equal(new[] { (NewId, 0) }, _world.MarkMovedTo);
+    }
+
+    [Fact]
+    public async Task RestartAsync_TheCloseIsRefused_TheMarkDoesNotMove()
+    {
+        _world.Machines.Add(Running("WORKSTATION-A"));
+        _settings.SetFleetManagerPlacement(Tenant, "ClaudeCode", "WORKSTATION-A", Now);
+        MarkRunning("Idle");
+        NewOneReports();
+        _world.CloseSucceeds = false;
+        StopAfter(4);
+
+        await _service.RestartAsync(Tenant, NoStamp, default);
+        await _service.WhenIdleAsync();
+
+        Assert.True(_world.Closed.Count >= 4);
+        Assert.Equal(OldId, _settings.FleetManagerSessionId(Tenant));
+        Assert.Equal(NewId, _settings.FleetManagerSuccessorSessionId(Tenant));
+        Assert.Empty(_world.MarkMovedTo);
+    }
+
+    [Fact]
+    public async Task RestartAsync_TheMarkIsChangedByHandMeanwhile_TheReplacementIsAbandonedAndNothingIsClosed()
+    {
+        const string ByHand = "40000000-0000-4000-8000-000000000009";
+        _world.Machines.Add(Running("WORKSTATION-A"));
+        _settings.SetFleetManagerPlacement(Tenant, "ClaudeCode", "WORKSTATION-A", Now);
+        MarkRunning("Working");
+        NewOneReports();
+        _world.Roster.Add(("dir-a", Live(ByHand, "Idle")));
+        _world.OnDelay = () => _settings.SetFleetManagerSessionId(Tenant, ByHand, Now);
+
+        await _service.RestartAsync(Tenant, NoStamp, default);
+        await _service.WhenIdleAsync();
+
+        Assert.Empty(_world.Closed);
+        Assert.Equal(ByHand, _settings.FleetManagerSessionId(Tenant));
+        Assert.Null(_settings.FleetManagerSuccessorSessionId(Tenant));
+        Assert.Empty(_world.MarkMovedTo);
+    }
+
+    [Fact]
+    public async Task RestartAsync_TheNewOneEndsWhileItWaits_TheReplacementIsAbandonedAndTheOldOneIsLeftAlone()
+    {
+        _world.Machines.Add(Running("WORKSTATION-A"));
+        _settings.SetFleetManagerPlacement(Tenant, "ClaudeCode", "WORKSTATION-A", Now);
+        MarkRunning("Working");
+        NewOneReports();
+        _world.OnDelay = () =>
+        {
+            _world.SetState(NewId, "Exited");
+            _world.SetState(OldId, "Idle");
+        };
+
+        await _service.RestartAsync(Tenant, NoStamp, default);
+        await _service.WhenIdleAsync();
+
+        Assert.Empty(_world.Closed);
+        Assert.Equal(OldId, _settings.FleetManagerSessionId(Tenant));
+        Assert.Null(_settings.FleetManagerSuccessorSessionId(Tenant));
+        Assert.Empty(_world.MarkMovedTo);
+    }
+
+    [Fact]
+    public async Task EveryAction_WhileAReplacementIsUnderWay_IsRefusedAndNothingStarts()
+    {
+        _world.Machines.Add(Running("WORKSTATION-A"));
+        _world.Machines.Add(LauncherOnly("WORKSTATION-B"));
+        _settings.SetFleetManagerPlacement(Tenant, "ClaudeCode", "WORKSTATION-A", Now);
+        MarkRunning("Working");
+        _settings.SetFleetManagerSuccessorSessionId(Tenant, NewId, Now);
+        var expected = $"A restart or a move is already under way: the new Fleet Manager (session {NewId}) takes over once "
+                       + "the one running now has finished its turn and closed. Wait for that, then try again.";
+
+        var results = new[]
+        {
+            await _service.RestartAsync(Tenant, NoStamp, default),
+            await _service.StartAsync(Tenant, NoStamp, default),
+            await _service.MoveAsync(Tenant, new() { Agent = "Codex", Machine = "WORKSTATION-B" }, NoStamp, default),
+            await _service.SaveAsync(Tenant, new() { Agent = "Codex", Machine = "WORKSTATION-B" }, default),
+        };
+
+        Assert.All(results, r => Assert.Equal((409, expected), (r.Status, r.Error)));
+        Assert.Empty(_world.Spawns);
+        Assert.Equal("WORKSTATION-A", _settings.FleetManagerMachine(Tenant));
+    }
+
+    [Fact]
+    public async Task ResumePendingAsync_AfterAGatewayRestart_CarriesTheReplacementOn()
+    {
+        _world.Machines.Add(Running("WORKSTATION-A"));
+        _settings.SetFleetManagerPlacement(Tenant, "ClaudeCode", "WORKSTATION-A", Now);
+        MarkRunning("Idle");
+        NewOneReports();
+        // What an earlier process left: the successor recorded, no loop running in this one.
+        _settings.SetFleetManagerSuccessorSessionId(Tenant, NewId, Now);
+
+        await _service.ResumePendingAsync(Tenant);
+        await _service.WhenIdleAsync();
+
+        Assert.Equal(OldId, Assert.Single(_world.Closed).SessionId);
+        Assert.Equal(NewId, _settings.FleetManagerSessionId(Tenant));
+        Assert.Equal(new[] { (NewId, 1) }, _world.MarkMovedTo);
+    }
+
+    [Fact]
+    public async Task ResumePendingAsync_NothingUnderWay_DoesNothing()
+    {
+        MarkRunning("Idle");
+
+        await _service.ResumePendingAsync(Tenant);
+        await _service.WhenIdleAsync();
+
+        Assert.Empty(_world.Closed);
+        Assert.Empty(_world.MarkMovedTo);
+        Assert.Equal(OldId, _settings.FleetManagerSessionId(Tenant));
     }
 
     // ---- move -------------------------------------------------------------------------------------------
 
     [Fact]
-    public async Task MoveAsync_Running_SavesThenStartsThereThenRetiresTheOldOne()
+    public async Task MoveAsync_Running_StartsThereSavesAfterTheStart_AndMovesTheMarkAfterTheClose()
     {
         _world.Machines.Add(Running("WORKSTATION-A"));
         _world.Machines.Add(LauncherOnly("WORKSTATION-B"));
@@ -395,12 +608,53 @@ public sealed class FleetManagerPlacementServiceTests : IDisposable
         var spawn = Assert.Single(_world.Spawns);
         Assert.Equal("WORKSTATION-B", spawn.Machine);
         Assert.Equal("Codex", spawn.Request.Agent);
+        Assert.Equal(FleetManagerPlacementService.WaitForMarkPrompt, spawn.Request.PrePrompt);
         Assert.Equal(NewId, _settings.FleetManagerSessionId(Tenant));
         Assert.Equal(OldId, Assert.Single(_world.Closed).SessionId);
+        Assert.Equal(new[] { (NewId, 1) }, _world.MarkMovedTo);
     }
 
     [Fact]
-    public async Task MoveAsync_NotRunning_SavesAndStarts()
+    public async Task MoveAsync_ReachableComputerWhoseStartFails_LeavesTheSettingAndTheMarkUnchanged()
+    {
+        _world.Machines.Add(Running("WORKSTATION-A"));
+        _world.Machines.Add(LauncherOnly("WORKSTATION-B"));
+        _settings.SetFleetManagerPlacement(Tenant, "ClaudeCode", "WORKSTATION-A", Now);
+        MarkRunning("Idle");
+        _world.SpawnError = "launched a Director on 'WORKSTATION-B' but none registered within 90s";
+
+        var result = await _service.MoveAsync(Tenant, new() { Agent = "Codex", Machine = "WORKSTATION-B" }, NoStamp, default);
+        await _service.WhenIdleAsync();
+
+        Assert.Equal(502, result.Status);
+        Assert.Equal("The Fleet Manager could not be started on WORKSTATION-B: launched a Director on 'WORKSTATION-B' but "
+                     + "none registered within 90s", result.Error);
+        Assert.Equal("WORKSTATION-B", Assert.Single(_world.Spawns).Machine); // it was tried there
+        Assert.Equal("WORKSTATION-A", _settings.FleetManagerMachine(Tenant));
+        Assert.Equal("ClaudeCode", _settings.FleetManagerAgent(Tenant));
+        Assert.Equal(OldId, _settings.FleetManagerSessionId(Tenant));
+        Assert.Null(_settings.FleetManagerSuccessorSessionId(Tenant));
+        Assert.Empty(_world.Closed);
+    }
+
+    [Fact]
+    public async Task MoveAsync_NotRunningAndTheStartFails_SavesNothing()
+    {
+        _world.Machines.Add(Running("WORKSTATION-A"));
+        _world.Machines.Add(LauncherOnly("WORKSTATION-B"));
+        _settings.SetFleetManagerPlacement(Tenant, "ClaudeCode", "WORKSTATION-A", Now);
+        _world.SpawnError = "the Director refused the create";
+
+        var result = await _service.MoveAsync(Tenant, new() { Agent = "Pi", Machine = "WORKSTATION-B" }, NoStamp, default);
+
+        Assert.Equal(502, result.Status);
+        Assert.Equal("WORKSTATION-A", _settings.FleetManagerMachine(Tenant));
+        Assert.Equal("ClaudeCode", _settings.FleetManagerAgent(Tenant));
+        Assert.Null(_settings.FleetManagerSessionId(Tenant));
+    }
+
+    [Fact]
+    public async Task MoveAsync_NotRunning_StartsThereMarksAndSaves()
     {
         _world.Machines.Add(LauncherOnly("WORKSTATION-B"));
 
@@ -408,8 +662,13 @@ public sealed class FleetManagerPlacementServiceTests : IDisposable
         await _service.WhenIdleAsync();
 
         Assert.Equal(200, result.Status);
-        Assert.Equal("Pi", Assert.Single(_world.Spawns).Request.Agent);
+        var spawn = Assert.Single(_world.Spawns);
+        Assert.Equal(("Pi", "WORKSTATION-B"), (spawn.Request.Agent, spawn.Machine));
+        Assert.Equal(FleetManagerPlacementService.FirstPrompt, spawn.Request.PrePrompt);
+        Assert.Equal(NewId, _settings.FleetManagerSessionId(Tenant));
+        Assert.Equal(("Pi", "WORKSTATION-B"), (_settings.FleetManagerAgent(Tenant), _settings.FleetManagerMachine(Tenant)));
         Assert.Empty(_world.Closed);
+        Assert.Empty(_world.MarkMovedTo); // a plain start is marked at once; nothing moved
     }
 
     [Fact]

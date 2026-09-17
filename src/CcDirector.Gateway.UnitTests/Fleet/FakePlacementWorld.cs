@@ -30,6 +30,12 @@ internal sealed class FakePlacementWorld : IFleetManagerPlacementEnvironment
     public Action? OnDelay { get; set; }
     public List<string> MarksRecorded { get; } = new();
 
+    /// <summary>Each "you are now the Fleet Manager" event, with how many closes had been sent when it was stored.</summary>
+    public List<(string SessionId, int ClosesBefore)> MarkMovedTo { get; } = new();
+
+    /// <summary>When false, a close is refused by the fake Director.</summary>
+    public bool CloseSucceeds { get; set; } = true;
+
     public void SetState(string sid, string state)
     {
         foreach (var r in Roster.Where(r => r.Session.SessionId == sid)) r.Session.ActivityState = state;
@@ -66,10 +72,12 @@ internal sealed class FakePlacementWorld : IFleetManagerPlacementEnvironment
     public Task<bool> CloseSessionAsync(TenantId tenant, string directorId, string sessionId, string reason, CancellationToken ct)
     {
         Closed.Add((directorId, sessionId, reason));
-        return Task.FromResult(true);
+        return Task.FromResult(CloseSucceeds);
     }
 
     public void RecordMark(TenantId tenant, string sessionId, DateTime nowUtc) => MarksRecorded.Add(sessionId);
+
+    public void MarkMoved(TenantId tenant, string sessionId, DateTime nowUtc) => MarkMovedTo.Add((sessionId, Closed.Count));
 
     public TimeZoneInfo TimeZone(TenantId tenant) => TimeZoneInfo.Utc;
 

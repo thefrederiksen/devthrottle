@@ -1485,6 +1485,117 @@ public sealed class FleetManagerEventServiceTests : IDisposable
             return (DirectorCommandResult?)await ControlApi.SessionCommandExecutor.SendPromptAsync(session, request);
         });
 
+    // ================================================================= the owner's answers and a moved mark (steps 5 and 6 fixes)
+
+    private const string AboutSession = "0a000000-0000-4000-8000-000000000001";
+
+    /// <summary>A decision filed by the Fleet Manager and answered by the owner the way the answer route does it.</summary>
+    private FleetOutcomeDto OwnerAnswers(string words)
+    {
+        var outcomes = new FleetOutcomeStore(_harness.Open());
+        var filed = outcomes.File(Tenant, new FleetOutcomeFileRequest
+        {
+            Kind = "decision",
+            Title = "Replace the inspector?",
+            SessionId = AboutSession,
+            Decision = new FleetDecisionDetails { Question = "Replace the inspector?", Options = { "Replace it.", "Keep both." } },
+        }, "fm", _now);
+        var result = outcomes.Answer(Tenant, Guid.Parse(filed.Id), words, FleetOutcomeStore.OwnerCaller,
+            FleetOutcomeStore.RoleOwner, _now, r => FleetManagerEventStore.AnsweredEvent(r, _marked, _now));
+        Assert.Equal(FleetOutcomeAnswerStatus.Answered, result.Status);
+        return result.Outcome!;
+    }
+
+    [Fact]
+    public async Task OwnersAnswer_WaitsWhileTheFleetManagerWorks_ThenIsTypedWithTheWordsExactly_AndKeptUntilAcknowledged()
+    {
+        const string words = "Keep both. And \"never\" -> ask me again; 100%.";
+        var record = OwnerAnswers(words);
+
+        _service.OnEventQueued(Tenant);
+        await _service.WhenIdleAsync();
+        Assert.Empty(_env.Sends); // the Fleet Manager is working: nothing is typed into it
+
+        await FleetManagerTurnEndAsync();
+
+        var sent = Assert.Single(_env.Sends);
+        Assert.Equal("fm", sent.SessionId);
+        var e = Assert.Single(Open());
+        Assert.Equal(("answered", record.Id, "Replace the inspector?", words, "fm"),
+            (e.Kind, e.OutcomeId, e.OutcomeTitle, e.Words, e.AddressedTo));
+        Assert.StartsWith("[Fleet Manager events] 0 stops and 0 died, and 1 card answered by the owner since your last turn.\n", sent.Text);
+        Assert.Contains($"event 1 of 1: {e.Id}\nkind: answered\n" +
+                        $"record: {record.Id} \"Replace the inspector?\"\nabout session: {AboutSession}\n", sent.Text);
+        Assert.Contains("the owner's words (exact, between the markers):\n<<<" + words + ">>>\n", sent.Text);
+        Assert.Equal(("fm", 1), (e.DeliveredTo, e.DeliveryCount));
+        Assert.Null(e.AcknowledgedAtUtc);
+    }
+
+    [Fact]
+    public async Task OwnersAnswer_NotAcknowledged_IsSentAgainToARestartedFleetManager()
+    {
+        SetState("fm", "WaitingForInput");
+        OwnerAnswers("Replace it.");
+        _service.OnEventQueued(Tenant);
+        await _service.WhenIdleAsync();
+        Assert.Single(_env.Sends);
+
+        SetState("fm", "Exited");
+        Push(Session("fm-2"));
+        _marked = "fm-2";
+        await FleetManagerTurnEndAsync("fm-2");
+
+        Assert.Equal(2, _env.Sends.Count);
+        Assert.Equal("fm-2", _env.Sends[1].SessionId);
+        Assert.Contains("<<<Replace it.>>>", _env.Sends[1].Text);
+    }
+
+    [Fact]
+    public async Task OwnersAnswer_Acknowledged_IsNotSentAgain()
+    {
+        SetState("fm", "WaitingForInput");
+        OwnerAnswers("Replace it.");
+        _service.OnEventQueued(Tenant);
+        await _service.WhenIdleAsync();
+        var e = Assert.Single(Open());
+
+        _events.Acknowledge(Tenant, new[] { Guid.Parse(e.Id) }, all: false, deliveredTo: null, _now);
+        SetState("fm", "Exited");
+        Push(Session("fm-2"));
+        _marked = "fm-2";
+        await FleetManagerTurnEndAsync("fm-2");
+
+        Assert.Single(_env.Sends);
+    }
+
+    [Fact]
+    public async Task MarkMoved_TellsTheNewFleetManagerOnce_AndNeverALaterOne()
+    {
+        Push(Session("fm-2"));
+        _marked = "fm-2";
+        Assert.NotNull(_events.RecordMarked(Tenant, "fm-2", _now));
+        Assert.Null(_events.RecordMarked(Tenant, "fm-2", _now)); // one event per session, whoever asks again
+
+        _service.OnEventQueued(Tenant);
+        await _service.WhenIdleAsync();
+
+        var sent = Assert.Single(_env.Sends);
+        Assert.Equal("fm-2", sent.SessionId);
+        Assert.StartsWith("[Fleet Manager events] You are now this account's Fleet Manager. 0 stops and 0 died since your last turn.\n", sent.Text);
+        Assert.Contains("kind: marked\n", sent.Text);
+        Assert.Contains("what: " + FleetManagerEventStore.MarkedDetail + "\n", sent.Text);
+
+        // Not acknowledged, and the mark moves on again: the next Fleet Manager is not told it is "now" the Fleet Manager
+        // by an event that was about another session.
+        SetState("fm-2", "Exited");
+        Push(Session("fm-3"));
+        _marked = "fm-3";
+        await FleetManagerTurnEndAsync("fm-3");
+
+        Assert.Single(_env.Sends);
+        Assert.Equal("marked", Assert.Single(Open()).Kind);
+    }
+
     // ================================================================= doubles
 
     private sealed record Sent(string DirectorId, string SessionId, string Text);

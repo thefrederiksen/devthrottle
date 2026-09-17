@@ -242,6 +242,7 @@
 }
 .fmp-card-answered {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: baseline;
   font-size: 13px;
@@ -252,6 +253,11 @@
   color: var(--text-dim);
   font-size: 11.5px;
   white-space: nowrap;
+}
+.fmp-card-delivery {
+  flex: 1 0 100%;
+  color: var(--text-dim);
+  font-size: 11.5px;
 }
 .fmp-card-ask {
   display: flex;

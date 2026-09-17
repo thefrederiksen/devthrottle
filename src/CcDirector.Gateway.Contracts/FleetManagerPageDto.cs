@@ -35,8 +35,9 @@ public sealed class FleetManagerPageDto
     /// <summary>The buttons beside the title that send fixed words to the Fleet Manager ("What did I miss?").</summary>
     public List<FleetManagerQuickPromptDto> QuickPrompts { get; set; } = new();
 
-    /// <summary>One card per outcome record the page shows, oldest first. The page places each card in the
-    /// conversation at its <see cref="FleetOutcomeCardDto.FiledAtUtc"/>.</summary>
+    /// <summary>One card per outcome record the page shows, oldest first: EVERY open record, with its buttons, and the
+    /// most recent answered ones. The page places each card in the conversation at its
+    /// <see cref="FleetOutcomeCardDto.FiledAtUtc"/>.</summary>
     public List<FleetOutcomeCardDto> Cards { get; set; } = new();
 
     /// <summary>The records waiting on the owner, most important first.</summary>
@@ -103,6 +104,14 @@ public sealed class FleetOutcomeCardDto
 
     /// <summary>On an answered card: the owner's words, verbatim. Null otherwise.</summary>
     public string? Answer { get; set; }
+
+    /// <summary>On a card the owner answered: how far the answer has got on its way to the Fleet Manager, in the
+    /// Gateway's words ("Waiting for the Fleet Manager to be free to hear it.", "Passed to the Fleet Manager.", "The
+    /// Fleet Manager has acted on it."). Null when the Fleet Manager answered the record itself.</summary>
+    public string? AnswerDelivery { get; set; }
+
+    /// <summary>What the card says before the Gateway's refusal when an answer was not recorded.</summary>
+    public string AnswerRefusedLead { get; set; } = "";
 
     /// <summary>The buttons that answer the record. Empty on an answered card.</summary>
     public List<FleetCardActionDto> Actions { get; set; } = new();
@@ -197,6 +206,12 @@ public sealed class FleetCardActionDto
 
     /// <summary>When it asks for words: the label of the button that sends them.</summary>
     public string? SendLabel { get; set; }
+
+    /// <summary>When it asks for words: the label of the button that puts the box away.</summary>
+    public string? CancelLabel { get; set; }
+
+    /// <summary>The label the button shows while its answer is being recorded.</summary>
+    public string BusyLabel { get; set; } = "";
 }
 
 /// <summary>One section of the right panel.</summary>

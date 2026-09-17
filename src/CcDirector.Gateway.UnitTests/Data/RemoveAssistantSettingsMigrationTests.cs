@@ -112,38 +112,31 @@ public sealed class RemoveAssistantSettingsMigrationTests
 
     /// <summary>
     /// THE HAND-WRITTEN DESIGNER FILES ARE WHAT ENTITY FRAMEWORK WOULD HAVE GENERATED, as far as it can tell: for each
-    /// provider the migration is found through its <c>[DbContext]</c> and <c>[Migration]</c> attributes, it is the
-    /// newest migration, and the model its Designer carries has no difference from the current model - the schema did
-    /// not change - nor does the provider's snapshot (no pending model changes). Read with no database.
+    /// provider the migration is found through its <c>[DbContext]</c> and <c>[Migration]</c> attributes, it comes
+    /// straight after step 7's advice migration, and the model its Designer carries has no difference from that
+    /// migration's model - the schema did not change. (It is no longer the newest: the steps 5 and 6 fixes added
+    /// <c>AddFleetManagerEventOutcomeAnswer</c> after it, which <c>FleetManagerEventOutcomeAnswerMigrationTests</c>
+    /// holds to the current model and snapshot.) Read with no database.
     /// </summary>
     [Theory]
-    [InlineData("sqlite", "20260917060000_RemoveAssistantSettings")]
-    [InlineData("postgres", "20260917060010_RemoveAssistantSettings")]
-    public void RemoveAssistantSettings_Designer_IsDiscoveredNewestAndCarriesTheCurrentModel(string provider, string id)
+    [InlineData("sqlite", "20260917060000_RemoveAssistantSettings", "20260917040637_AddFleetOutcomeAdvice")]
+    [InlineData("postgres", "20260917060010_RemoveAssistantSettings", "20260917040647_AddFleetOutcomeAdvice")]
+    public void RemoveAssistantSettings_Designer_IsDiscoveredAndCarriesTheModelOfTheMigrationBefore(string provider, string id, string before)
     {
-        var builder = new DbContextOptionsBuilder<GatewayDbContext>();
-        if (provider == "sqlite")
-            builder.UseSqlite("Data Source=:memory:");
-        else
-            builder.UseNpgsql("Host=pg.invalid;Database=none;Username=none;Password=none",
-                o => o.MigrationsAssembly("CcDirector.Gateway.Migrations.Postgres"));
-        using var context = new GatewayDbContext(builder.Options);
+        using var context = FleetManagerEventOutcomeAnswerMigrationTests.Context(provider);
 
         var assembly = context.GetService<IMigrationsAssembly>();
         Assert.True(assembly.Migrations.TryGetValue(id, out var type), $"'{id}' is not discovered for {provider}.");
         Assert.Equal("RemoveAssistantSettings", type!.Name);
-        Assert.Equal(id, assembly.Migrations.Keys.Max(StringComparer.Ordinal));
+        var ordered = assembly.Migrations.Keys.OrderBy(k => k, StringComparer.Ordinal).ToList();
+        Assert.Equal(before, ordered[ordered.IndexOf(id) - 1]);
         Assert.Equal(typeof(GatewayDbContext), type.GetCustomAttribute<DbContextAttribute>()!.ContextType);
 
-        var migration = assembly.CreateMigration(type, context.Database.ProviderName!);
-        Assert.NotNull(migration.TargetModel);
-        var initializer = context.GetService<IModelRuntimeInitializer>();
-        var designed = initializer.Initialize((IModel)migration.TargetModel!, designTime: true, validationLogger: null);
-        var current = context.GetService<IDesignTimeModel>().Model;
+        var designed = FleetManagerEventOutcomeAnswerMigrationTests.DesignedModel(context, assembly, type);
+        var previous = FleetManagerEventOutcomeAnswerMigrationTests.DesignedModel(context, assembly, assembly.Migrations[before]);
         var differ = context.GetService<IMigrationsModelDiffer>();
-        Assert.False(differ.HasDifferences(designed.GetRelationalModel(), current.GetRelationalModel()),
-            $"The {provider} Designer of '{id}' does not carry the current model.");
-        Assert.False(context.Database.HasPendingModelChanges(), $"The {provider} model snapshot is behind the model.");
+        Assert.False(differ.HasDifferences(designed.GetRelationalModel(), previous.GetRelationalModel()),
+            $"The {provider} Designer of '{id}' does not carry the model of '{before}'.");
     }
 
     private static void Execute(string connectionString, string sql)

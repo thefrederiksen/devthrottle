@@ -33,6 +33,8 @@ STATUSES = ("open", "answered", "all")
 RISKS = ("low", "medium", "high")
 CHECKS = ("passed", "failed", "none")
 EVENT_KINDS = ("stop", "died")
+# Counted only when present, so the usual line reads as it always has.
+EVENT_KINDS_WHEN_PRESENT = ("answered", "marked")
 
 _GUID = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
 _PLAIN = re.compile(r"^[A-Za-z0-9 _./:@+()'?!;=<>#%&*~^|\[\]{}$-]*$")
@@ -455,6 +457,11 @@ def _event_verdict(e: Dict[str, Any]) -> List[Any]:
     still waiting for its reading - the Gateway's own words for that."""
     if e.get("kind") == "died":
         return ["crashed" if e.get("crashed") else "exited", None]
+    if e.get("kind") == "answered":
+        # The owner's words, exactly: the record is already answered and the Fleet Manager acts on them.
+        return ["owner answered", e.get("words")]
+    if e.get("kind") == "marked":
+        return ["now yours", e.get("detail")]
     if e.get("readingPending"):
         return ["waiting", e.get("readingNote")]
     if e.get("verdictWithheld"):
@@ -469,12 +476,14 @@ def _event_verdict(e: Dict[str, Any]) -> List[Any]:
 
 def _events_table(rows: List[Dict[str, Any]]) -> None:
     _table("events", ["id", "kind", "sessionId", "name", "verdict", "label", "deliveredTo", "acknowledged"],
-           [[e.get("id"), e.get("kind"), e.get("sessionId"), e.get("sessionName"), *_event_verdict(e),
+           # An answered event is about a record: its title stands in the name column.
+           [[e.get("id"), e.get("kind"), e.get("sessionId"), e.get("outcomeTitle") if e.get("kind") == "answered" else e.get("sessionName"), *_event_verdict(e),
              e.get("deliveredTo"), "yes" if e.get("acknowledgedAtUtc") else "no"] for e in rows])
 
 
 def _counts_by_event_kind(rows: List[Dict[str, Any]]) -> str:
-    return ", ".join(f"{k} {sum(1 for e in rows if e.get('kind') == k)}" for k in EVENT_KINDS)
+    kinds = list(EVENT_KINDS) + [k for k in EVENT_KINDS_WHEN_PRESENT if any(e.get("kind") == k for e in rows)]
+    return ", ".join(f"{k} {sum(1 for e in rows if e.get('kind') == k)}" for k in kinds)
 
 
 def _event_pages(status: str, count: int, cursor: Optional[str] = None):
@@ -550,8 +559,10 @@ def list_events(show_all: bool, count: int, json_output: bool,
         hints.append(f"{base} --every-page   (every page)")
     # A stop still waiting for its reading is not acted on or acknowledged yet, so it is never the example.
     ready = [e for e in rows if not e.get("acknowledgedAtUtc") and not e.get("readingPending")]
+    about_a_session = [e for e in ready if e.get("kind") in EVENT_KINDS and e.get("sessionId")]
+    if about_a_session:
+        hints.append(f"cc-devthrottle session buffer {about_a_session[0].get('sessionId')}")
     if ready:
-        hints.append(f"cc-devthrottle session buffer {ready[0].get('sessionId')}")
         hints.append(f"cc-devthrottle fleet ack {ready[0].get('id')}")
     _help(hints)
 

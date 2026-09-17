@@ -42,6 +42,10 @@ public sealed class FleetManagerHandOverServiceTests
 
         public string? MarkedFleetManager(TenantId tenant) => Mark;
 
+        public string? Successor;
+
+        public string? WaitingFleetManager(TenantId tenant) => Successor;
+
         public IReadOnlyList<(string DirectorId, SessionDto Session)> Roster(TenantId tenant)
         {
             if (!Rosters.TryGetValue(tenant, out var list)) return Array.Empty<(string, SessionDto)>();
@@ -119,6 +123,18 @@ public sealed class FleetManagerHandOverServiceTests
     }
 
     // ================================================================= the owner's hand over, both ways
+
+    [Theory]
+    [InlineData("fleet-manager")]
+    [InlineData("owner")]
+    public async Task HandOver_TheNewFleetManagerWaitingToTakeOver_IsRefused(string to)
+    {
+        _world.Successor = Plain;
+
+        var result = await HandAsync(Plain, to);
+
+        AssertRefused(result, 409, "Session \"Plain work\" is the new Fleet Manager, waiting to take over. It answers to you only, so it cannot be handed over.");
+    }
 
     [Fact]
     public async Task HandOver_PlainSessionToTheFleetManager_SetsTheFleetManagerAsOwnerAuditsAndTellsTheEvents()

@@ -156,6 +156,23 @@ public sealed class SkillStoreTests : IDisposable
     }
 
     [Fact]
+    public void Fleet_manager_skill_teaches_the_answered_and_marked_events_and_that_a_move_waits_for_the_old_one()
+    {
+        // Steps 5 and 6 fixes: a card's answer is an event kept until acknowledged, and the mark moves only once the old
+        // Fleet Manager has closed - the new one is told with one event.
+        var body = BuiltInSkills.BodyFor("fleet-manager");
+
+        Assert.Contains("**`answered`** - the owner pressed a button on one of your cards.", body);
+        Assert.Contains("do not `fleet answer` it again, then acknowledge the event.", body);
+        Assert.Contains("**`marked`** - the account's mark has just moved to you after a restart or a move.", body);
+        Assert.Contains("`[Fleet Manager events] You are now this account's Fleet Manager.`", body);
+        Assert.Contains("starts a new Fleet Manager session but does NOT mark it yet", body);
+        Assert.Contains("The old one is never closed while it is working or waiting for the owner.", body);
+        Assert.DoesNotContain("those same words arrive to you as a prompt", body);
+        Assert.DoesNotContain("marks it, and closes the old one only after its current turn ends", body);
+    }
+
+    [Fact]
     public void Fleet_manager_skill_teaches_one_line_of_advice_when_filing_and_how_to_set_it()
     {
         // Step 7: the Fleet Manager writes one line of advice when it files a record - from what it knows and the

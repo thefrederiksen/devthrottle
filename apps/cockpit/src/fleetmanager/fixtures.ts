@@ -25,7 +25,7 @@ export const READY_CARD: FleetOutcomeCard = {
   },
   answered: false,
   actions: [
-    { label: "Merge", style: "primary", words: "Merge: Fix the flaky list test", asksForWords: false },
+    { label: "Merge", style: "primary", words: "Merge: Fix the flaky list test", asksForWords: false, busyLabel: "Recording... (fake)" },
     {
       label: "Send it back...",
       style: "ghost",
@@ -34,8 +34,11 @@ export const READY_CARD: FleetOutcomeCard = {
       wordsPrefix: "Send it back: Fix the flaky list test. ",
       placeholder: "What should change? (fake)",
       sendLabel: "Send it back",
+      cancelLabel: "Cancel (fake)",
+      busyLabel: "Recording... (fake)",
     },
   ],
+  answerRefusedLead: "Your answer was not recorded (fake):",
 };
 
 export const FINDING_CARD: FleetOutcomeCard = {
@@ -55,7 +58,16 @@ export const FINDING_CARD: FleetOutcomeCard = {
     ],
   },
   answered: false,
-  actions: [{ label: "Got it", style: "secondary", words: "Got it: Build our own. Keep their rules, not their tools.", asksForWords: false }],
+  actions: [
+    {
+      label: "Got it",
+      style: "secondary",
+      words: "Got it: Build our own. Keep their rules, not their tools.",
+      asksForWords: false,
+      busyLabel: "Recording... (fake)",
+    },
+  ],
+  answerRefusedLead: "Your answer was not recorded (fake):",
 };
 
 export const DECISION_CARD: FleetOutcomeCard = {
@@ -82,9 +94,11 @@ export const DECISION_CARD: FleetOutcomeCard = {
       style: "primary",
       words: "Replace it for ordinary changes. Keep the reviewer only for missions.",
       asksForWords: false,
+      busyLabel: "Recording... (fake)",
     },
-    { label: "Always run both.", style: "secondary", words: "Always run both.", asksForWords: false },
+    { label: "Always run both.", style: "secondary", words: "Always run both.", asksForWords: false, busyLabel: "Recording... (fake)" },
   ],
+  answerRefusedLead: "Your answer was not recorded (fake):",
 };
 
 export const ANSWERED_CARD: FleetOutcomeCard = {
@@ -93,6 +107,7 @@ export const ANSWERED_CARD: FleetOutcomeCard = {
   answered: true,
   answerLabel: "Answered 10:40 (fake)",
   answer: "Always run both, for now.",
+  answerDelivery: "Waiting to reach the Fleet Manager (fake).",
   actions: [],
 };
 

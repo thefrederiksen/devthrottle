@@ -52,6 +52,9 @@ public sealed class GatewayHostBootSmokeTests
     // Step 9: the Assistant's two settings rows are deleted on both databases.
     private const string RemoveAssistantSettingsPostgresMigration = "20260917060010_RemoveAssistantSettings";
     private const string RemoveAssistantSettingsSqliteMigration = "20260917060000_RemoveAssistantSettings";
+    // Steps 5 and 6 fixes: an owner's answer to a card is carried to the Fleet Manager as an event.
+    private const string FleetManagerEventOutcomeAnswerPostgresMigration = "20260917120010_AddFleetManagerEventOutcomeAnswer";
+    private const string FleetManagerEventOutcomeAnswerSqliteMigration = "20260917120000_AddFleetManagerEventOutcomeAnswer";
 
     /// <summary>A Fact that skips itself unless the runtime Postgres selector CC_GATEWAY_DB_CONNECTION is set
     /// to a non-blank value, so CI never reaches out to the hosted database and never needs the secret.</summary>
@@ -94,6 +97,8 @@ public sealed class GatewayHostBootSmokeTests
         Assert.Contains(FleetManagerEventDeliveryPostgresMigration, migrations);
         Assert.Contains(FleetOutcomeAdvicePostgresMigration, migrations);
         Assert.Contains(RemoveAssistantSettingsPostgresMigration, migrations);
+        Assert.Contains(FleetManagerEventOutcomeAnswerPostgresMigration, migrations);
+        Assert.Equal(FleetManagerEventOutcomeAnswerPostgresMigration, migrations[^1]);
     }
 
     /// <summary>
@@ -134,6 +139,8 @@ public sealed class GatewayHostBootSmokeTests
         Assert.Contains(FleetManagerEventDeliverySqliteMigration, sqliteAll);
         Assert.Contains(FleetOutcomeAdviceSqliteMigration, sqliteAll);
         Assert.Contains(RemoveAssistantSettingsSqliteMigration, sqliteAll);
+        Assert.Contains(FleetManagerEventOutcomeAnswerSqliteMigration, sqliteAll);
+        Assert.Equal(FleetManagerEventOutcomeAnswerSqliteMigration, sqliteAll[^1]);
         Assert.Contains("AddFleetManagerMarkHistory", sqliteSince);
 
         Assert.Equal(sqliteSince.OrderBy(n => n, StringComparer.Ordinal), postgresSince.OrderBy(n => n, StringComparer.Ordinal));
@@ -148,6 +155,8 @@ public sealed class GatewayHostBootSmokeTests
     /// </summary>
     [Theory]
     [InlineData("fleet_manager_events", "ReadingPending")]
+    [InlineData("fleet_manager_events", "OutcomeId")]
+    [InlineData("fleet_manager_events", "Words")]
     [InlineData("fleet_manager_owned_sessions", "EndedAtUtc")]
     [InlineData("fleet_outcomes", "Advice")]
     [InlineData("fleet_outcomes", "FleetManagerPick")]

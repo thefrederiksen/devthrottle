@@ -202,6 +202,8 @@ internal sealed class GatewayFleetManagerPlacementEnvironment : IFleetManagerPla
     public required TenantSettingsResolver Settings { get; init; }
     public required Func<TenantId, IDisposable> EnterTenantScope { get; init; }
     public required Fleet.FleetManagerMarkHistory Marks { get; init; }
+    public required Fleet.FleetManagerEventStore EventStore { get; init; }
+    public required Func<Fleet.FleetManagerEventService?> Events { get; init; }
 
     public IReadOnlyList<FleetManagerMachineFacts> Machines(TenantId tenant)
     {
@@ -276,6 +278,16 @@ internal sealed class GatewayFleetManagerPlacementEnvironment : IFleetManagerPla
     }
 
     public void RecordMark(TenantId tenant, string sessionId, DateTime nowUtc) => Marks.Record(tenant, sessionId, nowUtc);
+
+    public void MarkMoved(TenantId tenant, string sessionId, DateTime nowUtc)
+    {
+        EventStore.RecordMarked(tenant, sessionId, nowUtc);
+        var events = Events();
+        if (events is null)
+            FileLog.Write($"[GatewayFleetManagerPlacementEnvironment] MarkMoved: no event service yet; the event for {sessionId} is stored and waits for the next delivery");
+        else
+            events.OnEventQueued(tenant);
+    }
 
     public TimeZoneInfo TimeZone(TenantId tenant)
         => TimeZoneInfo.FindSystemTimeZoneById(Settings.TimeZone(tenant));

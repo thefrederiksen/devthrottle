@@ -966,6 +966,7 @@ public sealed class GatewayHost : IAsyncDisposable
     private Fleet.FleetManagerEventSweep? _fleetManagerEventSweep;
     private Timer? _fleetManagerEventTimer;
     private Fleet.FleetManagerPlacementService? _fleetManagerPlacement;
+    private Timer? _fleetManagerReplacementTimer;
     // Voice mode is a standing intent, not a one-time action: a tenant that is in voice mode wants EVERY one
     // of its sessions narrating, including the ones that do not exist yet. This timer is how that intent
     // reaches them - it walks each tenant that has voice mode on and switches on any session that is not a
@@ -4243,6 +4244,8 @@ public sealed class GatewayHost : IAsyncDisposable
             outcomes: fleetOutcomes,
             preferences: new Fleet.FleetPreferenceStore(_gatewayDb),
             events: _fleetManagerEventStore!,
+            // The owner's answer to a card is queued to the Fleet Manager in the same save; book its delivery.
+            answerQueued: tenant => _fleetManagerEvents?.OnEventQueued(tenant),
             digest: new FleetDigestSources(
                 FoldedRoster: tenant => GatewayEndpoints.FoldedAccountRoster(Registry, PushedSessions, tenant,
                     _snoozeRegistry, _handRaises, _turnVerdictRows, _snoozeExpiry, _fleetMessages,
@@ -4273,7 +4276,17 @@ public sealed class GatewayHost : IAsyncDisposable
                 Settings = _tenantSettingsResolver,
                 EnterTenantScope = tenant => _tenantBoundary.EnterScope(tenant),
                 Marks = FleetManagerMarks,
+                EventStore = _fleetManagerEventStore!,
+                // Read when the mark moves: the events service is created earlier in this method.
+                Events = () => _fleetManagerEvents,
             });
+        // A restart or a move left under way by an earlier process carries on (the mark moves only after the old Fleet
+        // Manager has closed, and that can outlast a Gateway restart).
+        var replacementSweep = new Fleet.FleetManagerReplacementSweep(_tenantBoundary, TenantRegistry, _tenantContext,
+            _fleetManagerPlacement);
+        if (Fleet.FleetManagerEventSweep.Enabled)
+            _fleetManagerReplacementTimer = new Timer(_ => _ = replacementSweep.SweepSafeAsync(), null,
+                TimeSpan.FromSeconds(5), Fleet.FleetManagerReplacementSweep.Interval);
         FleetManagerPlacementEndpoints.Map(_app,
             resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
             service: _fleetManagerPlacement);
@@ -4290,6 +4303,7 @@ public sealed class GatewayHost : IAsyncDisposable
                 Capabilities = _fleetManagerHomeCapabilities,
                 SendCommand = SendCommandAsync,
                 Mark = _tenantSettingsResolver.FleetManagerSessionId,
+                Successor = _tenantSettingsResolver.FleetManagerSuccessorSessionId,
                 AuditLog = _governanceAudit,
                 // Read when a hand over happens: the events service is created when the host starts.
                 Events = () => _fleetManagerEvents,
@@ -4317,7 +4331,9 @@ public sealed class GatewayHost : IAsyncDisposable
                 LastKnownSession: (tenant, sid) => GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, sid),
                 LatestVerdict: (tenant, sid) => _turnVerdicts.Latest(tenant, sid),
                 TimeZone: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)),
-                NowUtc: () => DateTime.UtcNow));
+                NowUtc: () => DateTime.UtcNow,
+                AnswerEvents: (tenant, ids) => _fleetManagerEventStore!.AnswerEvents(tenant, ids),
+                SuccessorSessionId: _tenantSettingsResolver.FleetManagerSuccessorSessionId));
 
         // The Fleet Manager walkthrough (step 7): one item at a time, the Wingman's reading, the Fleet Manager's advice,
         // and the answer, snooze and close. The owner's routes: SessionKeyGuard refuses a session key, and the handlers
@@ -5723,6 +5739,7 @@ public sealed class GatewayHost : IAsyncDisposable
         try { _turnVerdictService?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] turn verdict dispose error: {ex.Message}"); }
         try { _fleetManagerEventTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] fleet manager events timer dispose error: {ex.Message}"); }
         try { _fleetManagerEvents?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] fleet manager events dispose error: {ex.Message}"); }
+        try { _fleetManagerReplacementTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] fleet manager replacement timer dispose error: {ex.Message}"); }
         try { _fleetManagerPlacement?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] fleet manager placement dispose error: {ex.Message}"); }
         // THE INSPECTOR'S TRACES, in the order that keeps them: first the verdict flights the service just cancelled are
         // let finish, so each hands in its cancelled trace while the writer still takes them; then the writer is drained

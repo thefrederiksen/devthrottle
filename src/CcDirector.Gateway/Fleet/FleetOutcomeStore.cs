@@ -372,9 +372,13 @@ public sealed class FleetOutcomeStore
     /// </summary>
     /// <param name="answeredBy">The calling session id, or <see cref="OwnerCaller"/>.</param>
     /// <param name="answeredByRole"><see cref="RoleOwner"/> or <see cref="RoleFleetManager"/>.</param>
+    /// <param name="tellFleetManager">When given, the event that carries this answer to the Fleet Manager
+    /// (<see cref="FleetManagerEventStore.AnsweredEvent"/>), built from the answered record and saved IN THE SAME
+    /// TRANSACTION as the answer - so an answer is never recorded without the event, and never the event without the
+    /// answer. Not called when the record was not answered by this call.</param>
     /// <exception cref="ArgumentException">The answer is blank or too long, or the role is not one of the two.</exception>
     public FleetOutcomeAnswerResult Answer(TenantId tenant, Guid id, string? answer, string answeredBy,
-        string answeredByRole, DateTime nowUtc)
+        string answeredByRole, DateTime nowUtc, Func<FleetOutcomeDto, FleetManagerEventEntity>? tellFleetManager = null)
     {
         FileLog.Write($"[FleetOutcomeStore] Answer: tenant={tenant}, id={id}, answeredBy={answeredBy}, role={answeredByRole}");
         try
@@ -409,6 +413,7 @@ public sealed class FleetOutcomeStore
             }
 
             var answeredAt = Utc(nowUtc);
+            using var tx = ctx.Database.BeginTransaction();
             var affected = ctx.FleetOutcomes
                 .Where(o => o.Id == id && o.Status == StatusOpen)
                 .ExecuteUpdate(setters => setters
@@ -422,12 +427,24 @@ public sealed class FleetOutcomeStore
             var now = ctx.FleetOutcomes.AsNoTracking().First(o => o.Id == id);
             if (affected == 0)
             {
+                tx.Commit();
                 FileLog.Write($"[FleetOutcomeStore] Answer: id={id}, result=lost the race; answered at {now.AnsweredAtUtc:O} by {now.AnsweredBy}");
                 return new FleetOutcomeAnswerResult(FleetOutcomeAnswerStatus.AlreadyAnswered, ToDto(now));
             }
 
+            var answered = ToDto(now);
+            if (tellFleetManager is not null)
+            {
+                var told = tellFleetManager(answered);
+                told.TenantId = ctx.ActiveTenant!;
+                ctx.FleetManagerEvents.Add(told);
+                ctx.SaveChanges();
+                FileLog.Write($"[FleetOutcomeStore] Answer: id={id}, the Fleet Manager's event {told.Id} is queued in the same save");
+            }
+            tx.Commit();
+
             FileLog.Write($"[FleetOutcomeStore] Answer: id={id}, result=answered, matchedOption={matched}");
-            return new FleetOutcomeAnswerResult(FleetOutcomeAnswerStatus.Answered, ToDto(now));
+            return new FleetOutcomeAnswerResult(FleetOutcomeAnswerStatus.Answered, answered);
         }
         catch (Exception ex)
         {

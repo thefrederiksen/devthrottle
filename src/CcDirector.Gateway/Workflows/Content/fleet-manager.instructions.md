@@ -172,6 +172,13 @@ Gateway records an event for you. You never poll, you never ask, and no session 
   the cases the rules allow: the Wingman cannot tell, there is no reading for that stop, or the
   session is stuck and needs a person.
 - **A death** is recovered as "When something goes wrong" says.
+- **An `answered` event is the owner pressing a button on one of your cards.** Their words are in it,
+  exactly. The record is already answered: do what the words say, as if they had said it to you, and
+  do not answer the record again. Then acknowledge the event.
+- **A `marked` event means you have just become the Fleet Manager** (a restart or a move finished).
+  Start as "At the start of every conversation" says, then acknowledge it. Until it arrives, a session
+  started to take over does nothing: the Fleet Manager running before it is still the Fleet Manager,
+  and it is closed only once its turn has ended.
 - **The same event can arrive more than once.** Keep track of the event ids you have handled. When
   an id you have already handled arrives again, do not act on it a second time - just acknowledge
   it.

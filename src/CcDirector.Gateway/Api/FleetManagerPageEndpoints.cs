@@ -17,13 +17,17 @@ namespace CcDirector.Gateway.Api;
 /// <param name="LatestVerdict">The Wingman's latest stored reading of one session in this account.</param>
 /// <param name="TimeZone">The account's display time zone.</param>
 /// <param name="NowUtc">The clock.</param>
+/// <param name="AnswerEvents">The events carrying the owner's answers to the named records to the Fleet Manager.</param>
+/// <param name="SuccessorSessionId">The new Fleet Manager waiting to take over, or null.</param>
 internal sealed record FleetManagerPageSources(
     Func<TenantId, IReadOnlyList<SessionDto>> LiveRoster,
     Func<TenantId, string?> MarkedSessionId,
     Func<TenantId, string, SessionDto?> LastKnownSession,
     Func<TenantId, string, TurnVerdictDto?> LatestVerdict,
     Func<TenantId, TimeZoneInfo> TimeZone,
-    Func<DateTime> NowUtc);
+    Func<DateTime> NowUtc,
+    Func<TenantId, IReadOnlyCollection<string>, IReadOnlyDictionary<string, FleetManagerEventDto>>? AnswerEvents = null,
+    Func<TenantId, string?>? SuccessorSessionId = null);
 
 /// <summary>
 /// The Fleet Manager page (the Fleet Manager mission, step 6):
@@ -66,16 +70,21 @@ internal static class FleetManagerPageEndpoints
             }
 
             var marked = sources.MarkedSessionId(tenant);
+            // Every open record, never a first page: each is a card with its buttons, and the badge and "Waiting on
+            // you" must not undercount. Only the answered history is limited.
+            var open = outcomes.ListOpen(tenant);
+            var answered = outcomes.List(tenant, FleetOutcomeStore.StatusAnswered, kind: null, FleetManagerPageFold.CardCount);
             var inputs = new FleetManagerPageInputs(
                 marked,
                 string.IsNullOrWhiteSpace(marked) ? null : sources.LastKnownSession(tenant, marked.Trim()),
                 sources.LiveRoster(tenant),
-                // Every open record, never a first page: the badge and "Waiting on you" must not undercount.
-                outcomes.ListOpen(tenant),
-                outcomes.List(tenant, FleetOutcomeStore.StatusAll, kind: null, FleetManagerPageFold.CardCount),
+                open,
+                answered,
                 sid => sources.LatestVerdict(tenant, sid),
                 sources.TimeZone(tenant),
-                sources.NowUtc());
+                sources.NowUtc(),
+                sources.AnswerEvents?.Invoke(tenant, answered.Select(o => o.Id).ToList()),
+                sources.SuccessorSessionId?.Invoke(tenant));
             var dto = FleetManagerPageFold.Fold(inputs);
 
             FileLog.Write($"[FleetManagerPageEndpoints] GET page: marked={dto.FleetManagerSessionId}, cards={dto.Cards.Count}, "

@@ -69,7 +69,8 @@ internal enum FleetManagerAction
 ///   GET    /gateway/fleet-manager/outcomes                 ?status=open|answered|all &amp;kind= &amp;count= &amp;cursor=
 ///                                                          -> { count, total, hasMore, nextCursor, outcomes }
 ///   GET    /gateway/fleet-manager/outcomes/{id}
-///   POST   /gateway/fleet-manager/outcomes/{id}/answer     close it with the owner's words -> 200 | 409
+///   POST   /gateway/fleet-manager/outcomes/{id}/answer     close it with the owner's words -> 200 | 409; the owner's
+///                                                          answer is also queued to the Fleet Manager as an event
 ///   PUT    /gateway/fleet-manager/outcomes/{id}/advice     the Fleet Manager's one line of advice and its pick   (step 7)
 ///   GET    /gateway/fleet-manager/preferences
 ///   POST   /gateway/fleet-manager/preferences              -> 201
@@ -124,7 +125,8 @@ internal static class FleetManagerEndpoints
         FleetPreferenceStore preferences,
         FleetDigestSources digest,
         FleetManagerAccess access,
-        FleetManagerEventStore events)
+        FleetManagerEventStore events,
+        Action<TenantId>? answerQueued = null)
     {
         ArgumentNullException.ThrowIfNull(resolveTenant);
         ArgumentNullException.ThrowIfNull(outcomes);
@@ -141,7 +143,7 @@ internal static class FleetManagerEndpoints
         app.MapGet(Prefix + "/outcomes/{id}", (HttpContext ctx, string id)
             => GetOutcome(ctx, id, resolveTenant, access, outcomes));
         app.MapPost(Prefix + "/outcomes/{id}/answer", (HttpContext ctx, string id)
-            => AnswerOutcomeAsync(ctx, id, resolveTenant, access, outcomes));
+            => AnswerOutcomeAsync(ctx, id, resolveTenant, access, outcomes, answerQueued));
         app.MapPut(Prefix + "/outcomes/{id}/advice", (HttpContext ctx, string id)
             => SetAdviceAsync(ctx, id, resolveTenant, access, outcomes, digest));
 
@@ -269,8 +271,18 @@ internal static class FleetManagerEndpoints
         }
     }
 
+    /// <summary>
+    /// Answer a record. WHEN THE OWNER ANSWERS, THIS ONE CALL ALSO TELLS THE FLEET MANAGER (steps 5 and 6 fixes): the
+    /// answer and an <c>answered</c> event carrying the owner's words are saved in one transaction, and the event goes
+    /// to the Fleet Manager through the step 4 path - only while it is waiting for a prompt, at least once, and kept
+    /// until it acknowledges it. The page makes this call and nothing else, so no browser, reload or stopped session
+    /// can leave an answered record the Fleet Manager never hears about. The Fleet Manager answering a record itself
+    /// queues nothing: it already knows.
+    /// </summary>
+    /// <param name="answerQueued">Called after an owner's answer is saved, so delivery is booked at once.</param>
     internal static async Task<IResult> AnswerOutcomeAsync(HttpContext ctx, string id,
-        Func<HttpContext, TenantId?> resolveTenant, FleetManagerAccess access, FleetOutcomeStore store)
+        Func<HttpContext, TenantId?> resolveTenant, FleetManagerAccess access, FleetOutcomeStore store,
+        Action<TenantId>? answerQueued = null)
     {
         FileLog.Write($"[FleetManagerEndpoints] AnswerOutcome: id={id}");
         try
@@ -282,8 +294,12 @@ internal static class FleetManagerEndpoints
             var (body, error) = await ReadBodyAsync<FleetOutcomeAnswerRequest>(ctx);
             if (error is not null) return error;
 
-            var result = store.Answer(tenant, guid, body!.Answer, caller!.Id, caller.Role, DateTime.UtcNow);
-            FileLog.Write($"[FleetManagerEndpoints] AnswerOutcome: id={id}, status={result.Status}");
+            var now = DateTime.UtcNow;
+            var byOwner = caller!.Role == FleetOutcomeStore.RoleOwner;
+            var result = store.Answer(tenant, guid, body!.Answer, caller.Id, caller.Role, now,
+                byOwner ? record => FleetManagerEventStore.AnsweredEvent(record, access.MarkedSessionId(tenant), now) : null);
+            FileLog.Write($"[FleetManagerEndpoints] AnswerOutcome: id={id}, status={result.Status}, toldFleetManager={byOwner}");
+            if (byOwner && result.Status == FleetOutcomeAnswerStatus.Answered) answerQueued?.Invoke(tenant);
             return result.Status switch
             {
                 FleetOutcomeAnswerStatus.Answered => Results.Json(result.Outcome),

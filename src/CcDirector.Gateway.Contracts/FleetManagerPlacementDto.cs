@@ -152,6 +152,64 @@ public sealed class FleetManagerStatusDto
 
     /// <summary>Start a new one in the saved place and close the old one after its current turn.</summary>
     public FleetManagerActionDto Restart { get; set; } = new();
+
+    /// <summary>While a restart or a move is under way, the Gateway's sentence saying so: a new Fleet Manager has
+    /// started and takes over once the one running now has finished its turn and closed - and, when the one running
+    /// now is waiting for the owner, that it cannot close until the owner answers it. Null when no replacement is
+    /// under way.</summary>
+    public string? Replacement { get; set; }
+
+    /// <summary>ok | idle | bad - the colour of <see cref="Replacement"/>: bad while the old Fleet Manager waits for
+    /// the owner. Null when <see cref="Replacement"/> is null.</summary>
+    public string? ReplacementTone { get; set; }
+
+    /// <summary>The new Fleet Manager waiting to take over, or null.</summary>
+    public string? SuccessorSessionId { get; set; }
+
+    /// <summary>What the Fleet Manager page (step 6) may show and use in this state - decided here, rendered there.</summary>
+    public FleetManagerPageControlsDto Page { get; set; } = new();
+}
+
+/// <summary>
+/// The Fleet Manager page's controls for the current state (the steps 5 and 6 fixes). The page decides nothing about
+/// what a state means: whether the composer and the quick prompts can be used, whether the not-running bar shows, and
+/// every label and sentence come from here.
+/// </summary>
+public sealed class FleetManagerPageControlsDto
+{
+    /// <summary>"Claude Code on WORKSTATION-A", or null when nothing says where it runs.</summary>
+    public string? Where { get; set; }
+
+    /// <summary>The link to the Fleet Manager tab in Settings beside <see cref="Where"/>, for example "(change)".</summary>
+    public string ChangeLabel { get; set; } = "";
+
+    /// <summary>Whether the composer takes a message now.</summary>
+    public bool ComposerUsable { get; set; }
+
+    /// <summary>The composer's placeholder while it is usable.</summary>
+    public string ComposerPlaceholder { get; set; } = "";
+
+    /// <summary>What shows in the composer's place while it is not usable.</summary>
+    public string? ComposerOffText { get; set; }
+
+    /// <summary>The line under the composer.</summary>
+    public string ComposerHint { get; set; } = "";
+
+    /// <summary>Whether the quick prompt buttons may be pressed now.</summary>
+    public bool QuickPromptsUsable { get; set; }
+
+    /// <summary>The label a quick prompt button shows while its words are being sent.</summary>
+    public string QuickPromptBusyLabel { get; set; } = "";
+
+    /// <summary>Whether the "thinking" line shows under the conversation.</summary>
+    public bool ThinkingShown { get; set; }
+
+    /// <summary>Whether the bar that says the Fleet Manager is not running shows. Its sentence is
+    /// <see cref="FleetManagerStatusDto.Sentence"/> and its start button <see cref="FleetManagerStatusDto.Start"/>.</summary>
+    public bool NotRunningBarShown { get; set; }
+
+    /// <summary>The bar's link to the Fleet Manager tab in Settings, for example "Move it in Settings".</summary>
+    public string SettingsLabel { get; set; } = "";
 }
 
 /// <summary>One action the page may offer, with its label and, when it closes something, its confirmation.</summary>

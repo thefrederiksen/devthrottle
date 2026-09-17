@@ -535,6 +535,15 @@
 .fm-bar-note {
   margin: -8px 0 14px 2px;
 }
+.fm-replacement {
+  margin: -6px 0 14px 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--border);
+  line-height: 1.45;
+}
+.fm-replacement.fm-tone-bad {
+  border-left-color: var(--attention);
+}
 .fm-confirm {
   background: var(--surface);
   border: 1px solid var(--accent);

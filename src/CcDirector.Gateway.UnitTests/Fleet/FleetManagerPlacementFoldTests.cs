@@ -53,6 +53,75 @@ public sealed class FleetManagerPlacementFoldTests
     private static FleetManagerMachineChoiceDto MachineOf(FleetManagerPlacementDto dto, string name)
         => Assert.Single(dto.Machines, m => m.Machine == name);
 
+    // ---- the page's controls (steps 5 and 6 fixes: the page decides nothing) ------------------------------
+
+    [Fact]
+    public void Fold_Running_ThePageMayUseTheComposerAndQuickPrompts_AndShowsNoBar()
+    {
+        var dto = FleetManagerPlacementFold.Fold(Inputs(new[] { WithDirector("WORKSTATION-A") }, marked: MarkedId,
+            roster: new[] { Session(MarkedId, "Working") }));
+
+        var page = dto.Status.Page;
+        Assert.Equal("Claude Code on WORKSTATION-A", page.Where);
+        Assert.Equal("(change)", page.ChangeLabel);
+        Assert.True(page.ComposerUsable);
+        Assert.Equal("Tell the Fleet Manager what you want...", page.ComposerPlaceholder);
+        Assert.Null(page.ComposerOffText);
+        Assert.Equal("Enter sends. The microphone opens the same dictation window as every session. Buttons on a card record "
+                     + "your answer and pass it to the Fleet Manager as if you had said it.", page.ComposerHint);
+        Assert.True(page.QuickPromptsUsable);
+        Assert.Equal("Sending...", page.QuickPromptBusyLabel);
+        Assert.True(page.ThinkingShown);
+        Assert.False(page.NotRunningBarShown);
+        Assert.Equal("Move it in Settings", page.SettingsLabel);
+    }
+
+    [Fact]
+    public void Fold_RunningAndIdle_ShowsNoThinkingLine()
+    {
+        var dto = FleetManagerPlacementFold.Fold(Inputs(new[] { WithDirector("WORKSTATION-A") }, marked: MarkedId,
+            roster: new[] { Session(MarkedId, "WaitingForInput") }));
+
+        Assert.True(dto.Status.Page.ComposerUsable);
+        Assert.False(dto.Status.Page.ThinkingShown);
+    }
+
+    [Theory]
+    [InlineData("not-running", "running", "not running")]
+    [InlineData("unreachable", "offline", "not running - WORKSTATION-A cannot be reached")]
+    [InlineData("no-computer", "none", "not running - this account has no computer for it")]
+    public void Fold_NotRunning_ThePageShowsTheBarAndOffersNoComposer(string state, string computer, string line)
+    {
+        var machines = computer switch
+        {
+            "running" => new[] { WithDirector("WORKSTATION-A") },
+            "offline" => new[] { Offline("WORKSTATION-A") },
+            _ => Array.Empty<FleetManagerMachineFacts>(),
+        };
+        var machine = computer == "none" ? null : "WORKSTATION-A";
+        var dto = FleetManagerPlacementFold.Fold(Inputs(machines, agent: machine is null ? null : "ClaudeCode", machine: machine));
+
+        Assert.Equal(state, dto.Status.State);
+        var page = dto.Status.Page;
+        Assert.True(page.NotRunningBarShown);
+        Assert.False(page.ComposerUsable);
+        Assert.False(page.QuickPromptsUsable);
+        Assert.False(page.ThinkingShown);
+        Assert.Equal(line, page.ComposerOffText);
+        Assert.Equal("Move it in Settings", page.SettingsLabel);
+    }
+
+    [Fact]
+    public void Fold_NoMark_ButAnotherLiveSession_IsNotRunningOnThePage()
+    {
+        // A live session that is not the marked one is never the page's Fleet Manager.
+        var dto = FleetManagerPlacementFold.Fold(Inputs(new[] { WithDirector("WORKSTATION-A") }, marked: MarkedId,
+            roster: new[] { Session(MarkedId, "Working", controller: "30000000-0000-4000-8000-0000000000ff") }));
+
+        Assert.True(dto.Status.Page.NotRunningBarShown);
+        Assert.False(dto.Status.Page.ComposerUsable);
+    }
+
     // ---- the three computer states ----------------------------------------------------------------------
 
     [Fact]

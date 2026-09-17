@@ -120,6 +120,10 @@ internal sealed class GatewayFleetManagerHandOverEnvironment : IFleetManagerHand
 
     public string? MarkedFleetManager(TenantId tenant) => Mark(tenant);
 
+    public Func<TenantId, string?>? Successor { get; init; }
+
+    public string? WaitingFleetManager(TenantId tenant) => Successor?.Invoke(tenant);
+
     public IReadOnlyList<(string DirectorId, SessionDto Session)> Roster(TenantId tenant)
     {
         var roster = Pushed.SnapshotFresh(tenant, StaleAfter);

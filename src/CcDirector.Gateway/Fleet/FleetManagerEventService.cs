@@ -717,6 +717,15 @@ public sealed class FleetManagerEventService : IDisposable
 
     // ================================================================= delivery
 
+    /// <summary>An event was stored by someone else (an owner's answer, a moved mark): book a delivery for the account's
+    /// Fleet Manager, which happens only while it is waiting for a prompt. Never throws.</summary>
+    public void OnEventQueued(TenantId tenant)
+    {
+        if (_disposed) return;
+        FileLog.Write($"[FleetManagerEventService] OnEventQueued: tenant={tenant.ToLogString()}");
+        ScheduleDelivery(tenant);
+    }
+
     /// <summary>Book one batched delivery for this account, unless one is already waiting.</summary>
     private void ScheduleDelivery(TenantId tenant)
     {

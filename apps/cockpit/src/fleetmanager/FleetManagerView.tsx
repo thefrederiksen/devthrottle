@@ -31,7 +31,10 @@ import { fleetManagerPageStore } from "./pageStore";
 // words reach the Fleet Manager exactly as spoken. A message sent while it is thinking queues behind its turn, as
 // any prompt does.
 //
-// THE CLIENT IS DUMB (CLAUDE.md rule 7). Every sentence, label, count, tone and button here is the Gateway's.
+// THE CLIENT IS DUMB (CLAUDE.md rule 7). Every sentence, label, count, tone and button here is the Gateway's, and so is
+// every decision about what a state means: whether the composer and the quick prompts can be used, whether the
+// not-running bar shows, and the thinking line all come from status.page (the placement answer). A card button is one
+// Gateway call; the Gateway passes the answer to the Fleet Manager.
 //
 // The "Started ..." lines of the design are not drawn as small lines: the history carries no record that tells a
 // start apart from any other reply, and guessing at the prose is exactly what this page must not do. They show as
@@ -41,8 +44,6 @@ import { fleetManagerPageStore } from "./pageStore";
 const SURFACE = "cockpit-fleet-manager";
 const PLACEMENT_REFRESH_MS = 8000;
 const BOTTOM_THRESHOLD_PX = 40;
-
-export const COMPOSER_PLACEHOLDER = "Tell the Fleet Manager what you want...";
 
 function usePlacement() {
   const [placement, setPlacement] = useState<FleetManagerPlacement | null>(null);
@@ -66,9 +67,9 @@ export function FleetManagerView() {
   const openHandOver = search.get("handover") === "1";
   const { placement, setPlacement, error: placementError, refresh: refreshPlacement } = usePlacement();
   const status = placement?.status;
+  const controls = status?.page;
   // The marked session, from the setting's answer; the page's answer carries the same mark.
   const sessionId = status?.sessionId ?? page.data?.fleetManagerSessionId ?? undefined;
-  const running = status?.state === "running";
 
   const chat = useSessionChat(sessionId ?? undefined);
   const items = mergeConversation(chat.bubbles, page.data?.cards ?? []);
@@ -139,13 +140,9 @@ export function FleetManagerView() {
               ) : null
             ) : (
               <>
-                {placement.agent && placement.machine && (
-                  <span>
-                    {placement.agentLabel} on {placement.machine}{" "}
-                  </span>
-                )}
+                {placement.status.page.where && <span>{placement.status.page.where} </span>}
                 <Link className="fmp-change" to="/settings?tab=fleetmanager">
-                  (change)
+                  {placement.status.page.changeLabel}
                 </Link>
                 {" - "}
                 <span className={`fmp-line fmp-line-${placement.status.tone}`}>{placement.status.line}</span>
@@ -161,8 +158,8 @@ export function FleetManagerView() {
         </div>
         <div className="fmp-head-actions">
           {(page.data?.quickPrompts ?? []).map((q) => (
-            <Button key={q.label} disabled={!running || quickBusy !== null} onClick={() => void sendQuick(q.words)}>
-              {quickBusy === q.words ? "Sending..." : q.label}
+            <Button key={q.label} disabled={!controls?.quickPromptsUsable || quickBusy !== null} onClick={() => void sendQuick(q.words)}>
+              {quickBusy === q.words ? controls?.quickPromptBusyLabel : q.label}
             </Button>
           ))}
         </div>
@@ -173,7 +170,13 @@ export function FleetManagerView() {
         </div>
       )}
 
-      {status !== undefined && status.state !== "running" && (
+      {status?.replacement && (
+        <div className={`fmp-bar fmp-bar-${status.replacementTone ?? "idle"}`} role="status" data-testid="fmp-replacement">
+          <span className="fmp-bar-text">{status.replacement}</span>
+        </div>
+      )}
+
+      {status !== undefined && status.page.notRunningBarShown && (
         <div className={`fmp-bar fmp-bar-${status.tone}`} data-testid="fmp-not-running">
           <span className="fmp-bar-text">{status.sentence}</span>
           <div className="fmp-bar-actions">
@@ -183,7 +186,7 @@ export function FleetManagerView() {
               </Button>
             )}
             <Link className="ui-btn ui-btn-secondary" to="/settings?tab=fleetmanager">
-              Move it in Settings
+              {status.page.settingsLabel}
             </Link>
           </div>
           {status.start.note && <div className="fmp-bar-note">{status.start.note}</div>}
@@ -232,7 +235,7 @@ export function FleetManagerView() {
                   </div>
                   <div className="fmp-fmb">
                     <div className="fmp-who">{item.card.whoLine}</div>
-                    <OutcomeCard card={item.card} fleetManagerSessionId={sessionId} onAnswered={refreshAll} />
+                    <OutcomeCard card={item.card} onAnswered={refreshAll} />
                   </div>
                 </div>
               ) : item.bubble.bubble.kind === "user" ? (
@@ -255,7 +258,7 @@ export function FleetManagerView() {
                 </div>
               ),
             )}
-            {running && status?.thinking && (
+            {controls?.thinkingShown && status && (
               <div className="fmp-thinking" role="status">
                 {status.line}
               </div>
@@ -263,7 +266,7 @@ export function FleetManagerView() {
           </div>
 
           <div className="fmp-composer">
-            {running ? (
+            {controls?.composerUsable ? (
               <SessionComposer
                 sessionId={sessionId}
                 value={text}
@@ -271,16 +274,13 @@ export function FleetManagerView() {
                 onQueued={() => undefined}
                 enterSends
                 showQueueAndAttach={false}
-                placeholder={COMPOSER_PLACEHOLDER}
+                placeholder={controls.composerPlaceholder}
                 onSent={refreshAll}
               />
             ) : (
-              <div className="fmp-composer-off">{status?.line ?? ""}</div>
+              <div className="fmp-composer-off">{controls?.composerOffText ?? ""}</div>
             )}
-            <div className="fmp-hint">
-              Enter sends. The microphone opens the same dictation window as every session. Buttons on a card send your
-              answer as if you had said it.
-            </div>
+            {controls && <div className="fmp-hint">{controls.composerHint}</div>}
           </div>
         </div>
 

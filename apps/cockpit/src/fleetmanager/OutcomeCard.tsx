@@ -1,22 +1,21 @@
 import { useCallback, useState } from "react";
 import type { FleetCardAction, FleetOutcomeCard } from "@devthrottle/client-core/fleetmanager/pageClient";
-import { answerCard, retellFleetManager, type CardAnswerDeps } from "@devthrottle/client-core/fleetmanager/answerCard";
+import { answerCard, type CardAnswerDeps } from "@devthrottle/client-core/fleetmanager/answerCard";
 import { reportClientError } from "@devthrottle/client-core/errors/reportClientError";
 import { Button } from "../components";
 
 // One of the three cards - Ready for you, Finding, Decision - drawn from an outcome record (the Fleet Manager
 // mission, step 6). Every field, label, tone and button (with the exact words it sends) comes from the Gateway;
-// this renders them as sent. A button sends the owner's answer as if the owner had said it: see answerCard for the
-// order of the two calls and what each failure shows.
+// this renders them as sent. A button is ONE Gateway call that records the owner's answer; the Gateway passes it to the
+// Fleet Manager (see answerCard). The card then shows the Gateway's sentence for how far the answer has got.
 
 const SURFACE = "cockpit-fleet-manager-card";
 
 export interface OutcomeCardProps {
   card: FleetOutcomeCard;
-  fleetManagerSessionId: string | null | undefined;
   /** Called once the record is answered, so the page re-reads the Gateway at once. */
   onAnswered: () => void;
-  /** For tests: the two calls a button makes. */
+  /** For tests: the one call a button makes. */
   deps?: CardAnswerDeps;
 }
 
@@ -24,44 +23,30 @@ function variantOf(style: FleetCardAction["style"]) {
   return style === "primary" ? "primary" : style === "ghost" ? "ghost" : "secondary";
 }
 
-export function OutcomeCard({ card, fleetManagerSessionId, onAnswered, deps }: OutcomeCardProps) {
-  const [busy, setBusy] = useState<string | null>(null);
+export function OutcomeCard({ card, onAnswered, deps }: OutcomeCardProps) {
+  // The action whose answer is being recorded, so its button shows that action's busy label.
+  const [busy, setBusy] = useState<{ words: string; label: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [asking, setAsking] = useState<FleetCardAction | null>(null);
   const [typed, setTyped] = useState("");
-  // The record was answered but the Fleet Manager was not told: the words, so they can be sent again.
-  const [untold, setUntold] = useState<{ words: string; error: string } | null>(null);
 
   const send = useCallback(
-    async (words: string) => {
-      setBusy(words);
+    async (words: string, action: FleetCardAction) => {
+      setBusy({ words, label: action.busyLabel });
       setError(null);
-      const result = await answerCard(card.id, fleetManagerSessionId, words, deps);
+      const result = await answerCard(card.id, words, deps);
       setBusy(null);
-      if (result.kind === "answer-failed") {
+      if (result.kind === "refused") {
         reportClientError(SURFACE, "fleet-manager", `answer ${card.id}: ${result.error}`);
         setError(result.error);
         return;
       }
       setAsking(null);
       setTyped("");
-      if (result.kind === "prompt-failed") {
-        reportClientError(SURFACE, "fleet-manager", `tell the Fleet Manager about ${card.id}: ${result.error}`);
-        setUntold({ words, error: result.error });
-      }
       onAnswered();
     },
-    [card.id, fleetManagerSessionId, deps, onAnswered],
+    [card.id, deps, onAnswered],
   );
-
-  const retell = useCallback(async () => {
-    if (untold === null) return;
-    setBusy(untold.words);
-    const result = await retellFleetManager(fleetManagerSessionId, untold.words, deps);
-    setBusy(null);
-    if (result.kind === "sent") setUntold(null);
-    else setUntold({ words: untold.words, error: result.error });
-  }, [untold, fleetManagerSessionId, deps]);
 
   const onAction = (action: FleetCardAction) => {
     if (action.asksForWords) {
@@ -69,7 +54,7 @@ export function OutcomeCard({ card, fleetManagerSessionId, onAnswered, deps }: O
       setAsking(action);
       return;
     }
-    if (action.words) void send(action.words);
+    if (action.words) void send(action.words, action);
   };
 
   return (
@@ -115,6 +100,7 @@ export function OutcomeCard({ card, fleetManagerSessionId, onAnswered, deps }: O
         <div className="fmp-card-answered">
           <span className="fmp-card-answered-label">{card.answerLabel}</span>
           <span className="fmp-card-answered-text">{card.answer}</span>
+          {card.answerDelivery && <span className="fmp-card-delivery">{card.answerDelivery}</span>}
         </div>
       )}
 
@@ -124,7 +110,7 @@ export function OutcomeCard({ card, fleetManagerSessionId, onAnswered, deps }: O
             .filter((a) => a.style === "primary")
             .map((a) => (
               <Button key={a.label} variant={variantOf(a.style)} disabled={busy !== null} onClick={() => onAction(a)}>
-                {busy !== null && busy === a.words ? "Sending..." : a.label}
+                {busy !== null && busy.words === a.words ? busy.label : a.label}
               </Button>
             ))}
           {card.ready && (
@@ -141,7 +127,7 @@ export function OutcomeCard({ card, fleetManagerSessionId, onAnswered, deps }: O
             .filter((a) => a.style !== "primary")
             .map((a) => (
               <Button key={a.label} variant={variantOf(a.style)} disabled={busy !== null} onClick={() => onAction(a)}>
-                {busy !== null && busy === a.words ? "Sending..." : a.label}
+                {busy !== null && busy.words === a.words ? busy.label : a.label}
               </Button>
             ))}
         </div>
@@ -161,28 +147,22 @@ export function OutcomeCard({ card, fleetManagerSessionId, onAnswered, deps }: O
             <Button
               variant="primary"
               disabled={busy !== null || typed.trim().length === 0}
-              onClick={() => void send(`${asking.wordsPrefix ?? ""}${typed}`)}
+              onClick={() => void send(`${asking.wordsPrefix ?? ""}${typed}`, asking)}
             >
-              {busy !== null ? "Sending..." : asking.sendLabel ?? asking.label}
+              {busy !== null ? busy.label : asking.sendLabel ?? asking.label}
             </Button>
-            <Button variant="ghost" disabled={busy !== null} onClick={() => setAsking(null)}>
-              Cancel
-            </Button>
+            {asking.cancelLabel && (
+              <Button variant="ghost" disabled={busy !== null} onClick={() => setAsking(null)}>
+                {asking.cancelLabel}
+              </Button>
+            )}
           </div>
         </div>
       )}
 
       {error !== null && (
         <div className="fmp-card-error" role="alert">
-          Your answer was not recorded, and nothing was sent to the Fleet Manager: {error}
-        </div>
-      )}
-      {untold !== null && (
-        <div className="fmp-card-error" role="alert">
-          Your answer was recorded, but it did not reach the Fleet Manager: {untold.error}{" "}
-          <Button variant="ghost" disabled={busy !== null} onClick={() => void retell()}>
-            {busy !== null ? "Sending..." : "Send it to the Fleet Manager again"}
-          </Button>
+          {card.answerRefusedLead} {error}
         </div>
       )}
     </div>

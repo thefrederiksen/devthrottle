@@ -31,8 +31,8 @@ vi.mock("@devthrottle/client-core/errors/reportClientError", () => ({
 vi.mock("./pageStore", () => ({ fleetManagerPageStore: { refreshNow: api.refreshPage } }));
 // The card is step 6's and has its own tests; here it only has to be mounted, and to say when it was answered.
 vi.mock("./OutcomeCard", () => ({
-  OutcomeCard: (p: { card: { id: string; title: string }; fleetManagerSessionId?: string | null; onAnswered: () => void }) => (
-    <div data-testid="outcome-card" data-fm={p.fleetManagerSessionId ?? ""}>
+  OutcomeCard: (p: { card: { id: string; title: string }; onAnswered: () => void }) => (
+    <div data-testid="outcome-card" data-card={p.card.id}>
       {p.card.title}
       <button type="button" onClick={p.onAnswered}>
         answer the card (fake)
@@ -214,7 +214,8 @@ describe("WalkthroughView", () => {
     renderView();
 
     const card = await screen.findByTestId("outcome-card");
-    expect(card.getAttribute("data-fm")).toBe("80000000-0000-4000-8000-000000000001");
+    // The card is the page's own: one Gateway call, which passes the answer to the Fleet Manager.
+    expect(card.getAttribute("data-card")).toBe("rec-3");
     expect(screen.getByText("The Wingman has no reading of this session's current stop (fake).")).toBeTruthy();
     expect(screen.getByText("The Fleet Manager wrote no advice for this one.")).toBeTruthy();
     expect(screen.getByText("The session's computer is not reporting (fake).")).toBeTruthy();

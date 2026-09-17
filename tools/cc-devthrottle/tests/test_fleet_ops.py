@@ -718,6 +718,37 @@ def test_every_event_reads_back_exactly_from_the_default_output(gw):
     assert f"cc-devthrottle fleet ack {made[0]['id']}" in result.output
 
 
+def test_an_answered_card_and_a_moved_mark_read_back_with_the_owners_words_exactly(gw):
+    words = 'Send it back: Roster. Use "the real clock", not 100% of it.'
+    answered = gw.add_event("answered", "", "", outcomeId="0c000000-0000-4000-8000-000000000001",
+                            outcomeTitle="Roster, second attempt", words=words)
+    marked = gw.add_event("marked", ME, "Fleet Manager",
+                          detail="The account's Fleet Manager mark has moved to you.")
+    stop = gw.add_event("stop", WORKER, "a stop", verdict=dict(READING))
+
+    result = runner.invoke(app, ["fleet", "events"])
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines()[0] == "count: 3 (stop 1, died 0, answered 1, marked 1) status: unacknowledged"
+    _, rows = read_table(result.output, "events")
+    assert (rows[0]["kind"], rows[0]["name"], rows[0]["verdict"], rows[0]["label"]) == (
+        "answered", "Roster, second attempt", "owner answered", words)
+    assert (rows[1]["kind"], rows[1]["verdict"], rows[1]["label"]) == (
+        "marked", "now yours", "The account's Fleet Manager mark has moved to you.")
+    # The buffer hint names a session a stop is about, never the empty session of an answered card.
+    assert f"cc-devthrottle session buffer {WORKER}" in result.output
+    assert f"cc-devthrottle fleet ack {answered['id']}" in result.output
+    assert stop["id"] and marked["id"]
+
+
+def test_only_stops_and_deaths_are_counted_when_nothing_else_is_there(gw):
+    gw.add_event("stop", WORKER, "a stop")
+
+    result = runner.invoke(app, ["fleet", "events"])
+
+    assert result.output.splitlines()[0] == "count: 1 (stop 1, died 0) status: unacknowledged"
+
+
 def test_events_json_is_the_gateways_answer_with_the_filter_applied(gw):
     gw.add_event("stop", WORKER, "open one")
     gw.add_event("stop", WORKER, "done one", acknowledged=True)

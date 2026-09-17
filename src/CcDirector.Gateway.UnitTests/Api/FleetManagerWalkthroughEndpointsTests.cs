@@ -251,6 +251,8 @@ public sealed class FleetManagerWalkthroughEndpointsTests : IDisposable
         Assert.Equal("answered", stored.Status);
         Assert.Equal("B - single column", stored.Answer);
         Assert.Equal("owner", stored.AnsweredByRole);
+        // Step 7's ruling stands: a walkthrough answer goes to the session and is recorded, not queued to the Fleet Manager.
+        Assert.Empty(new FleetManagerEventStore(_harness.Open()).Unacknowledged(TenantA));
     }
 
     [Fact]

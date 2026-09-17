@@ -1297,7 +1297,11 @@ where nothing is typed to it (JSON: `recentlyAnswered`, `answeredWithinHours`). 
 carries each record's `advice` and `ownerNote` (a snooze from the walkthrough).
 
 `fleet events` lists the events about sessions a Fleet Manager owns - a `stop` (with the Wingman's
-reading of it, or why there is none) or a `died` (exited or crashed). By default only the
+reading of it, or why there is none) or a `died` (exited or crashed) - and two more the Gateway sends
+the same way: `answered` (the owner pressed a card's button; the verdict column says `owner answered`,
+the label is the owner's words exactly, and the name is the record's title) and `marked` (the mark
+moved to that session after a restart or a move; it is delivered only to the session it names). The
+count line always counts `stop` and `died`, and adds `answered` and `marked` when any are listed. By default only the
 unacknowledged ones, oldest first; `--all` includes acknowledged ones, newest first. One page at a
 time, exactly as `fleet outcomes` pages: past the page the count line says `count: <shown> of
 <total>`, the next line is `nextCursor: <cursor>`, and the help names `--cursor <cursor>` for the next
@@ -1347,7 +1351,8 @@ Fleet Manager. Whether the owner is a Fleet Manager is the roster row's `ownedBy
 the Gateway works out.
 
 Gateway routes: `/gateway/fleet-manager/outcomes` (GET, POST), `/outcomes/{id}` (GET),
-`/outcomes/{id}/answer` (POST, 409 when already answered), `/outcomes/{id}/advice` (PUT
+`/outcomes/{id}/answer` (POST, 409 when already answered; when the owner answers, the same save queues an
+`answered` event to the Fleet Manager), `/outcomes/{id}/advice` (PUT
 `{ advice, pick }`, the Fleet Manager's session key only; 400 for a second line, more than 300
 characters, or a pick that is not a current option; 409 when answered), `/preferences` (GET, POST),
 `/preferences/{id}` (DELETE), `/digest?session=<id>` (GET),
@@ -1364,13 +1369,21 @@ Where the Fleet Manager runs is set in Settings, on the Fleet Manager tab, not f
 Those routes are the owner's and refuse a session key: `/gateway/fleet-manager/placement` (GET, and PUT
 `{ agent, machine }`), `/start`, `/restart` and `/move` (POST; move takes `{ agent, machine }`). A
 start runs on the saved computer only, and the launcher starts a Director there when none is running.
-A restart or move closes the old Fleet Manager only after its current turn ends.
+A restart or move starts the new Fleet Manager and records it as waiting to take over (the answer's
+`status.successorSessionId`); it is not marked yet. The old one stays marked until its Director reports it
+Idle and the ordinary close has gone through - never while it is working or waiting for the owner, and
+`status.replacement` says what it waits for. Then the mark moves and the new one is sent one `marked`
+event. A move saves the new place only once the new Fleet Manager has started. While a replacement is
+under way, save, start, restart and move are refused (409) with the Gateway's sentence. The placement
+answer's `status.page` carries what the Fleet Manager page may show and use in that state.
 
 The Cockpit's Fleet Manager page (`/fleet-manager`, where the Cockpit opens) reads `/gateway/fleet-manager/page` (GET, the owner's; a session key is refused and reads the
 digest instead): the cards drawn from the records, the right panel (waiting on you, under way, answered
 today, and the sessions that still ask the owner directly - their count, and the list of them with a
-hand-over button each) and the rail's badge count. A card button answers the record and then sends the
-same words to the Fleet Manager as a prompt. Hand over is `POST /gateway/fleet-manager/hand-over` (see
+hand-over button each) and the rail's badge count. A card button is one call - the answer
+route - and the Gateway passes the words to the Fleet Manager as an `answered` event; the answered card
+says how far they have got (`answerDelivery`). Every open record is a card; only the answered history is
+limited (the newest 100). Hand over is `POST /gateway/fleet-manager/hand-over` (see
 Session Hand-Over).
 
 The Fleet Manager replaced the Assistant, which is gone from the Cockpit, the phone and Settings. Its

@@ -73,14 +73,17 @@ public sealed class FleetManagerPageFoldTests
         string? marked = Marked,
         Func<string, TurnVerdictDto?>? verdict = null,
         TimeZoneInfo? tz = null,
-        SessionDto? markedSession = null)
+        SessionDto? markedSession = null,
+        IReadOnlyDictionary<string, FleetManagerEventDto>? answerEvents = null,
+        string? successor = null)
         => new(marked,
             // The marked session's last reported row: the one passed, else its roster row, else an unowned row
             // that has ended (a Fleet Manager whose conversation is still there to read).
             markedSession ?? roster?.FirstOrDefault(s => s.SessionId == marked)
                 ?? (marked is null ? null : new SessionDto { SessionId = marked, ActivityState = "Exited" }),
             roster ?? Array.Empty<SessionDto>(), open ?? Array.Empty<FleetOutcomeDto>(),
-            recent ?? Array.Empty<FleetOutcomeDto>(), verdict ?? (_ => null), tz ?? TimeZoneInfo.Utc, Now);
+            recent ?? Array.Empty<FleetOutcomeDto>(), verdict ?? (_ => null), tz ?? TimeZoneInfo.Utc, Now,
+            answerEvents, successor);
 
     // ---- an empty account -----------------------------------------------------------------------------------
 
@@ -462,12 +465,106 @@ public sealed class FleetManagerPageFoldTests
             Finding("f1", "Yesterday", new DateTime(2026, 9, 15, 20, 0, 0, DateTimeKind.Utc)),
         };
 
-        var dto = FleetManagerPageFold.Fold(Inputs(recent: recent, tz: tz));
+        var dto = FleetManagerPageFold.Fold(Inputs(open: recent, tz: tz));
 
         Assert.Equal(new[] { "f1", "r1", "d1" }, dto.Cards.Select(c => c.Id));
         Assert.Equal("Fleet Manager - yesterday 16:00", dto.Cards[0].WhoLine);
         Assert.Equal("Fleet Manager - 10:14", dto.Cards[1].WhoLine);
         Assert.Equal(new DateTime(2026, 9, 16, 14, 14, 0, DateTimeKind.Utc), dto.Cards[1].FiledAtUtc);
+    }
+
+    [Fact]
+    public void Fold_Cards_EveryOpenRecordIsACardWithItsButtons_AndOnlyTheAnsweredHistoryComesFromTheLimitedRead()
+    {
+        // Open records older than every answered one - the case the old 100-record window dropped.
+        var open = Enumerable.Range(0, 150)
+            .Select(i => Decision($"open-{i:D3}", $"Question {i}", Now.AddDays(-30).AddMinutes(i)))
+            .ToList();
+        var answered = Enumerable.Range(0, FleetManagerPageFold.CardCount)
+            .Select(i => Decision($"done-{i:D3}", $"Settled {i}", Now.AddHours(-10).AddMinutes(i), status: "answered", answer: "Always run both."))
+            .ToList();
+
+        var dto = FleetManagerPageFold.Fold(Inputs(open: open, recent: answered));
+
+        Assert.Equal(150 + FleetManagerPageFold.CardCount, dto.Cards.Count);
+        var openCards = dto.Cards.Where(c => !c.Answered).ToList();
+        Assert.Equal(open.Select(o => o.Id), openCards.Select(c => c.Id));
+        Assert.All(openCards, c => Assert.Equal(new[] { "Replace it for ordinary changes.", "Always run both." }, c.Actions.Select(a => a.Words)));
+        Assert.Equal(150, dto.WaitingCount);
+    }
+
+    [Fact]
+    public void Fold_Cards_ARecordInBothReads_IsDrawnOnce_AsItNowStands()
+    {
+        var open = new[] { Decision("d1", "Keep it?", Now.AddHours(-1)) };
+        var answered = new[] { Decision("d1", "Keep it?", Now.AddHours(-1), status: "answered", answer: "Always run both.") };
+
+        var dto = FleetManagerPageFold.Fold(Inputs(open: open, recent: answered));
+
+        var card = Assert.Single(dto.Cards);
+        Assert.True(card.Answered);
+    }
+
+    public static IEnumerable<object?[]> Deliveries() => new[]
+    {
+        new object?[] { null, "Recorded without being passed to the Fleet Manager as an event. It sees the answer among the records answered in the last day." },
+        new object?[] { new FleetManagerEventDto { Kind = "answered", OutcomeId = "r1" },
+            "Waiting to reach the Fleet Manager: it is passed on the next time the Fleet Manager is free." },
+        new object?[] { new FleetManagerEventDto { Kind = "answered", OutcomeId = "r1", DeliveredAtUtc = Now },
+            "Passed to the Fleet Manager. It has not said it acted on it yet." },
+        new object?[] { new FleetManagerEventDto { Kind = "answered", OutcomeId = "r1", DeliveredAtUtc = Now, AcknowledgedAtUtc = Now },
+            "The Fleet Manager has acted on it." },
+    };
+
+    [Theory]
+    [MemberData(nameof(Deliveries))]
+    public void Fold_AnOwnersAnsweredCard_SaysHowFarTheAnswerHasGot(FleetManagerEventDto? told, string expected)
+    {
+        var answered = new[] { Ready("r1", "Flaky list test", Now.AddHours(-2), status: "answered", answeredAt: Now.AddHours(-1), answer: "Merge: Flaky list test") };
+        var events = told is null ? null : new Dictionary<string, FleetManagerEventDto> { ["r1"] = told };
+
+        var dto = FleetManagerPageFold.Fold(Inputs(recent: answered, answerEvents: events));
+
+        Assert.Equal(expected, Assert.Single(dto.Cards).AnswerDelivery);
+    }
+
+    [Fact]
+    public void Fold_ACardTheFleetManagerAnsweredItself_SaysNothingAboutPassingItOn()
+    {
+        var answered = new[] { Ready("r1", "Flaky list test", Now.AddHours(-2), status: "answered", answeredAt: Now.AddHours(-1),
+            answer: "Merge: Flaky list test", answeredByRole: "fleet-manager") };
+
+        var dto = FleetManagerPageFold.Fold(Inputs(recent: answered));
+
+        Assert.Null(Assert.Single(dto.Cards).AnswerDelivery);
+    }
+
+    [Fact]
+    public void Card_EveryButton_CarriesItsLabelsFromTheGateway()
+    {
+        var cards = new[] { Ready("r1", "A", Now), Finding("f1", "B", Now), Decision("d1", "C", Now) }
+            .Select(r => FleetManagerPageFold.Card(r, TimeZoneInfo.Utc, Now)).ToList();
+
+        Assert.All(cards, c => Assert.Equal("Your answer was not recorded, and nothing was passed to the Fleet Manager:", c.AnswerRefusedLead));
+        Assert.All(cards.SelectMany(c => c.Actions), a => Assert.Equal("Recording...", a.BusyLabel));
+        var sendBack = cards[0].Actions.Single(a => a.AsksForWords);
+        Assert.Equal(("Send it back", "Cancel"), (sendBack.SendLabel, sendBack.CancelLabel));
+    }
+
+    [Fact]
+    public void Fold_TheNewFleetManagerWaitingToTakeOver_IsNotASessionThatAsksTheOwner()
+    {
+        const string Successor = "50000000-0000-4000-8000-0000000000aa";
+        var roster = new[]
+        {
+            Session(Marked, "Fleet Manager", "Working", null, false, Now.AddHours(-3)),
+            Session(Successor, "Fleet Manager", "WaitingForInput", null, false, Now.AddMinutes(-1)),
+            Session(Loose, "The owner's own", "WaitingForInput", null, false, Now.AddMinutes(-2)),
+        };
+
+        var dto = FleetManagerPageFold.Fold(Inputs(roster: roster, successor: Successor));
+
+        Assert.Equal(new[] { Loose }, dto.NotMine.Sessions.Select(s => s.SessionId));
     }
 
     [Fact]

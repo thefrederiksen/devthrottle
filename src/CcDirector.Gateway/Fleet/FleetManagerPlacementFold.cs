@@ -35,6 +35,7 @@ internal sealed record FleetManagerMachineFacts(
 /// order, or null when that is not known.</param>
 /// <param name="TimeZone">The account's display time zone, for the times inside sentences.</param>
 /// <param name="NowUtc">The clock.</param>
+/// <param name="SuccessorSessionId">The new Fleet Manager waiting to take over from the marked one, or null.</param>
 internal sealed record FleetManagerPlacementInputs(
     string? SavedAgent,
     string? SavedMachine,
@@ -43,7 +44,8 @@ internal sealed record FleetManagerPlacementInputs(
     IReadOnlyList<SessionDto> Roster,
     IReadOnlyList<AgentChoiceDto>? AgentsOnPlacementMachine,
     TimeZoneInfo TimeZone,
-    DateTime NowUtc);
+    DateTime NowUtc,
+    string? SuccessorSessionId = null);
 
 /// <summary>
 /// The Fleet Manager setting, folded once on the Gateway (the Fleet Manager mission, step 5). Every sentence,
@@ -129,6 +131,7 @@ internal static class FleetManagerPlacementFold
         var placement = machine is null ? null : dto.Machines.First(m => SameMachine(m.Machine, machine));
         dto.Status = FoldStatus(input, agent, placement, now);
         dto.Save = FoldSave(dto, LiveMarked(input)?.MachineName);
+        dto.Status.Page = FoldPageControls(dto);
         return dto;
     }
 
@@ -275,7 +278,11 @@ internal static class FleetManagerPlacementFold
             status.Sentence = $"Running now: {FleetManagerAgents.DisplayName(live.Agent)} on {live.MachineName}, since "
                               + $"{FormatWhen(live.CreatedAt, tz, now)}. Watching {Plural(watching, "session")}.";
             status.Open.Offered = true;
-            if (placement is { Selectable: true })
+            if (Successor(input) is { } successor)
+            {
+                FoldReplacement(status, live, successor);
+            }
+            else if (placement is { Selectable: true })
             {
                 status.Restart.Offered = true;
                 status.Restart.ConfirmTitle = "Restart the Fleet Manager?";
@@ -336,9 +343,58 @@ internal static class FleetManagerPlacementFold
 
     private const string StartingLabel = "Starting... this can take up to 90 seconds while a Director is started.";
 
+    /// <summary>The waiting replacement, when one is recorded: its id and the row its Director last pushed, if any.</summary>
+    private static (string Id, SessionDto? Row)? Successor(FleetManagerPlacementInputs input)
+    {
+        if (string.IsNullOrWhiteSpace(input.SuccessorSessionId)) return null;
+        var id = input.SuccessorSessionId.Trim();
+        return (id, input.Roster.FirstOrDefault(s => string.Equals(s.SessionId, id, StringComparison.OrdinalIgnoreCase)));
+    }
+
+    /// <summary>
+    /// A restart or a move is under way: the old Fleet Manager is still the one, and the sentence says what it is
+    /// waiting for. A turn that has ended but asks the owner something (<see cref="FleetManagerRetirement.WaitsForOwner"/>)
+    /// is said plainly, because nothing moves until the owner answers it. No second restart or move is offered.
+    /// </summary>
+    private static void FoldReplacement(FleetManagerStatusDto status, SessionDto live, (string Id, SessionDto? Row) successor)
+    {
+        status.SuccessorSessionId = successor.Id;
+        var where = successor.Row is null
+            ? "A new Fleet Manager has started"
+            : $"A new Fleet Manager has started ({FleetManagerAgents.DisplayName(successor.Row.Agent)} on {successor.Row.MachineName})";
+        if (FleetManagerRetirement.WaitsForOwner(live))
+        {
+            status.ReplacementTone = ToneBad;
+            status.Replacement = $"{where}. The Fleet Manager running now has stopped and is waiting for you, so it is not "
+                                 + "closed: read it and answer it, or close it yourself once its work is done. It stays the "
+                                 + "Fleet Manager until it has closed, and then the new one takes over.";
+        }
+        else
+        {
+            status.ReplacementTone = ToneIdle;
+            status.Replacement = $"{where}. It takes over once the Fleet Manager running now has finished its current turn "
+                                 + "and closed. Until then the one running now is still the Fleet Manager.";
+        }
+        const string busy = "A restart or a move is already under way. Wait for the new Fleet Manager to take over.";
+        status.Restart.Offered = false;
+        status.Restart.Note = busy;
+    }
+
     private static FleetManagerActionDto FoldSave(FleetManagerPlacementDto dto, string? runningOn)
     {
         var anySelectable = dto.Machines.Any(m => m.Selectable);
+        if (dto.Status.SuccessorSessionId is not null)
+        {
+            return new FleetManagerActionDto
+            {
+                Offered = false,
+                Verb = "move",
+                Label = "Save and move it",
+                BusyLabel = StartingLabel,
+                Note = "A restart or a move is already under way, so nothing can be saved now. Wait for the new Fleet "
+                       + "Manager to take over.",
+            };
+        }
         if (dto.Status.State == FleetManagerStatusDto.StateRunning)
         {
             return new FleetManagerActionDto
@@ -365,6 +421,28 @@ internal static class FleetManagerPlacementFold
             Note = anySelectable
                 ? "Saving records where the Fleet Manager runs. Start it from the bar above."
                 : "No computer on this account can take the Fleet Manager now, so there is nothing to save.",
+        };
+    }
+
+    /// <summary>What the Fleet Manager page may show and use in this state (step 6): the page renders these and decides
+    /// nothing.</summary>
+    private static FleetManagerPageControlsDto FoldPageControls(FleetManagerPlacementDto dto)
+    {
+        var running = dto.Status.State == FleetManagerStatusDto.StateRunning;
+        return new FleetManagerPageControlsDto
+        {
+            Where = dto.Agent is null || dto.Machine is null ? null : $"{dto.AgentLabel} on {dto.Machine}",
+            ChangeLabel = "(change)",
+            ComposerUsable = running,
+            ComposerPlaceholder = "Tell the Fleet Manager what you want...",
+            ComposerOffText = running ? null : dto.Status.Line,
+            ComposerHint = "Enter sends. The microphone opens the same dictation window as every session. Buttons on a "
+                           + "card record your answer and pass it to the Fleet Manager as if you had said it.",
+            QuickPromptsUsable = running,
+            QuickPromptBusyLabel = "Sending...",
+            ThinkingShown = running && dto.Status.Thinking,
+            NotRunningBarShown = !running,
+            SettingsLabel = "Move it in Settings",
         };
     }
 

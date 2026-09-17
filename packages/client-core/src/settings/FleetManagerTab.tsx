@@ -175,6 +175,11 @@ function FleetManagerPlacementCard({ sessionHref }: FleetManagerTabProps) {
         </div>
       </section>
       {barNote && <p className="settings-hint fm-bar-note">{barNote}</p>}
+      {status.replacement && (
+        <p className={`settings-msg fm-replacement fm-tone-${status.replacementTone ?? "idle"}`} role="status">
+          {status.replacement}
+        </p>
+      )}
 
       {pending !== null && (
         <div className="fm-confirm" role="alertdialog" aria-label={pending.action.confirmTitle ?? pending.action.label}>
