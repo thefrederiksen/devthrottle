@@ -1434,9 +1434,9 @@ each run is `slice-6-evidence/red-runs.md`.
 
 ## Slice 4 - the row line (17 September 2026, Manager seat 6)
 
-Built on `mission/message-load` on top of `f04aa97e`, with no rebase and nothing outside slice 4 touched. Four product
-commits: the Gateway and the Director (`a61df261`), the desktop row (`5b6d580e`), the generated client schema
-(`6f04c55c`), the Cockpit and phone rows (`773a7671`). No pull request opened, no fleet message sent. Evidence is in
+Built on `mission/message-load` on top of `f04aa97e` (rebased onto `db128ae2`, inspection 5, before the push) and nothing outside slice 4 touched. Four product
+commits: the Gateway and the Director (`f33aff80`), the desktop row (`a27031e8`), the generated client schema
+(`db86d5e6`), the Cockpit and phone rows (`760683aa`). No pull request opened, no fleet message sent. Evidence is in
 `slice-4-evidence/`, which has its own README.
 
 ### What was built
