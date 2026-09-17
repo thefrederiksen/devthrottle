@@ -113,6 +113,12 @@ public sealed class FleetDoorbell
     /// the Directors' own heartbeat and the turn-end reconcile.</summary>
     public static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(15);
 
+    /// <summary>How many Directors one heartbeat asks at the same time (inspection 4, ruling 6).</summary>
+    public const int RingParallelism = 8;
+
+    /// <summary>How long one ring may take before the heartbeat stops waiting for it and counts it unreachable.</summary>
+    public static readonly TimeSpan RingTimeout = TimeSpan.FromSeconds(5);
+
     /// <summary>Ask one Director to ring one session. Null when the Director could not be reached or refused.</summary>
     public delegate Task<FleetRingResponse?> RingAsync(
         TenantId tenant, string directorId, string sessionId, int unreadCount, CancellationToken ct);
@@ -127,6 +133,7 @@ public sealed class FleetDoorbell
     private readonly ForEachTenantAsync _forEachTenant;
     private readonly FleetMessageLimits _limits;
     private readonly Func<DateTime> _clock;
+    private readonly TimeSpan _ringTimeout;
     private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), byte> _inFlight = new();
 
     /// <param name="store">The inbox.</param>
@@ -136,6 +143,7 @@ public sealed class FleetDoorbell
     /// <param name="forEachTenant">The per-tenant pass the heartbeat runs in.</param>
     /// <param name="limits">The grace and the ring count; the product's when null. A proof run may shorten the grace.</param>
     /// <param name="clock">The clock; injected so the schedule is deterministic in tests.</param>
+    /// <param name="ringTimeout">How long one ring may take; <see cref="RingTimeout"/> when null.</param>
     public FleetDoorbell(
         FleetMessageStore store,
         FleetMessageService messages,
@@ -143,7 +151,8 @@ public sealed class FleetDoorbell
         RingAsync ring,
         ForEachTenantAsync forEachTenant,
         FleetMessageLimits? limits = null,
-        Func<DateTime>? clock = null)
+        Func<DateTime>? clock = null,
+        TimeSpan? ringTimeout = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _messages = messages ?? throw new ArgumentNullException(nameof(messages));
@@ -152,6 +161,7 @@ public sealed class FleetDoorbell
         _forEachTenant = forEachTenant ?? throw new ArgumentNullException(nameof(forEachTenant));
         _limits = limits ?? FleetMessageLimits.Default;
         _clock = clock ?? (() => DateTime.UtcNow);
+        _ringTimeout = ringTimeout ?? RingTimeout;
     }
 
     /// <summary>The limits this doorbell schedules with.</summary>
@@ -184,15 +194,80 @@ public sealed class FleetDoorbell
     /// a message due.
     /// </summary>
     public Task SweepAsync(CancellationToken ct = default) =>
-        _forEachTenant(async tenant =>
+        _forEachTenant(tenant => SweepTenantAsync(tenant, ct), ct);
+
+    /// <summary>
+    /// ONE TENANT'S HEARTBEAT, BOUNDED (inspection 4, ruling 6). Whatever the backlog, the database is read a
+    /// fixed number of times: the stuck scan (rows at the ring cap only), one read of every unread message with its
+    /// recipient and without its text, and - when anything was rung - one read and one save to record the rings.
+    /// The rings themselves run <see cref="RingParallelism"/> at a time, each abandoned after the ring timeout,
+    /// so one slow Director cannot hold up the rest. The tick logs how long it took.
+    /// </summary>
+    internal async Task SweepTenantAsync(TenantId tenant, CancellationToken ct)
+    {
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+        var stuck = MarkStuckAndNotify(tenant);
+        var now = _clock();
+        var unread = _store.UnreadForScheduling(tenant);
+        var plans = unread
+            .GroupBy(m => m.RecipientSessionId, StringComparer.Ordinal)
+            .Select(g => new RingPlan(g.Key, g.Where(m => m.StuckAtUtc is null).ToList(), g.Count()))
+            .Where(p => p.Open.Count > 0)
+            .ToList();
+
+        var held = new ConcurrentBag<(TenantId, string)>();
+        var rung = new ConcurrentBag<(string Sid, IReadOnlyCollection<string> Due, int Unread)>();
+        var attempts = new ConcurrentDictionary<FleetRingAttempt, int>();
+        try
         {
-            MarkStuckAndNotify(tenant);
-            foreach (var sid in _store.RecipientsWithOpenMessages(tenant))
+            await Parallel.ForEachAsync(plans,
+                new ParallelOptions { MaxDegreeOfParallelism = RingParallelism, CancellationToken = ct },
+                async (plan, token) =>
+                {
+                    var key = (tenant, plan.SessionId);
+                    FleetRingAttempt attempt;
+                    if (!_inFlight.TryAdd(key, 0))
+                    {
+                        attempt = FleetRingAttempt.AlreadyRinging;
+                    }
+                    else
+                    {
+                        // The key stays held until the ring is RECORDED below, so a settled edge in between cannot
+                        // ring the same due message a second time.
+                        held.Add(key);
+                        var (a, due) = await RingPlannedAsync(tenant, plan, "heartbeat", now, token).ConfigureAwait(false);
+                        attempt = a;
+                        if (a == FleetRingAttempt.Rung) rung.Add((plan.SessionId, due, plan.UnreadCount));
+                    }
+                    attempts.AddOrUpdate(attempt, 1, (_, n) => n + 1);
+                }).ConfigureAwait(false);
+
+            if (!rung.IsEmpty)
             {
-                ct.ThrowIfCancellationRequested();
-                await RingSessionAsync(tenant, sid, "heartbeat", ct).ConfigureAwait(false);
+                BeforeRingsRecorded?.Invoke();
+                var marked = _store.MarkRungMany(tenant,
+                    rung.Select(r => (r.Sid, r.Due)).ToList(), now, _limits.StuckAfterRings);
+                foreach (var r in rung)
+                    FileLog.Write($"[FleetDoorbell] RUNG: sid={Short(r.Sid)} trigger=heartbeat unread={r.Unread} ids=[{string.Join(",", r.Due)}]");
+                FileLog.Write($"[FleetDoorbell] heartbeat recorded {marked} ring(s) for {rung.Count} session(s)");
             }
-        }, ct);
+        }
+        finally
+        {
+            foreach (var key in held) _inFlight.TryRemove(key, out _);
+            var ms = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            FileLog.Write($"[FleetDoorbell] heartbeat tick: tenant={tenant} stuck={stuck.Count} unread={unread.Count} " +
+                          $"sessions={plans.Count} {string.Join(" ", attempts.OrderBy(k => k.Key).Select(k => $"{k.Key}={k.Value}"))} " +
+                          $"took={ms:0}ms");
+        }
+    }
+
+    /// <summary>Test seam: runs after a heartbeat's rings have answered and before they are recorded, while every
+    /// rung session is still held. Production never sets it.</summary>
+    internal Action? BeforeRingsRecorded { get; set; }
+
+    /// <summary>One session's part of a heartbeat: its open messages and how many are unread in all.</summary>
+    private sealed record RingPlan(string SessionId, IReadOnlyList<FleetMessageEntity> Open, int UnreadCount);
 
     /// <summary>
     /// Ring one session if anything in its inbox is due. The trigger is only for the log.
@@ -204,7 +279,18 @@ public sealed class FleetDoorbell
             return FleetRingAttempt.AlreadyRinging;
         try
         {
-            return await RingSessionCoreAsync(tenant, key.Item2, trigger, ct).ConfigureAwait(false);
+            var sid = key.Item2;
+            var now = _clock();
+            var open = _store.OpenMessagesFor(tenant, sid);
+            if (open.Count == 0) return FleetRingAttempt.NothingOpen;
+            var plan = new RingPlan(sid, open, _store.CountUnread(tenant, sid));
+            var (attempt, due) = await RingPlannedAsync(tenant, plan, trigger, now, ct).ConfigureAwait(false);
+            if (attempt == FleetRingAttempt.Rung)
+            {
+                var marked = _store.MarkRung(tenant, sid, due, now, _limits.StuckAfterRings);
+                FileLog.Write($"[FleetDoorbell] RUNG: sid={Short(sid)} trigger={trigger} unread={plan.UnreadCount} counted={marked} ids=[{string.Join(",", due)}]");
+            }
+            return attempt;
         }
         finally
         {
@@ -212,54 +298,72 @@ public sealed class FleetDoorbell
         }
     }
 
-    private async Task<FleetRingAttempt> RingSessionCoreAsync(TenantId tenant, string sid, string trigger, CancellationToken ct)
+    /// <summary>
+    /// Decide and ask, and return what came of it with the ids that were due. Writes nothing: the caller records a
+    /// ring, so the heartbeat can record all of its rings in one save.
+    /// </summary>
+    private async Task<(FleetRingAttempt Attempt, IReadOnlyCollection<string> Due)> RingPlannedAsync(
+        TenantId tenant, RingPlan plan, string trigger, DateTime now, CancellationToken ct)
     {
-        var now = _clock();
-        var open = _store.OpenMessagesFor(tenant, sid);
-        if (open.Count == 0) return FleetRingAttempt.NothingOpen;
+        var sid = plan.SessionId;
+        if (plan.Open.Count == 0) return (FleetRingAttempt.NothingOpen, []);
 
-        var due = open.Where(m => FleetRingSchedule.IsDue(m, now, _limits)).Select(m => m.MessageId).ToList();
-        if (due.Count == 0) return FleetRingAttempt.NotDue;
+        var due = plan.Open.Where(m => FleetRingSchedule.IsDue(m, now, _limits)).Select(m => m.MessageId).ToList();
+        if (due.Count == 0) return (FleetRingAttempt.NotDue, due);
 
         var target = _locate(tenant, sid);
         if (target is null)
         {
             FileLog.Write($"[FleetDoorbell] ring SKIPPED (not connected): sid={Short(sid)} trigger={trigger} due={due.Count}");
-            return FleetRingAttempt.NotConnected;
+            return (FleetRingAttempt.NotConnected, due);
         }
 
         var activity = (target.ActivityState ?? "").Trim();
         if (activity.Equals("Exited", StringComparison.OrdinalIgnoreCase))
         {
             FileLog.Write($"[FleetDoorbell] ring SKIPPED (exited): sid={Short(sid)} trigger={trigger} due={due.Count}");
-            return FleetRingAttempt.SkippedExited;
+            return (FleetRingAttempt.SkippedExited, due);
         }
         if (activity.Equals("Working", StringComparison.OrdinalIgnoreCase)
             || activity.Equals("Starting", StringComparison.OrdinalIgnoreCase))
         {
             // Not logged: a long turn would write this line every heartbeat. The settled edge asks again.
-            return FleetRingAttempt.SkippedWorking;
+            return (FleetRingAttempt.SkippedWorking, due);
         }
 
         // The line says how many messages wait, stuck ones included - they are still in the inbox and a read
         // returns them.
-        var unread = _store.CountUnread(tenant, sid);
-        var answer = await _ring(tenant, target.DirectorId, sid, unread, ct).ConfigureAwait(false);
+        var answer = await AskWithTimeoutAsync(tenant, target.DirectorId, sid, plan.UnreadCount, trigger, ct).ConfigureAwait(false);
         if (answer is null)
         {
             FileLog.Write($"[FleetDoorbell] ring UNREACHABLE: sid={Short(sid)} director={Short(target.DirectorId)} trigger={trigger}");
-            return FleetRingAttempt.Unreachable;
+            return (FleetRingAttempt.Unreachable, due);
         }
 
         if (string.Equals(answer.Outcome, FleetRingOutcomes.Rung, StringComparison.Ordinal))
-        {
-            var marked = _store.MarkRung(tenant, sid, due, now, _limits.StuckAfterRings);
-            FileLog.Write($"[FleetDoorbell] RUNG: sid={Short(sid)} trigger={trigger} unread={unread} counted={marked} ids=[{string.Join(",", due)}]");
-            return FleetRingAttempt.Rung;
-        }
+            return (FleetRingAttempt.Rung, due);
 
-        FileLog.Write($"[FleetDoorbell] ring DEFERRED ({answer.Reason}): sid={Short(sid)} trigger={trigger} unread={unread} detail={answer.Detail}");
-        return FleetRingAttempt.Deferred;
+        FileLog.Write($"[FleetDoorbell] ring DEFERRED ({answer.Reason}): sid={Short(sid)} trigger={trigger} unread={plan.UnreadCount} detail={answer.Detail}");
+        return (FleetRingAttempt.Deferred, due);
+    }
+
+    /// <summary>Send one ring, and stop waiting for it after the ring timeout. A ring that answers late is not
+    /// counted; if the Director did type the line, the next ring may type a second one, which ruling 8 calls
+    /// harmless.</summary>
+    private async Task<FleetRingResponse?> AskWithTimeoutAsync(
+        TenantId tenant, string directorId, string sid, int unread, string trigger, CancellationToken ct)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(_ringTimeout);
+        try
+        {
+            return await _ring(tenant, directorId, sid, unread, cts.Token).WaitAsync(_ringTimeout, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is TimeoutException || (ex is OperationCanceledException && !ct.IsCancellationRequested))
+        {
+            FileLog.Write($"[FleetDoorbell] ring TIMED OUT after {_ringTimeout.TotalSeconds:0.#}s: sid={Short(sid)} director={Short(directorId)} trigger={trigger}");
+            return null;
+        }
     }
 
     /// <summary>
@@ -278,6 +382,7 @@ public sealed class FleetDoorbell
                 ? null // a stuck system notice has nobody to tell
                 : new FleetMessageDraft(m.SenderSessionId, null, null, null, FleetMessageKinds.System,
                     StuckNoticeText(m, _locate(tenant, m.RecipientSessionId)?.Name, _limits)),
+            minRings: _limits.StuckAfterRings,
             limits: _messages.Limits);
         foreach (var (m, notice) in marked)
         {

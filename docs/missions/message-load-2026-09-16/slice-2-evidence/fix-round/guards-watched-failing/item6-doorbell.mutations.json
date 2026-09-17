@@ -1,0 +1,7 @@
+[
+ {"name":"item 6 reverted: the old heartbeat, one session at a time with its own queries","old":"    internal async Task SweepTenantAsync(TenantId tenant, CancellationToken ct)\n    {\n","new":"    internal async Task SweepTenantAsync(TenantId tenant, CancellationToken ct)\n    {\n        MarkStuckAndNotify(tenant);\n        foreach (var osid in _store.RecipientsWithOpenMessages(tenant)) await RingSessionAsync(tenant, osid, \"heartbeat\", ct);\n        if (tenant.IsValid) return;\n"},
+ {"name":"rings one at a time","old":"MaxDegreeOfParallelism = RingParallelism,","new":"MaxDegreeOfParallelism = 1,"},
+ {"name":"no effective ring timeout","old":"        cts.CancelAfter(_ringTimeout);\n        try\n        {\n            return await _ring(tenant, directorId, sid, unread, cts.Token).WaitAsync(_ringTimeout, ct).ConfigureAwait(false);","new":"        cts.CancelAfter(_ringTimeout * 100);\n        try\n        {\n            return await _ring(tenant, directorId, sid, unread, cts.Token).WaitAsync(_ringTimeout * 100, ct).ConfigureAwait(false);"},
+ {"name":"session released before its ring is recorded","old":"                        held.Add(key);\n","new":"                        _inFlight.TryRemove(key, out _);\n"},
+ {"name":"doorbell stuck scan loads every rung row (unobservable by design: the schedule filters)","old":"            minRings: _limits.StuckAfterRings,\n","new":""}
+]

@@ -1,0 +1,17 @@
+== MUTATION item 6 reverted: the old heartbeat, one session at a time with its own queries: exit=1
+    Failed!  - Failed:     4, Passed:    36, Skipped:     0, Total:    40, Duration: 7 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_settled_edge_before_the_heartbeat_records_its_ring_does_not_ring_again [69 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.Rings_run_eight_at_a_time [1 s]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_heartbeat_over_forty_recipients_reads_the_database_a_fixed_number_of_times(directorsRing: False) [46 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_heartbeat_over_forty_recipients_reads_the_database_a_fixed_number_of_times(directorsRing: True) [58 ms]
+== MUTATION rings one at a time: exit=1
+    Failed!  - Failed:     1, Passed:    39, Skipped:     0, Total:    40, Duration: 10 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.Rings_run_eight_at_a_time [1 s]
+== MUTATION no effective ring timeout: exit=1
+    Failed!  - Failed:     1, Passed:    39, Skipped:     0, Total:    40, Duration: 37 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_ring_that_never_answers_does_not_hold_the_tick_beyond_the_timeout [30 s]
+== MUTATION session released before its ring is recorded: exit=1
+    Failed!  - Failed:     1, Passed:    39, Skipped:     0, Total:    40, Duration: 9 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_settled_edge_before_the_heartbeat_records_its_ring_does_not_ring_again [56 ms]
+== MUTATION doorbell stuck scan loads every rung row (unobservable by design: the schedule filters): exit=0
+    Passed!  - Failed:     0, Passed:    40, Skipped:     0, Total:    40, Duration: 9 s - CcDirector.Gateway.UnitTests.dll (net10.0)

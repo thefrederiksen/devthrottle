@@ -281,21 +281,40 @@ public sealed class FleetMessageStore
         ArgumentNullException.ThrowIfNull(messageIds);
         if (string.IsNullOrWhiteSpace(recipientSessionId))
             throw new ArgumentException("A ring is recorded for the session that was rung.", nameof(recipientSessionId));
+        return MarkRungMany(tenant, [(recipientSessionId, messageIds)], nowUtc, ringCap);
+    }
+
+    /// <summary>
+    /// <see cref="MarkRung"/> for several rung sessions at once: one read and one save, whatever the number of
+    /// sessions (inspection 4, ruling 6). The same refusals apply to every row.
+    /// </summary>
+    public int MarkRungMany(TenantId tenant, IReadOnlyCollection<(string RecipientSessionId, IReadOnlyCollection<string> MessageIds)> rings,
+        DateTime nowUtc, int ringCap)
+    {
+        ArgumentNullException.ThrowIfNull(rings);
         if (ringCap <= 0)
             throw new ArgumentOutOfRangeException(nameof(ringCap), ringCap, "The ring cap must be positive.");
-        if (messageIds.Count == 0) return 0;
-        var recipient = Id(recipientSessionId)!;
+        var rungFor = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (recipient, ids) in rings)
+        {
+            if (string.IsNullOrWhiteSpace(recipient))
+                throw new ArgumentException("A ring is recorded for the session that was rung.", nameof(rings));
+            foreach (var id in ids ?? []) rungFor[id] = Id(recipient)!;
+        }
+        if (rungFor.Count == 0) return 0;
         var now = Utc(nowUtc);
-        var ids = messageIds.ToList();
+        var allIds = rungFor.Keys.ToList();
         lock (_gate)
         {
             using var ctx = _db.CreateContext(tenant);
-            var rows = ctx.FleetMessages
-                .Where(m => ids.Contains(m.MessageId) && m.ReadAtUtc == null && m.StuckAtUtc == null)
+            var rows = ctx.FleetMessages.AsNoTracking()
+                .Where(m => allIds.Contains(m.MessageId) && m.ReadAtUtc == null && m.StuckAtUtc == null)
+                .Select(m => new { m.MessageId, m.RecipientSessionId, m.RingCount })
                 .ToList();
-            var changed = 0;
+            var accepted = new List<string>();
             foreach (var m in rows)
             {
+                var recipient = rungFor[m.MessageId];
                 if (!string.Equals(m.RecipientSessionId, recipient, StringComparison.Ordinal))
                 {
                     FileLog.Write($"[FleetMessageStore] MarkRung REFUSED (another session's message): id={m.MessageId} rung={recipient}");
@@ -306,13 +325,43 @@ public sealed class FleetMessageStore
                     FileLog.Write($"[FleetMessageStore] MarkRung REFUSED (at the ring cap {ringCap}): id={m.MessageId}");
                     continue;
                 }
-                m.RingCount++;
-                m.LastRungAtUtc = now;
-                changed++;
+                accepted.Add(m.MessageId);
             }
-            if (changed > 0) ctx.SaveChanges();
-            return changed;
+            if (accepted.Count == 0) return 0;
+            // ONE statement for every accepted row (SQLite would otherwise issue one update per row). The same
+            // conditions are repeated in it, so nothing that changed since the read above can be counted.
+            return ctx.FleetMessages
+                .Where(m => accepted.Contains(m.MessageId) && m.ReadAtUtc == null && m.StuckAtUtc == null && m.RingCount < ringCap)
+                .ExecuteUpdate(set => set
+                    .SetProperty(m => m.RingCount, m => m.RingCount + 1)
+                    .SetProperty(m => m.LastRungAtUtc, now));
         }
+    }
+
+    /// <summary>
+    /// Every UNREAD message in this tenant - open and stuck - in ONE query, untracked and WITHOUT its text: only
+    /// the columns the doorbell schedules with (inspection 4, ruling 6). The heartbeat groups them by recipient,
+    /// so it needs no query per session.
+    /// </summary>
+    public IReadOnlyList<FleetMessageEntity> UnreadForScheduling(TenantId tenant)
+    {
+        using var ctx = _db.CreateContext(tenant);
+        return ctx.FleetMessages.AsNoTracking()
+            .Where(m => m.ReadAtUtc == null)
+            .OrderBy(m => m.CreatedAtUtc)
+            .Select(m => new FleetMessageEntity
+            {
+                TenantId = m.TenantId,
+                MessageId = m.MessageId,
+                RecipientSessionId = m.RecipientSessionId,
+                SenderSessionId = m.SenderSessionId,
+                Kind = m.Kind,
+                CreatedAtUtc = m.CreatedAtUtc,
+                RingCount = m.RingCount,
+                LastRungAtUtc = m.LastRungAtUtc,
+                StuckAtUtc = m.StuckAtUtc,
+            })
+            .ToList();
     }
 
     /// <summary>

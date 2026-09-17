@@ -28,6 +28,8 @@ public sealed class FleetDoorbellTests : IDisposable
     private string _activity = "WaitingForInput";
     private bool _connected = true;
     private bool _locateThrows;
+    private Func<string, CancellationToken, Task<FleetRingResponse?>>? _ringOverride;
+    private TimeSpan? _ringTimeout;
     private FleetRingResponse? _answer = new() { Outcome = FleetRingOutcomes.Rung };
     private readonly List<(string Sid, int Unread, DateTime At)> _rings = new();
 
@@ -48,14 +50,15 @@ public sealed class FleetDoorbellTests : IDisposable
             locate: (_, sid) => _locateThrows
                 ? throw new InvalidOperationException("the roster could not be read")
                 : _connected ? new FleetRingTarget(Director, _activity, sid == Worker ? "worker-one" : null) : null,
-            ring: (_, _, sid, unread, _) =>
+            ring: (_, _, sid, unread, ct) =>
             {
-                _rings.Add((sid, unread, _now));
-                return Task.FromResult(_answer);
+                lock (_rings) _rings.Add((sid, unread, _now));
+                return _ringOverride is { } ring ? ring(sid, ct) : Task.FromResult(_answer);
             },
             forEachTenant: (pass, _) => pass(Tenant),
             limits: limits,
-            clock: () => _now);
+            clock: () => _now,
+            ringTimeout: _ringTimeout);
         return new Rig { Store = store, Service = service, Doorbell = doorbell };
     }
 
@@ -361,6 +364,124 @@ public sealed class FleetDoorbellTests : IDisposable
         Assert.Equal(Peek(id).StuckAtUtc, notice.CreatedAtUtc);
         Assert.Equal(FleetMessageKinds.System, notice.Kind);
         Assert.Contains(id, notice.Text);
+    }
+
+    // ---------- Inspection 4, ruling 6: the heartbeat is bounded ----------
+
+    private static string Recipient(int i) => $"cccccccc-0000-0000-0000-{i:D12}";
+
+    /// <summary>One system notice to each of <paramref name="count"/> sessions (system notices skip the rate rules).</summary>
+    private static List<string> QueueOneEach(Rig rig, int count) =>
+        Enumerable.Range(0, count)
+            .Select(i => rig.Service.Send(Tenant, null, new FleetParty(Recipient(i), null, null, null),
+                $"notice {i}", FleetMessageKinds.System, FleetMessageExemption.System).Response.MessageId!)
+            .ToList();
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_heartbeat_over_forty_recipients_reads_the_database_a_fixed_number_of_times(bool directorsRing)
+    {
+        var rig = NewRig();
+        var ids = QueueOneEach(rig, 40);
+        _answer = directorsRing
+            ? new FleetRingResponse { Outcome = FleetRingOutcomes.Rung }
+            : new FleetRingResponse { Outcome = FleetRingOutcomes.Deferred, Reason = FleetRingDeferReasons.Working };
+
+        using var counter = new DatabaseCommandCounter(_harness.DbPath);
+        await rig.Doorbell.SweepAsync();
+        var readers = counter.Readers;
+        var others = counter.Others;
+
+        Assert.Equal(40, _rings.Count);
+        // The stuck scan and the one unread read; when anything rang, one read and one save to record it.
+        Assert.Equal(directorsRing ? 4 : 2, readers + others);
+        Assert.True(readers <= 3, $"at most three queries, saw {readers} (+{others} other commands)");
+        Assert.All(ids, id => Assert.Equal(directorsRing ? 1 : 0, Peek(id).RingCount));
+    }
+
+    [Fact]
+    public async Task A_ring_that_never_answers_does_not_hold_the_tick_beyond_the_timeout()
+    {
+        _ringTimeout = TimeSpan.FromMilliseconds(300);
+        var rig = NewRig();
+        var ids = QueueOneEach(rig, 40);
+        var hung = Recipient(0);
+        _ringOverride = (sid, _) => sid == hung
+            ? new TaskCompletionSource<FleetRingResponse?>().Task // never answers, ignores cancellation
+            : Task.FromResult<FleetRingResponse?>(new FleetRingResponse { Outcome = FleetRingOutcomes.Rung });
+
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        await rig.Doorbell.SweepAsync();
+        clock.Stop();
+
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(3), $"the tick took {clock.Elapsed}");
+        Assert.Equal(0, Peek(ids[0]).RingCount);
+        Assert.All(ids.Skip(1), id => Assert.Equal(1, Peek(id).RingCount));
+    }
+
+    [Fact]
+    public async Task Rings_run_eight_at_a_time()
+    {
+        var rig = NewRig();
+        QueueOneEach(rig, 40);
+        var running = 0;
+        var most = 0;
+        var gate = new object();
+        _ringOverride = async (_, ct) =>
+        {
+            lock (gate) most = Math.Max(most, ++running);
+            await Task.Delay(40, ct);
+            lock (gate) running--;
+            return new FleetRingResponse { Outcome = FleetRingOutcomes.Rung };
+        };
+
+        await rig.Doorbell.SweepAsync();
+
+        Assert.Equal(FleetDoorbell.RingParallelism, most);
+        Assert.Equal(8, FleetDoorbell.RingParallelism);
+        Assert.Equal(TimeSpan.FromSeconds(5), FleetDoorbell.RingTimeout);
+    }
+
+    [Fact]
+    public async Task A_settled_edge_before_the_heartbeat_records_its_ring_does_not_ring_again()
+    {
+        var rig = NewRig();
+        var id = Send(rig);
+        FleetRingAttempt? settled = null;
+        rig.Doorbell.BeforeRingsRecorded = () =>
+            settled = rig.Doorbell.RingSessionAsync(Tenant, Worker, "settled", CancellationToken.None).GetAwaiter().GetResult();
+
+        await rig.Doorbell.SweepAsync();
+
+        Assert.Equal(FleetRingAttempt.AlreadyRinging, settled);
+        Assert.Single(WorkerRings);
+        Assert.Equal(1, Peek(id).RingCount);
+    }
+
+    [Fact]
+    public void The_stuck_scan_loads_only_rows_at_the_floor_it_is_given()
+    {
+        var rig = NewRig();
+        var id = Send(rig);
+        rig.Store.MarkRung(Tenant, Worker, new[] { id }, T0, 3);
+
+        var marked = rig.Store.MarkStuckWithNotices(Tenant, T0.AddHours(1), _ => true, _ => null, minRings: 3);
+
+        Assert.Empty(marked);
+        Assert.Null(Peek(id).StuckAtUtc);
+    }
+
+    [Fact]
+    public void The_scheduling_read_carries_no_message_text()
+    {
+        var rig = NewRig();
+        Send(rig, "a long and private message body");
+
+        var row = Assert.Single(rig.Store.UnreadForScheduling(Tenant));
+
+        Assert.Equal("", row.Text);
+        Assert.Equal(Worker, row.RecipientSessionId);
     }
 
     // ---------- What is and is not counted as a ring ----------
