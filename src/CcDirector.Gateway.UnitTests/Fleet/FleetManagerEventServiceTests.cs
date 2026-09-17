@@ -89,6 +89,9 @@ public sealed class FleetManagerEventServiceTests : IDisposable
             customSpokenRules: () => null,
             isVoiceSession: (_, _) => false,
             fleetManagerSessionId: _ => _marked,
+            // These tests are about which stops reach the Fleet Manager, not about billing: the narration is
+            // allowed, as it is for the sibling verdict tests, so the plan gate never changes what they measure.
+            narrationPlan: _ => NarrationPlan.Allowed,
             nowUtc: () => _now);
         _seat = new TurnVerdictService(verdictEnv);
 
