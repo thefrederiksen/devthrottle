@@ -55,7 +55,8 @@ public sealed class FleetDoorbellRingerTests
         public Func<Func<bool>, Func<bool>, DoorbellSubmitOutcome> AfterTyping { get; set; } =
             (_, started) => started() ? DoorbellSubmitOutcome.Verified : DoorbellSubmitOutcome.NotVerified;
 
-        public List<int> Erased { get; } = new();
+        /// <summary>Every event after the line was sent: a parked line may only be looked at, never written to.</summary>
+        public IEnumerable<string> AfterSend => Events.Skip(Events.IndexOf("send") + 1);
 
         public Task<DoorbellSubmitOutcome> SubmitLineAsync(string line, Func<bool> mayTypeNow, Func<bool> composerShowsLine, Func<bool> turnStarted)
         {
@@ -65,24 +66,45 @@ public sealed class FleetDoorbellRingerTests
             SentLines.Add(line);
             return Task.FromResult(AfterTyping(composerShowsLine, turnStarted));
         }
-
-        public Task EraseAsync(int characters)
-        {
-            Events.Add("erase");
-            Erased.Add(characters);
-            return Task.CompletedTask;
-        }
     }
 
     private static readonly Func<Task> NoPause = () => Task.CompletedTask;
+
+    /// <summary>After the one send, the ringer only read the screen: nothing was typed, erased or pressed.</summary>
+    private static void AssertOnlyLooked(ScriptedTarget target)
+    {
+        Assert.Single(target.SentLines);
+        Assert.All(target.AfterSend, e => Assert.Equal("frame", e));
+    }
+
+    /// <summary>The answer is <c>deferred, parked</c> and the composer was left exactly as it was.</summary>
+    private static void AssertParked(FleetRingResponse answer, ScriptedTarget target)
+    {
+        Assert.Equal(FleetRingOutcomes.Deferred, answer.Outcome);
+        Assert.Equal("parked", answer.Reason);
+        AssertOnlyLooked(target);
+    }
 
     private static ScreenFrame Idle => DoorbellCaptures.Load("claude-idle-empty-after-turn");
 
     private const int PromptRow = 27;
     private const int TranscriptRow = 23;
 
-    /// <summary>The idle screen with the composer holding <paramref name="text"/>.</summary>
-    private static ScreenFrame Composer(string text) => DoorbellCaptures.WithRow(Idle, PromptRow, "❯ " + text);
+    /// <summary>The idle screen with the composer holding <paramref name="text"/> and the cursor straight after it,
+    /// as the terminal shows a typed line: the row trailing-trimmed, the cursor <paramref name="cursorPastText"/>
+    /// columns beyond the last visible character.</summary>
+    private static ScreenFrame Composer(string text, int cursorPastText = 0) => Parked(Idle, text, cursorPastText);
+
+    private static ScreenFrame Parked(ScreenFrame on, string text, int cursorPastText = 0)
+    {
+        var row = "❯ " + text;
+        return DoorbellCaptures.WithRow(on, PromptRow, row.TrimEnd()) with
+        {
+            CursorRow = PromptRow,
+            CursorCol = row.TrimEnd().Length + cursorPastText,
+            CursorVisible = true,
+        };
+    }
 
     /// <summary>The idle screen after the line was submitted: the transcript shows it, the composer holds
     /// <paramref name="composer"/> (empty by default).</summary>
@@ -189,40 +211,156 @@ public sealed class FleetDoorbellRingerTests
         var answer = await FleetDoorbellRinger.RingAsync(target, 1, NoPause);
 
         Assert.Equal(FleetRingOutcomes.Rung, answer.Outcome);
-        Assert.Empty(target.Erased);
+        AssertOnlyLooked(target);
     }
 
+    // ---------- Inspection 8, ruling 1: the doorbell never erases ----------
+
     [Fact]
-    public async Task A_swallowed_Enter_leaves_our_line_which_is_erased_and_not_counted()
+    public async Task A_swallowed_Enter_leaves_our_line_parked_and_not_counted()
     {
-        // The line sits in the composer after the one Enter; nothing is pressed again. It is exactly our line,
-        // so the Director takes it back, and the composer then reads empty.
+        // The line sits in the composer after the one Enter; nothing is pressed again and nothing is erased.
         var parked = Composer(Line);
-        var target = new ScriptedTarget(AgentKind.ClaudeCode, Idle, Idle, Idle, parked, parked, Idle)
-        {
-            AfterTyping = (_, started) => started() ? DoorbellSubmitOutcome.Verified : DoorbellSubmitOutcome.NotVerified,
-        };
+        var target = new ScriptedTarget(AgentKind.ClaudeCode, Idle, Idle, Idle, parked, parked, Idle);
 
         var answer = await FleetDoorbellRinger.RingAsync(target, 1, NoPause);
 
-        Assert.Equal(FleetRingOutcomes.Deferred, answer.Outcome);
-        Assert.Equal("not-submitted", answer.Reason);
-        Assert.Equal([Line.Length], target.Erased);
+        AssertParked(answer, target);
+    }
+
+    [Theory]
+    [MemberData(nameof(OwnerWhitespace))]
+    public async Task A_trimmed_owner_character_that_did_not_move_the_cursor_is_left_parked_and_never_erased(string added)
+    {
+        // Inspection 8, finding 1: the owner's character is in the composer, the grid trimmed it, and the cursor
+        // did not advance. The frame is identical to the bare line's, so no frame can tell them apart - which is
+        // why nothing is ever erased.
+        var indistinguishable = Composer(Line + added, cursorPastText: 0);
+        Assert.True(FleetDoorbellRinger.SameFrame(Composer(Line), indistinguishable));
+        var target = new ScriptedTarget(AgentKind.ClaudeCode, Idle, Idle, Idle, indistinguishable, indistinguishable, Idle);
+
+        var answer = await FleetDoorbellRinger.RingAsync(target, 1, NoPause);
+
+        AssertParked(answer, target);
     }
 
     [Fact]
-    public async Task A_line_that_wrapped_in_the_composer_is_still_recognised_as_ours()
+    public async Task A_second_ring_on_a_parked_line_is_deferred_as_composer_text()
+    {
+        var parked = Composer(Line);
+        var target = new ScriptedTarget(AgentKind.ClaudeCode, parked, parked, parked);
+
+        var answer = await FleetDoorbellRinger.RingAsync(target, 2, NoPause);
+
+        Assert.Equal(FleetRingOutcomes.Deferred, answer.Outcome);
+        Assert.Equal("composer-holds-text", answer.Reason);
+        Assert.Empty(target.SentLines);
+        Assert.DoesNotContain("submit", target.Events);
+    }
+
+    /// <summary>The idle screen with the composer block one row taller: the prompt row holds
+    /// <paramref name="first"/>, the continuation row holds <paramref name="second"/>, and the cursor sits
+    /// <paramref name="cursorPastText"/> columns after the continuation row's last visible character.</summary>
+    private static ScreenFrame Wrapped(string first, string second, int cursorPastText = 0)
     {
         var wrapped = DoorbellCaptures.WithRow(
-            DoorbellCaptures.WithRow(Idle, PromptRow - 1, "❯ " + Line[..40]), PromptRow, "  " + Line[40..]);
+            DoorbellCaptures.WithRow(Idle, PromptRow - 1, ("❯ " + first).TrimEnd()), PromptRow, second.TrimEnd());
         // Row 26 is the upper rule in the capture, so the wrapped block is rebuilt one row higher.
         wrapped = DoorbellCaptures.WithRow(wrapped, PromptRow - 2, new string('─', 120));
+        return wrapped with { CursorRow = PromptRow, CursorCol = second.TrimEnd().Length + cursorPastText, CursorVisible = true };
+    }
+
+    [Fact]
+    public async Task A_line_that_wrapped_in_the_composer_is_left_parked()
+    {
+        var wrapped = Wrapped(Line[..40], "  " + Line[40..]);
         var target = new ScriptedTarget(AgentKind.ClaudeCode, Idle, Idle, Idle, wrapped, wrapped, Idle);
 
         var answer = await FleetDoorbellRinger.RingAsync(target, 1, NoPause);
 
-        Assert.Equal("not-submitted", answer.Reason);
-        Assert.Equal([Line.Length], target.Erased);
+        AssertParked(answer, target);
+    }
+
+    [Fact]
+    public async Task A_line_word_wrapped_at_a_space_is_left_parked()
+    {
+        // A word wrap consumes the space it breaks at: the upper row ends before it, the lower row starts after it.
+        var at = Line.IndexOf(' ', 40);
+        var wrapped = Wrapped(Line[..at], "  " + Line[(at + 1)..]);
+        var target = new ScriptedTarget(AgentKind.ClaudeCode, Idle, Idle, Idle, wrapped, wrapped, Idle);
+
+        var answer = await FleetDoorbellRinger.RingAsync(target, 1, NoPause);
+
+        AssertParked(answer, target);
+    }
+
+    public static TheoryData<string> OwnerWhitespace => new() { " ", "\t", "\u00A0" };
+
+    [Theory]
+    [MemberData(nameof(OwnerWhitespace))]
+    public async Task A_line_the_owner_extended_by_one_whitespace_character_is_left_parked(string added)
+    {
+        // Inspection 5, finding 1. The terminal trims the row, so the row reads as the bare line; the cursor one
+        // column further right is what the owner's character left behind.
+        var extended = Composer(Line + added, cursorPastText: 1);
+        var target = new ScriptedTarget(AgentKind.ClaudeCode, Idle, Idle, Idle, extended, extended, Idle);
+
+        var answer = await FleetDoorbellRinger.RingAsync(target, 1, NoPause);
+
+        AssertParked(answer, target);
+    }
+
+    [Theory]
+    [MemberData(nameof(OwnerWhitespace))]
+    public async Task A_line_the_owner_extended_by_one_whitespace_character_is_left_parked_when_the_row_keeps_it(string added)
+    {
+        // The same, with the character still on the row and the cursor after it.
+        var row = "❯ " + Line + added;
+        var extended = DoorbellCaptures.WithRow(Idle, PromptRow, row) with
+        {
+            CursorRow = PromptRow, CursorCol = row.Length, CursorVisible = true,
+        };
+        var target = new ScriptedTarget(AgentKind.ClaudeCode, Idle, Idle, Idle, extended, extended, Idle);
+
+        var answer = await FleetDoorbellRinger.RingAsync(target, 1, NoPause);
+
+        AssertParked(answer, target);
+    }
+
+    [Theory]
+    [MemberData(nameof(OwnerWhitespace))]
+    public async Task A_wrapped_line_the_owner_extended_by_one_whitespace_character_is_left_parked(string added)
+    {
+        var extended = Wrapped(Line[..40], "  " + Line[40..] + added, cursorPastText: 1);
+        var target = new ScriptedTarget(AgentKind.ClaudeCode, Idle, Idle, Idle, extended, extended, Idle);
+
+        var answer = await FleetDoorbellRinger.RingAsync(target, 1, NoPause);
+
+        AssertParked(answer, target);
+    }
+
+    [Fact]
+    public async Task A_space_the_owner_put_inside_the_line_is_left_parked()
+    {
+        // The squeezed comparison this replaces read "doorbell]  1" as the line.
+        var inner = Line.Replace("] 1", "]  1", StringComparison.Ordinal);
+        var target = new ScriptedTarget(AgentKind.ClaudeCode, Idle, Idle, Idle, Composer(inner), Composer(inner), Idle);
+
+        var answer = await FleetDoorbellRinger.RingAsync(target, 1, NoPause);
+
+        AssertParked(answer, target);
+    }
+
+    [Fact]
+    public async Task A_new_line_the_owner_added_after_the_line_is_left_parked()
+    {
+        // Shift+Enter after the parked line: an empty continuation row holding the cursor.
+        var withBreak = Wrapped(Line, "") with { CursorCol = 2 };
+        var target = new ScriptedTarget(AgentKind.ClaudeCode, Idle, Idle, Idle, withBreak, withBreak, Idle);
+
+        var answer = await FleetDoorbellRinger.RingAsync(target, 1, NoPause);
+
+        AssertParked(answer, target);
     }
 
     [Fact]
@@ -235,7 +373,7 @@ public sealed class FleetDoorbellRingerTests
 
         Assert.Equal(FleetRingOutcomes.Deferred, answer.Outcome);
         Assert.Equal("not-submitted", answer.Reason);
-        Assert.Empty(target.Erased);
+        AssertOnlyLooked(target);
     }
 
     [Fact]
@@ -246,9 +384,7 @@ public sealed class FleetDoorbellRingerTests
 
         var answer = await FleetDoorbellRinger.RingAsync(target, 1, NoPause);
 
-        Assert.Equal(FleetRingOutcomes.Deferred, answer.Outcome);
-        Assert.Equal("composer-holds-text", answer.Reason);
-        Assert.Empty(target.Erased);
+        AssertParked(answer, target);
     }
 
     [Fact]
@@ -259,22 +395,21 @@ public sealed class FleetDoorbellRingerTests
         var answer = await FleetDoorbellRinger.RingAsync(target, 1, NoPause);
 
         Assert.Equal(FleetRingOutcomes.Rung, answer.Outcome);
-        Assert.Empty(target.Erased);
+        AssertOnlyLooked(target);
     }
 
     [Fact]
-    public async Task A_line_still_in_the_composer_is_not_a_submit_even_with_an_older_doorbell_in_the_transcript()
+    public async Task A_line_still_in_the_composer_is_parked_even_with_an_older_doorbell_in_the_transcript()
     {
         // An earlier doorbell is on screen before this ring; this one is still parked. The count must not be
         // fooled by the old row, and the parked one does not count because it is in the composer.
         var before = Submitted(Line);
-        var parked = DoorbellCaptures.WithRow(before, PromptRow, "❯ " + Line);
+        var parked = Parked(before, Line);
         var target = new ScriptedTarget(AgentKind.ClaudeCode, before, before, before, parked, parked, before);
 
         var answer = await FleetDoorbellRinger.RingAsync(target, 1, NoPause);
 
-        Assert.Equal("not-submitted", answer.Reason);
-        Assert.Equal([Line.Length], target.Erased);
+        AssertParked(answer, target);
     }
 
     [Fact]
@@ -292,18 +427,6 @@ public sealed class FleetDoorbellRingerTests
     }
 
     [Fact]
-    public async Task An_erase_that_does_not_empty_the_composer_is_reported_as_text()
-    {
-        var parked = Composer(Line);
-        var target = new ScriptedTarget(AgentKind.ClaudeCode, Idle, Idle, Idle, parked, parked);
-
-        var answer = await FleetDoorbellRinger.RingAsync(target, 1, NoPause);
-
-        Assert.Equal("composer-holds-text", answer.Reason);
-        Assert.Equal([Line.Length], target.Erased);
-    }
-
-    [Fact]
     public async Task A_screen_showing_the_working_marker_after_the_Enter_is_a_submit()
     {
         var working = DoorbellCaptures.WithRow(Idle, PromptRow + 2, "  ⏵⏵ bypass permissions on (shift+tab to cycle) · esc to interrupt");
@@ -315,8 +438,9 @@ public sealed class FleetDoorbellRingerTests
     }
 
     [Fact]
-    public void The_not_submitted_reason_is_the_literal_the_Gateway_reads()
+    public void The_unverified_reasons_are_the_literals_the_Gateway_reads()
     {
         Assert.Equal("not-submitted", FleetRingDeferReasons.NotSubmitted);
+        Assert.Equal("parked", FleetRingDeferReasons.Parked);
     }
 }

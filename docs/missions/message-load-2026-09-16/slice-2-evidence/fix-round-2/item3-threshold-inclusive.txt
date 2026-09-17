@@ -1,0 +1,3 @@
+  Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_dictation_hold_past_thirty_minutes_is_warned_about_once_with_the_session_id [73 ms]
+  Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_new_dictation_hold_after_a_ring_starts_its_own_thirty_minutes [122 ms]
+Failed!  - Failed:     2, Passed:   371, Skipped:     0, Total:   373, Duration: 23 s - CcDirector.Gateway.UnitTests.dll (net10.0)

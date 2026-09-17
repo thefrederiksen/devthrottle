@@ -2203,25 +2203,6 @@ public sealed class Session : IDisposable
     }
 
     /// <summary>
-    /// Press Backspace <paramref name="count"/> times, one key at a time. Used ONLY to take back the doorbell's
-    /// own line when its submit was not verified and the composer holds exactly that line - the text is the
-    /// product's, so removing it cannot touch the owner's words.
-    /// </summary>
-    public async Task EraseComposerCharactersAsync(int count)
-    {
-        if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed || BackendType is not SessionBackendType.ConPty)
-            return;
-        FileLog.Write($"[Session] EraseComposerCharactersAsync: session={Id}, count={count}");
-        for (var i = 0; i < count; i++)
-        {
-            _backend.Write(BackspaceKey);
-            await Task.Delay(TimeSpan.FromMilliseconds(5));
-        }
-    }
-
-    private static readonly byte[] BackspaceKey = [0x7F];
-
-    /// <summary>
     /// Snapshot the CURRENT visible terminal grid (not scrollback) as plain-text rows,
     /// trailing-trimmed, top to bottom. Unlike the raw byte buffer this is the RESOLVED
     /// on-screen state, so a spinner cell or a churning status line shows only its

@@ -109,6 +109,9 @@ public readonly record struct DoorbellVerdict(bool Ring, string Reason, string D
 ///    The ringer (<see cref="Sessions.FleetDoorbellRinger"/>) takes a third frame and re-reads the Director's
 ///    state immediately before the first byte and defers if anything moved; a keystroke or a self-started turn
 ///    inside the remaining interval is not seen. The race is narrowed to that interval, not closed.
+///  - The rendered echo witness (<see cref="ComposerHoldsExactly"/>) cannot see a whitespace character the grid
+///    trims when the cursor does not move for it, nor one absorbed at a word-wrap break. It only decides whether
+///    Enter may be pressed; nothing the product typed is ever erased on its word (inspection 8, ruling 1).
 ///  - Composer text scrolled out of the visible rows (a very long draft) - the prompt row still shows text, so
 ///    this defers; but a draft whose visible window is blank would not be seen.
 ///  - Codex "working": the marker is the same "esc to interrupt" footer; no mid-turn Codex screen was captured
@@ -219,6 +222,33 @@ public static class DoorbellSafety
     private static (ComposerReading, string) ReadClaudeComposer(ScreenFrame frame)
     {
         var rows = frame.Rows ?? [];
+        var (reading, prompt, close) = FindClaudeComposer(rows);
+        if (reading != ComposerReading.HoldsText) return (reading, "");
+
+        var onPrompt = AfterGlyph(rows[prompt]);
+        var continuation = ContinuationRows(rows, prompt, close);
+        if (onPrompt.Length == 0 && continuation.All(c => c.Length == 0))
+        {
+            // WHITESPACE IS TEXT (inspection 4, ruling 3). The rows arrive trailing-trimmed, so a draft of
+            // spaces or a tab leaves nothing on the row at all; the cursor is what moved. An empty composer has
+            // the visible cursor on the prompt row, straight after the glyph and its separator.
+            if (!frame.CursorVisible)
+                return (ComposerReading.NotFound, "");
+            if (frame.CursorRow != prompt || frame.CursorCol > EmptyComposerCursorColumn)
+                return (ComposerReading.HoldsText, "");
+            return (ComposerReading.Empty, "");
+        }
+        var text = string.Join("\n", new[] { onPrompt }.Concat(continuation)).Trim();
+        return (ComposerReading.HoldsText, text);
+    }
+
+    /// <summary>
+    /// Find Claude Code's live composer block: the prompt row and the closing rule below it. The reading is
+    /// <see cref="ComposerReading.HoldsText"/> when a block was found (whether it holds anything is the caller's
+    /// question), otherwise <see cref="ComposerReading.MenuOpen"/> or <see cref="ComposerReading.NotFound"/>.
+    /// </summary>
+    private static (ComposerReading Reading, int Prompt, int Close) FindClaudeComposer(IReadOnlyList<string> rows)
+    {
         // Search upward for the lowest closing rule that has a prompt row framed above it.
         var last = LastNonBlank(rows);
         for (var close = last; close >= 2 && last - close <= MaxFooterRows; close--)
@@ -234,29 +264,17 @@ public static class DoorbellSafety
                 if (!IsRule(rows[prompt - 1])) break; // a '❯' that is not framed from above: a picker or a transcript line
 
                 var footer = rows.Skip(close + 1).ToList();
-                if (footer.Any(IsMenuHint)) return (ComposerReading.MenuOpen, "");
-
-                var onPrompt = AfterGlyph(row);
-                var continuation = rows.Skip(prompt + 1).Take(close - prompt - 1).Select(c => c ?? "").ToList();
-                if (onPrompt.Length == 0 && continuation.All(c => c.Length == 0))
-                {
-                    // WHITESPACE IS TEXT (inspection 4, ruling 3). The rows arrive trailing-trimmed, so a draft of
-                    // spaces or a tab leaves nothing on the row at all; the cursor is what moved. An empty
-                    // composer has the visible cursor on the prompt row, straight after the glyph and its separator.
-                    if (!frame.CursorVisible)
-                        return (ComposerReading.NotFound, "");
-                    if (frame.CursorRow != prompt || frame.CursorCol > EmptyComposerCursorColumn)
-                        return (ComposerReading.HoldsText, "");
-                    return (ComposerReading.Empty, "");
-                }
-                var text = string.Join("\n", new[] { onPrompt }.Concat(continuation)).Trim();
-                return (ComposerReading.HoldsText, text);
+                if (footer.Any(IsMenuHint)) return (ComposerReading.MenuOpen, -1, -1);
+                return (ComposerReading.HoldsText, prompt, close);
             }
         }
         return Bottom(rows).Any(IsMenuHint) || rows.Any(IsSelectedOption)
-            ? (ComposerReading.MenuOpen, "")
-            : (ComposerReading.NotFound, "");
+            ? (ComposerReading.MenuOpen, -1, -1)
+            : (ComposerReading.NotFound, -1, -1);
     }
+
+    private static List<string> ContinuationRows(IReadOnlyList<string> rows, int prompt, int close) =>
+        rows.Skip(prompt + 1).Take(close - prompt - 1).Select(c => c ?? "").ToList();
 
     /// <summary>
     /// What follows the prompt glyph, with the ONE separator the agent draws after it removed (Claude Code draws a
@@ -314,14 +332,77 @@ public static class DoorbellSafety
         return ShowsWorking(frame.Rows ?? []) || CountDoorbellRows(frame) > rowsBefore;
     }
 
-    /// <summary>True when the composer holds exactly <paramref name="line"/>, ignoring where it wrapped.</summary>
+    /// <summary>
+    /// True when the composer holds EXACTLY <paramref name="line"/> (inspection 5, ruling 1) - the rendered witness
+    /// that the typed line echoed, before the one Enter. It is never a licence to erase anything (inspection 8,
+    /// ruling 1): no frame can prove the composer holds only the line. The composer is read as its rows, not as a
+    /// squeezed string:
+    ///  - Claude Code: the prompt row after the glyph and its one separator, then each continuation row after its
+    ///    two-column indent. Codex: the cursor's '›' row alone (a wrapped Codex composer is never "exactly").
+    ///  - The rows, joined, must equal the line character for character. The only difference allowed is the one a
+    ///    word wrap makes: at a row break, the single space of the line that the wrap consumed. A continuation row
+    ///    that starts with a space, an empty row, or any other character is a difference.
+    ///  - The rows arrive trailing-trimmed, so a trailing space, tab or non-breaking space the owner typed after the
+    ///    line leaves the row unchanged. The cursor is the witness: it must be visible, on the last row, straight
+    ///    after the line's last character. Anywhere else means something follows the line.
+    /// NOT COVERED: a whitespace character the grid trims without moving the cursor, or one inserted exactly at a
+    /// word-wrap break, leaves the frame unchanged. A wrap happens only on a screen narrower than the line (about a
+    /// hundred columns).
+    /// </summary>
     public static bool ComposerHoldsExactly(AgentKind agent, ScreenFrame frame, string line)
     {
-        var (reading, text) = ReadComposerText(agent, frame);
-        return reading == ComposerReading.HoldsText && string.Equals(Squeeze(text), Squeeze(line), StringComparison.Ordinal);
+        ArgumentNullException.ThrowIfNull(frame);
+        ArgumentNullException.ThrowIfNull(line);
+        var rows = frame.Rows ?? [];
+        List<(int Row, string Text)> segments;
+        switch (agent)
+        {
+            case AgentKind.ClaudeCode:
+                var (reading, prompt, close) = FindClaudeComposer(rows);
+                if (reading != ComposerReading.HoldsText) return false;
+                segments = [(prompt, AfterGlyph(rows[prompt]))];
+                var index = prompt + 1;
+                foreach (var row in ContinuationRows(rows, prompt, close))
+                {
+                    if (!row.StartsWith(ContinuationIndent, StringComparison.Ordinal)) return false;
+                    segments.Add((index++, row[ContinuationIndent.Length..]));
+                }
+                break;
+            case AgentKind.Codex:
+                if (ReadCodexComposer(frame).Item1 != ComposerReading.HoldsText) return false;
+                segments = [(frame.CursorRow, AfterGlyph(rows[frame.CursorRow]))];
+                break;
+            default:
+                return false;
+        }
+
+        if (segments.Any(s => s.Text.Length == 0 || char.IsWhiteSpace(s.Text[0]))) return false;
+        if (!MatchesWrapped(segments.Select(s => s.Text).ToList(), line)) return false;
+
+        var (lastRow, lastText) = segments[^1];
+        return frame.CursorVisible
+               && frame.CursorRow == lastRow
+               && frame.CursorCol == EmptyComposerCursorColumn + lastText.Length;
     }
 
-    private static string Squeeze(string s) => new(s.Where(c => !char.IsWhiteSpace(c)).ToArray());
+    /// <summary>The indent Claude Code draws in front of a composer continuation row, as wide as the glyph and its separator.</summary>
+    private const string ContinuationIndent = "  ";
+
+    /// <summary>The segments, in order, spell <paramref name="line"/> exactly, except that one space of the line may
+    /// fall between two segments (the space a word wrap consumes).</summary>
+    private static bool MatchesWrapped(IReadOnlyList<string> segments, string line)
+    {
+        var at = 0;
+        for (var i = 0; i < segments.Count; i++)
+        {
+            var segment = segments[i];
+            if (line.Length - at < segment.Length || string.CompareOrdinal(line, at, segment, 0, segment.Length) != 0)
+                return false;
+            at += segment.Length;
+            if (i < segments.Count - 1 && at < line.Length && line[at] == ' ') at++;
+        }
+        return at == line.Length;
+    }
 
     private static bool IsRule(string? row)
     {

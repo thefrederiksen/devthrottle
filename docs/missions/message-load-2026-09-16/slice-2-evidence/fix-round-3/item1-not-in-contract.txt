@@ -1,0 +1,3 @@
+  Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.Every_named_reason_on_the_wire_is_a_deferral_and_not_a_ring(reason: "parked") [173 ms]
+  Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.The_contract_names_exactly_these_strings [2 ms]
+Failed!  - Failed:     2, Passed:   140, Skipped:     0, Total:   142, Duration: 17 s - CcDirector.Gateway.UnitTests.dll (net10.0)

@@ -147,6 +147,20 @@ public sealed class FleetDoorbell
     private readonly Func<TenantId, string, bool> _dictationInFlight;
     private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), byte> _inFlight = new();
 
+    /// <summary>When each session's current run of dictation deferrals began, and whether it was warned about.</summary>
+    private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), (DateTime Since, bool Warned)> _dictationHeld = new();
+
+    /// <summary>
+    /// How long a session's rings may be deferred by the dictation lock before the Gateway writes one warning
+    /// (inspection 5, ruling 3). A PENDING dictation record holds the lock until it completes or the stale-upload
+    /// sweep abandons it (24 hours without activity, swept every 6 hours), and the session row does not show that
+    /// lock once the upload stops progressing - so a long hold is otherwise silent.
+    /// </summary>
+    public static readonly TimeSpan DictationWarnAfter = TimeSpan.FromMinutes(30);
+
+    /// <summary>Test seam: receives every warning line as it is written. Production never sets it.</summary>
+    internal Action<string>? OnWarning { get; set; }
+
     /// <param name="store">The inbox.</param>
     /// <param name="messages">Writes the stuck notice through the one send path.</param>
     /// <param name="locate">Where a session lives, from the pushed roster; null when it is not on a connected Director.</param>
@@ -324,6 +338,39 @@ public sealed class FleetDoorbell
     private async Task<(FleetRingAttempt Attempt, IReadOnlyCollection<string> Due)> RingPlannedAsync(
         TenantId tenant, RingPlan plan, string trigger, DateTime now, CancellationToken ct)
     {
+        var result = await DecideAndAskAsync(tenant, plan, trigger, now, ct).ConfigureAwait(false);
+        TrackDictationHold(tenant, plan.SessionId, result.Attempt, now);
+        return result;
+    }
+
+    /// <summary>
+    /// A LONG DICTATION HOLD IS NOT SILENT (inspection 5, ruling 3). A run of dictation deferrals for one session
+    /// that lasts longer than <see cref="DictationWarnAfter"/> is logged once, as a warning, with the session id.
+    /// Any other outcome for the session ends the run.
+    /// </summary>
+    private void TrackDictationHold(TenantId tenant, string sid, FleetRingAttempt attempt, DateTime now)
+    {
+        var key = (tenant, sid);
+        if (attempt != FleetRingAttempt.DeferredDictation)
+        {
+            _dictationHeld.TryRemove(key, out _);
+            return;
+        }
+
+        var held = _dictationHeld.GetOrAdd(key, (now, false));
+        if (held.Warned || now - held.Since <= DictationWarnAfter) return;
+        if (!_dictationHeld.TryUpdate(key, (held.Since, true), held)) return;
+
+        var line = $"[FleetDoorbell] WARNING: rings for session {sid} (tenant {tenant}) have been deferred by the " +
+                   $"owner's dictation lock since {held.Since:u} ({(now - held.Since).TotalMinutes:0} minutes). A PENDING " +
+                   "dictation record holds the lock until it completes or the stale-upload sweep abandons it.";
+        FileLog.Write(line);
+        OnWarning?.Invoke(line);
+    }
+
+    private async Task<(FleetRingAttempt Attempt, IReadOnlyCollection<string> Due)> DecideAndAskAsync(
+        TenantId tenant, RingPlan plan, string trigger, DateTime now, CancellationToken ct)
+    {
         var sid = plan.SessionId;
         if (plan.Open.Count == 0) return (FleetRingAttempt.NothingOpen, []);
 
@@ -420,7 +467,7 @@ public sealed class FleetDoorbell
             m => m.SenderSessionId is null
                 ? null // a stuck system notice has nobody to tell
                 : new FleetMessageDraft(m.SenderSessionId, null, null, null, FleetMessageKinds.System,
-                    StuckNoticeText(m, _locate(tenant, m.RecipientSessionId)?.Name, _limits)),
+                    StuckNoticeText(m, _locate(tenant, m.RecipientSessionId)?.Name, _limits, _messages.Limits.MaxTextLength)),
             minRings: _limits.StuckAfterRings,
             limits: _messages.Limits);
         foreach (var (m, notice) in marked)
@@ -431,19 +478,45 @@ public sealed class FleetDoorbell
         return marked.Select(x => x.Stuck).ToList();
     }
 
-    /// <summary>The notice a sender receives when its message is marked stuck.</summary>
-    public static string StuckNoticeText(FleetMessageEntity message, string? recipientName, FleetMessageLimits limits)
+    /// <summary>
+    /// The notice a sender receives when its message is marked stuck. It names the message, so it is never an exact
+    /// copy of another message's notice, and it is built to fit <paramref name="maxLength"/> whatever the recipient's
+    /// name (inspection 5, ruling 2): a long name is shortened first, then left out; only a cap shorter than the
+    /// name-less notice cuts the text itself. The cap is never below <see cref="FleetMessageLimits.MinTextLength"/>
+    /// (inspection 8, ruling 2), so even a cut notice opens with the whole message id.
+    /// </summary>
+    /// <param name="maxLength">The text cap the notice is judged by; <paramref name="limits"/>' own when null.</param>
+    /// <exception cref="ArgumentOutOfRangeException">The cap is below <see cref="FleetMessageLimits.MinTextLength"/>.</exception>
+    public static string StuckNoticeText(FleetMessageEntity message, string? recipientName, FleetMessageLimits limits, int? maxLength = null)
     {
         ArgumentNullException.ThrowIfNull(message);
         ArgumentNullException.ThrowIfNull(limits);
-        var who = string.IsNullOrWhiteSpace(recipientName)
-            ? Short(message.RecipientSessionId)
-            : $"{recipientName} ({Short(message.RecipientSessionId)})";
-        return $"Your message {message.MessageId} to {who} is stuck: its doorbell rang {message.RingCount} times, " +
-               $"{FleetMessagePolicy.Describe(limits.RingGrace)} apart, and the session has not read its inbox. " +
-               "The message stays in that inbox and is delivered if the session reads it. Do not send it again. " +
-               "If you needed an answer, carry on without it and say so in your report.";
+        var cap = maxLength ?? limits.MaxTextLength;
+        if (cap < FleetMessageLimits.MinTextLength)
+            throw new ArgumentOutOfRangeException(nameof(maxLength), cap,
+                $"A stuck notice needs a cap of at least {FleetMessageLimits.MinTextLength} characters to name its message.");
+        var shortId = Short(message.RecipientSessionId);
+        string Text(string who) =>
+            $"{StuckNoticePrefix}{message.MessageId} to {who} is stuck: its doorbell rang {message.RingCount} times, " +
+            $"{FleetMessagePolicy.Describe(limits.RingGrace)} apart, and the session has not read its inbox. " +
+            "The message stays in that inbox and is delivered if the session reads it. Do not send it again. " +
+            "If you needed an answer, carry on without it and say so in your report.";
+
+        var bare = Text(shortId);
+        if (bare.Length > cap) return bare[..cap];
+        if (string.IsNullOrWhiteSpace(recipientName)) return bare;
+
+        var name = recipientName.Trim();
+        var full = Text($"{name} ({shortId})");
+        if (full.Length <= cap) return full;
+
+        const string cut = "...";
+        var room = name.Length - (full.Length - cap) - cut.Length;
+        return room > 0 ? Text($"{name[..room]}{cut} ({shortId})") : bare;
     }
+
+    /// <summary>The fixed opening of every stuck notice; the message id follows it directly.</summary>
+    public const string StuckNoticePrefix = "Your message ";
 
     private static string Short(string? id) => string.IsNullOrEmpty(id) ? "(none)" : (id.Length <= 8 ? id : id[..8]);
 }

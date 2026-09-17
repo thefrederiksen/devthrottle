@@ -28,6 +28,7 @@ public sealed class FleetDoorbellTests : IDisposable
     private string _activity = "WaitingForInput";
     private bool _connected = true;
     private bool _locateThrows;
+    private string _workerName = "worker-one";
     private Func<string, CancellationToken, Task<FleetRingResponse?>>? _ringOverride;
     private TimeSpan? _ringTimeout;
     private readonly HashSet<string> _dictating = new();
@@ -50,7 +51,7 @@ public sealed class FleetDoorbellTests : IDisposable
             service,
             locate: (_, sid) => _locateThrows
                 ? throw new InvalidOperationException("the roster could not be read")
-                : _connected ? new FleetRingTarget(Director, _activity, sid == Worker ? "worker-one" : null) : null,
+                : _connected ? new FleetRingTarget(Director, _activity, sid == Worker ? _workerName : null) : null,
             ring: (_, _, sid, unread, ct) =>
             {
                 lock (_rings) _rings.Add((sid, unread, _now));
@@ -401,6 +402,149 @@ public sealed class FleetDoorbellTests : IDisposable
         Assert.Contains(id, notice.Text);
     }
 
+    // ---------- Inspection 5, ruling 2: no stuck mark without its notice ----------
+
+    [Fact]
+    public async Task An_identical_unread_notice_for_the_same_message_lets_the_mark_through_without_a_second_copy()
+    {
+        // The sender already holds this message's notice unread (a notice written by an earlier Gateway, say).
+        var rig = NewRig();
+        var id = await RungThreeTimesAndDueStuck(rig);
+        var text = FleetDoorbell.StuckNoticeText(Peek(id), _workerName, rig.Doorbell.Limits, rig.Service.Limits.MaxTextLength);
+        var preloaded = rig.Service.Send(Tenant, null, new FleetParty(Manager, null, null, null),
+            text, FleetMessageKinds.System, FleetMessageExemption.System);
+        Assert.Equal("queued", preloaded.Response.Status);
+
+        var marked = rig.Doorbell.MarkStuckAndNotify(Tenant);
+
+        Assert.Equal(id, Assert.Single(marked).MessageId);
+        Assert.Equal(_now, Peek(id).StuckAtUtc);
+        Assert.Equal(1, SystemNoticesFor(Manager));
+    }
+
+    [Fact]
+    public async Task A_recipient_name_past_the_text_cap_still_gets_the_sender_its_notice()
+    {
+        var rig = NewRig();
+        var id = await RungThreeTimesAndDueStuck(rig);
+        _workerName = new string('w', rig.Service.Limits.MaxTextLength + 10);
+
+        var marked = rig.Doorbell.MarkStuckAndNotify(Tenant);
+
+        Assert.Equal(id, Assert.Single(marked).MessageId);
+        Assert.NotNull(Peek(id).StuckAtUtc);
+        using var ctx = _harness.Open().CreateContext(Tenant);
+        var notice = ctx.FleetMessages.Single(m => m.RecipientSessionId == Manager && m.SenderSessionId == null);
+        Assert.Contains(id, notice.Text);
+        Assert.True(notice.Text.Length <= rig.Service.Limits.MaxTextLength);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("too long")]
+    public async Task A_notice_the_policy_refuses_leaves_the_message_open_and_the_next_sweep_retries(string refused)
+    {
+        var rig = NewRig();
+        var id = await RungThreeTimesAndDueStuck(rig);
+        var tooLong = new string('x', rig.Service.Limits.MaxTextLength + 1);
+        var text = refused == "" ? "   " : tooLong;
+
+        var marked = rig.Store.MarkStuckWithNotices(Tenant, _now, _ => true,
+            m => new FleetMessageDraft(m.SenderSessionId!, null, null, null, FleetMessageKinds.System, text),
+            minRings: 3);
+
+        Assert.Empty(marked);
+        Assert.Null(Peek(id).StuckAtUtc);
+        Assert.Equal(0, SystemNoticesFor(Manager));
+
+        Advance(TimeSpan.FromSeconds(15));
+        Assert.Equal(id, Assert.Single(rig.Doorbell.MarkStuckAndNotify(Tenant)).MessageId);
+        Assert.Equal(1, SystemNoticesFor(Manager));
+    }
+
+    [Fact]
+    public async Task One_refused_notice_does_not_hold_back_another_message_s_mark()
+    {
+        var rig = NewRig();
+        var id = await RungThreeTimesAndDueStuck(rig);
+        var system = rig.Service.Send(Tenant, null, new FleetParty(Worker, null, null, null),
+            "a notice to the worker", FleetMessageKinds.System, FleetMessageExemption.System).Response.MessageId!;
+        using (var ctx = _harness.Open().CreateContext(Tenant))
+        {
+            var row = ctx.FleetMessages.Single(m => m.MessageId == system);
+            row.RingCount = 3;
+            row.LastRungAtUtc = T0;
+            ctx.SaveChanges();
+        }
+
+        // The user message's notice is refused; the system notice needs none.
+        var marked = rig.Store.MarkStuckWithNotices(Tenant, _now, _ => true,
+            m => m.SenderSessionId is null ? null
+                : new FleetMessageDraft(m.SenderSessionId, null, null, null, FleetMessageKinds.System, " "),
+            minRings: 3);
+
+        Assert.Equal(system, Assert.Single(marked).Stuck.MessageId);
+        Assert.NotNull(Peek(system).StuckAtUtc);
+        Assert.Null(Peek(id).StuckAtUtc);
+    }
+
+    [Fact]
+    public void The_stuck_notice_fits_the_cap_whatever_the_name()
+    {
+        var row = new FleetMessageEntity { MessageId = "0123456789abcdef0123456789abcdef", RecipientSessionId = Worker, RingCount = 3 };
+        var bare = FleetDoorbell.StuckNoticeText(row, null, FleetMessageLimits.Default);
+
+        var shortened = FleetDoorbell.StuckNoticeText(row, new string('n', 500), FleetMessageLimits.Default, bare.Length + 40);
+        var dropped = FleetDoorbell.StuckNoticeText(row, new string('n', 500), FleetMessageLimits.Default, bare.Length + 5);
+        var cut = FleetDoorbell.StuckNoticeText(row, "worker-one", FleetMessageLimits.Default, 60);
+
+        Assert.Equal(bare.Length + 40, shortened.Length);
+        Assert.Contains("nnn... (bbbbbbbb)", shortened);
+        Assert.Equal(bare, dropped);
+        Assert.Equal(bare[..60], cut);
+        Assert.Contains(row.MessageId, cut);
+    }
+
+    [Fact]
+    public void The_text_cap_has_a_floor_of_the_notice_opening_and_a_whole_id()
+    {
+        // Inspection 8, finding 2: a cap below this cut the id out of the notice.
+        Assert.Equal("Your message ".Length + 32, FleetMessageLimits.MinTextLength);
+        Assert.Equal(45, FleetMessageLimits.MinTextLength);
+
+        Assert.Equal(45, (FleetMessageLimits.Default with { MaxTextLength = 45 }).MaxTextLength);
+        Assert.Throws<ArgumentOutOfRangeException>(() => FleetMessageLimits.Default with { MaxTextLength = 44 });
+        Assert.Throws<ArgumentOutOfRangeException>(() => new FleetMessageLimits { MaxTextLength = 20 });
+    }
+
+    [Fact]
+    public void A_notice_fitted_at_the_floor_names_its_whole_message_and_two_never_match()
+    {
+        var a = new FleetMessageEntity { MessageId = "a0000000000000000000000000000000", RecipientSessionId = Worker, RingCount = 3 };
+        var b = new FleetMessageEntity { MessageId = "b0000000000000000000000000000000", RecipientSessionId = Worker, RingCount = 3 };
+        var floor = FleetMessageLimits.MinTextLength;
+
+        var ta = FleetDoorbell.StuckNoticeText(a, "worker-one", FleetMessageLimits.Default, floor);
+        var tb = FleetDoorbell.StuckNoticeText(b, "worker-one", FleetMessageLimits.Default, floor);
+
+        Assert.Equal("Your message " + a.MessageId, ta);
+        Assert.Contains(b.MessageId, tb);
+        Assert.NotEqual(ta, tb);
+        Assert.Throws<ArgumentOutOfRangeException>(() => FleetDoorbell.StuckNoticeText(a, null, FleetMessageLimits.Default, floor - 1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => FleetDoorbell.StuckNoticeText(a, null, FleetMessageLimits.Default, 20));
+    }
+
+    [Fact]
+    public void Two_messages_never_share_a_stuck_notice()
+    {
+        var a = new FleetMessageEntity { MessageId = "a0000000000000000000000000000000", RecipientSessionId = Worker, RingCount = 3 };
+        var b = new FleetMessageEntity { MessageId = "b0000000000000000000000000000000", RecipientSessionId = Worker, RingCount = 3 };
+
+        Assert.NotEqual(
+            FleetDoorbell.StuckNoticeText(a, "worker-one", FleetMessageLimits.Default),
+            FleetDoorbell.StuckNoticeText(b, "worker-one", FleetMessageLimits.Default));
+    }
+
     // ---------- Inspection 4, ruling 6: the heartbeat is bounded ----------
 
     private static string Recipient(int i) => $"cccccccc-0000-0000-0000-{i:D12}";
@@ -534,6 +678,7 @@ public sealed class FleetDoorbellTests : IDisposable
     [InlineData("exited")]
     [InlineData("screen-unreadable")]
     [InlineData("not-submitted")]
+    [InlineData("parked")]
     [InlineData("dictation")]
     public async Task Every_named_reason_on_the_wire_is_a_deferral_and_not_a_ring(string reason)
     {
@@ -583,7 +728,7 @@ public sealed class FleetDoorbellTests : IDisposable
         Assert.Equal("rung", FleetRingOutcomes.Rung);
         Assert.Equal("deferred", FleetRingOutcomes.Deferred);
         Assert.Equal(
-            new[] { "working", "composer-holds-text", "menu-open", "exited", "screen-unreadable", "not-submitted", "dictation" },
+            new[] { "working", "composer-holds-text", "menu-open", "exited", "screen-unreadable", "not-submitted", "parked", "dictation" },
             FleetRingDeferReasons.All);
     }
 
@@ -645,6 +790,67 @@ public sealed class FleetDoorbellTests : IDisposable
 
         Assert.Empty(WorkerRings);
         Assert.Null(Peek(id).StuckAtUtc);
+    }
+
+    // ---------- Inspection 5, ruling 3: a long dictation hold is logged once ----------
+
+    private static async Task SweepEvery15SecondsUntil(Rig rig, Func<DateTime> now, Action<DateTime> set, DateTime until)
+    {
+        for (var t = now(); t <= until; t += TimeSpan.FromSeconds(15))
+        {
+            set(t);
+            await rig.Doorbell.SweepAsync();
+        }
+    }
+
+    [Fact]
+    public async Task A_dictation_hold_past_thirty_minutes_is_warned_about_once_with_the_session_id()
+    {
+        var rig = NewRig();
+        var warnings = new List<string>();
+        rig.Doorbell.OnWarning = warnings.Add;
+        Send(rig);
+        _dictating.Add(Worker);
+
+        await SweepEvery15SecondsUntil(rig, () => _now, t => _now = t, T0.AddMinutes(30));
+        Assert.Empty(warnings);
+
+        await SweepEvery15SecondsUntil(rig, () => _now + TimeSpan.FromSeconds(15), t => _now = t, T0.AddHours(3));
+
+        var warning = Assert.Single(warnings);
+        Assert.Contains("WARNING", warning);
+        Assert.Contains(Worker, warning);
+        Assert.Contains("dictation", warning);
+    }
+
+    [Fact]
+    public async Task A_new_dictation_hold_after_a_ring_starts_its_own_thirty_minutes()
+    {
+        var rig = NewRig();
+        var warnings = new List<string>();
+        rig.Doorbell.OnWarning = warnings.Add;
+        Send(rig);
+        _dictating.Add(Worker);
+        await SweepEvery15SecondsUntil(rig, () => _now, t => _now = t, T0.AddMinutes(20));
+
+        // The lock ends; the session is rung; a new dictation starts.
+        _dictating.Remove(Worker);
+        await SweepEvery15SecondsUntil(rig, () => _now + TimeSpan.FromSeconds(15), t => _now = t, T0.AddMinutes(21));
+        Assert.Single(WorkerRings);
+        _dictating.Add(Worker);
+        // The next ring falls due five minutes after the one at 20:15, so the new hold starts at 25:15 and the first
+        // hold's twenty minutes do not count towards it.
+        await SweepEvery15SecondsUntil(rig, () => _now + TimeSpan.FromSeconds(15), t => _now = t, T0.AddMinutes(55.25));
+        Assert.Empty(warnings);
+
+        await SweepEvery15SecondsUntil(rig, () => _now + TimeSpan.FromSeconds(15), t => _now = t, T0.AddMinutes(56));
+        Assert.Single(warnings);
+    }
+
+    [Fact]
+    public void The_dictation_warning_comes_after_thirty_minutes()
+    {
+        Assert.Equal(TimeSpan.FromMinutes(30), FleetDoorbell.DictationWarnAfter);
     }
 
     // ---------- What is and is not counted as a ring ----------
