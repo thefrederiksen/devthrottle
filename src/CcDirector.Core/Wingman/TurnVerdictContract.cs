@@ -890,6 +890,58 @@ public static class TurnVerdictContract
         }
     }
 
+    /// <summary>
+    /// THE JUDGE'S DECISION OFF A REFUSED BUT READABLE ANSWER, FOR THE NARRATION CALL'S INPUT ONLY (the
+    /// Wingman-on-every-turn mission, slice J, Architect ruling). A refused record carries no way to answer, no menu
+    /// and no options, because those drive buttons that ACT on a live session, and a refusal must not offer any. But
+    /// the narration only informs: on the corpus the shipped judge found the dangerous-delete permission prompt as a
+    /// menu and was refused on its receipt, and the narration then retold a menu as prose with no press-a-button.
+    ///
+    /// So this reads, from the same answer, the verdict word, the risk, how the person answers, the menu question,
+    /// the options' labels, notes and recommended flag, and what the agent recommends - as the judge wrote them, each
+    /// read only when it is the declared type, and never validated as a whole. What it returns is never stored,
+    /// never stamped on the row and never offered as a button. Null when the answer is not a JSON object.
+    /// </summary>
+    public static TurnVerdictDto? SalvageNarrationDecision(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+        JsonDocument doc;
+        try { doc = JsonDocument.Parse(Unwrap(raw)); }
+        catch (JsonException) { return null; }
+
+        using (doc)
+        {
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) return null;
+
+            var decision = new TurnVerdictDto
+            {
+                Verdict = Str(root, "verdict"),
+                Risk = Str(root, "risk"),
+                AnswerVia = Str(root, "answerVia"),
+                AgentRecommends = Cap(Str(root, "agentRecommends"), MaxAgentRecommendsChars),
+                Spoken = SalvageSpoken(root),
+            };
+            if (root.TryGetProperty("menu", out var menu) && menu.ValueKind == JsonValueKind.Object
+                && Str(menu, "question") is { Length: > 0 } question)
+                decision.Menu = new TurnVerdictMenuDto { Question = Cap(question, MaxMenuQuestionChars) };
+            if (root.TryGetProperty("options", out var options) && options.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var option in options.EnumerateArray().Take(MaxOptions))
+                {
+                    if (option.ValueKind != JsonValueKind.Object || Str(option, "key") is not { Length: > 0 } key) continue;
+                    decision.Options.Add(new TurnVerdictOptionDto
+                    {
+                        Key = Cap(key, MaxOptionKeyChars),
+                        Note = Cap(Str(option, "note"), MaxOptionNoteChars),
+                        Recommended = option.TryGetProperty("recommended", out var recommended) && recommended.ValueKind == JsonValueKind.True,
+                    });
+                }
+            }
+            return decision;
+        }
+    }
+
     /// <summary>Models wrap JSON in fences and narrate a sentence in front of it despite being told not
     /// to. Both are absorbed mechanically, exactly as the brief contract has absorbed them for a year -
     /// it is a quirk of how models answer, not a fact about the stop. What remains still has to be valid
