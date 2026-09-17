@@ -49,7 +49,16 @@ app = typer.Typer(
 )
 session_app = typer.Typer(help="Manage running sessions.", add_completion=False)
 repo_app = typer.Typer(help="List the fleet's repositories.", add_completion=False)
-worktree_app = typer.Typer(help="List the fleet's worktrees and who is in them.", add_completion=False)
+worktree_app = typer.Typer(
+    # Two different things share this word, so the help says which is which. "list" is the FLEET
+    # view, served by the Gateway, every machine. The other commands are this machine's pool of
+    # reusable worktrees, and every one of them runs the cc-worktrees tool - see worktree_pool_ops.
+    help=(
+        "The fleet's worktrees (list), and this machine's pool of reusable ones "
+        "(get, return, lease, destroy, list --pool - each runs cc-worktrees)."
+    ),
+    add_completion=False,
+)
 machine_app = typer.Typer(
     help="Search and start applications on another computer.",
     add_completion=False,
@@ -864,6 +873,94 @@ _ACTIONS = [
         "mutatesState": True,
         "args": [],
     },
+    {
+        "id": "worktree-list",
+        "description": (
+            "List the fleet's worktrees, on every machine, with the Gateway's verdict, the size, and "
+            "which session is in each."
+        ),
+        "command": "cc-devthrottle worktree list [--repo <name>] [--state <verdict>]",
+        "mutatesState": False,
+        "args": [
+            {"name": "repo", "required": False},
+            {"name": "state", "required": False},
+        ],
+    },
+    {
+        "id": "worktree-list-pool",
+        "description": (
+            "List this machine's pool of reusable worktrees (cc-worktrees): slot, state (free, "
+            "in-use, held), holder, and the reason a held one is held."
+        ),
+        "command": "cc-devthrottle worktree list --pool [--repo <path>] [--fields <a,b>]",
+        "mutatesState": False,
+        "args": [
+            {"name": "repo", "required": False},
+            {"name": "fields", "required": False},
+        ],
+    },
+    {
+        "id": "worktree-get",
+        "description": (
+            "Take a pooled worktree on this machine to work in. It comes back reset to the remote "
+            "default branch with its build output kept, and with the lease that returns it."
+        ),
+        "command": "cc-devthrottle worktree get --repo <path> --holder <text> [--pool-size N]",
+        "mutatesState": True,
+        "args": [
+            {"name": "repo", "required": True},
+            {"name": "holder", "required": True},
+            {"name": "pool_size", "required": False},
+        ],
+    },
+    {
+        "id": "worktree-return",
+        "description": (
+            "Give a pooled worktree back. It is reset and freed only when its work is proven to have "
+            "landed on the remote; anything unproven is held with the reason and left untouched."
+        ),
+        "command": "cc-devthrottle worktree return <path-or-slot> --lease <id> [--repo <path>]",
+        "mutatesState": True,
+        "args": [
+            {"name": "target", "required": True},
+            {"name": "lease", "required": True},
+            {"name": "repo", "required": False},
+        ],
+    },
+    {
+        "id": "worktree-lease",
+        "description": "Take one named pooled worktree rather than whichever one is free.",
+        "command": (
+            "cc-devthrottle worktree lease <path-or-slot> --holder <text> [--reclaim-held] "
+            "[--repo <path>]"
+        ),
+        "mutatesState": True,
+        "args": [
+            {"name": "target", "required": True},
+            {"name": "holder", "required": True},
+            {"name": "reclaim_held", "required": False},
+            {"name": "repo", "required": False},
+        ],
+    },
+    {
+        "id": "worktree-destroy",
+        "description": (
+            "Remove one pooled worktree. A dry run that says what it would remove unless --yes, and "
+            "refused unless the work in it is proven landed at that moment."
+        ),
+        "command": (
+            "cc-devthrottle worktree destroy <path-or-slot> [--yes] [--allow-held] [--allow-in-use] "
+            "[--repo <path>]"
+        ),
+        "mutatesState": True,
+        "args": [
+            {"name": "target", "required": True},
+            {"name": "yes", "required": False},
+            {"name": "allow_held", "required": False},
+            {"name": "allow_in_use", "required": False},
+            {"name": "repo", "required": False},
+        ],
+    },
 ]
 
 
@@ -993,16 +1090,113 @@ def repo_list(
     list_repositories(json_output, dirty_only=dirty)
 
 
+# The pooled-worktree commands below take their arguments exactly as cc-worktrees takes them and
+# forward them untouched, so a flag never means one thing here and another there, and a flag added to
+# cc-worktrees works through this command the day it lands. cc-worktrees rejects an argument it does
+# not know, with its own usage exit code, so nothing is silently ignored on the way through.
+_PASS_THROUGH = {"allow_extra_args": True, "ignore_unknown_options": True}
+
+
 @worktree_app.command("list")
 def worktree_list(
     json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
-    repo: str = typer.Option(None, "--repo", help="Only worktrees of this repository."),
-    state: str = typer.Option(None, "--state", help="Filter: safe-to-reap, in-use, or needs-attention."),
+    repo: str = typer.Option(
+        None,
+        "--repo",
+        help="Only this repository: its NAME for the fleet listing, its PATH with --pool.",
+    ),
+    state: str = typer.Option(
+        None, "--state", help="Fleet listing only. Filter: safe-to-reap, in-use, or needs-attention."
+    ),
+    pool: bool = typer.Option(
+        False, "--pool", help="List this machine's cc-worktrees pool instead of the fleet."
+    ),
+    fields: str = typer.Option(
+        None,
+        "--fields",
+        help="Pool listing only. Fields to show: repo,slot,path,state,holder,reason,updated.",
+    ),
 ) -> None:
-    """List the fleet's worktrees: verdicts, sizes, and which session is in each."""
+    """List worktrees. By default the FLEET view - every machine's worktrees as the Gateway sees
+    them, with verdicts, sizes and which session is in each. With --pool, this machine's pool of
+    reusable worktrees, answered by cc-worktrees: slot, state (free, in-use, held), holder, reason.
+    """
+    from . import worktree_pool_ops
+
+    if pool:
+        if state is not None:
+            worktree_pool_ops.usage_error(
+                "--state filters the fleet listing and has no meaning for the pool",
+                ["cc-devthrottle worktree list --pool [--repo <path>] [--fields <a,b>]"],
+                json_output,
+            )
+        arguments = ["list"]
+        if repo is not None:
+            arguments += ["--repo", repo]
+        if fields is not None:
+            arguments += ["--fields", fields]
+        if json_output:
+            arguments += ["--json"]
+        worktree_pool_ops.run_pool_command(arguments)
+
+    if fields is not None:
+        worktree_pool_ops.usage_error(
+            "--fields names the pool listing's fields and needs --pool",
+            ["cc-devthrottle worktree list --pool --fields <a,b>"],
+            json_output,
+        )
+
     from .repo_ops import list_worktrees
 
     list_worktrees(json_output, repo=repo, state=state)
+
+
+@worktree_app.command("get", context_settings=_PASS_THROUGH)
+def worktree_get(ctx: typer.Context) -> None:
+    """Hand out a free pooled worktree on this machine, or create a new slot beside the repository
+    while the pool is under its size. Runs: cc-worktrees get.
+
+      cc-devthrottle worktree get --repo <path> --holder <text> [--pool-size N] [--json]
+    """
+    from . import worktree_pool_ops
+
+    worktree_pool_ops.run_pool_command(["get"] + list(ctx.args))
+
+
+@worktree_app.command("return", context_settings=_PASS_THROUGH)
+def worktree_return(ctx: typer.Context) -> None:
+    """Give a pooled worktree back. It is reset and freed only when cc-worktrees can prove its work
+    landed; otherwise it is held with the reason and nothing in it is touched. Runs: cc-worktrees
+    return.
+
+      cc-devthrottle worktree return <path-or-slot> --lease <id> [--repo <path>] [--json]
+    """
+    from . import worktree_pool_ops
+
+    worktree_pool_ops.run_pool_command(["return"] + list(ctx.args))
+
+
+@worktree_app.command("lease", context_settings=_PASS_THROUGH)
+def worktree_lease(ctx: typer.Context) -> None:
+    """Take one named pooled worktree. Runs: cc-worktrees lease.
+
+      cc-devthrottle worktree lease <path-or-slot> --holder <text> [--reclaim-held] [--repo <path>] [--json]
+    """
+    from . import worktree_pool_ops
+
+    worktree_pool_ops.run_pool_command(["lease"] + list(ctx.args))
+
+
+@worktree_app.command("destroy", context_settings=_PASS_THROUGH)
+def worktree_destroy(ctx: typer.Context) -> None:
+    """Remove one pooled worktree. A dry run unless --yes, and refused whatever the recorded state
+    says unless the work is proven landed at that moment. Runs: cc-worktrees destroy.
+
+      cc-devthrottle worktree destroy <path-or-slot> [--yes] [--allow-held] [--allow-in-use] [--repo <path>] [--json]
+    """
+    from . import worktree_pool_ops
+
+    worktree_pool_ops.run_pool_command(["destroy"] + list(ctx.args))
 
 
 @machine_app.command("list")
