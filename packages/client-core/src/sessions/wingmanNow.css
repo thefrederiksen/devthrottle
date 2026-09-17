@@ -101,7 +101,13 @@
 }
 
 .wnow-body {
-  max-width: 900px;
+  max-width: 1120px;
+}
+
+/* Prose stays at a readable measure even when the cards use the full width, as the mockup draws it. */
+.wnow-story,
+.wnow-said {
+  max-width: 860px;
 }
 
 .wnow-headline {

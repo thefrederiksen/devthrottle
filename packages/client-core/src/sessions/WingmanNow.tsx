@@ -179,7 +179,8 @@ export function WingmanNow({
             <h3>What you answered</h3>
             <p className="wnow-answered-text">{now.answered.text}</p>
             <p className="wnow-when">
-              Sent at {formatClockTime(now.answered.atUtc)}. {now.answered.workingAgainAfterText}
+              {/* No full stop after the clock: some locales render it as "7:19 a.m.", which would double the stop. */}
+              Sent at {formatClockTime(now.answered.atUtc)} - {now.answered.workingAgainAfterText}
             </p>
           </section>
         )}
