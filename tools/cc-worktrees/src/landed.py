@@ -18,11 +18,12 @@ internal/vcs/gitvcs/gitvcs.go: the remote default branch read and the HEAD.lock-
 from __future__ import annotations
 
 import os
+import re
 import stat
 import sys
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import gitrun
@@ -323,22 +324,79 @@ def _content_differs(worktree: Path, tip: RemoteTip, start: str, stray: list[str
 class Unproven:
     commits: list[str]      # every commit not proven landed, newest first
     not_current: list[str]  # of those, the ones that are the same patch but whose content is not in the tip
+    branch_gone: list[str] = field(default_factory=list)  # of those, the ones a remote branch proved at the
+    #                                                        fetch but not when the remote was asked again
+
+
+_OBJECT_ID = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+_CONTAINS_BATCH = 100
+
+
+def _branches_containing(worktree: Path, tip: RemoteTip, commits: list[str]) -> list[str]:
+    """The names of the tracking refs, other than HEAD and the default branch, that contain any of
+    `commits`. --contains given several times is an OR."""
+    prefix = f"refs/remotes/{REMOTE}/"
+    names: set[str] = set()
+    for i in range(0, len(commits), _CONTAINS_BATCH):
+        contains = [arg for c in commits[i:i + _CONTAINS_BATCH] for arg in ("--contains", c)]
+        listing = gitrun.out(worktree, "for-each-ref", "--format=%(refname)", *contains, prefix)
+        for ref in listing.splitlines():
+            if not ref.startswith(prefix):
+                raise cannot_verify(f"git for-each-ref listed {ref!r} outside {prefix}")
+            name = ref[len(prefix):]
+            if name not in ("HEAD", tip.branch):
+                names.add(name)
+    return sorted(names)
+
+
+def confirm_branches_on_remote(worktree: Path, names: list[str]) -> list[str]:
+    """Ask the remote, now, where each named branch is. Returns the remote commits that exist in this
+    repository; a branch the remote no longer has, or whose commit is not here, confirms nothing. Called
+    inside the locked section that acts on the answer, so the proof is not the tracking refs a fetch wrote
+    before the wait for the machine-wide lock. Any failure or unreadable answer is cannot verify."""
+    if not names:
+        return []
+    wanted = {f"refs/heads/{name}" for name in names}
+    try:
+        listing = gitrun.run(worktree, "ls-remote", REMOTE, *sorted(wanted), timeout=network_timeout()).stdout
+    except GitError as ex:
+        raise cannot_verify(f"cannot confirm the remote branches that prove the work: {ex.short()}") from ex
+    confirmed: list[str] = []
+    for line in listing.splitlines():
+        if not line.strip():
+            continue
+        parts = line.split("\t")
+        if len(parts) != 2 or not _OBJECT_ID.fullmatch(parts[0]):
+            raise cannot_verify("git ls-remote gave an answer that could not be read")
+        commit, ref = parts
+        # ls-remote matches the tail of a ref name, so only the exact refs asked for are answers.
+        if ref not in wanted:
+            continue
+        present = gitrun.run(worktree, "cat-file", "-e", f"{commit}^{{commit}}", check=False)
+        if present.returncode == 0 and commit not in confirmed:
+            confirmed.append(commit)
+    return confirmed
 
 
 def unproven_commits(worktree: Path, tip: RemoteTip, tips: list[str]) -> Unproven:
     """Every commit reachable from `tips` that is not individually proven landed, newest first.
 
-    A commit is landed only when it is on a remote branch, or when it is the same patch as a commit in
-    the default branch (git cherry marks it "-") AND that content is in the default branch NOW: for every
-    path that any stray commit of the same start touches, the start's content equals the current default
-    tip's. A patch that was landed and then reverted, or whose paths were changed again since, is not
-    landed. A squash, or a final snapshot that happens to match, says nothing about the commits behind
-    it. An empty git answer where commits exist proves nothing, so a tip with no stray commits must also
-    be positively found on a remote.
+    A commit is landed only when it is in the default tip's history, or on a remote branch the remote
+    itself confirms at this moment, or when it is the same patch as a commit in the default branch (git
+    cherry marks it "-") AND that content is in the default branch NOW: for every path that any stray
+    commit of the same start touches, the start's content equals the current default tip's. A patch that
+    was landed and then reverted, or whose paths were changed again since, is not landed. A squash, or a
+    final snapshot that happens to match, says nothing about the commits behind it. An empty git answer
+    where commits exist proves nothing, so a tip with no stray commits must also be positively found on a
+    remote.
+
+    The tracking refs describe the remote as it was at the fetch, before the wait for the machine-wide
+    lock. Ancestry of the default tip needs nothing more: an older base loses nothing. A commit whose only
+    proof is another remote branch has that branch asked for again with one git ls-remote, and when none
+    has, no network call is made.
     """
-    unproven: list[str] = []
-    not_current: list[str] = []
-    seen: set[str] = set()
+    starts = []
+    branch_proven: list[str] = []
     for start in tips:
         stray = gitrun.out(worktree, "rev-list", start, "--not", f"--remotes={REMOTE}").split()
         if not stray:
@@ -346,6 +404,26 @@ def unproven_commits(worktree: Path, tip: RemoteTip, tips: list[str]) -> Unprove
                                    f"refs/remotes/{REMOTE}/")
             if not on_remote:
                 raise cannot_verify(f"{start[:12]} lists no commit to check and is on no remote branch")
+        in_stray = set(stray)
+        outside_default = gitrun.out(worktree, "rev-list", start, "--not", tip.commit).split()
+        # Every commit on no remote is outside the default tip too, and a start with nothing outside the
+        # default tip must positively be in its history: an empty answer must not skip the remote check.
+        if not in_stray <= set(outside_default):
+            raise cannot_verify(f"git rev-list gave answers for {start[:12]} that do not fit together")
+        if not outside_default:
+            gitrun.run(worktree, "merge-base", "--is-ancestor", start, tip.commit)
+        branch_proven.extend(c for c in outside_default if c not in in_stray and c not in branch_proven)
+        starts.append((start, stray))
+    if branch_proven:
+        confirmed = confirm_branches_on_remote(worktree, _branches_containing(worktree, tip, branch_proven))
+        starts = [(start, gitrun.out(worktree, "rev-list", start, "--not", tip.commit, *confirmed).split())
+                  for start, _ in starts]
+
+    unproven: list[str] = []
+    not_current: list[str] = []
+    seen: set[str] = set()
+    for start, stray in starts:
+        if not stray:
             continue
         # "- <sha>": the same patch is already in the default branch's history. "+ <sha>", a merge commit
         # (git cherry never lists one) or a commit git cherry does not mention at all stays unproven.
@@ -362,7 +440,8 @@ def unproven_commits(worktree: Path, tip: RemoteTip, tips: list[str]) -> Unprove
             elif stale:
                 unproven.append(commit)
                 not_current.append(commit)
-    return Unproven(unproven, not_current)
+    proven_before = set(branch_proven)
+    return Unproven(unproven, not_current, [c for c in unproven if c in proven_before])
 
 
 def require_commits_landed(worktree: Path, tip: RemoteTip, tips: list[str]) -> None:
@@ -377,6 +456,9 @@ def require_commits_landed(worktree: Path, tip: RemoteTip, tips: list[str]) -> N
         if found.not_current:
             reason += (f"; the same patch is in the default branch's history, but its content is not in the "
                        f"current default branch: {_short_list(found.not_current)}")
+        if found.branch_gone:
+            reason += (f"; the remote branch that proved {_short_list(found.branch_gone)} at the fetch is gone "
+                       f"from the remote or moved")
         raise NotLanded(reason)
 
 
