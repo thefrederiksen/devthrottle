@@ -20,6 +20,7 @@ if _tools_dir not in sys.path:
 from cc_shared import axi_output, gateway  # noqa: E402
 
 from . import usage_errors  # noqa: E402
+from . import axi_cli  # noqa: E402
 
 TIMEOUT_SECONDS = 10
 SCHEDULE_RECURRING = "recurring"
@@ -94,9 +95,8 @@ class ScheduleClient:
         except requests.exceptions.ConnectionError as exc:
             raise GatewayError(
                 f"Gateway not reachable at {self.base_url}. "
-                "Is the Gateway tray app running on this machine? "
-                "If you target a remote Gateway, set gateway.url with "
-                "'cc-devthrottle settings set gateway.url <url>'."
+                "Check that the Gateway is running, or point this command at another one with "
+                "'cc-devthrottle schedule --gateway <url> ...'."
             ) from exc
         except requests.exceptions.Timeout as exc:
             raise GatewayError(
@@ -157,9 +157,24 @@ class ScheduleClient:
         return self.update_job(job_id, job)
 
 
-def _fail(message: str) -> None:
-    err_console.print(f"[red]Error:[/red] {message}")
-    raise typer.Exit(1)
+# Where an agent goes when a schedule id it was handed does not work.
+_FIND_A_SCHEDULE = "cc-devthrottle schedule list"
+# Where an agent goes when the Gateway's list cannot be shown truthfully.
+_RAW_ROWS = "cc-devthrottle schedule list --json"
+_CREATE_USAGE = (
+    'cc-devthrottle schedule create --name "<name>" --machine <machine> --repo "<path>" '
+    '--cron "<expr>" --tz <time-zone> --seed "<prompt>"'
+)
+
+
+def _fail(message: str, next_commands: List[str]) -> None:
+    """Report a failure on standard error with what to run next, and exit 1."""
+    axi_cli.fail(message, next_commands)
+
+
+def _create_usage_error(message: str) -> None:
+    """A schedule create flag is wrong or missing. Exit 2 and show the full form of the command."""
+    axi_cli.usage_error(f"{message} Full form: {_CREATE_USAGE}")
 
 
 # The issue #2201 scope guard that used to sit here (assert_scope_is_unambiguous, reading the
@@ -221,12 +236,11 @@ _usage_error = usage_errors.usage_error
 
 def _bad_job(job_id: Any, what: str) -> None:
     """Refuse a schedule the Gateway would never send, naming it and what is wrong with it."""
-    print(
-        f"Error: the Gateway returned schedule {axi_output.format_value(job_id)} with {what}. "
+    axi_cli.fail(
+        f"the Gateway returned schedule {axi_output.format_value(job_id)} with {what}. "
         "--json shows the raw rows.",
-        file=sys.stderr,
+        [_RAW_ROWS],
     )
-    raise typer.Exit(1)
 
 
 def _describe(value: Any) -> str:
@@ -244,12 +258,11 @@ def _check_jobs(jobs: List[Any]) -> None:
     for index, job in enumerate(jobs):
         job_id = job.get("id") if isinstance(job, dict) else None
         if not isinstance(job_id, str) or not job_id.strip():
-            print(
-                f"Error: the Gateway returned a schedule with no id (row {index + 1}). "
+            axi_cli.fail(
+                f"the Gateway returned a schedule with no id (row {index + 1}). "
                 "This tool will not list a schedule it cannot name; --json shows the raw rows.",
-                file=sys.stderr,
+                [_RAW_ROWS],
             )
-            raise typer.Exit(1)
         if job_id in seen:
             _bad_job(job_id, f"an id that an earlier row already has (row {index + 1})")
         seen.add(job_id)
@@ -374,8 +387,7 @@ def list_jobs(
     try:
         jobs = _client().list_jobs()
     except GatewayError as ex:
-        print(f"Error: {axi_output.escape_ascii(str(ex))}", file=sys.stderr)
-        raise typer.Exit(1)
+        _fail(str(ex), ["cc-devthrottle schedule endpoint"])
 
     filtered = enabled is not None or machine is not None
     # An unfiltered --json prints exactly what the Gateway sent, as it always has, so it never
@@ -431,7 +443,7 @@ def get_job(job_id: str, json_output: bool) -> None:
     try:
         job = _client().get_job(job_id)
     except GatewayError as ex:
-        _fail(str(ex))
+        _fail(str(ex), [_FIND_A_SCHEDULE, "cc-devthrottle schedule endpoint"])
         return
 
     if json_output:
@@ -454,7 +466,7 @@ def list_runs(job_id: str, json_output: bool) -> None:
     try:
         history = _client().list_runs(job_id)
     except GatewayError as ex:
-        _fail(str(ex))
+        _fail(str(ex), [_FIND_A_SCHEDULE, "cc-devthrottle schedule endpoint"])
         return
 
     if json_output:
@@ -499,19 +511,18 @@ def create_job(
     json_output: bool,
 ) -> None:
     if bool(at) == bool(cron):
-        _fail("specify exactly one of --at (one-off) or --cron (recurring).")
-        return
+        _create_usage_error("specify exactly one of --at (one-off) or --cron (recurring).")
     if not seed and not worklist:
-        _fail("specify what to run: either --seed <text> or --worklist <name>.")
-        return
+        _create_usage_error("specify what to run: either --seed <text> or --worklist <name>.")
     if seed and worklist:
-        _fail("specify only one of --seed or --worklist, not both.")
-        return
+        _create_usage_error("specify only one of --seed or --worklist, not both.")
 
     notify_value = (notify_on or NOTIFY_NONE).strip().lower()
     if notify_value not in NOTIFY_CHOICES:
-        _fail(f"--notify-on must be one of {', '.join(NOTIFY_CHOICES)}.")
-        return
+        _create_usage_error(
+            f"--notify-on must be one of {', '.join(NOTIFY_CHOICES)}, "
+            f"not '{axi_cli.ascii_text(notify_on)}'."
+        )
 
     job = {
         "name": name,
@@ -534,71 +545,102 @@ def create_job(
     try:
         created = _client().create_job(job)
     except GatewayError as ex:
-        _fail(str(ex))
+        _fail(str(ex), [axi_cli.help_for("schedule create"), "cc-devthrottle schedule endpoint"])
         return
 
     if json_output:
         print(json.dumps(created, indent=2))
         return
 
-    console.print("[green]Created schedule.[/green]")
-    console.print(f"  Id:        {_fmt(created.get('id'))}")
-    console.print(f"  Name:      {_fmt(created.get('name'))}")
-    console.print(f"  Next run:  {_fmt(created.get('nextRunUtc'))} UTC")
-    # Say WHERE it landed. A scheduled job runs an agent unattended, so "which fleet did
-    # that just go to" must be answerable from this output rather than by cross-checking
-    # `schedule list` afterwards and recognising somebody else's jobs (issue #2201).
-    console.print(f"  Gateway:   {gateway_override or resolve_base_url()}")
+    axi_cli.write_lines(
+        "Created schedule.",
+        f"  Id:        {_fmt(created.get('id'))}",
+        f"  Name:      {_fmt(created.get('name'))}",
+        f"  Next run:  {_fmt(created.get('nextRunUtc'))} UTC",
+        # Say WHERE it landed. A scheduled job runs an agent unattended, so "which fleet did
+        # that just go to" must be answerable from this output rather than by cross-checking
+        # `schedule list` afterwards and recognising somebody else's jobs (issue #2201).
+        f"  Gateway:   {gateway_override or resolve_base_url()}",
+    )
+    job_ref = axi_cli.bare(created.get("id"), "<schedule-id>")
+    axi_cli.print_next([
+        f"cc-devthrottle schedule get {job_ref}",
+        f"cc-devthrottle schedule run {job_ref}",
+        f"cc-devthrottle schedule disable {job_ref}",
+    ])
 
 
 def run_now(job_id: str, json_output: bool) -> None:
     try:
         record = _client().run_now(job_id)
     except GatewayError as ex:
-        _fail(str(ex))
+        _fail(str(ex), [_FIND_A_SCHEDULE, "cc-devthrottle schedule endpoint"])
         return
 
     if json_output:
         print(json.dumps(record, indent=2))
         return
 
-    console.print("[green]Fired the schedule.[/green]")
-    console.print(f"  Fired:   {_fmt(record.get('firedUtc'))} UTC")
-    console.print(f"  Target:  {_fmt(record.get('targetDirectorId'))}")
-    console.print(f"  Session: {_fmt(record.get('sessionId'))}")
-    console.print(f"  Infra:   {_fmt(record.get('infraStatus'))}")
-    console.print(f"  Task:    {_fmt(record.get('taskStatus'))}")
+    axi_cli.write_lines(
+        "Fired the schedule.",
+        f"  Fired:   {_fmt(record.get('firedUtc'))} UTC",
+        f"  Target:  {_fmt(record.get('targetDirectorId'))}",
+        f"  Session: {_fmt(record.get('sessionId'))}",
+        f"  Infra:   {_fmt(record.get('infraStatus'))}",
+        f"  Task:    {_fmt(record.get('taskStatus'))}",
+    )
+    # The id is the one the Gateway just accepted; the session is whatever the run record names.
+    axi_cli.print_next([
+        f"cc-devthrottle schedule runs {axi_cli.bare(job_id, '<schedule-id>')}",
+        f"cc-devthrottle session buffer {axi_cli.bare(record.get('sessionId'), '<session-id>')}",
+    ])
 
 
 def enable_job(job_id: str) -> None:
     try:
         job = _client().set_enabled(job_id, True)
     except GatewayError as ex:
-        _fail(str(ex))
+        _fail(str(ex), [_FIND_A_SCHEDULE, "cc-devthrottle schedule endpoint"])
         return
-    console.print(f"[green]Enabled[/green] {_fmt(job.get('name'))} ({_fmt(job.get('id'))}).")
+    axi_cli.write_lines(f"Enabled {_fmt(job.get('name'))} ({_fmt(job.get('id'))}).")
+    job_ref = axi_cli.bare(job.get("id"), "<schedule-id>")
+    axi_cli.print_next([
+        f"cc-devthrottle schedule get {job_ref}",
+        f"cc-devthrottle schedule disable {job_ref}",
+    ])
 
 
 def disable_job(job_id: str) -> None:
     try:
         job = _client().set_enabled(job_id, False)
     except GatewayError as ex:
-        _fail(str(ex))
+        _fail(str(ex), [_FIND_A_SCHEDULE, "cc-devthrottle schedule endpoint"])
         return
-    console.print(f"[yellow]Disabled[/yellow] {_fmt(job.get('name'))} ({_fmt(job.get('id'))}).")
+    axi_cli.write_lines(f"Disabled {_fmt(job.get('name'))} ({_fmt(job.get('id'))}).")
+    job_ref = axi_cli.bare(job.get("id"), "<schedule-id>")
+    axi_cli.print_next([
+        f"cc-devthrottle schedule enable {job_ref}",
+        f"cc-devthrottle schedule delete {job_ref}",
+    ])
 
 
 def delete_job(job_id: str) -> None:
     try:
         _client().delete_job(job_id)
     except GatewayError as ex:
-        _fail(str(ex))
+        _fail(str(ex), [_FIND_A_SCHEDULE, "cc-devthrottle schedule endpoint"])
         return
-    console.print(f"[green]Deleted[/green] schedule {job_id}.")
+    axi_cli.write_lines(f"Deleted schedule {job_id}.")
+    axi_cli.print_next([_FIND_A_SCHEDULE, _CREATE_USAGE])
 
 
 def endpoint(json_output: bool) -> None:
-    base = gateway_override or resolve_base_url()
+    try:
+        base = gateway_override or resolve_base_url()
+    except GatewayError as ex:
+        # No session Gateway: say so in a sentence, never a traceback.
+        _fail(str(ex), ["cc-devthrottle schedule --gateway <url> endpoint", "cc-devthrottle setup status"])
+        return
     if json_output:
         print(json.dumps({"base_url": base}, indent=2))
     else:

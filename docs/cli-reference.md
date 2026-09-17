@@ -659,7 +659,7 @@ help[4]:
 USAGE: cc-devthrottle [OPTIONS] COMMAND [ARGS]...
 
 COMMANDS:
-  actions          List agent-discoverable actions.
+  actions          List the actions an agent can discover, with their commands.
   session list     List every session in the fleet.
   session whoami   Show this session's own fleet identity.
   session rename   Rename a session, defaulting to the current session.
@@ -687,6 +687,50 @@ COMMANDS:
 
 OPTIONS:
   --version -v
+```
+
+`cc-devthrottle actions` prints every action as a list, `actions[N]{id,command,changes-state}`,
+with the full command on each row; `--json` is unchanged.
+
+**After a change, and on an error.** In the schedule, workflow, skill, settings, setup, email,
+diag, autostart and browser groups, a command that changes something ends its plain output with
+`help[N]:` lines naming what to run next. A value appears in those lines only when the command's
+own result supplied it, and the same holds for a command quoted inside a sentence; otherwise it is
+a placeholder such as `<schedule-id>`. A failure is written to standard error as `Error: ...`,
+followed by `help[N]:` lines naming what to run next, and the command exits 1 - including when the
+setup engine behind setup and autostart fails, whose own exit code is kept in the error text. A flag
+or argument to fix is a usage error, written like every other usage error in the tool (the Usage
+line, the valid options, and `help[1]` naming the command's `--help`), and exits 2. `workflow
+delete` and `skill delete` without `--yes` refuse with a usage error when there is no terminal to
+ask on, instead of prompting. `workflow pull`, `skill pull`, `workflow materialize` and the file
+cache behind `skill get` change nothing on disk unless the Gateway's whole answer is complete and is
+for the version asked for - every authored field (name, summary, triggers or steps, and the rest),
+an explicit files list, a safe name, an encoding and decodable content for every file, the body,
+and the content hash. A supporting file may not use a path the skill's own files use (`SKILL.md`,
+`skill.json`, `.skill-hash`, at any letter case). The check turns the answer into the exact bytes of
+every file (body, `skill.json` or `workflow.json`, each supporting file, the hash) and refuses it when
+any text cannot be written as UTF-8, any name holds a character the Gateway itself never stores
+(anything but ASCII letters, digits, dot, dash and underscore - so every control character, including
+C1 ones such as U+0085, every space and every non-ASCII letter), or any name holds something an
+operating system refuses: `< > : " | ? *` or a backslash, a name over 255 bytes, or (on macOS and
+Linux) a whole path longer than the machine allows. Once the answer is checked, the new files are
+written over the old ones, then the files the new version no longer has are removed, and the content
+hash is written last; whatever still fails is reported as an `Error:` line with `help[N]:`, never a
+traceback. Not guaranteed: a write that fails part way because of the machine (a full disk, a file
+another program holds, a path over the Windows length limit) or a process killed part way can leave a
+mix of old and new files; the old hash stays, so the next `skill get` or
+`workflow materialize` rewrites its cache, and a push is compared against the old version. Windows
+name aliases such as `SKILL.md.` (a trailing dot or space) are not yet refused. A push whose answer has no new content
+hash says so and names `pull`. After `browser start`, the next step is `browser attach`, which
+works in any shell; the `eval` line in its output is the Bash or zsh form. `--json` output is unchanged, and the raw text of `skill get` and
+`workflow instructions` gets nothing added.
+
+```
+$ cc-devthrottle schedule disable cj_abc123
+Disabled nightly (cj_abc123).
+help[2]:
+  cc-devthrottle schedule enable cj_abc123
+  cc-devthrottle schedule delete cj_abc123
 ```
 
 ```
