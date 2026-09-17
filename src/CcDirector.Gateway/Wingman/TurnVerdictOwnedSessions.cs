@@ -5,12 +5,18 @@ namespace CcDirector.Gateway.Wingman;
 
 /// <summary>
 /// What the Wingman needs to know about the sessions a session owns (owner ruling, 2026-09-15): how many are
-/// working, stopped and needing a person - the row's own crew line counts, from the same fold - and the latest
-/// moment any of them last wrote to its terminal, which is when the last one stopped once none is working.
+/// working, stopped and needing a person - the row's own crew line counts, from the same fold - how many are ALIVE,
+/// and the latest moment any of them last wrote to its terminal, which is when the last one stopped once none is
+/// working.
 /// </summary>
+/// <param name="Live">How many of them are ALIVE: in the fresh roster, not exited or crashed, and not snoozed.
+/// This is the count the carrying-on clock stops on, and it is deliberately not <paramref name="Working"/>:
+/// Working comes from terminal silence (the Director flips a session to waiting after ten quiet seconds), so a
+/// session inside one long command that prints nothing reads as stopped while its turn is still open. Issue 2992:
+/// a Worker eight minutes into a silent test run turned its Architect red.</param>
 /// <param name="LastActivityAtUtc">The latest <see cref="SessionDto.LastActivityAt"/> across the owned sessions,
 /// in UTC, or null when none carries one.</param>
-public sealed record OwnedSessionsFacts(int Working, int Stopped, int NeedYou, DateTime? LastActivityAtUtc);
+public sealed record OwnedSessionsFacts(int Working, int Live, int Stopped, int NeedYou, DateTime? LastActivityAtUtc);
 
 /// <summary>
 /// The owned sessions of one session, read as a pure function over a roster - the shape and the reason of
@@ -46,6 +52,21 @@ public static class TurnVerdictOwnedSessions
             if (last is null || utc > last.Value) last = utc;
         }
 
-        return new OwnedSessionsFacts(crew.Working, crew.Stopped, crew.NeedsYou, last);
+        return new OwnedSessionsFacts(crew.Working, owned.Count(IsLive), crew.Stopped, crew.NeedsYou, last);
     }
+
+    /// <summary>
+    /// Is this owned session ALIVE? It is in the roster the caller passed - the Gateway passes the FRESH roster, so
+    /// a session whose stream has gone quiet past the freshness horizon is not in it at all - and it has neither
+    /// exited nor crashed nor been snoozed.
+    ///
+    /// LIVENESS IS NOT ACTIVITY, and that is the whole point of it. Nothing here reads
+    /// <see cref="SessionDto.ActivityState"/> for "Working", because that field answers "has the terminal printed
+    /// in the last ten seconds", which a session inside a long silent command answers no to while its turn is
+    /// still open (issue 2992).
+    /// </summary>
+    internal static bool IsLive(SessionDto s)
+        => !s.Crashed
+           && !string.Equals(s.ActivityState, "Exited", StringComparison.OrdinalIgnoreCase)
+           && !s.OnHold;
 }

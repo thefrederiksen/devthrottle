@@ -220,7 +220,7 @@ public sealed class WingmanStopsWritePathTests : IDisposable
     {
         var rig = Build(Sid);
         rig.Env.Judge = (_, _) => Task.FromResult(ContinuesAloneAnswer());
-        rig.Env.Owned = _ => new OwnedSessionsFacts(Working: 1, Stopped: 0, NeedYou: 0, LastActivityAtUtc: JudgedAt);
+        rig.Env.Owned = _ => new OwnedSessionsFacts(Working: 1, Live: 1, Stopped: 0, NeedYou: 0, LastActivityAtUtc: JudgedAt);
 
         await rig.Service.StartTurnEnd(new TurnEndSignal(Sid, "director-write-path", Account, JudgedAt, IsNewTurn: true));
         await rig.Writer.CompleteAsync();
