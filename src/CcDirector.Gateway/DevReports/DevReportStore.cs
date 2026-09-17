@@ -53,43 +53,66 @@ internal sealed class DevReportStore
 
         lock (_gate)
         {
-            using var ctx = _db.CreateContext(tenant);
-            using var tx = ctx.Database.BeginTransaction();
-            var report = ctx.DevReports.FirstOrDefault(r => r.SessionId == sessionId && r.Key == key);
-            var created = report is null;
-            if (report is null)
+            // ONE RETRY when another Gateway process published the same key or version first (phase 2 inspection, Low 1).
+            // During a deploy swap two processes share this database and this lock spans only one of them, so both can
+            // read "no report yet" and both insert; the unique index refuses the loser. Re-reading makes the second
+            // attempt a new version of the report the other process wrote - the answer one process gives - instead of
+            // a raw 500. A second failure is a fault and surfaces.
+            try { return PublishOnce(tenant, sessionId, key, html, status, title, nowUtc, bytes, hash, BeforePublishWriteForTests); }
+            catch (DbUpdateException ex)
             {
-                report = new DevReportEntity
-                {
-                    TenantId = tenant.Value,
-                    SessionId = sessionId,
-                    Key = key,
-                    PublishedAtUtc = nowUtc,
-                };
-                ctx.DevReports.Add(report);
+                FileLog.Write($"[DevReportStore] Publish: sid={sessionId} key={key} lost a race with another writer " +
+                              $"({ex.InnerException?.Message ?? ex.Message}); re-reading and retrying once");
+                return PublishOnce(tenant, sessionId, key, html, status, title, nowUtc, bytes, hash, beforeWrite: null);
             }
-            report.Version += 1;
-            report.Title = title;
-            report.Status = status;
-            report.UpdatedAtUtc = nowUtc;
+        }
+    }
 
-            ctx.DevReportVersions.Add(new DevReportVersionEntity
+    /// <summary>Runs after a publish has read the report and before it writes, on the first attempt only - so a test can
+    /// stand in for another process publishing the same key in between. Null outside tests.</summary>
+    internal Action? BeforePublishWriteForTests { get; set; }
+
+    private (DevReportEntity Report, bool Created) PublishOnce(
+        TenantId tenant, string sessionId, string key, string html, string status, string title, DateTime nowUtc,
+        byte[] bytes, string hash, Action? beforeWrite)
+    {
+        using var ctx = _db.CreateContext(tenant);
+        using var tx = ctx.Database.BeginTransaction();
+        var report = ctx.DevReports.FirstOrDefault(r => r.SessionId == sessionId && r.Key == key);
+        var created = report is null;
+        if (report is null)
+        {
+            report = new DevReportEntity
             {
                 TenantId = tenant.Value,
-                ReportId = report.Id,
-                Version = report.Version,
-                Html = html,
-                ByteHash = hash,
-                ByteLength = bytes.LongLength,
+                SessionId = sessionId,
+                Key = key,
                 PublishedAtUtc = nowUtc,
-                Status = status,
-                Title = title,
-            });
-            ctx.SaveChanges();
-            tx.Commit();
-            FileLog.Write($"[DevReportStore] Publish: report={report.Id} version={report.Version} created={created} bytes={bytes.LongLength}");
-            return (report, created);
+            };
+            ctx.DevReports.Add(report);
         }
+        report.Version += 1;
+        report.Title = title;
+        report.Status = status;
+        report.UpdatedAtUtc = nowUtc;
+
+        ctx.DevReportVersions.Add(new DevReportVersionEntity
+        {
+            TenantId = tenant.Value,
+            ReportId = report.Id,
+            Version = report.Version,
+            Html = html,
+            ByteHash = hash,
+            ByteLength = bytes.LongLength,
+            PublishedAtUtc = nowUtc,
+            Status = status,
+            Title = title,
+        });
+        beforeWrite?.Invoke();
+        ctx.SaveChanges();
+        tx.Commit();
+        FileLog.Write($"[DevReportStore] Publish: report={report.Id} version={report.Version} created={created} bytes={bytes.LongLength}");
+        return (report, created);
     }
 
     /// <summary>A session's reports, newest update first. A null session lists the whole account.</summary>

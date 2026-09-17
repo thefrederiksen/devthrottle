@@ -7,6 +7,7 @@ using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data.Entities;
 using CcDirector.Gateway.DevReports;
 using CcDirector.Gateway.Tests.Data;
+using Microsoft.EntityFrameworkCore;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests.DevReports;
@@ -52,7 +53,11 @@ public sealed class DevReportDeliveryTests : IDisposable
         public void Dispose() => ScopeInEffect.Value = _prior;
     }
 
-    public void Dispose() => _h.Dispose();
+    public void Dispose()
+    {
+        _gatewayLifetime.Dispose();
+        _h.Dispose();
+    }
 
     private DevReportStore Store() => new(_h.Open());
 
@@ -63,9 +68,13 @@ public sealed class DevReportDeliveryTests : IDisposable
     /// acts on the same database.</summary>
     private Func<Task> _beforeAnswer = () => Task.CompletedTask;
 
+    /// <summary>The Gateway's lifetime, as the delivery is given it. A test cancels it to stand in for the Gateway stopping.</summary>
+    private readonly CancellationTokenSource _gatewayLifetime = new();
+
     private DevReportDelivery Delivery(DevReportStore store) => new(store,
         (tenant, sid) => new DevReportSessionLiveness(_reach, _reach == DevReportSessionReach.Ended ? null : DirectorId, "test roster"),
         (tenant, directorId) => new SessionVerbClient(new DirectorDto { DirectorId = directorId, MachineName = "TEST" }, SendAsync),
+        _gatewayLifetime.Token,
         () => _dieOnTheNextClockRead ? throw new InvalidOperationException("the Gateway process died here") : _now,
         tenant => new Scope(tenant));
 
@@ -74,6 +83,8 @@ public sealed class DevReportDeliveryTests : IDisposable
         Assert.Equal("prompt", command.Verb);
         _scopeAtSend.Enqueue(ScopeInEffect.Value);
         await _beforeAnswer();
+        // A real tunnel send observes the token it was handed: a cancelled one ends the send with a cancellation.
+        ct.ThrowIfCancellationRequested();
         var answer = _answer();
         if (answer is not null)
             _prompts.Enqueue(JsonSerializer.Deserialize<PromptRequest>(command.PayloadJson, new JsonSerializerOptions(JsonSerializerDefaults.Web))!);
@@ -322,6 +333,58 @@ public sealed class DevReportDeliveryTests : IDisposable
         Assert.Single(_prompts);
         var row = after.Items(Tenant, report.Id).Single();
         Assert.Equal(("delivered", "Sent to the session, not confirmed"), (row.Status, row.StatusLabel));
+    }
+
+    [Fact]
+    public async Task SendAsync_CallerCancelsMidSend_TheSendRunsToItsEndAndNoItemStaysSending()
+    {
+        // Phase 2 inspection, Medium 1. The owner's browser goes away while the prompt is out: the request token fires.
+        // The claimed send must not run on that token, or it escapes past every finish and strands the items in
+        // "sending" for five minutes, then reads "sent, not confirmed" about a prompt that may never have left.
+        var store = Store();
+        var report = Publish(store);
+        _reach = DevReportSessionReach.Idle;
+        using var caller = new CancellationTokenSource();
+        _beforeAnswer = () => { caller.Cancel(); return Task.CompletedTask; };
+
+        var updates = await Delivery(store).SendAsync(Tenant, report, [Note("n1"), Note("n2")], "device", caller.Token);
+
+        Assert.All(updates, u => Assert.Equal(("delivered", "Delivered to the session"), (u.Status, u.StatusLabel)));
+        Assert.Single(_prompts);
+        Assert.DoesNotContain(store.Items(Tenant, report.Id), i => i.Status == DevReportItemStates.Sending);
+    }
+
+    [Fact]
+    public async Task SettleAsync_GatewayStopsMidSend_ItemsFinishNotConfirmedNeverLeftSending()
+    {
+        // The send had started when the Gateway's lifetime ended, so the prompt may have reached the Director: the items
+        // are finished as sent-not-confirmed at once - not left sending, and not held, which would type them twice.
+        var store = Store();
+        var report = Publish(store);
+        await Delivery(store).SendAsync(Tenant, report, [Note("n1")], "device", default);
+        _reach = DevReportSessionReach.Idle;
+        _beforeAnswer = () => { _gatewayLifetime.Cancel(); return Task.CompletedTask; };
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Delivery(store).SettleAsync(Tenant, _sid, default));
+
+        var row = store.Items(Tenant, report.Id).Single();
+        Assert.Equal(("delivered", "Sent to the session, not confirmed"), (row.Status, row.StatusLabel));
+    }
+
+    [Fact]
+    public async Task SettleAsync_GatewayStoppedBeforeTheSend_ItemsGoBackToHeldAndNothingIsTyped()
+    {
+        var store = Store();
+        var report = Publish(store);
+        await Delivery(store).SendAsync(Tenant, report, [Note("n1")], "device", default);
+        _reach = DevReportSessionReach.Idle;
+        _gatewayLifetime.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => Delivery(store).SettleAsync(Tenant, _sid, default));
+
+        Assert.Empty(_scopeAtSend);
+        var row = store.Items(Tenant, report.Id).Single();
+        Assert.Equal(("held", "Delivered when the agent finishes its turn"), (row.Status, row.StatusLabel));
     }
 
     [Fact]
@@ -637,5 +700,37 @@ public sealed class DevReportDeliveryTests : IDisposable
         Assert.Equal("done", store.GetVersion(Tenant, first.Id, null)!.Status);
         Assert.Equal(Now, second.PublishedAtUtc);
         Assert.Equal(Now.AddMinutes(1), second.UpdatedAtUtc);
+    }
+
+    [Fact]
+    public void Publish_TheDatabaseRefusesTheWriteAsADuplicate_RetriesOnceAsANewVersionNotAFailure()
+    {
+        // Phase 2 inspection, Low 1. Two Gateway processes during a deploy swap: this one reads, the other publishes the
+        // same key and commits, and the unique index refuses this one's write. The publish must answer as one process
+        // would - a new version of that report - not surface the refusal as a raw 500.
+        //
+        // WHAT THIS DOES NOT PROVE: the race itself. SQLite takes the write lock when the transaction begins, so on this
+        // provider the other writer waits and the refusal cannot happen; it is a PostgreSQL case. The other process's
+        // publish is therefore committed first and the refusal is handed in at the write, standing in for the one
+        // PostgreSQL raises. The retry after it - a fresh read, a new version - is the real code on the real schema.
+        var mine = Store();
+        var theirs = Store().Publish(Tenant, _sid, "k", "<p>theirs</p>", "agent-working", "Theirs", Now).Report;
+        var refusals = 0;
+        mine.BeforePublishWriteForTests = () =>
+        {
+            refusals++;
+            throw new DbUpdateException("An error occurred while saving the entity changes.",
+                new InvalidOperationException("duplicate key value violates unique constraint \"IX_dev_reports_TenantId_SessionId_Key\""));
+        };
+
+        var (report, created) = mine.Publish(Tenant, _sid, "k", "<p>mine</p>", "done", "Mine", Now.AddSeconds(1));
+
+        Assert.Equal(1, refusals);
+        Assert.False(created);
+        Assert.Equal(theirs.Id, report.Id);
+        Assert.Equal(2, report.Version);
+        Assert.Equal("<p>theirs</p>", mine.GetVersion(Tenant, report.Id, 1)!.Html);
+        Assert.Equal("<p>mine</p>", mine.GetVersion(Tenant, report.Id, 2)!.Html);
+        Assert.Single(mine.List(Tenant, _sid));
     }
 }

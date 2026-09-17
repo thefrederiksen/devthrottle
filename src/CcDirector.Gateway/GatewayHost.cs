@@ -865,6 +865,9 @@ public sealed class GatewayHost : IAsyncDisposable
     // that holds the owner's items while a session works and drains them at its turn end.
     private readonly DevReports.DevReportStore _devReports;
     private readonly DevReports.DevReportDelivery _devReportDelivery;
+    // The lifetime a claimed dev report send runs on: cancelled in StopAsync, never by a request (phase 2 inspection,
+    // Medium 1 - a browser that goes away must not strand the owner's items mid-send).
+    private readonly CancellationTokenSource _devReportSendLifetime = new();
     private readonly DevReports.DevReportTurnEndLauncher _devReportLauncher;
     private readonly DevReports.DevReportSettleSweep _devReportSettleSweep;
     private System.Threading.Timer? _devReportSettleTimer;
@@ -1872,6 +1875,7 @@ public sealed class GatewayHost : IAsyncDisposable
                 Api.DirectorCommandRouter.SendDirectorCommandAsync sendCommand = SendCommandAsync;
                 return new Api.SessionVerbClient(director, sendCommand);
             },
+            sendLifetime: _devReportSendLifetime.Token,
             enterTenantScope: tenant => _tenantBoundary.EnterScope(tenant));
         _devReportLauncher = new DevReports.DevReportTurnEndLauncher(_devReportDelivery);
         _devReportSettleSweep = new DevReports.DevReportSettleSweep(
@@ -5373,6 +5377,7 @@ public sealed class GatewayHost : IAsyncDisposable
         try { _sessionHistoryTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] session history timer dispose error: {ex.Message}"); }
         _sessionHistoryTimer = null;
         try { _devReportSettleTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] dev report settle timer dispose error: {ex.Message}"); }
+        try { _devReportSendLifetime.Cancel(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] dev report send lifetime cancel error: {ex.Message}"); }
         _devReportSettleTimer = null;
         _activityRetentionTimer = null;
         _turnVerdictRetentionTimer = null;
