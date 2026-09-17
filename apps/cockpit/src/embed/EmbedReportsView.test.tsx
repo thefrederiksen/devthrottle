@@ -12,7 +12,7 @@
 // running as whoever is signed in there, and nothing on screen would say so.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { authHeaders } from "@devthrottle/client-core/api/client";
 import { hostSuppliedKey, setHostSuppliedKey } from "@devthrottle/client-core/auth/hostKey";
 import { EmbedReportsView } from "./EmbedReportsView";
@@ -66,9 +66,16 @@ function gatewayCalls(): { url: string; authorization: string | undefined }[] {
   }));
 }
 
+// Renders the address the router is on, so a test can see whether the page moved itself.
+function LocationProbe() {
+  const location = useLocation();
+  return <span data-testid="where">{location.pathname + location.search}</span>;
+}
+
 function renderPage(sessionId = SESSION) {
   return render(
     <MemoryRouter initialEntries={[`/embed/reports/${sessionId}`]}>
+      <LocationProbe />
       <Routes>
         <Route path="/embed/reports/:sessionId" element={<EmbedReportsView />} />
       </Routes>
@@ -208,6 +215,22 @@ describe("the embedded reports page", () => {
     expect((authHeaders() as Record<string, string>).Authorization).toBeUndefined();
     // And the page let go of the host's channel as well.
     expect(bridge.listeners).toHaveLength(0);
+  });
+
+  it("reaches only the dev report routes, opens no stream, and never moves itself", async () => {
+    const socket = vi.fn();
+    vi.stubGlobal("WebSocket", socket);
+    const bridge = installBridge();
+    renderPage();
+
+    bridge.answer({ kind: HOST_KEY_MESSAGE, key: HOST_KEY, sessionId: SESSION });
+    await screen.findByTestId("dev-report-list");
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+    // No enrollment leg, no push registration, no account call: only the reports.
+    for (const call of gatewayCalls()) expect(call.url.startsWith("/dev-reports")).toBe(true);
+    expect(socket).not.toHaveBeenCalled();
+    expect(screen.getByTestId("where").textContent).toBe(`/embed/reports/${SESSION}`);
   });
 
   it("never writes the host key to localStorage, sessionStorage or a cookie", async () => {

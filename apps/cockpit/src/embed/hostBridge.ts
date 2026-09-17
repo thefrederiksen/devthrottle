@@ -15,6 +15,12 @@
 // both directions so that a host driving more than one pane answers the pane that asked, and so that
 // the page can refuse a key minted for a different session rather than read another session's reports
 // with it.
+//
+// FOR THE HOST: the key message must arrive as an OBJECT, so a WebView2 host sends it with
+// PostWebMessageAsJson, not PostWebMessageAsString - the string form arrives as a string and
+// isHostKeyMessage below refuses it, which on screen looks exactly like a host that never answered.
+// The page's own READY message is posted with window.chrome.webview.postMessage, which the host reads
+// from WebMessageReceivedEventArgs as JSON.
 
 /** What the page posts to the host on mount, to say it is up and waiting for a key. */
 export const HOST_READY_MESSAGE = "dev-report-host-ready";
