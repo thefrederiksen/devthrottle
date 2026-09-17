@@ -478,3 +478,255 @@ slice small, rebase right before opening the pull request, and merge the moment 
 - Open decision, the owner's: the Director-restart restore step versus the spawn owner pin (see
   "OPEN - needs the Architect" above and the Architect's recommendation: make restore a Director act).
   Not blocking slice 2.
+
+## Slice 2 - the doorbell (17 September 2026, Manager seat 2)
+
+Built on `mission/message-load` from origin/main (slice 1 merged). No pull request opened. Evidence is in
+`slice-2-evidence/`, which has its own README.
+
+### What was built
+
+The contract (`Gateway.Contracts/FleetMessageRequests.cs`):
+- The tunnel verb `ring` (`FleetDoorbellVerbs.Ring`), whose payload is `FleetRingRequest { UnreadCount }`.
+- The answer is `FleetRingResponse`, with `Outcome` either `rung` or `deferred`.
+- A deferral carries a `Reason`: `working`, `composer-holds-text`, `menu-open`, `exited` or
+  `screen-unreadable`.
+
+Gateway (`Messaging/FleetDoorbell.cs`):
+- **The schedule.** `FleetRingSchedule` is two pure rules: IsDue and IsStuck.
+  - A message is due when it has never been rung, or when its last ring is at least the grace old. It also
+    needs fewer than 3 rings.
+  - A message is stuck when it has had 3 rings and the grace after the third has passed.
+  - With the product numbers, a message is rung at 0, 5 and 10 minutes and marked stuck at 15.
+- **The ringer.** `FleetDoorbell` does the work:
+  - It rings on the settled edge (`OnSettled`, called from the turn-end watcher's callback in
+    `GatewayHost`).
+  - It rings on a 15-second heartbeat (`SweepAsync`, one pass per tenant through the tenant pass). Each
+    heartbeat first marks stuck messages, then rings every session that has a message due.
+  - It asks the owning Director through `DirectorCommandRouter`. The ring is counted only when the answer
+    is `rung`, and then only on the messages that were due.
+  - Stuck marks the rows and queues one system notice to the sender. The notice is written by the Gateway
+    as sender, with the System exemption.
+- **The store** (`FleetMessageStore`) gained four operations:
+  - `RecipientsWithOpenMessages` and `OpenMessagesFor` read the open messages.
+  - `MarkRung` and `MarkStuck` write, under the store lock, and only touch rows that are still unread.
+  - A read now clears `StuckAtUtc`.
+- **Test seams** in `GatewayHost`:
+  - `FleetDoorbellHeartbeatEnabled` is switched off in the `Gateway.Tests` module initializer, like the
+    turn-end sweep.
+  - `FleetDoorbellLimitsOverride` lets a proof shorten the grace.
+  - `GatewayDatabaseForTests` exposes the database to the proof.
+- **Every decision is logged**: rung, deferred with its reason, unreachable, not connected, exited, and
+  stuck. A skip because the session is working is not logged; it would repeat on every heartbeat.
+
+Director:
+- **The safety check.** `Core/Drivers/DoorbellSafety.cs` is a pure check over two screen frames. It holds
+  the composer reader for Claude Code and for Codex. It also defines `FleetDoorbellLine`, the one fixed
+  line: `[DevThrottle doorbell] N fleet message(s) ... To read, run: cc-devthrottle message inbox`. The
+  code comment states exactly how "composer empty" is decided from the rows, and what is not covered.
+- **The ringer.** `Core/Sessions/FleetDoorbellRinger.cs`:
+  - It gathers the facts: exited, the Director's own working state, whether the session has a rendered
+    terminal, whether the product left retained text, and two frames 120 milliseconds apart.
+  - When the check allows it, it types the line with `SendSource.Agent` and a fleet-message provenance.
+  - Only one ring runs at a time per session.
+- **The verb.** `ControlApi/FleetDoorbellExecutor.cs` is the `ring` verb, registered as its own command
+  area.
+- **Supporting changes:**
+  - `ComposerRetention.MayHoldText` reads the retained-text mark without clearing it.
+  - `Session.ProductMayHaveLeftComposerText` exposes that to the ringer.
+
+Real captured screens (`src/CcDirector.Core.Tests/TestData/doorbell/`, with a README):
+- Thirteen screens from Claude Code 2.1.274 and Codex 0.154.0, captured through the Director's own
+  terminal renderer.
+- They cover: idle, owner text, a two-line draft, a collapsed paste, a typed slash command, mid-turn, the
+  model picker, the trust dialogs, and the Codex placeholder and rate-limit menu.
+
+### Judgement calls for the inspector
+
+1. **"Stuck after 3 unanswered rings"** is read as three rings plus the grace after the third, so there
+   is never a fourth ring.
+2. **Only a `rung` answer counts.**
+   - A deferral, an unreachable Director, or an exited or working session moves nothing towards stuck.
+   - Consequence: a session that always defers is never marked stuck. That covers owner text left in the
+     composer for hours, and an agent without a composer reader. Those messages simply wait.
+3. **The Gateway does not ask when its roster says Working, Starting or Exited.** This saves a tunnel
+   call every 15 seconds during long turns. The settled edge asks again. The Director still decides
+   independently.
+4. **A ring covers all unread messages, but is counted only on the ones that were due**, so each message
+   keeps its own stuck clock. The line's count includes stuck messages, because they are still in the
+   inbox.
+5. **A read clears stuck, and no second notice tells the sender it was read after all.** The notice stays
+   in the sender's inbox.
+6. **A stuck notice is a message like any other**, so its recipient is rung for it. A stuck notice that
+   is itself a system notice tells nobody.
+7. **The Director checks its own activity state as well as the screen.** Working or Starting in either
+   one defers the ring.
+8. **Retained text the product left behind defers the ring.** When a `ComposerRetention` mark stands,
+   the next send would press Escape first, and a doorbell must never be that send.
+9. **Menus are recognised by their hint rows or a selected numbered option**, in the bottom 8 rows. For
+   Claude Code this check runs only when no framed composer is found. For Codex it always runs first.
+10. **A second ring while one is being typed is deferred as `working`**, not queued.
+11. **The submit check's short-turn blind spot is handled for the doorbell alone** (found by the proof,
+    see below).
+    - `SubmitVerifier` calls a submit proven only after 2,048 bytes of output. When it throws on the
+      doorbell line and the composer then reads empty, the ring is answered `rung`.
+    - The shared verifier itself was not changed. It is used by every send, and changing it is outside
+      this slice.
+12. **A ring that fails part-way is reported as unreachable** (Director status Conflict). It is not
+    counted. If the line was left half-typed, later checks see text and defer until the owner clears it.
+
+### Findings the Architect should decide on
+
+- **Ruling 15 is only half true.** The doorbell is agent-origin on the Director, so it does not stamp an
+  owner turn. But the Gateway's snooze law (17 July 2026) deletes an ARMED snooze on ANY Working edge,
+  and a doorbell makes the session work. So **a doorbell ends an armed snooze on the Gateway.** Not
+  changed here, because it is the owner's law. Issue 2853 asks the same question about fleet messages.
+- **The submit check nudges.** `SubmitVerifier` presses Enter on "dead" output windows for up to about
+  10 seconds after any submit.
+  - If the owner starts typing in that window and the agent's reply is short, a nudge could submit the
+    owner's half-typed words.
+  - This is true of every product send, not only the doorbell.
+  - Recommend a separate change: no nudges for agent-origin sends, or nudge only a composer whose text is
+    the one just typed.
+- **Issue 2845, collapsed paste.**
+  - The capture shows that Escape does NOT clear a collapsed paste in Claude Code 2.1.274.
+  - The product's own `SendTextAsync` typed straight onto the end of it (see the capture harness notes:
+    `claude-collapsed-paste`, then the next send's text was welded to the paste).
+  - The doorbell never types there, because the collapsed placeholder reads as text. Other product
+    sends still do.
+- **Dictation lock.** The ring does not consult the Gateway's dictation lock. A ring can land while the
+  owner's dictation is in flight, before the dictated text arrives. It is not the owner's words that are
+  lost, but the order of the two is.
+
+### What is proven, with red-then-green evidence
+
+Every guard below was broken on purpose and seen red, then restored and seen green. The breaks and their
+results are in `slice-2-evidence/guards-watched-failing/`.
+
+**Director safety check.** 22 breaks, all red in the final state. The rules covered:
+- the working marker, the composer text, continuation rows and framing;
+- menus, both frames, exited, retained text and the Director's own working state;
+- a missing grid, a blank screen, one frame only;
+- the Codex cursor position, the Codex hidden cursor, and unknown agents.
+
+Round 1 left 3 breaks green and 4 that did not compile. Each was answered in round 2: a new test for a
+continuation-row draft, the hidden Codex cursor and the blank-screen detail, plus compiling breaks.
+
+**Gateway schedule and ringer.** 18 breaks, all red in the final state. The rules covered:
+- the grace, its boundary (inclusive), and the ring cap on the settled edge;
+- stuck before the grace, and stuck one ring early;
+- counting every open message, counting a deferral, counting an unreachable Director;
+- the sender not told, working or exited sessions asked anyway, the count taken from due messages only;
+- the settled edge doing nothing, a system notice's notice, and the heartbeat not marking stuck.
+
+Round 1 left two breaks green, and both exposed a real weakness:
+- The ring cap was only enforced because the heartbeat marks stuck first. A test now drives the settled
+  edge alone.
+- The stuck threshold was stated twice, once in the store's query. The query no longer restates it.
+
+**Store guards.** 5 breaks, all red after 3 new store tests were added:
+- a read undoes stuck;
+- stuck never marks a message already read;
+- a ring is not recorded on a message already read;
+- a stuck message is not offered for ringing, and its recipient is not listed.
+
+**Host wiring.** 3 breaks, all red (`FleetDoorbellRouteTests`, a real Gateway host with a tunnel
+Director):
+- the settled edge not wired to the doorbell;
+- the Director's answer ignored;
+- the count not sent.
+
+**End to end on this Mac, real Claude Code sessions.** All three runs passed, and the evidence is saved.
+- **Run 1.** A message sent mid-turn is not typed until the turn ends. The doorbell comes about 10
+  seconds after the turn ends (the detector's silence timer). Exactly one doorbell is typed and one ring
+  counted. The agent's own record shows `message inbox` returned all three lines, and the record is read.
+- **Run 2.** Owner text in the composer defers three heartbeats in a row. The draft is untouched. After
+  it is cleared, the doorbell rings and the message is read.
+- **Run 3.** A worker that never reads is rung three times, about 72 seconds apart (a one-minute grace
+  plus 15-second heartbeat granularity). The message is then marked stuck, the sender receives the
+  Gateway's notice, is rung for it, and reads it.
+
+**The double-doorbell defect.** Red before the fix: the first run 3 showed four doorbell lines for three
+counted rings. Green after: exactly three.
+
+### What is NOT proven
+
+- **The graphical Director** (the screen was locked) and **the owner's installed Director**. The proof
+  used the Director host code without its window.
+- **The hosted Gateway and PostgreSQL.**
+  - The new store queries ran on SQLite only. There is no schema change: the columns came with slice 1.
+  - The heartbeat's per-tenant pass on a hosted Gateway was not exercised. Only the single-tenant self-host
+    pass ran.
+- **The five-minute grace live.** The live proof used one minute; five minutes is proven on a fake clock.
+- **Codex live.** Codex hit its usage limit during capture, so:
+  - no Codex session was rung end to end;
+  - the Codex "working" rule is tested on a written row only.
+- **Agents other than Claude Code and Codex.** They are never rung (`screen-unreadable`). Their messages
+  wait until read and never go stuck.
+- **The race with the owner's keystrokes.**
+  - A keystroke that lands between the second frame and the first doorbell keystroke is not seen.
+  - The submit check's nudges (see findings) are not addressed.
+- **A Claude Code placeholder suggestion.** It would read as text and defer the ring. No such screen was
+  captured.
+- **An interactive menu, live.** The menu case is proven on captured screens (the model picker, and both
+  trust dialogs) and not in a live run.
+- **`scripts/test-local.ps1`** was not run (no PowerShell on the Mac); the suites were run directly.
+
+## Slice 1 merge with main (17 September 2026)
+
+Merge commit `dfdaf8b5` brings `origin/main` into `mission/message-load` (3 commits: `56fcdde9` AXI
+step 6b help and errors, `75efc250` cc-ship, `cd299403` Cockpit Missions board). Pull request 2970 now
+reports MERGEABLE. Nothing is merged to main.
+
+### What conflicted
+
+`tools/cc-devthrottle/src/cli.py` (2 hunks) and `tools/cc-devthrottle/src/session_ops.py` (18 hunks).
+Main's `56fcdde9` rewrote the message and session commands around "delivered" and `message ask`, and
+moved every error to standard error with a `help[N]:` block of next steps. This branch had made those
+commands queue, removed `message ask`, and added `message inbox`.
+
+### How it was resolved
+
+Slice 1's behaviour and wording were kept (rulings 2, 10, 17). Main's conventions were applied to them:
+- `message send`: `Queued` or `Not queued:`. The Gateway's sentence goes out verbatim through
+  `axi_cli.fail` (plain text on standard error, no highlighting). The next steps are `message inbox` and
+  `session list`, and never `message ask`. Main's usage errors (`--everyone`/`--reason`/`--grant`
+  misuse, a blank message) are kept. The summary is shortened to one line under 80 characters.
+- `message send all`: the outcome counting and `BROADCAST_EXIT_RULE` are unchanged. Rows are now named
+  by full id, not a short one. An answer with no `results` list is now treated as unconfirmed and exits
+  1, following main's rule that an absent answer is not an empty one.
+- `message inbox`: ends with its help block. An answer without an `unread` list exits 1 and points at
+  `--all`. The messages were already marked read, so it must not print "0 unread".
+- `session report`: queued, with the full parent id. The next steps are `message inbox` and
+  `session done`.
+- `session prompt` and `session interrupt`: main's error form, with `message send <id>` as the first
+  next step. They no longer suggest each other, because both are refused to agents.
+- `compact-continue`: main's error form. Its refusal test now reads standard error.
+- `session spawn`: main's usage error is kept, reworded so it no longer offers `--controlled-by` for
+  another session. The old printed block is dropped.
+- `selftest`: main's Windows-only check and its flag counting, with this branch's single throwaway
+  and its "message send queues" check.
+- Main's tests were rewritten to the queue. `test_axi_step_6b_recheck6.py` (all `message ask`) and the
+  `message ask` part of `recheck5` are deleted. In `test_help_and_errors_axi.py` the mutation, error
+  and unconfirmed-answer tables, the selftest tests and the broadcast tests now assert queued
+  semantics, and `message inbox` is added to all three tables.
+- `docs/cli-reference.md`: the Message Send section is rewritten and Message Ask is replaced by
+  Message Inbox. Still NOT done (slice 5 words): the `--controlled-by` option line in Session Spawn
+  still says "a session id".
+
+### Evidence
+
+- cc-devthrottle tests (Mac, scratch environment): **3101 passed, 0 failed**. The first run after the
+  merge had 79 failures, all in main's `message ask` and "delivered" tests.
+- `test_axi_step_6c_help_and_errors.py::test_actions_json_is_unchanged` passed without a repin: the
+  action catalogue did not move.
+- The new inbox guard failed when made permissive (the `unread: null` case went red) and passed again
+  when restored.
+- Pull request 2970 checks on `dfdaf8b5`, all **pass**: Build & Test (.NET) (1h25m), Build & Test
+  (web), Inventory drift check, and Tool contracts (Python) on macOS, Ubuntu and Windows, floor and
+  latest (6 jobs).
+
+### Not proven
+
+Gateway suites were not rerun locally. The merge changed no Gateway file, and the continuous
+integration .NET job passed.
