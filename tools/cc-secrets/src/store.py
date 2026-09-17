@@ -32,6 +32,9 @@ _HOST_PATTERN = re.compile(r"^(\*\.)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a
 DEFAULT_PORTS = {"http": 80, "https": 443}
 MIN_SECRET_LENGTH = 4
 USES = ("login", "run")
+KIND_SECRET = "secret"
+KIND_SETTING = "setting"
+KINDS = (KIND_SECRET, KIND_SETTING)
 STORE_VERSION = 1
 
 
@@ -153,6 +156,10 @@ class Entry:
     uses: List[str] = field(default_factory=lambda: list(USES))
     # The environment variable `run` puts the secret in when the caller does not choose one. Empty: CC_SECRET.
     env_name: str = ""
+    # secret: hidden from every output, never printed. setting: not secret (a host, an email address, an
+    # identifier) - kept here so every credential has one home, readable with `get`, and NOT hidden from output,
+    # because hiding a host name would blank it out of everything that prints it.
+    kind: str = KIND_SECRET
     created_utc: str = field(default_factory=_utc_now)
     updated_utc: str = field(default_factory=_utc_now)
 
@@ -166,8 +173,13 @@ class Entry:
             "agentsMayUse": self.agents_may_use,
             "notes": self.notes,
             "envName": self.env_name,
+            "kind": self.kind,
             "updatedUtc": self.updated_utc,
         }
+
+    @property
+    def is_setting(self) -> bool:
+        return self.kind == KIND_SETTING
 
     def _to_record(self) -> Dict[str, object]:
         record = self.public_view()
@@ -186,6 +198,7 @@ class Entry:
             agents_may_use=bool(record.get("agentsMayUse", False)),
             uses=[str(u) for u in record.get("uses", list(USES))],
             env_name=str(record.get("envName", "")),
+            kind=str(record.get("kind", KIND_SECRET)),
             created_utc=str(record.get("createdUtc", "")),
             updated_utc=str(record.get("updatedUtc", "")),
         )
@@ -202,15 +215,21 @@ def validate_env_name(env_name: str) -> str:
 
 
 def make_entry(name: str, username: str, secret: str, allowed_domains: List[str], notes: str,
-               agents_may_use: bool, uses: List[str], env_name: str = "") -> Entry:
+               agents_may_use: bool, uses: List[str], env_name: str = "", kind: str = KIND_SECRET) -> Entry:
     """Validate the owner's input and build an entry."""
     validate_name(name)
     validate_env_name(env_name)
-    if len(secret) < MIN_SECRET_LENGTH:
-        raise InputError(f"The secret must be at least {MIN_SECRET_LENGTH} characters.")
-    conflict = redaction_conflict(secret, username)
-    if conflict is not None:
-        raise InputError(f"This secret cannot be stored: {conflict}.")
+    if kind not in KINDS:
+        raise InputError(f"The kind must be one of: {', '.join(KINDS)}.")
+    if kind == KIND_SETTING:
+        if not secret or "\n" in secret or "\r" in secret:
+            raise InputError("A setting must be one non-empty line.")
+    else:
+        if len(secret) < MIN_SECRET_LENGTH:
+            raise InputError(f"The secret must be at least {MIN_SECRET_LENGTH} characters.")
+        conflict = redaction_conflict(secret, username)
+        if conflict is not None:
+            raise InputError(f"This secret cannot be stored: {conflict}.")
     bad = [u for u in uses if u not in USES]
     if bad or not uses:
         raise InputError(f"Uses must be one or more of: {', '.join(USES)}.")
@@ -223,6 +242,7 @@ def make_entry(name: str, username: str, secret: str, allowed_domains: List[str]
         agents_may_use=agents_may_use,
         uses=[u for u in USES if u in uses],
         env_name=env_name,
+        kind=kind,
     )
 
 
@@ -232,7 +252,9 @@ def _register_secrets(document: object) -> None:
     if not isinstance(records, list):
         return
     for record in records:
-        if isinstance(record, dict) and isinstance(record.get("secret"), str) and record["secret"]:
+        if not isinstance(record, dict) or record.get("kind") == KIND_SETTING:
+            continue  # a setting is not secret, and hiding it would blank it out of every output
+        if isinstance(record.get("secret"), str) and record["secret"]:
             SCRUBBER.add(record["secret"], str(record.get("username", "")))
 
 
@@ -318,13 +340,25 @@ class SecretStore:
             raise EntryNotAvailableError(
                 f"Secret '{name}' is not allowed for '{use}'. It may be used for: {', '.join(entry.uses)}."
             )
+        if entry.is_setting and use == "login":
+            raise EntryNotAvailableError(f"'{name}' is a setting, not a password, so it cannot be used to log in.")
         # Stored before cc-secrets refused such secrets. The reason is not given here: it would say what the
         # secret is part of.
-        if redaction_conflict(entry.secret.reveal(), entry.username) is not None:
+        if not entry.is_setting and redaction_conflict(entry.secret.reveal(), entry.username) is not None:
             raise EntryNotAvailableError(
                 f"Secret '{name}' cannot be used, because its secret could not be hidden in output. The owner "
                 f"should replace it: cc-secrets add {name} --replace"
             )
+        return entry
+
+    def setting_for_agent(self, name: str) -> Entry:
+        """A setting agents may read. A secret is refused - naming it a secret, which list already shows."""
+        entry = self.get(name)
+        if entry is None or not entry.agents_may_use:
+            raise EntryNotAvailableError(f"No setting named '{name}' is available to agents on this machine.")
+        if not entry.is_setting:
+            raise EntryNotAvailableError(f"'{name}' is a secret, and a secret is never printed. Use it with "
+                                         f"cc-secrets run {name} -- <command>.")
         return entry
 
     def _save(self, entries: List[Entry]) -> None:
