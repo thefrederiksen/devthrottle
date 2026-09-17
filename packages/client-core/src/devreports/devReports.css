@@ -207,3 +207,15 @@
   opacity: 0.5;
   cursor: default;
 }
+
+/* The report landing (phase 3b): one sentence while the report is looked up, or the sentence saying it does
+   not appear. It is on screen for a moment on the way into a report, so it is deliberately plain. */
+.dev-report-landing {
+  padding: 24px 16px;
+}
+
+.dev-report-landing-line {
+  margin: 0;
+  font-size: 15px;
+  color: var(--muted, inherit);
+}
