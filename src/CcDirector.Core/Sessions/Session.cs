@@ -2342,6 +2342,9 @@ public sealed class Session : IDisposable
 
     private sealed record HeldKeystrokes(byte[] Data, InputOrigin? Origin, SubmissionProvenance Provenance);
 
+    /// <summary>Held keystrokes once written, with whether they submitted the composer (read when they were written).</summary>
+    private sealed record ReleasedKeystrokes(HeldKeystrokes Held, bool Submits);
+
     // ===== The owner's unsent draft =====
     // Whether the owner has typed text into the composer that has not been sent. A guarded send is refused while it is
     // set, so the product's text is never typed after the owner's words and submitted with them. Read and written under
@@ -2349,15 +2352,16 @@ public sealed class Session : IDisposable
     //
     // SET by any keystroke that can put text in the composer, whoever's door it came through - the desktop terminal,
     // the Cockpit's terminal (which carries no input origin), a caller's text sent without an Enter - except the
-    // product's own framework keys (a Wingman menu answer). A terminal's own reports (focus, mouse) put no text there
-    // and are skipped; arrow up or down can recall a line from history, so they count. CLEARED only by a submission the
-    // Director saw - an Enter that sends, or a text submit - because only then does the Director know the composer is
-    // empty. A Working state read from the terminal does not clear it: the terminal can read the echo of the owner's
-    // own typing as work, and an agent that starts a turn by itself keeps the draft. Backspace does not clear it
-    // either: a draft rubbed out key by key may leave text the Director cannot see (a wrapped line, an autocomplete).
+    // product's own framework keys (a Wingman menu answer). Everything inside a bracketed paste is text, a newline
+    // included. Other escape sequences (cursor keys, a terminal's focus and mouse reports) put no text there and are
+    // skipped; one that cannot be classified counts as text. CLEARED only by a submission the Director saw - an Enter
+    // that sends, or a text submit - because only then does the Director know the composer is empty. A Working state
+    // read from the terminal does not clear it: the terminal can read the echo of the owner's own typing as work, and
+    // an agent that starts a turn by itself keeps the draft. Backspace does not clear it either: a draft rubbed out key by key may leave text the Director cannot see (a wrapped line, an autocomplete).
     // When unsure, it stays set until the next submit - the event waits rather than mixing with the owner's words.
     private bool _ownerDraftUnsent;
     private long _ownerTextCount;
+    private readonly ComposerInputReader _composerInput = new();
 
     /// <summary>True while the owner has typed text into the composer that the Director has not seen submitted.</summary>
     public bool HasUnsentOwnerDraft
@@ -2367,76 +2371,29 @@ public sealed class Session : IDisposable
 
     /// <summary>
     /// Note what one raw write, just written to the terminal, did to the owner's draft. Called under the input lock.
-    /// An Enter submits whatever the composer holds; text after the last Enter is a new draft.
+    /// The write is read as a terminal would read it (<see cref="ComposerInputReader"/>): a submit empties the composer,
+    /// and text after the last submit - including anything inside a bracketed paste - is a new draft.
     /// </summary>
-    private void NoteRawInputLocked(byte[] data, SubmissionProvenance provenance)
+    /// <returns>Whether the write submits a turn: a submit, or a line feed outside a paste.</returns>
+    private bool NoteRawInputLocked(byte[] data, SubmissionProvenance provenance)
     {
-        var lastSubmit = -1;
-        for (var i = 0; i < data.Length; i++)
-            if (data[i] is 0x0D or 0x0A) lastSubmit = i;
-        if (lastSubmit >= 0 && _ownerDraftUnsent)
+        var effect = _composerInput.Read(data);
+        var submitsTurn = effect.Submitted || effect.LineFeedOutsidePaste;
+        if (effect.Submitted && _ownerDraftUnsent)
         {
             _ownerDraftUnsent = false;
             FileLog.Write($"[Session] owner draft cleared: session={Id}: an Enter submitted the composer");
         }
-        if (provenance.Route == SubmissionRoutes.Framework) return;
-        if (!PutsTextInComposer(data, lastSubmit + 1)) return;
+        if (provenance.Route == SubmissionRoutes.Framework) return submitsTurn;
+        if (!effect.TextAfterLastSubmit) return submitsTurn;
         _ownerTextCount++;
         if (!_ownerDraftUnsent)
         {
             _ownerDraftUnsent = true;
-            FileLog.Write($"[Session] owner draft set: session={Id}: text reached the composer through {provenance.Route} and is not sent yet");
+            FileLog.Write($"[Session] owner draft set: session={Id}: text reached the composer through {provenance.Route} and is not sent yet" +
+                          (_composerInput.InPaste ? " (a paste is still arriving)" : ""));
         }
-    }
-
-    /// <summary>
-    /// Whether the bytes from <paramref name="start"/> can put text in the composer: a printable character, or arrow up
-    /// or down (history recall). Escape sequences - a terminal's focus and mouse reports, cursor keys, the markers
-    /// around a paste - are skipped; the text of a paste is not.
-    /// </summary>
-    internal static bool PutsTextInComposer(byte[] data, int start)
-    {
-        for (var i = start; i < data.Length; i++)
-        {
-            var b = data[i];
-            if (b != 0x1B)
-            {
-                if (b >= 0x20 && b != 0x7F) return true;
-                continue;
-            }
-            if (i + 1 >= data.Length) return false;
-            var kind = data[i + 1];
-            if (kind == (byte)'[')
-            {
-                // A mouse report in the old encoding: ESC [ M and three raw bytes.
-                if (i + 2 < data.Length && data[i + 2] == (byte)'M')
-                {
-                    i += 5;
-                    continue;
-                }
-                var j = i + 2;
-                while (j < data.Length && (data[j] < 0x40 || data[j] > 0x7E)) j++;
-                if (j < data.Length && (data[j] == (byte)'A' || data[j] == (byte)'B')) return true;
-                i = j;
-            }
-            else if (kind == (byte)'O')
-            {
-                if (i + 2 < data.Length && (data[i + 2] == (byte)'A' || data[i + 2] == (byte)'B')) return true;
-                i += 2;
-            }
-            else if (kind == (byte)']')
-            {
-                // An operating system command runs to BEL or to ESC \.
-                var j = i + 2;
-                while (j < data.Length && data[j] != 0x07 && !(data[j] == 0x1B && j + 1 < data.Length && data[j + 1] == (byte)'\\')) j++;
-                i = j < data.Length && data[j] == 0x1B ? j + 1 : j;
-            }
-            else
-            {
-                i += 1;
-            }
-        }
-        return false;
+        return submitsTurn;
     }
 
     /// <summary>
@@ -2499,7 +2456,7 @@ public sealed class Session : IDisposable
     /// </summary>
     internal void WriteInGuardedSection(GuardedInputSection section, byte[] data)
     {
-        List<HeldKeystrokes> released;
+        List<ReleasedKeystrokes> released;
         lock (_inputLock)
         {
             if (!section.Open)
@@ -2548,7 +2505,7 @@ public sealed class Session : IDisposable
     private TimeSpan EffectiveGuardedSendLimit => GuardedSendLimitForTests ?? GuardedSendLimit;
 
     /// <summary>Close the section after its Enter. Held keystrokes are written now, after the Enter, in order.</summary>
-    private List<HeldKeystrokes> CloseGuardedSectionLocked(GuardedInputSection section)
+    private List<ReleasedKeystrokes> CloseGuardedSectionLocked(GuardedInputSection section)
     {
         var released = ReleaseGuardedSectionLocked(section);
         section.Closed.TrySetResult();
@@ -2560,7 +2517,7 @@ public sealed class Session : IDisposable
     /// then release the owner's held keystrokes after that. The composer is then as the owner had it, plus what they
     /// typed meanwhile.
     /// </summary>
-    private List<HeldKeystrokes> AbandonGuardedSectionLocked(GuardedInputSection section, string reason)
+    private List<ReleasedKeystrokes> AbandonGuardedSectionLocked(GuardedInputSection section, string reason)
     {
         section.AbandonReason = reason;
         var typed = section.TypedCharacters();
@@ -2579,18 +2536,18 @@ public sealed class Session : IDisposable
         return released;
     }
 
-    private List<HeldKeystrokes> ReleaseGuardedSectionLocked(GuardedInputSection section)
+    private List<ReleasedKeystrokes> ReleaseGuardedSectionLocked(GuardedInputSection section)
     {
         section.Open = false;
         section.DeadlineTimer.Cancel();
-        var released = new List<HeldKeystrokes>(_heldKeystrokes);
-        _heldKeystrokes.Clear();
-        foreach (var held in released)
+        var released = new List<ReleasedKeystrokes>(_heldKeystrokes.Count);
+        foreach (var held in _heldKeystrokes)
         {
             _inputGeneration++;
             _backend.Write(held.Data);
-            NoteRawInputLocked(held.Data, held.Provenance);
+            released.Add(new ReleasedKeystrokes(held, NoteRawInputLocked(held.Data, held.Provenance)));
         }
+        _heldKeystrokes.Clear();
         section.GenerationAtClose = _inputGeneration;
         if (ReferenceEquals(_guardedSection, section)) _guardedSection = null;
         // The released keystrokes are in flight until their meaning (a submitted turn) is applied, so no guarded send
@@ -2600,13 +2557,13 @@ public sealed class Session : IDisposable
     }
 
     /// <summary>Apply what the released keystrokes mean, outside the lock, and end their in-flight mark.</summary>
-    private void ReplayHeld(List<HeldKeystrokes> released)
+    private void ReplayHeld(List<ReleasedKeystrokes> released)
     {
         if (released.Count == 0) return;
         try
         {
-            foreach (var held in released)
-                AfterRawInput(held.Data, held.Origin, held.Provenance);
+            foreach (var (held, submits) in released)
+                AfterRawInput(held.Data, held.Origin, held.Provenance, submits);
         }
         finally { EndInput(); }
     }
@@ -2623,7 +2580,7 @@ public sealed class Session : IDisposable
 
         try
         {
-            List<HeldKeystrokes> released;
+            List<ReleasedKeystrokes> released;
             lock (_inputLock)
             {
                 if (!section.Open) return;
@@ -2654,6 +2611,7 @@ public sealed class Session : IDisposable
         FileLog.Write($"[Session] SendInput: session={Id}, bytes={data.Length}, firstByte=0x{(data.Length > 0 ? data[0].ToString("X2") : "00")}");
         // Under the input lock, and counted as input. While a guarded send holds the input, the keystroke is held and
         // written after that send, in order; otherwise it is written now and is in flight until its meaning is applied.
+        bool submits;
         lock (_inputLock)
         {
             if (_guardedSection is not null)
@@ -2666,14 +2624,17 @@ public sealed class Session : IDisposable
             _inputGeneration++;
             _inputInFlight++;
             _backend.Write(data);
-            NoteRawInputLocked(data, provenance);
+            submits = NoteRawInputLocked(data, provenance);
         }
-        try { AfterRawInput(data, origin, provenance); }
+        try { AfterRawInput(data, origin, provenance, submits); }
         finally { EndInput(); }
     }
 
-    /// <summary>What a raw write means once it is written: composed characters, or a submitted turn.</summary>
-    private void AfterRawInput(byte[] data, InputOrigin? origin, SubmissionProvenance provenance)
+    /// <summary>
+    /// What a raw write means once it is written: composed characters, or a submitted turn. <paramref name="submits"/>
+    /// says whether it submitted, as the terminal reads it - a newline inside a paste submits nothing.
+    /// </summary>
+    private void AfterRawInput(byte[] data, InputOrigin? origin, SubmissionProvenance provenance, bool submits)
     {
         // Accumulate only. The tally is written at the submission below, by the one method that also
         // stamps the submission event, so the two can never disagree about how many turns there were
@@ -2685,7 +2646,7 @@ public sealed class Session : IDisposable
         // (CR or LF). A bare keystroke is the user composing at the prompt --
         // Claude Code hasn't received a turn yet. Treating every byte as Working
         // flickered the sidebar dot blue on every character typed.
-        if (ContainsSubmit(data))
+        if (submits)
         {
             IsBrandNew = false;
             // A submission supersedes a hold only when the OWNER made it. SendInput carries no SendSource,
@@ -3070,13 +3031,13 @@ public sealed class Session : IDisposable
             {
                 var data = System.Text.Encoding.UTF8.GetBytes(text);
                 guarded.Write(data);
-                AfterRawInput(data, origin, provenance);
+                AfterRawInput(data, origin, provenance, ContainsSubmit(data));
             }
         }
         finally
         {
             // Text typed without an Enter stays where the caller asked for it; the section ends with the send.
-            List<HeldKeystrokes> released = new();
+            List<ReleasedKeystrokes> released = new();
             lock (_inputLock)
             {
                 if (section.Open && !appendEnter)
@@ -3093,7 +3054,7 @@ public sealed class Session : IDisposable
     private bool TryAbandonOnFailure(GuardedInputSection section, Exception ex)
     {
         if (ex is GuardedSendAbandonedException) return true;
-        List<HeldKeystrokes> released;
+        List<ReleasedKeystrokes> released;
         lock (_inputLock)
         {
             if (!section.Open) return false;

@@ -349,18 +349,103 @@ public sealed class PromptOnlyWhenWaitingForInputTests
         Assert.Equal(new[] { EventText }, terminal.Submitted);
     }
 
-    /// <summary>Arrow up or down recalls a line from history into the composer: that is a draft too.</summary>
+    /// <summary>Cursor keys on their own put no text in the composer: the event is delivered.</summary>
     [Fact]
-    public async Task SendPromptAsync_TheOwnerRecalledALineFromHistory_SubmitsNothing()
+    public async Task SendPromptAsync_TheOwnerPressedOnlyArrowKeys_TheEventIsDelivered()
     {
         var (session, terminal) = NewTerminalSession();
-        ScriptedTerminal.OwnerTypes(session, "\x1b[A");
+        foreach (var key in new[] { "\x1b[A", "\x1b[B", "\x1b[C", "\x1b[D", "\x1bOA", "\x1b[1;5D" })
+            OwnerTypes(session, key);
+        terminal.Composer.Clear();
+        Assert.False(session.HasUnsentOwnerDraft);
 
+        var response = Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(session, EventPrompt()));
+
+        Assert.True(response.Accepted);
+        Assert.Equal(new[] { EventText }, terminal.Submitted);
+    }
+
+    /// <summary>
+    /// A bracketed paste ending in a newline is composer text: the newline belongs to the paste and submits nothing, so
+    /// the pasted words are an unsent draft and the event is not typed after them.
+    /// </summary>
+    [Fact]
+    public async Task SendPromptAsync_TheOwnerPastedTextEndingInANewline_SubmitsNothing()
+    {
+        var (session, terminal) = NewTerminalSession();
+        session.SendInput(Encoding.UTF8.GetBytes("\x1b[200~draft\n\x1b[201~"), null,
+            SubmissionProvenance.FromWire(null, SubmissionRoutes.GatewayTerminal));
+
+        Assert.True(session.HasUnsentOwnerDraft);
         var response = Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(session, EventPrompt()));
 
         Assert.False(response.Accepted);
         Assert.Equal(PromptResponse.RefusedForOwnerDraft, response.RefusedFor);
         Assert.Empty(terminal.Submitted);
+    }
+
+    /// <summary>A paste split across several writes stays a paste until its end marker: its carriage returns submit nothing.</summary>
+    [Theory]
+    [InlineData("\x1b[200~first line\r", "second line\r", "\x1b[201~")]
+    [InlineData("\x1b[20", "0~first line\r", "\x1b[2", "01~")]
+    [InlineData("\x1b", "[200~a\r\x1b[20", "1~")]
+    public void SendInput_APasteSplitAcrossWrites_IsAnUnsentDraft(params string[] writes)
+    {
+        var (session, _) = NewTerminalSession();
+
+        foreach (var write in writes)
+            OwnerTypes(session, write);
+
+        Assert.True(session.HasUnsentOwnerDraft);
+    }
+
+    /// <summary>A real Enter after a paste has ended submits it: the draft is gone and the event is delivered.</summary>
+    [Fact]
+    public async Task SendPromptAsync_APasteThenARealEnter_TheEventIsDelivered()
+    {
+        var (session, terminal) = NewTerminalSession();
+        OwnerTypes(session, "\x1b[200~draft\n\x1b[201~");
+        OwnerTypes(session, "\r");
+        session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
+        terminal.Composer.Clear();
+        terminal.Submitted.Clear();
+
+        Assert.False(session.HasUnsentOwnerDraft);
+        var response = Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(session, EventPrompt()));
+
+        Assert.True(response.Accepted);
+        Assert.Equal(new[] { EventText }, terminal.Submitted);
+    }
+
+    /// <summary>An Enter key sent in a keyboard-protocol encoding submits the draft.</summary>
+    [Theory]
+    [InlineData("\x1b[13u")]
+    [InlineData("\x1b[13;1u")]
+    [InlineData("\x1b[27;1;13~")]
+    [InlineData("\x1bOM")]
+    public void SendInput_AnEncodedEnter_SubmitsTheDraft(string enter)
+    {
+        var (session, _) = NewTerminalSession();
+        OwnerTypes(session, "my draft");
+
+        OwnerTypes(session, enter);
+
+        Assert.False(session.HasUnsentOwnerDraft);
+    }
+
+    /// <summary>A modified Enter (Shift or Alt) may add a line to the composer rather than send it: the draft stays.</summary>
+    [Theory]
+    [InlineData("\x1b[13;2u")]
+    [InlineData("\x1b[27;2;13~")]
+    [InlineData("\x1b\r")]
+    public void SendInput_AModifiedEnter_KeepsTheDraft(string enter)
+    {
+        var (session, _) = NewTerminalSession();
+        OwnerTypes(session, "my draft");
+
+        OwnerTypes(session, enter);
+
+        Assert.True(session.HasUnsentOwnerDraft);
     }
 
     /// <summary>
