@@ -1248,6 +1248,11 @@ public sealed class TurnVerdictService : IDisposable
                     record = TurnVerdictContract.ParseAndValidate(answer.Raw, package, answer.Model, observedAt);
                     // The carrying-on clock's first source travels on the stored record, so it survives a restart.
                     record.NextScheduledWakeUtc = package.NextScheduledWakeUtc;
+                    // THE SCREEN DECIDES WHETHER THERE IS A PICKER (issue 2976). A keys answer the read screen does
+                    // not support is corrected to a reply here, before the record is stored, so nothing downstream -
+                    // the row's buttons, the narration's menu shape - is built on a menu the judge invented.
+                    if (InventedMenuCheck.Correct(record, rows))
+                        FileLog.Write($"[TurnVerdictService] invented menu corrected: sid={sid} id={record.VerdictId} - the judge answered keys and the read screen carries no drawn menu; stored as a reply with no options");
                     answerWasReadable = TurnVerdictContract.IsReadableJsonObject(answer.Raw);
                     if (record.Failed)
                     {
@@ -1329,6 +1334,10 @@ public sealed class TurnVerdictService : IDisposable
                 var narrationDecision = failure == TurnVerdictFailureKind.Refused
                     ? TurnVerdictContract.SalvageNarrationDecision(rawReply)
                     : null;
+                // A refused answer's salvaged decision is checked against the screen too (issue 2976): it reaches the
+                // narration call, which would otherwise tell a listener to press a button that is not there.
+                if (InventedMenuCheck.Correct(narrationDecision, rows))
+                    FileLog.Write($"[TurnVerdictService] invented menu corrected on a refused record's salvaged decision: sid={sid} id={record.VerdictId}");
                 if (narrationDecision is not null)
                     _refusedNarrationDecisions[key] = (record.VerdictId, narrationDecision);
                 _env.Record(new TurnVerdictRecord(tenant, directorId, sid, ActivityEventTypes.TurnVerdictFailed,
