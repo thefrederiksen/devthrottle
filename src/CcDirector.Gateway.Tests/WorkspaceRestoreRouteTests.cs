@@ -54,6 +54,7 @@ public sealed class WorkspaceRestoreRouteTests : IAsyncLifetime
     private FakeTunnelDirector _director = null!;
     private TenantId _tenant;
     private string _directorKey = "";
+    private string _otherWorkstationKey = "";
     private HttpClient _asDirector = null!;
     private HttpClient _asOwner = null!;
     private HttpClient _asRestoringSession = null!;
@@ -76,6 +77,8 @@ public sealed class WorkspaceRestoreRouteTests : IAsyncLifetime
         _tenant = device.Tenant;
         _directorKey = device.DeviceKey;
         var owner = _gateway.Devices.RegisterForTenant(_tenant, subject, $"dev-restore-owner-{_runId}", "OWNER", deviceType: "browser");
+        // A SECOND WORKSTATION in the same account (inspection 11): a real Director key, just not this Director's.
+        _otherWorkstationKey = _gateway.Devices.RegisterForTenant(_tenant, subject, $"dev-restore-other-{_runId}", "OTHER-WORKSTATION").DeviceKey;
 
         _asDirector = Client(_directorKey);
         _asOwner = Client(owner.DeviceKey);
@@ -290,6 +293,110 @@ public sealed class WorkspaceRestoreRouteTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Forbidden, asOwner.StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, asDirectorWithoutLease.StatusCode);
         Assert.Contains("restore lease", await asDirectorWithoutLease.Content.ReadAsStringAsync());
+        Assert.Null((await StoredAsync()).Seats.Single(s => s.SessionId == _manager).RestoredSessionId);
+    }
+
+    // =========================================================================================
+    // Inspection 11, ruling 1: a mark comes only from the Director that holds the lease, on its own credential
+    // =========================================================================================
+
+    private Task<HttpResponseMessage> PostMark(HttpClient who, WorkspaceRestoreMark mark)
+        => who.PostAsJsonAsync($"gateway/workspaces/{WorkspaceId}/restore/marks", mark);
+
+    [Fact]
+    public async Task A_second_workstation_key_of_the_account_cannot_write_any_mark_under_the_lease_holders_name()
+    {
+        await DrainClosedTheSeatsAsync();
+        await LeaseThroughTheRouteAsync(_asRestoringSession);
+        using var other = Client(_otherWorkstationKey);
+        var x = _restoringSession;
+        Assert.Equal(HttpStatusCode.OK, (await PostMark(_asDirector, new WorkspaceRestoreMark
+        {
+            DirectorId = DirectorId, Kind = WorkspaceRestoreMarkKinds.Started, SeatSessionId = _manager, Token = "tok-1",
+        })).StatusCode);
+
+        var forged = new[]
+        {
+            new WorkspaceRestoreMark { DirectorId = DirectorId, Kind = WorkspaceRestoreMarkKinds.Restored, SeatSessionId = _manager, RestoredSessionId = x, Token = "tok-1" },
+            new WorkspaceRestoreMark { DirectorId = DirectorId, Kind = WorkspaceRestoreMarkKinds.Failed, SeatSessionId = _manager, Failure = "forged", NothingStarted = true },
+            new WorkspaceRestoreMark { DirectorId = DirectorId, Kind = WorkspaceRestoreMarkKinds.Started, SeatSessionId = _worker, Token = "tok-forged" },
+            new WorkspaceRestoreMark { DirectorId = DirectorId, Kind = WorkspaceRestoreMarkKinds.Finished },
+        };
+        foreach (var mark in forged)
+            Assert.Equal(HttpStatusCode.Forbidden, (await PostMark(other, mark)).StatusCode);
+
+        var stored = await StoredAsync();
+        var manager = stored.Seats.Single(s => s.SessionId == _manager);
+        Assert.Null(manager.RestoredSessionId);
+        Assert.Null(manager.Restore!.Failure);
+        Assert.Equal("tok-1", manager.Restore.StartedToken);
+        Assert.Null(stored.Seats.Single(s => s.SessionId == _worker).Restore!.StartedToken);
+        Assert.Equal(DirectorId, stored.RestoreLease!.DirectorId);
+
+        // The holder's own marks are accepted: what came back, then the lease given back.
+        Assert.Equal(HttpStatusCode.OK, (await PostMark(_asDirector, new WorkspaceRestoreMark
+        {
+            DirectorId = DirectorId, Kind = WorkspaceRestoreMarkKinds.Restored, SeatSessionId = _manager, RestoredSessionId = "new-manager", Token = "tok-1",
+        })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await PostMark(_asDirector, new WorkspaceRestoreMark
+        {
+            DirectorId = DirectorId, Kind = WorkspaceRestoreMarkKinds.Finished,
+        })).StatusCode);
+        stored = await StoredAsync();
+        Assert.Equal("new-manager", stored.Seats.Single(s => s.SessionId == _manager).RestoredSessionId);
+        Assert.Null(stored.RestoreLease);
+    }
+
+    [Fact]
+    public async Task A_restored_mark_without_the_token_its_Director_started_the_seat_with_is_refused()
+    {
+        await DrainClosedTheSeatsAsync();
+        await LeaseThroughTheRouteAsync(_asRestoringSession);
+        Assert.Equal(HttpStatusCode.OK, (await PostMark(_asDirector, new WorkspaceRestoreMark
+        {
+            DirectorId = DirectorId, Kind = WorkspaceRestoreMarkKinds.Started, SeatSessionId = _manager, Token = "tok-1",
+        })).StatusCode);
+
+        var noToken = await PostMark(_asDirector, new WorkspaceRestoreMark
+        {
+            DirectorId = DirectorId, Kind = WorkspaceRestoreMarkKinds.Restored, SeatSessionId = _manager, RestoredSessionId = _restoringSession,
+        });
+        var wrongToken = await PostMark(_asDirector, new WorkspaceRestoreMark
+        {
+            DirectorId = DirectorId, Kind = WorkspaceRestoreMarkKinds.Restored, SeatSessionId = _manager, RestoredSessionId = _restoringSession, Token = "tok-other",
+        });
+        var neverStarted = await PostMark(_asDirector, new WorkspaceRestoreMark
+        {
+            DirectorId = DirectorId, Kind = WorkspaceRestoreMarkKinds.Restored, SeatSessionId = _worker, RestoredSessionId = _restoringSession, Token = "tok-1",
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, noToken.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, wrongToken.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, neverStarted.StatusCode);
+        var stored = await StoredAsync();
+        Assert.Null(stored.Seats.Single(s => s.SessionId == _manager).RestoredSessionId);
+        Assert.Null(stored.Seats.Single(s => s.SessionId == _worker).RestoredSessionId);
+    }
+
+    [Fact]
+    public async Task A_restore_claim_from_a_second_workstation_key_is_refused_and_nothing_reaches_the_Director()
+    {
+        await DrainClosedTheSeatsAsync();
+        await LeaseThroughTheRouteAsync(_asRestoringSession);
+        await PostMark(_asDirector, new WorkspaceRestoreMark
+        {
+            DirectorId = DirectorId, Kind = WorkspaceRestoreMarkKinds.Started, SeatSessionId = _manager, Token = "tok-1",
+        });
+        using var other = Client(_otherWorkstationKey);
+
+        var r = await other.PostAsJsonAsync($"directors/{DirectorId}/sessions", new
+        {
+            repoPath = "/repos/devthrottle", agent = "ClaudeCode", name = "Restore - Manager",
+            restoreClaim = new { workspaceId = WorkspaceId, seatSessionId = _manager, token = "tok-1" },
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
+        Assert.Empty(CreatesSent());
         Assert.Null((await StoredAsync()).Seats.Single(s => s.SessionId == _manager).RestoredSessionId);
     }
 

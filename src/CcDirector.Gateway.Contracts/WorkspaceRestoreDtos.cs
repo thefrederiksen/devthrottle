@@ -126,7 +126,8 @@ public sealed class WorkspaceRestoreMark
     /// <summary>The seat (captured session id). Required for every kind but "finished".</summary>
     public string? SeatSessionId { get; set; }
 
-    /// <summary>"started": the token the create will carry.</summary>
+    /// <summary>"started": the token the create will carry. "restored": the token of that start - a restored mark
+    /// without the token its own Director stored is refused.</summary>
     public string? Token { get; set; }
 
     /// <summary>"restored": the new session's id.</summary>

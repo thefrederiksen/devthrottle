@@ -178,7 +178,7 @@ public sealed class WorkspaceOwedSeatsAndOriginRulesTests : IDisposable
         }, Now);
         store.RecordRestoreMark(workspaceId, new WorkspaceRestoreMark
         {
-            DirectorId = director, Kind = WorkspaceRestoreMarkKinds.Restored, SeatSessionId = seatId, RestoredSessionId = newId,
+            DirectorId = director, Kind = WorkspaceRestoreMarkKinds.Restored, SeatSessionId = seatId, RestoredSessionId = newId, Token = "t-" + seatId,
         }, Now);
         store.RecordRestoreMark(workspaceId, new WorkspaceRestoreMark { DirectorId = director, Kind = WorkspaceRestoreMarkKinds.Finished }, Now);
     }

@@ -4000,6 +4000,14 @@ internal static class GatewayEndpoints
                     return Results.Json(new { error = "only a Director restoring a workspace may send a restore claim" },
                         statusCode: StatusCodes.Status403Forbidden);
                 }
+                // The same binding as the mark route (inspection 11, ruling 1): the claim is sent by the Director the
+                // create is for, on the credential that Director said Hello on - not by another key of the account.
+                if (!registry.IsRegisteredByCredential(spawnTenant.Value, id, AuthMiddleware.RegisteringCredential(ctx)))
+                {
+                    FileLog.Write($"[GatewayEndpoints] {spawnRoute}: REFUSED - a restore claim on a credential Director {id} is not connected on");
+                    return Results.Json(new { error = $"a restore claim is sent only by Director '{id}' itself, on the credential it is connected on" },
+                        statusCode: StatusCodes.Status403Forbidden);
+                }
                 if (workspaces is null)
                     return Results.Json(new { error = "this Gateway has no workspace store, so a restore's create cannot be recorded and is not sent" },
                         statusCode: StatusCodes.Status503ServiceUnavailable);
@@ -4040,7 +4048,7 @@ internal static class GatewayEndpoints
             {
                 try
                 {
-                    workspaces.RecordRestoredByClaim(restoreClaim, body.SessionId, DateTime.UtcNow);
+                    workspaces.RecordRestoredByClaim(restoreClaim, id, body.SessionId, DateTime.UtcNow);
                 }
                 catch (Exception ex)
                 {

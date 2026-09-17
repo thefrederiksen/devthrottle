@@ -218,8 +218,10 @@ public sealed class DirectorHub : Hub
         // structurally impossible, however the client chose hello.DirectorId. It also makes the entry visible
         // to this account's /directors list and to no other. The tenant is the one resolved above from the
         // authenticated device key - never the Hello payload, which the client writes.
+        // The credential this Hello authenticated with is recorded against the id, so a route can tell this
+        // Director's own calls from another key of the same account (the Message Load mission, inspection 11).
         _registry.RegisterFromStream(directorId, hello.MachineName, hello.User, hello.Version, hello.Pid, hello.StartedAt, tenant,
-            hello.DisplayName);
+            hello.DisplayName, AuthMiddleware.RegisteringCredential(Context.GetHttpContext()));
         // What this build can do, kept against the CONNECTION: the same machine can come back on an older
         // or a newer Director, and a stale answer here would put the wrong sentence on an empty Chat screen.
         _turnPushCapabilities?.Record(tenant, directorId, hello.PushesTurns);

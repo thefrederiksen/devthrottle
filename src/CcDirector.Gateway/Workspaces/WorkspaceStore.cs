@@ -495,6 +495,16 @@ public sealed class WorkspaceStore
                 case WorkspaceRestoreMarkKinds.Restored:
                     if (string.IsNullOrWhiteSpace(mark.RestoredSessionId))
                         throw new WorkspaceValidationException("a \"restored\" mark names the new session.");
+                    // A seat is restored only by the start this Director recorded (inspection 11, ruling 1): the mark
+                    // carries the token of that start, so "restored" can never name a session no create of this
+                    // restore made.
+                    if (string.IsNullOrWhiteSpace(mark.Token))
+                        throw new WorkspaceValidationException("a \"restored\" mark carries the token of the start it completes.");
+                    if (!string.Equals(restore.StartedToken, mark.Token, StringComparison.Ordinal)
+                        || !string.Equals(restore.StartedByDirectorId, mark.DirectorId, StringComparison.OrdinalIgnoreCase))
+                        throw new WorkspaceConflictException(
+                            $"seat '{seat.SessionId}' has no start by Director '{mark.DirectorId}' with that token, so it cannot be " +
+                            "recorded as restored. Only the Director that started a seat records what came back.");
                     if (!string.IsNullOrWhiteSpace(seat.RestoredSessionId)
                         && !string.Equals(seat.RestoredSessionId, mark.RestoredSessionId, StringComparison.OrdinalIgnoreCase))
                         throw new WorkspaceConflictException(
@@ -533,11 +543,12 @@ public sealed class WorkspaceStore
 
     /// <summary>
     /// The spawn door's record of a restore's create (inspection 7, ruling 3): when the seat's stored start token
-    /// is <paramref name="claim"/>'s token, the seat is recorded as restored as <paramref name="newSessionId"/>.
+    /// is <paramref name="claim"/>'s token and the start was <paramref name="directorId"/>'s - the Director the create
+    /// was performed on - the seat is recorded as restored as <paramref name="newSessionId"/>.
     /// Returns whether it was recorded. A token that does not match records nothing - the seat has been started
     /// again since, or the claim is not this seat's.
     /// </summary>
-    public bool RecordRestoredByClaim(WorkspaceRestoreClaim claim, string newSessionId, DateTime nowUtc)
+    public bool RecordRestoredByClaim(WorkspaceRestoreClaim claim, string directorId, string newSessionId, DateTime nowUtc)
     {
         ArgumentNullException.ThrowIfNull(claim);
         if (string.IsNullOrWhiteSpace(claim.Token) || string.IsNullOrWhiteSpace(newSessionId)) return false;
@@ -547,7 +558,8 @@ public sealed class WorkspaceStore
         {
             var seat = doc.Seats.FirstOrDefault(x => string.Equals(x.SessionId, claim.SeatSessionId, StringComparison.OrdinalIgnoreCase));
             if (seat?.Restore is not { } restore
-                || !string.Equals(restore.StartedToken, claim.Token, StringComparison.Ordinal))
+                || !string.Equals(restore.StartedToken, claim.Token, StringComparison.Ordinal)
+                || !string.Equals(restore.StartedByDirectorId, directorId, StringComparison.OrdinalIgnoreCase))
                 return false;
             if (!string.IsNullOrWhiteSpace(seat.RestoredSessionId)) return false;
             seat.RestoredSessionId = newSessionId;

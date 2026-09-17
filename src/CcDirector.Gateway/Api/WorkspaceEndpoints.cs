@@ -67,12 +67,15 @@ internal static class WorkspaceEndpoints
     /// Returns null when the Gateway does not know that Director.</param>
     /// <param name="sendRestore">Send a restore order down one Director's stream and return its answer, or null
     /// when that Director is not connected (the Message Load mission, slice 6).</param>
+    /// <param name="callerIsDirector">Whether the request's verified credential is the one the named Director said
+    /// Hello on, in the request's own account (inspection 11, ruling 1).</param>
     public static void Map(
         IEndpointRouteBuilder app,
         WorkspaceStore store,
         Func<string, (Streaming.FleetObservation Observation, IReadOnlyList<SessionDto> Sessions)> connectedFleet,
         Func<string, DirectorDto?> lookupDirector,
-        Func<string, WorkspaceRestoreOrder, CancellationToken, Task<DirectorCommandResult?>> sendRestore)
+        Func<string, WorkspaceRestoreOrder, CancellationToken, Task<DirectorCommandResult?>> sendRestore,
+        Func<HttpContext, string, bool> callerIsDirector)
     {
         // RESTORE (the Message Load mission, slice 6; owner decision 2, 17 September 2026). A drained fleet is
         // brought back by the DIRECTOR, not by a session running spawn lines: a session key may name only itself
@@ -195,9 +198,14 @@ internal static class WorkspaceEndpoints
         // WHAT A RESTORE DID (inspection 7, ruling 1). The only way the restored id, the failure, the attempt time
         // and the start token reach a workspace: written by the Director that holds the restore lease, on its own
         // credential. A session key never reaches this route (SessionKeyGuard lists only the restore route
-        // itself), and a person's device is refused here - neither runs a restore. Enforcement goes as far as
-        // identification does: a workstation credential is not bound to one Director id, so the lease names the
-        // Director and a workstation key of this account could claim to be it. Only the product holds those keys.
+        // itself), and a person's device is refused here - neither runs a restore.
+        //
+        // AND THE CREDENTIAL MUST BE THAT DIRECTOR'S (inspection 11, ruling 1). The mark names a Director; the
+        // Gateway already knows which credential that Director said Hello on, because the hub bound the id to the
+        // authenticated key. Any other key of the same account - another workstation - is refused 403 before the
+        // store is asked, so it can neither write a mark under the lease holder's name nor release its lease.
+        // What this does not separate: several Directors on ONE machine share that machine's key, so one of them
+        // can still name another. The lease and the start token are what stop those.
         app.MapPost("/gateway/workspaces/{id}/restore/marks", async (string id, HttpContext ctx, CancellationToken ct) =>
         {
             if (!IsDirectorCredential(ctx))
@@ -219,6 +227,13 @@ internal static class WorkspaceEndpoints
             }
             if (mark is null)
                 return Results.Json(new { error = "a restore mark body is required" }, statusCode: StatusCodes.Status400BadRequest);
+
+            if (string.IsNullOrWhiteSpace(mark.DirectorId) || !callerIsDirector(ctx, mark.DirectorId))
+            {
+                FileLog.Write($"[WorkspaceEndpoints] restore mark REFUSED: id={id}, director={mark.DirectorId}, kind={mark.Kind}: the credential is not the one that Director is connected on");
+                return Results.Json(new { error = $"this credential is not the one Director '{mark.DirectorId}' is connected to this Gateway on, so it may not write what that Director's restore did." },
+                    statusCode: StatusCodes.Status403Forbidden);
+            }
 
             try
             {

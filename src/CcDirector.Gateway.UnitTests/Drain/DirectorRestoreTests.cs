@@ -135,7 +135,7 @@ public sealed class DirectorRestoreTests : IDisposable
             var id = $"new-{_next}";
             AddLive(id, ThisDirector, name);
             if (request.RestoreClaim is { } claim)
-                Store.RecordRestoredByClaim(claim, id, StoreNow);
+                Store.RecordRestoredByClaim(claim, ThisDirector, id, StoreNow);
 
             if (CreateThenTimeOutByName.Contains(name))
                 throw new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout of 10 seconds elapsing.");

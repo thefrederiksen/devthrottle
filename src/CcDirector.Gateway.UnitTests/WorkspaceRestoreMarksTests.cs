@@ -147,7 +147,7 @@ public sealed class WorkspaceRestoreMarksTests : IDisposable
         var store = Captured();
         store.TakeRestoreLease(Id, DirectorA, null, Now);
         store.RecordRestoreMark(Id, Mark(WorkspaceRestoreMarkKinds.Started), Now);
-        Assert.True(store.RecordRestoredByClaim(new WorkspaceRestoreClaim { WorkspaceId = Id, SeatSessionId = Boss, Token = "token-1" }, "landed", Now));
+        Assert.True(store.RecordRestoredByClaim(new WorkspaceRestoreClaim { WorkspaceId = Id, SeatSessionId = Boss, Token = "token-1" }, DirectorA, "landed", Now));
 
         store.RecordRestoreMark(Id, Mark(WorkspaceRestoreMarkKinds.Failed), Now);
 
@@ -169,6 +169,39 @@ public sealed class WorkspaceRestoreMarksTests : IDisposable
         renamed.RestoredSessionId = X;
         Assert.Throws<WorkspaceConflictException>(() => store.RecordRestoreMark(Id, renamed, Now));
         Assert.Equal("restored-1", SeatOf(store.Get(Id)!, Boss).RestoredSessionId);
+    }
+
+    [Fact]
+    public void RecordRestoreMark_ARestoredMarkWithoutTheStartsToken_IsRefused()
+    {
+        // Inspection 11, ruling 1: "restored" completes a start this Director recorded, by its token.
+        var store = Captured();
+        store.TakeRestoreLease(Id, DirectorA, null, Now);
+        store.RecordRestoreMark(Id, Mark(WorkspaceRestoreMarkKinds.Started), Now);
+
+        var noToken = Mark(WorkspaceRestoreMarkKinds.Restored);
+        noToken.Token = null;
+        Assert.Throws<WorkspaceValidationException>(() => store.RecordRestoreMark(Id, noToken, Now));
+        var wrong = Mark(WorkspaceRestoreMarkKinds.Restored);
+        wrong.Token = "token-2";
+        Assert.Throws<WorkspaceConflictException>(() => store.RecordRestoreMark(Id, wrong, Now));
+        Assert.Throws<WorkspaceConflictException>(() => store.RecordRestoreMark(Id, Mark(WorkspaceRestoreMarkKinds.Restored, seat: Worker), Now));
+        Assert.Null(SeatOf(store.Get(Id)!, Boss).RestoredSessionId);
+        Assert.Null(SeatOf(store.Get(Id)!, Worker).RestoredSessionId);
+
+        store.RecordRestoreMark(Id, Mark(WorkspaceRestoreMarkKinds.Restored), Now);
+        Assert.Equal("restored-1", SeatOf(store.Get(Id)!, Boss).RestoredSessionId);
+    }
+
+    [Fact]
+    public void RecordRestoredByClaim_ForADirectorThatDidNotStartTheSeat_RecordsNothing()
+    {
+        var store = Captured();
+        store.TakeRestoreLease(Id, DirectorA, null, Now);
+        store.RecordRestoreMark(Id, Mark(WorkspaceRestoreMarkKinds.Started), Now);
+
+        Assert.False(store.RecordRestoredByClaim(new WorkspaceRestoreClaim { WorkspaceId = Id, SeatSessionId = Boss, Token = "token-1" }, DirectorB, X, Now));
+        Assert.Null(SeatOf(store.Get(Id)!, Boss).RestoredSessionId);
     }
 
     [Fact]
@@ -197,12 +230,12 @@ public sealed class WorkspaceRestoreMarksTests : IDisposable
         store.TakeRestoreLease(Id, DirectorA, null, Now);
         store.RecordRestoreMark(Id, Mark(WorkspaceRestoreMarkKinds.Started), Now);
 
-        Assert.False(store.RecordRestoredByClaim(new WorkspaceRestoreClaim { WorkspaceId = Id, SeatSessionId = Boss, Token = "other" }, X, Now));
-        Assert.False(store.RecordRestoredByClaim(new WorkspaceRestoreClaim { WorkspaceId = Id, SeatSessionId = Worker, Token = "token-1" }, X, Now));
+        Assert.False(store.RecordRestoredByClaim(new WorkspaceRestoreClaim { WorkspaceId = Id, SeatSessionId = Boss, Token = "other" }, DirectorA, X, Now));
+        Assert.False(store.RecordRestoredByClaim(new WorkspaceRestoreClaim { WorkspaceId = Id, SeatSessionId = Worker, Token = "token-1" }, DirectorA, X, Now));
         Assert.Null(SeatOf(store.Get(Id)!, Boss).RestoredSessionId);
 
-        Assert.True(store.RecordRestoredByClaim(new WorkspaceRestoreClaim { WorkspaceId = Id, SeatSessionId = Boss, Token = "token-1" }, "new-boss", Now));
-        Assert.False(store.RecordRestoredByClaim(new WorkspaceRestoreClaim { WorkspaceId = Id, SeatSessionId = Boss, Token = "token-1" }, "second", Now));
+        Assert.True(store.RecordRestoredByClaim(new WorkspaceRestoreClaim { WorkspaceId = Id, SeatSessionId = Boss, Token = "token-1" }, DirectorA, "new-boss", Now));
+        Assert.False(store.RecordRestoredByClaim(new WorkspaceRestoreClaim { WorkspaceId = Id, SeatSessionId = Boss, Token = "token-1" }, DirectorA, "second", Now));
         Assert.Equal("new-boss", SeatOf(store.Get(Id)!, Boss).RestoredSessionId);
     }
 

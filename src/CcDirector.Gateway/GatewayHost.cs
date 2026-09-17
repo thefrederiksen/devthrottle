@@ -4025,7 +4025,9 @@ public sealed class GatewayHost : IAsyncDisposable
                 : (Streaming.FleetObservation.Unknown, Array.Empty<Contracts.SessionDto>()),
             directorId => _tenantPass.Current is { } tenant ? Registry.Get(tenant, directorId) : null,
             (directorId, order, ct) => Api.DirectorCommandRouter.TrySendAsync(
-                SendCommandAsync, directorId, Contracts.WorkspaceRestoreVerbs.Restore, "", order, ct));
+                SendCommandAsync, directorId, Contracts.WorkspaceRestoreVerbs.Restore, "", order, ct),
+            (ctx, directorId) => _tenantPass.Current is { } tenant
+                && Registry.IsRegisteredByCredential(tenant, directorId, Util.AuthMiddleware.RegisteringCredential(ctx)));
         Api.SkillEndpoints.Map(_app, _skills);
 
         // The standing instructions an account gives about its sessions, and the record of every firing

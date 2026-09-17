@@ -347,11 +347,12 @@ public sealed class DirectorRestore
             }
 
             var nothingStarted = true;
+            string? token = null;
             if (request is not null)
             {
                 // THE TOKEN IS STORED BEFORE THE CREATE LEAVES. If this mark cannot be written the create is not
                 // sent, and the run stops: a start that cannot be recorded is a start that can happen twice.
-                var token = Guid.NewGuid().ToString("N");
+                token = Guid.NewGuid().ToString("N");
                 doc = await _gateway.RecordMarkAsync(order.WorkspaceId, new WorkspaceRestoreMark
                 {
                     DirectorId = _directorId,
@@ -402,7 +403,7 @@ public sealed class DirectorRestore
                 mark = new WorkspaceRestoreMark
                 {
                     DirectorId = _directorId, Kind = WorkspaceRestoreMarkKinds.Restored, SeatSessionId = sid,
-                    RestoredSessionId = newId, SeedFile = seedFile,
+                    RestoredSessionId = newId, SeedFile = seedFile, Token = token,
                 };
                 backHere.Add(sid);
                 FileLog.Write($"[DirectorRestore] seat {DrainPaths.ShortId(sid)} \"{seat.Name}\" restored as {newId}, owner={owner ?? "user"}");
