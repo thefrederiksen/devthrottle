@@ -401,6 +401,14 @@ public sealed class TenantSettingsResolver
     public string? FleetManagerSuccessorSessionId(TenantId tenant)
         => _store.Get(tenant, TenantSettingKeys.FleetManagerSuccessorSessionId);
 
+    /// <summary>The marked Fleet Manager the waiting replacement is to close, recorded with the successor, or null.</summary>
+    public string? FleetManagerSuccessorReplaces(TenantId tenant)
+        => _store.Get(tenant, TenantSettingKeys.FleetManagerSuccessorReplaces);
+
+    /// <summary>The old Fleet Manager the waiting replacement has already closed, or null when it has closed none.</summary>
+    public string? FleetManagerSuccessorClosedOld(TenantId tenant)
+        => _store.Get(tenant, TenantSettingKeys.FleetManagerSuccessorClosedOld);
+
     // ---- writes: validate like the global setters, then persist a per-tenant override -------------------
 
     /// <summary>Set the tenant's wingman model for a role.</summary>
@@ -628,18 +636,46 @@ public sealed class TenantSettingsResolver
         _store.Set(tenant, TenantSettingKeys.FleetManagerMachine, machine.Trim(), nowUtc);
     }
 
-    /// <summary>Record the new Fleet Manager that takes over once the marked one has closed.</summary>
-    /// <exception cref="ArgumentException">The session id is not a session id.</exception>
-    public void SetFleetManagerSuccessorSessionId(TenantId tenant, string sessionId, DateTime nowUtc)
+    /// <summary>Record the new Fleet Manager that takes over once the marked one has closed, TOGETHER with the marked
+    /// session it is to close - one save, so a successor is never stored without the session it replaces.</summary>
+    /// <exception cref="ArgumentException">Either id is not a session id.</exception>
+    public void SetFleetManagerSuccessor(TenantId tenant, string successorSessionId, string replacesSessionId, DateTime nowUtc)
     {
-        if (!Guid.TryParse(sessionId, out var parsed))
-            throw new ArgumentException($"'{sessionId}' is not a session id.", nameof(sessionId));
-        _store.Set(tenant, TenantSettingKeys.FleetManagerSuccessorSessionId, parsed.ToString("D"), nowUtc);
+        _store.Apply(tenant, new Dictionary<string, string?>
+        {
+            [TenantSettingKeys.FleetManagerSuccessorSessionId] = CanonicalSessionId(successorSessionId, nameof(successorSessionId)),
+            [TenantSettingKeys.FleetManagerSuccessorReplaces] = CanonicalSessionId(replacesSessionId, nameof(replacesSessionId)),
+            [TenantSettingKeys.FleetManagerSuccessorClosedOld] = null,
+        }, nowUtc);
     }
 
-    /// <summary>Forget the waiting replacement. Returns true when there was one.</summary>
-    public bool ClearFleetManagerSuccessorSessionId(TenantId tenant)
-        => _store.Remove(tenant, TenantSettingKeys.FleetManagerSuccessorSessionId);
+    /// <summary>Record that the waiting replacement has closed <paramref name="oldSessionId"/>.</summary>
+    /// <exception cref="ArgumentException">The id is not a session id.</exception>
+    public void SetFleetManagerSuccessorClosedOld(TenantId tenant, string oldSessionId, DateTime nowUtc)
+        => _store.Set(tenant, TenantSettingKeys.FleetManagerSuccessorClosedOld,
+            CanonicalSessionId(oldSessionId, nameof(oldSessionId)), nowUtc);
+
+    /// <summary>Forget the waiting replacement - the successor, the session it replaces and any close it made - in one
+    /// save.</summary>
+    public void ClearFleetManagerSuccessor(TenantId tenant, DateTime nowUtc)
+        => _store.Apply(tenant, SuccessorCleared(), nowUtc);
+
+    /// <summary>The changes that forget a waiting replacement, for a caller that commits them with other rows.</summary>
+    internal static Dictionary<string, string?> SuccessorCleared() => new()
+    {
+        [TenantSettingKeys.FleetManagerSuccessorSessionId] = null,
+        [TenantSettingKeys.FleetManagerSuccessorReplaces] = null,
+        [TenantSettingKeys.FleetManagerSuccessorClosedOld] = null,
+    };
+
+    /// <summary>A session id in the canonical lower-case form every roster row carries.</summary>
+    /// <exception cref="ArgumentException">The value is not a session id.</exception>
+    internal static string CanonicalSessionId(string sessionId, string paramName)
+    {
+        if (!Guid.TryParse(sessionId, out var parsed))
+            throw new ArgumentException($"'{sessionId}' is not a session id.", paramName);
+        return parsed.ToString("D");
+    }
 
     /// <summary>Remove this account's Fleet Manager mark. Returns true when there was one to remove.</summary>
     public bool ClearFleetManagerSessionId(TenantId tenant)

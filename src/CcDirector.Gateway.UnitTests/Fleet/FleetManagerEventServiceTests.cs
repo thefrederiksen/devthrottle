@@ -50,6 +50,8 @@ public sealed class FleetManagerEventServiceTests : IDisposable
     private bool _judgeEnabled = true;
     private string? _marked = "fm";
     private bool _checksIdle = true;
+    private bool _replacementPending;
+    private readonly FleetManagerDeliveryGate _deliveryGate = new();
     private readonly HashSet<string> _shutDown = new(StringComparer.Ordinal);
     private readonly TurnVerdictService _seat;
     private int _readingsTold;
@@ -97,8 +99,8 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         _seat = new TurnVerdictService(verdictEnv);
 
         _env = new RecordingEnvironment(new GatewayFleetManagerEventEnvironment(_pushed, Stale,
-            route: (_, _) => null, mark: _ => _marked, checksIdleBeforeTyping: (_, _) => _checksIdle, directorShutDown: (_, d) => _shutDown.Contains(d)), () => _now);
-        _service = new FleetManagerEventService(_events, _env);
+            route: (_, _) => null, mark: _ => _marked, replacementPending: _ => _replacementPending, checksIdleBeforeTyping: (_, _) => _checksIdle, directorShutDown: (_, d) => _shutDown.Contains(d)), () => _now);
+        _service = new FleetManagerEventService(_events, _env, _deliveryGate);
         // As the host wires it: every reading the seat finishes reaches the service in use at that moment.
         _seat.ReadingCompleted += c =>
         {
@@ -768,7 +770,7 @@ public sealed class FleetManagerEventServiceTests : IDisposable
     private void Restart()
     {
         _service.Dispose();
-        _service = new FleetManagerEventService(_events, _env);
+        _service = new FleetManagerEventService(_events, _env, _deliveryGate);
     }
 
     // ================================================================= delivery
@@ -1303,7 +1305,7 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         var requests = new List<PromptRequest>();
         _env.SendThrough(new GatewayFleetManagerEventEnvironment(_pushed, Stale,
             route: (_, directorId) => DirectorRoute(directorId, director, requests),
-            mark: _ => _marked, checksIdleBeforeTyping: (_, _) => true, directorShutDown: (_, _) => false));
+            mark: _ => _marked, replacementPending: _ => false, checksIdleBeforeTyping: (_, _) => true, directorShutDown: (_, _) => false));
         await FleetManagerTurnEndAsync();
         ScriptedTerminal.OwnerTypes(director, "my draft ");
 
@@ -1372,7 +1374,7 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         var requests = new List<PromptRequest>();
         var production = new GatewayFleetManagerEventEnvironment(_pushed, Stale,
             route: (_, directorId) => DirectorRoute(directorId, director, requests),
-            mark: _ => _marked, checksIdleBeforeTyping: (_, _) => _checksIdle, directorShutDown: (_, d) => _shutDown.Contains(d));
+            mark: _ => _marked, replacementPending: _ => false, checksIdleBeforeTyping: (_, _) => _checksIdle, directorShutDown: (_, d) => _shutDown.Contains(d));
         _env.SendThrough(production);
         await FleetManagerTurnEndAsync();
 
@@ -1407,7 +1409,7 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         var requests = new List<PromptRequest>();
         _env.SendThrough(new GatewayFleetManagerEventEnvironment(_pushed, Stale,
             route: (_, directorId) => DirectorRoute(directorId, director, requests),
-            mark: _ => _marked, checksIdleBeforeTyping: (_, _) => _checksIdle, directorShutDown: (_, _) => false));
+            mark: _ => _marked, replacementPending: _ => false, checksIdleBeforeTyping: (_, _) => _checksIdle, directorShutDown: (_, _) => false));
         director.ApplyTerminalActivityState(ActivityState.WaitingForInput);
         _checksIdle = false;
         await FleetManagerTurnEndAsync();
@@ -1569,6 +1571,54 @@ public sealed class FleetManagerEventServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task OwnersAnswer_WhileAReplacementIsUnderWay_IsNotTypedIntoTheOldFleetManager_AndGoesToTheNewOne()
+    {
+        SetState("fm", "Idle");
+        _replacementPending = true;
+        OwnerAnswers("Replace it.");
+
+        _service.OnEventQueued(Tenant);
+        await _service.WhenIdleAsync();
+        Assert.Equal(FleetManagerDeliveryResult.ReplacementPending, await _service.DeliverToAsync(Tenant, "fm"));
+        await FleetManagerTurnEndAsync("fm"); // its own turn end types nothing either
+
+        Assert.Empty(_env.Sends);
+        Assert.Null(Assert.Single(Open()).DeliveredTo);
+        Assert.Equal(0, _deliveryGate.Generation(Tenant, "fm"));
+
+        // The old one has closed and the mark has moved: the answer goes to the new one.
+        SetState("fm", "Exited");
+        Push(Session("fm-2", state: "Idle"));
+        _marked = "fm-2";
+        _replacementPending = false;
+        _service.OnEventQueued(Tenant);
+        await _service.WhenIdleAsync();
+
+        var sent = Assert.Single(_env.Sends);
+        Assert.Equal("fm-2", sent.SessionId);
+        Assert.Contains("<<<Replace it.>>>", sent.Text);
+        Assert.Equal(1, _deliveryGate.Generation(Tenant, "fm-2"));
+    }
+
+    [Fact]
+    public async Task Delivery_WaitsForTheAccountsDeliveryGate_AndSeesAReplacementRecordedMeanwhile()
+    {
+        SetState("fm", "Idle");
+        OwnerAnswers("Replace it.");
+
+        // The replacement holds the gate while it records the successor.
+        var replacing = await _deliveryGate.EnterAsync(Tenant, default);
+        var delivery = _service.DeliverToAsync(Tenant, "fm");
+        await Task.Delay(200);
+        Assert.False(delivery.IsCompleted);
+        _replacementPending = true;
+        replacing.Dispose();
+
+        Assert.Equal(FleetManagerDeliveryResult.ReplacementPending, await delivery);
+        Assert.Empty(_env.Sends);
+    }
+
+    [Fact]
     public async Task MarkMoved_TellsTheNewFleetManagerOnce_AndNeverALaterOne()
     {
         Push(Session("fm-2"));
@@ -1631,6 +1681,7 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         public void SendThrough(IFleetManagerEventEnvironment production) => _sendThrough = production;
 
         public string? MarkedFleetManager(TenantId tenant) => _inner.MarkedFleetManager(tenant);
+        public bool ReplacementPending(TenantId tenant) => _inner.ReplacementPending(tenant);
         public (string DirectorId, SessionDto Session)? LastKnown(TenantId tenant, string sessionId) => _inner.LastKnown(tenant, sessionId);
         public IReadOnlyList<(string DirectorId, SessionDto Session)> Roster(TenantId tenant) => _inner.Roster(tenant);
         public (FleetObservation Observation, IReadOnlyList<SessionDto> Sessions) DirectorFleet(TenantId tenant, string directorId)

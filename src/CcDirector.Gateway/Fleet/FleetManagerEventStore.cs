@@ -415,6 +415,33 @@ public sealed class FleetManagerEventStore
     }
 
     /// <summary>
+    /// Stage the one "you are now the Fleet Manager" event on a context the caller owns, so it commits in the caller's
+    /// transaction together with the mark. Null, and nothing staged, when that session was already told. Not saved.
+    /// </summary>
+    internal static FleetManagerEventEntity? AddMarkedIn(GatewayDbContext ctx, string fleetManagerSessionId, DateTime nowUtc)
+    {
+        if (string.IsNullOrWhiteSpace(fleetManagerSessionId)) throw new ArgumentException("the Fleet Manager session is required");
+        var sid = fleetManagerSessionId.Trim();
+        if (ctx.FleetManagerEvents.Any(e => e.Kind == KindMarked && e.SessionId == sid))
+        {
+            FileLog.Write($"[FleetManagerEventStore] marked event: sid={sid} - already told, not stored again");
+            return null;
+        }
+        var entity = new FleetManagerEventEntity
+        {
+            Kind = KindMarked,
+            SessionId = sid,
+            SessionName = FleetManagerPlacementService.SessionName,
+            AddressedTo = sid,
+            Detail = MarkedDetail,
+            CreatedAtUtc = Utc(nowUtc),
+        };
+        entity.TenantId = ctx.ActiveTenant!;
+        ctx.FleetManagerEvents.Add(entity);
+        return entity;
+    }
+
+    /// <summary>
     /// Tell <paramref name="fleetManagerSessionId"/> that the account's mark has moved to it. Stored once per session:
     /// a second call for the same session changes nothing and returns null.
     /// </summary>
@@ -428,25 +455,10 @@ public sealed class FleetManagerEventStore
             lock (_gate)
             {
                 using var ctx = _db.CreateContext(tenant);
-                var sid = fleetManagerSessionId.Trim();
-                if (ctx.FleetManagerEvents.Any(e => e.Kind == KindMarked && e.SessionId == sid))
-                {
-                    FileLog.Write($"[FleetManagerEventStore] RecordMarked: sid={sid} - already told, not stored again");
-                    return null;
-                }
-                var entity = new FleetManagerEventEntity
-                {
-                    Kind = KindMarked,
-                    SessionId = sid,
-                    SessionName = FleetManagerPlacementService.SessionName,
-                    AddressedTo = sid,
-                    Detail = MarkedDetail,
-                    CreatedAtUtc = Utc(nowUtc),
-                };
-                entity.TenantId = ctx.ActiveTenant!;
-                ctx.FleetManagerEvents.Add(entity);
+                var entity = AddMarkedIn(ctx, fleetManagerSessionId, nowUtc);
+                if (entity is null) return null;
                 ctx.SaveChanges();
-                FileLog.Write($"[FleetManagerEventStore] RecordMarked: stored id={entity.Id}, sid={sid}");
+                FileLog.Write($"[FleetManagerEventStore] RecordMarked: stored id={entity.Id}, sid={entity.SessionId}");
                 return ToDto(entity);
             }
         }

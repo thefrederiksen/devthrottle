@@ -43,6 +43,10 @@ public interface IFleetManagerEventEnvironment
     /// <summary>The session this account has marked as its Fleet Manager, or null.</summary>
     string? MarkedFleetManager(TenantId tenant);
 
+    /// <summary>Whether a restart or a move is under way for this account: a new Fleet Manager is recorded and waits
+    /// for the marked one to close. Nothing is delivered to the marked one meanwhile.</summary>
+    bool ReplacementPending(TenantId tenant);
+
     /// <summary>What this account's Directors last pushed for one session, however stale, with the Director that
     /// pushed it - or null when no Director of the account holds it. One session's row, not the roster.</summary>
     (string DirectorId, SessionDto Session)? LastKnown(TenantId tenant, string sessionId);
@@ -83,6 +87,10 @@ public enum FleetManagerDeliveryResult
     /// <summary>Held on the Gateway: the Fleet Manager's turn is not known to be finished without a question for the
     /// owner (no reading of its latest turn end yet, or the reading says it asked). Nothing was sent.</summary>
     TurnNotFinished,
+
+    /// <summary>A replacement is under way: the marked Fleet Manager is about to close, so nothing is typed into it.
+    /// The events stay owed and go to the new Fleet Manager once the mark has moved.</summary>
+    ReplacementPending,
 }
 
 /// <summary>
@@ -146,6 +154,12 @@ internal sealed record FleetManagerTurn(
 /// <see cref="GatewayFleetManagerEventEnvironment"/>, is named in the guard that lists every direct caller of the
 /// prompt send (RulesTypeNothingGuardTests), with that reason.
 ///
+/// NOTHING GOES TO A FLEET MANAGER BEING REPLACED (steps 5 and 6 fixes, round 2). While a restart or a move is under
+/// way the marked Fleet Manager is waiting to be closed, so an event typed into it could start a turn the close cuts
+/// short. Events stay owed and go to the new Fleet Manager when the mark moves. The check, the send and the saved
+/// delivery happen inside the account's <see cref="FleetManagerDeliveryGate"/>, which the replacement also holds while
+/// it records the successor and while it closes the old one, so the two never overlap.
+///
 /// NOT BUILT HERE: pull request and report events (a later part of phase 1).
 ///
 /// GAP, STATED: a session whose Director disconnects and never comes back, without saying goodbye, is never counted
@@ -165,13 +179,14 @@ public sealed class FleetManagerEventService : IDisposable
     private readonly FleetManagerEventStore _store;
     private readonly IFleetManagerEventEnvironment _env;
     private readonly TimeSpan _batchWindow;
+    private readonly FleetManagerDeliveryGate _deliveryGate;
     private readonly DateTime _startedAtUtc;
     private readonly CancellationTokenSource _shutdown = new();
 
     // At most one delivery in flight per Fleet Manager session, and the ones asked for again while it ran. A pass that
     // typed nothing runs once more rather than drop the request; one that delivered does not, because the Fleet Manager
     // is now busy with that prompt and what was stored meanwhile waits for its next idle moment. Both under the lock.
-    private readonly object _deliveryGate = new();
+    private readonly object _deliveringLock = new();
     private readonly HashSet<(TenantId Tenant, string SessionId)> _delivering = new();
     private readonly HashSet<(TenantId Tenant, string SessionId)> _deliverAgain = new();
 
@@ -198,11 +213,13 @@ public sealed class FleetManagerEventService : IDisposable
     private readonly ConcurrentDictionary<Task, byte> _running = new();
     private volatile bool _disposed;
 
+    /// <param name="deliveryGate">Shared with the placement service, so a delivery and a replacement never overlap.</param>
     public FleetManagerEventService(FleetManagerEventStore store, IFleetManagerEventEnvironment environment,
-        TimeSpan? batchWindow = null)
+        FleetManagerDeliveryGate deliveryGate, TimeSpan? batchWindow = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _env = environment ?? throw new ArgumentNullException(nameof(environment));
+        _deliveryGate = deliveryGate ?? throw new ArgumentNullException(nameof(deliveryGate));
         _batchWindow = batchWindow ?? BatchWindow;
         _startedAtUtc = _env.NowUtc();
     }
@@ -818,7 +835,7 @@ public sealed class FleetManagerEventService : IDisposable
     public async Task<FleetManagerDeliveryResult> DeliverToAsync(TenantId tenant, string fleetManagerSessionId)
     {
         var key = (tenant, fleetManagerSessionId.ToLowerInvariant());
-        lock (_deliveryGate)
+        lock (_deliveringLock)
         {
             if (!_delivering.Add(key))
             {
@@ -839,7 +856,7 @@ public sealed class FleetManagerEventService : IDisposable
                 var (result, waiting, heldBecause) = await DeliverOnceAsync(tenant, fleetManagerSessionId).ConfigureAwait(false);
                 NoteDelivery(tenant, fleetManagerSessionId, result, waiting, heldBecause);
                 bool again;
-                lock (_deliveryGate)
+                lock (_deliveringLock)
                 {
                     again = _deliverAgain.Remove(key);
                     if (!again || result == FleetManagerDeliveryResult.Delivered)
@@ -863,7 +880,7 @@ public sealed class FleetManagerEventService : IDisposable
         {
             if (!released)
             {
-                lock (_deliveryGate)
+                lock (_deliveringLock)
                 {
                     _delivering.Remove(key);
                     _deliverAgain.Remove(key);
@@ -872,9 +889,18 @@ public sealed class FleetManagerEventService : IDisposable
         }
     }
 
-    /// <summary>One delivery attempt, and how many events were owed when it was made.</summary>
+    /// <summary>One delivery attempt, and how many events were owed when it was made. Made inside the account's
+    /// <see cref="FleetManagerDeliveryGate"/>, from the replacement check until the send's result is saved.</summary>
     private async Task<(FleetManagerDeliveryResult Result, int Waiting, string? HeldBecause)> DeliverOnceAsync(TenantId tenant, string fleetManagerSessionId)
     {
+        using var turn = await _deliveryGate.EnterAsync(tenant, _shutdown.Token).ConfigureAwait(false);
+        if (_env.ReplacementPending(tenant))
+        {
+            FileLog.Write($"[FleetManagerEventService] deliver to {fleetManagerSessionId}: a restart or a move is under way; " +
+                          "nothing is typed into the Fleet Manager being replaced - events wait for the new one");
+            return (FleetManagerDeliveryResult.ReplacementPending, 0, null);
+        }
+
         var marked = _env.MarkedFleetManager(tenant);
         var fm = _env.Roster(tenant).FirstOrDefault(r => SameId(r.Session.SessionId, fleetManagerSessionId));
         if (fm.Session is null || !FleetManagerSessions.IsFleetManager(fm.Session, marked) || IsExited(fm.Session))
@@ -912,6 +938,7 @@ public sealed class FleetManagerEventService : IDisposable
         switch (sent)
         {
             case FleetManagerPromptSend.Accepted:
+                _deliveryGate.Delivered(tenant, target);
                 _store.MarkDelivered(tenant, owed.Select(e => Guid.Parse(e.Id)).ToList(), target, _env.NowUtc());
                 FileLog.Write($"[FleetManagerEventService] delivered {owed.Count} event(s) to {target}, " +
                               $"{found.MoreOwed} more owed: " + string.Join(", ", owed.Select(e => e.Id)));
@@ -977,11 +1004,13 @@ internal sealed class GatewayFleetManagerEventEnvironment : IFleetManagerEventEn
     private readonly TimeSpan _stale;
     private readonly Func<TenantId, string, Api.SessionVerbClient?> _route;
     private readonly Func<TenantId, string?> _mark;
+    private readonly Func<TenantId, bool> _replacementPending;
     private readonly Func<TenantId, string, bool> _checksIdleBeforeTyping;
     private readonly Func<TenantId, string, bool> _directorShutDown;
     private readonly Func<TenantId, IDisposable>? _enterTenantScope;
 
     /// <param name="mark">The account's marked Fleet Manager session (the tenant setting).</param>
+    /// <param name="replacementPending">Whether a new Fleet Manager waits to take over (the successor tenant setting).</param>
     /// <param name="checksIdleBeforeTyping">Whether a Director said, on its Hello, that it honours
     /// <see cref="PromptRequest.OnlyWhenWaitingForInput"/>. Nothing is sent to one that did not.</param>
     /// <param name="directorShutDown">Whether a Director said goodbye and has not come back (the registry's stop stamp,
@@ -990,6 +1019,7 @@ internal sealed class GatewayFleetManagerEventEnvironment : IFleetManagerEventEn
     /// prompt is partitioned, and this runs on a background task with no scope of its own.</param>
     public GatewayFleetManagerEventEnvironment(Streaming.PushedSessionStore pushed, TimeSpan stale,
         Func<TenantId, string, Api.SessionVerbClient?> route, Func<TenantId, string?> mark,
+        Func<TenantId, bool> replacementPending,
         Func<TenantId, string, bool> checksIdleBeforeTyping,
         Func<TenantId, string, bool> directorShutDown,
         Func<TenantId, IDisposable>? enterTenantScope = null)
@@ -998,12 +1028,15 @@ internal sealed class GatewayFleetManagerEventEnvironment : IFleetManagerEventEn
         _stale = stale;
         _route = route ?? throw new ArgumentNullException(nameof(route));
         _mark = mark ?? throw new ArgumentNullException(nameof(mark));
+        _replacementPending = replacementPending ?? throw new ArgumentNullException(nameof(replacementPending));
         _checksIdleBeforeTyping = checksIdleBeforeTyping ?? throw new ArgumentNullException(nameof(checksIdleBeforeTyping));
         _directorShutDown = directorShutDown ?? throw new ArgumentNullException(nameof(directorShutDown));
         _enterTenantScope = enterTenantScope;
     }
 
     public string? MarkedFleetManager(TenantId tenant) => _mark(tenant);
+
+    public bool ReplacementPending(TenantId tenant) => _replacementPending(tenant);
 
     public (string DirectorId, SessionDto Session)? LastKnown(TenantId tenant, string sessionId)
         => _pushed.TryGetLastKnownSession(tenant, sessionId);

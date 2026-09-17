@@ -36,7 +36,8 @@ public sealed class FleetManagerPlacementEndpointsTests : IDisposable
     public FleetManagerPlacementEndpointsTests()
     {
         _settings = new TenantSettingsResolver(new TenantSettingsStore(_harness.Open()));
-        _service = new FleetManagerPlacementService(_settings, _world, retirePoll: TimeSpan.Zero);
+        _world.Promotions = new FleetManagerPromotionStore(_harness.Open());
+        _service = new FleetManagerPlacementService(_settings, _world, new FleetManagerDeliveryGate(), retirePoll: TimeSpan.Zero);
         _world.Machines.Add(new FleetManagerMachineFacts("WORKSTATION-A",
             new LauncherDto { MachineName = "WORKSTATION-A", LastSeenAt = Now }, LauncherReach.Connected, true,
             new[] { new DirectorDto { DirectorId = "dir-a", MachineName = "WORKSTATION-A", LastSeen = Now } }));

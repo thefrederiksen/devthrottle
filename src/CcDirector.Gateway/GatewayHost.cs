@@ -966,6 +966,9 @@ public sealed class GatewayHost : IAsyncDisposable
     private Fleet.FleetManagerEventSweep? _fleetManagerEventSweep;
     private Timer? _fleetManagerEventTimer;
     private Fleet.FleetManagerPlacementService? _fleetManagerPlacement;
+
+    // One per Gateway: typing an event into the Fleet Manager and replacing it never overlap for an account.
+    private readonly Fleet.FleetManagerDeliveryGate _fleetManagerDeliveryGate = new();
     private Timer? _fleetManagerReplacementTimer;
     // Voice mode is a standing intent, not a one-time action: a tenant that is in voice mode wants EVERY one
     // of its sessions narrating, including the ones that do not exist yet. This timer is how that intent
@@ -3112,9 +3115,11 @@ public sealed class GatewayHost : IAsyncDisposable
                     return new Api.SessionVerbClient(director, sendCommand);
                 },
                 mark: _tenantSettingsResolver.FleetManagerSessionId,
+                replacementPending: tenant => !string.IsNullOrWhiteSpace(_tenantSettingsResolver.FleetManagerSuccessorSessionId(tenant)),
                 checksIdleBeforeTyping: _turnPushCapabilities.ChecksIdleBeforeTyping,
                 directorShutDown: (tenant, directorId) => Registry.Get(tenant, directorId)?.StoppedAtUtc is not null,
-                enterTenantScope: tenant => _tenantBoundary.EnterScope(tenant)));
+                enterTenantScope: tenant => _tenantBoundary.EnterScope(tenant)),
+            _fleetManagerDeliveryGate);
         // THE RECONCILE: at start (stops a stopped Gateway left waiting, owned sessions that died while it was down)
         // and then on the heartbeat's cadence, per account.
         _fleetManagerEventSweep = new Fleet.FleetManagerEventSweep(_tenantBoundary, TenantRegistry, _tenantContext,
@@ -4276,10 +4281,11 @@ public sealed class GatewayHost : IAsyncDisposable
                 Settings = _tenantSettingsResolver,
                 EnterTenantScope = tenant => _tenantBoundary.EnterScope(tenant),
                 Marks = FleetManagerMarks,
-                EventStore = _fleetManagerEventStore!,
+                Promotions = new Fleet.FleetManagerPromotionStore(_gatewayDb),
                 // Read when the mark moves: the events service is created earlier in this method.
                 Events = () => _fleetManagerEvents,
-            });
+            },
+            _fleetManagerDeliveryGate);
         // A restart or a move left under way by an earlier process carries on (the mark moves only after the old Fleet
         // Manager has closed, and that can outlast a Gateway restart).
         var replacementSweep = new Fleet.FleetManagerReplacementSweep(_tenantBoundary, TenantRegistry, _tenantContext,

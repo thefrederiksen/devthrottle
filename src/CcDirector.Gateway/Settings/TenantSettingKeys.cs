@@ -202,6 +202,21 @@ public static class TenantSettingKeys
     /// </summary>
     public const string FleetManagerSuccessorSessionId = "fleet_manager_successor_session_id";
 
+    /// <summary>
+    /// THE MARKED FLEET MANAGER A WAITING REPLACEMENT IS TO CLOSE, as that session's id - the steps 5 and 6 fixes,
+    /// round 2. Written in the same save as <see cref="FleetManagerSuccessorSessionId"/>, so a Gateway restart still
+    /// knows exactly which session the replacement may close. If the mark no longer names this session, the mark was
+    /// changed by hand and the replacement is abandoned without closing anything.
+    /// </summary>
+    public const string FleetManagerSuccessorReplaces = "fleet_manager_successor_replaces";
+
+    /// <summary>
+    /// THE OLD FLEET MANAGER A WAITING REPLACEMENT HAS ALREADY CLOSED, as that session's id. Written the moment the
+    /// close goes through, so a promotion that fails afterwards is finished by the next look without needing the
+    /// closed session to still be in the roster. Removed with the successor.
+    /// </summary>
+    public const string FleetManagerSuccessorClosedOld = "fleet_manager_successor_closed_old";
+
     /// <summary>Every key this resolver serves, for validation and enumeration.</summary>
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -214,6 +229,6 @@ public static class TenantSettingKeys
         TurnVerdictJudgeEnabled, TurnVerdictColourEnabled,
         FleetManagerSessionId,
         FleetManagerAgent, FleetManagerMachine,
-        FleetManagerSuccessorSessionId,
+        FleetManagerSuccessorSessionId, FleetManagerSuccessorReplaces, FleetManagerSuccessorClosedOld,
     };
 }
