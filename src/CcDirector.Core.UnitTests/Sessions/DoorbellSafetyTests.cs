@@ -364,6 +364,114 @@ public sealed class DoorbellSafetyTests
         Assert.Equal(ComposerReading.HoldsText, DoorbellSafety.ReadComposer(AgentKind.Codex, frame));
     }
 
+    // ---------- Inspection 5, ruling 1: exactly means exactly ----------
+
+    private static ScreenFrame CodexHolding(string row, int cursorCol)
+    {
+        var idle = Load("codex-idle-empty-placeholder");
+        return DoorbellCaptures.WithRow(idle, idle.CursorRow, row.TrimEnd()) with { CursorCol = cursorCol, CursorVisible = true };
+    }
+
+    [Fact]
+    public void Codex_holding_exactly_the_line_with_the_cursor_after_it_is_exactly_the_line()
+    {
+        var line = FleetDoorbellLine.For(1);
+
+        Assert.True(DoorbellSafety.ComposerHoldsExactly(AgentKind.Codex, CodexHolding("› " + line, 2 + line.Length), line));
+    }
+
+    [Theory]
+    [InlineData(" ")]
+    [InlineData("\t")]
+    [InlineData("\u00A0")]
+    public void Codex_holding_the_line_and_one_whitespace_character_is_not_exactly_the_line(string added)
+    {
+        var line = FleetDoorbellLine.For(1);
+
+        Assert.False(DoorbellSafety.ComposerHoldsExactly(AgentKind.Codex, CodexHolding("› " + line + added, 3 + line.Length), line));
+    }
+
+    [Fact]
+    public void A_line_with_a_hidden_cursor_is_not_exactly_the_line()
+    {
+        var line = FleetDoorbellLine.For(1);
+        var idle = Load("claude-idle-empty-after-turn");
+        var frame = DoorbellCaptures.WithRow(idle, idle.CursorRow, "❯ " + line) with
+        {
+            CursorCol = 2 + line.Length, CursorVisible = false,
+        };
+
+        Assert.False(DoorbellSafety.ComposerHoldsExactly(AgentKind.ClaudeCode, frame, line));
+        Assert.True(DoorbellSafety.ComposerHoldsExactly(AgentKind.ClaudeCode, frame with { CursorVisible = true }, line));
+    }
+
+    /// <summary>The Claude idle capture with the composer block rebuilt to hold <paramref name="composerRows"/>
+    /// (the first is the prompt row), the cursor after the last one's visible text.</summary>
+    private static ScreenFrame ClaudeHolding(params string[] composerRows)
+    {
+        var idle = Load("claude-idle-empty-after-turn");
+        var prompt = idle.CursorRow;
+        var top = prompt - (composerRows.Length - 1);
+        var frame = DoorbellCaptures.WithRow(idle, top - 1, new string('─', 120));
+        for (var k = 0; k < composerRows.Length; k++)
+            frame = DoorbellCaptures.WithRow(frame, top + k, composerRows[k].TrimEnd());
+        return frame with { CursorRow = prompt, CursorCol = composerRows[^1].TrimEnd().Length, CursorVisible = true };
+    }
+
+    [Fact]
+    public void Part_of_the_line_is_not_exactly_the_line()
+    {
+        var line = FleetDoorbellLine.For(1);
+
+        Assert.False(DoorbellSafety.ComposerHoldsExactly(AgentKind.ClaudeCode, ClaudeHolding("❯ " + line[..50]), line));
+        Assert.True(DoorbellSafety.ComposerHoldsExactly(AgentKind.ClaudeCode, ClaudeHolding("❯ " + line), line));
+    }
+
+    [Fact]
+    public void The_line_below_an_empty_prompt_row_is_not_exactly_the_line()
+    {
+        // The owner pressed Shift+Enter first; the line sits on the continuation row.
+        var line = FleetDoorbellLine.For(1);
+
+        Assert.False(DoorbellSafety.ComposerHoldsExactly(AgentKind.ClaudeCode, ClaudeHolding("❯", "  " + line), line));
+    }
+
+    [Fact]
+    public void A_wrap_absorbs_at_most_one_space_of_the_line()
+    {
+        // The doorbell line has single spaces only; this pins the rule for any line.
+        const string line = "wrapped  here";
+
+        Assert.False(DoorbellSafety.ComposerHoldsExactly(AgentKind.ClaudeCode, ClaudeHolding("❯ wrapped", "   here"), line));
+        Assert.False(DoorbellSafety.ComposerHoldsExactly(AgentKind.ClaudeCode, ClaudeHolding("❯ wrapped", "  here"), line));
+        Assert.True(DoorbellSafety.ComposerHoldsExactly(AgentKind.ClaudeCode, ClaudeHolding("❯ wrapped", "  here"), "wrapped here"));
+    }
+
+    [Fact]
+    public void A_space_the_owner_put_at_a_wrap_shows_as_a_wider_indent_and_is_not_exactly_the_line()
+    {
+        var line = FleetDoorbellLine.For(1);
+        var at = line.IndexOf(' ', 40);
+
+        Assert.True(DoorbellSafety.ComposerHoldsExactly(AgentKind.ClaudeCode, ClaudeHolding("❯ " + line[..at], "  " + line[(at + 1)..]), line));
+        Assert.False(DoorbellSafety.ComposerHoldsExactly(AgentKind.ClaudeCode, ClaudeHolding("❯ " + line[..at], "   " + line[(at + 1)..]), line));
+        Assert.False(DoorbellSafety.ComposerHoldsExactly(AgentKind.ClaudeCode, ClaudeHolding("❯ " + line[..at], " " + line[(at + 1)..]), line));
+    }
+
+    [Fact]
+    public void A_space_the_owner_put_at_a_wrap_on_a_middle_row_is_not_exactly_the_line()
+    {
+        // On the last row the cursor would also move; on a middle row only the indent shows it.
+        var line = FleetDoorbellLine.For(1);
+        var a = line.IndexOf(' ', 30);
+        var b = line.IndexOf(' ', 60);
+
+        Assert.True(DoorbellSafety.ComposerHoldsExactly(AgentKind.ClaudeCode,
+            ClaudeHolding("❯ " + line[..a], "  " + line[(a + 1)..b], "  " + line[(b + 1)..]), line));
+        Assert.False(DoorbellSafety.ComposerHoldsExactly(AgentKind.ClaudeCode,
+            ClaudeHolding("❯ " + line[..a], "   " + line[(a + 1)..b], "  " + line[(b + 1)..]), line));
+    }
+
     [Fact]
     public void The_empty_cursor_column_is_the_one_both_captures_show()
     {

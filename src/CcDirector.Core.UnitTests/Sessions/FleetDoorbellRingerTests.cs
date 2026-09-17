@@ -81,8 +81,21 @@ public sealed class FleetDoorbellRingerTests
     private const int PromptRow = 27;
     private const int TranscriptRow = 23;
 
-    /// <summary>The idle screen with the composer holding <paramref name="text"/>.</summary>
-    private static ScreenFrame Composer(string text) => DoorbellCaptures.WithRow(Idle, PromptRow, "❯ " + text);
+    /// <summary>The idle screen with the composer holding <paramref name="text"/> and the cursor straight after it,
+    /// as the terminal shows a typed line: the row trailing-trimmed, the cursor <paramref name="cursorPastText"/>
+    /// columns beyond the last visible character.</summary>
+    private static ScreenFrame Composer(string text, int cursorPastText = 0) => Parked(Idle, text, cursorPastText);
+
+    private static ScreenFrame Parked(ScreenFrame on, string text, int cursorPastText = 0)
+    {
+        var row = "❯ " + text;
+        return DoorbellCaptures.WithRow(on, PromptRow, row.TrimEnd()) with
+        {
+            CursorRow = PromptRow,
+            CursorCol = row.TrimEnd().Length + cursorPastText,
+            CursorVisible = true,
+        };
+    }
 
     /// <summary>The idle screen after the line was submitted: the transcript shows it, the composer holds
     /// <paramref name="composer"/> (empty by default).</summary>
@@ -210,19 +223,116 @@ public sealed class FleetDoorbellRingerTests
         Assert.Equal([Line.Length], target.Erased);
     }
 
+    /// <summary>The idle screen with the composer block one row taller: the prompt row holds
+    /// <paramref name="first"/>, the continuation row holds <paramref name="second"/>, and the cursor sits
+    /// <paramref name="cursorPastText"/> columns after the continuation row's last visible character.</summary>
+    private static ScreenFrame Wrapped(string first, string second, int cursorPastText = 0)
+    {
+        var wrapped = DoorbellCaptures.WithRow(
+            DoorbellCaptures.WithRow(Idle, PromptRow - 1, ("❯ " + first).TrimEnd()), PromptRow, second.TrimEnd());
+        // Row 26 is the upper rule in the capture, so the wrapped block is rebuilt one row higher.
+        wrapped = DoorbellCaptures.WithRow(wrapped, PromptRow - 2, new string('─', 120));
+        return wrapped with { CursorRow = PromptRow, CursorCol = second.TrimEnd().Length + cursorPastText, CursorVisible = true };
+    }
+
     [Fact]
     public async Task A_line_that_wrapped_in_the_composer_is_still_recognised_as_ours()
     {
-        var wrapped = DoorbellCaptures.WithRow(
-            DoorbellCaptures.WithRow(Idle, PromptRow - 1, "❯ " + Line[..40]), PromptRow, "  " + Line[40..]);
-        // Row 26 is the upper rule in the capture, so the wrapped block is rebuilt one row higher.
-        wrapped = DoorbellCaptures.WithRow(wrapped, PromptRow - 2, new string('─', 120));
+        var wrapped = Wrapped(Line[..40], "  " + Line[40..]);
         var target = new ScriptedTarget(AgentKind.ClaudeCode, Idle, Idle, Idle, wrapped, wrapped, Idle);
 
         var answer = await FleetDoorbellRinger.RingAsync(target, 1, NoPause);
 
         Assert.Equal("not-submitted", answer.Reason);
         Assert.Equal([Line.Length], target.Erased);
+    }
+
+    [Fact]
+    public async Task A_line_word_wrapped_at_a_space_is_still_recognised_as_ours()
+    {
+        // A word wrap consumes the space it breaks at: the upper row ends before it, the lower row starts after it.
+        var at = Line.IndexOf(' ', 40);
+        var wrapped = Wrapped(Line[..at], "  " + Line[(at + 1)..]);
+        var target = new ScriptedTarget(AgentKind.ClaudeCode, Idle, Idle, Idle, wrapped, wrapped, Idle);
+
+        var answer = await FleetDoorbellRinger.RingAsync(target, 1, NoPause);
+
+        Assert.Equal("not-submitted", answer.Reason);
+        Assert.Equal([Line.Length], target.Erased);
+    }
+
+    public static TheoryData<string> OwnerWhitespace => new() { " ", "\t", "\u00A0" };
+
+    [Theory]
+    [MemberData(nameof(OwnerWhitespace))]
+    public async Task A_line_the_owner_extended_by_one_whitespace_character_is_never_erased(string added)
+    {
+        // Inspection 5, finding 1. The terminal trims the row, so the row reads as the bare line; the cursor one
+        // column further right is what the owner's character left behind.
+        var extended = Composer(Line + added, cursorPastText: 1);
+        var target = new ScriptedTarget(AgentKind.ClaudeCode, Idle, Idle, Idle, extended, extended, Idle);
+
+        var answer = await FleetDoorbellRinger.RingAsync(target, 1, NoPause);
+
+        Assert.Equal("composer-holds-text", answer.Reason);
+        Assert.Empty(target.Erased);
+    }
+
+    [Theory]
+    [MemberData(nameof(OwnerWhitespace))]
+    public async Task A_line_the_owner_extended_by_one_whitespace_character_is_never_erased_when_the_row_keeps_it(string added)
+    {
+        // The same, with the character still on the row and the cursor after it.
+        var row = "❯ " + Line + added;
+        var extended = DoorbellCaptures.WithRow(Idle, PromptRow, row) with
+        {
+            CursorRow = PromptRow, CursorCol = row.Length, CursorVisible = true,
+        };
+        var target = new ScriptedTarget(AgentKind.ClaudeCode, Idle, Idle, Idle, extended, extended, Idle);
+
+        var answer = await FleetDoorbellRinger.RingAsync(target, 1, NoPause);
+
+        Assert.Equal("composer-holds-text", answer.Reason);
+        Assert.Empty(target.Erased);
+    }
+
+    [Theory]
+    [MemberData(nameof(OwnerWhitespace))]
+    public async Task A_wrapped_line_the_owner_extended_by_one_whitespace_character_is_never_erased(string added)
+    {
+        var extended = Wrapped(Line[..40], "  " + Line[40..] + added, cursorPastText: 1);
+        var target = new ScriptedTarget(AgentKind.ClaudeCode, Idle, Idle, Idle, extended, extended, Idle);
+
+        var answer = await FleetDoorbellRinger.RingAsync(target, 1, NoPause);
+
+        Assert.Equal("composer-holds-text", answer.Reason);
+        Assert.Empty(target.Erased);
+    }
+
+    [Fact]
+    public async Task A_space_the_owner_put_inside_the_line_is_never_erased()
+    {
+        // The squeezed comparison this replaces read "doorbell]  1" as the line.
+        var inner = Line.Replace("] 1", "]  1", StringComparison.Ordinal);
+        var target = new ScriptedTarget(AgentKind.ClaudeCode, Idle, Idle, Idle, Composer(inner), Composer(inner), Idle);
+
+        var answer = await FleetDoorbellRinger.RingAsync(target, 1, NoPause);
+
+        Assert.Equal("composer-holds-text", answer.Reason);
+        Assert.Empty(target.Erased);
+    }
+
+    [Fact]
+    public async Task A_new_line_the_owner_added_after_the_line_is_never_erased()
+    {
+        // Shift+Enter after the parked line: an empty continuation row holding the cursor.
+        var withBreak = Wrapped(Line, "") with { CursorCol = 2 };
+        var target = new ScriptedTarget(AgentKind.ClaudeCode, Idle, Idle, Idle, withBreak, withBreak, Idle);
+
+        var answer = await FleetDoorbellRinger.RingAsync(target, 1, NoPause);
+
+        Assert.Equal("composer-holds-text", answer.Reason);
+        Assert.Empty(target.Erased);
     }
 
     [Fact]
@@ -268,7 +378,7 @@ public sealed class FleetDoorbellRingerTests
         // An earlier doorbell is on screen before this ring; this one is still parked. The count must not be
         // fooled by the old row, and the parked one does not count because it is in the composer.
         var before = Submitted(Line);
-        var parked = DoorbellCaptures.WithRow(before, PromptRow, "❯ " + Line);
+        var parked = Parked(before, Line);
         var target = new ScriptedTarget(AgentKind.ClaudeCode, before, before, before, parked, parked, before);
 
         var answer = await FleetDoorbellRinger.RingAsync(target, 1, NoPause);
