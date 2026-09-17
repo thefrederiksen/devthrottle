@@ -2431,3 +2431,17 @@ tool prints.
 - **The interaction of the three fix rounds** is covered only by the unit and route suites; no test exercises a
   restore (slice 6) and the doorbell or replies (slices 2 and 3) together.
 - **Rebasing onto main** (landing plan, pull request B) is not done; this is the merged mission branch only.
+
+## Landing plan, revised (Architect, 17 September 2026, after integration)
+
+The mission branch now holds every slice with every fix round (integration section above). One pull
+request lands the rest of the mission from this branch; the separate slice 2 pull request is dropped,
+because it would cost a second hour-and-a-half check run for code that is already integrated and
+inspected per slice. Order of work:
+1. A Manager merges origin/main into this branch and reruns every suite (main has moved a long way).
+2. Two inspections (Codex, from 12:52) at the merged head, in throwaway worktrees, covering exactly
+   what no inspector has yet passed: (A) slice 2 fix round 3, the slice 3 fix round, the integration
+   merges and the merge with main; (B) the slice 6 fix round, slice 4 (the row line) and slice 5 (the
+   words).
+3. Fix rounds if they fail; then the pull request, merged the moment its checks are green.
+4. Publish the director-restart skill draft, cut the release, write the report.
