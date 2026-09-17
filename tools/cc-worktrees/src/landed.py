@@ -24,6 +24,7 @@ import stat
 import sys
 import time
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -364,21 +365,85 @@ def _short_ref(commit: str | None) -> str:
     return commit[:12] if commit else "none"
 
 
-def require_stash_unmoved(repo: Path, recorded: str | None) -> None:
-    """Hold the slot when the repository's stash moved while it was held. Stashed work has landed
-    nowhere, and the next holder would be handed a stash stack it did not make."""
+def stash_first_parent(repo: Path, commit: str) -> str | None:
+    """The commit a stash was made from, or None when the repository cannot say.
+
+    A stash commit's first parent is the HEAD its worktree was at, and it is the only thing the
+    repository records about where the entry came from. None means the entry cannot be attributed at
+    all - a first parent git will not read, or an entry with no first parent - and an entry that
+    cannot be attributed always holds the slot.
+    """
+    answer = gitrun.run(repo, "rev-parse", "--verify", "--quiet", f"{commit}^1^{{commit}}", check=False)
+    text = answer.stdout.strip()
+    if answer.returncode == 0 and _OBJECT_ID.fullmatch(text):
+        return text
+    return None
+
+
+def stash_attribution(repo: Path, commits: Sequence[str],
+                      entries: Sequence[StashEntry]) -> tuple[list[StashEntry], list[StashEntry]]:
+    """Split `entries` into (this slot's, nobody's): the ones whose first parent is a commit the slot
+    was at, and the ones nothing can attribute. An entry whose first parent is a commit the repository
+    can read and the slot was never at was made in another worktree and is in neither list."""
+    known = set(commits)
+    owned: list[StashEntry] = []
+    unknown: list[StashEntry] = []
+    for entry in entries:
+        parent = stash_first_parent(repo, entry.commit)
+        if parent is None:
+            unknown.append(entry)
+        elif parent in known:
+            owned.append(entry)
+    return owned, unknown
+
+
+def slot_commits(head: str, entries: Sequence[ReflogEntry]) -> list[str]:
+    """Every commit this slot is known to have been at: its HEAD now, and every commit its own HEAD
+    reflog names. The reflog is the tool's existing record of where the slot has been; there is no
+    second record and none is wanted."""
+    commits = [head]
+    for entry in entries:
+        if entry.commit not in commits:
+            commits.append(entry.commit)
+    return commits
+
+
+def require_stash_unmoved(repo: Path, recorded: str | None, commits: Sequence[str]) -> None:
+    """Hold the slot when the repository's stash gained an entry that is this slot's, or one that
+    cannot be attributed to any worktree. Stashed work has landed nowhere.
+
+    `refs/stash` is repository-wide, so a move alone says nothing: the developer's own checkout and
+    every other slot push onto the same stack. `commits` is every commit this slot was at, and an
+    added entry belongs to the slot when its first parent is one of them. An entry the repository
+    cannot attribute holds the slot - never free on an unknown.
+    """
     current = stash_value(repo)
     if current == recorded:
         return
-    added = stash_added(recorded, stash_entries(repo))
-    if added:
-        count = len(added)
-        raise NotLanded(f"{count} stash entr{'y was' if count == 1 else 'ies were'} added while the slot "
-                        f"was held, and stashed work has landed nowhere: "
-                        f"{_names([entry.line() for entry in added])}")
-    raise NotLanded(f"the repository's stash moved while the slot was held "
-                    f"({_short_ref(recorded)} to {_short_ref(current)}) and the entry cc-worktrees "
-                    f"recorded is no longer in it")
+    moved = f"the repository's stash moved while the slot was held ({_short_ref(recorded)} to " \
+            f"{_short_ref(current)})"
+    entries = stash_entries(repo)
+    if current is not None and (not entries or entries[0].commit != current):
+        raise NotLanded(f"{moved} and the stash log does not agree with {STASH_REF}, so the entries "
+                        f"added cannot be attributed to the worktree they came from")
+    if recorded is not None and all(entry.commit != recorded for entry in entries):
+        raise NotLanded(f"{moved} and the entry cc-worktrees recorded is no longer in it, so the "
+                        f"entries added cannot be attributed to the worktree they came from")
+    owned, unknown = stash_attribution(repo, commits, stash_added(recorded, entries))
+    reasons = []
+    if owned:
+        count = len(owned)
+        reasons.append(f"{count} stash entr{'y was' if count == 1 else 'ies were'} added while the slot "
+                       f"was held, and stashed work has landed nowhere: "
+                       f"{_names([entry.line() for entry in owned])}")
+    if unknown:
+        count = len(unknown)
+        reasons.append(f"{count} stash entr{'y' if count == 1 else 'ies'} could not be attributed to the "
+                       f"worktree {'it' if count == 1 else 'they'} came from, so "
+                       f"{'it may be' if count == 1 else 'they may be'} this slot's: "
+                       f"{_names([entry.line() for entry in unknown])}")
+    if reasons:
+        raise NotLanded("; ".join(reasons))
 
 
 def _short_list(commits: list[str], limit: int = 5) -> str:
@@ -725,16 +790,19 @@ def check(worktree: Path, repo: Path, tip: RemoteTip, recorded_gitdir: str | Non
     if not worktree.is_dir():
         raise NotLanded("the worktree directory is missing")
     gitdir = require_bound(worktree, repo, recorded_gitdir)
+    # HEAD and the reflog are read before the holds, not because of them: the stash rule needs the
+    # commits this slot was at to say which entries are its own. Neither read can be held for - each
+    # raises its own reason - so nothing about which reason wins changes by reading them here.
+    head = head_commit(worktree)
+    entries = reflog_entries(worktree)
     held: NotLanded | None = None
     try:
         require_clean(worktree)
         require_no_hidden_flags(worktree)
         require_no_nested_repositories(worktree)
-        require_stash_unmoved(repo, stash)
+        require_stash_unmoved(repo, stash, slot_commits(head, entries))
     except NotLanded as ex:
         held = ex
-    head = head_commit(worktree)
-    entries = reflog_entries(worktree)
     try:
         since = reflog_commits_since(entries, mark)
         require_reflog_complete(gitdir, mark)
@@ -818,7 +886,7 @@ def _recheck_under_lock(worktree: Path, repo: Path, checked: Checked) -> None:
         raise NotLanded("the HEAD reflog changed after the check")
     require_clean(worktree)
     require_no_hidden_flags(worktree)
-    require_stash_unmoved(repo, checked.stash)
+    require_stash_unmoved(repo, checked.stash, slot_commits(checked.head, checked.reflog))
 
 
 def _append_tool_line(worktree: Path, gitdir: Path, examined: tuple[ReflogEntry, ...], old: str,
@@ -1103,7 +1171,14 @@ def release(worktree: Path, repo: Path, tip: RemoteTip | None, recorded_gitdir: 
         if reasons:
             raise NotLanded("; ".join(reasons))
         candidates = release_candidates(worktree)
-        stashed = [entry.commit for entry in stash_added(recorded_stash, stash_entries(repo))]
+        # The stash entries this slot owns, and the ones nothing can attribute: the slot is held on an
+        # unknown, so the release keeps the unknown rather than leave it to gc. An entry the repository
+        # shows was made in another worktree is that worktree's and is never pinned to this slot.
+        owned, unknown = stash_attribution(repo, candidates, stash_added(recorded_stash, stash_entries(repo)))
+        stashed: list[str] = []
+        for entry in [*owned, *unknown]:
+            if entry.commit not in stashed:
+                stashed.append(entry.commit)
         pinned, proven = _pin_for_release(worktree, repo, tip, slot, candidates, stashed, existing)
         # The lock file stays on disk and is removed with the worktree's record; it only has to be
         # closed so that removal can delete it.
