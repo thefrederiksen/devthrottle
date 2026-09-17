@@ -61,9 +61,11 @@ internal static class DevReportLinkRoute
     {
         var value = path.Value ?? "";
         if (!value.StartsWith(Prefix, StringComparison.OrdinalIgnoreCase)) return null;
+        // ctx.Request.Path is already the DECODED path, so nothing is unescaped a second time here - doing so
+        // would decode a percent sign the caller actually typed.
         var rest = value[Prefix.Length..].TrimEnd('/');
         if (rest.Length == 0 || rest.Contains('/')) return null;
-        return Uri.UnescapeDataString(rest);
+        return rest;
     }
 
     /// <summary>
