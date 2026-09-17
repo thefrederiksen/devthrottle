@@ -17,6 +17,7 @@ internal/vcs/gitvcs/gitvcs.go: the remote default branch read and the HEAD.lock-
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import stat
@@ -526,10 +527,20 @@ class ReflogMark:
     """The HEAD reflog line cc-worktrees itself wrote when it last reset or made the slot.
 
     Never "whatever entry was newest": a line is only a mark when the tool wrote it, under HEAD.lock,
-    with a nonce nobody else knows, and verified it was the one line added to exactly what was checked."""
+    with a nonce nobody else knows, and verified it was the one line added to exactly what was checked.
+
+    The log file as it stood right after that line was verified is recorded too: its identity, its size and
+    a hash of its bytes. git's reflog expiry and gc do not append; they write a new file and rename it over
+    the old one, even when they expire nothing, and an expired commit leaves no trace in the file. The same
+    append-only file, no shorter and with the same bytes up to the tool's line, is the positive proof that
+    nothing was expired since the mark."""
     position: int   # counted from the oldest entry, starting at 0
     commit: str
     nonce: str
+    log_dev: int
+    log_ino: int
+    log_size: int
+    log_sha256: str
 
 
 TOOL_IDENT = "cc-worktrees <cc-worktrees@localhost>"
@@ -560,6 +571,29 @@ def reflog_entries(worktree: Path) -> list[ReflogEntry]:
     if len(fields) % 3:
         raise cannot_verify("the HEAD reflog could not be read entry by entry")
     return [ReflogEntry(*fields[i:i + 3]) for i in range(0, len(fields), 3)]
+
+
+REFLOG_REWRITTEN = ("the HEAD reflog was rewritten since cc-worktrees wrote its line (git gc or git reflog "
+                    "expire), so commits abandoned in it may have been removed")
+
+
+def require_reflog_complete(gitdir: Path, mark: ReflogMark | None) -> None:
+    """Hold unless the slot's HEAD reflog is provably the same append-only file the tool's mark was written
+    to. No age is ever proof: a hand-run `git reflog expire --expire-unreachable=now` ignores every
+    configured expiry."""
+    if mark is None:
+        raise NotLanded("cc-worktrees has no record of the HEAD reflog file it last wrote, so commits abandoned "
+                        "in it may have been removed")
+    log = gitdir / "logs" / "HEAD"
+    try:
+        with open(log, "rb") as f:
+            info = os.fstat(f.fileno())
+            prefix = f.read(mark.log_size)
+    except OSError as ex:
+        raise cannot_verify(f"cannot read the HEAD reflog file: {ex.strerror or ex}") from ex
+    if ((info.st_dev, info.st_ino) != (mark.log_dev, mark.log_ino) or info.st_size < mark.log_size
+            or hashlib.sha256(prefix).hexdigest() != mark.log_sha256):
+        raise NotLanded(REFLOG_REWRITTEN)
 
 
 def reflog_commits_since(entries: list[ReflogEntry], mark: ReflogMark | None) -> list[str]:
@@ -618,6 +652,7 @@ def check(worktree: Path, repo: Path, tip: RemoteTip, recorded_gitdir: str | Non
     entries = reflog_entries(worktree)
     try:
         since = reflog_commits_since(entries, mark)
+        require_reflog_complete(gitdir, mark)
     except NotLanded as ex:
         held = held or ex
         since = reflog_commits_since(entries, None)
@@ -717,7 +752,16 @@ def _append_tool_line(worktree: Path, gitdir: Path, examined: tuple[ReflogEntry,
     if (len(now) != len(examined) + 1 or tuple(now[1:]) != examined or now[0].commit != new
             or now[0].subject != tool_subject(new, nonce)):
         raise NotLanded("the HEAD reflog is not exactly what was checked plus the line cc-worktrees wrote")
-    return ReflogMark(len(examined), new, nonce)
+    try:
+        with open(log, "rb") as f:
+            info = os.fstat(f.fileno())
+            data = f.read()
+    except OSError as ex:
+        raise cannot_verify(f"cannot read the HEAD reflog file: {ex.strerror or ex}") from ex
+    if not data.endswith(line.encode("ascii")) or len(data) != info.st_size:
+        raise NotLanded("the HEAD reflog file does not end with the line cc-worktrees wrote")
+    return ReflogMark(len(examined), new, nonce, info.st_dev, info.st_ino, len(data),
+                      hashlib.sha256(data).hexdigest())
 
 
 def mark_new_slot(worktree: Path, repo: Path, tip: str) -> tuple[Path, ReflogMark]:

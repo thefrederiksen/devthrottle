@@ -58,6 +58,20 @@ def _the_old_count_and_newest_fields(data, w):
     entry["reflog_newest"] = "0" * 40 + " HEAD@{1}"
 
 
+def _reflog_file_size_is_negative(data, w):
+    data["slots"]["wt01"]["reflog_file_size"] = -1
+
+
+def _reflog_file_hash_is_not_a_hash(data, w):
+    data["slots"]["wt01"]["reflog_file_sha256"] = "abc"
+
+
+def _a_version_3_file(data, w):
+    data["version"] = 3
+    for key in ("reflog_file_dev", "reflog_file_ino", "reflog_file_size", "reflog_file_sha256"):
+        data["slots"]["wt01"].pop(key)
+
+
 def _the_inspector_case(data, w):
     _wrong_version(data, w)
     _wrong_repo(data, w)
@@ -67,6 +81,7 @@ def _the_inspector_case(data, w):
 CORRUPTIONS = [_wrong_version, _wrong_repo, _free_but_still_held_by_someone, _unknown_state,
                _in_use_without_lease, _held_without_reason, _unknown_slot_name, _reflog_position_is_a_boolean,
                _reflog_nonce_is_not_a_nonce, _reflog_commit_without_a_position, _the_old_count_and_newest_fields,
+               _reflog_file_size_is_negative, _reflog_file_hash_is_not_a_hash, _a_version_3_file,
                _the_inspector_case]
 
 

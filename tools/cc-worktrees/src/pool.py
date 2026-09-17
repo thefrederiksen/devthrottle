@@ -33,7 +33,7 @@ from landed import NotLanded
 from statelock import file_lock, machine_lock
 
 HOME_ENV = "CC_WORKTREES_HOME"
-STATE_VERSION = 3
+STATE_VERSION = 4
 FREE, IN_USE, HELD = "free", "in-use", "held"
 STATES = (FREE, IN_USE, HELD)
 SLOT_NAME = re.compile(r"wt[0-9]{2,}")
@@ -148,14 +148,15 @@ def _atomic_write(path: Path, text: str) -> None:
 
 def _lost_entry(path: Path, reason: str = STATE_LOST) -> dict:
     return {"path": str(path), "state": HELD, "holder": None, "lease": None, "reason": reason,
-            "updated": _now(), "gitdir": None, "reflog_position": None, "reflog_commit": None,
-            "reflog_nonce": None}
+            "updated": _now(), "gitdir": None, **{key: None for key in MARK_KEYS}}
 
 
-ENTRY_KEYS = {"path", "state", "holder", "lease", "reason", "updated", "gitdir",
-              "reflog_position", "reflog_commit", "reflog_nonce"}
+MARK_KEYS = ("reflog_position", "reflog_commit", "reflog_nonce", "reflog_file_dev", "reflog_file_ino",
+             "reflog_file_size", "reflog_file_sha256")
+ENTRY_KEYS = {"path", "state", "holder", "lease", "reason", "updated", "gitdir", *MARK_KEYS}
 COMMIT_ID = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 NONCE = re.compile(r"[0-9a-f]{32}")
+SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
 class _InvalidState(Exception):
@@ -176,13 +177,16 @@ def _check_entry(repo: Path, name: str, entry: object) -> None:
     if not all(_optional_text(entry[key]) for key in ("holder", "lease", "reason", "gitdir")):
         raise _InvalidState(f"{name}: holder, lease, reason or gitdir is not text")
     position, commit, nonce = entry["reflog_position"], entry["reflog_commit"], entry["reflog_nonce"]
+    numbers = [entry[key] for key in ("reflog_file_dev", "reflog_file_ino", "reflog_file_size")]
+    digest = entry["reflog_file_sha256"]
     if position is None:
-        if commit is not None or nonce is not None:
-            raise _InvalidState(f"{name}: a reflog commit or nonce without a position")
-    elif (isinstance(position, bool) or not isinstance(position, int) or position < 0
+        if any(entry[key] is not None for key in MARK_KEYS):
+            raise _InvalidState(f"{name}: part of a reflog mark without a position")
+    elif (not all(isinstance(n, int) and not isinstance(n, bool) and n >= 0 for n in [position, *numbers])
           or not isinstance(commit, str) or not COMMIT_ID.fullmatch(commit)
-          or not isinstance(nonce, str) or not NONCE.fullmatch(nonce)):
-        raise _InvalidState(f"{name}: the reflog position, commit and nonce do not fit together")
+          or not isinstance(nonce, str) or not NONCE.fullmatch(nonce)
+          or not isinstance(digest, str) or not SHA256.fullmatch(digest)):
+        raise _InvalidState(f"{name}: the reflog position, commit, nonce and file record do not fit together")
     state, holder, lease, reason = entry["state"], entry["holder"], entry["lease"], entry["reason"]
     if state == FREE:
         # A free slot was proven landed, so its git metadata was proven then too.
@@ -414,7 +418,8 @@ def _record_mark(entry: dict, gitdir: Path, mark: landed.ReflogMark) -> None:
     """The mark is the reflog line the reset or the creation wrote, as that step returned it. It is never
     read again afterwards: by then anyone may have added entries nobody checked."""
     entry.update(gitdir=str(gitdir), reflog_position=mark.position, reflog_commit=mark.commit,
-                 reflog_nonce=mark.nonce)
+                 reflog_nonce=mark.nonce, reflog_file_dev=mark.log_dev, reflog_file_ino=mark.log_ino,
+                 reflog_file_size=mark.log_size, reflog_file_sha256=mark.log_sha256)
 
 
 def _mark(entry: dict) -> landed.ReflogMark | None:
@@ -422,7 +427,9 @@ def _mark(entry: dict) -> landed.ReflogMark | None:
     every reflog entry must pass the check."""
     if entry["reflog_position"] is None:
         return None
-    return landed.ReflogMark(entry["reflog_position"], entry["reflog_commit"], entry["reflog_nonce"])
+    return landed.ReflogMark(entry["reflog_position"], entry["reflog_commit"], entry["reflog_nonce"],
+                             entry["reflog_file_dev"], entry["reflog_file_ino"], entry["reflog_file_size"],
+                             entry["reflog_file_sha256"])
 
 
 def _hold(pool: Pool, name: str, reason: str) -> None:

@@ -60,7 +60,7 @@ def test_a_pinned_commit_later_pushed_to_a_remote_branch_is_released_and_its_pin
     path = Path(got["path"])
     commit = _abandon_a_commit(path)
     assert w.run("return", got["path"], "--lease", got["lease"], "--json").code == EXIT_HELD
-    git(w.repo, "-c", "gc.reflogExpireUnreachable=now", "gc", "-q")
+    assert _pins(w.repo, got["slot"]) == [commit]
     git(path, "push", "-q", "origin", f"{commit}:refs/heads/topic")
     again = w.run("lease", got["slot"], "--repo", str(w.repo), "--holder", "again", "--reclaim-held", "--json")
     assert again.code == 0, again.out + again.err
