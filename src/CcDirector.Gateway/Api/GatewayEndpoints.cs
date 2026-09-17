@@ -250,6 +250,9 @@ internal static class GatewayEndpoints
         // leaves those routes answering 404 rather than guessing - a Gateway built without the store has
         // no verdicts, and saying so is more honest than an empty list that reads as "never judged".
         Wingman.TurnVerdictStore? turnVerdicts = null,
+        // The Wingman inspector, phase 2: the record GET /sessions/{sid}/wingman-stops serves from. Null answers 404,
+        // for the same reason as the verdict store above.
+        Wingman.TurnVerdictTraceStore? turnVerdictTraces = null,
         // Slice D: the verdict source the roster and the single-session read fold from. Null stamps "none" on
         // every row - the row exactly as the detector made it.
         Wingman.ITurnVerdictRowSource? turnVerdictRows = null,
@@ -3078,6 +3081,11 @@ internal static class GatewayEndpoints
         app.MapGet("/sessions/{sid}/turn-verdicts", (HttpContext ctx, string sid, int? count)
             => ReadTurnVerdicts(ctx, sid, history: true, count: count));
 
+        // EVERY STOP THE WINGMAN JUDGED, prepared for the Cockpit's Wingman tab (the Wingman inspector, phase 2). See
+        // ReadWingmanStops for the refusals, and why a session key is refused whatever the colour switch says.
+        app.MapGet("/sessions/{sid}/wingman-stops", (HttpContext ctx, string sid, int? count)
+            => ReadWingmanStops(ctx, sid, count, tenantBoundary, turnVerdictTraces, pushedSessions));
+
         // ANSWER A JUDGED STOP (the Wingman-on-every-turn mission, slice E; ruling 12). The ONE server-owned write
         // path for a verdict's options: the owner's tap, never the Wingman. TurnVerdictAnswerService holds the rules
         // - the verdict joined to this session, the selection checked against the verdict, and the full-grid screen
@@ -5376,7 +5384,10 @@ internal static class GatewayEndpoints
         IReadOnlyCollection<string>? snoozeRosterSessionIds = null,
         // Message Load mission, slice 4: the fleet inbox the row line is folded from, read ONCE for the whole
         // fold. Null stamps a null row line on every row.
-        Messaging.IFleetInboxLineSource? inboxLines = null)
+        Messaging.IFleetInboxLineSource? inboxLines = null,
+        // FALSE ONLY FOR A FOLD THAT RECORDS WHAT THE PUSH SHOWS (the Wingman inspector's trace colour): the snooze-expiry
+        // memory is read and not moved - no edge spent, no ledger line, no re-judge asked for. Everything else is equal.
+        bool writes = true)
     {
         if (roleUniverse is null) throw new ArgumentNullException(nameof(roleUniverse));
         if (toStamp is null) throw new ArgumentNullException(nameof(toStamp));
@@ -5476,7 +5487,7 @@ internal static class GatewayEndpoints
         // inferred from the two lists above: a partial view cannot tell "this session is gone" from "this session
         // is not in the part I am looking at", and that distinction is the whole licence to drop an entry.
         Wingman.SnoozeExpiryRowStamp.Stamp(all, snoozeExpiry, verdictsOnTheWire, holds, tenant, foldNowUtc,
-            snoozeRosterSessionIds);
+            snoozeRosterSessionIds, writes);
 
         // THE ROW LINE (Message Load mission, slice 4, ruling 12): what waits in each session's fleet inbox, in
         // finished words. One grouped read of the account's unread messages for the whole fold, at the fold's one
@@ -5851,6 +5862,74 @@ internal static class GatewayEndpoints
                     $"The answer failed before anything was sent, so nothing was sent: {ex.Message}"), verdictId);
             return Answer(turnVerdictAnswers.RecordUnconfirmed(tenant.Value, directorId, sid, verdictId, ex.Message), verdictId);
         }
+    }
+
+    /// <summary>
+    /// <c>GET /sessions/{sid}/wingman-stops?count=</c>: the Wingman inspector's read. Every stop the Wingman judged for one
+    /// session, newest first, folded by <see cref="Wingman.WingmanStopsFold"/> into finished strings the tab renders.
+    ///
+    /// THE REFUSALS, IN ORDER: no tenant (403); a SESSION KEY (403); no authenticated DEVICE - the self-hosted shared
+    /// machine token, or no credential at all (403); a session id that is not an identifier (400); no
+    /// trace store on this Gateway (404); a session that is not in the caller's account (404, the same answer an unknown
+    /// session gets, so one account cannot learn which ids exist in another).
+    ///
+    /// A SESSION KEY IS NEVER SERVED, WHATEVER THE COLOUR SWITCH SAYS. The verdict reads let a session key read a verdict
+    /// once the account's colours are on; this one does not follow them. It serves raw terminal screens, conversations,
+    /// the whole prompt and the judge's raw answer - a session reading its own judge's prompt is a different thing from a
+    /// session reading its colour. The route is also absent from <see cref="SessionKeyGuard"/>'s allow list, and this
+    /// handler refuses on its own anyway, so the refusal does not depend on that list staying as it is.
+    /// </summary>
+    internal static IResult ReadWingmanStops(
+        HttpContext ctx,
+        string sid,
+        int? count,
+        Tenancy.HostedTenantBoundary tenantBoundary,
+        Wingman.TurnVerdictTraceStore? turnVerdictTraces,
+        Streaming.PushedSessionStore? pushedSessions)
+    {
+        FileLog.Write($"[GatewayEndpoints] GET wingman-stops: sid={sid} count={count?.ToString() ?? "default"}");
+        var tenant = ResolveReadTenant(ctx, tenantBoundary);
+        if (tenant is null)
+            return Results.Json(new { error = "no tenant is bound to this request" },
+                statusCode: StatusCodes.Status403Forbidden);
+        if (AuthMiddleware.CallingSession(ctx) is not null)
+        {
+            FileLog.Write($"[GatewayEndpoints] GET wingman-stops: sid={sid} REFUSED a session key");
+            return Results.Json(new
+            {
+                error = "the Wingman's stops carry raw terminal screens, conversations, prompts and answers, and are served "
+                      + "to the account's own devices only - never to a session key",
+            }, statusCode: StatusCodes.Status403Forbidden);
+        }
+        // A POSITIVE DEVICE IDENTITY, NOT MERELY "NOT A SESSION KEY" (inspection round 1). On a self-hosted Gateway the
+        // shared machine token authenticates with no device at all and resolves to the Local account, so refusing only a
+        // session key let that token read raw screens, prompts and answers. The only caller served is one whose own
+        // device key the middleware verified.
+        if (!ctx.Items.TryGetValue(AuthMiddleware.AuthenticatedDeviceItemKey, out var device)
+            || device is not Pairing.DeviceCredentialIdentity)
+        {
+            FileLog.Write($"[GatewayEndpoints] GET wingman-stops: sid={sid} REFUSED a caller with no device identity");
+            return Results.Json(new
+            {
+                error = "the Wingman's stops are served only to a device signed in with its own device key - not to the "
+                      + "shared machine token, and not to a request with no device",
+            }, statusCode: StatusCodes.Status403Forbidden);
+        }
+        if (!Guid.TryParse(sid, out _))
+            return Results.Json(new { error = "invalid session id format" },
+                statusCode: StatusCodes.Status400BadRequest);
+        if (turnVerdictTraces is null)
+            return Results.Json(new { error = "the Wingman's stops are not available on this gateway" },
+                statusCode: StatusCodes.Status404NotFound);
+        // The same existence rule as the verdict reads: decided inside this account, ignoring freshness, because the
+        // record is held here and a session whose Director has gone quiet is still this account's session.
+        if (pushedSessions?.TryLocateIgnoringFreshness(tenant.Value, sid) is null)
+            return SessionUnavailable(ctx, tenantBoundary, pushedSessions, sid);
+
+        var traces = turnVerdictTraces.History(tenant.Value, sid, count ?? Wingman.TurnVerdictTraceStore.DefaultHistoryCount);
+        var answer = Wingman.WingmanStopsFold.Fold(sid, traces);
+        FileLog.Write($"[GatewayEndpoints] GET wingman-stops: sid={sid} stops={answer.Stops.Count}");
+        return Results.Json(answer);
     }
 
     /// <summary>

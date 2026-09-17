@@ -91,4 +91,21 @@ public sealed class TurnVerdictTraceEntity : TenantScopedEntity
     /// here too, because the verdict table's copy is deleted when the session works again. Null for "skipped" and
     /// "cancelled".</summary>
     public string? VerdictJson { get; set; }
+
+    /// <summary>The colour word the session's row wore with this judgement on it (<c>SessionOrdering.EffectiveColor</c>),
+    /// folded when the trace was written. Recorded rather than recomputed, because the colour comes from the whole row -
+    /// working, snooze, dictation, supervision and voice all outrank a verdict - and none of that is kept here. Null for a
+    /// trace written before it was recorded, or when the session was not on the roster at that moment.</summary>
+    public string? RowColour { get; set; }
+
+    /// <summary>The label the row showed beside that colour (<c>SessionOrdering.StateLabel</c>), folded with it. Null
+    /// exactly when <see cref="RowColour"/> is.</summary>
+    public string? RowLabel { get; set; }
+
+    /// <summary>When a "continues-alone" verdict's carrying-on clock was set to run out, at the moment of judgement
+    /// (<c>TurnVerdictWatchdog.DeadlineFor</c>). It is stored because the deadline depends on the owned sessions' live
+    /// activity, which is kept nowhere; it moves later while those sessions keep working. Null for every other verdict,
+    /// for a carrying-on verdict whose clock was not running (a session it owns was working), and for a trace written
+    /// before it was recorded.</summary>
+    public DateTime? ClockDeadlineUtc { get; set; }
 }

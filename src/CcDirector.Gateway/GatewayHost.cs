@@ -774,6 +774,8 @@ public sealed class GatewayHost : IAsyncDisposable
     private readonly Wingman.TurnVerdictTraceStore _turnVerdictTraces;
     /// <summary>Writes the inspector's traces off the verdict path, so a verdict never waits for its copy.</summary>
     private readonly Wingman.TurnVerdictTraceWriter _turnVerdictTraceWriter;
+    private readonly Wingman.TurnVerdictTraceRowStamp _turnVerdictTraceRowStamp;
+    private readonly Fleet.DisplayFold _displayFold;
     /// <summary>How long shutdown waits for queued traces to be written before the database is disposed.</summary>
     private static readonly TimeSpan TurnVerdictTraceDrainTimeout = TimeSpan.FromSeconds(5);
     /// <summary>Which Directors told this Gateway they send conversations (turn-push mission, phase 2).</summary>
@@ -932,6 +934,28 @@ public sealed class GatewayHost : IAsyncDisposable
     // somebody has to remember.
     private Rules.RuleTurnEndLauncher? _ruleLauncher;
 
+    // Dev reports (issue #2958): the record of what agents published and the owner answered, and the delivery
+    // that holds the owner's items while a session works and drains them at its turn end.
+    private readonly DevReports.DevReportStore _devReports;
+    private readonly DevReports.DevReportDelivery _devReportDelivery;
+    // The lifetime a claimed dev report send runs on: cancelled in StopAsync, never by a request (phase 2 inspection,
+    // Medium 1 - a browser that goes away must not strand the owner's items mid-send).
+    private readonly CancellationTokenSource _devReportSendLifetime = new();
+    private readonly DevReports.DevReportTurnEndLauncher _devReportLauncher;
+    private readonly DevReports.DevReportSettleSweep _devReportSettleSweep;
+    private System.Threading.Timer? _devReportSettleTimer;
+    private int _devReportSettleSweepInFlight;
+
+    /// <summary>
+    /// Test seam: overrides the dev report settle sweep schedule (both the first tick and the period). Null in
+    /// production and never assigned outside tests. It exists so a hosted test can watch the TIMER deliver what a
+    /// reconnect left held, in well under the real 30 seconds - and turns red if the timer is not started.
+    /// </summary>
+    internal static TimeSpan? DevReportSettleSweepScheduleForTests;
+
+    /// <summary>Test-only: the dev report record, so a hosted test can leave an item in the state a crash leaves it.</summary>
+    internal DevReports.DevReportStore DevReportsForTest => _devReports;
+
     // The turn log: one self-contained record per turn end, on the machines an administrator has switched
     // capture on for. It rides the SAME boundary as the supervisor and the rules engine but is deliberately
     // NOT part of either - the turns worth capturing most are the ones they never acted on, and a log living
@@ -960,6 +984,20 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>Test-only: the turn-verdict seat, so a test on a real host can read what a stop was judged.
     /// Null until StartAsync builds it.</summary>
     internal Wingman.TurnVerdictService? TurnVerdictServiceForTest => _turnVerdictService;
+
+    /// <summary>The live turn-verdict seat, built if it is not yet, so a hosted test can drive a judgement or an expiry
+    /// through the production environment and the production trace writer.</summary>
+    internal Wingman.TurnVerdictService EnsureTurnVerdictServiceForTest() => EnsureTurnVerdictService();
+
+    /// <summary>The trace writer, so a hosted test that waits for a trace can say what became of it when it never arrives.</summary>
+    internal Wingman.TurnVerdictTraceWriter TurnVerdictTraceWriterForTest => _turnVerdictTraceWriter;
+
+    /// <summary>The trace colour stamp exactly as the host wired it, so a hosted test can prove the trace and the display
+    /// push take their fold inputs from one place through the production wiring, not through a stamp it built itself.</summary>
+    internal Wingman.TurnVerdictTraceRowStamp TurnVerdictTraceRowStampForTest => _turnVerdictTraceRowStamp;
+
+    /// <summary>The display push's voice-waiting clock, so that hosted test can start a wait that has already given up.</summary>
+    internal Wingman.VoiceWaitingClock VoiceWaitingClockForTest => _voiceWaitingClock;
 
     /// <summary>Test-only: the turn-end watcher, so an isolation test can drive a real session-state
     /// transition (Working -&gt; Waiting) into the REAL onTurnEnd / onSessionWorking callbacks rather than a
@@ -1669,75 +1707,25 @@ public sealed class GatewayHost : IAsyncDisposable
         // nothing needed him on a machine he could have acted on immediately. The auto-dismiss sweeper still
         // takes AmbientSnapshotFresh and must: acting ON a session needs recent data, whereas TELLING THE
         // OWNER about one needs a reachable machine. Two questions, two snapshots.
+        // THE FOLD'S INPUTS ARE CHOSEN IN ONE PLACE, Fleet.DisplayFold, for this push and for the Wingman inspector's
+        // trace colour alike - see that class for why, and for the only three things the two callers may differ in.
+        // Everything the comments above say about the push's inputs (the ambient tenant, the voice partition guard, the
+        // clocks, the known roster to prune to) is now implemented there.
+        _displayFold = new Fleet.DisplayFold(
+            voice: () => _voiceService,
+            needsYou: _needsYouClock,
+            voiceWaiting: _voiceWaitingClock,
+            snoozes: _snoozeRegistry,
+            handRaises: _handRaises,
+            snoozeExpiry: () => _snoozeExpiry,
+            pushed: PushedSessions,
+            enterScope: tenant => _tenantBoundary.EnterScope(tenant),
+            // Message Load mission, slice 4: the row line, from the same inbox the roster reads. The store is built
+            // further down this constructor, so it is read at fold time.
+            inboxLines: () => _fleetMessages);
         FleetDisplayState = new Fleet.FleetDisplayStateObserver(
             AmbientSnapshotConnected,
-            sessions => EnrichVoiceThenFoldForPush(
-                sessions,
-                // MTR-10 Gap D: read the AMBIENT tenant of this per-tenant display pass, byte-identical to the
-                // ROSTER's own enrichment (the roster map below resolves the REQUEST tenant and passes it to
-                // IsGenerating/HasVoice). This fold runs inside a tenant scope in both drivers - the periodic
-                // sweep wraps it in _tenantPass.ForEachTenant, and the DirectorHub push runs in the bound
-                // tenant's scope - so _tenantPass.Current is the owning tenant, never null on hosted. The earlier
-                // code read TenantId.Local, which #1973 made stale: the tenant-partitioned voice service IS live
-                // on hosted, and a Local read there is an EMPTY partition, folding VoiceAudioReady=false for
-                // every session and holding every voice-mode session permanently "Preparing voice" (yellow) on
-                // the push-only desktop while the roster served red. A null Current is a DENY (false), never a
-                // Local fall back, so an unscoped pass discloses nothing.
-                //
-                // WHY THE FIRST ATTEMPT (abf581ff) REGRESSED THE PUSH: the ambient tenant is whatever tenant a
-                // Director is BOUND to, which need not be a minted voice partition. WingmanVoiceService REFUSES
-                // to name a partition for such a tenant - IsGenerating/HasVoice THROW ArgumentException for it -
-                // and this fold runs synchronously inside DirectorHub.PushSnapshot (which scopes the whole handler
-                // to the bound tenant). An unminted-tenant Director's snapshot push therefore threw straight out
-                // of PushSnapshot as a HubException and took the WHOLE fleet's display push down. The guard makes
-                // an unnameable ambient tenant answer the design-documented "no voice state at all" (false)
-                // instead of throwing - see WingmanVoiceService.CanNameVoicePartition. Minted account tenants
-                // (production) and Local (self-host) are nameable, so Gap D's per-tenant read is unchanged there.
-                voiceGeneratingFor: sid => _tenantPass.Current is { } t
-                    && Wingman.WingmanVoiceService.CanNameVoicePartition(t)
-                    && _voiceService?.IsGenerating(t, sid) == true,
-                voiceAudioReadyFor: sid => _tenantPass.Current is { } t
-                    && Wingman.WingmanVoiceService.CanNameVoicePartition(t)
-                    && _voiceService?.HasVoice(t, sid) == true,
-                // The needs-you clock is partitioned per tenant too (Gap C coupled state): pass this pass's
-                // owning tenant so a session id shared across accounts keeps a per-tenant "waiting since".
-                tenant: _tenantPass.Current ?? TenantId.Local,
-                needsYouStampFor: (tenant, sid, isRed) => _needsYouClock.Stamp(tenant, sid, isRed),
-                handRaises: _handRaises,
-                snoozeRegistry: _snoozeRegistry,
-                // Same tenant guard as the two booleans above: an ambient tenant that cannot name a voice
-                // partition answers "no voice state at all" rather than throwing out of PushSnapshot.
-                voiceUnavailableFor: sid => _tenantPass.Current is { } t
-                    && Wingman.WingmanVoiceService.CanNameVoicePartition(t)
-                        ? _voiceService?.VoiceUnavailableFor(t, sid)
-                        : null,
-                nothingToNarrateFor: sid => _tenantPass.Current is { } t
-                    && Wingman.WingmanVoiceService.CanNameVoicePartition(t)
-                    && _voiceService?.NothingToNarrateFor(t, sid) == true,
-                directorCannotSendConversationFor: sid => _tenantPass.Current is { } t
-                    && Wingman.WingmanVoiceService.CanNameVoicePartition(t)
-                    && _voiceService?.DirectorCannotSendConversationFor(t, sid) == true,
-                narrationAbandonedFor: sid => _tenantPass.Current is { } t
-                    && Wingman.WingmanVoiceService.CanNameVoicePartition(t)
-                    && _voiceService?.NarrationAbandonedFor(t, sid) == true,
-                voiceWaitingStampFor: (sid, waiting) => _tenantPass.Current is { } t
-                    ? _voiceWaitingClock.Stamp(t, sid, waiting)
-                    : null,
-                // Slice D: the same verdict source the roster folds from, so the desktop is pushed the same colour
-                // and label every browser gets.
-                turnVerdictRows: _turnVerdictRows,
-                // Slice F: the same snooze memory, so the push and the roster see ONE expiry edge between them.
-                snoozeExpiry: _snoozeExpiry,
-                // And the ACCOUNT'S roster for it to prune to, not this one Director's push. Ids only: a
-                // membership question does not need a session cloned to answer it, and this is the hot path.
-                // KNOWN, not connected: a Director that has gone quiet still has its sessions on the roster, so
-                // dropping them here would read "I cannot see it this second" as "it is gone".
-                snoozeRosterSessionIds: _tenantPass.Current is { } snoozeTenant
-                    ? PushedSessions.KnownSessionIds(snoozeTenant)
-                    : null,
-                // Slice 4: the row line, from the same inbox the roster reads. The store is built further down
-                // this constructor; this delegate runs only once the host is up.
-                inboxLines: _fleetMessages),
+            sessions => _displayFold.Push(_tenantPass.Current, sessions, _turnVerdictRows),
             SendCommandAsync,
             currentScopeKey: () => _tenantPass.Current?.Value);
         // Mission Screen mission (Phase 1b, issue #1405): the mission-WHY store, at a Gateway-side file
@@ -1918,13 +1906,26 @@ public sealed class GatewayHost : IAsyncDisposable
         // through, resolved at call time (the dictionary-screening precedent) - summarisation is a
         // background digest, and the fast leg is the cheap one. The per-pass caps live in the sweep.
         _sessionHistory = new History.SessionHistoryStore(_gatewayDb);
+        _devReports = new DevReports.DevReportStore(_gatewayDb);
+        _devReportDelivery = new DevReports.DevReportDelivery(_devReports, DevReportSessionLiveness,
+            route: (tenant, directorId) =>
+            {
+                var director = Registry.Get(tenant, directorId);
+                if (director is null) return null;
+                Api.DirectorCommandRouter.SendDirectorCommandAsync sendCommand = SendCommandAsync;
+                return new Api.SessionVerbClient(director, sendCommand);
+            },
+            sendLifetime: _devReportSendLifetime.Token,
+            enterTenantScope: tenant => _tenantBoundary.EnterScope(tenant));
+        _devReportLauncher = new DevReports.DevReportTurnEndLauncher(_devReportDelivery);
+        _devReportSettleSweep = new DevReports.DevReportSettleSweep(
+            _tenantBoundary, TenantRegistry, _tenantContext, _devReports, _devReportDelivery);
         _knownRepositories = new History.KnownRepositoryStore(_gatewayDb);
         _sessionTurns = new History.SessionTurnStore(_gatewayDb);
         // The Wingman-on-every-turn mission: the judged-stop record, and its seven-day purge on the same
         // per-tenant worker seam the activity ledger's retention uses.
         _turnVerdicts = new Wingman.TurnVerdictStore(_gatewayDb);
         _turnVerdictTraces = new Wingman.TurnVerdictTraceStore(_gatewayDb);
-        _turnVerdictTraceWriter = new Wingman.TurnVerdictTraceWriter(_turnVerdictTraces.Append);
         _turnVerdictRetentionSweep = new Wingman.TurnVerdictRetentionSweep(
             _tenantBoundary, TenantRegistry, _tenantContext, _turnVerdicts, _turnVerdictTraces);
         // The Message Load mission: the fleet message inbox, the one service that decides and writes a send, and
@@ -1958,6 +1959,12 @@ public sealed class GatewayHost : IAsyncDisposable
         // per-tenant seam as the retention above.
         _turnVerdictRows = new Wingman.TurnVerdictRowSource(
             _tenantSettingsResolver.TurnVerdict, _turnVerdicts, () => _turnVerdictService);
+        // The colour each stop produced is folded as its trace is written, on the writer's thread (the Wingman
+        // inspector, phase 2), from the same verdict source and the same fold the display push uses.
+        _turnVerdictTraceRowStamp = new Wingman.TurnVerdictTraceRowStamp(
+            tenant => PushedSessions.SnapshotConnected(tenant), _turnVerdictRows, _displayFold.Record);
+        _turnVerdictTraceWriter = new Wingman.TurnVerdictTraceWriter(_turnVerdictTraces.Append,
+            stamp: _turnVerdictTraceRowStamp.Stamp);
         _turnVerdictWatchdogSweep = new Wingman.TurnVerdictWatchdogSweep(
             _tenantBoundary, TenantRegistry, _tenantContext, EnsureTurnVerdictService);
         // Slice F (ruling 10): a snooze expiry re-judges. The JUDGEMENT is fire and forget - the fold is the hot
@@ -3142,6 +3149,11 @@ public sealed class GatewayHost : IAsyncDisposable
                 // and which the feature's own guards can therefore see. It never throws.
                 _ruleLauncher?.OnTurnEnd(tenant, signal.DirectorId, signal.SessionId);
 
+                // Dev reports (issue #2958): everything the owner sent while this session worked goes in now, as
+                // one prompt. A catch-up turn end after a restart drains what the database still holds. Fire and
+                // forget, never throws - see DevReportTurnEndLauncher.
+                _devReportLauncher.OnTurnEnd(tenant, signal.SessionId, signal.IsNewTurn);
+
                 // Voice sessions (issue #531): the turn just finished on its own, so re-make the
                 // spoken summary + audio in the background. It is then "voice ready" in the session
                 // list with no wait. Non-voice sessions do nothing here - the watcher is voice-only.
@@ -3551,6 +3563,8 @@ public sealed class GatewayHost : IAsyncDisposable
             governanceAudit: _governanceAudit,
             // The Wingman-on-every-turn mission: the store GET /sessions/{sid}/turn-verdict(s) serve from.
             turnVerdicts: _turnVerdicts,
+            // The Wingman inspector: the record GET /sessions/{sid}/wingman-stops serves from.
+            turnVerdictTraces: _turnVerdictTraces,
             // Slice D: the verdict source the roster and GET /sessions/{sid} fold from.
             turnVerdictRows: _turnVerdictRows,
             // Slice F: the same snooze memory the display push folds with, so one expiry is one edge.
@@ -4314,6 +4328,11 @@ public sealed class GatewayHost : IAsyncDisposable
             directorSessions: (tenant, directorId) => PushedSessions.GetLastKnown(tenant, directorId),
             findSession: (tenant, sessionId) => PushedSessions.TryLocate(tenant, sessionId, _streamStaleAfter)?.Session,
             sendCommand: (directorId, command, ct) => SendCommandAsync(directorId, command, ct));
+        // Dev reports (issue #2958): four session routes (publish, list, read, reply - a session key, its own
+        // session only) and four owner routes (list, read, the HTML, send). The session routes are on the
+        // SessionKeyGuard allow list; the owner routes deliberately are not.
+        Api.DevReportEndpoints.Map(_app, _devReports, _devReportDelivery, _tenantBoundary);
+
         Api.DirectorRestartRequestEndpoints.Map(_app, restartRequests, _tenantBoundary,
             listForAccount: tenant => DirectorRestartRequests.List(tenant),
             listForMachine: (tenant, machine) => DirectorRestartRequests.List(tenant, machine),
@@ -4558,6 +4577,14 @@ public sealed class GatewayHost : IAsyncDisposable
         _sessionHistoryTimer = new System.Threading.Timer(_ => SweepSessionHistory(), null,
             SessionHistorySweepStartupDelay, SessionHistorySweepInterval);
         FileLog.Write($"[GatewayHost] session history sweep started: every {SessionHistorySweepInterval.TotalMinutes:0}m, interrupted after {History.SessionHistorySweep.InterruptedThreshold.TotalMinutes:0}m of silence, retention {History.SessionHistorySweep.Retention.TotalDays:0} days");
+
+        // Dev reports (issue #2958, phase 2 review High 1 and High 2): settle every session still holding items. The
+        // turn-end watcher raises nothing for a session that exits, or for a Director that reconnects with its
+        // session already waiting - the state it last saw - so THIS timer is what reaches those sessions.
+        var devReportSettleSchedule = DevReportSettleSweepScheduleForTests ?? DevReports.DevReportSettleSweep.Interval;
+        _devReportSettleTimer = new System.Threading.Timer(_ => SweepDevReportSettle(), null,
+            devReportSettleSchedule, devReportSettleSchedule);
+        FileLog.Write($"[GatewayHost] dev report settle sweep started: every {devReportSettleSchedule.TotalSeconds:0.###}s");
 
         // MTR-15 cancellation cutoff: the hosted active-tenant entitlement sweep. Forces a fresh entitlement
         // read for every tenant with a live lease every ~60s and revokes any that has become NotEntitled, so a
@@ -4877,7 +4904,10 @@ public sealed class GatewayHost : IAsyncDisposable
         IReadOnlyCollection<string>? snoozeRosterSessionIds = null,
         // Message Load mission, slice 4: the same inbox the roster folds the row line from, so the desktop is
         // pushed the line every browser gets.
-        Messaging.IFleetInboxLineSource? inboxLines = null)
+        Messaging.IFleetInboxLineSource? inboxLines = null,
+        // See StampFleetRolesAndFold. The two clocks above are chosen by the caller; only Fleet.DisplayFold calls this in
+        // production, and it chooses them once for both of its callers.
+        bool writes = true)
     {
         foreach (var s in sessions)
         {
@@ -4912,7 +4942,7 @@ public sealed class GatewayHost : IAsyncDisposable
         }
         Api.GatewayEndpoints.StampFleetRolesAndFold(sessions, sessions, needsYouStampFor, snoozeRegistry, tenant,
             handRaises, turnVerdictRows, snoozeExpiry, nowUtc: null, snoozeRosterSessionIds: snoozeRosterSessionIds,
-            inboxLines: inboxLines);
+            inboxLines: inboxLines, writes: writes);
     }
 
     /// <summary>
@@ -5180,6 +5210,33 @@ public sealed class GatewayHost : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// The dev report settle timer callback (issue #2958) - a boundary: it owns the overlap guard and the try/catch so
+    /// a sweep failure never crashes the timer thread. One sweep at a time; a slow tunnel send makes the next tick skip.
+    /// </summary>
+    private void SweepDevReportSettle()
+    {
+        if (Interlocked.CompareExchange(ref _devReportSettleSweepInFlight, 1, 0) != 0)
+            return;
+        _ = RunDevReportSettleSweepAsync();
+    }
+
+    private async Task RunDevReportSettleSweepAsync()
+    {
+        try
+        {
+            await _devReportSettleSweep.SweepAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayHost] dev report settle sweep FAILED: {ex.Message}");
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _devReportSettleSweepInFlight, 0);
+        }
+    }
+
     private void SweepEntitlementLeases()
     {
         // Skip this tick if the previous entitlement sweep is still running (many active tenants). One at a
@@ -5314,6 +5371,33 @@ public sealed class GatewayHost : IAsyncDisposable
     /// Director that holds the tunnel open and answers nothing cancels the InvokeAsync below rather than
     /// hanging forever. Do not add a second timeout here; two would drift.
     /// </summary>
+    /// <summary>
+    /// Whether a session can take the owner's dev report items now (issue #2958, PLAN-phase-2.md rules 3 and 4),
+    /// from the Gateway's own records - never by dialing the session. Live on the fresh roster and waiting for
+    /// input: idle. Live and working: busy. Exited on the roster, or absent from it with an ending on its history
+    /// row: ended. Absent with no ending - its machine is merely not connected - is busy, so its items are held.
+    /// </summary>
+    private DevReports.DevReportSessionLiveness DevReportSessionLiveness(TenantId tenant, string sessionId)
+    {
+        var located = PushedSessions.TryLocate(tenant, sessionId, _streamStaleAfter);
+        if (located is { } loc)
+        {
+            var state = loc.Session.ActivityState ?? "";
+            if (state is "Exited" or "Failed")
+                return new(DevReports.DevReportSessionReach.Ended, null, $"the roster shows the session {state}");
+            if (state is "WaitingForInput" or "Idle")
+                return new(DevReports.DevReportSessionReach.Idle, loc.DirectorId, $"waiting for input on director {loc.DirectorId}");
+            return new(DevReports.DevReportSessionReach.Busy, loc.DirectorId, $"the roster shows the session {state}");
+        }
+
+        Contracts.WorkHistorySessionDto? history;
+        using (_tenantBoundary.EnterScope(tenant))
+            history = _sessionHistory.Get(sessionId);
+        if (!string.IsNullOrEmpty(history?.EndingKind))
+            return new(DevReports.DevReportSessionReach.Ended, null, $"not on the roster, and its history says {history.EndingKind}");
+        return new(DevReports.DevReportSessionReach.Busy, null, "not on the roster, and nothing says it ended - its machine is not connected");
+    }
+
     public async Task<DirectorCommandResult?> SendCommandAsync(string directorId, DirectorCommand command, CancellationToken ct = default)
     {
         if (command is null) throw new ArgumentNullException(nameof(command));
@@ -5398,6 +5482,9 @@ public sealed class GatewayHost : IAsyncDisposable
         try { _suggestionSweepTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] dictionary-suggestion timer dispose error: {ex.Message}"); }
         try { _sessionHistoryTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] session history timer dispose error: {ex.Message}"); }
         _sessionHistoryTimer = null;
+        try { _devReportSettleTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] dev report settle timer dispose error: {ex.Message}"); }
+        try { _devReportSendLifetime.Cancel(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] dev report send lifetime cancel error: {ex.Message}"); }
+        _devReportSettleTimer = null;
         _activityRetentionTimer = null;
         _turnVerdictRetentionTimer = null;
         _turnVerdictWatchdogTimer = null;

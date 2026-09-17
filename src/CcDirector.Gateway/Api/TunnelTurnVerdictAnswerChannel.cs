@@ -46,6 +46,9 @@ internal sealed class TunnelTurnVerdictAnswerChannel : ITurnVerdictAnswerChannel
                     sent.Body?.Error ?? "the Director answered without accepting the write"),
             SessionVerbClient.PromptSendKind.NeverLeftTheGateway
                 => new TurnVerdictAnswerWrite(TurnVerdictAnswerWriteKind.NeverLeftTheGateway, sent.Detail),
+            // A definite Director refusal maps to Unanswered, exactly as it did before the send kinds split it out.
+            SessionVerbClient.PromptSendKind.DirectorRefused
+                => new TurnVerdictAnswerWrite(TurnVerdictAnswerWriteKind.Unanswered, sent.Detail),
             _ => new TurnVerdictAnswerWrite(TurnVerdictAnswerWriteKind.Unanswered, sent.Detail),
         };
     }

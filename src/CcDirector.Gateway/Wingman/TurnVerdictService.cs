@@ -55,6 +55,11 @@ public interface ITurnVerdictEnvironment
     /// session may get; nothing else decides it.</param>
     Task<TurnVerdictJudgeAnswer> AskJudgeAsync(TenantId tenant, string prompt, TimeSpan timeout, CancellationToken ct);
 
+    /// <summary>Ask the NARRATION CALL (slice J) one question and return its raw answer: the same model as the judge,
+    /// through a separate seam, because it is not a judgement and is never counted as one. Throws exactly as
+    /// <see cref="AskJudgeAsync"/> does.</summary>
+    Task<TurnVerdictJudgeAnswer> AskNarratorAsync(TenantId tenant, string prompt, TimeSpan timeout, CancellationToken ct);
+
     /// <summary>This session's latest stored verdict in this account, or null.</summary>
     TurnVerdictDto? Latest(TenantId tenant, string sessionId);
 
@@ -128,6 +133,10 @@ public sealed record TurnVerdictSessionState(SessionDto? Facts, bool Held, bool 
     /// Manager owns (owner ruling, 2026-09-16).</summary>
     public bool HeldForJudging => Held && !OwnedByFleetManager;
 }
+
+/// <summary>What one narration call produced: the finished spoken text, or why there is none. The prompt is kept so
+/// a test can read what the call was given.</summary>
+public sealed record NarrationCallResult(string? Spoken, string? FailureDetail, string Prompt, double ReplySeconds);
 
 /// <summary>The judge's raw answer, which model gave it, and how long it took.</summary>
 public sealed record TurnVerdictJudgeAnswer(string Raw, string Model, double ReplySeconds);
@@ -234,6 +243,21 @@ public sealed record TurnVerdictOutcome
 
     /// <summary>How long the judge took, when it was asked.</summary>
     public double ReplySeconds { get; init; }
+
+    /// <summary>
+    /// The package the judge was given for this stop, for the narration call (slice J). Lazy, because only a stop
+    /// somebody is listening to reads it: a judged stop hands in the package it already built, and a reused one
+    /// builds it from the same screen read and conversation only when asked. Null on a skip or a cancellation.
+    /// </summary>
+    public Lazy<TurnVerdictPackage>? NarrationPackage { get; init; }
+
+    /// <summary>
+    /// For a REFUSED but readable judge answer only: the judge's decision as it wrote it - how the person answers, the
+    /// menu, the options - read by <see cref="TurnVerdictContract.SalvageNarrationDecision"/> for the narration call's
+    /// input (slice J, Architect ruling). Never stored, never on the row, never offered as a button: the record in
+    /// <see cref="Verdict"/> stays refused with none of them. Null on an accepted verdict, whose own fields are the decision.
+    /// </summary>
+    public TurnVerdictDto? NarrationDecision { get; init; }
 
     /// <summary>True when there is an accepted verdict to act on.</summary>
     public bool HasAcceptedVerdict => Verdict is { Failed: false }
@@ -574,7 +598,17 @@ public sealed class TurnVerdictService : IDisposable
         // named for that stop, and a new stop on an unreadable screen with the same reply text is still a new stop
         // (slice I inspection, round three).
         if (signal.IsNewTurn) ClearRateLimitHold(key);
-        return TakeGateOrJoin(key, signal);
+        // The gate is still taken synchronously inside TakeGateOrJoin, before this returns; only the narration for the
+        // user waits on the outcome.
+        return NarrateForUserWhenJudgedAsync(signal.Tenant, signal.SessionId, TakeGateOrJoin(key, signal));
+    }
+
+    /// <summary>Hand a turn end's outcome back unchanged, after starting the narration call it is owed, if any.</summary>
+    private async Task<TurnVerdictOutcome> NarrateForUserWhenJudgedAsync(TenantId tenant, string sid, Task<TurnVerdictOutcome> judged)
+    {
+        var outcome = await judged.ConfigureAwait(false);
+        StartNarrationForUserIfOwed(tenant, sid, outcome);
+        return outcome;
     }
 
     private enum Admitted { Refused, TookGate, Joined, Queued }
@@ -1106,7 +1140,7 @@ public sealed class TurnVerdictService : IDisposable
         // re-asking the judge about an unreachable session each time would be a paid call on a loop.
         if (latest is not null && IsReusable(key, latest, hash, trigger,
                 () => WingmanNarrationSource.Select(_env.ReadConversation(tenant, sid)?.Widgets, rows)?.Content))
-            return Reuse(key, epoch, ct, directorId, trigger, observedAt, latest, hash, rows, settings);
+            return Reuse(key, epoch, ct, directorId, trigger, observedAt, latest, hash, rows, settings, facts, grid);
 
         // A SPEECH RE-ATTEMPT NEVER ASKS THE JUDGE. No automatic path costs two model calls for one stop, so a caller
         // that may not ask stops here, after the reuse check and before anything else is read or paid for. On an
@@ -1263,6 +1297,12 @@ public sealed class TurnVerdictService : IDisposable
                 // The explain-already-asked marker: set only when this flight's loop made its re-attempt for a person.
                 if (flight.ReattemptedForPerson)
                     _askedOnDemandFailures[key] = record.VerdictId;
+                // The refused answer's own decision, for a narration call about this record - now or on a later reuse.
+                var narrationDecision = failure == TurnVerdictFailureKind.Refused
+                    ? TurnVerdictContract.SalvageNarrationDecision(rawReply)
+                    : null;
+                if (narrationDecision is not null)
+                    _refusedNarrationDecisions[key] = (record.VerdictId, narrationDecision);
                 _env.Record(new TurnVerdictRecord(tenant, directorId, sid, ActivityEventTypes.TurnVerdictFailed,
                     FailureCause(failure),
                     $"trigger={TriggerWord(trigger)} kind={record.PackageKind} id={record.VerdictId} model={record.Model}"));
@@ -1276,6 +1316,8 @@ public sealed class TurnVerdictService : IDisposable
                     ScreenHash = hash,
                     SourceText = source?.Content,
                     ReplySeconds = replySeconds,
+                    NarrationPackage = new Lazy<TurnVerdictPackage>(package),
+                    NarrationDecision = narrationDecision,
                 };
             }
 
@@ -1294,6 +1336,7 @@ public sealed class TurnVerdictService : IDisposable
                 ScreenHash = hash,
                 SourceText = source?.Content,
                 ReplySeconds = replySeconds,
+                NarrationPackage = new Lazy<TurnVerdictPackage>(package),
             };
         }
         finally
@@ -1317,7 +1360,9 @@ public sealed class TurnVerdictService : IDisposable
         TurnVerdictDto latest,
         string hash,
         IReadOnlyList<string> rows,
-        TurnVerdictSettings settings)
+        TurnVerdictSettings settings,
+        SessionDto? facts,
+        ScreenGridResponse? grid)
     {
         var (tenant, sid) = key;
         var verdict = latest;
@@ -1337,6 +1382,14 @@ public sealed class TurnVerdictService : IDisposable
 
         var conversation = _env.ReadConversation(tenant, sid);
         var source = WingmanNarrationSource.Select(conversation?.Widgets, rows);
+        // Built only if the narration call reads it, from this same screen read and conversation: the package the
+        // judge would be given for this screen now. Nothing more is read to build it.
+        var narrationPackage = new Lazy<TurnVerdictPackage>(() => TurnVerdictPackageBuilder.Build(
+            new TurnEndSignal(sid, directorId, tenant, observedAt, IsNewTurn: false),
+            facts ?? new SessionDto { SessionId = sid },
+            conversation ?? new StoredConversation(false, Array.Empty<TurnWidgetDto>()),
+            grid,
+            previousVerdictLabel: null));
 
         if (_epochs.GetOrAdd(key, 0) != epoch)
             return Cancelled(tenant, directorId, sid, trigger, "the session worked after its stored verdict was read; that verdict is not reused",
@@ -1365,6 +1418,11 @@ public sealed class TurnVerdictService : IDisposable
                     : "the judge was rate limited about this unchanged screen, and it is not asked again inside the wait it named",
                 ScreenHash = hash,
                 SourceText = source?.Content,
+                NarrationPackage = narrationPackage,
+                NarrationDecision = _refusedNarrationDecisions.TryGetValue(key, out var salvaged)
+                                    && string.Equals(salvaged.VerdictId, verdict.VerdictId, StringComparison.Ordinal)
+                    ? salvaged.Decision
+                    : null,
             }
             : new TurnVerdictOutcome
             {
@@ -1372,8 +1430,158 @@ public sealed class TurnVerdictService : IDisposable
                 Verdict = verdict,
                 ScreenHash = hash,
                 SourceText = source?.Content,
+                NarrationPackage = narrationPackage,
             };
     }
+
+    /// <summary>
+    /// Make the narration call (slice J) for one stop: the version 10 fidelity prompt over the package the judge was
+    /// given, plus the judge's decision, asked once with a sixty second deadline. The CALLER decides whether a stop
+    /// gets one - only a voice session or a person's explain, and once per verdict id - and this method only makes it.
+    /// A failed call is an answer, not an exception: the judge's spoken text is already playable, so a failure leaves
+    /// it in place, and it is logged. Nothing is re-attempted.
+    /// </summary>
+    /// <param name="outcome">A judged, reused, or refused-but-worded outcome, with its verdict and package.</param>
+    internal async Task<NarrationCallResult> NarrateAsync(TenantId tenant, string sid, TurnVerdictOutcome outcome, CancellationToken ct)
+    {
+        if (outcome.Verdict is not { } verdict || outcome.NarrationPackage is not { } lazyPackage)
+            throw new ArgumentException("A narration call needs a verdict and the package it was formed from.", nameof(outcome));
+
+        // A refused record carries no decision of its own; the call is given the one its readable answer held.
+        var decision = verdict.Failed && outcome.NarrationDecision is { } salvaged ? salvaged : verdict;
+        var prompt = NarrationCall.BuildPrompt(_env.Language(tenant), _env.CustomSpokenRules(), lazyPackage.Value, decision);
+        var timeout = TimeSpan.FromSeconds(TurnVerdictSettings.NarrationCallTimeoutSeconds);
+        FileLog.Write($"[TurnVerdictService] narration call sid={sid} verdict={verdict.VerdictId} failed={verdict.Failed} answerVia={decision.AnswerVia} salvagedDecision={!ReferenceEquals(decision, verdict)} promptLen={prompt.Length}");
+        try
+        {
+            var answer = await _env.AskNarratorAsync(tenant, prompt, timeout, ct).ConfigureAwait(false);
+            var spoken = NarrationCall.SpokenFrom(answer.Raw);
+            if (spoken.Length == 0)
+            {
+                FileLog.Write($"[TurnVerdictService] narration call sid={sid} verdict={verdict.VerdictId} FAILED: the answer held no words");
+                return new NarrationCallResult(null, "the narration call answered with no words", prompt, answer.ReplySeconds);
+            }
+            FileLog.Write($"[TurnVerdictService] narration call sid={sid} verdict={verdict.VerdictId} OK: spokenLen={spoken.Length} replySeconds={answer.ReplySeconds:F1}");
+            return new NarrationCallResult(spoken, null, prompt, answer.ReplySeconds);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is TimeoutException or HttpRequestException or OperationCanceledException
+                                       or WingmanModelRateLimitedException or InvalidOperationException)
+        {
+            FileLog.Write($"[TurnVerdictService] narration call sid={sid} verdict={verdict.VerdictId} FAILED ({ex.GetType().Name}): {ex.Message}");
+            return new NarrationCallResult(null, ex.Message, prompt, 0);
+        }
+    }
+
+    /// <summary>
+    /// THE NARRATION FOR THE USER (owner ruling, 2026-09-17): every stop of a session that answers to the user gets the
+    /// narration call, voice mode or not, and its text is saved onto the verdict so it can always be read. A session
+    /// another live session owns is read by that owner, not by the user, and gets none. A voice session is left to the
+    /// voice path, which makes this same call, speaks it, and saves it through <see cref="SaveNarration"/>; both paths
+    /// share <see cref="TryClaimNarration"/>, so no verdict id is narrated twice by this process. Never throws: a failed
+    /// call is logged and the verdict simply has no narration.
+    /// </summary>
+    internal void StartNarrationForUserIfOwed(TenantId tenant, string sid, TurnVerdictOutcome outcome)
+    {
+        if (outcome.Verdict is not { } verdict || outcome.NarrationPackage is null) return;
+        var narratable = outcome.Kind switch
+        {
+            TurnVerdictOutcomeKind.Judged or TurnVerdictOutcomeKind.Reused => !verdict.Failed,
+            // A refused answer that still carried words is narrated, exactly as the voice path narrates it (slice I).
+            TurnVerdictOutcomeKind.Failed => verdict.Failed && !string.IsNullOrWhiteSpace(verdict.Spoken),
+            _ => false,
+        };
+        if (!narratable) return;
+        // Already saved (a reused record, or a record read back after a Gateway restart): the text is there to read.
+        if (!string.IsNullOrWhiteSpace(verdict.Narration)) return;
+        if (_env.IsVoiceSession(tenant, sid)) return;   // the voice path makes, speaks and saves it
+        if (_env.ReadSessionState(tenant, sid).Held)
+        {
+            FileLog.Write($"[TurnVerdictService] narration for the user: sid={sid} verdict={verdict.VerdictId} not made - a live session owns this one and reads it");
+            return;
+        }
+        if (!TryClaimNarration(tenant, sid, verdict.VerdictId)) return;
+
+        var call = Task.Run(async () =>
+        {
+            try
+            {
+                var result = await NarrateAsync(tenant, sid, outcome, CancellationToken.None).ConfigureAwait(false);
+                if (result.Spoken is { } spoken)
+                    SaveNarration(tenant, sid, verdict.VerdictId, spoken);
+            }
+            catch (Exception ex)
+            {
+                // A detached task has no caller to throw to; an unexpected fault is logged loudly, never swallowed silently.
+                FileLog.Write($"[TurnVerdictService] narration for the user FAILED: sid={sid} verdict={verdict.VerdictId}: {ex.GetType().Name}: {ex.Message}");
+            }
+        });
+        _userNarrationCalls[call] = 1;
+        _ = call.ContinueWith(done => _userNarrationCalls.TryRemove(done, out _), TaskScheduler.Default);
+    }
+
+    /// <summary>
+    /// Claim one verdict id's narration call for a session. True for the first claim of that id, false for every later
+    /// one, whichever path asks - the turn end for the user, the voice path, or a person's explain.
+    /// </summary>
+    internal bool TryClaimNarration(TenantId tenant, string sid, string verdictId)
+    {
+        if (string.IsNullOrWhiteSpace(verdictId)) return false;
+        var key = (tenant, sid);
+        while (true)
+        {
+            if (_narrationClaims.TryGetValue(key, out var claimed))
+            {
+                if (string.Equals(claimed, verdictId, StringComparison.Ordinal)) return false;
+                if (_narrationClaims.TryUpdate(key, verdictId, claimed)) return true;
+            }
+            else if (_narrationClaims.TryAdd(key, verdictId))
+            {
+                return true;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Save a narration onto the verdict it describes, when that verdict is still this session's latest. A newer verdict
+    /// has its own stop and its own narration, so text for an older one is dropped and logged. Returns whether it was saved.
+    /// </summary>
+    internal bool SaveNarration(TenantId tenant, string sid, string verdictId, string narration)
+    {
+        lock (_storeGate)
+        {
+            var latest = _env.Latest(tenant, sid);
+            if (latest is null || !string.Equals(latest.VerdictId, verdictId, StringComparison.Ordinal))
+            {
+                FileLog.Write($"[TurnVerdictService] SaveNarration: sid={sid} verdict={verdictId} is no longer the latest (latest={latest?.VerdictId ?? "none"}) - not saved");
+                return false;
+            }
+            var updated = Copy(latest);
+            updated.Narration = narration;
+            _env.Store(tenant, sid, updated);
+            FileLog.Write($"[TurnVerdictService] SaveNarration: sid={sid} verdict={verdictId} saved, length={narration.Length}");
+            return true;
+        }
+    }
+
+    /// <summary>Wait for every narration call for the user started so far. For tests; the product never waits on them.</summary>
+    internal async Task WaitForUserNarrationsAsync()
+    {
+        while (_userNarrationCalls.Keys.ToArray() is { Length: > 0 } running)
+        {
+            await Task.WhenAll(running).ConfigureAwait(false);
+            await Task.Delay(1).ConfigureAwait(false);   // the removal is a continuation; let it run
+        }
+    }
+
+    // The verdict id each session's narration call was last claimed for (see TryClaimNarration).
+    private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), string> _narrationClaims = new();
+
+    // The narration calls for the user running detached from the turn end that started them.
+    private readonly ConcurrentDictionary<Task, byte> _userNarrationCalls = new();
 
     /// <summary>How many times one stop may ask the judge when somebody is listening: the first call and ONE
     /// re-attempt. Every other stop asks once.</summary>
@@ -1391,6 +1599,10 @@ public sealed class TurnVerdictService : IDisposable
     // A RATE LIMIT'S OWN WAIT, per session: the failed record it produced and when the wait it named ends. An explain
     // on the unchanged screen does not ask again inside it.
     private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), (string VerdictId, DateTime Until, string? SourceText)> _rateLimitHolds = new();
+
+    // THE DECISION A REFUSED BUT READABLE ANSWER HELD, per session, keyed by the refused record's verdict id: the narration
+    // call's input only (slice J). One per session - a newer refused record replaces it - and never read for the row.
+    private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), (string VerdictId, TurnVerdictDto Decision)> _refusedNarrationDecisions = new();
 
     // THE FAILED RECORD A PERSON'S OWN ASK PRODUCED, per session. Explain may ask again about a failed record once;
     // a failure that explain itself asked for is reused by the next explain rather than asked again.
@@ -1789,6 +2001,12 @@ public sealed class TurnVerdictService : IDisposable
         try
         {
             trace = build(settings.ColourEnabled) with { TurnEndObservedAtUtc = observedAt };
+            // THE CARRYING-ON CLOCK AS IT STOOD AT JUDGEMENT (the Wingman inspector, phase 2). The deadline depends on
+            // the owned sessions' live activity, which nothing keeps, so it is read now or never. Only a carrying-on
+            // verdict has a clock, so only one of those costs the roster read.
+            if (trace.Verdict is { Failed: false } carryingOn
+                && string.Equals(carryingOn.Verdict, TurnVerdictVocabulary.ContinuesAlone, StringComparison.Ordinal))
+                trace = trace with { ClockDeadlineUtc = TurnVerdictWatchdog.DeadlineFor(carryingOn, _env.OwnedSessions(tenant, sid)) };
         }
         catch (Exception ex)
         {

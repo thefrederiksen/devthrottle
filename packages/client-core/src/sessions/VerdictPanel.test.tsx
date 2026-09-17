@@ -248,6 +248,14 @@ describe("the verdict panel", () => {
     ).toBeTruthy();
   });
 
+  it("shows the saved narration in place of the summary, verbatim, once the Gateway has saved one", () => {
+    const narration = "The migration is written and waiting. It asks before touching the local database; say yes to apply it.";
+    const { container } = render(<VerdictPanel sessionId={SID} session={session({ ...verdict(), narration })} />);
+
+    expect(screen.getByText(narration, { selector: ".verdict-narration" })).toBeTruthy();
+    expect(container.querySelector(".verdict-summary")).toBeNull();
+  });
+
   it("heads the receipt with the row's own agent, as the Gateway stamped its name", () => {
     const { container, rerender } = render(
       <VerdictPanel sessionId={SID} session={session(verdict(), "judged", { agent: "Codex", agentToolDisplay: "Codex" })} />,

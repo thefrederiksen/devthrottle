@@ -83,9 +83,11 @@ a sign-in bypass), `none` (no deployed surface; the verifier runs what it can), 
   Claude Code - open it once in the repository and accept; Codex - in
   `~/.codex/config.toml`: `[projects."<repo root>"]` with `trust_level = "trusted"`.
   cc-ship checks this before spawning and says exactly what to do.
-- For Vercel previews: `VERCEL_AUTOMATION_BYPASS_SECRET=<secret>` in
-  `<cc-director data>/config/credentials.env` (Vercel project Settings, Deployment
-  Protection, Protection Bypass for Automation). The verifier never sees the secret.
+- For Vercel previews: the cc-secrets entry `vercel-automation-bypass-secret` (the
+  secret from Vercel project Settings, Deployment Protection, Protection Bypass for
+  Automation), and curl 8.3 or newer. cc-ship runs its one curl call through
+  `cc-secrets run`, so neither cc-ship nor the verifier ever sees the secret, and it is
+  only ever sent over https to a `*.vercel.app` preview.
 - Install the launcher from a checkout that follows origin/main (see `install.py`):
 
 ```

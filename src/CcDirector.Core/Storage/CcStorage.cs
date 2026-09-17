@@ -289,8 +289,49 @@ public static class CcStorage
     // running Director's folders (#1577, #1580). They are declared here, once, so the root has a
     // single owner. StorageRootGuardTests fails the build if a new hand-rolled one appears.
 
-    /// <summary>The shared credentials file every tool reads: config/credentials.env.</summary>
-    public static string CredentialsEnv() => Path.Combine(Config(), "credentials.env");
+    /// <summary>
+    /// The cc-secrets store file (secrets.json), resolved exactly as tools/cc-secrets/src/paths.py resolves it.
+    ///
+    /// Deliberately NOT under <see cref="Root"/>: the store is per operating-system user, not per Director
+    /// instance. A Director sets CC_DIRECTOR_ROOT for every session it runs, while the owner adds entries
+    /// from an ordinary terminal with no such variable - a store that followed the root would put the
+    /// owner's entries in one folder and have the Director read an empty store in another. CC_SECRETS_HOME
+    /// is the store's own override, and it is how tests point this at a store they wrote.
+    /// </summary>
+    public static string SecretsStore()
+        => ResolveSecretsStore(
+            Environment.GetEnvironmentVariable("CC_SECRETS_HOME"),
+            Environment.GetEnvironmentVariable("LOCALAPPDATA"),
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            OperatingSystem.IsWindows(),
+            OperatingSystem.IsMacOS());
+
+    /// <summary>The pure form of <see cref="SecretsStore"/>, so each platform's answer is testable on any machine.</summary>
+    internal static string ResolveSecretsStore(string? secretsHome, string? localAppData, string? userHome,
+        bool isWindows, bool isMacOS)
+    {
+        string folder;
+        if (!string.IsNullOrEmpty(secretsHome))
+            folder = secretsHome;
+        else if (isWindows)
+        {
+            if (string.IsNullOrEmpty(localAppData))
+                throw new InvalidOperationException(
+                    "LOCALAPPDATA is not set, so the per-user cc-secrets store cannot be located.");
+            folder = Path.Combine(localAppData, "cc-director", "secrets");
+        }
+        else
+        {
+            if (string.IsNullOrEmpty(userHome))
+                throw new InvalidOperationException(
+                    "The user's home folder is not known, so the per-user cc-secrets store cannot be located.");
+            folder = isMacOS
+                ? Path.Combine(userHome, "Library", "Application Support", "cc-director", "secrets")
+                : Path.Combine(userHome, ".cc-director", "secrets");
+        }
+
+        return Path.Combine(folder, "secrets.json");
+    }
 
     /// <summary>Installed agent plugin manifests: base/agent-plugins/.</summary>
     public static string AgentPlugins() => Path.Combine(Base(), "agent-plugins");

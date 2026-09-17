@@ -31,8 +31,176 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # ON A PULL REQUEST, RUN ONLY THE JOBS FOR WHAT CHANGED. ON A PUSH TO MAIN, RUN EVERY JOB.
+  #
+  # The .NET job takes about fifty minutes, and a pull request that touched only a Markdown page or one
+  # Python tool was paying for all of it, plus six Python legs, before anyone could read an answer that
+  # had nothing to do with the change. That wait is the cost the owner asked to cut (#1156 is the same
+  # complaint about the local gate). So this job lists the files the pull request changes - a plain
+  # `git diff` against the base, no third-party action - and hands each job one flag: dotnet, web, tools.
+  #
+  # THE RULE LEANS TO KEEP. A job is skipped ONLY when every changed file is POSITIVELY outside what that
+  # job builds or tests. The script below does not list what a job may skip by default; it lists, per
+  # file, what is proven NOT to read it, and anything it cannot place runs every job. So a new top-level
+  # folder, a script, a skill copy, a root document, another workflow - all run everything until someone
+  # proves otherwise and writes it down here. A wrongly skipped job is a red that reaches main unseen,
+  # which is the failure this file exists to prevent; a wrongly run job only costs minutes.
+  #
+  # What each job actually reads, established by reading its steps AND the tests it runs, not its name:
+  #   - web: the npm workspace (apps/, packages/, the root package files, tsconfig, eslint), plus
+  #     tools/throttle-conformance/contract, which the client-core throttle contract tests load.
+  #   - tools: all of tools/. The shipped-tool contract guard reads tools/registry.json and walks the
+  #     source of every shipped Python tool, so no folder under tools/ is safely outside it.
+  #   - .NET: effectively the whole repository. The Release build of the Gateway runs `npm ci`, the
+  #     workspace typecheck and both shell builds, so every web input is a .NET input too. Its tests read
+  #     the in-repository skill copies, scripts, the release workflow, packages/client-core,
+  #     tools/registry.json, the installer folders and several documents. The ONLY places proven outside
+  #     it are:
+  #       * docs/, EXCEPT docs/wingman, docs/architecture/wingman, docs/new_architecture,
+  #         docs/public/release-notes and docs/features/dictation, which its tests open by name;
+  #       * a Python tool folder under tools/ (one that has a pyproject.toml and no .csproj), and
+  #         tools/test_shipped_tools_contract.py. The installer folders, registry.json and
+  #         throttle-conformance are read by .NET and are never in this set.
+  #     If you add a test that reads a file in one of those places, take that path out of the set in
+  #     the script below in the same pull request - otherwise a change to it will skip the test that
+  #     guards it.
+  #   - A change to this file runs every job: a workflow edit can break any of them.
+  #   - An empty change list runs every job too. No files is not a clean result; it is a diff that did
+  #     not work, and a broken instrument must not read as "nothing to test".
+  #
+  # A PUSH TO MAIN IS UNTOUCHED: every flag is true and every job runs, under the concurrency rule
+  # described above. Main is where the backstop lives, and a backstop that skips is not one. The Python
+  # floor leg follows the same split: on a pull request it runs on Ubuntu only, since the lowest declared
+  # dependency versions are a property of the packages rather than of the operating system; on main it
+  # still runs on all three.
+  #
+  # A job whose flag is false shows as SKIPPED in the list of checks. That label is for people only:
+  # GitHub counts a skipped job as SUCCESSFUL when it evaluates a required check. So requiring any one
+  # of the build jobs below would be satisfied by that job being skipped, and if this job fails, every
+  # job that needs it is skipped too - which also passes as successful. Neither skip proves anything.
+  # That is why the last job in this file, "CI result", exists; read the comment on it before marking
+  # any check as required.
+  changes:
+    name: What changed
+    runs-on: ubuntu-latest
+    outputs:
+      dotnet: ${{ steps.classify.outputs.dotnet }}
+      web: ${{ steps.classify.outputs.web }}
+      tools: ${{ steps.classify.outputs.tools }}
+      tools_matrix: ${{ steps.classify.outputs.tools_matrix }}
+
+    steps:
+      # Full history so the merge base is present, and no file contents beyond the one checked-out tree:
+      # the diff needs only commits and trees.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          filter: blob:none
+
+      - name: Classify the changed files
+        id: classify
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          all_latest='{"os":"windows-latest","dependencies":"latest"},{"os":"macos-latest","dependencies":"latest"},{"os":"ubuntu-latest","dependencies":"latest"}'
+          all_floor='{"os":"windows-latest","dependencies":"floor"},{"os":"macos-latest","dependencies":"floor"},{"os":"ubuntu-latest","dependencies":"floor"}'
+
+          finish() {
+            echo "dotnet=$1" >> "$GITHUB_OUTPUT"
+            echo "web=$2" >> "$GITHUB_OUTPUT"
+            echo "tools=$3" >> "$GITHUB_OUTPUT"
+            echo "tools_matrix=$4" >> "$GITHUB_OUTPUT"
+            echo "Result: dotnet=$1 web=$2 tools=$3"
+            echo "Python legs: $4"
+            exit 0
+          }
+
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            echo "Event is $EVENT_NAME, not a pull request: every job runs, every Python leg included."
+            finish true true true "{\"include\":[$all_latest,$all_floor]}"
+          fi
+
+          pr_matrix="{\"include\":[$all_latest,{\"os\":\"ubuntu-latest\",\"dependencies\":\"floor\"}]}"
+
+          # Three dots: what the pull request changes since it left the base, not what the base has
+          # gained since. Captured in an assignment, not read through a pipe or a process substitution,
+          # so that a failing `git diff` fails the step - and with it the whole run - instead of
+          # quietly producing an empty list.
+          changed="$(git diff --name-only --no-renames "$BASE_SHA...$HEAD_SHA")"
+          if [ -z "$changed" ]; then
+            echo "No changed files is not a clean result - the diff found nothing to classify. Running every job."
+            finish true true true "$pr_matrix"
+          fi
+          files=()
+          while IFS= read -r line; do files+=("$line"); done <<< "$changed"
+          echo "The pull request changes ${#files[@]} file(s):"
+          printf '  %s\n' "${files[@]}"
+
+          # A folder directly under tools/ that is a Python tool and contains no .NET project.
+          is_python_tool_dir() {
+            local dir="tools/$1"
+            case "$1" in cc-director-setup*|throttle-conformance) return 1 ;; esac
+            [ -f "$dir/pyproject.toml" ] || return 1
+            [ -z "$(find "$dir" -name '*.csproj' -print -quit)" ]
+          }
+
+          dotnet=false; web=false; tools=false
+          for f in "${files[@]}"; do
+            case "$f" in
+              .github/workflows/ci.yml)
+                echo "  $f -> this workflow changed: every job"
+                dotnet=true; web=true; tools=true ;;
+
+              docs/wingman/*|docs/architecture/wingman/*|docs/new_architecture/*|docs/public/release-notes/*|docs/features/dictation/*)
+                echo "  $f -> read by .NET tests: dotnet"
+                dotnet=true ;;
+              docs/*)
+                echo "  $f -> read by no job" ;;
+
+              tools/throttle-conformance/*)
+                echo "  $f -> read by .NET, web and tools: every job"
+                dotnet=true; web=true; tools=true ;;
+              tools/test_shipped_tools_contract.py)
+                echo "  $f -> tools"
+                tools=true ;;
+              tools/*/*)
+                sub="${f#tools/}"; sub="${sub%%/*}"
+                if is_python_tool_dir "$sub"; then
+                  echo "  $f -> Python tool folder: tools"
+                  tools=true
+                else
+                  echo "  $f -> under tools/ but not a proven Python-only folder: dotnet and tools"
+                  dotnet=true; tools=true
+                fi ;;
+              tools/*)
+                echo "  $f -> top-level tools file: dotnet and tools"
+                dotnet=true; tools=true ;;
+
+              apps/*|packages/*|package.json|package-lock.json|tsconfig*.json|eslint.config.js|.npmrc|.nvmrc)
+                echo "  $f -> npm workspace, which the .NET Release build also builds: web and dotnet"
+                web=true; dotnet=true ;;
+
+              src/*|cc-director.sln|Directory.Build.props|Directory.Build.targets|Directory.Packages.props|global.json|[Nn]u[Gg]et.[Cc]onfig|.editorconfig)
+                echo "  $f -> dotnet"
+                dotnet=true ;;
+
+              *)
+                echo "  $f -> not classified: every job"
+                dotnet=true; web=true; tools=true ;;
+            esac
+          done
+
+          finish "$dotnet" "$web" "$tools" "$pr_matrix"
+
   build-and-test:
     name: Build & Test (.NET)
+    needs: changes
+    if: needs.changes.outputs.dotnet == 'true'
     runs-on: windows-latest
 
     steps:
@@ -82,6 +250,8 @@ jobs:
   # platform-independent unit tests and a Vite build, and Ubuntu runners are quicker and cheaper.
   web:
     name: Build & Test (web)
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -154,20 +324,24 @@ jobs:
   # the suite is required to be green both with colour and without.
   tool-contracts:
     name: Tool contracts (Python)
+    needs: changes
+    if: needs.changes.outputs.tools == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       # Never stop the other operating systems when one fails. A failure on one of them is exactly
       # the information this matrix exists to produce, and cancelling the rest hides whether the
       # fault is platform-specific or everywhere.
       fail-fast: false
-      matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
-        # `latest` installs whatever is current. `floor` installs EXACTLY the lowest versions
-        # tools/cc-devthrottle/pyproject.toml declares, so the lower bound is tested rather than
-        # promised: a green run on current packages says nothing about the oldest ones the package
-        # still allows. Keep the pins below equal to the pyproject floors - raising one without
-        # the other brings the untested range back.
-        dependencies: [latest, floor]
+      # The legs come from the "What changed" job: `latest` on all three operating systems always, and
+      # `floor` on all three for a push to main but on Ubuntu alone for a pull request (see the comment
+      # on that job for why).
+      #
+      # `latest` installs whatever is current. `floor` installs EXACTLY the lowest versions
+      # tools/cc-devthrottle/pyproject.toml declares, so the lower bound is tested rather than
+      # promised: a green run on current packages says nothing about the oldest ones the package
+      # still allows. Keep the pins below equal to the pyproject floors - raising one without
+      # the other brings the untested range back.
+      matrix: ${{ fromJSON(needs.changes.outputs.tools_matrix) }}
 
     steps:
       - uses: actions/checkout@v5
@@ -218,3 +392,69 @@ jobs:
         run: |
           python -m pip install websockets
           python -m pytest tests/ -q
+
+  # THE ONE JOB TO MARK AS A REQUIRED CHECK. No required checks are configured on main today; if one is
+  # ever added, it must be this job and none of the others.
+  #
+  # Every other job can be SKIPPED, and GitHub counts a skipped job as successful for a required check
+  # (see the comment on "What changed"). This job never skips: `always()` makes it run whatever happened
+  # above it, and it turns what happened into a verdict that is honest about skips. It passes only on a
+  # positive match, never on the absence of a failure:
+  #   - "What changed" must have SUCCEEDED, and every flag it gave must be exactly true or false;
+  #   - a job whose flag is true must have SUCCEEDED;
+  #   - a job whose flag is false must have been SKIPPED - that is the classifier's decision, nothing else.
+  # Anything else fails it: a failed or cancelled job, a job skipped although its flag was true, a job
+  # that ran although its flag was false, or a classifier that did not finish. When "What changed"
+  # fails, its flags are empty, so every job fails the check - there is no path where a broken
+  # classifier reads as a clean pull request.
+  #
+  # If you add a job, add it to `needs` and to the checks below in the same pull request, or it is
+  # outside the verdict.
+  result:
+    name: CI result
+    needs: [changes, build-and-test, web, tool-contracts]
+    if: always()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check that every job did what the classifier decided
+        shell: bash
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          DOTNET_FLAG: ${{ needs.changes.outputs.dotnet }}
+          DOTNET_RESULT: ${{ needs.build-and-test.result }}
+          WEB_FLAG: ${{ needs.changes.outputs.web }}
+          WEB_RESULT: ${{ needs.web.result }}
+          TOOLS_FLAG: ${{ needs.changes.outputs.tools }}
+          TOOLS_RESULT: ${{ needs.tool-contracts.result }}
+        run: |
+          set -euo pipefail
+          bad=0
+
+          echo "What changed: $CHANGES_RESULT"
+          if [ "$CHANGES_RESULT" != "success" ]; then
+            echo "  FAIL: the classifier did not succeed, so no skip below is a decision"
+            bad=1
+          fi
+
+          check() {
+            local job="$1" flag="$2" result="$3"
+            echo "$job: flag='$flag' result=$result"
+            case "$flag:$result" in
+              true:success)   echo "  ok: ran and passed" ;;
+              false:skipped)  echo "  ok: skipped by the classifier's decision" ;;
+              true:*)         echo "  FAIL: the classifier asked for this job and it ended $result"; bad=1 ;;
+              false:*)        echo "  FAIL: the classifier skipped this job, yet it ended $result"; bad=1 ;;
+              *)              echo "  FAIL: the classifier gave no usable flag"; bad=1 ;;
+            esac
+          }
+
+          check "Build & Test (.NET)" "$DOTNET_FLAG" "$DOTNET_RESULT"
+          check "Build & Test (web)" "$WEB_FLAG" "$WEB_RESULT"
+          check "Tool contracts (Python)" "$TOOLS_FLAG" "$TOOLS_RESULT"
+
+          if [ "$bad" -ne 0 ]; then
+            echo "CI result: FAILED"
+            exit 1
+          fi
+          echo "CI result: passed"

@@ -5,11 +5,13 @@ using Xunit;
 namespace CcDirector.Gateway.Tests;
 
 /// <summary>
-/// TWO NEW TURNS ALWAYS HAVE A WORKING EVENT BETWEEN THEM (the Wingman-on-every-turn mission, slice I, inspection round
-/// five). The verdict service relies on it: a new-turn signal arrives only after onSessionWorking has cancelled the
-/// previous stop's flight, so a new turn never has to be told apart from an older stop's judgement still in flight. The
-/// Architect ruled the round four overlap - two new-turn signals with no Working event between them - unreachable on
-/// this reading of the watcher, and this test is what keeps that reading true.
+/// TWO NEW TURNS HAVE A WORKING CALLBACK BETWEEN THEM, WHEN THE WATCHER IS FED ONE OBSERVATION AT A TIME (the
+/// Wingman-on-every-turn mission, slice I, inspection round five). That is all this test proves: for sequential
+/// observations, onSessionWorking is invoked between any two new-turn callbacks.
+///
+/// It does NOT prove that the verdict service has drained the previous stop's judgement by the time the next stop
+/// arrives - onSessionWorking only cancels that judgement, which can still be on the gate writing its trace - and it
+/// does not exercise observations fed concurrently. Both gaps are recorded on devthrottle issue 2973.
 ///
 /// Every state sequence below is fed to one watcher. The callbacks write to ONE ordered log on the observing thread, so
 /// the assertion is about order: before every new-turn signal after the first, a Working event was already recorded.

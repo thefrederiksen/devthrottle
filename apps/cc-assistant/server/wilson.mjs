@@ -8,8 +8,12 @@
 // argument, the Wilson context, which only this server passes. On Vercel they run without it and
 // Wilson has no memory there; that is a stated property of that deployment, not a fallback.
 //
-// The key comes from GROQ_API_KEY, or from the credentials file named by WILSON_CREDENTIALS_FILE
-// (a .env file with a GROQ_API_KEY= line), read at start.
+// The key comes from GROQ_API_KEY, which cc-secrets supplies:
+//
+//   cc-secrets run groq-api-key --timeout 0 -- node server/wilson.mjs
+//
+// cc-secrets hands back a command's output only when the command ends, so every line this service
+// prints is also appended to service.log in Wilson's data directory, where it can be read while it runs.
 
 import http from "node:http";
 import fs from "node:fs";
@@ -22,21 +26,11 @@ const DIST = path.join(APP, "dist");
 const BASE = "/cc-assistant";
 const PORT = Number(process.env.WILSON_PORT || 5183);
 
-function loadKey() {
-  if (process.env.GROQ_API_KEY) {
-    return;
-  }
-  const file = process.env.WILSON_CREDENTIALS_FILE;
-  if (!file) {
-    throw new Error("Set GROQ_API_KEY, or WILSON_CREDENTIALS_FILE to a .env file that has a GROQ_API_KEY line.");
-  }
-  const line = fs.readFileSync(file, "utf8").split(/\r?\n/).find((l) => l.startsWith("GROQ_API_KEY="));
-  if (!line) {
-    throw new Error(`No GROQ_API_KEY line in ${file}.`);
-  }
-  process.env.GROQ_API_KEY = line.slice("GROQ_API_KEY=".length).trim().replace(/^"|"$/g, "");
+if (!process.env.GROQ_API_KEY) {
+  throw new Error(
+    "GROQ_API_KEY is not set. Run Wilson through cc-secrets: cc-secrets run groq-api-key --timeout 0 -- node server/wilson.mjs",
+  );
 }
-loadKey();
 
 if (!fs.existsSync(path.join(DIST, "index.html"))) {
   throw new Error(`No build at ${DIST}. Run: npm run build`);
@@ -44,6 +38,12 @@ if (!fs.existsSync(path.join(DIST, "index.html"))) {
 
 const store = new Store();
 const wilson = { store };
+const SERVICE_LOG = path.join(store.directory, "service.log");
+
+function log(line) {
+  console.log(line);
+  fs.appendFileSync(SERVICE_LOG, line + "\r\n");
+}
 
 const api = {};
 for (const name of ["talk", "weather", "result", "turn", "soul", "people", "voice"]) {
@@ -101,7 +101,7 @@ http
           res.write(Buffer.from(value));
         }
         res.end();
-        console.log(`${new Date().toISOString()} speak ${response.status} first-bytes ${first}ms total ${Date.now() - started}ms ${bytes} bytes`);
+        log(`${new Date().toISOString()} speak ${response.status} first-bytes ${first}ms total ${Date.now() - started}ms ${bytes} bytes`);
         return;
       }
 
@@ -112,7 +112,7 @@ http
         const text = await response.text();
         res.writeHead(response.status, { "Content-Type": "application/json", "Cache-Control": "no-store" });
         res.end(text);
-        console.log(`${new Date().toISOString()} hear ${response.status} ${Date.now() - started}ms ${bytes.length} bytes`);
+        log(`${new Date().toISOString()} hear ${response.status} ${Date.now() - started}ms ${bytes.length} bytes`);
         return;
       }
 
@@ -138,7 +138,7 @@ http
         };
         const started = Date.now();
         await api[match[1]]({ method: req.method, body, query: Object.fromEntries(url.searchParams) }, response, wilson);
-        console.log(`${new Date().toISOString()} ${match[1]} ${response.code} ${Date.now() - started}ms`);
+        log(`${new Date().toISOString()} ${match[1]} ${response.code} ${Date.now() - started}ms`);
         return;
       }
 
@@ -153,7 +153,7 @@ http
       res.writeHead(200, { "Content-Type": MIME[path.extname(file)] || "application/octet-stream", "Cache-Control": "no-cache" });
       fs.createReadStream(file).pipe(res);
     } catch (error) {
-      console.log(`${new Date().toISOString()} ERROR ${req.url} ${String(error)}`);
+      log(`${new Date().toISOString()} ERROR ${req.url} ${String(error)}`);
       if (!res.headersSent) {
         res.writeHead(500, { "Content-Type": "application/json" });
       }
@@ -161,6 +161,6 @@ http
     }
   })
   .listen(PORT, "0.0.0.0", () => {
-    console.log(`Wilson on http://localhost:${PORT}${BASE}/`);
-    console.log(`Data in ${store.directory}`);
+    log(`${new Date().toISOString()} Wilson on http://localhost:${PORT}${BASE}/`);
+    log(`Data in ${store.directory}`);
   });

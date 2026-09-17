@@ -41,6 +41,7 @@ internal static class TurnVerdictDtoCopy
             NextScheduledWakeUtc = v.NextScheduledWakeUtc,
             SupersededAtUtc = v.SupersededAtUtc,
             FinishedKind = v.FinishedKind,
+            Narration = v.Narration,
         };
     }
 }

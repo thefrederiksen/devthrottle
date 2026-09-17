@@ -3,25 +3,27 @@
 Previews are behind Vercel's sign-in. cc-ship - never the verifier - trades the
 automation bypass secret for Vercel's bypass cookie and hands the verifier a
 Playwright storage-state file. The raw secret never reaches a brief, a URL, a
-screen or a log.
+screen or a log - and it never reaches cc-ship either: the one curl call that
+needs it runs through `cc-secrets run`, which writes it to curl's standard input,
+and curl expands it into the header itself.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
-import sys
-import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urlparse
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from cc_storage.storage import CcStorage  # noqa: E402
+import fleet
 
-SECRET_NAME = "VERCEL_AUTOMATION_BYPASS_SECRET"
+SECRET_ENTRY = "vercel-automation-bypass-secret"
+SECRETS_CLI = "cc-secrets"
+VERCEL_PREVIEW_SUFFIX = ".vercel.app"
 BYPASS_COOKIE = "_vercel_jwt"
 
 
@@ -29,22 +31,40 @@ class PreviewError(RuntimeError):
     """The preview cannot be reached; the message says what to do."""
 
 
-def credentials_file() -> Path:
-    return CcStorage.config() / "credentials.env"
+def bypass_command(url: str) -> list[str]:
+    """curl, started through cc-secrets, fetching the bypass cookie for one Vercel preview.
 
+    The secret never enters this process and never sits on a command line: cc-secrets writes it to
+    curl's standard input, curl (8.3 or newer) reads it into a variable (`--variable bypass@-`) and
+    expands that into the header. Standard input rather than an environment variable because curl
+    names an environment variable with a percent sign, and on Windows cc-secrets is a .cmd file whose
+    arguments cmd.exe re-reads - a percent sign there is never safe (see fleet.command).
 
-def read_bypass_secret() -> str:
-    path = credentials_file()
-    if path.exists():
-        for line in path.read_text(encoding="utf-8").splitlines():
-            key, sep, value = line.partition("=")
-            if sep and key.strip() == SECRET_NAME and value.strip():
-                return value.strip()
-    raise PreviewError(
-        f"{SECRET_NAME} is not set in {path}. Create it in Vercel (project Settings, "
-        "Deployment Protection, Protection Bypass for Automation) and add the line "
-        f"{SECRET_NAME}=<secret> to that file."
-    )
+    The address is checked first, because a Vercel secret may only ever be sent to Vercel.
+    """
+    parsed = urlparse(url)
+    host = parsed.hostname or ""
+    if parsed.scheme != "https" or not host.endswith(VERCEL_PREVIEW_SUFFIX):
+        raise PreviewError(
+            f"Refusing to send the Vercel bypass secret to {url}: it is only ever sent over https to a "
+            f"*{VERCEL_PREVIEW_SUFFIX} preview."
+        )
+    cli = shutil.which(SECRETS_CLI)
+    if cli is None:
+        raise PreviewError(f"{SECRETS_CLI} is not on PATH; cc-ship reaches the Vercel bypass secret through it.")
+    args = [
+        "run", SECRET_ENTRY, "--via", "stdin", "--",
+        "curl", "-s", "-o", os.devnull, "-D", "-",
+        "--variable", "bypass@-",
+        "--expand-header", "x-vercel-protection-bypass: {{bypass:trim}}",
+        "-H", "x-vercel-set-bypass-cookie: true",
+        url,
+    ]
+    if cli.lower().endswith((".cmd", ".bat")):
+        bad = [a for a in args if fleet._cmd_misreads(a)]
+        if bad:
+            raise PreviewError(f"cannot pass {bad[0]!r} safely to {cli}: cmd.exe would misread it.")
+    return [cli, *args]
 
 
 def find_preview_url(repo_slug: str, sha: str) -> str | None:
@@ -66,21 +86,13 @@ def find_preview_url(repo_slug: str, sha: str) -> str | None:
 
 def write_bypass_state(url: str, state_file: Path) -> None:
     """Fetch the bypass cookie for this preview and save it as Playwright state."""
-    # The secret goes to curl through a private header file, never the command line.
-    with tempfile.TemporaryDirectory() as tmp:
-        header_file = Path(tmp) / "headers"
-        header_file.write_text(
-            f"x-vercel-protection-bypass: {read_bypass_secret()}\n"
-            "x-vercel-set-bypass-cookie: true\n",
-            encoding="ascii",
-        )
-        header_file.chmod(0o600)
-        proc = subprocess.run(
-            ["curl", "-s", "-o", os.devnull, "-D", "-", "-H", f"@{header_file}", url],
-            capture_output=True, text=True, timeout=60,
-        )
+    proc = subprocess.run(bypass_command(url), capture_output=True, text=True, timeout=90)
     if proc.returncode != 0:
-        raise PreviewError(f"curl could not reach {url} (exit {proc.returncode}): {proc.stderr.strip()}")
+        raise PreviewError(
+            f"Could not fetch the preview bypass cookie from {url} (exit {proc.returncode}): "
+            f"{proc.stderr.strip()} The secret is the cc-secrets entry {SECRET_ENTRY} (see cc-secrets list; "
+            f"the owner adds it with: cc-secrets add {SECRET_ENTRY}), and curl must be 8.3 or newer."
+        )
     cookie_value = None
     for line in proc.stdout.splitlines():
         name, _, value = line.partition(":")
@@ -90,8 +102,8 @@ def write_bypass_state(url: str, state_file: Path) -> None:
                 cookie_value = rest.split(";", 1)[0]
     if not cookie_value:
         raise PreviewError(
-            f"Vercel returned no {BYPASS_COOKIE} cookie for {url}. The secret in "
-            f"{credentials_file()} may be wrong or revoked; check it in the Vercel project settings."
+            f"Vercel returned no {BYPASS_COOKIE} cookie for {url}. The cc-secrets entry "
+            f"{SECRET_ENTRY} may be wrong or revoked; check it in the Vercel project settings."
         )
     host = urlparse(url).hostname
     state = {

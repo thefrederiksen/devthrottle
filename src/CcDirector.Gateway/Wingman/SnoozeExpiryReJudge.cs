@@ -1,4 +1,4 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using CcDirector.Core.Tenancy;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
@@ -273,6 +273,35 @@ public sealed class SnoozeExpiryReJudge
     }
 
     /// <summary>
+    /// What <see cref="Observe"/> would stamp on <see cref="SessionDto.SnoozeEndedNothingNew"/>, WITHOUT arming,
+    /// pruning, spending an expiry edge, writing a ledger line or asking for a read. For a fold that records what the
+    /// display push shows (the Wingman inspector's trace colour), which must not move the product.
+    ///
+    /// An expiry the watch has already taken answers exactly what Observe answers on every later fold. An expiry no fold
+    /// has taken yet answers what the first fold would stamp - except that a re-judge it would REQUEST is not requested
+    /// here, so that row is not marked as being read. That one moment, the fold that spends the edge, is the only place
+    /// the two can differ, and it lasts until the next display push.
+    /// </summary>
+    public void Peek(TenantId tenant, IReadOnlyList<SessionDto> rows, Snooze.SnoozeHoldSnapshot holds, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        ArgumentNullException.ThrowIfNull(holds);
+        foreach (var s in rows)
+        {
+            s.SnoozeEndedNothingNew = false;
+            if (string.IsNullOrEmpty(s.SessionId) || !holds.IsExpired(s.SessionId, nowUtc)) continue;
+            var until = holds.SnoozeUntilFor(s.SessionId);
+            var watch = _watch.TryGetValue((tenant, s.SessionId), out var held) ? held : null;
+            var sameClock = watch is not null && Nullable.Equals(watch.ArmedUntilUtc, until);
+            var armedAt = sameClock ? watch!.ArmedSeenAtUtc : null;
+            var outcome = SnoozeExpiryDecision.AtExpiry(armedAt, s.TurnVerdict, s.VerdictState, turnEndsSinceSnoozeSet: null);
+            s.SnoozeEndedNothingNew = watch is { Expired: true } && sameClock
+                ? watch.NothingNew && outcome == SnoozeExpiryOutcome.NothingNew
+                : outcome == SnoozeExpiryOutcome.NothingNew;
+        }
+    }
+
+    /// <summary>
     /// One session whose snooze has elapsed: take the edge if it is still there to take, otherwise hold.
     ///
     /// THE EDGE IS WON, NOT OBSERVED. The roster, the single-session read and every accepted Director push all
@@ -467,7 +496,8 @@ public static class SnoozeExpiryRowStamp
         Snooze.SnoozeHoldSnapshot holds,
         TenantId? tenant,
         DateTime nowUtc,
-        IReadOnlyCollection<string>? rosterSessionIds = null)
+        IReadOnlyCollection<string>? rosterSessionIds = null,
+        bool writes = true)
     {
         ArgumentNullException.ThrowIfNull(rows);
 
@@ -477,6 +507,7 @@ public static class SnoozeExpiryRowStamp
             return;
         }
 
-        watch.Observe(account, rows, holds, nowUtc, rosterSessionIds);
+        if (writes) watch.Observe(account, rows, holds, nowUtc, rosterSessionIds);
+        else watch.Peek(account, rows, holds, nowUtc);
     }
 }

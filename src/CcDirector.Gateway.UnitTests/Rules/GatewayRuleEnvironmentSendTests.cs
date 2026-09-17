@@ -106,6 +106,19 @@ public sealed class GatewayRuleEnvironmentSendTests
     }
 
     [Fact]
+    public async Task A_director_that_refused_an_exited_session_is_still_unknown_for_rules()
+    {
+        // The send kinds now tell a definite Director refusal apart (dev reports review, High 4). Session Rules
+        // deliberately record it exactly as before: unknown.
+        var refused = DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, "session has exited");
+
+        var result = await Send(EnvironmentWhoseTunnelAnswers(refused));
+
+        Assert.Equal(RuleSendOutcomes.Unknown, result.What);
+        Assert.Contains("session has exited", result.Detail, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task A_director_that_answered_ok_is_confirmed()
     {
         // THE PRESENCE. A seam that answered "not sent" or "unknown" to everything would pass all three

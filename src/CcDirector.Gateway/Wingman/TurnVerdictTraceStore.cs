@@ -65,6 +65,9 @@ public sealed record TurnVerdictTrace
     public string? RawReply { get; init; }
     public bool RawReplyTruncated { get; init; }
     public TurnVerdictDto? Verdict { get; init; }
+    public string? RowColour { get; init; }
+    public string? RowLabel { get; init; }
+    public DateTime? ClockDeadlineUtc { get; init; }
 }
 
 /// <summary>
@@ -186,6 +189,9 @@ public sealed class TurnVerdictTraceStore
                 RawReply = trace.RawReply,
                 RawReplyTruncated = trace.RawReplyTruncated,
                 VerdictJson = trace.Verdict is null ? null : SerializeVerdict(trace.Verdict),
+                RowColour = trace.RowColour,
+                RowLabel = trace.RowLabel,
+                ClockDeadlineUtc = trace.ClockDeadlineUtc,
             });
             ctx.SaveChanges();
         }
@@ -313,6 +319,9 @@ public sealed class TurnVerdictTraceStore
                 RawReply = row.RawReply,
                 RawReplyTruncated = row.RawReplyTruncated,
                 Verdict = row.VerdictJson is null ? null : JsonSerializer.Deserialize<TurnVerdictDto>(row.VerdictJson, JsonOptions),
+                RowColour = row.RowColour,
+                RowLabel = row.RowLabel,
+                ClockDeadlineUtc = row.ClockDeadlineUtc,
             };
         }
         catch (JsonException ex)

@@ -1,7 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
-using CcDirector.Core.Storage;
+using CcDirector.Core.Secrets;
 using CcDirector.Core.Utilities;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -85,7 +85,7 @@ internal sealed record WorkItemInfo(string? Title, GatewayWorkItemStatus Status,
 /// </summary>
 internal sealed class GitHubItemStatusResolver
 {
-    private const string TokenKey = "GITHUB_TOKEN";
+    private const string TokenEntry = "github-token";
 
     private readonly HttpClient _http;
     private readonly Func<(string? token, string? error)> _tokenProvider;
@@ -115,7 +115,7 @@ internal sealed class GitHubItemStatusResolver
         };
         return new GitHubItemStatusResolver(
             http,
-            ReadCredentialsFileToken,
+            ReadStoreToken,
             ReadRepositorySetting("DEVTHROTTLE_GITHUB_OWNER", "devthrottle"),
             ReadRepositorySetting("DEVTHROTTLE_GITHUB_REPO", "devthrottle"));
     }
@@ -211,30 +211,20 @@ internal sealed class GitHubItemStatusResolver
     }
 
     /// <summary>
-    /// Read GITHUB_TOKEN from the shared credentials file at point of use (so the secret only enters
-    /// the process when a github item is actually resolved). Returns a null token + a fixable message
-    /// when the file or key is absent - no silent fallback to an empty token.
+    /// Read the GitHub token from the cc-secrets store at point of use (so the secret only enters the process
+    /// when a github item is actually resolved). Returns a null token + a fixable message when the store or the
+    /// entry is absent - no silent fallback to an empty token.
     /// </summary>
-    private static (string? token, string? error) ReadCredentialsFileToken()
+    private static (string? token, string? error) ReadStoreToken()
     {
-        var path = CcStorage.CredentialsEnv();
-        if (!File.Exists(path))
-            return (null, $"GITHUB_TOKEN not configured (no {path}); per-item GitHub status unavailable.");
-
-        foreach (var raw in File.ReadAllLines(path))
+        try
         {
-            var line = raw.Trim();
-            if (line.Length == 0 || line.StartsWith('#')) continue;
-            var eq = line.IndexOf('=');
-            if (eq <= 0) continue;
-            if (!string.Equals(line[..eq].Trim(), TokenKey, StringComparison.Ordinal)) continue;
-            var value = line[(eq + 1)..].Trim().Trim('"');
-            return string.IsNullOrEmpty(value)
-                ? (null, $"{TokenKey} is present in {path} but empty.")
-                : (value, null);
+            return (SecretStoreReader.ReadSecret(TokenEntry), null);
         }
-
-        return (null, $"{TokenKey} not found in {path}.");
+        catch (SecretNotAvailableException ex)
+        {
+            return (null, $"GitHub token not available ({ex.Message}); per-item GitHub status unavailable.");
+        }
     }
 
     private static string ReadRepositorySetting(string variable, string fallback)

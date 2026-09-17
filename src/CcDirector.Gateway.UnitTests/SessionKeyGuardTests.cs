@@ -26,6 +26,8 @@ public sealed class SessionKeyGuardTests
     // served is the route's decision - while an account's colours are off these serve a device key only -
     // because a guard is a pure function on a method and a path and cannot see a tenant's settings.
     [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict")]
+    [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/dev-reports")]
+    [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/dev-reports/22222222-2222-2222-2222-222222222222")]
     [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdicts")]
     [InlineData("GET", "/repositories")]
     [InlineData("GET", "/worktrees")]
@@ -86,6 +88,10 @@ public sealed class SessionKeyGuardTests
     // a session key is still the route's own decision - while the account's colours are off its verdicts are a
     // shadow record and the route refuses one, exactly as the reads do.
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/turn-verdict/feedback")]
+    // Dev reports (issue #2958): a session publishes and replies on its OWN reports. The route refuses any other
+    // session id; the guard cannot read one.
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/dev-reports")]
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/dev-reports/22222222-2222-2222-2222-222222222222/replies")]
     [InlineData("DELETE", "/sessions/11111111-1111-1111-1111-111111111111/request-deletion")]
     [InlineData("PATCH", "/sessions/11111111-1111-1111-1111-111111111111")]
     [InlineData("POST", "/missions")]
@@ -461,6 +467,18 @@ public sealed class SessionKeyGuardTests
     // the daily corpus pull - so a session key reaching it would be a session credential reading an operator
     // surface. Named here rather than left to the default deny, so the census says the route exists and that
     // this guard refuses it.
+    // Dev reports (issue #2958): the OWNER routes. A session key is never the owner - it may not list the
+    // account's reports, read one through the owner surface, fetch its bytes, or send notes and answers into a
+    // session as if the owner had. And nothing hung off the session routes is reachable by accident.
+    [InlineData("GET", "/dev-reports")]
+    [InlineData("GET", "/dev-reports/22222222-2222-2222-2222-222222222222")]
+    [InlineData("GET", "/dev-reports/22222222-2222-2222-2222-222222222222/html")]
+    [InlineData("POST", "/dev-reports/22222222-2222-2222-2222-222222222222/send")]
+    [InlineData("PUT", "/sessions/11111111-1111-1111-1111-111111111111/dev-reports")]
+    [InlineData("DELETE", "/sessions/11111111-1111-1111-1111-111111111111/dev-reports/22222222-2222-2222-2222-222222222222")]
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/dev-reports/22222222-2222-2222-2222-222222222222/send")]
+    [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/dev-reports/22222222-2222-2222-2222-222222222222/replies")]
+    [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/dev-reports/22222222-2222-2222-2222-222222222222/replies/again")]
     [InlineData("GET", "/gateway/admin/turn-verdict-feedback")]
     [InlineData("POST", "/gateway/admin/turn-verdict-feedback")]
     // Somebody else's Director process lifecycle on another machine.
@@ -495,6 +513,10 @@ public sealed class SessionKeyGuardTests
     // allowed above now. Deleting a SESSION is different and stays refused - `request-deletion` is the
     // verb an agent has for that, and it is a request rather than an execution.
     [InlineData("DELETE", "/sessions/11111111-1111-1111-1111-111111111111")]
+    // The Wingman inspector's read (phase 2). It serves raw terminal screens, conversations, the whole prompt and the
+    // judge's raw answer, so it is the account's devices' only - never a session key's, whatever the colour switch
+    // says. It is deliberately NOT on the allow list, and its handler refuses a session key on its own as well.
+    [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/wingman-stops")]
     // The diagnostics and reporting surfaces.
     [InlineData("GET", "/diag/loadmetrics")]
     [InlineData("GET", "/gateway/reports/morning")]
