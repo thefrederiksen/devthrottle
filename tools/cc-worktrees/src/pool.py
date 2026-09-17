@@ -507,7 +507,8 @@ def get(repo_path: str, holder: str, pool_size: int) -> dict:
                 + (f" ({e['reason']})" if e["reason"] else "")
                 for n, e in sorted(pool.slots.items()))
             raise ToolError("pool-full", f"pool full ({len(pool.slots)} of {pool_size}): {taken}",
-                            [f"cc-worktrees list --repo {repo}", "cc-worktrees return <path> --lease <lease>"],
+                            [f"cc-worktrees list --repo {repo}", "cc-worktrees return <path> --lease <lease>",
+                             f"cc-worktrees release <slot> --repo {repo} --confirm-abandon"],
                             exit_code=EXIT_POOL_FULL)
 
         try:
@@ -652,7 +653,9 @@ def destroy_slot(target: str, yes: bool, allow_held: bool, allow_in_use: bool, r
             _hold(pool, name, reason)
             pool.save()
             return ToolError("held", f"{name} was not destroyed and is held: {reason}",
-                             [f"git -C {path} status", f"git -C {path} log --oneline -5"], exit_code=EXIT_HELD,
+                             [f"git -C {path} status", f"git -C {path} log --oneline -5",
+                              f"cc-worktrees release {name} --repo {repo} --confirm-abandon"],
+                             exit_code=EXIT_HELD,
                              details={**_slot_view(pool, name), "dry_run": not yes, "removed": False})
 
         if tip is None:
