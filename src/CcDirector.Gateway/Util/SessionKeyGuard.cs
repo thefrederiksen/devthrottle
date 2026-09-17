@@ -218,6 +218,13 @@ public static class SessionKeyGuard
             if (s.Length == 3 && s[0] == "sessions"
                 && (s[2] == "turn-verdict" || s[2] == "turn-verdicts")) return true;
 
+            // A session's OWN dev reports (issue #2958): the list and one report, which the agent reads to see
+            // the owner's notes and their state. The route itself refuses a session key naming any session but
+            // its own, and a report of another session; the guard cannot read an identifier, so it cannot.
+            // The OWNER's reads under /dev-reports are deliberately NOT here: a session key is never the owner.
+            if (s.Length == 3 && s[0] == "sessions" && s[2] == "dev-reports") return true;
+            if (s.Length == 4 && s[0] == "sessions" && s[2] == "dev-reports") return true;
+
             // One mission, one workflow run. Scheduled jobs are handled by IsScheduleRoute below, which
             // owns every /cron shape in one place rather than splitting the reads away from the writes.
             if (s.Length == 2 && s[0] == "missions") return true;
@@ -293,6 +300,10 @@ public static class SessionKeyGuard
                     // a guard is a pure function on a method and a path and cannot see a body. See the
                     // refusal of the bare DELETE /sessions/{sid} below for how the two halves add up.
                     case "stop":
+                    // PUBLISH a dev report for this session (issue #2958). Its own session only - the route refuses
+                    // any other id - and the owner's send, list and read under /dev-reports stay refused to every
+                    // session key, because a session key is never the owner.
+                    case "dev-reports":
                         return true;
                 }
                 return false;
@@ -313,6 +324,10 @@ public static class SessionKeyGuard
             // shadow record and the route refuses a session key, exactly as the reads do. A guard is a pure
             // function on a method and a path and cannot see a tenant's settings; the two halves add up there.
             if (s.Length == 4 && s[0] == "sessions" && s[2] == "turn-verdict" && s[3] == "feedback") return true;
+
+            // REPLY on one of this session's own dev reports (issue #2958). One literal five-segment shape; the
+            // route checks the session and the report are the caller's own.
+            if (s.Length == 5 && s[0] == "sessions" && s[2] == "dev-reports" && s[4] == "replies") return true;
 
             // THE ADMINISTRATOR READ OF THOSE CORRECTIONS IS A DIFFERENT SURFACE AND IS NOT HERE:
             // GET /gateway/admin/turn-verdict-feedback serves the daily corpus pull, which is a server with no

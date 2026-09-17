@@ -280,6 +280,32 @@ def test_request_still_reports_the_status_when_the_body_carries_no_sentence(monk
     assert str(caught.value) == "HTTP 502 from the Gateway"
 
 
+def test_request_carries_the_parsed_body_of_a_refused_answer(monkeypatch):
+    """A refusal can carry more than its sentence - a dev report's 422 lists every shape-check error."""
+    _session_env(monkeypatch)
+    body = {"error": "The report failed the shape check.", "code": "shape_check_failed", "errors": ["a", "b"]}
+    monkeypatch.setattr(gateway._OPENER, "open",
+                        lambda *a, **k: (_ for _ in ()).throw(_http_error(422, json.dumps(body))))
+
+    with pytest.raises(gateway.GatewayError) as caught:
+        gateway.post_json("sessions/s/dev-reports", {"key": "k", "html": "h"})
+
+    assert caught.value.status == 422
+    assert caught.value.body == body
+    assert str(caught.value) == "The report failed the shape check."
+
+
+def test_request_body_is_none_when_a_refused_answer_is_not_json(monkeypatch):
+    _session_env(monkeypatch)
+    monkeypatch.setattr(gateway._OPENER, "open",
+                        lambda *a, **k: (_ for _ in ()).throw(_http_error(502, "<html>bad gateway</html>")))
+
+    with pytest.raises(gateway.GatewayError) as caught:
+        gateway.get_json("sessions")
+
+    assert caught.value.body is None
+
+
 def test_request_presents_the_session_key_as_a_bearer_token(monkeypatch):
     """The credential on the wire is THIS SESSION's key - not the machine secret, which is gone."""
     seen = {}

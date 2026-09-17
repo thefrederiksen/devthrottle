@@ -109,8 +109,17 @@ internal sealed class SessionVerbClient
         NeverLeftTheGateway,
 
         /// <summary>The command went out and what became of it is not known: a timeout, a dropped tunnel, or
-        /// a Director that answered a failure. It must not be reported as accepted OR as never sent.</summary>
+        /// a Director that answered a failure other than the two definite refusals below. It must not be
+        /// reported as accepted OR as never sent.</summary>
         Unanswered,
+
+        /// <summary>The Director answered, and its answer was a DEFINITE REFUSAL that typed nothing: the prompt
+        /// verb's <see cref="DirectorCommandStatus.Conflict"/> ("session has exited") or
+        /// <see cref="DirectorCommandStatus.NotFound"/> ("session not found"). Both are returned by
+        /// <c>SessionCommandExecutor.PromptAsync</c> BEFORE it touches the session, so the text provably did not
+        /// land. Kept apart from <see cref="Unanswered"/> because a caller that records delivery must not tell
+        /// the owner his words "may have reached" a session that refused them (dev reports review, High 4).</summary>
+        DirectorRefused,
     }
 
     /// <summary>What became of a prompt send, and the route's own words for it.</summary>
@@ -138,8 +147,11 @@ internal sealed class SessionVerbClient
                 PromptSendKind.NeverLeftTheGateway, null,
                 "the owning Director is not connected to the tunnel, so the prompt never left this Gateway.");
 
-        return result.Ok
-            ? new PromptSendOutcome(PromptSendKind.Accepted, DirectorCommandRouter.ReadBody<PromptResponse>(result), "")
+        if (result.Ok)
+            return new PromptSendOutcome(PromptSendKind.Accepted, DirectorCommandRouter.ReadBody<PromptResponse>(result), "");
+
+        return result.Status is DirectorCommandStatus.Conflict or DirectorCommandStatus.NotFound
+            ? new PromptSendOutcome(PromptSendKind.DirectorRefused, null, DirectorCommandRouter.DescribeFailure(result))
             : new PromptSendOutcome(PromptSendKind.Unanswered, null, DirectorCommandRouter.DescribeFailure(result));
     }
 

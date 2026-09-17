@@ -1309,6 +1309,17 @@ Take a finished change from the author session to merged on origin/main: indepen
 
 Every command takes `--json`. Errors exit non-zero with `error`, `code` and `help`.
 
+## cc-dev-reports
+
+Publish a dev report (one HTML file) to the owner through the Gateway, and reply to the owner in it. Not in the installer yet; see `tools/cc-dev-reports/README.md` for setup.
+
+| Command | What it does |
+|---|---|
+| `cc-dev-reports open <file>` | Publish the file; publishing it again makes a new version. A shape-check refusal prints every error |
+| `cc-dev-reports reply "<text>" [--report <id>]` | Reply to the owner in a report; default is this session's newest report |
+
+Both take `--json`, which always has the keys `ok`, `command`, `report`, `created`, `reply`, `ownerRoute`, `error`, `code`, `errors`. Errors exit 1.
+
 ## cc-reddit
 
 Reddit CLI via browser automation.

@@ -159,7 +159,8 @@ A queued or sent item is one of:
 ```
 
 `id` is unique within the report's state. `anchor.rowLabel`, `anchor.columnLabel` and `anchor.label` are
-present only for the anchor types that carry them. Every string is at most 20000 characters.
+present only for the anchor types that carry them. Every string is at most 20000 characters, and `id` is at
+most 128 characters: the Gateway refuses the whole send (400) when any item's id is longer.
 
 ### Page to host
 

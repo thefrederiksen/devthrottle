@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using CcDirector.Gateway.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -12,9 +13,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace CcDirector.Gateway.Migrations.Postgres.Migrations
 {
     [DbContext(typeof(GatewayDbContext))]
-    partial class GatewayDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260917101851_AddDevReports")]
+    partial class AddDevReports
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -2288,9 +2291,6 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
-                    b.Property<DateTime?>("ClockDeadlineUtc")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<bool>("ColourEnabled")
                         .HasColumnType("boolean");
 
@@ -2330,13 +2330,6 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
 
                     b.Property<double?>("ReplySeconds")
                         .HasColumnType("double precision");
-
-                    b.Property<string>("RowColour")
-                        .HasMaxLength(32)
-                        .HasColumnType("character varying(32)");
-
-                    b.Property<string>("RowLabel")
-                        .HasColumnType("text");
 
                     b.Property<string>("SessionId")
                         .IsRequired()
