@@ -99,11 +99,28 @@ const T = {
 
 const log = (m) => console.log(`[viewer-proof] ${m}`);
 const results = [];
+// The rig's machine token stands in for the owner's device key, so a red run that reads the app's storage prints it.
+// It is a throwaway rig credential, and it is still never written out: every output passes through redact().
+function redact(text) {
+  let out = String(text);
+  for (const file of [join(rigRoot, "config", "director", "gateway-token.txt")]) {
+    if (existsSync(file)) {
+      const secret = readFileSync(file, "utf8").trim();
+      if (secret) out = out.split(secret).join("<rig token>");
+    }
+  }
+  if (existsSync(join(rigRoot, "session.json"))) {
+    const key = JSON.parse(readFileSync(join(rigRoot, "session.json"), "utf8")).CC_GATEWAY_SESSION_KEY;
+    if (key) out = out.split(key).join("<session key>");
+  }
+  return out;
+}
 function check(claim, ok, detail) {
+  detail = redact(detail);
   log(`${ok ? "PASS" : "FAIL"} - ${claim}: ${detail}`);
   results.push({ claim, ok: !!ok, detail });
 }
-const evidence = { mutation: mutationName || null, gateway, rigRoot, evil, steps: {} };
+const evidence = { mutation: mutationName || null, gateway, rigRoot, evil, steps: {}, mutationApplied: {} };
 
 async function waitFor(desc, fn, timeoutMs = 20000, everyMs = 250) {
   const start = Date.now();
@@ -168,9 +185,12 @@ function stageFixture(fixture, asName) {
   return path;
 }
 
-function publish(fixture, asName) {
+function publish(fixture, asName, { mayRefuse = false } = {}) {
   const path = stageFixture(fixture, asName);
   const r = devReports("open", path);
+  if (!mayRefuse && r.exit !== 0) {
+    throw new Error(`cc-dev-reports open ${fixture} failed (exit ${r.exit}): ${r.stdout} ${r.stderr} - if the session has ended, run rig.ps1 session`);
+  }
   return { path, ...r };
 }
 
@@ -225,7 +245,9 @@ if (mutationName) {
 
 async function newAppContext(browser, viewport) {
   const token = readRigToken();
-  const ctx = await browser.newContext({ viewport });
+  // Service workers are blocked so every bundle request reaches the network, where a mutation can answer it; a
+  // worker serving a cached bundle would bypass the mutation and report a guard as present when it was removed.
+  const ctx = await browser.newContext({ viewport, serviceWorkers: "block" });
   // Signed in the way an enrolled browser is: the account store holds the key, and the Cockpit's server-side gate
   // reads the Gateway cookie. The rig Gateway's machine token stands in for a device key (the owner routes take
   // either).
@@ -243,15 +265,16 @@ async function newAppContext(browser, viewport) {
     await ctx.route(mutation.urlPattern, async (route) => {
       const response = await route.fetch();
       let body = await response.text();
-      for (const [from, to] of mutation.replace) {
-        if (body.includes(from)) {
-          body = body.split(from).join(to);
-          applied.add(from);
-        }
-      }
+      const url = new URL(route.request().url()).pathname;
+      const bundle = (evidence.mutationApplied[url] = evidence.mutationApplied[url] || []);
+      mutation.replace.forEach(([from, to], i) => {
+        const hit = typeof from === "string" ? body.includes(from) : from.test(body);
+        if (typeof from !== "string") from.lastIndex = 0;
+        if (hit) body = typeof from === "string" ? body.split(from).join(to) : body.replace(from, to);
+        if (hit && !bundle.includes(i)) bundle.push(i);
+      });
       await route.fulfill({ response, body });
     });
-    evidence.mutationApplied = applied;
   }
   const page = await ctx.newPage();
   page.on("crash", () => check("the app page did not crash", false, `the renderer crashed at ${page.url()}`));
@@ -266,12 +289,12 @@ async function newAppContext(browser, viewport) {
   return { ctx, page, sends, popups };
 }
 
-function assertMutationApplied() {
+// Every replacement of the mutation must have matched in every app bundle that carries the frame host.
+function assertMutationApplied(app) {
   if (!mutation) return;
-  const missing = mutation.replace.map(([from]) => from).filter((from) => !evidence.mutationApplied.has(from));
-  if (missing.length) {
-    check(`mutation ${mutationName} was applied`, false, `these texts were not found in the bundle: ${JSON.stringify(missing)}`);
-  }
+  const bundles = Object.entries(evidence.mutationApplied).filter(([url]) => (app === "phone") === url.startsWith("/mobile/"));
+  const ok = bundles.length > 0 && bundles.some(([, hits]) => hits.length === mutation.replace.length);
+  check(`mutation ${mutationName} was applied to the ${app} bundle`, ok, JSON.stringify(bundles));
 }
 
 async function screenshot(page, name) {
@@ -368,7 +391,7 @@ async function stageRig(browser) {
     report: publish("report-v1.html", "rig-probe-report.html"),
     hostilePublished: publish("hostile-published.html"),
     hostileRefresh: publish("hostile-refresh.html"),
-    hostileDirect: publish("hostile-direct.html"),
+    hostileDirect: publish("hostile-direct.html", undefined, { mayRefuse: true }),
   };
   evidence.steps.R3 = Object.fromEntries(Object.entries(pub).map(([k, v]) => [k, { exit: v.exit, json: v.json }]));
   check(
@@ -497,7 +520,7 @@ async function stageFrame(browser) {
         JSON.stringify({ parentStorage: inside.parentStorage, parentCookie: inside.parentCookie, parentDom: inside.parentDom, ownStorage: inside.ownStorage, ownCookie: inside.ownCookie }));
       check(`F4a (${app}): the direct report's forged send and forged ready (no token) make the app send nothing`,
         sends.length === 0, JSON.stringify(sends));
-      assertMutationApplied();
+      assertMutationApplied(app);
       await ctx.close();
     }
 
@@ -765,11 +788,22 @@ try {
   server.close();
 }
 
-if (evidence.mutationApplied) evidence.mutationApplied = [...evidence.mutationApplied];
 evidence.evilHits = evilHits;
 evidence.results = results;
 const failed = results.filter((r) => !r.ok);
+// A mutation run is a red run: it succeeds when every claim the removed guard protects went red in both apps, and
+// the removal was really applied to both bundles.
+let redVerdict = null;
+if (mutation) {
+  const redFor = (prefix, app) => results.some((r) => !r.ok && r.claim.startsWith(`${prefix} (${app})`));
+  const appliedEverywhere = ["phone", "cockpit"].every((app) => results.some((r) => r.ok && r.claim === `mutation ${mutationName} was applied to the ${app} bundle`));
+  const perClaim = mutation.expectRed.flatMap((prefix) => ["phone", "cockpit"].map((app) => ({ claim: `${prefix} (${app})`, red: redFor(prefix, app) })));
+  redVerdict = { appliedEverywhere, perClaim, confirmed: appliedEverywhere && perClaim.every((c) => c.red) };
+  evidence.redVerdict = redVerdict;
+  for (const c of perClaim) log(`${c.red ? "RED AS EXPECTED" : "NOT RED"} - ${c.claim} with ${mutationName}`);
+  log(`mutation ${mutationName}: ${redVerdict.confirmed ? "RED CONFIRMED" : "RED NOT CONFIRMED"} (applied to both bundles: ${appliedEverywhere})`);
+}
 const file = join(evidenceDir, `${stages.join("-")}-${date}${mutationName ? "-" + mutationName : ""}.json`);
-writeFileSync(file, JSON.stringify(evidence, null, 2));
+writeFileSync(file, redact(JSON.stringify(evidence, null, 2)));
 log(`${results.length - failed.length} passed, ${failed.length} failed${crashed ? " (the run stopped early)" : ""}; evidence ${file}`);
-process.exit(failed.length ? 1 : 0);
+process.exit(redVerdict ? (redVerdict.confirmed ? 0 : 1) : failed.length ? 1 : 0);

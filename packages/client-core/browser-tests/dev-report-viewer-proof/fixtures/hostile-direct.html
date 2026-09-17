@@ -32,6 +32,8 @@
     var ch = new MessageChannel();
     ch.port1.onmessage = function (e) { beacon("port-message", JSON.stringify(e.data)); };
     parent.postMessage(Object.assign({}, forged, { type: "ready", token: "guessed", payload: { questionIds: [] } }), "*", [ch.port2]);
+    ch.port1.postMessage(Object.assign({}, forged, { type: "send", token: "guessed",
+      payload: { items: [{ id: "forged-port-1", kind: "note", text: "FORGED OVER A PORT BY THE DIRECT REPORT", anchor: { type: "element", selector: "p", quote: "" } }] } }));
     window.addEventListener("message", function (e) { beacon("window-message", JSON.stringify(e.data)); });
   })();
 </script>
