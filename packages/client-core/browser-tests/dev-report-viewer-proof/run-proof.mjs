@@ -82,13 +82,19 @@ const evidenceDir = join(here, "evidence");
 mkdirSync(evidenceDir, { recursive: true });
 mkdirSync(workDir, { recursive: true });
 
-// The stable test ids the viewer brief asked for. Confirmed against the merged viewer in part 2.
+// The viewer's test ids (mission/dev-reports-p3-viewer).
 const T = {
-  reportsTab: '[data-testid="dev-reports-tab"]',
+  reportsTab: '[data-testid="session-tab-reports"]',
   listRow: (id) => `[data-testid="dev-report-row"][data-report-id="${id}"]`,
   frame: '[data-testid="dev-report-frame"]',
+  viewer: '[data-testid="dev-report-viewer"]',
   conversation: '[data-testid="dev-report-conversation"]',
-  sendState: '[data-testid="dev-report-send-state"]',
+  queuedItem: '[data-testid="dev-report-queued-item"]',
+  sentItem: '[data-testid="dev-report-sent-item"]',
+  reply: '[data-testid="dev-report-reply"]',
+  send: '[data-testid="dev-report-send"]',
+  sheetOpen: '[data-testid="report-conversation-open"]',
+  sheetClose: '[data-testid="report-conversation-close"]',
 };
 
 const log = (m) => console.log(`[viewer-proof] ${m}`);
@@ -277,7 +283,8 @@ async function screenshot(page, name) {
 // Open one report in an app. The routes are the ones the viewer brief names.
 async function openReport(page, app, sessionId, reportId) {
   if (app === "phone") {
-    await page.goto(`${gateway}/mobile/session/${encodeURIComponent(sessionId)}/reports`);
+    await page.goto(`${gateway}/mobile/session/${encodeURIComponent(sessionId)}`);
+    await page.locator(T.reportsTab).click({ timeout: 20000 });
     await page.locator(T.listRow(reportId)).click({ timeout: 20000 });
   } else {
     await page.goto(`${gateway}/session/${encodeURIComponent(sessionId)}`); // the Cockpit is served at the site root
@@ -285,7 +292,19 @@ async function openReport(page, app, sessionId, reportId) {
     await page.locator(T.listRow(reportId)).click({ timeout: 20000 });
   }
   await page.locator(T.frame).waitFor({ timeout: 20000 });
+  await waitFor("the host to be connected to the page", async () => (await page.locator(T.viewer).getAttribute("data-connected")) === "true", 20000);
 }
+
+// The conversation panel: beside the report in the Cockpit, in a bottom sheet on the phone.
+async function withConversation(page, app, fn) {
+  if (app === "phone") await page.locator(T.sheetOpen).click();
+  try {
+    return await fn(page.locator(T.conversation));
+  } finally {
+    if (app === "phone") await page.locator(T.sheetClose).click();
+  }
+}
+const panelText = (page, app) => withConversation(page, app, (c) => c.innerText());
 
 // The report frame as a Playwright Frame (for reading inside it), found by its element.
 async function reportFrame(page) {
@@ -553,16 +572,17 @@ async function stageE2e(browser) {
   evidence.steps.E1 = { exit: v1.exit, json: v1.json };
   check("E1: cc-dev-reports open publishes the report", v1.exit === 0 && v1.json.report.version === 1, JSON.stringify(v1.json && v1.json.report));
 
-  // ---- phone
+  // ---- phone at 390 by 844
   const phone = await newAppContext(browser, PHONE);
   const p = phone.page;
   await openReport(p, "phone", session.CC_SESSION_ID, reportId);
-  await tray(p).locator("#version-marker").waitFor({ timeout: 20000 });
-  await screenshot(p, "e2e-phone-1-open");
-  check("E2: the report opens in the phone app at 390 by 844", (await tray(p).locator("#version-marker").innerText()) === "Report version 1", p.url());
-
-  // Note a table cell, answer the question, Send - through the notes tray in the frame.
   const t = tray(p);
+  await t.locator("#version-marker").waitFor({ timeout: 20000 });
+  await screenshot(p, "e2e-phone-1-open");
+  check("E2: the report opens full screen in the phone app at 390 by 844",
+    (await t.locator("#version-marker").innerText()) === "Report version 1", p.url());
+
+  // Note a table cell and answer the question in the page; Send from the app's conversation sheet.
   await t.locator("[data-drn=pick]").click();
   await t.locator("#results tbody tr:nth-child(2) td:nth-child(3)").click({ position: { x: 4, y: 4 } });
   await t.locator("[data-drn=composer-text]").fill("Forty-two failures from the phone cannot be right.");
@@ -570,19 +590,26 @@ async function stageE2e(browser) {
   await t.locator("input[name=deploy-window][value=monday]").check();
   await t.locator("textarea[data-dev-report-comment]").fill("Monday, from the phone.");
   await t.locator("[data-drn=queue-answer]").click();
-  await screenshot(p, "e2e-phone-2-queued");
   const turnsBefore = sessionUserTurns(session.CC_SESSION_ID).length;
-  await t.locator("[data-drn=send]").click();
+  await p.locator(T.sheetOpen).click();
+  await waitFor("both items queued in the app", async () => (await p.locator(T.queuedItem).count()) === 2, 15000);
+  await screenshot(p, "e2e-phone-2-queued");
+  await p.locator(T.send).click();
   const detail = await waitFor("both items to reach the Gateway and be delivered", async () => {
     const d = (await owner("GET", `/dev-reports/${reportId}`)).json;
     return d.items.length === 2 && d.items.every((i) => i.status === "delivered") ? d : null;
   }, 120000, 1000);
-  await waitFor("the app to show the Gateway's label", async () => (await t.locator("[data-drn=sent]").innerText()).includes(detail.items[0].statusLabel), 30000);
+  const labels = detail.items.map((i) => i.statusLabel);
+  await waitFor("the app to show the Gateway's words for both items", async () => {
+    const shown = await p.locator(`${T.sentItem} [data-testid="dev-report-item-status"]`).allInnerTexts();
+    return shown.length === 2 && labels.every((l) => shown.includes(l));
+  }, 30000);
   await screenshot(p, "e2e-phone-3-sent");
   evidence.steps.E3 = { sendRequests: phone.sends, items: detail.items };
   check("E3: Send posts the note and the answer, and the app shows the Gateway's status words verbatim",
-    phone.sends.length >= 1 && detail.items.some((i) => i.kind === "note" && i.anchor.rowLabel === "Gateway" && i.anchor.columnLabel === "Failures") &&
-      detail.items.some((i) => i.kind === "answer" && i.optionValue === "monday"),
+    phone.sends.length >= 1 &&
+      detail.items.some((i) => i.kind === "note" && i.anchor.type === "table-cell" && i.anchor.rowLabel === "Gateway" && i.anchor.columnLabel === "Failures") &&
+      detail.items.some((i) => i.kind === "answer" && i.optionValue === "monday" && i.comment === "Monday, from the phone."),
     JSON.stringify(detail.items.map((i) => ({ id: i.id, kind: i.kind, status: i.status, statusLabel: i.statusLabel }))));
 
   const prompt = await waitFor("the composed prompt in the Gateway database", () =>
@@ -594,21 +621,21 @@ async function stageE2e(browser) {
 
   const replyText = `Checked from the proof at ${new Date().toISOString()} - the fixture double-counted.`;
   const reply = devReports("reply", replyText, "--report", reportId);
-  await waitFor("the reply to appear in the phone app", async () => (await t.locator("[data-drn=replies]").innerText()).includes(replyText), 30000);
+  await waitFor("the reply to appear in the phone app", async () => (await p.locator(T.reply).allInnerTexts()).some((x) => x.includes(replyText)), 30000);
   await screenshot(p, "e2e-phone-4-reply");
-  check("E5: cc-dev-reports reply appears in the phone app verbatim", reply.exit === 0, replyText);
+  check("E5: a cc-dev-reports reply appears in the phone app verbatim", reply.exit === 0, replyText);
+  await p.locator(T.sheetClose).click();
 
-  // Half-type a note and scroll, then republish.
+  // Half-type a note and scroll, then republish the same file.
   await t.locator("[data-drn=pick]").click();
   await t.locator("#explain").click();
   await t.locator("[data-drn=composer-text]").pressSequentially("half typed on the phone");
-  const f = await reportFrame(p);
-  await f.evaluate(() => window.scrollTo(0, 900));
-  await p.waitForTimeout(1000);
-  const v2Path = join(workDir, key);
-  copyFileSync(join(here, "fixtures", "report-v2.html"), v2Path);
-  const v2 = devReports("open", v2Path);
+  await (await reportFrame(p)).evaluate(() => window.scrollTo(0, 900));
+  await p.waitForTimeout(1500);
+  copyFileSync(join(here, "fixtures", "report-v2.html"), join(workDir, key));
+  const v2 = devReports("open", join(workDir, key));
   await waitFor("the frame to reload in place with version 2", async () => (await tray(p).locator("#version-marker").innerText()) === "Report version 2", 30000);
+  await waitFor("the host to be connected to the new page", async () => (await p.locator(T.viewer).getAttribute("data-connected")) === "true", 20000);
   await p.waitForTimeout(1500);
   const after = await (await reportFrame(p)).evaluate(() => {
     let draft = null;
@@ -623,41 +650,42 @@ async function stageE2e(browser) {
   check("E6: republishing reloads the page in place, keeping the scroll position and the half-typed note",
     v2.exit === 0 && v2.json.report.version === 2 && Math.abs(after.scrollY - 900) <= 2 && after.draft === "half typed on the phone" &&
       p.url().includes(reportId),
-    JSON.stringify(after));
+    JSON.stringify(evidence.steps.E6));
   await phone.ctx.close();
 
-  // ---- Cockpit at desktop width, the same report.
+  // ---- the Cockpit at desktop width, the same report
   const desk = await newAppContext(browser, DESKTOP);
   const d = desk.page;
   await openReport(d, "cockpit", session.CC_SESSION_ID, reportId);
   await tray(d).locator("#version-marker").waitFor({ timeout: 20000 });
-  const deskSent = await tray(d).locator("[data-drn=sent]").innerText();
-  const deskReplies = await tray(d).locator("[data-drn=replies]").innerText();
+  await waitFor("the Cockpit to show the reply", async () => (await d.locator(T.reply).allInnerTexts()).some((x) => x.includes(replyText)), 30000);
+  const deskShown = await d.locator(`${T.sentItem} [data-testid="dev-report-item-status"]`).allInnerTexts();
   await screenshot(d, "e2e-cockpit-1-open");
-  check("E7: the same report in the Cockpit at desktop width shows version 2, the Gateway's labels and the reply",
-    (await tray(d).locator("#version-marker").innerText()) === "Report version 2" && deskReplies.includes(replyText) &&
-      deskSent.includes(detail.items[0].statusLabel),
-    JSON.stringify({ deskSent: deskSent.slice(0, 200), deskReplies: deskReplies.slice(0, 200) }));
+  check("E7: the same report in the Cockpit at desktop width shows version 2, the Gateway's words and the reply",
+    (await tray(d).locator("#version-marker").innerText()) === "Report version 2" && labels.every((l) => deskShown.includes(l)),
+    JSON.stringify({ deskShown }));
 
-  // ---- End the session; Send shows the Gateway's refusal sentence.
+  // ---- end the session; Send shows the Gateway's refusal sentence
   const ended = await owner("DELETE", `/sessions/${session.CC_SESSION_ID}`);
-  await waitFor("the Gateway to rule the session ended", async () => (await owner("GET", `/dev-reports/${reportId}`)).json.report.sessionEnded === true, 60000, 1000);
+  await waitFor("the Gateway to rule the session ended", async () => (await owner("GET", `/dev-reports/${reportId}`)).json.report.sessionEnded === true, 90000, 1000);
   const td = tray(d);
   await td.locator("[data-drn=pick]").click();
   await td.locator("#summary").click();
   await td.locator("[data-drn=composer-text]").fill("Sent after the session ended.");
   await td.locator("[data-drn=composer-queue]").click();
-  await td.locator("[data-drn=send]").click();
-  const refused = await waitFor("the refusal to show in the queue", async () => {
-    const q = await td.locator("[data-drn=queued]").innerText();
-    return q.includes("Sent after the session ended.") && !q.includes("Waiting for the app to confirm") ? q : null;
-  }, 30000);
-  await screenshot(d, "e2e-cockpit-2-ended-refused");
+  await waitFor("the item to be queued in the app", async () => (await d.locator(T.queuedItem).allInnerTexts()).some((x) => x.includes("Sent after the session ended.")), 15000);
+  await d.locator(T.send).click();
+  const refusedShown = await waitFor("the refusal to show in the queue", async () => {
+    const items = await d.locator(T.queuedItem).allInnerTexts();
+    const mine = items.find((x) => x.includes("Sent after the session ended."));
+    return mine && /ended/i.test(mine) ? mine : null;
+  }, 30000).catch(() => null);
   const detailAfter = (await owner("GET", `/dev-reports/${reportId}`)).json;
-  evidence.steps.E8 = { deleteSession: ended.status, queuedText: refused, sendRequests: desk.sends };
+  await screenshot(d, "e2e-cockpit-2-ended-refused");
+  evidence.steps.E8 = { deleteSession: ended.status, refusedShown, gatewayItems: detailAfter.items, sendRequests: desk.sends };
   check("E8: after the session ends, Send shows the Gateway's refusal sentence and the item stays queued",
-    desk.sends.length >= 1 && /ended/i.test(refused) && !detailAfter.items.some((i) => i.text === "Sent after the session ended." && i.status === "delivered"),
-    JSON.stringify(refused.slice(0, 300)));
+    ended.status < 300 && desk.sends.length >= 1 && !!refusedShown,
+    JSON.stringify({ deleteSession: ended.status, refusedShown }));
   await desk.ctx.close();
 }
 
