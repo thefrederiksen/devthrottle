@@ -1094,6 +1094,27 @@ Prefer the **id** when handing a target to another agent - it survives a rename 
 with a second Director sharing a display name. A Director's own toolbar has a Copy button that puts
 its name, machine and id on the clipboard, for pasting to an agent.
 
+```
+USAGE: cc-devthrottle director restore WORKSPACE --director ID [OPTIONS]
+
+OPTIONS:
+  --director TEXT        The Director that brings the seats back - after a restart, the NEW one.
+  --seat TEXT            Only this seat (its captured session id). Repeatable.
+  --seed TEXT            <captured session id>=<path>: seed that seat from this file. Repeatable.
+  --wait-seconds INTEGER How long to wait for every seat's answer [default: 600]. 0 does not wait.
+  --json -j              Output raw JSON.
+```
+
+Brings a drained fleet back. This is the restore step of a Director restart, and the command a drain
+writes into each seat's record. The **Director** starts every seat, on its own credential, under the
+owner that seat had when the Gateway captured it: an owner restarted in the same drain is started
+first and named by its new id, and one on another Director keeps its id. You name no owner and
+cannot - a session may name only itself or the user as the owner of what it starts. A seat whose owner
+did not come back is not started, and says why. Each seat that fails is reported on that seat and the
+rest carry on; a seat that already came back is never started twice. The command waits for every
+seat's answer and exits 0 only when every one came back. Added 17 September 2026 (the Message Load
+mission).
+
 ### Fleet Manager
 
 The Fleet Manager's stored news, the owner's standing preferences, and the one digest it reads at the

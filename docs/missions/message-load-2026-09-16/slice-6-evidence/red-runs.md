@@ -119,3 +119,24 @@ filter: FullyQualifiedName~WorkspaceOwedSeatsAndOriginRulesTests
   Failed CcDirector.Gateway.Tests.WorkspaceOwedSeatsAndOriginRulesTests.An_authored_workspace_cannot_claim_a_restore_attempt [36 ms]
 Failed!  - Failed:     1, Passed:    11, Skipped:     0, Total:    12, Duration: 1 s - CcDirector.Gateway.UnitTests.dll (net10.0)
 
+## 14 command line: an old failure read as this run's answer
+file: tools/cc-devthrottle/src/machine_ops.py
+replaced: fresh = attempted and attempted != before.get(sid.lower(), "")
+with: fresh = True
+        # The worker failed in an EARLIER run (attempt stamp t0). Until the Director writes a new stamp, that is not
+E               "outcome": "failed",
+FAILED tests/test_director_restore.py::test_an_old_failure_is_not_this_runs_answer
+1 failed, 8 passed in 0.20s
+
+## 15 command line: a failed or pending seat exits 0
+file: tools/cc-devthrottle/src/machine_ops.py
+replaced: if not ok:
+        raise SystemExit(1)
+with: if False:
+        raise SystemExit(1)
+__________ test_one_failed_seat_is_reported_and_the_exit_code_says_so __________
+    def test_one_failed_seat_is_reported_and_the_exit_code_says_so(fake):
+FAILED tests/test_director_restore.py::test_one_failed_seat_is_reported_and_the_exit_code_says_so
+FAILED tests/test_director_restore.py::test_a_seat_with_no_answer_when_the_wait_runs_out_is_pending_and_the_exit_code_says_so
+2 failed, 7 passed in 0.19s
+
