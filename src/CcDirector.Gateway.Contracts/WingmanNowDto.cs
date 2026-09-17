@@ -112,6 +112,38 @@ public sealed class WingmanNowResponse
 
     /// <summary>The words for an account whose Wingman is switched off. Null in every other state.</summary>
     public WingmanNowSwitchedOffDto? SwitchedOff { get; set; }
+
+    /// <summary>
+    /// WHEN A SESSION THAT SAID IT WOULD CARRY ON TURNS RED IF IT DOES NOT - the sentence split around the one
+    /// instant the client must format.
+    ///
+    /// Null in every state but carrying on, AND null while the session has one of its own sessions still running:
+    /// no clock is counting then, and the sentence that says so needs no instant, so it is in
+    /// <see cref="WingmanNowCardDto.Body"/> instead. A client renders THIS when it is present and the card's body
+    /// when it is not; it never has both to choose between.
+    /// </summary>
+    public WingmanNowDeadlineDto? CarryingOnDeadline { get; set; }
+}
+
+/// <summary>
+/// A sentence with an instant in the MIDDLE of it: "If it has not worked again by" + 12:05 PM + ", and none of the
+/// sessions it owns is still working, this turns red and says so."
+///
+/// <see cref="WingmanNowWhenDto"/> cannot carry this - its lead comes before a time that ends the sentence, and
+/// this one continues afterwards. Both halves are finished words; the client formats the instant into local time
+/// and joins the three.
+/// </summary>
+public sealed class WingmanNowDeadlineDto
+{
+    /// <summary>The words before the instant.</summary>
+    public string Before { get; set; } = "";
+
+    /// <summary>The moment (UTC) the clock runs out - THE SAME instant the carrying-on clock expires on, so the
+    /// sentence and the expiry cannot disagree.</summary>
+    public DateTime AtUtc { get; set; }
+
+    /// <summary>The words after the instant, punctuation included.</summary>
+    public string After { get; set; } = "";
 }
 
 /// <summary>

@@ -15,8 +15,8 @@ namespace CcDirector.Gateway.Tests.Wingman;
 /// own tests, and that the route really hands this fold a real row and a real store is proven through the handler in
 /// <see cref="WingmanNowRouteTests"/>, not here.
 ///
-/// WHAT IS NOT COVERED YET, said plainly rather than implied by silence: the carrying-on deadline sentence (slice 3),
-/// working and just answered (slices 4 and 5), and the voice control (slice 6). A row in one of those states folds to
+/// WHAT IS NOT COVERED YET, said plainly rather than implied by silence: working and just answered (slices 4 and 5),
+/// and the voice control (slice 6). A row in one of those states folds to
 /// "other" today, and no test here pins that - pinning an interim answer would only have to be deleted by the slice
 /// that gives it its real one. Reading, failed and switched off ARE covered, below.
 ///
@@ -307,14 +307,18 @@ public sealed class WingmanNowFoldTests
         Assert.True(now.When!.ShowAgo);
     }
 
-    /// <summary>The deadline sentence is slice 3's, and it must come from the same function the carrying-on clock
-    /// expires on. Until it does, the card carries its heading and no approximation of the sentence.</summary>
+    /// <summary>
+    /// A CLIENT NEVER HAS TWO SENTENCES TO CHOOSE BETWEEN. When a deadline is running, the sentence is the
+    /// deadline - words, instant, words - and the card's body stays empty; when no clock is counting, the body
+    /// carries the whole sentence and there is no deadline object. Exactly one of the two is ever present.
+    /// </summary>
     [Fact]
-    public void The_carrying_on_card_has_no_deadline_sentence_until_the_clock_is_wired_in()
+    public void The_carrying_on_card_offers_the_deadline_or_a_body_and_never_both()
     {
         var verdict = Verdict(TurnVerdictVocabulary.ContinuesAlone);
         var now = Fold(Row(verdict, colour: "purple", label: "Carrying on"), verdict);
 
+        Assert.NotNull(now.CarryingOnDeadline);
         Assert.Null(now.CalmCard!.Body);
     }
 
@@ -837,5 +841,133 @@ public sealed class WingmanNowFoldTests
         row.AgentToolDisplay = "";
 
         Assert.Equal("Its last words", FoldWith(row, NoHistory, Said("Working on it.")).LastWords!.Who);
+    }
+
+    // ================================================================ slice 3: the carrying-on deadline
+
+    private static OwnedSessionsFacts Owned(int working, int live, DateTime? lastActivity = null)
+        => new(Working: working, Live: live, Stopped: 1, NeedYou: 0, LastActivityAtUtc: lastActivity);
+
+    private static TurnVerdictDto CarryingOn(DateTime? announcedWake = null)
+    {
+        var verdict = Verdict(TurnVerdictVocabulary.ContinuesAlone,
+            label: "Waiting for its Worker to finish the slice J test run",
+            summary: "The Worker is running the full test gate.");
+        verdict.NextScheduledWakeUtc = announcedWake;
+        return verdict;
+    }
+
+    private static WingmanNowResponse FoldCarryingOn(TurnVerdictDto verdict, OwnedSessionsFacts? owned)
+        => WingmanNowFold.Fold(new WingmanNowInputs(Sid, Row(verdict, colour: "purple", label: "Carrying on"),
+            new[] { new AnsweredTurnVerdict(verdict, null) }, null, null, owned));
+
+    /// <summary>
+    /// THE INSTANT IS THE ONE THE CLOCK ACTUALLY EXPIRES ON, and this asserts it against the CLOCK rather than
+    /// against the same arithmetic done twice.
+    ///
+    /// A test that recomputed "judged plus ten minutes" here would pass just as well if both the card and the test
+    /// were wrong together. So the instant the card names is handed straight back to the watchdog: it must not be
+    /// expired one tick before, and must be expired at it. That is the whole promise the sentence makes.
+    /// </summary>
+    [Fact]
+    public void The_deadline_the_card_names_is_the_moment_the_clock_expires_on()
+    {
+        var verdict = CarryingOn();
+
+        var now = FoldCarryingOn(verdict, owned: null);
+
+        Assert.Equal(WingmanNowStates.CarryingOn, now.State);
+        Assert.Equal("If it has not worked again by", now.CarryingOnDeadline!.Before);
+        Assert.Equal(", and none of the sessions it owns is still working, this turns red and says so.",
+            now.CarryingOnDeadline.After);
+
+        var at = now.CarryingOnDeadline.AtUtc;
+        Assert.False(TurnVerdictWatchdog.IsExpired(verdict, at.AddTicks(-1)), "not expired a tick before the card's own moment");
+        Assert.True(TurnVerdictWatchdog.IsExpired(verdict, at), "expired at the card's own moment");
+    }
+
+    /// <summary>An announced wake-up moves the deadline, and the card moves with it - so the sentence cannot be a
+    /// fixed ten minutes that happens to agree with the clock in the common case.</summary>
+    [Fact]
+    public void An_announced_wake_up_moves_the_card_and_the_clock_together()
+    {
+        var wake = Stopped.AddHours(2);
+        var verdict = CarryingOn(announcedWake: wake);
+
+        var at = FoldCarryingOn(verdict, owned: null).CarryingOnDeadline!.AtUtc;
+
+        Assert.Equal(wake + TurnVerdictWatchdog.AfterAnnouncedWake, at);
+        Assert.False(TurnVerdictWatchdog.IsExpired(verdict, at.AddTicks(-1)));
+        Assert.True(TurnVerdictWatchdog.IsExpired(verdict, at));
+        // And it is genuinely later than the no-wake-up answer, so the two cases are not the same number.
+        Assert.True(at > Stopped.AddSeconds(4) + TurnVerdictWatchdog.WithoutAnnouncedWake);
+    }
+
+    /// <summary>
+    /// A SESSION WITH ONE OF ITS OWN STILL RUNNING NAMES NO TIME, because no clock is counting: the card says so in
+    /// words instead. Naming a moment here would be naming one the clock will not act on.
+    /// </summary>
+    [Theory]
+    [InlineData(1, 1)]   // a Worker working
+    [InlineData(0, 1)]   // a Worker alive but quiet - inside one long silent command
+    public void A_session_with_one_of_its_own_still_running_names_no_deadline(int working, int live)
+    {
+        var verdict = CarryingOn();
+
+        var now = FoldCarryingOn(verdict, Owned(working, live, Stopped.AddMinutes(1)));
+
+        Assert.Equal(WingmanNowStates.CarryingOn, now.State);
+        Assert.Null(now.CarryingOnDeadline);
+        Assert.Equal("Nothing needed from you", now.CalmCard!.Heading);
+        Assert.Equal("It turns red if it stops working and none of the sessions it owns is still working.",
+            now.CalmCard.Body);
+        // And the clock agrees there is nothing to expire.
+        Assert.Null(TurnVerdictWatchdog.DeadlineFor(verdict, Owned(working, live, Stopped.AddMinutes(1))));
+    }
+
+    /// <summary>Once every owned session has stopped the clock runs again, and it runs from the LAST of them - so
+    /// the card names that moment and not the judging moment.</summary>
+    [Fact]
+    public void Once_its_own_sessions_have_stopped_the_deadline_runs_from_the_last_of_them()
+    {
+        var verdict = CarryingOn();
+        var lastStopped = Stopped.AddMinutes(30);
+        var owned = new OwnedSessionsFacts(Working: 0, Live: 0, Stopped: 2, NeedYou: 0, LastActivityAtUtc: lastStopped);
+
+        var now = FoldCarryingOn(verdict, owned);
+
+        Assert.Equal(lastStopped + TurnVerdictWatchdog.WithoutAnnouncedWake, now.CarryingOnDeadline!.AtUtc);
+        Assert.True(TurnVerdictWatchdog.IsExpired(verdict, now.CarryingOnDeadline.AtUtc, owned));
+        Assert.False(TurnVerdictWatchdog.IsExpired(verdict, now.CarryingOnDeadline.AtUtc.AddTicks(-1), owned));
+    }
+
+    /// <summary>The clock sentence belongs to carrying on alone. Done and report need nothing from the owner AND
+    /// nothing is counting, so a deadline on either would be a threat about a session that has finished.</summary>
+    [Theory]
+    [InlineData(TurnVerdictVocabulary.Finished, "done")]
+    [InlineData(TurnVerdictVocabulary.Finished, "report")]
+    [InlineData(TurnVerdictVocabulary.NeededYou, null)]
+    public void No_other_state_names_a_deadline(string word, string? finishedKind)
+    {
+        var verdict = Verdict(word, finishedKind: finishedKind);
+
+        var now = WingmanNowFold.Fold(new WingmanNowInputs(Sid, Row(verdict),
+            new[] { new AnsweredTurnVerdict(verdict, null) }, null, null, Owned(0, 0, Stopped)));
+
+        Assert.Null(now.CarryingOnDeadline);
+    }
+
+    /// <summary>The calm cards that already had a body keep it - the clock sentence is only ever written into the
+    /// one card that had none.</summary>
+    [Fact]
+    public void The_done_and_report_cards_keep_their_own_bodies()
+    {
+        var done = Verdict(TurnVerdictVocabulary.Finished, finishedKind: "done");
+        var report = Verdict(TurnVerdictVocabulary.Finished, finishedKind: "report");
+
+        Assert.Equal("Nothing is needed from you. You can close this session when you are ready.",
+            Fold(Row(done), done).CalmCard!.Body);
+        Assert.Equal("Nothing is needed from you, and the work is not finished yet.",
+            Fold(Row(report), report).CalmCard!.Body);
     }
 }
