@@ -313,10 +313,12 @@ public sealed class DevReportLinkRouteTests : IAsyncLifetime
         await _director.PushDeltaAsync(Row(_sessionThatLeft, 307, "the gateway worker"));
         var reportId = await PublishAsync(_sessionThatLeft, _sessionKeyThatLeft, @"C:\work\history.html");
 
-        // The Director goes: the session is no longer locatable on the roster, so the words must come from the
-        // durable history row instead - and must still be the same words.
-        await _director.DisposeAsync();
-        _director = null;
+        // The session LEAVES THE ROSTER. A snapshot is authoritative and prunes anything not in it, so after
+        // this the roster genuinely does not hold the session and the words can only come from the durable
+        // history row. (Disposing the Director instead would be weaker: the roster and the history row carry
+        // the same two values, so a test that merely hoped the roster had gone would pass either way. The
+        // revert that drops the history fallback is what separates the two legs - see the worker report.)
+        await _director.PushSnapshotAsync(Row(Guid.NewGuid().ToString("D"), 999, "some other session"));
 
         var detail = await ReadJsonAsync($"dev-reports/{reportId}", _deviceKeyA);
         var report = detail.GetProperty("report");
