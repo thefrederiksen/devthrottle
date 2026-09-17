@@ -13,3 +13,10 @@ interface ImportMeta {
 // styles travel with it into every shell. Declared here so the package type-checks on its own with
 // noUncheckedSideEffectImports, without depending on the Vite client types each shell owns.
 declare module "*.css" {}
+
+// A file imported as text (Vite's ?raw suffix): the dev report host bundles the note-taking script this way,
+// from its one source file, rather than keeping a copy.
+declare module "*?raw" {
+  const content: string;
+  export default content;
+}

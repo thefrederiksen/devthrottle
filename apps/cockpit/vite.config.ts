@@ -85,6 +85,8 @@ const devProxy = proxyTarget
       "/dictation": { target: proxyTarget, changeOrigin: true },
       "/turnbriefs": { target: proxyTarget, changeOrigin: true },
       "/vault": { target: proxyTarget, changeOrigin: true },
+      // Dev reports (dev reports mission, phase 3): the four owner routes the Reports view calls.
+      "/dev-reports": { target: proxyTarget, changeOrigin: true },
       // The Transcription Health page and the Transcription tab of Settings. Neither was proxied
       // before, so both could only ever be exercised against a Gateway that served the bundle itself.
       //

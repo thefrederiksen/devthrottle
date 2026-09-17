@@ -10,6 +10,7 @@ import { SessionMenu } from "./SessionMenu";
 import { ChatTab } from "./ChatTab";
 import { VoiceTab } from "./VoiceTab";
 import { SourceControlTab } from "./SourceControlTab";
+import { ReportsTab } from "./ReportsTab";
 import { QueuePanel } from "./QueuePanel";
 import { ScreenshotsPanel } from "./ScreenshotsPanel";
 import { appendToCompose } from "./composerInsert";
@@ -30,7 +31,9 @@ type DockTab = "queue" | "shots";
 // Source Control is the read-only repository view (issue #1266) - click a file to insert its path into
 // the composer. Wingman is every stop the Wingman judged for this session (the Wingman inspector) - the shared
 // client-core tab, mounted by the Cockpit only.
-type MainTab = "terminal" | "chat" | "voice" | "sourceControl" | "wingman";
+// Reports is the session's dev reports (dev reports mission, phase 3): the list, and an open report with its
+// conversation beside it, from the shared client-core view the phone also mounts.
+type MainTab = "terminal" | "chat" | "voice" | "sourceControl" | "wingman" | "reports";
 
 export function SessionDetail() {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -125,6 +128,16 @@ export function SessionDetail() {
           >
             Wingman
           </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mainTab === "reports"}
+            className={`session-tab ${mainTab === "reports" ? "on" : ""}`}
+            data-testid="session-tab-reports"
+            onClick={() => setMainTab("reports")}
+          >
+            Reports
+          </button>
           {/* Which agent and which MODEL the open session is running (issue devthrottle_internal#1340).
               The roster says it for every row; this says it for the session actually on screen, so the
               answer is on the surface you are looking at rather than one click away. Both the words and
@@ -165,6 +178,11 @@ export function SessionDetail() {
           {mainTab === "wingman" && sessionId && (
             <div className="session-pane">
               <WingmanTab sessionId={sessionId} />
+            </div>
+          )}
+          {mainTab === "reports" && (
+            <div className="session-pane">
+              <ReportsTab sessionId={sessionId} />
             </div>
           )}
         </div>
