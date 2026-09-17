@@ -2677,3 +2677,229 @@ is no PostgreSQL on the Mac (the test is skipped here).
 
 - All four rulings on inspections 10 and 11 are built and pushed on `mission/message-load`. Next: inspection 12
   (narrow), then the pull request - the Architect's.
+
+## Second merge with main (17 September 2026, second merge Manager seat)
+
+Merge commit `5fcc7ae9` brings `origin/main` (`00e184a9`, five commits past the last merge base `ef411aa0`)
+into `mission/message-load`; then `4f89ede4`, the regenerated client schema. Main's five commits are the
+Gateway telling the Fleet Manager what its sessions did with its conduct shipping as a built-in
+(`00e184a9`), the Cockpit Wingman tab (`42677ed0`), the narration needing a Pro account (`cd8b6233`),
+Dev Reports phase 3 (`8d21335f`), and the mission workflow's "whoever starts a session stops it" rule
+(`0b8e11f6`). No pull request opened or touched, no fleet message sent, nothing published.
+
+### What conflicted, and how it was resolved
+
+Four files conflicted. Main did not touch `session_ops.py`, `machine_ops.py`, the actions fixture, the
+preamble template or its approved file, `fleet-comms.skill.md`, or `docs/new_architecture/sessions.html`.
+
+- **`docs/cli-reference.md`** - the command summary block. Main rewrote the `session report` line into two
+  lines ("... at the end of your turn (sends nothing when a Fleet Manager owns you: the Gateway tells it)");
+  slice 3 had added a `session raise` line after it. Resolved: main's two lines, then this mission's `session
+  raise` line. The merged `cli.py` docstring says both things in the same order, so the document and the tool
+  agree. That block is hand-written prose, not a capture of `--help` - the real `--help` prints a Typer table
+  with a different shape - so there was nothing to regenerate; it was resolved by reading, not by pinning.
+- **`src/CcDirector.Gateway.Tests/TestEnvironment.cs`** - the module initialiser. Both sides turn off a
+  process-wide sweep so a host test decides when it runs: this mission's `GatewayHost.FleetDoorbellHeartbeatEnabled`
+  and main's `Fleet.FleetManagerEventSweep.Enabled`. Resolved: both lines, both comments.
+- **`src/CcDirector.Gateway/Api/GatewayEndpoints.cs`** - four sites, all the same shape. Slice 4 had added
+  `inboxLines` to `StampFleetRolesAndFold` and main's step 4 added `fleetManagerMark`; the signature itself
+  auto-merged and carries `inboxLines`, `writes` and `fleetManagerMark`. Resolved: every call site passes both
+  new arguments - the roster read and the single-session read pass `inboxLines` and the tenant's Fleet Manager
+  mark, and `FoldedAccountRoster` takes both as optional parameters and forwards both.
+- **`src/CcDirector.Gateway/GatewayHost.cs`** - the Fleet Manager digest's `FoldedRoster`. Resolved: it passes
+  `_fleetMessages` (this mission's row-line source) and `_tenantSettingsResolver.FleetManagerSessionId` (main's
+  mark).
+
+**`Fleet.DisplayFold` needed no change.** Main's own `DisplayFold` passes no Fleet Manager mark - the display
+push stamps `OwnedByFleetManager` false, which is main's behaviour, not a loss - so the class keeps exactly the
+`inboxLines` wiring the first merge gave it, and main's `DisplayFoldTraceMatchesPushTests` passes.
+
+**Auto-merged, checked by reading main's side:** `SessionKeyGuard.cs` (main adds only the two Fleet Manager
+event shapes; the agent-input refusal above the allow list is untouched), `GatewayDbContext.cs` and both model
+snapshots (main's `fleet_manager_events` tables beside this branch's reply-mark columns on `fleet_messages`;
+both are in both snapshots), `tools/cc-devthrottle/src/cli.py` (the `session report` docstring keeps this
+mission's "QUEUED in their inbox, never typed into them" and gains main's Fleet Manager paragraph),
+`.claude/skills/mission/SKILL.md` and `src/CcDirector.Gateway/Workflows/Content/mission.instructions.md`,
+`tools/cc-devthrottle/tests/test_axi_step_6c_help_and_errors.py` (main added its own new actions to
+`_ACTIONS_ADDED_SINCE_PIN`).
+
+**Migrations:** main's `AddFleetManagerEvents` and `AddFleetManagerEventDelivery` (20260917110000/110100
+SQLite, ...09/...109 PostgreSQL) sort after this branch's `AddFleetMessageReplyMarks` (20260917094429). Not
+applied against PostgreSQL.
+
+### The mission workflow text, where main and slice 5 both wrote (watch item a)
+
+The auto-merge is exactly right and was verified by diffing the merged file against BOTH sides. Main's new
+rule - "Whoever starts a session stops it the moment its work is done" - is present in full; so is every
+sentence slice 5 rewrote (the review goes in a file rather than a message, `session report` and `session raise`
+in the Worker's bullets, and "Messages are rare, and they queue" with the six-an-hour limit, the doorbell, and
+`--reply-wanted`/`message reply`). Both the shipped
+`src/CcDirector.Gateway/Workflows/Content/mission.instructions.md` and the `.claude/skills/mission/SKILL.md`
+copy carry both. The two files' only differences are the two that existed before this merge on both sides (the
+copy says "THIS FILE" and "a link to this file" where the shipped text says "THIS WORKFLOW" and names the
+`workflow instructions` command).
+
+### Main's built-in Fleet Manager conduct, reworded (watch item b)
+
+`00e184a9` ships a new built-in, `src/CcDirector.Gateway/Skills/Content/fleet-manager.skill.md` (283 lines).
+It had two sentences this mission retired, both in its "Messages are rare" section, and both are rewritten:
+
+- "Every word sent into a session interrupts it" is now "Reaching into a session costs it, and the owner has
+  ruled that it must be rare", followed by what the product actually enforces: a message is never typed into a
+  session while it works, the Gateway queues it, the recipient's Director rings one doorbell line when the
+  session is free, and one session may send at most six messages an hour.
+- "You never use `message send` or `message ask` for routine coordination" loses the retired verb and gains
+  the replacement: "Nobody waits for an answer either: a question goes with `--reply-wanted` and its answer
+  arrives in your inbox."
+
+Nothing else in the file offers `message ask`, says a message interrupts, or offers `--controlled-by` with
+another session's id - its four `--controlled-by` uses are all `self`, which this mission allows.
+**Nothing was added to any exemption list**: all five `RetiredMessagingWords` tests pass, including the
+whole-tree scan and the exemption-existence test, with `TreeExemptions` exactly as the final fix round left
+it. A scan of every one of the 283 files main changed found the two retired phrases only in
+`GatewayEndpoints.cs`, which is exempt because it names the retired verb in order to refuse it.
+
+**Red, then green, on the reword** (the guard was watched failing, and the tree is clean afterwards): with
+main's original `fleet-manager.skill.md` put back, both word tests went red at
+`src/CcDirector.Gateway/Skills/Content/fleet-manager.skill.md:222: "message ask"` - the whole-tree scan and the
+taught-inventory scan, each naming the line. The reworded file was restored, `git status` was clean, and all
+five passed again.
+
+### Main's new routes against ruling 17 (watch item c)
+
+Main added exactly two Gateway routes, both under the Fleet Manager prefix: `GET
+/gateway/fleet-manager/events` and `POST /gateway/fleet-manager/events/ack`. That is the whole set - the
+regenerated OpenAPI document gained only those two paths, and they are the only route registrations in main's
+diff of `src/CcDirector.Gateway`. Read against the inspection-10 census:
+
+- `ListEvents` reads the event store and a delivery note and returns them. No prompt.
+- `AcknowledgeEventsAsync` marks events acknowledged and returns counts. No prompt.
+- Both are restricted further than the guard: only the account's marked Fleet Manager session may call them.
+- `SessionKeyGuard.IsAgentInput` is unchanged and still runs BEFORE the allow list, so `POST
+  /sessions/{sid}/prompt`, `interrupt`, `escape`, `fanout` and the verdict answer stay refused to every
+  session key. `SessionKeyGuard` tests: 262 passed.
+
+**No new route lets a session key put text into a session, so there is nothing to stop for.** One honest
+note, recorded rather than waved past: main's event DELIVERY does type a prompt, but it types into the marked
+Fleet Manager's OWN session, it is driven by the Gateway's event sweep reacting to a session stop or death
+rather than by any route, and the text is the Gateway's own fixed line plus its stored event records - not
+text a session key supplied. It is not a session-key path into another session.
+
+### OPEN FINDING for the Architect - main's new built-in teaches a command the product refuses
+
+Not fixed, because fixing it either way is a product call and this seat will not guess.
+
+`fleet-manager.skill.md` has an "Answering a session" section that tells the Fleet Manager to run
+`cc-devthrottle session prompt <session> "<their words, exactly>"`, and calls it the way to pass the owner's
+answer on and to take the Wingman's `answerVia: reply` option. **The Fleet Manager is a session, so its key
+is a session key, and this mission's ruling 17 refuses that route to every session key** -
+`SessionKeyGuard.IsAgentInput` matches `POST /sessions/{sid}/prompt` before the allow list is consulted and
+returns the typing refusal. So the shipped conduct hands the Fleet Manager a command it will be told 403 for,
+which is the exact failure the "a shipped skill must not show what the product refuses" rule exists to stop.
+
+The two ways out are a product decision:
+1. The Fleet Manager is granted the prompt route (a named exception in `IsAgentInput`, bound to the account's
+   mark), because passing the owner's own words on is the owner typing by proxy; or
+2. The skill's "Answering a session" section is rewritten to the queue, and the owner's words reach a session
+   from the owner's own screens.
+
+The reworded "Messages are rare" section above is consistent with either. Nothing was changed in "Answering a
+session".
+
+### The break the merge exposed, fixed
+
+`src/CcDirector.Gateway.UnitTests/Fleet/FleetManagerEventServiceTests.cs` (main's, from `00e184a9`) did not
+pass the `narrationPlan` argument that `cd8b6233` made a required constructor parameter of
+`GatewayTurnVerdictEnvironment`. Both commits are on main, so **`origin/main`'s `CcDirector.Gateway.UnitTests`
+project does not compile** - `00e184a9` was prepared before `cd8b6233` landed and squash-merged after it, and
+that suite is PARKED out of the default gate, so nothing compiled the two together until this merge did.
+Fixed forward in the merge commit: the call passes `narrationPlan: _ => NarrationPlan.Allowed`, with a comment
+saying the class judges stops and does not narrate. Main's sibling class
+`FleetManagerOwnedSessionsAreJudgedTests` already passed the same argument, which is how the value was chosen
+rather than invented.
+
+### Pinned files, regenerated from real output
+
+- **Client schema** (`packages/client-core/src/api/schema.ts`): regenerated with the repository's own
+  `openapi-typescript` 7.4.4 from `/openapi/v1.json` served by an in-process Gateway console host on port
+  7878, with `HOME` and `CC_DIRECTOR_ROOT` redirected into a scratch directory and the document fetched with
+  that throwaway Gateway's own token. Additions only, 68 lines: the two Fleet Manager event routes. Typecheck
+  clean on every workspace afterwards. The scratch host was stopped with a signal, not a force-kill.
+- **Actions fixture** (`tools/cc-devthrottle/tests/fixtures/actions_json_before_step_6c.json`): NOT rewritten,
+  and that is correct - it is a deliberate historical pin of what main printed before step 6c, and additions
+  since are named one by one in `_ACTIONS_ADDED_SINCE_PIN`. Main added its own new ids to that list.
+  `test_actions_json_is_unchanged` passes against real `actions --json` output on the merged tree, which is
+  the proof the pin still matches.
+- **Preamble approved file** (`src/CcDirector.Core.Tests/Sessions/fleet-preamble-default.approved.txt`): NOT
+  rewritten. `FleetPreambleDefaultGoldenTests` compares the real generated preamble to it and passes on the
+  merged tree (run on its own: 49 passed with the retired-words filter), so the approved file already IS the
+  real output. Rewriting it would have produced an empty diff.
+
+### Test totals (Mac mini, merged tree, 17 September 2026)
+
+- **Build**: 0 errors for the Gateway, ControlApi, Core unit tests, Core tests, Gateway unit tests, Gateway
+  route tests, Engine tests, HostedAgent tests, Launcher tests, the Avalonia app and the Avalonia tests. The
+  whole-solution build still fails on `CcClick` and `CcDirector.Terminal` with NETSDK1100 - both target
+  Windows and neither can build on this machine at all; unchanged by this merge.
+- **Core unit tests**: 596 total, 596 passed, 0 failed, 0 skipped (was 594; main added two).
+- **Core tests**: 4447 total, 4378 passed, 8 skipped, **61 failed**. Every failing name is in
+  `slice-2-evidence/fix-round/full-suite-failures.txt`; compared mechanically (the set difference is empty).
+  **No new failure.**
+- **Gateway unit tests**: 5763 total, 5748 passed, 8 skipped, **7 failed - the known 7 Mac-only**
+  (CronJobStore 1, RuleCandidateFilter 1, RulePrimitives 1, SessionCommandExecutorLiveness 3,
+  WorkListStorePersistence 1). No new one.
+  - Filter `SessionKeyGuard`: 262 passed.
+  - Filter `FleetManagerEvent|DisplayFold|FleetManagerOwnedSessions|FleetMessage|FleetDoorbell`: 356 passed.
+- **ControlApi tests** (they live in the Gateway unit test project; there is no separate ControlApi test
+  project on this branch): filter `ControlApi|DirectorDrain|DirectorRestore|SessionCommandExecutor`, 170
+  total, 167 passed, **3 failed - the known SessionCommandExecutorLiveness 3**.
+- **Retired words / shipped skills**: Core unit `RetiredMessagingWords` 5 passed (all five, including the
+  whole-tree scan); Core unit `Skills` (which includes `BuiltInSkillsHaveOneSourceTests` and
+  `ShippedSkillsTeachOwnershipTests`) 9 passed; Core tests `FleetPreamble|RetiredMessagingWords` 49 passed.
+- **cc-devthrottle** (fresh scratch virtual environment with the local `cc_storage`, `cc_shared`, the tool and
+  pytest): 3271 passed, 0 failed; with `FORCE_COLOR=1`: 3271 passed; with `TERM=dumb FORCE_COLOR=1`: 3271
+  passed. (Was 3241; main added 30.)
+- **Web**: typecheck clean on every workspace; `vite build` succeeds for the phone and the Cockpit. Tests:
+  client-core 1275 total / 23 failed, Cockpit 359 total / 24 failed, phone 81 total / 30 failed, cc-assistant
+  106 passed. The 77 failing names are exactly those in
+  `slice-4-evidence/web-failures-before-and-after.txt`, compared mechanically in both directions (both set
+  differences are empty). The grown totals are main's new Wingman tab and Dev Reports phase 3 tests, all
+  passing.
+- **Gateway route tests** (full, 21 minutes 21 seconds): 2634 total, 2566 passed, 52 skipped, **16 failed -
+  the known 16** (ContextLessRouteCensus 1, FleetSpawnMissionAttach 2, FleetSpawnOrigin 4,
+  GatewayTestSuiteLock 2, HostedProcessControlDeny 2, TunnelRosterPushReadProof 3, WorkflowSeat 2). Same
+  classes and same counts as the first merge with main. No new one. (Was 2626 total; main added 8.)
+
+### What is NOT proven
+
+- **`scripts/test-local.ps1` was not run** - there is no PowerShell on this machine. Every suite above was run
+  directly with `dotnet test`, `pytest` and `npm`, so nothing here was gated by the script the repository's
+  rule names, and the two installer suites it also runs were not run at all.
+- **PostgreSQL**: nothing ran against it. That includes main's two new migrations interleaving with this
+  branch's, the PostgreSQL model snapshot, and the collation census line the final fix round added - all three
+  are read-and-reasoned here, not executed.
+- **Avalonia tests** built, not run. `CcClick` and `CcDirector.Terminal` cannot build on this machine at all.
+- **Windows and Linux**: not run.
+- **Live**: no Director, no agent, no hosted Gateway, no phone. Nothing was deployed and nothing published.
+- **cc-ship, cc-dev-reports and cc-secrets** test suites were not run (not in this seat's list; cc-ship was
+  run by the final fix round and nothing in this merge touched it).
+- **Main's Fleet Manager event delivery against this mission's doorbell**: no test drives a Fleet Manager event
+  prompt and a fleet doorbell against the same session, so the two typing paths are not proven to stay out of
+  each other's way. They are argued apart above (the doorbell types only into a session that is not working
+  with an empty composer; the event prompt is sent with `OnlyWhenWaitingForInput` and refuses while the owner
+  has unsent text), not tested together.
+- **The open finding above is a claim about behaviour, read from the guard's code and its tests, not observed
+  against a live Fleet Manager session.** `SessionKeyGuard` refusing `POST /sessions/{sid}/prompt` to a session
+  key IS covered by its 262 passing tests; that the marked Fleet Manager's key is one of those keys, with no
+  exception anywhere, is read from `IsAgentInput` running before the allow list and from there being no Fleet
+  Manager branch in `AuthMiddleware`. No test asserts it for a Fleet Manager specifically.
+
+## State after the second merge with main (17 September 2026)
+
+- `mission/message-load` holds `origin/main` up to `00e184a9`, merged as `5fcc7ae9`, with the client schema
+  regenerated in `4f89ede4` and this record in the commit after. Everything is pushed.
+- **One thing needs the Architect, and it is the open finding above**: main's new built-in Fleet Manager
+  conduct tells the Fleet Manager to run `cc-devthrottle session prompt`, which this mission's ruling 17
+  refuses to every session key. Either the Fleet Manager gets a named exception or that section of the skill is
+  rewritten. This seat changed only the two retired sentences and left the decision alone.
+- Next, unchanged: inspection 12 (narrow), then the pull request - the Architect's.
