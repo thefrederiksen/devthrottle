@@ -2527,3 +2527,36 @@ preamble template or its approved file, the shipped skills, or `docs/new_archite
   its turn end. That is the owner's typing, which this mission leaves to him, so no conflict was assumed; no test
   exercises a dev-report delivery and a fleet doorbell on the same session.
 - **cc-dev-reports and cc-secrets tests** (main's tools, not this mission's) were not run.
+
+## Architect rulings on inspections 10 and 11 (17 September 2026) - the final fix round
+
+Inspection 10 (messaging core): PASS. Its two notes are accepted as stated limits.
+Inspection 11 (restore, row line, words): FAIL. Findings accepted. Rulings:
+
+1. **A restore mark comes only from the Director that holds the lease** (high). The mark route binds
+   the caller's credential to the Director it names: the Gateway resolves which registered Director the
+   authenticated workstation credential belongs to, and refuses 403 any mark whose `directorId` is not
+   that Director, or whose Director does not hold the workspace's lease. A `restored` mark must carry
+   the started token the same Director wrote; a mismatch is refused. `finished` releases the lease only
+   for its holder. Guards: two workstation keys in one account, the second key's mark, restored id,
+   failure, token and `finished` all refused while the first holds the lease; the holder's own marks
+   accepted; a `restored` mark without the matching token refused.
+2. **The law page says one thing** (medium). `docs/new_architecture/sessions.html` near line 1657: the
+   "surviving" ask-and-wait paragraph is rewritten in the past tense with the date it was removed and
+   what replaced it (`--reply-wanted`, `message reply`).
+3. **Current-tense text teaches the current product** (medium). Fix: the comment in
+   `src/CcDirector.Gateway.Contracts/FleetMessaging.cs` (and delete `BuildFramedMessage` and its tests if
+   nothing calls it any more; say which); `packages/client-core/src/sessions/tree.ts` and
+   `src/CcDirector.Gateway.Contracts/SessionTree.cs` (who may be named as owner); `tools/cc-ship/src/fleet.py`
+   (newline truncation); `ARCHITECT-HANDOVER.md`; the active briefs under `missions/` that say a message
+   interrupts. Dated historical plans and reviews (for example `docs/MISSION-source-control-tab-2026-07-23.md`)
+   are history and are left alone. The retired-words test's inventory gains `sessions.html` and every
+   file fixed here, and the inspector's search expression becomes a second test over the tree with an
+   explicit, commented list of historical files that are exempt.
+4. **Main's collation census line** (from `postgres-proof-2.md`): add `("fleet_manager_marks", "SessionId")`
+   to the hand-kept list in `PostgresProviderProofTests`, with a comment that it is main's column from
+   pull request 2997, so the census runs to its end on this branch. One line; it cannot be run on the
+   Mac, say so.
+
+Then the touched suites, each guard watched failing, a 'Final fix round' section here, push, stop.
+Inspection 12, narrow, then the pull request.
