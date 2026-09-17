@@ -35,12 +35,17 @@ public sealed class GatewayHostBootSmokeTests
     // The Message Load mission's inbox, which landed on main first; the step 3 pair must sort after it.
     private const string FleetMessagesPostgresMigration = "20260916195948_AddFleetMessages";
     private const string FleetMessagesSqliteMigration = "20260916195943_AddFleetMessages";
-    // Step 4's events, sorting after step 3's pair, then what their delivery needs: the stop stored before it is read, how a death was
-    // learned, and the owned sessions the Gateway last knew alive.
-    private const string FleetManagerEventsPostgresMigration = "20260917090209_AddFleetManagerEvents";
-    private const string FleetManagerEventsSqliteMigration = "20260917090200_AddFleetManagerEvents";
-    private const string FleetManagerEventDeliveryPostgresMigration = "20260917090309_AddFleetManagerEventDelivery";
-    private const string FleetManagerEventDeliverySqliteMigration = "20260917090300_AddFleetManagerEventDelivery";
+    // The dev reports and the trace row and clock, which landed on main after step 3; step 4's pair must sort after them.
+    private const string DevReportsPostgresMigration = "20260917101851_AddDevReports";
+    private const string DevReportsSqliteMigration = "20260917101833_AddDevReports";
+    private const string TraceRowAndClockPostgresMigration = "20260917103105_AddTurnVerdictTraceRowAndClock";
+    private const string TraceRowAndClockSqliteMigration = "20260917103039_AddTurnVerdictTraceRowAndClock";
+    // Step 4's events, sorting after those, then what their delivery needs: the stop stored before it is read, how a
+    // death was learned, and the owned sessions the Gateway last knew alive.
+    private const string FleetManagerEventsPostgresMigration = "20260917110009_AddFleetManagerEvents";
+    private const string FleetManagerEventsSqliteMigration = "20260917110000_AddFleetManagerEvents";
+    private const string FleetManagerEventDeliveryPostgresMigration = "20260917110109_AddFleetManagerEventDelivery";
+    private const string FleetManagerEventDeliverySqliteMigration = "20260917110100_AddFleetManagerEventDelivery";
 
     /// <summary>A Fact that skips itself unless the runtime Postgres selector CC_GATEWAY_DB_CONNECTION is set
     /// to a non-blank value, so CI never reaches out to the hosted database and never needs the secret.</summary>
@@ -192,6 +197,8 @@ public sealed class GatewayHostBootSmokeTests
             FleetMessagesSqliteMigration,
             FleetManagerOutcomesSqliteMigration,
             FleetManagerMarkHistorySqliteMigration,
+            DevReportsSqliteMigration,
+            TraceRowAndClockSqliteMigration,
             FleetManagerEventsSqliteMigration,
             FleetManagerEventDeliverySqliteMigration);
         Assert.Equal(FleetManagerEventDeliverySqliteMigration, applied[^1]);
@@ -227,6 +234,8 @@ public sealed class GatewayHostBootSmokeTests
             FleetMessagesPostgresMigration,
             FleetManagerOutcomesPostgresMigration,
             FleetManagerMarkHistoryPostgresMigration,
+            DevReportsPostgresMigration,
+            TraceRowAndClockPostgresMigration,
             FleetManagerEventsPostgresMigration,
             FleetManagerEventDeliveryPostgresMigration);
         Assert.Equal(FleetManagerEventDeliveryPostgresMigration, migrations[^1]);
