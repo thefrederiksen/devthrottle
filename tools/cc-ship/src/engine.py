@@ -8,6 +8,7 @@ run always ends in one honest state (runstore) with a next_step for the author.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -139,8 +140,13 @@ def _session_name(run: dict, role: str) -> str:
 
 
 def _base_model(model: str | None) -> str | None:
-    """claude-opus-5[1m] and claude-opus-5 are the same model."""
-    return model.split("[", 1)[0].strip().lower() if model else None
+    """One spelling per model for the same-model check: claude-opus-5[1m] is
+    claude-opus-5, and a dated id such as claude-haiku-4-5-20251001 (how a transcript
+    records claude-haiku-4-5) is its undated form."""
+    if not model:
+        return None
+    base = model.split("[", 1)[0].strip().lower()
+    return re.sub(r"-\d{8}$", "", base)
 
 
 def _author_model(run: dict) -> str | None:

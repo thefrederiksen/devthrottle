@@ -994,8 +994,14 @@ def test_run_ClaudeReviewerOnADifferentModel_AllowedAndSaidOnThePullRequest(worl
     assert "author's agent family (ClaudeCode) on a different model" in body
 
 
-@pytest.mark.parametrize("model", ["claude-opus-5", "CLAUDE-OPUS-5[1m]"])
-def test_run_ClaudeReviewerOnTheAuthorsModel_Refused(world, capsys, model):
+@pytest.mark.parametrize("author, model", [
+    ("claude-opus-5[1m]", "claude-opus-5"),
+    ("claude-opus-5[1m]", "CLAUDE-OPUS-5[1m]"),
+    ("claude-haiku-4-5-20251001", "claude-haiku-4-5"),   # round 2 finding 1
+    ("claude-haiku-4-5", "claude-haiku-4-5-20251001"),
+])
+def test_run_ClaudeReviewerOnTheAuthorsModel_Refused(world, capsys, author, model):
+    world.author_model = author
     _set_main_config(world, dict(SHIP_YAML, reviewer_agent="ClaudeCode", reviewer_model=model))
     code, out = run_cli("start", "--intent", str(world.intent), capsys=capsys)
     assert out["failure"]["code"] == "same-model" and world.spawned == []
