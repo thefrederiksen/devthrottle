@@ -489,4 +489,196 @@ public sealed class FleetMessageRouteTests : IAsyncLifetime
             "needs its supervisor",
             S(await Body(r), "error"));
     }
+
+    // =========================================================================================
+    // Replies without blocking (slice 3, ruling 10)
+    // =========================================================================================
+
+    private async Task<JsonElement> Ask(HttpClient from, string to, string text, int? replyByMinutes = null)
+    {
+        var r = await from.PostAsJsonAsync($"sessions/{to}/message",
+            replyByMinutes is null ? new { text, replyWanted = true } : (object)new { text, replyWanted = true, replyByMinutes });
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        var body = await Body(r);
+        Assert.Equal("queued", S(body, "status"));
+        return body;
+    }
+
+    private Task<HttpResponseMessage> Reply(HttpClient from, string id, string text)
+        => from.PostAsJsonAsync("fleet/reply", new { id, text });
+
+    [Fact]
+    public async Task A_reply_round_trip_lands_in_the_askers_inbox_with_the_question_and_types_nothing()
+    {
+        var asked = await Ask(_asManager, _workerA, "which branch are you on?", replyByMinutes: 30);
+        var correlation = S(asked, "correlationId");
+        Assert.Matches("^[0-9a-f]{32}$", correlation);
+        var due = asked.GetProperty("replyByUtc").GetDateTime();
+        Assert.InRange(due - DateTime.UtcNow, TimeSpan.FromMinutes(29), TimeSpan.FromMinutes(31));
+
+        // The worker sees that an answer is wanted and how to give it - the wire names pinned.
+        var raw = await Body(await _asWorkerA.GetAsync("fleet/inbox"));
+        var question = raw.GetProperty("unread")[0];
+        Assert.True(question.GetProperty("replyWanted").GetBoolean());
+        Assert.Equal(correlation, S(question, "correlationId"));
+        Assert.Equal($"cc-devthrottle message reply {correlation} \"<your answer>\"", S(question, "replyHint"));
+        Assert.Equal(JsonValueKind.Null, question.GetProperty("inReplyTo").ValueKind);
+
+        var r = await Reply(_asWorkerA, correlation, "mission/message-load");
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        var answered = await Body(r);
+        Assert.Equal("queued", S(answered, "status"));
+        Assert.Equal(_manager, S(answered, "recipientSessionId"));
+        Assert.Equal(S(asked, "messageId"), S(answered, "inReplyToMessageId"));
+
+        var inbox = await Body(await _asManager.GetAsync("fleet/inbox"));
+        var reply = inbox.GetProperty("unread")[0];
+        Assert.Equal("reply", S(reply, "kind"));
+        Assert.Equal(_workerA, S(reply, "fromSessionId"));
+        Assert.Equal("mission/message-load", S(reply, "text"));
+        var about = reply.GetProperty("inReplyTo");
+        Assert.Equal(S(asked, "messageId"), S(about, "messageId"));
+        Assert.Equal("which branch are you on?", S(about, "text"));
+        Assert.False(about.GetProperty("late").GetBoolean());
+        Assert.Empty(VerbsSent());
+    }
+
+    [Fact]
+    public async Task A_reply_from_a_session_that_was_not_asked_is_refused()
+    {
+        var asked = await Ask(_asManager, _workerA, "status?");
+
+        var r = await Reply(_asWorkerB, S(asked, "correlationId"), "I will answer for A");
+
+        Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
+        var body = await Body(r);
+        Assert.Equal("refused", S(body, "status"));
+        Assert.Contains("Only the session message " + S(asked, "messageId") + " was sent to may reply to it", S(body, "error"));
+        Assert.Equal("", S(body, "recipientSessionId"));
+        Assert.Equal(0, (await Inbox(_asManager)).UnreadCount);
+    }
+
+    [Fact]
+    public async Task A_reply_is_allowed_after_the_relationship_is_gone_where_a_message_is_not()
+    {
+        var asked = await Ask(_asManager, _workerA, "are you done?");
+        // The worker is re-pushed with no supervisor: it is now a stranger to the manager.
+        await _director.PushSnapshotAsync(
+            Row(_manager, "Mission - Manager", controller: null),
+            Row(_workerA, "Mission - Worker - A", controller: null),
+            Row(_workerB, "Mission - Worker - B", controller: _manager),
+            Row(_stranger, "Someone Else", controller: null));
+
+        // Control: an ordinary message the same way is refused by the relationship rule.
+        Assert.Equal(HttpStatusCode.Forbidden, (await Send(_asWorkerA, _manager, "hello")).StatusCode);
+
+        var r = await Reply(_asWorkerA, S(asked, "correlationId"), "yes, done");
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        Assert.Equal("yes, done", Assert.Single((await Inbox(_asManager)).Unread).Text);
+    }
+
+    [Fact]
+    public async Task A_reply_is_not_held_to_the_spacing_that_refuses_a_second_message()
+    {
+        var asked = await Ask(_asManager, _workerA, "ready?");
+        Assert.Equal(HttpStatusCode.OK, (await Send(_asWorkerA, _manager, "first")).StatusCode);
+        // Control: a second message inside ten minutes is refused.
+        Assert.Equal(HttpStatusCode.TooManyRequests, (await Send(_asWorkerA, _manager, "second")).StatusCode);
+
+        var r = await Reply(_asWorkerA, S(asked, "messageId"), "ready");
+
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        Assert.Equal("queued", S(await Body(r), "status"));
+    }
+
+    [Fact]
+    public async Task A_second_reply_is_refused_and_an_unknown_id_is_not_found()
+    {
+        var asked = await Ask(_asManager, _workerA, "one question");
+        Assert.Equal(HttpStatusCode.OK, (await Reply(_asWorkerA, S(asked, "correlationId"), "one answer")).StatusCode);
+
+        var second = await Reply(_asWorkerA, S(asked, "correlationId"), "two answers");
+        Assert.Equal(HttpStatusCode.Conflict, second.StatusCode);
+        Assert.Contains("one reply per question", S(await Body(second), "error"));
+
+        var unknown = await Reply(_asWorkerA, "ffffffffffffffffffffffffffffffff", "?");
+        Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
+        Assert.Equal("refused", S(await Body(unknown), "status"));
+    }
+
+    [Fact]
+    public async Task A_reply_to_a_message_that_did_not_ask_is_refused()
+    {
+        var sent = await Body(await Send(_asManager, _workerA, "fyi only"));
+
+        var r = await Reply(_asWorkerA, S(sent, "messageId"), "noted");
+
+        Assert.Equal(HttpStatusCode.Conflict, r.StatusCode);
+        Assert.Contains("did not ask for a reply", S(await Body(r), "error"));
+    }
+
+    [Theory]
+    [InlineData("{\"text\":\"q\",\"replyByMinutes\":5}", "replyByMinutes is a reply deadline and needs replyWanted: true")]
+    [InlineData("{\"text\":\"q\",\"replyWanted\":true,\"replyByMinutes\":0}", "replyByMinutes must be between 1 and 1440; 0 was given.")]
+    [InlineData("{\"text\":\"q\",\"replyWanted\":true,\"replyByMinutes\":1441}", "replyByMinutes must be between 1 and 1440; 1441 was given.")]
+    public async Task A_bad_reply_deadline_is_refused_and_nothing_is_queued(string json, string error)
+    {
+        var r = await _asManager.PostAsync($"sessions/{_workerA}/message",
+            new StringContent(json, System.Text.Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, r.StatusCode);
+        Assert.Equal(error, S(await Body(r), "error"));
+        Assert.Equal(0, (await Inbox(_asWorkerA)).UnreadCount);
+    }
+
+    [Fact]
+    public async Task A_reply_needs_an_id_and_a_session_key()
+    {
+        var blank = await _asWorkerA.PostAsJsonAsync("fleet/reply", new { id = " ", text = "x" });
+        Assert.Equal(HttpStatusCode.BadRequest, blank.StatusCode);
+
+        var asked = await Ask(_asManager, _workerA, "owner cannot answer this");
+        var owner = await Reply(_owner, S(asked, "correlationId"), "the owner typing");
+        Assert.Equal(HttpStatusCode.Forbidden, owner.StatusCode);
+        Assert.Equal("a reply is sent by a session; call this with that session's own key", S(await Body(owner), "error"));
+    }
+
+    [Fact]
+    public async Task The_heartbeat_tells_the_asker_once_when_the_deadline_passes_and_a_late_reply_still_lands()
+    {
+        var asked = await Ask(_asManager, _workerA, "did the migration run?", replyByMinutes: 1);
+        var messageId = S(asked, "messageId");
+        // The host's clock is the real one; the deadline is moved into the past rather than waiting a minute.
+        using (var ctx = _gateway.GatewayDatabaseForTests.CreateContext(TenantId.Local))
+        {
+            var row = ctx.FleetMessages.Single(m => m.MessageId == messageId);
+            row.ReplyByUtc = DateTime.UtcNow.AddMinutes(-1);
+            ctx.SaveChanges();
+        }
+
+        await _gateway.FleetDoorbell.SweepAsync();
+        await _gateway.FleetDoorbell.SweepAsync();
+
+        var inbox = await Body(await _asManager.GetAsync("fleet/inbox"));
+        var unread = inbox.GetProperty("unread");
+        Assert.Equal(1, unread.GetArrayLength());
+        var notice = unread[0];
+        Assert.Equal("system", S(notice, "kind"));
+        Assert.Equal("no-reply", S(notice, "notice"));
+        Assert.Equal(JsonValueKind.Null, notice.GetProperty("fromSessionId").ValueKind);
+        Assert.StartsWith($"No reply to your message {messageId} (correlation {S(asked, "correlationId")}) from Mission - Worker - A",
+            S(notice, "text"));
+        Assert.Equal("did the migration run?", S(notice.GetProperty("inReplyTo"), "text"));
+        // The roster says the manager is working, so nothing was typed.
+        Assert.Empty(VerbsSent());
+
+        var late = await Reply(_asWorkerA, S(asked, "correlationId"), "yes, a while ago");
+        Assert.Equal(HttpStatusCode.OK, late.StatusCode);
+        await _gateway.FleetDoorbell.SweepAsync();
+
+        var after = (await Inbox(_asManager)).Unread;
+        var reply = Assert.Single(after);
+        Assert.Equal("reply", reply.Kind);
+        Assert.True(reply.InReplyTo!.Late);
+    }
 }

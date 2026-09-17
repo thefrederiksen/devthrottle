@@ -19,8 +19,14 @@ namespace CcDirector.Gateway.Data.Entities;
 /// COLUMNS THE LATER SLICES WRITE. The ring columns (<see cref="RingCount"/>, <see cref="LastRungAtUtc"/>,
 /// <see cref="StuckAtUtc"/>) are written by the doorbell (slice 2, <see cref="Messaging.FleetDoorbell"/>); a
 /// read clears <see cref="StuckAtUtc"/>. The reply columns (<see cref="CorrelationId"/>,
-/// <see cref="InReplyToMessageId"/>, <see cref="ReplyByUtc"/>) are for slice 3 (replies) and nothing writes
-/// them yet. Slice 1 created all six so the table needed one migration rather than three.
+/// <see cref="InReplyToMessageId"/>, <see cref="ReplyByUtc"/>) were created by slice 1 and are written by slice 3
+/// (replies, <see cref="Messaging.FleetMessageStore.TryReply"/>); slice 3 added the two it needed beside them,
+/// <see cref="RepliedAtUtc"/> and <see cref="ReplyOverdueAtUtc"/>.
+///
+/// A MESSAGE THAT WANTS A REPLY carries a <see cref="CorrelationId"/> and a <see cref="ReplyByUtc"/>, and no
+/// <see cref="InReplyToMessageId"/>. A REPLY is kind <c>reply</c> and carries the original's
+/// <see cref="CorrelationId"/> and <see cref="InReplyToMessageId"/>. A NO-REPLY NOTICE is kind <c>system</c> and
+/// carries them too, so the reader can be shown which question went unanswered.
 /// </summary>
 public sealed class FleetMessageEntity : TenantScopedEntity
 {
@@ -65,12 +71,21 @@ public sealed class FleetMessageEntity : TenantScopedEntity
     /// <summary>When the message was marked stuck after unanswered rings (UTC); cleared again if the message is read.</summary>
     public DateTime? StuckAtUtc { get; set; }
 
-    /// <summary>The correlation id of a message that wants a reply. Written by slice 3.</summary>
+    /// <summary>The correlation id of a message that wants a reply (32 hexadecimal characters, minted by the
+    /// Gateway); on a reply or a no-reply notice, the correlation id of the message it is about.</summary>
     public string? CorrelationId { get; set; }
 
-    /// <summary>The message this one answers. Written by slice 3.</summary>
+    /// <summary>On a reply or a no-reply notice, the id of the message it is about. Null on an original.</summary>
     public string? InReplyToMessageId { get; set; }
 
-    /// <summary>When a wanted reply is due (UTC). Written by slice 3.</summary>
+    /// <summary>When a wanted reply is due (UTC). Set only on a message that asked for a reply.</summary>
     public DateTime? ReplyByUtc { get; set; }
+
+    /// <summary>When the FIRST reply to this message was written (UTC), or null. Stamped in the same save as the
+    /// reply. A reply that arrives after <see cref="ReplyOverdueAtUtc"/> still stamps it.</summary>
+    public DateTime? RepliedAtUtc { get; set; }
+
+    /// <summary>When the Gateway found this message's reply deadline passed with no reply (UTC), or null. Written
+    /// in the same save as the no-reply notice to the sender, so the notice is written once.</summary>
+    public DateTime? ReplyOverdueAtUtc { get; set; }
 }

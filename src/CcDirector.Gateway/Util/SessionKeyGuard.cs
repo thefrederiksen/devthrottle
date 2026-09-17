@@ -328,6 +328,10 @@ public static class SessionKeyGuard
             // and is refused above.
             if (Join(s) == "fleet/broadcast") return true;
 
+            // An answer to a message that asked for one (the Message Load mission, slice 3). The id is in the body;
+            // who may answer, and to whom it goes, is the Gateway's ruling, and the answer is queued, never typed.
+            if (Join(s) == "fleet/reply") return true;
+
             // Create a mission - the unit of work sessions attach to.
             if (Join(s) == "missions") return true;
 

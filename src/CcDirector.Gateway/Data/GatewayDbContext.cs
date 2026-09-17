@@ -804,6 +804,9 @@ public sealed class GatewayDbContext : DbContext
             b.HasIndex(e => new { e.TenantId, e.SenderSessionId, e.CreatedAtUtc });
             // Retention cuts on the created moment across every session.
             b.HasIndex(e => new { e.TenantId, e.CreatedAtUtc });
+            // The no-reply sweep (slice 3): messages whose reply deadline has passed. Only messages that asked
+            // for a reply have a deadline, so the heartbeat's scan reads those alone.
+            b.HasIndex(e => new { e.TenantId, e.ReplyByUtc });
         });
 
         // ---- the Fleet Manager: the news it brought the owner, and the owner's standing preferences --------

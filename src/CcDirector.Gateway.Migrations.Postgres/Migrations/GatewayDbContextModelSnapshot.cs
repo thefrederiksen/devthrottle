@@ -621,7 +621,13 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                         .HasColumnType("character varying(64)")
                         .UseCollation("C");
 
+                    b.Property<DateTime?>("RepliedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTime?>("ReplyByUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("ReplyOverdueAtUtc")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<int>("RingCount")
@@ -657,6 +663,8 @@ namespace CcDirector.Gateway.Migrations.Postgres.Migrations
                     b.HasIndex("TenantId");
 
                     b.HasIndex("TenantId", "CreatedAtUtc");
+
+                    b.HasIndex("TenantId", "ReplyByUtc");
 
                     b.HasIndex("TenantId", "SenderSessionId", "CreatedAtUtc");
 

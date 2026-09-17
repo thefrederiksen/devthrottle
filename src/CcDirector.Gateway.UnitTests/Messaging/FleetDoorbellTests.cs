@@ -283,6 +283,39 @@ public sealed class FleetDoorbellTests : IDisposable
         Assert.Empty(rig.Store.ReadInbox(Tenant, Manager, _now, includeRecent: false).Unread);
     }
 
+    // ---------- Slice 3: no reply by the deadline, in the same heartbeat ----------
+
+    [Fact]
+    public async Task The_heartbeat_marks_a_question_past_its_deadline_and_rings_the_asker_for_the_notice_on_the_same_tick()
+    {
+        var rig = NewRig();
+        var question = rig.Service.Send(Tenant,
+            new FleetParty(Manager, null, "manager", "mac"),
+            new FleetParty(Worker, Manager, "worker-one", "mac"),
+            "which branch?", FleetMessageKinds.Message, replyWithin: TimeSpan.FromMinutes(1)).Response;
+        rig.Service.ReadInbox(Tenant, Worker, includeRecent: false); // the worker read it and never answered
+
+        _now = T0.AddSeconds(59);
+        await rig.Doorbell.SweepAsync();
+        Assert.Null(Peek(question.MessageId!).ReplyOverdueAtUtc);
+        Assert.Empty(_rings);
+
+        _now = T0.AddMinutes(1);
+        await rig.Doorbell.SweepAsync();
+
+        Assert.Equal(T0.AddMinutes(1), Peek(question.MessageId!).ReplyOverdueAtUtc);
+        var ring = Assert.Single(_rings);
+        Assert.Equal(Manager, ring.Sid);
+        Assert.Equal(1, ring.Unread);
+
+        // And never again.
+        _now = T0.AddMinutes(30);
+        await rig.Doorbell.SweepAsync();
+        using var ctx = _harness.Open().CreateContext(Tenant);
+        var notice = Assert.Single(ctx.FleetMessages.Where(m => m.Kind == FleetMessageKinds.System).ToList());
+        Assert.Contains("from worker-one (bbbbbbbb) by its deadline", notice.Text);
+    }
+
     // ---------- Inspection 4, ruling 4: stuck and its notice are one write ----------
 
     /// <summary>Ring the worker three times at the product grace and move to the moment it is due stuck.</summary>
@@ -396,9 +429,10 @@ public sealed class FleetDoorbellTests : IDisposable
         var others = counter.Others;
 
         Assert.Equal(40, _rings.Count);
-        // The stuck scan and the one unread read; when anything rang, one read and one save to record it.
-        Assert.Equal(directorsRing ? 4 : 2, readers + others);
-        Assert.True(readers <= 3, $"at most three queries, saw {readers} (+{others} other commands)");
+        // The stuck scan, the no-reply scan (slice 3) and the one unread read; when anything rang, one read and one
+        // save to record it.
+        Assert.Equal(directorsRing ? 5 : 3, readers + others);
+        Assert.True(readers <= 4, $"at most four queries, saw {readers} (+{others} other commands)");
         Assert.All(ids, id => Assert.Equal(directorsRing ? 1 : 0, Peek(id).RingCount));
     }
 

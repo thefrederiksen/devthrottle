@@ -112,6 +112,9 @@ public enum FleetRingAttempt
 /// rate rules). A notice that is itself stuck produces no further notice - it has nobody to report to. A read
 /// undoes stuck (see <see cref="FleetMessageStore.ReadInbox"/>).
 ///
+/// NO REPLY (slice 3): the same heartbeat marks every message whose reply deadline passed unanswered and queues one
+/// no-reply notice to its sender, in one write (<see cref="FleetMessageService.MarkReplyOverdueAndNotify"/>).
+///
 /// EVERY DECISION LEAVES A LOG LINE, so "why was this session never rung" is answerable from the Gateway log.
 /// </summary>
 public sealed class FleetDoorbell
@@ -210,7 +213,8 @@ public sealed class FleetDoorbell
 
     /// <summary>
     /// ONE TENANT'S HEARTBEAT, BOUNDED (inspection 4, ruling 6). Whatever the backlog, the database is read a
-    /// fixed number of times: the stuck scan (rows at the ring cap only), one read of every unread message with its
+    /// fixed number of times: the stuck scan (rows at the ring cap only), the no-reply scan (rows past a reply deadline
+    /// and not yet marked or answered, slice 3), one read of every unread message with its
     /// recipient and without its text, and - when anything was rung - one read and one save to record the rings.
     /// The rings themselves run <see cref="RingParallelism"/> at a time, each abandoned after the ring timeout,
     /// so one slow Director cannot hold up the rest. The tick logs how long it took.
@@ -219,6 +223,9 @@ public sealed class FleetDoorbell
     {
         var started = System.Diagnostics.Stopwatch.GetTimestamp();
         var stuck = MarkStuckAndNotify(tenant);
+        // NO REPLY BY THE DEADLINE (slice 3): marked, and its sender told once, in the same heartbeat - before the
+        // unread read below, so a notice written now is rung on this very tick.
+        var overdue = _messages.MarkReplyOverdueAndNotify(tenant, sid => _locate(tenant, sid)?.Name);
         var now = _clock();
         var unread = _store.UnreadForScheduling(tenant);
         var plans = unread
@@ -268,7 +275,7 @@ public sealed class FleetDoorbell
         {
             foreach (var key in held) _inFlight.TryRemove(key, out _);
             var ms = System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds;
-            FileLog.Write($"[FleetDoorbell] heartbeat tick: tenant={tenant} stuck={stuck.Count} unread={unread.Count} " +
+            FileLog.Write($"[FleetDoorbell] heartbeat tick: tenant={tenant} stuck={stuck.Count} overdue={overdue.Count} unread={unread.Count} " +
                           $"sessions={plans.Count} {string.Join(" ", attempts.OrderBy(k => k.Key).Select(k => $"{k.Key}={k.Value}"))} " +
                           $"took={ms:0}ms");
         }

@@ -24,6 +24,19 @@ public sealed class FleetMessageRequest
     public string? Kind { get; set; }
 
     /// <summary>
+    /// Ask the recipient for a reply (slice 3, ruling 10). The message gets a correlation id and a reply deadline;
+    /// the recipient answers with <c>message reply</c>, and the answer lands in the sender's inbox. Nobody waits:
+    /// if no reply arrives by the deadline, the Gateway puts one no-reply notice in the sender's inbox.
+    /// </summary>
+    public bool ReplyWanted { get; set; }
+
+    /// <summary>
+    /// The reply deadline in minutes from now, with <see cref="ReplyWanted"/>. Omitted: 60. The Gateway refuses a
+    /// value outside 1 to 1440, and refuses this field without <see cref="ReplyWanted"/>.
+    /// </summary>
+    public int? ReplyByMinutes { get; set; }
+
+    /// <summary>
     /// RETIRED with <c>message ask</c> (the Message Load mission, ruling 10). It is still read so that an
     /// older command line asking to wait is REFUSED with a sentence rather than silently queued and answered
     /// with an empty "answer". No agent waits for another agent any more.
@@ -56,6 +69,64 @@ public sealed class FleetMessageSendResponse
 
     /// <summary>A sentence about an outcome that is not a refusal - why a duplicate was dropped.</summary>
     public string? Note { get; set; }
+
+    /// <summary>The correlation id (slice 3). On a send that asked for a reply: the id the recipient replies to,
+    /// and the one a reply and a no-reply notice will carry. On a dropped duplicate: the waiting copy's, when it
+    /// asked for a reply. On a reply: the original's.</summary>
+    public string? CorrelationId { get; set; }
+
+    /// <summary>When the wanted reply is due (UTC), on a send that asked for one.</summary>
+    public DateTime? ReplyByUtc { get; set; }
+
+    /// <summary>On a reply: the id of the message it answers.</summary>
+    public string? InReplyToMessageId { get; set; }
+}
+
+/// <summary>
+/// Body of <c>POST /fleet/reply</c> - one session answering a message that asked for a reply (the Message Load
+/// mission, slice 3, ruling 10). Like <see cref="FleetMessageRequest"/> it carries no sender and no recipient: the
+/// sender is the session whose key made the call, and the recipient is whoever sent the original.
+/// </summary>
+public sealed class FleetReplyRequest
+{
+    /// <summary>The correlation id or the message id of the message being answered, as <c>message inbox</c> showed it.</summary>
+    public string Id { get; set; } = "";
+
+    /// <summary>The answer, exactly as it should be read. It may span many lines.</summary>
+    public string Text { get; set; } = "";
+}
+
+/// <summary>What a notice in an inbox is about (slice 3). The Gateway decides it; a client only shows it.</summary>
+public static class FleetInboxNotices
+{
+    /// <summary>A message that asked for a reply got none by its deadline. The row's
+    /// <see cref="FleetInboxMessageDto.InReplyTo"/> names the question.</summary>
+    public const string NoReply = "no-reply";
+}
+
+/// <summary>The question a reply or a no-reply notice is about, as its original sender reads it (slice 3).</summary>
+public sealed class FleetInboxQuestionDto
+{
+    /// <summary>The question's message id.</summary>
+    public string MessageId { get; set; } = "";
+
+    /// <summary>The question's correlation id.</summary>
+    public string? CorrelationId { get; set; }
+
+    /// <summary>The session the question was sent to. Null when the question is no longer kept.</summary>
+    public string? ToSessionId { get; set; }
+
+    /// <summary>The question's full text. Null when it is no longer kept (thirty-day retention).</summary>
+    public string? Text { get; set; }
+
+    /// <summary>When the question was sent, when it is still kept.</summary>
+    public DateTime? SentAtUtc { get; set; }
+
+    /// <summary>The question's reply deadline, when it is still kept.</summary>
+    public DateTime? ReplyByUtc { get; set; }
+
+    /// <summary>True on a reply written after the question's deadline.</summary>
+    public bool Late { get; set; }
 }
 
 /// <summary>What <c>POST /fleet/broadcast</c> answers (the Message Load mission, slice 1).</summary>
@@ -88,7 +159,7 @@ public sealed class FleetInboxMessageDto
     /// <summary>The sender's machine when it sent, or null.</summary>
     public string? FromMachine { get; set; }
 
-    /// <summary>message, report, team, everyone or system.</summary>
+    /// <summary>message, report, team, everyone, reply or system.</summary>
     public string Kind { get; set; } = "";
 
     /// <summary>The full text, exactly as sent.</summary>
@@ -98,6 +169,25 @@ public sealed class FleetInboxMessageDto
 
     /// <summary>When it was read. For a message returned as unread this is the moment of this read.</summary>
     public DateTime? ReadAtUtc { get; set; }
+
+    /// <summary>True when the sender asked for a reply (slice 3). Answer with <see cref="ReplyHint"/>.</summary>
+    public bool ReplyWanted { get; set; }
+
+    /// <summary>The correlation id: on a message that wants a reply, the id to reply to; on a reply or a no-reply
+    /// notice, the question's.</summary>
+    public string? CorrelationId { get; set; }
+
+    /// <summary>When the wanted reply is due (UTC), on a message that wants one.</summary>
+    public DateTime? ReplyByUtc { get; set; }
+
+    /// <summary>The command that answers this message, on a message that wants a reply.</summary>
+    public string? ReplyHint { get; set; }
+
+    /// <summary>What a notice is about - one of <see cref="FleetInboxNotices"/> - or null.</summary>
+    public string? Notice { get; set; }
+
+    /// <summary>On a reply (kind <c>reply</c>) or a no-reply notice: the question it is about.</summary>
+    public FleetInboxQuestionDto? InReplyTo { get; set; }
 }
 
 /// <summary>What <c>GET /fleet/inbox</c> answers: the calling session's own inbox.</summary>

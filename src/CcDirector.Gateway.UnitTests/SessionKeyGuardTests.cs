@@ -68,6 +68,8 @@ public sealed class SessionKeyGuardTests
     // route's ruling, because it needs the roster; the guard only lets the request reach it.
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/message")]
     [InlineData("POST", "/fleet/broadcast")]
+    // An answer to a message that asked for one (slice 3). Who may answer, and to whom, is the route's ruling.
+    [InlineData("POST", "/fleet/reply")]
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/hold")]
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/role")]
     [InlineData("POST", "/sessions/11111111-1111-1111-1111-111111111111/mission")]
@@ -149,6 +151,16 @@ public sealed class SessionKeyGuardTests
         // so acknowledge - someone else's messages; if such a route is ever added it is refused until classified.
         Assert.False(SessionKeyGuard.Check("GET", "/fleet/inbox/11111111-1111-1111-1111-111111111111").Allowed);
         Assert.False(SessionKeyGuard.Check("POST", "/fleet/inbox").Allowed);
+    }
+
+    [Fact]
+    public void The_reply_route_is_allowed_only_in_its_one_shape()
+    {
+        // Slice 3: the id is in the body, so a shape carrying one in the path, or a read of the route, is not a route
+        // a session key reaches.
+        Assert.True(SessionKeyGuard.Check("POST", "/fleet/reply").Allowed);
+        Assert.False(SessionKeyGuard.Check("GET", "/fleet/reply").Allowed);
+        Assert.False(SessionKeyGuard.Check("POST", "/fleet/reply/0123456789abcdef0123456789abcdef").Allowed);
     }
 
     // ---------- The routes the SHIPPED CLIENTS actually call ----------

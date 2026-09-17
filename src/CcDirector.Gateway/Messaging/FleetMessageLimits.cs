@@ -43,6 +43,17 @@ public sealed record FleetMessageLimits
     /// Gateway never loads an unbounded day of sixteen-thousand-character rows for one request.</summary>
     public int RecentReadCap { get; init; } = 200;
 
+    /// <summary>How long a sender waits for a wanted reply when it names no deadline (slice 3, ruling 10). When it
+    /// passes with no reply, the sender gets one no-reply notice.</summary>
+    public TimeSpan DefaultReplyWindow { get; init; } = TimeSpan.FromMinutes(60);
+
+    /// <summary>The shortest reply deadline a sender may name.</summary>
+    public TimeSpan MinReplyWindow { get; init; } = TimeSpan.FromMinutes(1);
+
+    /// <summary>The longest reply deadline a sender may name. A day: a question nobody answers in a day is not
+    /// waiting on a reply any more, and the no-reply notice is what tells the sender to carry on.</summary>
+    public TimeSpan MaxReplyWindow { get; init; } = TimeSpan.FromHours(24);
+
     /// <summary>The longest message text accepted. A message is read from the inbox, never typed, so it may
     /// be long - but not unbounded.</summary>
     public int MaxTextLength { get; init; } = 16_000;
@@ -66,7 +77,11 @@ public static class FleetMessageKinds
     /// <summary>A notice written by the Gateway itself. No sender.</summary>
     public const string System = "system";
 
-    /// <summary>True for the kinds a caller may name in the request body. The other three are decided by
+    /// <summary>An answer to a message that asked for one (slice 3, <c>message reply</c>). Written only by the
+    /// reply route, to the sender of the original, and never chosen in a send's body.</summary>
+    public const string Reply = "reply";
+
+    /// <summary>True for the kinds a caller may name in the request body. The others are decided by
     /// the route, never by the caller.</summary>
     public static bool IsCallerChoosable(string? kind) => kind is Message or Report;
 }

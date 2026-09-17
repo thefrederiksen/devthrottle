@@ -3253,6 +3253,20 @@ internal static class GatewayEndpoints
             if (fleetMessages is null)
                 return InboxUnavailable();
 
+            // A REPLY, IF WANTED, IS ASKED FOR HERE (slice 3, ruling 10): the record gets a correlation id and a
+            // deadline. Nobody waits for it. A deadline without the ask is a mistake the caller should hear about.
+            TimeSpan? replyWithin = null;
+            if (req.ReplyWanted)
+            {
+                if (!fleetMessages.TryReplyWindow(req.ReplyByMinutes, out var window, out var windowError))
+                    return Results.BadRequest(new { error = windowError });
+                replyWithin = window;
+            }
+            else if (req.ReplyByMinutes is not null)
+            {
+                return Results.BadRequest(new { error = "replyByMinutes is a reply deadline and needs replyWanted: true" });
+            }
+
             var (identity, senderRow, senderOwner) = await ResolveSenderAsync(ctx);
             if (identity is null)
                 return Results.Json(new { error = "this route identifies the sender from the session key that authenticated the request; the caller presented no session key" },
@@ -3270,8 +3284,38 @@ internal static class GatewayEndpoints
             var outcome = fleetMessages.Send(tenant.Value,
                 PartyFrom(from, senderRow, senderOwner),
                 PartyFrom(session.SessionId, session, director),
-                req.Text ?? "", kind);
-            FileLog.Write($"[GatewayEndpoints] POST message: from={FleetMessaging.ShortId(from)} to={FleetMessaging.ShortId(sid)} kind={kind} status={outcome.Response.Status}");
+                req.Text ?? "", kind, replyWithin: replyWithin);
+            FileLog.Write($"[GatewayEndpoints] POST message: from={FleetMessaging.ShortId(from)} to={FleetMessaging.ShortId(sid)} kind={kind} replyWanted={req.ReplyWanted} status={outcome.Response.Status}");
+            return Results.Json(outcome.Response, statusCode: outcome.StatusCode);
+        });
+
+        // POST /fleet/reply - answer a message that asked for a reply (the Message Load mission, slice 3, ruling 10).
+        //
+        // The body names the message by its correlation id or its message id; it names neither sender nor recipient.
+        // The sender is the session whose key made the call, and the reply goes into the inbox of whoever SENT the
+        // original - whatever the relationship between the two, and whether or not that session is still running,
+        // because the record is the delivery. Only the session the original was sent to may answer it (the policy
+        // says so, and why). A reply is not held to the rate limits and is not counted against them; a reply after
+        // the deadline still lands.
+        app.MapPost("/fleet/reply", async (HttpContext ctx, FleetReplyRequest req) =>
+        {
+            if (req is null || string.IsNullOrWhiteSpace(req.Id))
+                return Results.BadRequest(new { error = "id is required: the correlation id or message id of the message you are answering" });
+            if (fleetMessages is null)
+                return InboxUnavailable();
+
+            var (identity, replierRow, replierOwner) = await ResolveSenderAsync(ctx);
+            if (identity is null)
+                return Results.Json(new { error = "a reply is sent by a session; call this with that session's own key" },
+                    statusCode: StatusCodes.Status403Forbidden);
+
+            var tenant = ResolveReadTenant(ctx, tenantBoundary);
+            if (tenant is null)
+                return Results.Json(new { error = "no tenant is bound to this request" }, statusCode: StatusCodes.Status403Forbidden);
+
+            var from = identity.SessionId.ToString();
+            var outcome = fleetMessages.Reply(tenant.Value, PartyFrom(from, replierRow, replierOwner), req.Id.Trim(), req.Text ?? "");
+            FileLog.Write($"[GatewayEndpoints] POST fleet/reply: from={FleetMessaging.ShortId(from)} id={req.Id.Trim()} status={outcome.Response.Status}");
             return Results.Json(outcome.Response, statusCode: outcome.StatusCode);
         });
 
