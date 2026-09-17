@@ -10,6 +10,17 @@ namespace CcDirector.Gateway.Wingman;
 public sealed record TurnVerdictLocated(string SessionId, TurnVerdictDto Verdict, DateTime? AnsweredAtUtc = null);
 
 /// <summary>
+/// One stored verdict of a session's history, with the moment the owner's answer to it was confirmed (null while it
+/// is unanswered).
+///
+/// WHY THE MOMENT DOES NOT RIDE ON <see cref="TurnVerdictDto"/>. That record is the JUDGE's answer, serialised when
+/// the judge answered; being answered happens long afterwards and lives in the row's own column. A field on the
+/// serialised answer would read null on every route that does not stamp it, which is indistinguishable from "nobody
+/// has answered this" - so the fact travels beside the answer rather than inside it.
+/// </summary>
+public sealed record AnsweredTurnVerdict(TurnVerdictDto Verdict, DateTime? AnsweredAtUtc);
+
+/// <summary>
 /// One located session's screen and keyboard, as the answer route needs them. The route binds it to the session in
 /// its path (the owning Director, over the tunnel); a test binds it to a fake that records every write.
 /// </summary>

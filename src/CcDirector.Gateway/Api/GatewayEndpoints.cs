@@ -264,7 +264,11 @@ internal static class GatewayEndpoints
         Action<Wingman.TurnVerdictRecord>? turnVerdictLedger = null,
         // Slice F: the fold's snooze memory, which turns "expired" into the one EDGE ruling 10 acts on. Null stamps
         // false on every row - the row exactly as slice D left it.
-        Wingman.SnoozeExpiryReJudge? snoozeExpiry = null)
+        Wingman.SnoozeExpiryReJudge? snoozeExpiry = null,
+        // The Wingman tab, version 3, item 1: the stored conversation GET /sessions/{sid}/wingman-now reads the
+        // agent's whole last reply from. The same store GET /sessions/{sid}/history serves, read inside the
+        // caller's tenant scope. Null leaves that one field null and changes nothing else about the view.
+        History.SessionTurnStore? sessionTurns = null)
     {
         // The old issue #1188 "session lock" (423 Locked on human input while a PENDING dictation record
         // existed) was removed deliberately (issue #1308). This is a single-operator tool: a collision
@@ -3079,6 +3083,13 @@ internal static class GatewayEndpoints
         app.MapGet("/sessions/{sid}/wingman-stops", (HttpContext ctx, string sid, int? count)
             => ReadWingmanStops(ctx, sid, count, tenantBoundary, turnVerdictTraces, pushedSessions));
 
+        // THE LIVE STOP, prepared for the Wingman tab's Now view (the Wingman tab, version 3, item 1). It carries the
+        // agent's own words and its whole reply, so it takes the SAME refusals as wingman-stops above - see
+        // ReadWingmanNow.
+        app.MapGet("/sessions/{sid}/wingman-now", (HttpContext ctx, string sid)
+            => ReadWingmanNow(ctx, sid, tenantBoundary, registry, pushedSessions, turnVerdicts, sessionTurns,
+                snoozeRegistry, handRaises, turnVerdictRows, snoozeExpiry));
+
         // ANSWER A JUDGED STOP (the Wingman-on-every-turn mission, slice E; ruling 12). The ONE server-owned write
         // path for a verdict's options: the owner's tap, never the Wingman. TurnVerdictAnswerService holds the rules
         // - the verdict joined to this session, the selection checked against the verdict, and the full-grid screen
@@ -5840,6 +5851,107 @@ internal static class GatewayEndpoints
         var traces = turnVerdictTraces.History(tenant.Value, sid, count ?? Wingman.TurnVerdictTraceStore.DefaultHistoryCount);
         var answer = Wingman.WingmanStopsFold.Fold(sid, traces);
         FileLog.Write($"[GatewayEndpoints] GET wingman-stops: sid={sid} stops={answer.Stops.Count}");
+        return Results.Json(answer);
+    }
+
+    /// <summary>
+    /// <c>GET /sessions/{sid}/wingman-now</c>: the LIVE stop of one session, folded by
+    /// <see cref="Wingman.WingmanNowFold"/> into the finished strings and flags the Wingman tab's Now view renders
+    /// (the Wingman tab, version 3, item 1).
+    ///
+    /// THIS HANDLER DECIDES NOTHING. It gathers - the session's folded roster row, its stored verdicts, its stored
+    /// conversation - and hands them to a pure fold. Every owner-facing word is in that fold, where it is tested by
+    /// handing it inputs rather than by booting a Gateway.
+    ///
+    /// THE REFUSALS, IN ORDER, AND THEY ARE <see cref="ReadWingmanStops"/>'S: no tenant (403); a SESSION KEY (403);
+    /// no authenticated DEVICE - the self-hosted shared machine token, or no credential at all (403); a session id
+    /// that is not an identifier (400); no verdict store on this Gateway (404); a session that is not in the caller's
+    /// account (404, the same answer an unknown session gets, so one account cannot learn which ids exist in
+    /// another).
+    ///
+    /// A SESSION KEY IS NEVER SERVED, WHATEVER THE COLOUR SWITCH SAYS, for the reason wingman-stops gives: this
+    /// answer carries the agent's decisive sentence and its whole last reply, and a session reading its own judge's
+    /// account of it is a different thing from a session reading its own colour. The route is also absent from
+    /// <see cref="SessionKeyGuard"/>'s allow list, and this handler refuses on its own anyway, so the refusal does
+    /// not depend on that list staying as it is.
+    ///
+    /// THE ROSTER ROW COMES FROM <see cref="FoldedAccountRoster"/> - the same fold the roster route serves - so the
+    /// pill's colour and the Sessions list's dot are the same value from the same place, never two answers.
+    /// </summary>
+    internal static IResult ReadWingmanNow(
+        HttpContext ctx,
+        string sid,
+        Tenancy.HostedTenantBoundary tenantBoundary,
+        DirectorRegistry registry,
+        Streaming.PushedSessionStore? pushedSessions,
+        Wingman.TurnVerdictStore? turnVerdicts,
+        History.SessionTurnStore? sessionTurns,
+        Snooze.SnoozeRegistry? snoozeRegistry,
+        Fleet.HandRaiseRegistry? handRaises,
+        Wingman.ITurnVerdictRowSource? turnVerdictRows,
+        Wingman.SnoozeExpiryReJudge? snoozeExpiry)
+    {
+        FileLog.Write($"[GatewayEndpoints] GET wingman-now: sid={sid}");
+        var tenant = ResolveReadTenant(ctx, tenantBoundary);
+        if (tenant is null)
+            return Results.Json(new { error = "no tenant is bound to this request" },
+                statusCode: StatusCodes.Status403Forbidden);
+        if (AuthMiddleware.CallingSession(ctx) is not null)
+        {
+            FileLog.Write($"[GatewayEndpoints] GET wingman-now: sid={sid} REFUSED a session key");
+            return Results.Json(new
+            {
+                error = "the Wingman's live stop carries the agent's own words and its whole reply, and is served "
+                      + "to the account's own devices only - never to a session key",
+            }, statusCode: StatusCodes.Status403Forbidden);
+        }
+        if (!ctx.Items.TryGetValue(AuthMiddleware.AuthenticatedDeviceItemKey, out var device)
+            || device is not Pairing.DeviceCredentialIdentity)
+        {
+            FileLog.Write($"[GatewayEndpoints] GET wingman-now: sid={sid} REFUSED a caller with no device identity");
+            return Results.Json(new
+            {
+                error = "the Wingman's live stop is served only to a device signed in with its own device key - not "
+                      + "to the shared machine token, and not to a request with no device",
+            }, statusCode: StatusCodes.Status403Forbidden);
+        }
+        if (!Guid.TryParse(sid, out _))
+            return Results.Json(new { error = "invalid session id format" },
+                statusCode: StatusCodes.Status400BadRequest);
+        if (turnVerdicts is null)
+            return Results.Json(new { error = "the Wingman's live stop is not available on this gateway" },
+                statusCode: StatusCodes.Status404NotFound);
+        // The same existence rule as the verdict reads, freshness ignored: the record is held here, so a session
+        // whose Director has gone quiet is still this account's session and its stop is still readable.
+        if (pushedSessions?.TryLocateIgnoringFreshness(tenant.Value, sid) is null)
+            return SessionUnavailable(ctx, tenantBoundary, pushedSessions, sid);
+
+        var row = FoldedAccountRoster(registry, pushedSessions, tenant.Value, snoozeRegistry, handRaises,
+                turnVerdictRows, snoozeExpiry)
+            .FirstOrDefault(s => string.Equals(s.SessionId, sid, StringComparison.OrdinalIgnoreCase));
+        var verdicts = turnVerdicts.HistoryWithAnswers(tenant.Value, sid);
+
+        // THE STORE IS READ INSIDE THE CALLER'S TENANT SCOPE. Its rows are partitioned by the context's ambient
+        // tenant, so a read taken outside a scope answers from whatever tenant happened to be ambient - which on
+        // hosted is how one account ends up served another account's conversation. GET /sessions/{sid}/history
+        // enters the scope for exactly this reason; so does this.
+        //
+        // WATCHED, because it is not visible to the rest of the route's tests: they build the boundary over the
+        // single-tenant context, whose EnterScope is a no-op, so deleting this line left every one of them green.
+        // WingmanNowRouteTests.The_stored_conversation_is_read_inside_the_callers_own_account builds the hosted
+        // boundary instead and goes red without it.
+        Wingman.WingmanNowConversation? conversation = null;
+        if (sessionTurns is not null)
+        {
+            using var scope = tenantBoundary.EnterScope(tenant.Value);
+            var stored = sessionTurns.ReadCurrent(sid);
+            if (stored is not null)
+                conversation = new Wingman.WingmanNowConversation(stored.Value.Head.IsSupported, stored.Value.Messages);
+        }
+
+        var answer = Wingman.WingmanNowFold.Fold(
+            new Wingman.WingmanNowInputs(sid, row, verdicts, conversation));
+        FileLog.Write($"[GatewayEndpoints] GET wingman-now: sid={sid} state={answer.State}");
         return Results.Json(answer);
     }
 

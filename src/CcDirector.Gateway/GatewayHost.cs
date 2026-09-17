@@ -3551,6 +3551,9 @@ public sealed class GatewayHost : IAsyncDisposable
             turnVerdictRows: _turnVerdictRows,
             // Slice F: the same snooze memory the display push folds with, so one expiry is one edge.
             snoozeExpiry: _snoozeExpiry,
+            // The Wingman tab, version 3, item 1: the stored conversation GET /sessions/{sid}/wingman-now reads the
+            // agent's whole last reply from - the same store the Chat screen's history read serves.
+            sessionTurns: _sessionTurns,
             // Slice E: the one write path for a verdict's options, recording into the same ledger the seat does.
             turnVerdictAnswers: new Wingman.TurnVerdictAnswerService(new Wingman.TurnVerdictAnswerRecords(
                 _turnVerdicts, record => EnsureTurnVerdictEnvironment().Record(record))),

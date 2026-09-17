@@ -504,6 +504,10 @@ public sealed class SessionKeyGuardTests
     // judge's raw answer, so it is the account's devices' only - never a session key's, whatever the colour switch
     // says. It is deliberately NOT on the allow list, and its handler refuses a session key on its own as well.
     [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/wingman-stops")]
+    // The Wingman tab's live stop (version 3, item 1). Same reasoning, same refusal: it carries the agent's decisive
+    // sentence and its whole last reply, so it is the account's devices' only. Deliberately NOT on the allow list,
+    // and its handler refuses a session key on its own as well.
+    [InlineData("GET", "/sessions/11111111-1111-1111-1111-111111111111/wingman-now")]
     // The diagnostics and reporting surfaces.
     [InlineData("GET", "/diag/loadmetrics")]
     [InlineData("GET", "/gateway/reports/morning")]
