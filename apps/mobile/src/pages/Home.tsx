@@ -791,6 +791,9 @@ export function SessionRow({
                 ticking each second - only mounted when there is a clock, so other rows keep no timer. */}
             {holdCountdown !== null && <HoldCountdown session={session} />}
           </span>
+          {/* The row line (Message Load mission, slice 4): what waits in this session's fleet inbox, in the
+              Gateway's words, rendered verbatim - the same string the Cockpit and the desktop rail show. */}
+          {session.inboxLine && <span className="row-inbox">{session.inboxLine}</span>}
           {/* The supervision facts (internal#625) - started / open / idle / turns, the same shared
               formatter the Cockpit card maps over, so both surfaces say each fact the same way.
               Stats a Director does not report are omitted, never rendered as zero. */}
