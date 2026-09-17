@@ -3009,3 +3009,170 @@ so `scripts/test-local.ps1` was NOT the gate):**
   conduct text is reworded is the Architect's call, and it belongs to the Fleet Manager mission's
   Architect as much as to this one.
 - The words only reach the fleet when the Gateway is deployed, which is not this mission's step.
+
+## Last check run fixes (17 September 2026, Manager seat for the last check run fixes)
+
+The pull request's checks were red on three counts. All three are addressed here. No pull request was
+opened or touched, no fleet message was sent, nothing was published, and there is one push, at the end.
+
+### The third merge with main
+
+`git merge origin/main` (a merge commit, no rebase) brings `origin/main` at `e38217bc` into
+`mission/message-load` as `19822cc2`. The merge base was `00e184a9`, so main's five new commits are the
+v2.5.0 release and version bump (`fc323b8b`), and four Wingman changes: a session with something running
+underneath it is never red for the clock (`6b5060a8`), the screen decides whether there is a picker
+(`e38217bc`), and the Fleet Manager event tests passing the narration plan (`0d239d96`).
+
+**One conflict, in `src/CcDirector.Gateway.UnitTests/Fleet/FleetManagerEventServiceTests.cs`.** Both sides
+had fixed the same break the same way - the `narrationPlan` argument that `cd8b6233` made required - and
+both wrote `narrationPlan: _ => NarrationPlan.Allowed`. Only the comment above it differed: the second
+merge with main wrote "this class judges stops, it does not narrate"; main's `0d239d96` wrote "these tests
+are about which stops reach the Fleet Manager, not about billing". Resolved by keeping both sides' intent
+in one comment that says all three things - main's pull request number, what the class is about, and why
+the allowing plan never changes what it measures. The argument itself is identical on both sides, so
+nothing about the code changed.
+
+Nothing else conflicted. Main's other files (the release note, `Directory.Build.props`, the Wingman
+service, watchdog, trace store, owned-sessions fold, the new invented-menu check and their tests, and
+`ActivityEventDtos.cs`) auto-merged; this mission touches none of them. Main changed no route and no
+contract the OpenAPI document carries, so **the client schema needed no regeneration** - checked by
+reading the merge's own file list, which has nothing under `packages/`, `apps/` or
+`src/CcDirector.Gateway/Api/`.
+
+### The release note is dated history (the two retired-words tests)
+
+Main's `docs/public/release-notes/v2.5.0.md` says, at line 41, "`cc-devthrottle message ask` has been
+removed". That is a true sentence about what the release did, and it contains a retired phrase, so both
+whole-repository scans found it and went red on CI.
+
+- `docs/public/release-notes/` is now a `TreeExemptions` entry, with the reason written next to it: a
+  release note says what a released version did, in the words of its release, and rewriting one would make
+  it a lie about what shipped. It sits with the other dated history, above the code exemptions.
+- The agent-read inventory (`TaughtFiles`) pulled in every `docs/public/**/*.md`, which swept the release
+  notes in with the pages that teach an agent how to work today. It now excludes
+  `docs/public/release-notes/` and says why. `The_scan_reads_every_named_surface` still proves `docs/public`
+  is read, because everything else under it still is.
+- **Main's release note was not reworded.** Not one character of it changed.
+
+**The guard was watched failing.** With both changes taken back out, exactly the two tests CI named went
+red, each printing `docs/public/release-notes/v2.5.0.md:41: "message ask"` -
+`Nothing_in_the_repository_outside_the_named_history_uses_the_retired_messaging_words` and
+`No_text_an_agent_reads_teaches_the_retired_messaging` - while the other three stayed green. Restored; all
+five pass, and `git status` was clean afterwards.
+
+### The five desktop rail tests that failed on Windows only - the root cause, and it was ours
+
+CI reported five of the nineteen `CcDirector.Avalonia.Tests.SessionRailStateTests` failing with
+`System.InvalidOperationException: Call from invalid thread`, at
+`Avalonia.Threading.Dispatcher.RunJobs` (`SessionRailStateTests.cs` lines 194, 250, 264 and 325) and at
+`Avalonia.Media.SolidColorBrush.get_Color` (line 108).
+
+**What the evidence says.**
+
+- They do **not** fail on main. On main's head `e38217bc`, run `35270394665`, job `105368330359`, all
+  nineteen passed; the same on run `35245040409` (job `105283392184`) before the five new commits. So the
+  "record it as main's and leave it" branch does not apply.
+- They do not fail on this Mac either: the whole project runs here, 550 tests, and only the seven known
+  Mac-only failures come back (LegacyWorkspaceImport 1, MicCaptureConstructionQueriesNoDevice 2,
+  SpeakDialogCloseDuringStartup 1, SpeakDialogReadyCueBlanking 3). Slice 4 recorded the same seven.
+- Within the one failing CI run, five of the six dispatcher-touching tests failed and the sixth
+  (`UncommittedBadge_DirtyTree_ShowsTheCountFromTheSession`, which pumps the dispatcher exactly as the
+  failing ones do) passed. A class cannot be half wrong about its own code; it can be half wrong about
+  which thread it is on.
+
+**The root cause.** `SessionRailStateTests` is a plain `[Fact]` class that reads Avalonia objects and pumps
+the Avalonia dispatcher. Both verify they are on the dispatcher's thread. A plain `[Fact]` runs on whatever
+thread xUnit hands it, and that is the dispatcher's thread only while no headless session has claimed it -
+the moment an `[AvaloniaFact]` class in the same assembly starts one, every later plain `[Fact]` that
+touches Avalonia is on the wrong thread. So the answer depended on which class ran first, which is a
+property of the run, not of the code. Measured here rather than argued: inside an `[AvaloniaFact]`,
+`Dispatcher.UIThread.CheckAccess()` is true on the test's own thread and false on a thread started beside
+it, and on that thread building a `SessionViewModel` throws through its static initialiser.
+
+**Slice 4 is what changed the odds.** It added `SessionRailInboxLineRenderTests`, a new `[AvaloniaFact]`
+class, to this assembly. It did not introduce the fault - the fault is main's `[Fact]`s - but the mission
+changed which class starts the headless session first, and the failure appeared on the mission's pull
+request and on no main run. That makes it ours to fix, and the fix is the one that removes the dependence
+on ordering rather than re-rolling it.
+
+**The fix.** Every test in that class is now `[AvaloniaFact]`, so the body runs ON the dispatcher thread
+and the question of who ran first cannot arise. Six sibling classes carry the identical landmine - they
+touch `SessionViewModel` or `StatusPalette`, both of which build their brushes in a static initialiser,
+and **a static initialiser that throws once stays thrown for the rest of the process**, which would poison
+the type for every later test including the render tests - so they are converted the same way and each
+carries a comment saying why: `StatusPaletteTests`, `SessionViewModelAgentBadgeTests`,
+`SessionRailModelBadgeTests`, `SessionRailTreeTests`, `OfflineFloorRailColorTests` and
+`PaletteAgreementTests`. No assertion was changed anywhere; only the attribute and the comment.
+
+**What this does NOT cover, said plainly.** The desktop test project passes on this Mac before and after,
+so the change is proven not to break anything here, and it is proven correct by construction and by the
+thread measurement above - but **the failure itself was never reproduced on this machine**, because it
+needs the Windows Release run whose ordering produced it. The proof that it is fixed is the next CI run.
+Other plain-`[Fact]` classes in that project that build Avalonia objects of other kinds were not swept;
+the seven converted are the ones that touch the two types the failure implicates.
+
+### Main's own three red tests, inherited by this branch
+
+Main's head is red on three tests that have nothing to do with this mission, and this merge brings them
+onto the branch. Evidence: main run `35270394665`, job `105368330359` (main at `e38217bc`, no mission code
+in it).
+
+- `CcDirector.Core.Tests.Wingman.ContentTurnRuleTests.With_the_switch_off_the_log_still_records_what_the_rule_would_have_done`
+- `CcDirector.Gateway.Tests.Wingman.TurnVerdictServiceTests.HeldSession_ResolvedThroughTheRealPushStoreIngest_IsSkippedAsHeld_WithNoScreenReadAndNoModelCall_ThenJudgedOnceItsOwnerExits`
+- `CcDirector.Gateway.Tests.Fleet.FleetManagerEventServiceTests.MoreEventsThanOnePromptCarries_TheOldestGoFirst_ThePromptSaysMoreWait_AndTheRestFollow`
+
+They fail identically on main, so this seat did not touch them - but they mean **this pull request's check
+run cannot go green on the .NET job until main is fixed forward**, however green the mission's own work
+is. That is the Architect's call, and it belongs to whoever owns the Wingman and Fleet Manager changes.
+
+### Test totals (Mac mini, merged tree, 17 September 2026, after the last code change)
+
+Run directly with `dotnet test` and `pytest`. **`scripts/test-local.ps1` was not the gate** - there is no
+PowerShell on this machine - so the two installer suites it also runs were not run at all.
+
+- **Core unit tests**: 596 total, 596 passed, 0 failed, 0 skipped. (`RetiredMessagingWords` on its own: 5
+  of 5.)
+- **Gateway unit tests**: 5773 total, 5758 passed, 8 skipped, **7 failed - the known 7 Mac-only**
+  (CronJobStore 1, RuleCandidateFilter 1, RulePrimitives 1, SessionCommandExecutorLiveness 3,
+  WorkListStorePersistence 1). No new one. (Was 5763; main added 10.)
+- **Gateway route tests** (full, 35 minutes 51 seconds): 2634 total, 2566 passed, 52 skipped, **16 failed -
+  the known 16**, by class and count exactly as the second merge recorded them (ContextLessRouteCensus 1,
+  FleetSpawnMissionAttach 2, FleetSpawnOrigin 4, GatewayTestSuiteLock 2, HostedProcessControlDeny 2,
+  TunnelRosterPushReadProof 3, WorkflowSeat 2). No new one.
+- **Desktop (Avalonia) tests**: 550 total, 543 passed, **7 failed - the known 7 Mac-only** (LegacyWorkspaceImport
+  1, MicCaptureConstructionQueriesNoDevice 2, SpeakDialogCloseDuringStartup 1, SpeakDialogReadyCueBlanking 3).
+  The same 550/543/7 before and after the attribute change, so the conversion moved nothing here.
+- **cc-devthrottle** (fresh scratch virtual environment with the local `cc_storage`, `cc_shared`, the tool
+  and pytest): 3271 passed, 0 failed - the same total as the second merge, which is right, because main
+  added no command line tests.
+
+**Two of main's three red tests pass here.** `TurnVerdictServiceTests.HeldSession_...` and
+`FleetManagerEventServiceTests.MoreEventsThanOnePromptCarries_...` are both in the route suite and both
+passed on this Mac; only Windows CI has seen them fail. `ContentTurnRuleTests` is in Core tests, which this
+seat did not run. So whether those three are real breaks or Windows-only flakes is not settled here - only
+that they are main's and not this mission's.
+
+### What is NOT proven
+
+- **The Windows failure was never reproduced on this machine**, and neither was its fix. The rail-test
+  change is proven correct by construction and by a measurement of dispatcher thread affinity, and proven
+  not to break anything by the desktop suite passing here. The next check run is the proof it worked.
+- **`scripts/test-local.ps1` was not run**; no PowerShell. The two installer suites were not run.
+- **Core tests** (the big parked suite) were not run in this seat; the 61 known Mac-only failures recorded
+  by the earlier rounds are unverified against this merge, as is main's `ContentTurnRuleTests` failure.
+- **Web**: not run and not built. The merge changed nothing under `packages/` or `apps/` and added no
+  route, so the generated client schema was not regenerated - read from the merge's file list, not from a
+  regeneration.
+- **PostgreSQL**: nothing ran against it.
+- **Live**: no Director, no agent, no hosted Gateway, no phone. Nothing deployed, nothing published, no
+  pull request touched, no fleet message sent.
+
+## State after the last check run fixes (17 September 2026)
+
+- `mission/message-load` holds `origin/main` up to `e38217bc`, merged as `19822cc2`, with the two fixes and
+  this record in the commits after it. One push, at the end.
+- **The mission's own two causes of red are fixed**: the release note is exempt as dated history, and the
+  desktop rail tests no longer depend on which class starts the headless session.
+- **One thing is not this mission's and needs the Architect**: main's head is red on three tests
+  (above). Until those are fixed forward on main, this pull request's .NET job stays red no matter what the
+  mission does.

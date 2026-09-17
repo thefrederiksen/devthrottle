@@ -127,6 +127,7 @@ public sealed class RetiredMessagingWordsTests
         ("docs/missions/", "mission records, including this mission's own, which quote the retired words to retire them"),
         ("docs/plans/", "dated plans and QA reports of work that shipped before the Message Load mission"),
         ("docs/reviews/", "dated reviews of the command line as it was when reviewed"),
+        ("docs/public/release-notes/", "release notes are dated history: each one says what a released version did, in the words of its release, and rewriting one would make it a lie about what shipped"),
         ("docs/MISSION-source-control-tab-2026-07-23.md", "a dated mission document, 23 July 2026"),
         ("docs/MISSION-cockpit-fix-2026-07-23.md", "a dated mission document, 23 July 2026"),
         ("docs/MISSION-multilingual.md", "a finished mission, merged 30 July 2026 (#2295)"),
@@ -369,7 +370,11 @@ public sealed class RetiredMessagingWordsTests
         files.AddRange(Directory.GetFiles(Path.Combine(root, "src", "CcDirector.Gateway", "Skills", "Content"), "*.md"));
         files.AddRange(Directory.GetFiles(Path.Combine(root, "src", "CcDirector.Gateway", "Workflows", "Content"), "*.md"));
         files.AddRange(Directory.GetFiles(Path.Combine(root, "plugins"), "*.md", SearchOption.AllDirectories));
-        files.AddRange(Directory.GetFiles(Path.Combine(root, "docs", "public"), "*.md", SearchOption.AllDirectories));
+        // Everything published under docs/public EXCEPT the release notes: a release note is dated history
+        // of what one released version did, not text that teaches an agent how to work today, and it is
+        // exempt from the tree scan for the same reason.
+        files.AddRange(Directory.GetFiles(Path.Combine(root, "docs", "public"), "*.md", SearchOption.AllDirectories)
+            .Where(f => !Relative(root, f).StartsWith("docs/public/release-notes/", StringComparison.Ordinal)));
         files.AddRange(Directory.GetFiles(Path.Combine(root, "tools", "cc-devthrottle", "src"), "*.py"));
 
         // The repository copies of the shipped skills and of the mission workflow.

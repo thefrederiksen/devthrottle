@@ -1,3 +1,4 @@
+using Avalonia.Headless.XUnit;
 using Avalonia.Media;
 using CcDirector.Avalonia;
 using CcDirector.Core.Agents;
@@ -18,14 +19,19 @@ namespace CcDirector.Avalonia.Tests;
 /// </summary>
 public sealed class SessionViewModelAgentBadgeTests
 {
-    [Fact]
+    // WHY [AvaloniaFact]/[AvaloniaTheory] AND NOT [Fact]/[Theory]: reading a brush's Colour is an Avalonia
+    // property read, and it verifies it is on the dispatcher's thread. A plain [Fact] gets whatever thread
+    // xUnit hands it, which is the dispatcher's only until another class in this assembly starts a headless
+    // session - so the answer depends on who ran first. These run ON the dispatcher thread instead. Same
+    // reason as SessionRailStateTests, where that ordering accident actually fired on Windows.
+    [AvaloniaFact]
     public void LabelFor_Cursor_IsCursor_NotClaudeCode()
     {
         Assert.Equal("Cursor", SessionViewModel.LabelFor(AgentKind.Cursor));
         Assert.NotEqual("Claude Code", SessionViewModel.LabelFor(AgentKind.Cursor));
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void BadgeBrushFor_Cursor_HasOwnBrush_NotClaudeBlue()
     {
         var cursor = Assert.IsType<SolidColorBrush>(SessionViewModel.BadgeBrushFor(AgentKind.Cursor));
@@ -36,7 +42,7 @@ public sealed class SessionViewModelAgentBadgeTests
         Assert.NotEqual(claude.Color, cursor.Color);
     }
 
-    [Theory]
+    [AvaloniaTheory]
     [InlineData(AgentKind.ClaudeCode, "Claude Code")]
     [InlineData(AgentKind.Pi, "Pi")]
     [InlineData(AgentKind.Codex, "Codex")]
@@ -49,7 +55,7 @@ public sealed class SessionViewModelAgentBadgeTests
         Assert.Equal(expected, SessionViewModel.LabelFor(kind));
     }
 
-    [Fact]
+    [AvaloniaFact]
     public void BadgeBrushFor_EveryProvider_HasADistinctColor()
     {
         AgentKind[] kinds =
