@@ -244,3 +244,29 @@ describe("DevReportViewer - the session it came from, and the way back", () => {
     expect(shown).toContain(GATEWAY_SESSION_LABEL);
   });
 });
+
+// ONE SCROLL REGION FOR THE REPORT (dev reports mission, phase 3b, the owner counted three).
+//
+// What a browser actually paints is not decidable in jsdom - it has no layout - so this proves the RULE is
+// declared, not that a scrollbar is absent on screen: every box the shared viewer wraps round the report
+// frame clips rather than scrolls, so only the report's own page can scroll. The count itself is checked in
+// a real browser at both widths; see WORKER-phase-3b-apps.md.
+describe("the report frame's boxes", () => {
+  const clipped = ["dev-report-viewer", "dev-report-viewer-main", "dev-report-frame-box"];
+
+  it("clips every box around the report, so the frame is the only thing that scrolls", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { fileURLToPath } = await import("node:url");
+    const { dirname, join } = await import("node:path");
+    const here = dirname(fileURLToPath(import.meta.url));
+    const css = readFileSync(join(here, "devReports.css"), "utf8");
+
+    for (const name of clipped) {
+      const opened = css.indexOf(`.${name} {`);
+      expect(opened, `.${name} is not in devReports.css`).toBeGreaterThanOrEqual(0);
+      const block = css.slice(opened, css.indexOf("}", opened));
+      expect(block, `.${name} must clip, not scroll`).toContain("overflow: hidden");
+      expect(block, `.${name} must be allowed to shrink below its content`).toContain("min-height: 0");
+    }
+  });
+});
