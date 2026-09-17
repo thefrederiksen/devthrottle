@@ -36,7 +36,7 @@ from .browser_login import OUTCOME_LOGGED_IN, OUTCOME_REFUSED, login as browser_
 from .errors import CcSecretsError, InputError
 from .redact import SCRUBBER
 from .runner import DEFAULT_ENV_NAME, VIA_CHOICES, run_with_secrets
-from .store import ENV_NAME_PATTERN, USES, EntryNotAvailableError, SecretStore, make_entry, validate_name
+from .store import ENV_NAME_PATTERN, MIN_SECRET_LENGTH, USES, EntryNotAvailableError, SecretStore, make_entry, validate_name
 from .storefile import UserOnlyFile
 
 # Make cc_shared importable when running from source, matching the other cc-* tools.
@@ -358,9 +358,6 @@ def run(
     raise typer.Exit(result.exit_code if result.exit_code != 0 else (EXIT_FAILED if result.timed_out else 0))
 
 
-MIN_VALUE_IN_KEY = 4
-
-
 def register_env_file_values(text: str) -> None:
     """Hand every value of a KEY=VALUE file to the scrubber BEFORE the file is checked. A malformed line is then
     reported by its number alone, and any key that happens to be another line's value is hidden wherever it is
@@ -404,18 +401,33 @@ def parse_env_file(text: str) -> List[tuple]:
         seen_keys[key] = number
         seen_names[name] = number
         pairs.append((number, key, value))
-    # A key becomes a public entry name and variable name, printed and audited. One that holds any value of the
-    # file - in any letter case, with - or _ - would carry that value there (review of pull request 2978).
-    def folded(text: str) -> str:
-        return text.lower().replace("-", "_")
-
-    values = [(number, folded(value)) for number, _, value in pairs if len(value) >= MIN_VALUE_IN_KEY]
-    for number, key, _ in pairs:
-        for value_line, value in values:
-            if value in folded(key):
-                raise InputError(f"Line {number}: the key contains the value given on line {value_line}. "
-                                 "Rename the key.")
     return pairs
+
+
+def _folded(text: str) -> str:
+    return text.lower().replace("-", "_")
+
+
+def commented_values(text: str) -> List[str]:
+    """Values on commented-out KEY=VALUE lines - old credentials are often kept that way."""
+    return [line.split("=", 1)[1] for line in (raw.strip() for raw in text.splitlines())
+            if line.startswith("#") and "=" in line]
+
+
+def check_keys_hold_no_secret(pairs: List[tuple], skipped: set, protected: List[str]) -> None:
+    """Refuse, by line number, any key to be imported that contains a secret.
+
+    A key becomes a public entry name and variable name - listed to sessions, printed, audited - so one that
+    holds a secret, in any letter case and with - or _, would carry it there (review of pull request 2978).
+    `protected` is every secret that must not appear: the store's, and this file's values that are not skipped
+    settings, commented-out lines included. Values shorter than the shortest secret cc-secrets stores are not
+    secrets it holds, and would match half of all keys, so they are not compared."""
+    guarded = [(_folded(value), value) for value in protected if len(value) >= MIN_SECRET_LENGTH]
+    for number, key, _ in pairs:
+        if key in skipped:
+            continue
+        if any(folded in _folded(key) for folded, _ in guarded):
+            raise InputError(f"Line {number}: the key contains a stored or imported secret. Rename the key.")
 
 
 def entry_name_for_key(key: str) -> str:
@@ -444,11 +456,19 @@ def import_entries(
         skipped = set(_split_list(skip or ""))
         text = file.read_text(encoding="utf-8-sig")
         register_env_file_values(text)
+        for value in commented_values(text):
+            if value.strip():
+                SCRUBBER.add(value)
         pairs = parse_env_file(text)
         unknown_skips = sorted(skipped - {key for _, key, _ in pairs})
         if unknown_skips:
             _say(f"--skip names keys that are not in the file: {', '.join(unknown_skips)}. Nothing was imported.", err=True)
             raise typer.Exit(EXIT_FAILED)
+        store = _store()
+        stored = store.entries()
+        protected = [e.secret.reveal() for e in stored] + commented_values(text) + \
+            [value for _, key, value in pairs if key not in skipped]
+        check_keys_hold_no_secret(pairs, skipped, protected)
         notes = f"imported from {file.name}"
         built, failed = [], {}
         for _, key, value in pairs:
@@ -459,8 +479,7 @@ def import_entries(
                 built.append(make_entry(name, "", value, [], notes, agents, use_list, env_name=key))
             except InputError as exc:
                 failed[key] = str(exc)
-        store = _store()
-        existing = {e.name for e in store.entries()}
+        existing = {e.name for e in stored}
         if dry_run:
             table = Table(show_lines=False)
             for column in ("Key", "Entry", "Would be"):

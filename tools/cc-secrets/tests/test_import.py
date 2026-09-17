@@ -323,3 +323,42 @@ def test_Run_TwoEntriesWhoseVariablesDifferOnlyInCase_AreRefusedOnWindows(store,
     assert result.exit_code != 0
     assert "same variable" in _text(result)
     assert not marker.exists()
+
+
+def test_Import_AKeyHoldingASecretAlreadyInTheStore_IsRefused_AndNeverListedOrAudited(store, tmp_path):
+    # The review's case (3533d36a): the secret is in the store already, not in the file.
+    existing = "SECRET_KEY_77"
+    add_entry(store, name="older", secret=existing)
+    path = _env_file(tmp_path, [f"{existing}={new_secret()}"])
+
+    result = runner.invoke(cli.app, ["import", str(path), "--agents"])
+
+    assert result.exit_code != 0
+    assert "Line 1" in _text(result)
+    listed = runner.invoke(cli.app, ["list", "--json"])
+    assert "older" in listed.output, "list printed nothing, so this test shows nothing"
+    assert "secret-key-77" not in listed.output.lower()
+    audit = paths.audit_path()
+    audited = audit.read_text(encoding="utf-8").lower() if audit.exists() else ""
+    assert "secret-key-77" not in audited
+
+
+def test_Import_AKeyHoldingACommentedOutValue_IsRefused(store, tmp_path):
+    old = "RETIRED_TOKEN_42"
+    path = _env_file(tmp_path, [f"# OLD={old}", f"{old}={new_secret()}"])
+
+    result = runner.invoke(cli.app, ["import", str(path), "--agents"])
+
+    assert result.exit_code != 0
+    assert store.entries() == []
+
+
+def test_Import_ASkippedSettingInsideACredentialKey_DoesNotBlockIt(store, tmp_path):
+    # The review's case: ENV=PROD is a setting, and PROD_API_KEY must still import.
+    secret = new_secret()
+    path = _env_file(tmp_path, ["ENV=PROD", f"PROD_API_KEY={secret}"])
+
+    result = runner.invoke(cli.app, ["import", str(path), "--agents", "--skip", "ENV"])
+
+    assert result.exit_code == 0, _text(result)
+    assert store.get("prod-api-key").secret.reveal() == secret
