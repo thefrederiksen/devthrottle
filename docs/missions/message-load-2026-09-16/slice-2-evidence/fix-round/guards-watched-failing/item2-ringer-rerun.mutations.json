@@ -1,0 +1,7 @@
+[
+ {
+  "name": "erase trusted without re-reading",
+  "old": "                if (DoorbellSafety.ReadComposer(target.Agent, target.TakeFrame()) == ComposerReading.Empty)",
+  "new": "                if (i >= 0)"
+ }
+]

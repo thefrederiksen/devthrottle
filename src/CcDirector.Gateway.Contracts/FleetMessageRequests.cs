@@ -206,6 +206,10 @@ public static class FleetRingDeferReasons
     /// <summary>The screen could not be read, or its layout is not one the check recognises. Unknown is never
     /// treated as empty.</summary>
     public const string ScreenUnreadable = "screen-unreadable";
+
+    /// <summary>The line was typed but its submit was not verified; the Director took its own line back (or it
+    /// had already left without a visible turn). Not a ring.</summary>
+    public const string NotSubmitted = "not-submitted";
 }
 
 /// <summary>The Director's answer to <c>ring</c>.</summary>

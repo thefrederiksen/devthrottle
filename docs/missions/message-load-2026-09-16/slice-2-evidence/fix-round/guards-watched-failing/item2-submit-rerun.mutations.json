@@ -1,0 +1,7 @@
+[
+ {
+  "name": "verified by the Enter alone",
+  "old": "        backend.Write(DoorbellEnter);\n        for (var i = 0; i < watchPolls; i++)",
+  "new": "        backend.Write(DoorbellEnter);\n        if (watchPolls > 0) return DoorbellSubmitOutcome.Verified;\n        for (var i = 0; i < watchPolls; i++)"
+ }
+]

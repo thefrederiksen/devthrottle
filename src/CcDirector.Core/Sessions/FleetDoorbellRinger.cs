@@ -35,8 +35,14 @@ public interface IDoorbellTarget
     /// <summary>One frame of the live screen, taken now.</summary>
     ScreenFrame TakeFrame();
 
-    /// <summary>Type and submit the doorbell line as an agent-origin send. Throws when the submit failed.</summary>
-    Task SendLineAsync(string line);
+    /// <summary>
+    /// Type the doorbell line and press Enter once, as an agent-origin send, through
+    /// <see cref="TerminalSubmit.DoorbellSubmitAsync"/>. Throws only when the terminal could not be written.
+    /// </summary>
+    Task<DoorbellSubmitOutcome> SubmitLineAsync(string line, Func<bool> mayTypeNow, Func<bool> composerShowsLine, Func<bool> turnStarted);
+
+    /// <summary>Press Backspace this many times - used only to take back the doorbell's own line.</summary>
+    Task EraseAsync(int characters);
 }
 
 /// <summary>The product's <see cref="IDoorbellTarget"/>: a live <see cref="Session"/>.</summary>
@@ -61,11 +67,10 @@ public sealed class SessionDoorbellTarget : IDoorbellTarget
         return new ScreenFrame(rows, cursorRow, cursorCol, cursorVisible);
     }
 
-    public Task SendLineAsync(string line) =>
-        _session.SendTextAsync(
-            line,
-            SubmissionProvenance.Typed(SubmissionRoutes.FleetMessage, SubmissionIdentityKinds.Framework),
-            SendSource.Agent);
+    public Task<DoorbellSubmitOutcome> SubmitLineAsync(string line, Func<bool> mayTypeNow, Func<bool> composerShowsLine, Func<bool> turnStarted) =>
+        _session.SubmitDoorbellLineAsync(line, mayTypeNow, composerShowsLine, turnStarted);
+
+    public Task EraseAsync(int characters) => _session.EraseComposerCharactersAsync(characters);
 }
 
 /// <summary>
@@ -84,7 +89,13 @@ public sealed class SessionDoorbellTarget : IDoorbellTarget
 /// it (a background task completing). A terminal offers no way to type "only if still idle". The worst case is
 /// one short fixed line queued behind the current tool call; it carries no message text, so nothing is lost.
 ///
-/// THE LINE IS AGENT-ORIGIN (ruling 15). It is submitted with <see cref="SendSource.Agent"/>, so it does not
+/// ONE ENTER, AND <c>rung</c> ONLY WHEN THE SUBMIT WAS SEEN (inspection 4, ruling 2). The line goes through
+/// <see cref="TerminalSubmit.DoorbellSubmitAsync"/>, which presses Enter once and never nudges. The submit is
+/// verified by the screen (<see cref="DoorbellSafety.ShowsDoorbellSubmitted"/>): the line is out of the composer
+/// and either the working marker is up or the transcript shows one more doorbell row than before. Anything less
+/// is a deferral, never a ring - see <c>TakeBackUnverifiedAsync</c> for what is done with the composer.
+///
+/// THE LINE IS AGENT-ORIGIN (ruling 15). It is recorded with <see cref="SendSource.Agent"/>, so it does not
 /// stamp an owner turn and does not supersede the owner's snooze on this Director.
 ///
 /// ONE RING AT A TIME PER SESSION. A second ring for a session already being rung is deferred rather than
@@ -123,9 +134,11 @@ public static class FleetDoorbellRinger
 
     /// <summary>
     /// Ring one session: check, look once more, and type the doorbell line when it is safe. Never throws for a
-    /// deferral; a failed submit propagates, because a line that may be half-typed is not a deferral.
+    /// deferral; a terminal that could not be written propagates, because a line that may be half-typed is not a
+    /// deferral.
     /// </summary>
-    /// <param name="pause">What separates the two checked frames; <see cref="BetweenFrames"/> of real time when null.</param>
+    /// <param name="pause">What separates the two checked frames, and the re-reads after an erase;
+    /// <see cref="BetweenFrames"/> of real time when null.</param>
     public static async Task<FleetRingResponse> RingAsync(IDoorbellTarget target, int unreadCount, Func<Task>? pause = null)
     {
         ArgumentNullException.ThrowIfNull(target);
@@ -139,27 +152,28 @@ public static class FleetDoorbellRinger
             if (!verdict.Ring)
                 return Deferred(target, verdict.Reason, verdict.Detail);
 
-            var changed = ChangedSinceCheck(target, facts.Frames[^1]);
-            if (changed is { } c)
-                return Deferred(target, c.Reason, c.Detail);
-
+            var approved = facts.Frames[^1];
+            var rowsBefore = DoorbellSafety.CountDoorbellRows(approved);
             var line = FleetDoorbellLine.For(unreadCount);
-            try
+            (string Reason, string Detail)? changed = null;
+            var outcome = await target.SubmitLineAsync(
+                line,
+                mayTypeNow: () => (changed = ChangedSinceCheck(target, approved)) is null,
+                composerShowsLine: () => DoorbellSafety.ComposerHoldsExactly(target.Agent, target.TakeFrame(), line),
+                turnStarted: () => DoorbellSafety.ShowsDoorbellSubmitted(target.Agent, target.TakeFrame(), rowsBefore))
+                .ConfigureAwait(false);
+
+            switch (outcome)
             {
-                await target.SendLineAsync(line).ConfigureAwait(false);
+                case DoorbellSubmitOutcome.NotTyped:
+                    var (reason, detail) = changed ?? (FleetRingDeferReasons.ScreenUnreadable, "the session could not be typed into");
+                    return Deferred(target, reason, detail);
+                case DoorbellSubmitOutcome.Verified:
+                    FileLog.Write($"[FleetDoorbellRinger] RUNG: session={target.Id}, unread={unreadCount}, line=\"{line}\"");
+                    return new FleetRingResponse { Outcome = FleetRingOutcomes.Rung, Detail = "submitted; the screen shows the turn" };
+                default:
+                    return await TakeBackUnverifiedAsync(target, line, pause ?? (() => Task.Delay(BetweenFrames))).ConfigureAwait(false);
             }
-            catch (PromptNotSubmittedException ex) when (ComposerIsEmptyNow(target))
-            {
-                // THE SUBMIT CHECK CANNOT SEE A SHORT TURN. It calls a submit proven only when the agent prints
-                // 2,048 bytes, and an agent that answers the doorbell with one word ("IGNORED") prints less. The
-                // end-to-end proof caught it: the check threw, the Gateway was told the ring failed, and rang
-                // again - two doorbell lines for one ring. The composer is the better witness for this one
-                // line: it is empty now, so the line left it. Counted as rung.
-                FileLog.Write($"[FleetDoorbellRinger] RUNG (the byte-count check did not see a turn, the composer is empty): " +
-                              $"session={target.Id}: {ex.Message}");
-            }
-            FileLog.Write($"[FleetDoorbellRinger] RUNG: session={target.Id}, unread={unreadCount}, line=\"{line}\"");
-            return new FleetRingResponse { Outcome = FleetRingOutcomes.Rung, Detail = verdict.Detail };
         }
         catch (Exception ex)
         {
@@ -201,10 +215,42 @@ public static class FleetDoorbellRinger
         return true;
     }
 
-    /// <summary>Is the composer empty right now? The line is either submitted (empty) or still parked (text).
-    /// A running turn draws an empty composer too, which is the same answer: the line left.</summary>
-    private static bool ComposerIsEmptyNow(IDoorbellTarget target) =>
-        DoorbellSafety.ReadComposer(target.Agent, target.TakeFrame()) == ComposerReading.Empty;
+    /// <summary>How many times the composer is re-read after the doorbell's own line is erased.</summary>
+    internal const int ErasePolls = 10;
+
+    /// <summary>
+    /// THE SUBMIT WAS NOT VERIFIED (ruling 2). A deferral is never counted as a ring, so the answer is always
+    /// <c>deferred</c>; what the composer holds decides which:
+    ///  - EXACTLY the doorbell line: the text is ours, so it is erased, and the answer is <c>not-submitted</c>.
+    ///  - Empty: the line left without a turn the screen could see - the interface discarded it, or the turn
+    ///    was too quick to catch. Nothing to take back: <c>not-submitted</c>. The next ring may type a second
+    ///    line, which ruling 8 calls harmless.
+    ///  - Anything else - the line with the owner's words after it, or the owner's words alone: left exactly as
+    ///    it is, <c>composer-holds-text</c>. Nothing is erased and nothing is pressed.
+    /// </summary>
+    private static async Task<FleetRingResponse> TakeBackUnverifiedAsync(IDoorbellTarget target, string line, Func<Task> pause)
+    {
+        var frame = target.TakeFrame();
+        if (DoorbellSafety.ComposerHoldsExactly(target.Agent, frame, line))
+        {
+            await target.EraseAsync(line.Length).ConfigureAwait(false);
+            for (var i = 0; i < ErasePolls; i++)
+            {
+                if (DoorbellSafety.ReadComposer(target.Agent, target.TakeFrame()) == ComposerReading.Empty)
+                    return Deferred(target, FleetRingDeferReasons.NotSubmitted,
+                        "the line was typed but its submit was not verified; the line was erased");
+                await pause().ConfigureAwait(false);
+            }
+            return Deferred(target, FleetRingDeferReasons.ComposerHoldsText,
+                "the line was typed but its submit was not verified, and erasing it did not leave the composer empty");
+        }
+
+        return DoorbellSafety.ReadComposer(target.Agent, frame) == ComposerReading.Empty
+            ? Deferred(target, FleetRingDeferReasons.NotSubmitted,
+                "the line left the composer but the screen showed no turn; nothing to erase")
+            : Deferred(target, FleetRingDeferReasons.ComposerHoldsText,
+                "the submit was not verified and the composer holds more than the doorbell line; left untouched");
+    }
 
     private static FleetRingResponse Deferred(IDoorbellTarget target, string reason, string detail)
     {

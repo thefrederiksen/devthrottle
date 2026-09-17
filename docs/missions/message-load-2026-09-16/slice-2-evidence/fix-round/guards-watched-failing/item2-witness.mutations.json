@@ -1,0 +1,7 @@
+[
+ {"name":"a line still in the composer counts as submitted","old":"        if (text.Contains(FleetDoorbellLine.Marker, StringComparison.Ordinal)) return false;\n","new":""},
+ {"name":"transcript witness ignored","old":" || CountDoorbellRows(frame) > rowsBefore;","new":";"},
+ {"name":"transcript witness ignores the rows already there","old":" || CountDoorbellRows(frame) > rowsBefore;","new":" || CountDoorbellRows(frame) > 0;"},
+ {"name":"working witness ignored","old":"        return ShowsWorking(frame.Rows ?? []) || CountDoorbellRows","new":"        return CountDoorbellRows"},
+ {"name":"exact match ignores wrapping","old":"string.Equals(Squeeze(text), Squeeze(line), StringComparison.Ordinal)","new":"string.Equals(text, line, StringComparison.Ordinal)"}
+]

@@ -1,0 +1,5 @@
+== MUTATION verified by the Enter alone: exit=1
+    Failed!  - Failed:     3, Passed:     4, Skipped:     0, Total:     7, Duration: 521 ms - CcDirector.Core.Tests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Drivers.DoorbellSubmitTests.A_backend_that_swallows_Enter_gets_exactly_one_Enter_and_no_nudge [83 ms]
+    Failed CcDirector.Core.Tests.Drivers.DoorbellSubmitTests.A_line_the_interface_cleared_without_a_turn_is_not_verified [81 ms]
+    Failed CcDirector.Core.Tests.Drivers.DoorbellSubmitTests.Owner_text_typed_after_the_Enter_is_never_submitted_by_the_doorbell [82 ms]

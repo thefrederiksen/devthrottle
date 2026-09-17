@@ -190,18 +190,25 @@ public static class DoorbellSafety
         Bottom(rows).Any(r => r.Contains(WorkingMarker, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Read the composer for this agent. Every agent without a reader answers <see cref="ComposerReading.NotFound"/>.</summary>
-    public static ComposerReading ReadComposer(AgentKind agent, ScreenFrame frame)
+    public static ComposerReading ReadComposer(AgentKind agent, ScreenFrame frame) => ReadComposerText(agent, frame).Reading;
+
+    /// <summary>
+    /// Read the composer and what it holds: the prompt row after the glyph and every continuation row, joined by
+    /// new lines and trimmed at both ends. The text is empty unless the reading is
+    /// <see cref="ComposerReading.HoldsText"/>.
+    /// </summary>
+    public static (ComposerReading Reading, string Text) ReadComposerText(AgentKind agent, ScreenFrame frame)
     {
         ArgumentNullException.ThrowIfNull(frame);
         return agent switch
         {
             AgentKind.ClaudeCode => ReadClaudeComposer(frame.Rows ?? []),
             AgentKind.Codex => ReadCodexComposer(frame),
-            _ => ComposerReading.NotFound,
+            _ => (ComposerReading.NotFound, ""),
         };
     }
 
-    private static ComposerReading ReadClaudeComposer(IReadOnlyList<string> rows)
+    private static (ComposerReading, string) ReadClaudeComposer(IReadOnlyList<string> rows)
     {
         // Search upward for the lowest closing rule that has a prompt row framed above it.
         var last = LastNonBlank(rows);
@@ -218,38 +225,71 @@ public static class DoorbellSafety
                 if (!IsRule(rows[prompt - 1])) break; // a '❯' that is not framed from above: a picker or a transcript line
 
                 var footer = rows.Skip(close + 1).ToList();
-                if (footer.Any(IsMenuHint)) return ComposerReading.MenuOpen;
+                if (footer.Any(IsMenuHint)) return (ComposerReading.MenuOpen, "");
 
                 var onPrompt = row[1..].Trim();
-                var continuation = rows.Skip(prompt + 1).Take(close - prompt - 1);
-                return onPrompt.Length == 0 && continuation.All(string.IsNullOrWhiteSpace)
-                    ? ComposerReading.Empty
-                    : ComposerReading.HoldsText;
+                var continuation = rows.Skip(prompt + 1).Take(close - prompt - 1).ToList();
+                if (onPrompt.Length == 0 && continuation.All(string.IsNullOrWhiteSpace))
+                    return (ComposerReading.Empty, "");
+                var text = string.Join("\n", new[] { onPrompt }.Concat(continuation.Select(c => (c ?? "").Trim()))).Trim();
+                return (ComposerReading.HoldsText, text);
             }
         }
         return Bottom(rows).Any(IsMenuHint) || rows.Any(IsSelectedOption)
-            ? ComposerReading.MenuOpen
-            : ComposerReading.NotFound;
+            ? (ComposerReading.MenuOpen, "")
+            : (ComposerReading.NotFound, "");
     }
 
-    private static ComposerReading ReadCodexComposer(ScreenFrame frame)
+    private static (ComposerReading, string) ReadCodexComposer(ScreenFrame frame)
     {
         var rows = frame.Rows ?? [];
         if (Bottom(rows).Any(IsMenuHint) || rows.Any(IsSelectedOption))
-            return ComposerReading.MenuOpen;
+            return (ComposerReading.MenuOpen, "");
         if (!frame.CursorVisible || frame.CursorRow < 0 || frame.CursorRow >= rows.Count)
-            return ComposerReading.NotFound;
+            return (ComposerReading.NotFound, "");
 
         var row = rows[frame.CursorRow];
-        if (!row.StartsWith('›')) return ComposerReading.NotFound;
+        if (!row.StartsWith('›')) return (ComposerReading.NotFound, "");
         var text = row[1..].Trim();
-        if (text.Length == 0) return ComposerReading.Empty;
+        if (text.Length == 0) return (ComposerReading.Empty, "");
         // A placeholder is drawn to the RIGHT of a cursor that sits straight after the glyph and its space.
         var cursorAtStart = frame.CursorCol <= 2;
         return cursorAtStart && CodexPlaceholders.Contains(text, StringComparer.Ordinal)
-            ? ComposerReading.Empty
-            : ComposerReading.HoldsText;
+            ? (ComposerReading.Empty, "")
+            : (ComposerReading.HoldsText, text);
     }
+
+    /// <summary>How many rows of the screen carry the doorbell's marker - the submitted doorbells the transcript
+    /// shows, plus one in the composer if it is still there.</summary>
+    public static int CountDoorbellRows(ScreenFrame frame)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+        return (frame.Rows ?? []).Count(r => r is not null && r.Contains(FleetDoorbellLine.Marker, StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Does this frame prove a doorbell line was SUBMITTED? The composer must not hold the line any more, and
+    /// either the screen shows the working marker or the transcript shows one more doorbell row than
+    /// <paramref name="rowsBefore"/> (the count on the frame the check approved). A line the interface
+    /// discarded leaves neither; a line still parked keeps the marker in the composer.
+    /// </summary>
+    public static bool ShowsDoorbellSubmitted(AgentKind agent, ScreenFrame frame, int rowsBefore)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+        var (reading, text) = ReadComposerText(agent, frame);
+        if (reading is ComposerReading.NotFound or ComposerReading.MenuOpen) return false;
+        if (text.Contains(FleetDoorbellLine.Marker, StringComparison.Ordinal)) return false;
+        return ShowsWorking(frame.Rows ?? []) || CountDoorbellRows(frame) > rowsBefore;
+    }
+
+    /// <summary>True when the composer holds exactly <paramref name="line"/>, ignoring where it wrapped.</summary>
+    public static bool ComposerHoldsExactly(AgentKind agent, ScreenFrame frame, string line)
+    {
+        var (reading, text) = ReadComposerText(agent, frame);
+        return reading == ComposerReading.HoldsText && string.Equals(Squeeze(text), Squeeze(line), StringComparison.Ordinal);
+    }
+
+    private static string Squeeze(string s) => new(s.Where(c => !char.IsWhiteSpace(c)).ToArray());
 
     private static bool IsRule(string? row)
     {
@@ -294,11 +334,14 @@ public static class FleetDoorbellLine
     /// <summary>The command a session runs to read its messages.</summary>
     public const string ReadCommand = "cc-devthrottle message inbox";
 
+    /// <summary>How every doorbell line begins. The ringer counts it on screen to see a submitted line.</summary>
+    public const string Marker = "[DevThrottle doorbell]";
+
     /// <summary>The line for this many waiting messages.</summary>
     public static string For(int unreadCount)
     {
         var n = Math.Max(1, unreadCount);
         var noun = n == 1 ? "fleet message is" : "fleet messages are";
-        return $"[DevThrottle doorbell] {n} {noun} waiting for you. To read, run: {ReadCommand}";
+        return $"{Marker} {n} {noun} waiting for you. To read, run: {ReadCommand}";
     }
 }

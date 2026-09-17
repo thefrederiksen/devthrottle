@@ -1,0 +1,20 @@
+== MUTATION a line still in the composer counts as submitted: exit=1
+    Failed!  - Failed:     5, Passed:    11, Skipped:     0, Total:    16, Duration: 32 ms - CcDirector.Core.UnitTests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.Owner_text_typed_after_an_unsubmitted_line_is_left_untouched [12 ms]
+    Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.A_line_that_wrapped_in_the_composer_is_still_recognised_as_ours [< 1 ms]
+    Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.An_erase_that_does_not_empty_the_composer_is_reported_as_text [< 1 ms]
+    Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.A_swallowed_Enter_leaves_our_line_which_is_erased_and_not_counted [< 1 ms]
+    Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.A_line_still_in_the_composer_is_not_a_submit_even_with_an_older_doorbell_in_the_transcript [< 1 ms]
+== MUTATION transcript witness ignored: exit=1
+    Failed!  - Failed:     3, Passed:    13, Skipped:     0, Total:    16, Duration: 59 ms - CcDirector.Core.UnitTests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.A_submit_the_screen_shows_is_rung [2 ms]
+    Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.An_unchanged_session_is_rung_and_the_last_look_comes_immediately_before_the_send [< 1 ms]
+    Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.Owner_text_typed_after_a_submitted_line_does_not_hide_the_submit [< 1 ms]
+== MUTATION transcript witness ignores the rows already there: exit=0
+    Passed!  - Failed:     0, Passed:    16, Skipped:     0, Total:    16, Duration: 51 ms - CcDirector.Core.UnitTests.dll (net10.0)
+== MUTATION working witness ignored: exit=1
+    Failed!  - Failed:     1, Passed:    15, Skipped:     0, Total:    16, Duration: 55 ms - CcDirector.Core.UnitTests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.A_screen_showing_the_working_marker_after_the_Enter_is_a_submit [1 ms]
+== MUTATION exact match ignores wrapping: exit=1
+    Failed!  - Failed:     1, Passed:    15, Skipped:     0, Total:    16, Duration: 49 ms - CcDirector.Core.UnitTests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.A_line_that_wrapped_in_the_composer_is_still_recognised_as_ours [1 ms]

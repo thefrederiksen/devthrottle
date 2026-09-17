@@ -2162,6 +2162,51 @@ public sealed class Session : IDisposable
         BackendType is SessionBackendType.ConPty && Drivers.ComposerRetention.MayHoldText(_backend);
 
     /// <summary>
+    /// Type and submit the fleet doorbell line (the Message Load mission) through
+    /// <see cref="Drivers.TerminalSubmit.DoorbellSubmitAsync"/>: one Enter, no nudges, no Escape. Agent-origin -
+    /// it never stamps an owner turn. Only a VERIFIED submit is recorded as a submitted turn and turns the
+    /// session Working; anything else leaves the session's state alone and the caller reads the composer.
+    /// </summary>
+    public async Task<Drivers.DoorbellSubmitOutcome> SubmitDoorbellLineAsync(
+        string line, Func<bool> mayTypeNow, Func<bool> composerShowsLine, Func<bool> turnStarted)
+    {
+        ArgumentNullException.ThrowIfNull(line);
+        if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed || BackendType is not SessionBackendType.ConPty)
+            return Drivers.DoorbellSubmitOutcome.NotTyped;
+        FileLog.Write($"[Session] SubmitDoorbellLineAsync: session={Id}, driver={Driver.Kind}, len={line.Length}");
+        var outcome = await Drivers.TerminalSubmit.DoorbellSubmitAsync(
+            _backend, line, Driver.Kind.ToString(), mayTypeNow, composerShowsLine, turnStarted);
+        FileLog.Write($"[Session] SubmitDoorbellLineAsync: session={Id}, outcome={outcome}");
+        if (outcome == Drivers.DoorbellSubmitOutcome.Verified)
+        {
+            IsBrandNew = false;
+            StampSubmission(SendSource.Agent, null, SubmissionEvidence.OfText(
+                SubmissionProvenance.Typed(SubmissionRoutes.FleetMessage, SubmissionIdentityKinds.Framework), line));
+            SetActivityState(ActivityState.Working);
+        }
+        return outcome;
+    }
+
+    /// <summary>
+    /// Press Backspace <paramref name="count"/> times, one key at a time. Used ONLY to take back the doorbell's
+    /// own line when its submit was not verified and the composer holds exactly that line - the text is the
+    /// product's, so removing it cannot touch the owner's words.
+    /// </summary>
+    public async Task EraseComposerCharactersAsync(int count)
+    {
+        if (_disposed || Status is SessionStatus.Exited or SessionStatus.Failed || BackendType is not SessionBackendType.ConPty)
+            return;
+        FileLog.Write($"[Session] EraseComposerCharactersAsync: session={Id}, count={count}");
+        for (var i = 0; i < count; i++)
+        {
+            _backend.Write(BackspaceKey);
+            await Task.Delay(TimeSpan.FromMilliseconds(5));
+        }
+    }
+
+    private static readonly byte[] BackspaceKey = [0x7F];
+
+    /// <summary>
     /// Snapshot the CURRENT visible terminal grid (not scrollback) as plain-text rows,
     /// trailing-trimmed, top to bottom. Unlike the raw byte buffer this is the RESOLVED
     /// on-screen state, so a spinner cell or a churning status line shows only its
