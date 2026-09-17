@@ -13,6 +13,7 @@
 //
 // NOT PROVEN HERE: the Gateway route does not exist yet, so nothing in this file has been checked against a real
 // answer. It is the settled contract written down, not an observed one.
+import { authHeaders, gatewayFetch, GatewayError } from "../api/client";
 
 /** Which of the ten drawn states this session is in. The Gateway decides; the view never infers it. */
 export type WingmanNowState =
@@ -164,4 +165,26 @@ export interface WingmanNow {
   nextNeedsYou?: WingmanNowNext | null;
 
   voice: WingmanNowVoice;
+}
+
+/**
+ * GET /sessions/{sid}/wingman-now - the live stop of one session, as finished strings and flags.
+ *
+ * Resolves with the Gateway's answer as sent. Throws a GatewayError when the read was refused, carrying the
+ * Gateway's own sentence, so a failure is never drawn as a calm screen.
+ *
+ * A 404 arrives as a GatewayError with status 404, which the tab reads as "this Gateway does not serve Now yet" and
+ * falls back to the version 1 stops list. That bridge is temporary - see WingmanTab.tsx.
+ */
+export async function readWingmanNow(sessionId: string, signal?: AbortSignal): Promise<WingmanNow> {
+  const sid = encodeURIComponent(sessionId);
+  const res = await gatewayFetch(`/sessions/${sid}/wingman-now`, {
+    method: "GET",
+    headers: { Accept: "application/json", ...authHeaders() },
+    signal,
+  });
+  if (!res.ok) {
+    throw await GatewayError.from(res, "read what this session needs now");
+  }
+  return (await res.json()) as WingmanNow;
 }

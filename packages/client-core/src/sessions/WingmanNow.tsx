@@ -48,8 +48,9 @@ export interface WingmanNowActions {
   onPlayVoice?: () => void;
   /** Turn voice mode on for this session from here. */
   onTurnOnVoice?: () => void;
-  /** Answer the stop by picking one of the Gateway's options. */
-  onAnswerOption?: (option: WingmanNowOption) => void;
+  /** Answer the stop by picking one of the Gateway's options. `verdictId` is the verdict those options belong to;
+   *  it rides with the index on the answer route, and the view passes it along rather than looking it up. */
+  onAnswerOption?: (option: WingmanNowOption, verdictId: string | null) => void;
   /** Send the owner's own words to the session. */
   onSendReply?: (text: string) => void;
   onSnooze?: () => void;
@@ -128,7 +129,7 @@ export function WingmanNow({
                       type="button"
                       className="wnow-option"
                       disabled={!now.canAnswerByOption || !actions.onAnswerOption}
-                      onClick={() => actions.onAnswerOption?.(option)}
+                      onClick={() => actions.onAnswerOption?.(option, now.needs?.verdictId ?? null)}
                     >
                       <span className="wnow-option-index">{option.index}</span>
                       <span className="wnow-option-body">

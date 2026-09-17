@@ -113,7 +113,7 @@ describe("Now - the live stop", () => {
     const onAnswerOption = vi.fn();
     const { rerender } = render(<WingmanNow now={NEEDS_YOU} at={AT} actions={{ onAnswerOption }} />);
     fireEvent.click(screen.getByText("Allow the merge"));
-    expect(onAnswerOption).toHaveBeenCalledWith(NEEDS_YOU.needs!.options[0]);
+    expect(onAnswerOption).toHaveBeenCalledWith(NEEDS_YOU.needs!.options[0], "v-3002");
 
     rerender(<WingmanNow now={base({ ...NEEDS_YOU, canAnswerByOption: false })} at={AT} actions={{ onAnswerOption }} />);
     fireEvent.click(screen.getByText("Allow the merge"));
