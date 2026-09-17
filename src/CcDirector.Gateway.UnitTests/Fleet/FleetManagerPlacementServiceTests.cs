@@ -77,8 +77,14 @@ public sealed class FleetManagerPlacementServiceTests : IDisposable
         Assert.Contains("fleet_manager_successor_session_id", TenantSettingKeys.All);
         Assert.Equal("fleet_manager_successor_replaces", TenantSettingKeys.FleetManagerSuccessorReplaces);
         Assert.Contains("fleet_manager_successor_replaces", TenantSettingKeys.All);
-        Assert.Equal("fleet_manager_successor_closed_old", TenantSettingKeys.FleetManagerSuccessorClosedOld);
-        Assert.Contains("fleet_manager_successor_closed_old", TenantSettingKeys.All);
+        Assert.Equal("fleet_manager_mark_cleared_session", TenantSettingKeys.FleetManagerMarkClearedSession);
+        Assert.Contains("fleet_manager_mark_cleared_session", TenantSettingKeys.All);
+        Assert.Equal("fleet_manager_mark_cleared_reason", TenantSettingKeys.FleetManagerMarkClearedReason);
+        Assert.Contains("fleet_manager_mark_cleared_reason", TenantSettingKeys.All);
+        Assert.Equal("fleet_manager_waiting_successors", TenantSettingKeys.FleetManagerWaitingSuccessors);
+        Assert.Contains("fleet_manager_waiting_successors", TenantSettingKeys.All);
+        Assert.Equal("fleet_manager_replacement_starting_at", TenantSettingKeys.FleetManagerReplacementStartingAt);
+        Assert.Contains("fleet_manager_replacement_starting_at", TenantSettingKeys.All);
     }
 
     // ---- read -------------------------------------------------------------------------------------------
@@ -638,6 +644,212 @@ public sealed class FleetManagerPlacementServiceTests : IDisposable
         Assert.Equal(NewId, Assert.Single(MarkedEvents()).SessionId);
     }
 
+    // ---- round 3: the mark is compared with the recorded old one first, through a Gateway restart ----------------
+
+    private const string Third = "40000000-0000-4000-8000-000000000009";
+
+    /// <summary>What an earlier process left: the old one marked and Idle, the new one waiting, the replacement
+    /// recorded - and that process stopped.</summary>
+    private void ReplacementLeftByAStoppedGateway(string oldState = "Idle")
+    {
+        _world.Machines.Add(Running("WORKSTATION-A"));
+        _settings.SetFleetManagerPlacement(Tenant, "ClaudeCode", "WORKSTATION-A", Now);
+        MarkRunning(oldState);
+        NewOneReports();
+        _settings.SetFleetManagerSuccessor(Tenant, NewId, OldId, Now);
+        _service.Dispose();
+    }
+
+    [Fact]
+    public async Task AfterARestart_OwnerClearsTheMark_NobodyIsPromotedAndNothingIsClosed()
+    {
+        ReplacementLeftByAStoppedGateway();
+
+        using var restarted = RestartedGateway();
+        Assert.Null(await restarted.SetMarkByOwnerAsync(Tenant, null, default));
+        await restarted.ResumePendingAsync(Tenant);
+        await restarted.WhenIdleAsync();
+
+        Assert.Null(_settings.FleetManagerSessionId(Tenant));
+        Assert.Null(_settings.FleetManagerSuccessorSessionId(Tenant));
+        Assert.Empty(_world.Closed);
+        Assert.Empty(_world.MarkMovedTo);
+        Assert.Empty(MarkedEvents());
+        // Still waiting: marking it later tells it.
+        Assert.Equal(new[] { NewId }, _settings.FleetManagerWaitingSuccessors(Tenant));
+    }
+
+    [Fact]
+    public async Task AfterARestart_OwnerMarksTheSuccessor_ItIsToldExactlyOnce_AndTheReplacementClosesNothing()
+    {
+        ReplacementLeftByAStoppedGateway();
+
+        using var restarted = RestartedGateway();
+        Assert.Equal(NewId, await restarted.SetMarkByOwnerAsync(Tenant, NewId.ToUpperInvariant(), default));
+        await restarted.ResumePendingAsync(Tenant);
+        await restarted.WhenIdleAsync();
+        await restarted.ResumePendingAsync(Tenant);
+        await restarted.WhenIdleAsync();
+
+        Assert.Equal(NewId, _settings.FleetManagerSessionId(Tenant));
+        Assert.Null(_settings.FleetManagerSuccessorSessionId(Tenant));
+        Assert.Empty(_world.Closed);
+        Assert.Equal(new[] { (NewId, true) }, _world.OwnerMarks);
+        Assert.Empty(_world.MarkMovedTo);
+        Assert.Equal(NewId, Assert.Single(MarkedEvents()).SessionId);
+        Assert.Empty(_settings.FleetManagerWaitingSuccessors(Tenant));
+    }
+
+    [Fact]
+    public async Task AfterARestart_MarkSetToTheSuccessorOutsideTheRoute_TheSweepTellsItOnce_AndClosesNothing()
+    {
+        ReplacementLeftByAStoppedGateway();
+        _settings.SetFleetManagerSessionId(Tenant, NewId, Now);
+
+        using var restarted = RestartedGateway();
+        await restarted.ResumePendingAsync(Tenant);
+        await restarted.WhenIdleAsync();
+        await restarted.ResumePendingAsync(Tenant);
+        await restarted.WhenIdleAsync();
+
+        Assert.Equal(NewId, _settings.FleetManagerSessionId(Tenant));
+        Assert.Null(_settings.FleetManagerSuccessorSessionId(Tenant));
+        Assert.Empty(_world.Closed);
+        Assert.Equal(NewId, Assert.Single(MarkedEvents()).SessionId);
+    }
+
+    [Fact]
+    public async Task AfterARestart_OwnerMarksAThirdSession_TheReplacementIsAbandoned_AndTheWaitingOneIsToldOnlyWhenMarked()
+    {
+        ReplacementLeftByAStoppedGateway();
+        _world.Roster.Add(("dir-a", Live(Third, "Idle")));
+
+        using var restarted = RestartedGateway();
+        await restarted.SetMarkByOwnerAsync(Tenant, Third, default);
+        await restarted.ResumePendingAsync(Tenant);
+        await restarted.WhenIdleAsync();
+
+        Assert.Equal(Third, _settings.FleetManagerSessionId(Tenant));
+        Assert.Null(_settings.FleetManagerSuccessorSessionId(Tenant));
+        Assert.Empty(_world.Closed);
+        Assert.Empty(_world.MarkMovedTo);
+        Assert.Empty(MarkedEvents());
+
+        // The session that was waiting does not wait forever: marking it later tells it, once.
+        await restarted.SetMarkByOwnerAsync(Tenant, NewId, default);
+        await restarted.SetMarkByOwnerAsync(Tenant, NewId, default);
+        Assert.Equal(NewId, Assert.Single(MarkedEvents()).SessionId);
+        Assert.Empty(_world.Closed);
+    }
+
+    [Fact]
+    public async Task AfterARestart_OldOneExitedAndTheGatewayUnmarkedIt_TheReplacementCompletes()
+    {
+        _world.Machines.Add(Running("WORKSTATION-A"));
+        _settings.SetFleetManagerPlacement(Tenant, "ClaudeCode", "WORKSTATION-A", Now);
+        MarkRunning("Exited");
+        NewOneReports();
+        _settings.SetFleetManagerSuccessor(Tenant, NewId, OldId, Now);
+        // The first process sees the old one has ended, unmarks it, and stops before the promotion is written.
+        _world.PromotionFails = new IOException("the Gateway stopped");
+        StopAfter(1);
+
+        await _service.ResumePendingAsync(Tenant);
+        await _service.WhenIdleAsync();
+
+        Assert.Null(_settings.FleetManagerSessionId(Tenant));
+        Assert.Equal((OldId, TenantSettingsResolver.MarkClearedExited), _settings.FleetManagerMarkClearedByGateway(Tenant));
+        Assert.Equal(NewId, _settings.FleetManagerSuccessorSessionId(Tenant));
+
+        // The Gateway restarts; the ended session has left its Director's list.
+        _world.PromotionFails = null;
+        _world.Roster.RemoveAll(r => r.Session.SessionId == OldId);
+        using var restarted = RestartedGateway();
+        await restarted.ResumePendingAsync(Tenant);
+        await restarted.WhenIdleAsync();
+
+        Assert.Equal(NewId, _settings.FleetManagerSessionId(Tenant));
+        Assert.Null(_settings.FleetManagerSuccessorSessionId(Tenant));
+        Assert.Null(_settings.FleetManagerMarkClearedByGateway(Tenant));
+        Assert.Empty(_world.Closed);
+        Assert.Equal(NewId, Assert.Single(MarkedEvents()).SessionId);
+    }
+
+    [Fact]
+    public async Task AfterARestart_GatewayUnmarkedADifferentSession_TheReplacementIsAbandoned()
+    {
+        ReplacementLeftByAStoppedGateway();
+        _settings.ClearFleetManagerMarkByGateway(Tenant, Third, TenantSettingsResolver.MarkClearedClosed, Now);
+
+        using var restarted = RestartedGateway();
+        await restarted.ResumePendingAsync(Tenant);
+        await restarted.WhenIdleAsync();
+
+        Assert.Null(_settings.FleetManagerSessionId(Tenant));
+        Assert.Null(_settings.FleetManagerSuccessorSessionId(Tenant));
+        Assert.Empty(_world.Closed);
+        Assert.Empty(MarkedEvents());
+    }
+
+    [Fact]
+    public async Task InterruptedStart_TheSweepRemembersTheStartedSessionAsWaiting_ClosesNothing_AndMarkingItTellsIt()
+    {
+        const string Stranded = "40000000-0000-4000-8000-000000000007";
+        _world.Machines.Add(Running("WORKSTATION-A"));
+        MarkRunning("Idle");
+        // The process wrote "starting", the Director started the session, and the process stopped before the save.
+        _settings.SetFleetManagerReplacementStarting(Tenant, Now);
+        var stranded = Live(Stranded, "WaitingForInput");
+        stranded.Name = FleetManagerPlacementService.SessionName;
+        stranded.CreatedAt = Now.AddSeconds(2);
+        _world.Roster.Add(("dir-a", stranded));
+        var older = Live(Third, "Idle");
+        older.Name = FleetManagerPlacementService.SessionName;
+        _world.Roster.Add(("dir-a", older));
+        _service.Dispose();
+
+        using var restarted = RestartedGateway();
+        await restarted.ResumePendingAsync(Tenant);
+        await restarted.WhenIdleAsync();
+
+        Assert.Equal(new[] { Stranded }, _settings.FleetManagerWaitingSuccessors(Tenant));
+        Assert.Equal(OldId, _settings.FleetManagerSessionId(Tenant));
+        Assert.Null(_settings.FleetManagerSuccessorSessionId(Tenant));
+        Assert.NotNull(_settings.FleetManagerReplacementStartingAt(Tenant));
+        Assert.Empty(_world.Closed);
+        Assert.Empty(MarkedEvents());
+
+        // Once the window has passed the sweep stops looking.
+        _world.Advance(FleetManagerPlacementService.InterruptedStartWindow);
+        await restarted.ResumePendingAsync(Tenant);
+        Assert.Null(_settings.FleetManagerReplacementStartingAt(Tenant));
+
+        await restarted.SetMarkByOwnerAsync(Tenant, Stranded, default);
+        Assert.Equal(Stranded, Assert.Single(MarkedEvents()).SessionId);
+        Assert.Empty(_world.Closed);
+    }
+
+    [Fact]
+    public async Task RestartAsync_TheStartingRecord_IsRemovedWhenTheStartFails_AndWhenTheNewOneIsRecorded()
+    {
+        _world.Machines.Add(Running("WORKSTATION-A"));
+        _settings.SetFleetManagerPlacement(Tenant, "ClaudeCode", "WORKSTATION-A", Now);
+        MarkRunning("Working");
+        _world.SpawnError = "no Director answered";
+
+        await _service.RestartAsync(Tenant, NoStamp, default);
+        Assert.Null(_settings.FleetManagerReplacementStartingAt(Tenant));
+        Assert.Empty(_settings.FleetManagerWaitingSuccessors(Tenant));
+
+        _world.SpawnError = null;
+        NewOneReports();
+        StopAfter(1);
+        await _service.RestartAsync(Tenant, NoStamp, default);
+        await _service.WhenIdleAsync();
+        Assert.Null(_settings.FleetManagerReplacementStartingAt(Tenant));
+        Assert.Equal(new[] { NewId }, _settings.FleetManagerWaitingSuccessors(Tenant));
+    }
+
     private static string RetireReasonOf() => FleetManagerPlacementService.RetireReason;
 
     [Fact]
@@ -653,12 +865,12 @@ public sealed class FleetManagerPlacementServiceTests : IDisposable
         await _service.RestartAsync(Tenant, NoStamp, default);
         await _service.WhenIdleAsync();
 
-        // The old one was closed once; the promotion failed and wrote NOTHING - the replacement is still recorded,
-        // with the close it made.
+        // The old one was closed once and the Gateway unmarked it, saying why; the promotion failed and wrote NOTHING -
+        // the replacement is still recorded.
         Assert.Equal(OldId, Assert.Single(_world.Closed).SessionId);
-        Assert.Equal(OldId, _settings.FleetManagerSessionId(Tenant));
+        Assert.Null(_settings.FleetManagerSessionId(Tenant));
         Assert.Equal(NewId, _settings.FleetManagerSuccessorSessionId(Tenant));
-        Assert.Equal(OldId, _settings.FleetManagerSuccessorClosedOld(Tenant));
+        Assert.Equal((OldId, TenantSettingsResolver.MarkClearedClosed), _settings.FleetManagerMarkClearedByGateway(Tenant));
         Assert.Empty(MarkedEvents());
 
         // The Gateway restarts. The closed session has left its Director's list altogether.
@@ -671,7 +883,7 @@ public sealed class FleetManagerPlacementServiceTests : IDisposable
         Assert.Single(_world.Closed); // not closed a second time
         Assert.Equal(NewId, _settings.FleetManagerSessionId(Tenant));
         Assert.Null(_settings.FleetManagerSuccessorSessionId(Tenant));
-        Assert.Null(_settings.FleetManagerSuccessorClosedOld(Tenant));
+        Assert.Null(_settings.FleetManagerMarkClearedByGateway(Tenant));
         Assert.Equal(NewId, Assert.Single(MarkedEvents()).SessionId);
 
         // Sweeping again, and promoting again, never stores a second event.

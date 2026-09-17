@@ -51,6 +51,8 @@ public sealed class FleetManagerPromotionStore
 
             var settings = TenantSettingsResolver.SuccessorCleared();
             settings[TenantSettingKeys.FleetManagerSessionId] = sid;
+            settings[TenantSettingKeys.FleetManagerWaitingSuccessors] =
+                TenantSettingsResolver.JoinIdList(TenantSettingsResolver.WithoutId(WaitingIn(ctx), sid));
             TenantSettingsStore.ApplyIn(ctx, tenant, settings, now);
             ctx.SaveChanges();
 
@@ -69,4 +71,58 @@ public sealed class FleetManagerPromotionStore
             throw;
         }
     }
+
+    /// <summary>
+    /// The OWNER marks <paramref name="sessionId"/> (the mark route and the command): the mark and its history, in one
+    /// transaction. When that session was started to take over and was never told, the same transaction stores its one
+    /// "you are now the Fleet Manager" event and drops it from the waiting list - it would otherwise wait forever. When
+    /// it is the successor of the replacement under way, that replacement is forgotten too: it closes nothing, because
+    /// the owner, not the replacement, moved the mark. Returns whether an event was stored.
+    /// </summary>
+    /// <exception cref="ArgumentException">The id is not a session id.</exception>
+    public bool MarkByOwner(TenantId tenant, string sessionId, DateTime nowUtc)
+    {
+        FileLog.Write($"[FleetManagerPromotionStore] MarkByOwner: tenant={tenant.ToLogString()}, session={sessionId}");
+        try
+        {
+            var sid = TenantSettingsResolver.CanonicalSessionId(sessionId, nameof(sessionId));
+            var now = nowUtc.Kind == DateTimeKind.Utc ? nowUtc : nowUtc.ToUniversalTime();
+
+            using var ctx = _db.CreateContext(tenant);
+            using var tx = ctx.Database.BeginTransaction();
+
+            var waiting = WaitingIn(ctx);
+            var wasWaiting = waiting.Any(w => string.Equals(w, sid, StringComparison.OrdinalIgnoreCase));
+            var isSuccessor = string.Equals(ValueIn(ctx, TenantSettingKeys.FleetManagerSuccessorSessionId), sid,
+                StringComparison.OrdinalIgnoreCase);
+
+            var settings = isSuccessor ? TenantSettingsResolver.SuccessorCleared() : TenantSettingsResolver.GatewayClearForgotten();
+            settings[TenantSettingKeys.FleetManagerSessionId] = sid;
+            if (wasWaiting)
+                settings[TenantSettingKeys.FleetManagerWaitingSuccessors] =
+                    TenantSettingsResolver.JoinIdList(TenantSettingsResolver.WithoutId(waiting, sid));
+            TenantSettingsStore.ApplyIn(ctx, tenant, settings, now);
+            ctx.SaveChanges();
+
+            FleetManagerMarkHistory.UpsertIn(ctx, sid, now);
+            var told = wasWaiting ? FleetManagerEventStore.AddMarkedIn(ctx, sid, now) : null;
+            ctx.SaveChanges();
+            tx.Commit();
+
+            FileLog.Write($"[FleetManagerPromotionStore] MarkByOwner: committed mark={sid}, waiting={wasWaiting}, "
+                          + $"replacementForgotten={isSuccessor}, event={(told is null ? "none" : told.Id.ToString())}");
+            return told is not null;
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[FleetManagerPromotionStore] MarkByOwner FAILED (nothing was written): {ex.GetType().Name}: {ex.Message}");
+            throw;
+        }
+    }
+
+    private static IReadOnlyList<string> WaitingIn(GatewayDbContext ctx)
+        => TenantSettingsResolver.ParseIdList(ValueIn(ctx, TenantSettingKeys.FleetManagerWaitingSuccessors));
+
+    private static string? ValueIn(GatewayDbContext ctx, string key)
+        => ctx.TenantSettings.Where(e => e.Key == key).Select(e => e.Value).FirstOrDefault();
 }

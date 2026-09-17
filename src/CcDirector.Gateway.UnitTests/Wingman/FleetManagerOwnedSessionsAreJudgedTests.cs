@@ -175,9 +175,9 @@ public sealed class FleetManagerOwnedSessionsAreJudgedTests : IDisposable
 
         Assert.Equal(Fm, raw.Get(Tenant, "fleet_manager_session_id"));
         Assert.Equal(Fm, settings.FleetManagerSessionId(Tenant));
-        Assert.True(settings.ClearFleetManagerSessionId(Tenant));
+        Assert.True(settings.ClearFleetManagerSessionId(Tenant, DateTime.UtcNow));
         Assert.Null(raw.Get(Tenant, "fleet_manager_session_id"));
-        Assert.False(settings.ClearFleetManagerSessionId(Tenant));
+        Assert.False(settings.ClearFleetManagerSessionId(Tenant, DateTime.UtcNow));
         Assert.Throws<ArgumentException>(() => settings.SetFleetManagerSessionId(Tenant, "fleet-manager", ObservedAt));
     }
 

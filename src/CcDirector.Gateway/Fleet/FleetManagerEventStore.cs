@@ -133,7 +133,7 @@ public sealed class FleetManagerEventStore
 
     /// <summary>What a <c>marked</c> event tells the new Fleet Manager, exactly.</summary>
     public const string MarkedDetail =
-        "The account's Fleet Manager mark has moved to you: the previous Fleet Manager finished its turn and was closed. "
+        "The account's Fleet Manager mark has moved to you. "
         + "You are now this account's Fleet Manager. Run `cc-devthrottle workflow instructions fleet-manager` and follow it "
         + "exactly, then run `cc-devthrottle fleet digest` to see where things stand.";
     public static readonly IReadOnlyList<string> Statuses = new[] { StatusUnacknowledged, StatusAll };

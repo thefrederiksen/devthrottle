@@ -405,9 +405,29 @@ public sealed class TenantSettingsResolver
     public string? FleetManagerSuccessorReplaces(TenantId tenant)
         => _store.Get(tenant, TenantSettingKeys.FleetManagerSuccessorReplaces);
 
-    /// <summary>The old Fleet Manager the waiting replacement has already closed, or null when it has closed none.</summary>
-    public string? FleetManagerSuccessorClosedOld(TenantId tenant)
-        => _store.Get(tenant, TenantSettingKeys.FleetManagerSuccessorClosedOld);
+    /// <summary>The session the Gateway itself unmarked during a replacement, and why (<c>exited</c> or
+    /// <c>closed</c>), or null when the mark was not removed by the Gateway.</summary>
+    public (string SessionId, string Reason)? FleetManagerMarkClearedByGateway(TenantId tenant)
+    {
+        var sid = _store.Get(tenant, TenantSettingKeys.FleetManagerMarkClearedSession);
+        var reason = _store.Get(tenant, TenantSettingKeys.FleetManagerMarkClearedReason);
+        return string.IsNullOrWhiteSpace(sid) || string.IsNullOrWhiteSpace(reason) ? null : (sid.Trim(), reason.Trim());
+    }
+
+    /// <summary>The sessions started to take over as Fleet Manager that have not been told yet, oldest first.</summary>
+    public IReadOnlyList<string> FleetManagerWaitingSuccessors(TenantId tenant)
+        => ParseIdList(_store.Get(tenant, TenantSettingKeys.FleetManagerWaitingSuccessors));
+
+    /// <summary>When a replacement began starting its new Fleet Manager and has not yet recorded it, or null.</summary>
+    public DateTime? FleetManagerReplacementStartingAt(TenantId tenant)
+    {
+        var raw = _store.Get(tenant, TenantSettingKeys.FleetManagerReplacementStartingAt);
+        if (string.IsNullOrWhiteSpace(raw)) return null;
+        if (!DateTime.TryParse(raw, System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.RoundtripKind, out var at))
+            throw new InvalidOperationException($"The stored {TenantSettingKeys.FleetManagerReplacementStartingAt} '{raw}' is not a time.");
+        return at.ToUniversalTime();
+    }
 
     // ---- writes: validate like the global setters, then persist a per-tenant override -------------------
 
@@ -617,7 +637,9 @@ public sealed class TenantSettingsResolver
     {
         if (!Guid.TryParse(sessionId, out var parsed))
             throw new ArgumentException($"'{sessionId}' is not a session id.", nameof(sessionId));
-        _store.Set(tenant, TenantSettingKeys.FleetManagerSessionId, parsed.ToString("D"), nowUtc);
+        var changes = GatewayClearForgotten();
+        changes[TenantSettingKeys.FleetManagerSessionId] = parsed.ToString("D");
+        _store.Apply(tenant, changes, nowUtc);
     }
 
     /// <summary>
@@ -637,36 +659,107 @@ public sealed class TenantSettingsResolver
     }
 
     /// <summary>Record the new Fleet Manager that takes over once the marked one has closed, TOGETHER with the marked
-    /// session it is to close - one save, so a successor is never stored without the session it replaces.</summary>
+    /// session it is to close - one save, so a successor is never stored without the session it replaces. The same
+    /// save adds it to the sessions waiting to be told and ends the "starting" record.</summary>
     /// <exception cref="ArgumentException">Either id is not a session id.</exception>
     public void SetFleetManagerSuccessor(TenantId tenant, string successorSessionId, string replacesSessionId, DateTime nowUtc)
     {
+        var successor = CanonicalSessionId(successorSessionId, nameof(successorSessionId));
+        var changes = GatewayClearForgotten();
+        changes[TenantSettingKeys.FleetManagerSuccessorSessionId] = successor;
+        changes[TenantSettingKeys.FleetManagerSuccessorReplaces] = CanonicalSessionId(replacesSessionId, nameof(replacesSessionId));
+        changes[TenantSettingKeys.FleetManagerWaitingSuccessors] =
+            JoinIdList(WithId(FleetManagerWaitingSuccessors(tenant), successor));
+        changes[TenantSettingKeys.FleetManagerReplacementStartingAt] = null;
+        _store.Apply(tenant, changes, nowUtc);
+    }
+
+    /// <summary>Record that a replacement is about to start its new Fleet Manager.</summary>
+    public void SetFleetManagerReplacementStarting(TenantId tenant, DateTime nowUtc)
+        => _store.Set(tenant, TenantSettingKeys.FleetManagerReplacementStartingAt,
+            nowUtc.ToUniversalTime().ToString("O", System.Globalization.CultureInfo.InvariantCulture), nowUtc);
+
+    /// <summary>End the "starting" record: the start failed, or an interrupted one has been looked into.</summary>
+    public void ClearFleetManagerReplacementStarting(TenantId tenant)
+        => _store.Remove(tenant, TenantSettingKeys.FleetManagerReplacementStartingAt);
+
+    /// <summary>Remember sessions as started to take over and not yet told (an interrupted start the sweep found).</summary>
+    /// <exception cref="ArgumentException">An id is not a session id.</exception>
+    public void AddFleetManagerWaitingSuccessors(TenantId tenant, IEnumerable<string> sessionIds, DateTime nowUtc)
+    {
+        var list = FleetManagerWaitingSuccessors(tenant);
+        foreach (var id in sessionIds) list = WithId(list, CanonicalSessionId(id, nameof(sessionIds)));
         _store.Apply(tenant, new Dictionary<string, string?>
         {
-            [TenantSettingKeys.FleetManagerSuccessorSessionId] = CanonicalSessionId(successorSessionId, nameof(successorSessionId)),
-            [TenantSettingKeys.FleetManagerSuccessorReplaces] = CanonicalSessionId(replacesSessionId, nameof(replacesSessionId)),
-            [TenantSettingKeys.FleetManagerSuccessorClosedOld] = null,
+            [TenantSettingKeys.FleetManagerWaitingSuccessors] = JoinIdList(list),
         }, nowUtc);
     }
 
-    /// <summary>Record that the waiting replacement has closed <paramref name="oldSessionId"/>.</summary>
-    /// <exception cref="ArgumentException">The id is not a session id.</exception>
-    public void SetFleetManagerSuccessorClosedOld(TenantId tenant, string oldSessionId, DateTime nowUtc)
-        => _store.Set(tenant, TenantSettingKeys.FleetManagerSuccessorClosedOld,
-            CanonicalSessionId(oldSessionId, nameof(oldSessionId)), nowUtc);
+    /// <summary>
+    /// The Gateway's OWN removal of the mark, during a replacement: <paramref name="oldSessionId"/> is unmarked and the
+    /// reason is recorded in the same save, so a later look can tell this removal from the owner's.
+    /// </summary>
+    /// <exception cref="ArgumentException">The id is not a session id, or the reason is not a known one.</exception>
+    public void ClearFleetManagerMarkByGateway(TenantId tenant, string oldSessionId, string reason, DateTime nowUtc)
+    {
+        if (reason is not (MarkClearedExited or MarkClearedClosed))
+            throw new ArgumentException($"'{reason}' is not a reason the Gateway removes a mark for.", nameof(reason));
+        _store.Apply(tenant, new Dictionary<string, string?>
+        {
+            [TenantSettingKeys.FleetManagerSessionId] = null,
+            [TenantSettingKeys.FleetManagerMarkClearedSession] = CanonicalSessionId(oldSessionId, nameof(oldSessionId)),
+            [TenantSettingKeys.FleetManagerMarkClearedReason] = reason,
+        }, nowUtc);
+    }
 
-    /// <summary>Forget the waiting replacement - the successor, the session it replaces and any close it made - in one
-    /// save.</summary>
+    /// <summary>The Gateway removed the mark because the replaced session had ended by itself.</summary>
+    public const string MarkClearedExited = "exited";
+
+    /// <summary>The Gateway removed the mark because the replacement closed the replaced session.</summary>
+    public const string MarkClearedClosed = "closed";
+
+    /// <summary>Forget the waiting replacement - the successor and the session it replaces - in one save.</summary>
     public void ClearFleetManagerSuccessor(TenantId tenant, DateTime nowUtc)
         => _store.Apply(tenant, SuccessorCleared(), nowUtc);
 
-    /// <summary>The changes that forget a waiting replacement, for a caller that commits them with other rows.</summary>
-    internal static Dictionary<string, string?> SuccessorCleared() => new()
+    /// <summary>The changes that forget a waiting replacement, for a caller that commits them with other rows. The
+    /// record of a mark the Gateway removed goes with it: it belongs to that replacement only.</summary>
+    internal static Dictionary<string, string?> SuccessorCleared()
     {
-        [TenantSettingKeys.FleetManagerSuccessorSessionId] = null,
-        [TenantSettingKeys.FleetManagerSuccessorReplaces] = null,
-        [TenantSettingKeys.FleetManagerSuccessorClosedOld] = null,
+        var changes = GatewayClearForgotten();
+        changes[TenantSettingKeys.FleetManagerSuccessorSessionId] = null;
+        changes[TenantSettingKeys.FleetManagerSuccessorReplaces] = null;
+        return changes;
+    }
+
+    /// <summary>The changes that forget the record of a mark the Gateway removed. Every mark the owner sets or clears
+    /// writes these, so the owner's own change is never read as the Gateway's.</summary>
+    internal static Dictionary<string, string?> GatewayClearForgotten() => new()
+    {
+        [TenantSettingKeys.FleetManagerMarkClearedSession] = null,
+        [TenantSettingKeys.FleetManagerMarkClearedReason] = null,
     };
+
+    /// <summary>A comma-separated list of session ids, read back.</summary>
+    internal static IReadOnlyList<string> ParseIdList(string? raw)
+        => string.IsNullOrWhiteSpace(raw)
+            ? Array.Empty<string>()
+            : raw.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    /// <summary>The list stored, or null (the row removed) when it is empty.</summary>
+    internal static string? JoinIdList(IReadOnlyList<string> ids) => ids.Count == 0 ? null : string.Join(",", ids);
+
+    /// <summary>The list with <paramref name="id"/> last, once, bounded to the most recent ones.</summary>
+    internal static IReadOnlyList<string> WithId(IReadOnlyList<string> ids, string id)
+    {
+        var list = ids.Where(x => !string.Equals(x, id, StringComparison.OrdinalIgnoreCase)).ToList();
+        list.Add(id);
+        return list.Skip(Math.Max(0, list.Count - Fleet.FleetManagerPlacementService.MaxWaitingSuccessors)).ToList();
+    }
+
+    /// <summary>The list without <paramref name="id"/>.</summary>
+    internal static IReadOnlyList<string> WithoutId(IReadOnlyList<string> ids, string id)
+        => ids.Where(x => !string.Equals(x, id, StringComparison.OrdinalIgnoreCase)).ToList();
 
     /// <summary>A session id in the canonical lower-case form every roster row carries.</summary>
     /// <exception cref="ArgumentException">The value is not a session id.</exception>
@@ -677,9 +770,16 @@ public sealed class TenantSettingsResolver
         return parsed.ToString("D");
     }
 
-    /// <summary>Remove this account's Fleet Manager mark. Returns true when there was one to remove.</summary>
-    public bool ClearFleetManagerSessionId(TenantId tenant)
-        => _store.Remove(tenant, TenantSettingKeys.FleetManagerSessionId);
+    /// <summary>Remove this account's Fleet Manager mark, as the owner. Returns true when there was one to remove. The
+    /// record of a mark the Gateway removed goes in the same save, so this removal is never read as the Gateway's.</summary>
+    public bool ClearFleetManagerSessionId(TenantId tenant, DateTime nowUtc)
+    {
+        var had = _store.Get(tenant, TenantSettingKeys.FleetManagerSessionId) is not null;
+        var changes = GatewayClearForgotten();
+        changes[TenantSettingKeys.FleetManagerSessionId] = null;
+        _store.Apply(tenant, changes, nowUtc);
+        return had;
+    }
 
     /// <summary>Record this tenant's daily-email cadence state after a mention is emitted.</summary>
     public void SetDictationEmailCadence(TenantId tenant, DictationEmailCadenceState state, DateTime nowUtc)

@@ -96,6 +96,17 @@ internal sealed class FakePlacementWorld : IFleetManagerPlacementEnvironment
         MarkMovedTo.Add((sessionId, Closed.Count));
     }
 
+    /// <summary>Each owner mark that committed, and whether it told a waiting session.</summary>
+    public List<(string SessionId, bool Told)> OwnerMarks { get; } = new();
+
+    public bool MarkByOwner(TenantId tenant, string sessionId, DateTime nowUtc)
+    {
+        if (Promotions is null) throw new InvalidOperationException("the test gave the fake world no promotion store");
+        var told = Promotions.MarkByOwner(tenant, sessionId, nowUtc);
+        OwnerMarks.Add((sessionId, told));
+        return told;
+    }
+
     public TimeZoneInfo TimeZone(TenantId tenant) => TimeZoneInfo.Utc;
 
     public Task DelayAsync(TimeSpan delay, CancellationToken ct)

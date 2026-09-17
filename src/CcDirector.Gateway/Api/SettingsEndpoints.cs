@@ -267,10 +267,12 @@ internal static class SettingsEndpoints
                 if (body is not JsonObject obj || !obj.TryGetPropertyValue("sessionId", out var value))
                     return Results.BadRequest(new { error = "body { \"sessionId\": \"<session id>\" | null } is required" });
 
+                // Through the placement service: under the gate a restart or a move looks under, so a replacement under
+                // way sees the owner's change as the owner's (and a session waiting to take over is told once).
                 if (value is null)
                 {
-                    var removed = host.TenantSettingsResolver.ClearFleetManagerSessionId(t.Value);
-                    FileLog.Write($"[SettingsEndpoints] fleet_manager_session_id cleared (removed={removed}) for tenant={t.Value.ToLogString()}");
+                    await host.FleetManagerPlacement.SetMarkByOwnerAsync(t.Value, null, ctx.RequestAborted);
+                    FileLog.Write($"[SettingsEndpoints] fleet_manager_session_id cleared for tenant={t.Value.ToLogString()}");
                     return Results.Json(new { sessionId = (string?)null });
                 }
 
@@ -278,11 +280,9 @@ internal static class SettingsEndpoints
                 if (raw is null || !Guid.TryParse(raw, out _))
                     return Results.BadRequest(new { error = "\"sessionId\" must be a full session id or null" });
 
-                var now = DateTime.UtcNow;
-                host.TenantSettingsResolver.SetFleetManagerSessionId(t.Value, raw, now);
-                var stored = host.TenantSettingsResolver.FleetManagerSessionId(t.Value);
-                // The history beside the mark: the digest still finds the sessions an earlier Fleet Manager started.
-                host.FleetManagerMarks.Record(t.Value, stored!, now);
+                // The history beside the mark is written in the same transaction: the digest still finds the sessions an
+                // earlier Fleet Manager started.
+                var stored = await host.FleetManagerPlacement.SetMarkByOwnerAsync(t.Value, raw, ctx.RequestAborted);
                 FileLog.Write($"[SettingsEndpoints] fleet_manager_session_id set to {stored} for tenant={t.Value.ToLogString()}");
                 return Results.Json(new { sessionId = stored });
             }

@@ -45,6 +45,13 @@ internal interface IFleetManagerPlacementEnvironment
     /// </summary>
     void PromoteSuccessor(TenantId tenant, string sessionId, DateTime nowUtc);
 
+    /// <summary>
+    /// The owner marks a session (<see cref="FleetManagerPromotionStore.MarkByOwner"/>): the mark and its history, and -
+    /// when the session was started to take over and never told - its one event, in ONE transaction; then book that
+    /// event's delivery. True when an event was stored.
+    /// </summary>
+    bool MarkByOwner(TenantId tenant, string sessionId, DateTime nowUtc);
+
     /// <summary>Wait. The only clock the retirement loop uses, so a test can run it instantly.</summary>
     Task DelayAsync(TimeSpan delay, CancellationToken ct);
 
@@ -87,9 +94,17 @@ internal sealed record FleetManagerPlacementResult(int Status, string? Error, Fl
 /// new one ended, the replacement is abandoned and the old one is left alone. The successor is kept in storage
 /// TOGETHER WITH the session it is to close, so a Gateway restart carries the replacement on
 /// (<see cref="ResumePendingAsync"/>) and still closes only that session: a mark changed by hand before the resumed
-/// loop's first look abandons it exactly as it would have without the restart. The close, once it has gone through, is
-/// stored too, and the move of the mark is one transaction (<see cref="FleetManagerPromotionStore"/>), so a promotion
-/// that fails is finished by the next look and the new one is always told.
+/// loop's first look abandons it exactly as it would have without the restart.
+///
+/// THE MARK IS COMPARED WITH THE RECORDED OLD ONE FIRST (round 3). The replacement carries on only while the mark still
+/// names that session, or while there is no mark because the Gateway ITSELF removed it from that session - which it
+/// does, recording why (exited or closed) in the same save, once the old one has ended or been closed. No mark without
+/// that record means the owner cleared it: the replacement is abandoned and nobody is promoted. A mark set by hand to
+/// any other session abandons it too. A mark set to the waiting new one - by any route - closes nothing, and tells that
+/// session once, because a session started to take over waits for that event and must not wait forever (sessions
+/// waiting to be told are remembered, <see cref="TenantSettingKeys.FleetManagerWaitingSuccessors"/>). The move of the
+/// mark is one transaction (<see cref="FleetManagerPromotionStore"/>), so a promotion that fails is finished by the
+/// next look and the new one is always told.
 ///
 /// MOVE checks the new place, then restarts there (or starts, when none is running). The place is SAVED ONLY AFTER
 /// the new Fleet Manager has started: a failed start leaves the setting as it was.
@@ -109,6 +124,12 @@ internal sealed class FleetManagerPlacementService : IDisposable
 
     /// <summary>How often the retirement loop looks at the old Fleet Manager.</summary>
     public static readonly TimeSpan RetirePollInterval = TimeSpan.FromSeconds(5);
+
+    /// <summary>How many sessions started to take over, and not yet told, an account remembers.</summary>
+    public const int MaxWaitingSuccessors = 20;
+
+    /// <summary>How long after an interrupted start the sweep still looks for the session it started.</summary>
+    public static readonly TimeSpan InterruptedStartWindow = TimeSpan.FromMinutes(10);
 
     /// <summary>How long a page read waits for a Director's agent list before answering without it.</summary>
     public static readonly TimeSpan AgentListTimeout = TimeSpan.FromSeconds(4);
@@ -279,6 +300,47 @@ internal sealed class FleetManagerPlacementService : IDisposable
         }).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// THE OWNER SETS OR CLEARS THE MARK (the mark route, and the command that calls it). Taken under the same per-account
+    /// gate as a replacement's look, so a replacement never reads the mark, then closes a session, around this change.
+    /// A cleared mark records nothing about the Gateway, so a replacement under way reads it as the owner's and is
+    /// abandoned. A session marked here that was started to take over and never told gets its one event now. Returns
+    /// the stored mark.
+    /// </summary>
+    /// <exception cref="ArgumentException">The id is not a session id.</exception>
+    public async Task<string?> SetMarkByOwnerAsync(TenantId tenant, string? sessionId, CancellationToken ct)
+    {
+        FileLog.Write($"[FleetManagerPlacementService] SetMarkByOwnerAsync: tenant={tenant.ToLogString()}, session={sessionId ?? "(clear)"}");
+        try
+        {
+            var gate = Gate(tenant);
+            await gate.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                var now = _env.NowUtc();
+                if (sessionId is null)
+                {
+                    var removed = _settings.ClearFleetManagerSessionId(tenant, now);
+                    FileLog.Write($"[FleetManagerPlacementService] SetMarkByOwnerAsync: mark cleared by the owner (removed={removed})");
+                    return null;
+                }
+                var told = _env.MarkByOwner(tenant, sessionId, now);
+                var stored = _settings.FleetManagerSessionId(tenant);
+                FileLog.Write($"[FleetManagerPlacementService] SetMarkByOwnerAsync: mark={stored}, told={told}");
+                return stored;
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            FileLog.Write($"[FleetManagerPlacementService] SetMarkByOwnerAsync FAILED: {ex.GetType().Name}: {ex.Message}");
+            throw;
+        }
+    }
+
     /// <summary>Start a new Fleet Manager in the saved place, mark it, then close the old one after its turn.</summary>
     public async Task<FleetManagerPlacementResult> RestartAsync(TenantId tenant, Action<NewSessionRequest> stampOrigin, CancellationToken ct)
     {
@@ -353,6 +415,10 @@ internal sealed class FleetManagerPlacementService : IDisposable
         // takes the create. With none running, the launcher starts one and the check runs on that one.
         request.Director = running?.DirectorId;
 
+        // A replacement says it is starting BEFORE the start, so a Gateway that stops between the start and the save
+        // below leaves a trace the sweep follows (ResumePendingAsync); the save below removes it.
+        if (replacing is not null) _settings.SetFleetManagerReplacementStarting(tenant, _env.NowUtc());
+
         var (ok, session, error, directorId) = await _env.SpawnAsync(tenant, placement.Machine, request,
             id => _env.CreatesFleetManagerHome(tenant, id)
                 ? null
@@ -361,6 +427,7 @@ internal sealed class FleetManagerPlacementService : IDisposable
             ct).ConfigureAwait(false);
         if (!ok || session is null)
         {
+            if (replacing is not null) _settings.ClearFleetManagerReplacementStarting(tenant);
             FileLog.Write($"[FleetManagerPlacementService] start FAILED on {placement.Machine} (director={directorId}): {error}");
             return Refuse(502, $"The Fleet Manager could not be started on {placement.Machine}: {error}");
         }
@@ -414,12 +481,80 @@ internal sealed class FleetManagerPlacementService : IDisposable
         OriginSurface = SessionOriginSurfaces.Cockpit,
     };
 
-    /// <summary>Carry on a replacement a previous Gateway process left under way. Called for every account by the
-    /// sweep; does nothing when no replacement is recorded or one is already being watched.</summary>
-    public Task ResumePendingAsync(TenantId tenant)
+    /// <summary>Carry on a replacement a previous Gateway process left under way, and finish what an interrupted one
+    /// left behind. Called for every account by the sweep; does nothing when there is nothing to do.</summary>
+    public async Task ResumePendingAsync(TenantId tenant)
     {
-        if (!_shutdown.IsCancellationRequested && Successor(tenant) is not null) StartRetirement(tenant);
-        return Task.CompletedTask;
+        if (_shutdown.IsCancellationRequested) return;
+        if (Successor(tenant) is not null)
+        {
+            StartRetirement(tenant);
+            return;
+        }
+        if (_settings.FleetManagerReplacementStartingAt(tenant) is null && !MarkNamesAWaitingSession(tenant)) return;
+
+        var gate = Gate(tenant);
+        await gate.WaitAsync(_shutdown.Token).ConfigureAwait(false);
+        try
+        {
+            // Re-read under the gate: a start or an owner's mark may have finished meanwhile.
+            if (Successor(tenant) is not null) return;
+            FindInterruptedStart(tenant);
+            TellMarkedWaitingSession(tenant);
+        }
+        finally
+        {
+            gate.Release();
+        }
+    }
+
+    private bool MarkNamesAWaitingSession(TenantId tenant)
+    {
+        var mark = Clean(_settings.FleetManagerSessionId(tenant));
+        return mark is not null && _settings.FleetManagerWaitingSuccessors(tenant).Any(w => SameId(w, mark));
+    }
+
+    /// <summary>
+    /// A replacement whose Gateway stopped between starting the new Fleet Manager and recording it: remember every
+    /// session named as a Fleet Manager that started since, is not marked and is not over, as waiting - so the owner
+    /// marking it tells it. Nothing is closed and nothing is marked on this guess. Looked for until
+    /// <see cref="InterruptedStartWindow"/> has passed, because the Director may report the session late.
+    /// </summary>
+    private void FindInterruptedStart(TenantId tenant)
+    {
+        if (_settings.FleetManagerReplacementStartingAt(tenant) is not { } since) return;
+        var mark = Clean(_settings.FleetManagerSessionId(tenant));
+        var waiting = _settings.FleetManagerWaitingSuccessors(tenant);
+        var found = _env.Roster(tenant)
+            .Select(r => r.Session)
+            .Where(x => string.Equals(x.Name, SessionName, StringComparison.Ordinal)
+                        && x.CreatedAt.ToUniversalTime() >= since
+                        && !FleetManagerSessions.IsGone(x)
+                        && !SameId(x.SessionId, mark)
+                        && !waiting.Any(w => SameId(w, x.SessionId)))
+            .Select(x => x.SessionId)
+            .ToList();
+        var now = _env.NowUtc();
+        if (found.Count > 0)
+        {
+            _settings.AddFleetManagerWaitingSuccessors(tenant, found, now);
+            FileLog.Write($"[FleetManagerPlacementService] interrupted start: {string.Join(", ", found)} started to take over "
+                          + "and was never recorded; remembered as waiting, nothing closed and nothing marked");
+        }
+        if (now - since >= InterruptedStartWindow)
+        {
+            _settings.ClearFleetManagerReplacementStarting(tenant);
+            FileLog.Write($"[FleetManagerPlacementService] interrupted start of {since:O}: stopped looking");
+        }
+    }
+
+    /// <summary>The mark names a session that is still waiting to be told (with no replacement under way): tell it
+    /// once. The promotion stores one event per session, so this never repeats one.</summary>
+    private void TellMarkedWaitingSession(TenantId tenant)
+    {
+        if (!MarkNamesAWaitingSession(tenant)) return;
+        var mark = Clean(_settings.FleetManagerSessionId(tenant))!;
+        Promote(tenant, mark, $"the mark names {mark}, which was started to take over and was never told");
     }
 
     private void StartRetirement(TenantId tenant)
@@ -485,31 +620,46 @@ internal sealed class FleetManagerPlacementService : IDisposable
             var successorId = Successor(tenant);
             if (successorId is null) return (true, "");
             var replaces = Clean(_settings.FleetManagerSuccessorReplaces(tenant));
-            var oldId = _settings.FleetManagerSessionId(tenant);
-            var roster = _env.Roster(tenant);
-            var successor = Find(roster, successorId);
-            if (successor.Session is not null && FleetManagerSessions.IsGone(successor.Session))
-                return Abandon(tenant, $"the new Fleet Manager {successorId} ended before it took over; {oldId ?? "no session"} stays the Fleet Manager");
-            if (string.IsNullOrEmpty(oldId) || SameId(oldId, successorId))
-            {
-                // Nothing left to close (the mark was cleared, or already moved): the successor takes over now.
-                return Promote(tenant, successorId, $"no other Fleet Manager is marked (mark={oldId ?? "none"})");
-            }
+            var oldId = Clean(_settings.FleetManagerSessionId(tenant));
             if (replaces is null)
                 return Abandon(tenant, $"no record says which Fleet Manager {successorId} was to replace, so nothing is closed; "
-                                       + $"{oldId} is left alone");
+                                       + $"the mark ({oldId ?? "none"}) is left alone");
+
+            // THE MARK IS COMPARED WITH THE RECORDED OLD ONE FIRST. Only the mark the replacement started from, or no
+            // mark because the Gateway itself removed that one, lets it go on; every other mark is the owner's.
+            if (oldId is null)
+            {
+                var cleared = _settings.FleetManagerMarkClearedByGateway(tenant);
+                if (cleared is not { } byGateway || !SameId(byGateway.SessionId, replaces))
+                    return Abandon(tenant, $"the mark on {replaces} was removed by hand while {successorId} waited; "
+                                           + "nobody is marked by the replacement and nothing is closed");
+                if (IsGone(Find(_env.Roster(tenant), successorId).Session))
+                    return Abandon(tenant, $"the new Fleet Manager {successorId} ended before it took over; nobody is marked");
+                return Promote(tenant, successorId, $"the Gateway unmarked {replaces} ({byGateway.Reason})");
+            }
+            if (SameId(oldId, successorId))
+            {
+                // The owner marked the successor by hand. The replacement closes nothing; the waiting session is told once.
+                FileLog.Write($"[FleetManagerPlacementService] replacement ABANDONED: the mark was set by hand to {successorId}, "
+                              + $"the session waiting to take over; {replaces} is left alone");
+                return Promote(tenant, successorId, $"the owner marked {successorId}, which was waiting to be told");
+            }
             if (!SameId(replaces, oldId))
                 return Abandon(tenant, $"the mark was changed by hand from {replaces} to {oldId} while it waited; {successorId} is "
                                        + $"not marked and {oldId} is left alone");
 
-            if (SameId(Clean(_settings.FleetManagerSuccessorClosedOld(tenant)), oldId))
-                return Promote(tenant, successorId, $"{oldId} was closed earlier and the mark had not moved yet");
+            var roster = _env.Roster(tenant);
+            if (IsGone(Find(roster, successorId).Session))
+                return Abandon(tenant, $"the new Fleet Manager {successorId} ended before it took over; {oldId} stays the Fleet Manager");
 
             var old = Find(roster, oldId);
             if (old.Session is null)
                 return Wait(idleSeen, $"{oldId} is not in this account's current roster (its Director is not reporting); it is not closed and stays marked");
             if (FleetManagerSessions.IsGone(old.Session))
+            {
+                _settings.ClearFleetManagerMarkByGateway(tenant, oldId, TenantSettingsResolver.MarkClearedExited, _env.NowUtc());
                 return Promote(tenant, successorId, $"{oldId} has ended");
+            }
             if (!FleetManagerRetirement.MayClose(old.Session))
                 return Wait(idleSeen, $"{oldId} is {old.Session.ActivityState}; it is closed only when its Director reports it Idle");
 
@@ -526,7 +676,7 @@ internal sealed class FleetManagerPlacementService : IDisposable
             var closed = await _env.CloseSessionAsync(tenant, old.DirectorId, oldId, RetireReason, _shutdown.Token).ConfigureAwait(false);
             if (!closed)
                 return (false, $"the close of {oldId} did not go through; trying again");
-            _settings.SetFleetManagerSuccessorClosedOld(tenant, oldId, _env.NowUtc());
+            _settings.ClearFleetManagerMarkByGateway(tenant, oldId, TenantSettingsResolver.MarkClearedClosed, _env.NowUtc());
             return Promote(tenant, successorId, $"{oldId} was closed after its turn ended");
         }
         finally
@@ -565,6 +715,8 @@ internal sealed class FleetManagerPlacementService : IDisposable
         FileLog.Write($"[FleetManagerPlacementService] replacement DONE: {why}; {successorId} is now the marked Fleet Manager and is told so");
         return (true, "");
     }
+
+    private static bool IsGone(SessionDto? session) => session is not null && FleetManagerSessions.IsGone(session);
 
     private static string? Clean(string? id) => string.IsNullOrWhiteSpace(id) ? null : id.Trim();
 

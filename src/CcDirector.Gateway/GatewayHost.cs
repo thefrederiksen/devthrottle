@@ -967,6 +967,10 @@ public sealed class GatewayHost : IAsyncDisposable
     private Timer? _fleetManagerEventTimer;
     private Fleet.FleetManagerPlacementService? _fleetManagerPlacement;
 
+    /// <summary>Where the Fleet Manager runs, and the owner's mark: created with the Fleet Manager routes.</summary>
+    internal Fleet.FleetManagerPlacementService FleetManagerPlacement
+        => _fleetManagerPlacement ?? throw new InvalidOperationException("The Fleet Manager placement service is not created yet.");
+
     // One per Gateway: typing an event into the Fleet Manager and replacing it never overlap for an account.
     private readonly Fleet.FleetManagerDeliveryGate _fleetManagerDeliveryGate = new();
     private Timer? _fleetManagerReplacementTimer;

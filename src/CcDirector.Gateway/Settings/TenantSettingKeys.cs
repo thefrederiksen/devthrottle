@@ -211,11 +211,35 @@ public static class TenantSettingKeys
     public const string FleetManagerSuccessorReplaces = "fleet_manager_successor_replaces";
 
     /// <summary>
-    /// THE OLD FLEET MANAGER A WAITING REPLACEMENT HAS ALREADY CLOSED, as that session's id. Written the moment the
-    /// close goes through, so a promotion that fails afterwards is finished by the next look without needing the
-    /// closed session to still be in the roster. Removed with the successor.
+    /// THE MARKED FLEET MANAGER THE GATEWAY ITSELF UNMARKED, as that session's id - the steps 5 and 6 fixes, round 3.
+    /// The Gateway removes the mark only while a replacement is under way, and only from the session that replacement
+    /// was recorded to replace, once that session has exited or the replacement has closed it. This row and
+    /// <see cref="FleetManagerMarkClearedReason"/> are written in the same save as the removal, so a replacement that
+    /// finds no mark (after a failed promotion, or a Gateway restart) can tell the Gateway's own removal - carry on -
+    /// from the owner's - abandon. Any mark the owner sets or clears removes both rows.
     /// </summary>
-    public const string FleetManagerSuccessorClosedOld = "fleet_manager_successor_closed_old";
+    public const string FleetManagerMarkClearedSession = "fleet_manager_mark_cleared_session";
+
+    /// <summary>Why the Gateway removed the mark: <c>exited</c> or <c>closed</c>. Written with
+    /// <see cref="FleetManagerMarkClearedSession"/>.</summary>
+    public const string FleetManagerMarkClearedReason = "fleet_manager_mark_cleared_reason";
+
+    /// <summary>
+    /// THE SESSIONS STARTED TO TAKE OVER AS FLEET MANAGER THAT HAVE NOT BEEN TOLD YET, as a comma-separated list of
+    /// session ids, most recent last - the steps 5 and 6 fixes, round 3. Such a session's first prompt tells it to do
+    /// nothing until an event says it is the Fleet Manager, so whenever the mark is set to one of them - by the
+    /// replacement or by the owner - it is told once and leaves this list. Bounded to
+    /// <see cref="Fleet.FleetManagerPlacementService.MaxWaitingSuccessors"/> ids.
+    /// </summary>
+    public const string FleetManagerWaitingSuccessors = "fleet_manager_waiting_successors";
+
+    /// <summary>
+    /// WHEN A REPLACEMENT BEGAN STARTING ITS NEW FLEET MANAGER, as a round-trip UTC time - the steps 5 and 6 fixes,
+    /// round 3. Written before the start and removed in the same save that records the new session, so a Gateway that
+    /// stopped in between leaves this row behind: the sweep then finds the session that started and remembers it as
+    /// waiting (it closes nothing and marks nothing on that guess).
+    /// </summary>
+    public const string FleetManagerReplacementStartingAt = "fleet_manager_replacement_starting_at";
 
     /// <summary>Every key this resolver serves, for validation and enumeration.</summary>
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
@@ -229,6 +253,8 @@ public static class TenantSettingKeys
         TurnVerdictJudgeEnabled, TurnVerdictColourEnabled,
         FleetManagerSessionId,
         FleetManagerAgent, FleetManagerMachine,
-        FleetManagerSuccessorSessionId, FleetManagerSuccessorReplaces, FleetManagerSuccessorClosedOld,
+        FleetManagerSuccessorSessionId, FleetManagerSuccessorReplaces,
+        FleetManagerMarkClearedSession, FleetManagerMarkClearedReason, FleetManagerWaitingSuccessors,
+        FleetManagerReplacementStartingAt,
     };
 }

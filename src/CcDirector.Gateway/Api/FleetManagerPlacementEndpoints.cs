@@ -289,6 +289,13 @@ internal sealed class GatewayFleetManagerPlacementEnvironment : IFleetManagerPla
             events.OnEventQueued(tenant);
     }
 
+    public bool MarkByOwner(TenantId tenant, string sessionId, DateTime nowUtc)
+    {
+        var told = Promotions.MarkByOwner(tenant, sessionId, nowUtc);
+        if (told) Events()?.OnEventQueued(tenant);
+        return told;
+    }
+
     public TimeZoneInfo TimeZone(TenantId tenant)
         => TimeZoneInfo.FindSystemTimeZoneById(Settings.TimeZone(tenant));
 
