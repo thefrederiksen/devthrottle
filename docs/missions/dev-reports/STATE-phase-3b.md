@@ -72,3 +72,21 @@ change and splitting them across two branches would cost more than it saves.
 `queued.`; the rest did not land. I briefly took the apps Worker's phone `next=` fix as proof that a message
 HAD landed - it was not: that Worker found the defect on its own and says so in its report. Read the
 terminals and read the branches; do not infer delivery from a Worker doing something you also asked for.
+
+## A defect the before pictures show that the handoff did not name - WATCH IT IN THE AFTER RUN
+
+`proof/before/cockpit-desktop-1400x900-two-conversations-and-two-send-buttons.png` reproduces all three of
+the owner's complaints exactly - two queued/sent/replies lists, two Send buttons, the tray sitting on the
+report - and shows a FOURTH thing nobody asked about: at 1400x900 with both Cockpit rails open, the report
+frame is about 200 pixels wide. The session detail column is roughly 540 pixels, the conversation rail takes
+a fixed 340, and the report gets what is left. The report's own horizontal scrollbar in that picture is the
+consequence.
+
+Removing the page's conversation does not widen the report by one pixel. The layout work merged this phase
+makes the report take all the REMAINING width (`.dev-report-viewer-main` is `flex: 1 1 auto; min-width: 0`
+against a `flex: 0 0 340px` rail), which is right, but the remaining width is still 200 pixels at that size.
+
+This is NOT in the phase 3b mandate and is not being fixed by guesswork. The after run must look at it and
+say what it sees. If the report is still squeezed, it goes to the owner as a named, unfixed defect - not
+quietly, and not dressed up as fixed. A report he cannot read is a report he cannot answer, whatever the
+scrollbar count says.
