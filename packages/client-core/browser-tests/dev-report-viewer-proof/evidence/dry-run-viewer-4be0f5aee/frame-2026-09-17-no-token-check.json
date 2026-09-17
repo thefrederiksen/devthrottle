@@ -1,7 +1,7 @@
 {
   "mutation": "no-token-check",
   "gateway": "http://127.0.0.1:7931",
-  "rigRoot": "C:\\Users\\soren\\AppData\\Local\\dev-report-proof-rig",
+  "rigRoot": "C:\\Users\\<user>\\AppData\\Local\\dev-report-proof-rig",
   "evil": "http://127.0.0.1:7941",
   "steps": {
     "frame-phone": {
