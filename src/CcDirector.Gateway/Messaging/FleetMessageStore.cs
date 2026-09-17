@@ -34,7 +34,8 @@ public sealed record FleetMessageDraft(
 /// <param name="SentBySenderInWindow">Rate-counted messages the sender wrote inside the window.</param>
 /// <param name="LastSentToRecipientUtc">When the sender last wrote to this recipient, or null.</param>
 /// <param name="RecipientHasUnreadDuplicate">The recipient holds an unread message from this sender with
-/// exactly this text.</param>
+/// exactly this text, of the same kind, about the same question, and asking for a reply exactly when this one
+/// does (inspection 6, ruling 2).</param>
 /// <param name="DuplicateMessageId">The id of that waiting message, when there is one.</param>
 /// <param name="DuplicateCorrelationId">That waiting message's correlation id, when it asked for a reply.</param>
 public readonly record struct FleetMessageHistory(
@@ -249,13 +250,23 @@ public sealed class FleetMessageStore : IFleetInboxLineSource
     {
         var sender = Id(draft.SenderSessionId);
         var recipient = Id(draft.RecipientSessionId)!;
+        // A DUPLICATE IS JUDGED PER QUESTION AND PER KIND (inspection 6, ruling 2). An unread row is the same message
+        // only when it has the same recipient, sender, kind, question it is about, reply request and text. So a
+        // reply to one question is never dropped because a reply to another - or a plain message - says the same
+        // words, and a send that asks for a reply is never reduced to a waiting message that did not.
+        var inReplyTo = Id(draft.InReplyToMessageId);
+        var wantsReply = draft.ReplyByUtc is not null && inReplyTo is null;
+        var unreadSame = ctx.FleetMessages.AsNoTracking().Where(m => m.RecipientSessionId == recipient
+            && m.SenderSessionId == sender && m.ReadAtUtc == null && m.TextHash == hash
+            && m.Kind == draft.Kind && m.InReplyToMessageId == inReplyTo);
+        unreadSame = wantsReply
+            ? unreadSame.Where(m => m.ReplyByUtc != null)
+            : unreadSame.Where(m => m.ReplyByUtc == null);
         if (sender is null)
         {
             // A system notice has no sender, so it has no rate history. It can still repeat itself: a notice
             // identical to one the recipient has not read yet adds nothing.
-            var dupSystem = ctx.FleetMessages.Any(m => m.RecipientSessionId == recipient
-                && m.SenderSessionId == null && m.ReadAtUtc == null && m.TextHash == hash);
-            return new FleetMessageHistory(0, null, dupSystem);
+            return new FleetMessageHistory(0, null, unreadSame.Any());
         }
 
         var since = now - senderWindow;
@@ -270,9 +281,7 @@ public sealed class FleetMessageStore : IFleetInboxLineSource
             .OrderByDescending(m => m.CreatedAtUtc)
             .Select(m => (DateTime?)m.CreatedAtUtc)
             .FirstOrDefault();
-        var dup = ctx.FleetMessages.AsNoTracking()
-            .Where(m => m.RecipientSessionId == recipient
-                && m.SenderSessionId == sender && m.ReadAtUtc == null && m.TextHash == hash)
+        var dup = unreadSame
             .OrderBy(m => m.CreatedAtUtc)
             .Select(m => new { m.MessageId, m.CorrelationId })
             .FirstOrDefault();
@@ -369,11 +378,21 @@ public sealed class FleetMessageStore : IFleetInboxLineSource
     /// NO REPLY BY THE DEADLINE: THE MARK AND THE NOTICE ARE ONE WRITE (slice 3, ruling 10), exactly as stuck and
     /// its notice are (<see cref="MarkStuckWithNotices"/>). Every message that asked for a reply, has none, is past
     /// its deadline and is not yet marked, is marked overdue and - in the SAME save - the notice
-    /// <paramref name="noticeFor"/> drafts is written into its sender's inbox (null: no notice). Either every mark
-    /// and every notice is persisted, or none is, so a failure before the save leaves the messages unmarked and the
-    /// next heartbeat marks and notifies each of them exactly once. A marked message is never scanned again, so the
-    /// notice is sent ONCE. A notice passes the same policy as any system notice (the text rules and the
-    /// unread-duplicate rule).
+    /// <paramref name="noticeFor"/> drafts is written into its sender's inbox. Either every mark and every notice is
+    /// persisted, or none is, so a failure before the save leaves the messages unmarked and the next heartbeat marks
+    /// and notifies each of them exactly once. A marked message is never scanned again, so the notice is sent ONCE.
+    ///
+    /// NO MARK WITHOUT ITS NOTICE (inspection 6, ruling 1). The notice passes the same policy as any system notice
+    /// (the text rules and the unread-duplicate rule), and the mark follows the verdict:
+    ///  - queued: the mark and the notice are written together;
+    ///  - dropped as a duplicate: the sender already holds an identical unread notice about THIS question (the
+    ///    duplicate rule is per question - see <see cref="ReadHistory"/>), so the mark is written and no second
+    ///    notice is;
+    ///  - refused for any other reason: NOTHING is written for that question, the refusal is logged with its
+    ///    reason, and the next sweep tries again. A mark written here would stop every later scan, and the sender
+    ///    would never be told.
+    /// A null draft means there is nobody to tell (a question with no sending session): it is marked, so it is not
+    /// scanned for ever.
     /// </summary>
     public IReadOnlyList<(FleetMessageEntity Overdue, FleetMessageEntity? Notice)> MarkReplyOverdueWithNotices(
         TenantId tenant, DateTime nowUtc, Func<FleetMessageEntity, FleetMessageDraft?> noticeFor,
@@ -393,8 +412,29 @@ public sealed class FleetMessageStore : IFleetInboxLineSource
             var result = new List<(FleetMessageEntity, FleetMessageEntity?)>();
             foreach (var m in overdue)
             {
-                m.ReplyOverdueAtUtc = now;
-                result.Add((m, StageSystemNotice(ctx, noticeFor(m), now, policyLimits)));
+                var draft = noticeFor(m);
+                if (draft is null)
+                {
+                    m.ReplyOverdueAtUtc = now;
+                    result.Add((m, null));
+                    continue;
+                }
+                var (verdict, notice) = JudgeSystemNotice(ctx, draft, now, policyLimits);
+                switch (verdict.Outcome)
+                {
+                    case FleetMessageOutcome.Queued:
+                        m.ReplyOverdueAtUtc = now;
+                        result.Add((m, notice));
+                        break;
+                    case FleetMessageOutcome.DuplicateDropped:
+                        FileLog.Write($"[FleetMessageStore] MarkReplyOverdue: id={m.MessageId} marked; its notice is already waiting unread, no second one written");
+                        m.ReplyOverdueAtUtc = now;
+                        result.Add((m, null));
+                        break;
+                    default:
+                        FileLog.Write($"[FleetMessageStore] MarkReplyOverdue NOTICE REFUSED ({verdict.Outcome}): id={m.MessageId} left open for the next sweep: {verdict.Reason}");
+                        break;
+                }
             }
             if (result.Count == 0) return result;
             BeforeOverdueSave?.Invoke();
@@ -403,16 +443,13 @@ public sealed class FleetMessageStore : IFleetInboxLineSource
         }
     }
 
-    /// <summary>Test seam: runs after the overdue marks and their notices are staged and before the one save.
-    /// Production never sets it.</summary>
-    internal Action? BeforeOverdueSave { get; set; }
-
-    /// <summary>Judge a system notice by the policy and, when it queues, add it to <paramref name="ctx"/> without
-    /// saving. Null draft, or a notice the policy drops: nothing is staged.</summary>
-    private static FleetMessageEntity? StageSystemNotice(GatewayDbContext ctx, FleetMessageDraft? draft, DateTime now,
-        FleetMessageLimits limits)
+    /// <summary>Judge one system notice (a no-reply notice or a stuck notice) by the system-notice policy and, when
+    /// it queues, add it to <paramref name="ctx"/> without saving. Returns the verdict, so the caller can tell a
+    /// duplicate (the notice is already there) from a refusal (it is not). The one step both the overdue path
+    /// (inspection 6, ruling 1) and the stuck path (inspection 5, ruling 2) use.</summary>
+    private static (FleetMessageVerdict Verdict, FleetMessageEntity? Notice) JudgeSystemNotice(
+        GatewayDbContext ctx, FleetMessageDraft draft, DateTime now, FleetMessageLimits limits)
     {
-        if (draft is null) return null;
         var hash = HashText(draft.Text);
         var history = ReadHistory(ctx, draft, hash, now, limits.SenderWindow);
         var verdict = FleetMessagePolicy.Decide(new FleetMessageAttempt(
@@ -421,11 +458,15 @@ public sealed class FleetMessageStore : IFleetInboxLineSource
             Text: draft.Text, NowUtc: now, SentBySenderInWindow: 0, LastSentToRecipientUtc: null,
             RecipientHasUnreadDuplicate: history.RecipientHasUnreadDuplicate,
             Exemption: FleetMessageExemption.System, Kind: draft.Kind), limits);
-        if (!verdict.Queued) return null;
+        if (!verdict.Queued) return (verdict, null);
         var notice = NewRow(ctx, draft, hash, now);
         ctx.FleetMessages.Add(notice);
-        return notice;
+        return (verdict, notice);
     }
+
+    /// <summary>Test seam: runs after the overdue marks and their notices are staged and before the one save.
+    /// Production never sets it.</summary>
+    internal Action? BeforeOverdueSave { get; set; }
 
     /// <summary>How many messages wait unread in one session's inbox. Reads, changes nothing.</summary>
     public int CountUnread(TenantId tenant, string recipientSessionId)
@@ -649,34 +690,25 @@ public sealed class FleetMessageStore : IFleetInboxLineSource
                 FleetMessageEntity? notice = null;
                 if (noticeFor(m) is { } draft)
                 {
-                    var hash = HashText(draft.Text);
-                    var history = ReadHistory(ctx, draft, hash, now, policyLimits.SenderWindow);
-                    var verdict = FleetMessagePolicy.Decide(new FleetMessageAttempt(
-                        SenderSessionId: null, SenderControllerSessionId: null,
-                        RecipientSessionId: draft.RecipientSessionId, RecipientControllerSessionId: null,
-                        Text: draft.Text, NowUtc: now, SentBySenderInWindow: 0, LastSentToRecipientUtc: null,
-                        RecipientHasUnreadDuplicate: history.RecipientHasUnreadDuplicate,
-                        Exemption: FleetMessageExemption.System, Kind: draft.Kind), policyLimits);
-                    if (verdict.Queued)
+                    FleetMessageVerdict verdict;
+                    (verdict, notice) = JudgeSystemNotice(ctx, draft, now, policyLimits);
+                    switch (verdict.Outcome)
                     {
-                        notice = NewRow(ctx, draft, hash, now);
-                        ctx.FleetMessages.Add(notice);
-                    }
-                    else if (verdict.Outcome == FleetMessageOutcome.DuplicateDropped)
-                    {
-                        // NO STUCK MARK WITHOUT ITS NOTICE (inspection 5, ruling 2). The notice names the message, so
-                        // an identical unread one is this message's own notice: the sender already holds it, and
-                        // the mark may be written without a second copy.
-                        FileLog.Write($"[FleetMessageStore] MarkStuckWithNotices: id={m.MessageId} - the sender already " +
-                                      "holds this notice unread; marked stuck without a second copy");
-                    }
-                    else
-                    {
-                        // Any other refusal: the mark is NOT written, so the message stays open and the next sweep
-                        // tries again. A stuck mark whose sender was never told is the defect this prevents.
-                        FileLog.Write($"[FleetMessageStore] MarkStuckWithNotices NOTICE REFUSED ({verdict.Outcome}): " +
-                                      $"id={m.MessageId} - not marked stuck; retried on the next sweep. {verdict.Reason}");
-                        continue;
+                        case FleetMessageOutcome.Queued:
+                            break;
+                        case FleetMessageOutcome.DuplicateDropped:
+                            // NO STUCK MARK WITHOUT ITS NOTICE (inspection 5, ruling 2). The notice names the message,
+                            // so an identical unread one is this message's own notice: the sender already holds it,
+                            // and the mark may be written without a second copy.
+                            FileLog.Write($"[FleetMessageStore] MarkStuckWithNotices: id={m.MessageId} - the sender already " +
+                                          "holds this notice unread; marked stuck without a second copy");
+                            break;
+                        default:
+                            // Any other refusal: the mark is NOT written, so the message stays open and the next sweep
+                            // tries again. A stuck mark whose sender was never told is the defect this prevents.
+                            FileLog.Write($"[FleetMessageStore] MarkStuckWithNotices NOTICE REFUSED ({verdict.Outcome}): " +
+                                          $"id={m.MessageId} - not marked stuck; retried on the next sweep. {verdict.Reason}");
+                            continue;
                     }
                 }
                 m.StuckAtUtc = now;

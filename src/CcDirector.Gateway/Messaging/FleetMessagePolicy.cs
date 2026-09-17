@@ -123,7 +123,8 @@ public readonly record struct FleetMessageVerdict(FleetMessageOutcome Outcome, s
 /// RULE 3: at most <see cref="FleetMessageLimits.PerSenderPerHour"/> messages per rolling hour per sender;
 /// at most one per recipient per <see cref="FleetMessageLimits.PerRecipientSpacing"/>; and a message
 /// identical to one the recipient has not yet read is dropped, because the one it would add is already
-/// waiting.
+/// waiting. Identical means the same sender, kind, question answered, reply request and text (inspection 6,
+/// ruling 2); the store decides it and hands the answer in as <see cref="FleetMessageAttempt.RecipientHasUnreadDuplicate"/>.
 ///
 /// A REPORT IS NOT HELD TO THE PER-RECIPIENT SPACING. Every rate refusal tells the sender to put what it
 /// wanted to say in its report, so refusing the report itself because the worker asked its supervisor a

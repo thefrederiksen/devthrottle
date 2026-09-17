@@ -1530,9 +1530,16 @@ def _say_gateway(label: str, sentence: Any) -> None:
     numbers and paths inside it. With colour on, "the limit is 6" otherwise reaches the reader as
     "the limit is <colour>6<reset>", which is no longer the sentence the Gateway sent and no longer
     matches it. The label is ours, so it keeps its markup; an empty label prints the sentence alone.
+
+    And it is printed with soft wrapping, so the console never inserts a line break into it (inspection 6,
+    ruling 3): the terminal folds a long line for display, but the text is the sentence, whole. Without
+    this a narrow terminal - or one named "dumb", where the console wraps at 80 whatever width it was
+    given - split a broadcast refusal row mid-sentence. A single send's refusal is written to standard
+    error as plain text and never went through the console, which is why only the broadcast rows and the
+    duplicate note were exposed.
     """
     text = escape(str(sentence))
-    console.print(f"{label} {text}" if label else text, highlight=False)
+    console.print(f"{label} {text}" if label else text, highlight=False, soft_wrap=True)
 
 
 def _report_queued(resp: Any, who: str) -> None:

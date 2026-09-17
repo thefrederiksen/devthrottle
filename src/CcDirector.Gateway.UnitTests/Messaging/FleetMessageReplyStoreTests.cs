@@ -301,6 +301,115 @@ public sealed class FleetMessageReplyStoreTests : IDisposable
         Assert.Equal(2, All().Count);
     }
 
+    // ---------- A duplicate is judged per question and per kind (inspection 6, ruling 2) ----------
+
+    [Fact]
+    public void The_same_words_answering_a_second_question_are_a_reply_to_that_question_not_a_duplicate()
+    {
+        var (_, service) = NewRig();
+        var a = Ask(service, "is the build green?");
+        _now = T0.AddMinutes(11);
+        var b = Ask(service, "are the docs done?", within: TimeSpan.FromMinutes(30));
+        _now = T0.AddMinutes(12);
+        Assert.Equal("queued", service.Reply(Tenant, WorkerAParty, a.CorrelationId!, "yes").Response.Status);
+
+        // The asker has not read the first "yes".
+        var toB = service.Reply(Tenant, WorkerAParty, b.CorrelationId!, "yes");
+
+        Assert.Equal("queued", toB.Response.Status);
+        Assert.Equal(b.MessageId, toB.Response.InReplyToMessageId);
+        Assert.Equal(T0.AddMinutes(12), Peek(b.MessageId!).RepliedAtUtc);
+        var replies = All().Where(m => m.Kind == FleetMessageKinds.Reply).Select(m => m.InReplyToMessageId).ToList();
+        Assert.Equal(new[] { a.MessageId, b.MessageId }, replies);
+
+        // So B's deadline passing tells the asker nothing: it was answered.
+        _now = T0.AddHours(2);
+        Assert.Empty(service.MarkReplyOverdueAndNotify(Tenant));
+        Assert.DoesNotContain(All(), m => m.Kind == FleetMessageKinds.System);
+    }
+
+    [Fact]
+    public void An_unread_plain_message_with_the_same_words_does_not_swallow_a_reply()
+    {
+        var (_, service) = NewRig();
+        var question = Ask(service, "ready to merge?");
+        _now = T0.AddMinutes(1);
+        Assert.Equal("queued",
+            service.Send(Tenant, WorkerAParty, ManagerParty, "yes", FleetMessageKinds.Message).Response.Status);
+
+        var reply = service.Reply(Tenant, WorkerAParty, question.CorrelationId!, "yes");
+
+        Assert.Equal("queued", reply.Response.Status);
+        Assert.NotNull(Peek(question.MessageId!).RepliedAtUtc);
+    }
+
+    [Fact]
+    public void Asking_for_a_reply_is_never_reduced_to_a_waiting_plain_message_with_the_same_words()
+    {
+        var (_, service) = NewRig();
+        var plain = service.Send(Tenant, ManagerParty, WorkerAParty, "is the build green?", FleetMessageKinds.Message).Response;
+        Assert.Equal("queued", plain.Status);
+        _now = T0.AddMinutes(11);
+
+        var asked = service.Send(Tenant, ManagerParty, WorkerAParty, "is the build green?", FleetMessageKinds.Message,
+            replyWithin: TimeSpan.FromMinutes(60)).Response;
+
+        Assert.Equal("queued", asked.Status);
+        Assert.NotEqual(plain.MessageId, asked.MessageId);
+        Assert.Matches("^[0-9a-f]{32}$", asked.CorrelationId!);
+        Assert.Equal(2, All().Count);
+        // And the recipient can answer it.
+        Assert.Equal("queued", service.Reply(Tenant, WorkerAParty, asked.CorrelationId!, "green").Response.Status);
+    }
+
+    [Fact]
+    public void A_plain_message_is_not_dropped_as_a_duplicate_of_a_waiting_question_with_the_same_words()
+    {
+        var (_, service) = NewRig();
+        var question = Ask(service, "is the build green?");
+        _now = T0.AddMinutes(11);
+
+        var plain = service.Send(Tenant, ManagerParty, WorkerAParty, "is the build green?", FleetMessageKinds.Message).Response;
+
+        Assert.Equal("queued", plain.Status);
+        Assert.NotEqual(question.MessageId, plain.MessageId);
+        Assert.Null(plain.CorrelationId);
+    }
+
+    [Fact]
+    public void A_report_is_not_dropped_as_a_duplicate_of_a_waiting_message_with_the_same_words()
+    {
+        var (_, service) = NewRig();
+        Assert.Equal("queued",
+            service.Send(Tenant, WorkerAParty, ManagerParty, "done", FleetMessageKinds.Message).Response.Status);
+
+        var report = service.Send(Tenant, WorkerAParty, ManagerParty, "done", FleetMessageKinds.Report).Response;
+
+        Assert.Equal("queued", report.Status);
+        Assert.Equal(2, All().Count);
+    }
+
+    [Fact]
+    public void A_notice_with_the_same_words_about_another_question_is_not_a_duplicate()
+    {
+        var (store, service) = NewRig();
+        var a = Ask(service, "first", within: TimeSpan.FromMinutes(1));
+        _now = T0.AddMinutes(11);
+        var b = Ask(service, "second", within: TimeSpan.FromMinutes(1));
+        _now = T0.AddMinutes(12);
+        // An unread notice about A, with the very words the sweep will use for B.
+        store.TryEnqueue(Tenant, NoticeDraft(Peek(a.MessageId!), "no reply"), T0.AddMinutes(5), TimeSpan.FromHours(1),
+            _ => new FleetMessageVerdict(FleetMessageOutcome.Queued, ""));
+        store.MarkReplyOverdueWithNotices(Tenant, T0.AddMinutes(5), _ => null); // A is marked, as its notice says
+
+        var marked = Assert.Single(store.MarkReplyOverdueWithNotices(Tenant, _now, m => NoticeDraft(m, "no reply")));
+
+        Assert.Equal(b.MessageId, marked.Overdue.MessageId);
+        Assert.NotNull(marked.Notice);
+        Assert.Equal(b.MessageId, marked.Notice!.InReplyToMessageId);
+        Assert.Equal(2, All().Count(m => m.Kind == FleetMessageKinds.System));
+    }
+
     [Fact]
     public void Replies_are_not_counted_against_the_repliers_hourly_six_or_its_spacing()
     {
@@ -490,6 +599,112 @@ public sealed class FleetMessageReplyStoreTests : IDisposable
 
         Assert.Null(Peek(question.MessageId!).ReplyOverdueAtUtc);
         Assert.Single(All());
+    }
+
+    // ---------- No overdue mark without its notice (inspection 6, ruling 1) ----------
+
+    private static FleetMessageDraft NoticeDraft(FleetMessageEntity question, string text) =>
+        new(question.SenderSessionId!, null, null, null, FleetMessageKinds.System, text,
+            CorrelationId: question.CorrelationId, InReplyToMessageId: question.MessageId);
+
+    [Fact]
+    public void A_notice_the_policy_refuses_leaves_the_question_open_and_the_next_sweep_retries()
+    {
+        var (store, service) = NewRig();
+        var question = Ask(service, within: TimeSpan.FromMinutes(1));
+        _now = T0.AddMinutes(2);
+        var tiny = FleetMessageLimits.Default with { MaxTextLength = 10 };
+
+        var marked = store.MarkReplyOverdueWithNotices(Tenant, _now,
+            m => NoticeDraft(m, "far longer than ten characters"), tiny);
+
+        Assert.Empty(marked);
+        Assert.Null(Peek(question.MessageId!).ReplyOverdueAtUtc);
+        Assert.DoesNotContain(All(), m => m.Kind == FleetMessageKinds.System);
+
+        // The next sweep, with a notice that fits, marks it and tells the asker once.
+        _now = T0.AddMinutes(3);
+        var retried = Assert.Single(service.MarkReplyOverdueAndNotify(Tenant));
+        Assert.Equal(question.MessageId, retried.MessageId);
+        Assert.Equal(T0.AddMinutes(3), Peek(question.MessageId!).ReplyOverdueAtUtc);
+        Assert.Single(All(), m => m.Kind == FleetMessageKinds.System);
+    }
+
+    [Fact]
+    public void An_identical_unread_notice_for_the_same_question_leaves_the_mark_written_and_adds_no_second()
+    {
+        var (store, service) = NewRig();
+        var question = Ask(service, within: TimeSpan.FromMinutes(1));
+        _now = T0.AddMinutes(2);
+        var questionRow = Peek(question.MessageId!);
+        var text = FleetMessageService.NoReplyNoticeText(questionRow, null);
+        // The asker already holds this very notice, unread (a shape a lost mark would leave behind).
+        store.TryEnqueue(Tenant, NoticeDraft(questionRow, text), T0.AddMinutes(1), TimeSpan.FromHours(1),
+            _ => new FleetMessageVerdict(FleetMessageOutcome.Queued, ""));
+
+        var marked = Assert.Single(store.MarkReplyOverdueWithNotices(Tenant, _now, m => NoticeDraft(m, text)));
+
+        Assert.Null(marked.Notice);
+        Assert.Equal(T0.AddMinutes(2), Peek(question.MessageId!).ReplyOverdueAtUtc);
+        Assert.Single(All(), m => m.Kind == FleetMessageKinds.System);
+        Assert.Empty(service.MarkReplyOverdueAndNotify(Tenant));
+    }
+
+    [Fact]
+    public void A_blank_notice_is_refused_and_leaves_the_question_open()
+    {
+        var (store, service) = NewRig();
+        var question = Ask(service, within: TimeSpan.FromMinutes(1));
+        _now = T0.AddMinutes(2);
+
+        Assert.Empty(store.MarkReplyOverdueWithNotices(Tenant, _now, m => NoticeDraft(m, "   ")));
+
+        Assert.Null(Peek(question.MessageId!).ReplyOverdueAtUtc);
+        Assert.Single(All());
+    }
+
+    [Fact]
+    public void The_no_reply_notice_fits_the_text_cap_whatever_the_recipients_name()
+    {
+        var (_, _) = NewRig();
+        var cap = 400;
+        var service = new FleetMessageService(new FleetMessageStore(_harness.Open()),
+            FleetMessageLimits.Default with { MaxTextLength = cap }, () => _now);
+        var question = Ask(service, within: TimeSpan.FromMinutes(1));
+        _now = T0.AddMinutes(2);
+        var longName = new string('n', 5000);
+
+        var marked = Assert.Single(service.MarkReplyOverdueAndNotify(Tenant, _ => longName));
+
+        Assert.NotNull(marked.ReplyOverdueAtUtc);
+        var notice = Assert.Single(All(), m => m.Kind == FleetMessageKinds.System);
+        Assert.True(notice.Text.Length <= cap, $"notice is {notice.Text.Length} characters");
+        Assert.Contains(question.MessageId!, notice.Text);
+        Assert.Contains("(bbbbbbbb)", notice.Text);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(3)]
+    [InlineData(40)]
+    public void The_no_reply_notice_text_is_cut_only_in_the_name(int nameLength)
+    {
+        var question = new FleetMessageEntity
+        {
+            TenantId = "acct-a", MessageId = new string('1', 32), CorrelationId = new string('2', 32),
+            RecipientSessionId = WorkerA, SenderSessionId = Manager, Kind = FleetMessageKinds.Message, Text = "q",
+            TextHash = "", CreatedAtUtc = T0,
+        };
+        var bare = FleetMessageService.NoReplyNoticeText(question, null);
+        var name = new string('n', 100);
+
+        var text = FleetMessageService.NoReplyNoticeText(question, name, bare.Length + " ()".Length + nameLength);
+
+        Assert.True(text.Length <= bare.Length + " ()".Length + nameLength);
+        Assert.Contains(question.MessageId, text);
+        Assert.Contains(question.CorrelationId, text);
+        Assert.EndsWith("If a reply comes later it still lands in your inbox.", text);
+        Assert.Equal(nameLength >= 4 ? bare.Length + 3 + nameLength : bare.Length, text.Length);
     }
 
     [Fact]

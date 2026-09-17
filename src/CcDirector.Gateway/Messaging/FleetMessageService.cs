@@ -250,7 +250,7 @@ public sealed class FleetMessageService
             m => m.SenderSessionId is null
                 ? null
                 : new FleetMessageDraft(m.SenderSessionId, null, null, null, FleetMessageKinds.System,
-                    NoReplyNoticeText(m, recipientName?.Invoke(m.RecipientSessionId)),
+                    NoReplyNoticeText(m, recipientName?.Invoke(m.RecipientSessionId), _limits.MaxTextLength),
                     CorrelationId: m.CorrelationId, InReplyToMessageId: m.MessageId),
             _limits);
         foreach (var (m, notice) in marked)
@@ -260,16 +260,33 @@ public sealed class FleetMessageService
     }
 
     /// <summary>The notice a sender receives when nobody replied to its message by the deadline.</summary>
-    public static string NoReplyNoticeText(FleetMessageEntity message, string? recipientName)
+    public static string NoReplyNoticeText(FleetMessageEntity message, string? recipientName) =>
+        NoReplyNoticeText(message, recipientName, int.MaxValue);
+
+    /// <summary>
+    /// The no-reply notice, built to fit <paramref name="maxLength"/> whatever the recipient's roster name
+    /// (inspection 6, ruling 1). Only the name is ever cut - to fit, ending in "..." - and it is left out
+    /// altogether when fewer than four characters of it would fit. The message id, the correlation id and the
+    /// advice are never cut; a cap too small even for those gives the text uncut, and the policy refuses it.
+    /// </summary>
+    public static string NoReplyNoticeText(FleetMessageEntity message, string? recipientName, int maxLength)
     {
         ArgumentNullException.ThrowIfNull(message);
-        var who = string.IsNullOrWhiteSpace(recipientName)
-            ? Short(message.RecipientSessionId)
-            : $"{recipientName} ({Short(message.RecipientSessionId)})";
-        return $"No reply to your message {message.MessageId} (correlation {message.CorrelationId}) from {who} by its " +
-               "deadline. Carry on without the answer and say so in your report; do not send the question again. " +
-               "If a reply comes later it still lands in your inbox.";
+        var bare = NoReplyNoticeTextFor(message, Short(message.RecipientSessionId));
+        if (string.IsNullOrWhiteSpace(recipientName)) return bare;
+        // The name adds itself plus " (" and ")" around the short id.
+        var room = (long)maxLength - bare.Length - 3;
+        string name;
+        if (room >= recipientName.Length) name = recipientName;
+        else if (room >= 4) name = recipientName[..(int)(room - 3)] + "...";
+        else return bare;
+        return NoReplyNoticeTextFor(message, $"{name} ({Short(message.RecipientSessionId)})");
     }
+
+    private static string NoReplyNoticeTextFor(FleetMessageEntity message, string who) =>
+        $"No reply to your message {message.MessageId} (correlation {message.CorrelationId}) from {who} by its " +
+        "deadline. Carry on without the answer and say so in your report; do not send the question again. " +
+        "If a reply comes later it still lands in your inbox.";
 
     /// <summary>
     /// Read one session's own inbox. Every unread message comes back in full and is marked read by this call.
