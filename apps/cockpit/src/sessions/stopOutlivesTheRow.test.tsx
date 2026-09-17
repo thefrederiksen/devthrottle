@@ -95,6 +95,7 @@ function session(): SessionDto {
     activityState: "Waiting",
     stateLabel: "Waiting",
     triageBucket: "active",
+    effectiveColor: "blue",
     effectiveColorHex: "#3B82F6",
     createdAt: "2026-09-09T10:00:00Z",
     sortOrder: 0,

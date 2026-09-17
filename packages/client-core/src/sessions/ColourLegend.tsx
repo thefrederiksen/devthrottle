@@ -1,7 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { gatewayErrorMessage } from "../api/client";
 import { useDismissOnBackdrop } from "../ui/useDismissOnBackdrop";
-import { getSessionColourLegend, MalformedColourLegendError, type SessionColourLegend } from "./sessionColours";
+import {
+  getSessionColourLegend,
+  legendSnapshot,
+  MalformedColourLegendError,
+  subscribeLegend,
+  type LegendState,
+  type SessionColourLegend,
+} from "./sessionColours";
 import "./colourLegend.css";
 
 // The "What do the colours mean?" legend - ONE component, mounted by the Cockpit roster rail and by the phone roster.
@@ -93,33 +100,68 @@ export function ColourLegendDialog({ onClose }: { onClose: () => void }) {
           </p>
         )}
 
-        {legend !== null && (
-          <>
-            <ul className="colour-legend-list">
-              {legend.entries.map((entry) => (
-                <li key={entry.colour} className="colour-legend-row" data-colour={entry.colour}>
-                  <span className="colour-legend-dot" style={{ backgroundColor: entry.hex }} aria-hidden="true" />
-                  <div className="colour-legend-text">
-                    <div className="colour-legend-name">
-                      {entry.title}
-                      <span className="colour-legend-asks">Asks for you: {entry.asksForYou}</span>
-                    </div>
-                    <div className="colour-legend-means">{entry.means}</div>
-                  </div>
-                </li>
-              ))}
-              <li className="colour-legend-row" data-colour="broken">
-                <span className="colour-legend-dot" style={{ backgroundColor: legend.broken.hex }} aria-hidden="true" />
-                <div className="colour-legend-text">
-                  <div className="colour-legend-name">{legend.broken.title}</div>
-                  <div className="colour-legend-means">{legend.broken.means}</div>
-                </div>
-              </li>
-            </ul>
-            <p className="colour-legend-note">{legend.verdictNote}</p>
-          </>
-        )}
+        {legend !== null && <ColourLegendList legend={legend} />}
       </section>
     </div>
+  );
+}
+
+/** Every colour in the Gateway's words, then the magenta note and the verdict note. The dialog and the panel draw this. */
+export function ColourLegendList({ legend }: { legend: SessionColourLegend }) {
+  return (
+    <>
+      <ul className="colour-legend-list">
+        {legend.entries.map((entry) => (
+          <li key={entry.colour} className="colour-legend-row" data-colour={entry.colour}>
+            <span className="colour-legend-dot" style={{ backgroundColor: entry.hex }} aria-hidden="true" />
+            <div className="colour-legend-text">
+              <div className="colour-legend-name">
+                {entry.title}
+                <span className="colour-legend-asks">Asks for you: {entry.asksForYou}</span>
+              </div>
+              <div className="colour-legend-means">{entry.means}</div>
+            </div>
+          </li>
+        ))}
+        <li className="colour-legend-row" data-colour="broken">
+          <span className="colour-legend-dot" style={{ backgroundColor: legend.broken.hex }} aria-hidden="true" />
+          <div className="colour-legend-text">
+            <div className="colour-legend-name">{legend.broken.title}</div>
+            <div className="colour-legend-means">{legend.broken.means}</div>
+          </div>
+        </li>
+      </ul>
+      <p className="colour-legend-note">{legend.verdictNote}</p>
+    </>
+  );
+}
+
+/** The shared legend read, for a surface that shows the legend or builds dot hover text from it (dotTitle). */
+export function useSessionColourLegend(): LegendState {
+  return useSyncExternalStore(subscribeLegend, legendSnapshot, legendSnapshot);
+}
+
+/**
+ * The legend as a panel that stays on screen - the Fleet Map's right-hand column. Same words and swatches as the
+ * dialog, from the same Gateway read; a failed read says so and draws no colours.
+ */
+export function ColourLegendPanel({ className }: { className?: string }) {
+  const { legend, error } = useSessionColourLegend();
+  return (
+    <aside
+      className={className ? `colour-legend colour-legend-panel ${className}` : "colour-legend colour-legend-panel"}
+      aria-labelledby="colour-legend-panel-title"
+    >
+      <h2 id="colour-legend-panel-title" className="colour-legend-title">
+        What the colours mean
+      </h2>
+      {legend === null && error === null && <p className="colour-legend-status">Loading...</p>}
+      {legend === null && error !== null && (
+        <p className="colour-legend-status colour-legend-error" role="alert">
+          {error}
+        </p>
+      )}
+      {legend !== null && <ColourLegendList legend={legend} />}
+    </aside>
   );
 }
