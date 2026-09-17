@@ -474,7 +474,9 @@ slice small, rebase right before opening the pull request, and merge the moment 
 
 ## State
 
-- Phase (17 September 2026, latest): the slice 2 FIX ROUND is pushed on `mission/message-load` - see "Slice 2
+- Phase (17 September 2026, latest of all): slice 3 (replies without blocking) is BUILT and pushed on
+  `mission/message-load`, on top of the slice 2 fix round - see "Slice 3" at the end. No pull request opened.
+- Phase (17 September 2026, before slice 3): the slice 2 FIX ROUND is pushed on `mission/message-load` - see "Slice 2
   fix round" at the end. Next: inspection 5, and the Architect's decision on the snooze reading under item 8.
   No pull request opened.
 - Earlier: slice 2 (the doorbell) is BUILT and pushed on `mission/message-load`, rebased on origin/main
@@ -1031,3 +1033,187 @@ Two decisions are with the owner, asked on 17 September; neither blocks inspecti
 2. **Restore versus the spawn owner pin** (open since slice 1).
 
 Inspection 5 (Codex) covers the fix round. Then the slice 2 pull request, after the owner's answer on 1.
+
+## Slice 3 - replies without blocking (17 September 2026, Manager seat 4)
+
+Built on `mission/message-load` on top of `e59622d1`, with no rebase and nothing outside slice 3 touched (the
+slice 2 fix round is under inspection separately). Two product commits: the Gateway half, then the command
+line half. No pull request opened, and no fleet message sent. The guard breaks are in `slice-3-evidence/`.
+
+### What was built
+
+Gateway:
+- **Asking.** `POST /sessions/{sid}/message` takes `replyWanted` and `replyByMinutes`.
+  - The record gets a correlation id (32 hexadecimal characters, separate from the message id) and a
+    deadline: 60 minutes by default, 1 to 1440 allowed (`FleetMessageLimits.DefaultReplyWindow`,
+    `MinReplyWindow`, `MaxReplyWindow`).
+  - The answer carries `correlationId` and `replyByUtc`.
+  - A deadline outside the range is refused 400 with the sentence. So is `replyByMinutes` without
+    `replyWanted`.
+- **Replying.** `POST /fleet/reply` with body `{ id, text }`. The id is the correlation id or the message id.
+  The route is added to `SessionKeyGuard` in that one shape only.
+  - The reply is written as kind `reply` into the inbox of whoever SENT the original, whatever their
+    relationship. It carries the original's correlation id and message id.
+  - The original's new `RepliedAtUtc` is stamped in the same save, under the store lock
+    (`FleetMessageStore.TryReply`).
+- **The reply rule** is in `FleetMessagePolicy` (`DecideReply`, with the reply context in
+  `FleetReplyOriginal`):
+  - Only the session the original was sent to may reply, and only to its sender. Anyone else, and any
+    reply to a Gateway notice, is refused 403.
+  - Held to the text rules and the duplicate rule, and to one reply per question (a second is refused
+    409).
+  - NOT held to the hourly limit or the spacing. The store also leaves replies out of the hourly count and
+    out of the spacing, so a reply is not counted against the replier either.
+  - The store's lookup refuses an unknown id (404) and a message that did not ask for a reply (409).
+- **Reading.** Each inbox row now carries these fields, so the command line only lays them out
+  (project rule 7):
+  - `replyWanted`, `correlationId`, `replyByUtc`, and `replyHint` (the exact command that answers the
+    message);
+  - `notice` (`no-reply`);
+  - `inReplyTo`: the question's id, correlation id, recipient, text, sent time, deadline, and `late`.
+  - The question's text is returned only to the session that SENT the question.
+- **No reply by the deadline.** `FleetMessageStore.MarkReplyOverdueWithNotices` marks the new
+  `ReplyOverdueAtUtc` and stages one system notice to the sender, in ONE save under the store lock. It uses
+  the same `StageSystemNotice` step that stuck notices now share.
+  - The notice is kind `system` and carries the question's correlation id and message id.
+  - It runs in the doorbell's heartbeat (`FleetDoorbell.SweepTenantAsync`), after the stuck scan and before
+    the unread read, so the notice is rung on the same tick.
+  - A marked question is never scanned again, so the notice is sent once. An answered question is never
+    marked.
+- **A late reply** still lands, is shown with `late: true`, and brings no second notice.
+- **Data.** Two columns (`RepliedAtUtc`, `ReplyOverdueAtUtc`) and an index on (tenant, `ReplyByUtc`).
+  Migration `AddFleetMessageReplyMarks` exists for SQLite (`20260917094429`) and PostgreSQL
+  (`20260917094441`), generated with the migration tool. Both snapshots changed by exactly these lines.
+
+Command line (`tools/cc-devthrottle`):
+- **Asking.** `message send <id> "text" --reply-wanted [--reply-by <minutes>]` sends the ask and prints
+  `correlation id: <id> (reply wanted by <time>)` with a line saying not to wait.
+  - `--reply-by` without `--reply-wanted` is a usage error. So is `--reply-wanted` with `all`.
+  - The range check is the Gateway's; its sentence is printed verbatim.
+- **Replying.** `message reply <id> "text"` posts `fleet/reply` with the id trimmed.
+  - It prints `Reply queued for <asker> (reply <id>, answering message <id>)`.
+  - A refusal goes to standard error with the Gateway's sentence and next steps.
+  - A duplicate is exit 0.
+  - A "queued" answer with no reply id or recipient is "Not confirmed" and exit 1.
+  - Next steps: `message inbox` and `session report`.
+- **The inbox.** Rows are headed `message`, `reply` or `no-reply notice` from the Gateway's labels.
+  - A question shows `reply wanted by`, `correlation id` and `to answer: <the Gateway's command>`, with its
+    quotes kept.
+  - A reply or notice shows `answers:`/`about:`, `asked of`, `deadline`, `late` (replies only) and the
+    question in full, or `(no longer kept)`.
+  - The inbox help gains `message reply <correlation-id> "<answer>"`.
+- **Catalogue and fixture.** The action catalogue gains `message-reply`, and the `message-send` command and
+  arguments name the two flags. The pinned actions fixture is regenerated (86 to 87 actions). The help and
+  error tables gain rows for `message send --reply-wanted`, `message reply`, their usage errors, refusals
+  and unconfirmed answers.
+
+### Judgement calls for the inspector
+
+1. **One reply per question.** A reply is exempt from the rate limits, so unlimited replies to one question
+   would be an unmetered channel to the asker. The second reply is refused 409 and pointed at the report.
+2. **A reply is not counted either**: it is left out of the hourly six AND out of the per-recipient spacing,
+   so answering does not use up the replier's next ordinary message.
+3. **`POST /fleet/reply` with the id in the body**, no session id in the path, like the inbox.
+   - The original is looked up across the account, and the policy says why a session that was not asked is
+     refused.
+   - The refusal names only the id the caller gave. The asker's short id appears only when the caller WAS
+     the recipient and named the wrong target, which the product itself never sends.
+4. **A reply must name a message that asked for one** (409 otherwise). A reply cannot name another reply or
+   a notice: those carry the question's correlation id, and the lookup skips any row that is about another
+   message.
+5. **`--reply-wanted` is one session only.** `message send all --reply-wanted` is a usage error, and the
+   broadcast route has no reply field. A team-wide question would need one correlation id per copy; that
+   was left out rather than guessed.
+6. **The route accepts `replyWanted` with kind `report`.** `session report` has no flag for it.
+7. **Two new columns and an index**, where the brief said slice 1 made every column. An overdue mark that
+   is written once needs a stored mark, and "already replied" and the bounded scan need a replied mark
+   rather than a join on every heartbeat.
+8. **A dropped duplicate of a question answers with the waiting copy's ids.** Its correlation id is null
+   if the waiting copy did not ask for a reply, and the command line then prints no correlation line.
+9. **The no-reply label is the Gateway's.** A system row about a question is labelled `no-reply`. A stuck
+   notice carries no label and is shown as a plain message from the Gateway, and the command line does not
+   guess.
+10. **The question's text is shown only to its sender.** A reply row always goes to the sender, so the
+    filter only bites a shape the product does not write; a test writes that shape directly.
+11. **A question that was read but not answered still gets the notice.** Reading is not replying.
+12. **The heartbeat reads the database once more per tick** (the no-reply scan). The slice 2 bound test
+    was changed from 2/4 commands to 3/5, with a comment saying why. Each notice written costs one history
+    query, as each stuck notice already did.
+13. **A reply to a session that has exited still lands.** The reply route does not look the asker up on
+    the roster; the record is the delivery.
+
+### What is proven, with red-then-green evidence
+
+Each break below was made on purpose, the named tests went red, and the file was restored. See
+`slice-3-evidence/README.md`.
+
+- **Gateway: 26 breaks, all red** (`gateway-guards-watched-failing.json`).
+  - Policy: the reply's recipient not checked; the replier not checked; a reply judged by the ordinary
+    rules; a reply held to the hourly limit; a reply held to the spacing; one reply per question not
+    enforced; a reply to a Gateway notice queued.
+  - Store: replies counted in the hourly six; replies starting the spacing; the overdue mark saved before
+    its notice (the crash test persisted the mark alone); an overdue question scanned again; an answered
+    question scanned; the reply not stamping the question; a reply taken for a question; a late reply
+    refused; the question's text shown to any reader; the question not joined to the read.
+  - Doorbell: the heartbeat not running the no-reply scan.
+  - Service: the notice not labelled; the notice without its link to the question; `late` never set; the
+    default window 30 minutes; the upper bound 48 hours.
+  - Guard: `fleet/reply` not allowed.
+  - Route: `replyWanted` ignored; a deadline without the ask accepted.
+  - Three breaks first failed to COMPILE, which is not a watched failure. They were rewritten to compile
+    and were red on real test failures.
+- **Command line: 20 breaks, all red** (`cli-guards-watched-failing.json`).
+  - Sending: the ask not sent; the deadline dropped; both usage errors removed; the correlation id not
+    printed.
+  - Replying: the id not trimmed; an unconfirmed reply accepted; a refused reply treated as success.
+  - The inbox: the reply heading, the no-reply label, the notice line, the question, `late` and the answer
+    command each removed; the answer command escaped.
+  - Help and wiring: the inbox help missing `reply`; the reply next steps changed; the command not wired;
+    the catalogue entry reworded; the send flags not passed on.
+- **Also seen red in development.** The first run of the answer-command test failed because the shared
+  quoted-value escaping turned `"` into `\"`, which cannot be pasted. The line now uses the plain-ASCII
+  helper, and the break above re-proves it.
+- **Real host** (`FleetMessageRouteTests`, 10 new tests, recording tunnel Director):
+  - the round trip, with the wire names pinned and no verb sent to the Director;
+  - an unasked session refused;
+  - a reply allowed after the relationship is gone, where a plain message is refused;
+  - a reply inside the spacing that refuses a second message;
+  - second reply 409, unknown id 404, no-reply-wanted 409;
+  - three bad deadlines 400;
+  - a blank id refused, and the owner's key refused;
+  - the heartbeat's no-reply notice once, then a late reply shown late.
+  - The deadline is moved into the past in the database, because the host runs on the real clock.
+
+### What is NOT proven
+
+- **PostgreSQL.** The migration was generated, not applied (Docker is not on this Mac). The new queries
+  (the reply lookup, the overdue scan and the question join) ran on SQLite only.
+- **Live.** Nothing ran against a live Director, a real agent, or the hosted Gateway.
+  - The doorbell ringing an asker for a reply or a notice is proven on the unit rig (the notice is rung on
+    the same tick) and not live.
+  - The multi-tenant heartbeat pass was not exercised.
+- **Words (slice 5).**
+  - `docs/cli-reference.md` has no `message reply` section and no `--reply-wanted`/`--reply-by` lines.
+  - The fleet preamble, the fleet-comms skill and `docs/FleetMessaging.md` do not mention replies.
+  - Only code strings (help, catalogue, docstrings, comments) were written here.
+- **A reply's own sentence to an asker who never reads.** A reply is rung and can go stuck like any
+  message; the stuck notice then goes to the replier. That is existing behaviour, not tested again here.
+- **`scripts/test-local.ps1`** was not run (no PowerShell on the Mac); the suites were run directly.
+- **Core** was not rerun: nothing in Core changed in this slice.
+
+### Test totals (Mac, this tree, 17 September 2026)
+
+- **Gateway unit tests**: 5304 total, 5289 passed, 8 skipped, **7 failed - the same 7 Mac-only failures
+  named in slice 1** (CronJobStore 1, SessionCommandExecutorLiveness 3, RuleCandidateFilter 1,
+  WorkListStorePersistence 1, RulePrimitives 1). No new failure. The touched classes (`Messaging`,
+  `SessionKeyGuard`) passed 412 of 412.
+- **Gateway route tests** (full suite, 34 minutes): 2589 total, 2521 passed, 52 skipped, **16 failed - exactly
+  the 16 named in slice 1** (ContextLessRouteCensus 1, FleetSpawnMissionAttach 2, FleetSpawnOrigin 4,
+  TunnelRosterPushReadProof 3, WorkflowSeat 2, GatewayTestSuiteLock 2, HostedProcessControlDeny 2). No new
+  failure. The new reply tests in `FleetMessageRouteTests` all passed.
+- **cc-devthrottle tests** (scratch environment with the declared dependencies): 3208 passed, 0 failed.
+
+### Open, unchanged by this slice
+
+The two owner decisions after the slice 2 fix round (snooze versus the doorbell, and restore versus the
+spawn owner pin) are still open. Inspection 5 of the slice 2 fix round is separate from this slice.
