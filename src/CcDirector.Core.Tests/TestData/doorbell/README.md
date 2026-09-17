@@ -31,6 +31,18 @@ What each file shows:
 | `codex-menu-rate-limit` | The model-switch menu Codex opened at its usage limit |
 | `codex-menu-trust-folder` | The folder-trust dialog, `› 1. Yes, continue` selected |
 
+Two files are DERIVED, not captured (inspection 4, ruling 3), and say so in their own `derivedFrom` and
+`derivation` fields:
+
+| File | Derived from |
+|---|---|
+| `claude-idle-whitespace-draft-after-turn` | `claude-idle-empty-after-turn` with three spaces typed: the row is unchanged, because rows are trailing-trimmed, and the cursor is at column 5 instead of 2 |
+| `claude-idle-whitespace-draft-fresh` | `claude-idle-empty-fresh`, the same way |
+
+The live proof in the fix round typed real spaces into a real Claude Code composer and saved the screen
+(`docs/missions/message-load-2026-09-16/slice-2-evidence/fix-round/`), which is where the column claim is
+checked against the agent itself.
+
 The capture program is not part of the repository; it created a `SessionManager`, started the agent with
 `CreateSession(..., SessionBackendType.ConPty, ...)`, typed with `Session.SendInput`, and wrote
 `SnapshotLiveScreen()` to these files.

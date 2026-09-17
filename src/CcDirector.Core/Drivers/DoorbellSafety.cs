@@ -78,8 +78,11 @@ public readonly record struct DoorbellVerdict(bool Ring, string Reason, string D
 ///    Only the LOWEST such block counts, and at most <see cref="MaxFooterRows"/> rows may follow it (the status
 ///    footer). A '❯' anywhere else - the selection arrow of a picker ("❯ 2. Opus"), a folder-trust dialog
 ///    ("❯ No, exit"), a past prompt in the transcript - is not a composer, because it is not framed that way.
-///  - The composer is EMPTY when the prompt row holds nothing after the glyph and every continuation row is blank.
-///    Any character at all means it holds text: a typed sentence, a second line of a draft, a half-typed
+///  - The composer is EMPTY when the prompt row holds nothing after the glyph and its one separator, every
+///    continuation row is empty, AND the visible cursor sits on the prompt row at column
+///    <see cref="EmptyComposerCursorColumn"/>. The rows arrive trailing-trimmed, so a draft of spaces or a tab
+///    shows only as a cursor further right, or on a continuation row (inspection 4, ruling 3); a hidden cursor
+///    is unreadable. Any character at all means it holds text, whitespace included: a typed sentence, a second line of a draft, a half-typed
 ///    "/model", and a collapsed paste, which Claude Code draws as "[Pasted text #1 +29 lines]" with "paste again
 ///    to expand" in the footer. That last one is the case issue 2845 was afraid of - a collapsed paste reading
 ///    as empty - and it does not: the placeholder is text on the prompt row, and the capture proves it.
@@ -90,6 +93,8 @@ public readonly record struct DoorbellVerdict(bool Ring, string Reason, string D
 /// Codex (captured from Codex 0.154.0 on the same day):
 ///  - Codex draws no rules. The composer is the row the visible cursor is on, and it starts with '›'. A row
 ///    "› 1. ..." is a menu option, not a composer; so is any '›' row while the cursor is hidden.
+///  - Codex, likewise: an empty row counts as empty only with the cursor at column
+///    <see cref="EmptyComposerCursorColumn"/>; further right means whitespace was typed.
 ///  - Codex shows a dim placeholder in an empty composer ("Ask Codex to do anything"). The rows carry no colour,
 ///    so the placeholder is recognised by the cursor sitting straight after the glyph AND the row being one of
 ///    <see cref="CodexPlaceholders"/>. Anything else on the row is treated as text.
@@ -202,14 +207,18 @@ public static class DoorbellSafety
         ArgumentNullException.ThrowIfNull(frame);
         return agent switch
         {
-            AgentKind.ClaudeCode => ReadClaudeComposer(frame.Rows ?? []),
+            AgentKind.ClaudeCode => ReadClaudeComposer(frame),
             AgentKind.Codex => ReadCodexComposer(frame),
             _ => (ComposerReading.NotFound, ""),
         };
     }
 
-    private static (ComposerReading, string) ReadClaudeComposer(IReadOnlyList<string> rows)
+    /// <summary>The column the cursor sits in when a composer is empty: the glyph, one separator, then the cursor.</summary>
+    public const int EmptyComposerCursorColumn = 2;
+
+    private static (ComposerReading, string) ReadClaudeComposer(ScreenFrame frame)
     {
+        var rows = frame.Rows ?? [];
         // Search upward for the lowest closing rule that has a prompt row framed above it.
         var last = LastNonBlank(rows);
         for (var close = last; close >= 2 && last - close <= MaxFooterRows; close--)
@@ -227,17 +236,37 @@ public static class DoorbellSafety
                 var footer = rows.Skip(close + 1).ToList();
                 if (footer.Any(IsMenuHint)) return (ComposerReading.MenuOpen, "");
 
-                var onPrompt = row[1..].Trim();
-                var continuation = rows.Skip(prompt + 1).Take(close - prompt - 1).ToList();
-                if (onPrompt.Length == 0 && continuation.All(string.IsNullOrWhiteSpace))
+                var onPrompt = AfterGlyph(row);
+                var continuation = rows.Skip(prompt + 1).Take(close - prompt - 1).Select(c => c ?? "").ToList();
+                if (onPrompt.Length == 0 && continuation.All(c => c.Length == 0))
+                {
+                    // WHITESPACE IS TEXT (inspection 4, ruling 3). The rows arrive trailing-trimmed, so a draft of
+                    // spaces or a tab leaves nothing on the row at all; the cursor is what moved. An empty
+                    // composer has the visible cursor on the prompt row, straight after the glyph and its separator.
+                    if (!frame.CursorVisible)
+                        return (ComposerReading.NotFound, "");
+                    if (frame.CursorRow != prompt || frame.CursorCol > EmptyComposerCursorColumn)
+                        return (ComposerReading.HoldsText, "");
                     return (ComposerReading.Empty, "");
-                var text = string.Join("\n", new[] { onPrompt }.Concat(continuation.Select(c => (c ?? "").Trim()))).Trim();
+                }
+                var text = string.Join("\n", new[] { onPrompt }.Concat(continuation)).Trim();
                 return (ComposerReading.HoldsText, text);
             }
         }
         return Bottom(rows).Any(IsMenuHint) || rows.Any(IsSelectedOption)
             ? (ComposerReading.MenuOpen, "")
             : (ComposerReading.NotFound, "");
+    }
+
+    /// <summary>
+    /// What follows the prompt glyph, with the ONE separator the agent draws after it removed (Claude Code draws a
+    /// non-breaking space, Codex a space) and nothing else. Any further character - a space or a tab included -
+    /// is the owner's.
+    /// </summary>
+    private static string AfterGlyph(string row)
+    {
+        var rest = row.Length > 1 ? row[1..] : "";
+        return rest.Length > 0 && rest[0] is ' ' or '\u00A0' ? rest[1..] : rest;
     }
 
     private static (ComposerReading, string) ReadCodexComposer(ScreenFrame frame)
@@ -250,13 +279,16 @@ public static class DoorbellSafety
 
         var row = rows[frame.CursorRow];
         if (!row.StartsWith('›')) return (ComposerReading.NotFound, "");
-        var text = row[1..].Trim();
-        if (text.Length == 0) return (ComposerReading.Empty, "");
+        var text = AfterGlyph(row);
+        // A cursor past the glyph and its separator has something before it - whitespace included, which the
+        // trimmed row does not show (ruling 3).
+        var cursorAtStart = frame.CursorCol <= EmptyComposerCursorColumn;
+        if (text.Length == 0)
+            return cursorAtStart ? (ComposerReading.Empty, "") : (ComposerReading.HoldsText, "");
         // A placeholder is drawn to the RIGHT of a cursor that sits straight after the glyph and its space.
-        var cursorAtStart = frame.CursorCol <= 2;
         return cursorAtStart && CodexPlaceholders.Contains(text, StringComparer.Ordinal)
             ? (ComposerReading.Empty, "")
-            : (ComposerReading.HoldsText, text);
+            : (ComposerReading.HoldsText, text.Trim());
     }
 
     /// <summary>How many rows of the screen carry the doorbell's marker - the submitted doorbells the transcript

@@ -1,0 +1,13 @@
+== ITEM 3 REVERTED: the reader as it was at de619615 (plus the one constant the new tests name), new tests kept
+  Failed CcDirector.Core.Tests.Sessions.DoorbellSafetyTests.Claude_spaces_after_the_glyph_are_text_even_though_the_row_is_trimmed(capture: "claude-idle-whitespace-draft-fresh") [< 1 ms]
+  Failed CcDirector.Core.Tests.Sessions.DoorbellSafetyTests.Claude_spaces_after_the_glyph_are_text_even_though_the_row_is_trimmed(capture: "claude-idle-whitespace-draft-after-turn") [< 1 ms]
+  Failed CcDirector.Core.Tests.Sessions.DoorbellSafetyTests.Claude_a_blank_continuation_row_holding_the_cursor_is_text [< 1 ms]
+  Failed CcDirector.Core.Tests.Sessions.DoorbellSafetyTests.Claude_an_untrimmed_row_with_whitespace_after_the_separator_is_text(row: "❯ \t") [< 1 ms]
+  Failed CcDirector.Core.Tests.Sessions.DoorbellSafetyTests.Claude_an_untrimmed_row_with_whitespace_after_the_separator_is_text(row: "❯  ") [< 1 ms]
+  Failed CcDirector.Core.Tests.Sessions.DoorbellSafetyTests.Claude_an_untrimmed_row_with_whitespace_after_the_separator_is_text(row: "❯    ") [< 1 ms]
+  Failed CcDirector.Core.Tests.Sessions.DoorbellSafetyTests.Claude_an_untrimmed_row_with_whitespace_after_the_separator_is_text(row: "❯  ") [< 1 ms]
+  Failed CcDirector.Core.Tests.Sessions.DoorbellSafetyTests.Codex_spaces_typed_into_an_empty_composer_are_text [< 1 ms]
+  Failed CcDirector.Core.Tests.Sessions.DoorbellSafetyTests.Codex_whitespace_after_the_separator_on_an_untrimmed_row_is_text [< 1 ms]
+  Failed CcDirector.Core.Tests.Sessions.DoorbellSafetyTests.Claude_a_bare_prompt_with_the_cursor_hidden_is_unreadable_not_empty [< 1 ms]
+  Failed CcDirector.Core.Tests.Sessions.DoorbellSafetyTests.Claude_an_untrimmed_continuation_row_of_spaces_is_text_wherever_the_cursor_is [< 1 ms]
+Failed!  - Failed:    11, Passed:    34, Skipped:     0, Total:    45, Duration: 23 ms - CcDirector.Core.UnitTests.dll (net10.0)

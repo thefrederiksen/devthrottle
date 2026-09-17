@@ -264,4 +264,111 @@ public sealed class DoorbellSafetyTests
             FleetDoorbellLine.For(3));
         Assert.DoesNotContain('\n', FleetDoorbellLine.For(12));
     }
+
+    // ---------- Inspection 4, ruling 3: whitespace is text ----------
+
+    [Theory]
+    [InlineData("claude-idle-whitespace-draft-after-turn")]
+    [InlineData("claude-idle-whitespace-draft-fresh")]
+    public void Claude_spaces_after_the_glyph_are_text_even_though_the_row_is_trimmed(string capture)
+    {
+        var verdict = DoorbellSafety.Check(Quiet(AgentKind.ClaudeCode, capture));
+
+        Assert.False(verdict.Ring);
+        Assert.Equal("composer-holds-text", verdict.Reason);
+    }
+
+    [Theory]
+    [InlineData("❯\u00A0 ")]
+    [InlineData("❯\u00A0   ")]
+    [InlineData("❯\u00A0\t")]
+    [InlineData("❯  ")]
+    public void Claude_an_untrimmed_row_with_whitespace_after_the_separator_is_text(string row)
+    {
+        var idle = Load("claude-idle-empty-after-turn");
+        var frame = DoorbellCaptures.WithRow(idle, idle.CursorRow, row);
+
+        Assert.Equal(ComposerReading.HoldsText, DoorbellSafety.ReadComposer(AgentKind.ClaudeCode, frame));
+    }
+
+    [Fact]
+    public void Claude_the_separator_alone_is_still_empty()
+    {
+        var idle = Load("claude-idle-empty-after-turn");
+        var frame = DoorbellCaptures.WithRow(idle, idle.CursorRow, "❯\u00A0");
+
+        Assert.Equal(ComposerReading.Empty, DoorbellSafety.ReadComposer(AgentKind.ClaudeCode, frame));
+    }
+
+    [Fact]
+    public void Claude_a_blank_continuation_row_holding_the_cursor_is_text()
+    {
+        // The owner pressed a new line and nothing else: the prompt row is bare, the next row is blank, and the
+        // cursor is on that next row.
+        var idle = Load("claude-idle-empty-after-turn");
+        var rule = idle.Rows[idle.CursorRow - 1];
+        var frame = DoorbellCaptures.WithRow(idle, idle.CursorRow - 2, rule);
+        frame = DoorbellCaptures.WithRow(frame, idle.CursorRow - 1, "❯");
+        frame = DoorbellCaptures.WithRow(frame, idle.CursorRow, "");
+        frame = frame with { CursorRow = idle.CursorRow, CursorCol = 2 };
+
+        Assert.Equal(ComposerReading.HoldsText, DoorbellSafety.ReadComposer(AgentKind.ClaudeCode, frame));
+    }
+
+    [Fact]
+    public void Claude_an_untrimmed_continuation_row_of_spaces_is_text_wherever_the_cursor_is()
+    {
+        // A row that reaches the check untrimmed, holding only whitespace, is still a character on the screen.
+        var idle = Load("claude-idle-empty-after-turn");
+        var rule = idle.Rows[idle.CursorRow - 1];
+        var frame = DoorbellCaptures.WithRow(idle, idle.CursorRow - 2, rule);
+        frame = DoorbellCaptures.WithRow(frame, idle.CursorRow - 1, "❯");
+        frame = DoorbellCaptures.WithRow(frame, idle.CursorRow, "  \t");
+        frame = frame with { CursorRow = idle.CursorRow - 1, CursorCol = 2 };
+
+        Assert.Equal(ComposerReading.HoldsText, DoorbellSafety.ReadComposer(AgentKind.ClaudeCode, frame));
+    }
+
+    [Fact]
+    public void Claude_a_bare_prompt_with_the_cursor_hidden_is_unreadable_not_empty()
+    {
+        var idle = Load("claude-idle-empty-after-turn") with { CursorVisible = false };
+
+        Assert.Equal(ComposerReading.NotFound, DoorbellSafety.ReadComposer(AgentKind.ClaudeCode, idle));
+    }
+
+    [Fact]
+    public void Codex_spaces_typed_into_an_empty_composer_are_text()
+    {
+        var idle = Load("codex-idle-empty-placeholder");
+        var frame = DoorbellCaptures.WithRow(idle, idle.CursorRow, "›") with { CursorCol = 5 };
+
+        Assert.Equal(ComposerReading.HoldsText, DoorbellSafety.ReadComposer(AgentKind.Codex, frame));
+    }
+
+    [Fact]
+    public void Codex_a_bare_prompt_with_the_cursor_at_the_start_is_empty()
+    {
+        var idle = Load("codex-idle-empty-placeholder");
+        var frame = DoorbellCaptures.WithRow(idle, idle.CursorRow, "›");
+
+        Assert.Equal(ComposerReading.Empty, DoorbellSafety.ReadComposer(AgentKind.Codex, frame));
+    }
+
+    [Fact]
+    public void Codex_whitespace_after_the_separator_on_an_untrimmed_row_is_text()
+    {
+        var idle = Load("codex-idle-empty-placeholder");
+        var frame = DoorbellCaptures.WithRow(idle, idle.CursorRow, "›  ");
+
+        Assert.Equal(ComposerReading.HoldsText, DoorbellSafety.ReadComposer(AgentKind.Codex, frame));
+    }
+
+    [Fact]
+    public void The_empty_cursor_column_is_the_one_both_captures_show()
+    {
+        Assert.Equal(2, DoorbellSafety.EmptyComposerCursorColumn);
+        Assert.Equal(2, Load("claude-idle-empty-after-turn").CursorCol);
+        Assert.Equal(2, Load("codex-idle-empty-placeholder").CursorCol);
+    }
 }
