@@ -136,13 +136,21 @@ def _emit(args: argparse.Namespace, record: dict, keys: list[str], help_lines: l
 
 
 def _emit_error(as_json: bool, err: ToolError) -> None:
+    """A refusal prints in the same AXI shape as a success: `error:` and `code:` are VALUES, rendered
+    by the value renderer, and the help lines are COMMANDS, written exactly as the caller wrote them.
+
+    A help line is not a value and must never be escaped. The value escape is the escaping used inside
+    a quoted value, so it turned every backslash in a suggested command into two and a Windows path
+    came out as `D:\\\\repo`, which nobody can paste. The value renderer leaves a plain value - a
+    Windows path among them - exactly as it is, and quotes and escapes only what needs it.
+    """
     if as_json:
         payload = {"error": err.message, "code": err.code, "help": err.help_lines, **err.details}
         sys.stdout.write(json.dumps(payload) + "\n")
         return
-    blocks = [f"error: {axi_output.escape_ascii(err.message)}", f"code: {err.code}"]
+    blocks = [f"error: {axi_output.format_value(err.message)}", f"code: {axi_output.format_value(err.code)}"]
     if err.help_lines:
-        blocks.append(axi_output.format_help([axi_output.escape_ascii(h) for h in err.help_lines]))
+        blocks.append(axi_output.format_help(err.help_lines))
     axi_output.write_blocks(sys.stdout, *blocks)
 
 
