@@ -1,0 +1,466 @@
+{
+  "mutation": "no-token-check",
+  "gateway": "http://127.0.0.1:7931",
+  "rigRoot": "C:\\Users\\soren\\AppData\\Local\\dev-report-proof-rig",
+  "evil": "http://127.0.0.1:7941",
+  "steps": {
+    "frame-phone": {
+      "direct": {
+        "frameAttr": {
+          "sandbox": "allow-scripts",
+          "hostCanReadFrame": false
+        },
+        "inside": {
+          "origin": "null",
+          "firstHeadElement": "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'nonce-7ee645081af055a0b900eec9a059853e'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'\">",
+          "scriptRan": null,
+          "handlerRan": null,
+          "tokenSeen": null,
+          "parentStorage": "blocked: SecurityError",
+          "parentCookie": "blocked: SecurityError",
+          "parentDom": "blocked: SecurityError",
+          "ownStorage": "blocked: SecurityError",
+          "ownCookie": "blocked: SecurityError"
+        },
+        "evilHits": [],
+        "sends": []
+      },
+      "clicks": {
+        "clickHits": [],
+        "stillReport": 1,
+        "sends": []
+      },
+      "dataLink": {
+        "connectedBeforeData": "true",
+        "connectedAfterData": "false",
+        "dataPage": {
+          "url": "data:text/html,%3Cp%3Edata%20page%3C%2Fp",
+          "scriptRan": null
+        },
+        "hits": [],
+        "sends": []
+      },
+      "navigated": {
+        "navHits": [
+          {
+            "at": "2026-09-17T15:18:28.764Z",
+            "method": "GET",
+            "url": "/evil.html?from=link",
+            "referer": ""
+          },
+          {
+            "at": "2026-09-17T15:18:28.784Z",
+            "method": "GET",
+            "url": "/beacon/evil-link-ran?v=%7B%22parentStorage%22%3A%22blocked%22%2C%22parentCookie%22%3A%22blocked%22%2C%22parentDom%22%3A%22blocked%22%2C%22topLocation%22%3A%22blocked%22%7D",
+            "referer": ""
+          },
+          {
+            "at": "2026-09-17T15:18:28.785Z",
+            "method": "GET",
+            "url": "/beacon/evil-link-top-navigation?v=blocked%3ASecurityError",
+            "referer": ""
+          },
+          {
+            "at": "2026-09-17T15:18:28.793Z",
+            "method": "GET",
+            "url": "/beacon/evil-link-port-message?v=%7B%22channel%22%3A%22devthrottle.dev-report%22%2C%22version%22%3A1%2C%22type%22%3A%22restore%22%2C%22payload%22%3A%7B%22state%22%3A%7B%22queued%22%3A%5B%5D%2C%22sent%22%3A%5B%5D%2C%22replies%22%3A%5B%5D%2C%22draft%22%3Anull%2C%22answerDrafts%22%3A%5B%5D%2C%22scroll%22%3A%7B%22x%22%3A0%2C%22y%22%3A954%7D%7D%7D%7D",
+            "referer": ""
+          }
+        ],
+        "sends": [
+          {
+            "at": "2026-09-17T15:18:28.793Z",
+            "url": "http://127.0.0.1:7931/dev-reports/6f6961ed-ce5f-475e-b69d-bf18e4be6f0f/send",
+            "body": "{\"items\":[{\"id\":\"e1\",\"kind\":\"note\",\"text\":\"FORGED OVER A PORT BY THE NEXT PAGE\",\"anchor\":{\"type\":\"element\",\"selector\":\"p\",\"quote\":\"\"}}]}"
+          }
+        ],
+        "connectedAfterNav": "false"
+      },
+      "metaRefresh": {
+        "hits": [
+          {
+            "at": "2026-09-17T15:18:41.499Z",
+            "method": "GET",
+            "url": "/evil.html?from=meta-refresh",
+            "referer": ""
+          },
+          {
+            "at": "2026-09-17T15:18:41.525Z",
+            "method": "GET",
+            "url": "/beacon/evil-meta-refresh-ran?v=%7B%22parentStorage%22%3A%22blocked%22%2C%22parentCookie%22%3A%22blocked%22%2C%22parentDom%22%3A%22blocked%22%2C%22topLocation%22%3A%22blocked%22%7D",
+            "referer": ""
+          },
+          {
+            "at": "2026-09-17T15:18:41.527Z",
+            "method": "GET",
+            "url": "/beacon/evil-meta-refresh-top-navigation?v=blocked%3ASecurityError",
+            "referer": ""
+          },
+          {
+            "at": "2026-09-17T15:18:41.537Z",
+            "method": "GET",
+            "url": "/beacon/evil-meta-refresh-port-message?v=%7B%22channel%22%3A%22devthrottle.dev-report%22%2C%22version%22%3A1%2C%22type%22%3A%22restore%22%2C%22payload%22%3A%7B%22state%22%3A%7B%22queued%22%3A%5B%5D%2C%22sent%22%3A%5B%5D%2C%22replies%22%3A%5B%5D%2C%22draft%22%3Anull%2C%22answerDrafts%22%3A%5B%5D%2C%22scroll%22%3A%7B%22x%22%3A0%2C%22y%22%3A0%7D%7D%7D%7D",
+            "referer": ""
+          }
+        ],
+        "sends": [
+          {
+            "at": "2026-09-17T15:18:41.536Z",
+            "url": "http://127.0.0.1:7931/dev-reports/9502b53a-0e26-49d8-b819-ee11da7311c1/send",
+            "body": "{\"items\":[{\"id\":\"e1\",\"kind\":\"note\",\"text\":\"FORGED OVER A PORT BY THE NEXT PAGE\",\"anchor\":{\"type\":\"element\",\"selector\":\"p\",\"quote\":\"\"}}]}"
+          }
+        ],
+        "connectedAfterRefresh": "false"
+      }
+    },
+    "frame-cockpit": {
+      "direct": {
+        "frameAttr": {
+          "sandbox": "allow-scripts",
+          "hostCanReadFrame": false
+        },
+        "inside": {
+          "origin": "null",
+          "firstHeadElement": "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; script-src 'nonce-cf95905ed50903a589df0eb97623288c'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'\">",
+          "scriptRan": null,
+          "handlerRan": null,
+          "tokenSeen": null,
+          "parentStorage": "blocked: SecurityError",
+          "parentCookie": "blocked: SecurityError",
+          "parentDom": "blocked: SecurityError",
+          "ownStorage": "blocked: SecurityError",
+          "ownCookie": "blocked: SecurityError"
+        },
+        "evilHits": [],
+        "sends": []
+      },
+      "clicks": {
+        "clickHits": [],
+        "stillReport": 1,
+        "sends": []
+      },
+      "dataLink": {
+        "connectedBeforeData": "true",
+        "connectedAfterData": "false",
+        "dataPage": {
+          "url": "data:text/html,%3Cp%3Edata%20page%3C%2Fp",
+          "scriptRan": null
+        },
+        "hits": [],
+        "sends": []
+      },
+      "navigated": {
+        "navHits": [
+          {
+            "at": "2026-09-17T15:19:19.764Z",
+            "method": "GET",
+            "url": "/evil.html?from=link",
+            "referer": ""
+          },
+          {
+            "at": "2026-09-17T15:19:19.795Z",
+            "method": "GET",
+            "url": "/beacon/evil-link-ran?v=%7B%22parentStorage%22%3A%22blocked%22%2C%22parentCookie%22%3A%22blocked%22%2C%22parentDom%22%3A%22blocked%22%2C%22topLocation%22%3A%22blocked%22%7D",
+            "referer": ""
+          },
+          {
+            "at": "2026-09-17T15:19:19.797Z",
+            "method": "GET",
+            "url": "/beacon/evil-link-top-navigation?v=blocked%3ASecurityError",
+            "referer": ""
+          },
+          {
+            "at": "2026-09-17T15:19:19.807Z",
+            "method": "GET",
+            "url": "/beacon/evil-link-port-message?v=%7B%22channel%22%3A%22devthrottle.dev-report%22%2C%22version%22%3A1%2C%22type%22%3A%22restore%22%2C%22payload%22%3A%7B%22state%22%3A%7B%22queued%22%3A%5B%5D%2C%22sent%22%3A%5B%5D%2C%22replies%22%3A%5B%5D%2C%22draft%22%3Anull%2C%22answerDrafts%22%3A%5B%5D%2C%22scroll%22%3A%7B%22x%22%3A0%2C%22y%22%3A1214%7D%7D%7D%7D",
+            "referer": ""
+          }
+        ],
+        "sends": [
+          {
+            "at": "2026-09-17T15:19:19.806Z",
+            "url": "http://127.0.0.1:7931/dev-reports/6f6961ed-ce5f-475e-b69d-bf18e4be6f0f/send",
+            "body": "{\"items\":[{\"id\":\"e1\",\"kind\":\"note\",\"text\":\"FORGED OVER A PORT BY THE NEXT PAGE\",\"anchor\":{\"type\":\"element\",\"selector\":\"p\",\"quote\":\"\"}}]}"
+          }
+        ],
+        "connectedAfterNav": "false"
+      },
+      "metaRefresh": {
+        "hits": [
+          {
+            "at": "2026-09-17T15:19:33.118Z",
+            "method": "GET",
+            "url": "/evil.html?from=meta-refresh",
+            "referer": ""
+          },
+          {
+            "at": "2026-09-17T15:19:33.137Z",
+            "method": "GET",
+            "url": "/beacon/evil-meta-refresh-ran?v=%7B%22parentStorage%22%3A%22blocked%22%2C%22parentCookie%22%3A%22blocked%22%2C%22parentDom%22%3A%22blocked%22%2C%22topLocation%22%3A%22blocked%22%7D",
+            "referer": ""
+          },
+          {
+            "at": "2026-09-17T15:19:33.138Z",
+            "method": "GET",
+            "url": "/beacon/evil-meta-refresh-top-navigation?v=blocked%3ASecurityError",
+            "referer": ""
+          },
+          {
+            "at": "2026-09-17T15:19:33.151Z",
+            "method": "GET",
+            "url": "/beacon/evil-meta-refresh-port-message?v=%7B%22channel%22%3A%22devthrottle.dev-report%22%2C%22version%22%3A1%2C%22type%22%3A%22restore%22%2C%22payload%22%3A%7B%22state%22%3A%7B%22queued%22%3A%5B%5D%2C%22sent%22%3A%5B%5D%2C%22replies%22%3A%5B%5D%2C%22draft%22%3Anull%2C%22answerDrafts%22%3A%5B%5D%2C%22scroll%22%3A%7B%22x%22%3A0%2C%22y%22%3A0%7D%7D%7D%7D",
+            "referer": ""
+          }
+        ],
+        "sends": [
+          {
+            "at": "2026-09-17T15:19:33.148Z",
+            "url": "http://127.0.0.1:7931/dev-reports/9502b53a-0e26-49d8-b819-ee11da7311c1/send",
+            "body": "{\"items\":[{\"id\":\"e1\",\"kind\":\"note\",\"text\":\"FORGED OVER A PORT BY THE NEXT PAGE\",\"anchor\":{\"type\":\"element\",\"selector\":\"p\",\"quote\":\"\"}}]}"
+          }
+        ],
+        "connectedAfterRefresh": "false"
+      }
+    }
+  },
+  "mutationApplied": {
+    "/mobile/assets/index-D7yYcKG5.js": [
+      0
+    ],
+    "/assets/index-Cos5ViUJ.js": [
+      0
+    ]
+  },
+  "evilHits": [
+    {
+      "at": "2026-09-17T15:18:28.764Z",
+      "method": "GET",
+      "url": "/evil.html?from=link",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:18:28.784Z",
+      "method": "GET",
+      "url": "/beacon/evil-link-ran?v=%7B%22parentStorage%22%3A%22blocked%22%2C%22parentCookie%22%3A%22blocked%22%2C%22parentDom%22%3A%22blocked%22%2C%22topLocation%22%3A%22blocked%22%7D",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:18:28.785Z",
+      "method": "GET",
+      "url": "/beacon/evil-link-top-navigation?v=blocked%3ASecurityError",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:18:28.793Z",
+      "method": "GET",
+      "url": "/beacon/evil-link-port-message?v=%7B%22channel%22%3A%22devthrottle.dev-report%22%2C%22version%22%3A1%2C%22type%22%3A%22restore%22%2C%22payload%22%3A%7B%22state%22%3A%7B%22queued%22%3A%5B%5D%2C%22sent%22%3A%5B%5D%2C%22replies%22%3A%5B%5D%2C%22draft%22%3Anull%2C%22answerDrafts%22%3A%5B%5D%2C%22scroll%22%3A%7B%22x%22%3A0%2C%22y%22%3A954%7D%7D%7D%7D",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:18:41.499Z",
+      "method": "GET",
+      "url": "/evil.html?from=meta-refresh",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:18:41.525Z",
+      "method": "GET",
+      "url": "/beacon/evil-meta-refresh-ran?v=%7B%22parentStorage%22%3A%22blocked%22%2C%22parentCookie%22%3A%22blocked%22%2C%22parentDom%22%3A%22blocked%22%2C%22topLocation%22%3A%22blocked%22%7D",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:18:41.527Z",
+      "method": "GET",
+      "url": "/beacon/evil-meta-refresh-top-navigation?v=blocked%3ASecurityError",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:18:41.537Z",
+      "method": "GET",
+      "url": "/beacon/evil-meta-refresh-port-message?v=%7B%22channel%22%3A%22devthrottle.dev-report%22%2C%22version%22%3A1%2C%22type%22%3A%22restore%22%2C%22payload%22%3A%7B%22state%22%3A%7B%22queued%22%3A%5B%5D%2C%22sent%22%3A%5B%5D%2C%22replies%22%3A%5B%5D%2C%22draft%22%3Anull%2C%22answerDrafts%22%3A%5B%5D%2C%22scroll%22%3A%7B%22x%22%3A0%2C%22y%22%3A0%7D%7D%7D%7D",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:19:19.764Z",
+      "method": "GET",
+      "url": "/evil.html?from=link",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:19:19.795Z",
+      "method": "GET",
+      "url": "/beacon/evil-link-ran?v=%7B%22parentStorage%22%3A%22blocked%22%2C%22parentCookie%22%3A%22blocked%22%2C%22parentDom%22%3A%22blocked%22%2C%22topLocation%22%3A%22blocked%22%7D",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:19:19.797Z",
+      "method": "GET",
+      "url": "/beacon/evil-link-top-navigation?v=blocked%3ASecurityError",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:19:19.807Z",
+      "method": "GET",
+      "url": "/beacon/evil-link-port-message?v=%7B%22channel%22%3A%22devthrottle.dev-report%22%2C%22version%22%3A1%2C%22type%22%3A%22restore%22%2C%22payload%22%3A%7B%22state%22%3A%7B%22queued%22%3A%5B%5D%2C%22sent%22%3A%5B%5D%2C%22replies%22%3A%5B%5D%2C%22draft%22%3Anull%2C%22answerDrafts%22%3A%5B%5D%2C%22scroll%22%3A%7B%22x%22%3A0%2C%22y%22%3A1214%7D%7D%7D%7D",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:19:33.118Z",
+      "method": "GET",
+      "url": "/evil.html?from=meta-refresh",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:19:33.137Z",
+      "method": "GET",
+      "url": "/beacon/evil-meta-refresh-ran?v=%7B%22parentStorage%22%3A%22blocked%22%2C%22parentCookie%22%3A%22blocked%22%2C%22parentDom%22%3A%22blocked%22%2C%22topLocation%22%3A%22blocked%22%7D",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:19:33.138Z",
+      "method": "GET",
+      "url": "/beacon/evil-meta-refresh-top-navigation?v=blocked%3ASecurityError",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:19:33.151Z",
+      "method": "GET",
+      "url": "/beacon/evil-meta-refresh-port-message?v=%7B%22channel%22%3A%22devthrottle.dev-report%22%2C%22version%22%3A1%2C%22type%22%3A%22restore%22%2C%22payload%22%3A%7B%22state%22%3A%7B%22queued%22%3A%5B%5D%2C%22sent%22%3A%5B%5D%2C%22replies%22%3A%5B%5D%2C%22draft%22%3Anull%2C%22answerDrafts%22%3A%5B%5D%2C%22scroll%22%3A%7B%22x%22%3A0%2C%22y%22%3A0%7D%7D%7D%7D",
+      "referer": ""
+    }
+  ],
+  "results": [
+    {
+      "claim": "F1 (phone): the report is in <iframe sandbox=\"allow-scripts\">, opaque origin, host cannot read it",
+      "ok": true,
+      "detail": "{\"frameAttr\":{\"sandbox\":\"allow-scripts\",\"hostCanReadFrame\":false},\"origin\":\"null\"}"
+    },
+    {
+      "claim": "F2 (phone): the host's policy is the first thing in the head, and the report's scripts, handler, guessed nonce, external script and token snooping do not run",
+      "ok": true,
+      "detail": "{\"firstHeadElement\":\"<meta http-equiv=\\\"Content-Security-Policy\\\" content=\\\"default-src 'none'; script-src 'nonce-7ee645081af055a0b900eec9a059853e'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'\\\">\",\"scriptRan\":null,\"handlerRan\":null,\"tokenSeen\":null,\"beacons\":[]}"
+    },
+    {
+      "claim": "F3 (phone): code in the frame cannot read the app's storage, cookies or page, and has none of its own",
+      "ok": true,
+      "detail": "{\"parentStorage\":\"blocked: SecurityError\",\"parentCookie\":\"blocked: SecurityError\",\"parentDom\":\"blocked: SecurityError\",\"ownStorage\":\"blocked: SecurityError\",\"ownCookie\":\"blocked: SecurityError\"}"
+    },
+    {
+      "claim": "F4a (phone): the direct report's forged send and forged ready (no token) make the app send nothing",
+      "ok": true,
+      "detail": "[]"
+    },
+    {
+      "claim": "mutation no-token-check was applied to the phone bundle",
+      "ok": true,
+      "detail": "[[\"/mobile/assets/index-D7yYcKG5.js\",[0]]]"
+    },
+    {
+      "claim": "F5 (phone): nothing the published hostile report loads by itself reaches another origin (base, report policy, stylesheets, fonts, backgrounds, images, media, objects, nested frames)",
+      "ok": true,
+      "detail": "[]"
+    },
+    {
+      "claim": "F4b (phone): the fake Send, the javascript: link, the form, and a focus and a pick that a stylesheet watches reach nothing and make the app send nothing",
+      "ok": true,
+      "detail": "{\"clickHits\":[],\"stillReport\":1,\"sends\":[]}"
+    },
+    {
+      "claim": "F7a (phone): a data: link takes the frame away; the host drops the page (connected false), nothing reaches another origin, and the app sends nothing",
+      "ok": true,
+      "detail": "{\"connectedBeforeData\":\"true\",\"connectedAfterData\":\"false\",\"dataPage\":{\"url\":\"data:text/html,%3Cp%3Edata%20page%3C%2Fp\",\"scriptRan\":null},\"hits\":[],\"sends\":[]}"
+    },
+    {
+      "claim": "F6 (phone): the report cannot open a popup or take over the app window",
+      "ok": true,
+      "detail": "{\"popups\":[],\"url\":\"http://127.0.0.1:7931/mobile/session/6abba030-6c97-412c-8008-c1bb69ba5a60/reports/6f6961ed-ce5f-475e-b69d-bf18e4be6f0f\",\"appUrl\":\"http://127.0.0.1:7931/mobile/session/6abba030-6c97-412c-8008-c1bb69ba5a60/reports/6f6961ed-ce5f-475e-b69d-bf18e4be6f0f\"}"
+    },
+    {
+      "claim": "F7 (phone): after a link takes the frame to another origin, that page runs but the host drops it, it gets nothing, and its forged ready and sends are refused",
+      "ok": false,
+      "detail": "[\"/evil.html?from=link\",\"/beacon/evil-link-ran?v={\\\"parentStorage\\\":\\\"blocked\\\",\\\"parentCookie\\\":\\\"blocked\\\",\\\"parentDom\\\":\\\"blocked\\\",\\\"topLocation\\\":\\\"blocked\\\"}\",\"/beacon/evil-link-top-navigation?v=blocked:SecurityError\",\"/beacon/evil-link-port-message?v={\\\"channel\\\":\\\"devthrottle.dev-report\\\",\\\"version\\\":1,\\\"type\\\":\\\"restore\\\",\\\"payload\\\":{\\\"state\\\":{\\\"queued\\\":[],\\\"sent\\\":[],\\\"replies\\\":[],\\\"draft\\\":null,\\\"answerDrafts\\\":[],\\\"scroll\\\":{\\\"x\\\":0,\"]"
+    },
+    {
+      "claim": "F8 (phone): after a meta refresh takes the frame away, the host drops the page, it gets nothing and can send nothing",
+      "ok": false,
+      "detail": "[\"/evil.html?from=meta-refresh\",\"/beacon/evil-meta-refresh-ran?v={\\\"parentStorage\\\":\\\"blocked\\\",\\\"parentCookie\\\":\\\"blocked\\\",\\\"parentDom\\\":\\\"blocked\\\",\\\"topLocation\\\":\\\"blocked\\\"}\",\"/beacon/evil-meta-refresh-top-navigation?v=blocked:SecurityError\",\"/beacon/evil-meta-refresh-port-message?v={\\\"channel\\\":\\\"devthrottle.dev-report\\\",\\\"version\\\":1,\\\"type\\\":\\\"restore\\\",\\\"payload\\\":{\\\"state\\\":{\\\"queued\\\":[],\\\"sent\\\":[],\\\"replies\\\":[],\\\"draft\\\":null,\\\"answerDrafts\\\":[],\\\"scroll\\\"\"]"
+    },
+    {
+      "claim": "F1 (cockpit): the report is in <iframe sandbox=\"allow-scripts\">, opaque origin, host cannot read it",
+      "ok": true,
+      "detail": "{\"frameAttr\":{\"sandbox\":\"allow-scripts\",\"hostCanReadFrame\":false},\"origin\":\"null\"}"
+    },
+    {
+      "claim": "F2 (cockpit): the host's policy is the first thing in the head, and the report's scripts, handler, guessed nonce, external script and token snooping do not run",
+      "ok": true,
+      "detail": "{\"firstHeadElement\":\"<meta http-equiv=\\\"Content-Security-Policy\\\" content=\\\"default-src 'none'; script-src 'nonce-cf95905ed50903a589df0eb97623288c'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'\\\">\",\"scriptRan\":null,\"handlerRan\":null,\"tokenSeen\":null,\"beacons\":[]}"
+    },
+    {
+      "claim": "F3 (cockpit): code in the frame cannot read the app's storage, cookies or page, and has none of its own",
+      "ok": true,
+      "detail": "{\"parentStorage\":\"blocked: SecurityError\",\"parentCookie\":\"blocked: SecurityError\",\"parentDom\":\"blocked: SecurityError\",\"ownStorage\":\"blocked: SecurityError\",\"ownCookie\":\"blocked: SecurityError\"}"
+    },
+    {
+      "claim": "F4a (cockpit): the direct report's forged send and forged ready (no token) make the app send nothing",
+      "ok": true,
+      "detail": "[]"
+    },
+    {
+      "claim": "mutation no-token-check was applied to the cockpit bundle",
+      "ok": true,
+      "detail": "[[\"/assets/index-Cos5ViUJ.js\",[0]]]"
+    },
+    {
+      "claim": "F5 (cockpit): nothing the published hostile report loads by itself reaches another origin (base, report policy, stylesheets, fonts, backgrounds, images, media, objects, nested frames)",
+      "ok": true,
+      "detail": "[]"
+    },
+    {
+      "claim": "F4b (cockpit): the fake Send, the javascript: link, the form, and a focus and a pick that a stylesheet watches reach nothing and make the app send nothing",
+      "ok": true,
+      "detail": "{\"clickHits\":[],\"stillReport\":1,\"sends\":[]}"
+    },
+    {
+      "claim": "F7a (cockpit): a data: link takes the frame away; the host drops the page (connected false), nothing reaches another origin, and the app sends nothing",
+      "ok": true,
+      "detail": "{\"connectedBeforeData\":\"true\",\"connectedAfterData\":\"false\",\"dataPage\":{\"url\":\"data:text/html,%3Cp%3Edata%20page%3C%2Fp\",\"scriptRan\":null},\"hits\":[],\"sends\":[]}"
+    },
+    {
+      "claim": "F6 (cockpit): the report cannot open a popup or take over the app window",
+      "ok": true,
+      "detail": "{\"popups\":[],\"url\":\"http://127.0.0.1:7931/session/6abba030-6c97-412c-8008-c1bb69ba5a60\",\"appUrl\":\"http://127.0.0.1:7931/session/6abba030-6c97-412c-8008-c1bb69ba5a60\"}"
+    },
+    {
+      "claim": "F7 (cockpit): after a link takes the frame to another origin, that page runs but the host drops it, it gets nothing, and its forged ready and sends are refused",
+      "ok": false,
+      "detail": "[\"/evil.html?from=link\",\"/beacon/evil-link-ran?v={\\\"parentStorage\\\":\\\"blocked\\\",\\\"parentCookie\\\":\\\"blocked\\\",\\\"parentDom\\\":\\\"blocked\\\",\\\"topLocation\\\":\\\"blocked\\\"}\",\"/beacon/evil-link-top-navigation?v=blocked:SecurityError\",\"/beacon/evil-link-port-message?v={\\\"channel\\\":\\\"devthrottle.dev-report\\\",\\\"version\\\":1,\\\"type\\\":\\\"restore\\\",\\\"payload\\\":{\\\"state\\\":{\\\"queued\\\":[],\\\"sent\\\":[],\\\"replies\\\":[],\\\"draft\\\":null,\\\"answerDrafts\\\":[],\\\"scroll\\\":{\\\"x\\\":0,\"]"
+    },
+    {
+      "claim": "F8 (cockpit): after a meta refresh takes the frame away, the host drops the page, it gets nothing and can send nothing",
+      "ok": false,
+      "detail": "[\"/evil.html?from=meta-refresh\",\"/beacon/evil-meta-refresh-ran?v={\\\"parentStorage\\\":\\\"blocked\\\",\\\"parentCookie\\\":\\\"blocked\\\",\\\"parentDom\\\":\\\"blocked\\\",\\\"topLocation\\\":\\\"blocked\\\"}\",\"/beacon/evil-meta-refresh-top-navigation?v=blocked:SecurityError\",\"/beacon/evil-meta-refresh-port-message?v={\\\"channel\\\":\\\"devthrottle.dev-report\\\",\\\"version\\\":1,\\\"type\\\":\\\"restore\\\",\\\"payload\\\":{\\\"state\\\":{\\\"queued\\\":[],\\\"sent\\\":[],\\\"replies\\\":[],\\\"draft\\\":null,\\\"answerDrafts\\\":[],\\\"scroll\\\"\"]"
+    }
+  ],
+  "redVerdict": {
+    "appliedEverywhere": true,
+    "perClaim": [
+      {
+        "claim": "F7 (phone)",
+        "red": true
+      },
+      {
+        "claim": "F7 (cockpit)",
+        "red": true
+      },
+      {
+        "claim": "F8 (phone)",
+        "red": true
+      },
+      {
+        "claim": "F8 (cockpit)",
+        "red": true
+      }
+    ],
+    "confirmed": true
+  }
+}

