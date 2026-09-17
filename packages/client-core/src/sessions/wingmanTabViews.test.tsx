@@ -100,6 +100,21 @@ describe("the Wingman tab's views", () => {
     expect(screen.getByText("Merge pull request #3002, or allow me to merge it")).toBeTruthy();
   });
 
+  it("comes back to Now when the screen moves to another session, rather than staying on History", async () => {
+    fakeGateway({ "wingman-now": [200, NOW], "wingman-stops": [200, STOPS] });
+    const { rerender } = render(<WingmanTab sessionId={SID} />);
+    await waitFor(() => expect(screen.getByText("Merge pull request #3002, or allow me to merge it")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("tab", { name: "History" }));
+    await waitFor(() =>
+      expect(screen.getByText("The Wingman has not judged this session in the last seven days.")).toBeTruthy(),
+    );
+
+    rerender(<WingmanTab sessionId="4c7e1b90-0000-4000-8000-000000000051" />);
+    await waitFor(() => expect(screen.getByText("Merge pull request #3002, or allow me to merge it")).toBeTruthy());
+    expect(screen.getByRole("tab", { name: "Now" }).getAttribute("aria-selected")).toBe("true");
+  });
+
   // THE BRIDGE. Delete this test with the bridge itself when the Now route ships everywhere.
   it("leaves the version 1 stops list on screen alone while the Gateway does not serve Now yet", async () => {
     fakeGateway({ "wingman-now": [404, { error: "not found" }], "wingman-stops": [200, STOPS] });
