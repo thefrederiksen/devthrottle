@@ -3,6 +3,12 @@ import { useNavigate } from "react-router-dom";
 import { type SessionDto } from "@devthrottle/client-core/api/client";
 import { listMissions, type MissionDto } from "@devthrottle/client-core/missions/missions";
 import { dotColor, dotHex, effectiveColor, stateLabel } from "@devthrottle/client-core/sessions/ordering";
+import { dotTitle } from "@devthrottle/client-core/sessions/sessionColours";
+import {
+  ColourLegendButton,
+  ColourLegendPanel,
+  useSessionColourLegend,
+} from "@devthrottle/client-core/sessions/ColourLegend";
 import {
   reachabilityFor,
   reachabilityLastSeen,
@@ -386,6 +392,8 @@ export function FleetMapView() {
           )}
         </span>
 
+        <ColourLegendButton className="fmap-legend-btn" />
+
         <div className="fmap-controls">
           {/* The title search filters the node canvas / flat list; the Missions board is not searchable,
               so the box is hidden while that pivot is active rather than left as a dead control. */}
@@ -447,6 +455,8 @@ export function FleetMapView() {
           </div>
         )}
 
+      <div className="fmap-body">
+      <div className="fmap-main">
       {pivot === "mission"
         ? // The board also mounts on a mission-load FAILURE with nothing else to show: otherwise the one
           // case where we know least - no sessions and no mission list - is the case that renders the most
@@ -481,15 +491,13 @@ export function FleetMapView() {
             />
           )}
 
-      <div className="fmap-legend" aria-hidden="true">
-        <LegendDot color="blue" label="Working" />
-        <LegendDot color="red" label="Needs you" />
-        <LegendDot color="green" label="Ready" />
-        <LegendDot color="cyan" label="Done" />
-        <LegendDot color="yellow" label="Wingman reading" />
-        <LegendDot color="orange" label="Transcribing" />
-        <LegendDot color="supporting" label="Sub-agent" />
-        <LegendDot color="grey" label="Snoozed" />
+
+      </div>
+
+      {/* What every dot colour means, in the Gateway's words - always on screen beside the map, so a colour never has
+          to be guessed. Replaces a hand-typed strip at the foot of the page that nobody scrolled to and that had
+          fallen behind the product (no "Carrying on", no "Crashed"). */}
+      <ColourLegendPanel className="fmap-legend-panel" />
       </div>
 
       {newSessionDirectorId !== null && (
@@ -502,15 +510,6 @@ export function FleetMapView() {
     </div>
     </FleetTreeContext.Provider>
     </ReachabilityContext.Provider>
-  );
-}
-
-function LegendDot({ color, label }: { color: string; label: string }) {
-  return (
-    <span className="fmap-legend-item">
-      <span className="fmap-legend-dot" style={{ backgroundColor: dotColor(color) }} />
-      {label}
-    </span>
   );
 }
 
@@ -868,6 +867,7 @@ function NodeCard({
   crew?: ReactNode;
 }) {
   const directors = useContext(ReachabilityContext);
+  const { legend } = useSessionColourLegend();
   const color = effectiveColor(s);
   const sid = s.sessionId ?? "";
   const unnamed = (s.name ?? "").trim().length === 0;
@@ -928,7 +928,7 @@ function NodeCard({
         <span
           className={color === "blue" ? "fmap-dot working" : "fmap-dot"}
           style={{ backgroundColor: dotHex(s) }}
-          title={s.lastStatusReason ?? undefined}
+          title={dotTitle(s, legend)}
         />
         {hasNum && <span className="num-badge">{num}</span>}
         <span className={unnamed ? "fmap-card-name unnamed" : "fmap-card-name"}>

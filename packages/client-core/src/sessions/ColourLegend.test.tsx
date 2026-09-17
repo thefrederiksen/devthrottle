@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { ColourLegendButton } from "./ColourLegend";
-import { SESSION_COLOURS_PATH } from "./sessionColours";
+import { ColourLegendButton, ColourLegendPanel } from "./ColourLegend";
+import { resetLegendForTests, SESSION_COLOURS_PATH } from "./sessionColours";
 
 // The legend as a person meets it, against a fake Gateway: nothing is read until it is asked for, the Gateway's words
 // and pixels are drawn verbatim, a failed or malformed read says so instead of drawing a partial legend, focus goes in
@@ -40,7 +40,10 @@ function fakeGateway(status = 200, body: unknown = LEGEND) {
   );
 }
 
-beforeEach(() => fakeGateway());
+beforeEach(() => {
+  resetLegendForTests();
+  fakeGateway();
+});
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -140,5 +143,41 @@ describe("ColourLegendButton", () => {
     fireEvent.click(backdrop);
 
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});
+
+describe("ColourLegendPanel", () => {
+  it("draws every colour the Gateway sends, on screen without being opened", async () => {
+    render(<ColourLegendPanel />);
+    const panel = screen.getByRole("complementary", { name: "What the colours mean" });
+
+    await within(panel).findByText("Waiting for you.");
+    for (const entry of LEGEND.entries) {
+      const row = panel.querySelector(`[data-colour="${entry.colour}"]`) as HTMLElement | null;
+      if (row === null) throw new Error(`the panel drew no row for ${entry.colour}`);
+      expect(within(row).getByText(entry.title)).toBeTruthy();
+      expect(within(row).getByText(entry.means)).toBeTruthy();
+      expect((row.querySelector(".colour-legend-dot") as HTMLElement).style.backgroundColor).toBe(rgb(entry.hex));
+    }
+  });
+
+  it("reads the legend once however many surfaces show it", async () => {
+    render(
+      <>
+        <ColourLegendPanel />
+        <ColourLegendPanel />
+      </>,
+    );
+    await waitFor(() => expect(screen.getAllByText("Waiting for you.")).toHaveLength(2));
+    expect(calls).toEqual([SESSION_COLOURS_PATH]);
+  });
+
+  it("says the read failed, and draws no colours, when the Gateway refuses", async () => {
+    fakeGateway(500, { error: "boom" });
+    render(<ColourLegendPanel />);
+    const panel = screen.getByRole("complementary", { name: "What the colours mean" });
+
+    expect(await within(panel).findByRole("alert")).toBeTruthy();
+    expect(panel.querySelectorAll(".colour-legend-row")).toHaveLength(0);
   });
 });

@@ -34,7 +34,8 @@ import { machinePortLabel } from "@devthrottle/client-core/fleet/directorEndpoin
 import { isDataStale } from "@devthrottle/client-core/fleet/directorPresentation";
 import { useNow, waitingLabel } from "@devthrottle/client-core/sessions/waiting";
 import { useNow as useSharedNow } from "@devthrottle/client-core/polling/useNow";
-import { ColourLegendButton } from "@devthrottle/client-core/sessions/ColourLegend";
+import { ColourLegendButton, useSessionColourLegend } from "@devthrottle/client-core/sessions/ColourLegend";
+import { dotTitle } from "@devthrottle/client-core/sessions/sessionColours";
 import {
   reachabilityFor,
   reachabilityLastSeen,
@@ -359,6 +360,7 @@ function RosterRow({
 }) {
   const sid = session.sessionId ?? "";
   const selected = sid === selectedId;
+  const { legend } = useSessionColourLegend();
   // A parent row: collapsed by default, remembered per crew on this device. The chevron sits OUTSIDE
   // the Link so opening the crew never navigates into the parent's session. The count on the chevron
   // is everything under it, at every level - the same number the crew line carries.
@@ -437,7 +439,7 @@ function RosterRow({
         className={`roster-row${selected ? " roster-row-selected" : ""}${attention ? " roster-row-attention" : ""}${wobbly ? " roster-row-wobbly" : ""}${offline ? " roster-row-offline" : ""}`}
         style={{ borderLeftColor: dotHex(session) }}
         to={`/session/${encodeURIComponent(sid)}`}
-        title={session.lastStatusReason ?? undefined}
+        title={dotTitle(session, legend)}
       >
         <span className="roster-dot" style={{ backgroundColor: dotHex(session) }} aria-hidden="true" />
         <span className="roster-body">

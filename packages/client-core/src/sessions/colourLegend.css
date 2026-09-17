@@ -137,3 +137,15 @@
   color: var(--text-dim);
   border-top: 1px solid var(--border);
 }
+
+/* The always-visible panel (ColourLegendPanel): the dialog's card, laid in the page instead of over it. */
+.colour-legend-panel {
+  max-width: none;
+  max-height: none;
+  overflow: visible;
+  box-shadow: none;
+}
+
+.colour-legend-panel .colour-legend-title {
+  margin-bottom: 6px;
+}

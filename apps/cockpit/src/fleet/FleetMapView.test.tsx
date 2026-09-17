@@ -34,7 +34,22 @@ vi.mock("@devthrottle/client-core/api/client", () => ({
   getAgents: () => Promise.resolve([]),
   createSession: () => Promise.resolve({ sessionId: "new" }),
   gatewayErrorMessage: (e: unknown) => String(e),
+  // The colour legend is read from the Gateway (GET /gateway/session-colours) through the shared transport.
+  authHeaders: () => ({}),
+  GatewayError: class GatewayError extends Error {},
+  gatewayFetch: () =>
+    Promise.resolve(new Response(JSON.stringify(LEGEND), { status: 200, headers: { "Content-Type": "application/json" } })),
 }));
+
+const LEGEND = {
+  entries: [
+    { colour: "red", hex: "#EF4444", title: "Needs you", means: "The session has stopped and is waiting for you.", asksForYou: "Yes" },
+    { colour: "blue", hex: "#3B82F6", title: "Working", means: "The agent is running a turn right now.", asksForYou: "No" },
+    { colour: "purple", hex: "#A855F7", title: "Carrying on", means: "The Wingman judged it will continue on its own.", asksForYou: "No" },
+  ],
+  broken: { hex: "#FF00FF", title: "Magenta", means: "Not a state." },
+  verdictNote: "Some colours need the verdicts switched on.",
+};
 
 import { FleetMapView } from "./FleetMapView";
 
@@ -413,5 +428,46 @@ describe("FleetMapView - the Sessions list's tree, across machines", () => {
     render(<FleetMapView />);
     // 124 runs Codex, its parent ClaudeCode: in the Codex column it stands on its own.
     expect(screen.getByText("AXI Tools - Worker - benchmark")).toBeTruthy();
+  });
+});
+
+describe("FleetMapView - what the colours mean", () => {
+  beforeEach(() => {
+    window.localStorage.setItem("cockpit.fleetMapPivot", "machine");
+    rosterValue.current = {
+      sessions: [
+        session({
+          sessionId: "144",
+          number: 144,
+          name: "cc-worktrees - Architect",
+          effectiveColor: "purple",
+          effectiveColorHex: "#A855F7",
+          stateLabel: "Monitor fix round 2 progress",
+          // What the Director wrote before the Wingman judged the turn - the hover used to show this.
+          lastStatusReason: "needs you",
+        }),
+      ],
+      machineErrors: [],
+      directors: [director({ directorId: "north-1", machineName: "SOREN_NORTH", state: "online" })],
+      unreachableBanner: null,
+      error: null,
+      refreshNow: () => {},
+    };
+  });
+
+  it("shows the Gateway's legend beside the map, every colour it sends", async () => {
+    render(<FleetMapView />);
+    const panel = screen.getByRole("complementary", { name: "What the colours mean" });
+    for (const entry of LEGEND.entries) {
+      expect(await screen.findByText(entry.means)).toBeTruthy();
+      expect(panel.querySelector(`[data-colour="${entry.colour}"]`)).not.toBeNull();
+    }
+  });
+
+  it("hovers a purple dot as Carrying on, not as the Director's 'needs you'", async () => {
+    const { container } = render(<FleetMapView />);
+    await screen.findByText(LEGEND.entries[2].means);
+    const dot = container.querySelector(".fmap-card .fmap-dot") as HTMLElement;
+    expect(dot.getAttribute("title")).toBe("Carrying on: Monitor fix round 2 progress");
   });
 });

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { gatewayErrorMessage, getRepos, type RepoInfo, type SessionDto } from "@devthrottle/client-core/api/client";
 import { dotHex, inDesktopOrder, stateLabel } from "@devthrottle/client-core/sessions/ordering";
+import { dotTitle } from "@devthrottle/client-core/sessions/sessionColours";
+import { useSessionColourLegend } from "@devthrottle/client-core/sessions/ColourLegend";
 import {
   getDirectorSettings,
   getFleetDirectors,
@@ -76,6 +78,7 @@ export function DirectorDetailView() {
   const wasShutDown = reach?.state === REACHABILITY_STOPPED;
 
   const [director, setDirector] = useState<FleetDirector | null>(null);
+  const { legend } = useSessionColourLegend();
   const [notFound, setNotFound] = useState(false);
   const [repos, setRepos] = useState<RepoInfo[] | null>(null);
   const [reposError, setReposError] = useState<string | null>(null);
@@ -247,7 +250,7 @@ export function DirectorDetailView() {
                         <tr key={sid} className="dtbl-rowlink" title="Session details"
                             onClick={() => navigate(`/session/${encodeURIComponent(sid)}`)}>
                           <td>
-                            <span className="dcell-dot" style={{ background: row.dot }} title={s.lastStatusReason ?? undefined} />
+                            <span className="dcell-dot" style={{ background: row.dot }} title={dotTitle(s, legend)} />
                             <span className="dcell-name">{(s.name ?? "").trim().length === 0 ? repoBasename(s.repoPath) : s.name}</span>
                             {row.snoozed && <span className="dtag dtag-hold">SNOOZED</span>}
                             {row.briefing ? (
