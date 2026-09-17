@@ -1242,3 +1242,112 @@ Verdict FAIL for merge. Findings accepted. Fixes on the pinned slice 3 branch in
 
 Then the touched suites, each guard watched failing, a 'Slice 3 fix round' section in this file on this
 branch, push, stop. Inspection 8 follows on this branch.
+
+## Slice 3 fix round (17 September 2026, Manager seat 5)
+
+Made on `mission/message-load-slice3` in `~/ReposFred/devthrottle-inspect-slice3`, on top of `5074cb98`.
+Three product commits, one per ruling, in order. No pull request opened, no fleet message sent. The breaks are
+in `slice-3-evidence/fix-round-guards-watched-failing.json` (12 breaks, all red).
+
+**Merging with the slice 2 fix round.** The stuck path (`MarkStuckWithNotices`) and the shared
+`StageSystemNotice` are NOT changed, not even in their bodies. The overdue path no longer calls
+`StageSystemNotice`: it needs to tell a duplicate from a refusal, which that step's return value cannot say, so
+it has its own small step, `JudgeOverdueNotice`, which makes the same policy call and also returns the verdict.
+When the slice 2 fix lands its own version of the same rule, the two steps can become one; that is left for
+the merge rather than guessed here. The one shared piece this round DID change is `ReadHistory` (ruling 2),
+which the stuck notices also go through - see ruling 2 below.
+
+### Ruling 1 - no overdue mark without its notice
+
+- `FleetMessageStore.MarkReplyOverdueWithNotices` now writes the overdue mark according to the notice's verdict:
+  - queued: the mark and the notice are written in the one save, as before;
+  - dropped as a duplicate (the asker already holds an identical unread notice about THIS question): the mark is
+    written, no second notice is, and a log line says so;
+  - refused for any other reason: nothing is written for that question, the refusal is logged with its outcome
+    and reason, and the next sweep tries again.
+  - A null draft (a question with no sending session, which the product does not write) is still marked, so it
+    is not scanned for ever.
+- The notice carries the question's message id in its text (it already did) and, since ruling 2, in its
+  duplicate key.
+- **Built to fit the cap.** `FleetMessageService.NoReplyNoticeText(message, name, maxLength)` is new; the
+  heartbeat passes the limits' `MaxTextLength`. Only the roster name is ever cut, ending in `...`, and it is
+  left out when fewer than four characters of it would fit. The two ids and the advice are never cut. The
+  two-argument form is unchanged (no cap), so the wording pinned in slice 3 is unchanged.
+- **Retried for ever, by design of the ruling.** A notice the policy keeps refusing is retried and logged on
+  every heartbeat until the question is answered or deleted. With the name cut to fit, the only remaining
+  refusal is a text cap smaller than about 300 characters, which the product's 16,000 never is.
+- Guards (5 breaks, all red): the mark written on a refusal (the inspector's finding) - red on
+  `A_notice_the_policy_refuses_leaves_the_question_open_and_the_next_sweep_retries` and
+  `A_blank_notice_is_refused_and_leaves_the_question_open`; a same-question duplicate treated as a refusal - red
+  on `An_identical_unread_notice_for_the_same_question_leaves_the_mark_written_and_adds_no_second`; the cap not
+  passed, the name kept whole, and a name cut below four characters - red on
+  `The_no_reply_notice_fits_the_text_cap_whatever_the_recipients_name` and
+  `The_no_reply_notice_text_is_cut_only_in_the_name`.
+- Before the fix, 6 of the new tests failed. The same-question duplicate test PASSED on the old code: that is
+  the control the ruling asks to keep ("leaves the mark written"), and the second break is what proves it
+  guards anything.
+
+### Ruling 2 - a duplicate is judged per question and per kind
+
+- `FleetMessageStore.ReadHistory`: an unread row is a duplicate only with the same recipient, sender, kind,
+  `InReplyToMessageId` (null for none), reply request, and text. "Reply request" is read from the stored
+  `ReplyByUtc`, which only a question carries.
+- The same key now applies to system notices, since they go through the same step. For a stuck notice this
+  changes nothing: it has kind `system` and no question, exactly like every earlier stuck notice.
+- Effects: a reply to question B is never dropped because a reply to A, or a plain message, said the same words;
+  a `--reply-wanted` send is never reduced to a waiting plain message (it queues with its own correlation id,
+  subject to the spacing as any send); a plain send is not dropped against a waiting question; a report is not
+  dropped against a waiting message with the same words. A reply-wanted send identical to a waiting QUESTION is
+  still dropped and answers with that question's ids (the original test, still green). Judgement call 8 of
+  slice 3 is therefore narrower: a dropped duplicate of a question always has a correlation id now.
+- Guards (5 breaks, all red): kind ignored; question ignored (the inspector's finding 2); reply request ignored
+  (finding 3); a plain send allowed to match a waiting question; system notices on the old key. The six new
+  tests (both of the inspector's sequences among them) were all red on the old rule before the fix.
+- Note for the inspector: `An_unread_plain_message_with_the_same_words_does_not_swallow_a_reply` is held by two
+  parts of the key at once (the kind and the question), so neither single break turns it red. It is a
+  sequence test; the single breaks are guarded by the other five.
+- `FleetMessagePolicy`'s description of the duplicate rule says what "identical" means now. No policy code
+  changed.
+
+### Ruling 3 - Gateway sentences print whole on a colour terminal
+
+- **The cause, reproduced.** The inspector's failure does not appear with only `FORCE_COLOR=1` on this Mac
+  (3208 passed before any change). It appears with `TERM=dumb FORCE_COLOR=1`: the console library ignores the
+  fixture's width of 500 on a terminal named `dumb` unless a height is given too, and wraps at 80. The refused
+  broadcast row (a full session id, a label and the sentence) is longer than 80, so a line break was inserted
+  into the Gateway's sentence. The inspector's exact environment was not recorded; `TERM=dumb` is the variable
+  that reproduces it here, and it is what a non-interactive agent shell commonly sets.
+- **Why single sends were already whole.** A single send's refusal is written by `axi_cli.fail` to standard
+  error as plain text and never goes through the console. The broadcast rows and a single send's duplicate note
+  go through `_say_gateway`.
+- **The fix.** `_say_gateway` prints with `soft_wrap=True` (still escaped, still no highlighting), so the
+  console never inserts a break into the sentence; the terminal folds it for display.
+- **The guard.** `either_console` (in `tests/conftest.py`) gains a third run, "narrow colour terminal" (width
+  40), and every run gives a height, so the fixture's size holds whatever `TERM` says. That turns the defect red
+  on any machine, not only under `TERM=dumb`. Seven tests use the fixture, so the suite grew by seven.
+- Guards (2 breaks, all red): hard wrapping back - red on the duplicate-note and broadcast tests, narrow run;
+  highlighting back - red on both, colour and narrow runs.
+
+### Test totals (Mac, this tree, 17 September 2026)
+
+- **Gateway unit, filter `FleetMessage|FleetReply`**: 130 passed, 0 failed (117 before, plus 13 new).
+- **Gateway unit, whole suite**: 5317 total, 5302 passed, 8 skipped, **7 failed - exactly the 7 Mac-only
+  failures named before** (SessionCommandExecutorLiveness 3, CronJobStore 1, RuleCandidateFilter 1,
+  RulePrimitives 1, WorkListStorePersistence 1). No new failure.
+- **Gateway route, filter `FleetMessageRouteTests|FleetReply`**: 41 passed, 0 failed. The whole route suite
+  was not rerun.
+- **cc-devthrottle, full `tests/`** (scratch environment installed from `tools/cc_storage`, `tools/cc_shared`
+  and `tools/cc-devthrottle` with their declared dependencies; the same package versions as the inspector's):
+  - without colour forced: 3215 passed, 0 failed;
+  - `FORCE_COLOR=1`: 3215 passed, 0 failed;
+  - `TERM=dumb FORCE_COLOR=1`: 3215 passed, 0 failed.
+
+### What is NOT proven
+
+- PostgreSQL: the new duplicate query (`Kind`, `InReplyToMessageId` with a null parameter, `ReplyByUtc` null or
+  not) ran on SQLite only. No migration changed; the columns all existed.
+- The duplicate query is not served by a dedicated index; it narrows on the same columns as before
+  (recipient, sender, unread, text hash) plus three more, so it reads no more rows than it did.
+- Nothing ran live (no Director, agent or hosted Gateway).
+- The retry-for-ever of a refused notice is proven over two sweeps, not over time; its log line is not asserted.
+- `scripts/test-local.ps1` was not run (no PowerShell on the Mac).
