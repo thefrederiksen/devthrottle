@@ -113,6 +113,18 @@ public sealed class WorkflowStoreTests : IDisposable
     }
 
     [Fact]
+    public void Fleet_manager_conduct_leaves_a_stop_waiting_for_its_reading_alone_and_reads_every_event()
+    {
+        // Step 4, round 3: a stop still waiting for its reading is neither acted on nor acknowledged, and the digest
+        // may say more events remain.
+        var body = BuiltInWorkflows.InstructionsFor("fleet-manager");
+
+        Assert.Contains("Leave alone any stop still waiting\n   for the Wingman's reading - do not act on it and do not acknowledge it", body);
+        Assert.Contains("A stop still waiting for the Wingman's reading is not yours to act on yet.", body);
+        Assert.Contains("If\n   the digest says more remain, read the rest before you act.", body);
+    }
+
+    [Fact]
     public void Uncustomized_built_in_auto_publishes_newer_shipped_content()
     {
         var db = _h.Open();

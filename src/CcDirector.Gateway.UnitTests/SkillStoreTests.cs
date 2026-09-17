@@ -123,6 +123,23 @@ public sealed class SkillStoreTests : IDisposable
     }
 
     [Fact]
+    public void Fleet_manager_skill_leaves_a_stop_waiting_for_its_reading_alone_and_follows_every_page()
+    {
+        // Step 4, round 3: a stop stored before its reading is listed as waiting and cannot be acknowledged, and
+        // events page past 200 by cursor - the skill must say both, in the commands as built.
+        var body = BuiltInSkills.BodyFor("fleet-manager");
+
+        Assert.Contains("verdict is `waiting`", body);
+        Assert.Contains("Do not\n  act on it and do not acknowledge it.", body);
+        Assert.Contains("reading_pending", body);
+        Assert.Contains("after 5 minutes", body);
+        Assert.Contains("eventsMoreRemain:", body);
+        Assert.Contains("cc-devthrottle fleet events --cursor <nextCursor>", body);
+        Assert.Contains("cc-devthrottle fleet events --every-page", body);
+        Assert.Contains("One prompt carries at most 200 events", body);
+    }
+
+    [Fact]
     public void Changed_shipped_content_republishes_as_the_next_version_and_supersedes_the_old()
     {
         var db = _h.Open();

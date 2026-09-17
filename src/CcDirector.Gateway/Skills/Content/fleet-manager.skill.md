@@ -18,9 +18,9 @@ Say the gaps plainly; never act as if a missing piece exists.
 | Being the account's Fleet Manager | Built. The account marks one session: `cc-devthrottle fleet-manager show` prints the mark, `cc-devthrottle fleet-manager set [<session>]` sets it (no session given marks the session running the command), and `cc-devthrottle fleet-manager clear` removes it. Everything below that is about "sessions you own" needs that mark. |
 | The Wingman's reading of each stop | Built. On every session row in `session list --json`, on each session you own in `fleet digest`, and in each event sent to you. |
 | The Wingman reading the sessions YOU own | Built, for the sessions you start directly. A session you own may still carry no reading (it has not stopped yet, or the reading failed) - treat that as "cannot tell" and read the session yourself. |
-| Being told when a session you own stops or dies | Built. The Gateway sends you one prompt when you are idle (below). `fleet events` and `fleet digest` list what you have not acknowledged. Only sessions whose owner is YOU (the marked Fleet Manager) raise events. |
+| Being told when a session you own stops or dies | Built. The Gateway sends you one prompt when you are idle (below). `fleet events` and `fleet digest` list what you have not acknowledged, a page at a time. Only sessions whose owner is YOU (the marked Fleet Manager) raise events. |
 | Outcome records (Ready, Finding, Decision) that stay open until answered | Built. `fleet ready`, `fleet finding`, `fleet decision`, `fleet answer` (below). Only the account's marked Fleet Manager session, or the owner on their own phone or browser, may use them. |
-| One digest command for the start of a conversation | Built. `fleet digest` (below). |
+| One digest command for the start of a conversation | Built. `fleet digest` (below). It holds every open record, and the oldest 200 unacknowledged events; it says when more events remain. |
 | Seeing the sessions an earlier Fleet Manager started | Built. After a reset or a move, `fleet digest` lists them with the id of the earlier Fleet Manager that still owns them. |
 | Being told when a pull request is opened or merged, or a report is written | Not built yet - a later part of phase 1. Read the session when its stop says so. |
 | Handing an existing session over to you | Not built. A session an earlier Fleet Manager started stays owned by that earlier session until hand over is built; you can see it, but it raises no events for you. Say so when they ask. |
@@ -38,7 +38,8 @@ conversation:
 
 - `fleetManager: yes` - you are the account's Fleet Manager. If it says `no`, say so.
 - `markedFleetManager` and `fleetManagerSessions` - the session the account marks as its Fleet
-  Manager now, and every session it has marked before.
+  Manager now, and each session it marked before that still owns a live session. The Gateway
+  remembers the 20 sessions marked most recently.
 - `outcomes` - EVERY Ready, Finding and Decision still open, from you or from a Fleet Manager before
   you. It is never cut short; if the records and the counts ever disagree the command fails instead.
 - `sessions` - the sessions you own AND the sessions an earlier Fleet Manager started, each with its
@@ -47,9 +48,16 @@ conversation:
   - that is a later step. `fleet digest --json` has the rest: each session's `turnVerdict`,
   `stateLabel`, `missionName` and `uncommittedCount`.
 - `preferences` - the owner's standing preferences, in their own words.
-- `events` - every stop or death of a session you own that nobody has acknowledged yet, including
-  ones already sent to you or to the Fleet Manager before you. Deal with these first: act on each,
-  then acknowledge it.
+- `events` - the stops and deaths of sessions you own that nobody has acknowledged yet, oldest
+  first, including ones already sent to you or to the Fleet Manager before you. The line reads
+  `events: <shown> of <total> unacknowledged`, and says how many are waiting for their reading. It
+  shows at most 200. When more remain it prints `eventsMoreRemain:` with the command that lists the
+  rest - run it and follow each `nextCursor` until none is printed. Deal with the events first:
+  act on each, then acknowledge it by its id.
+- An event whose verdict is `waiting` is a stop still waiting for the Wingman's reading. **Do not
+  act on it and do not acknowledge it.** The Gateway refuses to acknowledge it, and sends it to you
+  once its reading is stored - or, if there is still no reading after 5 minutes, with the reason
+  there is none. A reading that ends as `cannot-tell` or fails is sent as that.
 
 ## Being told when a session you own stops
 
@@ -63,6 +71,9 @@ busy comes as ONE prompt, oldest first, that starts with this line:
 ```
 [Fleet Manager events] 2 stops and 0 died since your last turn.
 ```
+
+One prompt carries at most 200 events. When more are owed it says how many more wait; they come
+at your next idle moment. A stop is not sent while it is still waiting for its reading.
 
 Each event in it has its id, whether it is a `stop` or `died`, the session's id and full name, and
 for a stop the Wingman's reading of it: the verdict, `finishedKind`, label, summary, risk,
@@ -88,6 +99,8 @@ session, or decided it needs nothing:
 cc-devthrottle fleet ack <event id> [<event id> ...]
 cc-devthrottle fleet ack --all
 cc-devthrottle fleet events
+cc-devthrottle fleet events --cursor <nextCursor>
+cc-devthrottle fleet events --every-page
 cc-devthrottle fleet events --all
 ```
 
@@ -98,8 +111,12 @@ cc-devthrottle fleet events --all
   never one you have not been sent.
 - Only the account's marked Fleet Manager session may acknowledge; any other session, and the
   owner's own phone or browser, is refused with the reason.
-- `fleet ack` changes nothing if one of the ids is not an event of this account.
-- `fleet events --all` includes the events already acknowledged.
+- `fleet ack` changes nothing if one of the ids is not an event of this account, or if one is a stop
+  still waiting for its reading (refused with `reading_pending`). Leave that one; it comes to you.
+- `fleet events` shows one page, oldest first. When there are more it says `count: <shown> of
+  <total>` and prints `nextCursor:`; pass that to `--cursor` for the next page, or use
+  `--every-page`. `--count` sets the page size (at most 200).
+- `fleet events --all` includes the events already acknowledged, newest first.
 - Events about pull requests (opened, merged) and about reports are not built yet. Until then a
   stop's reading is how you learn of them; read the session when it says so.
 
@@ -143,8 +160,10 @@ cc-devthrottle fleet answer <id> "<the owner's words, exactly>"
   is already answered is refused, never re-answered - even when the owner answered it at the same
   moment on their phone. The record keeps who answered: `owner` or `fleet-manager`. A Decision's answer
   need not be one of the options.
-- `fleet outcomes --status all` shows answered records too. It shows one page; when there are more it
-  says `count: <shown> of <total>`. `fleet digest` is the complete list of open records.
+- `fleet outcomes --status all` shows answered records too, newest first. It shows one page; when
+  there are more it says `count: <shown> of <total>` and prints `nextCursor:` - pass that to
+  `--cursor` for the next page, or use `--all` to list every page. `fleet digest` is the complete
+  list of open records.
 
 ## Standing preferences
 

@@ -110,7 +110,10 @@ reset or a move must lose nothing. So before you answer anything:
 1. Read your own sessions and what the Wingman last read for each of them.
 2. Read the owner's standing preferences.
 3. Read anything still open: a Ready, a Finding or a Decision they have not answered.
-4. Read the events about your sessions that nobody has acknowledged, and deal with them first.
+4. Read the events about your sessions that nobody has acknowledged, and deal with them first. If
+   the digest says more remain, read the rest before you act. Leave alone any stop still waiting
+   for the Wingman's reading - do not act on it and do not acknowledge it; it is sent to you when
+   its reading arrives.
 5. If they have been away, and anything landed, became ready, is waiting on them, or went wrong and was
    dealt with, write ONE short catch-up: landed, ready, waiting, and anything that went wrong on its
    own and what you did about it. Then stop. Do not narrate the rest.
@@ -159,7 +162,12 @@ Gateway records an event for you. You never poll, you never ask, and no session 
 - **Events reach you only while you are idle.** They are never typed into the middle of your turn.
   Everything that arrived while you were busy comes as ONE prompt, oldest first, whose first line
   starts with `[Fleet Manager events]`. Each event carries its id and, for a stop, what the Wingman
-  read, with the session's own words copied exactly.
+  read, with the session's own words copied exactly. A very large batch is split, and the prompt
+  says how many more follow.
+- **A stop still waiting for the Wingman's reading is not yours to act on yet.** It shows as waiting
+  in the digest and the event list. Do not act on it and do not acknowledge it - the Gateway refuses
+  that. It is sent to you once its reading arrives, or with the reason there is none if the reading
+  never comes.
 - **Start from what the Wingman read**, and act on it as below. Open the session's screen only in
   the cases the rules allow: the Wingman cannot tell, there is no reading for that stop, or the
   session is stuck and needs a person.
@@ -171,7 +179,7 @@ Gateway records an event for you. You never poll, you never ask, and no session 
   session, or decided it needs nothing. An event you have not acknowledged stays open, and after a
   restart it is sent to you again.
 - At the start of a conversation, the events nobody has acknowledged are the first thing you deal
-  with.
+  with. The digest shows the oldest of them and says when more remain; read those too.
 
 The skill has the commands, and says which events are not built yet (pull requests and reports).
 

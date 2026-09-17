@@ -14,12 +14,14 @@ half of the contract, to the AXI standard (docs/axi-standard.md):
 """
 
 import json
+import re
 import sys
 import urllib.parse
 import uuid
 from pathlib import Path
 
 import pytest
+import typer
 from typer.testing import CliRunner
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -889,6 +891,32 @@ def test_digest_with_every_event_says_no_more_remain(gw):
 
     assert "events: 1 unacknowledged\n" in result.output
     assert "eventsMoreRemain" not in result.output
+
+
+SKILL = (Path(__file__).resolve().parents[3] / "src" / "CcDirector.Gateway" / "Skills" / "Content"
+         / "fleet-manager.skill.md")
+
+
+def _fleet_lines_in_the_skill():
+    text = SKILL.read_text(encoding="utf-8")
+    lines = re.findall(r"cc-devthrottle fleet [^`\n]*", text)
+    assert len(lines) >= 15, "the skill names the fleet commands; finding none means this check reads nothing"
+    return lines
+
+
+def test_every_fleet_command_and_option_the_skill_names_exists():
+    """The shipped skill must teach the fleet commands as built: every subcommand and every option it names."""
+    commands = {c.name: c for c in typer.main.get_command(app).commands["fleet"].commands.values()}
+    checked = 0
+    for line in _fleet_lines_in_the_skill():
+        words = line.split()
+        name = words[2]
+        assert name in commands, f"the skill names 'fleet {name}', which does not exist: {line}"
+        known = {o for p in commands[name].params for o in getattr(p, "opts", [])}
+        for flag in (w.rstrip(".,") for w in words[3:] if w.startswith("--")):
+            assert flag in known, f"the skill names '{flag}' on 'fleet {name}', which it does not take: {line}"
+            checked += 1
+    assert checked >= 20
 
 
 # ---- the whole surface ------------------------------------------------------------------------------
