@@ -148,12 +148,76 @@ public sealed class DevReportDeliveryTests : IDisposable
         var delivery = Delivery(store);
 
         await delivery.SendAsync(Tenant, report, [Note("n1")], "device", default);
-        var again = await delivery.SendAsync(Tenant, report, [Note("n1", "different words the second time")], "device", default);
+        var again = await delivery.SendAsync(Tenant, report, [Note("n1")], "device", default);
 
         Assert.Equal(("n1", "delivered"), (again.Single().Id, again.Single().Status));
         Assert.Single(_prompts);
         var row = Assert.Single(store.Items(Tenant, report.Id));
         Assert.Equal("This number is wrong", row.Text);
+    }
+
+    [Fact]
+    public async Task SendAsync_SameIdDifferentContent_IsRefusedNotReadAsTheStoredItem()
+    {
+        // Phase 3 proof, E9: the phone delivered n1; the Cockpit, a second browser, sent ITS first note as n1 too. The
+        // Gateway answered with the phone note's "delivered", the tray moved the Cockpit's note to Sent, and its words
+        // were never held anywhere. A collision must be refused, so the note stays queued with a reason.
+        var store = Store();
+        var report = Publish(store);
+        _reach = DevReportSessionReach.Idle;
+        var delivery = Delivery(store);
+
+        await delivery.SendAsync(Tenant, report, [Note("n1", "from the phone")], "device", default);
+        var collided = await delivery.SendAsync(Tenant, report,
+            [Note("n1", "from the Cockpit"), Note("n2", "a new note beside it")], "device", default);
+
+        Assert.Equal(("n1", "refused", DevReportItemStates.IdCollisionState.Label),
+            (collided[0].Id, collided[0].Status, collided[0].StatusLabel));
+        Assert.Equal(("n2", "delivered"), (collided[1].Id, collided[1].Status));
+        Assert.Equal(["from the phone", "a new note beside it"], store.Items(Tenant, report.Id).Select(r => r.Text));
+        Assert.Equal(2, _prompts.Count);
+        Assert.DoesNotContain(_prompts, p => p.Text.Contains("from the Cockpit", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task SendAsync_SameAnswerIdDifferentOption_IsRefusedAndTheStoredAnswerStands()
+    {
+        var store = Store();
+        var report = Publish(store);
+        var delivery = Delivery(store);
+
+        await delivery.SendAsync(Tenant, report, [Answer("a1", "deploy", "tonight")], "device", default);
+        var sameAgain = await delivery.SendAsync(Tenant, report, [Answer("a1", "deploy", "tonight")], "device", default);
+        var otherOption = await delivery.SendAsync(Tenant, report, [Answer("a1", "deploy", "monday")], "device", default);
+
+        Assert.Equal("held", sameAgain.Single().Status);
+        Assert.Equal("refused", otherOption.Single().Status);
+        var row = Assert.Single(store.Items(Tenant, report.Id));
+        Assert.Equal(("tonight", "held"), (row.OptionValue, row.Status));
+    }
+
+    [Fact]
+    public void HasSameContent_EveryFieldTheOwnerSends_IsCompared()
+    {
+        var store = Store();
+        var report = Publish(store);
+        var note = Note("n1");
+        var answer = Answer("a1", "deploy", "tonight", "after 8pm");
+        store.AddItems(Tenant, report, [note, answer], DevReportItemStates.HeldState, "device", Now);
+        var rows = store.Items(Tenant, report.Id);
+        var storedNote = rows.Single(r => r.ClientItemId == "n1");
+        var storedAnswer = rows.Single(r => r.ClientItemId == "a1");
+
+        Assert.True(DevReportDelivery.HasSameContent(storedNote, note));
+        Assert.True(DevReportDelivery.HasSameContent(storedAnswer, answer));
+        Assert.False(DevReportDelivery.HasSameContent(storedNote, note with { Text = "other" }));
+        Assert.False(DevReportDelivery.HasSameContent(storedNote, note with { Anchor = note.Anchor! with { Quote = "43" } }));
+        Assert.False(DevReportDelivery.HasSameContent(storedNote, note with { Kind = DevReportItem.Answer }));
+        Assert.False(DevReportDelivery.HasSameContent(storedAnswer, answer with { QuestionId = "other" }));
+        Assert.False(DevReportDelivery.HasSameContent(storedAnswer, answer with { Question = "other" }));
+        Assert.False(DevReportDelivery.HasSameContent(storedAnswer, answer with { OptionValue = "monday" }));
+        Assert.False(DevReportDelivery.HasSameContent(storedAnswer, answer with { OptionLabel = "other" }));
+        Assert.False(DevReportDelivery.HasSameContent(storedAnswer, answer with { Comment = "other" }));
     }
 
     [Fact]

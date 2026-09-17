@@ -14,7 +14,8 @@ namespace CcDirector.Gateway.DevReports;
 /// <item><c>delivered</c>, confirmed - the Director accepted the prompt.</item>
 /// <item><c>delivered</c>, unconfirmed - the send left the Gateway and nothing confirmed it. Never retried.</item>
 /// <item><c>replaced</c> - a later answer to the same question superseded this one while it was still held.</item>
-/// <item><c>refused</c> - the session has ended.</item>
+/// <item><c>refused</c> - the session has ended, or the item's id is one the report already holds with different
+/// content. Either way the Gateway does not hold the item and the page keeps it queued.</item>
 /// <item><c>queued</c> - accepted, while the send request is still deciding.</item>
 /// </list>
 /// </summary>
@@ -54,6 +55,8 @@ internal static class DevReportItemStates
     public static readonly State UnconfirmedState = new(Delivered, "Sent to the session, not confirmed");
     public static readonly State ReplacedState = new(Replaced, "Replaced by a later answer");
     public static readonly State SessionEndedState = new(Refused, "This session has ended");
+    public static readonly State IdCollisionState = new(Refused,
+        "Not sent: a different note already has this id. Remove this one and write it again");
 
     /// <summary>The state an item is in after a delivery attempt. <see cref="SendOutcome.NeverLeft"/> and
     /// <see cref="SendOutcome.Refused"/> put it back to held: nothing was typed, so the settle pass decides again.</summary>
