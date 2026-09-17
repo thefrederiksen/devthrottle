@@ -27,6 +27,7 @@ namespace CcDirector.Gateway.Api;
 ///   GET  /dev-reports/{reportId}                              one report, with items and replies
 ///   GET  /dev-reports/{reportId}/html?version=                the report's bytes, as plain text
 ///   POST /dev-reports/{reportId}/send                         the owner's notes and answers
+///   GET  /dev-reports/pane-url?sessionId=                     the address of the page that shows one session's reports
 ///
 /// WHO IS THE OWNER. The Gateway has no user inside an account, so the owner of a session is its tenant. Every
 /// read is scoped to the caller's tenant, so another account's report is not found - 404, and its existence
@@ -179,6 +180,41 @@ internal static class DevReportEndpoints
         });
 
         // ---------------------------------------------------------------- owner routes
+
+        // The address of the page that shows ONE session's reports, for a host application that embeds it
+        // (issue #3019). The client is dumb: the Director never composes a Cockpit address, it asks for one
+        // and navigates to exactly what it is handed (CLAUDE.md rule 7, and the same shape as GET /cockpit).
+        //
+        // It sits with the owner routes so it inherits their identity refusal and tenant scoping: a session
+        // key is never the owner, so an agent cannot ask where the owner's reports are read.
+        //
+        // ROUTE PRECEDENCE, said out loud because it is not obvious: this pattern shares its shape with
+        // GET /dev-reports/{reportId}. Endpoint routing prefers the LITERAL segment over the parameter one
+        // whatever order they are mapped in, so "pane-url" reaches here and never the report read. The
+        // hosted suite proves that against a real router rather than leaving it to be remembered.
+        app.MapGet("/dev-reports/pane-url", (HttpContext ctx) =>
+        {
+            FileLog.Write($"[DevReportEndpoints] GET /dev-reports/pane-url: identity={AuthMiddleware.IdentityKind(ctx)}");
+            if (RefuseSessionIdentity(ctx) is { } refused) return refused;
+            if (ReqTenant(ctx, boundary) is not { } _) return NoTenant();
+
+            // Every decision below the identity and tenant checks is ONE pure function, so each refusal and
+            // the built address are proven without a server (DevReportPaneUrlTests). Nothing is decided here.
+            var answer = DevReportPaneUrl.Answer(
+                ctx.Request.Scheme,
+                ctx.Request.Host.HasValue ? ctx.Request.Host.Value : null,
+                ctx.Request.PathBase.Value,
+                ctx.Request.Query["sessionId"].ToString());
+
+            if (answer.Url is not { } url)
+            {
+                FileLog.Write($"[DevReportEndpoints] GET /dev-reports/pane-url REFUSED: {answer.Code}");
+                return Error(answer.Status, answer.Code!, answer.Error!);
+            }
+
+            FileLog.Write($"[DevReportEndpoints] GET /dev-reports/pane-url: answered for host={ctx.Request.Host.Host}");
+            return Results.Json(new { url });
+        });
 
         app.MapGet("/dev-reports", async (HttpContext ctx, CancellationToken ct) =>
         {

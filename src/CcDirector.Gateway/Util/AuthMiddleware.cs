@@ -17,7 +17,10 @@ namespace CcDirector.Gateway.Util;
 ///                     EXPLICIT allowlist in IsPublicShellSurfaceRequest - the GET/HEAD phone shell
 ///                     under /mobile, the GET/HEAD legacy /m redirect mount, the exact enrollment POSTs
 ///                     (/mobile/enroll + /m/enroll, each carrying its own account-scoped authorization),
-///                     and the GET/HEAD Cockpit static assets under /assets/ (issue #1088) - plus the
+///                     the GET/HEAD Cockpit static assets under /assets/ (issue #1088), and the GET/HEAD
+///                     chrome-less dev reports page /embed/reports/{sessionId} a host application embeds
+///                     (issue #3019: it holds no credential of its own, it is handed one in memory by its
+///                     host after loading) - plus the
 ///                     desktop Cockpit sign-in surface /signin + /device-callback, and the JSON /cockpit
 ///                     endpoint (a program GET, NOT a browser navigation - see below). Any OTHER method
 ///                     or route under those shell prefixes is credential-gated by default.
@@ -235,6 +238,15 @@ internal static class AuthMiddleware
     ///  - GET/HEAD /assets/** - the desktop Cockpit shell's Vite content-hashed JavaScript/CSS (issue
     ///    #1088): the /signin screen cannot render before any credential exists unless its script and
     ///    styles load. Static files only, no secrets, no data.
+    ///  - GET/HEAD /embed/reports/{sessionId} - the chrome-less dev reports page a host application embeds
+    ///    (issue #3019, DevReportPaneUrl.PagePathPrefix). It is public for the same reason /signin is: the
+    ///    browser loading it has no Gateway credential of its own and never gets one - the host hands it a
+    ///    key in memory over its own message bridge AFTER the page has loaded, so a gate here would make
+    ///    the page unreachable by the only caller it exists for. The page carries no data and no secret;
+    ///    every dev report route it then calls stays credential-gated and owner-only, so a stranger who
+    ///    opens this address in a browser gets a page that says it was not handed a key and can read
+    ///    nothing. EXACTLY ONE segment after the prefix is public - a deeper path is not the page and stays
+    ///    gated - and it is GET/HEAD only, so a future write route under /embed is NOT public.
     /// </summary>
     private static bool IsPublicShellSurfaceRequest(string method, string path)
     {
@@ -244,7 +256,8 @@ internal static class AuthMiddleware
                 || path.StartsWith("/mobile/", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(path, "/m", StringComparison.OrdinalIgnoreCase)
                 || path.StartsWith("/m/", StringComparison.OrdinalIgnoreCase)
-                || path.StartsWith(CockpitAssetsPrefix, StringComparison.OrdinalIgnoreCase))
+                || path.StartsWith(CockpitAssetsPrefix, StringComparison.OrdinalIgnoreCase)
+                || DevReports.DevReportPaneUrl.IsPagePath(path))
             {
                 return true;
             }

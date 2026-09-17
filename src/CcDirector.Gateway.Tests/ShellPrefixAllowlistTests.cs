@@ -210,7 +210,12 @@ public sealed class ShellPrefixRouteSurfaceGuardTests : IAsyncLifetime
                || p.Equals("/m", StringComparison.OrdinalIgnoreCase)
                || p.StartsWith("/m/", StringComparison.OrdinalIgnoreCase)
                || p.Equals("/assets", StringComparison.OrdinalIgnoreCase)
-               || p.StartsWith("/assets/", StringComparison.OrdinalIgnoreCase);
+               || p.StartsWith("/assets/", StringComparison.OrdinalIgnoreCase)
+               // The chrome-less dev reports page (issue #3019) joined the public shell surfaces, so it
+               // joins this guard too: nothing is mapped under /embed today - the page is served by the
+               // single-page-app fallback - and a route added there later must be ruled, not inherited.
+               || p.Equals("/embed", StringComparison.OrdinalIgnoreCase)
+               || p.StartsWith("/embed/", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string Normalize(string pattern) => "/" + pattern.TrimStart('/');
