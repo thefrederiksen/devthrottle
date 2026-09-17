@@ -33,6 +33,7 @@ per-entry "uses" setting and the audit log are what limit and record that.
 from __future__ import annotations
 
 import base64
+import functools
 import codecs
 import encodings.aliases
 import html
@@ -73,6 +74,7 @@ def _python_forms(secret: str) -> set:
     return forms
 
 
+@functools.lru_cache(maxsize=None)
 def text_codecs() -> List[str]:
     """Every codec in this Python that can turn text into bytes, plus this machine's console encodings.
 
@@ -137,6 +139,7 @@ def variants_for(secret: str, username: str = "") -> List[str]:
     return sorted((f for f in forms if f), key=len, reverse=True)
 
 
+@functools.lru_cache(maxsize=None)
 def output_encodings() -> List[str]:
     """The encodings a command's output may be in on this machine, most likely first.
 
