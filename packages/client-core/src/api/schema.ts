@@ -7185,6 +7185,72 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/gateway/fleet-manager/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/gateway/fleet-manager/events/ack": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account/email": {
         parameters: {
             query?: never;
@@ -12226,6 +12292,7 @@ export interface components {
             surface?: null | string;
             deliveryUploadId?: null | string;
             menuGuard?: boolean;
+            onlyWhenWaitingForInput?: boolean;
             spokenSpans?: null | components["schemas"]["SpokenSpanClaimDto"][];
             provenance?: null | components["schemas"]["SubmissionProvenanceDto"];
         };
@@ -12391,6 +12458,7 @@ export interface components {
             parentSessionId?: null | string;
             explicitRole?: null | string;
             hasLiveSupervisor?: boolean;
+            ownedByFleetManager?: boolean;
             needsManager?: boolean;
             needsManagerReason?: null | string;
             inboxLine?: null | string;
