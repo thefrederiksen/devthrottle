@@ -33,11 +33,16 @@ namespace CcDirector.Gateway.Api;
 /// read is scoped to the caller's tenant, so another account's report is not found - 404, and its existence
 /// does not leak.
 ///
-/// WHERE EACH REFUSAL LIVES. A session key reaching an OWNER route is refused by <see cref="SessionKeyGuard"/>,
-/// which is an allow list that names only the four session routes - there is deliberately no second check on
-/// the owner routes, so the guard is the one place that rule lives and the one thing its revert proof mutates. A
-/// device key or machine token reaching a SESSION route, and a session key naming another session, are refused
-/// HERE, because the guard never sees anything but session keys and never reads an identifier.
+/// WHERE EACH REFUSAL LIVES. A session key reaching an OWNER route is refused TWICE, on purpose: by
+/// <see cref="SessionKeyGuard"/>, an allow list that names only the session routes, and again HERE by
+/// <c>RefuseSessionIdentity</c> on every owner route. Either layer alone holds the line - measured 2026-09-17,
+/// by opening each one in turn and watching the hosted proof stay green, then opening BOTH and watching an
+/// agent read the owner's surface. The second check is deliberate and is not redundancy to tidy away: a later
+/// edit to the guard's allow list must not be enough to let an agent send notes in the owner's name.
+/// (This paragraph used to say the opposite - that there was deliberately no second check - while the second
+/// check sat twenty lines below it. The words were corrected to the code, not the code to the words.)
+/// A device key or machine token reaching a SESSION route, and a session key naming another session, are
+/// refused HERE only, because the guard never sees anything but session keys and never reads an identifier.
 /// </summary>
 internal static class DevReportEndpoints
 {
@@ -58,7 +63,7 @@ internal static class DevReportEndpoints
     {
         ArgumentNullException.ThrowIfNull(store);
         ArgumentNullException.ThrowIfNull(delivery);
-        FileLog.Write("[DevReportEndpoints] mapping the dev report routes (four session routes, four owner routes)");
+        FileLog.Write("[DevReportEndpoints] mapping the dev report routes (four session routes, five owner routes)");
 
         // ---------------------------------------------------------------- session routes
 
