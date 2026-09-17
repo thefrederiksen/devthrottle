@@ -2903,3 +2903,17 @@ rather than invented.
   refuses to every session key. Either the Fleet Manager gets a named exception or that section of the skill is
   rewritten. This seat changed only the two retired sentences and left the decision alone.
 - Next, unchanged: inspection 12 (narrow), then the pull request - the Architect's.
+
+## Architect ruling on the open finding of the second merge (17 September 2026)
+
+**No exception for the Fleet Manager.** Ruling 17 stands for every session key, the Fleet Manager's
+included. The Fleet Manager started the sessions it manages, so it may message them; the owner's answer
+reaches the session as a queued message and one doorbell at the next safe moment, which for a session
+that is waiting on that answer is at once. This is what the firstmate handover of 16 September asked for
+("use Message Load's inbox for that direction rather than building a second one"). The "Answering a
+session" section of the built-in Fleet Manager conduct (`src/CcDirector.Gateway/Skills/Content/fleet-manager.skill.md`
+and any repository copy) is rewritten to `cc-devthrottle message send <session> "<their words, exactly>"`,
+the Wingman's `answerVia: reply` option is described the same way, and the retired-words tests gain
+`session prompt` as a phrase no shipped conduct may teach to an agent, with the file in the inventory.
+The Fleet Manager mission's Architect learns this from this record and from the merged skill text; no
+message is sent.
