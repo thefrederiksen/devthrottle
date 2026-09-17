@@ -32,3 +32,16 @@ goes to main - the Architect lands it.
 The Director's own reports pane (that is phase 4, and a Worker is already on it in another worktree).
 Anything about the shape check, publishing, delivery, or the prompt fold - phases 1 and 2 shipped those and
 the owner did not complain about them.
+
+## The seats
+
+| Worker | Session |
+|---|---|
+| the page | `71a27ce3` |
+| the Gateway | `9ee22395` |
+| the apps | `f67d115d` |
+| the proof | `fdb2d403` |
+
+The page and proof seats were re-seated once: their first prompt never submitted - it sat corrupted and
+unsent in the input box and the seat never started. A spawn that returns an identifier is not a seat that
+started; read the terminal before believing one is working. The replacement prompts were one line each.
