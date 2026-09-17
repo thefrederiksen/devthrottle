@@ -156,3 +156,11 @@ filter: FullyQualifiedName~DirectorRestoreTests
   Failed CcDirector.Gateway.UnitTests.Drain.DirectorRestoreTests.RunAsync_ABlockedOwnerThatWasClosedAfterAll_IsNotTakenForRunning [1 ms]
 Failed!  - Failed:     1, Passed:    18, Skipped:     0, Total:    19, Duration: 57 ms - CcDirector.Gateway.UnitTests.dll (net10.0)
 
+## 18 a spawn that times out aborts the whole restore
+file: src/CcDirector.ControlApi/Drain/DirectorRestore.cs
+replaced: 'catch (OperationCanceledException) when (!ct.IsCancellationRequested)'
+with: 'catch (OperationCanceledException) when (ct.IsCancellationRequested && !ct.IsCancellationRequested)'
+filter: FullyQualifiedName~DirectorRestoreTests
+  Failed CcDirector.Gateway.UnitTests.Drain.DirectorRestoreTests.RunAsync_ASpawnThatTimesOut_IsReportedOnThatSeatAsMaybeStarted_AndTheRestCarryOn [< 1 ms]
+Failed!  - Failed:     1, Passed:    19, Skipped:     0, Total:    20, Duration: 56 ms - CcDirector.Gateway.UnitTests.dll (net10.0)
+

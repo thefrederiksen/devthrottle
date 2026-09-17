@@ -28,6 +28,9 @@ public class DirectorRestoreTests
         /// <summary>Spawns whose name is here are refused by the "Gateway" with this reason.</summary>
         public Dictionary<string, string> RefuseByName { get; } = new();
 
+        /// <summary>Spawns whose name is here time out on the client side.</summary>
+        public HashSet<string> TimeOutByName { get; } = new();
+
         public WorkspaceDocument Stored => JsonSerializer.Deserialize<WorkspaceDocument>(_stored, Json)!;
 
         public Task<WorkspaceDocument?> GetWorkspaceAsync(string id, CancellationToken ct)
@@ -42,6 +45,8 @@ public class DirectorRestoreTests
         public Task<SessionDto> SpawnOnThisDirectorAsync(NewSessionRequest request, CancellationToken ct)
         {
             Spawns.Add(JsonSerializer.Deserialize<NewSessionRequest>(JsonSerializer.Serialize(request, Json), Json)!);
+            if (request.Name is { } t && TimeOutByName.Contains(t))
+                throw new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout of 10 seconds elapsing.");
             if (request.Name is { } n && RefuseByName.TryGetValue(n, out var why))
                 throw new InvalidOperationException(why);
             _next++;
@@ -232,6 +237,19 @@ public class DirectorRestoreTests
         Assert.Equal(Now, stored["b"].Restore!.AttemptedAtUtc);
         Assert.NotNull(stored["a"].RestoredSessionId);
         Assert.NotNull(stored["c"].RestoredSessionId);
+    }
+
+    [Fact]
+    public async Task RunAsync_ASpawnThatTimesOut_IsReportedOnThatSeatAsMaybeStarted_AndTheRestCarryOn()
+    {
+        var gw = new FakeGateway(Doc(Seat("a", "Alpha", order: 0), Seat("b", "Bravo", order: 1)));
+        gw.TimeOutByName.Add("Alpha");
+
+        var result = await NewRestore(gw).RunAsync(Order());
+
+        Assert.Equal(DirectorRestore.TimedOut, result.Seats.Single(s => s.SessionId == "a").Failure);
+        Assert.Contains("MAY have been started", gw.Stored.Seats.Single(s => s.SessionId == "a").Restore!.Failure);
+        Assert.NotNull(gw.Stored.Seats.Single(s => s.SessionId == "b").RestoredSessionId);
     }
 
     [Fact]

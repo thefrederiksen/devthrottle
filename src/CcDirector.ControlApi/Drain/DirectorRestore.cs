@@ -230,6 +230,12 @@ public sealed class DirectorRestore
                     if (newId is null)
                         failure = "the Gateway answered the spawn without a session id, so nothing can be said to have come back.";
                 }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+                {
+                    // The call gave up waiting (the client's own timeout), which is NOT a refusal: the Gateway may
+                    // still have started the seat. Said as exactly that, so nobody asks again blind and gets two.
+                    failure = TimedOut;
+                }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
                     // One seat's failure is that seat's answer, not the whole restore's: it is recorded against the
@@ -269,6 +275,11 @@ public sealed class DirectorRestore
 
         return new DirectorRestoreResult(doc.Id, outcomes);
     }
+
+    /// <summary>The failure recorded when the spawn call timed out rather than being answered.</summary>
+    internal const string TimedOut =
+        "the spawn was sent but no answer came back in time, so this seat MAY have been started anyway. Check the " +
+        "session list for a session with this seat's name on this Director before asking for it again.";
 
     private static Dictionary<string, WorkspaceSeat> SeatsById(WorkspaceDocument doc)
         => doc.Seats
