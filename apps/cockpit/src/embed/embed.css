@@ -1,0 +1,91 @@
+/* The chrome-less reports page a host application embeds (dev reports mission, phase 4).
+   No rail, no tabs, no page heading: the pane IS the page, so the report gets the whole window. */
+
+.embed-reports {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--text);
+  overflow-y: auto;
+}
+
+.embed-reports-open {
+  overflow: hidden;
+}
+
+.embed-reports-message {
+  padding: 24px;
+  overflow-y: auto;
+}
+
+.embed-reports-message p {
+  margin: 0 0 8px;
+  max-width: 60ch;
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.embed-reports-message-title {
+  margin: 0 0 8px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.embed-reports-bar {
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.embed-reports-back {
+  padding: 4px 12px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.embed-reports-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+.embed-reports-body .dev-report-viewer {
+  flex: 1 1 auto;
+}
+
+/* THE REPORT GETS THE ROOM. Phase 3 reported the Cockpit's Reports tab squeezing the report into about
+   200 pixels beside a fixed-width conversation at 1400 by 900, because that tab sits inside the rail and
+   the session detail regions and only the leftovers reached the report. Here the pane is the whole
+   window, and the conversation is capped at just under a third of it as well as at 380 pixels, so the
+   report keeps at least two thirds of the width at every size this runs at. */
+.embed-reports-conversation {
+  flex: 0 0 clamp(260px, 30%, 380px);
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+}
+
+/* A narrow pane stacks instead: the conversation goes BELOW the report rather than eating its width.
+   Under 900 pixels a third of the window is too little to read a report in. */
+@media (max-width: 900px) {
+  .embed-reports-body .dev-report-viewer {
+    flex-direction: column;
+  }
+
+  .embed-reports-conversation {
+    flex: 0 0 auto;
+    max-height: 45%;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+}

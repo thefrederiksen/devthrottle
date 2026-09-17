@@ -10,6 +10,8 @@ import { ensurePushSubscribed } from "@devthrottle/client-core/push/register";
 import { installGlobalErrorReporting } from "@devthrottle/client-core/errors/reportClientError";
 import { registerCockpitServiceWorker } from "./push/registerSw";
 import { AppShell } from "./AppShell";
+import { EmbedReportsView } from "./embed/EmbedReportsView";
+import { EMBED_REPORTS_PATH_PREFIX, isEmbeddedPanePath } from "./embed/embedRoute";
 import { NotFound } from "./panes/NotFound";
 import { SessionsEmpty, SessionsView } from "./sessions/SessionsView";
 import { SessionDetail } from "./sessions/SessionDetail";
@@ -81,7 +83,12 @@ installGlobalErrorReporting("cockpit");
 // prompts (that needs a user gesture: the Settings > Notifications toggle). Both are fire-and-forget and
 // non-fatal - the Cockpit works fully without notifications. This reuses the exact plumbing the phone
 // shipped with (#905); there is no new Gateway code.
-void registerCockpitServiceWorker().then(() => ensurePushSubscribed());
+// Not in a pane a host embeds (issue #3019): a service worker registered there stays in that browser
+// profile after the pane is closed and intercepts every later request to this origin, and a push
+// subscription belongs to a person's own browser, not to a pane inside a desktop application.
+if (!isEmbeddedPanePath(window.location.pathname)) {
+  void registerCockpitServiceWorker().then(() => ensurePushSubscribed());
+}
 
 // The auth gate (issue #1088, the desktop analog of the mobile gate from #908): every real screen
 // requires an enrolled device key. Without one, the browser is sent to the shared Sign in screen with
@@ -107,6 +114,14 @@ const router = createBrowserRouter(
     // cloud device key back - in the URL fragment only, never the query (issue #1082).
     { path: "/signin", element: <SignIn /> },
     { path: "/device-callback", element: <DeviceCallback /> },
+    // Ungated for a different reason, and the only route that is (dev reports mission, phase 4,
+    // issue #3019): one session's dev reports with no Cockpit chrome, for a HOST APPLICATION to embed.
+    // The Director shows it in a WebView2 pane and hands it the Director's own Gateway key over the
+    // WebView2 message bridge. It sits outside RequireDeviceKey because the browser profile behind that
+    // pane has never enrolled and never will - sending it to /signin would be sending it to a sign-in
+    // nobody can complete - and outside AppShell because the pane is the whole page: no rail, no tabs,
+    // no heading. It authenticates only on the host's key and renders nothing without one.
+    { path: `${EMBED_REPORTS_PATH_PREFIX}:sessionId`, element: <EmbedReportsView /> },
     // Gated: everything real requires an enrolled device key.
     {
       element: <RequireDeviceKey />,
