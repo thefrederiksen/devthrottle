@@ -39,9 +39,13 @@ public sealed class DevReportLinkRouteTests : IAsyncLifetime
     private const string PhoneAgent = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Mobile Safari/537.36";
     private const string DesktopAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36";
 
+    // TWO options, because a question with one is not a question: the shape check refuses it. This fixture
+    // carried only "tonight" and every publish here answered 422, which failed every test in this class for a
+    // reason that had nothing to do with what any of them was about.
     private const string Question =
         "<div data-dev-report-question=\"deploy-window\" data-dev-report-question-text=\"When should we deploy?\">" +
         "<label><input type=\"radio\" name=\"deploy-window\" value=\"tonight\" data-recommended> Tonight - quiet traffic</label>" +
+        "<label><input type=\"radio\" name=\"deploy-window\" value=\"monday\"> Monday - the team is around</label>" +
         "</div>";
 
     private readonly ITestOutputHelper _out;
