@@ -397,11 +397,16 @@ def _reset_to_tip(pool: Pool, name: str, tip: landed.RemoteTip | None) -> tuple[
     entry = pool.slots[name]
     path = Path(entry["path"])
     try:
-        checked = landed.check(path, pool.repo, tip, entry["gitdir"], _mark(entry))
+        checked = landed.check(path, pool.repo, tip, entry["gitdir"], _mark(entry), name)
         mark = landed.reset(path, pool.repo, checked)
     except NotLanded as ex:
         return None, str(ex)
     _record_mark(entry, checked.gitdir, mark)
+    # The pins go only after the reset they permitted has succeeded, in the same locked section.
+    try:
+        landed.drop_pins(pool.repo, checked.pins)
+    except NotLanded as ex:
+        return None, f"reset to the default branch, but {ex}"
     return checked.tip, None
 
 
@@ -629,7 +634,7 @@ def destroy_slot(target: str, yes: bool, allow_held: bool, allow_in_use: bool, r
         if tip is None:
             raise refuse(fetch_reason)
         try:
-            checked = landed.check(path, repo, tip, entry["gitdir"], _mark(entry))
+            checked = landed.check(path, repo, tip, entry["gitdir"], _mark(entry), name)
         except NotLanded as ex:
             raise refuse(str(ex)) from ex
         view = {**_slot_view(pool, name), "dry_run": not yes, "removed": False}
@@ -641,6 +646,13 @@ def destroy_slot(target: str, yes: bool, allow_held: bool, allow_in_use: bool, r
             raise refuse(str(ex)) from ex
         del pool.slots[name]
         pool.save()
+        # Only after the removal succeeded. Every pinned commit was just proven landed, so a pin that
+        # cannot be removed keeps nothing but landed work alive; it is reported, not hidden.
+        try:
+            landed.drop_pins(repo, checked.pins)
+        except NotLanded as ex:
+            raise ToolError("pins-not-removed", f"{name} was removed, but {ex}",
+                            [f"git -C {repo} for-each-ref {landed.pin_prefix(name)}"]) from ex
         view["removed"] = True
         return view
 

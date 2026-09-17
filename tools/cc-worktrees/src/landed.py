@@ -444,6 +444,58 @@ def unproven_commits(worktree: Path, tip: RemoteTip, tips: list[str]) -> Unprove
     return Unproven(unproven, not_current, [c for c in unproven if c in proven_before])
 
 
+class UnprovenWork(NotLanded):
+    """Commits that are not proven landed. `commits` names every one of them."""
+
+    def __init__(self, reason: str, commits: list[str]):
+        super().__init__(reason)
+        self.commits = commits
+
+
+PIN_NAMESPACE = "refs/cc-worktrees"
+
+
+def pin_prefix(slot: str) -> str:
+    return f"{PIN_NAMESPACE}/{slot}/"
+
+
+def read_pins(repo: Path, slot: str) -> tuple[tuple[str, str], ...]:
+    """The (ref, commit) pins the tool wrote for this slot. Never under refs/heads or refs/remotes, never
+    pushed, and never read as proof: a pinned commit is checked like any other and stays unproven until
+    the normal rule proves it."""
+    try:
+        listing = gitrun.out(repo, "for-each-ref", "--format=%(refname)%09%(objectname)", pin_prefix(slot))
+    except GitError as ex:
+        raise cannot_verify(f"cannot read the commits pinned for this slot: {ex.short()}") from ex
+    pins = []
+    for line in listing.splitlines():
+        parts = line.split("\t")
+        if len(parts) != 2 or not parts[0].startswith(pin_prefix(slot)) or not _OBJECT_ID.fullmatch(parts[1]):
+            raise cannot_verify(f"a pin for this slot could not be read: {line[:200]!r}")
+        pins.append((parts[0], parts[1]))
+    return tuple(pins)
+
+
+def write_pins(repo: Path, slot: str, commits: list[str]) -> str | None:
+    """Pin each commit under refs/cc-worktrees/<slot>/<commit>, so git gc and reflog expiry cannot remove it
+    and every later check sees it. Returns git's error when a pin could not be written, else None."""
+    for commit in commits:
+        try:
+            gitrun.run(repo, "update-ref", f"{pin_prefix(slot)}{commit}", commit)
+        except GitError as ex:
+            return ex.short()
+    return None
+
+
+def drop_pins(repo: Path, pins: tuple[tuple[str, str], ...]) -> None:
+    """Delete the pins a passing check read. Call only after the act they permitted has succeeded."""
+    for ref, commit in pins:
+        try:
+            gitrun.run(repo, "update-ref", "-d", ref, commit)
+        except GitError as ex:
+            raise NotLanded(f"the pin {ref} could not be removed: {ex.short()}") from ex
+
+
 def require_commits_landed(worktree: Path, tip: RemoteTip, tips: list[str]) -> None:
     try:
         found = unproven_commits(worktree, tip, tips)
@@ -459,7 +511,7 @@ def require_commits_landed(worktree: Path, tip: RemoteTip, tips: list[str]) -> N
         if found.branch_gone:
             reason += (f"; the remote branch that proved {_short_list(found.branch_gone)} at the fetch is gone "
                        f"from the remote or moved")
-        raise NotLanded(reason)
+        raise UnprovenWork(reason, found.commits)
 
 
 @dataclass(frozen=True)
@@ -537,26 +589,55 @@ class Checked:
     head: str                         # the HEAD that was proven landed
     gitdir: Path                      # the slot's own git metadata directory, proven bound to it
     reflog: tuple[ReflogEntry, ...]   # the whole HEAD reflog the proof examined, newest first
+    pins: tuple[tuple[str, str], ...] = ()  # the slot's pins, all proven landed; dropped after the act
 
 
 def check(worktree: Path, repo: Path, tip: RemoteTip, recorded_gitdir: str | None,
-          mark: ReflogMark | None) -> Checked:
+          mark: ReflogMark | None, slot: str) -> Checked:
     """Prove the worktree's work landed, at this moment. Raises NotLanded with the plain reason.
 
-    Checked: HEAD's commits, and every commit the HEAD reflog gained since `mark` (None: all of them).
-    `tip` must come from a fetch made moments ago by the same command.
+    Checked: HEAD's commits, every commit the HEAD reflog gained since `mark` (None: all of them), and every
+    commit pinned for `slot`. `tip` must come from a fetch made moments ago by the same command.
+
+    A hold found before the commits are checked (uncommitted changes, hidden flags, a nested repository, a
+    reflog mark that cannot be vouched for) does not stop the commit proof: every commit it cannot prove is
+    pinned first, so a slot held for any reason cannot lose a commit to git gc while it waits. With the mark
+    unusable, every reflog entry is checked. The first reason found is the one raised.
     """
     if not worktree.is_dir():
         raise NotLanded("the worktree directory is missing")
     gitdir = require_bound(worktree, repo, recorded_gitdir)
-    require_clean(worktree)
-    require_no_hidden_flags(worktree)
-    require_no_nested_repositories(worktree)
+    held: NotLanded | None = None
+    try:
+        require_clean(worktree)
+        require_no_hidden_flags(worktree)
+        require_no_nested_repositories(worktree)
+    except NotLanded as ex:
+        held = ex
     head = head_commit(worktree)
     entries = reflog_entries(worktree)
-    since = reflog_commits_since(entries, mark)
-    require_commits_landed(worktree, tip, [head, *(c for c in since if c != head)])
-    return Checked(tip, head, gitdir, tuple(entries))
+    try:
+        since = reflog_commits_since(entries, mark)
+    except NotLanded as ex:
+        held = held or ex
+        since = reflog_commits_since(entries, None)
+    pins = read_pins(repo, slot)
+    starts = [head]
+    for commit in [*since, *(c for _, c in pins)]:
+        if commit not in starts:
+            starts.append(commit)
+    try:
+        require_commits_landed(worktree, tip, starts)
+    except NotLanded as ex:
+        reason = str(ex)
+        if isinstance(ex, UnprovenWork):
+            failed = write_pins(repo, slot, ex.commits)
+            reason += (f"; and it could not be pinned: {failed}" if failed
+                       else f"; kept from git gc under {pin_prefix(slot)}")
+        raise NotLanded(f"{held}; {reason}" if held is not None else reason) from ex
+    if held is not None:
+        raise held
+    return Checked(tip, head, gitdir, tuple(entries), pins)
 
 
 def _z_list(worktree: Path, *args: str) -> list[str]:
