@@ -18,7 +18,9 @@ public sealed record TurnVerdictLocated(string SessionId, TurnVerdictDto Verdict
 /// serialised answer would read null on every route that does not stamp it, which is indistinguishable from "nobody
 /// has answered this" - so the fact travels beside the answer rather than inside it.
 /// </summary>
-public sealed record AnsweredTurnVerdict(TurnVerdictDto Verdict, DateTime? AnsweredAtUtc);
+/// <param name="AnsweredWith">The options he chose, in his order, as the verdict's own words - null when this
+/// stop was not answered through the option route, which includes every typed reply.</param>
+public sealed record AnsweredTurnVerdict(TurnVerdictDto Verdict, DateTime? AnsweredAtUtc, string? AnsweredWith = null);
 
 /// <summary>
 /// One located session's screen and keyboard, as the answer route needs them. The route binds it to the session in
@@ -63,7 +65,8 @@ public interface ITurnVerdictAnswerRecords
 
     /// <summary>Record that this verdict's answer was written and confirmed. False when it was already answered or
     /// is not found.</summary>
-    bool MarkAnswered(TenantId tenant, string verdictId);
+    /// <param name="answeredWith">The chosen options' own keys, in the order picked.</param>
+    bool MarkAnswered(TenantId tenant, string verdictId, string? answeredWith);
 
     /// <summary>One ledger line for one activation.</summary>
     void Record(TurnVerdictRecord record);
@@ -85,7 +88,8 @@ public sealed class TurnVerdictAnswerRecords : ITurnVerdictAnswerRecords
 
     public TurnVerdictDto? Latest(TenantId tenant, string sessionId) => _store.Latest(tenant, sessionId);
 
-    public bool MarkAnswered(TenantId tenant, string verdictId) => _store.MarkAnswered(tenant, verdictId, DateTime.UtcNow);
+    public bool MarkAnswered(TenantId tenant, string verdictId, string? answeredWith)
+        => _store.MarkAnswered(tenant, verdictId, DateTime.UtcNow, answeredWith);
 
     public void Record(TurnVerdictRecord record) => _record(record);
 }
@@ -313,7 +317,7 @@ public sealed class TurnVerdictAnswerService
                 case TurnVerdictAnswerWriteKind.Accepted:
                     // Marked before the lock is released, so the next waiter reads it. A false here cannot come from
                     // a racing answer in this Gateway - they are all behind this lock - so it is logged, not hidden.
-                    if (!_records.MarkAnswered(tenant, verdictId))
+                    if (!_records.MarkAnswered(tenant, verdictId, ChosenKeys(verdict, indexes)))
                         FileLog.Write($"[TurnVerdictAnswerService] AnswerAsync: sid={sessionId} verdict={verdictId} was written but could not be marked answered (already marked or no longer stored)");
                     _records.Record(new TurnVerdictRecord(tenant, directorId, sessionId,
                         ActivityEventTypes.TurnVerdictAnswered, ActivityCauses.OwnerAnswered,
@@ -351,4 +355,25 @@ public sealed class TurnVerdictAnswerService
     /// <summary>Control flow only, for the ledger: never the bytes.</summary>
     private static string Shape(TurnVerdictDto verdict, IReadOnlyList<int> indexes)
         => $"answerVia={verdict.AnswerVia} mode={verdict.Menu?.SelectionMode ?? "none"} chosen={indexes.Count}";
+
+    /// <summary>
+    /// The chosen options' own KEYS, in the order he picked them, for the record of what was decided.
+    ///
+    /// The keys and not the bytes: what went to the session is "1", what he DID is "Allow the merge", and only
+    /// the second is worth anything to a reader a minute later. Null when nothing was chosen - a typed reply
+    /// carries no options, and a record saying otherwise would be a decision nobody made.
+    /// </summary>
+    private static string? ChosenKeys(TurnVerdictDto verdict, IReadOnlyList<int> indexes)
+    {
+        if (indexes.Count == 0) return null;
+        var keys = new List<string>(indexes.Count);
+        foreach (var index in indexes)
+        {
+            if (index < 0 || index >= verdict.Options.Count) continue;
+            var key = verdict.Options[index].Key;
+            if (!string.IsNullOrWhiteSpace(key)) keys.Add(key);
+        }
+
+        return keys.Count == 0 ? null : string.Join(", ", keys);
+    }
 }

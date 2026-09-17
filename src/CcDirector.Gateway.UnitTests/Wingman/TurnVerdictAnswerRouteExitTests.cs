@@ -1,4 +1,4 @@
-using CcDirector.Core.Tenancy;
+﻿using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Discovery;
@@ -44,7 +44,7 @@ public sealed class TurnVerdictAnswerRouteExitTests : IDisposable
         public readonly List<TurnVerdictRecord> Lines = new();
         public TurnVerdictLocated? FindVerdict(TenantId tenant, string verdictId) => null;
         public TurnVerdictDto? Latest(TenantId tenant, string sessionId) => null;
-        public bool MarkAnswered(TenantId tenant, string verdictId) => false;
+        public bool MarkAnswered(TenantId tenant, string verdictId, string? answeredWith) => false;
         public void Record(TurnVerdictRecord record)
         {
             lock (Lines) Lines.Add(record);

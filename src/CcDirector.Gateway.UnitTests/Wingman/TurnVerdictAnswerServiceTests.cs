@@ -1,4 +1,4 @@
-using CcDirector.Core.Tenancy;
+﻿using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Tests.Data;
 using CcDirector.Gateway.Wingman;
@@ -236,6 +236,51 @@ public sealed class TurnVerdictAnswerServiceTests : IDisposable
         Assert.True(outcome.Accepted);
         Assert.Equal(new[] { ("31\r", false) }, channel.Writes);
         Assert.Equal(1, channel.Reads);
+    }
+
+    /// <summary>
+    /// WHAT HE CHOSE IS RECORDED, IN HIS OWN ORDER AND IN THE VERDICT'S OWN WORDS.
+    ///
+    /// The bytes written to the session are "31" - an index nobody can read a minute later. The record keeps "the
+    /// seed rows, the schema", which is what he actually decided, and keeps it in the order he decided it. Before
+    /// this the row remembered only that an answer happened: the activity ledger records "chosen=2" and never
+    /// which, deliberately, so there was nowhere at all that remembered the decision itself.
+    /// </summary>
+    [Fact]
+    public async Task AnAcceptedAnswer_RecordsTheOptionsHeChose_InHisOwnOrder()
+    {
+        var v = Stored(Sid, Base("tv-recorded", "keys", Menu("multiple", "\r"),
+            Option("the schema", "1"), Option("the data", "2"), Option("the seed rows", "3")));
+        var channel = Matching();
+        channel.RowsAfterWrite = ChangedRows;
+
+        var outcome = await Service().AnswerAsync(Tenant, Dir, Sid, Request(v.VerdictId, 2, 0), channel, CancellationToken.None);
+
+        Assert.True(outcome.Accepted);
+        // CONTROL: the bytes are still the indexes - this records the decision, it does not change what is sent.
+        Assert.Equal(new[] { ("31\r", false) }, channel.Writes);
+        Assert.Equal("the seed rows, the schema", _store.HistoryWithAnswers(Tenant, Sid)[0].AnsweredWith);
+    }
+
+    /// <summary>
+    /// A PARKED REPLY CHOSE NOTHING, so nothing is recorded as chosen. He pressed send on a reply already typed
+    /// into the session; a record naming an option would be a decision he never made.
+    /// </summary>
+    [Fact]
+    public async Task AParkedReply_RecordsNoChoice()
+    {
+        var parked = Base("tv-parked-record", "keys", new TurnVerdictMenuDto
+        {
+            Question = "Send the reply already typed: run the tests first", SelectionMode = "single", Submit = "\r",
+        });
+        var v = Stored(Sid, parked);
+
+        var outcome = await Service().AnswerAsync(Tenant, Dir, Sid, Request(v.VerdictId), Matching(), CancellationToken.None);
+
+        Assert.True(outcome.Accepted);
+        var stored = _store.HistoryWithAnswers(Tenant, Sid)[0];
+        Assert.NotNull(stored.AnsweredAtUtc);
+        Assert.Null(stored.AnsweredWith);
     }
 
     [Fact]

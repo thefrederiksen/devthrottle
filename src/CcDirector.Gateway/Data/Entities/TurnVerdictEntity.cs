@@ -78,6 +78,17 @@ public sealed class TurnVerdictEntity : TenantScopedEntity
     /// behind an accepted one finds the verdict answered and sends nothing: one verdict, one activation, whatever
     /// the screen does after the first write.</summary>
     public DateTime? AnsweredAtUtc { get; set; }
+
+    /// <summary>
+    /// WHICH OPTIONS THE OWNER CHOSE, in the order he chose them, as the verdict's OWN words - null when the
+    /// verdict was not answered through the option route (a typed reply touches no verdict at all).
+    ///
+    /// The keys, not the bytes. What was sent to the session is "1" or "2"; what he DID is "Allow the merge", and
+    /// that is the only one of the two worth showing him a minute later. The activity ledger deliberately records
+    /// "chosen=N" and never which - it is a record that an activation happened, not of what was decided - so
+    /// before this column there was nowhere at all that remembered the choice.
+    /// </summary>
+    public string? AnsweredWith { get; set; }
 }
 
 /// <summary>

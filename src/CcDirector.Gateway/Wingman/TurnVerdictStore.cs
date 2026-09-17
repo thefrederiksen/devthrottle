@@ -184,7 +184,10 @@ public sealed class TurnVerdictStore
     /// A stored fact rather than a flag in memory, so "this verdict was answered" is answerable by query and
     /// holds across a Gateway restart, and so the answer route's check reads the same record it marks.
     /// </summary>
-    public bool MarkAnswered(TenantId tenant, string verdictId, DateTime answeredAtUtc)
+    /// <param name="answeredWith">The chosen options' own KEYS, in the order they were picked, or null when the
+    /// caller does not know them. Written in the same call as the moment, because a record that says a stop was
+    /// answered but not what was chosen is exactly the gap this column exists to close.</param>
+    public bool MarkAnswered(TenantId tenant, string verdictId, DateTime answeredAtUtc, string? answeredWith = null)
     {
         if (string.IsNullOrWhiteSpace(verdictId))
             throw new ArgumentException("A verdict id is required.", nameof(verdictId));
@@ -197,6 +200,7 @@ public sealed class TurnVerdictStore
                 .FirstOrDefault();
             if (row is null || row.AnsweredAtUtc is not null) return false;
             row.AnsweredAtUtc = Utc(answeredAtUtc);
+            row.AnsweredWith = string.IsNullOrWhiteSpace(answeredWith) ? null : answeredWith;
             ctx.SaveChanges();
             return true;
         }
@@ -252,7 +256,7 @@ public sealed class TurnVerdictStore
             // was written long after the judge answered, so the serialized answer cannot carry it and a reader
             // that trusted the JSON would see null on every superseded row.
             dto.SupersededAtUtc = row.SupersededAtUtc;
-            list.Add(new AnsweredTurnVerdict(dto, row.AnsweredAtUtc));
+            list.Add(new AnsweredTurnVerdict(dto, row.AnsweredAtUtc, row.AnsweredWith));
         }
         return list;
     }

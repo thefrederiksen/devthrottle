@@ -104,6 +104,28 @@ public sealed class TurnVerdictStoreTests : IDisposable
         Assert.False(store.MarkAnswered(TenantA, "tv-no-such-verdict", answeredAt));
     }
 
+    /// <summary>
+    /// WHAT HE CHOSE IS STORED BESIDE WHEN HE CHOSE IT, and read back with it.
+    ///
+    /// Before this column the row remembered only the moment, and the activity ledger deliberately records
+    /// "chosen=N" rather than which - so there was nowhere at all that remembered the decision. A mark made
+    /// without the words reads back as none, which is what every row answered before this column carries.
+    /// </summary>
+    [Fact]
+    public void The_answered_mark_stores_what_was_chosen_and_reads_it_back()
+    {
+        var store = NewStore();
+        var judgedAt = new DateTime(2026, 9, 15, 10, 0, 0, DateTimeKind.Utc);
+        store.Store(TenantA, "sid-1", Verdict(judgedAt, verdictId: "tv-with-words"));
+        store.Store(TenantA, "sid-2", Verdict(judgedAt, verdictId: "tv-no-words"));
+
+        Assert.True(store.MarkAnswered(TenantA, "tv-with-words", judgedAt.AddMinutes(1), "Allow the merge, Push it"));
+        Assert.True(store.MarkAnswered(TenantA, "tv-no-words", judgedAt.AddMinutes(1)));
+
+        Assert.Equal("Allow the merge, Push it", store.HistoryWithAnswers(TenantA, "sid-1")[0].AnsweredWith);
+        Assert.Null(store.HistoryWithAnswers(TenantA, "sid-2")[0].AnsweredWith);
+    }
+
     [Fact]
     public void One_account_can_neither_mark_nor_see_anothers_answered_mark()
     {

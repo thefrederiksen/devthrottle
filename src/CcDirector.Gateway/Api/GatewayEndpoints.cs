@@ -5933,9 +5933,12 @@ internal static class GatewayEndpoints
         if (pushedSessions?.TryLocateIgnoringFreshness(tenant.Value, sid) is null)
             return SessionUnavailable(ctx, tenantBoundary, pushedSessions, sid);
 
-        var row = FoldedAccountRoster(registry, pushedSessions, tenant.Value, snoozeRegistry, handRaises,
-                turnVerdictRows, snoozeExpiry)
-            .FirstOrDefault(s => string.Equals(s.SessionId, sid, StringComparison.OrdinalIgnoreCase));
+        // THE WHOLE ROSTER, not just this session's row: the card that follows his answer points him at the next
+        // session waiting on him, and it must be the one the Sessions list has at the top. Reading the same fold
+        // once and handing the fold both is what makes a second answer impossible.
+        var roster = FoldedAccountRoster(registry, pushedSessions, tenant.Value, snoozeRegistry, handRaises,
+            turnVerdictRows, snoozeExpiry);
+        var row = roster.FirstOrDefault(s => string.Equals(s.SessionId, sid, StringComparison.OrdinalIgnoreCase));
         var verdicts = turnVerdicts.HistoryWithAnswers(tenant.Value, sid);
 
         // THE STORE IS READ INSIDE THE CALLER'S TENANT SCOPE. Its rows are partitioned by the context's ambient
@@ -5978,7 +5981,8 @@ internal static class GatewayEndpoints
             ownedSessions = Wingman.TurnVerdictOwnedSessions.For(pushedSessions.SnapshotFresh(tenant.Value, stale), sid);
 
         var answer = Wingman.WingmanNowFold.Fold(
-            new Wingman.WingmanNowInputs(sid, row, verdicts, conversation, wingmanSwitchedOff, ownedSessions));
+            new Wingman.WingmanNowInputs(sid, row, verdicts, conversation, wingmanSwitchedOff, ownedSessions,
+                roster, DateTime.UtcNow));
         FileLog.Write($"[GatewayEndpoints] GET wingman-now: sid={sid} state={answer.State}");
         return Results.Json(answer);
     }

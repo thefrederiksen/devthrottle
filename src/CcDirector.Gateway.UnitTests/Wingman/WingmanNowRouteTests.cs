@@ -114,6 +114,39 @@ public sealed class WingmanNowRouteTests : IDisposable
     }
 
     /// <summary>A registered Director that has pushed one stopped session.</summary>
+    /// <summary>The same real push, with this session WORKING - the only state the answer card is reached from -
+    /// and every other session left waiting, so the roster has something for "next" to find.</summary>
+    private PushedSessionStore PushedWorking(params string[] alsoWaiting)
+    {
+        _registry.RegisterFromStream(DirectorId, "SOREN_NORTH", "u", "test", 1, DateTime.UtcNow, Account);
+        var pushed = new PushedSessionStore();
+        pushed.RegisterConnection(Account, DirectorId, "conn-now");
+
+        var rows = new List<SessionDto>
+        {
+            new()
+            {
+                SessionId = Sid,
+                Name = "Wingman Inspector - Manager",
+                Agent = "ClaudeCode",
+                ActivityState = "Working",
+                LastActivityAt = DateTime.UtcNow,
+            },
+        };
+        rows.AddRange(alsoWaiting.Select(id => new SessionDto
+        {
+            SessionId = id,
+            Name = "Dev Reports - Architect",
+            Agent = "ClaudeCode",
+            ActivityState = "WaitingForInput",
+            WaitingSince = Stopped,
+            LastActivityAt = Stopped,
+        }));
+
+        Assert.True(pushed.ApplySnapshot(Account, DirectorId, "conn-now", 1, rows));
+        return pushed;
+    }
+
     private PushedSessionStore PushedHolding(params string[] sessionIds)
     {
         _registry.RegisterFromStream(DirectorId, "SOREN_NORTH", "u", "test", 1, DateTime.UtcNow, Account);
@@ -146,11 +179,13 @@ public sealed class WingmanNowRouteTests : IDisposable
         => new TurnVerdictRowSource(_ => TurnVerdictSettings.Defaults with { JudgeEnabled = true, ColourEnabled = true },
             store, () => null);
 
-    private static TurnVerdictDto NeedsYouVerdict() => new()
+    private static TurnVerdictDto NeedsYouVerdict() => NeedsYouVerdictAt(Stopped);
+
+    private static TurnVerdictDto NeedsYouVerdictAt(DateTime stoppedAt) => new()
     {
         VerdictId = "verdict-now-1",
-        JudgedAtUtc = Stopped.AddSeconds(4),
-        TurnEndObservedAtUtc = Stopped,
+        JudgedAtUtc = stoppedAt.AddSeconds(4),
+        TurnEndObservedAtUtc = stoppedAt,
         Verdict = Core.Wingman.TurnVerdictVocabulary.NeededYou,
         Confidence = "high",
         Label = "Merge pull request 3002, or allow me to merge it",
@@ -296,6 +331,54 @@ public sealed class WingmanNowRouteTests : IDisposable
         var after = BodyOf(Read(Caller.Device, Sid, verdicts, pushed));
         Assert.False(after.CanAnswerByOption);
         Assert.Equal(2, after.Needs!.Options.Count);
+    }
+
+    /// <summary>
+    /// THE ANSWER CARD, SERVED END TO END: the store keeps what he chose, the handler supplies its own clock, and
+    /// the view reads back his own words with the session working again.
+    ///
+    /// The moments here are the REAL clock's, deliberately. The five-minute rule is the one thing in this view that
+    /// depends on when the request is answered, and a test that handed the fold a moment of its own would prove
+    /// the fold and nothing about the handler - which is where the clock actually comes from.
+    /// </summary>
+    [Fact]
+    public void A_working_session_whose_stop_he_has_just_answered_is_served_as_just_answered()
+    {
+        var verdicts = StoreHolding(NeedsYouVerdictAt(DateTime.UtcNow.AddMinutes(-2)));
+        var pushed = PushedWorking();
+
+        // CONTROL: unanswered, the same working session is plainly working and says so.
+        var before = BodyOf(Read(Caller.Device, Sid, verdicts, pushed));
+        Assert.Equal(WingmanNowStates.Working, before.State);
+        Assert.Null(before.Answered);
+
+        Assert.True(verdicts.MarkAnswered(Account, "verdict-now-1", DateTime.UtcNow.AddSeconds(-20), "Allow the merge"));
+
+        var after = BodyOf(Read(Caller.Device, Sid, verdicts, pushed));
+        Assert.Equal(WingmanNowStates.JustAnswered, after.State);
+        Assert.Equal("Working again", after.PillText);
+        Assert.Equal("You answered: Allow the merge", after.Answered!.Headline);
+        Assert.Equal("You answered", after.When!.Lead);
+        Assert.Equal("The stop you answered", after.LastStop!.Lead);
+    }
+
+    /// <summary>
+    /// AND WHERE TO GO NEXT comes from the roster the handler already read for this session's own row. One read,
+    /// one fold, one order - so the tab cannot send him somewhere the Sessions list does not have at the top.
+    /// </summary>
+    [Fact]
+    public void The_answer_card_points_at_the_next_session_of_this_account_that_needs_him()
+    {
+        const string other = "22222222-2222-2222-2222-222222222222";
+        var verdicts = StoreHolding(NeedsYouVerdictAt(DateTime.UtcNow.AddMinutes(-2)));
+        var pushed = PushedWorking(other);
+        Assert.True(verdicts.MarkAnswered(Account, "verdict-now-1", DateTime.UtcNow.AddSeconds(-20), "Allow the merge"));
+
+        var now = BodyOf(Read(Caller.Device, Sid, verdicts, pushed));
+
+        Assert.Equal("Next that needs you", now.NextNeedsYou!.Heading);
+        Assert.Equal(other, now.NextNeedsYou.SessionId);
+        Assert.Equal("Dev Reports - Architect", now.NextNeedsYou.Name);
     }
 
     /// <summary>A session this account knows about whose stop has never been judged is not an error - it is the
