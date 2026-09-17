@@ -406,8 +406,8 @@
     },
     {
       "id": "message-send",
-      "description": "Queue a message for a session. You may message only the session that started you and the sessions you started; the Gateway refuses anyone else, and limits you to 6 messages an hour and 1 per recipient every 10 minutes. Nothing is typed into the recipient: it reads the full text from its inbox when it is free, so the answer is 'queued', never 'delivered'. Target 'all' queues one copy for each of your workers. Messages are rare - put what you would have said in your report instead.",
-      "command": "cc-devthrottle message send <target|all> \"<message>\"",
+      "description": "Queue a message for a session. You may message only the session that started you and the sessions you started; the Gateway refuses anyone else, and limits you to 6 messages an hour and 1 per recipient every 10 minutes. Nothing is typed into the recipient: it reads the full text from its inbox when it is free, so the answer is 'queued', never 'delivered'. Target 'all' queues one copy for each of your workers. Messages are rare - put what you would have said in your report instead. --reply-wanted (one session only) asks for a reply without waiting: it prints a correlation id, the reply arrives in your inbox, and if none arrives by the deadline (--reply-by minutes, 60 by default) a no-reply notice arrives instead.",
+      "command": "cc-devthrottle message send <target|all> \"<message>\" [--reply-wanted] [--reply-by <minutes>]",
       "mutatesState": true,
       "args": [
         {
@@ -417,12 +417,36 @@
         {
           "name": "message",
           "required": true
+        },
+        {
+          "name": "reply-wanted",
+          "required": false
+        },
+        {
+          "name": "reply-by",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "message-reply",
+      "description": "Answer a message that asked for a reply. The id is the correlation id (or message id) 'message inbox' showed. The reply goes to whoever asked, whatever your relationship to it; only the session the question was sent to may answer, once. It is not held to the message limits, and a reply after the deadline still arrives.",
+      "command": "cc-devthrottle message reply <id> \"<answer>\"",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "id",
+          "required": true
+        },
+        {
+          "name": "answer",
+          "required": true
         }
       ]
     },
     {
       "id": "message-inbox",
-      "description": "Read THIS session's inbox: every unread message in full, each marked read by this call. Reading is the acknowledgement - a message stays open until its recipient runs this. --all adds the newest 200 messages read in the last 24 hours, so a read whose answer was lost can be recovered - for 24 hours, and only by asking.",
+      "description": "Read THIS session's inbox: every unread message in full, each marked read by this call. Reading is the acknowledgement - a message stays open until its recipient runs this. A reply is shown with the question it answers, and a no-reply notice with the question that went unanswered. --all adds the newest 200 messages read in the last 24 hours, so a read whose answer was lost can be recovered - for 24 hours, and only by asking.",
       "command": "cc-devthrottle message inbox [--all] [--json]",
       "mutatesState": true,
       "args": [

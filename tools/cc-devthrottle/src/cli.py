@@ -41,6 +41,7 @@ from .session_ops import (
     selftest as run_selftest,
     show_live_state,
     send_message,
+    send_reply,
     spawn_session,
     stop_session,
     undo_done,
@@ -604,13 +605,32 @@ _ACTIONS = [
             "and 1 per recipient every 10 minutes. Nothing is typed into the recipient: it reads the full "
             "text from its inbox when it is free, so the answer is 'queued', never 'delivered'. Target "
             "'all' queues one copy for each of your workers. Messages are rare - put what you would have "
-            "said in your report instead."
+            "said in your report instead. --reply-wanted (one session only) asks for a reply without "
+            "waiting: it prints a correlation id, the reply arrives in your inbox, and if none arrives by "
+            "the deadline (--reply-by minutes, 60 by default) a no-reply notice arrives instead."
         ),
-        "command": 'cc-devthrottle message send <target|all> "<message>"',
+        "command": 'cc-devthrottle message send <target|all> "<message>" [--reply-wanted] [--reply-by <minutes>]',
         "mutatesState": True,
         "args": [
             {"name": "target", "required": True},
             {"name": "message", "required": True},
+            {"name": "reply-wanted", "required": False},
+            {"name": "reply-by", "required": False},
+        ],
+    },
+    {
+        "id": "message-reply",
+        "description": (
+            "Answer a message that asked for a reply. The id is the correlation id (or message id) "
+            "'message inbox' showed. The reply goes to whoever asked, whatever your relationship to it; "
+            "only the session the question was sent to may answer, once. It is not held to the message "
+            "limits, and a reply after the deadline still arrives."
+        ),
+        "command": 'cc-devthrottle message reply <id> "<answer>"',
+        "mutatesState": True,
+        "args": [
+            {"name": "id", "required": True},
+            {"name": "answer", "required": True},
         ],
     },
     {
@@ -618,6 +638,8 @@ _ACTIONS = [
         "description": (
             "Read THIS session's inbox: every unread message in full, each marked read by this call. "
             "Reading is the acknowledgement - a message stays open until its recipient runs this. "
+            "A reply is shown with the question it answers, and a no-reply notice with the question that "
+            "went unanswered. "
             "--all adds the newest 200 messages read in the last 24 hours, so a read whose answer was lost "
             "can be recovered - for 24 hours, and only by asking."
         ),
@@ -1972,6 +1994,18 @@ def message_send(
         "--grant",
         help="A human-issued broadcast grant id authorizing a fleet-wide broadcast (--everyone).",
     ),
+    reply_wanted: bool = typer.Option(
+        False,
+        "--reply-wanted",
+        help="Ask the recipient for a reply. The Gateway gives the message a correlation id, printed "
+        "here; the reply arrives in your inbox, and if none comes by the deadline a no-reply notice "
+        "arrives instead. Nothing waits for it. One session only, not 'all'.",
+    ),
+    reply_by: Optional[int] = typer.Option(
+        None,
+        "--reply-by",
+        help="Minutes the recipient has to reply, with --reply-wanted: 1 to 1440, 60 when omitted.",
+    ),
 ) -> None:
     """Queue a message for your supervisor or a worker ('all' for every worker).
 
@@ -1981,9 +2015,29 @@ def message_send(
 
     Add --everyone (with --reason and --grant) to reach the whole fleet; it is queued the same way.
 
+    Add --reply-wanted to ask for a reply without waiting for it; answer one with 'message reply'.
+
     Exit code: 0 when the message was queued or an identical one is already waiting unread - for 'all', when that is true of at least one worker - and 1 when nothing was queued and nothing was waiting.
     """
-    send_message(target, message, everyone=everyone, reason=reason, grant=grant)
+    send_message(target, message, everyone=everyone, reason=reason, grant=grant,
+                 reply_wanted=reply_wanted, reply_by=reply_by)
+
+
+@message_app.command("reply")
+def message_reply(
+    reply_id: str = typer.Argument(
+        ..., metavar="ID",
+        help="The correlation id (or message id) of the message you are answering, from 'message inbox'.",
+    ),
+    text: str = typer.Argument(..., help="The answer. It may span lines; it is read, never typed."),
+) -> None:
+    """Answer a message that asked for a reply; the answer goes to whoever asked.
+
+    Only the session the question was sent to may answer it, once. A reply is not held to the message
+    limits, and one sent after the deadline still arrives. Nothing is typed into the asker; it reads
+    the reply from its inbox.
+    """
+    send_reply(reply_id, text)
 
 
 @message_app.command("inbox")
@@ -2000,7 +2054,9 @@ def message_inbox(
 ) -> None:
     """Read your unread messages in full, which marks them read.
 
-    Reading is the acknowledgement: the sender's message stays open until you read it.
+    Reading is the acknowledgement: the sender's message stays open until you read it. A message that
+    wants a reply shows its correlation id and the command to answer it; a reply shows the question it
+    answers; a no-reply notice says which question got no answer by its deadline.
     """
     read_inbox(include_read=include_read, json_output=json_output)
 

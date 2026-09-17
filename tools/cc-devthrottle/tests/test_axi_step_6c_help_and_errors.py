@@ -342,8 +342,9 @@ def test_actions_json_is_unchanged():
     pinned = _ACTIONS_JSON_BEFORE.read_text(encoding="utf-8")
     # The pin itself must be the real payload, not an empty file that anything would match.
     actions = json.loads(pinned)["actions"]
-    assert len(actions) == 86
-    assert {"session-list", "schedule-create", "browser-start"} <= {a["id"] for a in actions}
+    # 87 since the Message Load mission's slice 3 added message-reply to the pin (and the send flags).
+    assert len(actions) == 87
+    assert {"session-list", "schedule-create", "browser-start", "message-reply"} <= {a["id"] for a in actions}
 
     result = runner.invoke(app, ["actions", "--json"])
     assert result.exit_code == 0

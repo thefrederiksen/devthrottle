@@ -435,3 +435,194 @@ def test_an_inbox_read_error_is_printed_verbatim(monkeypatch, either_console):
 
     assert result.exit_code == 1
     assert LIMIT in result.output
+
+
+# --- replies without blocking (slice 3) -----------------------------------------------------------------
+
+CORRELATION = "c" * 32
+QUESTION_ID = "q" * 32
+
+
+def test_send_reply_wanted_sends_the_ask_and_prints_the_correlation_id(posted, plain):
+    calls, state = posted
+    state["answer"] = {"status": "queued", "messageId": "a" * 32, "recipientSessionId": WORKER,
+                       "correlationId": CORRELATION, "replyByUtc": "2026-09-17T13:15:00Z"}
+
+    result = runner.invoke(app, ["message", "send", "worker", "which branch?", "--reply-wanted", "--reply-by", "15"])
+
+    assert result.exit_code == 0, result.output
+    assert calls[0]["path"] == f"sessions/{WORKER}/message"
+    assert calls[0]["body"] == {"text": "which branch?", "replyWanted": True, "replyByMinutes": 15}
+    out = " ".join(plain(result.stdout).split())
+    assert f"correlation id: {CORRELATION} (reply wanted by 2026-09-17T13:15:00Z)" in out
+    assert "Do not wait for it" in out
+    assert "wait for" not in out.replace("Do not wait for it", "")
+
+
+def test_send_reply_wanted_without_a_deadline_leaves_the_default_to_the_gateway(posted):
+    calls, state = posted
+    state["answer"] = {"status": "queued", "messageId": "a" * 32, "correlationId": CORRELATION}
+
+    result = runner.invoke(app, ["message", "send", "worker", "ok?", "--reply-wanted"])
+
+    assert result.exit_code == 0, result.output
+    assert calls[0]["body"] == {"text": "ok?", "replyWanted": True}
+
+
+def test_send_without_reply_wanted_sends_no_reply_fields_and_prints_no_correlation(posted, plain):
+    calls, state = posted
+    state["answer"] = {"status": "queued", "messageId": "a" * 32}
+
+    result = runner.invoke(app, ["message", "send", "worker", "fyi"])
+
+    assert calls[0]["body"] == {"text": "fyi"}
+    assert "correlation" not in plain(result.stdout)
+
+
+def test_a_duplicate_question_prints_the_waiting_copys_correlation_id(posted, plain):
+    _, state = posted
+    state["answer"] = {"status": "duplicate", "note": "already waiting", "messageId": "a" * 32,
+                       "correlationId": CORRELATION}
+
+    result = runner.invoke(app, ["message", "send", "worker", "which branch?", "--reply-wanted"])
+
+    assert result.exit_code == 0
+    assert f"correlation id: {CORRELATION}" in plain(result.stdout)
+
+
+def test_reply_posts_the_id_and_text_and_says_queued(posted, plain):
+    calls, state = posted
+    state["answer"] = {"status": "queued", "messageId": "r" * 32, "recipientSessionId": WORKER,
+                       "inReplyToMessageId": QUESTION_ID, "correlationId": CORRELATION}
+
+    result = runner.invoke(app, ["message", "reply", f" {CORRELATION} ", "line one\nline two"])
+
+    assert result.exit_code == 0, result.output
+    assert calls == [{"path": "fleet/reply", "body": {"id": CORRELATION, "text": "line one\nline two"}}]
+    out = " ".join(plain(result.stdout).split())
+    assert f"Reply queued for {WORKER} (reply {'r' * 32}, answering message {QUESTION_ID})" in out
+    assert "delivered" not in out.lower()
+
+
+def test_a_refused_reply_prints_the_gateways_sentence_on_standard_error(posted):
+    _, state = posted
+    sentence = f"Only the session message {QUESTION_ID} was sent to may reply to it. Nothing was queued."
+    state["answer"] = session_ops.gateway.GatewayError(sentence, status=403)
+
+    result = runner.invoke(app, ["message", "reply", CORRELATION, "mine"])
+
+    assert result.exit_code == 1
+    assert result.stdout == ""
+    assert sentence in " ".join(result.stderr.split())
+
+
+def test_a_duplicate_reply_is_not_a_failure(posted, plain):
+    _, state = posted
+    state["answer"] = {"status": "duplicate", "note": "already waiting unread"}
+
+    result = runner.invoke(app, ["message", "reply", CORRELATION, "same"])
+
+    assert result.exit_code == 0
+    assert "Not queued again: already waiting unread" in plain(result.stdout)
+
+
+def _question(**extra):
+    return dict({"messageId": QUESTION_ID, "correlationId": CORRELATION, "toSessionId": WORKER,
+                 "text": "which branch?\nand which commit?", "sentAtUtc": "2026-09-17T12:00:00Z",
+                 "replyByUtc": "2026-09-17T13:00:00Z", "late": False}, **extra)
+
+
+def test_inbox_shows_a_question_with_how_to_answer_it(inbox):
+    m = dict(_msg("m1", "which branch?", kind="message"), replyWanted=True, correlationId=CORRELATION,
+             replyByUtc="2026-09-17T13:00:00Z",
+             replyHint=f'cc-devthrottle message reply {CORRELATION} "<your answer>"')
+    inbox["answer"] = {"unread": [m], "recent": []}
+
+    result = runner.invoke(app, ["message", "inbox"])
+
+    assert result.exit_code == 0, result.output
+    out = result.stdout
+    assert "message 1 of 1" in out
+    assert "  reply wanted by: 2026-09-17T13:00:00Z" in out
+    assert f"  correlation id: {CORRELATION}" in out
+    assert f'  to answer: cc-devthrottle message reply {CORRELATION} "<your answer>"' in out
+    assert "question:" not in out
+
+
+def test_inbox_shows_a_reply_with_the_question_it_answers(inbox):
+    m = dict(_msg("m1", "main\nabc123", kind="reply"), correlationId=CORRELATION, inReplyTo=_question(late=True))
+    inbox["answer"] = {"unread": [m], "recent": []}
+
+    result = runner.invoke(app, ["message", "inbox"])
+
+    assert result.exit_code == 0, result.output
+    out = result.stdout
+    assert "reply 1 of 1" in out
+    assert "message 1 of 1" not in out
+    assert f"  answers: message {QUESTION_ID} (correlation id {CORRELATION})" in out
+    assert f"  asked of: {WORKER}" in out
+    assert "  late: yes" in out
+    assert "  question:\n    which branch?\n    and which commit?\n" in out
+    assert "  text:\n    main\n    abc123" in out
+    assert "reply wanted by" not in out
+
+
+def test_inbox_shows_a_no_reply_notice_as_one(inbox):
+    m = dict(_msg("m1", "No reply to your message ...", sender=None, name=None, kind="system"),
+             notice="no-reply", correlationId=CORRELATION, inReplyTo=_question())
+    inbox["answer"] = {"unread": [m], "recent": []}
+
+    result = runner.invoke(app, ["message", "inbox"])
+
+    out = result.stdout
+    assert "no-reply notice 1 of 1" in out
+    assert "  notice: no-reply" in out
+    assert "  from: the Gateway" in out
+    assert f"  about: message {QUESTION_ID} (correlation id {CORRELATION})" in out
+    assert "  deadline: 2026-09-17T13:00:00Z" in out
+    assert "late:" not in out
+    assert "  question:\n    which branch?" in out
+
+
+def test_a_system_notice_without_the_no_reply_label_is_a_plain_message(inbox):
+    # The label is the Gateway's to give; this tool does not guess it from the kind.
+    inbox["answer"] = {"unread": [_msg("m1", "stuck", sender=None, name=None, kind="system")], "recent": []}
+
+    out = runner.invoke(app, ["message", "inbox"]).stdout
+
+    assert "message 1 of 1" in out
+    assert "notice" not in out
+
+
+def test_a_reply_whose_question_is_no_longer_kept_says_so(inbox):
+    m = dict(_msg("m1", "late answer", kind="reply"),
+             inReplyTo={"messageId": QUESTION_ID, "correlationId": CORRELATION, "text": None, "late": False})
+    inbox["answer"] = {"unread": [m], "recent": []}
+
+    out = runner.invoke(app, ["message", "inbox"]).stdout
+
+    assert "  question: (no longer kept)" in out
+    assert "asked of" not in out
+
+
+def test_the_action_catalogue_lists_reply_and_the_send_flags():
+    ids = {a["id"]: a for a in _ACTIONS}
+    assert "message-reply" in ids
+    assert ids["message-reply"]["command"] == 'cc-devthrottle message reply <id> "<answer>"'
+    assert ids["message-reply"]["mutatesState"] is True
+    send = ids["message-send"]
+    assert "--reply-wanted" in send["command"] and "--reply-by <minutes>" in send["command"]
+    assert {"reply-wanted", "reply-by"} <= {a["name"] for a in send["args"]}
+
+
+def test_reply_help_says_who_may_answer_and_that_nothing_waits(plain):
+    result = runner.invoke(app, ["message", "reply", "--help"])
+    out = " ".join(plain(result.output).split())
+    assert result.exit_code == 0
+    assert "Answer a message that asked for a reply" in out
+    assert "Only the session the question was sent to may answer it, once." in out
+
+    send = " ".join(plain(runner.invoke(app, ["message", "send", "--help"]).output).split())
+    assert "--reply-wanted" in send
+    assert "1 to 1440, 60 when omitted" in send
+    assert "Nothing waits for it" in send
