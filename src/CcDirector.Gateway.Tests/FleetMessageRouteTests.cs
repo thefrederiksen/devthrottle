@@ -184,6 +184,72 @@ public sealed class FleetMessageRouteTests : IAsyncLifetime
         Assert.Empty(VerbsSent());
     }
 
+    // ---------- The row line (slice 4) ----------
+
+    private async Task<JsonElement> RosterRow(string sid)
+    {
+        var r = await _owner.GetAsync("sessions");
+        Assert.Equal(HttpStatusCode.OK, r.StatusCode);
+        var body = await Body(r);
+        var rows = body.ValueKind == JsonValueKind.Array ? body : body.GetProperty("sessions");
+        return rows.EnumerateArray().Single(e => string.Equals(S(e, "sessionId"), sid, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string? Line(JsonElement row) =>
+        row.TryGetProperty("inboxLine", out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+
+    /// <summary>The first display push for this session, among the commands after the first <paramref name="skip"/>,
+    /// that matches - waited for, because the push is sent fire-and-forget.</summary>
+    private async Task<SetDisplayStateRequest?> DisplayPushFor(string sid, int skip, Func<SetDisplayStateRequest, bool> match)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (DateTime.UtcNow < deadline)
+        {
+            var found = _commands
+                .Skip(skip)
+                .Where(c => c.Verb == "set-display-state" && string.Equals(c.SessionId, sid, StringComparison.OrdinalIgnoreCase))
+                .Select(c => JsonSerializer.Deserialize<SetDisplayStateRequest>(c.PayloadJson, Web)!)
+                .FirstOrDefault(match);
+            if (found is not null) return found;
+            await Task.Delay(50);
+        }
+        return null;
+    }
+
+    [Fact]
+    public async Task The_roster_the_session_read_and_the_desktop_push_carry_the_row_line_until_it_is_read()
+    {
+        Assert.Null(Line(await RosterRow(_workerA)));
+
+        Assert.Equal(HttpStatusCode.OK, (await Send(_asManager, _workerA, "first")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await Send(_asWorkerB, _manager, "a report", kind: "report")).StatusCode);
+
+        // The wire names are the contract the Cockpit and the phone read: pinned here as literals.
+        Assert.Equal("1 message waiting", Line(await RosterRow(_workerA)));
+        Assert.Equal("1 message waiting", Line(await RosterRow(_manager)));
+        Assert.Null(Line(await RosterRow(_workerB)));
+
+        var single = await Body(await _owner.GetAsync($"sessions/{_workerA}"));
+        Assert.Equal("1 message waiting", Line(single));
+
+        // The desktop cannot read the inbox: the display push carries the same words down the tunnel.
+        var before = _commands.Count;
+        _gateway.SweepDisplayState();
+        var pushed = await DisplayPushFor(_workerA, before, p => p.InboxLine is not null);
+        Assert.NotNull(pushed);
+        Assert.Equal("1 message waiting", pushed!.InboxLine);
+
+        // Read is the acknowledgement: the line goes, on the roster and down the push.
+        Assert.Single((await Inbox(_asWorkerA)).Unread);
+        Assert.Null(Line(await RosterRow(_workerA)));
+        Assert.Equal("1 message waiting", Line(await RosterRow(_manager)));
+        var afterRead = _commands.Count;
+        _gateway.SweepDisplayState();
+        var cleared = await DisplayPushFor(_workerA, afterRead, p => p.InboxLine is null);
+        Assert.NotNull(cleared);
+        Assert.Empty(VerbsSent());
+    }
+
     [Fact]
     public async Task One_sessions_inbox_is_not_another_sessions()
     {

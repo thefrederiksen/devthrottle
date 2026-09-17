@@ -1734,7 +1734,10 @@ public sealed class GatewayHost : IAsyncDisposable
                 // dropping them here would read "I cannot see it this second" as "it is gone".
                 snoozeRosterSessionIds: _tenantPass.Current is { } snoozeTenant
                     ? PushedSessions.KnownSessionIds(snoozeTenant)
-                    : null),
+                    : null,
+                // Slice 4: the row line, from the same inbox the roster reads. The store is built further down
+                // this constructor; this delegate runs only once the host is up.
+                inboxLines: _fleetMessages),
             SendCommandAsync,
             currentScopeKey: () => _tenantPass.Current?.Value);
         // Mission Screen mission (Phase 1b, issue #1405): the mission-WHY store, at a Gateway-side file
@@ -3552,6 +3555,8 @@ public sealed class GatewayHost : IAsyncDisposable
             turnVerdictRows: _turnVerdictRows,
             // Slice F: the same snooze memory the display push folds with, so one expiry is one edge.
             snoozeExpiry: _snoozeExpiry,
+            // Message Load mission, slice 4: the inbox the roster and GET /sessions/{sid} fold the row line from.
+            inboxLines: _fleetMessages,
             // Slice E: the one write path for a verdict's options, recording into the same ledger the seat does.
             turnVerdictAnswers: new Wingman.TurnVerdictAnswerService(new Wingman.TurnVerdictAnswerRecords(
                 _turnVerdicts, record => EnsureTurnVerdictEnvironment().Record(record))),
@@ -4155,7 +4160,7 @@ public sealed class GatewayHost : IAsyncDisposable
             preferences: new Fleet.FleetPreferenceStore(_gatewayDb),
             digest: new FleetDigestSources(
                 FoldedRoster: tenant => GatewayEndpoints.FoldedAccountRoster(Registry, PushedSessions, tenant,
-                    _snoozeRegistry, _handRaises, _turnVerdictRows, _snoozeExpiry),
+                    _snoozeRegistry, _handRaises, _turnVerdictRows, _snoozeExpiry, _fleetMessages),
                 SessionInAccount: (tenant, sid) => PushedSessions.TryLocateIgnoringFreshness(tenant, sid) is not null,
                 LatestVerdict: (tenant, sid) => _turnVerdicts.Latest(tenant, sid),
                 FormerFleetManagers: tenant => FleetManagerMarks.List(tenant).Select(m => m.SessionId).ToList()),
@@ -4867,7 +4872,10 @@ public sealed class GatewayHost : IAsyncDisposable
         Wingman.SnoozeExpiryReJudge? snoozeExpiry = null,
         // Slice F: the ACCOUNT'S whole roster as session ids, for that memory to prune to. The push carries ONE
         // Director's sessions, and pruning to those would drop every other Director's watch on every push.
-        IReadOnlyCollection<string>? snoozeRosterSessionIds = null)
+        IReadOnlyCollection<string>? snoozeRosterSessionIds = null,
+        // Message Load mission, slice 4: the same inbox the roster folds the row line from, so the desktop is
+        // pushed the line every browser gets.
+        Messaging.IFleetInboxLineSource? inboxLines = null)
     {
         foreach (var s in sessions)
         {
@@ -4901,7 +4909,8 @@ public sealed class GatewayHost : IAsyncDisposable
                 waitingSince: s.VoiceWaitingSince);
         }
         Api.GatewayEndpoints.StampFleetRolesAndFold(sessions, sessions, needsYouStampFor, snoozeRegistry, tenant,
-            handRaises, turnVerdictRows, snoozeExpiry, nowUtc: null, snoozeRosterSessionIds: snoozeRosterSessionIds);
+            handRaises, turnVerdictRows, snoozeExpiry, nowUtc: null, snoozeRosterSessionIds: snoozeRosterSessionIds,
+            inboxLines: inboxLines);
     }
 
     /// <summary>

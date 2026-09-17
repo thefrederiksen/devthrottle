@@ -355,6 +355,11 @@ public sealed class Session : IDisposable
     /// (<see cref="SessionDto.SnoozeExpired"/>), rendered as a distinct "Snooze ended" badge.</summary>
     public bool GatewaySnoozeExpired { get; private set; }
 
+    /// <summary>The Gateway's row line (<see cref="SessionDto.InboxLine"/>): what waits in this session's fleet
+    /// inbox - "2 messages waiting" - or null when nothing does. The rail renders this verbatim; it never counts
+    /// messages itself.</summary>
+    public string? GatewayInboxLine { get; private set; }
+
     /// <summary>
     /// Raised when any pushed display-state field changes, so the desktop rail re-reads the fold. Same shape
     /// and same reason as <see cref="OnGatewayResolvedRoleChanged"/>: a new fact with no signal is invisible -
@@ -376,11 +381,13 @@ public sealed class Session : IDisposable
         string? triageBucket,
         DateTime? needsYouSince,
         DateTime? snoozeUntil,
-        bool snoozeExpired)
+        bool snoozeExpired,
+        string? inboxLine = null)
     {
         var color = string.IsNullOrWhiteSpace(effectiveColor) ? null : effectiveColor.Trim();
         var label = string.IsNullOrWhiteSpace(stateLabel) ? null : stateLabel.Trim();
         var bucket = string.IsNullOrWhiteSpace(triageBucket) ? null : triageBucket.Trim();
+        var inbox = string.IsNullOrWhiteSpace(inboxLine) ? null : inboxLine;
 
         var changed =
             !string.Equals(GatewayEffectiveColor, color, StringComparison.Ordinal)
@@ -388,7 +395,8 @@ public sealed class Session : IDisposable
             || !string.Equals(GatewayTriageBucket, bucket, StringComparison.Ordinal)
             || GatewayNeedsYouSince != needsYouSince
             || GatewaySnoozeUntil != snoozeUntil
-            || GatewaySnoozeExpired != snoozeExpired;
+            || GatewaySnoozeExpired != snoozeExpired
+            || !string.Equals(GatewayInboxLine, inbox, StringComparison.Ordinal);
 
         if (!changed) return;
 
@@ -398,8 +406,9 @@ public sealed class Session : IDisposable
         GatewayNeedsYouSince = needsYouSince;
         GatewaySnoozeUntil = snoozeUntil;
         GatewaySnoozeExpired = snoozeExpired;
+        GatewayInboxLine = inbox;
 
-        FileLog.Write($"[Session] ApplyGatewayDisplayState: session={Id}, color={color ?? "(cleared)"}, label={label ?? "(none)"}, bucket={bucket ?? "(none)"}, snoozeUntil={snoozeUntil?.ToString("O") ?? "(none)"}, snoozeExpired={snoozeExpired}");
+        FileLog.Write($"[Session] ApplyGatewayDisplayState: session={Id}, color={color ?? "(cleared)"}, label={label ?? "(none)"}, bucket={bucket ?? "(none)"}, snoozeUntil={snoozeUntil?.ToString("O") ?? "(none)"}, snoozeExpired={snoozeExpired}, inboxLine={inbox ?? "(none)"}");
         try { OnGatewayDisplayStateChanged?.Invoke(); }
         catch (Exception ex) { FileLog.Write($"[Session] {Id} OnGatewayDisplayStateChanged handler threw: {ex.Message}"); }
     }

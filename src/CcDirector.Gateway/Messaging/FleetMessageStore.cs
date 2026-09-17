@@ -100,7 +100,7 @@ public sealed record FleetInboxRead(IReadOnlyList<FleetMessageEntity> Unread, IR
 /// THE LIMITS ARE COUNTED FROM THE ROWS. There is no counter held in memory, so a Gateway restart does not
 /// hand every session a fresh hour.
 /// </summary>
-public sealed class FleetMessageStore
+public sealed class FleetMessageStore : IFleetInboxLineSource
 {
     private readonly object _gate = new();
     private readonly GatewayDatabase _db;
@@ -433,6 +433,47 @@ public sealed class FleetMessageStore
         var recipient = Id(recipientSessionId) ?? "";
         using var ctx = _db.CreateContext(tenant);
         return ctx.FleetMessages.Count(m => m.RecipientSessionId == recipient && m.ReadAtUtc == null);
+    }
+
+    /// <summary>
+    /// Every session's UNREAD messages in this tenant, counted for the row line (slice 4), in ONE grouped query:
+    /// no text, no rows, only a count per recipient, kind and stuck mark, and the oldest write time of each group.
+    /// Reads, changes nothing. A session with nothing unread is absent from the answer.
+    /// </summary>
+    public IReadOnlyDictionary<string, FleetInboxCounts> UnreadCountsByRecipient(TenantId tenant)
+    {
+        using var ctx = _db.CreateContext(tenant);
+        var groups = ctx.FleetMessages.AsNoTracking()
+            .Where(m => m.ReadAtUtc == null)
+            .GroupBy(m => new { m.RecipientSessionId, m.Kind, Stuck = m.StuckAtUtc != null })
+            .Select(g => new { g.Key.RecipientSessionId, g.Key.Kind, g.Key.Stuck, Count = g.Count(), Oldest = g.Min(m => m.CreatedAtUtc) })
+            .ToList();
+
+        var byRecipient = new Dictionary<string, FleetInboxCounts>(StringComparer.Ordinal);
+        foreach (var g in groups)
+        {
+            var c = byRecipient.TryGetValue(g.RecipientSessionId, out var had) ? had : FleetInboxCounts.None;
+            if (g.Stuck)
+            {
+                var oldest = Utc(g.Oldest);
+                c = c with
+                {
+                    Stuck = c.Stuck + g.Count,
+                    OldestStuckWrittenUtc = c.OldestStuckWrittenUtc is { } o && o <= oldest ? o : oldest,
+                };
+            }
+            else
+            {
+                c = g.Kind switch
+                {
+                    FleetMessageKinds.Reply => c with { Replies = c.Replies + g.Count },
+                    FleetMessageKinds.System => c with { Notices = c.Notices + g.Count },
+                    _ => c with { Waiting = c.Waiting + g.Count },
+                };
+            }
+            byRecipient[g.RecipientSessionId] = c;
+        }
+        return byRecipient;
     }
 
     /// <summary>

@@ -363,6 +363,8 @@ internal static class ControlEndpoints
             NeedsYouSince = s.GatewayNeedsYouSince,
             SnoozeUntil = s.GatewaySnoozeUntil,
             SnoozeExpired = s.GatewaySnoozeExpired,
+            // Message Load mission, slice 4: the Gateway's row line, echoed for the rail like the fold above.
+            InboxLine = s.GatewayInboxLine,
             // Chunk 3: the auto-vs-explicit name marker (a future auto-rename gates on it).
             IsAutoNamed = s.IsAutoNamed,
             IsBackgroundRunning = s.IsBackgroundRunning,

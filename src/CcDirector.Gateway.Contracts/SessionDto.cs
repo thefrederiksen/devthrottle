@@ -844,6 +844,18 @@ public sealed class SessionDto
     public string? NeedsManagerReason { get; set; }
 
     /// <summary>
+    /// THE ROW LINE (Message Load mission, slice 4): what waits in this session's fleet inbox, in finished
+    /// words - "2 messages waiting", "1 message stuck, unread for 20 minutes", "1 reply waiting" - or null
+    /// when nothing waits. Folded once on the Gateway by <c>FleetInboxLineFold</c> from the inbox table and
+    /// stamped by the same pass that stamps the colour and the label. Every client renders it verbatim; no
+    /// client counts messages or words them (project rule 7).
+    ///
+    /// Assigned on every fold, in both directions, so a row re-served after its messages were read carries
+    /// null again rather than the line it had before.
+    /// </summary>
+    public string? InboxLine { get; set; }
+
+    /// <summary>
     /// RAW FACT: the display name was AUTO-composed at birth (mirrors <c>Session.IsAutoNamed</c>); false once
     /// a human/self explicitly renamed it. Automatic session roles (chunk 3): the marker any future
     /// auto-rename gates on so a self/human name is never re-auto-named.

@@ -261,7 +261,10 @@ internal static class GatewayEndpoints
         Action<Wingman.TurnVerdictRecord>? turnVerdictLedger = null,
         // Slice F: the fold's snooze memory, which turns "expired" into the one EDGE ruling 10 acts on. Null stamps
         // false on every row - the row exactly as slice D left it.
-        Wingman.SnoozeExpiryReJudge? snoozeExpiry = null)
+        Wingman.SnoozeExpiryReJudge? snoozeExpiry = null,
+        // Message Load mission, slice 4: the fleet inbox the row line is folded from. Null stamps no row line -
+        // a Gateway built without the inbox has nothing to say about it.
+        Messaging.IFleetInboxLineSource? inboxLines = null)
     {
         // The old issue #1188 "session lock" (423 Locked on human input while a PENDING dictation record
         // existed) was removed deliberately (issue #1308). This is a single-operator tool: a collision
@@ -1626,7 +1629,8 @@ internal static class GatewayEndpoints
             var unfilteredWholeAccount = string.IsNullOrEmpty(director) && string.IsNullOrEmpty(machine);
             StampFleetRolesAndFold(fleet, all, needsYouStampFor, snoozeRegistry, reqTenant.Value, handRaises,
                 turnVerdictRows, snoozeExpiry,
-                snoozeRosterSessionIds: unfilteredWholeAccount ? SnoozeRosterIds(fleet) : null);
+                snoozeRosterSessionIds: unfilteredWholeAccount ? SnoozeRosterIds(fleet) : null,
+                inboxLines: inboxLines);
 
             // DevThrottle Stats: fold the assembled roster's per-session input tallies into the always-
             // available aggregate that backs "Your Throttle". This is the ONE path that carries
@@ -1979,7 +1983,8 @@ internal static class GatewayEndpoints
             // roster and the snooze memory prunes to it.
             StampFleetRolesAndFold(fleet, new[] { session }, needsYouStampFor: null, snoozeRegistry: snoozeRegistry,
                 tenant: reqTenant.Value, handRaises: handRaises, turnVerdictRows: turnVerdictRows,
-                snoozeExpiry: snoozeExpiry, snoozeRosterSessionIds: SnoozeRosterIds(fleet));
+                snoozeExpiry: snoozeExpiry, snoozeRosterSessionIds: SnoozeRosterIds(fleet),
+                inboxLines: inboxLines);
             return Results.Json(session);
         });
 
@@ -5103,7 +5108,8 @@ internal static class GatewayEndpoints
     internal static IReadOnlyList<SessionDto> FoldedAccountRoster(
         DirectorRegistry registry, Streaming.PushedSessionStore? pushedSessions, TenantId tenant,
         Snooze.SnoozeRegistry? snoozeRegistry, Fleet.HandRaiseRegistry? handRaises,
-        Wingman.ITurnVerdictRowSource? turnVerdictRows, Wingman.SnoozeExpiryReJudge? snoozeExpiry)
+        Wingman.ITurnVerdictRowSource? turnVerdictRows, Wingman.SnoozeExpiryReJudge? snoozeExpiry,
+        Messaging.IFleetInboxLineSource? inboxLines = null)
     {
         var fleet = new List<SessionDto>();
         if (pushedSessions is null) return fleet;
@@ -5119,7 +5125,8 @@ internal static class GatewayEndpoints
         }
         StampFleetRolesAndFold(fleet, fleet, needsYouStampFor: null, snoozeRegistry: snoozeRegistry,
             tenant: tenant, handRaises: handRaises, turnVerdictRows: turnVerdictRows,
-            snoozeExpiry: snoozeExpiry, snoozeRosterSessionIds: SnoozeRosterIds(fleet));
+            snoozeExpiry: snoozeExpiry, snoozeRosterSessionIds: SnoozeRosterIds(fleet),
+            inboxLines: inboxLines);
         return fleet;
     }
 
@@ -5329,7 +5336,10 @@ internal static class GatewayEndpoints
         // a caller looking at only part of the account, and then nothing is pruned. Never inferred from either
         // list above: the display push carries one Director's sessions as both of them, and a filtered roster
         // read carries one machine's.
-        IReadOnlyCollection<string>? snoozeRosterSessionIds = null)
+        IReadOnlyCollection<string>? snoozeRosterSessionIds = null,
+        // Message Load mission, slice 4: the fleet inbox the row line is folded from, read ONCE for the whole
+        // fold. Null stamps a null row line on every row.
+        Messaging.IFleetInboxLineSource? inboxLines = null)
     {
         if (roleUniverse is null) throw new ArgumentNullException(nameof(roleUniverse));
         if (toStamp is null) throw new ArgumentNullException(nameof(toStamp));
@@ -5430,6 +5440,12 @@ internal static class GatewayEndpoints
         // is not in the part I am looking at", and that distinction is the whole licence to drop an entry.
         Wingman.SnoozeExpiryRowStamp.Stamp(all, snoozeExpiry, verdictsOnTheWire, holds, tenant, foldNowUtc,
             snoozeRosterSessionIds);
+
+        // THE ROW LINE (Message Load mission, slice 4, ruling 12): what waits in each session's fleet inbox, in
+        // finished words. One grouped read of the account's unread messages for the whole fold, at the fold's one
+        // moment, so the stuck age agrees with every other time this fold states. It reads nothing the colour,
+        // the label or the bucket read, and they do not read it: a waiting message is not the owner's queue.
+        Messaging.FleetInboxLineStamp.Stamp(all, inboxLines, tenant, foldNowUtc);
 
         foreach (var s in all)
         {
