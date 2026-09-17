@@ -39,8 +39,12 @@ public static class TurnVerdictWatchdog
     ///
     /// THE OWNER'S OWN SESSIONS (owner ruling, 2026-09-15). A session that owns other sessions is carrying on while
     /// any of them is working, so its clock does not run then. Once none is, the clock starts from the moment the
-    /// last one stopped - the latest last activity across them - when that is later than the verdict's own
-    /// starting point: the judging moment plus ten minutes, or the announced wake-up plus two.
+    /// last one stopped when that is later than the verdict's own starting point: the judging moment plus ten
+    /// minutes, or the announced wake-up plus two.
+    ///
+    /// "WORKING" HERE MEANS INSIDE A TURN (issue #2992), read by <see cref="TurnVerdictOwnedSessions.For"/> from the
+    /// session's transcript - not the terminal's ten-second silence rule, which reads a Worker inside a long silent
+    /// command as stopped and so marked its owner as having broken its word while the Worker was still running.
     /// </summary>
     /// <param name="owned">The session's owned sessions, or null when it owns none.</param>
     public static DateTime? DeadlineFor(TurnVerdictDto verdict, OwnedSessionsFacts? owned = null)
@@ -49,9 +53,9 @@ public static class TurnVerdictWatchdog
         if (verdict.Failed
             || !string.Equals(verdict.Verdict, TurnVerdictVocabulary.ContinuesAlone, StringComparison.Ordinal))
             return null;
-        if (owned is { Working: > 0 }) return null;
+        if (owned is { InTurn: > 0 }) return null;
 
-        var lastOwnedStop = owned?.LastActivityAtUtc is { } stopped ? Utc(stopped) : (DateTime?)null;
+        var lastOwnedStop = owned?.LastStoppedAtUtc is { } stopped ? Utc(stopped) : (DateTime?)null;
         return verdict.NextScheduledWakeUtc is { } wake
             ? Later(Utc(wake), lastOwnedStop) + AfterAnnouncedWake
             : Later(Utc(verdict.JudgedAtUtc), lastOwnedStop) + WithoutAnnouncedWake;

@@ -1,16 +1,22 @@
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Fleet;
+using CcDirector.Gateway.History;
 
 namespace CcDirector.Gateway.Wingman;
 
 /// <summary>
 /// What the Wingman needs to know about the sessions a session owns (owner ruling, 2026-09-15): how many are
-/// working, stopped and needing a person - the row's own crew line counts, from the same fold - and the latest
-/// moment any of them last wrote to its terminal, which is when the last one stopped once none is working.
+/// working, stopped and needing a person - the row's own crew line counts, from the same fold, which is what the
+/// judge is told - and, for the carrying-on clock, how many are still inside a turn and the latest moment one of
+/// them stopped.
 /// </summary>
-/// <param name="LastActivityAtUtc">The latest <see cref="SessionDto.LastActivityAt"/> across the owned sessions,
-/// in UTC, or null when none carries one.</param>
-public sealed record OwnedSessionsFacts(int Working, int Stopped, int NeedYou, DateTime? LastActivityAtUtc);
+/// <param name="InTurn">How many owned sessions are still working for their owner (issue #2992), as
+/// <see cref="SessionTurnState.Read"/> decides. This, not <paramref name="Working"/>, is what stops the carrying-on
+/// clock: <paramref name="Working"/> is the terminal's ten-second silence rule, which reads a session inside a long
+/// silent command as stopped.</param>
+/// <param name="LastStoppedAtUtc">The latest moment an owned session stopped, in UTC, or null when none carries one.
+/// See <see cref="TurnVerdictOwnedSessions.For"/> for how each session's moment is read.</param>
+public sealed record OwnedSessionsFacts(int Working, int Stopped, int NeedYou, int InTurn, DateTime? LastStoppedAtUtc);
 
 /// <summary>
 /// The owned sessions of one session, read as a pure function over a roster - the shape and the reason of
@@ -23,10 +29,19 @@ public sealed record OwnedSessionsFacts(int Working, int Stopped, int NeedYou, D
 /// </summary>
 public static class TurnVerdictOwnedSessions
 {
-    /// <summary>The facts, or null when the session is not in the roster or owns no session.</summary>
-    public static OwnedSessionsFacts? For(IReadOnlyList<(string DirectorId, SessionDto Session)> roster, string sessionId)
+    /// <summary>
+    /// The facts, or null when the session is not in the roster or owns no session.
+    ///
+    /// Each owned session is read by <see cref="SessionTurnState.Read"/>, the one place that decides whether it is
+    /// still working for its owner and when it stopped (issue #2992): a tool running for the agent or a prompt with no
+    /// reply holds the owner; a tool waiting on a person, an interrupt and everything else read the terminal as before.
+    /// </summary>
+    /// <param name="turnTail">The end of the session's stored conversation, or null when nothing has been pushed.</param>
+    public static OwnedSessionsFacts? For(
+        IReadOnlyList<(string DirectorId, SessionDto Session)> roster, string sessionId, Func<string, SessionTurnTail?> turnTail)
     {
         ArgumentNullException.ThrowIfNull(roster);
+        ArgumentNullException.ThrowIfNull(turnTail);
         var sessions = roster.Select(r => r.Session).Where(s => s is not null).ToList();
         FleetRoleResolver.Stamp(sessions);
 
@@ -38,14 +53,17 @@ public static class TurnVerdictOwnedSessions
         if (owned.Count == 0) return null;
 
         var crew = SessionTree.SummarizeCrew(root, owned);
+        var inTurn = 0;
         DateTime? last = null;
         foreach (var s in owned)
         {
-            if (s.LastActivityAt is not { } at) continue;
+            var reading = SessionTurnState.Read(turnTail(s.SessionId), s);
+            if (reading.InTurn) inTurn++;
+            if (reading.StoppedAtUtc is not { } at) continue;
             var utc = at.Kind == DateTimeKind.Utc ? at : at.ToUniversalTime();
             if (last is null || utc > last.Value) last = utc;
         }
 
-        return new OwnedSessionsFacts(crew.Working, crew.Stopped, crew.NeedsYou, last);
+        return new OwnedSessionsFacts(crew.Working, crew.Stopped, crew.NeedsYou, inTurn, last);
     }
 }

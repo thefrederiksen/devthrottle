@@ -269,7 +269,7 @@ public sealed class TurnVerdictWatchdogTests
         var now = JudgedAt;
         var env = ColourOnEnv(() => now);
         env.Store(Tenant, "owner", CarryingOn());
-        env.Owned = sid => sid == "owner" ? new OwnedSessionsFacts(Working: 1, Stopped: 0, NeedYou: 0, LastActivityAtUtc: now) : null;
+        env.Owned = sid => sid == "owner" ? new OwnedSessionsFacts(Working: 1, Stopped: 0, NeedYou: 0, InTurn: 1, LastStoppedAtUtc: now) : null;
         var service = new TurnVerdictService(env);
 
         now = JudgedAt.AddMinutes(25);
@@ -291,8 +291,8 @@ public sealed class TurnVerdictWatchdogTests
         env.Store(Tenant, "owner", CarryingOn());
         env.Owned = sid => sid != "owner" ? null
             : childStoppedAt is { } stopped
-                ? new OwnedSessionsFacts(Working: 0, Stopped: 1, NeedYou: 0, LastActivityAtUtc: stopped)
-                : new OwnedSessionsFacts(Working: 1, Stopped: 0, NeedYou: 0, LastActivityAtUtc: now);
+                ? new OwnedSessionsFacts(Working: 0, Stopped: 1, NeedYou: 0, InTurn: 0, LastStoppedAtUtc: stopped)
+                : new OwnedSessionsFacts(Working: 1, Stopped: 0, NeedYou: 0, InTurn: 1, LastStoppedAtUtc: now);
         var service = new TurnVerdictService(env);
 
         now = JudgedAt.AddMinutes(30);
@@ -323,8 +323,8 @@ public sealed class TurnVerdictWatchdogTests
         var now = JudgedAt;
         var env = ColourOnEnv(() => now);
         env.Store(Tenant, "owner", CarryingOn());
-        var stopped = new OwnedSessionsFacts(Working: 0, Stopped: 1, NeedYou: 0, LastActivityAtUtc: JudgedAt);
-        var working = new OwnedSessionsFacts(Working: 1, Stopped: 0, NeedYou: 0, LastActivityAtUtc: JudgedAt.AddMinutes(11));
+        var stopped = new OwnedSessionsFacts(Working: 0, Stopped: 1, NeedYou: 0, InTurn: 0, LastStoppedAtUtc: JudgedAt);
+        var working = new OwnedSessionsFacts(Working: 1, Stopped: 0, NeedYou: 0, InTurn: 1, LastStoppedAtUtc: JudgedAt.AddMinutes(11));
         var childWorking = false;
         env.Owned = sid => sid != "owner" ? null : childWorking ? working : stopped;
         env.AfterNextLatest = () => childWorking = true;
@@ -354,8 +354,8 @@ public sealed class TurnVerdictWatchdogTests
         env.Store(Tenant, "owner", CarryingOn());
         env.Owned = sid => sid != "owner" ? null
             : childRed
-                ? new OwnedSessionsFacts(Working: 0, Stopped: 0, NeedYou: 1, LastActivityAtUtc: JudgedAt.AddMinutes(5))
-                : new OwnedSessionsFacts(Working: 1, Stopped: 0, NeedYou: 0, LastActivityAtUtc: now);
+                ? new OwnedSessionsFacts(Working: 0, Stopped: 0, NeedYou: 1, InTurn: 0, LastStoppedAtUtc: JudgedAt.AddMinutes(5))
+                : new OwnedSessionsFacts(Working: 1, Stopped: 0, NeedYou: 0, InTurn: 1, LastStoppedAtUtc: now);
         var service = new TurnVerdictService(env);
 
         now = JudgedAt.AddMinutes(4);

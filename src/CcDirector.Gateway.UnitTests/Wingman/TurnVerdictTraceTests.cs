@@ -796,7 +796,8 @@ public sealed class TurnVerdictTraceTests : IDisposable
             language: _ => SpokenLanguages.English,
             customSpokenRules: () => null,
             isVoiceSession: (_, _) => false,
-            fleetManagerSessionId: _ => null);
+            fleetManagerSessionId: _ => null,
+            turnTail: (_, _) => null);
         var service = new TurnVerdictService(env);
 
         var judged = await service.StartTurnEnd(Signal());

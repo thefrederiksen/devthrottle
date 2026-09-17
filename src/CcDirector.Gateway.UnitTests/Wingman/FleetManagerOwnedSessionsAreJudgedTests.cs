@@ -131,7 +131,8 @@ public sealed class FleetManagerOwnedSessionsAreJudgedTests : IDisposable
             language: _ => SpokenLanguages.English,
             customSpokenRules: () => null,
             isVoiceSession: (_, _) => voice,
-            fleetManagerSessionId: settings.FleetManagerSessionId);
+            fleetManagerSessionId: settings.FleetManagerSessionId,
+            turnTail: (_, _) => null);
         return (new TurnVerdictService(env), env, pushed);
     }
 

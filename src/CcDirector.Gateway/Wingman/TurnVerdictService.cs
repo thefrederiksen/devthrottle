@@ -1844,8 +1844,8 @@ public sealed class TurnVerdictService : IDisposable
     ///
     /// A CHILD'S WORKING TRANSITION is not seen through the verdict at all - it invalidates only the child's own
     /// verdict - so the deadline inside the gate is computed from the owned sessions read AGAIN inside the gate,
-    /// immediately before the store, never from the read taken before it. A child that is Working in the roster
-    /// at that moment stands the expiry down. The read and the store follow each other inside the gate with
+    /// immediately before the store, never from the read taken before it. A child inside a turn at that moment -
+    /// by its transcript, not its terminal (issue #2992) - stands the expiry down. The read and the store follow each other inside the gate with
     /// nothing awaited between them.
     /// </summary>
     public int ExpireCarryingOn(TenantId tenant)
@@ -1876,7 +1876,7 @@ public sealed class TurnVerdictService : IDisposable
                 // A CHILD'S WORKING TRANSITION DOES NOT TOUCH ITS OWNER'S VERDICT, so the owned sessions read above
                 // can be stale by now: a child that started Working since then must still hold its owner purple.
                 // They are read again here, inside the gate and immediately before the store, and the expiry
-                // stands down when any of them is Working.
+                // stands down when any of them is inside a turn.
                 var ownedNow = _env.OwnedSessions(tenant, sid);
                 if (!TurnVerdictWatchdog.IsExpired(current, now, ownedNow))
                     continue;

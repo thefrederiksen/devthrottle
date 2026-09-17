@@ -895,6 +895,19 @@ public sealed class GatewayHost : IAsyncDisposable
     /// re-implementation. Null until StartAsync builds it.</summary>
     internal TurnEndWatcher? TurnEndWatcherForTest => _turnEndWatcher;
 
+    /// <summary>Test-only: the carrying-on clock's per-account sweep, so a host test can run the production sweep
+    /// over the production verdict environment rather than a copy of its wiring (issue #2992).</summary>
+    internal Wingman.TurnVerdictWatchdogSweep TurnVerdictWatchdogSweepForTest => _turnVerdictWatchdogSweep;
+
+    /// <summary>Test-only: store one turn push for an account exactly as the Director hub does, inside the account's
+    /// scope - for a test that needs tool calls and a history state, which <see cref="SeedStoredConversationForTest"/>
+    /// does not carry.</summary>
+    internal void SeedTurnPushForTest(TenantId tenant, string directorId, Contracts.TurnPushBatch batch)
+    {
+        using var scope = _tenantBoundary?.EnterScope(tenant);
+        _sessionTurns.Append(directorId, batch, DateTime.UtcNow);
+    }
+
     /// <summary>
     /// Put a conversation into this Gateway's store for one session, as the owning Director's push would
     /// (turn-push mission). Tests need it because the narration path reads the STORE now: before the mission
@@ -2280,6 +2293,18 @@ public sealed class GatewayHost : IAsyncDisposable
     }
 
     /// <summary>
+    /// The end of one session's stored conversation, for the carrying-on clock (issue #2992), or null when nothing has
+    /// been stored for it. The tenant scope is entered HERE, synchronously, for the reason
+    /// <see cref="ReadStoredConversation"/> gives.
+    /// </summary>
+    internal History.SessionTurnTail? ReadSessionTurnTail(TenantId tenant, string sessionId)
+    {
+        if (!tenant.IsValid || string.IsNullOrEmpty(sessionId)) return null;
+        using var scope = _tenantBoundary?.EnterScope(tenant);
+        return _sessionTurns.ReadTail(sessionId, Wingman.SessionTurnState.TailLength);
+    }
+
+    /// <summary>
     /// One session's stored conversation for the turn log: the whole contiguous prefix of its current
     /// generation, both sides, with the parts intact. Null when nothing has been stored for it - which the
     /// record writes down as a named gap rather than as an empty conversation, because "the push has not
@@ -2737,6 +2762,9 @@ public sealed class GatewayHost : IAsyncDisposable
             isVoiceSession: (tenant, sid) => _voiceService?.IsVoiceSession(tenant, sid) ?? false,
             // The ACCOUNT's Fleet Manager mark: the one session whose direct Workers are judged while held.
             fleetManagerSessionId: _tenantSettingsResolver.FleetManagerSessionId,
+            // How each owned session's conversation ends (issue #2992): the carrying-on clock reads it to tell a tool
+            // running for the agent from one waiting on a person. The tenant scope is entered inside the reader.
+            turnTail: ReadSessionTurnTail,
             ledger: _activityEvents,
             enterTenantScope: tenant => _tenantBoundary.EnterScope(tenant));
 
