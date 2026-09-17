@@ -180,6 +180,10 @@ internal sealed class GatewayRuleEnvironment : IRuleEnvironment
                 FileLog.Write($"[GatewayRuleEnvironment] NOT typed sid={sessionId}: {sent.Detail}");
                 return RuleSendResult.NotSent(Shorten(sent.Detail));
 
+            // A definite Director refusal is recorded exactly as it was before the send kinds split it out of
+            // Unanswered: UNKNOWN. Session Rules behave as they did; only dev reports act on the difference.
+            case SessionVerbClient.PromptSendKind.DirectorRefused:
+            case SessionVerbClient.PromptSendKind.Unanswered:
             default:
                 FileLog.Write($"[GatewayRuleEnvironment] typing UNANSWERED sid={sessionId}: {sent.Detail}");
                 return RuleSendResult.Unknown(Shorten(sent.Detail));

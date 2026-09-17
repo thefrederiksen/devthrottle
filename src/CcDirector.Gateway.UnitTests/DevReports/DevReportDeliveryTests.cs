@@ -30,11 +30,16 @@ public sealed class DevReportDeliveryTests : IDisposable
     /// <summary>What the fake roster says about the session.</summary>
     private DevReportSessionReach _reach = DevReportSessionReach.Busy;
 
-    /// <summary>What the fake Director answers a prompt with; null means the command never left the Gateway.</summary>
+    /// <summary>What the fake Director answers a prompt with; null means the command never left the Gateway. It may
+    /// throw, which is how a test stands in for the Gateway dying after the prompt went out.</summary>
     private Func<DirectorCommandResult?> _answer = () => DirectorCommandResult.Success(
         JsonSerializer.Serialize(new PromptResponse { Accepted = true, ActivityState = "Working" }));
 
     private readonly ConcurrentQueue<PromptRequest> _prompts = new();
+
+    /// <summary>Set by a fake Director that has just accepted a prompt: the Gateway's next clock read - the one taken to
+    /// record what became of the send - throws, which is the Gateway dying between the send and its commit.</summary>
+    private bool _dieOnTheNextClockRead;
 
     /// <summary>The account scope in effect, as the fake scope seam sets it; the fake Director records it per send.</summary>
     private static readonly AsyncLocal<string?> ScopeInEffect = new();
@@ -54,7 +59,7 @@ public sealed class DevReportDeliveryTests : IDisposable
     private DevReportDelivery Delivery(DevReportStore store) => new(store,
         (tenant, sid) => new DevReportSessionLiveness(_reach, _reach == DevReportSessionReach.Ended ? null : DirectorId, "test roster"),
         (tenant, directorId) => new SessionVerbClient(new DirectorDto { DirectorId = directorId, MachineName = "TEST" }, SendAsync),
-        () => Now,
+        () => _dieOnTheNextClockRead ? throw new InvalidOperationException("the Gateway process died here") : Now,
         tenant => new Scope(tenant));
 
     private Task<DirectorCommandResult?> SendAsync(string directorId, DirectorCommand command, CancellationToken ct)
@@ -103,7 +108,7 @@ public sealed class DevReportDeliveryTests : IDisposable
         Assert.All(updates, u => Assert.Equal(("delivered", "Delivered to the session"), (u.Status, u.StatusLabel)));
         var prompt = Assert.Single(_prompts);
         Assert.Contains("row \"Gateway\", column \"Failures\"", prompt.Text);
-        Assert.Contains("TONIGHT (value \"tonight\")", prompt.Text);
+        Assert.Contains("\"TONIGHT\" (value \"tonight\")", prompt.Text);
         // The owner's turn: not an agent prompting another, and the dev report door on the ledger row.
         Assert.False(prompt.AgentDriven);
         Assert.True(prompt.AppendEnter);
@@ -143,7 +148,7 @@ public sealed class DevReportDeliveryTests : IDisposable
         Assert.Single(store.Items(Tenant, report.Id));
 
         _reach = DevReportSessionReach.Idle;
-        Assert.Equal(1, await delivery.DrainAsync(Tenant, _sid, default));
+        Assert.Equal(1, await delivery.SettleAsync(Tenant, _sid, default));
         Assert.Single(_prompts);
     }
 
@@ -166,9 +171,9 @@ public sealed class DevReportDeliveryTests : IDisposable
         Assert.Equal("replaced", resend.Single().Status);
 
         _reach = DevReportSessionReach.Idle;
-        await delivery.DrainAsync(Tenant, _sid, default);
+        await delivery.SettleAsync(Tenant, _sid, default);
         var prompt = Assert.Single(_prompts);
-        Assert.Contains("MONDAY (value \"monday\")", prompt.Text);
+        Assert.Contains("\"MONDAY\" (value \"monday\")", prompt.Text);
         Assert.DoesNotContain("tonight", prompt.Text);
         Assert.DoesNotContain("changes the owner's earlier answer", prompt.Text);
     }
@@ -204,7 +209,7 @@ public sealed class DevReportDeliveryTests : IDisposable
     }
 
     [Fact]
-    public async Task DrainAsync_HeldAcrossTwoReports_GoesAsOnePrompt()
+    public async Task SettleAsync_HeldAcrossTwoReports_GoesAsOnePrompt()
     {
         var store = Store();
         var first = Publish(store, @"C:\r\one.html");
@@ -215,19 +220,19 @@ public sealed class DevReportDeliveryTests : IDisposable
         Assert.Empty(_prompts);
 
         _reach = DevReportSessionReach.Idle;
-        var delivered = await delivery.DrainAsync(Tenant, _sid, default);
+        var delivered = await delivery.SettleAsync(Tenant, _sid, default);
 
         Assert.Equal(2, delivered);
         var prompt = Assert.Single(_prompts);
         Assert.Contains(@"file C:\r\one.html", prompt.Text);
         Assert.Contains(@"file C:\r\two.html", prompt.Text);
         // A second turn end has nothing left to send.
-        Assert.Equal(0, await delivery.DrainAsync(Tenant, _sid, default));
+        Assert.Equal(0, await delivery.SettleAsync(Tenant, _sid, default));
         Assert.Single(_prompts);
     }
 
     [Fact]
-    public async Task DrainAsync_SessionBusyAgain_KeepsTheItemsHeld()
+    public async Task SettleAsync_SessionBusyAgain_KeepsTheItemsHeld()
     {
         var store = Store();
         var report = Publish(store);
@@ -235,14 +240,14 @@ public sealed class DevReportDeliveryTests : IDisposable
         await delivery.SendAsync(Tenant, report, [Note("n1")], "device", default);
 
         _reach = DevReportSessionReach.Busy;
-        Assert.Equal(0, await delivery.DrainAsync(Tenant, _sid, default));
+        Assert.Equal(0, await delivery.SettleAsync(Tenant, _sid, default));
 
         Assert.Empty(_prompts);
         Assert.Equal("held", store.Items(Tenant, report.Id).Single().Status);
     }
 
     [Fact]
-    public async Task DrainAsync_SendNeverLeftTheGateway_StaysHeldAndGoesNextTime()
+    public async Task SettleAsync_SendNeverLeftTheGateway_StaysHeldAndGoesNextTime()
     {
         var store = Store();
         var report = Publish(store);
@@ -251,16 +256,16 @@ public sealed class DevReportDeliveryTests : IDisposable
         _reach = DevReportSessionReach.Idle;
         _answer = () => null;
 
-        Assert.Equal(0, await delivery.DrainAsync(Tenant, _sid, default));
+        Assert.Equal(0, await delivery.SettleAsync(Tenant, _sid, default));
         Assert.Equal("held", store.Items(Tenant, report.Id).Single().Status);
 
         _answer = () => DirectorCommandResult.Success(JsonSerializer.Serialize(new PromptResponse { Accepted = true }));
-        Assert.Equal(1, await delivery.DrainAsync(Tenant, _sid, default));
+        Assert.Equal(1, await delivery.SettleAsync(Tenant, _sid, default));
         Assert.Equal("delivered", store.Items(Tenant, report.Id).Single().Status);
     }
 
     [Fact]
-    public async Task DrainAsync_SendUnanswered_IsSentNotConfirmedAndNeverRetried()
+    public async Task SettleAsync_SendUnanswered_IsSentNotConfirmedAndNeverRetried()
     {
         var store = Store();
         var report = Publish(store);
@@ -269,12 +274,132 @@ public sealed class DevReportDeliveryTests : IDisposable
         _reach = DevReportSessionReach.Idle;
         _answer = () => DirectorCommandResult.Fail(DirectorCommandStatus.Timeout, "the Director did not answer");
 
-        await delivery.DrainAsync(Tenant, _sid, default);
-        await delivery.DrainAsync(Tenant, _sid, default);
+        await delivery.SettleAsync(Tenant, _sid, default);
+        await delivery.SettleAsync(Tenant, _sid, default);
 
         var row = store.Items(Tenant, report.Id).Single();
         Assert.Equal(("delivered", "Sent to the session, not confirmed"), (row.Status, row.StatusLabel));
         Assert.Single(_prompts);
+    }
+
+    [Fact]
+    public async Task SettleAsync_GatewayDiesAfterTheDirectorAccepted_TheNextProcessNeverSendsItAgain()
+    {
+        // Review Critical 1. The Director accepts the prompt and types the owner's words; the Gateway then dies before
+        // it records that. The fake Director accepts, and the Gateway's very next step - reading the clock to record
+        // the answer - throws, so nothing after the send is written.
+        var before = Store();
+        var report = Publish(before);
+        await Delivery(before).SendAsync(Tenant, report, [Note("n1")], "device", default);
+        _reach = DevReportSessionReach.Idle;
+        _answer = () =>
+        {
+            _dieOnTheNextClockRead = true;
+            return DirectorCommandResult.Success(JsonSerializer.Serialize(new PromptResponse { Accepted = true }));
+        };
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Delivery(before).SettleAsync(Tenant, _sid, default));
+        Assert.Single(_prompts);
+
+        // A new process over the same database, and a Director that would accept anything sent now.
+        _dieOnTheNextClockRead = false;
+        var after = Store();
+        Assert.Equal(0, await Delivery(after).SettleAsync(Tenant, _sid, default));
+        await Delivery(after).SettleAsync(Tenant, _sid, default);
+
+        Assert.Single(_prompts);
+        var row = after.Items(Tenant, report.Id).Single();
+        Assert.Equal(("delivered", "Sent to the session, not confirmed"), (row.Status, row.StatusLabel));
+    }
+
+    [Fact]
+    public async Task SettleAsync_AnItemFoundSendingInTheStore_IsSettledNotConfirmedAndNotSent()
+    {
+        var store = Store();
+        var report = Publish(store);
+        await Delivery(store).SendAsync(Tenant, report, [Note("n1")], "device", default);
+        store.SetState(Tenant, store.Items(Tenant, report.Id).Select(i => i.Id).ToList(), DevReportItemStates.SendingState, Now);
+        Assert.Equal(1, store.OpenItemCounts(Tenant, [report.Id])[report.Id]);
+
+        _reach = DevReportSessionReach.Idle;
+        await Delivery(Store()).SettleAsync(Tenant, _sid, default);
+
+        Assert.Empty(_prompts);
+        var row = store.Items(Tenant, report.Id).Single();
+        Assert.Equal(("delivered", "Sent to the session, not confirmed"), (row.Status, row.StatusLabel));
+        Assert.Empty(store.OpenItemCounts(Tenant, [report.Id]));
+    }
+
+    [Fact]
+    public async Task SettleAsync_HeldAndTheSessionHasEnded_RefusesThemAndTypesNothing()
+    {
+        var store = Store();
+        var report = Publish(store);
+        var delivery = Delivery(store);
+        await delivery.SendAsync(Tenant, report, [Note("n1"), Answer("a1", "deploy", "tonight")], "device", default);
+
+        _reach = DevReportSessionReach.Ended;
+        Assert.Equal(0, await delivery.SettleAsync(Tenant, _sid, default));
+
+        Assert.Empty(_prompts);
+        Assert.All(store.Items(Tenant, report.Id),
+            row => Assert.Equal(("refused", "This session has ended"), (row.Status, row.StatusLabel)));
+        Assert.Empty(store.OpenItemCounts(Tenant, [report.Id]));
+    }
+
+    [Theory]
+    [InlineData(DirectorCommandStatus.Conflict, "session has exited")]
+    [InlineData(DirectorCommandStatus.NotFound, "session not found")]
+    public async Task SettleAsync_DirectorRefusesAndTheSessionHasEnded_IsRefusedNotDelivered(DirectorCommandStatus status, string error)
+    {
+        // Review High 4, with the Director's real refusal (SessionCommandExecutor.PromptAsync): the roster still
+        // said idle, the session exited before the prompt reached its Director, and the Director refused it.
+        var store = Store();
+        var report = Publish(store);
+        var delivery = Delivery(store);
+        await delivery.SendAsync(Tenant, report, [Note("n1")], "device", default);
+        _reach = DevReportSessionReach.Idle;
+        _answer = () =>
+        {
+            _reach = DevReportSessionReach.Ended;
+            return DirectorCommandResult.Fail(status, error);
+        };
+
+        Assert.Equal(0, await delivery.SettleAsync(Tenant, _sid, default));
+
+        var row = store.Items(Tenant, report.Id).Single();
+        Assert.Equal(("refused", "This session has ended"), (row.Status, row.StatusLabel));
+        Assert.Null(row.DeliveredAtUtc);
+    }
+
+    [Fact]
+    public async Task SettleAsync_DirectorRefusesWhileTheRosterStillSaysIdle_StaysHeldAndIsNotSentAgainInThatPass()
+    {
+        var store = Store();
+        var report = Publish(store);
+        var delivery = Delivery(store);
+        await delivery.SendAsync(Tenant, report, [Note("n1")], "device", default);
+        _reach = DevReportSessionReach.Idle;
+        _answer = () => DirectorCommandResult.Fail(DirectorCommandStatus.NotFound, "session not found");
+
+        Assert.Equal(0, await delivery.SettleAsync(Tenant, _sid, default));
+
+        Assert.Single(_prompts);
+        Assert.Equal(("held", "Delivered when the agent finishes its turn"),
+            (store.Items(Tenant, report.Id).Single().Status, store.Items(Tenant, report.Id).Single().StatusLabel));
+    }
+
+    [Fact]
+    public async Task SendAsync_AnAnswerWhileAnEarlierOneIsSending_DoesNotReplaceTheSendingOne()
+    {
+        var store = Store();
+        var report = Publish(store);
+        var delivery = Delivery(store);
+        await delivery.SendAsync(Tenant, report, [Answer("a1", "deploy", "tonight")], "device", default);
+        store.SetState(Tenant, store.Items(Tenant, report.Id).Select(i => i.Id).ToList(), DevReportItemStates.SendingState, Now);
+
+        await delivery.SendAsync(Tenant, report, [Answer("a2", "deploy", "monday")], "device", default);
+
+        Assert.NotEqual("replaced", store.Items(Tenant, report.Id).Single(i => i.ClientItemId == "a1").Status);
     }
 
     [Fact]
@@ -290,20 +415,20 @@ public sealed class DevReportDeliveryTests : IDisposable
         {
             var id = "n" + i;
             work.Add(Task.Run(() => delivery.SendAsync(Tenant, report, [Note(id, "note " + id)], "device", default)));
-            work.Add(Task.Run(() => delivery.DrainAsync(Tenant, _sid, default)));
+            work.Add(Task.Run(() => delivery.SettleAsync(Tenant, _sid, default)));
         }
         await Task.WhenAll(work);
 
         for (var i = 0; i < 20; i++)
         {
-            var words = "<<<\nnote n" + i + "\n>>>";
+            var words = "\nnote n" + i + "\nowner-text-";
             Assert.Equal(1, _prompts.Count(p => p.Text.Contains(words, StringComparison.Ordinal)));
         }
         Assert.All(store.Items(Tenant, report.Id), row => Assert.Equal("delivered", row.Status));
     }
 
     [Fact]
-    public async Task DrainAsync_AfterARestartOverTheSameDatabase_DeliversWhatWasHeld()
+    public async Task SettleAsync_AfterARestartOverTheSameDatabase_DeliversWhatWasHeld()
     {
         var before = Store();
         var report = Publish(before);
@@ -313,14 +438,14 @@ public sealed class DevReportDeliveryTests : IDisposable
         // A new process: a new store over the same database file, a new delivery service with no memory.
         var after = Store();
         _reach = DevReportSessionReach.Idle;
-        var delivered = await Delivery(after).DrainAsync(Tenant, _sid, default);
+        var delivered = await Delivery(after).SettleAsync(Tenant, _sid, default);
 
         Assert.Equal(2, delivered);
         Assert.Single(_prompts);
     }
 
     [Fact]
-    public async Task DrainAsync_CalledWithNoAccountInScope_SendsInsideTheAccountsScope()
+    public async Task SettleAsync_CalledWithNoAccountInScope_SendsInsideTheAccountsScope()
     {
         // The restart path: the turn-end watcher's catch-up sweep raises the drain with no account in scope, and a
         // hosted tunnel drops a command sent that way. The send itself must carry the scope.
@@ -330,7 +455,7 @@ public sealed class DevReportDeliveryTests : IDisposable
         Assert.Null(ScopeInEffect.Value);
 
         _reach = DevReportSessionReach.Idle;
-        await Delivery(store).DrainAsync(Tenant, _sid, default);
+        await Delivery(store).SettleAsync(Tenant, _sid, default);
 
         Assert.Equal(Tenant.Value, Assert.Single(_scopeAtSend));
     }

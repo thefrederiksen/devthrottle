@@ -12,6 +12,7 @@ public sealed class DevReportItemStatesTests
     {
         Assert.Equal(("queued", "Accepted"), (DevReportItemStates.QueuedState.Status, DevReportItemStates.QueuedState.Label));
         Assert.Equal(("held", "Delivered when the agent finishes its turn"), (DevReportItemStates.HeldState.Status, DevReportItemStates.HeldState.Label));
+        Assert.Equal(("sending", "Sending to the session"), (DevReportItemStates.SendingState.Status, DevReportItemStates.SendingState.Label));
         Assert.Equal(("delivered", "Delivered to the session"), (DevReportItemStates.DeliveredState.Status, DevReportItemStates.DeliveredState.Label));
         Assert.Equal(("delivered", "Sent to the session, not confirmed"), (DevReportItemStates.UnconfirmedState.Status, DevReportItemStates.UnconfirmedState.Label));
         Assert.Equal(("replaced", "Replaced by a later answer"), (DevReportItemStates.ReplacedState.Status, DevReportItemStates.ReplacedState.Label));
@@ -22,6 +23,7 @@ public sealed class DevReportItemStatesTests
     [InlineData("Accepted", "delivered", "Delivered to the session")]
     [InlineData("Unconfirmed", "delivered", "Sent to the session, not confirmed")]
     [InlineData("NeverLeft", "held", "Delivered when the agent finishes its turn")]
+    [InlineData("Refused", "held", "Delivered when the agent finishes its turn")]
     public void AfterSend_EachOutcome_IsItsState(string outcome, string status, string label)
     {
         var state = DevReportItemStates.AfterSend(Enum.Parse<DevReportItemStates.SendOutcome>(outcome));
@@ -33,9 +35,18 @@ public sealed class DevReportItemStatesTests
     [Theory]
     [InlineData("queued", true)]
     [InlineData("held", true)]
+    [InlineData("sending", true)]
     [InlineData("delivered", false)]
     [InlineData("replaced", false)]
     [InlineData("refused", false)]
-    public void IsOpen_OnlyQueuedAndHeld_AreStillWaiting(string status, bool open)
+    public void IsOpen_QueuedHeldAndSending_AreNotYetSettled(string status, bool open)
         => Assert.Equal(open, DevReportItemStates.IsOpen(status));
+
+    [Theory]
+    [InlineData("queued", true)]
+    [InlineData("held", true)]
+    [InlineData("sending", false)]
+    [InlineData("delivered", false)]
+    public void IsWaiting_OnlyQueuedAndHeld_MayStillBeReplacedOrDrained(string status, bool waiting)
+        => Assert.Equal(waiting, DevReportItemStates.IsWaiting(status));
 }

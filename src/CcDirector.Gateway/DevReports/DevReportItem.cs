@@ -65,6 +65,10 @@ internal sealed record DevReportItem(
     /// <c>string.length</c> counts.</summary>
     public const int MaxString = 20000;
 
+    /// <summary>The longest client item id, in UTF-16 code units. The id is part of a unique PostgreSQL B-tree index,
+    /// whose entries are limited to about a third of a page (phase 2 review Medium 1); CONTRACT.md section 3.</summary>
+    public const int MaxItemId = 128;
+
     /// <summary>The most items one send may carry.</summary>
     public const int MaxItemsPerSend = 500;
 
@@ -115,6 +119,7 @@ internal sealed record DevReportItem(
         if (e.ValueKind != JsonValueKind.Object) { fault = "it is not an object."; return null; }
         if (!Str(e, "id", out var id, ref fault) ) return null;
         if (id.Length == 0) { fault = "id is empty."; return null; }
+        if (id.Length > MaxItemId) { fault = $"id is {id.Length} characters; the limit is {MaxItemId}."; return null; }
         if (!Str(e, "kind", out var kind, ref fault)) return null;
 
         if (kind == Note)

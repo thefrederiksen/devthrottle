@@ -154,6 +154,18 @@ def test_open_over_the_limit_is_refused_locally_with_the_gateway_sentence_and_no
     assert calls == []
 
 
+def test_open_key_over_512_characters_is_refused_locally_with_the_gateway_sentence(wire, report_file, monkeypatch):
+    calls = wire()
+    monkeypatch.setattr(reports_ops, "report_key", lambda _path: "c:\\" + "a" * 510)
+
+    result = runner.invoke(app, ["open", str(report_file)])
+
+    assert result.exit_code == 1
+    assert "error: The report key is 513 characters; the limit is 512." in result.output
+    assert "code: key_too_long" in result.output
+    assert calls == []
+
+
 def test_open_exactly_at_the_limit_is_sent(wire, tmp_path):
     calls = wire((200, {"report": _summary(), "created": True}))
     edge = tmp_path / "edge.html"
