@@ -23,7 +23,15 @@ namespace CcDirector.Gateway.Wingman;
 /// written to that same database cannot be promised either. An earlier version tried: the marker needed its own
 /// retry, its own ceiling and its own place in the queue, and review found a new way to lose each one. So the loss
 /// is written where it can be: the Gateway log names the session, the stop's moment and the outcome of every trace
-/// that was not kept, and <see cref="Dropped"/>, <see cref="Failed"/>, <see cref="Abandoned"/> and <see cref="Lost"/> count them.
+/// that was not kept, and <see cref="Dropped"/>, <see cref="Failed"/>, <see cref="ColourFoldFailed"/>, <see cref="Abandoned"/>
+/// and <see cref="Lost"/> count them.
+///
+/// A COLOUR FOLD THAT THROWS LOSES THE TRACE, AND SAYS SO UNDER ITS OWN NAME (inspection round 2, finding 3). The trace is
+/// not written without its colour: a row with no colour already means "this session was not on the roster", so a trace
+/// written colourless after a fold failure would be a silent degrade that reads as a different, harmless fact. The whole
+/// trace is counted as not kept, exactly as a failed write is - but as <see cref="ColourFoldFailed"/>, logged as
+/// "colour fold failed" with the exception, so a fold fault is never mistaken for the database refusing a write. The
+/// verdict itself is untouched either way: the fold runs on this writer's thread, never on the judgement path.
 ///
 /// ONE LIMIT THIS CANNOT REMOVE, stated rather than hidden: a write already inside the database call when shutdown
 /// gives up waiting cannot be recalled. It finishes or fails on its own, possibly against a database being disposed
@@ -48,6 +56,7 @@ public sealed class TurnVerdictTraceWriter : IDisposable
     private volatile bool _abandoned;
     private long _dropped;
     private long _failed;
+    private long _colourFoldFailed;
     private long _written;
     private long _abandonedCount;
     private long _lost;
@@ -55,7 +64,7 @@ public sealed class TurnVerdictTraceWriter : IDisposable
     /// <param name="append">Writes one trace. Production passes <see cref="TurnVerdictTraceStore.Append"/>.</param>
     /// <param name="stamp">Completes a trace just before it is written, on this writer's thread and never on the verdict
     /// path. Production passes <see cref="TurnVerdictTraceRowStamp.Stamp"/>, which records the colour the stop produced.
-    /// A stamp that throws is a write that failed, logged and counted like any other.</param>
+    /// A stamp that throws loses the trace, logged and counted as <see cref="ColourFoldFailed"/>, never as a failed write.</param>
     public TurnVerdictTraceWriter(Action<TenantId, TurnVerdictTrace> append,
         Func<TenantId, TurnVerdictTrace, TurnVerdictTrace>? stamp = null)
     {
@@ -78,10 +87,14 @@ public sealed class TurnVerdictTraceWriter : IDisposable
     /// <summary>Traces refused because the queue was full or closed.</summary>
     public long Dropped => Interlocked.Read(ref _dropped);
 
-    /// <summary>Traces whose write threw.</summary>
+    /// <summary>Traces whose write to the database threw.</summary>
     public long Failed => Interlocked.Read(ref _failed);
 
-    /// <summary>The last write that threw, as its exception type and message, or null when none has. The log line is the
+    /// <summary>Traces not kept because the colour fold threw before the write was attempted.</summary>
+    public long ColourFoldFailed => Interlocked.Read(ref _colourFoldFailed);
+
+    /// <summary>The last write or colour fold that threw, as which of the two it was, its exception type and message, or
+    /// null when none has. The log line is the
     /// record; this is so a caller holding the writer can say why a trace never arrived without reading a log file.</summary>
     public string? LastFailure => Volatile.Read(ref _lastFailure);
     private string? _lastFailure;
@@ -161,15 +174,32 @@ public sealed class TurnVerdictTraceWriter : IDisposable
                 continue;
             }
 
+            var stamped = trace;
+            if (_stamp is not null)
+            {
+                try
+                {
+                    stamped = _stamp(tenant, trace);
+                }
+                catch (Exception ex)
+                {
+                    Interlocked.Increment(ref _colourFoldFailed);
+                    Volatile.Write(ref _lastFailure, $"colour fold failed: {ex.GetType().FullName}: {ex.Message}");
+                    FileLog.Write($"[TurnVerdictTraceWriter] trace NOT KEPT (colour fold failed): outcome={trace.Outcome} sid={trace.SessionId} " +
+                                  $"observed={trace.TurnEndObservedAtUtc:O} verdict={trace.VerdictId} colourFoldFailed={ColourFoldFailed}: {ex}");
+                    continue;
+                }
+            }
+
             try
             {
-                _append(tenant, _stamp is null ? trace : _stamp(tenant, trace));
+                _append(tenant, stamped);
                 Interlocked.Increment(ref _written);
             }
             catch (Exception ex)
             {
                 Interlocked.Increment(ref _failed);
-                Volatile.Write(ref _lastFailure, $"{ex.GetType().FullName}: {ex.Message}");
+                Volatile.Write(ref _lastFailure, $"write failed: {ex.GetType().FullName}: {ex.Message}");
                 FileLog.Write($"[TurnVerdictTraceWriter] trace NOT KEPT (write failed): outcome={trace.Outcome} sid={trace.SessionId} " +
                               $"observed={trace.TurnEndObservedAtUtc:O} verdict={trace.VerdictId}: {ex.GetType().FullName}: {ex.Message}");
             }
