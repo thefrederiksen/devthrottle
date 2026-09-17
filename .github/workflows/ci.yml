@@ -53,8 +53,9 @@ jobs:
   #     source of every shipped Python tool, so no folder under tools/ is safely outside it.
   #   - .NET: effectively the whole repository. The Release build of the Gateway runs `npm ci`, the
   #     workspace typecheck and both shell builds, so every web input is a .NET input too. Its tests read
-  #     .claude/skills, scripts, the release workflow, packages/client-core, tools/registry.json, the
-  #     installer folders and several documents. The ONLY places proven outside it are:
+  #     the in-repository skill copies, scripts, the release workflow, packages/client-core,
+  #     tools/registry.json, the installer folders and several documents. The ONLY places proven outside
+  #     it are:
   #       * docs/, EXCEPT docs/wingman, docs/architecture/wingman, docs/new_architecture,
   #         docs/public/release-notes and docs/features/dictation, which its tests open by name;
   #       * a Python tool folder under tools/ (one that has a pyproject.toml and no .csproj), and
