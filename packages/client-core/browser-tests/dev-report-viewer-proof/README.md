@@ -79,12 +79,16 @@ running from the root by image path.
 - **F2** - the host's policy is the first element of the frame's head, and none of the direct report's scripts,
   handler, guessed nonce, external script or token snooping runs.
 - **F3** - code in the frame cannot read the app's storage, cookies or page, and has no storage or cookies of its own.
-- **F4** - the forged sends and readies (direct report, fake Send, `javascript:` link, form) make the app post
-  nothing to the Gateway.
+- **F4a** - the direct report's forged ready (with a port) and forged sends (on the window and over its own port)
+  make the app post nothing to the Gateway.
+- **F4b** - the fake Send, the `javascript:` link, the form, and a focus and a pick that a stylesheet watches reach
+  nothing, leave the frame on the report, and make the app post nothing.
 - **F5** - nothing the published hostile report loads by itself reaches another origin.
 - **F6** - the report cannot open a popup or navigate the app window.
-- **F7** - after a plain link takes the frame to another origin, that page's scripts run but it gets no message
-  from the host, and the app posts nothing.
+- **F7a** - a `data:` link takes the frame away; the host drops the page (the viewer's `data-connected` goes
+  false), nothing reaches another origin, and the app posts nothing.
+- **F7** - after a plain link takes the frame to another origin, that page's scripts run but the host drops it,
+  it gets no message from the host, its forged ready and sends are refused, and the app posts nothing.
 - **F8** - the same after a meta refresh.
 
 **Stage e2e**:
@@ -94,9 +98,31 @@ running from the root by image path.
   option; `cc-dev-reports reply` appears; republish reloads the page in place keeping the scroll position and a
   half-typed note.
 - **E7, Cockpit at 1400 by 900** - the same report shows version 2, the Gateway's labels and the reply.
-- **E8** - the session is ended; Send then shows the Gateway's refusal sentence and the item stays queued.
+- **E8** - the session is ended; Send then shows the Gateway's refusal sentence and the note stays queued.
+- **E9** - a note written in a second browser (the Cockpit, after the phone) either reaches the Gateway or stays
+  queued; it never leaves the queue or reads as delivered while the Gateway does not hold it.
 
-Each frame check is also run with its guard removed (`--mutation`), and the red output is kept in `evidence/`.
+## Red runs
+
+`mutations.mjs` holds one guard removal per rule of CONTRACT section 4, applied to the served bundle in the
+browser only (nothing on disk changes, and service workers are blocked so a cached bundle cannot skip it). Each
+names the claims it must turn red, and the run prints `RED AS EXPECTED` or `NOT RED` for each claim in each app,
+then `RED CONFIRMED` only when every one went red AND the removal matched in both bundles.
+
+| Removal | Rule | Must go red |
+|---|---|---|
+| `sandbox-same-origin` | 1 | F1, F3 |
+| `no-policy` | 3 | F2, F5 |
+| `no-token-check` | 4 | F7, F8 |
+| `no-policy-no-token-check` | 3 and 4 | F2, F4a |
+| `load-keeps-port` | 6 | F7a, F7, F8 |
+
+Rule 4 alone cannot turn F4a red, because the policy already stops the direct report's script; that is why it is
+also run together with rule 3.
+
+The rig's machine token (standing in for the owner's device key) and the session key are replaced with
+`<rig token>` and `<session key>` in every printed line and evidence file: a red run that reads the app's storage
+would otherwise print them.
 
 ## Known limit of the test browser
 

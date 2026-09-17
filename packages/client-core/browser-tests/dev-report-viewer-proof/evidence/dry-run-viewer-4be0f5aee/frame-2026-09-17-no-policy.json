@@ -1,0 +1,854 @@
+{
+  "mutation": "no-policy",
+  "gateway": "http://127.0.0.1:7931",
+  "rigRoot": "C:\\Users\\soren\\AppData\\Local\\dev-report-proof-rig",
+  "evil": "http://127.0.0.1:7941",
+  "steps": {
+    "frame-phone": {
+      "direct": {
+        "frameAttr": {
+          "sandbox": "allow-scripts",
+          "hostCanReadFrame": false
+        },
+        "inside": {
+          "origin": "null",
+          "firstHeadElement": "<meta name=\"policy-removed-by-mutation\" content=\"default-src 'none'; script-src 'nonce-d5372955ed588196ef4e4b45b40c1f69'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'\">",
+          "scriptRan": "{\"ran\":true,\"parentStorage\":\"blocked\",\"parentCookie\":\"blocked\",\"parentDom\":\"blocked\",\"ownStorage\":\"blocked\",\"ownCookie\":\"blocked\"}",
+          "handlerRan": "yes",
+          "tokenSeen": null,
+          "parentStorage": "blocked: SecurityError",
+          "parentCookie": "blocked: SecurityError",
+          "parentDom": "blocked: SecurityError",
+          "ownStorage": "blocked: SecurityError",
+          "ownCookie": "blocked: SecurityError"
+        },
+        "evilHits": [
+          {
+            "at": "2026-09-17T15:25:42.658Z",
+            "method": "GET",
+            "url": "/beacon/direct-script-ran?v=%7B%22ran%22%3Atrue%2C%22parentStorage%22%3A%22blocked%22%2C%22parentCookie%22%3A%22blocked%22%2C%22parentDom%22%3A%22blocked%22%2C%22ownStorage%22%3A%22blocked%22%2C%22ownCookie%22%3A%22blocked%22%7D",
+            "referer": ""
+          },
+          {
+            "at": "2026-09-17T15:25:42.662Z",
+            "method": "GET",
+            "url": "/beacon/direct-guessed-nonce-ran",
+            "referer": ""
+          },
+          {
+            "at": "2026-09-17T15:25:42.662Z",
+            "method": "GET",
+            "url": "/beacon/direct-external-script",
+            "referer": ""
+          },
+          {
+            "at": "2026-09-17T15:25:42.700Z",
+            "method": "GET",
+            "url": "/beacon/direct-handler-ran",
+            "referer": ""
+          }
+        ],
+        "sends": []
+      },
+      "clicks": {
+        "clickHits": [],
+        "stillReport": 1,
+        "sends": []
+      },
+      "dataLink": {
+        "connectedBeforeData": "true",
+        "connectedAfterData": "false",
+        "dataPage": {
+          "url": "data:text/html,%3Cp%3Edata%20page%3C%2Fp",
+          "scriptRan": "yes"
+        },
+        "hits": [
+          {
+            "at": "2026-09-17T15:25:55.113Z",
+            "method": "GET",
+            "url": "/beacon/data-url-script-ran",
+            "referer": ""
+          }
+        ],
+        "sends": []
+      },
+      "navigated": {
+        "navHits": [
+          {
+            "at": "2026-09-17T15:26:07.562Z",
+            "method": "GET",
+            "url": "/evil.html?from=link",
+            "referer": ""
+          },
+          {
+            "at": "2026-09-17T15:26:07.607Z",
+            "method": "GET",
+            "url": "/beacon/evil-link-ran?v=%7B%22parentStorage%22%3A%22blocked%22%2C%22parentCookie%22%3A%22blocked%22%2C%22parentDom%22%3A%22blocked%22%2C%22topLocation%22%3A%22blocked%22%7D",
+            "referer": ""
+          },
+          {
+            "at": "2026-09-17T15:26:07.607Z",
+            "method": "GET",
+            "url": "/beacon/evil-link-top-navigation?v=blocked%3ASecurityError",
+            "referer": ""
+          }
+        ],
+        "sends": [],
+        "connectedAfterNav": "false"
+      },
+      "metaRefresh": {
+        "hits": [
+          {
+            "at": "2026-09-17T15:26:24.037Z",
+            "method": "GET",
+            "url": "/evil.html?from=meta-refresh",
+            "referer": ""
+          },
+          {
+            "at": "2026-09-17T15:26:24.294Z",
+            "method": "GET",
+            "url": "/beacon/evil-meta-refresh-ran?v=%7B%22parentStorage%22%3A%22blocked%22%2C%22parentCookie%22%3A%22blocked%22%2C%22parentDom%22%3A%22blocked%22%2C%22topLocation%22%3A%22blocked%22%7D",
+            "referer": ""
+          },
+          {
+            "at": "2026-09-17T15:26:24.295Z",
+            "method": "GET",
+            "url": "/beacon/evil-meta-refresh-top-navigation?v=blocked%3ASecurityError",
+            "referer": ""
+          }
+        ],
+        "sends": [],
+        "connectedAfterRefresh": "false"
+      }
+    },
+    "frame-cockpit": {
+      "direct": {
+        "frameAttr": {
+          "sandbox": "allow-scripts",
+          "hostCanReadFrame": false
+        },
+        "inside": {
+          "origin": "null",
+          "firstHeadElement": "<meta name=\"policy-removed-by-mutation\" content=\"default-src 'none'; script-src 'nonce-138fa39e323a62198ce37e203791661f'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'\">",
+          "scriptRan": "{\"ran\":true,\"parentStorage\":\"blocked\",\"parentCookie\":\"blocked\",\"parentDom\":\"blocked\",\"ownStorage\":\"blocked\",\"ownCookie\":\"blocked\"}",
+          "handlerRan": "yes",
+          "tokenSeen": null,
+          "parentStorage": "blocked: SecurityError",
+          "parentCookie": "blocked: SecurityError",
+          "parentDom": "blocked: SecurityError",
+          "ownStorage": "blocked: SecurityError",
+          "ownCookie": "blocked: SecurityError"
+        },
+        "evilHits": [
+          {
+            "at": "2026-09-17T15:26:35.232Z",
+            "method": "GET",
+            "url": "/beacon/direct-script-ran?v=%7B%22ran%22%3Atrue%2C%22parentStorage%22%3A%22blocked%22%2C%22parentCookie%22%3A%22blocked%22%2C%22parentDom%22%3A%22blocked%22%2C%22ownStorage%22%3A%22blocked%22%2C%22ownCookie%22%3A%22blocked%22%7D",
+            "referer": ""
+          },
+          {
+            "at": "2026-09-17T15:26:35.236Z",
+            "method": "GET",
+            "url": "/beacon/direct-external-script",
+            "referer": ""
+          },
+          {
+            "at": "2026-09-17T15:26:35.236Z",
+            "method": "GET",
+            "url": "/beacon/direct-guessed-nonce-ran",
+            "referer": ""
+          },
+          {
+            "at": "2026-09-17T15:26:35.270Z",
+            "method": "GET",
+            "url": "/beacon/direct-handler-ran",
+            "referer": ""
+          }
+        ],
+        "sends": []
+      },
+      "clicks": {
+        "clickHits": [],
+        "stillReport": 1,
+        "sends": []
+      },
+      "dataLink": {
+        "connectedBeforeData": "true",
+        "connectedAfterData": "false",
+        "dataPage": {
+          "url": "data:text/html,%3Cp%3Edata%20page%3C%2Fp",
+          "scriptRan": "yes"
+        },
+        "hits": [
+          {
+            "at": "2026-09-17T15:26:47.363Z",
+            "method": "GET",
+            "url": "/beacon/data-url-script-ran",
+            "referer": ""
+          }
+        ],
+        "sends": []
+      },
+      "navigated": {
+        "navHits": [
+          {
+            "at": "2026-09-17T15:27:00.014Z",
+            "method": "GET",
+            "url": "/evil.html?from=link",
+            "referer": ""
+          },
+          {
+            "at": "2026-09-17T15:27:00.066Z",
+            "method": "GET",
+            "url": "/beacon/evil-link-ran?v=%7B%22parentStorage%22%3A%22blocked%22%2C%22parentCookie%22%3A%22blocked%22%2C%22parentDom%22%3A%22blocked%22%2C%22topLocation%22%3A%22blocked%22%7D",
+            "referer": ""
+          },
+          {
+            "at": "2026-09-17T15:27:00.070Z",
+            "method": "GET",
+            "url": "/beacon/evil-link-top-navigation?v=blocked%3ASecurityError",
+            "referer": ""
+          }
+        ],
+        "sends": [],
+        "connectedAfterNav": "false"
+      },
+      "metaRefresh": {
+        "hits": [
+          {
+            "at": "2026-09-17T15:27:13.360Z",
+            "method": "GET",
+            "url": "/evil.html?from=meta-refresh",
+            "referer": ""
+          },
+          {
+            "at": "2026-09-17T15:27:13.397Z",
+            "method": "GET",
+            "url": "/beacon/evil-meta-refresh-ran?v=%7B%22parentStorage%22%3A%22blocked%22%2C%22parentCookie%22%3A%22blocked%22%2C%22parentDom%22%3A%22blocked%22%2C%22topLocation%22%3A%22blocked%22%7D",
+            "referer": ""
+          },
+          {
+            "at": "2026-09-17T15:27:13.399Z",
+            "method": "GET",
+            "url": "/beacon/evil-meta-refresh-top-navigation?v=blocked%3ASecurityError",
+            "referer": ""
+          }
+        ],
+        "sends": [],
+        "connectedAfterRefresh": "false"
+      }
+    }
+  },
+  "mutationApplied": {
+    "/mobile/assets/index-D7yYcKG5.js": [
+      0
+    ],
+    "/assets/index-Cos5ViUJ.js": [
+      0
+    ]
+  },
+  "evilHits": [
+    {
+      "at": "2026-09-17T15:25:42.658Z",
+      "method": "GET",
+      "url": "/beacon/direct-script-ran?v=%7B%22ran%22%3Atrue%2C%22parentStorage%22%3A%22blocked%22%2C%22parentCookie%22%3A%22blocked%22%2C%22parentDom%22%3A%22blocked%22%2C%22ownStorage%22%3A%22blocked%22%2C%22ownCookie%22%3A%22blocked%22%7D",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:25:42.662Z",
+      "method": "GET",
+      "url": "/beacon/direct-guessed-nonce-ran",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:25:42.662Z",
+      "method": "GET",
+      "url": "/beacon/direct-external-script",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:25:42.700Z",
+      "method": "GET",
+      "url": "/beacon/direct-handler-ran",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:25:47.886Z",
+      "method": "GET",
+      "url": "/beacon/link-prefetch",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:25:47.895Z",
+      "method": "GET",
+      "url": "/beacon/link-stylesheet",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:25:47.899Z",
+      "method": "GET",
+      "url": "/beacon/video-poster",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:25:47.900Z",
+      "method": "GET",
+      "url": "/evil.html?from=nested-iframe",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:25:47.903Z",
+      "method": "GET",
+      "url": "/beacon/img",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:25:47.904Z",
+      "method": "GET",
+      "url": "/beacon/img-srcset",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:25:47.905Z",
+      "method": "GET",
+      "url": "/beacon/svg-image",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:25:47.906Z",
+      "method": "GET",
+      "url": "/beacon/video",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:25:47.907Z",
+      "method": "GET",
+      "url": "/beacon/audio",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:25:47.958Z",
+      "method": "GET",
+      "url": "/beacon/embed",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:25:47.960Z",
+      "method": "GET",
+      "url": "/beacon/object",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:25:47.961Z",
+      "method": "GET",
+      "url": "/beacon/srcdoc-script-ran",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:25:47.970Z",
+      "method": "GET",
+      "url": "/beacon/evil-nested-iframe-ran?v=%7B%22parentStorage%22%3A%22blocked%22%2C%22parentCookie%22%3A%22blocked%22%2C%22parentDom%22%3A%22blocked%22%2C%22topLocation%22%3A%22blocked%22%7D",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:25:47.973Z",
+      "method": "GET",
+      "url": "/beacon/evil-nested-iframe-top-navigation?v=blocked%3ASecurityError",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:25:55.113Z",
+      "method": "GET",
+      "url": "/beacon/data-url-script-ran",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:03.690Z",
+      "method": "GET",
+      "url": "/beacon/link-prefetch",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:03.694Z",
+      "method": "GET",
+      "url": "/beacon/link-stylesheet",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:03.698Z",
+      "method": "GET",
+      "url": "/beacon/video-poster",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:03.703Z",
+      "method": "GET",
+      "url": "/beacon/img",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:03.705Z",
+      "method": "GET",
+      "url": "/evil.html?from=nested-iframe",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:03.709Z",
+      "method": "GET",
+      "url": "/beacon/img-srcset",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:03.709Z",
+      "method": "GET",
+      "url": "/beacon/svg-image",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:03.710Z",
+      "method": "GET",
+      "url": "/beacon/video",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:03.711Z",
+      "method": "GET",
+      "url": "/beacon/audio",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:03.749Z",
+      "method": "GET",
+      "url": "/beacon/object",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:03.752Z",
+      "method": "GET",
+      "url": "/beacon/embed",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:03.772Z",
+      "method": "GET",
+      "url": "/beacon/evil-nested-iframe-ran?v=%7B%22parentStorage%22%3A%22blocked%22%2C%22parentCookie%22%3A%22blocked%22%2C%22parentDom%22%3A%22blocked%22%2C%22topLocation%22%3A%22blocked%22%7D",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:03.773Z",
+      "method": "GET",
+      "url": "/beacon/evil-nested-iframe-top-navigation?v=blocked%3ASecurityError",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:03.777Z",
+      "method": "GET",
+      "url": "/beacon/srcdoc-script-ran",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:07.562Z",
+      "method": "GET",
+      "url": "/evil.html?from=link",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:07.607Z",
+      "method": "GET",
+      "url": "/beacon/evil-link-ran?v=%7B%22parentStorage%22%3A%22blocked%22%2C%22parentCookie%22%3A%22blocked%22%2C%22parentDom%22%3A%22blocked%22%2C%22topLocation%22%3A%22blocked%22%7D",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:07.607Z",
+      "method": "GET",
+      "url": "/beacon/evil-link-top-navigation?v=blocked%3ASecurityError",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:24.037Z",
+      "method": "GET",
+      "url": "/evil.html?from=meta-refresh",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:24.294Z",
+      "method": "GET",
+      "url": "/beacon/evil-meta-refresh-ran?v=%7B%22parentStorage%22%3A%22blocked%22%2C%22parentCookie%22%3A%22blocked%22%2C%22parentDom%22%3A%22blocked%22%2C%22topLocation%22%3A%22blocked%22%7D",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:24.295Z",
+      "method": "GET",
+      "url": "/beacon/evil-meta-refresh-top-navigation?v=blocked%3ASecurityError",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:35.232Z",
+      "method": "GET",
+      "url": "/beacon/direct-script-ran?v=%7B%22ran%22%3Atrue%2C%22parentStorage%22%3A%22blocked%22%2C%22parentCookie%22%3A%22blocked%22%2C%22parentDom%22%3A%22blocked%22%2C%22ownStorage%22%3A%22blocked%22%2C%22ownCookie%22%3A%22blocked%22%7D",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:35.236Z",
+      "method": "GET",
+      "url": "/beacon/direct-external-script",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:35.236Z",
+      "method": "GET",
+      "url": "/beacon/direct-guessed-nonce-ran",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:35.270Z",
+      "method": "GET",
+      "url": "/beacon/direct-handler-ran",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:40.294Z",
+      "method": "GET",
+      "url": "/beacon/link-prefetch",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:40.299Z",
+      "method": "GET",
+      "url": "/beacon/link-stylesheet",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:40.300Z",
+      "method": "GET",
+      "url": "/beacon/video-poster",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:40.301Z",
+      "method": "GET",
+      "url": "/evil.html?from=nested-iframe",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:40.303Z",
+      "method": "GET",
+      "url": "/beacon/img",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:40.304Z",
+      "method": "GET",
+      "url": "/beacon/img-srcset",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:40.305Z",
+      "method": "GET",
+      "url": "/beacon/svg-image",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:40.329Z",
+      "method": "GET",
+      "url": "/beacon/video",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:40.351Z",
+      "method": "GET",
+      "url": "/beacon/audio",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:40.362Z",
+      "method": "GET",
+      "url": "/beacon/embed",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:40.363Z",
+      "method": "GET",
+      "url": "/beacon/srcdoc-script-ran",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:40.364Z",
+      "method": "GET",
+      "url": "/beacon/object",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:40.415Z",
+      "method": "GET",
+      "url": "/beacon/evil-nested-iframe-ran?v=%7B%22parentStorage%22%3A%22blocked%22%2C%22parentCookie%22%3A%22blocked%22%2C%22parentDom%22%3A%22blocked%22%2C%22topLocation%22%3A%22blocked%22%7D",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:40.416Z",
+      "method": "GET",
+      "url": "/beacon/evil-nested-iframe-top-navigation?v=blocked%3ASecurityError",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:47.363Z",
+      "method": "GET",
+      "url": "/beacon/data-url-script-ran",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:56.059Z",
+      "method": "GET",
+      "url": "/beacon/link-prefetch",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:56.059Z",
+      "method": "GET",
+      "url": "/beacon/link-stylesheet",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:56.064Z",
+      "method": "GET",
+      "url": "/beacon/video-poster",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:56.066Z",
+      "method": "GET",
+      "url": "/evil.html?from=nested-iframe",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:56.069Z",
+      "method": "GET",
+      "url": "/beacon/img",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:56.071Z",
+      "method": "GET",
+      "url": "/beacon/img-srcset",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:56.072Z",
+      "method": "GET",
+      "url": "/beacon/svg-image",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:56.119Z",
+      "method": "GET",
+      "url": "/beacon/video",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:56.120Z",
+      "method": "GET",
+      "url": "/beacon/audio",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:56.127Z",
+      "method": "GET",
+      "url": "/beacon/embed",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:56.128Z",
+      "method": "GET",
+      "url": "/beacon/object",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:56.133Z",
+      "method": "GET",
+      "url": "/beacon/srcdoc-script-ran",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:56.278Z",
+      "method": "GET",
+      "url": "/beacon/evil-nested-iframe-ran?v=%7B%22parentStorage%22%3A%22blocked%22%2C%22parentCookie%22%3A%22blocked%22%2C%22parentDom%22%3A%22blocked%22%2C%22topLocation%22%3A%22blocked%22%7D",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:26:56.279Z",
+      "method": "GET",
+      "url": "/beacon/evil-nested-iframe-top-navigation?v=blocked%3ASecurityError",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:27:00.014Z",
+      "method": "GET",
+      "url": "/evil.html?from=link",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:27:00.066Z",
+      "method": "GET",
+      "url": "/beacon/evil-link-ran?v=%7B%22parentStorage%22%3A%22blocked%22%2C%22parentCookie%22%3A%22blocked%22%2C%22parentDom%22%3A%22blocked%22%2C%22topLocation%22%3A%22blocked%22%7D",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:27:00.070Z",
+      "method": "GET",
+      "url": "/beacon/evil-link-top-navigation?v=blocked%3ASecurityError",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:27:13.360Z",
+      "method": "GET",
+      "url": "/evil.html?from=meta-refresh",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:27:13.397Z",
+      "method": "GET",
+      "url": "/beacon/evil-meta-refresh-ran?v=%7B%22parentStorage%22%3A%22blocked%22%2C%22parentCookie%22%3A%22blocked%22%2C%22parentDom%22%3A%22blocked%22%2C%22topLocation%22%3A%22blocked%22%7D",
+      "referer": ""
+    },
+    {
+      "at": "2026-09-17T15:27:13.399Z",
+      "method": "GET",
+      "url": "/beacon/evil-meta-refresh-top-navigation?v=blocked%3ASecurityError",
+      "referer": ""
+    }
+  ],
+  "results": [
+    {
+      "claim": "F1 (phone): the report is in <iframe sandbox=\"allow-scripts\">, opaque origin, host cannot read it",
+      "ok": true,
+      "detail": "{\"frameAttr\":{\"sandbox\":\"allow-scripts\",\"hostCanReadFrame\":false},\"origin\":\"null\"}"
+    },
+    {
+      "claim": "F2 (phone): the host's policy is the first thing in the head, and the report's scripts, handler, guessed nonce, external script and token snooping do not run",
+      "ok": false,
+      "detail": "{\"firstHeadElement\":\"<meta name=\\\"policy-removed-by-mutation\\\" content=\\\"default-src 'none'; script-src 'nonce-d5372955ed588196ef4e4b45b40c1f69'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'\\\">\",\"scriptRan\":\"{\\\"ran\\\":true,\\\"parentStorage\\\":\\\"blocked\\\",\\\"parentCookie\\\":\\\"blocked\\\",\\\"parentDom\\\":\\\"blocked\\\",\\\"ownStorage\\\":\\\"blocked\\\",\\\"ownCookie\\\":\\\"blocked\\\"}\",\"handlerRan\":\"yes\",\"tokenSeen\":null,\"beacons\":[\"/beacon/direct-script-ran?v=%7B%22ran%22%3Atrue%2C%22parentStorage%22%3A%22blocked%22%2C%22parentCookie%22%3A%22blocked%22%2C%22parentDom%22%3A%22blocked%22%2C%22ownStorage%22%3A%22blocked%22%2C%22ownCookie%22%3A%22blocked%22%7D\",\"/beacon/direct-guessed-nonce-ran\",\"/beacon/direct-external-script\",\"/beacon/direct-handler-ran\"]}"
+    },
+    {
+      "claim": "F3 (phone): code in the frame cannot read the app's storage, cookies or page, and has none of its own",
+      "ok": true,
+      "detail": "{\"parentStorage\":\"blocked: SecurityError\",\"parentCookie\":\"blocked: SecurityError\",\"parentDom\":\"blocked: SecurityError\",\"ownStorage\":\"blocked: SecurityError\",\"ownCookie\":\"blocked: SecurityError\"}"
+    },
+    {
+      "claim": "F4a (phone): the direct report's forged send and forged ready (no token) make the app send nothing",
+      "ok": true,
+      "detail": "[]"
+    },
+    {
+      "claim": "mutation no-policy was applied to the phone bundle",
+      "ok": true,
+      "detail": "[[\"/mobile/assets/index-D7yYcKG5.js\",[0]]]"
+    },
+    {
+      "claim": "F5 (phone): nothing the published hostile report loads by itself reaches another origin (base, report policy, stylesheets, fonts, backgrounds, images, media, objects, nested frames)",
+      "ok": false,
+      "detail": "[\"/beacon/link-prefetch\",\"/beacon/link-stylesheet\",\"/beacon/video-poster\",\"/evil.html?from=nested-iframe\",\"/beacon/img\",\"/beacon/img-srcset\",\"/beacon/svg-image\",\"/beacon/video\",\"/beacon/audio\",\"/beacon/embed\",\"/beacon/object\",\"/beacon/srcdoc-script-ran\",\"/beacon/evil-nested-iframe-ran?v=%7B%22parentStorage%22%3A%22blocked%22%2C%22parentCookie%22%3A%22blocked%22%2C%22parentDom%22%3A%22blocked%22%2C%22topLocation%22%3A%22blocked%22%7D\",\"/beacon/evil-nested-iframe-top-navigation?v=blocked%3ASecurityError\"]"
+    },
+    {
+      "claim": "F4b (phone): the fake Send, the javascript: link, the form, and a focus and a pick that a stylesheet watches reach nothing and make the app send nothing",
+      "ok": true,
+      "detail": "{\"clickHits\":[],\"stillReport\":1,\"sends\":[]}"
+    },
+    {
+      "claim": "F7a (phone): a data: link takes the frame away; the host drops the page (connected false), nothing reaches another origin, and the app sends nothing",
+      "ok": false,
+      "detail": "{\"connectedBeforeData\":\"true\",\"connectedAfterData\":\"false\",\"dataPage\":{\"url\":\"data:text/html,%3Cp%3Edata%20page%3C%2Fp\",\"scriptRan\":\"yes\"},\"hits\":[{\"at\":\"2026-09-17T15:25:55.113Z\",\"method\":\"GET\",\"url\":\"/beacon/data-url-script-ran\",\"referer\":\"\"}],\"sends\":[]}"
+    },
+    {
+      "claim": "F6 (phone): the report cannot open a popup or take over the app window",
+      "ok": true,
+      "detail": "{\"popups\":[],\"url\":\"http://127.0.0.1:7931/mobile/session/6abba030-6c97-412c-8008-c1bb69ba5a60/reports/6f6961ed-ce5f-475e-b69d-bf18e4be6f0f\",\"appUrl\":\"http://127.0.0.1:7931/mobile/session/6abba030-6c97-412c-8008-c1bb69ba5a60/reports/6f6961ed-ce5f-475e-b69d-bf18e4be6f0f\"}"
+    },
+    {
+      "claim": "F7 (phone): after a link takes the frame to another origin, that page runs but the host drops it, it gets nothing, and its forged ready and sends are refused",
+      "ok": true,
+      "detail": "[\"/evil.html?from=link\",\"/beacon/evil-link-ran?v={\\\"parentStorage\\\":\\\"blocked\\\",\\\"parentCookie\\\":\\\"blocked\\\",\\\"parentDom\\\":\\\"blocked\\\",\\\"topLocation\\\":\\\"blocked\\\"}\",\"/beacon/evil-link-top-navigation?v=blocked:SecurityError\"]"
+    },
+    {
+      "claim": "F8 (phone): after a meta refresh takes the frame away, the host drops the page, it gets nothing and can send nothing",
+      "ok": true,
+      "detail": "[\"/evil.html?from=meta-refresh\",\"/beacon/evil-meta-refresh-ran?v={\\\"parentStorage\\\":\\\"blocked\\\",\\\"parentCookie\\\":\\\"blocked\\\",\\\"parentDom\\\":\\\"blocked\\\",\\\"topLocation\\\":\\\"blocked\\\"}\",\"/beacon/evil-meta-refresh-top-navigation?v=blocked:SecurityError\"]"
+    },
+    {
+      "claim": "F1 (cockpit): the report is in <iframe sandbox=\"allow-scripts\">, opaque origin, host cannot read it",
+      "ok": true,
+      "detail": "{\"frameAttr\":{\"sandbox\":\"allow-scripts\",\"hostCanReadFrame\":false},\"origin\":\"null\"}"
+    },
+    {
+      "claim": "F2 (cockpit): the host's policy is the first thing in the head, and the report's scripts, handler, guessed nonce, external script and token snooping do not run",
+      "ok": false,
+      "detail": "{\"firstHeadElement\":\"<meta name=\\\"policy-removed-by-mutation\\\" content=\\\"default-src 'none'; script-src 'nonce-138fa39e323a62198ce37e203791661f'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'\\\">\",\"scriptRan\":\"{\\\"ran\\\":true,\\\"parentStorage\\\":\\\"blocked\\\",\\\"parentCookie\\\":\\\"blocked\\\",\\\"parentDom\\\":\\\"blocked\\\",\\\"ownStorage\\\":\\\"blocked\\\",\\\"ownCookie\\\":\\\"blocked\\\"}\",\"handlerRan\":\"yes\",\"tokenSeen\":null,\"beacons\":[\"/beacon/direct-script-ran?v=%7B%22ran%22%3Atrue%2C%22parentStorage%22%3A%22blocked%22%2C%22parentCookie%22%3A%22blocked%22%2C%22parentDom%22%3A%22blocked%22%2C%22ownStorage%22%3A%22blocked%22%2C%22ownCookie%22%3A%22blocked%22%7D\",\"/beacon/direct-external-script\",\"/beacon/direct-guessed-nonce-ran\",\"/beacon/direct-handler-ran\"]}"
+    },
+    {
+      "claim": "F3 (cockpit): code in the frame cannot read the app's storage, cookies or page, and has none of its own",
+      "ok": true,
+      "detail": "{\"parentStorage\":\"blocked: SecurityError\",\"parentCookie\":\"blocked: SecurityError\",\"parentDom\":\"blocked: SecurityError\",\"ownStorage\":\"blocked: SecurityError\",\"ownCookie\":\"blocked: SecurityError\"}"
+    },
+    {
+      "claim": "F4a (cockpit): the direct report's forged send and forged ready (no token) make the app send nothing",
+      "ok": true,
+      "detail": "[]"
+    },
+    {
+      "claim": "mutation no-policy was applied to the cockpit bundle",
+      "ok": true,
+      "detail": "[[\"/assets/index-Cos5ViUJ.js\",[0]]]"
+    },
+    {
+      "claim": "F5 (cockpit): nothing the published hostile report loads by itself reaches another origin (base, report policy, stylesheets, fonts, backgrounds, images, media, objects, nested frames)",
+      "ok": false,
+      "detail": "[\"/beacon/link-prefetch\",\"/beacon/link-stylesheet\",\"/beacon/video-poster\",\"/evil.html?from=nested-iframe\",\"/beacon/img\",\"/beacon/img-srcset\",\"/beacon/svg-image\",\"/beacon/video\",\"/beacon/audio\",\"/beacon/embed\",\"/beacon/srcdoc-script-ran\",\"/beacon/object\",\"/beacon/evil-nested-iframe-ran?v=%7B%22parentStorage%22%3A%22blocked%22%2C%22parentCookie%22%3A%22blocked%22%2C%22parentDom%22%3A%22blocked%22%2C%22topLocation%22%3A%22blocked%22%7D\",\"/beacon/evil-nested-iframe-top-navigation?v=blocked%3ASecurityError\"]"
+    },
+    {
+      "claim": "F4b (cockpit): the fake Send, the javascript: link, the form, and a focus and a pick that a stylesheet watches reach nothing and make the app send nothing",
+      "ok": true,
+      "detail": "{\"clickHits\":[],\"stillReport\":1,\"sends\":[]}"
+    },
+    {
+      "claim": "F7a (cockpit): a data: link takes the frame away; the host drops the page (connected false), nothing reaches another origin, and the app sends nothing",
+      "ok": false,
+      "detail": "{\"connectedBeforeData\":\"true\",\"connectedAfterData\":\"false\",\"dataPage\":{\"url\":\"data:text/html,%3Cp%3Edata%20page%3C%2Fp\",\"scriptRan\":\"yes\"},\"hits\":[{\"at\":\"2026-09-17T15:26:47.363Z\",\"method\":\"GET\",\"url\":\"/beacon/data-url-script-ran\",\"referer\":\"\"}],\"sends\":[]}"
+    },
+    {
+      "claim": "F6 (cockpit): the report cannot open a popup or take over the app window",
+      "ok": true,
+      "detail": "{\"popups\":[],\"url\":\"http://127.0.0.1:7931/session/6abba030-6c97-412c-8008-c1bb69ba5a60\",\"appUrl\":\"http://127.0.0.1:7931/session/6abba030-6c97-412c-8008-c1bb69ba5a60\"}"
+    },
+    {
+      "claim": "F7 (cockpit): after a link takes the frame to another origin, that page runs but the host drops it, it gets nothing, and its forged ready and sends are refused",
+      "ok": true,
+      "detail": "[\"/evil.html?from=link\",\"/beacon/evil-link-ran?v={\\\"parentStorage\\\":\\\"blocked\\\",\\\"parentCookie\\\":\\\"blocked\\\",\\\"parentDom\\\":\\\"blocked\\\",\\\"topLocation\\\":\\\"blocked\\\"}\",\"/beacon/evil-link-top-navigation?v=blocked:SecurityError\"]"
+    },
+    {
+      "claim": "F8 (cockpit): after a meta refresh takes the frame away, the host drops the page, it gets nothing and can send nothing",
+      "ok": true,
+      "detail": "[\"/evil.html?from=meta-refresh\",\"/beacon/evil-meta-refresh-ran?v={\\\"parentStorage\\\":\\\"blocked\\\",\\\"parentCookie\\\":\\\"blocked\\\",\\\"parentDom\\\":\\\"blocked\\\",\\\"topLocation\\\":\\\"blocked\\\"}\",\"/beacon/evil-meta-refresh-top-navigation?v=blocked:SecurityError\"]"
+    }
+  ],
+  "redVerdict": {
+    "appliedEverywhere": true,
+    "perClaim": [
+      {
+        "claim": "F2 (phone)",
+        "red": true
+      },
+      {
+        "claim": "F2 (cockpit)",
+        "red": true
+      },
+      {
+        "claim": "F5 (phone)",
+        "red": true
+      },
+      {
+        "claim": "F5 (cockpit)",
+        "red": true
+      }
+    ],
+    "confirmed": true
+  }
+}
