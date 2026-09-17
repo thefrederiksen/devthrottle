@@ -1177,6 +1177,12 @@ public sealed class ControlApiHost : IAsyncDisposable
             restore.Release();
             return Refuse(DirectorCommandStatus.Conflict, ex.Message);
         }
+        catch (HttpRequestException ex)
+        {
+            // The workspace or the roster could not be read: nothing can be checked, so nothing is taken.
+            restore.Release();
+            return Refuse(DirectorCommandStatus.Conflict, $"the Gateway could not be read to check the restore, so nothing was restored: {ex.Message}");
+        }
 
         FileLog.Write($"[ControlApiHost] tunnel '{cmd.Verb}': taking the restore of workspace {order.WorkspaceId}, {seats.Count} seat(s) (asked by {order.RequestedBySessionId ?? "the owner"})");
         _ = Task.Run(async () =>

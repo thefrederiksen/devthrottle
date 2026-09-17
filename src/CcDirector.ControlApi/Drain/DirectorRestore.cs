@@ -9,15 +9,22 @@ public interface IRestoreGateway
     /// <summary>The workspace as it is stored now, or null when there is none.</summary>
     Task<WorkspaceDocument?> GetWorkspaceAsync(string id, CancellationToken ct);
 
-    /// <summary>Store the workspace as it stands. Called after every seat, so a restore that is interrupted still
-    /// says which seats came back.</summary>
-    Task<WorkspaceDocument> SaveWorkspaceAsync(WorkspaceDocument doc, CancellationToken ct);
+    /// <summary>
+    /// Write what the restore did to one seat (<c>POST /gateway/workspaces/{id}/restore/marks</c>) and return the
+    /// stored document. The only way a restore's results reach the workspace: an ordinary write keeps the stored
+    /// copy of every one of them (inspection 7, ruling 1). Throws when this Director does not hold the lease.
+    /// </summary>
+    Task<WorkspaceDocument> RecordMarkAsync(string workspaceId, WorkspaceRestoreMark mark, CancellationToken ct);
 
     /// <summary>
     /// Start one session on THIS Director through the Gateway's <c>POST /directors/{id}/sessions</c>, on this
-    /// Director's own credential. Throws with the Gateway's reason when the session is not started.
+    /// Director's own credential. Throws with the Gateway's reason when the session is not started; a
+    /// <see cref="GatewaySpawnFailedException"/> says whether the Gateway refused it outright.
     /// </summary>
     Task<SessionDto> SpawnOnThisDirectorAsync(NewSessionRequest request, CancellationToken ct);
+
+    /// <summary>The live roster of the whole account, with each Director's reachability.</summary>
+    Task<RestoreRoster> GetRosterAsync(CancellationToken ct);
 }
 
 /// <summary>The real seam, over the Director's existing outbound Gateway client.</summary>
@@ -34,11 +41,68 @@ public sealed class GatewayClientRestoreGateway : IRestoreGateway
     public Task<WorkspaceDocument?> GetWorkspaceAsync(string id, CancellationToken ct) => _client.GetWorkspaceAsync(id, ct);
 
     /// <inheritdoc />
-    public Task<WorkspaceDocument> SaveWorkspaceAsync(WorkspaceDocument doc, CancellationToken ct) => _client.SaveWorkspaceAsync(doc, ct);
+    public Task<WorkspaceDocument> RecordMarkAsync(string workspaceId, WorkspaceRestoreMark mark, CancellationToken ct)
+        => _client.RecordRestoreMarkAsync(workspaceId, mark, ct);
 
     /// <inheritdoc />
     public Task<SessionDto> SpawnOnThisDirectorAsync(NewSessionRequest request, CancellationToken ct)
         => _client.SpawnOnThisDirectorAsync(request, ct);
+
+    /// <inheritdoc />
+    public async Task<RestoreRoster> GetRosterAsync(CancellationToken ct)
+    {
+        // The envelope, not the plain list: the plain list says nothing about which Directors it could not
+        // reach, and "not on the list" is exactly the fact these checks act on.
+        var (sessions, directors) = await _client.ListFleetSessionsWithReachabilityAsync(ct).ConfigureAwait(false);
+        return new RestoreRoster(sessions, directors);
+    }
+}
+
+/// <summary>
+/// The account's roster as the restore reads it (inspection 7, rulings 2 and 5). The Gateway keeps serving an
+/// unreachable Director's last-known sessions, so "on the list" and "running" are two different facts:
+/// <see cref="IsReachable"/> is a session on a Director the Gateway can reach now; <see cref="IsListed"/> is any
+/// session still on the list, including those last reported by a Director nobody can reach.
+/// </summary>
+public sealed class RestoreRoster
+{
+    private readonly Dictionary<string, SessionDto> _listed = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _reachableDirectors = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Build the view.</summary>
+    /// <param name="sessions">Every session on the roster.</param>
+    /// <param name="directors">Every Director's reachability. A Director absent from this list is unreachable.</param>
+    public RestoreRoster(IEnumerable<SessionDto> sessions, IEnumerable<DirectorReachabilityDto> directors)
+    {
+        foreach (var d in directors)
+            if (d.State is DirectorReachabilityDto.StateOnline or DirectorReachabilityDto.StateWobbly)
+                _reachableDirectors.Add(d.DirectorId);
+        foreach (var s in sessions)
+            if (!string.IsNullOrWhiteSpace(s.SessionId)) _listed[s.SessionId] = s;
+    }
+
+    /// <summary>The session is on the roster at all.</summary>
+    public bool IsListed(string? sessionId)
+        => !string.IsNullOrWhiteSpace(sessionId) && _listed.ContainsKey(sessionId);
+
+    /// <summary>The session is on the roster under a Director the Gateway can reach now: it is running.</summary>
+    public bool IsReachable(string? sessionId)
+        => !string.IsNullOrWhiteSpace(sessionId) && _listed.TryGetValue(sessionId, out var s)
+           && _reachableDirectors.Contains(s.DirectorId);
+
+    /// <summary>The Director a listed session runs on, or null.</summary>
+    public string? DirectorOf(string? sessionId)
+        => !string.IsNullOrWhiteSpace(sessionId) && _listed.TryGetValue(sessionId, out var s) ? s.DirectorId : null;
+
+    /// <summary>Running sessions on <paramref name="directorId"/> named <paramref name="name"/> that were created at or
+    /// after <paramref name="sinceUtc"/> - the candidates a start whose answer was lost may have produced.</summary>
+    public IReadOnlyList<string> CandidatesFor(string directorId, string name, DateTime sinceUtc)
+        => _listed.Values
+            .Where(s => string.Equals(s.DirectorId, directorId, StringComparison.OrdinalIgnoreCase)
+                        && string.Equals(s.Name, name, StringComparison.Ordinal)
+                        && s.CreatedAt >= sinceUtc.AddMinutes(-1))
+            .Select(s => s.SessionId)
+            .ToList();
 }
 
 /// <summary>What happened to one seat.</summary>
@@ -65,30 +129,41 @@ public sealed record DirectorRestoreResult(string WorkspaceId, IReadOnlyList<Sea
 /// and the Director still creates the session through its ordinary create verb.
 ///
 /// WHERE THE OWNER COMES FROM. Only from the seat's <see cref="WorkspaceSeat.ReportsTo"/>, which the Gateway
-/// observed when it captured the workspace and restores from its stored copy on every write. Whoever asked for
-/// the restore cannot choose it, which is why an AUTHORED workspace - a list somebody typed - is refused.
+/// observed when it captured the workspace and restores from its stored copy on every write - and, for an owner
+/// that was itself a seat here, from that seat's restored id, which only a restore can write (inspection 7,
+/// ruling 1). Whoever asked for the restore cannot choose either, which is why an AUTHORED workspace - a list
+/// somebody typed - is refused.
 ///
 /// THE ORDER, AND THE PLACEHOLDER. A seat whose owner was also a seat in this drain comes back after its owner,
 /// under the owner's NEW id - the old one died with the restart. The rule, per seat:
 ///  - no owner: the user owns it;
-///  - the owner is not a seat here (it lives on another Director and survived): its current id, verbatim;
-///  - the owner is a seat here and has come back (in this run or an earlier one): its restored id;
-///  - the owner is a seat here that BLOCKED the drain and was never closed: its current id - it is still running;
-///  - the owner is a seat here and did NOT come back (it failed, was decided "close", or was not asked for in
-///    this run and has never been restored): this seat FAILS with that reason. It is not started unowned and
-///    not started under a dead id - either would be a guess about who collects its work.
+///  - the owner is not a seat here (it lives on another Director): its current id, verbatim - IF it is running on
+///    a Director the Gateway can reach now (inspection 7, ruling 5);
+///  - the owner is a seat here and came back in this run: its new id;
+///  - the owner is a seat here that came back in an earlier run: that id, if it is still running;
+///  - the owner is a seat here that BLOCKED the drain and was never closed: its current id, if it is still running;
+///  - otherwise (it failed, was decided "close", has not come back, or is not running): this seat FAILS with that
+///    reason. It is not started unowned and not started under a dead id - either would be a guess about who
+///    collects its work.
+///
+/// ONLY A DRAINED SEAT COMES BACK (inspection 7, ruling 2). A seat whose captured session is still running on a
+/// reachable Director is never started again, whatever the record says; nor is one still listed under an
+/// unreachable Director unless the drain recorded it closed.
 ///
 /// ONE SEAT FAILING DOES NOT STOP THE REST. Each failure is written onto its own seat
 /// (<see cref="WorkspaceSeatRestore.Failure"/>) and the restore moves on. Only the seats that depended on it
 /// fail with it, and they say so.
 ///
-/// A SEAT COMES BACK ONCE. A seat that already names a restored session is never started again, so asking twice
-/// cannot give a mission two of the same seat. ONE RESTORE AT A TIME on a Director, for the same reason.
+/// A SEAT COMES BACK ONCE (inspection 7, rulings 3 and 4). Before its create is sent, the seat gets a start token,
+/// stored on the Gateway; the create carries the token, and the Gateway that performs the create records the new
+/// id on the seat - so a start whose answer never reached this Director is still recorded. A seat with a token and
+/// no restored id is never started again blind: a start younger than <see cref="InProgressWindow"/> is reported
+/// "in progress", an older one "may have been started" until the caller forces that seat. Across Directors, the
+/// Gateway grants one restore lease per workspace and refuses marks from anyone else; within one Director, one
+/// restore runs at a time.
 ///
-/// WHAT THIS DOES NOT COVER, stated rather than left to be found: two DIFFERENT Directors asked to restore the
-/// same workspace at the same moment are not serialised against each other; and a session that writes the
-/// workspace while the restore runs can overwrite a seat's result with its own older copy (the store keeps the
-/// caller's copy of every judgment field).
+/// WHAT THIS DOES NOT COVER, stated rather than left to be found: a Gateway that dies between performing a create
+/// and recording it leaves a token and no id, which this reports as "may have been started" rather than resolving.
 /// </summary>
 public sealed class DirectorRestore
 {
@@ -136,11 +211,15 @@ public sealed class DirectorRestore
         lock (Gate) { if (ReferenceEquals(_running, this)) _running = null; }
     }
 
+    /// <summary>How long a start with no recorded result is taken to be still under way: the Gateway waits up to
+    /// thirty seconds for a Director's create, and this leaves room beyond it.</summary>
+    public static readonly TimeSpan InProgressWindow = TimeSpan.FromMinutes(2);
+
     /// <summary>
     /// The check made BEFORE a restore is answered "taken": the workspace exists, was captured, and the order names
-    /// seats that can come back. Returns the captured ids of the seats this restore would bring back. Throws
-    /// <see cref="InvalidOperationException"/> with the reason otherwise - a refusal the caller reads at once,
-    /// rather than a restore that fails later in a log nobody is watching.
+    /// seats that can come back and are not still running. Returns the captured ids of the seats this restore would
+    /// bring back. Throws <see cref="InvalidOperationException"/> with the reason otherwise - a refusal the caller
+    /// reads at once, rather than a restore that fails later in a log nobody is watching.
     /// </summary>
     public async Task<IReadOnlyList<string>> PrepareAsync(WorkspaceRestoreOrder order, CancellationToken ct = default)
     {
@@ -153,13 +232,26 @@ public sealed class DirectorRestore
             throw new InvalidOperationException(
                 $"workspace '{order.WorkspaceId}' has no seat left to bring back: none is decided \"restore\" without " +
                 "having come back already.");
+
+        var roster = await _gateway.GetRosterAsync(ct).ConfigureAwait(false);
+        var running = targets
+            .Select(t => (seat: t, why: StillRunning(t, roster)))
+            .Where(x => x.why is not null)
+            .ToList();
+        // A seat the caller NAMED is refused by name. Asked for everything, the running seats are reported on
+        // their own records and the rest come back - unless nothing is left.
+        if (order.Seats is not null && running.Count > 0)
+            throw new InvalidOperationException(string.Join(" ", running.Select(r => r.why)));
+        if (running.Count == targets.Count)
+            throw new InvalidOperationException(
+                $"workspace '{order.WorkspaceId}' has no seat that can come back now: {string.Join(" ", running.Select(r => r.why))}");
         return targets.Select(t => t.SessionId!).ToList();
     }
 
     /// <summary>
     /// Restore the seats the order names onto this Director. Throws when the restore cannot start at all (no such
-    /// workspace, an authored one, another restore running); per-seat failures are reported in the result and on
-    /// the seats, never thrown.
+    /// workspace, an authored one, another restore running) or when the Gateway will not record what it does (the
+    /// lease is not this Director's); per-seat failures are reported in the result and on the seats, never thrown.
     /// </summary>
     public async Task<DirectorRestoreResult> RunAsync(WorkspaceRestoreOrder order, CancellationToken ct = default)
     {
@@ -190,7 +282,25 @@ public sealed class DirectorRestore
         }
         finally
         {
+            await GiveBackLeaseAsync(order.WorkspaceId).ConfigureAwait(false);
             lock (Gate) { if (ReferenceEquals(_running, this)) _running = null; }
+        }
+    }
+
+    /// <summary>Tell the Gateway the run is over, so another restore need not wait out the lease. A failure here is
+    /// logged and not thrown: the run's own answer is already decided, and the lease lapses by itself.</summary>
+    private async Task GiveBackLeaseAsync(string workspaceId)
+    {
+        try
+        {
+            await _gateway.RecordMarkAsync(workspaceId,
+                new WorkspaceRestoreMark { DirectorId = _directorId, Kind = WorkspaceRestoreMarkKinds.Finished },
+                CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[DirectorRestore] could not give back the restore lease on {workspaceId}; it lapses after " +
+                          $"{WorkspaceRestoreLease.Expiry.TotalMinutes:0} minutes: {ex.Message}");
         }
     }
 
@@ -201,18 +311,33 @@ public sealed class DirectorRestore
         var targets = SelectTargets(doc, order.Seats);
 
         var failedHere = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var backHere = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var outcomes = new List<SeatRestoreOutcome>();
+        var forced = new HashSet<string>(order.ForceSeats ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
 
-        // The order is fixed once, as ids. Every save hands back the stored document, and each seat is then
-        // looked up in THAT copy, so the next save carries every result written so far.
+        // The order is fixed once, as ids. Every mark hands back the stored document, and each seat is then
+        // looked up in THAT copy.
         var ordered = OrderSeniorsFirst(targets, SeatsById(doc)).Select(s => s.SessionId!).ToList();
 
         foreach (var sid in ordered)
         {
             var byId = SeatsById(doc);
             var seat = byId[sid];
-            var (owner, failure) = ResolveOwner(seat, byId, failedHere);
+            var roster = await _gateway.GetRosterAsync(ct).ConfigureAwait(false);
+
+            string? owner = null;
             string? newId = null;
+            var failure = StillRunning(seat, roster);
+            if (failure is null && !string.IsNullOrWhiteSpace(seat.RestoredSessionId))
+            {
+                // Recorded since this run read the workspace - by the Gateway, from an earlier start's token.
+                backHere.Add(sid);
+                outcomes.Add(new SeatRestoreOutcome(sid, seat.Name, seat.RestoredSessionId, null, null));
+                continue;
+            }
+            failure ??= EarlierStartUnresolved(seat, roster, forced.Contains(sid));
+            if (failure is null)
+                (owner, failure) = ResolveOwner(seat, byId, failedHere, backHere, roster);
 
             NewSessionRequest? request = null;
             if (failure is null)
@@ -221,56 +346,82 @@ public sealed class DirectorRestore
                 catch (InvalidOperationException ex) { failure = ex.Message; }
             }
 
+            var nothingStarted = true;
             if (request is not null)
             {
+                // THE TOKEN IS STORED BEFORE THE CREATE LEAVES. If this mark cannot be written the create is not
+                // sent, and the run stops: a start that cannot be recorded is a start that can happen twice.
+                var token = Guid.NewGuid().ToString("N");
+                doc = await _gateway.RecordMarkAsync(order.WorkspaceId, new WorkspaceRestoreMark
+                {
+                    DirectorId = _directorId,
+                    Kind = WorkspaceRestoreMarkKinds.Started,
+                    SeatSessionId = sid,
+                    Token = token,
+                    RequestedBySessionId = order.RequestedBySessionId,
+                }, ct).ConfigureAwait(false);
+                request.RestoreClaim = new WorkspaceRestoreClaim { WorkspaceId = order.WorkspaceId, SeatSessionId = sid, Token = token };
+
                 try
                 {
                     var created = await _gateway.SpawnOnThisDirectorAsync(request, ct).ConfigureAwait(false);
                     newId = string.IsNullOrWhiteSpace(created.SessionId) ? null : created.SessionId;
                     if (newId is null)
+                    {
+                        nothingStarted = false;
                         failure = "the Gateway answered the spawn without a session id, so nothing can be said to have come back.";
+                    }
                 }
                 catch (OperationCanceledException) when (!ct.IsCancellationRequested)
                 {
                     // The call gave up waiting (the client's own timeout), which is NOT a refusal: the Gateway may
-                    // still have started the seat. Said as exactly that, so nobody asks again blind and gets two.
+                    // still start the seat, and records it by its token if it does.
+                    nothingStarted = false;
                     failure = TimedOut;
+                }
+                catch (GatewaySpawnFailedException ex) when (ex.NothingStarted)
+                {
+                    failure = $"the Gateway did not start it: {ex.Message}";
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    // One seat's failure is that seat's answer, not the whole restore's: it is recorded against the
-                    // seat and the next seat is attempted.
-                    failure = $"the Gateway did not start it: {ex.Message}";
+                    // An answer that is not a refusal - a failed relay, an unreadable reply - does not prove that
+                    // nothing was started.
+                    nothingStarted = false;
+                    failure = $"the Gateway answered the spawn with an error ({ex.Message}), so this seat MAY have been " +
+                              "started. Check the session list before asking for it again.";
                 }
             }
 
-            seat.Restore!.AttemptedAtUtc = _utcNow();
+            WorkspaceRestoreMark mark;
             if (failure is null)
             {
-                seat.RestoredSessionId = newId;
-                seat.Restore.Failure = null;
+                string? seedFile = null;
                 if (order.Seeds is not null && order.Seeds.TryGetValue(sid, out var seed) && !string.IsNullOrWhiteSpace(seed))
-                    seat.RestoredSeedFile = seed;
+                    seedFile = seed;
+                mark = new WorkspaceRestoreMark
+                {
+                    DirectorId = _directorId, Kind = WorkspaceRestoreMarkKinds.Restored, SeatSessionId = sid,
+                    RestoredSessionId = newId, SeedFile = seedFile,
+                };
+                backHere.Add(sid);
                 FileLog.Write($"[DirectorRestore] seat {DrainPaths.ShortId(sid)} \"{seat.Name}\" restored as {newId}, owner={owner ?? "user"}");
             }
             else
             {
+                mark = new WorkspaceRestoreMark
+                {
+                    DirectorId = _directorId, Kind = WorkspaceRestoreMarkKinds.Failed, SeatSessionId = sid,
+                    Failure = failure,
+                    // Only a create that was sent and refused outright clears the token. A seat never sent keeps
+                    // whatever an earlier start left, and a maybe-started one keeps its own.
+                    NothingStarted = request is not null && nothingStarted,
+                };
                 failedHere[sid] = failure;
-                seat.Restore.Failure = failure;
                 FileLog.Write($"[DirectorRestore] seat {DrainPaths.ShortId(sid)} \"{seat.Name}\" NOT restored: {failure}");
             }
+            doc = await _gateway.RecordMarkAsync(order.WorkspaceId, mark, ct).ConfigureAwait(false);
             outcomes.Add(new SeatRestoreOutcome(sid, seat.Name, newId, failure is null ? owner : null, failure));
-
-            doc.RestoredBy = new WorkspaceRestoredBy
-            {
-                SessionId = order.RequestedBySessionId,
-                AtUtc = _utcNow(),
-                Method = $"director restore on {_directorId}",
-                Note = order.RequestedBySessionId is null
-                    ? "asked for by the owner; every spawn made by the Director on its own credential"
-                    : "asked for by the session named here; every spawn made by the Director on its own credential",
-            };
-            doc = await _gateway.SaveWorkspaceAsync(doc, ct).ConfigureAwait(false);
         }
 
         return new DirectorRestoreResult(doc.Id, outcomes);
@@ -278,13 +429,60 @@ public sealed class DirectorRestore
 
     /// <summary>The failure recorded when the spawn call timed out rather than being answered.</summary>
     internal const string TimedOut =
-        "the spawn was sent but no answer came back in time, so this seat MAY have been started anyway. Check the " +
-        "session list for a session with this seat's name on this Director before asking for it again.";
+        "the spawn was sent but no answer came back in time, so this seat MAY have been started anyway. If it was, " +
+        "the Gateway records it on this seat by its start token; ask again in a few minutes and it is either shown as " +
+        "restored or reported as not known to have started.";
 
     private static Dictionary<string, WorkspaceSeat> SeatsById(WorkspaceDocument doc)
         => doc.Seats
             .Where(s => !string.IsNullOrWhiteSpace(s.SessionId))
             .ToDictionary(s => s.SessionId!, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Why this seat must not be started because its captured session may still be running, or null
+    /// (inspection 7, ruling 2).
+    /// </summary>
+    internal static string? StillRunning(WorkspaceSeat seat, RestoreRoster roster)
+    {
+        var sid = seat.SessionId;
+        if (roster.IsReachable(sid))
+            return $"seat '{sid}' (\"{seat.Name}\") is still running on Director '{roster.DirectorOf(sid)}', so it is not " +
+                   "started again. Drain and close it first.";
+        if (roster.IsListed(sid) && seat.ClosedAtUtc is null)
+            return $"seat '{sid}' (\"{seat.Name}\") is still listed under Director '{roster.DirectorOf(sid)}', which this " +
+                   "Gateway cannot reach, and the drain never recorded it closed - it may still be running, so it is not " +
+                   "started again.";
+        return null;
+    }
+
+    /// <summary>
+    /// Why an earlier start of this seat stops a new one, or null (inspection 7, ruling 3). A token with no
+    /// restored id means a create was sent and its result never recorded.
+    /// </summary>
+    internal string? EarlierStartUnresolved(WorkspaceSeat seat, RestoreRoster roster, bool forced)
+    {
+        var restore = seat.Restore;
+        if (restore is null || string.IsNullOrWhiteSpace(restore.StartedToken)) return null;
+
+        var startedAt = restore.StartedAtUtc ?? DateTime.MinValue;
+        var by = restore.StartedByDirectorId ?? "an unknown Director";
+        if (_utcNow() - startedAt < InProgressWindow)
+            return $"seat '{seat.SessionId}' (\"{seat.Name}\") was started by Director '{by}' at {startedAt:u} and its " +
+                   "result is not recorded yet - that start is still in progress. Ask again in a few minutes.";
+        if (forced)
+        {
+            FileLog.Write($"[DirectorRestore] seat {DrainPaths.ShortId(seat.SessionId ?? "")}: earlier start at {startedAt:u} by {by} unresolved; FORCED by the caller");
+            return null;
+        }
+
+        var candidates = roster.CandidatesFor(by, seat.Name, startedAt);
+        var seen = candidates.Count == 0
+            ? "No running session with this seat's name on that Director was found."
+            : $"Running on that Director with this seat's name: {string.Join(", ", candidates)}.";
+        return $"seat '{seat.SessionId}' (\"{seat.Name}\") MAY have been started already: Director '{by}' sent its create " +
+               $"at {startedAt:u} and no result was ever recorded. {seen} Check the session list; if it is not running, " +
+               $"ask again with --force-seat {seat.SessionId}.";
+    }
 
     /// <summary>
     /// The seats this run brings back: decided "restore", not already back, and - when the order names seats -
@@ -358,26 +556,39 @@ public sealed class DirectorRestore
 
     /// <summary>
     /// Who owns this seat when it comes back: the session id to name, or null for the user - or the reason it
-    /// cannot come back. See the class comment for the four cases.
+    /// cannot come back. See the class comment for the rule.
     /// </summary>
     internal static (string? Owner, string? Failure) ResolveOwner(
-        WorkspaceSeat seat, IReadOnlyDictionary<string, WorkspaceSeat> byId, IReadOnlyDictionary<string, string> failedHere)
+        WorkspaceSeat seat, IReadOnlyDictionary<string, WorkspaceSeat> byId, IReadOnlyDictionary<string, string> failedHere,
+        IReadOnlySet<string> backHere, RestoreRoster roster)
     {
         var reportsTo = seat.ReportsTo?.Trim();
         if (string.IsNullOrEmpty(reportsTo)) return (null, null);
 
+        string NotRunning(string id, string what) =>
+            $"its owner {what} is not running on any Director this Gateway can reach now, so starting this seat would " +
+            "put it under a session that cannot collect its work. Bring the owner back or re-seat this one.";
+
         if (!byId.TryGetValue(reportsTo, out var boss))
-            return (reportsTo, null);
+            return roster.IsReachable(reportsTo)
+                ? (reportsTo, null)
+                : (null, NotRunning(reportsTo, $"{DrainPaths.ShortId(reportsTo)} (outside this workspace)"));
 
         var bossName = $"{DrainPaths.ShortId(reportsTo)} \"{boss.Name}\"";
         if (!string.IsNullOrWhiteSpace(boss.RestoredSessionId))
-            return (boss.RestoredSessionId, null);
+        {
+            // Started in this run: the roster may not show it yet, and this run just saw it answer.
+            if (backHere.Contains(reportsTo) || roster.IsReachable(boss.RestoredSessionId))
+                return (boss.RestoredSessionId, null);
+            return (null, NotRunning(boss.RestoredSessionId, $"{bossName}, restored earlier as {boss.RestoredSessionId},"));
+        }
 
         // A seat that BLOCKED the drain was never closed, and a blocked drain is never followed by a restart - so
-        // that owner is still running under the id it had. This is the restore-without-restart after a blocked
-        // drain, where the seats that did close come back and report to the one that would not stop.
+        // that owner may still be running under the id it had. Only the roster says whether it is.
         if (string.Equals(boss.DrainState, WorkspaceDrainStates.Blocked, StringComparison.Ordinal) && boss.ClosedAtUtc is null)
-            return (reportsTo, null);
+            return roster.IsReachable(reportsTo)
+                ? (reportsTo, null)
+                : (null, NotRunning(reportsTo, $"{bossName}, which blocked the drain,"));
         if (failedHere.TryGetValue(reportsTo, out var why))
             return (null, $"its owner {bossName} was restarted in the same drain and could not be brought back ({why}), " +
                           "so there is no session to own it. Restore the owner, then this seat.");

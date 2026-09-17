@@ -261,7 +261,11 @@ internal static class GatewayEndpoints
         Action<Wingman.TurnVerdictRecord>? turnVerdictLedger = null,
         // Slice F: the fold's snooze memory, which turns "expired" into the one EDGE ruling 10 acts on. Null stamps
         // false on every row - the row exactly as slice D left it.
-        Wingman.SnoozeExpiryReJudge? snoozeExpiry = null)
+        Wingman.SnoozeExpiryReJudge? snoozeExpiry = null,
+        // The Message Load mission, inspection 7, ruling 3: the spawn door records a restore's create on its
+        // workspace seat by the start token the create carries. Null (a harness with no database) refuses any
+        // create carrying a restore claim, because a start that cannot be recorded is a start that can happen twice.
+        Workspaces.WorkspaceStore? workspaces = null)
     {
         // The old issue #1188 "session lock" (423 Locked on human input while a PENDING dictation record
         // existed) was removed deliberately (issue #1308). This is a single-operator tool: a collision
@@ -3970,6 +3974,24 @@ internal static class GatewayEndpoints
             if (!SpawnOrigin.TryEstablish(req, ctx, spawnRoute, out var originError))
                 return originError!;
 
+            // A RESTORE'S CREATE (the Message Load mission, inspection 7, ruling 3) carries the token its Director
+            // stored on the workspace seat before sending it. Only a Director restores, so only a Director's
+            // credential may carry one - a claim from anyone else could mark a seat restored as a session of the
+            // caller's choosing.
+            var restoreClaim = req.RestoreClaim;
+            if (restoreClaim is not null)
+            {
+                if (!WorkspaceEndpoints.IsDirectorCredential(ctx))
+                {
+                    FileLog.Write($"[GatewayEndpoints] {spawnRoute}: REFUSED - a restore claim from a caller that is not a Director");
+                    return Results.Json(new { error = "only a Director restoring a workspace may send a restore claim" },
+                        statusCode: StatusCodes.Status403Forbidden);
+                }
+                if (workspaces is null)
+                    return Results.Json(new { error = "this Gateway has no workspace store, so a restore's create cannot be recorded and is not sent" },
+                        statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+
             if (!SpawnMissionAndSeat.TryResolve(req, spawnTenant.Value, missions, workflowRuns, spawnRoute,
                     out var seatRun, out var resolveError))
                 return resolveError!;
@@ -3997,6 +4019,21 @@ internal static class GatewayEndpoints
             // when the Director's reply proves the seat landed, and never turned into an HTTP failure the
             // caller would retry into a second session.
             SpawnMissionAndSeat.RecordParticipant(seatRun, workflowRuns, req, body, d.MachineName ?? "", spawnRoute);
+
+            // The restore's record of this create, written HERE - in the process that performed it, after the
+            // Director confirmed it - so it does not depend on the answer reaching the restoring Director. Never
+            // turned into an HTTP failure: the session exists, and a failure would be retried into a second one.
+            if (restoreClaim is not null && workspaces is not null)
+            {
+                try
+                {
+                    workspaces.RecordRestoredByClaim(restoreClaim, body.SessionId, DateTime.UtcNow);
+                }
+                catch (Exception ex)
+                {
+                    FileLog.Write($"[GatewayEndpoints] {spawnRoute}: the restore of seat {restoreClaim.SeatSessionId} in workspace {restoreClaim.WorkspaceId} started {body.SessionId} but could NOT be recorded by its token: {ex.Message}");
+                }
+            }
 
             return Results.Json(body, statusCode: 201);
         });

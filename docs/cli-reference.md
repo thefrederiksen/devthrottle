@@ -1101,6 +1101,7 @@ OPTIONS:
   --director TEXT        The Director that brings the seats back - after a restart, the NEW one.
   --seat TEXT            Only this seat (its captured session id). Repeatable.
   --seed TEXT            <captured session id>=<path>: seed that seat from this file. Repeatable.
+  --force-seat TEXT      Start this seat although an earlier start of it may have landed. Repeatable.
   --wait-seconds INTEGER How long to wait for every seat's answer [default: 600]. 0 does not wait.
   --json -j              Output raw JSON.
 ```
@@ -1111,9 +1112,13 @@ owner that seat had when the Gateway captured it: an owner restarted in the same
 first and named by its new id, and one on another Director keeps its id. You name no owner and
 cannot - a session may name only itself or the user as the owner of what it starts. A seat whose owner
 did not come back is not started, and says why. Each seat that fails is reported on that seat and the
-rest carry on; a seat that already came back is never started twice. The command waits for every
-seat's answer and exits 0 only when every one came back. Added 17 September 2026 (the Message Load
-mission).
+rest carry on; a seat that already came back is never started twice. A seat whose session is still
+running is refused, and so is a seat whose owner is not running. Only one Director restores a workspace
+at a time; a second is refused with the first one named. A seat whose earlier start was sent but never
+recorded is reported as possibly started and is not started again until you check the session list and
+name it with `--force-seat`. The command waits for every seat's answer. Exit 0 means every seat came
+back; exit 1 means a seat failed or is still pending; exit 3 means `--wait-seconds 0` - accepted, not
+waited, so nothing is known to have come back. Added 17 September 2026 (the Message Load mission).
 
 ### Fleet Manager
 

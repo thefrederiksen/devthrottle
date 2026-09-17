@@ -38,6 +38,11 @@ public sealed class WorkspaceRestoreRequest
     /// "what changed while you were gone" file the director-restart skill asks for. A seat with no entry is
     /// seeded from its own handover.</summary>
     public Dictionary<string, string>? Seeds { get; set; }
+
+    /// <summary>Seats (captured session ids) to start again EVEN THOUGH an earlier start of them may have
+    /// landed (inspection 7, ruling 3). Only for a seat whose earlier start left a token and no restored id,
+    /// after the caller has checked the session list. Every other rule still applies.</summary>
+    public List<string>? ForceSeats { get; set; }
 }
 
 /// <summary>
@@ -55,6 +60,9 @@ public sealed class WorkspaceRestoreOrder
 
     /// <summary>See <see cref="WorkspaceRestoreRequest.Seeds"/>.</summary>
     public Dictionary<string, string>? Seeds { get; set; }
+
+    /// <summary>See <see cref="WorkspaceRestoreRequest.ForceSeats"/>.</summary>
+    public List<string>? ForceSeats { get; set; }
 
     /// <summary>The session whose key asked, or null when the owner's own credential asked.</summary>
     public string? RequestedBySessionId { get; set; }
@@ -77,4 +85,82 @@ public sealed class WorkspaceRestoreAccepted
     /// on success, <see cref="WorkspaceSeatRestore.Failure"/> otherwise, both with
     /// <see cref="WorkspaceSeatRestore.AttemptedAtUtc"/>.</summary>
     public List<string> Seats { get; set; } = new();
+}
+
+/// <summary>The kinds of <see cref="WorkspaceRestoreMark"/>.</summary>
+public static class WorkspaceRestoreMarkKinds
+{
+    /// <summary>About to send the create for a seat: its token, stored BEFORE the create leaves.</summary>
+    public const string Started = "started";
+
+    /// <summary>The seat came back as <see cref="WorkspaceRestoreMark.RestoredSessionId"/>.</summary>
+    public const string Restored = "restored";
+
+    /// <summary>The seat did not come back; <see cref="WorkspaceRestoreMark.Failure"/> says why.</summary>
+    public const string Failed = "failed";
+
+    /// <summary>The run is over: the lease is given back.</summary>
+    public const string Finished = "finished";
+
+    /// <summary>Every kind.</summary>
+    public static readonly IReadOnlyList<string> All = new[] { Started, Restored, Failed, Finished };
+}
+
+/// <summary>
+/// RESTORE MARKS ARE PROVENANCE, NEVER JUDGMENT (inspection 7, ruling 1). What a restore did to a seat - the
+/// restored session id, the failure, the attempt time, the start token - is written ONLY through
+/// <c>POST /gateway/workspaces/{id}/restore/marks</c>, by the Director holding the workspace's restore lease, on
+/// its own credential. An ordinary write of the workspace keeps the stored copy of every one of these fields,
+/// exactly as it keeps the seat facts the capture observed. That matters because the restored id of an owner
+/// seat is the OWNER the Director names for its workers: a field any writer could set would let any writer
+/// choose who owns a restored worker.
+/// </summary>
+public sealed class WorkspaceRestoreMark
+{
+    /// <summary>The Director writing the mark. It must hold the workspace's restore lease.</summary>
+    public string DirectorId { get; set; } = "";
+
+    /// <summary>One of <see cref="WorkspaceRestoreMarkKinds"/>.</summary>
+    public string Kind { get; set; } = "";
+
+    /// <summary>The seat (captured session id). Required for every kind but "finished".</summary>
+    public string? SeatSessionId { get; set; }
+
+    /// <summary>"started": the token the create will carry.</summary>
+    public string? Token { get; set; }
+
+    /// <summary>"restored": the new session's id.</summary>
+    public string? RestoredSessionId { get; set; }
+
+    /// <summary>"restored": the seed file the new session was pointed at, if one was given.</summary>
+    public string? SeedFile { get; set; }
+
+    /// <summary>"failed": why, in plain words.</summary>
+    public string? Failure { get; set; }
+
+    /// <summary>"failed": the Gateway refused the create outright, so nothing was started and the start token
+    /// is cleared. False (a timeout, an unreadable answer) keeps the token: the seat MAY have been started.</summary>
+    public bool NothingStarted { get; set; }
+
+    /// <summary>"started": the session that asked for the restore, or null for the owner - recorded as
+    /// <see cref="WorkspaceDocument.RestoredBy"/>.</summary>
+    public string? RequestedBySessionId { get; set; }
+}
+
+/// <summary>
+/// Carried on a restore's create (<see cref="NewSessionRequest.RestoreClaim"/>): which workspace seat this
+/// session is, and the token the Director stored on that seat before sending it. The Gateway that performs the
+/// create writes the new session id onto the seat when the token matches, so the record does not depend on the
+/// answer getting back to the Director (inspection 7, ruling 3). Accepted only from a Director's credential.
+/// </summary>
+public sealed class WorkspaceRestoreClaim
+{
+    /// <summary>The workspace.</summary>
+    public string WorkspaceId { get; set; } = "";
+
+    /// <summary>The seat (captured session id).</summary>
+    public string SeatSessionId { get; set; } = "";
+
+    /// <summary>The token stored on the seat as <see cref="WorkspaceSeatRestore.StartedToken"/>.</summary>
+    public string Token { get; set; } = "";
 }

@@ -396,13 +396,41 @@ public sealed class GatewayClient : IGatewayHold, IDisposable
         FileLog.Write($"[GatewayClient] SpawnOnThisDirectorAsync: {route}, name={request.Name}, owner={request.ControllerSessionId ?? "user"}");
         using var resp = await _http.PostAsJsonAsync($"directors/{Uri.EscapeDataString(_directorId)}/sessions", request, ct);
         if (!resp.IsSuccessStatusCode)
-            throw await RelayFailureAsync(resp, route, ct);
+        {
+            var failure = await RelayFailureAsync(resp, route, ct);
+            throw new GatewaySpawnFailedException((int)resp.StatusCode, failure.Message);
+        }
 
         var created = await resp.Content.ReadFromJsonAsync<SessionDto>(ct);
         if (created is null)
             throw new InvalidOperationException($"Gateway {route} returned an unparsable body.");
         FileLog.Write($"[GatewayClient] SpawnOnThisDirectorAsync: started {created.SessionId}");
         return created;
+    }
+
+    /// <summary>
+    /// Write what a restore did to one seat (the Message Load mission, inspection 7, ruling 1) through
+    /// <c>POST /gateway/workspaces/{id}/restore/marks</c>, on this Director's own credential. Returns the stored
+    /// document. Throws with the Gateway's reason when the mark is not written - notably when this Director does
+    /// not hold the workspace's restore lease.
+    /// </summary>
+    /// <param name="workspaceId">The workspace.</param>
+    /// <param name="mark">The mark.</param>
+    /// <param name="ct">Cancellation.</param>
+    public async Task<WorkspaceDocument> RecordRestoreMarkAsync(string workspaceId, WorkspaceRestoreMark mark, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(mark);
+        if (!_config.IsEnabled)
+            throw new InvalidOperationException("Gateway is not configured; cannot record a restore.");
+
+        var route = $"POST /gateway/workspaces/{workspaceId}/restore/marks";
+        FileLog.Write($"[GatewayClient] RecordRestoreMarkAsync: {route}, kind={mark.Kind}, seat={mark.SeatSessionId ?? "-"}");
+        using var resp = await _http.PostAsJsonAsync($"gateway/workspaces/{Uri.EscapeDataString(workspaceId)}/restore/marks", mark, ct);
+        if (!resp.IsSuccessStatusCode)
+            throw await RelayFailureAsync(resp, route, ct);
+
+        return await resp.Content.ReadFromJsonAsync<WorkspaceDocument>(ct)
+               ?? throw new InvalidOperationException($"Gateway {route} returned an unparsable body.");
     }
 
     /// <summary>Create or replace a workspace. Returns the stored document with the Gateway's timestamps.</summary>
@@ -1054,4 +1082,23 @@ public sealed class GatewayClient : IGatewayHold, IDisposable
             StartedAt = System.Diagnostics.Process.GetCurrentProcess().StartTime.ToUniversalTime(),
         };
     }
+}
+
+/// <summary>
+/// The Gateway answered a spawn with an error status (the Message Load mission, inspection 7, ruling 3). The
+/// status matters to a restore: a 4xx is a refusal, so nothing was started; anything else may hide a create that
+/// landed.
+/// </summary>
+public sealed class GatewaySpawnFailedException : InvalidOperationException
+{
+    /// <summary>Create the exception.</summary>
+    /// <param name="statusCode">The HTTP status the Gateway answered.</param>
+    /// <param name="message">The Gateway's reason.</param>
+    public GatewaySpawnFailedException(int statusCode, string message) : base(message) => StatusCode = statusCode;
+
+    /// <summary>The HTTP status the Gateway answered.</summary>
+    public int StatusCode { get; }
+
+    /// <summary>True when the Gateway refused the create outright (a 4xx), so no session was started.</summary>
+    public bool NothingStarted => StatusCode is >= 400 and < 500;
 }
