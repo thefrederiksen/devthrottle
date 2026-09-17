@@ -463,10 +463,13 @@ def list_events(show_all: bool, count: int, json_output: bool,
     if every_page:
         rows: List[Dict[str, Any]] = []
         total = 0
+        note = None
         for page in _event_pages(status, count, cursor):
             rows.extend(page.get("events", []))
             total = page.get("total", total)
-        answer = {"count": len(rows), "total": total, "hasMore": False, "nextCursor": None, "events": rows}
+            note = page.get("deliveryNote")
+        answer = {"count": len(rows), "total": total, "hasMore": False, "nextCursor": None,
+                  "deliveryNote": note, "events": rows}
     else:
         answer = next(_event_pages(status, count, cursor))
     if json_output:
@@ -489,6 +492,9 @@ def list_events(show_all: bool, count: int, json_output: bool,
     waiting = sum(1 for e in rows if e.get("readingPending"))
     _out(f"count: {shown} ({_counts_by_event_kind(rows)}) status: {status}"
          + (f" waitingForReading: {waiting}" if waiting else ""))
+    # Why the events are not reaching the Fleet Manager right now, in the Gateway's own words.
+    if answer.get("deliveryNote"):
+        _out(f"deliveryNote: {answer['deliveryNote']}")
     next_cursor = answer.get("nextCursor") if answer.get("hasMore") else None
     if next_cursor:
         _out(f"nextCursor: {next_cursor}")
@@ -593,6 +599,8 @@ def digest(session: Optional[str], json_output: bool) -> None:
     shown = f"{len(events)} of {events_total}" if events_total > len(events) else f"{len(events)}"
     waiting = d.get("eventsWaitingForReading", 0)
     _out(f"events: {shown} unacknowledged" + (f" ({waiting} waiting for their reading)" if waiting else ""))
+    if d.get("eventsDeliveryNote"):
+        _out(f"eventsDeliveryNote: {d['eventsDeliveryNote']}")
     more_cursor = d.get("eventsNextCursor") if d.get("eventsHasMore") else None
     if more_cursor:
         _out(f"eventsMoreRemain: {events_total - len(events)} (oldest first; the rest: "

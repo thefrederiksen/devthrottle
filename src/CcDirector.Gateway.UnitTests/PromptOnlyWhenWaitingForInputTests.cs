@@ -66,18 +66,40 @@ public sealed class PromptOnlyWhenWaitingForInputTests
     [InlineData(ActivityState.Idle)]
     public async Task SendPromptAsync_SessionWaitingForAPrompt_TypesItAndConfirmsTheCheck(ActivityState state)
     {
+        var (session, _) = NewTerminalSession();
+        session.ApplyTerminalActivityState(state);
+
+        var response = Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(session, EventPrompt()));
+
+        Assert.True(response.Accepted);
+        Assert.False(response.RefusedBusy);
+        Assert.True(response.IdleChecked);
+        Assert.Equal(1, session.InputStats.Snapshot().AgentDrivenTurns);
+    }
+
+    /// <summary>
+    /// INSPECTION ROUND 2, FINDING 2: a session whose terminal submits a whole turn in one call (an embedded, pipe or
+    /// studio session) cannot have that call taken back, so the input bound could not be kept. Such a session is never
+    /// sent a guarded prompt: it is refused before anything is sent, and the answer says why.
+    /// </summary>
+    [Fact]
+    public async Task SendPromptAsync_TerminalSubmitsInOneCall_RefusedBeforeAnythingIsSent()
+    {
         var (manager, session) = NewSession();
         try
         {
             session.ApplyTerminalActivityState(ActivityState.Working);
-            session.ApplyTerminalActivityState(state);
+            session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
 
             var response = Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(session, EventPrompt()));
 
-            Assert.True(response.Accepted);
-            Assert.False(response.RefusedBusy);
+            Assert.False(response.Accepted);
+            Assert.True(response.RefusedBusy);
             Assert.True(response.IdleChecked);
-            Assert.Equal(1, session.InputStats.Snapshot().AgentDrivenTurns);
+            Assert.Equal(PromptResponse.RefusedForOneCallSubmit, response.RefusedFor);
+            Assert.Contains("cannot be taken back", response.Error);
+            Assert.Equal(0, session.InputStats.Snapshot().AgentDrivenTurns);
+            Assert.Equal(ActivityState.WaitingForInput, session.ActivityState);
         }
         finally { manager.Dispose(); }
     }
@@ -103,75 +125,22 @@ public sealed class PromptOnlyWhenWaitingForInputTests
 
     // ===== The owner typing between the check and the Enter (inspection round 2, finding 1) =====
 
-    /// <summary>
-    /// A terminal session over a scripted terminal: it echoes what is typed (unless told not to), keeps a composer the
-    /// way an agent's prompt box does - characters append, Backspace removes one, Enter submits the line and empties it -
-    /// answers an Enter with a turn's worth of output, and runs <see cref="OnWrite"/> as each write lands, which is how a
-    /// test puts the owner's keystroke in the middle of the send.
-    /// </summary>
-    private sealed class ScriptedTerminal : ISessionBackend
-    {
-        public List<string> Writes { get; } = new();
-        public Action<string>? OnWrite { get; set; }
-        public bool Echo { get; set; } = true;
-        public StringBuilder Composer { get; } = new();
-        public List<string> Submitted { get; } = new();
-        public int ProcessId => 0;
-        public string Status => "scripted";
-        public bool IsRunning => true;
-        public bool HasExited => false;
-        public CircularTerminalBuffer? Buffer { get; } = new(1 << 16);
-#pragma warning disable CS0067
-        public event Action<string>? StatusChanged;
-        public event Action<int>? ProcessExited;
-#pragma warning restore CS0067
-        public void Start(string executable, string args, string workingDir, short cols, short rows, Dictionary<string, string>? environmentVars = null) { }
-
-        public void Write(byte[] data)
-        {
-            var text = Encoding.UTF8.GetString(data);
-            Writes.Add(text);
-            foreach (var ch in text)
-            {
-                if (ch == '\r')
-                {
-                    Submitted.Add(Composer.ToString());
-                    Composer.Clear();
-                }
-                else if (ch == '\x7f')
-                {
-                    if (Composer.Length > 0) Composer.Length--;
-                }
-                else if (ch >= ' ')
-                {
-                    Composer.Append(ch);
-                }
-            }
-            if (Echo) Buffer!.Write(data);
-            // An Enter starts a turn: the agent streams well past what the submit check waits for.
-            if (text == "\r") Buffer!.Write(Encoding.UTF8.GetBytes(new string('.', 4096)));
-            OnWrite?.Invoke(text);
-        }
-
-        public Task SendTextAsync(string text) => Task.CompletedTask;
-        public void Resize(short cols, short rows) { }
-        public Task GracefulShutdownAsync(int timeoutMs = 5000) => Task.CompletedTask;
-        public void Dispose() { }
-    }
-
     private const string EventText = "[Fleet Manager events] 1 stop";
 
-    private static (Session Session, ScriptedTerminal Terminal) NewTerminalSession()
-    {
-        var terminal = new ScriptedTerminal();
-        var session = new Session(Guid.NewGuid(), Path.GetTempPath(), Path.GetTempPath(), null, terminal, SessionBackendType.ConPty);
-        session.ApplyTerminalActivityState(ActivityState.Working);
-        session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
-        return (session, terminal);
-    }
+    private static (Session Session, ScriptedTerminal Terminal) NewTerminalSession() => ScriptedTerminal.NewWaitingSession();
 
-    private static void OwnerTypes(Session session, string keys) =>
-        session.SendInput(Encoding.UTF8.GetBytes(keys), CcDirector.Core.Sessions.InputOrigin.DesktopTyped, SessionTestDoors.TestDoor);
+    private static void OwnerTypes(Session session, string keys) => ScriptedTerminal.OwnerTypes(session, keys);
+
+    /// <summary>
+    /// Text in the composer that the Director does not know is there: put straight into the scripted composer, as an
+    /// agent's own history recall or a mis-tracked edit could. The owner-draft check cannot see it, so a guarded send
+    /// goes ahead - and its rollback must still leave that text exactly as it was.
+    /// </summary>
+    private static void TextTheDirectorDoesNotKnowAbout(Session session, ScriptedTerminal terminal, string text)
+    {
+        terminal.Composer.Append(text);
+        Assert.False(session.HasUnsentOwnerDraft);
+    }
 
     [Fact]
     public async Task SendPromptAsync_TheOwnerTypesAfterTheCheck_TheEventGoesFirst_ThenTheirKeys()
@@ -248,7 +217,7 @@ public sealed class PromptOnlyWhenWaitingForInputTests
     public async Task SendPromptAsync_AbandonedAtItsBound_LeavesTheComposerAsTheOwnerHadIt()
     {
         var (session, terminal) = NewTerminalSession();
-        OwnerTypes(session, "my draft ");
+        TextTheDirectorDoesNotKnowAbout(session, terminal, "my draft ");
         terminal.Echo = false;
         session.GuardedSendLimitForTests = TimeSpan.FromMilliseconds(300);
         terminal.OnWrite = written =>
@@ -280,7 +249,7 @@ public sealed class PromptOnlyWhenWaitingForInputTests
     public async Task SendPromptAsync_ComposerDoesNotEcho_NoEscape_ItsOwnTextIsRemoved()
     {
         var (session, terminal) = NewTerminalSession();
-        OwnerTypes(session, "my draft ");
+        TextTheDirectorDoesNotKnowAbout(session, terminal, "my draft ");
         terminal.Echo = false;
         session.GuardedSendLimitForTests = TimeSpan.FromSeconds(30);
 
@@ -292,6 +261,169 @@ public sealed class PromptOnlyWhenWaitingForInputTests
         Assert.Equal("my draft ", terminal.Composer.ToString());
         Assert.Empty(terminal.Submitted);
         Assert.DoesNotContain(terminal.Writes, w => w.Contains('\x1b'));
+    }
+
+    // ===== The owner's unsent draft (inspection round 2, finding 1) =====
+
+    /// <summary>
+    /// INSPECTION ROUND 2, FINDING 1: the owner typed a draft and paused without sending it. The session is waiting and
+    /// no input is in flight, but the composer holds the owner's words. The event must not be appended to them and
+    /// submitted as one turn: the send is refused before anything is typed, and the draft is left as it is.
+    /// </summary>
+    [Fact]
+    public async Task SendPromptAsync_TheOwnerHasAnUnsentDraft_SubmitsNothing_AndLeavesTheDraft()
+    {
+        var (session, terminal) = NewTerminalSession();
+        OwnerTypes(session, "my draft ");
+
+        var response = Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(session, EventPrompt()));
+
+        Assert.False(response.Accepted);
+        Assert.True(response.RefusedBusy);
+        Assert.True(response.IdleChecked);
+        Assert.Equal(PromptResponse.RefusedForOwnerDraft, response.RefusedFor);
+        Assert.Contains("unsent text", response.Error);
+        Assert.Equal(new[] { "my draft " }, terminal.Writes);
+        Assert.Equal("my draft ", terminal.Composer.ToString());
+        Assert.Empty(terminal.Submitted);
+        Assert.Equal(0, session.InputStats.Snapshot().AgentDrivenTurns);
+    }
+
+    /// <summary>Once the owner sends their draft, and the turn it started ends, the event is delivered on its own.</summary>
+    [Fact]
+    public async Task SendPromptAsync_AfterTheOwnerSubmitsTheirDraft_TheEventIsDeliveredAlone()
+    {
+        var (session, terminal) = NewTerminalSession();
+        OwnerTypes(session, "my draft ");
+        var refused = Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(session, EventPrompt()));
+        Assert.False(refused.Accepted);
+
+        OwnerTypes(session, "\r");
+        Assert.False(session.HasUnsentOwnerDraft);
+        session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
+
+        var response = Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(session, EventPrompt()));
+
+        Assert.True(response.Accepted);
+        Assert.Null(response.RefusedFor);
+        Assert.Equal(new[] { "my draft ", EventText }, terminal.Submitted);
+        Assert.Equal(1, session.InputStats.Snapshot().AgentDrivenTurns);
+    }
+
+    /// <summary>
+    /// The owner typing in the Cockpit's terminal reaches the Director with no input origin, through the Gateway's
+    /// terminal door. It is still the owner's draft.
+    /// </summary>
+    [Fact]
+    public async Task SendPromptAsync_TheOwnerTypedInTheCockpitTerminal_SubmitsNothing()
+    {
+        var (session, terminal) = NewTerminalSession();
+        session.SendInput(Encoding.UTF8.GetBytes("from the browser "), null,
+            SubmissionProvenance.Typed(SubmissionRoutes.GatewayTerminal, "device-key"));
+
+        var response = Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(session, EventPrompt()));
+
+        Assert.False(response.Accepted);
+        Assert.Equal(PromptResponse.RefusedForOwnerDraft, response.RefusedFor);
+        Assert.Empty(terminal.Submitted);
+    }
+
+    /// <summary>
+    /// Bytes that put no text in the composer are not a draft: a terminal's own reports (focus, mouse) and the
+    /// product's own framework keys (a Wingman menu answer).
+    /// </summary>
+    [Fact]
+    public async Task SendPromptAsync_OnlyTerminalReportsAndFrameworkKeysWereWritten_TheEventIsDelivered()
+    {
+        var (session, terminal) = NewTerminalSession();
+        ScriptedTerminal.OwnerTypes(session, "\x1b[I");
+        ScriptedTerminal.OwnerTypes(session, "\x1b[<64;10;5M");
+        ScriptedTerminal.OwnerTypes(session, "\x1b[M`!!");
+        session.SendInput(Encoding.UTF8.GetBytes("2"), null, SubmissionProvenance.FrameworkText());
+        terminal.Composer.Clear();
+        Assert.False(session.HasUnsentOwnerDraft);
+
+        var response = Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(session, EventPrompt()));
+
+        Assert.True(response.Accepted);
+        Assert.Equal(new[] { EventText }, terminal.Submitted);
+    }
+
+    /// <summary>Arrow up or down recalls a line from history into the composer: that is a draft too.</summary>
+    [Fact]
+    public async Task SendPromptAsync_TheOwnerRecalledALineFromHistory_SubmitsNothing()
+    {
+        var (session, terminal) = NewTerminalSession();
+        ScriptedTerminal.OwnerTypes(session, "\x1b[A");
+
+        var response = Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(session, EventPrompt()));
+
+        Assert.False(response.Accepted);
+        Assert.Equal(PromptResponse.RefusedForOwnerDraft, response.RefusedFor);
+        Assert.Empty(terminal.Submitted);
+    }
+
+    /// <summary>
+    /// When the Director cannot be sure the composer is empty it waits: a draft rubbed out with Backspace may leave
+    /// text the Director cannot see (a wrapped line, an autocomplete), so the send stays refused until the next submit.
+    /// </summary>
+    [Fact]
+    public async Task SendPromptAsync_TheOwnerRubsOutTheirDraft_StillRefusedUntilTheNextSubmit()
+    {
+        var (session, terminal) = NewTerminalSession();
+        OwnerTypes(session, "ab");
+        OwnerTypes(session, "\x7f\x7f");
+
+        var response = Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(session, EventPrompt()));
+
+        Assert.False(response.Accepted);
+        Assert.Equal(PromptResponse.RefusedForOwnerDraft, response.RefusedFor);
+        Assert.Empty(terminal.Submitted);
+    }
+
+    /// <summary>
+    /// A draft typed while the agent works is still there when the turn ends. A Working state read from the terminal
+    /// does not clear it: only a submission the Director saw does.
+    /// </summary>
+    [Fact]
+    public async Task SendPromptAsync_TheOwnerTypedWhileTheAgentWorked_RefusedWhenTheTurnEnds()
+    {
+        var (session, terminal) = NewTerminalSession();
+        session.ApplyTerminalActivityState(ActivityState.Working);
+        OwnerTypes(session, "next ");
+        session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
+        session.ApplyTerminalActivityState(ActivityState.Working);
+        session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
+
+        var response = Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(session, EventPrompt()));
+
+        Assert.False(response.Accepted);
+        Assert.Equal(PromptResponse.RefusedForOwnerDraft, response.RefusedFor);
+        Assert.Equal("next ", terminal.Composer.ToString());
+    }
+
+    /// <summary>
+    /// Keys the owner typed while the event was being sent are written after it, into an empty composer - and they are
+    /// now the owner's unsent draft, so the next event is refused. The event's own submit does not clear them.
+    /// </summary>
+    [Fact]
+    public async Task SendPromptAsync_TheOwnerTypedDuringTheSend_TheirKeysAreADraftForTheNextEvent()
+    {
+        var (session, terminal) = NewTerminalSession();
+        session.AfterInputCheckForTests = () => OwnerTypes(session, "a");
+
+        var first = Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(session, EventPrompt()));
+        Assert.True(first.Accepted);
+        Assert.True(session.HasUnsentOwnerDraft);
+        session.AfterInputCheckForTests = null;
+        session.ApplyTerminalActivityState(ActivityState.WaitingForInput);
+
+        var second = Body(await ControlApi.SessionCommandExecutor.SendPromptAsync(session, EventPrompt()));
+
+        Assert.False(second.Accepted);
+        Assert.Equal(PromptResponse.RefusedForOwnerDraft, second.RefusedFor);
+        Assert.Equal("a", terminal.Composer.ToString());
+        Assert.Equal(new[] { EventText }, terminal.Submitted);
     }
 
     [Fact]

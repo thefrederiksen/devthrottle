@@ -242,4 +242,8 @@ public sealed class FleetDigestDto
 
     /// <summary>The cursor for the unacknowledged events after <see cref="Events"/>, or null when there are none.</summary>
     public string? EventsNextCursor { get; set; }
+
+    /// <summary>Why the events are not being delivered to the Fleet Manager right now, written by the Gateway for a page
+    /// to show as it is - for example, the owner has unsent text in the Fleet Manager. Null when nothing holds them back.</summary>
+    public string? EventsDeliveryNote { get; set; }
 }

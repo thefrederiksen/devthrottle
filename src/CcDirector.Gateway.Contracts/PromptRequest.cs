@@ -82,7 +82,10 @@ public sealed class PromptRequest
     /// owner can submit between the read and the send. The Director checks and types in the same step, and holds the
     /// session's input from the check to the prompt's Enter (at most five seconds): the owner's keystrokes in that time
     /// are written after the prompt, in order. A send that cannot finish in that time is abandoned, the text it typed is
-    /// removed from the composer, and it is answered <see cref="PromptResponse.RefusedBusy"/>.
+    /// removed from the composer, and it is answered <see cref="PromptResponse.RefusedBusy"/>. It is also refused, with
+    /// <see cref="PromptResponse.RefusedFor"/> saying which, while the owner has unsent text in the composer, and for a
+    /// session whose terminal submits a whole turn in one call: that call cannot be taken back, so the bound could not
+    /// be kept, and such a session is never typed into this way.
     ///
     /// A Director older than this field ignores it and types. So a sender that relies on it sends only to a Director
     /// whose Hello said <see cref="DirectorStreamHello.ChecksIdleBeforeTyping"/>, and counts an accepted answer without
@@ -177,6 +180,21 @@ public sealed class PromptResponse
     /// rides a success with <see cref="Accepted"/> false, and the caller tries again at the session's next idle moment.
     /// </summary>
     public bool RefusedBusy { get; set; }
+
+    /// <summary>
+    /// When <see cref="RefusedBusy"/> is true, which refusal it was, as a fixed word the sender can act on:
+    /// <see cref="RefusedForOwnerDraft"/> - the owner has typed text into the session's composer and not sent it, so
+    /// nothing is typed after it until the owner submits; <see cref="RefusedForOneCallSubmit"/> - the session's terminal
+    /// submits a whole turn in one call that cannot be taken back, so a guarded prompt is never sent to it. Null for
+    /// every other refusal (the session was not waiting, other input was being sent, or the send was abandoned).
+    /// </summary>
+    public string? RefusedFor { get; set; }
+
+    /// <summary><see cref="RefusedFor"/>: the owner has unsent text in the composer.</summary>
+    public const string RefusedForOwnerDraft = "owner-draft";
+
+    /// <summary><see cref="RefusedFor"/>: the session's terminal submits in one call that cannot be taken back.</summary>
+    public const string RefusedForOneCallSubmit = "one-call-submit";
 
     /// <summary>
     /// True when the Director checked <see cref="PromptRequest.OnlyWhenWaitingForInput"/> before typing. False on an

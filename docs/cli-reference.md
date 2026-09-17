@@ -1173,11 +1173,21 @@ is stored - or, after 5 minutes without one, until it is given the reason there 
 as that. A reading that ends as `cannot-tell` or fails is delivered as that. The Gateway also delivers them to the
 Fleet Manager itself: one prompt, starting `[Fleet Manager events]`, at its own turn end or a few
 seconds after an event arrives while it is idle - and typed only if the Director finds the Fleet
-Manager waiting for a prompt at that moment. The Director then holds the session's input from that check
-until the prompt's Enter, at most 5 seconds: anything the owner types meanwhile is written after it, in
-order, so the owner's Enter can never submit the event text. A send that cannot finish in that time is
-abandoned, the text it typed is removed from the composer, and it counts as refused. A refused send
-leaves the events for the Fleet Manager's next idle moment. A Director too old to make that check is sent
+Manager waiting for a prompt at that moment. It is refused while the owner has typed text into the
+Fleet Manager and not sent it: nothing is typed after the owner's words, and the events wait until the
+owner sends them. The Director counts the draft from the owner's first typed character until it sees a
+submission - an Enter or a sent prompt; rubbing the text out with Backspace, or the Fleet Manager
+working, does not clear it. The Director then holds the session's input from that check until the
+prompt's Enter, at most 5 seconds: anything the owner types meanwhile is written after it, in order, so
+the owner's Enter can never submit the event text. A send that cannot finish in that time is abandoned,
+the text it typed is removed from the composer, and it counts as refused. The 5-second bound holds
+for every Fleet Manager that is sent events, because they are sent only to a terminal session, whose
+text is written a character at a time; a session whose terminal submits a whole turn in one call
+(embedded, pipe or studio) cannot take that call back once started, so it is sent no events and each
+attempt is refused with that reason. A refused send leaves the events for the Fleet Manager's next idle
+moment. When events are held back for the owner's unsent text or for such a terminal, `fleet events`
+prints `deliveryNote:` and `fleet digest` prints `eventsDeliveryNote:` with the Gateway's sentence
+(JSON: `deliveryNote`, `eventsDeliveryNote`); otherwise neither line is printed. A Director too old to make that check is sent
 nothing, and an answer that does not say the check was made does not count as a delivery.
 One prompt carries at most 200 events, the oldest owed; it says how many more wait, and those are sent
 at the next idle moment. Delivery is at least once: every event carries its id, the same event can be sent again (a Gateway

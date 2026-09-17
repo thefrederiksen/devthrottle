@@ -20,11 +20,14 @@ namespace CcDirector.Gateway.Api;
 /// <param name="LatestVerdict">The Wingman's latest stored reading of one session in this account.</param>
 /// <param name="FormerFleetManagers">Every session this account has ever marked as its Fleet Manager
 /// (<see cref="FleetManagerMarkHistory"/>).</param>
+/// <param name="EventsDeliveryNote">The Gateway's sentence saying why the account's events are not being delivered to
+/// its Fleet Manager right now, or null (<see cref="FleetManagerEventService.DeliveryNote"/>).</param>
 internal sealed record FleetDigestSources(
     Func<TenantId, IReadOnlyList<SessionDto>> FoldedRoster,
     Func<TenantId, string, bool> SessionInAccount,
     Func<TenantId, string, TurnVerdictDto?> LatestVerdict,
-    Func<TenantId, IReadOnlyList<string>> FormerFleetManagers);
+    Func<TenantId, IReadOnlyList<string>> FormerFleetManagers,
+    Func<TenantId, string?> EventsDeliveryNote);
 
 /// <summary>
 /// Where the Gateway reads the two facts that decide WHO may call these routes.
@@ -140,7 +143,8 @@ internal static class FleetManagerEndpoints
         app.MapGet(Prefix + "/digest", (HttpContext ctx)
             => Digest(ctx, resolveTenant, access, outcomes, preferences, digest, events));
 
-        app.MapGet(Prefix + "/events", (HttpContext ctx) => ListEvents(ctx, resolveTenant, access, events));
+        app.MapGet(Prefix + "/events", (HttpContext ctx)
+            => ListEvents(ctx, resolveTenant, access, events, digest.EventsDeliveryNote));
         app.MapPost(Prefix + "/events/ack",
             (Func<HttpContext, Task<IResult>>)(ctx => AcknowledgeEventsAsync(ctx, resolveTenant, access, events)));
 
@@ -362,7 +366,7 @@ internal static class FleetManagerEndpoints
     /// Readable by the account's Fleet Manager and by the owner on their own device, like the records.
     /// </summary>
     internal static IResult ListEvents(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant,
-        FleetManagerAccess access, FleetManagerEventStore store)
+        FleetManagerAccess access, FleetManagerEventStore store, Func<TenantId, string?> deliveryNote)
     {
         FileLog.Write($"[FleetManagerEndpoints] ListEvents: query={ctx.Request.QueryString}");
         try
@@ -390,6 +394,7 @@ internal static class FleetManagerEndpoints
                 Total = total,
                 HasMore = page.NextCursor is not null,
                 NextCursor = page.NextCursor,
+                DeliveryNote = deliveryNote(tenant),
                 Events = page.Events.ToList(),
             });
         }
@@ -593,6 +598,7 @@ internal static class FleetManagerEndpoints
             answer.EventsWaitingForReading = events.CountPending(tenant);
             answer.EventsHasMore = eventPage.NextCursor is not null;
             answer.EventsNextCursor = eventPage.NextCursor;
+            answer.EventsDeliveryNote = sources.EventsDeliveryNote(tenant);
 
             FileLog.Write($"[FleetManagerEndpoints] Digest: session={sid}, caller={caller.Role}, "
                           + $"isFleetManager={answer.IsFleetManager}, open={open.Count}, openCounted={counts.Total}, "

@@ -2331,7 +2331,9 @@ public sealed class Session : IDisposable
     // as one section (GuardedInputSection). While that section is open the owner's keystrokes are held and written
     // after it, in the order they were typed, and every other input waits for it. The section is bounded by
     // GuardedSendLimit; a send that would run longer is abandoned, and the text it typed is taken back out of the
-    // composer before the owner's input is released.
+    // composer before the owner's input is released. The bound holds on every path a guarded send can take: it is made
+    // only to a terminal session, whose every write is checked against the deadline, and never to a session whose
+    // terminal submits a whole turn in one call that could not be taken back once started.
     private readonly object _inputLock = new();
     private long _inputGeneration;
     private int _inputInFlight;
@@ -2339,6 +2341,103 @@ public sealed class Session : IDisposable
     private readonly List<HeldKeystrokes> _heldKeystrokes = new();
 
     private sealed record HeldKeystrokes(byte[] Data, InputOrigin? Origin, SubmissionProvenance Provenance);
+
+    // ===== The owner's unsent draft =====
+    // Whether the owner has typed text into the composer that has not been sent. A guarded send is refused while it is
+    // set, so the product's text is never typed after the owner's words and submitted with them. Read and written under
+    // the input lock, at the moment each write reaches the terminal.
+    //
+    // SET by any keystroke that can put text in the composer, whoever's door it came through - the desktop terminal,
+    // the Cockpit's terminal (which carries no input origin), a caller's text sent without an Enter - except the
+    // product's own framework keys (a Wingman menu answer). A terminal's own reports (focus, mouse) put no text there
+    // and are skipped; arrow up or down can recall a line from history, so they count. CLEARED only by a submission the
+    // Director saw - an Enter that sends, or a text submit - because only then does the Director know the composer is
+    // empty. A Working state read from the terminal does not clear it: the terminal can read the echo of the owner's
+    // own typing as work, and an agent that starts a turn by itself keeps the draft. Backspace does not clear it
+    // either: a draft rubbed out key by key may leave text the Director cannot see (a wrapped line, an autocomplete).
+    // When unsure, it stays set until the next submit - the event waits rather than mixing with the owner's words.
+    private bool _ownerDraftUnsent;
+    private long _ownerTextCount;
+
+    /// <summary>True while the owner has typed text into the composer that the Director has not seen submitted.</summary>
+    public bool HasUnsentOwnerDraft
+    {
+        get { lock (_inputLock) return _ownerDraftUnsent; }
+    }
+
+    /// <summary>
+    /// Note what one raw write, just written to the terminal, did to the owner's draft. Called under the input lock.
+    /// An Enter submits whatever the composer holds; text after the last Enter is a new draft.
+    /// </summary>
+    private void NoteRawInputLocked(byte[] data, SubmissionProvenance provenance)
+    {
+        var lastSubmit = -1;
+        for (var i = 0; i < data.Length; i++)
+            if (data[i] is 0x0D or 0x0A) lastSubmit = i;
+        if (lastSubmit >= 0 && _ownerDraftUnsent)
+        {
+            _ownerDraftUnsent = false;
+            FileLog.Write($"[Session] owner draft cleared: session={Id}: an Enter submitted the composer");
+        }
+        if (provenance.Route == SubmissionRoutes.Framework) return;
+        if (!PutsTextInComposer(data, lastSubmit + 1)) return;
+        _ownerTextCount++;
+        if (!_ownerDraftUnsent)
+        {
+            _ownerDraftUnsent = true;
+            FileLog.Write($"[Session] owner draft set: session={Id}: text reached the composer through {provenance.Route} and is not sent yet");
+        }
+    }
+
+    /// <summary>
+    /// Whether the bytes from <paramref name="start"/> can put text in the composer: a printable character, or arrow up
+    /// or down (history recall). Escape sequences - a terminal's focus and mouse reports, cursor keys, the markers
+    /// around a paste - are skipped; the text of a paste is not.
+    /// </summary>
+    internal static bool PutsTextInComposer(byte[] data, int start)
+    {
+        for (var i = start; i < data.Length; i++)
+        {
+            var b = data[i];
+            if (b != 0x1B)
+            {
+                if (b >= 0x20 && b != 0x7F) return true;
+                continue;
+            }
+            if (i + 1 >= data.Length) return false;
+            var kind = data[i + 1];
+            if (kind == (byte)'[')
+            {
+                // A mouse report in the old encoding: ESC [ M and three raw bytes.
+                if (i + 2 < data.Length && data[i + 2] == (byte)'M')
+                {
+                    i += 5;
+                    continue;
+                }
+                var j = i + 2;
+                while (j < data.Length && (data[j] < 0x40 || data[j] > 0x7E)) j++;
+                if (j < data.Length && (data[j] == (byte)'A' || data[j] == (byte)'B')) return true;
+                i = j;
+            }
+            else if (kind == (byte)'O')
+            {
+                if (i + 2 < data.Length && (data[i + 2] == (byte)'A' || data[i + 2] == (byte)'B')) return true;
+                i += 2;
+            }
+            else if (kind == (byte)']')
+            {
+                // An operating system command runs to BEL or to ESC \.
+                var j = i + 2;
+                while (j < data.Length && data[j] != 0x07 && !(data[j] == 0x1B && j + 1 < data.Length && data[j + 1] == (byte)'\\')) j++;
+                i = j < data.Length && data[j] == 0x1B ? j + 1 : j;
+            }
+            else
+            {
+                i += 1;
+            }
+        }
+        return false;
+    }
 
     /// <summary>
     /// The longest a guarded send may hold the session's input, and so the longest the owner's keystrokes can wait
@@ -2446,31 +2545,6 @@ public sealed class Session : IDisposable
     private GuardedSendAbandonedException Abandoned(GuardedInputSection section) =>
         new($"[Session] the guarded send to session {Id} was abandoned ({section.AbandonReason}); its text was removed and nothing more of it is written");
 
-    /// <summary>Start one backend call that carries the whole submit; the section cannot be abandoned while it runs.</summary>
-    internal Task BeginAtomicSubmitInGuardedSection(GuardedInputSection section, Func<Task> send)
-    {
-        lock (_inputLock)
-        {
-            if (!section.Open)
-                throw Abandoned(section);
-            section.InAtomicSubmit = true;
-            return send();
-        }
-    }
-
-    /// <summary>The one-call submit returned: its Enter is done, so the section closes.</summary>
-    internal void EndAtomicSubmitInGuardedSection(GuardedInputSection section)
-    {
-        List<HeldKeystrokes> released;
-        lock (_inputLock)
-        {
-            section.InAtomicSubmit = false;
-            if (!section.Open) return;
-            released = CloseGuardedSectionLocked(section);
-        }
-        ReplayHeld(released);
-    }
-
     private TimeSpan EffectiveGuardedSendLimit => GuardedSendLimitForTests ?? GuardedSendLimit;
 
     /// <summary>Close the section after its Enter. Held keystrokes are written now, after the Enter, in order.</summary>
@@ -2515,6 +2589,7 @@ public sealed class Session : IDisposable
         {
             _inputGeneration++;
             _backend.Write(held.Data);
+            NoteRawInputLocked(held.Data, held.Provenance);
         }
         section.GenerationAtClose = _inputGeneration;
         if (ReferenceEquals(_guardedSection, section)) _guardedSection = null;
@@ -2536,7 +2611,7 @@ public sealed class Session : IDisposable
         finally { EndInput(); }
     }
 
-    /// <summary>Abandon the section at its deadline, if it is still open and not inside a one-call submit.</summary>
+    /// <summary>Abandon the section at its deadline, if it is still open.</summary>
     private async Task AbandonAtDeadlineAsync(GuardedInputSection section)
     {
         try
@@ -2551,7 +2626,7 @@ public sealed class Session : IDisposable
             List<HeldKeystrokes> released;
             lock (_inputLock)
             {
-                if (!section.Open || section.InAtomicSubmit) return;
+                if (!section.Open) return;
                 released = AbandonGuardedSectionLocked(section, $"it did not finish within {EffectiveGuardedSendLimit.TotalSeconds:F1}s");
             }
             ReplayHeld(released);
@@ -2591,6 +2666,7 @@ public sealed class Session : IDisposable
             _inputGeneration++;
             _inputInFlight++;
             _backend.Write(data);
+            NoteRawInputLocked(data, provenance);
         }
         try { AfterRawInput(data, origin, provenance); }
         finally { EndInput(); }
@@ -2897,6 +2973,9 @@ public sealed class Session : IDisposable
     /// arrive in the order they were typed; the owner's Enter can never submit this text. The section is bounded by
     /// <see cref="GuardedSendLimit"/>. A send abandoned inside it removes the text it typed from the composer before
     /// the owner's input is released, and is reported refused. It never waits for the session to become free.
+    /// Refused before anything is typed: a session that is not waiting, one with other input in flight, one whose
+    /// owner has unsent text in the composer (<see cref="HasUnsentOwnerDraft"/>), and - for a submit - one whose
+    /// terminal is not a terminal session, because a one-call submit cannot be abandoned and so cannot be bounded.
     /// </summary>
     /// <returns>Sent, or why nothing was submitted.</returns>
     public async Task<GuardedSendResult> SendTextOnlyWhenWaitingForInputAsync(
@@ -2921,6 +3000,20 @@ public sealed class Session : IDisposable
             {
                 FileLog.Write($"[Session] SendTextOnlyWhenWaitingForInputAsync: REFUSED session={Id}: {busy}");
                 return GuardedSendResult.Busy(state, busy);
+            }
+            // The owner's words come first. Typing after an unsent draft would submit both as one turn.
+            if (_ownerDraftUnsent)
+            {
+                FileLog.Write($"[Session] SendTextOnlyWhenWaitingForInputAsync: REFUSED session={Id}: the owner has unsent text in the composer");
+                return GuardedSendResult.OwnerDraft(state);
+            }
+            // A terminal that submits a whole turn in one call (embedded, pipe, studio) cannot have that call taken back
+            // once it has started, so the input bound could not be kept while it runs. Such a session is never sent a
+            // guarded prompt. Only a terminal session, which is written byte by byte, is.
+            if (appendEnter && BackendType is not SessionBackendType.ConPty)
+            {
+                FileLog.Write($"[Session] SendTextOnlyWhenWaitingForInputAsync: REFUSED session={Id}: its {BackendType} terminal submits in one call");
+                return GuardedSendResult.OneCallSubmit(state, BackendType.ToString());
             }
             _inputGeneration++;
             section = new GuardedInputSection(DateTime.UtcNow + EffectiveGuardedSendLimit);
@@ -3023,6 +3116,8 @@ public sealed class Session : IDisposable
     /// <summary>The submission itself, through <paramref name="target"/>: the session's terminal, or a guarded view of it.</summary>
     private async Task SubmitTextAsync(ISessionBackend target, string text, SubmissionProvenance provenance, SendSource source, InputOrigin? origin, bool allowBracketedPaste)
     {
+        long ownerTextBefore;
+        lock (_inputLock) ownerTextBefore = _ownerTextCount;
         // THE delivery boundary (issue internal#811). Everything below this try either delivered the
         // user's words or threw; there is no third outcome, and no other place in the Director knows both
         // "which session" and "did it go". A throw here used to travel up as an error string on whichever
@@ -3070,6 +3165,16 @@ public sealed class Session : IDisposable
         // never lost a prompt, and it must not repaint the rail on every turn.
         if (PromptDeliveryFailures.RecordDeliverySucceeded(Id))
             RaisePromptDeliveryChanged();
+        // The submit emptied the composer. Text the owner typed while it ran (held and written after its Enter) is a
+        // new draft, so the mark is cleared only if they typed nothing meanwhile.
+        lock (_inputLock)
+        {
+            if (_ownerDraftUnsent && _ownerTextCount == ownerTextBefore)
+            {
+                _ownerDraftUnsent = false;
+                FileLog.Write($"[Session] owner draft cleared: session={Id}: a text submit emptied the composer");
+            }
+        }
         IsBrandNew = false;
         // A submitted turn supersedes a hold ONLY when the OWNER submitted it (issue #470 refined). Not
         // every send is the owner coming back: a fleet message from another agent (SendSource.Agent) and

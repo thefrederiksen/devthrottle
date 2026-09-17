@@ -236,7 +236,8 @@ internal static class SessionCommandExecutor
             : SubmissionRoutes.GatewayPrompt);
         // ONLY WHEN WAITING FOR A PROMPT (the Fleet Manager's events): the session makes the check and holds its input
         // from the check to the Enter, so the owner's keystrokes are written after the prompt. It refuses a session that
-        // is not waiting, and a send it abandons has its text removed from the composer and is refused. A Gateway
+        // is not waiting, one whose owner has unsent text in the composer, and one whose terminal submits in one call;
+        // a send it abandons has its text removed from the composer and is refused. A Gateway
         // reading a pushed state seconds old cannot promise either. A refusal is a success with Accepted false, so the
         // events wait.
         if (request.OnlyWhenWaitingForInput)
@@ -256,6 +257,12 @@ internal static class SessionCommandExecutor
                     SentAt = DateTime.UtcNow,
                     ActivityState = sent.ActivityState.ToString(),
                     Error = sent.Reason,
+                    RefusedFor = sent.RefusedFor switch
+                    {
+                        PromptRefusal.OwnerDraft => PromptResponse.RefusedForOwnerDraft,
+                        PromptRefusal.OneCallSubmit => PromptResponse.RefusedForOneCallSubmit,
+                        _ => null,
+                    },
                 }));
             }
         }

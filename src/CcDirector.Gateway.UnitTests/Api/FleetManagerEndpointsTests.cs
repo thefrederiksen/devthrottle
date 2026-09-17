@@ -55,6 +55,7 @@ public sealed class FleetManagerEndpointsTests : IDisposable
     private readonly FleetManagerMarkHistory _marks;
     private readonly Dictionary<TenantId, string?> _marked = new() { [TenantA] = FleetManager, [TenantB] = null };
     private readonly FleetManagerEventStore _events;
+    private readonly Dictionary<TenantId, string> _deliveryNotes = new();
 
     public FleetManagerEndpointsTests()
     {
@@ -140,7 +141,8 @@ public sealed class FleetManagerEndpointsTests : IDisposable
         FoldedRoster: tenant => GatewayEndpoints.FoldedAccountRoster(_registry, _pushed, tenant, null, null, null, null),
         SessionInAccount: (tenant, sid) => _pushed.TryLocateIgnoringFreshness(tenant, sid) is not null,
         LatestVerdict: (tenant, sid) => _verdicts.Latest(tenant, sid),
-        FormerFleetManagers: tenant => _marks.List(tenant).Select(m => m.SessionId).ToList());
+        FormerFleetManagers: tenant => _marks.List(tenant).Select(m => m.SessionId).ToList(),
+        EventsDeliveryNote: tenant => _deliveryNotes.TryGetValue(tenant, out var note) ? note : null);
 
     private IResult Digest(TenantId? tenant, string? caller, string session)
         => FleetManagerEndpoints.Digest(Request(tenant, caller, query: "session=" + session),
@@ -724,7 +726,8 @@ public sealed class FleetManagerEndpointsTests : IDisposable
     }
 
     private IResult ListEvents(TenantId tenant, string? caller, string query = "")
-        => FleetManagerEndpoints.ListEvents(Request(tenant, caller, query: query), ResolveTenant, Access(), _events);
+        => FleetManagerEndpoints.ListEvents(Request(tenant, caller, query: query), ResolveTenant, Access(), _events,
+            Sources().EventsDeliveryNote);
 
     private FleetManagerEventListDto Events(TenantId tenant, string query = "", string? caller = Owner)
     {
@@ -1045,5 +1048,26 @@ public sealed class FleetManagerEndpointsTests : IDisposable
 
         Assert.Equal((200, 200, false), (digest.Events.Count, digest.EventsTotal, digest.EventsHasMore));
         Assert.Null(digest.EventsNextCursor);
+    }
+
+    /// <summary>
+    /// WHY THE EVENTS ARE WAITING, IN THE GATEWAY'S WORDS (round 2, finding 1): when the Fleet Manager's events are held
+    /// back by the owner's unsent text, the digest and the events list carry the Gateway's sentence, for the account it
+    /// belongs to only. With nothing held back, there is none.
+    /// </summary>
+    [Fact]
+    public void DigestAndEvents_CarryTheGatewaysDeliveryNote_ForTheirAccountOnly()
+    {
+        Deaths(TenantA, 1);
+        Assert.Null(Body<FleetDigestDto>(Digest(TenantA, FleetManager, FleetManager)).EventsDeliveryNote);
+        Assert.Null(Events(TenantA, "", FleetManager).DeliveryNote);
+
+        const string note = "The Fleet Manager has your unsent text; 1 event is waiting. It is sent after you send your text.";
+        _deliveryNotes[TenantA] = note;
+
+        Assert.Equal(note, Body<FleetDigestDto>(Digest(TenantA, FleetManager, FleetManager)).EventsDeliveryNote);
+        Assert.Equal(note, Body<FleetDigestDto>(Digest(TenantA, Owner, FleetManager)).EventsDeliveryNote);
+        Assert.Equal(note, Events(TenantA, "", FleetManager).DeliveryNote);
+        Assert.Null(Events(TenantB, "", Owner).DeliveryNote);
     }
 }

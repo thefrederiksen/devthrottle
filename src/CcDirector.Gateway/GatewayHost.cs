@@ -4131,7 +4131,9 @@ public sealed class GatewayHost : IAsyncDisposable
                     _tenantSettingsResolver.FleetManagerSessionId),
                 SessionInAccount: (tenant, sid) => PushedSessions.TryLocateIgnoringFreshness(tenant, sid) is not null,
                 LatestVerdict: (tenant, sid) => _turnVerdicts.Latest(tenant, sid),
-                FormerFleetManagers: tenant => FleetManagerMarks.List(tenant).Select(m => m.SessionId).ToList()),
+                FormerFleetManagers: tenant => FleetManagerMarks.List(tenant).Select(m => m.SessionId).ToList(),
+                // Read when asked: the event service is built after the routes are mapped.
+                EventsDeliveryNote: tenant => _fleetManagerEvents?.DeliveryNote(tenant)),
             access: new FleetManagerAccess(
                 MarkedSessionId: _tenantSettingsResolver.FleetManagerSessionId,
                 LastKnownSession: (tenant, sid) => GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, sid)));

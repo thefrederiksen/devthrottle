@@ -27,6 +27,13 @@ public enum FleetManagerPromptSend
     /// <summary>Refused: the Director has not said it checks the session is waiting for a prompt before typing (it is
     /// older than that check), so nothing is sent to it - or it answered without saying it checked. Not a delivery.</summary>
     DirectorTooOld,
+
+    /// <summary>The Director refused it: the owner has typed text into the session and not sent it. Nothing was typed.</summary>
+    OwnerDraft,
+
+    /// <summary>The Director refused it: the session's terminal submits a whole turn in one call that cannot be taken
+    /// back, so a guarded prompt is never sent to it. Nothing was sent.</summary>
+    OneCallSubmit,
 }
 
 /// <summary>Everything the Fleet Manager's events need from the Gateway around them, as one seam.</summary>
@@ -69,6 +76,8 @@ public enum FleetManagerDeliveryResult
     AlreadyDelivering,
     SendFailed,
     DirectorTooOld,
+    OwnerDraft,
+    OneCallSubmit,
 }
 
 /// <summary>
@@ -120,6 +129,7 @@ public enum FleetManagerDeliveryResult
 /// </summary>
 public sealed class FleetManagerEventService : IDisposable
 {
+    private readonly ConcurrentDictionary<TenantId, (string SessionId, string Text)> _deliveryNotes = new();
     /// <summary>How long an event waits for more before it is delivered to an idle Fleet Manager.</summary>
     public static readonly TimeSpan BatchWindow = TimeSpan.FromSeconds(3);
 
@@ -531,6 +541,46 @@ public sealed class FleetManagerEventService : IDisposable
         }));
     }
 
+    /// <summary>
+    /// Why this account's events are not being delivered to its Fleet Manager right now, as a sentence the Gateway
+    /// writes and a page shows as it is - or null when nothing holds them back. Set by a delivery the Director refused
+    /// for a reason the owner can act on, and cleared by the next delivery attempt that is not refused for it. It
+    /// belongs to the Fleet Manager session it was written for: once another session is marked, there is none.
+    /// </summary>
+    public string? DeliveryNote(TenantId tenant)
+    {
+        if (!_deliveryNotes.TryGetValue(tenant, out var note)) return null;
+        return SameId(note.SessionId, _env.MarkedFleetManager(tenant)) ? note.Text : null;
+    }
+
+    private void NoteDelivery(TenantId tenant, string sessionId, FleetManagerDeliveryResult result, int waiting)
+    {
+        var text = result switch
+        {
+            FleetManagerDeliveryResult.OwnerDraft => DeliveryNoteOwnerDraft(waiting),
+            FleetManagerDeliveryResult.OneCallSubmit => DeliveryNoteOneCallSubmit(waiting),
+            _ => null,
+        };
+        if (text is null)
+        {
+            if (_deliveryNotes.TryRemove(tenant, out _))
+                FileLog.Write($"[FleetManagerEventService] delivery note cleared: tenant={tenant.ToLogString()}, result={result}");
+            return;
+        }
+        _deliveryNotes[tenant] = (sessionId, text);
+        FileLog.Write($"[FleetManagerEventService] delivery note: tenant={tenant.ToLogString()}, session={sessionId}: {text}");
+    }
+
+    private static string Waiting(int n) => n == 1 ? "1 event is waiting" : $"{n} events are waiting";
+
+    internal static string DeliveryNoteOwnerDraft(int waiting) =>
+        $"The Fleet Manager has your unsent text; {Waiting(waiting)}. " +
+        (waiting == 1 ? "It is" : "They are") + " sent after you send your text.";
+
+    internal static string DeliveryNoteOneCallSubmit(int waiting) =>
+        "The Fleet Manager runs in a session whose terminal cannot take a send back, so no events are typed into it; " +
+        $"{Waiting(waiting)}. Run the Fleet Manager in a terminal session to receive them.";
+
     /// <summary>Deliver what is owed to the account's marked Fleet Manager, if it is live and waiting for a prompt.</summary>
     public async Task DeliverAllAsync(TenantId tenant)
     {
@@ -555,56 +605,73 @@ public sealed class FleetManagerEventService : IDisposable
 
         try
         {
-            var marked = _env.MarkedFleetManager(tenant);
-            var fm = _env.Roster(tenant).FirstOrDefault(r => SameId(r.Session.SessionId, fleetManagerSessionId));
-            if (fm.Session is null || !FleetManagerSessions.IsFleetManager(fm.Session, marked) || IsExited(fm.Session))
-            {
-                FileLog.Write($"[FleetManagerEventService] deliver to {fleetManagerSessionId}: not the account's live Fleet Manager; events wait");
-                return FleetManagerDeliveryResult.NotLive;
-            }
-            var target = fm.Session.SessionId;
-
-            // Asked of the database, so however many events wait before them, the oldest owed are found. A batch
-            // larger than one prompt carries leaves the rest for the next idle moment, and the prompt says so.
-            var found = _store.Owed(tenant, target, FleetManagerEventStore.MaxDeliveryBatch);
-            var owed = found.Events;
-            if (owed.Count == 0) return FleetManagerDeliveryResult.NothingOwed;
-
-            // A first filter on the pushed state; the Director makes the check that counts, at the moment it types.
-            if (!IsIdle(fm.Session))
-            {
-                FileLog.Write($"[FleetManagerEventService] deliver to {target}: {owed.Count} owed, " +
-                              $"but it is {fm.Session.ActivityState} - waiting for it to wait for a prompt");
-                return FleetManagerDeliveryResult.Busy;
-            }
-
-            var text = FleetManagerEventPrompt.Build(owed, found.MoreOwed);
-            var sent = await _env.SendPromptAsync(tenant, fm.DirectorId, target, text, _shutdown.Token).ConfigureAwait(false);
-            switch (sent)
-            {
-                case FleetManagerPromptSend.Accepted:
-                    _store.MarkDelivered(tenant, owed.Select(e => Guid.Parse(e.Id)).ToList(), target, _env.NowUtc());
-                    FileLog.Write($"[FleetManagerEventService] delivered {owed.Count} event(s) to {target}, " +
-                                  $"{found.MoreOwed} more owed: " + string.Join(", ", owed.Select(e => e.Id)));
-                    return FleetManagerDeliveryResult.Delivered;
-                case FleetManagerPromptSend.Busy:
-                    FileLog.Write($"[FleetManagerEventService] deliver to {target}: the Director found it busy and typed nothing; " +
-                                  $"{owed.Count} event(s) wait for its next idle moment");
-                    return FleetManagerDeliveryResult.Busy;
-                case FleetManagerPromptSend.DirectorTooOld:
-                    FileLog.Write($"[FleetManagerEventService] deliver to {target} REFUSED: its Director {fm.DirectorId} does not check " +
-                                  $"the session is waiting before it types, so no events are typed into it; {owed.Count} event(s) " +
-                                  "stay undelivered until the Fleet Manager runs on a Director that does");
-                    return FleetManagerDeliveryResult.DirectorTooOld;
-                default:
-                    FileLog.Write($"[FleetManagerEventService] deliver to {target} FAILED: send={sent}; " +
-                                  $"{owed.Count} event(s) stay undelivered until the next trigger");
-                    return FleetManagerDeliveryResult.SendFailed;
-            }
+            var (result, waiting) = await DeliverOnceAsync(tenant, fleetManagerSessionId).ConfigureAwait(false);
+            NoteDelivery(tenant, fleetManagerSessionId, result, waiting);
+            return result;
         }
         finally
         {
             _delivering.TryRemove(key, out _);
+        }
+    }
+
+    /// <summary>One delivery attempt, and how many events were owed when it was made.</summary>
+    private async Task<(FleetManagerDeliveryResult Result, int Waiting)> DeliverOnceAsync(TenantId tenant, string fleetManagerSessionId)
+    {
+        var marked = _env.MarkedFleetManager(tenant);
+        var fm = _env.Roster(tenant).FirstOrDefault(r => SameId(r.Session.SessionId, fleetManagerSessionId));
+        if (fm.Session is null || !FleetManagerSessions.IsFleetManager(fm.Session, marked) || IsExited(fm.Session))
+        {
+            FileLog.Write($"[FleetManagerEventService] deliver to {fleetManagerSessionId}: not the account's live Fleet Manager; events wait");
+            return (FleetManagerDeliveryResult.NotLive, 0);
+        }
+        var target = fm.Session.SessionId;
+
+        // Asked of the database, so however many events wait before them, the oldest owed are found. A batch
+        // larger than one prompt carries leaves the rest for the next idle moment, and the prompt says so.
+        var found = _store.Owed(tenant, target, FleetManagerEventStore.MaxDeliveryBatch);
+        var owed = found.Events;
+        if (owed.Count == 0) return (FleetManagerDeliveryResult.NothingOwed, 0);
+        var waiting = owed.Count + found.MoreOwed;
+
+        // A first filter on the pushed state; the Director makes the check that counts, at the moment it types.
+        if (!IsIdle(fm.Session))
+        {
+            FileLog.Write($"[FleetManagerEventService] deliver to {target}: {owed.Count} owed, " +
+                          $"but it is {fm.Session.ActivityState} - waiting for it to wait for a prompt");
+            return (FleetManagerDeliveryResult.Busy, waiting);
+        }
+
+        var text = FleetManagerEventPrompt.Build(owed, found.MoreOwed);
+        var sent = await _env.SendPromptAsync(tenant, fm.DirectorId, target, text, _shutdown.Token).ConfigureAwait(false);
+        switch (sent)
+        {
+            case FleetManagerPromptSend.Accepted:
+                _store.MarkDelivered(tenant, owed.Select(e => Guid.Parse(e.Id)).ToList(), target, _env.NowUtc());
+                FileLog.Write($"[FleetManagerEventService] delivered {owed.Count} event(s) to {target}, " +
+                              $"{found.MoreOwed} more owed: " + string.Join(", ", owed.Select(e => e.Id)));
+                return (FleetManagerDeliveryResult.Delivered, waiting);
+            case FleetManagerPromptSend.Busy:
+                FileLog.Write($"[FleetManagerEventService] deliver to {target}: the Director found it busy and typed nothing; " +
+                              $"{owed.Count} event(s) wait for its next idle moment");
+                return (FleetManagerDeliveryResult.Busy, waiting);
+            case FleetManagerPromptSend.OwnerDraft:
+                FileLog.Write($"[FleetManagerEventService] deliver to {target}: the owner has unsent text in it, so the Director " +
+                              $"typed nothing; {owed.Count} event(s) wait until the owner sends their text");
+                return (FleetManagerDeliveryResult.OwnerDraft, waiting);
+            case FleetManagerPromptSend.OneCallSubmit:
+                FileLog.Write($"[FleetManagerEventService] deliver to {target} REFUSED: its terminal submits in one call that " +
+                              $"cannot be taken back, so no events are typed into it; {owed.Count} event(s) stay undelivered");
+                return (FleetManagerDeliveryResult.OneCallSubmit, waiting);
+            case FleetManagerPromptSend.DirectorTooOld:
+                FileLog.Write($"[FleetManagerEventService] deliver to {target} REFUSED: its Director {fm.DirectorId} does not check " +
+                              $"the session is waiting before it types, so no events are typed into it; {owed.Count} event(s) " +
+                              "stay undelivered until the Fleet Manager runs on a Director that does");
+                return (FleetManagerDeliveryResult.DirectorTooOld, waiting);
+            default:
+                FileLog.Write($"[FleetManagerEventService] deliver to {target} FAILED: send={sent}; " +
+                              $"{owed.Count} event(s) stay undelivered until the next trigger");
+                return (FleetManagerDeliveryResult.SendFailed, waiting);
         }
     }
 
@@ -740,6 +807,14 @@ internal sealed class GatewayFleetManagerEventEnvironment : IFleetManagerEventEn
                 FileLog.Write($"[GatewayFleetManagerEventEnvironment] REFUSED receipt sid={sessionId}: the Director answered that it " +
                               "typed WITHOUT saying it checked the session was waiting for a prompt; not counted as delivered");
                 return FleetManagerPromptSend.DirectorTooOld;
+            case Api.SessionVerbClient.PromptSendKind.Accepted
+                when sent.Body is { RefusedBusy: true, RefusedFor: PromptResponse.RefusedForOwnerDraft }:
+                FileLog.Write($"[GatewayFleetManagerEventEnvironment] sid={sessionId}: refused by the Director - the owner has unsent text in it");
+                return FleetManagerPromptSend.OwnerDraft;
+            case Api.SessionVerbClient.PromptSendKind.Accepted
+                when sent.Body is { RefusedBusy: true, RefusedFor: PromptResponse.RefusedForOneCallSubmit }:
+                FileLog.Write($"[GatewayFleetManagerEventEnvironment] sid={sessionId}: refused by the Director - {sent.Body.Error}");
+                return FleetManagerPromptSend.OneCallSubmit;
             case Api.SessionVerbClient.PromptSendKind.Accepted when sent.Body is { RefusedBusy: true } refused:
                 FileLog.Write($"[GatewayFleetManagerEventEnvironment] sid={sessionId}: refused by the Director - it is {refused.ActivityState}");
                 return FleetManagerPromptSend.Busy;

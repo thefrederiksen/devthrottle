@@ -49,6 +49,7 @@ class FakeGateway:
         self.preferences = []
         self.digest = None
         self.events = []
+        self.delivery_note = None
         self.calls = []
 
     def add_event(self, kind, session_id, name, acknowledged=False, **extra):
@@ -141,7 +142,8 @@ class FakeGateway:
             more = len(rows) > count
             rows = rows[:count]
             return {"count": len(rows), "total": total, "hasMore": more,
-                    "nextCursor": f"ecursor-{status}-" + rows[-1]["id"] if more else None, "events": rows}
+                    "nextCursor": f"ecursor-{status}-" + rows[-1]["id"] if more else None,
+                    "deliveryNote": self.delivery_note, "events": rows}
         if route == "gateway/fleet-manager/digest":
             assert self.digest is not None, "the test did not set a digest"
             return dict(self.digest, sessionId=query["session"])
@@ -881,6 +883,39 @@ def test_digest_says_when_more_events_remain_and_how_to_reach_them(gw):
     assert "cc-devthrottle fleet events --count 200 --cursor ecursor-unacknowledged-x" in result.output
     assert f"cc-devthrottle fleet ack {events[0]['id']}" in result.output
     assert f"fleet ack {pending['id']}" not in result.output
+
+
+OWNER_DRAFT_NOTE = "The Fleet Manager has your unsent text; 1 event is waiting. It is sent after you send your text."
+
+
+def test_events_print_the_gateways_delivery_note_as_it_is(gw):
+    gw.add_event("died", WORKER, "gone")
+    gw.delivery_note = OWNER_DRAFT_NOTE
+
+    result = runner.invoke(app, ["fleet", "events"])
+    every = runner.invoke(app, ["fleet", "events", "--every-page", "--json"])
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines()[1] == f"deliveryNote: {OWNER_DRAFT_NOTE}"
+    assert json.loads(every.output)["deliveryNote"] == OWNER_DRAFT_NOTE
+
+
+def test_events_without_a_delivery_note_print_none(gw):
+    gw.add_event("died", WORKER, "gone")
+
+    result = runner.invoke(app, ["fleet", "events"])
+
+    assert "deliveryNote" not in result.output
+
+
+def test_digest_prints_the_gateways_delivery_note_as_it_is(gw):
+    event = gw.add_event("died", WORKER, "gone")
+    gw.digest = _digest(events=[event], eventsTotal=1, eventsDeliveryNote=OWNER_DRAFT_NOTE)
+
+    result = runner.invoke(app, ["fleet", "digest"])
+
+    assert result.exit_code == 0, result.output
+    assert f"events: 1 unacknowledged\neventsDeliveryNote: {OWNER_DRAFT_NOTE}\n" in result.output
 
 
 def test_digest_with_every_event_says_no_more_remain(gw):

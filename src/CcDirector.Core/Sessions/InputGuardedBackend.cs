@@ -35,9 +35,6 @@ internal sealed class GuardedInputSection
     /// <summary>Set when the section closed without the send's Enter; the reason says why.</summary>
     public string? AbandonReason { get; set; }
 
-    /// <summary>True while one backend call carries both the text and the Enter, so it cannot be taken back halfway.</summary>
-    public bool InAtomicSubmit { get; set; }
-
     /// <summary>The input count when the section closed, so a later nudge can tell whether the owner has typed since.</summary>
     public long GenerationAtClose { get; set; }
 
@@ -129,21 +126,15 @@ internal sealed class InputGuardedBackend : ISessionBackend
 
     public void Write(byte[] data) => _session.WriteInGuardedSection(_section, data);
 
-    public async Task SendTextAsync(string text)
-    {
-        // A terminal that submits in one call cannot be taken back halfway: the section stays open, past its deadline
-        // if need be, until the call returns, and then closes as its Enter is done.
-        var sending = _session.BeginAtomicSubmitInGuardedSection(_section, () => Inner.SendTextAsync(text));
-        try { await sending; }
-        finally { _session.EndAtomicSubmitInGuardedSection(_section); }
-    }
+    // A one-call submit cannot be bounded: once the call has started it cannot be taken back, so the owner's held keys
+    // would wait for as long as it runs. A guarded send is never made to a session whose terminal submits that way
+    // (Session.SendTextOnlyWhenWaitingForInputAsync refuses it first), and the terminal submit writes a terminal
+    // session byte by byte. These refuse before anything is sent, so the send is abandoned with nothing typed.
+    public Task SendTextAsync(string text)
+        => throw new GuardedSendAbandonedException("[InputGuardedBackend] a guarded send never submits in one call; nothing was sent");
 
-    public async Task SendEnterAsync()
-    {
-        var sending = _session.BeginAtomicSubmitInGuardedSection(_section, () => Inner.SendEnterAsync());
-        try { await sending; }
-        finally { _session.EndAtomicSubmitInGuardedSection(_section); }
-    }
+    public Task SendEnterAsync()
+        => throw new GuardedSendAbandonedException("[InputGuardedBackend] a guarded send never submits in one call; nothing was sent");
 
     public void Resize(short cols, short rows) => Inner.Resize(cols, rows);
 
@@ -157,10 +148,34 @@ internal sealed class InputGuardedBackend : ISessionBackend
 /// <summary>How <see cref="Session.SendTextOnlyWhenWaitingForInputAsync"/> ended.</summary>
 public sealed record GuardedSendResult(bool Accepted, bool RefusedBusy, bool Exited, ActivityState ActivityState, string? Reason)
 {
+    /// <summary>Which fixed refusal this was, or null for the others.</summary>
+    public PromptRefusal? RefusedFor { get; init; }
+
     public static GuardedSendResult Sent(ActivityState state) => new(true, false, false, state, null);
 
     /// <summary>The session was not waiting for a prompt, or the send was abandoned and its text taken back out.</summary>
     public static GuardedSendResult Busy(ActivityState state, string reason) => new(false, true, false, state, reason);
 
+    /// <summary>The owner has unsent text in the composer; nothing was typed.</summary>
+    public static GuardedSendResult OwnerDraft(ActivityState state) => new(false, true, false, state,
+        "the owner has unsent text in the composer; nothing was typed, so the owner's words are never sent with this text")
+    { RefusedFor = PromptRefusal.OwnerDraft };
+
+    /// <summary>The session's terminal submits a whole turn in one call; a guarded send is never made to it.</summary>
+    public static GuardedSendResult OneCallSubmit(ActivityState state, string backend) => new(false, true, false, state,
+        $"the session's {backend} terminal submits a whole turn in one call, which cannot be taken back once started, " +
+        "so a send that holds the owner's input is never made to it; nothing was sent")
+    { RefusedFor = PromptRefusal.OneCallSubmit };
+
     public static GuardedSendResult NotRunning(ActivityState state) => new(false, false, true, state, "session has exited");
+}
+
+/// <summary>The refusals of a guarded send a sender needs to tell apart.</summary>
+public enum PromptRefusal
+{
+    /// <summary>The owner has unsent text in the composer.</summary>
+    OwnerDraft,
+
+    /// <summary>The session's terminal submits in one call that cannot be taken back.</summary>
+    OneCallSubmit,
 }

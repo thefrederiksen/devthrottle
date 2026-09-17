@@ -80,6 +80,10 @@ public sealed class FleetManagerEventListDto
     /// <summary>The cursor that continues after this page, or null on the last page. Opaque: pass it back as it is.</summary>
     public string? NextCursor { get; set; }
 
+    /// <summary>Why the Fleet Manager's events are not being delivered right now, written by the Gateway for a page to
+    /// show as it is (for example, the owner has unsent text in the Fleet Manager). Null when nothing holds them back.</summary>
+    public string? DeliveryNote { get; set; }
+
     /// <summary>Unacknowledged events oldest first; all events newest first.</summary>
     public List<FleetManagerEventDto> Events { get; set; } = new();
 }

@@ -902,6 +902,77 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         Assert.Equal("fm", Assert.Single(Open()).DeliveredTo);
     }
 
+    // ---- round 2, finding 1: the owner's unsent draft in the Fleet Manager
+
+    /// <summary>
+    /// The owner has typed into the Fleet Manager and not sent it. The Director refuses the events before typing
+    /// anything, the events stay undelivered, and the Gateway writes the sentence a page shows. Once the owner sends
+    /// their text and the Fleet Manager's turn ends, the events are delivered on their own and the sentence is gone.
+    /// </summary>
+    [Fact]
+    public async Task TheOwnerHasUnsentTextInTheFleetManager_NothingIsTyped_TheGatewaySaysWhy_ThenTheEventsGoAlone()
+    {
+        var (director, terminal) = ScriptedTerminal.NewWaitingSession();
+        var requests = new List<PromptRequest>();
+        _env.SendThrough(new GatewayFleetManagerEventEnvironment(_pushed, Stale,
+            route: (_, directorId) => DirectorRoute(directorId, director, requests),
+            mark: _ => _marked, checksIdleBeforeTyping: (_, _) => true, directorShutDown: (_, _) => false));
+        SetState("fm", "WaitingForInput");
+        ScriptedTerminal.OwnerTypes(director, "my draft ");
+
+        await TurnEndAsync("worker-1");
+        Assert.Equal(FleetManagerDeliveryResult.OwnerDraft, await _service.DeliverToAsync(Tenant, "fm"));
+
+        Assert.Equal(2, requests.Count);
+        Assert.Empty(terminal.Submitted);
+        Assert.Equal("my draft ", terminal.Composer.ToString());
+        Assert.Null(Assert.Single(Open()).DeliveredTo);
+        Assert.Equal("The Fleet Manager has your unsent text; 1 event is waiting. It is sent after you send your text.",
+            _service.DeliveryNote(Tenant));
+
+        // The owner sends their text; the Fleet Manager works on it, and its turn end delivers the event alone.
+        ScriptedTerminal.OwnerTypes(director, "\r");
+        director.ApplyTerminalActivityState(ActivityState.WaitingForInput);
+        await FleetManagerTurnEndAsync();
+
+        Assert.Equal(3, requests.Count);
+        Assert.Equal(2, terminal.Submitted.Count);
+        Assert.Equal("my draft ", terminal.Submitted[0]);
+        Assert.StartsWith("[Fleet Manager events]", terminal.Submitted[1]);
+        Assert.Equal("fm", Assert.Single(Open()).DeliveredTo);
+        Assert.Null(_service.DeliveryNote(Tenant));
+    }
+
+    [Fact]
+    public async Task DeliveryNote_CountsEveryWaitingEvent_AndBelongsToTheMarkedFleetManagerOnly()
+    {
+        SetState("fm", "WaitingForInput");
+        _env.Result = FleetManagerPromptSend.OwnerDraft;
+        await TurnEndAsync("worker-1");
+        await TurnEndAsync("worker-2");
+
+        Assert.Equal(FleetManagerDeliveryResult.OwnerDraft, await _service.DeliverToAsync(Tenant, "fm"));
+        Assert.Equal("The Fleet Manager has your unsent text; 2 events are waiting. They are sent after you send your text.",
+            _service.DeliveryNote(Tenant));
+
+        _marked = "plain";
+        Assert.Null(_service.DeliveryNote(Tenant));
+    }
+
+    [Fact]
+    public async Task AFleetManagerWhoseTerminalSubmitsInOneCall_IsSentNothing_AndTheGatewaySaysWhy()
+    {
+        SetState("fm", "WaitingForInput");
+        _env.Result = FleetManagerPromptSend.OneCallSubmit;
+        await TurnEndAsync("worker-1");
+
+        Assert.Equal(FleetManagerDeliveryResult.OneCallSubmit, await _service.DeliverToAsync(Tenant, "fm"));
+        Assert.Null(Assert.Single(Open()).DeliveredTo);
+        Assert.Equal("The Fleet Manager runs in a session whose terminal cannot take a send back, so no events are typed " +
+                     "into it; 1 event is waiting. Run the Fleet Manager in a terminal session to receive them.",
+            _service.DeliveryNote(Tenant));
+    }
+
     // ---- ruling 2: the Director's check at the moment it types
 
     /// <summary>The owner starts typing into the Fleet Manager after the Gateway's pushed state said it was waiting:
@@ -910,36 +981,31 @@ public sealed class FleetManagerEventServiceTests : IDisposable
     [Fact]
     public async Task TheOwnerStartedATurnInTheGap_TheDirectorRefuses_AndTheEventsWaitForTheNextIdleMoment()
     {
-        var manager = new SessionManager(new Core.Configuration.AgentOptions());
-        try
-        {
-            var director = manager.CreateEmbeddedSession(Path.GetTempPath(), null, new ExecuteActionTestBackend());
-            var requests = new List<PromptRequest>();
-            var production = new GatewayFleetManagerEventEnvironment(_pushed, Stale,
-                route: (_, directorId) => DirectorRoute(directorId, director, requests),
-                mark: _ => _marked, checksIdleBeforeTyping: (_, _) => _checksIdle, directorShutDown: (_, d) => _shutDown.Contains(d));
-            _env.SendThrough(production);
-            SetState("fm", "WaitingForInput");
+        var (director, _) = ScriptedTerminal.NewWaitingSession();
+        var requests = new List<PromptRequest>();
+        var production = new GatewayFleetManagerEventEnvironment(_pushed, Stale,
+            route: (_, directorId) => DirectorRoute(directorId, director, requests),
+            mark: _ => _marked, checksIdleBeforeTyping: (_, _) => _checksIdle, directorShutDown: (_, d) => _shutDown.Contains(d));
+        _env.SendThrough(production);
+        SetState("fm", "WaitingForInput");
 
-            // The owner's own turn, on the Director, after the Gateway's last push.
-            director.ApplyTerminalActivityState(ActivityState.Working);
-            await TurnEndAsync("worker-1");
+        // The owner's own turn, on the Director, after the Gateway's last push.
+        director.ApplyTerminalActivityState(ActivityState.Working);
+        await TurnEndAsync("worker-1");
 
-            var request = Assert.Single(requests);
-            Assert.True(request.OnlyWhenWaitingForInput);
-            Assert.True(request.AgentDriven);
-            Assert.Null(Assert.Single(Open()).DeliveredTo);
-            Assert.Equal(0, director.InputStats.Snapshot().AgentDrivenTurns);
+        var request = Assert.Single(requests);
+        Assert.True(request.OnlyWhenWaitingForInput);
+        Assert.True(request.AgentDriven);
+        Assert.Null(Assert.Single(Open()).DeliveredTo);
+        Assert.Equal(0, director.InputStats.Snapshot().AgentDrivenTurns);
 
-            // The owner's turn ends: the Fleet Manager is waiting for a prompt, and this time it is typed.
-            director.ApplyTerminalActivityState(ActivityState.WaitingForInput);
-            await FleetManagerTurnEndAsync();
+        // The owner's turn ends: the Fleet Manager is waiting for a prompt, and this time it is typed.
+        director.ApplyTerminalActivityState(ActivityState.WaitingForInput);
+        await FleetManagerTurnEndAsync();
 
-            Assert.Equal(2, requests.Count);
-            Assert.Equal("fm", Assert.Single(Open()).DeliveredTo);
-            Assert.Equal(1, director.InputStats.Snapshot().AgentDrivenTurns);
-        }
-        finally { manager.Dispose(); }
+        Assert.Equal(2, requests.Count);
+        Assert.Equal("fm", Assert.Single(Open()).DeliveredTo);
+        Assert.Equal(1, director.InputStats.Snapshot().AgentDrivenTurns);
     }
 
     /// <summary>
@@ -950,31 +1016,26 @@ public sealed class FleetManagerEventServiceTests : IDisposable
     [Fact]
     public async Task ADirectorOlderThanTheIdleCheck_IsSentNothing_AndTheEventsWait()
     {
-        var manager = new SessionManager(new Core.Configuration.AgentOptions());
-        try
-        {
-            var director = manager.CreateEmbeddedSession(Path.GetTempPath(), null, new ExecuteActionTestBackend());
-            var requests = new List<PromptRequest>();
-            _env.SendThrough(new GatewayFleetManagerEventEnvironment(_pushed, Stale,
-                route: (_, directorId) => DirectorRoute(directorId, director, requests),
-                mark: _ => _marked, checksIdleBeforeTyping: (_, _) => _checksIdle, directorShutDown: (_, _) => false));
-            director.ApplyTerminalActivityState(ActivityState.WaitingForInput);
-            _checksIdle = false;
-            SetState("fm", "WaitingForInput");
+        var (director, _) = ScriptedTerminal.NewWaitingSession();
+        var requests = new List<PromptRequest>();
+        _env.SendThrough(new GatewayFleetManagerEventEnvironment(_pushed, Stale,
+            route: (_, directorId) => DirectorRoute(directorId, director, requests),
+            mark: _ => _marked, checksIdleBeforeTyping: (_, _) => _checksIdle, directorShutDown: (_, _) => false));
+        director.ApplyTerminalActivityState(ActivityState.WaitingForInput);
+        _checksIdle = false;
+        SetState("fm", "WaitingForInput");
 
-            await TurnEndAsync("worker-1");
-            Assert.Equal(FleetManagerDeliveryResult.DirectorTooOld, await _service.DeliverToAsync(Tenant, "fm"));
+        await TurnEndAsync("worker-1");
+        Assert.Equal(FleetManagerDeliveryResult.DirectorTooOld, await _service.DeliverToAsync(Tenant, "fm"));
 
-            Assert.Empty(requests);
-            Assert.Null(Assert.Single(Open()).DeliveredTo);
-            Assert.Equal(0, director.InputStats.Snapshot().AgentDrivenTurns);
+        Assert.Empty(requests);
+        Assert.Null(Assert.Single(Open()).DeliveredTo);
+        Assert.Equal(0, director.InputStats.Snapshot().AgentDrivenTurns);
 
-            _checksIdle = true;
-            Assert.Equal(FleetManagerDeliveryResult.Delivered, await _service.DeliverToAsync(Tenant, "fm"));
-            Assert.Single(requests);
-            Assert.Equal("fm", Assert.Single(Open()).DeliveredTo);
-        }
-        finally { manager.Dispose(); }
+        _checksIdle = true;
+        Assert.Equal(FleetManagerDeliveryResult.Delivered, await _service.DeliverToAsync(Tenant, "fm"));
+        Assert.Single(requests);
+        Assert.Equal("fm", Assert.Single(Open()).DeliveredTo);
     }
 
     // ---- minor 8: the Director's receipt is read, as the answer route reads it
@@ -992,6 +1053,10 @@ public sealed class FleetManagerEventServiceTests : IDisposable
             GatewayFleetManagerEventEnvironment.Classify("fm", Ok(new PromptResponse { Accepted = true, IdleChecked = false })));
         Assert.Equal(FleetManagerPromptSend.Busy,
             GatewayFleetManagerEventEnvironment.Classify("fm", Ok(new PromptResponse { RefusedBusy = true, ActivityState = "Working" })));
+        Assert.Equal(FleetManagerPromptSend.OwnerDraft, GatewayFleetManagerEventEnvironment.Classify("fm",
+            Ok(new PromptResponse { RefusedBusy = true, IdleChecked = true, RefusedFor = PromptResponse.RefusedForOwnerDraft })));
+        Assert.Equal(FleetManagerPromptSend.OneCallSubmit, GatewayFleetManagerEventEnvironment.Classify("fm",
+            Ok(new PromptResponse { RefusedBusy = true, IdleChecked = true, RefusedFor = PromptResponse.RefusedForOneCallSubmit })));
         Assert.Equal(FleetManagerPromptSend.Unanswered,
             GatewayFleetManagerEventEnvironment.Classify("fm", Ok(new PromptResponse { Accepted = false, Error = "no" })));
         Assert.Equal(FleetManagerPromptSend.Unanswered, GatewayFleetManagerEventEnvironment.Classify("fm", Ok(null)));

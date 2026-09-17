@@ -52,8 +52,10 @@ conversation:
   first, including ones already sent to you or to the Fleet Manager before you. The line reads
   `events: <shown> of <total> unacknowledged`, and says how many are waiting for their reading. It
   shows at most 200. When more remain it prints `eventsMoreRemain:` with the command that lists the
-  rest - run it and follow each `nextCursor` until none is printed. Deal with the events first:
-  act on each, then acknowledge it by its id.
+  rest - run it and follow each `nextCursor` until none is printed. When the events are not reaching
+  you, the next line is `eventsDeliveryNote:` with the Gateway's reason - for example, the owner has
+  typed into your session and not sent it yet. Deal with the events first: act on each, then
+  acknowledge it by its id.
 - An event whose verdict is `waiting` is a stop still waiting for the Wingman's reading. **Do not
   act on it and do not acknowledge it.** The Gateway refuses to acknowledge it, and sends it to you
   once its reading is stored - or, if there is still no reading after 5 minutes, with the reason
@@ -65,8 +67,10 @@ You never poll, you never ask, and a session you own never reports to you. When 
 sessions stops (reaches the end of a turn) or dies (exits, crashes, or leaves its Director's list),
 the Gateway records an event and tells you - but never in the middle of your turn. It is typed only
 when you are waiting for a prompt: your Director checks that at the moment it would type, and
-refuses otherwise, so the events wait for your next idle moment. Whatever arrived while you were
-busy comes as ONE prompt, oldest first, that starts with this line:
+refuses otherwise, so the events wait for your next idle moment. It also refuses while the owner has
+typed into your session and not sent it: the events are never typed after the owner's words, and wait
+until the owner sends them. Whatever arrived while you were busy comes as ONE prompt, oldest first,
+that starts with this line:
 
 ```
 [Fleet Manager events] 2 stops and 0 died since your last turn.
