@@ -179,6 +179,22 @@ describe("FleetManagerView", () => {
     expect(screen.getByText("Decision - only you can make this (fake)")).toBeTruthy();
   });
 
+  it("offers the walkthrough from Waiting on you in the Gateway's words, and not when nothing waits", async () => {
+    api.placement.mockResolvedValue(placement("running"));
+    api.page.mockResolvedValueOnce(morningPage());
+    renderPage();
+
+    const link = await screen.findByTestId("fmp-walkthrough");
+    expect(link.textContent).toBe("Take me through them (fake)");
+    expect(link.getAttribute("href")).toBe("/fleet-manager/walkthrough");
+
+    cleanup();
+    api.page.mockResolvedValue(emptyPage());
+    renderPage();
+    await screen.findByText("Nothing is waiting on you. (fake)");
+    expect(screen.queryByTestId("fmp-walkthrough")).toBeNull();
+  });
+
   it("an empty account shows the Gateway's empty sentences", async () => {
     api.placement.mockResolvedValue(placement("not-running"));
     api.page.mockResolvedValue(emptyPage());

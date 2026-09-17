@@ -82,6 +82,8 @@ internal static class FleetManagerPageFold
             NotMine = NotMine(live, fleetManager),
         };
         dto.WaitingCount = dto.Waiting.Count;
+        // The way into the walkthrough (step 7), offered only when something is waiting.
+        dto.WalkthroughLabel = dto.WaitingCount > 0 ? "Take me through them" : null;
         return dto;
     }
 
@@ -217,15 +219,22 @@ internal static class FleetManagerPageFold
         _ => 2,
     };
 
-    /// <summary>Open records, most important first: decisions, then work ready to merge, then findings; the oldest
-    /// first within each kind, because it has waited longest.</summary>
-    private static FleetPanelSectionDto Waiting(FleetManagerPageInputs input, IReadOnlyDictionary<string, SessionDto> live)
-    {
-        var items = input.Open
-            .Where(o => o.Status == FleetOutcomeStore.StatusOpen)
+    /// <summary>
+    /// THE ORDER OF "WAITING ON YOU", the one rule the page and the walkthrough (step 7) both use: decisions, then work
+    /// ready to merge, then findings; the oldest first within each kind, because it has waited longest. Every key is a
+    /// fact a record never changes, so a record keeps its place whether it is open or answered - which is what lets the
+    /// walkthrough keep a settled item where it was. The caller filters; this only orders.
+    /// </summary>
+    internal static IOrderedEnumerable<FleetOutcomeDto> InWaitingOrder(IEnumerable<FleetOutcomeDto> records)
+        => records
             .OrderBy(o => KindRank(o.Kind))
             .ThenBy(o => o.CreatedAtUtc)
-            .ThenBy(o => o.Id, StringComparer.Ordinal)
+            .ThenBy(o => o.Id, StringComparer.Ordinal);
+
+    /// <summary>Open records, most important first (<see cref="InWaitingOrder"/>).</summary>
+    private static FleetPanelSectionDto Waiting(FleetManagerPageInputs input, IReadOnlyDictionary<string, SessionDto> live)
+    {
+        var items = InWaitingOrder(input.Open.Where(o => o.Status == FleetOutcomeStore.StatusOpen))
             .Select(o =>
             {
                 SessionDto? session = null;

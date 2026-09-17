@@ -674,7 +674,7 @@ COMMANDS:
   mission list     List the missions on the Gateway, active ones by default.
   fleet digest     Everything the Fleet Manager reads at the start of a conversation.
   fleet ready      File a Ready record (also: fleet finding, fleet decision).
-  fleet outcomes   List the account's outcome records (also: fleet show, fleet answer).
+  fleet outcomes   List the account's outcome records (also: fleet show, fleet answer, fleet advise).
   fleet prefer     Keep a standing preference (also: fleet preferences, fleet forget).
   fleet events     List the stops and deaths of sessions the Fleet Manager owns (also: fleet ack).
   message send     Queue a message for your supervisor or a worker ('all' for every worker).
@@ -1182,15 +1182,18 @@ or the start of one.
 USAGE: cc-devthrottle fleet digest [--session <id>] [--json]
 USAGE: cc-devthrottle fleet ready "<title>" --pr <link> --risk low|medium|high
          --checks passed|failed|none --tested "<how>" --reviewed-by "<who>"
-         --change "<one sentence for a user>" [--session <id>] [--json]
+         --change "<one sentence for a user>" [--session <id>]
+         [--advice "<one line>" [--pick "<option key>"]] [--json]
 USAGE: cc-devthrottle fleet finding "<title>" --answer "<answer>" [--reason "<why>"]
-         [--link <url> ...] [--session <id>] [--json]
+         [--link <url> ...] [--session <id>] [--advice "<one line>" [--pick "<option key>"]] [--json]
 USAGE: cc-devthrottle fleet decision "<title>" --question "<q>" --option "<a>" --option "<b>"
-         [--recommend "<a>"] [--why "<why>"] [--session <id>] [--json]
+         [--recommend "<a>"] [--why "<why>"] [--session <id>]
+         [--advice "<one line>" [--pick "<option key>"]] [--json]
 USAGE: cc-devthrottle fleet outcomes [--status open|answered|all] [--kind ready|finding|decision]
          [--count/-n 1-200] [--cursor <nextCursor>] [--all] [--json]
 USAGE: cc-devthrottle fleet show ID [--json]
 USAGE: cc-devthrottle fleet answer ID "<the owner's words, exactly>" [--json]
+USAGE: cc-devthrottle fleet advise ID "<one line of advice>" [--pick "<option key>"] [--json]
 USAGE: cc-devthrottle fleet prefer "<preference, verbatim>" [--json]
 USAGE: cc-devthrottle fleet preferences [--json]
 USAGE: cc-devthrottle fleet forget ID [--json]
@@ -1228,6 +1231,22 @@ all. An `ID` given as the start of an id is matched against every record, every 
 the Fleet Manager, or two Gateway instances - exactly one answer is kept, and the other is refused
 (409, `already_answered`). The record keeps who answered (`answeredByRole`: `owner` or
 `fleet-manager`). A decision's answer need not be one of its options; the record says whether it was.
+
+`--advice` (on `fleet ready`, `fleet finding` and `fleet decision`) and `fleet advise` store the Fleet
+Manager's ONE line of advice on a record, shown to the owner in the walkthrough. Only the marked Fleet
+Manager may write it; the owner's own device is refused. The Gateway refuses a line break, and more than
+300 characters, with a sentence saying why. `--pick` names the Wingman option the Fleet Manager would
+choose, by its key; it goes with `--advice` and must be one of the options of the session's current
+Wingman reading (the refusal lists them). `fleet advise` replaces the advice and pick on an open record;
+leaving `--pick` out clears the pick; an answered record is refused (409, `already_answered`). Filing
+without `--advice` sends exactly the body it always sent. `fleet show` prints `advice`, `pick` and, when
+set, `ownerNote`. The records' `--json` shape keeps every field it had and adds `advice`,
+`fleetManagerPick`, `adviceSetAtUtc`, `ownerNote` and `ownerNoteAtUtc`.
+
+`fleet digest` also prints `answered: <n> in the last 24 hours` and an `answered` table (id, kind, who
+answered, the words, title) - how the Fleet Manager learns what the owner decided in the walkthrough,
+where nothing is typed to it (JSON: `recentlyAnswered`, `answeredWithinHours`). Its open-records table
+carries each record's `advice` and `ownerNote` (a snooze from the walkthrough).
 
 `fleet events` lists the events about sessions a Fleet Manager owns - a `stop` (with the Wingman's
 reading of it, or why there is none) or a `died` (exited or crashed). By default only the
@@ -1280,7 +1299,9 @@ Fleet Manager. Whether the owner is a Fleet Manager is the roster row's `ownedBy
 the Gateway works out.
 
 Gateway routes: `/gateway/fleet-manager/outcomes` (GET, POST), `/outcomes/{id}` (GET),
-`/outcomes/{id}/answer` (POST, 409 when already answered), `/preferences` (GET, POST),
+`/outcomes/{id}/answer` (POST, 409 when already answered), `/outcomes/{id}/advice` (PUT
+`{ advice, pick }`, the Fleet Manager's session key only; 400 for a second line, more than 300
+characters, or a pick that is not a current option; 409 when answered), `/preferences` (GET, POST),
 `/preferences/{id}` (DELETE), `/digest?session=<id>` (GET),
 `/events?status=unacknowledged|all&count=&cursor=` (GET, answering `count`, `total`, `hasMore`,
 `nextCursor` and `events`), `/events/ack` (POST `{ ids: [...] }` or
@@ -1302,6 +1323,20 @@ there) reads `/gateway/fleet-manager/page` (GET, the owner's; a session key is r
 digest instead): the cards drawn from the records, the right panel (waiting on you, under way, answered
 today, and the count of sessions that still ask the owner directly) and the rail's badge count. A card
 button answers the record and then sends the same words to the Fleet Manager as a prompt.
+
+"Take me through them" (`/fleet-manager/walkthrough` in the Cockpit, opened from the Waiting on you
+panel) reads `/gateway/fleet-manager/walkthrough?round=<id>,<id>` (GET): one round of the waiting
+records, in the page's order, each with the Wingman's reading of its session (or the sentence saying
+why there is none), the Fleet Manager's advice, both picks marked, and whether snooze and close are
+offered. The client sends the round's ids back so answered items stay in the list as done. Three owner
+routes record what happened, each only AFTER the session took it: `/walkthrough/{id}/answered` (POST
+`{ verdictId, optionIndexes }`; recorded only when the Wingman's answer route marked that verdict
+answered, with the options' own words), `/walkthrough/{id}/snoozed` (POST; writes the record's
+`ownerNote` only when the session is snoozed; the record stays open) and `/walkthrough/{id}/close`
+(POST; decides again whether the session may be closed - never with uncommitted, unpushed or unmerged
+work, and never when the Gateway cannot tell (409 `close_refused` with the sentence) - then runs the one
+stop handler and records the answer `Close the session.` only when a session was stopped). All four
+are the owner's: a session key and a Director's key are refused.
 
 ### Skill Commands
 

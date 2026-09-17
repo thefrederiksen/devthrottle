@@ -432,6 +432,9 @@ public sealed class GatewayHost : IAsyncDisposable
     private readonly Activity.ActivityEventStore _activityEvents;
     private readonly Reports.RepoStateStore _repoState;
 
+    /// <summary>The stop handler, set when the session routes are mapped, for the Fleet Manager walkthrough's close.</summary>
+    private readonly SessionStopDoor _sessionStopDoor = new();
+
     /// <summary>Whether the skills this Gateway serves can actually be READ on the machines it serves
     /// them to - reported by each Director, because only the machine can observe it.</summary>
     private readonly Skills.SkillPlacementStore _skillPlacement;
@@ -3682,6 +3685,8 @@ public sealed class GatewayHost : IAsyncDisposable
                 _turnVerdicts, record => EnsureTurnVerdictEnvironment().Record(record))),
             // Slice E round 3: the same ledger writer, for the answer route's refusal when the service is missing.
             turnVerdictLedger: record => EnsureTurnVerdictEnvironment().Record(record),
+            // The Fleet Manager walkthrough's close runs the one stop handler (step 7).
+            stopDoor: _sessionStopDoor,
             // Issue #2022: the live process diagnostics the About page shows read-only on both surfaces,
             // after the machine settings left the Cockpit Settings page.
             gatewayStartedAtUtc: StartedAtUtc,
@@ -4341,6 +4346,36 @@ public sealed class GatewayHost : IAsyncDisposable
                 LatestVerdict: (tenant, sid) => _turnVerdicts.Latest(tenant, sid),
                 TimeZone: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)),
                 NowUtc: () => DateTime.UtcNow));
+
+        // The Fleet Manager walkthrough (step 7): one item at a time, the Wingman's reading, the Fleet Manager's advice,
+        // and the answer, snooze and close. The owner's routes: SessionKeyGuard refuses a session key, and the handlers
+        // refuse anything but the owner's own device.
+        FleetManagerWalkthroughEndpoints.Map(_app,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            outcomes: fleetOutcomes,
+            sources: new FleetManagerWalkthroughSources(
+                LiveRoster: tenant =>
+                {
+                    var fresh = PushedSessions.SnapshotFresh(tenant, _streamStaleAfter)
+                        .Select(p => p.Session.SessionId)
+                        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    return GatewayEndpoints.FoldedAccountRoster(Registry, PushedSessions, tenant,
+                            _snoozeRegistry, _handRaises, _turnVerdictRows, _snoozeExpiry,
+                            _tenantSettingsResolver.FleetManagerSessionId)
+                        .Where(s => fresh.Contains(s.SessionId))
+                        .ToList();
+                },
+                MarkedSessionId: tenant => _tenantSettingsResolver.FleetManagerSessionId(tenant),
+                LastKnownSession: (tenant, sid) => GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, sid),
+                LatestVerdict: (tenant, sid) => _turnVerdicts.Latest(tenant, sid),
+                FindVerdict: (tenant, verdictId) => _turnVerdicts.FindById(tenant, verdictId),
+                // Two days is the outer bound only: the close rule also refuses a report taken before the session's
+                // last activity.
+                Repositories: tenant => _repoState.ReadFresh(tenant, TimeSpan.FromDays(2), DateTime.UtcNow),
+                SnoozeMinutes: tenant => _tenantSettingsResolver.SnoozeDefaultMinutes(tenant),
+                TimeZone: tenant => TimeZoneInfo.FindSystemTimeZoneById(_tenantSettingsResolver.TimeZone(tenant)),
+                NowUtc: () => DateTime.UtcNow,
+                StopDoor: _sessionStopDoor));
 
         // "DevThrottle emails me" relay (issue #1318 consumer): POST /account/email. A session or scheduled
         // run passes a subject + body (+ optional attachments); the Gateway injects its own stored account

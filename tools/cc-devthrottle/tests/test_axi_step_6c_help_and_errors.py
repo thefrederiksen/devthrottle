@@ -338,6 +338,7 @@ _ACTIONS_ADDED_SINCE_PIN = {
     # The pooled-worktree commands, which run cc-worktrees rather than answering for it.
     "worktree-get", "worktree-return", "worktree-lease", "worktree-destroy", "worktree-list-pool",
     "worktree-list",
+    "fleet-advise",
 }
 
 

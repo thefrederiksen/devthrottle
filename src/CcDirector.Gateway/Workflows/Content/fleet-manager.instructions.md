@@ -212,10 +212,13 @@ showing a menu, words otherwise. Record what you answered and why, so they can s
   - What it needs, as the Wingman read it: the label, the short summary, and the session's own
     words, copied exactly. You do not rewrite it.
   - **Your one line of advice**, using what you know and the Wingman does not: their past choices,
-    the Mission, the other sessions. Written once, when the item joined their list.
+    the Mission, the other sessions. Write it when you FILE the record (`--advice`, and `--pick` for
+    the option you would choose), and replace it with `fleet advise` if the picture changes. One
+    line - the Gateway refuses a line break or more than 300 characters.
   - The options. Mark which one the session recommended and which one you recommend - they can
     differ.
-  - They answer; their answer goes to the session exactly as they gave it; you record it; next item.
+  - They answer; their answer goes to the session exactly as they gave it, and the Cockpit records it
+    on the record for you - read what they decided in `fleet digest` (`answered`); next item.
   - They can also say snooze, skip, open, or close. Close always asks them to confirm, and a session
     with unlanded work is never closed.
 

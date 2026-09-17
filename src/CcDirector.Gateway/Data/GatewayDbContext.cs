@@ -886,6 +886,9 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.AboutSessionId).HasMaxLength(64);
             b.Property(e => e.AnsweredBy).HasMaxLength(64);
             b.Property(e => e.AnsweredByRole).HasMaxLength(16);
+            b.Property(e => e.Advice).HasMaxLength(Fleet.FleetOutcomeStore.MaxAdviceLength);
+            b.Property(e => e.FleetManagerPick).HasMaxLength(Fleet.FleetOutcomeStore.MaxTitleLength);
+            b.Property(e => e.OwnerNote).HasMaxLength(Fleet.FleetOutcomeStore.MaxTitleLength);
             // "The account's open records, newest first" is the read every start of a conversation makes.
             b.HasIndex(e => new { e.TenantId, e.Status, e.CreatedAtUtc });
         });

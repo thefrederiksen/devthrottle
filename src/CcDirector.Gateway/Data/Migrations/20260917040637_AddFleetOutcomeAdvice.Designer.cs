@@ -3,6 +3,7 @@ using System;
 using CcDirector.Gateway.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace CcDirector.Gateway.Data.Migrations
 {
     [DbContext(typeof(GatewayDbContext))]
-    partial class GatewayDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260917040637_AddFleetOutcomeAdvice")]
+    partial class AddFleetOutcomeAdvice
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "9.0.2");
@@ -287,229 +290,6 @@ namespace CcDirector.Gateway.Data.Migrations
                     b.HasIndex("JobId", "Sequence");
 
                     b.ToTable("cron_runs", (string)null);
-                });
-
-            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.DevReportEntity", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Key")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("PublishedAtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("SessionId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("TenantId")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("tenant_id");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("UpdatedAtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("Version")
-                        .HasColumnType("INTEGER");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TenantId");
-
-                    b.HasIndex("TenantId", "SessionId", "Key")
-                        .IsUnique();
-
-                    b.ToTable("dev_reports", (string)null);
-                });
-
-            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.DevReportItemEntity", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("AnchorJson")
-                        .HasColumnType("TEXT");
-
-                    b.Property<Guid?>("ClaimId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("ClaimedAtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("ClientItemId")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Comment")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("DeliveredAtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Kind")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("OptionLabel")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("OptionValue")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Question")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("QuestionId")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("ReplacedBy")
-                        .HasColumnType("TEXT");
-
-                    b.Property<Guid>("ReportId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("SenderKind")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("SentAtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<long>("Sequence")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("SessionId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("StatusLabel")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("TenantId")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("tenant_id");
-
-                    b.Property<string>("Text")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TenantId");
-
-                    b.HasIndex("TenantId", "ReportId", "ClientItemId")
-                        .IsUnique();
-
-                    b.HasIndex("TenantId", "SessionId", "Status");
-
-                    b.ToTable("dev_report_items", (string)null);
-                });
-
-            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.DevReportReplyEntity", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("AtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<Guid>("ReportId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("TenantId")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("tenant_id");
-
-                    b.Property<string>("Text")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TenantId");
-
-                    b.HasIndex("TenantId", "ReportId", "AtUtc");
-
-                    b.ToTable("dev_report_replies", (string)null);
-                });
-
-            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.DevReportVersionEntity", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("ByteHash")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
-                    b.Property<long>("ByteLength")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("Html")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("PublishedAtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<Guid>("ReportId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasMaxLength(32)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("TenantId")
-                        .IsRequired()
-                        .HasColumnType("TEXT")
-                        .HasColumnName("tenant_id");
-
-                    b.Property<string>("Title")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("Version")
-                        .HasColumnType("INTEGER");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("TenantId");
-
-                    b.HasIndex("TenantId", "ReportId", "Version")
-                        .IsUnique();
-
-                    b.ToTable("dev_report_versions", (string)null);
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.DeviceCredentialEntity", b =>
@@ -921,94 +701,6 @@ namespace CcDirector.Gateway.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("fleet_manager_owned_sessions", (string)null);
-                });
-
-            modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FleetMessageEntity", b =>
-                {
-                    b.Property<string>("TenantId")
-                        .HasColumnType("TEXT")
-                        .HasColumnName("tenant_id");
-
-                    b.Property<string>("MessageId")
-                        .HasMaxLength(32)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("CorrelationId")
-                        .HasMaxLength(32)
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("InReplyToMessageId")
-                        .HasMaxLength(32)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Kind")
-                        .IsRequired()
-                        .HasMaxLength(16)
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("LastRungAtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("ReadAtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("RecipientSessionId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("RepliedAtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("ReplyByUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("ReplyOverdueAtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("RingCount")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("SenderMachine")
-                        .HasMaxLength(256)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("SenderName")
-                        .HasMaxLength(256)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("SenderSessionId")
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime?>("StuckAtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Text")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("TextHash")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("TenantId", "MessageId");
-
-                    b.HasIndex("TenantId");
-
-                    b.HasIndex("TenantId", "CreatedAtUtc");
-
-                    b.HasIndex("TenantId", "ReplyByUtc");
-
-                    b.HasIndex("TenantId", "SenderSessionId", "CreatedAtUtc");
-
-                    b.HasIndex("TenantId", "RecipientSessionId", "ReadAtUtc", "CreatedAtUtc");
-
-                    b.ToTable("fleet_messages", (string)null);
                 });
 
             modelBuilder.Entity("CcDirector.Gateway.Data.Entities.FleetOutcomeEntity", b =>
@@ -2398,9 +2090,6 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
 
-                    b.Property<DateTime?>("ClockDeadlineUtc")
-                        .HasColumnType("TEXT");
-
                     b.Property<bool>("ColourEnabled")
                         .HasColumnType("INTEGER");
 
@@ -2440,13 +2129,6 @@ namespace CcDirector.Gateway.Data.Migrations
 
                     b.Property<double?>("ReplySeconds")
                         .HasColumnType("REAL");
-
-                    b.Property<string>("RowColour")
-                        .HasMaxLength(32)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("RowLabel")
-                        .HasColumnType("TEXT");
 
                     b.Property<string>("SessionId")
                         .IsRequired()

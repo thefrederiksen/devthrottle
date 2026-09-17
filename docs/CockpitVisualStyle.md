@@ -41,7 +41,7 @@ of what the app actually uses; keep it in step with that file.
 | `--ok-text` | `#6ee79b` | Ready green text |
 | `--danger-text` | `#ff8b8b` | A Decision card's heading |
 | `--decision-bg` | `#1b1522` | A Decision card's tint |
-| `--panel-deep` | `#0f1528` | The Fleet Manager page's right panel |
+| `--panel-deep` | `#0f1528` | The Fleet Manager page's right panel, and the walkthrough's round column |
 | `--dot-idle` | `#5b6480` | A stopped session's dot |
 
 Non-colour token:

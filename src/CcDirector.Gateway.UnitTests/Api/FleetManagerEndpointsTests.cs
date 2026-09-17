@@ -150,7 +150,7 @@ public sealed class FleetManagerEndpointsTests : IDisposable
 
     private async Task<FleetOutcomeDto> FileAsync(TenantId tenant, FleetOutcomeFileRequest request, string caller = FleetManager)
     {
-        var result = await FleetManagerEndpoints.FileOutcomeAsync(Request(tenant, caller, request), ResolveTenant, Access(), _outcomes);
+        var result = await FleetManagerEndpoints.FileOutcomeAsync(Request(tenant, caller, request), ResolveTenant, Access(), _outcomes, Sources());
         Assert.Equal(StatusCodes.Status201Created, Status(result));
         return Body<FleetOutcomeDto>(result);
     }
@@ -226,7 +226,7 @@ public sealed class FleetManagerEndpointsTests : IDisposable
         return route switch
         {
             "file" => await FleetManagerEndpoints.FileOutcomeAsync(
-                Request(TenantA, caller, FleetOutcomeStoreTests.Finding()), ResolveTenant, Access(), _outcomes),
+                Request(TenantA, caller, FleetOutcomeStoreTests.Finding()), ResolveTenant, Access(), _outcomes, Sources()),
             "list" => FleetManagerEndpoints.ListOutcomes(Request(TenantA, caller), ResolveTenant, Access(), _outcomes),
             "read" => FleetManagerEndpoints.GetOutcome(Request(TenantA, caller), existing.Id, ResolveTenant, Access(), _outcomes),
             "answer" => await AnswerAsync(TenantA, caller!, existing.Id, "Merge it."),
@@ -291,7 +291,7 @@ public sealed class FleetManagerEndpointsTests : IDisposable
     public async Task FileOutcome_TheOwnersDevice_IsRefusedAndNothingIsStored()
     {
         var result = await FleetManagerEndpoints.FileOutcomeAsync(
-            Request(TenantA, Owner, FleetOutcomeStoreTests.Finding()), ResolveTenant, Access(), _outcomes);
+            Request(TenantA, Owner, FleetOutcomeStoreTests.Finding()), ResolveTenant, Access(), _outcomes, Sources());
 
         Assert.Equal(StatusCodes.Status403Forbidden, Status(result));
         Assert.StartsWith("the owner does not file records", (string)Field(result, "error")!);
@@ -304,7 +304,7 @@ public sealed class FleetManagerEndpointsTests : IDisposable
         _marked[TenantA] = null;
 
         var result = await FleetManagerEndpoints.FileOutcomeAsync(
-            Request(TenantA, FleetManager, FleetOutcomeStoreTests.Ready()), ResolveTenant, Access(), _outcomes);
+            Request(TenantA, FleetManager, FleetOutcomeStoreTests.Ready()), ResolveTenant, Access(), _outcomes, Sources());
 
         Assert.Equal(StatusCodes.Status403Forbidden, Status(result));
         Assert.Contains("this account has no Fleet Manager marked", (string)Field(result, "error")!);
@@ -319,7 +319,7 @@ public sealed class FleetManagerEndpointsTests : IDisposable
         _marked[TenantA] = OwnedWorking;
 
         var result = await FleetManagerEndpoints.FileOutcomeAsync(
-            Request(TenantA, OwnedWorking, FleetOutcomeStoreTests.Ready()), ResolveTenant, Access(), _outcomes);
+            Request(TenantA, OwnedWorking, FleetOutcomeStoreTests.Ready()), ResolveTenant, Access(), _outcomes, Sources());
 
         Assert.Equal(StatusCodes.Status403Forbidden, Status(result));
         Assert.Contains($"is owned by session {FleetManager}", (string)Field(result, "error")!);
@@ -332,7 +332,7 @@ public sealed class FleetManagerEndpointsTests : IDisposable
         _marked[TenantA] = unreported;
 
         var result = await FleetManagerEndpoints.FileOutcomeAsync(
-            Request(TenantA, unreported, FleetOutcomeStoreTests.Ready()), ResolveTenant, Access(), _outcomes);
+            Request(TenantA, unreported, FleetOutcomeStoreTests.Ready()), ResolveTenant, Access(), _outcomes, Sources());
 
         Assert.Equal(StatusCodes.Status403Forbidden, Status(result));
         Assert.Contains("no Director of this account has reported it", (string)Field(result, "error")!);
@@ -363,7 +363,7 @@ public sealed class FleetManagerEndpointsTests : IDisposable
     public async Task FileOutcome_BadKind_Is400NamingTheValidKinds()
     {
         var result = await FleetManagerEndpoints.FileOutcomeAsync(
-            Request(TenantA, FleetManager, new { kind = "update", title = "Something" }), ResolveTenant, Access(), _outcomes);
+            Request(TenantA, FleetManager, new { kind = "update", title = "Something" }), ResolveTenant, Access(), _outcomes, Sources());
 
         Assert.Equal(StatusCodes.Status400BadRequest, Status(result));
         Assert.Equal("kind 'update' is not valid; use one of: ready, finding, decision", Field(result, "error"));
@@ -376,7 +376,7 @@ public sealed class FleetManagerEndpointsTests : IDisposable
         var result = await FleetManagerEndpoints.FileOutcomeAsync(
             Request(TenantA, FleetManager,
                 new { kind = "decision", title = "Pick one", decision = new { question = "Which?", options = new[] { "A" } } }),
-            ResolveTenant, Access(), _outcomes);
+            ResolveTenant, Access(), _outcomes, Sources());
 
         Assert.Equal(StatusCodes.Status400BadRequest, Status(result));
         Assert.Equal("decision.options needs at least two options, got 1", Field(result, "error"));
@@ -386,7 +386,7 @@ public sealed class FleetManagerEndpointsTests : IDisposable
     public async Task FileOutcome_BrokenJson_Is400()
     {
         var result = await FleetManagerEndpoints.FileOutcomeAsync(
-            Request(TenantA, FleetManager, "{ not json"), ResolveTenant, Access(), _outcomes);
+            Request(TenantA, FleetManager, "{ not json"), ResolveTenant, Access(), _outcomes, Sources());
 
         Assert.Equal(StatusCodes.Status400BadRequest, Status(result));
     }
@@ -396,7 +396,7 @@ public sealed class FleetManagerEndpointsTests : IDisposable
     {
         Assert.Equal(StatusCodes.Status403Forbidden,
             Status(await FleetManagerEndpoints.FileOutcomeAsync(
-                Request(null, FleetManager, FleetOutcomeStoreTests.Ready()), ResolveTenant, Access(), _outcomes)));
+                Request(null, FleetManager, FleetOutcomeStoreTests.Ready()), ResolveTenant, Access(), _outcomes, Sources())));
         Assert.Equal(StatusCodes.Status403Forbidden,
             Status(FleetManagerEndpoints.ListOutcomes(Request(null, Owner), ResolveTenant, Access(), _outcomes)));
         Assert.Equal(StatusCodes.Status403Forbidden, Status(Digest(null, Owner, FleetManager)));
@@ -1069,5 +1069,201 @@ public sealed class FleetManagerEndpointsTests : IDisposable
         Assert.Equal(note, Body<FleetDigestDto>(Digest(TenantA, Owner, FleetManager)).EventsDeliveryNote);
         Assert.Equal(note, Events(TenantA, "", FleetManager).DeliveryNote);
         Assert.Null(Events(TenantB, "", Owner).DeliveryNote);
+    }
+
+    // ---- advice and the Fleet Manager's pick (step 7) -------------------------------------------------------
+
+    /// <summary>A reading of <paramref name="session"/> that offers two options, stored as its current verdict.</summary>
+    private void StoreMenuReading(TenantId tenant, string session)
+    {
+        var verdict = Verdict("verdict-menu-" + session[^4..]);
+        verdict.AnswerVia = "keys";
+        verdict.Menu = new TurnVerdictMenuDto { Question = "Which layout to keep?", SelectionMode = "single" };
+        verdict.Options = new List<TurnVerdictOptionDto>
+        {
+            new() { Key = "A - card grid", Send = "1", Recommended = true, Note = "The other is deleted." },
+            new() { Key = "B - single column", Send = "2", Note = "The other is deleted." },
+        };
+        _verdicts.Store(tenant, session, verdict);
+    }
+
+    private async Task<IResult> AdviseAsync(TenantId tenant, string? caller, string id, object body)
+        => await FleetManagerEndpoints.SetAdviceAsync(Request(tenant, caller, body), id, ResolveTenant, Access(), _outcomes, Sources());
+
+    [Fact]
+    public async Task SetAdvice_TheMarkedFleetManager_StoresTheLineAndThePick()
+    {
+        StoreMenuReading(TenantA, OwnedStopped);
+        var filed = await FileAsync(TenantA, new FleetOutcomeFileRequest
+        {
+            Kind = "decision", Title = "Pick a layout", SessionId = OwnedStopped,
+            Decision = new FleetDecisionDetails { Question = "Which layout?", Options = { "A", "B" } },
+        });
+
+        var result = await AdviseAsync(TenantA, FleetManager, filed.Id,
+            new { advice = "You picked the long column for the last two client pages. I'd pick B.", pick = "B - single column" });
+
+        Assert.Equal(StatusCodes.Status200OK, Status(result));
+        var stored = _outcomes.Get(TenantA, Guid.Parse(filed.Id))!;
+        Assert.Equal("You picked the long column for the last two client pages. I'd pick B.", stored.Advice);
+        Assert.Equal("B - single column", stored.FleetManagerPick);
+        Assert.NotNull(stored.AdviceSetAtUtc);
+    }
+
+    [Theory]
+    [InlineData(Owner, "the owner does not write the Fleet Manager's advice")]
+    [InlineData(NotOwnedConst, "only this account's Fleet Manager session")]
+    [InlineData(DirectorKey, "only this account's Fleet Manager session or the owner")]
+    public async Task SetAdvice_AnyoneButTheMarkedFleetManager_IsRefusedAndNothingChanges(string caller, string reason)
+    {
+        var filed = await FileAsync(TenantA, FleetOutcomeStoreTests.Finding());
+
+        var result = await AdviseAsync(TenantA, caller, filed.Id, new { advice = "Read the second report first." });
+
+        Assert.Equal(StatusCodes.Status403Forbidden, Status(result));
+        Assert.StartsWith(reason, (string)Field(result, "error")!);
+        Assert.Null(_outcomes.Get(TenantA, Guid.Parse(filed.Id))!.Advice);
+    }
+
+    [Theory]
+    [InlineData("Line one\nline two", "advice must be one line: it is shown as a single line beside the Wingman's reading, so remove the line break")]
+    [InlineData("Trailing break\r\n", "advice must be one line: it is shown as a single line beside the Wingman's reading, so remove the line break")]
+    [InlineData("   ", "advice is required: one line for the owner, using what you know and the Wingman does not")]
+    public async Task SetAdvice_NotOneLine_Is400WithTheReason(string advice, string expected)
+    {
+        var filed = await FileAsync(TenantA, FleetOutcomeStoreTests.Finding());
+
+        var result = await AdviseAsync(TenantA, FleetManager, filed.Id, new { advice });
+
+        Assert.Equal(StatusCodes.Status400BadRequest, Status(result));
+        Assert.Equal(expected, Field(result, "error"));
+        Assert.Null(_outcomes.Get(TenantA, Guid.Parse(filed.Id))!.Advice);
+    }
+
+    [Fact]
+    public async Task SetAdvice_OverLong_Is400SayingTheLimit()
+    {
+        var filed = await FileAsync(TenantA, FleetOutcomeStoreTests.Finding());
+
+        var result = await AdviseAsync(TenantA, FleetManager, filed.Id, new { advice = new string('a', 301) });
+
+        Assert.Equal(StatusCodes.Status400BadRequest, Status(result));
+        Assert.Equal("advice is 301 characters; one line of advice is at most 300, so shorten it", Field(result, "error"));
+    }
+
+    [Fact]
+    public async Task SetAdvice_APickThatIsNotAnOption_Is400NamingTheOptions()
+    {
+        StoreMenuReading(TenantA, OwnedStopped);
+        var filed = await FileAsync(TenantA, new FleetOutcomeFileRequest
+        {
+            Kind = "finding", Title = "Layouts built", SessionId = OwnedStopped,
+            Finding = new FleetFindingDetails { Answer = "Both run." },
+        });
+
+        var result = await AdviseAsync(TenantA, FleetManager, filed.Id, new { advice = "I'd pick C.", pick = "C" });
+
+        Assert.Equal(StatusCodes.Status400BadRequest, Status(result));
+        Assert.Equal($"pick 'C' is not one of the Wingman's options for session {OwnedStopped}; use one of: 'A - card grid', 'B - single column'",
+            Field(result, "error"));
+        Assert.Null(_outcomes.Get(TenantA, Guid.Parse(filed.Id))!.Advice);
+    }
+
+    [Fact]
+    public async Task SetAdvice_APickOnARecordAboutNoSession_Is400()
+    {
+        var filed = await FileAsync(TenantA, FleetOutcomeStoreTests.Finding());
+
+        var result = await AdviseAsync(TenantA, FleetManager, filed.Id, new { advice = "Go with A.", pick = "A" });
+
+        Assert.Equal(StatusCodes.Status400BadRequest, Status(result));
+        Assert.StartsWith("a pick names one of the Wingman's options for the record's session, and this record is about no session",
+            (string)Field(result, "error")!);
+    }
+
+    [Fact]
+    public async Task SetAdvice_AnAnsweredRecord_Is409AndUnchanged()
+    {
+        var filed = await FileAsync(TenantA, FleetOutcomeStoreTests.Finding());
+        await AnswerAsync(TenantA, Owner, filed.Id, "Got it.");
+
+        var result = await AdviseAsync(TenantA, FleetManager, filed.Id, new { advice = "Too late." });
+
+        Assert.Equal(StatusCodes.Status409Conflict, Status(result));
+        Assert.Equal("already_answered", Field(result, "code"));
+        Assert.Null(_outcomes.Get(TenantA, Guid.Parse(filed.Id))!.Advice);
+    }
+
+    [Fact]
+    public async Task SetAdvice_AnotherAccountsRecord_Is404()
+    {
+        _marked[TenantB] = null;
+        var theirs = _outcomes.File(TenantB, FleetOutcomeStoreTests.Finding(), OtherAccountSession, DateTime.UtcNow);
+
+        var result = await AdviseAsync(TenantA, FleetManager, theirs.Id, new { advice = "Not yours." });
+
+        Assert.Equal(StatusCodes.Status404NotFound, Status(result));
+        Assert.Null(_outcomes.Get(TenantB, Guid.Parse(theirs.Id))!.Advice);
+    }
+
+    [Fact]
+    public async Task FileOutcome_WithAdviceAndAPick_StoresBoth_AndAPickThatIsNotAnOptionIsRefused()
+    {
+        StoreMenuReading(TenantA, OwnedStopped);
+        FleetOutcomeFileRequest Filing(string pick) => new()
+        {
+            Kind = "decision", Title = "Pick a layout", SessionId = OwnedStopped,
+            Decision = new FleetDecisionDetails { Question = "Which layout?", Options = { "A", "B" } },
+            Advice = "The client reads on a phone. I'd pick B.",
+            FleetManagerPick = pick,
+        };
+
+        var filed = await FileAsync(TenantA, Filing("B - single column"));
+        var refused = await FleetManagerEndpoints.FileOutcomeAsync(
+            Request(TenantA, FleetManager, Filing("B")), ResolveTenant, Access(), _outcomes, Sources());
+
+        Assert.Equal("The client reads on a phone. I'd pick B.", filed.Advice);
+        Assert.Equal("B - single column", filed.FleetManagerPick);
+        Assert.Equal(StatusCodes.Status400BadRequest, Status(refused));
+        Assert.StartsWith("pick 'B' is not one of the Wingman's options", (string)Field(refused, "error")!);
+        Assert.Single(_outcomes.List(TenantA, "all", null, 50));
+    }
+
+    [Fact]
+    public async Task FileOutcome_APickWithoutAdvice_IsRefusedSayingAdviceGoesWithIt()
+    {
+        StoreMenuReading(TenantA, OwnedStopped);
+        var result = await FleetManagerEndpoints.FileOutcomeAsync(Request(TenantA, FleetManager, new FleetOutcomeFileRequest
+        {
+            Kind = "finding", Title = "Layouts built", SessionId = OwnedStopped,
+            Finding = new FleetFindingDetails { Answer = "Both run." },
+            FleetManagerPick = "A - card grid",
+        }), ResolveTenant, Access(), _outcomes, Sources());
+
+        Assert.Equal(StatusCodes.Status400BadRequest, Status(result));
+        Assert.Equal("fleetManagerPick is set together with advice; give the one line of advice that goes with the pick",
+            Field(result, "error"));
+    }
+
+    [Fact]
+    public void Digest_CarriesWhatTheOwnerDecidedInTheLastDay_AndAnOpenRecordsNote()
+    {
+        var now = DateTime.UtcNow;
+        var old = _outcomes.File(TenantA, FleetOutcomeStoreTests.Finding("Answered two days ago"), FleetManager, now.AddDays(-3));
+        _outcomes.Answer(TenantA, Guid.Parse(old.Id), "Old answer.", "owner", "owner", now.AddDays(-2));
+        var recent = _outcomes.File(TenantA, FleetOutcomeStoreTests.Ready("Answered in the walkthrough"), FleetManager, now.AddHours(-2));
+        _outcomes.Answer(TenantA, Guid.Parse(recent.Id), "Close the session.", "owner", "owner", now.AddHours(-1));
+        var open = _outcomes.File(TenantA, FleetOutcomeStoreTests.Decision("Snoozed in the walkthrough"), FleetManager, now);
+        _outcomes.NoteOwnerAction(TenantA, Guid.Parse(open.Id), "The owner snoozed the session from the walkthrough, until 15:30.", now);
+        var theirs = _outcomes.File(TenantB, FleetOutcomeStoreTests.Finding("Another account's"), OtherAccountSession, now);
+        _outcomes.Answer(TenantB, Guid.Parse(theirs.Id), "Not yours.", "owner", "owner", now);
+
+        var digest = Body<FleetDigestDto>(Digest(TenantA, FleetManager, FleetManager));
+
+        Assert.Equal(24, digest.AnsweredWithinHours);
+        var answered = Assert.Single(digest.RecentlyAnswered);
+        Assert.Equal(("Answered in the walkthrough", "Close the session.", "owner"), (answered.Title, answered.Answer, answered.AnsweredByRole));
+        Assert.Equal("The owner snoozed the session from the walkthrough, until 15:30.",
+            Assert.Single(digest.Outcomes).OwnerNote);
     }
 }

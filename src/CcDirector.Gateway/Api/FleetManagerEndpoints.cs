@@ -52,6 +52,7 @@ internal enum FleetManagerAction
     ListRecords,
     ReadRecord,
     AnswerRecord,
+    SetAdvice,
     ReadPreferences,
     AddPreference,
     DeletePreference,
@@ -69,6 +70,7 @@ internal enum FleetManagerAction
 ///                                                          -> { count, total, hasMore, nextCursor, outcomes }
 ///   GET    /gateway/fleet-manager/outcomes/{id}
 ///   POST   /gateway/fleet-manager/outcomes/{id}/answer     close it with the owner's words -> 200 | 409
+///   PUT    /gateway/fleet-manager/outcomes/{id}/advice     the Fleet Manager's one line of advice and its pick   (step 7)
 ///   GET    /gateway/fleet-manager/preferences
 ///   POST   /gateway/fleet-manager/preferences              -> 201
 ///   DELETE /gateway/fleet-manager/preferences/{id}
@@ -88,8 +90,9 @@ internal enum FleetManagerAction
 ///    answer records, read, add and forget preferences, and read its own digest.
 ///  - THE OWNER, on their own signed-in device (a phone or browser device key - never a Director's key, never
 ///    a session key), may list, read and answer records, manage preferences, read the digest and list the events.
-///    The owner does not file records (a record is the Fleet Manager's news for the owner) and does not
-///    acknowledge events (an event is the Fleet Manager's work).
+///    The owner does not file records (a record is the Fleet Manager's news for the owner), does not write a record's
+///    advice (it is the Fleet Manager's own line, step 7) and does not acknowledge events (an event is the Fleet
+///    Manager's work).
 ///  - Anything else (a Director's own key, the shared machine token) is refused.
 ///
 /// GAP, STATED: the mark itself is set through <c>PUT /gateway/fleet-manager</c>, which step 2 lets any session
@@ -105,6 +108,12 @@ internal enum FleetManagerAction
 internal static class FleetManagerEndpoints
 {
     public const string Prefix = "/gateway/fleet-manager";
+
+    /// <summary>How far back the digest lists answered records (step 7).</summary>
+    public const int RecentlyAnsweredHours = 24;
+
+    /// <summary>The most answered records the digest lists.</summary>
+    public const int RecentlyAnsweredMax = 50;
 
     private static readonly JsonSerializerOptions BodyJsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -127,12 +136,14 @@ internal static class FleetManagerEndpoints
         // Typed as a handler that RETURNS its result: a bare (HttpContext) => Task<IResult> lambda binds to the
         // RequestDelegate overload, which discards the result and answers an empty 200.
         app.MapPost(Prefix + "/outcomes",
-            (Func<HttpContext, Task<IResult>>)(ctx => FileOutcomeAsync(ctx, resolveTenant, access, outcomes)));
+            (Func<HttpContext, Task<IResult>>)(ctx => FileOutcomeAsync(ctx, resolveTenant, access, outcomes, digest)));
         app.MapGet(Prefix + "/outcomes", (HttpContext ctx) => ListOutcomes(ctx, resolveTenant, access, outcomes));
         app.MapGet(Prefix + "/outcomes/{id}", (HttpContext ctx, string id)
             => GetOutcome(ctx, id, resolveTenant, access, outcomes));
         app.MapPost(Prefix + "/outcomes/{id}/answer", (HttpContext ctx, string id)
             => AnswerOutcomeAsync(ctx, id, resolveTenant, access, outcomes));
+        app.MapPut(Prefix + "/outcomes/{id}/advice", (HttpContext ctx, string id)
+            => SetAdviceAsync(ctx, id, resolveTenant, access, outcomes, digest));
 
         app.MapGet(Prefix + "/preferences", (HttpContext ctx) => ListPreferences(ctx, resolveTenant, access, preferences));
         app.MapPost(Prefix + "/preferences",
@@ -154,7 +165,7 @@ internal static class FleetManagerEndpoints
     // ---- outcomes ----------------------------------------------------------------------------------------
 
     internal static async Task<IResult> FileOutcomeAsync(HttpContext ctx, Func<HttpContext, TenantId?> resolveTenant,
-        FleetManagerAccess access, FleetOutcomeStore store)
+        FleetManagerAccess access, FleetOutcomeStore store, FleetDigestSources sources)
     {
         FileLog.Write("[FleetManagerEndpoints] FileOutcome");
         try
@@ -165,7 +176,17 @@ internal static class FleetManagerEndpoints
             var (body, error) = await ReadBodyAsync<FleetOutcomeFileRequest>(ctx);
             if (error is not null) return error;
 
-            var outcome = store.File(tenant, body!, caller!.Id, DateTime.UtcNow);
+            // A pick must name an option of the session's CURRENT reading (step 7). Checked here, where the reading is;
+            // a pick without advice, or a session id that is not one, is left to the store, whose refusal names it.
+            if (body!.FleetManagerPick is not null && body.Advice is not null
+                && (string.IsNullOrWhiteSpace(body.SessionId) || Guid.TryParse(body.SessionId.Trim(), out _)))
+            {
+                var about = string.IsNullOrWhiteSpace(body.SessionId) ? null : Guid.Parse(body.SessionId.Trim()).ToString();
+                FleetManagerWalkthroughFold.CheckPick(body.FleetManagerPick, about,
+                    about is null ? null : sources.LatestVerdict(tenant, about));
+            }
+
+            var outcome = store.File(tenant, body, caller!.Id, DateTime.UtcNow);
             FileLog.Write($"[FleetManagerEndpoints] FileOutcome: id={outcome.Id}, kind={outcome.Kind}");
             return Results.Json(outcome, statusCode: StatusCodes.Status201Created);
         }
@@ -286,6 +307,63 @@ internal static class FleetManagerEndpoints
         catch (Exception ex)
         {
             FileLog.Write($"[FleetManagerEndpoints] AnswerOutcome FAILED: {ex.Message}");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// The Fleet Manager's one line of advice for an open record, and optionally its pick (step 7). ONLY THE FLEET
+    /// MANAGER writes it: the marked Fleet Manager's own session key, by the same rule every route here applies; the
+    /// owner's device and every other session are refused. The advice must be one line of at most
+    /// <see cref="FleetOutcomeStore.MaxAdviceLength"/> characters, and a pick must name one of the options of the
+    /// record's session's current Wingman reading. An answered record is not changed (409).
+    /// </summary>
+    internal static async Task<IResult> SetAdviceAsync(HttpContext ctx, string id,
+        Func<HttpContext, TenantId?> resolveTenant, FleetManagerAccess access, FleetOutcomeStore store,
+        FleetDigestSources sources)
+    {
+        FileLog.Write($"[FleetManagerEndpoints] SetAdvice: id={id}");
+        try
+        {
+            if (resolveTenant(ctx) is not { } tenant) return NoTenant();
+            var (_, refused) = Authorise(ctx, tenant, access, FleetManagerAction.SetAdvice);
+            if (refused is not null) return refused;
+            if (!Guid.TryParse(id, out var guid)) return BadId(id);
+            var (body, error) = await ReadBodyAsync<FleetOutcomeAdviceRequest>(ctx);
+            if (error is not null) return error;
+
+            var record = store.Get(tenant, guid);
+            if (record is null) return OutcomeNotFound(id);
+            // The one-line rule first, so a bad line is refused by name before the pick is looked at.
+            FleetOutcomeStore.RequireAdvice(body!.Advice);
+            if (body.Pick is not null)
+                FleetManagerWalkthroughFold.CheckPick(body.Pick, record.SessionId,
+                    string.IsNullOrWhiteSpace(record.SessionId) ? null : sources.LatestVerdict(tenant, record.SessionId));
+
+            var result = store.SetAdvice(tenant, guid, body.Advice, body.Pick, DateTime.UtcNow);
+            FileLog.Write($"[FleetManagerEndpoints] SetAdvice: id={id}, status={result.Status}");
+            return result.Status switch
+            {
+                FleetOutcomeUpdateStatus.Updated => Results.Json(result.Outcome),
+                FleetOutcomeUpdateStatus.NotFound => OutcomeNotFound(id),
+                FleetOutcomeUpdateStatus.AlreadyAnswered => Results.Json(new
+                {
+                    code = "already_answered",
+                    error = $"outcome {id} was answered at {result.Outcome!.AnsweredAtUtc:O}; advice is for an open record "
+                          + "and this one was not changed",
+                    outcome = result.Outcome,
+                }, statusCode: StatusCodes.Status409Conflict),
+                _ => throw new InvalidOperationException($"unhandled update status {result.Status}"),
+            };
+        }
+        catch (ArgumentException ex)
+        {
+            FileLog.Write($"[FleetManagerEndpoints] SetAdvice refused: {ex.Message}");
+            return BadRequest(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[FleetManagerEndpoints] SetAdvice FAILED: {ex.Message}");
             throw;
         }
     }
@@ -590,6 +668,10 @@ internal static class FleetManagerEndpoints
                     Total = owned.Count,
                 },
             };
+            answer.AnsweredWithinHours = RecentlyAnsweredHours;
+            answer.RecentlyAnswered = outcomes.ListAnsweredSince(tenant,
+                DateTime.UtcNow.AddHours(-RecentlyAnsweredHours), RecentlyAnsweredMax).ToList();
+
             // The oldest page of what is owed; the rest are reached by the cursor, and the digest says so.
             var eventPage = events.ListPage(tenant, FleetManagerEventStore.StatusUnacknowledged,
                 FleetManagerEventStore.MaxCount, cursor: null);
@@ -603,7 +685,8 @@ internal static class FleetManagerEndpoints
             FileLog.Write($"[FleetManagerEndpoints] Digest: session={sid}, caller={caller.Role}, "
                           + $"isFleetManager={answer.IsFleetManager}, open={open.Count}, openCounted={counts.Total}, "
                           + $"managers={managers.Count}, owned={owned.Count}, preferences={answer.Preferences.Count}, "
-                          + $"events={answer.Events.Count}, eventsTotal={answer.EventsTotal}, eventsHasMore={answer.EventsHasMore}");
+                          + $"events={answer.Events.Count}, eventsTotal={answer.EventsTotal}, eventsHasMore={answer.EventsHasMore}, "
+                          + $"recentlyAnswered={answer.RecentlyAnswered.Count}");
             return Results.Json(answer);
         }
         catch (ArgumentException ex)
@@ -662,6 +745,9 @@ internal static class FleetManagerEndpoints
             if (action == FleetManagerAction.FileRecord)
                 return Deny(action, $"device:{deviceType}", "the owner does not file records - a record is the Fleet "
                     + "Manager's news for the owner, filed with the Fleet Manager session's own key");
+            if (action == FleetManagerAction.SetAdvice)
+                return Deny(action, $"device:{deviceType}", "the owner does not write the Fleet Manager's advice - it is "
+                    + "the Fleet Manager's own line, set with the Fleet Manager session's own key");
             if (action == FleetManagerAction.AcknowledgeEvents)
                 return Deny(action, $"device:{deviceType}", "the owner does not acknowledge events - an event is the "
                     + "Fleet Manager's work, closed with the Fleet Manager session's own key once it has acted on it");
@@ -690,6 +776,7 @@ internal static class FleetManagerEndpoints
         FleetManagerAction.ListRecords => "list the records",
         FleetManagerAction.ReadRecord => "read a record",
         FleetManagerAction.AnswerRecord => "answer a record",
+        FleetManagerAction.SetAdvice => "write a record's advice",
         FleetManagerAction.ReadPreferences => "read the standing preferences",
         FleetManagerAction.AddPreference => "add a standing preference",
         FleetManagerAction.DeletePreference => "forget a standing preference",

@@ -1,6 +1,7 @@
 """The Fleet Manager's commands: stored news (Ready, Finding, Decision), standing preferences, the
-one digest it reads at the start of every conversation (the Fleet Manager mission, step 3), and the
-events about sessions it owns - each stop or death, kept until it is acknowledged (step 4).
+one digest it reads at the start of every conversation (the Fleet Manager mission, step 3), the
+events about sessions it owns - each stop or death, kept until it is acknowledged (step 4), and the
+one line of advice (and pick) it writes on a record for the owner's walkthrough (step 7).
 
 Everything is kept on the Gateway, under /gateway/fleet-manager, and belongs to the account - so a
 restarted or moved Fleet Manager reads back exactly what the old one filed.
@@ -167,6 +168,18 @@ def _about_session(target: Optional[str]) -> Optional[str]:
 # ---- filing -----------------------------------------------------------------------------------------
 
 
+def _with_advice(body: Dict[str, Any], advice: Optional[str], pick: Optional[str]) -> Dict[str, Any]:
+    """Add the advice and pick to a filing body - only when given, so a filing without them sends exactly the body
+    it always sent. The one-line rule is the Gateway's: its refusal is printed as it comes."""
+    if pick is not None and advice is None:
+        _fail("--pick goes with --advice: give the one line of advice that explains the pick", code=2)
+    if advice is not None:
+        body["advice"] = advice
+    if pick is not None:
+        body["fleetManagerPick"] = pick
+    return body
+
+
 def _file(body: Dict[str, Any], json_output: bool) -> None:
     filed = _call(gateway.post_json, f"{PREFIX}/outcomes", body)
     if json_output:
@@ -177,6 +190,9 @@ def _file(body: Dict[str, Any], json_output: bool) -> None:
     _out(f"kind: {filed.get('kind')}")
     _out(f"status: {filed.get('status')}")
     _out(f"title: {cell(filed.get('title'))}")
+    if filed.get("advice") is not None:
+        _out(f"advice: {cell(filed.get('advice'))}")
+        _out(f"pick: {cell(filed.get('fleetManagerPick'))}")
     _help([
         f"cc-devthrottle fleet show {oid}",
         f'cc-devthrottle fleet answer {oid} "<the owner\'s words, exactly>"',
@@ -184,7 +200,8 @@ def _file(body: Dict[str, Any], json_output: bool) -> None:
 
 
 def file_ready(title: str, pr: str, risk: str, checks: str, tested: str, reviewed_by: str,
-               change: str, session: Optional[str], json_output: bool) -> None:
+               change: str, session: Optional[str], json_output: bool,
+               advice: Optional[str] = None, pick: Optional[str] = None) -> None:
     """File a READY record: work that is ready for the owner."""
     body = {
         "kind": "ready",
@@ -199,11 +216,12 @@ def file_ready(title: str, pr: str, risk: str, checks: str, tested: str, reviewe
             "change": change,
         },
     }
-    _file(body, json_output)
+    _file(_with_advice(body, advice, pick), json_output)
 
 
 def file_finding(title: str, answer: str, reason: Optional[str], links: Optional[List[str]],
-                 session: Optional[str], json_output: bool) -> None:
+                 session: Optional[str], json_output: bool,
+                 advice: Optional[str] = None, pick: Optional[str] = None) -> None:
     """File a FINDING record: a report or investigation that is finished."""
     body = {
         "kind": "finding",
@@ -211,11 +229,12 @@ def file_finding(title: str, answer: str, reason: Optional[str], links: Optional
         "sessionId": _about_session(session),
         "finding": {"answer": answer, "reason": reason, "links": list(links or [])},
     }
-    _file(body, json_output)
+    _file(_with_advice(body, advice, pick), json_output)
 
 
 def file_decision(title: str, question: str, options: Optional[List[str]], recommend: Optional[str],
-                  why: Optional[str], session: Optional[str], json_output: bool) -> None:
+                  why: Optional[str], session: Optional[str], json_output: bool,
+                  advice: Optional[str] = None, pick: Optional[str] = None) -> None:
     """File a DECISION record: something only the owner can settle."""
     opts = list(options or [])
     if len(opts) < 2:
@@ -229,7 +248,7 @@ def file_decision(title: str, question: str, options: Optional[List[str]], recom
         "sessionId": _about_session(session),
         "decision": {"question": question, "options": opts, "recommended": recommend, "why": why},
     }
-    _file(body, json_output)
+    _file(_with_advice(body, advice, pick), json_output)
 
 
 # ---- reading ----------------------------------------------------------------------------------------
@@ -319,6 +338,10 @@ def _print_outcome(o: Dict[str, Any]) -> None:
         _out(f"options[{len(options)}]: {','.join(cell(x) for x in options)}")
         _out(f"recommended: {cell(decision.get('recommended'))}")
         _out(f"why: {cell(decision.get('why'))}")
+    _out(f"advice: {cell(o.get('advice'))}")
+    _out(f"pick: {cell(o.get('fleetManagerPick'))}")
+    if o.get("ownerNote") is not None:
+        _out(f"ownerNote: {cell(o.get('ownerNote'))}")
     if o.get("status") == "answered":
         _out(f"ownerAnswer: {cell(o.get('answer'))}")
         _out(f"answeredBy: {o.get('answeredBy')}")
@@ -337,7 +360,10 @@ def show_outcome(given: str, json_output: bool) -> None:
         return
     _print_outcome(o)
     if o.get("status") == "open":
-        _help([f'cc-devthrottle fleet answer {oid} "<the owner\'s words, exactly>"'])
+        _help([
+            f'cc-devthrottle fleet answer {oid} "<the owner\'s words, exactly>"',
+            f'cc-devthrottle fleet advise {oid} "<one line of advice>" [--pick "<option key>"]',
+        ])
 
 
 def answer_outcome(given: str, words: str, json_output: bool) -> None:
@@ -356,6 +382,24 @@ def answer_outcome(given: str, words: str, json_output: bool) -> None:
     if o.get("kind") == "decision":
         _out(f"answerMatchedOption: {'yes' if o.get('answerMatchedOption') else 'no'}")
     _help(["cc-devthrottle fleet outcomes"])
+
+
+def advise_outcome(given: str, advice: str, pick: Optional[str], json_output: bool) -> None:
+    """Write the Fleet Manager's one line of advice on an open record, and optionally its pick (step 7). Replaces what
+    was there; leaving --pick out clears the pick. Only the marked Fleet Manager may; the Gateway says why otherwise."""
+    if advice is None or not advice.strip():
+        _fail("give the one line of advice, using what you know and the Wingman does not", code=2)
+    oid = _outcome_id(given)
+    o = _call(gateway.put_json, f"{PREFIX}/outcomes/{gateway.path_segment(oid)}/advice",
+              {"advice": advice, "pick": pick})
+    if json_output:
+        _print_json(o)
+        return
+    _out(f"advised: {o.get('id')}")
+    _out(f"title: {cell(o.get('title'))}")
+    _out(f"advice: {cell(o.get('advice'))}")
+    _out(f"pick: {cell(o.get('fleetManagerPick'))}")
+    _help([f"cc-devthrottle fleet show {oid}"])
 
 
 # ---- preferences ------------------------------------------------------------------------------------
@@ -575,7 +619,14 @@ def digest(session: Optional[str], json_output: bool) -> None:
     _out(f"outcomes: {len(outcomes)} open (ready {oc.get('ready', 0)}, "
          f"finding {oc.get('finding', 0)}, decision {oc.get('decision', 0)})")
     if outcomes:
-        _table("outcomes", ["id", "kind", "title"], [[o.get("id"), o.get("kind"), o.get("title")] for o in outcomes])
+        _table("outcomes", ["id", "kind", "title", "advice", "ownerNote"],
+               [[o.get("id"), o.get("kind"), o.get("title"), o.get("advice"), o.get("ownerNote")] for o in outcomes])
+
+    answered = d.get("recentlyAnswered", [])
+    _out(f"answered: {len(answered)} in the last {d.get('answeredWithinHours', 24)} hours")
+    if answered:
+        _table("answered", ["id", "kind", "by", "answer", "title"],
+               [[o.get("id"), o.get("kind"), o.get("answeredByRole"), o.get("answer"), o.get("title")] for o in answered])
 
     owned = d.get("ownedSessions", [])
     sc = d.get("ownedSessionCounts", {})

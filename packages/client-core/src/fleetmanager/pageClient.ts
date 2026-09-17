@@ -110,6 +110,8 @@ export interface FleetManagerPage {
   /** Shown in place of the conversation when no Fleet Manager is marked. */
   noConversationText?: string | null;
   waitingCount: number;
+  /** "Take me through them" when something is waiting, else null (step 7). */
+  walkthroughLabel?: string | null;
   quickPrompts: FleetManagerQuickPrompt[];
   cards: FleetOutcomeCard[];
   waiting: FleetPanelSection;

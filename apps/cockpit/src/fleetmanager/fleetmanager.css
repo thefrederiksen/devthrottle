@@ -387,3 +387,192 @@ a.fmp-item:hover { background: var(--surface-2); }
   line-height: 1.45;
 }
 .fmp-notmine b { color: var(--text); }
+
+/* "Take me through them" (the Fleet Manager mission, step 7). Drawn from the design's 3-walkthrough mockup in the
+   Cockpit's own tokens. */
+
+.fmp-walkthrough {
+  display: block;
+  text-align: center;
+  margin: 2px 0 10px;
+  text-decoration: none;
+}
+
+.fmw-body {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.fmw-steps {
+  border-right: 1px solid var(--border);
+  padding: 16px 12px;
+  background: var(--panel-deep);
+  overflow-y: auto;
+}
+.fmw-steps-title {
+  margin: 0 0 10px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-dim);
+}
+.fmw-step {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  margin-bottom: 4px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  align-items: flex-start;
+}
+.fmw-step:hover:not(:disabled) { background: var(--surface-2); }
+.fmw-step:disabled { cursor: default; }
+.fmw-step-no {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  color: var(--text-dim);
+  flex: 0 0 auto;
+}
+.fmw-step-done .fmw-step-no {
+  background: color-mix(in srgb, var(--ok) 15%, transparent);
+  border-color: color-mix(in srgb, var(--ok) 50%, transparent);
+  color: var(--ok-text);
+}
+.fmw-step-current {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+.fmw-step-current .fmw-step-no {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.fmw-step-text { display: flex; flex-direction: column; min-width: 0; }
+.fmw-step-name { font-size: 13px; font-weight: 600; line-height: 1.3; }
+.fmw-step-meta { font-size: 11.5px; color: var(--text-dim); margin-top: 2px; }
+.fmw-notinround {
+  margin-top: 14px;
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.45;
+}
+
+.fmw-focus {
+  padding: 20px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  overflow-y: auto;
+}
+.fmw-item { display: flex; flex-direction: column; gap: 14px; }
+.fmw-flash {
+  font-size: 12.5px;
+  color: var(--ok-text);
+}
+.fmw-head { display: flex; align-items: flex-start; gap: 12px; }
+.fmw-count {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 7px;
+  margin-top: 3px;
+  flex: 0 0 auto;
+}
+.fmw-head-text { min-width: 0; }
+.fmw-title { font-size: 19px; font-weight: 700; }
+.fmw-session { font-size: 13px; font-weight: 600; margin-top: 2px; }
+.fmw-meta { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+.fmw-wait {
+  margin-left: auto;
+  color: var(--attention);
+  font-weight: 600;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.fmw-two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.fmw-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.fmw-panel h4 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-dim);
+}
+.fmw-needs {
+  background: var(--needsyou-bg);
+  border-color: color-mix(in srgb, var(--attention) 30%, var(--border));
+  color: var(--needsyou-text);
+}
+.fmw-needs h4 { color: var(--danger-text); }
+.fmw-fmsays { border-left: 3px solid var(--accent); }
+.fmw-fmsays h4 { color: var(--accent-text); }
+.fmw-label { font-size: 15.5px; line-height: 1.5; font-weight: 600; }
+.fmw-summary, .fmw-evidence, .fmw-recommends, .fmw-advice, .fmw-note, .fmw-risk {
+  margin: 6px 0 0;
+  line-height: 1.5;
+}
+.fmw-advice { font-size: 15.5px; }
+.fmw-note { color: var(--text-dim); font-size: 13px; }
+.fmw-needs .fmw-note { color: var(--needsyou-text); }
+.fmw-risk { color: var(--warn); font-weight: 600; font-size: 13px; }
+.fmw-screen {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin: 0;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text);
+  white-space: pre-wrap;
+  max-height: 260px;
+  overflow: auto;
+}
+.fmw-screen-off { color: var(--text-dim); }
+.fmw-answer { display: flex; flex-direction: column; gap: 8px; }
+.fmw-question { font-weight: 600; }
+.fmw-options { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.fmw-option { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.fmw-session-pick { box-shadow: inset 0 0 0 1.5px var(--accent-text); }
+.fmw-mark { font-weight: 400; opacity: 0.85; }
+.fmw-option-note { font-size: 12px; color: var(--text-dim); }
+.fmw-busy { font-size: 12.5px; color: var(--text-dim); }
+.fmw-refusal {
+  background: var(--needsyou-bg);
+  color: var(--needsyou-text);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+.fmw-card .fmp-card { max-width: none; }
+.fmw-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.fmw-actions .ui-btn,
+.fmp-head-actions a.ui-btn { text-decoration: none; }
+.fmw-why-not { font-size: 12px; color: var(--text-dim); line-height: 1.5; }
+.fmw-end {
+  max-width: 560px;
+  margin-top: 40px;
+}
+.fmw-end-title { margin: 0 0 8px; font-size: 20px; }
+.fmw-end-text { margin: 0 0 16px; color: var(--text-dim); line-height: 1.5; }

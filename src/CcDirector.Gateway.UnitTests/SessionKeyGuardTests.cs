@@ -239,6 +239,7 @@ public sealed class SessionKeyGuardTests
     [InlineData("GET", "/gateway/fleet-manager/digest")]
     [InlineData("GET", "/gateway/fleet-manager/events")]
     [InlineData("POST", "/gateway/fleet-manager/events/ack")]
+    [InlineData("PUT", "/gateway/fleet-manager/outcomes/5b1c2d3e-0000-4000-8000-000000000001/advice")]
     public void The_fleet_manager_routes_are_allowed(string method, string path)
         => Assert.True(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} should be allowed");
 
@@ -257,6 +258,9 @@ public sealed class SessionKeyGuardTests
     [InlineData("GET", "/gateway/fleet-manager/events/ack")]
     [InlineData("POST", "/gateway/fleet-manager/events/5b1c2d3e-0000-4000-8000-000000000001")]
     [InlineData("POST", "/gateway/fleet-manager/events/ack/all")]
+    [InlineData("GET", "/gateway/fleet-manager/outcomes/5b1c2d3e-0000-4000-8000-000000000001/advice")]
+    [InlineData("POST", "/gateway/fleet-manager/outcomes/5b1c2d3e-0000-4000-8000-000000000001/advice")]
+    [InlineData("PUT", "/gateway/fleet-manager/outcomes/5b1c2d3e-0000-4000-8000-000000000001/advice/again")]
     public void Fleet_manager_shapes_the_gateway_does_not_route_stay_refused(string method, string path)
         => Assert.False(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} should be refused");
 
@@ -274,6 +278,11 @@ public sealed class SessionKeyGuardTests
     [InlineData("GET", "/gateway/fleet-manager/start")]
     [InlineData("GET", "/gateway/fleet-manager/page")]
     [InlineData("HEAD", "/gateway/fleet-manager/page")]
+    // Step 7: the walkthrough and its answered, snoozed and close verbs are the owner's too.
+    [InlineData("GET", "/gateway/fleet-manager/walkthrough")]
+    [InlineData("POST", "/gateway/fleet-manager/walkthrough/5b1c2d3e-0000-4000-8000-000000000001/answered")]
+    [InlineData("POST", "/gateway/fleet-manager/walkthrough/5b1c2d3e-0000-4000-8000-000000000001/snoozed")]
+    [InlineData("POST", "/gateway/fleet-manager/walkthrough/5b1c2d3e-0000-4000-8000-000000000001/close")]
     public void The_fleet_manager_placement_routes_are_the_owners(string method, string path)
         => Assert.False(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} must be refused to a session key");
 

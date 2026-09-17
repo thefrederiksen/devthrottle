@@ -30,12 +30,18 @@ function PanelItem({ item }: { item: FleetPanelItem }) {
   );
 }
 
-function Section({ section, name }: { section: FleetPanelSection; name: string }) {
+function Section({ section, name, walkthroughLabel }: { section: FleetPanelSection; name: string; walkthroughLabel?: string | null }) {
   return (
     <section className="fmp-sec" aria-label={section.title} data-testid={`fmp-sec-${name}`}>
       <h3 className={section.tone === "attention" ? "fmp-sec-title fmp-sec-title-attention" : "fmp-sec-title"}>
         {section.title} <span className="fmp-sec-count">{section.count}</span>
       </h3>
+      {/* The way into the walkthrough (step 7). The Gateway offers it only when something is waiting. */}
+      {walkthroughLabel && (
+        <Link className="ui-btn ui-btn-primary fmp-walkthrough" to="/fleet-manager/walkthrough" data-testid="fmp-walkthrough">
+          {walkthroughLabel}
+        </Link>
+      )}
       {section.items.map((item) => (
         <PanelItem key={item.id} item={item} />
       ))}
@@ -62,7 +68,7 @@ export function FleetPanel({ state }: { state: PollState<FleetManagerPage> }) {
         ) : null
       ) : (
         <>
-          <Section section={page.waiting} name="waiting" />
+          <Section section={page.waiting} name="waiting" walkthroughLabel={page.walkthroughLabel} />
           <Section section={page.underWay} name="under-way" />
           <Section section={page.landed} name="landed" />
           <div className="fmp-notmine" data-testid="fmp-notmine">

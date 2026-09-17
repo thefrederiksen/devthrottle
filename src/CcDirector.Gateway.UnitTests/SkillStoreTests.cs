@@ -156,6 +156,22 @@ public sealed class SkillStoreTests : IDisposable
     }
 
     [Fact]
+    public void Fleet_manager_skill_teaches_one_line_of_advice_when_filing_and_how_to_set_it()
+    {
+        // Step 7: the Fleet Manager writes one line of advice when it files a record - from what it knows and the
+        // Wingman does not - and can set it afterwards; the Gateway refuses a second line.
+        var body = BuiltInSkills.BodyFor("fleet-manager");
+
+        Assert.Contains("**When you file a record, write one line of advice with it**", body);
+        Assert.Contains("the owner's past\n  choices, the Mission, the other sessions", body);
+        Assert.Contains("cc-devthrottle fleet advise <id> \"<one line of advice>\" --pick \"<option key>\"", body);
+        Assert.Contains("--advice \"<one line of advice>\" --pick \"<option key>\"", body);
+        Assert.Contains("The Gateway refuses a line break, and more than 300 characters", body);
+        Assert.Contains("it must be one of the options of the\n  session's CURRENT reading", body);
+        Assert.Contains("`answered`: every record answered in the last 24 hours", body);
+    }
+
+    [Fact]
     public void Changed_shipped_content_republishes_as_the_next_version_and_supersedes_the_old()
     {
         var db = _h.Open();

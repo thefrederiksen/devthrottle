@@ -408,6 +408,10 @@ public static class SessionKeyGuard
             // Write a workspace - including writing the drain's judgments and, afterwards, what the
             // restart actually produced, back onto a captured one.
             if (IsWorkspaceRoute(verb, s)) return true;
+
+            // The Fleet Manager's one line of advice on a record (step 7). IsFleetManagerRoute admits PUT on that
+            // one literal shape only.
+            if (IsFleetManagerRoute(verb, s)) return true;
             return false;
         }
 
@@ -497,7 +501,9 @@ public static class SessionKeyGuard
                 // /gateway/fleet-manager/outcomes/{id} - read one.
                 if (s.Length == 4) return read;
                 // /gateway/fleet-manager/outcomes/{id}/answer - close one with the owner's words.
-                return s.Length == 5 && s[4] == "answer" && verb == "POST";
+                if (s.Length == 5 && s[4] == "answer") return verb == "POST";
+                // /gateway/fleet-manager/outcomes/{id}/advice - the Fleet Manager's one line of advice (step 7).
+                return s.Length == 5 && s[4] == "advice" && verb == "PUT";
             case "preferences":
                 // /gateway/fleet-manager/preferences - list, or keep one.
                 if (s.Length == 3) return read || verb == "POST";
@@ -520,6 +526,9 @@ public static class SessionKeyGuard
             // THE OWNER'S PAGE (step 6). It shows the Wingman's labels without the shadow rule the digest applies to
             // a session key, and the Fleet Manager has the digest for the same facts.
             case "page":
+            // THE OWNER'S WALKTHROUGH (step 7): the same readings as the page, and the owner's own answers, snoozes and
+            // closes recorded as the owner's.
+            case "walkthrough":
                 return false;
             default:
                 return false;

@@ -28,6 +28,10 @@ public sealed class FleetManagerPageDto
     /// <summary>How many records are waiting on the owner - the red badge on the rail's Fleet Manager entry.</summary>
     public int WaitingCount { get; set; }
 
+    /// <summary>The way into the walkthrough from "Waiting on you" (step 7): "Take me through them", or null when
+    /// nothing is waiting.</summary>
+    public string? WalkthroughLabel { get; set; }
+
     /// <summary>The buttons beside the title that send fixed words to the Fleet Manager ("What did I miss?").</summary>
     public List<FleetManagerQuickPromptDto> QuickPrompts { get; set; } = new();
 

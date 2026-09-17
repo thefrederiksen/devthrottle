@@ -125,6 +125,19 @@ public sealed class WorkflowStoreTests : IDisposable
     }
 
     [Fact]
+    public void Fleet_manager_conduct_writes_its_advice_when_it_files_and_reads_the_owners_answers_in_the_digest()
+    {
+        // Step 7: the walkthrough's advice is written when the record is filed, and an answer given there is recorded on
+        // the record rather than typed to the Fleet Manager.
+        var body = BuiltInWorkflows.InstructionsFor("fleet-manager");
+
+        Assert.Contains("Write it when you FILE the record (`--advice`, and `--pick` for\n    the option you would choose)", body);
+        Assert.Contains("replace it with `fleet advise` if the picture changes", body);
+        Assert.Contains("the Gateway refuses a line break or more than 300 characters", body);
+        Assert.Contains("read what they decided in `fleet digest` (`answered`)", body);
+    }
+
+    [Fact]
     public void Uncustomized_built_in_auto_publishes_newer_shipped_content()
     {
         var db = _h.Open();

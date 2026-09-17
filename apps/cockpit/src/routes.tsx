@@ -9,6 +9,7 @@ import { SessionDetail } from "./sessions/SessionDetail";
 import { SessionRedirect } from "./sessions/SessionRedirect";
 import { ReportLanding } from "./sessions/ReportLanding";
 import { FleetManagerView } from "./fleetmanager/FleetManagerView";
+import { WalkthroughView } from "./fleetmanager/WalkthroughView";
 import { FleetMapView } from "./fleet/FleetMapView";
 import { HistoryView } from "./history/HistoryView";
 import { DirectorsView } from "./fleet/DirectorsView";
@@ -71,6 +72,9 @@ export const COCKPIT_ROUTES: RouteObject[] = [
           // The Fleet Manager page (step 6): the conversation with the account's Fleet Manager session, the
           // cards drawn from its outcome records, and the live panel of what is waiting, under way and answered.
           { path: "/fleet-manager", element: <FleetManagerView /> },
+          // "Take me through them" (step 7): one waiting item at a time. Reached from the page's Waiting on you
+          // panel; its way out is "Back to the conversation". Nothing redirects here.
+          { path: "/fleet-manager/walkthrough", element: <WalkthroughView /> },
           // The Sessions experience (issue #972): the fleet roster stays mounted on the left while the
           // selected session's detail (the interactive terminal from #971, the action bar, the composer,
           // the queue, and the screenshots) routes into the right region. The /sessions home shows a

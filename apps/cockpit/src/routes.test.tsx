@@ -21,6 +21,7 @@ vi.mock("@devthrottle/client-core/auth/deviceKey", () => ({
 vi.mock("./AppShell", () => ({ AppShell: () => <Outlet /> }));
 vi.mock("./fleetmanager/FleetManagerView", () => ({ FleetManagerView: () => <div>fleet manager page</div> }));
 vi.mock("./fleet/FleetMapView", () => ({ FleetMapView: () => <div>fleet map page</div> }));
+vi.mock("./fleetmanager/WalkthroughView", () => ({ WalkthroughView: () => <div>walkthrough page</div> }));
 
 import { COCKPIT_ROUTES } from "./routes";
 
@@ -65,5 +66,12 @@ describe("Cockpit routes", () => {
 
     expect(await screen.findByText("fleet map page")).toBeTruthy();
     expect(screen.getByTestId("where").textContent).toBe("/fleet-map");
+  });
+
+  it("serves the walkthrough at its own address, without redirecting it", async () => {
+    renderAt("/fleet-manager/walkthrough");
+
+    expect(await screen.findByText("walkthrough page")).toBeTruthy();
+    expect(screen.getByTestId("where").textContent).toBe("/fleet-manager/walkthrough");
   });
 });

@@ -46,6 +46,9 @@ public sealed class GatewayHostBootSmokeTests
     private const string FleetManagerEventsSqliteMigration = "20260917110000_AddFleetManagerEvents";
     private const string FleetManagerEventDeliveryPostgresMigration = "20260917110109_AddFleetManagerEventDelivery";
     private const string FleetManagerEventDeliverySqliteMigration = "20260917110100_AddFleetManagerEventDelivery";
+    // Step 7: the Fleet Manager's advice and pick on a record, and the owner's note (a snooze from the walkthrough).
+    private const string FleetOutcomeAdvicePostgresMigration = "20260917040647_AddFleetOutcomeAdvice";
+    private const string FleetOutcomeAdviceSqliteMigration = "20260917040637_AddFleetOutcomeAdvice";
 
     /// <summary>A Fact that skips itself unless the runtime Postgres selector CC_GATEWAY_DB_CONNECTION is set
     /// to a non-blank value, so CI never reaches out to the hosted database and never needs the secret.</summary>
@@ -86,6 +89,7 @@ public sealed class GatewayHostBootSmokeTests
         Assert.Contains(FleetManagerMarkHistoryPostgresMigration, migrations);
         Assert.Contains(FleetManagerEventsPostgresMigration, migrations);
         Assert.Contains(FleetManagerEventDeliveryPostgresMigration, migrations);
+        Assert.Contains(FleetOutcomeAdvicePostgresMigration, migrations);
     }
 
     /// <summary>
@@ -124,21 +128,26 @@ public sealed class GatewayHostBootSmokeTests
         Assert.Contains(FleetManagerMarkHistorySqliteMigration, sqliteAll);
         Assert.Contains(FleetManagerEventsSqliteMigration, sqliteAll);
         Assert.Contains(FleetManagerEventDeliverySqliteMigration, sqliteAll);
+        Assert.Contains(FleetOutcomeAdviceSqliteMigration, sqliteAll);
         Assert.Contains("AddFleetManagerMarkHistory", sqliteSince);
 
         Assert.Equal(sqliteSince.OrderBy(n => n, StringComparer.Ordinal), postgresSince.OrderBy(n => n, StringComparer.Ordinal));
     }
 
     /// <summary>
-    /// THE FLEET MANAGER'S EVENT TABLES ARE THE SAME ON BOTH DATABASES, COLUMN FOR COLUMN: each provider's model
-    /// snapshot - what its migrations build - is read, and every column of <c>fleet_manager_events</c> and
-    /// <c>fleet_manager_owned_sessions</c> must have the same name, type, nullability and length on both. A column
+    /// THE FLEET MANAGER'S TABLES ARE THE SAME ON BOTH DATABASES, COLUMN FOR COLUMN: each provider's model
+    /// snapshot - what its migrations build - is read, and every column of <c>fleet_manager_events</c>,
+    /// <c>fleet_manager_owned_sessions</c> and <c>fleet_outcomes</c> (with step 7's advice, pick and owner's note)
+    /// must have the same name, type, nullability and length on both. A column
     /// added for one provider only makes the hosted Gateway fail the first time it writes that column.
     /// </summary>
     [Theory]
     [InlineData("fleet_manager_events", "ReadingPending")]
     [InlineData("fleet_manager_owned_sessions", "EndedAtUtc")]
-    public void FleetManagerEventTables_MatchColumnForColumn_OnSqliteAndPostgres(string table, string mustHave)
+    [InlineData("fleet_outcomes", "Advice")]
+    [InlineData("fleet_outcomes", "FleetManagerPick")]
+    [InlineData("fleet_outcomes", "OwnerNote")]
+    public void FleetManagerTables_MatchColumnForColumn_OnSqliteAndPostgres(string table, string mustHave)
     {
         using var postgres = new GatewayDbContext(
             new DbContextOptionsBuilder<GatewayDbContext>()

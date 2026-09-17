@@ -26,6 +26,23 @@ public enum FleetOutcomeAnswerStatus
 /// (null only when it was not found).</summary>
 public sealed record FleetOutcomeAnswerResult(FleetOutcomeAnswerStatus Status, FleetOutcomeDto? Outcome);
 
+/// <summary>What happened when advice or an owner's note was offered for a record (step 7).</summary>
+public enum FleetOutcomeUpdateStatus
+{
+    /// <summary>The record was open and now carries the new value.</summary>
+    Updated,
+
+    /// <summary>This account holds no record with that id.</summary>
+    NotFound,
+
+    /// <summary>The record is answered, so it is not changed: an answered record is the owner's settled word.</summary>
+    AlreadyAnswered,
+}
+
+/// <summary>The result of <see cref="FleetOutcomeStore.SetAdvice"/> and <see cref="FleetOutcomeStore.NoteOwnerAction"/>:
+/// what happened, and the record as it now is (null only when it was not found).</summary>
+public sealed record FleetOutcomeUpdateResult(FleetOutcomeUpdateStatus Status, FleetOutcomeDto? Outcome);
+
 /// <summary>One page of <see cref="FleetOutcomeStore.ListPage"/>: the records, and the opaque cursor that continues
 /// after the last of them - null when no record remains.</summary>
 public sealed record FleetOutcomePage(IReadOnlyList<FleetOutcomeDto> Outcomes, string? NextCursor);
@@ -78,6 +95,10 @@ public sealed class FleetOutcomeStore
     /// <summary>The longest free-text field accepted (an answer, a reason, a question, how it was tested).</summary>
     public const int MaxTextLength = 4000;
 
+    /// <summary>The longest line of Fleet Manager advice accepted (step 7). Advice is ONE line beside the Wingman's
+    /// reading, never a paragraph.</summary>
+    public const int MaxAdviceLength = 300;
+
     /// <summary>The most options or links one record may carry.</summary>
     public const int MaxListItems = 20;
 
@@ -120,6 +141,16 @@ public sealed class FleetOutcomeStore
             var title = RequireLine(request.Title, "title", MaxTitleLength);
             var about = OptionalSessionId(request.SessionId);
             var details = ValidateDetails(kind, request);
+            string? advice = null;
+            string? pick = null;
+            if (request.Advice is not null || request.FleetManagerPick is not null)
+            {
+                if (request.Advice is null)
+                    throw new ArgumentException(
+                        "fleetManagerPick is set together with advice; give the one line of advice that goes with the pick");
+                advice = RequireAdvice(request.Advice);
+                pick = OptionalPick(request.FleetManagerPick);
+            }
 
             var entity = new FleetOutcomeEntity
             {
@@ -130,6 +161,9 @@ public sealed class FleetOutcomeStore
                 Title = title,
                 DetailsJson = JsonSerializer.Serialize(details, DetailsJsonOptions),
                 Status = StatusOpen,
+                Advice = advice,
+                FleetManagerPick = pick,
+                AdviceSetAtUtc = advice is null ? null : Utc(nowUtc),
             };
 
             lock (_gate)
@@ -279,6 +313,27 @@ public sealed class FleetOutcomeStore
         return rows.Select(ToDto).ToList();
     }
 
+    /// <summary>
+    /// This account's records ANSWERED at or after <paramref name="sinceUtc"/>, newest answer first, at most
+    /// <paramref name="max"/> - what the digest carries so the Fleet Manager learns what the owner decided (step 7),
+    /// including answers given in the walkthrough, which are not typed to it.
+    /// </summary>
+    public IReadOnlyList<FleetOutcomeDto> ListAnsweredSince(TenantId tenant, DateTime sinceUtc, int max)
+    {
+        FileLog.Write($"[FleetOutcomeStore] ListAnsweredSince: tenant={tenant}, since={sinceUtc:O}, max={max}");
+        if (max < 1 || max > MaxCount)
+            throw new ArgumentException($"max must be between 1 and {MaxCount}, got {max}");
+        var since = Utc(sinceUtc);
+        using var ctx = _db.CreateContext(tenant);
+        var rows = ctx.FleetOutcomes.AsNoTracking()
+            .Where(o => o.Status == StatusAnswered && o.AnsweredAtUtc >= since)
+            .OrderByDescending(o => o.AnsweredAtUtc).ThenByDescending(o => o.Id)
+            .Take(max)
+            .ToList();
+        FileLog.Write($"[FleetOutcomeStore] ListAnsweredSince: returned={rows.Count}");
+        return rows.Select(ToDto).ToList();
+    }
+
     /// <summary>This account's OPEN records by kind, counted by the database.</summary>
     public FleetOutcomeCounts CountOpen(TenantId tenant)
     {
@@ -381,7 +436,110 @@ public sealed class FleetOutcomeStore
         }
     }
 
+    /// <summary>
+    /// Replace the Fleet Manager's advice and pick on an OPEN record (step 7). An answered record is left exactly as it
+    /// was: the owner has settled it, and advice written afterwards would describe a question nobody is asking.
+    ///
+    /// One conditional update, <c>WHERE id = @id AND status = 'open'</c>, so a record answered while this call runs is
+    /// not changed either. A null pick clears the pick.
+    /// </summary>
+    /// <exception cref="ArgumentException">The advice is missing, not one line, or too long; or the pick is not one line
+    /// or too long.</exception>
+    public FleetOutcomeUpdateResult SetAdvice(TenantId tenant, Guid id, string? advice, string? pick, DateTime nowUtc)
+    {
+        FileLog.Write($"[FleetOutcomeStore] SetAdvice: tenant={tenant}, id={id}, hasPick={pick is not null}");
+        try
+        {
+            var line = RequireAdvice(advice);
+            var picked = OptionalPick(pick);
+            var at = Utc(nowUtc);
+            return UpdateOpen(tenant, id, "SetAdvice", q => q.ExecuteUpdate(setters => setters
+                .SetProperty(o => o.Advice, line)
+                .SetProperty(o => o.FleetManagerPick, picked)
+                .SetProperty(o => o.AdviceSetAtUtc, at)));
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[FleetOutcomeStore] SetAdvice FAILED: {ex.Message}");
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Record what the owner did about an OPEN record without answering it (step 7: a snooze from the walkthrough), in
+    /// the Gateway's own words, so the Fleet Manager's digest carries it. The record stays open. An answered record is
+    /// left as it was.
+    /// </summary>
+    /// <exception cref="ArgumentException">The note is blank, not one line, or too long.</exception>
+    public FleetOutcomeUpdateResult NoteOwnerAction(TenantId tenant, Guid id, string note, DateTime nowUtc)
+    {
+        FileLog.Write($"[FleetOutcomeStore] NoteOwnerAction: tenant={tenant}, id={id}");
+        try
+        {
+            var line = RequireLine(note, "note", MaxTitleLength);
+            var at = Utc(nowUtc);
+            return UpdateOpen(tenant, id, "NoteOwnerAction", q => q.ExecuteUpdate(setters => setters
+                .SetProperty(o => o.OwnerNote, line)
+                .SetProperty(o => o.OwnerNoteAtUtc, at)));
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[FleetOutcomeStore] NoteOwnerAction FAILED: {ex.Message}");
+            throw;
+        }
+    }
+
+    private FleetOutcomeUpdateResult UpdateOpen(TenantId tenant, Guid id, string what,
+        Func<IQueryable<FleetOutcomeEntity>, int> update)
+    {
+        using var ctx = _db.CreateContext(tenant);
+        var affected = update(ctx.FleetOutcomes.Where(o => o.Id == id && o.Status == StatusOpen));
+        var now = ctx.FleetOutcomes.AsNoTracking().FirstOrDefault(o => o.Id == id);
+        if (now is null)
+        {
+            FileLog.Write($"[FleetOutcomeStore] {what}: id={id}, result=not found");
+            return new FleetOutcomeUpdateResult(FleetOutcomeUpdateStatus.NotFound, null);
+        }
+        if (affected == 0)
+        {
+            FileLog.Write($"[FleetOutcomeStore] {what}: id={id}, result=already answered at {now.AnsweredAtUtc:O}");
+            return new FleetOutcomeUpdateResult(FleetOutcomeUpdateStatus.AlreadyAnswered, ToDto(now));
+        }
+        FileLog.Write($"[FleetOutcomeStore] {what}: id={id}, result=updated");
+        return new FleetOutcomeUpdateResult(FleetOutcomeUpdateStatus.Updated, ToDto(now));
+    }
+
     // ---- validation --------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// The one-line rule for advice (step 7). The value is checked for a line break BEFORE it is trimmed, so a
+    /// trailing newline is refused rather than quietly removed: the Fleet Manager is told its advice is one line,
+    /// and a value that is not is its mistake to see.
+    /// </summary>
+    internal static string RequireAdvice(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            throw new ArgumentException(
+                "advice is required: one line for the owner, using what you know and the Wingman does not");
+        if (value.IndexOfAny(LineBreaks) >= 0)
+            throw new ArgumentException(
+                "advice must be one line: it is shown as a single line beside the Wingman's reading, so remove the line break");
+        var v = value.Trim();
+        if (v.Length > MaxAdviceLength)
+            throw new ArgumentException(
+                $"advice is {v.Length} characters; one line of advice is at most {MaxAdviceLength}, so shorten it");
+        return v;
+    }
+
+    private static readonly char[] LineBreaks = { '\n', '\r', '\u0085', '\u2028', '\u2029' };
+
+    private static string? OptionalPick(string? value)
+    {
+        if (value is null) return null;
+        if (value.IndexOfAny(LineBreaks) >= 0)
+            throw new ArgumentException("fleetManagerPick must be one line: the key of one of the Wingman's options");
+        return RequireLine(value, "fleetManagerPick", MaxTitleLength);
+    }
 
     /// <summary>The kind-specific block, checked. The two blocks that do not match the kind must be absent: a
     /// body that says "ready" and carries decision options is a caller that is confused about what it filed,
@@ -558,6 +716,11 @@ public sealed class FleetOutcomeStore
             AnsweredBy = row.AnsweredBy,
             AnsweredByRole = row.AnsweredByRole,
             AnswerMatchedOption = row.AnswerMatchedOption,
+            Advice = row.Advice,
+            FleetManagerPick = row.FleetManagerPick,
+            AdviceSetAtUtc = row.AdviceSetAtUtc,
+            OwnerNote = row.OwnerNote,
+            OwnerNoteAtUtc = row.OwnerNoteAtUtc,
         };
     }
 

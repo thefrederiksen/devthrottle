@@ -437,4 +437,140 @@ public sealed class FleetOutcomeStoreTests : IDisposable
         Assert.Equal(over + 3, store.Count(TenantA, "all", null));
         Assert.Equal(1, store.Count(TenantA, "answered", "finding"));
     }
+
+    // ---- advice, the Fleet Manager's pick and the owner's note (step 7) -----------------------------------
+
+    [Fact]
+    public void File_WithAdviceAndPick_StoresBoth_AndTheyServeAfterARestart()
+    {
+        var request = Decision();
+        request.Advice = "You chose beta for the last two releases.";
+        request.FleetManagerPick = "Ship to beta";
+        var filed = NewStore().File(TenantA, request, FleetManagerId, Now);
+
+        var reread = NewStore().Get(TenantA, Guid.Parse(filed.Id))!;
+
+        Assert.Equal("You chose beta for the last two releases.", reread.Advice);
+        Assert.Equal("Ship to beta", reread.FleetManagerPick);
+        Assert.Equal(Now, reread.AdviceSetAtUtc);
+        Assert.Null(reread.OwnerNote);
+    }
+
+    [Fact]
+    public void File_WithoutAdvice_HasNone()
+    {
+        var filed = NewStore().File(TenantA, Finding(), FleetManagerId, Now);
+
+        Assert.Null(filed.Advice);
+        Assert.Null(filed.FleetManagerPick);
+        Assert.Null(filed.AdviceSetAtUtc);
+    }
+
+    [Theory]
+    [InlineData("two\nlines")]
+    [InlineData("ends with a break\n")]
+    [InlineData("paragraph\u2029break")]
+    public void File_AdviceWithALineBreak_IsRefusedAndNothingIsStored(string advice)
+    {
+        var store = NewStore();
+        var request = Finding();
+        request.Advice = advice;
+
+        var ex = Assert.Throws<ArgumentException>(() => store.File(TenantA, request, FleetManagerId, Now));
+
+        Assert.Equal("advice must be one line: it is shown as a single line beside the Wingman's reading, so remove the line break", ex.Message);
+        Assert.Empty(store.List(TenantA, "all", null, 10));
+    }
+
+    [Fact]
+    public void File_AdviceOfExactlyTheLimit_IsKept_AndOneMoreIsRefused()
+    {
+        var store = NewStore();
+        var fits = Finding();
+        fits.Advice = new string('x', FleetOutcomeStore.MaxAdviceLength);
+        var over = Finding();
+        over.Advice = new string('x', FleetOutcomeStore.MaxAdviceLength + 1);
+
+        Assert.Equal(300, store.File(TenantA, fits, FleetManagerId, Now).Advice!.Length);
+        var ex = Assert.Throws<ArgumentException>(() => store.File(TenantA, over, FleetManagerId, Now));
+        Assert.Equal("advice is 301 characters; one line of advice is at most 300, so shorten it", ex.Message);
+    }
+
+    [Fact]
+    public void SetAdvice_OpenRecord_ReplacesAdviceAndPick_AndANullPickClearsIt()
+    {
+        var store = NewStore();
+        var filed = store.File(TenantA, Decision(), FleetManagerId, Now);
+        var id = Guid.Parse(filed.Id);
+
+        var first = store.SetAdvice(TenantA, id, "Pick beta.", "Beta", Now.AddMinutes(1));
+        var second = store.SetAdvice(TenantA, id, "  On reflection, wait.  ", null, Now.AddMinutes(2));
+
+        Assert.Equal(FleetOutcomeUpdateStatus.Updated, first.Status);
+        Assert.Equal("Beta", first.Outcome!.FleetManagerPick);
+        Assert.Equal(FleetOutcomeUpdateStatus.Updated, second.Status);
+        var stored = store.Get(TenantA, id)!;
+        Assert.Equal("On reflection, wait.", stored.Advice);
+        Assert.Null(stored.FleetManagerPick);
+        Assert.Equal(Now.AddMinutes(2), stored.AdviceSetAtUtc);
+        Assert.Equal("open", stored.Status);
+    }
+
+    [Fact]
+    public void SetAdvice_AnsweredRecord_IsLeftAsItWas()
+    {
+        var store = NewStore();
+        var filed = store.File(TenantA, Decision(), FleetManagerId, Now);
+        var id = Guid.Parse(filed.Id);
+        store.Answer(TenantA, id, "Beta", FleetOutcomeStore.OwnerCaller, FleetOutcomeStore.RoleOwner, Now);
+
+        var result = store.SetAdvice(TenantA, id, "Pick beta.", null, Now);
+
+        Assert.Equal(FleetOutcomeUpdateStatus.AlreadyAnswered, result.Status);
+        Assert.Null(store.Get(TenantA, id)!.Advice);
+    }
+
+    [Fact]
+    public void SetAdvice_AnotherAccountsRecord_IsNotFound_AndUnchanged()
+    {
+        var store = NewStore();
+        var theirs = store.File(TenantB, Decision(), FleetManagerId, Now);
+
+        var result = store.SetAdvice(TenantA, Guid.Parse(theirs.Id), "Not yours.", null, Now);
+
+        Assert.Equal(FleetOutcomeUpdateStatus.NotFound, result.Status);
+        Assert.Null(result.Outcome);
+        Assert.Null(store.Get(TenantB, Guid.Parse(theirs.Id))!.Advice);
+    }
+
+    [Fact]
+    public void SetAdvice_APickWithALineBreak_IsRefused()
+    {
+        var store = NewStore();
+        var filed = store.File(TenantA, Decision(), FleetManagerId, Now);
+
+        var ex = Assert.Throws<ArgumentException>(() => store.SetAdvice(TenantA, Guid.Parse(filed.Id), "Pick it.", "Be\nta", Now));
+
+        Assert.Equal("fleetManagerPick must be one line: the key of one of the Wingman's options", ex.Message);
+    }
+
+    [Fact]
+    public void NoteOwnerAction_OpenRecord_KeepsItOpenWithTheNote_AndAnAnsweredOneIsLeftAlone()
+    {
+        var store = NewStore();
+        var open = store.File(TenantA, Finding(), FleetManagerId, Now);
+        var done = store.File(TenantA, Finding("Answered already"), FleetManagerId, Now);
+        store.Answer(TenantA, Guid.Parse(done.Id), "Got it.", FleetOutcomeStore.OwnerCaller, FleetOutcomeStore.RoleOwner, Now);
+
+        var noted = store.NoteOwnerAction(TenantA, Guid.Parse(open.Id), "The owner snoozed the session.", Now.AddMinutes(3));
+        var refused = store.NoteOwnerAction(TenantA, Guid.Parse(done.Id), "The owner snoozed the session.", Now);
+
+        Assert.Equal(FleetOutcomeUpdateStatus.Updated, noted.Status);
+        Assert.Equal("open", noted.Outcome!.Status);
+        Assert.Equal("The owner snoozed the session.", noted.Outcome.OwnerNote);
+        Assert.Equal(Now.AddMinutes(3), noted.Outcome.OwnerNoteAtUtc);
+        Assert.Equal(FleetOutcomeUpdateStatus.AlreadyAnswered, refused.Status);
+        Assert.Null(store.Get(TenantA, Guid.Parse(done.Id))!.OwnerNote);
+        Assert.Single(store.ListOpen(TenantA));
+    }
 }

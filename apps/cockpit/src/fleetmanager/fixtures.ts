@@ -102,6 +102,7 @@ export function morningPage(): FleetManagerPage {
     fleetManagerSessionId: FM_SESSION,
     noConversationText: null,
     waitingCount: 3,
+    walkthroughLabel: "Take me through them (fake)",
     quickPrompts: [{ label: "What did I miss?", words: "What did I miss?" }],
     cards: [READY_CARD, FINDING_CARD, DECISION_CARD],
     waiting: {
