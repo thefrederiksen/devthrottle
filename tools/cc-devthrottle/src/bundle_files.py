@@ -11,6 +11,7 @@ that follows only writes prepared bytes to checked paths.
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Callable, Iterable, Optional
 
@@ -18,6 +19,13 @@ from typing import Callable, Iterable, Optional
 #: on all three, so a name only one of them refuses is refused everywhere. A slash is not here: the
 #: callers split or refuse it themselves.
 _REFUSED_CHARACTERS = frozenset('<>:"|?*\\')
+
+#: The characters the Gateway itself allows in one file name (`SkillValidation.SegmentPattern` and
+#: `WorkflowValidation.FileNamePattern`): ASCII letters, digits, dot, dash and underscore. A name
+#: outside this set is one the Gateway would never have stored, so an answer holding one is malformed
+#: and is refused - this also refuses every control character (C0, DEL and C1 such as U+0085), every
+#: space and every non-ASCII letter, whatever the operating system would make of them.
+_GATEWAY_NAME = re.compile(r"[A-Za-z0-9._-]+")
 
 #: The longest single name Windows, macOS and Linux all accept: 255 UTF-16 units on Windows, 255
 #: UTF-8 bytes on macOS and Linux. UTF-8 is never shorter than UTF-16 in units, so bytes decide.
@@ -39,10 +47,12 @@ def name_problem(name: str) -> Optional[str]:
     encoded = text_bytes(name)
     if encoded is None:
         return "it cannot be written as UTF-8"
-    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in name):
-        # NUL ends a name for the operating system; the others are refused by Windows and break
-        # every line-based listing of the directory.
+    if any(ord(ch) < 0x20 or 0x7F <= ord(ch) <= 0x9F for ch in name):
+        # NUL ends a name for the operating system; the others are refused by Windows or break
+        # every line-based listing of the directory (U+0085 is a line break to Unicode).
         return "it holds a control character"
+    if not _GATEWAY_NAME.fullmatch(name):
+        return "it holds a character the Gateway never allows (only letters, digits, dot, dash and underscore)"
     if _REFUSED_CHARACTERS.intersection(name):
         return 'it holds one of < > : " | ? * \\'
     if len(encoded) > _MAX_NAME_BYTES:

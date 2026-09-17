@@ -2279,6 +2279,23 @@ _UNWRITABLE = [
         {"files": [{"fileName": "a\x7fy", "content": "c"}]},
         id="newline-or-delete-in-file-name",
     ),
+    # Re-check 5: C1 control characters (Unicode category Cc), which the Gateway also never stores.
+    pytest.param(
+        {"files": [{"fileName": "x\x85y.txt", "content": "c"}]},
+        {"files": [{"fileName": "x\x85y.txt", "content": "c"}]},
+        id="next-line-U+0085-in-file-name",
+    ),
+    pytest.param(
+        {"files": [{"fileName": "docs/x\x9fy.md", "content": "c"}]},
+        {"files": [{"fileName": "x\x9f.txt", "content": "c"}]},
+        id="U+009F-in-nested-or-trailing-name",
+    ),
+    # And the rest of what the Gateway's name pattern refuses: a space, a non-ASCII letter.
+    pytest.param(
+        {"files": [{"fileName": "my notes.md", "content": "c"}]},
+        {"files": [{"fileName": "caf\u00e9.md", "content": "c"}]},
+        id="character-the-gateway-never-allows",
+    ),
     pytest.param(
         {"files": [{"fileName": "a\ud800.txt", "content": "c"}]},
         {"files": [{"fileName": "a\ud800.txt", "content": "c"}]},
