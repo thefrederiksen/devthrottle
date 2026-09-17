@@ -27,6 +27,7 @@ public sealed class FleetDoorbellTests : IDisposable
     private DateTime _now = T0;
     private string _activity = "WaitingForInput";
     private bool _connected = true;
+    private bool _locateThrows;
     private FleetRingResponse? _answer = new() { Outcome = FleetRingOutcomes.Rung };
     private readonly List<(string Sid, int Unread, DateTime At)> _rings = new();
 
@@ -44,7 +45,9 @@ public sealed class FleetDoorbellTests : IDisposable
         var doorbell = new FleetDoorbell(
             store,
             service,
-            locate: (_, sid) => _connected ? new FleetRingTarget(Director, _activity, sid == Worker ? "worker-one" : null) : null,
+            locate: (_, sid) => _locateThrows
+                ? throw new InvalidOperationException("the roster could not be read")
+                : _connected ? new FleetRingTarget(Director, _activity, sid == Worker ? "worker-one" : null) : null,
             ring: (_, _, sid, unread, _) =>
             {
                 _rings.Add((sid, unread, _now));
@@ -273,6 +276,91 @@ public sealed class FleetDoorbellTests : IDisposable
 
         Assert.Null(Peek(id).StuckAtUtc);
         Assert.Empty(rig.Store.ReadInbox(Tenant, Manager, _now, includeRecent: false).Unread);
+    }
+
+    // ---------- Inspection 4, ruling 4: stuck and its notice are one write ----------
+
+    /// <summary>Ring the worker three times at the product grace and move to the moment it is due stuck.</summary>
+    private async Task<string> RungThreeTimesAndDueStuck(Rig rig)
+    {
+        var id = Send(rig);
+        foreach (var minutes in new[] { 0, 5, 10 })
+        {
+            _now = T0.AddMinutes(minutes);
+            await rig.Doorbell.RingSessionAsync(Tenant, Worker, "settled", CancellationToken.None);
+        }
+        _now = T0.AddMinutes(15);
+        return id;
+    }
+
+    private int SystemNoticesFor(string sid)
+    {
+        using var ctx = _harness.Open().CreateContext(Tenant);
+        return ctx.FleetMessages.Count(m => m.RecipientSessionId == sid && m.SenderSessionId == null
+                                            && m.Kind == FleetMessageKinds.System);
+    }
+
+    [Fact]
+    public async Task A_failure_between_the_stuck_mark_and_its_notice_persists_neither()
+    {
+        var rig = NewRig();
+        var id = await RungThreeTimesAndDueStuck(rig);
+        rig.Store.BeforeStuckSave = () => throw new InvalidOperationException("the process stopped here");
+
+        Assert.Throws<InvalidOperationException>(() => rig.Doorbell.MarkStuckAndNotify(Tenant));
+
+        Assert.Null(Peek(id).StuckAtUtc);
+        Assert.Equal(0, SystemNoticesFor(Manager));
+    }
+
+    [Fact]
+    public async Task A_notice_that_cannot_be_written_leaves_the_message_open()
+    {
+        // The notice's text needs the recipient's roster name; the roster read throws. That is the "send threw
+        // after the mark" case of inspection 4: before the fix the mark was already saved and the notice lost.
+        var rig = NewRig();
+        var id = await RungThreeTimesAndDueStuck(rig);
+        _locateThrows = true;
+
+        Assert.Throws<InvalidOperationException>(() => rig.Doorbell.MarkStuckAndNotify(Tenant));
+
+        Assert.Null(Peek(id).StuckAtUtc);
+        Assert.Equal(0, SystemNoticesFor(Manager));
+    }
+
+    [Fact]
+    public async Task The_sweep_after_a_crash_marks_and_notifies_exactly_once()
+    {
+        var rig = NewRig();
+        var id = await RungThreeTimesAndDueStuck(rig);
+        _locateThrows = true;
+        Assert.Throws<InvalidOperationException>(() => rig.Doorbell.MarkStuckAndNotify(Tenant));
+        _locateThrows = false;
+
+        Advance(TimeSpan.FromSeconds(15));
+        var marked = rig.Doorbell.MarkStuckAndNotify(Tenant);
+        Advance(TimeSpan.FromSeconds(15));
+        var again = rig.Doorbell.MarkStuckAndNotify(Tenant);
+
+        Assert.Equal(id, Assert.Single(marked).MessageId);
+        Assert.Empty(again);
+        Assert.Equal(T0.AddMinutes(15).AddSeconds(15), Peek(id).StuckAtUtc);
+        Assert.Equal(1, SystemNoticesFor(Manager));
+    }
+
+    [Fact]
+    public async Task The_mark_and_the_notice_carry_the_same_moment()
+    {
+        var rig = NewRig();
+        var id = await RungThreeTimesAndDueStuck(rig);
+
+        rig.Doorbell.MarkStuckAndNotify(Tenant);
+
+        using var ctx = _harness.Open().CreateContext(Tenant);
+        var notice = ctx.FleetMessages.Single(m => m.RecipientSessionId == Manager && m.SenderSessionId == null);
+        Assert.Equal(Peek(id).StuckAtUtc, notice.CreatedAtUtc);
+        Assert.Equal(FleetMessageKinds.System, notice.Kind);
+        Assert.Contains(id, notice.Text);
     }
 
     // ---------- What is and is not counted as a ring ----------

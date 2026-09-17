@@ -263,27 +263,28 @@ public sealed class FleetDoorbell
     }
 
     /// <summary>
-    /// Mark every message in this tenant that has used its rings as stuck, and queue one notice to each sender.
-    /// Returns the rows marked.
+    /// Mark every message in this tenant that has used its rings as stuck, and queue one notice to each sender -
+    /// in ONE write (inspection 4, ruling 4): a failure anywhere before the save leaves every message open, and
+    /// the next heartbeat marks and notifies it exactly once. Returns the rows marked.
     /// </summary>
     public IReadOnlyList<FleetMessageEntity> MarkStuckAndNotify(TenantId tenant)
     {
         var now = _clock();
-        var stuck = _store.MarkStuck(tenant, now, m => FleetRingSchedule.IsStuck(m, now, _limits));
-        foreach (var m in stuck)
+        var marked = _store.MarkStuckWithNotices(
+            tenant,
+            now,
+            m => FleetRingSchedule.IsStuck(m, now, _limits),
+            m => m.SenderSessionId is null
+                ? null // a stuck system notice has nobody to tell
+                : new FleetMessageDraft(m.SenderSessionId, null, null, null, FleetMessageKinds.System,
+                    StuckNoticeText(m, _locate(tenant, m.RecipientSessionId)?.Name, _limits)),
+            limits: _messages.Limits);
+        foreach (var (m, notice) in marked)
         {
-            FileLog.Write($"[FleetDoorbell] STUCK: id={m.MessageId} to={Short(m.RecipientSessionId)} from={Short(m.SenderSessionId)} rings={m.RingCount}");
-            if (m.SenderSessionId is null) continue; // a stuck system notice has nobody to tell
-            var recipientName = _locate(tenant, m.RecipientSessionId)?.Name;
-            _messages.Send(
-                tenant,
-                sender: null,
-                recipient: new FleetParty(m.SenderSessionId, null, null, null),
-                text: StuckNoticeText(m, recipientName, _limits),
-                kind: FleetMessageKinds.System,
-                exemption: FleetMessageExemption.System);
+            FileLog.Write($"[FleetDoorbell] STUCK: id={m.MessageId} to={Short(m.RecipientSessionId)} from={Short(m.SenderSessionId)} " +
+                          $"rings={m.RingCount} notice={notice?.MessageId ?? "(none)"}");
         }
-        return stuck;
+        return marked.Select(x => x.Stuck).ToList();
     }
 
     /// <summary>The notice a sender receives when its message is marked stuck.</summary>

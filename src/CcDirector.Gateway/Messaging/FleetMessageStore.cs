@@ -108,24 +108,26 @@ public sealed class FleetMessageStore
             var verdict = decide(history);
             if (!verdict.Queued) return (verdict, null);
 
-            var row = new FleetMessageEntity
-            {
-                TenantId = ctx.ActiveTenant!,
-                MessageId = Guid.NewGuid().ToString("N"),
-                RecipientSessionId = Id(draft.RecipientSessionId)!,
-                SenderSessionId = Id(draft.SenderSessionId),
-                SenderName = draft.SenderName,
-                SenderMachine = draft.SenderMachine,
-                Kind = draft.Kind,
-                Text = draft.Text,
-                TextHash = hash,
-                CreatedAtUtc = now,
-            };
+            var row = NewRow(ctx, draft, hash, now);
             ctx.FleetMessages.Add(row);
             ctx.SaveChanges();
             return (verdict, row);
         }
     }
+
+    private static FleetMessageEntity NewRow(GatewayDbContext ctx, FleetMessageDraft draft, string hash, DateTime now) => new()
+    {
+        TenantId = ctx.ActiveTenant!,
+        MessageId = Guid.NewGuid().ToString("N"),
+        RecipientSessionId = Id(draft.RecipientSessionId)!,
+        SenderSessionId = Id(draft.SenderSessionId),
+        SenderName = draft.SenderName,
+        SenderMachine = draft.SenderMachine,
+        Kind = draft.Kind,
+        Text = draft.Text,
+        TextHash = hash,
+        CreatedAtUtc = now,
+    };
 
     private static FleetMessageHistory ReadHistory(
         GatewayDbContext ctx, FleetMessageDraft draft, string hash, DateTime now, TimeSpan senderWindow)
@@ -291,26 +293,73 @@ public sealed class FleetMessageStore
     /// <summary>
     /// Mark stuck every open message in this tenant that <paramref name="isStuck"/> rules stuck, and return the
     /// rows that were marked. Decided and written under the store lock, so a read that lands first wins: a
-    /// message read before this runs is not open any more and is never marked.
+    /// message read before this runs is not open any more and is never marked. Writes no notice - see
+    /// <see cref="MarkStuckWithNotices"/>.
     /// </summary>
-    public IReadOnlyList<FleetMessageEntity> MarkStuck(TenantId tenant, DateTime nowUtc, Func<FleetMessageEntity, bool> isStuck)
+    public IReadOnlyList<FleetMessageEntity> MarkStuck(TenantId tenant, DateTime nowUtc, Func<FleetMessageEntity, bool> isStuck) =>
+        MarkStuckWithNotices(tenant, nowUtc, isStuck, _ => null).Select(m => m.Stuck).ToList();
+
+    /// <summary>
+    /// STUCK AND ITS NOTICE ARE ONE WRITE (inspection 4, ruling 4). Mark stuck every open message
+    /// <paramref name="isStuck"/> rules stuck and, in the SAME save, write the system notice
+    /// <paramref name="noticeFor"/> drafts for it (null: no notice). Either every mark and every notice is
+    /// persisted, or none is - so a process that stops, or a notice that cannot be built, leaves the messages
+    /// open, and the next heartbeat marks and notifies them exactly once. A notice passes the same policy as a
+    /// system notice sent any other way (the text rules and the unread-duplicate rule).
+    /// </summary>
+    /// <param name="minRings">Only rows rung at least this many times are read. The heartbeat passes the ring
+    /// cap, so the scan never loads a message that cannot be stuck yet (ruling 6).</param>
+    /// <param name="limits">The limits a notice's text is judged by; the product's when null.</param>
+    public IReadOnlyList<(FleetMessageEntity Stuck, FleetMessageEntity? Notice)> MarkStuckWithNotices(
+        TenantId tenant, DateTime nowUtc, Func<FleetMessageEntity, bool> isStuck,
+        Func<FleetMessageEntity, FleetMessageDraft?> noticeFor, int minRings = 1, FleetMessageLimits? limits = null)
     {
         ArgumentNullException.ThrowIfNull(isStuck);
+        ArgumentNullException.ThrowIfNull(noticeFor);
         var now = Utc(nowUtc);
+        var policyLimits = limits ?? FleetMessageLimits.Default;
+        var floor = Math.Max(1, minRings);
         lock (_gate)
         {
             using var ctx = _db.CreateContext(tenant);
             // Only rung, open messages can be stuck; which of them ARE is decided by the caller's ruling alone, so
             // the one definition of "stuck" lives in FleetRingSchedule and is not restated in this query.
             var candidates = ctx.FleetMessages
-                .Where(m => m.ReadAtUtc == null && m.StuckAtUtc == null && m.RingCount > 0)
+                .Where(m => m.ReadAtUtc == null && m.StuckAtUtc == null && m.RingCount >= floor)
                 .ToList();
-            var stuck = candidates.Where(isStuck).ToList();
-            foreach (var m in stuck) m.StuckAtUtc = now;
-            if (stuck.Count > 0) ctx.SaveChanges();
-            return stuck;
+            var result = new List<(FleetMessageEntity, FleetMessageEntity?)>();
+            foreach (var m in candidates.Where(isStuck))
+            {
+                m.StuckAtUtc = now;
+                FleetMessageEntity? notice = null;
+                if (noticeFor(m) is { } draft)
+                {
+                    var hash = HashText(draft.Text);
+                    var history = ReadHistory(ctx, draft, hash, now, policyLimits.SenderWindow);
+                    var verdict = FleetMessagePolicy.Decide(new FleetMessageAttempt(
+                        SenderSessionId: null, SenderControllerSessionId: null,
+                        RecipientSessionId: draft.RecipientSessionId, RecipientControllerSessionId: null,
+                        Text: draft.Text, NowUtc: now, SentBySenderInWindow: 0, LastSentToRecipientUtc: null,
+                        RecipientHasUnreadDuplicate: history.RecipientHasUnreadDuplicate,
+                        Exemption: FleetMessageExemption.System, Kind: draft.Kind), policyLimits);
+                    if (verdict.Queued)
+                    {
+                        notice = NewRow(ctx, draft, hash, now);
+                        ctx.FleetMessages.Add(notice);
+                    }
+                }
+                result.Add((m, notice));
+            }
+            if (result.Count == 0) return result;
+            BeforeStuckSave?.Invoke();
+            ctx.SaveChanges();
+            return result;
         }
     }
+
+    /// <summary>Test seam: runs after the stuck marks and their notices are staged and before the one save. A
+    /// test throws here to prove a failure between the two persists neither. Production never sets it.</summary>
+    internal Action? BeforeStuckSave { get; set; }
 
     /// <summary>
     /// Delete this tenant's messages written before <paramref name="cutoffUtc"/> that are read or stuck.
