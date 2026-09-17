@@ -520,6 +520,31 @@ public sealed class Session : IDisposable
 
     public string RepoPath { get; }
     public string WorkingDirectory { get; }
+
+    /// <summary>
+    /// The pooled worktree this session was handed when its repository has the pooled-worktree setting
+    /// turned on, or null for every other session - which is every session by default.
+    ///
+    /// When it is set, <see cref="RepoPath"/> and <see cref="WorkingDirectory"/> are the SLOT, because
+    /// that is where the agent is working and every consumer of those properties means "where the
+    /// session is". The repository the slot came from is <c>PooledWorktree.Repo</c>.
+    ///
+    /// The LEASE is the reason this is kept on the session at all: close is the only moment it is
+    /// needed, and without it cc-worktrees has no evidence the holder let go and will not take the
+    /// slot back.
+    /// </summary>
+    public Git.PooledWorktree? PooledWorktree { get; internal set; }
+
+    /// <summary>
+    /// Why cc-worktrees did NOT take the pooled worktree back when this session closed, in the tool's
+    /// own words - or null when there was nothing to return or it came back free.
+    ///
+    /// A held slot keeps whatever is in it and this session's row stays, so the reason is in front of
+    /// the person who closed it. Nothing is forced, retried with a stronger flag, or destroyed on the
+    /// strength of it.
+    /// </summary>
+    public string? PooledWorktreeHeldReason { get; internal set; }
+
     public SessionStatus Status { get; internal set; }
     public DateTimeOffset CreatedAt { get; }
     public string? ClaudeArgs { get; }

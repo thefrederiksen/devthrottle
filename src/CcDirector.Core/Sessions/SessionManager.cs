@@ -159,11 +159,30 @@ public sealed class SessionManager : IDisposable
     /// it out from under the session. Injectable for tests; production uses the default machine path.</summary>
     private readonly Git.WorktreeReservationStore _reservations;
 
-    public SessionManager(AgentOptions options, Action<string>? log = null, Git.WorktreeReservationStore? reservations = null)
+    /// <summary>
+    /// The cc-worktrees pool a session is handed a worktree from when its repository has the setting
+    /// turned on. Injectable for tests; production runs the installed command line tool.
+    /// </summary>
+    private readonly Git.IWorktreePool _worktreePool;
+
+    /// <summary>
+    /// The pooled-worktree setting for a repository. A test overrides it; production reads
+    /// <see cref="Git.WorktreePoolSettings"/>, whose answer for a repository nobody configured is OFF.
+    /// </summary>
+    private readonly Func<string, Git.WorktreePoolSetting> _worktreePoolSetting;
+
+    public SessionManager(
+        AgentOptions options,
+        Action<string>? log = null,
+        Git.WorktreeReservationStore? reservations = null,
+        Git.IWorktreePool? worktreePool = null,
+        Func<string, Git.WorktreePoolSetting>? worktreePoolSetting = null)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _log = log;
         _reservations = reservations ?? new Git.WorktreeReservationStore();
+        _worktreePool = worktreePool ?? new Git.CcWorktreesPool();
+        _worktreePoolSetting = worktreePoolSetting ?? Git.WorktreePoolSettings.For;
         _deletionReaper = new System.Threading.Timer(
             _ => ReapPendingDeletions(), null, DeletionReaperIntervalMs, DeletionReaperIntervalMs);
     }
@@ -524,6 +543,23 @@ public sealed class SessionManager : IDisposable
 
         var id = Guid.NewGuid();
 
+        // Issue #800: the name-at-birth is composed HERE, once, because the pooled worktree below is
+        // taken in this session's name and the holder shown by `cc-worktrees list` should be the name
+        // a person reads, not only an identifier. The factory takes nothing but the id, so composing it
+        // a few lines earlier than it is assigned changes nothing else.
+        var birthName = nameFactory?.Invoke(id);
+
+        // THE POOLED WORKTREE, when this repository has the setting turned on. Off is the default and
+        // off means today's behaviour exactly: no tool is run and the session works in the checkout it
+        // was opened in.
+        //
+        // NO FALLBACK. A refusal - the pool is full, the remote cannot be reached, the tool is not
+        // installed - ends the create here, in the tool's own words, and no session opens. Starting the
+        // session in the shared checkout instead would be the precise behaviour the setting was turned
+        // on to stop, and it would be silent.
+        var pooled = AcquirePooledWorktree(repoPath, id, birthName);
+        var workingDirectory = pooled?.Path ?? repoPath;
+
         var studioMode = backendType == SessionBackendType.Studio;
         var launchSpec = agent.BuildLaunchSpec(userArgs, resumeSessionId, studioMode);
         var args = launchSpec.Arguments;
@@ -555,7 +591,10 @@ public sealed class SessionManager : IDisposable
             _ => throw new ArgumentOutOfRangeException(nameof(backendType))
         };
 
-        var session = new Session(id, repoPath, repoPath, userArgs, backend, backendType)
+        // A pooled session's RepoPath IS the slot: it is where the agent works, and every reader of
+        // RepoPath - the git status monitor, the reaper's live-session match, the Source Control page -
+        // means "where the session is". Where the slot CAME from is on session.PooledWorktree.
+        var session = new Session(id, workingDirectory, workingDirectory, userArgs, backend, backendType)
         {
             AgentKind = agent.Kind,
             GroupId = groupId,
@@ -572,8 +611,12 @@ public sealed class SessionManager : IDisposable
         // Issue #800: name the session AT BIRTH. The factory is invoked with the new id so the
         // composed name can carry an id-derived disambiguator. This is what stops a session from
         // ever displaying as the bare repository folder name.
-        if (nameFactory is not null)
-            session.CustomName = nameFactory(id);
+        if (birthName is not null)
+            session.CustomName = birthName;
+
+        // The lease travels with the session from birth: close is the only moment it is needed, and a
+        // lease that was never recorded is a slot cc-worktrees will not take back.
+        session.PooledWorktree = pooled;
 
         // Pre-launch stamps (Workflows mission, phase 5b): applied BEFORE the per-agent launch
         // channels below read the session (Pi's preamble file is written from it) and BEFORE the
@@ -795,7 +838,7 @@ public sealed class SessionManager : IDisposable
                 var piSeatParagraph = WorkflowSeatParagraph.Build(
                     session.WorkflowRunId, session.WorkflowId, session.WorkflowVersion, session.ExplicitRole);
                 var preambleFile = CcDirector.Core.Pi.PiPreambleWriter.WriteForSession(
-                    id.ToString(), piName, Environment.MachineName, repoPath, signedInUser, piSeatParagraph);
+                    id.ToString(), piName, Environment.MachineName, workingDirectory, signedInUser, piSeatParagraph);
                 args = $"{args} --append-system-prompt \"{preambleFile}\"".Trim();
                 _log?.Invoke("Wrote Pi fleet preamble and passed it via --append-system-prompt.");
             }
@@ -865,7 +908,7 @@ public sealed class SessionManager : IDisposable
             // Claude path printed none, so the one difference that mattered was the one thing invisible.
             // Variable NAMES only - the injected set carries agent credentials.
             _log?.Invoke($"Launching {agent.Kind}: exe={launchExe}, args={(string.IsNullOrEmpty(launchArgs) ? "(none)" : launchArgs)}, " +
-                         $"workingDir={repoPath}, injectedEnv={string.Join(",", envVars.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase))}");
+                         $"workingDir={workingDirectory}, injectedEnv={string.Join(",", envVars.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase))}");
             session.LaunchExecutable = launchExe;
 
             // Reserve the worktree BEFORE the process starts (inspection round 5). The reserve-write is
@@ -873,11 +916,14 @@ public sealed class SessionManager : IDisposable
             // observe this running process without also observing its reservation - closing the
             // launch-versus-reap race. RaiseSessionCreated re-reserves (idempotent) for the other
             // creation routes (restore, web Control API) that do not pass through this launch path.
-            if (!string.IsNullOrWhiteSpace(repoPath) && Directory.Exists(repoPath))
-                _reservations.Reserve(repoPath, id.ToString());
+            // A pooled slot is NOT reserved here - cc-worktrees owns it and holds the lease, and the
+            // reaper refuses to touch a pool slot on that evidence alone (WorktreeReservationStore.Reserve
+            // skips one too, so this holds however a session reaches that call).
+            if (!string.IsNullOrWhiteSpace(workingDirectory) && Directory.Exists(workingDirectory))
+                _reservations.Reserve(workingDirectory, id.ToString());
 
             // Get initial terminal dimensions (default 120x30)
-            backend.Start(launchExe, launchArgs, repoPath, 120, 30, envVars);
+            backend.Start(launchExe, launchArgs, workingDirectory, 120, 30, envVars);
             session.MarkRunning();
 
             _sessions[id] = session;
@@ -899,7 +945,7 @@ public sealed class SessionManager : IDisposable
 
             var resumeInfo = !string.IsNullOrEmpty(resumeSessionId) ? $", Resume={resumeSessionId[..8]}..." : "";
             var sessionIdInfo = !string.IsNullOrEmpty(preassignedClaudeSessionId) ? $", ClaudeSessionId={preassignedClaudeSessionId[..8]}..." : "";
-            _log?.Invoke($"Session {id} created for repo {repoPath} (Agent={agent.Kind}, PID {backend.ProcessId}, Backend={backendType}{resumeInfo}{sessionIdInfo}).");
+            _log?.Invoke($"Session {id} created for repo {workingDirectory} (Agent={agent.Kind}, PID {backend.ProcessId}, Backend={backendType}{resumeInfo}{sessionIdInfo}).");
 
             return session;
         }
@@ -922,12 +968,127 @@ public sealed class SessionManager : IDisposable
             // as reserving.
             _reservations.Release(id.ToString());
 
+            // Give the pooled worktree back. This create took a slot out of the pool and is now not
+            // going to use it; without this the slot would stay in-use, held by a session that never
+            // existed, until somebody found it in `cc-worktrees list` and reclaimed it by hand. The
+            // return runs the tool's full landed-work check like any other, so a slot with something in
+            // it comes back HELD rather than being reset - which is right: an agent that got far enough
+            // to write something wrote it.
+            if (pooled is not null)
+            {
+                // Never let this throw over the exception that brought us here - that one is what the
+                // caller needs to see and what says why the session did not start.
+                try
+                {
+                    var given = _worktreePool.Return(pooled);
+                    if (!given.Freed)
+                        _log?.Invoke($"The pooled worktree {given.Path} was not returned and is held: {given.HeldReason}");
+                }
+                catch (Exception returnEx)
+                {
+                    FileLog.Write($"[SessionManager] returning the pooled worktree {pooled.Path} after a failed create FAILED: {returnEx.Message}");
+                    _log?.Invoke($"The pooled worktree {pooled.Path} could not be returned: {returnEx.Message}");
+                }
+            }
+
             // End the Gateway key if one was minted before the throw. Idempotent and keyed by session id,
             // so it is safe whether or not we got as far as minting one.
             GatewaySessionCredentialRevoker?.Invoke(id);
 
             session.Dispose();
             throw;
+        }
+    }
+
+    /// <summary>
+    /// The pooled worktree a new session in <paramref name="repoPath"/> runs in, or null when that
+    /// repository's pooled-worktree setting is off - which is the default, and which means no tool is
+    /// run and nothing about the create changes.
+    ///
+    /// A refusal from cc-worktrees throws, in the tool's own words, so the create ends and no session
+    /// opens. THERE IS NO FALLBACK to the shared checkout: the setting is on precisely because sessions
+    /// in this repository are not to run there, and a silent fallback would break that without saying so.
+    /// </summary>
+    private Git.PooledWorktree? AcquirePooledWorktree(string repoPath, Guid id, string? birthName)
+    {
+        Git.WorktreePoolSetting setting;
+        try
+        {
+            setting = _worktreePoolSetting(repoPath);
+        }
+        catch (Exception ex)
+        {
+            // The setting could not be read. OFF is the only safe reading of "I do not know", and it is
+            // also the default, so this session behaves exactly as it did before the setting existed.
+            FileLog.Write($"[SessionManager] AcquirePooledWorktree: could not read the setting for {repoPath}: {ex.Message}; treating it as off");
+            return null;
+        }
+
+        if (!setting.Enabled)
+            return null;
+
+        // Who holds the slot, as `cc-worktrees list` will show it: the name the session is born with
+        // when it has one, and its identifier either way so one slot maps to exactly one session.
+        var holder = string.IsNullOrWhiteSpace(birthName) ? id.ToString() : $"{birthName.Trim()} ({id})";
+
+        FileLog.Write($"[SessionManager] AcquirePooledWorktree: repo={repoPath}, poolSize={setting.PoolSize}, holder={holder}");
+        try
+        {
+            var pooled = _worktreePool.Get(repoPath, holder, setting.PoolSize);
+            _log?.Invoke($"This session runs in the pooled worktree {pooled.Path} (slot {pooled.Slot} of {repoPath}).");
+            return pooled;
+        }
+        catch (Git.CcWorktreesRefusedException ex)
+        {
+            // The tool's own sentence, unchanged, plus its own "what to run next" lines. Nothing here
+            // paraphrases it: it is the only account of what happened, and it is written for a person.
+            var help = ex.Help.Count == 0 ? "" : " Try: " + string.Join("; ", ex.Help);
+            var message = $"No session was opened. {repoPath} is set to run its sessions in a pooled worktree, "
+                + $"and cc-worktrees refused: {ex.Message}.{help}";
+            FileLog.Write($"[SessionManager] AcquirePooledWorktree REFUSED: code={ex.Code}, exit={ex.ExitCode}, message={ex.Message}");
+            _log?.Invoke(message);
+            throw new InvalidOperationException(message, ex);
+        }
+    }
+
+    /// <summary>
+    /// Give a closing session's pooled worktree back, and say whether cc-worktrees took it.
+    ///
+    /// Returns null when the session had no pooled worktree (every session, by default). Otherwise it
+    /// returns the tool's answer: freed, or held with the tool's own reason. NOTHING IS FORCED HERE -
+    /// there is no retry with a stronger flag and no destroy. A held slot keeps whatever is in it.
+    /// </summary>
+    private Git.PooledWorktreeReturn? ReturnPooledWorktree(Session session)
+    {
+        if (session.PooledWorktree is not { } pooled)
+            return null;
+
+        FileLog.Write($"[SessionManager] ReturnPooledWorktree: session={session.Id}, slot={pooled.Slot}, path={pooled.Path}");
+        try
+        {
+            var answer = _worktreePool.Return(pooled);
+            if (answer.Freed)
+            {
+                session.PooledWorktreeHeldReason = null;
+                _log?.Invoke($"The pooled worktree {answer.Path} was returned to the pool.");
+            }
+            else
+            {
+                session.PooledWorktreeHeldReason = answer.HeldReason;
+                _log?.Invoke($"The pooled worktree {answer.Path} was NOT returned and is held: {answer.HeldReason}");
+            }
+            return answer;
+        }
+        catch (Exception ex)
+        {
+            // The tool could not be asked at all. That is not "the slot came back" - it is not knowing,
+            // and the slot stays in-use in the pool with this session named as its holder. Recording it
+            // as held is the answer that loses nothing.
+            var reason = $"cc-worktrees could not be asked to take {pooled.Path} back: {ex.Message}";
+            FileLog.Write($"[SessionManager] ReturnPooledWorktree FAILED: session={session.Id}: {ex}");
+            _log?.Invoke(reason);
+            session.PooledWorktreeHeldReason = reason;
+            return new Git.PooledWorktreeReturn(pooled.Slot, pooled.Path, Freed: false, HeldReason: reason);
         }
     }
 
@@ -1109,9 +1270,37 @@ public sealed class SessionManager : IDisposable
         }
     }
 
-    /// <summary>Remove a session from tracking (dispose and clean up).</summary>
-    public void RemoveSession(Guid id)
+    /// <summary>
+    /// Remove a session from tracking (dispose and clean up). Returns true when the row was removed.
+    ///
+    /// IT CAN NOW DECLINE, and there is exactly one reason: the session was running in a pooled
+    /// worktree and cc-worktrees would not take that worktree back. The slot keeps whatever is in it -
+    /// an unpushed commit, an uncommitted edit - and the row stays with the tool's reason on it
+    /// (<see cref="Session.PooledWorktreeHeldReason"/>) so the person who closed the session can see
+    /// what is being kept and act on it. A SECOND close removes the row anyway: by then the reason has
+    /// been shown and asking again is the person saying so. The slot stays held in the pool either way -
+    /// nothing here forces, retries with a stronger flag, or destroys anything - and
+    /// <c>cc-worktrees list</c> is where it is answered for afterwards.
+    ///
+    /// For every session with no pooled worktree, which is every session by default, this is exactly
+    /// what it always was and it always returns true.
+    /// </summary>
+    public bool RemoveSession(Guid id)
     {
+        // The return runs BEFORE the row is taken out of the roster, so a row that is kept was never
+        // missing from it, and so the session is still there to carry the reason.
+        if (_sessions.TryGetValue(id, out var closing) && closing.PooledWorktree is not null)
+        {
+            var alreadyToldOnce = closing.PooledWorktreeHeldReason is not null;
+            var answer = ReturnPooledWorktree(closing);
+            if (answer is { Freed: false } && !alreadyToldOnce)
+            {
+                _log?.Invoke($"Session {id} was not removed: its pooled worktree is held ({answer.HeldReason}). Close it again to remove the row anyway; the worktree stays held either way.");
+                FileLog.Write($"[SessionManager] RemoveSession: session={id} row KEPT, pooled worktree held: {answer.HeldReason}");
+                return false;
+            }
+        }
+
         if (_sessions.TryRemove(id, out var session))
         {
             // Remove any Claude session mapping
@@ -1134,7 +1323,10 @@ public sealed class SessionManager : IDisposable
 
             session.Dispose();
             _log?.Invoke($"Session {id} removed.");
+            return true;
         }
+
+        return false;
     }
 
     /// <summary>Kill all sessions (used during graceful shutdown).</summary>

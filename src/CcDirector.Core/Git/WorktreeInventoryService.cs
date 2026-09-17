@@ -12,11 +12,16 @@ public sealed class WorktreeInventoryService
 {
     private readonly GitCommandRunner _git;
     private readonly IMergedPullRequestProbe _pullRequestProbe;
+    private readonly CcWorktreesPoolSlots _poolSlots;
 
-    public WorktreeInventoryService(GitCommandRunner? git = null, IMergedPullRequestProbe? pullRequestProbe = null)
+    public WorktreeInventoryService(
+        GitCommandRunner? git = null,
+        IMergedPullRequestProbe? pullRequestProbe = null,
+        CcWorktreesPoolSlots? poolSlots = null)
     {
         _git = git ?? new GitCommandRunner();
         _pullRequestProbe = pullRequestProbe ?? new NullMergedPullRequestProbe();
+        _poolSlots = poolSlots ?? new CcWorktreesPoolSlots();
     }
 
     /// <summary>
@@ -47,6 +52,20 @@ public sealed class WorktreeInventoryService
             if (!listResult.Success)
                 return Failure(repositoryPath, $"git worktree list failed: {listResult.Error}");
 
+            // Which directories belong to a cc-worktrees pool, read ONCE for the whole inventory from
+            // that tool's own records. Records that exist and cannot be read THROW: "I could not tell"
+            // must never reach the verdict looking like "none of them", because the verdict decides
+            // what may be deleted.
+            IReadOnlyList<string> poolSlotDirectories;
+            try
+            {
+                poolSlotDirectories = _poolSlots.RecordedSlotDirectories();
+            }
+            catch (CcWorktreesStateUnreadableException ex)
+            {
+                return Failure(repositoryPath, $"could not tell which worktrees belong to a cc-worktrees pool: {ex.Message}");
+            }
+
             var rawEntries = WorktreeListParser.Parse(listResult.Output);
             var worktrees = new List<WorktreeInfo>();
             bool primaryAssigned = false;
@@ -60,7 +79,7 @@ public sealed class WorktreeInventoryService
                 bool isPrimary = !primaryAssigned;
                 primaryAssigned = true;
 
-                worktrees.Add(await BuildInfoAsync(repositoryPath, entry, isPrimary, mainRef, sessionsByPath, ct));
+                worktrees.Add(await BuildInfoAsync(repositoryPath, entry, isPrimary, mainRef, sessionsByPath, poolSlotDirectories, ct));
             }
 
             var safeCount = worktrees.Count(w => w.Safety == WorktreeSafety.SafeToReap);
@@ -80,8 +99,14 @@ public sealed class WorktreeInventoryService
         }
     }
 
-    private async Task<WorktreeInfo> BuildInfoAsync(string repositoryPath, RawWorktreeEntry entry, bool isPrimary, string? mainRef, IReadOnlyDictionary<string, List<string>> sessionsByPath, CancellationToken ct)
+    private async Task<WorktreeInfo> BuildInfoAsync(string repositoryPath, RawWorktreeEntry entry, bool isPrimary, string? mainRef, IReadOnlyDictionary<string, List<string>> sessionsByPath, IReadOnlyList<string> poolSlotDirectories, CancellationToken ct)
     {
+        // A cc-worktrees pool slot, by either of that tool's own markers: its records, or the layout it
+        // creates. Decided before any git question, because the answer does not depend on one.
+        bool isPoolSlot = !isPrimary
+            && (CcWorktreesPoolSlots.HasSlotLayout(entry.Path)
+                || CcWorktreesPoolSlots.IsInside(entry.Path, poolSlotDirectories));
+
         // Cleanliness is measured inside the worktree itself.
         var statusResult = await _git.RunAsync(entry.Path, new[] { "status", "--porcelain" }, ct);
         int dirtyCount = statusResult.Success
@@ -148,6 +173,7 @@ public sealed class WorktreeInventoryService
             DetachedHeadIsAncestorOfMain = detachedAncestor,
             InspectionSucceeded = inspectionOk,
             HasLiveSession = !isPrimary && openSessions.Count > 0,
+            IsCcWorktreesPoolSlot = isPoolSlot,
         };
 
         var verdict = WorktreeSafetyEvaluator.Evaluate(facts);
