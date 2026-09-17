@@ -7,8 +7,10 @@ namespace CcDirector.Core.Sessions;
 /// The rules:
 /// - Bytes between the bracketed-paste markers ESC[200~ and ESC[201~ are composer text, even a CR or LF, and never a
 ///   submit. A paste split across several writes stays a paste until its end marker arrives.
-/// - Outside a paste, a CR is a submit (a CR LF pair is one submit), and so is an encoded Enter key (ESC[13u,
+/// - Outside a paste, a CR is a submit (a CR LF pair is one submit), and so is an encoded Enter key press (ESC[13u,
 ///   ESC[27;1;13~, the keypad Enter ESC O M). A printable character is text.
+/// - An encoded key that is a repeat or a release, not a press (event type 2 or 3 after the ':' in its modifier
+///   field), is neither text nor a submit. An encoded press that carries associated text is text.
 /// - Other escape sequences - cursor keys, focus and mouse reports, function keys, keyboard-protocol keys that are
 ///   not characters - are neither text nor a submit.
 /// - Whatever cannot be classified (a bare LF, a modified Enter, an Alt key, a keyboard-protocol character, an
@@ -154,21 +156,45 @@ internal sealed class ComposerInputReader
         return j - start + 1;
     }
 
-    /// <summary>A keyboard-protocol key, ESC [ code ; modifiers u.</summary>
+    private const int KeyPress = 1;
+    private const int KeyRepeat = 2;
+    private const int KeyRelease = 3;
+    // The Caps Lock and Num Lock bits of a keyboard-protocol modifier: a lock does not modify the key pressed.
+    private const int LockModifiers = 64 | 128;
+
+    /// <summary>
+    /// A keyboard-protocol key, ESC [ code[:shifted[:base]] ; modifiers[:event type] ; text[:text...] u
+    /// (https://sw.kovidgoyal.net/kitty/keyboard-protocol/). Only a press (event type 1, or none given) is typed: a
+    /// repeat or a release is neither text nor a submit. A press that carries associated text is text.
+    /// </summary>
     private static EscapeKind KeyboardProtocolKey(string parameters)
     {
         var fields = parameters.Split(';');
-        var code = FirstNumber(fields[0]);
-        var modifiers = fields.Length > 1 ? FirstNumber(fields[1]) : 1;
-        return ClassifyKey(code, modifiers);
+        if (fields.Length > 3) return EscapeKind.Text;
+        var codes = SubFields(fields[0], 3);
+        var modifier = fields.Length > 1 ? SubFields(fields[1], 2) : Array.Empty<int?>();
+        var text = fields.Length > 2 ? SubFields(fields[2], int.MaxValue) : Array.Empty<int?>();
+        if (codes is null || codes[0] is null || modifier is null || text is null) return EscapeKind.Text;
+        var eventType = EventType(modifier);
+        if (eventType is KeyRepeat or KeyRelease) return EscapeKind.Nothing;
+        if (eventType != KeyPress) return EscapeKind.Text;
+        if (text.Any(c => c is not null)) return EscapeKind.Text;
+        var modifiers = Modifiers(modifier);
+        return ClassifyKey(codes[0], modifiers is null ? null : ((modifiers - 1) & ~LockModifiers) + 1);
     }
 
-    /// <summary>An xterm modified key, ESC [ 27 ; modifiers ; code ~.</summary>
+    /// <summary>An xterm modified key, ESC [ 27 ; modifiers[:event type] ; code ~, read by the same press-only rule.</summary>
     private static EscapeKind ModifyOtherKeysKey(string parameters)
     {
         var fields = parameters.Split(';');
         if (fields.Length != 3) return EscapeKind.Text;
-        return ClassifyKey(FirstNumber(fields[2]), FirstNumber(fields[1]));
+        var modifier = SubFields(fields[1], 2);
+        var code = SubFields(fields[2], 1);
+        if (modifier is null || code is null) return EscapeKind.Text;
+        var eventType = EventType(modifier);
+        if (eventType is KeyRepeat or KeyRelease) return EscapeKind.Nothing;
+        if (eventType != KeyPress) return EscapeKind.Text;
+        return ClassifyKey(code[0], Modifiers(modifier));
     }
 
     private static EscapeKind ClassifyKey(int? code, int? modifiers)
@@ -180,12 +206,33 @@ internal sealed class ComposerInputReader
         return EscapeKind.Text;
     }
 
-    /// <summary>The number before any ':' sub-field, or null when there is none. An empty field means the default, 1.</summary>
-    private static int? FirstNumber(string field)
+    /// <summary>The modifier value of a modifier field; an empty value means the default, 1. Null when it is not valid.</summary>
+    private static int? Modifiers(int?[] modifier)
     {
-        var head = field.Split(':')[0];
-        if (head.Length == 0) return 1;
-        return int.TryParse(head, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var n) ? n : null;
+        var value = modifier.Length > 0 ? modifier[0] ?? 1 : 1;
+        return value >= 1 ? value : null;
+    }
+
+    /// <summary>The event type of a modifier field; an absent or empty one means a press, 1.</summary>
+    private static int? EventType(int?[] modifier) => modifier.Length > 1 ? modifier[1] ?? KeyPress : KeyPress;
+
+    /// <summary>
+    /// The ':'-separated numbers of a field, with null for an empty sub-field. Null when the field has more than
+    /// <paramref name="most"/> sub-fields or one of them is not a number.
+    /// </summary>
+    private static int?[]? SubFields(string field, int most)
+    {
+        var parts = field.Split(':');
+        if (parts.Length > most) return null;
+        var values = new int?[parts.Length];
+        for (var k = 0; k < parts.Length; k++)
+        {
+            if (parts[k].Length == 0) continue;
+            if (!int.TryParse(parts[k], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var n))
+                return null;
+            values[k] = n;
+        }
+        return values;
     }
 
     private void Carry(byte[] bytes, int from) => _carried = bytes.AsSpan(from).ToArray();

@@ -421,6 +421,10 @@ public sealed class PromptOnlyWhenWaitingForInputTests
     [Theory]
     [InlineData("\x1b[13u")]
     [InlineData("\x1b[13;1u")]
+    [InlineData("\x1b[13;1:1u")]
+    [InlineData("\x1b[13;:1u")]
+    [InlineData("\x1b[13;129u")]
+    [InlineData("\x1b[13;65:1u")]
     [InlineData("\x1b[27;1;13~")]
     [InlineData("\x1bOM")]
     public void SendInput_AnEncodedEnter_SubmitsTheDraft(string enter)
@@ -431,6 +435,55 @@ public sealed class PromptOnlyWhenWaitingForInputTests
         OwnerTypes(session, enter);
 
         Assert.False(session.HasUnsentOwnerDraft);
+    }
+
+    /// <summary>
+    /// A keyboard-protocol Enter that is a repeat (event type 2) or a release (event type 3) is not a key press: it
+    /// submits nothing, so the draft stays.
+    /// </summary>
+    [Theory]
+    [InlineData("\x1b[13;1:3u")]
+    [InlineData("\x1b[13;1:2u")]
+    [InlineData("\x1b[13;:3u")]
+    [InlineData("\x1b[13;129:3u")]
+    [InlineData("\x1b[27;1:3;13~")]
+    public void SendInput_AnEnterReleaseOrRepeat_KeepsTheDraft(string enter)
+    {
+        var (session, _) = NewTerminalSession();
+        OwnerTypes(session, "my draft");
+
+        OwnerTypes(session, enter);
+
+        Assert.True(session.HasUnsentOwnerDraft);
+    }
+
+    /// <summary>A keyboard-protocol release or repeat of a printable key types nothing: no draft appears.</summary>
+    [Theory]
+    [InlineData("\x1b[97;1:3u")]
+    [InlineData("\x1b[97;1:2u")]
+    [InlineData("\x1b[97:65;2:3u")]
+    [InlineData("\x1b[27;1:3;97~")]
+    public void SendInput_AReleaseOfAPrintableKey_AddsNothing(string key)
+    {
+        var (session, _) = NewTerminalSession();
+
+        OwnerTypes(session, key);
+
+        Assert.False(session.HasUnsentOwnerDraft);
+    }
+
+    /// <summary>A keyboard-protocol key press that carries associated text puts that text in the composer.</summary>
+    [Theory]
+    [InlineData("\x1b[57399;129;48u")]
+    [InlineData("\x1b[57399;129:1;48u")]
+    [InlineData("\x1b[97;1;97u")]
+    public void SendInput_AKeyPressCarryingText_IsADraft(string key)
+    {
+        var (session, _) = NewTerminalSession();
+
+        OwnerTypes(session, key);
+
+        Assert.True(session.HasUnsentOwnerDraft);
     }
 
     /// <summary>A modified Enter (Shift or Alt) may add a line to the composer rather than send it: the draft stays.</summary>
