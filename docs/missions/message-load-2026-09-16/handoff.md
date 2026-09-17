@@ -1031,3 +1031,29 @@ Two decisions are with the owner, asked on 17 September; neither blocks inspecti
 2. **Restore versus the spawn owner pin** (open since slice 1).
 
 Inspection 5 (Codex) covers the fix round. Then the slice 2 pull request, after the owner's answer on 1.
+
+## Architect rulings on inspection 5 (17 September 2026) - slice 2 fix round 2, on branch mission/message-load-slice2
+
+Verdict FAIL for merge. Findings accepted. The fixes are made on the pinned slice 2 branch
+(`mission/message-load-slice2`, from `e59622d1`) in the worktree `~/ReposFred/devthrottle-inspect-slice2`,
+so the slice 2 pull request stays one slice; the branch is merged back into `mission/message-load` after.
+
+1. **Exactly means exactly** (high 1). The composer is compared with the doorbell line character for
+   character, allowing only the row breaks a wrap inserts; any other difference, including a trailing
+   space, tab or non-breaking space, means "anything else, leave it". Guards: the line extended by
+   each of those three characters is never erased; the wrapped unextended line still is.
+2. **No stuck mark without its notice** (high 2). The notice text carries the message id, so it can
+   never be an exact duplicate for a different message; it is built to fit the text cap whatever the
+   names; and if the policy still refuses it, the stuck mark is NOT written, the refusal is logged with
+   the reason, and the next sweep retries. Guards: a preloaded identical unread notice for the SAME
+   message leaves the mark written (the sender already holds that notice) and writes no second notice;
+   a refusal for any other reason leaves the row open.
+3. **Dictation lock observability** (medium 3). Judgement call 5 is corrected in the record: a stale
+   PENDING record is abandoned by the existing sweep after 24 hours. A ring deferred by dictation for
+   more than 30 minutes is logged once at warning level with the session id.
+4. **Snooze** (medium 4): the owner decided on 17 September; the words slice updates the law. The
+   attribution loss on a settled flicker is accepted (it errs on the owner's side of the law).
+5. **Submit verification** (low 5): accepted as the stated limit of a screen witness.
+
+Then the touched suites, each guard watched failing, a 'Slice 2 fix round 2' section in handoff.md
+(committed on the slice 2 branch), push, stop. Inspection 7 follows on that branch.
