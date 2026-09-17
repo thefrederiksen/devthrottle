@@ -1,0 +1,4 @@
+[
+ {"name":"origin set only after the submit (the order the live proof would have tripped on)","old":"        var priorOrigin = WorkingOrigin;\n        WorkingOrigin = OriginFor(source, origin);\n        try\n","new":"        var priorOrigin = WorkingOrigin;\n        try\n"},
+ {"name":"a failed send keeps the new origin","old":"            WorkingOrigin = priorOrigin;\n            PromptDeliveryFailures.RecordFailedDelivery","new":"            PromptDeliveryFailures.RecordFailedDelivery"}
+]

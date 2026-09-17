@@ -1,0 +1,17 @@
+[
+ {
+  "name": "marks saved before the notices are staged",
+  "old": "                m.StuckAtUtc = now;\n                FleetMessageEntity? notice = null;",
+  "new": "                m.StuckAtUtc = now;\n                ctx.SaveChanges();\n                FleetMessageEntity? notice = null;"
+ },
+ {
+  "name": "save moved ahead of the failure point",
+  "old": "            BeforeStuckSave?.Invoke();\n            ctx.SaveChanges();",
+  "new": "            ctx.SaveChanges();\n            BeforeStuckSave?.Invoke();"
+ },
+ {
+  "name": "notice never staged",
+  "old": "                    if (verdict.Queued)\n                    {",
+  "new": "                    if (verdict.Queued && draft.Kind == \"never\")\n                    {"
+ }
+]

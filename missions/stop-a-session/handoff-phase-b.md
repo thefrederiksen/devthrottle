@@ -92,7 +92,7 @@ the real product for those. Your job is that there is something true to photogra
 
 One message, one line, pointing at `missions/stop-a-session/phase-b-report.md`. Write into that file
 what you built, what you proved and how, what you did NOT prove, and anything that contradicts the
-rulings or this note. Fleet messages truncate at the first newline - the detail goes in the file.
+rulings or this note. The detail goes in the file, not the message.
 
 ---
 

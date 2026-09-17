@@ -128,4 +128,4 @@ one; a worktree whose state cannot be determined; and the allow list - `stop` pe
 One message, one line, pointing at a file: `missions/stop-a-session/phase-a-report.md`. Write into
 that file what you built, what you proved and how, what you did NOT prove, and anything you found
 that contradicts the rulings or the state note. Do not narrate progress at the Architect while you
-work - a message interrupts the session that receives it.
+work - a message is queued in its inbox and read in full, but every one is one more thing to read.

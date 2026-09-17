@@ -1,0 +1,19 @@
+== MUTATION nudge ladder restored (Enter on every quiet poll): exit=1
+    Failed!  - Failed:     3, Passed:     4, Skipped:     0, Total:     7, Duration: 681 ms - CcDirector.Core.Tests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Drivers.DoorbellSubmitTests.A_backend_that_swallows_Enter_gets_exactly_one_Enter_and_no_nudge [102 ms]
+    Failed CcDirector.Core.Tests.Drivers.DoorbellSubmitTests.A_line_the_interface_cleared_without_a_turn_is_not_verified [90 ms]
+    Failed CcDirector.Core.Tests.Drivers.DoorbellSubmitTests.Owner_text_typed_after_the_Enter_is_never_submitted_by_the_doorbell [97 ms]
+== MUTATION Escape pressed on an echo miss: exit=1
+    Failed!  - Failed:     1, Passed:     6, Skipped:     0, Total:     7, Duration: 632 ms - CcDirector.Core.Tests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Drivers.DoorbellSubmitTests.A_line_that_never_echoes_is_not_submitted_and_not_cleared [143 ms]
+== MUTATION Enter pressed without an echo: exit=1
+    Failed!  - Failed:     1, Passed:     6, Skipped:     0, Total:     7, Duration: 522 ms - CcDirector.Core.Tests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Drivers.DoorbellSubmitTests.A_line_that_never_echoes_is_not_submitted_and_not_cleared [92 ms]
+== MUTATION verified by the Enter alone: exit=1
+    /Users/soren/ReposFred/devthrottle-message-load/src/CcDirector.Core/Drivers/TerminalSubmit.cs(252,9): error CS0162: Unreachable code detected [/Users/soren/ReposFred/devthrottle-message-load/src/CcDirector.Core/CcDirector.Core.csproj]
+== MUTATION last look ignored: exit=1
+    Failed!  - Failed:     1, Passed:     6, Skipped:     0, Total:     7, Duration: 596 ms - CcDirector.Core.Tests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Drivers.DoorbellSubmitTests.The_last_look_saying_no_writes_nothing [89 ms]
+== MUTATION rendered composer not a witness: exit=1
+    Failed!  - Failed:     1, Passed:     6, Skipped:     0, Total:     7, Duration: 520 ms - CcDirector.Core.Tests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Drivers.DoorbellSubmitTests.The_rendered_composer_is_a_second_witness_for_the_echo [85 ms]

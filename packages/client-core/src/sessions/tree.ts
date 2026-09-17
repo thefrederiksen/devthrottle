@@ -40,9 +40,9 @@ function supervisorOf(s: SessionDto): string {
  * deep (an Architect's Manager's Workers), and every level is kept.
  *
  * THE CROSS-DIRECTOR RULE, stated once for both shells and both orders: the tree is built over the
- * WHOLE roster, never per machine. A session may supervise a session on another machine (the
- * command line's --controlled-by takes any session id, and the Gateway resolves liveness fleet-wide),
- * so a child nests under its parent wherever the parent lives, and a child on another machine says
+ * WHOLE roster, never per machine. A session may supervise a session on another machine (the owner
+ * named at spawn may live on any Director, and the Gateway resolves liveness fleet-wide), so a child
+ * nests under its parent wherever the parent lives, and a child on another machine says
  * so on its own row (see isOnAnotherMachine). A view that groups by machine groups the ROOTS.
  *
  * EVERY SESSION RENDERS EXACTLY ONCE. A malformed ownership loop (a supervises b supervises a) puts

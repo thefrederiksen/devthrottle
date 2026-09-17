@@ -488,10 +488,9 @@ Why `notify` is NOT how we inject a preamble:
 
 `CodexTranscriptReader` is fully functional, but `CodexDriver.Capabilities` does NOT include a
 TranscriptRead flag, and the driver's transcript methods throw NotSupported (history is read via
-the separate SessionHistoryReader path, not the driver). Consequence: cross-agent "ask another
-session and read its reply" (`cc-devthrottle message ask`, which needs TranscriptRead on the driver) does not work for
-Codex yet, even though the reader exists. Wiring the existing reader into a declared
-TranscriptRead capability is a low-risk follow-up. [VERIFIED from source] CodexDriver.cs + README.md
+the separate SessionHistoryReader path, not the driver). Asking another session does not need it:
+the blocking ask between sessions was removed on 16 September 2026 (Message Load mission): a question is now queued with `cc-devthrottle message send <id> "..." --reply-wanted` and answered with `cc-devthrottle message reply`, both read from the Gateway inbox, so no agent needs TranscriptRead to be asked. Wiring the existing reader into a declared TranscriptRead capability is still a
+low-risk follow-up for history. [VERIFIED from source] CodexDriver.cs + README.md
 
 > **STALE BELOW, as of the remove-the-network-port mission's phase 3 (3 August 2026).** The Codex hook no
 > longer fetches the preamble from `GET /sessions/{sid}/fleet-preamble` - that route is DELETED. It prints
@@ -539,7 +538,7 @@ be reused almost verbatim; only the hook REGISTRATION location and the stdin fie
 
 - DONE: the SessionStart fleet-preamble hook is wired (CodexHookInstaller + SessionManager flag) and
   the programmatic submit bug is fixed (CodexDriver echo-verified submit). See section 11.
-- TranscriptRead capability is not declared, so `cc-devthrottle message ask` does not reach Codex.
+- TranscriptRead capability is not declared. Messaging does not need it: messages are queued in the Gateway inbox.
 - We do not drive `--model` (ModelFlag empty), so model selection is whatever config.toml / the
   user picks via `/model`.
 - We do not preassign or resume session ids from the Director side.

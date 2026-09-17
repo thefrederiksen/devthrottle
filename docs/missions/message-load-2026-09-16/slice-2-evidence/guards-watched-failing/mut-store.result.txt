@@ -1,0 +1,9 @@
+== MUTATION a read does not undo stuck: exit=1
+    Failed!  - Failed:     1, Passed:    45, Skipped:     0, Total:    46, Duration: 3 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_read_undoes_stuck_and_nothing_further_is_rung_or_sent [179 ms]
+== MUTATION stuck marks read messages too: exit=0
+    Passed!  - Failed:     0, Passed:    46, Skipped:     0, Total:    46, Duration: 2 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+== MUTATION a ring is recorded on a read message: exit=0
+    Passed!  - Failed:     0, Passed:    46, Skipped:     0, Total:    46, Duration: 3 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+== MUTATION stuck messages are still offered for ringing: exit=0
+    Passed!  - Failed:     0, Passed:    46, Skipped:     0, Total:    46, Duration: 2 s - CcDirector.Gateway.UnitTests.dll (net10.0)

@@ -1,0 +1,10 @@
+  Failed CcDirector.Core.Tests.Sessions.DoorbellSafetyTests.Codex_holding_the_line_and_one_whitespace_character_is_not_exactly_the_line(added: "\t") [< 1 ms]
+  Failed CcDirector.Core.Tests.Sessions.DoorbellSafetyTests.Codex_holding_the_line_and_one_whitespace_character_is_not_exactly_the_line(added: " ") [< 1 ms]
+  Failed CcDirector.Core.Tests.Sessions.DoorbellSafetyTests.Codex_holding_the_line_and_one_whitespace_character_is_not_exactly_the_line(added: " ") [< 1 ms]
+  Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.A_line_the_owner_extended_by_one_whitespace_character_is_never_erased(added: "\t") [< 1 ms]
+  Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.A_line_the_owner_extended_by_one_whitespace_character_is_never_erased(added: " ") [< 1 ms]
+  Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.A_line_the_owner_extended_by_one_whitespace_character_is_never_erased(added: " ") [< 1 ms]
+  Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.A_wrapped_line_the_owner_extended_by_one_whitespace_character_is_never_erased(added: "\t") [1 ms]
+  Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.A_wrapped_line_the_owner_extended_by_one_whitespace_character_is_never_erased(added: " ") [< 1 ms]
+  Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.A_wrapped_line_the_owner_extended_by_one_whitespace_character_is_never_erased(added: " ") [< 1 ms]
+Failed!  - Failed:     9, Passed:    70, Skipped:     0, Total:    79, Duration: 35 ms - CcDirector.Core.UnitTests.dll (net10.0)

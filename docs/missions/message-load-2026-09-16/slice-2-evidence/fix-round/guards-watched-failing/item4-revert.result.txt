@@ -1,0 +1,4 @@
+== MUTATION item 4 reverted: mark saved, then the notice sent separately (the code at 7b498adc): exit=1
+    Failed!  - Failed:     2, Passed:    27, Skipped:     0, Total:    29, Duration: 4 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.The_sweep_after_a_crash_marks_and_notifies_exactly_once [45 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_notice_that_cannot_be_written_leaves_the_message_open [58 ms]

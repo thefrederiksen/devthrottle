@@ -1,0 +1,27 @@
+--- published-v4
++++ draft-v5
+@@ -81,7 +81,7 @@
+ ```bash
+ cc-devthrottle session spawn "<repo>" \
+   --mission <mission-id> \
+-  --controlled-by self \   # you own it, so IT WILL INTERRUPT YOU when it finishes
++  --controlled-by self \   # you own it, so its report lands in YOUR inbox when it finishes
+   --role Worker \
+   --name "<Mission short name> - Worker - <what it does>" \
+   --prompt "Read <path to its mandate file> - it is your whole mandate. Follow it."
+@@ -131,9 +131,12 @@
+ they have to decide. A report with no words is the 'notice me' ping this fleet rejects - they would
+ have to open you to find out what happened, which is the work the report exists to save.
+ 
+-**It interrupts them, and that is intended.** A parent that took ownership of you took on being
+-interrupted when your work comes back. Do not soften it, do not skip it because they "will see the
+-roster" - they will not, and that is the whole reason this exists.
++**It is queued for them, and it keeps ringing until they read it.** Since 16 September 2026 no
++session types into another (the owner reversed his 13 September ruling that a report interrupts): the
++report is a record in your parent's inbox, and when your parent is not working, one doorbell line tells
++it to run `cc-devthrottle message inbox`. Unread, it is rung again, then marked stuck and you are told.
++Do not skip it because they "will see the roster" - they will not, and that is the whole reason this
++exists.
+ 
+ **If nothing owns you, it sends nothing and says so.** No parent means the USER owns you, and you are
+ already red and in his queue the moment you stop - that red IS your report. Leave your answer in your

@@ -1,0 +1,4 @@
+[
+ {"name":"doorbell records the ring against the wrong session","old":"_store.MarkRung(tenant, sid, due, now, _limits.StuckAfterRings)","new":"_store.MarkRung(tenant, sid + \"0\", due, now, _limits.StuckAfterRings)"},
+ {"name":"doorbell passes no cap (unobservable by design: the schedule filters first)","old":"_store.MarkRung(tenant, sid, due, now, _limits.StuckAfterRings)","new":"_store.MarkRung(tenant, sid, due, now, int.MaxValue)"}
+]

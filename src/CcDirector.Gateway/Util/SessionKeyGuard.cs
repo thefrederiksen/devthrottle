@@ -343,6 +343,10 @@ public static class SessionKeyGuard
             // and is refused above.
             if (Join(s) == "fleet/broadcast") return true;
 
+            // An answer to a message that asked for one (the Message Load mission, slice 3). The id is in the body;
+            // who may answer, and to whom it goes, is the Gateway's ruling, and the answer is queued, never typed.
+            if (Join(s) == "fleet/reply") return true;
+
             // Create a mission - the unit of work sessions attach to.
             if (Join(s) == "missions") return true;
 
@@ -542,6 +546,12 @@ public static class SessionKeyGuard
 
         // /gateway/workspaces/{id} - read, store, delete.
         if (s.Length == 3) return verb is "GET" or "HEAD" or "PUT" or "DELETE";
+
+        // /gateway/workspaces/{id}/restore - ask a Director to bring a drained fleet back (the Message Load
+        // mission, slice 6). A session drives a restore exactly as it drives a drain, and this grants it no
+        // owner-naming power: the Director names each seat's owner from the facts this Gateway captured, and
+        // the session that asked is recorded as the parent, never as anybody's owner.
+        if (s.Length == 4 && s[3] == "restore") return verb is "POST";
 
         return false;
     }

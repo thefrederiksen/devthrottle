@@ -273,6 +273,38 @@
       ]
     },
     {
+      "id": "director-restore",
+      "description": "Bring a drained fleet back onto a Director (after a restart, the NEW one). The DIRECTOR starts every seat on its own credential, under the owner the seat had when it was captured - an owner restarted in the same drain comes back first and is named by its new id. You name no owner and cannot. Each seat that fails is reported on that seat and the rest carry on; a seat that came back is never started twice. This is the restore step of the director-restart skill.",
+      "command": "cc-devthrottle director restore <workspace> --director <new director id> [--seat <id>] [--seed <id>=<path>] [--force-seat <id>] [--wait-seconds <n>]",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "workspace",
+          "required": true
+        },
+        {
+          "name": "director",
+          "required": true
+        },
+        {
+          "name": "seat",
+          "required": false
+        },
+        {
+          "name": "seed",
+          "required": false
+        },
+        {
+          "name": "force-seat",
+          "required": false
+        },
+        {
+          "name": "wait-seconds",
+          "required": false
+        }
+      ]
+    },
+    {
       "id": "machine-restart-request-status",
       "description": "Where one restart request stands, with the owner's or the Director's reason.",
       "command": "cc-devthrottle machine restart-request-status <machine> <request-id>",
@@ -322,7 +354,7 @@
     },
     {
       "id": "session-hold",
-      "description": "Park a session so it stops asking for attention, for a set number of minutes. Defaults to THIS session. A session holding ITSELF is always mid-turn, so the hold is deferred automatically and lands when the turn ends - there is no separate verb for that, and the reply says 'pending' when it deferred. Only the owner lifts a hold: releasing it, typing or speaking into the session, or the timer expiring. Another agent's message does not.",
+      "description": "Park a session so it stops asking for attention, for a set number of minutes. Defaults to THIS session. A session holding ITSELF is always mid-turn, so the hold is deferred automatically and lands when the turn ends - there is no separate verb for that, and the reply says 'pending' when it deferred. A hold ends when it is released, when the owner types or speaks into the session, when the timer expires, or when the session starts work nothing explains. Another agent's message does not end it.",
       "command": "cc-devthrottle session hold [target] --minutes <n>",
       "mutatesState": true,
       "args": [
@@ -406,8 +438,8 @@
     },
     {
       "id": "message-send",
-      "description": "Queue a message for a session. You may message only the session that started you and the sessions you started; the Gateway refuses anyone else, and limits you to 6 messages an hour and 1 per recipient every 10 minutes. Nothing is typed into the recipient: it reads the full text from its inbox when it is free, so the answer is 'queued', never 'delivered'. Target 'all' queues one copy for each of your workers. Messages are rare - put what you would have said in your report instead.",
-      "command": "cc-devthrottle message send <target|all> \"<message>\"",
+      "description": "Queue a message for a session. You may message only the session that started you and the sessions you started; the Gateway refuses anyone else, and limits you to 6 messages an hour and 1 per recipient every 10 minutes. Nothing is typed into the recipient: it reads the full text from its inbox when it is free, so the answer is 'queued', never 'delivered'. Target 'all' queues one copy for each of your workers. Messages are rare - put what you would have said in your report instead. --reply-wanted (one session only) asks for a reply without waiting: it prints a correlation id, the reply arrives in your inbox, and if none arrives by the deadline (--reply-by minutes, 60 by default) a no-reply notice arrives instead.",
+      "command": "cc-devthrottle message send <target|all> \"<message>\" [--reply-wanted] [--reply-by <minutes>]",
       "mutatesState": true,
       "args": [
         {
@@ -417,12 +449,36 @@
         {
           "name": "message",
           "required": true
+        },
+        {
+          "name": "reply-wanted",
+          "required": false
+        },
+        {
+          "name": "reply-by",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "message-reply",
+      "description": "Answer a message that asked for a reply. The id is the correlation id (or message id) 'message inbox' showed. The reply goes to whoever asked, whatever your relationship to it; only the session the question was sent to may answer, once. It is not held to the message limits, and a reply after the deadline still arrives.",
+      "command": "cc-devthrottle message reply <id> \"<answer>\"",
+      "mutatesState": true,
+      "args": [
+        {
+          "name": "id",
+          "required": true
+        },
+        {
+          "name": "answer",
+          "required": true
         }
       ]
     },
     {
       "id": "message-inbox",
-      "description": "Read THIS session's inbox: every unread message in full, each marked read by this call. Reading is the acknowledgement - a message stays open until its recipient runs this. --all adds the newest 200 messages read in the last 24 hours, so a read whose answer was lost can be recovered - for 24 hours, and only by asking.",
+      "description": "Read THIS session's inbox: every unread message in full, each marked read by this call. Reading is the acknowledgement - a message stays open until its recipient runs this. A reply is shown with the question it answers, and a no-reply notice with the question that went unanswered. --all adds the newest 200 messages read in the last 24 hours, so a read whose answer was lost can be recovered - for 24 hours, and only by asking.",
       "command": "cc-devthrottle message inbox [--all] [--json]",
       "mutatesState": true,
       "args": [
@@ -438,7 +494,7 @@
     },
     {
       "id": "fleet-selftest",
-      "description": "Run an end-to-end fleet messaging smoke test.",
+      "description": "Windows only: check that a message to a throwaway worker is queued.",
       "command": "cc-devthrottle selftest",
       "mutatesState": true,
       "args": []

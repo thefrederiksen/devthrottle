@@ -1,0 +1,6 @@
+== MUTATION origin set only after the submit (the order the live proof would have tripped on): exit=1
+    Failed!  - Failed:     1, Passed:    32, Skipped:     0, Total:    33, Duration: 1 s - CcDirector.Core.Tests.dll (net10.0)
+    Failed CcDirector.Core.Tests.SessionInteractiveTests.TheOrigin_IsReportedBeforeTheSubmitFinishes [< 1 ms]
+== MUTATION a failed send keeps the new origin: exit=1
+    Failed!  - Failed:     1, Passed:    32, Skipped:     0, Total:    33, Duration: 1 s - CcDirector.Core.Tests.dll (net10.0)
+    Failed CcDirector.Core.Tests.SessionInteractiveTests.AFailedSend_PutsThePreviousOriginBack [2 ms]

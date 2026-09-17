@@ -24,6 +24,10 @@ namespace CcDirector.Gateway.Fleet;
 ///    screen showed must not change what the screen shows. Each read answers what the write would have answered (see
 ///    <see cref="VoiceWaitingClock.Peek"/>, <see cref="NeedsYouClock.Peek"/>, <see cref="SnoozeExpiryReJudge.Peek"/>).
 ///  - PRUNING: only the push prunes the snooze memory to the account's roster. Pruning is a write.
+///
+/// THE ROW LINE IS NOT A FOLD INPUT (Message Load mission, slice 4, ruling 12). What waits in a session's fleet inbox is
+/// stamped by the push only. It reads nothing the colour, the label or the bucket read, and they do not read it, so a
+/// trace - which records only the colour and label - has nothing to gain from reading the inbox and skips that read.
 /// </summary>
 internal sealed class DisplayFold
 {
@@ -35,12 +39,15 @@ internal sealed class DisplayFold
     private readonly Func<SnoozeExpiryReJudge?> _snoozeExpiry;
     private readonly PushedSessionStore _pushed;
     private readonly Func<TenantId, IDisposable> _enterScope;
+    private readonly Func<Messaging.IFleetInboxLineSource?> _inboxLines;
 
     /// <param name="voice">The voice service, read at fold time because the host builds it later. Null answers "no voice
     /// state at all".</param>
     /// <param name="snoozeExpiry">The snooze-expiry memory, read at fold time for the same reason.</param>
     /// <param name="enterScope">Enters an account's scope for a fold that runs outside one (a trace, on the writer's
     /// thread). The push already runs inside its account's scope.</param>
+    /// <param name="inboxLines">The fleet inbox the push folds each row line from, read at fold time because the host
+    /// builds the store later. Null (or a null answer) stamps a null row line on every row.</param>
     public DisplayFold(
         Func<WingmanVoiceService?> voice,
         NeedsYouClock needsYou,
@@ -49,7 +56,8 @@ internal sealed class DisplayFold
         HandRaiseRegistry handRaises,
         Func<SnoozeExpiryReJudge?> snoozeExpiry,
         PushedSessionStore pushed,
-        Func<TenantId, IDisposable> enterScope)
+        Func<TenantId, IDisposable> enterScope,
+        Func<Messaging.IFleetInboxLineSource?>? inboxLines = null)
     {
         _voice = voice ?? throw new ArgumentNullException(nameof(voice));
         _needsYou = needsYou ?? throw new ArgumentNullException(nameof(needsYou));
@@ -59,6 +67,7 @@ internal sealed class DisplayFold
         _snoozeExpiry = snoozeExpiry ?? throw new ArgumentNullException(nameof(snoozeExpiry));
         _pushed = pushed ?? throw new ArgumentNullException(nameof(pushed));
         _enterScope = enterScope ?? throw new ArgumentNullException(nameof(enterScope));
+        _inboxLines = inboxLines ?? (() => null);
     }
 
     /// <summary>The display push: the account in scope, its live verdicts, and every clock moved as it is folded.</summary>
@@ -102,6 +111,8 @@ internal sealed class DisplayFold
             // KNOWN, not connected: a Director that has gone quiet still has its sessions on the roster, so pruning to
             // the connected ones would read "I cannot see it this second" as "it is gone". Only a writing fold prunes.
             snoozeRosterSessionIds: writes && ambientTenant is { } rosterTenant ? _pushed.KnownSessionIds(rosterTenant) : null,
+            // Only the push stamps the row line; see the class comment.
+            inboxLines: writes ? _inboxLines() : null,
             writes: writes);
     }
 }

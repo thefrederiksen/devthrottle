@@ -1,0 +1,11 @@
+06:22:56.345 gateway listening at http://127.0.0.1:57470; ring grace 00:01:00, stuck after 3 rings
+06:22:56.644 director tunnel connected
+06:22:56.688 /private/tmp/claude-501/-Users-soren-ReposFred-devthrottle-message-load/5eb3b76d-a51a-4637-8501-dd9d326c2603/scratchpad/e2e/run2: manager cf01254c-1c5e-41dd-be1c-a5f38a5b9642, worker 12c50356-20ae-48d8-8962-e27047b41f8a (controller cf01254c-1c5e-41dd-be1c-a5f38a5b9642)
+06:23:57.649 captured run2/00-worker-ready
+06:23:57.901 captured run2/01-owner-draft
+06:23:57.911 POST /sessions/12c50356-20ae-48d8-8962-e27047b41f8a/message as cf01254c-1c5e-41dd-be1c-a5f38a5b9642 -> 200 queued 712a556762ba405aad22850f86ebf08b 
+06:23:57.911 message sent while the owner's draft is in the composer: 712a556762ba405aad22850f86ebf08b
+06:24:47.913 captured run2/02-owner-draft-after-50-seconds
+06:24:47.917 owner cleared the draft
+06:25:00.287 captured run2/03-doorbell-after-clear
+06:25:00.288 record read at 2026-09-17T06:24:59.2763540Z

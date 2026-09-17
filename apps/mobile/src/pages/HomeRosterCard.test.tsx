@@ -144,3 +144,37 @@ describe("mobile roster card agent tool", () => {
     expect(screen.getByText("testing pi")).toBeTruthy();
   });
 });
+
+describe("mobile roster card row line", () => {
+  // Message Load mission, slice 4: the Gateway folds what waits in the fleet inbox into one string; the card
+  // renders it verbatim and decides nothing.
+  it("renders the Gateway's inbox line verbatim", () => {
+    const line = "1 message stuck, unread for 20 minutes; 1 reply waiting";
+    const { container } = renderRow(session({ inboxLine: line }));
+
+    expect(container.querySelector(".row-inbox")?.textContent).toBe(line);
+  });
+
+  it("carries the line through the assembled Home roster read", async () => {
+    vi.stubGlobal("fetch", mockFetch({
+      sessions: [session({ inboxLine: "2 messages waiting" })],
+      machineErrors: [],
+      directors: [{ directorId: "director-one", state: REACHABILITY_ONLINE }],
+      unreachableBanner: null,
+    }));
+
+    render(
+      <MemoryRouter>
+        <Home />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("2 messages waiting")).toBeTruthy();
+  });
+
+  it("renders no line when the Gateway sent none", () => {
+    const { container } = renderRow(session({ inboxLine: null }));
+
+    expect(container.querySelector(".row-inbox")).toBeNull();
+  });
+});

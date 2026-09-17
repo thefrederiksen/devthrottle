@@ -1,0 +1,199 @@
+[
+ {
+  "mutation": "send does not ask for the reply",
+  "file": "tools/cc-devthrottle/src/session_ops.py",
+  "red": true,
+  "summary": "2 failed, 892 passed in 13.44s",
+  "failed": [
+   "tests/test_message_queue.py::test_send_reply_wanted_sends_the_ask_and_prints_the_correlation_id",
+   "tests/test_message_queue.py::test_send_reply_wanted_without_a_deadline_leaves_the_default_to_the_gateway"
+  ]
+ },
+ {
+  "mutation": "send drops the deadline",
+  "file": "tools/cc-devthrottle/src/session_ops.py",
+  "red": true,
+  "summary": "1 failed, 893 passed in 15.53s",
+  "failed": [
+   "tests/test_message_queue.py::test_send_reply_wanted_sends_the_ask_and_prints_the_correlation_id"
+  ]
+ },
+ {
+  "mutation": "--reply-by accepted without --reply-wanted",
+  "file": "tools/cc-devthrottle/src/session_ops.py",
+  "red": true,
+  "summary": "2 failed, 892 passed in 11.77s",
+  "failed": [
+   "tests/test_help_and_errors_axi.py::test_error_GoesToStandardErrorWithWhatFailedAndWhatToDo[send",
+   "tests/test_help_and_errors_axi.py::test_error_UsageErrorsSendNothing"
+  ]
+ },
+ {
+  "mutation": "--reply-wanted accepted with all",
+  "file": "tools/cc-devthrottle/src/session_ops.py",
+  "red": true,
+  "summary": "2 failed, 892 passed in 11.81s",
+  "failed": [
+   "tests/test_help_and_errors_axi.py::test_error_GoesToStandardErrorWithWhatFailedAndWhatToDo[send",
+   "tests/test_help_and_errors_axi.py::test_error_UsageErrorsSendNothing"
+  ]
+ },
+ {
+  "mutation": "correlation id not printed",
+  "file": "tools/cc-devthrottle/src/session_ops.py",
+  "red": true,
+  "summary": "2 failed, 892 passed in 14.85s",
+  "failed": [
+   "tests/test_message_queue.py::test_a_duplicate_question_prints_the_waiting_copys_correlation_id",
+   "tests/test_message_queue.py::test_send_reply_wanted_sends_the_ask_and_prints_the_correlation_id"
+  ]
+ },
+ {
+  "mutation": "the reply id is not trimmed",
+  "file": "tools/cc-devthrottle/src/session_ops.py",
+  "red": true,
+  "summary": "1 failed, 893 passed in 13.59s",
+  "failed": [
+   "tests/test_message_queue.py::test_reply_posts_the_id_and_text_and_says_queued"
+  ]
+ },
+ {
+  "mutation": "a reply with no id is taken as confirmed",
+  "file": "tools/cc-devthrottle/src/session_ops.py",
+  "red": true,
+  "summary": "1 failed, 893 passed in 12.59s",
+  "failed": [
+   "tests/test_help_and_errors_axi.py::test_mutation_AnswerDoesNotConfirmTheChange_ExitsOneWithoutClaimingIt[reply"
+  ]
+ },
+ {
+  "mutation": "a refused reply is not a failure",
+  "file": "tools/cc-devthrottle/src/session_ops.py",
+  "red": true,
+  "summary": "4 failed, 890 passed in 11.99s",
+  "failed": [
+   "tests/test_help_and_errors_axi.py::test_error_GoesToStandardErrorWithWhatFailedAndWhatToDo[reply",
+   "tests/test_help_and_errors_axi.py::test_mutation_AnswerDoesNotConfirmTheChange_ExitsOneWithoutClaimingIt[reply",
+   "tests/test_message_queue.py::test_a_duplicate_reply_is_not_a_failure"
+  ]
+ },
+ {
+  "mutation": "a reply is headed as a message",
+  "file": "tools/cc-devthrottle/src/session_ops.py",
+  "red": true,
+  "summary": "1 failed, 893 passed in 11.92s",
+  "failed": [
+   "tests/test_message_queue.py::test_inbox_shows_a_reply_with_the_question_it_answers"
+  ]
+ },
+ {
+  "mutation": "the no-reply label ignored",
+  "file": "tools/cc-devthrottle/src/session_ops.py",
+  "red": true,
+  "summary": "1 failed, 893 passed in 15.29s",
+  "failed": [
+   "tests/test_message_queue.py::test_inbox_shows_a_no_reply_notice_as_one"
+  ]
+ },
+ {
+  "mutation": "the notice line dropped",
+  "file": "tools/cc-devthrottle/src/session_ops.py",
+  "red": true,
+  "summary": "1 failed, 893 passed in 17.13s",
+  "failed": [
+   "tests/test_message_queue.py::test_inbox_shows_a_no_reply_notice_as_one"
+  ]
+ },
+ {
+  "mutation": "the question not shown",
+  "file": "tools/cc-devthrottle/src/session_ops.py",
+  "red": true,
+  "summary": "3 failed, 891 passed in 16.16s",
+  "failed": [
+   "tests/test_message_queue.py::test_a_reply_whose_question_is_no_longer_kept_says_so",
+   "tests/test_message_queue.py::test_inbox_shows_a_no_reply_notice_as_one",
+   "tests/test_message_queue.py::test_inbox_shows_a_reply_with_the_question_it_answers"
+  ]
+ },
+ {
+  "mutation": "late never shown",
+  "file": "tools/cc-devthrottle/src/session_ops.py",
+  "red": true,
+  "summary": "1 failed, 893 passed in 13.57s",
+  "failed": [
+   "tests/test_message_queue.py::test_inbox_shows_a_reply_with_the_question_it_answers"
+  ]
+ },
+ {
+  "mutation": "a reply-wanted message shows no answer command",
+  "file": "tools/cc-devthrottle/src/session_ops.py",
+  "red": true,
+  "summary": "1 failed, 893 passed in 11.95s",
+  "failed": [
+   "tests/test_message_queue.py::test_inbox_shows_a_question_with_how_to_answer_it"
+  ]
+ },
+ {
+  "mutation": "the answer command escaped",
+  "file": "tools/cc-devthrottle/src/session_ops.py",
+  "red": true,
+  "summary": "1 failed, 893 passed in 11.82s",
+  "failed": [
+   "tests/test_message_queue.py::test_inbox_shows_a_question_with_how_to_answer_it"
+  ]
+ },
+ {
+  "mutation": "the inbox help does not name reply",
+  "file": "tools/cc-devthrottle/src/session_ops.py",
+  "red": true,
+  "summary": "1 failed, 893 passed in 13.78s",
+  "failed": [
+   "tests/test_help_and_errors_axi.py::test_mutation_PlainOutput_EndsWithTheExactHelpBlock[message"
+  ]
+ },
+ {
+  "mutation": "reply next steps changed",
+  "file": "tools/cc-devthrottle/src/session_ops.py",
+  "red": true,
+  "summary": "1 failed, 893 passed in 12.27s",
+  "failed": [
+   "tests/test_help_and_errors_axi.py::test_mutation_PlainOutput_EndsWithTheExactHelpBlock[message"
+  ]
+ },
+ {
+  "mutation": "the reply command is not wired",
+  "file": "tools/cc-devthrottle/src/cli.py",
+  "red": true,
+  "summary": "12 failed, 882 passed in 11.95s",
+  "failed": [
+   "tests/test_help_and_errors_axi.py::test_error_GoesToStandardErrorWithWhatFailedAndWhatToDo[reply",
+   "tests/test_help_and_errors_axi.py::test_mutation_AnswerDoesNotConfirmTheChange_ExitsOneWithoutClaimingIt[reply",
+   "tests/test_help_and_errors_axi.py::test_mutation_PlainOutput_EndsWithTheExactHelpBlock[message",
+   "tests/test_message_queue.py::test_a_duplicate_reply_is_not_a_failure",
+   "tests/test_message_queue.py::test_a_refused_reply_prints_the_gateways_sentence_on_standard_error",
+   "tests/test_message_queue.py::test_reply_help_says_who_may_answer_and_that_nothing_waits",
+   "tests/test_message_queue.py::test_reply_posts_the_id_and_text_and_says_queued"
+  ]
+ },
+ {
+  "mutation": "the catalogue entry reworded",
+  "file": "tools/cc-devthrottle/src/cli.py",
+  "red": true,
+  "summary": "1 failed, 893 passed in 12.32s",
+  "failed": [
+   "tests/test_axi_step_6c_help_and_errors.py::test_actions_json_is_unchanged"
+  ]
+ },
+ {
+  "mutation": "the send flag not passed on",
+  "file": "tools/cc-devthrottle/src/cli.py",
+  "red": true,
+  "summary": "5 failed, 889 passed in 13.62s",
+  "failed": [
+   "tests/test_help_and_errors_axi.py::test_error_GoesToStandardErrorWithWhatFailedAndWhatToDo[send",
+   "tests/test_help_and_errors_axi.py::test_error_UsageErrorsSendNothing",
+   "tests/test_message_queue.py::test_send_reply_wanted_sends_the_ask_and_prints_the_correlation_id",
+   "tests/test_message_queue.py::test_send_reply_wanted_without_a_deadline_leaves_the_default_to_the_gateway"
+  ]
+ }
+]

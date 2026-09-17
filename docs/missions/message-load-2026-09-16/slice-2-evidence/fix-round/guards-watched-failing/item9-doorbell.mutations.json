@@ -1,0 +1,5 @@
+[
+ {"name":"item 9 reverted: the dictation lock not consulted","old":"        if (_dictationInFlight(tenant, sid))\n","new":"        if (false && _dictationInFlight(tenant, sid))\n"},
+ {"name":"the lock consulted for the wrong session","old":"        if (_dictationInFlight(tenant, sid))\n","new":"        if (_dictationInFlight(tenant, \"x\" + sid) || _dictationInFlight(tenant, \"aaaaaaaa-0000-0000-0000-000000000001\"))\n"},
+ {"name":"a dictation deferral counted as a ring","old":"            return (FleetRingAttempt.DeferredDictation, due);","new":"            return (FleetRingAttempt.Rung, due);"}
+]

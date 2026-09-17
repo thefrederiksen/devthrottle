@@ -43,7 +43,9 @@ They are disposable on purpose; their state lives in the branch and the reports.
 2. **Call the independent inspection** - Codex, its own detached worktree at the branch tip, told to be
    adversarial and NOT to trust the mission's own reports. Both previous inspections found real
    defects every green suite had missed; one would have silently refused commands the owner's agents
-   need. Have it write to a FILE and reply with ONE line - fleet messages truncate at the first newline.
+   need. Have it write to a FILE and report with ONE line pointing at it. (Corrected 17 September 2026:
+   since the Message Load mission a message is queued in the inbox and read in full, and sessions report
+   with `cc-devthrottle session raise`; the review still belongs in a file.)
 3. Fix whatever it finds - **the inspector never fixes; a Manager does.**
 4. Finish the QA report. Draft with phases 1-4 written and cited is in the outgoing Architect's
    scratchpad as `QA-REPORT-DRAFT.md`; move it into the branch.

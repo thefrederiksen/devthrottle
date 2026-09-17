@@ -1,0 +1,8 @@
+== MUTATION an unknown reason read as a deferral: exit=1
+    Failed!  - Failed:     3, Passed:    58, Skipped:     0, Total:    61, Duration: 8 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.An_answer_the_contract_does_not_name_is_refused(outcome: "deferred", reason: "busy") [46 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.An_answer_the_contract_does_not_name_is_refused(outcome: "deferred", reason: "Working") [32 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.An_answer_the_contract_does_not_name_is_refused(outcome: "deferred", reason: "") [32 ms]
+== MUTATION an unknown outcome read as a deferral: exit=1
+    Failed!  - Failed:     1, Passed:    60, Skipped:     0, Total:    61, Duration: 9 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.An_answer_the_contract_does_not_name_is_refused(outcome: "", reason: "working") [41 ms]

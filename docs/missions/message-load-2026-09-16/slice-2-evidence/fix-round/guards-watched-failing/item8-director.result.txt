@@ -1,0 +1,18 @@
+== MUTATION every submission reported as the owner's: exit=1
+    Failed!  - Failed:     4, Passed:    27, Skipped:     0, Total:    31, Duration: 1 s - CcDirector.Core.Tests.dll (net10.0)
+    Failed CcDirector.Core.Tests.SessionInteractiveTests.TerminalTyping_IsOwnerOrigin_AndAnUntaggedRawSubmit_IsAgentOrigin [11 ms]
+    Failed CcDirector.Core.Tests.SessionInteractiveTests.TheOrigin_StaysThroughTheTurnItStarted [< 1 ms]
+    Failed CcDirector.Core.Tests.SessionInteractiveTests.AFrameworkSend_MarksTheWorkAgentOrigin [< 1 ms]
+    Failed CcDirector.Core.Tests.SessionInteractiveTests.AnAgentSend_MarksTheWorkAgentOrigin [1 ms]
+== MUTATION voice arriving as framework reported as agent: exit=1
+    Failed!  - Failed:     3, Passed:    28, Skipped:     0, Total:    31, Duration: 1 s - CcDirector.Core.Tests.dll (net10.0)
+    Failed CcDirector.Core.Tests.SessionInteractiveTests.TerminalTyping_IsOwnerOrigin_AndAnUntaggedRawSubmit_IsAgentOrigin [9 ms]
+    Failed CcDirector.Core.Tests.SessionInteractiveTests.AnOwnerSend_MarksTheWorkOwnerOrigin(source: Framework, withVoiceOrigin: True) [< 1 ms]
+    Failed CcDirector.Core.Tests.SessionInteractiveTests.AnOwnerSend_MarksTheWorkOwnerOrigin(source: Agent, withVoiceOrigin: True) [< 1 ms]
+== MUTATION origin never forgotten on settle: exit=1
+    Failed!  - Failed:     5, Passed:    26, Skipped:     0, Total:    31, Duration: 1 s - CcDirector.Core.Tests.dll (net10.0)
+    Failed CcDirector.Core.Tests.SessionInteractiveTests.SettlingOrExiting_ForgetsWhoStartedTheWork(settled: Exited) [< 1 ms]
+    Failed CcDirector.Core.Tests.SessionInteractiveTests.SettlingOrExiting_ForgetsWhoStartedTheWork(settled: WaitingForInput) [< 1 ms]
+    Failed CcDirector.Core.Tests.SessionInteractiveTests.SettlingOrExiting_ForgetsWhoStartedTheWork(settled: Idle) [< 1 ms]
+    Failed CcDirector.Core.Tests.SessionInteractiveTests.SettlingOrExiting_ForgetsWhoStartedTheWork(settled: WaitingForPerm) [< 1 ms]
+    Failed CcDirector.Core.Tests.SessionInteractiveTests.WorkThatStartsWithNoSubmission_HasNoOrigin [< 1 ms]

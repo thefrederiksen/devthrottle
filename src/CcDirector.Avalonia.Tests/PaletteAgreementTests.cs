@@ -1,3 +1,4 @@
+using Avalonia.Headless.XUnit;
 using CcDirector.Gateway.Contracts;
 using CcDirector.StateAgreementCheck;
 using Xunit;
@@ -22,13 +23,19 @@ namespace CcDirector.Avalonia.Tests;
 /// </summary>
 public sealed class PaletteAgreementTests
 {
+    // WHY [AvaloniaFact] AND NOT [Fact]: StatusPalette builds
+    // its brushes in a static initialiser, and building a brush is an Avalonia property write that verifies
+    // it is on the dispatcher's thread. A plain [Fact] gets whatever thread xUnit hands it, so whether that
+    // succeeds depends on whether another class in this assembly has already started a headless session - and
+    // a static initialiser that throws once stays thrown for the rest of the process. These run ON the
+    // dispatcher thread instead. Same reason as SessionRailStateTests, where the accident actually fired.
     // The canonical vocabulary, spelled out literally rather than read from the palette under test - a test
     // that iterates the values it is checking proves nothing. "unknown" is a real fold colour (grey), so it
     // is in the list; both "grey" and "unknown" map to the one grey on every surface.
     private static readonly string[] Names =
         { "red", "yellow", "orange", "green", "cyan", "blue", "purple", "supporting", "error", "grey", "unknown" };
 
-    [Fact]
+    [AvaloniaFact]
     public void Canonical_Desktop_AndWebColors_AgreeOnEveryName()
     {
         var web = ClientPalette.Read(RepoRoot());

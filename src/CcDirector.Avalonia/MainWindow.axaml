@@ -794,6 +794,17 @@
                                             </TextBlock>
                                         </Border>
                                     </Grid>
+                                    <!-- LINE 3b: THE ROW LINE (Message Load mission, slice 4). What waits
+                                         in this session's fleet inbox, in the Gateway's words, rendered
+                                         verbatim - "2 messages waiting". Present only when something waits.
+                                         Message-count blue from the style guide; one colour for every line,
+                                         because the words, not the rail, say what kind of wait it is. -->
+                                    <TextBlock Text="{Binding InboxLine}"
+                                               IsVisible="{Binding HasInboxLine}"
+                                               Foreground="#3B82F6"
+                                               FontSize="11"
+                                               TextWrapping="Wrap"
+                                               Margin="0,2,0,0" />
                                     <!-- LINE 4: THE CREW LINE. Present only while this crew is CLOSED,
                                          which is the whole point of it - a collapsed crew must hide
                                          nothing that matters, and when the crew is open its sessions

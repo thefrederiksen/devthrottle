@@ -76,9 +76,9 @@ owner session". Do not say "supervisor" or "controller" for this relationship.
   in any commercial context a seat is a paid licence.
 
 A **Team** is the whole of what one session owns, read downwards - so Owner is the edge and Team is
-the shape it makes. Team is NOT the broadcast boundary: `message send all` reaches the
-sessions on your MISSION, and when you are on no mission, the sessions sharing your checkout on
-this machine. Say Mission there, never team.
+the shape it makes. `message send all` reaches only the sessions you started yourself - your
+direct workers - never the rest of your mission and never the sessions sharing your checkout
+(Message Load mission, 16 September 2026). Say workers there.
 
 ## State
 
@@ -122,7 +122,7 @@ prose, use the word on the left.
 | Snooze | `HoldState`, `DeferredHold`, "parked" |
 | Participation | "seat" |
 | Team | `Crew`, `CrewSummary`, `crewAge`, `crew-*` in the stylesheets |
-| Mission (in `message send all`) | "team" in the broadcast prose and warnings |
+| Workers (in `message send all`) | "team" in older broadcast prose and warnings |
 | Reviewer | nothing - the role does not exist yet |
 
 Do not "fix" these opportunistically in unrelated work; each is a deliberate rename with its own

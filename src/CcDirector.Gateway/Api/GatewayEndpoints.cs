@@ -264,7 +264,14 @@ internal static class GatewayEndpoints
         Action<Wingman.TurnVerdictRecord>? turnVerdictLedger = null,
         // Slice F: the fold's snooze memory, which turns "expired" into the one EDGE ruling 10 acts on. Null stamps
         // false on every row - the row exactly as slice D left it.
-        Wingman.SnoozeExpiryReJudge? snoozeExpiry = null)
+        Wingman.SnoozeExpiryReJudge? snoozeExpiry = null,
+        // Message Load mission, slice 4: the fleet inbox the row line is folded from. Null stamps no row line -
+        // a Gateway built without the inbox has nothing to say about it.
+        Messaging.IFleetInboxLineSource? inboxLines = null,
+        // The Message Load mission, inspection 7, ruling 3: the spawn door records a restore's create on its
+        // workspace seat by the start token the create carries. Null (a harness with no database) refuses any
+        // create carrying a restore claim, because a start that cannot be recorded is a start that can happen twice.
+        Workspaces.WorkspaceStore? workspaces = null)
     {
         // The old issue #1188 "session lock" (423 Locked on human input while a PENDING dictation record
         // existed) was removed deliberately (issue #1308). This is a single-operator tool: a collision
@@ -1630,6 +1637,7 @@ internal static class GatewayEndpoints
             StampFleetRolesAndFold(fleet, all, needsYouStampFor, snoozeRegistry, reqTenant.Value, handRaises,
                 turnVerdictRows, snoozeExpiry,
                 snoozeRosterSessionIds: unfilteredWholeAccount ? SnoozeRosterIds(fleet) : null,
+                inboxLines: inboxLines,
                 fleetManagerMark: tenantSettings is null ? null : tenantSettings.FleetManagerSessionId);
 
             // DevThrottle Stats: fold the assembled roster's per-session input tallies into the always-
@@ -1984,6 +1992,7 @@ internal static class GatewayEndpoints
             StampFleetRolesAndFold(fleet, new[] { session }, needsYouStampFor: null, snoozeRegistry: snoozeRegistry,
                 tenant: reqTenant.Value, handRaises: handRaises, turnVerdictRows: turnVerdictRows,
                 snoozeExpiry: snoozeExpiry, snoozeRosterSessionIds: SnoozeRosterIds(fleet),
+                inboxLines: inboxLines,
                 fleetManagerMark: tenantSettings is null ? null : tenantSettings.FleetManagerSessionId);
             return Results.Json(session);
         });
@@ -3263,6 +3272,20 @@ internal static class GatewayEndpoints
             if (fleetMessages is null)
                 return InboxUnavailable();
 
+            // A REPLY, IF WANTED, IS ASKED FOR HERE (slice 3, ruling 10): the record gets a correlation id and a
+            // deadline. Nobody waits for it. A deadline without the ask is a mistake the caller should hear about.
+            TimeSpan? replyWithin = null;
+            if (req.ReplyWanted)
+            {
+                if (!fleetMessages.TryReplyWindow(req.ReplyByMinutes, out var window, out var windowError))
+                    return Results.BadRequest(new { error = windowError });
+                replyWithin = window;
+            }
+            else if (req.ReplyByMinutes is not null)
+            {
+                return Results.BadRequest(new { error = "replyByMinutes is a reply deadline and needs replyWanted: true" });
+            }
+
             var (identity, senderRow, senderOwner) = await ResolveSenderAsync(ctx);
             if (identity is null)
                 return Results.Json(new { error = "this route identifies the sender from the session key that authenticated the request; the caller presented no session key" },
@@ -3280,8 +3303,38 @@ internal static class GatewayEndpoints
             var outcome = fleetMessages.Send(tenant.Value,
                 PartyFrom(from, senderRow, senderOwner),
                 PartyFrom(session.SessionId, session, director),
-                req.Text ?? "", kind);
-            FileLog.Write($"[GatewayEndpoints] POST message: from={FleetMessaging.ShortId(from)} to={FleetMessaging.ShortId(sid)} kind={kind} status={outcome.Response.Status}");
+                req.Text ?? "", kind, replyWithin: replyWithin);
+            FileLog.Write($"[GatewayEndpoints] POST message: from={FleetMessaging.ShortId(from)} to={FleetMessaging.ShortId(sid)} kind={kind} replyWanted={req.ReplyWanted} status={outcome.Response.Status}");
+            return Results.Json(outcome.Response, statusCode: outcome.StatusCode);
+        });
+
+        // POST /fleet/reply - answer a message that asked for a reply (the Message Load mission, slice 3, ruling 10).
+        //
+        // The body names the message by its correlation id or its message id; it names neither sender nor recipient.
+        // The sender is the session whose key made the call, and the reply goes into the inbox of whoever SENT the
+        // original - whatever the relationship between the two, and whether or not that session is still running,
+        // because the record is the delivery. Only the session the original was sent to may answer it (the policy
+        // says so, and why). A reply is not held to the rate limits and is not counted against them; a reply after
+        // the deadline still lands.
+        app.MapPost("/fleet/reply", async (HttpContext ctx, FleetReplyRequest req) =>
+        {
+            if (req is null || string.IsNullOrWhiteSpace(req.Id))
+                return Results.BadRequest(new { error = "id is required: the correlation id or message id of the message you are answering" });
+            if (fleetMessages is null)
+                return InboxUnavailable();
+
+            var (identity, replierRow, replierOwner) = await ResolveSenderAsync(ctx);
+            if (identity is null)
+                return Results.Json(new { error = "a reply is sent by a session; call this with that session's own key" },
+                    statusCode: StatusCodes.Status403Forbidden);
+
+            var tenant = ResolveReadTenant(ctx, tenantBoundary);
+            if (tenant is null)
+                return Results.Json(new { error = "no tenant is bound to this request" }, statusCode: StatusCodes.Status403Forbidden);
+
+            var from = identity.SessionId.ToString();
+            var outcome = fleetMessages.Reply(tenant.Value, PartyFrom(from, replierRow, replierOwner), req.Id.Trim(), req.Text ?? "");
+            FileLog.Write($"[GatewayEndpoints] POST fleet/reply: from={FleetMessaging.ShortId(from)} id={req.Id.Trim()} status={outcome.Response.Status}");
             return Results.Json(outcome.Response, statusCode: outcome.StatusCode);
         });
 
@@ -3936,6 +3989,32 @@ internal static class GatewayEndpoints
             if (!SpawnOrigin.TryEstablish(req, ctx, spawnRoute, out var originError))
                 return originError!;
 
+            // A RESTORE'S CREATE (the Message Load mission, inspection 7, ruling 3) carries the token its Director
+            // stored on the workspace seat before sending it. Only a Director restores, so only a Director's
+            // credential may carry one - a claim from anyone else could mark a seat restored as a session of the
+            // caller's choosing.
+            var restoreClaim = req.RestoreClaim;
+            if (restoreClaim is not null)
+            {
+                if (!WorkspaceEndpoints.IsDirectorCredential(ctx))
+                {
+                    FileLog.Write($"[GatewayEndpoints] {spawnRoute}: REFUSED - a restore claim from a caller that is not a Director");
+                    return Results.Json(new { error = "only a Director restoring a workspace may send a restore claim" },
+                        statusCode: StatusCodes.Status403Forbidden);
+                }
+                // The same binding as the mark route (inspection 11, ruling 1): the claim is sent by the Director the
+                // create is for, on the credential that Director said Hello on - not by another key of the account.
+                if (!registry.IsRegisteredByCredential(spawnTenant.Value, id, AuthMiddleware.RegisteringCredential(ctx)))
+                {
+                    FileLog.Write($"[GatewayEndpoints] {spawnRoute}: REFUSED - a restore claim on a credential Director {id} is not connected on");
+                    return Results.Json(new { error = $"a restore claim is sent only by Director '{id}' itself, on the credential it is connected on" },
+                        statusCode: StatusCodes.Status403Forbidden);
+                }
+                if (workspaces is null)
+                    return Results.Json(new { error = "this Gateway has no workspace store, so a restore's create cannot be recorded and is not sent" },
+                        statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+
             if (!SpawnMissionAndSeat.TryResolve(req, spawnTenant.Value, missions, workflowRuns, spawnRoute,
                     out var seatRun, out var resolveError))
                 return resolveError!;
@@ -3963,6 +4042,21 @@ internal static class GatewayEndpoints
             // when the Director's reply proves the seat landed, and never turned into an HTTP failure the
             // caller would retry into a second session.
             SpawnMissionAndSeat.RecordParticipant(seatRun, workflowRuns, req, body, d.MachineName ?? "", spawnRoute);
+
+            // The restore's record of this create, written HERE - in the process that performed it, after the
+            // Director confirmed it - so it does not depend on the answer reaching the restoring Director. Never
+            // turned into an HTTP failure: the session exists, and a failure would be retried into a second one.
+            if (restoreClaim is not null && workspaces is not null)
+            {
+                try
+                {
+                    workspaces.RecordRestoredByClaim(restoreClaim, id, body.SessionId, DateTime.UtcNow);
+                }
+                catch (Exception ex)
+                {
+                    FileLog.Write($"[GatewayEndpoints] {spawnRoute}: the restore of seat {restoreClaim.SeatSessionId} in workspace {restoreClaim.WorkspaceId} started {body.SessionId} but could NOT be recorded by its token: {ex.Message}");
+                }
+            }
 
             return Results.Json(body, statusCode: 201);
         });
@@ -5070,6 +5164,7 @@ internal static class GatewayEndpoints
         DirectorRegistry registry, Streaming.PushedSessionStore? pushedSessions, TenantId tenant,
         Snooze.SnoozeRegistry? snoozeRegistry, Fleet.HandRaiseRegistry? handRaises,
         Wingman.ITurnVerdictRowSource? turnVerdictRows, Wingman.SnoozeExpiryReJudge? snoozeExpiry,
+        Messaging.IFleetInboxLineSource? inboxLines = null,
         Func<TenantId, string?>? fleetManagerMark = null)
     {
         var fleet = new List<SessionDto>();
@@ -5087,6 +5182,7 @@ internal static class GatewayEndpoints
         StampFleetRolesAndFold(fleet, fleet, needsYouStampFor: null, snoozeRegistry: snoozeRegistry,
             tenant: tenant, handRaises: handRaises, turnVerdictRows: turnVerdictRows,
             snoozeExpiry: snoozeExpiry, snoozeRosterSessionIds: SnoozeRosterIds(fleet),
+            inboxLines: inboxLines,
             fleetManagerMark: fleetManagerMark);
         return fleet;
     }
@@ -5298,6 +5394,9 @@ internal static class GatewayEndpoints
         // list above: the display push carries one Director's sessions as both of them, and a filtered roster
         // read carries one machine's.
         IReadOnlyCollection<string>? snoozeRosterSessionIds = null,
+        // Message Load mission, slice 4: the fleet inbox the row line is folded from, read ONCE for the whole
+        // fold. Null stamps a null row line on every row.
+        Messaging.IFleetInboxLineSource? inboxLines = null,
         // FALSE ONLY FOR A FOLD THAT RECORDS WHAT THE PUSH SHOWS (the Wingman inspector's trace colour): the snooze-expiry
         // memory is read and not moved - no edge spent, no ledger line, no re-judge asked for. Everything else is equal.
         bool writes = true,
@@ -5405,6 +5504,12 @@ internal static class GatewayEndpoints
         // is not in the part I am looking at", and that distinction is the whole licence to drop an entry.
         Wingman.SnoozeExpiryRowStamp.Stamp(all, snoozeExpiry, verdictsOnTheWire, holds, tenant, foldNowUtc,
             snoozeRosterSessionIds, writes);
+
+        // THE ROW LINE (Message Load mission, slice 4, ruling 12): what waits in each session's fleet inbox, in
+        // finished words. One grouped read of the account's unread messages for the whole fold, at the fold's one
+        // moment, so the stuck age agrees with every other time this fold states. It reads nothing the colour,
+        // the label or the bucket read, and they do not read it: a waiting message is not the owner's queue.
+        Messaging.FleetInboxLineStamp.Stamp(all, inboxLines, tenant, foldNowUtc);
 
         foreach (var s in all)
         {

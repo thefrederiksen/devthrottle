@@ -1,0 +1,5 @@
+[
+ {"name":"due ignores the ring cap","old":"        if (message.RingCount >= limits.StuckAfterRings) return false;\n        return message.LastRungAtUtc is not","new":"        return message.LastRungAtUtc is not"},
+ {"name":"stuck one ring early","old":"        if (message.RingCount < limits.StuckAfterRings) return false;","new":"        if (message.RingCount < limits.StuckAfterRings - 1) return false;"},
+ {"name":"the sender is not told","old":"            _messages.Send(\n                tenant,","new":"            if (m.RingCount < 0) _messages.Send(\n                tenant,"}
+]

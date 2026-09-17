@@ -1,0 +1,16 @@
+== MUTATION due ignores the ring cap: exit=1
+    Failed!  - Failed:     1, Passed:    21, Skipped:     0, Total:    22, Duration: 2 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.The_settled_edge_never_rings_a_fourth_time_even_before_the_heartbeat_marks_stuck [49 ms]
+== MUTATION stuck one ring early: exit=1
+    Failed!  - Failed:     6, Passed:    16, Skipped:     0, Total:    22, Duration: 2 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.Three_rings_five_minutes_apart_then_stuck_and_the_sender_is_told_once [1 s]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_shortened_grace_moves_the_whole_schedule [40 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.Not_stuck_after_two_rings_whatever_the_wait [36 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_message_read_before_the_grace_ends_is_never_stuck [66 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.The_stuck_message_is_not_rung_a_fourth_time [52 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.Not_stuck_one_second_before_the_grace_after_the_third_ring [64 ms]
+== MUTATION the sender is not told: exit=1
+    Failed!  - Failed:     3, Passed:    19, Skipped:     0, Total:    22, Duration: 2 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.Three_rings_five_minutes_apart_then_stuck_and_the_sender_is_told_once [1 s]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_read_undoes_stuck_and_nothing_further_is_rung_or_sent [136 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.The_stuck_message_is_not_rung_a_fourth_time [58 ms]

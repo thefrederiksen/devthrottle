@@ -1,0 +1,14 @@
+2026-09-17 04:34:38.323 [SnoozeRegistry] Snooze: sid=d3763e2e-1d85-48e1-98a1-2b54b4ea8147, untilUtc=2026-09-17T20:34:38.3099870Z, director=doorbell-proof-director
+2026-09-17 04:34:51.176 [FleetDoorbellRinger] RingAsync: session=d3763e2e-1d85-48e1-98a1-2b54b4ea8147, unread=1
+2026-09-17 04:34:51.309 [Session] SubmitDoorbellLineAsync: session=d3763e2e-1d85-48e1-98a1-2b54b4ea8147, driver=ClaudeCode, len=101
+2026-09-17 04:34:51.551 [Session] SubmitDoorbellLineAsync: session=d3763e2e-1d85-48e1-98a1-2b54b4ea8147, outcome=Verified
+2026-09-17 04:34:51.557 [FleetDoorbellRinger] RUNG: session=d3763e2e-1d85-48e1-98a1-2b54b4ea8147, unread=1, line="[DevThrottle doorbell] 1 fleet message is waiting for you. To read, run: cc-devthrottle message inbox"
+2026-09-17 04:34:51.579 [SnoozeLandingObserver] sid=d3763e2e-1d85-48e1-98a1-2b54b4ea8147: working on an agent-origin send -> armed snooze kept (ruling 15)
+2026-09-17 04:34:51.586 [FleetDoorbell] RUNG: sid=d3763e2e trigger=heartbeat unread=1 ids=[58bb5aba42534195a057136486eca5cc]
+2026-09-17 04:34:54.308 [SnoozeLandingObserver] sid=d3763e2e-1d85-48e1-98a1-2b54b4ea8147: working on an agent-origin send -> armed snooze kept (ruling 15)
+2026-09-17 04:34:57.303 [SnoozeLandingObserver] sid=d3763e2e-1d85-48e1-98a1-2b54b4ea8147: working on an agent-origin send -> armed snooze kept (ruling 15)
+2026-09-17 04:35:00.308 [SnoozeLandingObserver] sid=d3763e2e-1d85-48e1-98a1-2b54b4ea8147: working on an agent-origin send -> armed snooze kept (ruling 15)
+2026-09-17 04:35:03.320 [SnoozeLandingObserver] sid=d3763e2e-1d85-48e1-98a1-2b54b4ea8147: working on an agent-origin send -> armed snooze kept (ruling 15)
+2026-09-17 04:35:15.549 [SnoozeRegistry] ClearIfArmed: sid=d3763e2e-1d85-48e1-98a1-2b54b4ea8147 (armed snooze deleted - the session is working again, and work ends a snooze)
+2026-09-17 04:35:15.549 [SnoozeLandingObserver] sid=d3763e2e-1d85-48e1-98a1-2b54b4ea8147: working again -> armed snooze deleted (work ends a snooze)
+2026-09-17 04:35:23.171 [PromptDeliveryFailures] FAILED DELIVERY: session=d3763e2e-1d85-48e1-98a1-2b54b4ea8147, source=UserInput, len=44, reason=[SubmitVerifier] 'ClaudeCode: Write the single word BACK and nothing else.' never started a turn within 8 beats (6 nudge(s) sent): the agent produced under 2048 bytes, so the prompt is parked in the composer unsubmitted. The TUI swallowed the Enter (an autocomplete popup, a startup window that drops...

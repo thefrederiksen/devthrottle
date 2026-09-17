@@ -257,6 +257,10 @@ public sealed class WorkspaceStore
         doc.DirectorVersionBefore = stored.DirectorVersionBefore;
         doc.StartedAtUtc = stored.StartedAtUtc;
 
+        // The restore lease is the Gateway's own bookkeeping (inspection 7, ruling 4): no caller grants or
+        // clears it by writing the document.
+        doc.RestoreLease = stored.RestoreLease;
+
         // AUTHORED - and ONLY authored - has no captured seats, so its seats are the caller's to edit
         // entirely. Written as "is authored" and not as "is not captured", which is not the same test:
         // an origin this build has never heard of, written by a newer one, would fall through the second
@@ -315,6 +319,13 @@ public sealed class WorkspaceStore
             seat.ClaudeTranscriptPath = from.ClaudeTranscriptPath;
             seat.CreatedAt = from.CreatedAt;
 
+            // What a RESTORE did (inspection 7, ruling 1). The restored id of an owner seat is the owner the
+            // Director names for that seat's workers, so a writer who could set it could choose who owns a
+            // restored worker - and an unrelated session key can write this document. These are written only
+            // by RecordRestoreMark and RecordRestoredByClaim, and every ordinary write gets the stored copy.
+            // The caller keeps only the DECISION, its reason and command, and the handover path.
+            RestoreStoredMarks(seat, from);
+
             // Everything else on the seat - the handover path, the drain state, the restore decision,
             // what came back - is a judgment somebody made, and the caller's copy is kept.
             //
@@ -323,6 +334,267 @@ public sealed class WorkspaceStore
             // judgment - and this build cannot tell which, so restoring it would silently discard
             // legitimate new judgments and leaving it does allow a future provenance field to be
             // rewritten. It is left with the caller because losing a judgment is the worse of the two.
+        }
+
+        // Who restored it is written by the restore marks as well, for the same reason.
+        doc.RestoredBy = stored.RestoredBy;
+    }
+
+    /// <summary>Put the stored restore marks back onto an incoming seat. See <see cref="WorkspaceRestoreMark"/>.</summary>
+    private static void RestoreStoredMarks(WorkspaceSeat seat, WorkspaceSeat from)
+    {
+        seat.RestoredSessionId = from.RestoredSessionId;
+        seat.RestoredSeedFile = from.RestoredSeedFile;
+
+        var stored = from.Restore;
+        if (seat.Restore is null)
+        {
+            // A caller that dropped the whole restore block keeps no decision, but it does not erase what a
+            // restore did either.
+            if (stored is not null && HasMarks(stored))
+                seat.Restore = new WorkspaceSeatRestore { Decision = WorkspaceRestoreDecisions.Undecided };
+            else
+                return;
+        }
+
+        seat.Restore!.Failure = stored?.Failure;
+        seat.Restore.AttemptedAtUtc = stored?.AttemptedAtUtc;
+        seat.Restore.StartedToken = stored?.StartedToken;
+        seat.Restore.StartedAtUtc = stored?.StartedAtUtc;
+        seat.Restore.StartedByDirectorId = stored?.StartedByDirectorId;
+    }
+
+    private static bool HasMarks(WorkspaceSeatRestore r)
+        => r.Failure is not null || r.AttemptedAtUtc is not null || r.StartedToken is not null
+           || r.StartedAtUtc is not null || r.StartedByDirectorId is not null;
+
+    // ===================================================================================================
+    // THE RESTORE'S OWN WRITES (the Message Load mission, inspection 7, rulings 1, 3 and 4). Each one reads
+    // the stored document, changes only restore bookkeeping, and writes it back - all inside the one write
+    // lock, so a caller's PUT cannot land between the read and the write.
+    // ===================================================================================================
+
+    /// <summary>
+    /// Grant the restore lease on a captured workspace to <paramref name="directorId"/>, unless another Director
+    /// holds a live one. Returns whether the lease was NEWLY granted (false when this Director already held a live
+    /// one - the caller must then not release it on a refusal, because a run of that Director may be using it).
+    /// </summary>
+    /// <exception cref="WorkspaceConflictException">Another Director holds a live lease; the message names it.</exception>
+    /// <exception cref="WorkspaceValidationException">There is no such workspace.</exception>
+    public bool TakeRestoreLease(string id, string directorId, string? requestedBySessionId, DateTime nowUtc)
+    {
+        if (string.IsNullOrWhiteSpace(directorId)) throw new ArgumentException("directorId is required", nameof(directorId));
+        var at = nowUtc.ToUniversalTime();
+        var granted = false;
+        MutateStored(id, at, doc =>
+        {
+            var lease = doc.RestoreLease;
+            if (lease is not null && lease.IsLiveAt(at))
+            {
+                if (!string.Equals(lease.DirectorId, directorId, StringComparison.OrdinalIgnoreCase))
+                    throw new WorkspaceConflictException(
+                        $"Director '{lease.DirectorId}' is already restoring workspace \"{doc.Id}\" (since " +
+                        $"{lease.GrantedAtUtc:u}, last heard {lease.RenewedAtUtc:u}). Two Directors restoring one " +
+                        "workspace could each start the same seat, so this one is refused. Ask again when that " +
+                        $"restore has finished, or after {WorkspaceRestoreLease.Expiry.TotalMinutes:0} minutes without word from it.");
+                return false;
+            }
+
+            doc.RestoreLease = new WorkspaceRestoreLease
+            {
+                DirectorId = directorId,
+                RequestedBySessionId = requestedBySessionId,
+                GrantedAtUtc = at,
+                RenewedAtUtc = at,
+            };
+            granted = true;
+            return true;
+        });
+        FileLog.Write($"[WorkspaceStore] TakeRestoreLease: id={id}, director={directorId}, newlyGranted={granted}");
+        return granted;
+    }
+
+    /// <summary>Give back the restore lease if <paramref name="directorId"/> holds it. No-op otherwise.</summary>
+    public void ReleaseRestoreLease(string id, string directorId)
+    {
+        var released = false;
+        MutateStored(id, DateTime.UtcNow, doc =>
+        {
+            if (doc.RestoreLease is null
+                || !string.Equals(doc.RestoreLease.DirectorId, directorId, StringComparison.OrdinalIgnoreCase))
+                return false;
+            doc.RestoreLease = null;
+            released = true;
+            return true;
+        });
+        FileLog.Write($"[WorkspaceStore] ReleaseRestoreLease: id={id}, director={directorId}, released={released}");
+    }
+
+    /// <summary>
+    /// Write one restore mark. Only the Director holding a live lease may write one; every mark renews it, and
+    /// "finished" releases it. Returns the stored document.
+    /// </summary>
+    /// <exception cref="WorkspaceConflictException">The writer does not hold a live lease, or the mark contradicts
+    /// what is already recorded (a different restored id).</exception>
+    /// <exception cref="WorkspaceValidationException">The mark is malformed or names no seat of this workspace.</exception>
+    public WorkspaceDocument RecordRestoreMark(string id, WorkspaceRestoreMark mark, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(mark);
+        if (!WorkspaceRestoreMarkKinds.All.Contains(mark.Kind))
+            throw new WorkspaceValidationException(
+                $"kind must be one of: {string.Join(", ", WorkspaceRestoreMarkKinds.All)}.");
+        if (string.IsNullOrWhiteSpace(mark.DirectorId))
+            throw new WorkspaceValidationException("directorId is required on a restore mark.");
+
+        var at = nowUtc.ToUniversalTime();
+        var result = MutateStored(id, at, doc =>
+        {
+            var lease = doc.RestoreLease;
+            if (lease is null || !lease.IsLiveAt(at)
+                || !string.Equals(lease.DirectorId, mark.DirectorId, StringComparison.OrdinalIgnoreCase))
+                throw new WorkspaceConflictException(
+                    $"Director '{mark.DirectorId}' does not hold the restore lease on workspace \"{doc.Id}\" " +
+                    (lease is null ? "(nobody does)" : $"('{lease.DirectorId}' {(lease.IsLiveAt(at) ? "does" : "did, and it has expired")})") +
+                    ", so it may not write what a restore did. Ask for the restore again.");
+
+            if (mark.Kind == WorkspaceRestoreMarkKinds.Finished)
+            {
+                doc.RestoreLease = null;
+                return true;
+            }
+            lease.RenewedAtUtc = at;
+
+            var seat = doc.Seats.FirstOrDefault(x => string.Equals(x.SessionId, mark.SeatSessionId, StringComparison.OrdinalIgnoreCase))
+                ?? throw new WorkspaceValidationException($"workspace \"{doc.Id}\" has no seat '{mark.SeatSessionId}'.");
+            var restore = seat.Restore ??= new WorkspaceSeatRestore { Decision = WorkspaceRestoreDecisions.Undecided };
+
+            switch (mark.Kind)
+            {
+                case WorkspaceRestoreMarkKinds.Started:
+                    if (string.IsNullOrWhiteSpace(mark.Token))
+                        throw new WorkspaceValidationException("a \"started\" mark carries the token its create will carry.");
+                    if (!string.IsNullOrWhiteSpace(seat.RestoredSessionId))
+                        throw new WorkspaceConflictException(
+                            $"seat '{seat.SessionId}' has already come back as {seat.RestoredSessionId}; it is not started again.");
+                    restore.StartedToken = mark.Token;
+                    restore.StartedAtUtc = at;
+                    restore.StartedByDirectorId = mark.DirectorId;
+                    restore.AttemptedAtUtc = at;
+                    restore.Failure = null;
+                    doc.RestoredBy = new WorkspaceRestoredBy
+                    {
+                        SessionId = mark.RequestedBySessionId,
+                        AtUtc = at,
+                        Method = $"director restore on {mark.DirectorId}",
+                        Note = mark.RequestedBySessionId is null
+                            ? "asked for by the owner; every spawn made by the Director on its own credential"
+                            : "asked for by the session named here; every spawn made by the Director on its own credential",
+                    };
+                    break;
+
+                case WorkspaceRestoreMarkKinds.Restored:
+                    if (string.IsNullOrWhiteSpace(mark.RestoredSessionId))
+                        throw new WorkspaceValidationException("a \"restored\" mark names the new session.");
+                    // A seat is restored only by the start this Director recorded (inspection 11, ruling 1): the mark
+                    // carries the token of that start, so "restored" can never name a session no create of this
+                    // restore made.
+                    if (string.IsNullOrWhiteSpace(mark.Token))
+                        throw new WorkspaceValidationException("a \"restored\" mark carries the token of the start it completes.");
+                    if (!string.Equals(restore.StartedToken, mark.Token, StringComparison.Ordinal)
+                        || !string.Equals(restore.StartedByDirectorId, mark.DirectorId, StringComparison.OrdinalIgnoreCase))
+                        throw new WorkspaceConflictException(
+                            $"seat '{seat.SessionId}' has no start by Director '{mark.DirectorId}' with that token, so it cannot be " +
+                            "recorded as restored. Only the Director that started a seat records what came back.");
+                    if (!string.IsNullOrWhiteSpace(seat.RestoredSessionId)
+                        && !string.Equals(seat.RestoredSessionId, mark.RestoredSessionId, StringComparison.OrdinalIgnoreCase))
+                        throw new WorkspaceConflictException(
+                            $"seat '{seat.SessionId}' is already recorded as restored as {seat.RestoredSessionId}, not {mark.RestoredSessionId}.");
+                    seat.RestoredSessionId = mark.RestoredSessionId;
+                    if (!string.IsNullOrWhiteSpace(mark.SeedFile)) seat.RestoredSeedFile = mark.SeedFile;
+                    restore.Failure = null;
+                    restore.AttemptedAtUtc = at;
+                    break;
+
+                case WorkspaceRestoreMarkKinds.Failed:
+                    if (string.IsNullOrWhiteSpace(mark.Failure))
+                        throw new WorkspaceValidationException("a \"failed\" mark says why.");
+                    if (!string.IsNullOrWhiteSpace(seat.RestoredSessionId))
+                    {
+                        // The Gateway recorded the create by its token while the Director was still waiting for an
+                        // answer it never got. The record of what came back wins over "no answer came".
+                        FileLog.Write($"[WorkspaceStore] RecordRestoreMark: id={doc.Id}, seat={seat.SessionId}: failure ignored, the seat is already restored as {seat.RestoredSessionId}");
+                        return true;
+                    }
+                    restore.Failure = mark.Failure;
+                    restore.AttemptedAtUtc = at;
+                    if (mark.NothingStarted)
+                    {
+                        restore.StartedToken = null;
+                        restore.StartedAtUtc = null;
+                        restore.StartedByDirectorId = null;
+                    }
+                    break;
+            }
+            return true;
+        });
+        FileLog.Write($"[WorkspaceStore] RecordRestoreMark: id={id}, director={mark.DirectorId}, kind={mark.Kind}, seat={mark.SeatSessionId ?? "-"}");
+        return result;
+    }
+
+    /// <summary>
+    /// The spawn door's record of a restore's create (inspection 7, ruling 3): when the seat's stored start token
+    /// is <paramref name="claim"/>'s token and the start was <paramref name="directorId"/>'s - the Director the create
+    /// was performed on - the seat is recorded as restored as <paramref name="newSessionId"/>.
+    /// Returns whether it was recorded. A token that does not match records nothing - the seat has been started
+    /// again since, or the claim is not this seat's.
+    /// </summary>
+    public bool RecordRestoredByClaim(WorkspaceRestoreClaim claim, string directorId, string newSessionId, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(claim);
+        if (string.IsNullOrWhiteSpace(claim.Token) || string.IsNullOrWhiteSpace(newSessionId)) return false;
+        var at = nowUtc.ToUniversalTime();
+        var recorded = false;
+        MutateStored(claim.WorkspaceId, at, doc =>
+        {
+            var seat = doc.Seats.FirstOrDefault(x => string.Equals(x.SessionId, claim.SeatSessionId, StringComparison.OrdinalIgnoreCase));
+            if (seat?.Restore is not { } restore
+                || !string.Equals(restore.StartedToken, claim.Token, StringComparison.Ordinal)
+                || !string.Equals(restore.StartedByDirectorId, directorId, StringComparison.OrdinalIgnoreCase))
+                return false;
+            if (!string.IsNullOrWhiteSpace(seat.RestoredSessionId)) return false;
+            seat.RestoredSessionId = newSessionId;
+            restore.Failure = null;
+            restore.AttemptedAtUtc = at;
+            recorded = true;
+            return true;
+        });
+        FileLog.Write($"[WorkspaceStore] RecordRestoredByClaim: id={claim.WorkspaceId}, seat={claim.SeatSessionId}, session={newSessionId}, recorded={recorded}");
+        return recorded;
+    }
+
+    /// <summary>
+    /// Read the stored document, let <paramref name="change"/> alter it, and write it back when it returns true -
+    /// all under the write lock, validated like every other write. Returns the stored document.
+    /// </summary>
+    private WorkspaceDocument MutateStored(string? id, DateTime atUtc, Func<WorkspaceDocument, bool> change)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+            throw new WorkspaceValidationException("a workspace id is required.");
+        var slug = id.Trim();
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext();
+            var row = ctx.Workspaces.FirstOrDefault(e => e.Id == slug)
+                      ?? throw new WorkspaceValidationException($"no workspace with id '{slug}'.");
+            var doc = Deserialize(row);
+            if (!change(doc)) return doc;
+
+            WorkspaceValidation.Validate(doc);
+            doc.UpdatedUtc = atUtc;
+            row.UpdatedUtc = atUtc;
+            row.DocumentJson = JsonSerializer.Serialize(doc, DocumentJsonOptions);
+            ctx.SaveChanges();
+            return doc;
         }
     }
 

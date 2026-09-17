@@ -113,8 +113,8 @@ def spawn_session(
 ) -> str:
     """Open a tracked session whose whole task is the brief FILE. Returns its id.
 
-    The prompt is one short line pointing at the brief: long spawn prompts can
-    fail to arrive, and fleet text truncates at the first newline. A model can be
+    The prompt is one short line pointing at the brief: the brief holds the
+    detail, and the prompt only says where to find it. A model can be
     named for Claude Code only; the session's model is set on its command line, so
     the owner's default model is never changed.
     """

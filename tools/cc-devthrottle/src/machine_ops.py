@@ -1020,3 +1020,193 @@ def restart_request_status(machine: str, request_id: str, json_output: bool) -> 
     workspace = gateway.field(payload, "workspaceId", "WorkspaceId")
     if workspace:
         console.print(f"  Record: workspace {axi_cli.shown(workspace)}")
+
+
+# --- Restoring a drained fleet (the Message Load mission, slice 6) ------------------------------------
+
+#: How often the restore's progress is read back from the workspace while waiting.
+RESTORE_POLL_SECONDS = 3.0
+
+#: The placeholder the drain writes where the NEW Director's id goes. Passing it verbatim is a mistake.
+NEW_DIRECTOR_PLACEHOLDER = "<the NEW director id>"
+
+#: The exit code of a restore that was asked for and not waited on (inspection 7, ruling 6). It is neither
+#: success (nothing is known to have come back) nor failure (nothing is known to have failed).
+EXIT_ACCEPTED_NOT_WAITED = 3
+
+#: The sentence a restore that was not waited on prints, so a reader cannot take acceptance for completion.
+ACCEPTED_NOT_WAITED = "accepted, not waited"
+
+
+def _seat_attempt(seat: Dict[str, Any]) -> Tuple[str, str, str]:
+    """(restoredSessionId, failure, attemptedAtUtc) for one workspace seat, each "" when absent."""
+    restore = seat.get("restore") if isinstance(seat.get("restore"), dict) else {}
+    return (
+        gateway.field(seat, "restoredSessionId", "RestoredSessionId"),
+        gateway.field(restore, "failure", "Failure"),
+        gateway.field(restore, "attemptedAtUtc", "AttemptedAtUtc"),
+    )
+
+
+def _read_workspace(workspace: str) -> Dict[str, str]:
+    """Map captured session id -> the seat's attempt stamp, for telling a NEW attempt from an old one."""
+    doc = gateway.get_json(f"gateway/workspaces/{gateway.path_segment(workspace)}")
+    if not isinstance(doc, dict) or not isinstance(doc.get("seats"), list):
+        raise gateway.GatewayError(f"the Gateway's answer for workspace {workspace} carried no list of seats.")
+    return {str(s.get("sessionId", "")).lower(): _seat_attempt(s)[2] for s in doc["seats"] if isinstance(s, dict)}
+
+
+def _parse_seeds(seeds: Sequence[str]) -> Dict[str, str]:
+    parsed: Dict[str, str] = {}
+    for entry in seeds:
+        seat, sep, path = entry.partition("=")
+        if not sep or not seat.strip() or not path.strip():
+            axi_cli.usage_error(
+                f"--seed '{entry}' is not <captured session id>=<path>. "
+                "Example: --seed 8f894218-0000-4000-8000-000000000000=/data/handovers/SEED-8f894218.md"
+            )
+        parsed[seat.strip()] = path.strip()
+    return parsed
+
+
+def restore_workspace(
+    workspace: str,
+    director_id: str,
+    seats: Sequence[str],
+    seeds: Sequence[str],
+    wait_seconds: int,
+    json_output: bool,
+    force_seats: Sequence[str] = (),
+) -> None:
+    """Ask a Director to bring a drained fleet back, and report each seat.
+
+    The DIRECTOR starts every seat, on its own credential, naming the owner each seat had - read from the
+    seat facts the Gateway captured. An owner restarted in the same drain is started first and named by its
+    new id. This command names no owner and cannot: a session key may name only itself or the user as the
+    owner of what it starts, which is why the restore moved to the Director.
+
+    Each seat's result is written on the workspace by the Director as it happens; this command reads it back
+    until every seat asked for has an answer or the wait runs out. Exit 0 only when every seat came back; 1 when
+    any seat failed or is still pending; 3 when the command did not wait (--wait-seconds 0), because then it
+    knows only that the restore was accepted.
+
+    A seat whose earlier start was sent and never recorded is not started again unless it is named with
+    --force-seat, after the caller has checked the session list.
+    """
+    if not director_id.strip() or director_id.strip() == NEW_DIRECTOR_PLACEHOLDER:
+        axi_cli.usage_error(
+            "--director must be the id of the Director that brings the seats back - after a restart, the NEW one. "
+            "Find it with: cc-devthrottle director list"
+        )
+    if wait_seconds < 0:
+        axi_cli.usage_error("--wait-seconds cannot be negative. Pass 0 to ask and not wait.")
+    director_id = director_id.strip()
+    next_commands = [
+        "cc-devthrottle director list --machine <machine>",
+        f"cc-devthrottle director restore {axi_cli.bare(workspace, '<workspace>')} --director <id>",
+    ]
+
+    body: Dict[str, Any] = {"directorId": director_id}
+    if seats:
+        body["seats"] = list(seats)
+    parsed_seeds = _parse_seeds(seeds)
+    if parsed_seeds:
+        body["seeds"] = parsed_seeds
+    if force_seats:
+        body["forceSeats"] = list(force_seats)
+
+    try:
+        before = _read_workspace(workspace) if wait_seconds > 0 else {}
+        accepted = gateway.post_json(f"gateway/workspaces/{gateway.path_segment(workspace)}/restore", body)
+    except gateway.GatewayError as err:
+        _fail(f"nothing was restored from workspace {workspace}: {err}", next_commands)
+    if not isinstance(accepted, dict) or accepted.get("taken") is not True:
+        reason = accepted.get("error") if isinstance(accepted, dict) else None
+        _fail(f"nothing was restored from workspace {workspace}: "
+              f"{reason or 'the Gateway did not say the Director took the restore'}", next_commands)
+    asked = [str(s) for s in accepted.get("seats") or []]
+    again = (f"cc-devthrottle director restore {axi_cli.bare(workspace, '<workspace>')} "
+             f"--director {director_id}   # brings back only what has not come back; refused while one runs; "
+             "a seat that MAY have started needs --force-seat <id> after you have checked the session list")
+
+    if wait_seconds == 0:
+        # ACCEPTANCE IS NOT COMPLETION (inspection 7, ruling 6). Exit 0 means every seat came back, and a
+        # restore nobody waited on has not shown that - so it has its own exit code and says so in words.
+        if json_output:
+            print(json.dumps({"workspaceId": workspace, "directorId": director_id, "taken": True,
+                              "waited": False, "status": ACCEPTED_NOT_WAITED,
+                              "count": len(asked), "seats": asked}, indent=2))
+        else:
+            console.print(f"[yellow]ACCEPTED, NOT WAITED[/] workspace {axi_cli.shown(workspace)} by Director "
+                          f"{axi_cli.shown(director_id)}: count: {len(asked)}")
+            for sid in asked:
+                console.print(f"  {sid}")
+            console.print(f"  {ACCEPTED_NOT_WAITED}: nothing is known to have come back yet. Each seat's result is "
+                          "written on the workspace as the Director gets to it; wait for it with --wait-seconds.")
+            axi_cli.print_next([again])
+        raise SystemExit(EXIT_ACCEPTED_NOT_WAITED)
+
+    outcomes: Dict[str, Tuple[str, str, str]] = {}
+    names: Dict[str, str] = {}
+    deadline = _monotonic() + wait_seconds
+    while True:
+        try:
+            doc = gateway.get_json(f"gateway/workspaces/{gateway.path_segment(workspace)}")
+        except gateway.GatewayError as err:
+            _fail(f"the restore was taken, but its progress could not be read: {err}", [again])
+        by_id = {str(s.get("sessionId", "")).lower(): s for s in (doc.get("seats") or []) if isinstance(s, dict)}
+        for sid in asked:
+            seat = by_id.get(sid.lower(), {})
+            names[sid] = gateway.field(seat, "name", "Name") or sid
+            restored, failure, attempted = _seat_attempt(seat)
+            fresh = attempted and attempted != before.get(sid.lower(), "")
+            if restored:
+                outcomes[sid] = ("restored", restored, "")
+            elif failure and fresh:
+                outcomes[sid] = ("failed", "", failure)
+            else:
+                outcomes[sid] = ("pending", "", "")
+        if all(o[0] != "pending" for o in outcomes.values()) or _monotonic() >= deadline:
+            break
+        _sleep(RESTORE_POLL_SECONDS)
+
+    rows = [
+        {
+            "sessionId": sid,
+            "name": names.get(sid, sid),
+            "outcome": outcomes[sid][0],
+            "restoredSessionId": outcomes[sid][1] or None,
+            "failure": outcomes[sid][2] or None,
+        }
+        for sid in asked
+    ]
+    ok = all(r["outcome"] == "restored" for r in rows)
+    if json_output:
+        print(json.dumps({"workspaceId": workspace, "directorId": director_id, "count": len(rows), "seats": rows}, indent=2))
+    else:
+        console.print(f"Workspace {axi_cli.shown(workspace)} onto Director {axi_cli.shown(director_id)}: "
+                      f"count: {len(rows)}")
+        for r in rows:
+            if r["outcome"] == "restored":
+                console.print(f"  [green]RESTORED[/] {axi_cli.shown(r['name'])} {r['sessionId']} -> {r['restoredSessionId']}")
+            elif r["outcome"] == "failed":
+                console.print(f"  [red]FAILED[/] {axi_cli.shown(r['name'])} {r['sessionId']}: {axi_cli.shown(r['failure'])}")
+            else:
+                console.print(f"  [yellow]PENDING[/] {axi_cli.shown(r['name'])} {r['sessionId']}: "
+                              "no answer yet; the Director is still working or the wait ran out")
+        axi_cli.print_next([
+            "cc-devthrottle session list --json   # read promptDeliveryUnresolved on each restored seat",
+            again,
+        ])
+    if not ok:
+        raise SystemExit(1)
+
+
+def _monotonic() -> float:
+    import time
+    return time.monotonic()
+
+
+def _sleep(seconds: float) -> None:
+    import time
+    time.sleep(seconds)

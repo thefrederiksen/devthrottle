@@ -1,0 +1,33 @@
+// The rows both pages render: the same stamped sessions, the row line exactly as the Gateway folds it.
+export function rows(): Record<string, unknown>[] {
+  const base = (id: string, name: string, color: string, hex: string, label: string, bucket: string, line: string | null) => ({
+    sessionId: id,
+    directorId: "dir-A",
+    machineName: "desk-machine",
+    name,
+    agent: "ClaudeCode",
+    agentToolDisplay: "Claude Code",
+    activityState: bucket === "needsYou" ? "WaitingForInput" : "Working",
+    status: "Running",
+    effectiveColor: color,
+    effectiveColorHex: hex,
+    stateLabel: label,
+    triageBucket: bucket,
+    inboxLine: line,
+  });
+  return [
+    base("11111111-0000-0000-0000-000000000001", "Message Load - Worker - A", "blue", "#3b82f6", "Working", "active", "2 messages waiting"),
+    base("11111111-0000-0000-0000-000000000002", "Message Load - Manager", "red", "#f14c4c", "Needs you", "needsYou", "1 message stuck, unread for 20 minutes"),
+    base("11111111-0000-0000-0000-000000000003", "Message Load - Architect", "blue", "#3b82f6", "Working", "active", "1 reply waiting; 1 notice from the Gateway waiting"),
+    base("11111111-0000-0000-0000-000000000004", "Quiet session", "blue", "#3b82f6", "Working", "active", null),
+  ];
+}
+
+export function shimFetch() {
+  window.fetch = (async (input: RequestInfo | URL) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    (window as unknown as { __fetches: string[] }).__fetches.push(url);
+    return new Response(JSON.stringify({ error: "not served by this proof" }), { status: 404, headers: { "content-type": "application/json" } });
+  }) as typeof window.fetch;
+  (window as unknown as { __fetches: string[] }).__fetches = [];
+}

@@ -652,7 +652,7 @@ public sealed class SessionManager : IDisposable
             if (new InjectedTextStore().ActiveSource() == InjectedTextSource.Ours)
             {
                 envVars["CC_FLEET_TOOLS"] =
-                    "cc-devthrottle actions --json (list DevThrottle actions); cc-devthrottle session list; cc-devthrottle session whoami; cc-devthrottle session rename \"name\"; cc-devthrottle message send <id|all> \"message\"; cc-devthrottle message ask <id> \"question\"; cc-devthrottle schedule list; cc-devthrottle setup status";
+                    "cc-devthrottle actions --json (list DevThrottle actions); cc-devthrottle session list; cc-devthrottle session whoami; cc-devthrottle session rename \"name\"; cc-devthrottle message inbox (read messages waiting for you); cc-devthrottle message send <id|all> \"message\" (rare, queued; only the session that started you or sessions you started); cc-devthrottle message reply <id> \"answer\"; cc-devthrottle schedule list; cc-devthrottle setup status";
             }
 
             // Cursor authenticates via CURSOR_API_KEY (issue #517, assumption A5). Inject the

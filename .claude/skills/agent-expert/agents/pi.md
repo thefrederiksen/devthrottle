@@ -372,8 +372,7 @@ Concrete fleet-preamble plan (Family C):
    Options: pass as environment variables to the pi process, or have the extension read them
    from a Director-written file. Exact wiring is TBD. [INFERRED/UNCERTAIN]
 
-History provider kind: none (TranscriptRead undeclared). `cc-devthrottle message ask` cross-agent reply does not work
-to/from pi until the jsonl reader and TranscriptRead are added. [VERIFIED from code]
+History provider kind: none (TranscriptRead undeclared). Messaging to and from pi does not need it: the blocking ask between sessions was removed on 16 September 2026 (Message Load mission): a question is now queued with `cc-devthrottle message send <id> "..." --reply-wanted` and answered with `cc-devthrottle message reply`, both read from the Gateway inbox, so no agent needs TranscriptRead to be asked. [VERIFIED from code]
 
 Current gaps in our integration: no preassigned session id, no Director-initiated resume, no
 Studio/stream-json mode, no transcript parsing, no model selection, the fleet-preamble extension

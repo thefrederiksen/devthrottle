@@ -1,0 +1,22 @@
+== MUTATION unverified submit answered rung (the old rule): exit=1
+    Failed!  - Failed:     6, Passed:    10, Skipped:     0, Total:    16, Duration: 27 ms - CcDirector.Core.UnitTests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.Owner_text_typed_after_an_unsubmitted_line_is_left_untouched [12 ms]
+    Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.A_line_that_wrapped_in_the_composer_is_still_recognised_as_ours [< 1 ms]
+    Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.An_erase_that_does_not_empty_the_composer_is_reported_as_text [< 1 ms]
+    Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.A_swallowed_Enter_leaves_our_line_which_is_erased_and_not_counted [< 1 ms]
+    Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.A_line_the_interface_cleared_without_a_turn_is_not_counted_and_nothing_is_erased [< 1 ms]
+    Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.A_line_still_in_the_composer_is_not_a_submit_even_with_an_older_doorbell_in_the_transcript [< 1 ms]
+== MUTATION empty composer after an unverified submit counted as rung: exit=1
+    Failed!  - Failed:     1, Passed:    15, Skipped:     0, Total:    16, Duration: 52 ms - CcDirector.Core.UnitTests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.A_line_the_interface_cleared_without_a_turn_is_not_counted_and_nothing_is_erased [2 ms]
+== MUTATION our line not erased: exit=1
+    Failed!  - Failed:     4, Passed:    12, Skipped:     0, Total:    16, Duration: 33 ms - CcDirector.Core.UnitTests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.A_line_that_wrapped_in_the_composer_is_still_recognised_as_ours [1 ms]
+    Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.An_erase_that_does_not_empty_the_composer_is_reported_as_text [< 1 ms]
+    Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.A_swallowed_Enter_leaves_our_line_which_is_erased_and_not_counted [< 1 ms]
+    Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.A_line_still_in_the_composer_is_not_a_submit_even_with_an_older_doorbell_in_the_transcript [< 1 ms]
+== MUTATION anything in the composer erased: exit=1
+    Failed!  - Failed:     1, Passed:    15, Skipped:     0, Total:    16, Duration: 41 ms - CcDirector.Core.UnitTests.dll (net10.0)
+    Failed CcDirector.Core.Tests.Sessions.FleetDoorbellRingerTests.Owner_text_typed_after_an_unsubmitted_line_is_left_untouched [19 ms]
+== MUTATION erase trusted without re-reading: exit=1
+    /Users/soren/ReposFred/devthrottle-message-load/src/CcDirector.Core/Sessions/FleetDoorbellRinger.cs(234,17): error CS0162: Unreachable code detected [/Users/soren/ReposFred/devthrottle-message-load/src/CcDirector.Core/CcDirector.Core.csproj]

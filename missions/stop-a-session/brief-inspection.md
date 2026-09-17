@@ -67,6 +67,6 @@ to skim.
 
 **Write your review to a FILE:** `missions/stop-a-session/inspection-1.md` in the worktree.
 
-**Then reply to the Architect (`e66d53fb`) with ONE SINGLE LINE** pointing at that file. Fleet
-messages truncate at the first newline: a review sent as a message arrives as its first heading and
-nothing else. Do not send the review in a message.
+**Then reply to the Architect (`e66d53fb`) with ONE SINGLE LINE** pointing at that file. The review
+is the record and belongs in the file, where the next reader finds it. Do not send the review in a
+message.

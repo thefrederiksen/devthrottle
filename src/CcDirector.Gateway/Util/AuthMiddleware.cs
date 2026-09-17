@@ -624,6 +624,23 @@ internal static class AuthMiddleware
         return CcDirector.Core.Sessions.SubmissionIdentityKinds.Unknown;
     }
 
+    /// <summary>
+    /// WHICH CREDENTIAL this request authenticated with, in the one form the Director registry records a Director
+    /// under (the Message Load mission, inspection 11): <c>device:&lt;device id&gt;</c> for a per-device key,
+    /// <c>machine-token</c> for the shared machine token of a self-hosted Gateway, and null for a session key or
+    /// an unauthenticated request. The Director hub stamps the Hello's value on the Director it registers, and a
+    /// route that must know "is this caller that Director" compares the request's value with it. Read off the
+    /// items this gate stamped, never off the raw request.
+    /// </summary>
+    public static string? RegisteringCredential(HttpContext? ctx)
+    {
+        if (ctx is null || ctx.Items.ContainsKey(AuthenticatedSessionItemKey)) return null;
+        if (ctx.Items.TryGetValue(AuthenticatedDeviceItemKey, out var d) && d is DeviceCredentialIdentity device)
+            return "device:" + device.DeviceId;
+        if (ctx.Items.ContainsKey(AuthenticatedCredentialItemKey)) return "machine-token";
+        return null;
+    }
+
     public static SessionCredentialIdentity? CallingSession(HttpContext? ctx)
         => ctx?.Items.TryGetValue(AuthenticatedSessionItemKey, out var value) == true
             ? value as SessionCredentialIdentity

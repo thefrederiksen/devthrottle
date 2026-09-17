@@ -1,0 +1,12 @@
+08:33:36.181 gateway listening at http://127.0.0.1:64018; ring grace 00:01:00, stuck after 3 rings
+08:33:36.795 director tunnel connected
+08:33:36.898 /Users/soren/ReposFred/devthrottle-message-load/docs/missions/message-load-2026-09-16/slice-2-evidence/fix-round/run4-snooze: manager ecdb8c99-e79d-4cb8-a6a4-df51de08460d, worker d3763e2e-1d85-48e1-98a1-2b54b4ea8147 (controller ecdb8c99-e79d-4cb8-a6a4-df51de08460d)
+08:34:38.309 captured run4-snooze/00-worker-ready
+08:34:38.324 worker snoozed until 2026-09-17T20:34:38.3099870Z
+08:34:38.363 POST /sessions/d3763e2e-1d85-48e1-98a1-2b54b4ea8147/message as ecdb8c99-e79d-4cb8-a6a4-df51de08460d -> 200 queued 58bb5aba42534195a057136486eca5cc 
+08:34:51.656 doorbell rung; worker working origin now 'agent'
+08:35:13.425 captured run4-snooze/01-after-the-doorbell-turn
+08:35:13.426 after the doorbell turn: snoozed=True, until 2026-09-17T20:34:38.3099870Z
+08:35:25.769 gateway listening at http://127.0.0.1:64315; ring grace 00:01:00, stuck after 3 rings
+08:35:26.085 director tunnel connected
+08:35:26.153 /Users/soren/ReposFred/devthrottle-message-load/docs/missions/message-load-2026-09-16/slice-2-evidence/fix-round/run1: manager 96b275a1-ae35-45e8-99f8-6b7f299f33ca, worker 7cd43026-1210-4ad7-b57f-b83ada0a214a (controller 96b275a1-ae35-45e8-99f8-6b7f299f33ca)

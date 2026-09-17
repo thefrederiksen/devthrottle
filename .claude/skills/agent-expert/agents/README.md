@@ -74,8 +74,8 @@ installed binary and its real on-disk data on 2026-07-15.
 - These hook systems are recent and churning (Gemini, Codex, Grok, Cursor, Copilot all have
   open issues). Every field name needs a live check against the installed binary before we
   depend on it. See each file's "Caveats and verification needed".
-- `cc-devthrottle message ask` (ask another session and read its reply) needs the TranscriptRead capability, which
-  today only ClaudeDriver declares. So cross-agent "ask" only works Claude -> Claude so far.
+- Asking another session no longer depends on the agent family: the blocking ask between sessions was removed on 16 September 2026 (Message Load mission): a question is now queued with `cc-devthrottle message send <id> "..." --reply-wanted` and answered with `cc-devthrottle message reply`, both read from the Gateway inbox, so no agent needs TranscriptRead to be asked. (Before
+  that, the ask read the reply from the target's transcript and worked Claude -> Claude only.)
 - The shared piece for all families is the Director endpoint GET /sessions/{sid}/fleet-preamble,
   which already exists and is agent-agnostic.
 - CORRECTION (verified against binaries): Grok was previously listed as a Family A hook-injector
