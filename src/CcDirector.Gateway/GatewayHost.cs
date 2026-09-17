@@ -3120,6 +3120,13 @@ public sealed class GatewayHost : IAsyncDisposable
                 },
                 mark: _tenantSettingsResolver.FleetManagerSessionId,
                 replacementPending: tenant => !string.IsNullOrWhiteSpace(_tenantSettingsResolver.FleetManagerSuccessorSessionId(tenant)),
+                pendingSuccessors: tenant =>
+                {
+                    var waiting = _tenantSettingsResolver.FleetManagerWaitingSuccessors(tenant).ToList();
+                    if (_tenantSettingsResolver.FleetManagerSuccessorSessionId(tenant) is { Length: > 0 } successor)
+                        waiting.Add(successor);
+                    return waiting;
+                },
                 checksIdleBeforeTyping: _turnPushCapabilities.ChecksIdleBeforeTyping,
                 directorShutDown: (tenant, directorId) => Registry.Get(tenant, directorId)?.StoppedAtUtc is not null,
                 enterTenantScope: tenant => _tenantBoundary.EnterScope(tenant)),

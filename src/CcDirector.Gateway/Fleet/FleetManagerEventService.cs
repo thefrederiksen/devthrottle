@@ -47,6 +47,11 @@ public interface IFleetManagerEventEnvironment
     /// for the marked one to close. Nothing is delivered to the marked one meanwhile.</summary>
     bool ReplacementPending(TenantId tenant);
 
+    /// <summary>Every session recorded as waiting to take over as this account's Fleet Manager: the successor of the
+    /// replacement under way and each one started to take over and not yet told. Their turn ends are kept like the
+    /// marked one's, so a successor is judged on the turn it finished while it waited.</summary>
+    IReadOnlyCollection<string> PendingSuccessors(TenantId tenant);
+
     /// <summary>What this account's Directors last pushed for one session, however stale, with the Director that
     /// pushed it - or null when no Director of the account holds it. One session's row, not the roster.</summary>
     (string DirectorId, SessionDto Session)? LastKnown(TenantId tenant, string sessionId);
@@ -94,7 +99,8 @@ public enum FleetManagerDeliveryResult
 }
 
 /// <summary>
-/// What the Gateway knows of the Fleet Manager's own latest turn end, and the Wingman's latest reading of it. In
+/// What the Gateway knows of the Fleet Manager's own latest turn end, and the Wingman's latest reading of it - kept
+/// too for every session waiting to take over, so the one the mark moves to already has its latest turn. In
 /// process only: after a restart the turn-end watcher's first sighting of a waiting session raises a catch-up turn
 /// end, which starts this again, and until then nothing is typed.
 /// </summary>
@@ -159,6 +165,13 @@ internal sealed record FleetManagerTurn(
 /// short. Events stay owed and go to the new Fleet Manager when the mark moves. The check, the send and the saved
 /// delivery happen inside the account's <see cref="FleetManagerDeliveryGate"/>, which the replacement also holds while
 /// it records the successor and while it closes the old one, so the two never overlap.
+///
+/// A SUCCESSOR'S TURN IS KNOWN BEFORE IT IS MARKED (the Architect's ruling on the steps 5 to 9 rebase). A new Fleet
+/// Manager's start prompt tells it to finish its first turn and wait to be told - so that turn ends BEFORE the mark
+/// moves to it, and it will not end another until it is told. Turn ends and their readings are therefore kept for the
+/// marked session AND for every session recorded as waiting to take over. When the mark moves, the finished-turn check
+/// uses the successor's latest turn end and its reading, even though it is older than the mark, so the takeover event
+/// goes at once when that turn asked the owner nothing.
 ///
 /// NOT BUILT HERE: pull request and report events (a later part of phase 1).
 ///
@@ -246,18 +259,19 @@ public sealed class FleetManagerEventService : IDisposable
                 // owed waits for that reading (OnReadingCompleted), which is the delivery trigger. With no Wingman on
                 // this Gateway there will be no reading, and the reason is recorded now. The attempt below writes the
                 // reason the events are held, and delivers at once only to an Idle Fleet Manager.
-                var key = (tenant, marked.ToLowerInvariant());
-                var at = signal.ObservedAtUtc;
-                var opened = wingmanRunning
-                    ? new FleetManagerTurn(at, false, null, null, null)
-                    : new FleetManagerTurn(at, false, at, null, NoWingmanReason);
-                // An older turn end arriving late changes nothing.
-                _fleetManagerTurns.AddOrUpdate(key, opened,
-                    (_, t) => t.LatestTurnEndUtc is { } seen && seen > at ? t : opened);
+                RecordFleetManagerTurnEnd(tenant, sid, signal.ObservedAtUtc, wingmanRunning);
                 FileLog.Write($"[FleetManagerEventService] Fleet Manager {sid} turn end at {signal.ObservedAtUtc:O}: " +
                               $"events wait for the Wingman's reading of it (wingmanRunning={wingmanRunning})");
                 TrackDelivery(tenant, marked);
                 return;
+            }
+            if (IsPendingSuccessor(tenant, sid))
+            {
+                // A SESSION WAITING TO TAKE OVER: its turn end is kept, so when the mark moves to it the takeover
+                // event is not held for a turn end that will never come. Nothing is delivered to it now.
+                RecordFleetManagerTurnEnd(tenant, sid, signal.ObservedAtUtc, wingmanRunning);
+                FileLog.Write($"[FleetManagerEventService] waiting successor {sid} turn end at {signal.ObservedAtUtc:O}: " +
+                              $"kept for when the mark moves to it (wingmanRunning={wingmanRunning})");
             }
 
             var owner = OwnedSighting(tenant, sid, signal.DirectorId, signal.ObservedAtUtc, !signal.IsNewTurn, marked);
@@ -314,6 +328,7 @@ public sealed class FleetManagerEventService : IDisposable
                 if (RecordFleetManagerReading(tenant, marked, completed)) TrackDelivery(tenant, marked);
                 return;
             }
+            if (IsPendingSuccessor(tenant, sid)) RecordFleetManagerReading(tenant, sid, completed);
 
             var waiting = _waitingStops.ContainsKey((tenant, sid));
             FleetManagerStopSighting? owner = null;
@@ -627,11 +642,30 @@ public sealed class FleetManagerEventService : IDisposable
 
     private const string NoWingmanReason = "the Wingman is not running on this Gateway";
 
+    /// <summary>Whether the session is recorded as waiting to take over as the account's Fleet Manager.</summary>
+    private bool IsPendingSuccessor(TenantId tenant, string sid)
+        => _env.PendingSuccessors(tenant).Any(p => SameId(p, sid));
+
     /// <summary>
-    /// Keep the Wingman's reading of the Fleet Manager's own stop, when it is a reading of the latest turn end this
-    /// Gateway saw. True when something was kept, so a delivery is worth attempting.
+    /// Keep a turn end of the marked Fleet Manager or of a session waiting to take over. It opens a new turn whose
+    /// reading is not in yet; with no Wingman on this Gateway there will be no reading, and the reason is kept now.
+    /// An older turn end arriving late changes nothing.
     /// </summary>
-    private bool RecordFleetManagerReading(TenantId tenant, string marked, TurnVerdictReadingCompleted completed)
+    private void RecordFleetManagerTurnEnd(TenantId tenant, string sid, DateTime at, bool wingmanRunning)
+    {
+        var opened = wingmanRunning
+            ? new FleetManagerTurn(at, false, null, null, null)
+            : new FleetManagerTurn(at, false, at, null, NoWingmanReason);
+        _fleetManagerTurns.AddOrUpdate((tenant, sid.ToLowerInvariant()), opened,
+            (_, t) => t.LatestTurnEndUtc is { } seen && seen > at ? t : opened);
+    }
+
+    /// <summary>
+    /// Keep the Wingman's reading of the stop of the Fleet Manager - or of a session waiting to take over - when it is
+    /// a reading of the latest turn end this Gateway saw. True when something was kept, so a delivery is worth
+    /// attempting.
+    /// </summary>
+    private bool RecordFleetManagerReading(TenantId tenant, string fleetManagerSessionId, TurnVerdictReadingCompleted completed)
     {
         var outcome = completed.Outcome;
         TurnVerdictDto? verdict = null;
@@ -663,7 +697,7 @@ public sealed class FleetManagerEventService : IDisposable
                 throw new InvalidOperationException($"unhandled verdict outcome {outcome.Kind}");
         }
 
-        var key = (tenant, marked.ToLowerInvariant());
+        var key = (tenant, fleetManagerSessionId.ToLowerInvariant());
         var stop = completed.StopObservedAtUtc;
         var kept = false;
         _fleetManagerTurns.AddOrUpdate(key,
@@ -1005,12 +1039,15 @@ internal sealed class GatewayFleetManagerEventEnvironment : IFleetManagerEventEn
     private readonly Func<TenantId, string, Api.SessionVerbClient?> _route;
     private readonly Func<TenantId, string?> _mark;
     private readonly Func<TenantId, bool> _replacementPending;
+    private readonly Func<TenantId, IReadOnlyCollection<string>> _pendingSuccessors;
     private readonly Func<TenantId, string, bool> _checksIdleBeforeTyping;
     private readonly Func<TenantId, string, bool> _directorShutDown;
     private readonly Func<TenantId, IDisposable>? _enterTenantScope;
 
     /// <param name="mark">The account's marked Fleet Manager session (the tenant setting).</param>
     /// <param name="replacementPending">Whether a new Fleet Manager waits to take over (the successor tenant setting).</param>
+    /// <param name="pendingSuccessors">Every session waiting to take over: the successor and the waiting-successors
+    /// tenant settings.</param>
     /// <param name="checksIdleBeforeTyping">Whether a Director said, on its Hello, that it honours
     /// <see cref="PromptRequest.OnlyWhenWaitingForInput"/>. Nothing is sent to one that did not.</param>
     /// <param name="directorShutDown">Whether a Director said goodbye and has not come back (the registry's stop stamp,
@@ -1020,6 +1057,7 @@ internal sealed class GatewayFleetManagerEventEnvironment : IFleetManagerEventEn
     public GatewayFleetManagerEventEnvironment(Streaming.PushedSessionStore pushed, TimeSpan stale,
         Func<TenantId, string, Api.SessionVerbClient?> route, Func<TenantId, string?> mark,
         Func<TenantId, bool> replacementPending,
+        Func<TenantId, IReadOnlyCollection<string>> pendingSuccessors,
         Func<TenantId, string, bool> checksIdleBeforeTyping,
         Func<TenantId, string, bool> directorShutDown,
         Func<TenantId, IDisposable>? enterTenantScope = null)
@@ -1029,6 +1067,7 @@ internal sealed class GatewayFleetManagerEventEnvironment : IFleetManagerEventEn
         _route = route ?? throw new ArgumentNullException(nameof(route));
         _mark = mark ?? throw new ArgumentNullException(nameof(mark));
         _replacementPending = replacementPending ?? throw new ArgumentNullException(nameof(replacementPending));
+        _pendingSuccessors = pendingSuccessors ?? throw new ArgumentNullException(nameof(pendingSuccessors));
         _checksIdleBeforeTyping = checksIdleBeforeTyping ?? throw new ArgumentNullException(nameof(checksIdleBeforeTyping));
         _directorShutDown = directorShutDown ?? throw new ArgumentNullException(nameof(directorShutDown));
         _enterTenantScope = enterTenantScope;
@@ -1037,6 +1076,8 @@ internal sealed class GatewayFleetManagerEventEnvironment : IFleetManagerEventEn
     public string? MarkedFleetManager(TenantId tenant) => _mark(tenant);
 
     public bool ReplacementPending(TenantId tenant) => _replacementPending(tenant);
+
+    public IReadOnlyCollection<string> PendingSuccessors(TenantId tenant) => _pendingSuccessors(tenant);
 
     public (string DirectorId, SessionDto Session)? LastKnown(TenantId tenant, string sessionId)
         => _pushed.TryGetLastKnownSession(tenant, sessionId);
