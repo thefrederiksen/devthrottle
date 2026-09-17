@@ -18,6 +18,10 @@
  *   - ASCII only.
  *   - Opened as a plain file with no host, everything works except Send, which shows the exact
  *     message that would have been sent.
+ *   - Hosted by one of our apps, the app's own panel is the one conversation and the one Send, so the
+ *     page draws none of it: no queued list, no sent list, no replies list, no Send, no payload preview.
+ *     It still keeps the whole state and still posts it in state-changed - that is what the app's panel
+ *     renders. The note box is placed against the element the note is about, never over it.
  *
  * Credit: the idea of in-page notes pinned to an element with human labels, questions answered with a
  * Queue button, and queued shown apart from sent comes from lavish-axi by Kun Chen (MIT licence,
@@ -662,9 +666,19 @@
   function cssText(t) {
     return [
       "* { box-sizing: border-box; }",
-      ".drn-tray, .drn-row { font-family: " + t.font + "; font-size: 14px; line-height: 1.4; color: " + t.text + "; }",
+      ".drn-tray, .drn-notebox, .drn-row { font-family: " + t.font + "; font-size: 14px; line-height: 1.4; color: " + t.text + "; }",
       ".drn-tray { position: fixed; right: 16px; bottom: 16px; z-index: 2147483000; width: 360px; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px); overflow: auto; background: " + t.surface + "; border: 1px solid " + t.border + "; border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.35); }",
+      // Hosted, the tray has no lists left in it, so it is not a scrolling panel: the report keeps ONE scrollbar.
+      ".drn-tray.drn-hosted { max-height: none; overflow: visible; }",
       ".drn-tray.drn-collapsed .drn-body { display: none; }",
+      // The note box. It is placed against the element the note is about (see placeNoteBox), sized to the
+      // note rather than to a fixed panel, and it never scrolls itself.
+      ".drn-notebox { position: fixed; left: 0; top: 0; z-index: 2147483001; width: 320px; max-width: calc(100vw - 16px); background: " + t.surface + "; border: 1px solid " + t.border + "; border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.35); padding: 10px 12px; }",
+      ".drn-notebox[hidden] { display: none; }",
+      ".drn-notebox textarea { min-height: 44px; resize: none; overflow: hidden; }",
+      // Only when the note itself grows past the ceiling does the note's own text scroll. The box is never
+      // a scrolling panel.
+      ".drn-notebox.drn-scrolls textarea { overflow: auto; }",
       ".drn-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border-bottom: 1px solid " + t.border + "; }",
       ".drn-body { padding: 10px 12px; }",
       ".drn-h { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: " + t.textDim + "; margin: 12px 0 6px; }",
@@ -787,6 +801,61 @@
     return node;
   }
 
+  // The element a note's selector names, in this page. A selector that no longer resolves - the report was
+  // republished with different markup - gives null, and the note box is then placed against the top-left of
+  // the viewport, where there is nothing of its own to cover. querySelector throws on a selector it cannot
+  // parse, which is the same case, so it is answered the same way.
+  function findBySelector(doc, selector) {
+    if (!selector) return null;
+    try {
+      return doc.querySelector(selector);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Where the note box goes. Pure, so the rule can be checked with rectangles rather than with a browser.
+  //
+  //   anchorRect   - the rectangle of the element the note is about
+  //   questionRect - the rectangle of the question element that contains it, or null when there is none
+  //   box          - { width, height } of the note box
+  //   viewport     - { width, height } of the visible page
+  //
+  // The box goes BELOW what it is about when there is room below, otherwise ABOVE; when neither fits as the
+  // page stands it goes below and the page scrolls by scrollBy so both are visible. It is nudged sideways to
+  // stay inside the viewport. left and top are viewport coordinates AFTER that scroll. It never overlaps the
+  // anchor, and never the question that contains it: both are avoided together, so a note on a paragraph
+  // inside a question does not land on the rest of the question.
+  function placeNoteBox(anchorRect, questionRect, box, viewport) {
+    var MARGIN = 8;
+    var GAP = 8;
+    var avoidTop = anchorRect.top;
+    var avoidBottom = anchorRect.bottom;
+    if (questionRect) {
+      if (questionRect.top < avoidTop) avoidTop = questionRect.top;
+      if (questionRect.bottom > avoidBottom) avoidBottom = questionRect.bottom;
+    }
+
+    var left = anchorRect.left;
+    var rightmost = viewport.width - box.width - MARGIN;
+    if (left > rightmost) left = rightmost;
+    if (left < MARGIN) left = MARGIN;
+
+    var below = avoidBottom + GAP;
+    if (below + box.height <= viewport.height - MARGIN) return { left: left, top: below, scrollBy: 0 };
+
+    var above = avoidTop - GAP - box.height;
+    if (above >= MARGIN) return { left: left, top: above, scrollBy: 0 };
+
+    // Neither fits. Scroll down just enough to open room under it, never so far that what the note is about
+    // leaves the screen, and put the box below it.
+    var need = below + box.height + MARGIN - viewport.height;
+    var most = avoidBottom - MARGIN;
+    var scrollBy = need < most ? need : most;
+    if (scrollBy < 0) scrollBy = 0;
+    return { left: left, top: below - scrollBy, scrollBy: scrollBy };
+  }
+
   function start(options) {
     var opts = options || {};
     var win = opts.window || root;
@@ -841,7 +910,10 @@
     var body = el(doc, "div", { "class": "drn-body" });
     var selectionBtn = el(doc, "button", { type: "button", "data-drn": "note-selection", disabled: "" }, "Note on selected text");
     var pickHint = el(doc, "div", { "class": "drn-where", "data-drn": "pick-hint" }, "");
-    var composer = el(doc, "div", { "data-drn": "composer", hidden: "" });
+    // The note box lives in its OWN shadow host, not in the tray: it is placed against the element the note
+    // is about (placeNoteBox) instead of being pinned to a corner on top of it. The host element carries the
+    // same inline !important protections as the tray, so a report's CSS can neither move it nor hide it.
+    var composer = el(doc, "aside", { "class": "drn-notebox", "data-drn": "composer", "aria-label": "Your note to the agent", hidden: "" });
     var composerWhere = el(doc, "div", { "class": "drn-where", "data-drn": "composer-where" });
     var composerText = el(doc, "textarea", { "data-drn": "composer-text", placeholder: "Your note to the agent", maxlength: String(MAX_STRING) });
     var composerRow = el(doc, "div", { "class": "drn-row" });
@@ -866,25 +938,89 @@
     var sentList = el(doc, "ul", { "class": "drn-list", "data-drn": "sent" });
     var replyList = el(doc, "ul", { "class": "drn-list", "data-drn": "replies" });
 
+    // The conversation - queued, sent, replies, Send and the payload preview. It belongs to a page with no
+    // app around it. Hosted, the app's own panel is the one conversation and the one Send, so this whole
+    // block is taken out of the document (setHosted).
+    var conversation = el(doc, "div", { "data-drn": "conversation" });
+    conversation.appendChild(el(doc, "div", { "class": "drn-h" }, "Queued - not sent yet"));
+    conversation.appendChild(queuedList);
+    conversation.appendChild(sendRow);
+    conversation.appendChild(payloadBox);
+    conversation.appendChild(el(doc, "div", { "class": "drn-h" }, "Sent"));
+    conversation.appendChild(sentList);
+    conversation.appendChild(el(doc, "div", { "class": "drn-h" }, "Replies from the agent"));
+    conversation.appendChild(replyList);
+
     body.appendChild(selectionBtn);
     body.appendChild(pickHint);
-    body.appendChild(composer);
-    body.appendChild(el(doc, "div", { "class": "drn-h" }, "Queued - not sent yet"));
-    body.appendChild(queuedList);
-    body.appendChild(sendRow);
-    body.appendChild(payloadBox);
-    body.appendChild(el(doc, "div", { "class": "drn-h" }, "Sent"));
-    body.appendChild(sentList);
-    body.appendChild(el(doc, "div", { "class": "drn-h" }, "Replies from the agent"));
-    body.appendChild(replyList);
+    body.appendChild(conversation);
     tray.appendChild(body);
     trayRoot.shadow.appendChild(tray);
     doc.body.appendChild(trayRoot.host);
+
+    var noteBoxRoot = shadowHost(doc);
+    uiRoots.push(noteBoxRoot.host);
+    noteBoxRoot.shadow.appendChild(composer);
+    doc.body.appendChild(noteBoxRoot.host);
+
+    // Hosted or not, both ways. The page starts unhosted with the whole tray; the FIRST restore is what makes
+    // it hosted (CONTRACT.md, "No host"), and that is when the conversation leaves the page. Being inside a
+    // frame is not enough: a frame whose host never answers is unhosted and keeps its Send.
+    function setHosted(on) {
+      hosted = on;
+      if (on) {
+        if (conversation.parentNode) conversation.parentNode.removeChild(conversation);
+        tray.classList.add("drn-hosted");
+      } else {
+        if (!conversation.parentNode) body.appendChild(conversation);
+        tray.classList.remove("drn-hosted");
+      }
+    }
 
     function setOpen(open) {
       if (open) tray.classList.remove("drn-collapsed");
       else tray.classList.add("drn-collapsed");
       toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    }
+
+    // The element the open note box is about. It is looked up from the note's own selector, so the click path
+    // and a restore after a reload place the box the same way.
+    var draftAnchorEl = null;
+
+    function rectOf(element) {
+      var r = element.getBoundingClientRect();
+      return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, width: r.width, height: r.height };
+    }
+
+    var EMPTY_RECT = { top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 };
+
+    // The note grows the box, up to a ceiling of two fifths of the viewport. Past that the note's own text
+    // scrolls inside the textarea - the box itself never becomes a scrolling panel, and the report keeps one
+    // scrollbar.
+    function sizeNoteText() {
+      composerText.style.height = "auto";
+      var ceiling = Math.round((doc.documentElement.clientHeight || 600) * 0.4);
+      var wanted = composerText.scrollHeight;
+      composerText.style.height = (wanted < ceiling ? wanted : ceiling) + "px";
+      if (wanted > ceiling) composer.classList.add("drn-scrolls");
+      else composer.classList.remove("drn-scrolls");
+    }
+
+    // Draw the box where placeNoteBox says. The anchor may have been scrolled away since the box was opened,
+    // so it is measured HERE, not when the draft was made.
+    function positionNoteBox(allowScroll) {
+      var anchorRect = draftAnchorEl && doc.contains(draftAnchorEl) ? rectOf(draftAnchorEl) : EMPTY_RECT;
+      var question = draftAnchorEl && draftAnchorEl.closest ? draftAnchorEl.closest("[data-dev-report-question]") : null;
+      var at = placeNoteBox(
+        anchorRect,
+        question ? rectOf(question) : null,
+        { width: composer.offsetWidth, height: composer.offsetHeight },
+        { width: doc.documentElement.clientWidth, height: doc.documentElement.clientHeight }
+      );
+      if (allowScroll && at.scrollBy) win.scrollBy(0, at.scrollBy);
+      composer.style.left = at.left + "px";
+      composer.style.top = at.top + "px";
+      return at;
     }
 
     function renderList(list, items, withStatus) {
@@ -930,12 +1066,18 @@
       sendBtn.textContent = s.queued.length ? "Send " + s.queued.length : "Send";
       toggle.textContent = "Notes (" + s.queued.length + " queued)";
       if (s.draft) {
+        // Only a box that has just appeared may scroll the page to make room for itself; one that is already
+        // open and growing as the owner types must not move the page under them.
+        var opening = composer.hasAttribute("hidden");
         composer.removeAttribute("hidden");
         composerWhere.textContent = describeAnchor(s.draft.anchor);
         if (composerText.value !== s.draft.text) composerText.value = s.draft.text;
+        sizeNoteText();
+        positionNoteBox(opening);
       } else {
         composer.setAttribute("hidden", "");
         composerText.value = "";
+        draftAnchorEl = null;
       }
       renderQuestionStates(s);
     }
@@ -963,8 +1105,8 @@
     }
 
     function openDraft(anchor) {
+      draftAnchorEl = findBySelector(doc, anchor.selector);
       model.setDraft({ anchor: anchor, text: "" });
-      setOpen(true);
       changed();
       composerText.focus();
     }
@@ -1023,6 +1165,8 @@
       var s = model.snapshot();
       if (!s.draft) return;
       model.setDraft({ anchor: s.draft.anchor, text: composerText.value });
+      sizeNoteText();
+      positionNoteBox(false);
       emitState();
     });
 
@@ -1145,6 +1289,13 @@
       });
     });
 
+    // Where the owner presses Send. Hosted, the page draws no Send of its own - the app's notes panel holds
+    // the only one - and these words have to be true of the Cockpit and of the phone alike, with no internal
+    // name in them, because the Gateway does not supply this sentence.
+    function sendHint() {
+      return hosted ? "press Send in the app to send it." : "press Send in the notes tray.";
+    }
+
     function renderQuestionStates(s) {
       questionStates.forEach(function (stateText, id) {
         var queued = null;
@@ -1153,7 +1304,7 @@
         for (var j = 0; j < s.sent.length; j++) if (s.sent[j].questionId === id) sent = s.sent[j];
         if (queued && queued.pending) stateText.textContent = "Sent: " + queued.optionLabel + " - waiting for the app to confirm it has this.";
         else if (queued && queued.statusLabel) stateText.textContent = "Not sent: " + queued.optionLabel + " - " + queued.statusLabel;
-        else if (queued) stateText.textContent = "Queued: " + queued.optionLabel + " - press Send in the notes tray.";
+        else if (queued) stateText.textContent = "Queued: " + queued.optionLabel + " - " + sendHint();
         else if (sent) stateText.textContent = "Sent: " + sent.optionLabel + " - " + sent.statusLabel;
         else stateText.textContent = "";
       });
@@ -1190,14 +1341,17 @@
       var message = parseInbound(event.data);
       if (!message) return;
       if (message.type === "restore") {
-        hosted = true;
+        setHosted(true);
         payloadBox.setAttribute("hidden", "");
         model.restore(message.payload.state);
         applyAnswersToInputs();
-        render();
+        // Scroll first, then draw: the note box is placed against where its anchor is ON SCREEN, so it has to
+        // be measured after the page has been put back where the owner left it.
         var scroll = message.payload.state.scroll;
         win.scrollTo(scroll.x, scroll.y);
-        if (message.payload.state.draft) setOpen(true);
+        var draft = message.payload.state.draft;
+        draftAnchorEl = draft ? findBySelector(doc, draft.anchor.selector) : null;
+        render();
       } else if (message.type === "status") {
         model.applyStatus(message.payload.updates);
         changed();
@@ -1227,6 +1381,7 @@
     version: VERSION,
     selectorFor: selectorFor,
     escapeIdent: escapeIdent,
+    placeNoteBox: placeNoteBox,
     anchorFor: anchorFor,
     tableCellAnchor: tableCellAnchor,
     svgPartAnchor: svgPartAnchor,
