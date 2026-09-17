@@ -31,10 +31,17 @@ HTTP_TIMEOUT_SECONDS = 30.0
 #: the same words whichever side refused.
 MAX_REPORT_BYTES = 10 * 1024 * 1024
 
+# The Gateway's limit on a report key (DevReportEndpoints.MaxKeyLength): the key sits in a unique PostgreSQL index.
+MAX_KEY_LENGTH = 512
+
 EXIT_OK = 0
 EXIT_ERROR = 1
 
 RESULT_KEYS = ("ok", "command", "report", "created", "reply", "ownerRoute", "error", "code", "errors")
+
+
+def key_too_long_sentence(length: int) -> str:
+    return f"The report key is {length} characters; the limit is {MAX_KEY_LENGTH}."
 
 
 def too_large_sentence(byte_count: int) -> str:
@@ -121,8 +128,11 @@ def open_report(file_path: str) -> Dict[str, Any]:
     """Publish the file as a new version of this session's report for that file."""
     try:
         sid = _require_environment()
+        key = report_key(file_path)
+        if len(key) > MAX_KEY_LENGTH:
+            raise CommandError(key_too_long_sentence(len(key)), "key_too_long")
         html = _read_report(file_path)
-        body = {"key": report_key(file_path), "html": html}
+        body = {"key": key, "html": html}
         try:
             answer = gateway.post_json(f"sessions/{gateway.path_segment(sid)}/dev-reports", body,
                                        timeout=HTTP_TIMEOUT_SECONDS)

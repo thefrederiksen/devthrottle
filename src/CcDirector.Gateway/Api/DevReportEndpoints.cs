@@ -43,8 +43,10 @@ internal static class DevReportEndpoints
     /// <summary>The largest reply, in characters (UTF-16 code units, the contract's measure).</summary>
     public const int MaxReplyLength = 20000;
 
-    /// <summary>The largest report key, in characters.</summary>
-    public const int MaxKeyLength = 4096;
+    /// <summary>The largest report key, in characters. The key is part of a unique PostgreSQL B-tree index, whose
+    /// entries are limited to about a third of a page, so the limit sits well under it (phase 2 review Medium 1).
+    /// <c>tools/cc-dev-reports</c> refuses the same length locally with the same sentence.</summary>
+    public const int MaxKeyLength = 512;
 
     /// <summary>The request body this route admits before JSON parsing. The HTML limit is on the decoded report;
     /// JSON escaping can grow a legal 10 MB report several times over, so the transport limit is set well above
@@ -188,11 +190,14 @@ internal static class DevReportEndpoints
             return Results.Json(new { count = reports.Count, reports = Summaries(store, delivery, tenant, reports) });
         });
 
-        app.MapGet("/dev-reports/{reportId}", (string reportId, HttpContext ctx) =>
+        app.MapGet("/dev-reports/{reportId}", async (string reportId, HttpContext ctx, CancellationToken ct) =>
         {
             if (RefuseSessionIdentity(ctx) is { } refused) return refused;
             if (ReqTenant(ctx, boundary) is not { } tenant) return NoTenant();
             if (FindReport(store, tenant, reportId, sessionId: null) is not { } report) return ReportNotFound(reportId);
+            // Settle the report's session BEFORE answering, so the owner never reads "Delivered when the agent finishes
+            // its turn" for a session that has ended, or for one that is idle again (phase 2 review High 1).
+            await delivery.SettleAsync(tenant, report.SessionId, ct);
             return Results.Json(Detail(store, delivery, tenant, report));
         });
 

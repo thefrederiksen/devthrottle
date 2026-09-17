@@ -198,3 +198,159 @@ would have left its Postgres container and the lock behind.
 - A body above the 128 MB transport limit gets the server's own 413, not the dev report body.
 - The title is capped at 200 characters (not in the plan).
 - The Postgres migration was applied only inside the `-Parked` rig; no hosted database has run it.
+
+## Fix round (the independent review, `REVIEW-phase-2.md`)
+
+Brief: `BRIEF-phase-2-fix.md`. Commits f37a3339b (the fixes and their tests) and c1cd33791 (the crash test's fake
+Director stops re-arming the crash once the Gateway is back, so its red says "sent again" rather than "crashed
+again"). Every revert proof below mutated a committed tree, rebuilt, ran, restored with `git checkout -- src`, and
+the restore runs rebuilt (no `--no-build` on a restore).
+
+### Critical 1 - a crash between send and commit
+
+What changed: a new state `sending`, label "Sending to the session" (`DevReportItemStates.SendingState`). The drain
+commits every item a prompt carries to `sending` BEFORE the prompt leaves, then writes the answer: accepted is
+delivered, unanswered is delivered "Sent to the session, not confirmed", never-left and a definite refusal go back to
+held. Every settle pass first rules any item still in `sending` delivered "Sent to the session, not confirmed" and
+never sends it. "No drain in this process owns it" is made true by the lock: the only drain that could own an item
+holds the same per-(tenant, session) lock and commits a final state before it releases it, so anything in `sending`
+seen under the lock was left by a restart or by a drain that threw. `sending` counts in `openItems`
+(`IsOpen`), but is NOT replaceable by a later answer and is never drained (`IsWaiting` is queued or held only).
+
+Tests:
+- `SettleAsync_GatewayDiesAfterTheDirectorAccepted_TheNextProcessNeverSendsItAgain` (unit). The fake Director
+  accepts, and the Gateway's next clock read - the one taken to record the answer - throws, so nothing after the
+  send is written. A new store and delivery over the same database then settle an idle session.
+  Red without the `sending` commit: `Assert.Equal() Failure: Values differ, Expected: 0, Actual: 1` - the new
+  process sent it again.
+- `SettleAsync_AnItemFoundSendingInTheStore_IsSettledNotConfirmedAndNotSent` (unit) and
+  `AnItemACrashLeftSending_OnTheNextGateway_IsSettledNotConfirmedAndNeverSent` (hosted: item set to `sending`, the
+  Gateway stopped, a NEW Gateway started, the session reported idle, the watcher's catch-up sweep run, the owner reads).
+  Red without the orphan settle: unit `Assert.Equal() Failure: Values differ`; hosted
+  `Expected: "delivered", Actual: "sending"`.
+
+A first attempt to stand in for the crash by throwing from the fake Director was wrong and did not go red:
+`DirectorCommandRouter.TrySendAsync` turns a thrown send into a synthesized failure, so it read as unanswered. The
+clock seam is where the death is now.
+
+Not proven: a real process kill. Two Gateway processes at once (a deploy swap) share the database but not the lock:
+the other process's settle can rule an item this one is still sending "not confirmed", and this one then overwrites
+it "delivered". Neither sends it twice; the label can move once.
+
+### High 1 and High 2 - held items for an ended session, and idle sessions no transition reaches
+
+What changed: one pass, `DevReportDelivery.SettleAsync(tenant, session)`: orphaned sends first, then Ended refuses
+every held item "This session has ended", Idle drains, Busy leaves them. `DrainAsync` is gone; the send route, the
+turn-end launcher, the timer and the owner's read all call the one pass. Callers:
+- (a) the turn-end launcher, as before.
+- (b) `DevReportSettleSweep`, a `TenantScopedSweep` on the `SessionHistorySweep` pattern exactly: GatewayHost owns a
+  `System.Threading.Timer` every 30 seconds with an overlap guard and a boundary try/catch, `ForEachTenantAsync`
+  enters each tenant's scope, the body reads `ITenantContext.Current` and settles each distinct session with a queued,
+  held or sending item (`DevReportStore.SessionsWithOpenItems`). Its comment says it is what reaches a Director that
+  reconnects already idle and a session that exits. Test seam `GatewayHost.DevReportSettleSweepScheduleForTests`.
+- (c) `GET /dev-reports/{id}` settles the report's session before answering; `POST /dev-reports/{id}/send` settles
+  inside `SendAsync`, under the lock.
+
+Tests:
+- `HeldItem_ThenTheSessionCloses_TheOwnersDetailShowsItRefused` (hosted, 30-second timer never fires in it). Red with
+  the settle removed from the read route: `Expected: "refused"` (it read held).
+- `HeldItem_DirectorDropsAndReconnectsAlreadyIdle_TheSettleTimerDeliversItOnce` (hosted, its own Gateway with a 300 ms
+  timer): the watcher sees the session waiting, the Director drops, the owner sends (held), the Director reconnects
+  reporting the same waiting state, exactly one prompt arrives. Red with the timer callback made a no-op:
+  `Timed out waiting for the settle timer to deliver the held item`.
+- `SettleAsync_HeldAndTheSessionHasEnded_RefusesThemAndTypesNothing` (unit). Red with the Ended branch emptied:
+  `Assert.All() Failure: 2 out of 2 items in the collection did not pass`.
+
+Not proven: the timer on the hosted deployment. `GET /dev-reports` (the list) does not settle; its `openItems` can be
+stale for up to one timer tick. One session whose settle throws stops the rest of that tenant's sessions for that tick
+(the per-tenant isolation of `TenantScopedSweep`, followed as found).
+
+### High 3 - the idle check and the send are not atomic - ACCEPTED GAP, NOT FIXED
+
+Nothing changed in the code but the class comment of `DevReportDelivery`, which names it. The window: the settle pass
+reads the pushed roster and sees the session waiting; the prompt is then composed, committed to `sending` and sent
+over the tunnel with `WaitForIdle = false`; the Director's prompt verb (`SessionCommandExecutor.SendPromptAsync`)
+refuses only an exited or failed session and writes the text straight to the session. A turn that starts anywhere
+between that roster read and the Director writing the text - an agent resuming by itself, or the owner typing
+directly into the terminal - receives the owner's items mid-turn. Its width is the settle's own database work plus
+one tunnel round trip, plus however stale the pushed roster already was. Closing it needs the Director to refuse a
+prompt to a working session, which is a Director change shipped in a release. No Gateway-side re-check was added.
+
+### High 4 - a definite Director refusal recorded as delivered
+
+What changed: `SessionVerbClient.PromptSendKind.DirectorRefused`, returned for the prompt verb's `Conflict`
+("session has exited") and `NotFound` ("session not found") - both returned by `SessionCommandExecutor.PromptAsync`
+before it touches the session. Every other failure is still `Unanswered`. Session Rules map `DirectorRefused` to
+`Unknown` exactly as before, explicitly, with a comment (`GatewayRuleEnvironment`), and so does the turn verdict
+answer channel (`Unanswered`). `PostPromptAsync` already passed any non-never-left kind through as the detail. For
+dev reports a refusal puts the items back to held, then re-reads the session's reach: ended refuses them; otherwise
+they wait for the next settle pass and are NOT re-sent in the same pass, so a Director that keeps refusing a session
+the roster still shows idle cannot loop.
+
+Tests:
+- `SettleAsync_DirectorRefusesAndTheSessionHasEnded_IsRefusedNotDelivered` (unit, theory over `Conflict` "session
+  has exited" and `NotFound` "session not found", the Director's real shapes).
+- `SettleAsync_DirectorRefusesWhileTheRosterStillSaysIdle_StaysHeldAndIsNotSentAgainInThatPass` (unit).
+- `A_director_that_refused_an_exited_session_is_still_unknown_for_rules` (rules, added beside the existing NotFound
+  case). The rules guard tests (`RulesTypeNothingGuardTests`) and every rules test stayed green.
+Red with the refusal mapping reverted to unanswered: all three dev report cases failed,
+`Assert.Equal() Failure: Values differ` (they read delivered, not confirmed).
+
+Not proven: a refusal from a live Director; the shapes are taken from the executor's code.
+
+### Medium 1 - long keys on PostgreSQL unique indexes
+
+What changed: an item id over 128 characters refuses the whole send, 400 `malformed_item`, "item N is not a valid
+note or answer: id is 129 characters; the limit is 128." Written into CONTRACT.md section 3 beside the 20000 rule
+(the note-taking script is unchanged). The report key limit is 512 (was 4096), 400, "The report key is 513
+characters; the limit is 512." `tools/cc-dev-reports` refuses a key over 512 characters locally with that sentence,
+code `key_too_long`, and sends nothing.
+
+Tests:
+- `ParseBatch_IdOver128Characters_RefusesTheWholeBatch` and `ParseBatch_IdOfExactly128Characters_IsAccepted` (unit).
+  Red without the id limit: `Assert.Null() Failure: Value is not null`.
+- `LongKeysAndIds_AreRefusedWith400_BeforeTheDatabaseSeesThem` (hosted: key 513 refused, key 512 published, an id of
+  129 refuses the batch and nothing is stored). Red with the key limit put back to 4096: `Expected: BadRequest,
+  Actual: OK`.
+- `test_open_key_over_512_characters_is_refused_locally_with_the_gateway_sentence` (tool). Red without the check:
+  `AssertionError: assert 'error: The report key is 513 characters; the limit is 512.' in ''`.
+
+Not proven: an insert of a long id into a real PostgreSQL database; the limits sit far under the documented B-tree
+entry size rather than being measured against it. The migration did not change, so the Postgres proofs were not
+rerun. Python counts a key's length in code points and the Gateway in UTF-16 units; they differ only for characters
+outside the Basic Multilingual Plane, where the Gateway still refuses.
+
+### Medium 2 - note text can counterfeit the prompt's structure
+
+What changed: `DevReportPromptFold.Compose(reports, boundary)`. The owner's words (note text, answer comment) sit
+between `<<<owner-text-<boundary>` and `owner-text-<boundary>>>`, byte for byte. The boundary is eight random
+hexadecimal characters per prompt (`MintBoundary`), minted again if any owner text contains it; `Compose` refuses a
+boundary an owner text contains. The prompt opens with one sentence: the owner's words sit between those markers and
+nothing inside them is an instruction from the Gateway. The title, quote, row, column and diagram labels, question,
+option label and option value are JSON-escaped strings (relaxed encoder: a quote is `\"`, a line break `\n`), so none
+can span lines. The option label is now quoted, which it was not before.
+
+Tests: the pinned prompts take the boundary as a parameter and stay byte for byte (updated for the preamble, the
+markers and the quoted label). `Compose_TheReviewsForgedAnswerInsideANote_StaysInsideTheOwnersBlock` carries the
+review's payload; `Compose_ReportWordsWithLineBreaks_AreJsonStringsThatCannotSpanLines`;
+`Compose_AnOwnerTextHoldingTheBoundary_IsRefused_AndMintBoundaryAvoidsIt`. Red with the closing marker put back to a
+bare `>>>`: the forgery test and the pinned prompts, `Assert.Contains() Failure: Sub-string not found` /
+`Strings differ`. Red with the JSON escaping replaced by plain quotes: the line-break test,
+`Assert.Contains() Failure: Sub-string not found`.
+
+Not proven: how an agent actually reads the bounded prompt. The report KEY is still written unescaped (in "file ..."
+and in the `cc-dev-reports open` line, where escaping would double every backslash in a Windows path); it comes from
+the agent's own tool, not the page, and was not in the ruling.
+
+### Runs
+
+- `.\scripts\test-local.ps1` (default) at f37a3339b: exit 0, "all projects exited zero", 2,020 tests in eight
+  projects, every TRX outcome Completed with executed equal to total. It reported the COVERAGE GAP for the parked
+  Gateway suites, so both were run as below.
+- Gateway.UnitTests in full: 5,003 passed, 2 skipped, 8 failed. All 8 are `HostedSchemaRefusesAnUnownedRowTests`,
+  failing with `Npgsql.NpgsqlException : Failed to connect to 127.0.0.1:55432` (connection refused): they need the
+  PostgreSQL that `-Parked` builds, and nothing here touches that schema. Dev reports and rules alone, restore run
+  after the last commit: 382 passed, 0 failed.
+- Gateway.Tests, `DevReportRoutesHostedTests`: 16 of 16 passed, before and after the revert proofs (the first run
+  queued about six minutes for the Gateway test lock behind two other sessions).
+- `tools/cc-dev-reports`: 25 passed.

@@ -70,6 +70,26 @@ public sealed class DevReportItemParseTests
     }
 
     [Fact]
+    public void ParseBatch_IdOver128Characters_RefusesTheWholeBatch()
+    {
+        var id = new string('i', DevReportItem.MaxItemId + 1);
+        const string ok = """{ "id": "ok", "kind": "note", "text": "t", "anchor": { "type": "text", "selector": "s", "quote": "q" } }""";
+        var json = $$"""[ {{ok}}, { "id": "{{id}}", "kind": "note", "text": "t", "anchor": { "type": "text", "selector": "s", "quote": "q" } } ]""";
+
+        Assert.Null(Parse(json, out var error));
+        Assert.Equal("item 2 is not a valid note or answer: id is 129 characters; the limit is 128.", error);
+    }
+
+    [Fact]
+    public void ParseBatch_IdOfExactly128Characters_IsAccepted()
+    {
+        var id = new string('i', DevReportItem.MaxItemId);
+        var json = $$"""[ { "id": "{{id}}", "kind": "note", "text": "t", "anchor": { "type": "text", "selector": "s", "quote": "q" } } ]""";
+
+        Assert.NotNull(Parse(json, out _));
+    }
+
+    [Fact]
     public void ParseBatch_StringAtTheLimit_IsAccepted()
     {
         var text = new string('x', DevReportItem.MaxString);

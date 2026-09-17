@@ -25,7 +25,7 @@ internal sealed class DevReportTurnEndLauncher
         _delivery = delivery ?? throw new ArgumentNullException(nameof(delivery));
     }
 
-    /// <summary>A session has just crossed into idle (or was first seen idle): drain what is held for it.</summary>
+    /// <summary>A session has just crossed into idle (or was first seen idle): settle what is held for it.</summary>
     public void OnTurnEnd(TenantId tenant, string sessionId, bool isNewTurn)
     {
         try
@@ -34,13 +34,13 @@ internal sealed class DevReportTurnEndLauncher
             {
                 try
                 {
-                    var delivered = await _delivery.DrainAsync(tenant, sessionId, CancellationToken.None).ConfigureAwait(false);
+                    var delivered = await _delivery.SettleAsync(tenant, sessionId, CancellationToken.None).ConfigureAwait(false);
                     if (delivered > 0)
                         FileLog.Write($"[DevReportTurnEndLauncher] sid={sessionId} newTurn={isNewTurn} delivered {delivered} item(s)");
                 }
                 catch (Exception ex)
                 {
-                    FileLog.Write($"[DevReportTurnEndLauncher] sid={sessionId} drain FAILED: {ex.Message}");
+                    FileLog.Write($"[DevReportTurnEndLauncher] sid={sessionId} settle FAILED: {ex.Message}");
                 }
             });
         }

@@ -8,6 +8,7 @@ using CcDirector.Core.Security;
 using CcDirector.Core.Sessions;
 using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Contracts;
+using CcDirector.Gateway.DevReports;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -27,6 +28,9 @@ namespace CcDirector.Gateway.Tests;
 ///  - THE RESTART. Items held when the Gateway stops are delivered once by the NEXT Gateway on the same database,
 ///    through the turn-end watcher's own catch-up sweep.
 ///  - THE SIZE LIMIT, exactly at and one byte past 10 megabytes.
+///  - THE SETTLE PASS (fix round): a held item for a session that then closes reads refused on the owner's detail; a
+///    held item for a Director that drops and reconnects already idle is delivered once by the settle TIMER; an item a
+///    crash left sending is, on the next Gateway, settled not confirmed and never sent again.
 ///
 /// PARKED SUITE. Gateway.Tests serializes machine-wide and does not run in the default gate. Every test uses its
 /// own session ids, because every Gateway in this process shares one gateway.db.
@@ -215,8 +219,8 @@ public sealed class DevReportRoutesHostedTests : IAsyncLifetime
 
         var prompt = Assert.Single(_prompts);
         Assert.Contains("row \"Gateway\", column \"Failures\"", prompt.Text);
-        Assert.Contains("\"When should we deploy?\": Tonight - quiet traffic (value \"tonight\")", prompt.Text);
-        Assert.Contains("<<<\n  This number is wrong\nIt was 21 yesterday\n>>>", prompt.Text);
+        Assert.Contains("\"When should we deploy?\": \"Tonight - quiet traffic\" (value \"tonight\")", prompt.Text);
+        Assert.Matches(@"\n<<<owner-text-([0-9a-f]{8})\n  This number is wrong\nIt was 21 yesterday\nowner-text-\1>>>\n", prompt.Text);
         Assert.False(prompt.AgentDriven);
         Assert.Equal(SubmissionRoutes.GatewayDevReport, prompt.Provenance!.Route);
         Assert.Equal(SubmissionIdentityKinds.Device, prompt.Provenance.IdentityKind);
@@ -431,6 +435,125 @@ public sealed class DevReportRoutesHostedTests : IAsyncLifetime
         var (_, detail) = await Send(ownerAfter, HttpMethod.Get, $"dev-reports/{reportId}");
         Assert.All(detail.GetProperty("items").EnumerateArray(),
             i => Assert.Equal("delivered", i.GetProperty("status").GetString()));
+    }
+
+    [Fact]
+    public async Task HeldItem_ThenTheSessionCloses_TheOwnersDetailShowsItRefused()
+    {
+        await ConnectDirectorAsync();
+        await _director!.PushSnapshotAsync(Row(_sessionA, "Working"));
+        var reportId = await PublishAsync(_sessionA, @"C:\work\held-then-ended.html", _sessionKeyA);
+        using var owner = Client(_deviceKeyA);
+        var (_, sent) = await Send(owner, HttpMethod.Post, $"dev-reports/{reportId}/send", new { items = new[] { AnswerTonight("a1") } });
+        Assert.Equal("held", sent.GetProperty("updates")[0].GetProperty("status").GetString());
+
+        // The Director stops running it: a full snapshot without it closes it. No turn end is ever raised for it.
+        await _director.PushSnapshotAsync();
+        await WaitUntil(() => _gateway.PushedSessions.TryLocate(_tenantA, _sessionA, TimeSpan.FromMinutes(5)) is null,
+            "the roster to drop the closed session");
+
+        var (status, detail) = await Send(owner, HttpMethod.Get, $"dev-reports/{reportId}");
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        var item = Assert.Single(detail.GetProperty("items").EnumerateArray());
+        Assert.Equal("refused", item.GetProperty("status").GetString());
+        Assert.Equal("This session has ended", item.GetProperty("statusLabel").GetString());
+        Assert.Equal(0, detail.GetProperty("report").GetProperty("openItems").GetInt32());
+        Assert.Empty(_prompts);
+    }
+
+    [Fact]
+    public async Task HeldItem_DirectorDropsAndReconnectsAlreadyIdle_TheSettleTimerDeliversItOnce()
+    {
+        // This test's own Gateway runs the settle timer at a short interval; every other test here leaves it at 30s.
+        await _gateway.StopAsync();
+        GatewayHost.DevReportSettleSweepScheduleForTests = TimeSpan.FromMilliseconds(300);
+        try { await StartGatewayAsync(); }
+        finally { GatewayHost.DevReportSettleSweepScheduleForTests = null; }
+
+        // The watcher sees the session waiting.
+        await ConnectDirectorAsync();
+        await _director!.PushDeltaAsync(Row(_sessionA, "WaitingForInput"));
+        var reportId = await PublishAsync(_sessionA, @"C:\work\reconnect.html", _sessionKeyA);
+
+        // The Director drops. The owner sends while it is away, so the item is held.
+        await _director.DisposeAsync();
+        _director = null;
+        await WaitUntil(() => !_gateway.PushedSessions.IsStreamConnected(_tenantA, _directorId), "the Director's stream to drop");
+        using var owner = Client(_deviceKeyA);
+        var (_, sent) = await Send(owner, HttpMethod.Post, $"dev-reports/{reportId}/send", new { items = new[] { AnswerTonight("a1") } });
+        Assert.Equal("held", sent.GetProperty("updates")[0].GetProperty("status").GetString());
+        Assert.Empty(_prompts);
+
+        // It reconnects reporting the SAME waiting state the watcher last saw, so no turn end is raised.
+        await ConnectDirectorAsync();
+        await _director!.PushSnapshotAsync(Row(_sessionA, "WaitingForInput"));
+
+        await WaitUntil(() => !_prompts.IsEmpty, "the settle timer to deliver the held item");
+        await Task.Delay(1500);
+
+        var prompt = Assert.Single(_prompts);
+        Assert.Contains("\"Tonight - quiet traffic\" (value \"tonight\")", prompt.Text);
+        var (_, detail) = await Send(owner, HttpMethod.Get, $"dev-reports/{reportId}");
+        Assert.Equal("Delivered to the session", detail.GetProperty("items")[0].GetProperty("statusLabel").GetString());
+    }
+
+    [Fact]
+    public async Task AnItemACrashLeftSending_OnTheNextGateway_IsSettledNotConfirmedAndNeverSent()
+    {
+        await ConnectDirectorAsync();
+        await _director!.PushDeltaAsync(Row(_sessionA, "Working"));
+        var reportId = await PublishAsync(_sessionA, @"C:\work\crash-sending.html", _sessionKeyA);
+        using (var owner = Client(_deviceKeyA))
+            await Send(owner, HttpMethod.Post, $"dev-reports/{reportId}/send", new { items = new[] { NoteOnTheCell("n1") } });
+
+        // The Gateway dies mid-send: the item is in sending, exactly as a crash between the send and its answer leaves it.
+        var store = _gateway.DevReportsForTest;
+        var ids = store.Items(_tenantA, Guid.Parse(reportId)).Select(i => i.Id).ToList();
+        store.SetState(_tenantA, ids, DevReportItemStates.SendingState, DateTime.UtcNow);
+        await _director.DisposeAsync();
+        _director = null;
+        await _gateway.StopAsync();
+        await StartGatewayAsync();
+
+        // The session is idle on the new Gateway, so anything still deliverable WOULD be sent now.
+        await ConnectDirectorAsync();
+        await _director!.PushSnapshotAsync(Row(_sessionA, "WaitingForInput"));
+        await _gateway.TurnEndWatcherForTest!.SweepAsync(sweepAll: true);
+        using var ownerAfter = Client(_deviceKeyA);
+        var (_, detail) = await Send(ownerAfter, HttpMethod.Get, $"dev-reports/{reportId}");
+        await Task.Delay(1500);
+
+        var item = Assert.Single(detail.GetProperty("items").EnumerateArray());
+        Assert.Equal("delivered", item.GetProperty("status").GetString());
+        Assert.Equal("Sent to the session, not confirmed", item.GetProperty("statusLabel").GetString());
+        Assert.Equal(0, detail.GetProperty("report").GetProperty("openItems").GetInt32());
+        Assert.Empty(_prompts);
+    }
+
+    [Fact]
+    public async Task LongKeysAndIds_AreRefusedWith400_BeforeTheDatabaseSeesThem()
+    {
+        using var agent = Client(_sessionKeyA);
+        var longKey = new string('k', 513);
+
+        var publish = await Send(agent, HttpMethod.Post, $"sessions/{_sessionA}/dev-reports", new { key = longKey, html = Report() });
+        var atLimit = await Send(agent, HttpMethod.Post, $"sessions/{_sessionA}/dev-reports", new { key = new string('k', 512), html = Report() });
+
+        Assert.Equal(HttpStatusCode.BadRequest, publish.Status);
+        Assert.Equal("The report key is 513 characters; the limit is 512.", publish.Body.GetProperty("error").GetString());
+        Assert.Equal(HttpStatusCode.OK, atLimit.Status);
+
+        var reportId = atLimit.Body.GetProperty("report").GetProperty("id").GetString()!;
+        using var owner = Client(_deviceKeyA);
+        var send = await Send(owner, HttpMethod.Post, $"dev-reports/{reportId}/send",
+            new { items = new[] { AnswerTonight("a1"), AnswerTonight(new string('i', 129)) } });
+
+        Assert.Equal(HttpStatusCode.BadRequest, send.Status);
+        Assert.Equal("malformed_item", send.Body.GetProperty("code").GetString());
+        Assert.Contains("id is 129 characters; the limit is 128.", send.Body.GetProperty("error").GetString());
+        var (_, detail) = await Send(owner, HttpMethod.Get, $"dev-reports/{reportId}");
+        Assert.Equal(0, detail.GetProperty("items").GetArrayLength());
     }
 
     [Fact]

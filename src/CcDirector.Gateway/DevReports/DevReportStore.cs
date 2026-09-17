@@ -125,14 +125,15 @@ internal sealed class DevReportStore
         return ctx.DevReportItems.AsNoTracking().Where(i => i.ReportId == reportId).OrderBy(i => i.Sequence).ToList();
     }
 
-    /// <summary>How many items of each report are still waiting to go (queued or held).</summary>
+    /// <summary>How many items of each report are not yet settled (queued, held or sending).</summary>
     public IReadOnlyDictionary<Guid, int> OpenItemCounts(TenantId tenant, IReadOnlyCollection<Guid> reportIds)
     {
         if (reportIds.Count == 0) return new Dictionary<Guid, int>();
         using var ctx = _db.CreateContext(tenant);
         return ctx.DevReportItems.AsNoTracking()
             .Where(i => reportIds.Contains(i.ReportId)
-                        && (i.Status == DevReportItemStates.Queued || i.Status == DevReportItemStates.Held))
+                        && (i.Status == DevReportItemStates.Queued || i.Status == DevReportItemStates.Held
+                            || i.Status == DevReportItemStates.Sending))
             .Select(i => i.ReportId)
             .ToList()
             .GroupBy(id => id)
@@ -196,7 +197,7 @@ internal sealed class DevReportStore
                     foreach (var earlier in existing.Concat(added).Where(i =>
                                  i.Kind == DevReportItem.Answer
                                  && string.Equals(i.QuestionId, item.QuestionId, StringComparison.Ordinal)
-                                 && DevReportItemStates.IsOpen(i.Status)))
+                                 && DevReportItemStates.IsWaiting(i.Status)))
                     {
                         earlier.Status = DevReportItemStates.ReplacedState.Status;
                         earlier.StatusLabel = DevReportItemStates.ReplacedState.Label;
@@ -237,7 +238,7 @@ internal sealed class DevReportStore
 
     /// <summary>Every item of a session still waiting to go (queued or held), across all its reports, in the
     /// order the owner sent them.</summary>
-    public IReadOnlyList<DevReportItemEntity> OpenItemsForSession(TenantId tenant, string sessionId)
+    public IReadOnlyList<DevReportItemEntity> WaitingItemsForSession(TenantId tenant, string sessionId)
     {
         using var ctx = _db.CreateContext(tenant);
         return ctx.DevReportItems.AsNoTracking()
@@ -245,6 +246,30 @@ internal sealed class DevReportStore
                         && (i.Status == DevReportItemStates.Queued || i.Status == DevReportItemStates.Held))
             .ToList()
             .OrderBy(i => i.SentAtUtc).ThenBy(i => i.ReportId).ThenBy(i => i.Sequence)
+            .ToList();
+    }
+
+    /// <summary>Every item of a session committed to <c>sending</c>, across all its reports.</summary>
+    public IReadOnlyList<DevReportItemEntity> SendingItemsForSession(TenantId tenant, string sessionId)
+    {
+        using var ctx = _db.CreateContext(tenant);
+        return ctx.DevReportItems.AsNoTracking()
+            .Where(i => i.SessionId == sessionId && i.Status == DevReportItemStates.Sending)
+            .ToList();
+    }
+
+    /// <summary>The sessions of the account that have any item not yet settled (queued, held or sending) - what the
+    /// settle sweep visits.</summary>
+    public IReadOnlyList<string> SessionsWithOpenItems(TenantId tenant)
+    {
+        using var ctx = _db.CreateContext(tenant);
+        return ctx.DevReportItems.AsNoTracking()
+            .Where(i => i.Status == DevReportItemStates.Queued || i.Status == DevReportItemStates.Held
+                        || i.Status == DevReportItemStates.Sending)
+            .Select(i => i.SessionId)
+            .Distinct()
+            .ToList()
+            .OrderBy(sid => sid, StringComparer.Ordinal)
             .ToList();
     }
 

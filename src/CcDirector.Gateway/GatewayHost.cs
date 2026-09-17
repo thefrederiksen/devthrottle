@@ -856,6 +856,19 @@ public sealed class GatewayHost : IAsyncDisposable
     private readonly DevReports.DevReportStore _devReports;
     private readonly DevReports.DevReportDelivery _devReportDelivery;
     private readonly DevReports.DevReportTurnEndLauncher _devReportLauncher;
+    private readonly DevReports.DevReportSettleSweep _devReportSettleSweep;
+    private System.Threading.Timer? _devReportSettleTimer;
+    private int _devReportSettleSweepInFlight;
+
+    /// <summary>
+    /// Test seam: overrides the dev report settle sweep schedule (both the first tick and the period). Null in
+    /// production and never assigned outside tests. It exists so a hosted test can watch the TIMER deliver what a
+    /// reconnect left held, in well under the real 30 seconds - and turns red if the timer is not started.
+    /// </summary>
+    internal static TimeSpan? DevReportSettleSweepScheduleForTests;
+
+    /// <summary>Test-only: the dev report record, so a hosted test can leave an item in the state a crash leaves it.</summary>
+    internal DevReports.DevReportStore DevReportsForTest => _devReports;
 
     // The turn log: one self-contained record per turn end, on the machines an administrator has switched
     // capture on for. It rides the SAME boundary as the supervisor and the rules engine but is deliberately
@@ -1850,6 +1863,8 @@ public sealed class GatewayHost : IAsyncDisposable
             },
             enterTenantScope: tenant => _tenantBoundary.EnterScope(tenant));
         _devReportLauncher = new DevReports.DevReportTurnEndLauncher(_devReportDelivery);
+        _devReportSettleSweep = new DevReports.DevReportSettleSweep(
+            _tenantBoundary, TenantRegistry, _tenantContext, _devReports, _devReportDelivery);
         _knownRepositories = new History.KnownRepositoryStore(_gatewayDb);
         _sessionTurns = new History.SessionTurnStore(_gatewayDb);
         // The Wingman-on-every-turn mission: the judged-stop record, and its seven-day purge on the same
@@ -4429,6 +4444,14 @@ public sealed class GatewayHost : IAsyncDisposable
             SessionHistorySweepStartupDelay, SessionHistorySweepInterval);
         FileLog.Write($"[GatewayHost] session history sweep started: every {SessionHistorySweepInterval.TotalMinutes:0}m, interrupted after {History.SessionHistorySweep.InterruptedThreshold.TotalMinutes:0}m of silence, retention {History.SessionHistorySweep.Retention.TotalDays:0} days");
 
+        // Dev reports (issue #2958, phase 2 review High 1 and High 2): settle every session still holding items. The
+        // turn-end watcher raises nothing for a session that exits, or for a Director that reconnects with its
+        // session already waiting - the state it last saw - so THIS timer is what reaches those sessions.
+        var devReportSettleSchedule = DevReportSettleSweepScheduleForTests ?? DevReports.DevReportSettleSweep.Interval;
+        _devReportSettleTimer = new System.Threading.Timer(_ => SweepDevReportSettle(), null,
+            devReportSettleSchedule, devReportSettleSchedule);
+        FileLog.Write($"[GatewayHost] dev report settle sweep started: every {devReportSettleSchedule.TotalSeconds:0.###}s");
+
         // MTR-15 cancellation cutoff: the hosted active-tenant entitlement sweep. Forces a fresh entitlement
         // read for every tenant with a live lease every ~60s and revokes any that has become NotEntitled, so a
         // cancelled tenant loses access within roughly one sweep cycle (never past the paid period end).
@@ -5037,6 +5060,33 @@ public sealed class GatewayHost : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// The dev report settle timer callback (issue #2958) - a boundary: it owns the overlap guard and the try/catch so
+    /// a sweep failure never crashes the timer thread. One sweep at a time; a slow tunnel send makes the next tick skip.
+    /// </summary>
+    private void SweepDevReportSettle()
+    {
+        if (Interlocked.CompareExchange(ref _devReportSettleSweepInFlight, 1, 0) != 0)
+            return;
+        _ = RunDevReportSettleSweepAsync();
+    }
+
+    private async Task RunDevReportSettleSweepAsync()
+    {
+        try
+        {
+            await _devReportSettleSweep.SweepAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayHost] dev report settle sweep FAILED: {ex.Message}");
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _devReportSettleSweepInFlight, 0);
+        }
+    }
+
     private void SweepEntitlementLeases()
     {
         // Skip this tick if the previous entitlement sweep is still running (many active tenants). One at a
@@ -5280,6 +5330,8 @@ public sealed class GatewayHost : IAsyncDisposable
         try { _suggestionSweepTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] dictionary-suggestion timer dispose error: {ex.Message}"); }
         try { _sessionHistoryTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] session history timer dispose error: {ex.Message}"); }
         _sessionHistoryTimer = null;
+        try { _devReportSettleTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] dev report settle timer dispose error: {ex.Message}"); }
+        _devReportSettleTimer = null;
         _activityRetentionTimer = null;
         _turnVerdictRetentionTimer = null;
         _turnVerdictWatchdogTimer = null;
