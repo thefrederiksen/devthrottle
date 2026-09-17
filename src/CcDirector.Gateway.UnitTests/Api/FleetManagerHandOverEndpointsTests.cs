@@ -47,14 +47,14 @@ public sealed class FleetManagerHandOverEndpointsTests
 
         public bool ChangesOwner(TenantId tenant, string directorId) => true;
 
-        public Task<(SessionDto? Session, string? Error)> SetControllerAsync(TenantId tenant, string directorId,
-            string sessionId, string? controllerSessionId, CancellationToken ct)
+        public Task<(SessionDto? Session, string? Error, bool OwnerMoved)> SetControllerAsync(TenantId tenant, string directorId,
+            string sessionId, string? expectedControllerSessionId, string? controllerSessionId, CancellationToken ct)
         {
             Sends++;
-            return Task.FromResult<(SessionDto?, string?)>((new SessionDto
+            return Task.FromResult<(SessionDto?, string?, bool)>((new SessionDto
             {
                 SessionId = sessionId, Name = "Plain work", IsControlled = true, ControllerSessionId = controllerSessionId,
-            }, null));
+            }, null, false));
         }
 
         public void Audit(TenantId tenant, string sessionId, string actor, string detail) => LastActor = actor;

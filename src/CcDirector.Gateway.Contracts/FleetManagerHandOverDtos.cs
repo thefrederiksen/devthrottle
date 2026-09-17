@@ -82,10 +82,22 @@ public sealed class FleetHandOverResultDto
 
 /// <summary>
 /// The body of the Director's <c>set-controller</c> verb: the session that owns this one from now on, or null for
-/// none. The Gateway decides it; the Director stores it.
+/// none - applied only if the session's owner is still the one the Gateway checked. The Gateway decides it; the
+/// Director compares and stores it.
 /// </summary>
 public sealed class SetControllerRequest
 {
+    /// <summary>The value of <see cref="ExpectedControllerSessionId"/> when the Gateway found no owning session.</summary>
+    public const string NoOwner = "none";
+
     /// <summary>The owning session's full id, or null when the owner owns the session.</summary>
     public string? ControllerSessionId { get; set; }
+
+    /// <summary>
+    /// The owner the Gateway checked before it decided: an owning session's full id, or <see cref="NoOwner"/>. Required.
+    /// The Director changes the owner only if the session's owner is still this, and otherwise refuses with
+    /// <see cref="DirectorCommandStatus.Conflict"/> - so a session another session acquired meanwhile is never taken,
+    /// and of two hand overs sent at once exactly one is made.
+    /// </summary>
+    public string? ExpectedControllerSessionId { get; set; }
 }

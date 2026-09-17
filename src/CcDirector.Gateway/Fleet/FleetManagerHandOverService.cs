@@ -19,10 +19,12 @@ public interface IFleetManagerHandOverEnvironment
     /// <summary>Whether this account's Director said it carries out the <c>set-controller</c> verb.</summary>
     bool ChangesOwner(TenantId tenant, string directorId);
 
-    /// <summary>Send <c>set-controller</c> to the Director. The session as it reported it after, or the reason it did
-    /// not.</summary>
-    Task<(SessionDto? Session, string? Error)> SetControllerAsync(TenantId tenant, string directorId, string sessionId,
-        string? controllerSessionId, CancellationToken ct);
+    /// <summary>Send <c>set-controller</c> to the Director: <paramref name="controllerSessionId"/> owns the session from
+    /// now on, provided its owner is still <paramref name="expectedControllerSessionId"/> (null or empty for none). The
+    /// session as it reported it after, or the reason it did not - with <c>OwnerMoved</c> true when the Director refused
+    /// because the owner was no longer the expected one.</summary>
+    Task<(SessionDto? Session, string? Error, bool OwnerMoved)> SetControllerAsync(TenantId tenant, string directorId, string sessionId,
+        string? expectedControllerSessionId, string? controllerSessionId, CancellationToken ct);
 
     /// <summary>Record the change in the account's audit trail. Throws when it cannot.</summary>
     void Audit(TenantId tenant, string sessionId, string actor, string detail);
@@ -65,6 +67,10 @@ public sealed record FleetHandOverResult(int Status, FleetHandOverResultDto? Ans
 ///    is not taken from it. A session whose owner has ended asks the owner directly, and may be handed over;
 ///  - back to the owner when the owner already has it, or when another session than the Fleet Manager owns it;
 ///  - a session that has ended.
+///
+/// The change itself is compare-and-set: the Director is told the owner checked here and refuses, as a 409, when the
+/// session's owner is no longer that - so of two hand overs sent at once exactly one is made, and a session that
+/// another session acquired between this check and the change is left with that session.
 ///
 /// Every change is recorded in the governance audit trail. A change the Director made but the trail could not record
 /// is still a change, so it is answered as made, and the answer says the record is missing.
@@ -169,7 +175,13 @@ public sealed class FleetManagerHandOverService
                 $"The Director running {name}{OnMachine(session)} is older than hand over and cannot change a session's owner. " +
                 "Update DevThrottle on that computer, then hand the session over again.");
 
-        var (after, error) = await _env.SetControllerAsync(tenant, directorId, sid, newOwner, ct).ConfigureAwait(false);
+        // Compare and set: the Director makes the change only if the owner is still the one checked above. A session
+        // another session acquired meanwhile, or a second hand over that got there first, is a conflict - never overwritten.
+        var (after, error, ownerMoved) = await _env.SetControllerAsync(tenant, directorId, sid, owner, newOwner, ct).ConfigureAwait(false);
+        if (ownerMoved)
+            return FleetHandOverResult.Refused(409,
+                $"{name} was not handed over: its owner changed while the hand over was on its way ({error ?? "no reason given"}). " +
+                "Look at who owns it now, then hand it over again if that is still right.");
         if (after is null)
             return FleetHandOverResult.Refused(502,
                 $"{name} was not handed over: its Director did not make the change ({error ?? "no answer"}).");

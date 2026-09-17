@@ -133,17 +133,25 @@ internal sealed class GatewayFleetManagerHandOverEnvironment : IFleetManagerHand
 
     public bool ChangesOwner(TenantId tenant, string directorId) => Capabilities.ChangesOwner(tenant, directorId);
 
-    public async Task<(SessionDto? Session, string? Error)> SetControllerAsync(TenantId tenant, string directorId,
-        string sessionId, string? controllerSessionId, CancellationToken ct)
+    public async Task<(SessionDto? Session, string? Error, bool OwnerMoved)> SetControllerAsync(TenantId tenant, string directorId,
+        string sessionId, string? expectedControllerSessionId, string? controllerSessionId, CancellationToken ct)
     {
         using var scope = EnterTenantScope(tenant);
         var director = Directors.Get(tenant, directorId);
+        var request = new SetControllerRequest
+        {
+            ControllerSessionId = controllerSessionId,
+            ExpectedControllerSessionId = string.IsNullOrWhiteSpace(expectedControllerSessionId)
+                ? SetControllerRequest.NoOwner
+                : expectedControllerSessionId,
+        };
         var result = await DirectorCommandRouter.TrySendAsync(SendCommand, directorId, "set-controller", sessionId,
-            new SetControllerRequest { ControllerSessionId = controllerSessionId }, ct, machineName: director?.MachineName);
-        if (result is null) return (null, "its Director is not connected");
-        if (!result.Ok) return (null, result.Error ?? result.Status.ToString());
+            request, ct, machineName: director?.MachineName);
+        if (result is null) return (null, "its Director is not connected", false);
+        if (!result.Ok)
+            return (null, result.Error ?? result.Status.ToString(), result.Status == DirectorCommandStatus.Conflict);
         var row = DirectorCommandRouter.ReadBody<SessionDto>(result);
-        return row is null ? (null, "its Director answered without the session") : (row, null);
+        return row is null ? (null, "its Director answered without the session", false) : (row, null, false);
     }
 
     public void Audit(TenantId tenant, string sessionId, string actor, string detail)

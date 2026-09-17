@@ -2,7 +2,9 @@ using System.Text.Json;
 using CcDirector.ControlApi;
 using CcDirector.Core.Backends;
 using CcDirector.Core.Sessions;
+using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Contracts;
+using CcDirector.Gateway.Fleet;
 using Xunit;
 
 namespace CcDirector.Gateway.Tests;
@@ -64,7 +66,7 @@ public sealed class SessionOwnerExecutorTests
         var raised = 0;
         session.OnControllerChanged += () => raised++;
 
-        var over = await SendAsync(manager, session.Id.ToString(), new SetControllerRequest { ControllerSessionId = fleetManager.ToString() });
+        var over = await SendAsync(manager, session.Id.ToString(), new SetControllerRequest { ControllerSessionId = fleetManager.ToString(), ExpectedControllerSessionId = "none" });
 
         Assert.Equal(DirectorCommandStatus.Ok, over.Status);
         var answered = JsonSerializer.Deserialize<SessionDto>(over.BodyJson!, Web)!;
@@ -74,7 +76,7 @@ public sealed class SessionOwnerExecutorTests
         Assert.Equal(fleetManager.ToString(), reported.ControllerSessionId);
         Assert.Equal(1, raised);
 
-        var back = await SendAsync(manager, session.Id.ToString(), new SetControllerRequest { ControllerSessionId = null });
+        var back = await SendAsync(manager, session.Id.ToString(), new SetControllerRequest { ControllerSessionId = null, ExpectedControllerSessionId = fleetManager.ToString() });
 
         Assert.Equal(DirectorCommandStatus.Ok, back.Status);
         var after = ControlEndpoints.Map(session, "director-under-test");
@@ -91,7 +93,7 @@ public sealed class SessionOwnerExecutorTests
         var raised = 0;
         session.OnControllerChanged += () => raised++;
 
-        var result = await SendAsync(manager, session.Id.ToString(), new SetControllerRequest { ControllerSessionId = "  " });
+        var result = await SendAsync(manager, session.Id.ToString(), new SetControllerRequest { ControllerSessionId = "  ", ExpectedControllerSessionId = "none" });
 
         Assert.Equal(DirectorCommandStatus.Ok, result.Status);
         Assert.Null(session.ControllerSessionId);
@@ -104,9 +106,10 @@ public sealed class SessionOwnerExecutorTests
         using var manager = new SessionManager(new Core.Configuration.AgentOptions());
         var session = NewSession(manager);
         var owner = Guid.NewGuid();
-        session.SetController(owner);
+        session.SetController(null, owner, null);
 
-        var result = await SendAsync(manager, session.Id.ToString(), new SetControllerRequest { ControllerSessionId = "the-fleet-manager" });
+        var result = await SendAsync(manager, session.Id.ToString(),
+            new SetControllerRequest { ControllerSessionId = "the-fleet-manager", ExpectedControllerSessionId = owner.ToString() });
 
         Assert.Equal(DirectorCommandStatus.BadRequest, result.Status);
         Assert.Equal("controllerSessionId 'the-fleet-manager' is not a session id", result.Error);
@@ -119,7 +122,7 @@ public sealed class SessionOwnerExecutorTests
         using var manager = new SessionManager(new Core.Configuration.AgentOptions());
         var session = NewSession(manager);
 
-        var result = await SendAsync(manager, session.Id.ToString(), new SetControllerRequest { ControllerSessionId = session.Id.ToString() });
+        var result = await SendAsync(manager, session.Id.ToString(), new SetControllerRequest { ControllerSessionId = session.Id.ToString(), ExpectedControllerSessionId = "none" });
 
         Assert.Equal(DirectorCommandStatus.BadRequest, result.Status);
         Assert.Null(session.ControllerSessionId);
@@ -142,7 +145,8 @@ public sealed class SessionOwnerExecutorTests
     {
         using var manager = new SessionManager(new Core.Configuration.AgentOptions());
 
-        var result = await SendAsync(manager, Guid.NewGuid().ToString(), new SetControllerRequest { ControllerSessionId = null });
+        var result = await SendAsync(manager, Guid.NewGuid().ToString(),
+            new SetControllerRequest { ControllerSessionId = null, ExpectedControllerSessionId = "none" });
 
         Assert.Equal(DirectorCommandStatus.NotFound, result.Status);
     }
@@ -176,14 +180,18 @@ public sealed class SessionOwnerExecutorTests
             var fleetManager = Guid.NewGuid().ToString();
             if (handBackAfter)
             {
-                session.SetController(Guid.Parse(fleetManager));
+                session.SetController(null, Guid.Parse(fleetManager), null);
             }
             // The Director's routine save, before the change.
             journal.Update(manager.BuildCrashJournalRoster());
             manager.SaveCurrentState(manager.DurableStateStore!);
 
             var result = await SendAsync(manager, session.Id.ToString(),
-                new SetControllerRequest { ControllerSessionId = handBackAfter ? null : fleetManager });
+                new SetControllerRequest
+                {
+                    ControllerSessionId = handBackAfter ? null : fleetManager,
+                    ExpectedControllerSessionId = handBackAfter ? fleetManager : SetControllerRequest.NoOwner,
+                });
             Assert.True(result.Ok, result.Error);
             var expected = handBackAfter ? null : fleetManager;
 
@@ -201,5 +209,272 @@ public sealed class SessionOwnerExecutorTests
         {
             try { Directory.Delete(dir, recursive: true); } catch { /* scratch */ }
         }
+    }
+
+    // ================================================================= compare and set (the Architect's ruling on step 8)
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("the-user")]
+    public async Task SetController_NoUsableExpectedOwner_IsRefusedAndNothingChanges(string? expected)
+    {
+        using var manager = new SessionManager(new Core.Configuration.AgentOptions());
+        var session = NewSession(manager);
+
+        var result = await SendAsync(manager, session.Id.ToString(),
+            new SetControllerRequest { ControllerSessionId = Guid.NewGuid().ToString(), ExpectedControllerSessionId = expected });
+
+        Assert.Equal(DirectorCommandStatus.BadRequest, result.Status);
+        Assert.StartsWith("expectedControllerSessionId must be a session id or 'none'", result.Error);
+        Assert.Null(session.ControllerSessionId);
+    }
+
+    [Fact]
+    public async Task SetController_OwnerIsNoLongerTheExpectedOne_IsAConflictAndTheOwnerIsKept()
+    {
+        using var manager = new SessionManager(new Core.Configuration.AgentOptions());
+        var session = NewSession(manager);
+        var theManager = Guid.NewGuid();
+        session.SetController(null, theManager, null);
+        var raised = 0;
+        session.OnControllerChanged += () => raised++;
+
+        var result = await SendAsync(manager, session.Id.ToString(),
+            new SetControllerRequest { ControllerSessionId = Guid.NewGuid().ToString(), ExpectedControllerSessionId = "none" });
+
+        Assert.Equal(DirectorCommandStatus.Conflict, result.Status);
+        Assert.Equal($"session {session.Id} is owned by {theManager}, not by (the user) as the change expected", result.Error);
+        Assert.Equal(theManager, session.ControllerSessionId);
+        Assert.Equal(0, raised);
+    }
+
+    /// <summary>A Director-backed Gateway world: the roster is the real sessions as their Director maps them, and
+    /// <c>set-controller</c> is dispatched to the real verb map. <see cref="BetweenCheckAndSet"/> runs after the Gateway
+    /// has checked the roster and before the Director receives the verb - the window the race lives in.</summary>
+    private sealed class DirectorBackedWorld : IFleetManagerHandOverEnvironment
+    {
+        public required SessionManager Manager { get; init; }
+        public required string FleetManagerId { get; init; }
+        public Func<Task>? BetweenCheckAndSet;
+
+        public string? MarkedFleetManager(TenantId tenant) => FleetManagerId;
+
+        public IReadOnlyList<(string DirectorId, SessionDto Session)> Roster(TenantId tenant)
+        {
+            var rows = Manager.ListSessions().Select(s => ControlEndpoints.Map(s, "director-under-test")).ToList();
+            FleetRoleResolver.Stamp(rows, FleetManagerId);
+            return rows.Select(r => ("director-under-test", r)).ToList();
+        }
+
+        public bool ChangesOwner(TenantId tenant, string directorId) => true;
+
+        public async Task<(SessionDto? Session, string? Error, bool OwnerMoved)> SetControllerAsync(TenantId tenant, string directorId,
+            string sessionId, string? expectedControllerSessionId, string? controllerSessionId, CancellationToken ct)
+        {
+            if (BetweenCheckAndSet is { } pause) await pause();
+            var result = await Task.Run(() => SendAsync(Manager, sessionId, new SetControllerRequest
+            {
+                ControllerSessionId = controllerSessionId,
+                ExpectedControllerSessionId = string.IsNullOrEmpty(expectedControllerSessionId) ? SetControllerRequest.NoOwner : expectedControllerSessionId,
+            }));
+            if (!result.Ok) return (null, result.Error, result.Status == DirectorCommandStatus.Conflict);
+            return (JsonSerializer.Deserialize<SessionDto>(result.BodyJson!, Web), null, false);
+        }
+
+        public void Audit(TenantId tenant, string sessionId, string actor, string detail) { }
+
+        public void OwnerChanged(TenantId tenant, string directorId, SessionDto row) { }
+    }
+
+    private static readonly TenantId RaceTenant = new("acct-owner-race");
+
+    [Fact]
+    public async Task HandOver_AManagerAcquiresTheWorkerBetweenCheckAndSet_TheManagerKeepsItAndTheHandOverIsAConflict()
+    {
+        using var manager = new SessionManager(new Core.Configuration.AgentOptions());
+        var fleetManager = NewSession(manager);
+        var theManager = NewSession(manager);
+        var worker = NewSession(manager);
+        var world = new DirectorBackedWorld { Manager = manager, FleetManagerId = fleetManager.Id.ToString() };
+        world.BetweenCheckAndSet = () =>
+        {
+            // The Manager acquires the Worker after the Gateway saw it answer to the owner.
+            Assert.Equal(OwnerChangeOutcome.Changed, manager.ChangeOwner(worker, null, theManager.Id).Outcome);
+            return Task.CompletedTask;
+        };
+
+        var result = await new FleetManagerHandOverService(world).HandOverAsync(RaceTenant,
+            new FleetHandOverRequest { Session = worker.Id.ToString(), To = "fleet-manager" }, "device phone p1", CancellationToken.None);
+
+        Assert.Equal(409, result.Status);
+        Assert.Contains("its owner changed while the hand over was on its way", result.Error);
+        Assert.Equal(theManager.Id, worker.ControllerSessionId);
+    }
+
+    [Fact]
+    public async Task HandOver_TwoHandOversAtOnce_ExactlyOneIsMade()
+    {
+        using var manager = new SessionManager(new Core.Configuration.AgentOptions());
+        var fleetManager = NewSession(manager);
+        var worker = NewSession(manager);
+        var bothChecked = new Barrier(2);
+        var world = new DirectorBackedWorld
+        {
+            Manager = manager,
+            FleetManagerId = fleetManager.Id.ToString(),
+            // Both requests pass the Gateway's check before either reaches the Director.
+            BetweenCheckAndSet = () => Task.Run(() => Assert.True(bothChecked.SignalAndWait(TimeSpan.FromSeconds(10)))),
+        };
+        var service = new FleetManagerHandOverService(world);
+        var request = new FleetHandOverRequest { Session = worker.Id.ToString(), To = "fleet-manager" };
+
+        var results = await Task.WhenAll(
+            Task.Run(() => service.HandOverAsync(RaceTenant, request, "device phone p1", CancellationToken.None)),
+            Task.Run(() => service.HandOverAsync(RaceTenant, request, "session fleet manager", CancellationToken.None)));
+
+        Assert.Equal(new[] { 200, 409 }, results.Select(r => r.Status).OrderBy(x => x).ToArray());
+        Assert.Equal(fleetManager.Id, worker.ControllerSessionId);
+    }
+
+    // ================================================================= a change that cannot be written (the Architect's ruling on step 8)
+
+    private sealed class DiskWorld : IDisposable
+    {
+        public readonly string Dir = Path.Combine(Path.GetTempPath(), "cc-owner-write-" + Guid.NewGuid().ToString("N"));
+        public string JournalDir => Path.Combine(Dir, "crash-journal");
+        public string StorePath => Path.Combine(Dir, "sessions.json");
+        public DirectorCrashJournal Journal { get; }
+
+        public DiskWorld()
+        {
+            Journal = new DirectorCrashJournal("director-under-test", 2_000_000_001, "MACHINE", "someone",
+                DateTimeOffset.UtcNow, JournalDir);
+        }
+
+        /// <summary>The journal file cannot be replaced: a directory stands where it goes.</summary>
+        public void BreakJournal()
+        {
+            File.Delete(Journal.FilePath);
+            Directory.CreateDirectory(Journal.FilePath);
+        }
+
+        public void MendJournal() => Directory.Delete(Journal.FilePath);
+
+        /// <summary><c>sessions.json</c> cannot be written: a directory stands where it goes.</summary>
+        public void BreakStore()
+        {
+            if (File.Exists(StorePath)) File.Delete(StorePath);
+            Directory.CreateDirectory(StorePath);
+        }
+
+        public string? JournalOwner(Guid session)
+            => JsonSerializer.Deserialize<DirectorCrashJournalData>(File.ReadAllText(Journal.FilePath), Web)!
+                .Sessions.Single(s => s.SessionId == session.ToString()).ControllerSessionId;
+
+        public void Dispose()
+        {
+            try { Directory.Delete(Dir, recursive: true); } catch { /* scratch */ }
+        }
+    }
+
+    private static SetControllerRequest ToOwner(Guid owner) => new()
+    {
+        ControllerSessionId = owner.ToString(),
+        ExpectedControllerSessionId = SetControllerRequest.NoOwner,
+    };
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SetController_TheCrashJournalCannotBeWritten_FailsAndTheOwnerIsUnchanged(bool storeFailsToo)
+    {
+        using var disk = new DiskWorld();
+        using var manager = new SessionManager(new Core.Configuration.AgentOptions())
+        {
+            CrashJournal = disk.Journal,
+            DurableStateStore = new SessionStateStore(disk.StorePath),
+        };
+        var session = NewSession(manager);
+        var other = NewSession(manager);
+        disk.Journal.Update(manager.BuildCrashJournalRoster());
+        disk.BreakJournal();
+        if (storeFailsToo) disk.BreakStore();
+        var raised = 0;
+        session.OnControllerChanged += () => raised++;
+
+        var result = await SendAsync(manager, session.Id.ToString(), ToOwner(Guid.NewGuid()));
+
+        Assert.Equal(DirectorCommandStatus.Error, result.Status);
+        Assert.StartsWith("the owner change could not be written to disk, so it was not made", result.Error);
+        Assert.Null(session.ControllerSessionId);
+        Assert.Equal(0, raised);
+
+        // The journal does not carry the failed change into its next write either.
+        disk.MendJournal();
+        Assert.Equal(OwnerChangeOutcome.Changed, manager.ChangeOwner(other, null, Guid.NewGuid()).Outcome);
+        Assert.Null(disk.JournalOwner(session.Id));
+    }
+
+    [Fact]
+    public async Task SetController_OnlySessionsJsonCannotBeWritten_IsMadeBecauseTheCrashJournalHoldsIt()
+    {
+        using var disk = new DiskWorld();
+        using var manager = new SessionManager(new Core.Configuration.AgentOptions())
+        {
+            CrashJournal = disk.Journal,
+            DurableStateStore = new SessionStateStore(disk.StorePath),
+        };
+        var session = NewSession(manager);
+        disk.Journal.Update(manager.BuildCrashJournalRoster());
+        disk.BreakStore();
+        var owner = Guid.NewGuid();
+
+        var result = await SendAsync(manager, session.Id.ToString(), ToOwner(owner));
+
+        Assert.True(result.Ok, result.Error);
+        Assert.Equal(owner, session.ControllerSessionId);
+        Assert.Equal(owner.ToString(), disk.JournalOwner(session.Id));
+    }
+
+    [Fact]
+    public async Task SetController_NoCrashJournalAndSessionsJsonCannotBeWritten_FailsAndTheOwnerIsUnchanged()
+    {
+        using var disk = new DiskWorld();
+        using var manager = new SessionManager(new Core.Configuration.AgentOptions())
+        {
+            DurableStateStore = new SessionStateStore(disk.StorePath),
+        };
+        var session = NewSession(manager);
+        disk.BreakStore();
+
+        var result = await SendAsync(manager, session.Id.ToString(), ToOwner(Guid.NewGuid()));
+
+        Assert.Equal(DirectorCommandStatus.Error, result.Status);
+        Assert.Contains("could not be written to", result.Error);
+        Assert.Null(session.ControllerSessionId);
+    }
+
+    [Fact]
+    public async Task HandOver_TheDirectorCannotWriteTheChange_TheGatewayReportsItNotMade()
+    {
+        using var disk = new DiskWorld();
+        using var manager = new SessionManager(new Core.Configuration.AgentOptions())
+        {
+            CrashJournal = disk.Journal,
+            DurableStateStore = new SessionStateStore(disk.StorePath),
+        };
+        var fleetManager = NewSession(manager);
+        var worker = NewSession(manager);
+        disk.Journal.Update(manager.BuildCrashJournalRoster());
+        disk.BreakJournal();
+        var world = new DirectorBackedWorld { Manager = manager, FleetManagerId = fleetManager.Id.ToString() };
+
+        var result = await new FleetManagerHandOverService(world).HandOverAsync(RaceTenant,
+            new FleetHandOverRequest { Session = worker.Id.ToString(), To = "fleet-manager" }, "device phone p1", CancellationToken.None);
+
+        Assert.Equal(502, result.Status);
+        Assert.Contains("was not handed over: its Director did not make the change (the owner change could not be written to disk", result.Error);
+        Assert.Null(worker.ControllerSessionId);
     }
 }

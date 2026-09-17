@@ -145,6 +145,9 @@ public sealed class FleetManagerHandOverAuthorityHostTests : IAsyncLifetime
         lock (_ownerChangesA) _ownerChangesA.Add(cmd);
         var request = JsonSerializer.Deserialize<SetControllerRequest>(cmd.PayloadJson!, FakeTunnelDirector.WebJson)!;
         var row = _rowsA[cmd.SessionId!];
+        var expected = request.ExpectedControllerSessionId == SetControllerRequest.NoOwner ? null : request.ExpectedControllerSessionId;
+        if (!string.Equals(row.ControllerSessionId, expected, StringComparison.OrdinalIgnoreCase))
+            return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, $"owned by {row.ControllerSessionId ?? "the user"}");
         row.ControllerSessionId = string.IsNullOrWhiteSpace(request.ControllerSessionId) ? null : request.ControllerSessionId;
         row.IsControlled = row.ControllerSessionId is not null;
         return FakeTunnelDirector.Ok(row);

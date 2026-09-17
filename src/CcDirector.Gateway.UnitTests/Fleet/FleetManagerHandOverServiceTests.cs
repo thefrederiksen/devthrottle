@@ -56,15 +56,20 @@ public sealed class FleetManagerHandOverServiceTests
 
         public bool ChangesOwner(TenantId tenant, string directorId) => !OldDirectors.Contains(directorId);
 
-        public Task<(SessionDto? Session, string? Error)> SetControllerAsync(TenantId tenant, string directorId,
-            string sessionId, string? controllerSessionId, CancellationToken ct)
+        public readonly List<string?> Expected = new();
+        public string? OwnerMovedError;
+
+        public Task<(SessionDto? Session, string? Error, bool OwnerMoved)> SetControllerAsync(TenantId tenant, string directorId,
+            string sessionId, string? expectedControllerSessionId, string? controllerSessionId, CancellationToken ct)
         {
             Sent.Add((directorId, sessionId, controllerSessionId));
-            if (DirectorError is not null) return Task.FromResult<(SessionDto?, string?)>((null, DirectorError));
+            Expected.Add(expectedControllerSessionId);
+            if (OwnerMovedError is not null) return Task.FromResult<(SessionDto?, string?, bool)>((null, OwnerMovedError, true));
+            if (DirectorError is not null) return Task.FromResult<(SessionDto?, string?, bool)>((null, DirectorError, false));
             var row = Rosters[tenant].First(r => r.Session.SessionId == sessionId).Session.Clone();
             row.ControllerSessionId = DirectorAnswersOwner == "unset" ? controllerSessionId : DirectorAnswersOwner;
             row.IsControlled = row.ControllerSessionId is not null;
-            return Task.FromResult<(SessionDto?, string?)>((row, null));
+            return Task.FromResult<(SessionDto?, string?, bool)>((row, null, false));
         }
 
         public void Audit(TenantId tenant, string sessionId, string actor, string detail)
@@ -151,6 +156,34 @@ public sealed class FleetManagerHandOverServiceTests
         Assert.Equal((Plain, Actor), (audited.SessionId, audited.Actor));
         Assert.Equal($"handed to the Fleet Manager {Fm}; owned before by the owner", audited.Detail);
         Assert.Equal(Fm, Assert.Single(_world.OwnerChanges).ControllerSessionId);
+    }
+
+    [Theory]
+    [InlineData(Plain, "fleet-manager", "none-checked")]
+    [InlineData(Orphan, "fleet-manager", Gone)]
+    [InlineData(Owned, "owner", Fm)]
+    public async Task HandOver_SendsTheOwnerItCheckedForTheDirectorToCompare(string session, string to, string checkedOwner)
+    {
+        var result = await HandAsync(session, to);
+
+        Assert.Equal(200, result.Status);
+        var expected = Assert.Single(_world.Expected);
+        Assert.Equal(checkedOwner == "none-checked" ? null : checkedOwner, string.IsNullOrEmpty(expected) ? null : expected);
+    }
+
+    [Fact]
+    public async Task HandOver_TheDirectorFindsTheOwnerMoved_IsAConflictAndNothingIsRecorded()
+    {
+        _world.OwnerMovedError = $"session {Plain} is owned by {Architect}, not by (the user) as the change expected";
+
+        var result = await HandAsync(Plain, "fleet-manager");
+
+        Assert.Equal(409, result.Status);
+        Assert.Null(result.Answer);
+        Assert.StartsWith("Session \"Plain work\" was not handed over: its owner changed while the hand over was on its way", result.Error);
+        Assert.Contains(Architect, result.Error);
+        Assert.Empty(_world.Audited);
+        Assert.Empty(_world.OwnerChanges);
     }
 
     [Fact]

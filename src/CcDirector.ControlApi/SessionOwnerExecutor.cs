@@ -1,3 +1,4 @@
+using CcDirector.Core.Sessions;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 
@@ -32,9 +33,12 @@ internal sealed class SessionOwnerExecutor : ISessionCommandArea
 
     /// <summary>
     /// The <c>set-controller</c> verb: the session named by the command is owned by the payload's session from now on,
-    /// or by the user when that is null or blank. Answers the session as it now is, through the same
-    /// <see cref="ControlEndpoints.Map"/> the stream snapshot uses. An id that is not a session id is refused, never
-    /// dropped - dropping it would hand the session to the user when the Gateway asked for an owner.
+    /// or by the user when that is null or blank - provided its owner is still the payload's expected owner (compare and
+    /// set). Answers the session as it now is, through the same <see cref="ControlEndpoints.Map"/> the stream snapshot
+    /// uses. An id that is not a session id is refused, never dropped - dropping it would hand the session to the user
+    /// when the Gateway asked for an owner. An owner that moved is a <see cref="DirectorCommandStatus.Conflict"/>, and a
+    /// change that could not be written to disk is an <see cref="DirectorCommandStatus.Error"/> with the session left as
+    /// it was.
     /// </summary>
     internal static DirectorCommandResult SetController(SessionCommandContext context, DirectorCommand command)
     {
@@ -58,12 +62,34 @@ internal sealed class SessionOwnerExecutor : ISessionCommandArea
             controller = parsed;
         }
 
+        Guid? expected;
+        var expectedRaw = request.ExpectedControllerSessionId?.Trim();
+        if (string.Equals(expectedRaw, SetControllerRequest.NoOwner, StringComparison.OrdinalIgnoreCase))
+            expected = null;
+        else if (Guid.TryParse(expectedRaw, out var expectedOwner))
+            expected = expectedOwner;
+        else
+            return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest,
+                $"expectedControllerSessionId must be a session id or '{SetControllerRequest.NoOwner}', not '{request.ExpectedControllerSessionId}'");
+
         var session = context.SessionManager.GetSession(guid);
         if (session is null)
             return DirectorCommandResult.Fail(DirectorCommandStatus.NotFound, "session not found");
 
-        var changed = session.SetController(controller);
-        FileLog.Write($"[SessionOwnerExecutor] set-controller: session={guid}, owner={controller?.ToString() ?? "(the user)"}, changed={changed}");
+        OwnerChangeResult result;
+        try
+        {
+            result = context.SessionManager.ChangeOwner(session, expected, controller);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[SessionOwnerExecutor] set-controller FAILED: session={guid}: {ex.Message}");
+            return DirectorCommandResult.Fail(DirectorCommandStatus.Error,
+                $"the owner change could not be written to disk, so it was not made: {ex.Message}");
+        }
+        FileLog.Write($"[SessionOwnerExecutor] set-controller: session={guid}, owner={controller?.ToString() ?? "(the user)"}, outcome={result.Outcome}");
+        if (result.Outcome == OwnerChangeOutcome.OwnerMoved)
+            return DirectorCommandResult.Fail(DirectorCommandStatus.Conflict, result.Reason ?? "the session's owner changed");
         return DirectorCommandResult.Success(SessionCommandExecutor.Serialize(ControlEndpoints.Map(session, context.DirectorId)));
     }
 }

@@ -73,6 +73,22 @@ public sealed class TerminalVerificationResult
 /// </summary>
 public sealed record ScreenSegment(string Text, string? Fg, string? Bg, bool Bold);
 
+/// <summary>How an owner change (<see cref="Session.SetController"/>) ended.</summary>
+public enum OwnerChangeOutcome
+{
+    /// <summary>The owner changed, and the change is on disk.</summary>
+    Changed,
+
+    /// <summary>The owner was already the one asked for; nothing changed.</summary>
+    AlreadySo,
+
+    /// <summary>The owner is no longer the one the change expected, so nothing changed.</summary>
+    OwnerMoved,
+}
+
+/// <summary>An owner change's outcome, with the reason when it was refused.</summary>
+public sealed record OwnerChangeResult(OwnerChangeOutcome Outcome, string? Reason);
+
 /// <summary>
 /// Represents a single Claude session. Delegates process management to an ISessionBackend.
 /// Session handles metadata, activity state, and routing - backend handles process I/O.
@@ -192,29 +208,60 @@ public sealed class Session : IDisposable
     /// Gateway at once instead of waiting for the next full re-push.</summary>
     public event Action? OnControllerChanged;
 
+    /// <summary>Held while an owner change is compared, stored and written to disk, so two changes of one session never
+    /// interleave.</summary>
+    private readonly object _ownerGate = new();
+
     /// <summary>
-    /// Change which session owns this one (the Fleet Manager mission, step 8): <paramref name="controllerSessionId"/>
-    /// owns it from now on, or nobody when null. The GATEWAY decides - it checked the account, the caller and both
-    /// owners before sending the verb - so this only stores what it is given, as <see cref="AttachToMission"/> does.
-    /// Returns false, and raises nothing, when the owner is already that.
+    /// Change which session owns this one (the Fleet Manager mission, step 8) - COMPARE AND SET: the owner becomes
+    /// <paramref name="controllerSessionId"/> (nobody when null) only if it is still <paramref name="expectedOwner"/>,
+    /// the owner the Gateway checked before it decided (nobody when null). The compare, the change and the write to
+    /// disk happen under one lock, so of two changes sent at once exactly one finds the owner it expected.
+    ///
+    /// <paramref name="writeToDisk"/> makes the change durable and throws when it cannot; the change is then undone, the
+    /// exception is rethrown, and nothing is raised - an owner change that is not on disk did not happen. Null when the
+    /// caller keeps no record on disk (a test). <see cref="OnControllerChanged"/> is raised only after the write
+    /// succeeded, outside the lock.
     /// </summary>
-    public bool SetController(Guid? controllerSessionId)
+    public OwnerChangeResult SetController(Guid? expectedOwner, Guid? controllerSessionId, Action<Session>? writeToDisk)
     {
         if (controllerSessionId == Id)
             throw new ArgumentException($"session {Id} cannot own itself", nameof(controllerSessionId));
-        if (ControllerSessionId == controllerSessionId)
+        Guid? previous;
+        lock (_ownerGate)
         {
-            FileLog.Write($"[Session] {Id} SetController: already owned by {controllerSessionId?.ToString() ?? "(the user)"}");
-            return false;
+            previous = ControllerSessionId;
+            if (previous != expectedOwner)
+            {
+                var reason = $"session {Id} is owned by {OwnerName(previous)}, not by {OwnerName(expectedOwner)} as the change expected";
+                FileLog.Write($"[Session] {Id} SetController REFUSED: {reason}");
+                return new OwnerChangeResult(OwnerChangeOutcome.OwnerMoved, reason);
+            }
+            if (previous == controllerSessionId)
+            {
+                FileLog.Write($"[Session] {Id} SetController: already owned by {OwnerName(controllerSessionId)}");
+                return new OwnerChangeResult(OwnerChangeOutcome.AlreadySo, null);
+            }
+            ControllerSessionId = controllerSessionId;
+            try
+            {
+                writeToDisk?.Invoke(this);
+            }
+            catch (Exception ex)
+            {
+                ControllerSessionId = previous;
+                FileLog.Write($"[Session] {Id} SetController FAILED: the owner change to {OwnerName(controllerSessionId)} " +
+                              $"could not be written to disk and was undone: {ex.Message}");
+                throw;
+            }
         }
-        var previous = ControllerSessionId;
-        ControllerSessionId = controllerSessionId;
-        FileLog.Write($"[Session] {Id} SetController: owner {previous?.ToString() ?? "(the user)"} -> " +
-                      $"{controllerSessionId?.ToString() ?? "(the user)"}");
+        FileLog.Write($"[Session] {Id} SetController: owner {OwnerName(previous)} -> {OwnerName(controllerSessionId)}");
         try { OnControllerChanged?.Invoke(); }
         catch (Exception ex) { FileLog.Write($"[Session] {Id} OnControllerChanged handler threw: {ex.Message}"); }
-        return true;
+        return new OwnerChangeResult(OwnerChangeOutcome.Changed, null);
     }
+
+    private static string OwnerName(Guid? owner) => owner?.ToString() ?? "(the user)";
 
     /// <summary>True when this session is a controlled sub-agent (issue #815) - it carries a
     /// <see cref="ControllerSessionId"/>. Whether the recessive "Supporting" color is actually

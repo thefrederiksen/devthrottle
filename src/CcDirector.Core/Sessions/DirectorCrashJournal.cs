@@ -150,9 +150,19 @@ public sealed class DirectorCrashJournal
     {
         lock (_gate)
         {
+            var previous = (_data.Sessions, _data.LastUpdatedUtc);
             _data.Sessions = sessions.ToList();
             _data.LastUpdatedUtc = DateTimeOffset.UtcNow;
-            Flush();
+            try
+            {
+                Flush();
+            }
+            catch
+            {
+                // What is held stays what is on disk, so a later write never carries a change that failed.
+                (_data.Sessions, _data.LastUpdatedUtc) = previous;
+                throw;
+            }
         }
     }
 
@@ -160,7 +170,7 @@ public sealed class DirectorCrashJournal
     /// Record a change of owner on one session of the roster and flush to disk at once (the Fleet Manager mission,
     /// step 8). A hand over is a decision the owner or the Fleet Manager made on the Gateway, and it must not wait for
     /// the next roster save to become durable. Returns false when the session is not in the roster (the next
-    /// <see cref="Update"/> will carry it).
+    /// <see cref="Update"/> will carry it). Throws when the file cannot be written, and then holds the previous owner.
     /// </summary>
     public bool SetSessionOwner(string sessionId, string? controllerSessionId)
     {
@@ -173,9 +183,19 @@ public sealed class DirectorCrashJournal
                 FileLog.Write($"[DirectorCrashJournal] SetSessionOwner: session {sessionId} is not in the roster yet");
                 return false;
             }
+            var previous = (row.ControllerSessionId, _data.LastUpdatedUtc);
             row.ControllerSessionId = controllerSessionId;
             _data.LastUpdatedUtc = DateTimeOffset.UtcNow;
-            Flush();
+            try
+            {
+                Flush();
+            }
+            catch
+            {
+                // What is held stays what is on disk, so a later write never carries a change that failed.
+                (row.ControllerSessionId, _data.LastUpdatedUtc) = previous;
+                throw;
+            }
             return true;
         }
     }
