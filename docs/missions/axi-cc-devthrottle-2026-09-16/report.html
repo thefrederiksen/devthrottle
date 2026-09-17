@@ -129,10 +129,10 @@ footer{font-size:.82rem;color:var(--muted);border-top:1px solid var(--rule);padd
 <pre><span class="dim">+-------------------------------------------------+</span>
 <span class="dim">| NO. | ID       | NAME      | MACHINE   | STATUS  |</span>
 <span class="dim">|-----+----------+-----------+-----------+---------|</span>
-| 136 | ba8b2ead | Release   | SOREN_<span class="cut">...</span> | Waiti<span class="cut">...</span>|
+| 12  | 11111111 | Release   | SOREN_<span class="cut">...</span> | Waiti<span class="cut">...</span>|
 |     |          | Notes -   |           |         |
 |     |          | Worker    |           |         |
-| 107 | 52d1fc34 | Wingman   | devthr<span class="cut">...</span> | Worki<span class="cut">...</span>|
+| 13  | 22222222 | Wingman   | devthr<span class="cut">...</span> | Worki<span class="cut">...</span>|
 |     |          | Inspector |           |         |
 <span class="dim">+-------------------------------------------------+</span>
 <span class="dim">(no count, no hint of what to run next)</span></pre>
@@ -141,10 +141,10 @@ footer{font-size:.82rem;color:var(--muted);border-top:1px solid var(--rule);padd
       <div class="bar"><span>After</span><span>AXI list</span></div>
 <pre><span class="hi">count: 4 (needs-you 1, working 2, ready 1)</span>
 sessions[4]{id,name,state,repo}:
-  ba8b2ead-...-a7caa2e6,Release Notes - Worker,needs-you,site
-  52d1fc34-...-0c1e9d44,Wingman Inspector,working,devthrottle
-  e056b1f2-...-3f2b1a90,"Docs, round 2",working,devthrottle
-  9b4c60e1-...-4d1f02aa,Fleet Map - Architect,ready,internal
+  11111111-...-aaaaaaaa,Release Notes - Worker,needs-you,site
+  22222222-...-bbbbbbbb,Wingman Inspector,working,devthrottle
+  33333333-...-cccccccc,"Docs, round 2",working,devthrottle
+  44444444-...-dddddddd,Fleet Map - Architect,ready,internal
 <span class="dim">help[4]:</span>
   cc-devthrottle message send &lt;session-id&gt; "&lt;message&gt;"
   cc-devthrottle session list --state needs-you|working|ready|snoozed|crashed
@@ -251,7 +251,7 @@ sessions[4]{id,name,state,repo}:
 <section>
   <span class="eyebrow">Proof</span>
   <h2>Working on all three operating systems</h2>
-  <p>Each machine ran the full test suite and the finished commands against the live fleet, from a clean copy of main, changing nothing in the fleet.</p>
+  <p>Windows and Linux ran the full test suite and the finished commands from a clean copy of main; the Mac ran the commands from main and the suite in the last review of pull request 2965. Nothing in the fleet was changed.</p>
   <div class="os">
     <div><h3>macOS</h3><dl><dt>Machine</dt><dd>Mac Mini</dd><dt>Tests</dt><dd>3102 passed (last review of pull request 2965)</dd><dt>Live</dt><dd>15 commands: 12 succeeded, 3 deliberate mistakes exited 2</dd><dt>Non-ASCII</dt><dd>0 lines</dd></dl></div>
     <div><h3>Windows</h3><dl><dt>Machine</dt><dd>SOREN_NORTH</dd><dt>Tests</dt><dd>3099 passed, 3 skipped</dd><dt>Live</dt><dd>16 commands, all as expected</dd><dt>Non-ASCII</dt><dd>0 bytes</dd></dl></div>
