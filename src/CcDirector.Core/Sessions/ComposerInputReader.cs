@@ -8,7 +8,7 @@ namespace CcDirector.Core.Sessions;
 /// - Bytes between the bracketed-paste markers ESC[200~ and ESC[201~ are composer text, even a CR or LF, and never a
 ///   submit. A paste split across several writes stays a paste until its end marker arrives.
 /// - Outside a paste, a CR is a submit (a CR LF pair is one submit), and so is an encoded Enter key press (ESC[13u,
-///   ESC[27;1;13~, the keypad Enter ESC O M). A printable character is text.
+///   ESC[27;1;13~, the keypad Enter ESC O M and ESC[57414u). A printable character is text.
 /// - An encoded key that is a repeat or a release, not a press (event type 2 or 3 after the ':' in its modifier
 ///   field), is neither text nor a submit. An encoded press that carries associated text is text.
 /// - Other escape sequences - cursor keys, focus and mouse reports, function keys, keyboard-protocol keys that are
@@ -197,10 +197,13 @@ internal sealed class ComposerInputReader
         return ClassifyKey(code[0], Modifiers(modifier));
     }
 
+    // The keyboard protocol's own code for the keypad Enter key, a private-use code that is still an Enter.
+    private const int KeypadEnter = 57414;
+
     private static EscapeKind ClassifyKey(int? code, int? modifiers)
     {
         if (code is null || modifiers is null) return EscapeKind.Text;
-        if (code == 13) return modifiers == 1 ? EscapeKind.Submit : EscapeKind.Text;
+        if (code is 13 or KeypadEnter) return modifiers == 1 ? EscapeKind.Submit : EscapeKind.Text;
         // Control keys (Tab, Escape, Backspace) and the private-use codes of function, cursor and modifier keys.
         if (code < 0x20 || code == 0x7F || code is >= 0xE000 and <= 0xF8FF) return EscapeKind.Nothing;
         return EscapeKind.Text;

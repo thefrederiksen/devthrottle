@@ -427,6 +427,9 @@ public sealed class PromptOnlyWhenWaitingForInputTests
     [InlineData("\x1b[13;65:1u")]
     [InlineData("\x1b[27;1;13~")]
     [InlineData("\x1bOM")]
+    [InlineData("\x1b[57414u")]
+    [InlineData("\x1b[57414;1:1u")]
+    [InlineData("\x1b[57414;129u")]
     public void SendInput_AnEncodedEnter_SubmitsTheDraft(string enter)
     {
         var (session, _) = NewTerminalSession();
@@ -447,6 +450,8 @@ public sealed class PromptOnlyWhenWaitingForInputTests
     [InlineData("\x1b[13;:3u")]
     [InlineData("\x1b[13;129:3u")]
     [InlineData("\x1b[27;1:3;13~")]
+    [InlineData("\x1b[57414;1:3u")]
+    [InlineData("\x1b[57414;1:2u")]
     public void SendInput_AnEnterReleaseOrRepeat_KeepsTheDraft(string enter)
     {
         var (session, _) = NewTerminalSession();
@@ -490,6 +495,7 @@ public sealed class PromptOnlyWhenWaitingForInputTests
     [Theory]
     [InlineData("\x1b[13;2u")]
     [InlineData("\x1b[27;2;13~")]
+    [InlineData("\x1b[57414;2u")]
     [InlineData("\x1b\r")]
     public void SendInput_AModifiedEnter_KeepsTheDraft(string enter)
     {
