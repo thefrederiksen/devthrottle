@@ -126,8 +126,9 @@ public sealed class SkillStoreTests : IDisposable
     public void Fleet_manager_skill_leaves_a_stop_waiting_for_its_reading_alone_and_follows_every_page()
     {
         // Step 4, round 3: a stop stored before its reading is listed as waiting and cannot be acknowledged, and
-        // events page past 200 by cursor - the skill must say both, in the commands as built.
-        var body = BuiltInSkills.BodyFor("fleet-manager");
+        // events page past 200 by cursor - the skill must say both, in the commands as built. One phrase spans a
+        // wrapped line, and a Windows checkout embeds the body with CRLF.
+        var body = Normalize(BuiltInSkills.BodyFor("fleet-manager"));
 
         Assert.Contains("verdict is `waiting`", body);
         Assert.Contains("Do not\n  act on it and do not acknowledge it.", body);
@@ -144,8 +145,8 @@ public sealed class SkillStoreTests : IDisposable
     {
         // Steps 1 and 4 inspection, finding 2: the capability table told the Fleet Manager to treat ANY missing reading
         // as "cannot tell" and read the session - including a stop still waiting for its reading, which the rest of the
-        // skill and the workflow say to leave alone.
-        var body = BuiltInSkills.BodyFor("fleet-manager");
+        // skill and the workflow say to leave alone. The body is split on "\n", so a Windows CRLF body is normalized first.
+        var body = Normalize(BuiltInSkills.BodyFor("fleet-manager"));
         var row = body.Split('\n').Single(l => l.StartsWith("| The Wingman reading the sessions YOU own |", StringComparison.Ordinal));
 
         Assert.DoesNotContain("or the reading failed) - treat that as \"cannot tell\"", row);
@@ -709,4 +710,6 @@ public sealed class SkillStoreTests : IDisposable
     /// <summary>The text of a served file, for the many assertions that are about text content.</summary>
     private static string? TextOf(SkillStore.SkillFilePayload? payload) =>
         payload is null ? null : System.Text.Encoding.UTF8.GetString(payload.Bytes);
+
+    private static string Normalize(string text) => text.Replace("\r\n", "\n");
 }
