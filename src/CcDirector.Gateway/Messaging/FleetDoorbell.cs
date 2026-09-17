@@ -253,7 +253,7 @@ public sealed class FleetDoorbell
 
         if (string.Equals(answer.Outcome, FleetRingOutcomes.Rung, StringComparison.Ordinal))
         {
-            var marked = _store.MarkRung(tenant, due, now);
+            var marked = _store.MarkRung(tenant, sid, due, now, _limits.StuckAfterRings);
             FileLog.Write($"[FleetDoorbell] RUNG: sid={Short(sid)} trigger={trigger} unread={unread} counted={marked} ids=[{string.Join(",", due)}]");
             return FleetRingAttempt.Rung;
         }

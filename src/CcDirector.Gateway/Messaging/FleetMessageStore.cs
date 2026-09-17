@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using CcDirector.Core.Tenancy;
+using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Data;
 using CcDirector.Gateway.Data.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -265,13 +266,25 @@ public sealed class FleetMessageStore
 
     /// <summary>
     /// Record that the doorbell was rung for these messages: each one's ring count goes up by one and its last
-    /// ring time becomes <paramref name="nowUtc"/>. A message that was read or marked stuck in the moment since
-    /// the ring was decided is left alone. Returns how many rows were changed.
+    /// ring time becomes <paramref name="nowUtc"/>. Returns how many rows were changed.
+    ///
+    /// THE STORE ENFORCES ITS OWN LIMITS (inspection 4, ruling 5); it does not rely on the caller having
+    /// checked. A row is left alone - and every refusal is logged - when it:
+    ///  - was read or marked stuck in the moment since the ring was decided;
+    ///  - belongs to a session other than <paramref name="recipientSessionId"/>, the one that was rung;
+    ///  - has already been rung <paramref name="ringCap"/> times, so no caller - a second Gateway process, a
+    ///    stale call - can take a count past the cap.
     /// </summary>
-    public int MarkRung(TenantId tenant, IReadOnlyCollection<string> messageIds, DateTime nowUtc)
+    public int MarkRung(TenantId tenant, string recipientSessionId, IReadOnlyCollection<string> messageIds,
+        DateTime nowUtc, int ringCap)
     {
         ArgumentNullException.ThrowIfNull(messageIds);
+        if (string.IsNullOrWhiteSpace(recipientSessionId))
+            throw new ArgumentException("A ring is recorded for the session that was rung.", nameof(recipientSessionId));
+        if (ringCap <= 0)
+            throw new ArgumentOutOfRangeException(nameof(ringCap), ringCap, "The ring cap must be positive.");
         if (messageIds.Count == 0) return 0;
+        var recipient = Id(recipientSessionId)!;
         var now = Utc(nowUtc);
         var ids = messageIds.ToList();
         lock (_gate)
@@ -280,13 +293,25 @@ public sealed class FleetMessageStore
             var rows = ctx.FleetMessages
                 .Where(m => ids.Contains(m.MessageId) && m.ReadAtUtc == null && m.StuckAtUtc == null)
                 .ToList();
+            var changed = 0;
             foreach (var m in rows)
             {
+                if (!string.Equals(m.RecipientSessionId, recipient, StringComparison.Ordinal))
+                {
+                    FileLog.Write($"[FleetMessageStore] MarkRung REFUSED (another session's message): id={m.MessageId} rung={recipient}");
+                    continue;
+                }
+                if (m.RingCount >= ringCap)
+                {
+                    FileLog.Write($"[FleetMessageStore] MarkRung REFUSED (at the ring cap {ringCap}): id={m.MessageId}");
+                    continue;
+                }
                 m.RingCount++;
                 m.LastRungAtUtc = now;
+                changed++;
             }
-            if (rows.Count > 0) ctx.SaveChanges();
-            return rows.Count;
+            if (changed > 0) ctx.SaveChanges();
+            return changed;
         }
     }
 

@@ -1,0 +1,14 @@
+== MUTATION recipient not checked: exit=1
+    Failed!  - Failed:     1, Passed:    32, Skipped:     0, Total:    33, Duration: 3 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.The_store_refuses_to_record_a_ring_on_another_sessions_message [30 ms]
+== MUTATION cap not checked: exit=1
+    Failed!  - Failed:     2, Passed:    31, Skipped:     0, Total:    33, Duration: 3 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_fourth_ring_after_three_counted_is_refused_by_the_store_at_the_product_cap [52 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.The_store_never_takes_a_ring_count_past_the_cap [25 ms]
+== MUTATION cap off by one: exit=1
+    Failed!  - Failed:     2, Passed:    31, Skipped:     0, Total:    33, Duration: 4 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_fourth_ring_after_three_counted_is_refused_by_the_store_at_the_product_cap [89 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.The_store_never_takes_a_ring_count_past_the_cap [54 ms]
+== MUTATION recipient spelling not normalised: exit=1
+    Failed!  - Failed:     1, Passed:    32, Skipped:     0, Total:    33, Duration: 3 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.The_recipient_check_ignores_the_spelling_of_the_session_id [24 ms]

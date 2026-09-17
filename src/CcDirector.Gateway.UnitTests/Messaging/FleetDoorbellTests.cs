@@ -505,7 +505,7 @@ public sealed class FleetDoorbellTests : IDisposable
     {
         var rig = NewRig();
         var id = Send(rig);
-        rig.Store.MarkRung(Tenant, new[] { id }, T0);
+        rig.Store.MarkRung(Tenant, Worker, new[] { id }, T0, 3);
         rig.Store.ReadInbox(Tenant, Worker, T0.AddMinutes(1), includeRecent: false);
 
         var marked = rig.Store.MarkStuck(Tenant, T0.AddHours(1), _ => true);
@@ -521,8 +521,69 @@ public sealed class FleetDoorbellTests : IDisposable
         var id = Send(rig);
         rig.Store.ReadInbox(Tenant, Worker, T0.AddMinutes(1), includeRecent: false);
 
-        Assert.Equal(0, rig.Store.MarkRung(Tenant, new[] { id }, T0.AddMinutes(2)));
+        Assert.Equal(0, rig.Store.MarkRung(Tenant, Worker, new[] { id }, T0.AddMinutes(2), 3));
         Assert.Equal(0, Peek(id).RingCount);
+    }
+
+    [Fact]
+    public void The_store_never_takes_a_ring_count_past_the_cap()
+    {
+        // Four direct calls - a second Gateway process, or a stale caller that skipped the schedule.
+        var rig = NewRig();
+        var id = Send(rig);
+
+        var changed = Enumerable.Range(0, 4)
+            .Select(i => rig.Store.MarkRung(Tenant, Worker, new[] { id }, T0.AddMinutes(i), 3))
+            .ToList();
+
+        Assert.Equal(new[] { 1, 1, 1, 0 }, changed);
+        Assert.Equal(3, Peek(id).RingCount);
+        Assert.Equal(T0.AddMinutes(2), Peek(id).LastRungAtUtc);
+    }
+
+    [Fact]
+    public void The_store_refuses_to_record_a_ring_on_another_sessions_message()
+    {
+        // Same tenant, a message for the manager, recorded as if the worker had been rung.
+        var rig = NewRig();
+        var toManager = rig.Service.Send(Tenant,
+            new FleetParty(Worker, Manager, "worker-one", "mac"),
+            new FleetParty(Manager, null, "manager", "mac"),
+            "done with the build", FleetMessageKinds.Message).Response.MessageId!;
+        var toWorker = Send(rig);
+
+        var changed = rig.Store.MarkRung(Tenant, Worker, new[] { toManager, toWorker }, T0, 3);
+
+        Assert.Equal(1, changed);
+        Assert.Equal(0, Peek(toManager).RingCount);
+        Assert.Null(Peek(toManager).LastRungAtUtc);
+        Assert.Equal(1, Peek(toWorker).RingCount);
+    }
+
+    [Fact]
+    public void The_recipient_check_ignores_the_spelling_of_the_session_id()
+    {
+        var rig = NewRig();
+        var id = Send(rig);
+
+        Assert.Equal(1, rig.Store.MarkRung(Tenant, "  " + Worker.ToUpperInvariant() + " ", new[] { id }, T0, 3));
+    }
+
+    [Fact]
+    public async Task A_fourth_ring_after_three_counted_is_refused_by_the_store_at_the_product_cap()
+    {
+        // A fourth settled edge after three counted rings asks nobody and changes nothing - the schedule stops it
+        // - and the store would refuse it anyway; both are pinned.
+        var rig = NewRig();
+        var id = Send(rig);
+        foreach (var minutes in new[] { 0, 5, 10 })
+        {
+            _now = T0.AddMinutes(minutes);
+            await rig.Doorbell.RingSessionAsync(Tenant, Worker, "settled", CancellationToken.None);
+        }
+
+        Assert.Equal(0, rig.Store.MarkRung(Tenant, Worker, new[] { id }, T0.AddMinutes(15), FleetMessageLimits.Default.StuckAfterRings));
+        Assert.Equal(3, Peek(id).RingCount);
     }
 
     [Fact]
@@ -530,7 +591,7 @@ public sealed class FleetDoorbellTests : IDisposable
     {
         var rig = NewRig();
         var id = Send(rig);
-        rig.Store.MarkRung(Tenant, new[] { id }, T0);
+        rig.Store.MarkRung(Tenant, Worker, new[] { id }, T0, 3);
         Assert.Single(rig.Store.MarkStuck(Tenant, T0.AddMinutes(1), _ => true));
 
         Assert.Empty(rig.Store.OpenMessagesFor(Tenant, Worker));

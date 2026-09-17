@@ -1,0 +1,6 @@
+[
+ {"name":"recipient not checked","old":"                if (!string.Equals(m.RecipientSessionId, recipient, StringComparison.Ordinal))","new":"                if (false && !string.Equals(m.RecipientSessionId, recipient, StringComparison.Ordinal))"},
+ {"name":"cap not checked","old":"                if (m.RingCount >= ringCap)","new":"                if (false && m.RingCount >= ringCap)"},
+ {"name":"cap off by one","old":"                if (m.RingCount >= ringCap)","new":"                if (m.RingCount > ringCap)"},
+ {"name":"recipient spelling not normalised","old":"        var recipient = Id(recipientSessionId)!;\n        var now = Utc(nowUtc);\n        var ids = messageIds.ToList();","new":"        var recipient = recipientSessionId;\n        var now = Utc(nowUtc);\n        var ids = messageIds.ToList();"}
+]
