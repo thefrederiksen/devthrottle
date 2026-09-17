@@ -511,23 +511,45 @@ public sealed class DevReportDeliveryTests : IDisposable
     }
 
     [Fact]
-    public async Task TwoProcesses_BothDrainTheSameIdleSessionAtOnce_EveryItemGoesInExactlyOnePrompt()
+    public async Task TwoProcesses_TheOtherDrainsWhileASendIsOut_TakesOnlyWhatArrivedSinceAndNeverTheItemBeingSent()
+    {
+        // Process A has claimed n1 and its send is out. A new item n2 arrives and process B drains the same idle session.
+        // B's claim must take n2 only: n1 is A's, and sending it again would type the owner's words twice.
+        var storeA = Store();
+        var storeB = Store();
+        var report = Publish(storeA);
+        await Delivery(storeA).SendAsync(Tenant, report, [Note("n1", "first note")], "device", default);
+        _reach = DevReportSessionReach.Idle;
+
+        var sendIsOut = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseTheAnswer = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _beforeAnswer = async () => { sendIsOut.TrySetResult(); await releaseTheAnswer.Task; };
+        var processA = Task.Run(() => Delivery(storeA).SettleAsync(Tenant, _sid, default));
+        await sendIsOut.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+        storeB.AddItems(Tenant, report, [Note("n2", "second note")], DevReportItemStates.HeldState, "device", Now);
+        _beforeAnswer = () => Task.CompletedTask;
+        Assert.Equal(1, await Delivery(storeB).SettleAsync(Tenant, _sid, default));
+
+        releaseTheAnswer.SetResult();
+        Assert.Equal(1, await processA.WaitAsync(TimeSpan.FromSeconds(10)));
+
+        Assert.Equal(2, _prompts.Count);
+        foreach (var words in new[] { "\nfirst note\nowner-text-", "\nsecond note\nowner-text-" })
+            Assert.Equal(1, _prompts.Count(p => p.Text.Contains(words, StringComparison.Ordinal)));
+        Assert.All(storeB.Items(Tenant, report.Id), row => Assert.Equal("Delivered to the session", row.StatusLabel));
+    }
+
+    [Fact]
+    public void Store_ClaimWaiting_TwoClaimsOnOneDatabase_TheSecondTakesNothing()
     {
         var storeA = Store();
         var storeB = Store();
         var report = Publish(storeA);
-        await Delivery(storeA).SendAsync(Tenant, report,
-            [Note("n1", "first note"), Note("n2", "second note"), Answer("a1", "deploy", "tonight")], "device", default);
-        _reach = DevReportSessionReach.Idle;
+        storeA.AddItems(Tenant, report, [Note("n1"), Note("n2")], DevReportItemStates.HeldState, "device", Now);
 
-        var results = await Task.WhenAll(
-            Task.Run(() => Delivery(storeA).SettleAsync(Tenant, _sid, default)),
-            Task.Run(() => Delivery(storeB).SettleAsync(Tenant, _sid, default)));
-
-        Assert.Equal(3, results.Sum());
-        foreach (var words in new[] { "\nfirst note\nowner-text-", "\nsecond note\nowner-text-", "(value \"tonight\")" })
-            Assert.Equal(1, _prompts.Count(p => p.Text.Contains(words, StringComparison.Ordinal)));
-        Assert.All(storeB.Items(Tenant, report.Id), row => Assert.Equal("Delivered to the session", row.StatusLabel));
+        Assert.Equal(2, storeA.ClaimWaiting(Tenant, _sid, Guid.NewGuid(), Now).Count);
+        Assert.Empty(storeB.ClaimWaiting(Tenant, _sid, Guid.NewGuid(), Now));
     }
 
     [Fact]
