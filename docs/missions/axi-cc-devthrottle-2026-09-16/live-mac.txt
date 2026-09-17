@@ -34,7 +34,7 @@ help[3]:
   cc-devthrottle session list --help
 (exit 0)
 
-$ cc-devthrottle session list --fields id,name,state,machine --machine devlinux
+$ cc-devthrottle session list --fields id,name,state,machine --machine <machine>
 count: 1 of 33 total (snoozed 1)
 sessions[1]{id,name,state,machine}:
   (live data rows withheld - public repository)
@@ -75,10 +75,8 @@ help[4]:
 $ cc-devthrottle machine list
 count: 3 (online 3)
 machines[3]{name,state,version}:
-  SOREN_NORTH,online,2.4.0+6d8724ca5befe792181b0378167248ad470ab49a
-  SORENLAPTOP,online,2.4.0+6d8724ca5befe792181b0378167248ad470ab49a
-  devthrottle-mac-mini,online,2.1.0+db141e2868e6f99e42373a5053a68a378f74ed62
-1 more machine has a Director but no launcher, so it is not listed: devlinux. See them with: cc-devthrottle director list
+  (live data rows withheld - public repository)
+1 more machine has a Director but no launcher, so it is not listed: <machine>. See them with: cc-devthrottle director list
 help[5]:
   cc-devthrottle machine list --state offline
   cc-devthrottle machine list --fields name,state,version,pid,started,last-seen
@@ -135,7 +133,7 @@ help[3]:
 (exit 0)
 
 $ cc-devthrottle session workers
-Sessions driven by 32b06118-00cd-490c-a5ff-bb950f75d2ea.
+Sessions driven by <architect-session-id>.
 count: 1 (snoozed 1)
 hands-up: 0
 workers[1]{id,name,state,hand,need}:

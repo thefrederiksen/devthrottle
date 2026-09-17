@@ -47,7 +47,7 @@ mutations, short `--help` everywhere. Split into these pull requests, in this or
   `session spawn`, and learn what it is doing by reading it (`cc-devthrottle session list`,
   `cc-devthrottle session buffer <id>`, its branch, its pull request), never by messaging.
 - Hire one Worker per pull request (the default agent on this Mac, `--controlled-by self`, `--role Worker`,
-  named `AXI Tools - Worker - <what>`, `--mission 43b85d84-07bd-410b-a6c6-88a137bcc1c3`), each in its
+  named `AXI Tools - Worker - <what>`, `--mission <mission-id>`), each in its
   own worktree `/Users/soren/ReposFred/devthrottle-axi-<what>` cut from `origin/main`. They can run in
   parallel. Never the shared checkout. Foreground only. Two pull requests touching `cli.py` will
   conflict - have later ones rebase onto `origin/main` when an earlier one merges.

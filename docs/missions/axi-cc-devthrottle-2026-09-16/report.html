@@ -253,7 +253,7 @@ sessions[4]{id,name,state,repo}:
   <h2>Working on all three operating systems</h2>
   <p>Each machine ran the full test suite and the finished commands against the live fleet, from a clean copy of main, changing nothing in the fleet.</p>
   <div class="os">
-    <div><h3>macOS</h3><dl><dt>Machine</dt><dd>Mac Mini</dd><dt>Tests</dt><dd>3102 passed</dd><dt>Live</dt><dd>15 commands: 12 succeeded, 3 deliberate mistakes exited 2</dd><dt>Non-ASCII</dt><dd>0 lines</dd></dl></div>
+    <div><h3>macOS</h3><dl><dt>Machine</dt><dd>Mac Mini</dd><dt>Tests</dt><dd>3102 passed (last review of pull request 2965)</dd><dt>Live</dt><dd>15 commands: 12 succeeded, 3 deliberate mistakes exited 2</dd><dt>Non-ASCII</dt><dd>0 lines</dd></dl></div>
     <div><h3>Windows</h3><dl><dt>Machine</dt><dd>SOREN_NORTH</dd><dt>Tests</dt><dd>3099 passed, 3 skipped</dd><dt>Live</dt><dd>16 commands, all as expected</dd><dt>Non-ASCII</dt><dd>0 bytes</dd></dl></div>
     <div><h3>Linux</h3><dl><dt>Machine</dt><dd>devlinux (Ubuntu)</dd><dt>Tests</dt><dd>3101 passed, 1 skipped</dd><dt>Live</dt><dd>16 commands, all as expected</dd><dt>Non-ASCII</dt><dd>0 bytes in 32 streams</dd></dl></div>
   </div>
@@ -263,7 +263,7 @@ sessions[4]{id,name,state,repo}:
 <section>
   <span class="eyebrow">How it was checked</span>
   <h2>Independent inspection before every merge</h2>
-  <p>Nothing reached main without a review by a different agent family, told to be adversarial and not to trust the builder's report. That took 38 inspection rounds across the 12 tool pull requests. They found real defects every early round, among them:</p>
+  <p>Every pull request was reviewed by a different agent family, told to be adversarial and not to trust the builder's report, with two exceptions on your instruction: the last fix on pull request 2932 was merged before its re-check, and pull request 2986 was reviewed by the same family. That took 38 inspection rounds across the 12 tool pull requests. They found real defects every early round, among them:</p>
   <div class="tablebox">
     <table>
       <thead><tr><th>Found by inspection</th><th>Where</th></tr></thead>
@@ -293,12 +293,12 @@ sessions[4]{id,name,state,repo}:
   <span class="eyebrow">Honest gaps</span>
   <h2>What is not finished, and what needs you</h2>
   <div class="notes">
-    <div class="note"><h3>How the last reviews ran</h3><p>Codex, Grok and Copilot all ran out of usage near the end. At your instruction, the final review of pull request 2986 was done by a session of the same agent family that built it, so that one change was not checked by a different family.</p></div>
+    <div class="note"><h3>How the last reviews ran</h3><p>Every agent family used for inspection ran out of usage near the end. At your instruction, the final review of pull request 2986 was done by a session of the same agent family that built it, so that one change was not checked by a different family.</p></div>
     <div class="note"><h3>Public data in edit history</h3><p>The repository is public. Live fleet rows (mission names, repository paths) had been pasted into eight pull request descriptions. They are redacted, but the old text stays in GitHub's edit history; purging it needs GitHub support, which is your call.</p></div>
     <div class="note"><h3>Moved to issue 2972</h3><p>Skill and workflow pull can still leave a mixed folder if killed mid-write, and do not refuse Windows name aliases such as <code>SKILL.md.</code>. Both predate this mission.</p></div>
     <div class="note"><h3>Reported, not changed</h3><p>These come from the Gateway and are printed as sent: <code>worktree list</code> counts a worktree twice when two Directors on one machine report it (the output says so); worktree paths use forward slashes while repository paths use backslashes; a disabled schedule shows an empty next-run cell.</p></div>
     <div class="note"><h3>Not proven</h3><p>The benchmark covers one frozen fleet, one agent setting and Windows only; four of its six tasks were not re-run after the follow-up fix. <code>selftest</code> still runs only on Windows. The installed tool on the Mac is still the older release until the next update.</p></div>
-    <div class="note"><h3>Clean up on SOREN_NORTH</h3><p>Two inspectors could not delete their temporary Python environments: <code>D:\ReposFred\devthrottle-pr2957-inspect-1ab5a5ab-venv</code> and <code>D:\Temp\axi-pr2962-inspect-env</code>.</p></div>
+    <div class="note"><h3>Clean up on the Windows machine</h3><p>Two reviewers could not delete their temporary Python environments there; their locations are in the private mission notes.</p></div>
   </div>
 </section>
 

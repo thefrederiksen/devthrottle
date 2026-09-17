@@ -1,6 +1,8 @@
+> Historical brief, written before the owner ordered on 2026-09-16 that sessions send no fleet messages. Do not copy its reporting step.
+
 # Worker brief - step 2, shared AXI output helper
 
-You are `AXI Tools - Worker - step 2`. Your supervisor is the Manager (session 486709d7). Report to it
+You are `AXI Tools - Worker - step 2`. Your supervisor is the Manager (session <session-id>). Report to it
 only, once, when done or genuinely blocked.
 
 Read first: `cc-devthrottle workflow instructions mission` (conduct), `gh issue view 2922 --comments`
@@ -64,5 +66,5 @@ not, still open your pull request; the Manager will ask for a rebase later.
   Grep your commit messages and pull request body before pushing.
 - Plain English, no abbreviations, in everything you write.
 - When the pull request is open, send the Manager ONE line:
-  `cc-devthrottle message send 486709d7 "step 2 worker: pull request <number> open"`
+  `cc-devthrottle message send <session-id> "step 2 worker: pull request <number> open"`
   then stop and wait.
