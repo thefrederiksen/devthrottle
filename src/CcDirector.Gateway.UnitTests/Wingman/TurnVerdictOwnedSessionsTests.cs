@@ -1,4 +1,4 @@
-using CcDirector.Core.Tenancy;
+﻿using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Briefing;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Wingman;
@@ -43,13 +43,14 @@ public sealed class TurnVerdictOwnedSessionsTests
     {
         var roster = Roster();
 
-        var facts = TurnVerdictOwnedSessions.For(roster, "architect");
+        var facts = TurnVerdictOwnedSessions.For(roster, "architect", _ => null);
 
         Assert.NotNull(facts);
         Assert.Equal(1, facts!.Working);
         Assert.Equal(2, facts.Stopped);
         Assert.Equal(0, facts.NeedYou);
-        Assert.Equal(T0.AddMinutes(7), facts.LastActivityAtUtc);
+        Assert.Equal(1, facts.InTurn);
+        Assert.Equal(T0.AddMinutes(7), facts.LastStoppedAtUtc);
 
         // The same numbers the row's crew line prints, from the same fold.
         var sessions = roster.Select(r => r.Session).ToList();
@@ -62,9 +63,9 @@ public sealed class TurnVerdictOwnedSessionsTests
     [Fact]
     public void For_ASessionThatOwnsNothing_OrIsNotInTheRoster_IsNull()
     {
-        Assert.Null(TurnVerdictOwnedSessions.For(Roster(), "solo"));
-        Assert.Null(TurnVerdictOwnedSessions.For(Roster(), "worker-stopped"));
-        Assert.Null(TurnVerdictOwnedSessions.For(Roster(), "not-there"));
+        Assert.Null(TurnVerdictOwnedSessions.For(Roster(), "solo", _ => null));
+        Assert.Null(TurnVerdictOwnedSessions.For(Roster(), "worker-stopped", _ => null));
+        Assert.Null(TurnVerdictOwnedSessions.For(Roster(), "not-there", _ => null));
     }
 
     [Fact]
@@ -75,7 +76,7 @@ public sealed class TurnVerdictOwnedSessionsTests
         {
             Screen = () => TurnVerdictTestDoubles.Screen("architect", reply, "> "),
             Conversation = _ => TurnVerdictTestDoubles.Reply("run the migration", reply),
-            Owned = sid => sid == "architect" ? new OwnedSessionsFacts(Working: 2, Stopped: 1, NeedYou: 0, LastActivityAtUtc: T0) : null,
+            Owned = sid => sid == "architect" ? new OwnedSessionsFacts(Working: 2, Stopped: 1, NeedYou: 0, InTurn: 2, LastStoppedAtUtc: T0) : null,
         };
         var service = new TurnVerdictService(env);
 

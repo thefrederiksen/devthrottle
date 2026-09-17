@@ -1,4 +1,4 @@
-using CcDirector.Core.Tenancy;
+﻿using CcDirector.Core.Tenancy;
 using CcDirector.Gateway.Api;
 using CcDirector.Gateway.Briefing;
 using CcDirector.Gateway.Contracts;
@@ -131,7 +131,8 @@ public sealed class FleetManagerOwnedSessionsAreJudgedTests : IDisposable
             language: _ => SpokenLanguages.English,
             customSpokenRules: () => null,
             isVoiceSession: (_, _) => voice,
-            fleetManagerSessionId: settings.FleetManagerSessionId);
+            fleetManagerSessionId: settings.FleetManagerSessionId,
+            turnState: (_, _) => null);
         return (new TurnVerdictService(env), env, pushed);
     }
 

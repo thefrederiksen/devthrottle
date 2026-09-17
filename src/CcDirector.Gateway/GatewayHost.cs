@@ -2280,6 +2280,18 @@ public sealed class GatewayHost : IAsyncDisposable
     }
 
     /// <summary>
+    /// One session's transcript turn signal - inside a turn or not, and when the Gateway recorded it - read off its
+    /// stored turn head, or null when it has none (issue #2992). The tenant scope is entered HERE, synchronously, for
+    /// the reason <see cref="ReadStoredConversation"/> gives.
+    /// </summary>
+    private Wingman.SessionTurnState? ReadSessionTurnState(TenantId tenant, string sessionId)
+    {
+        if (!tenant.IsValid || string.IsNullOrEmpty(sessionId)) return null;
+        using var scope = _tenantBoundary?.EnterScope(tenant);
+        return Wingman.SessionTurnState.From(_sessionTurns.ReadHead(sessionId));
+    }
+
+    /// <summary>
     /// One session's stored conversation for the turn log: the whole contiguous prefix of its current
     /// generation, both sides, with the parts intact. Null when nothing has been stored for it - which the
     /// record writes down as a named gap rather than as an empty conversation, because "the push has not
@@ -2737,6 +2749,9 @@ public sealed class GatewayHost : IAsyncDisposable
             isVoiceSession: (tenant, sid) => _voiceService?.IsVoiceSession(tenant, sid) ?? false,
             // The ACCOUNT's Fleet Manager mark: the one session whose direct Workers are judged while held.
             fleetManagerSessionId: _tenantSettingsResolver.FleetManagerSessionId,
+            // Is an owned session inside a turn, by its transcript (issue #2992): the carrying-on clock reads this,
+            // never terminal silence. The tenant scope is entered inside the reader, like the conversation's.
+            turnState: ReadSessionTurnState,
             ledger: _activityEvents,
             enterTenantScope: tenant => _tenantBoundary.EnterScope(tenant));
 
