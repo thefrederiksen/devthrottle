@@ -509,17 +509,49 @@ async function stageFrame(browser) {
       await page.waitForTimeout(3000);
       const appUrl = page.url();
       const t = tray(page);
-      // Everything the check lets through, clicked the way the owner might.
-      for (const id of ["#fake-send", "#link-js", "#form-submit"]) {
+      const loadHits = hitsSince(mark);
+      await screenshot(page, `frame-${app}-published`);
+      check(`F5 (${app}): nothing the published hostile report loads by itself reaches another origin (base, report policy, stylesheets, fonts, backgrounds, images, media, objects, nested frames)`,
+        loadHits.length === 0, JSON.stringify(loadHits.map((h) => h.url)));
+      // Everything the check lets through that needs a click, clicked the way the owner might. None of these may
+      // navigate the frame or reach another origin, so the frame must still be showing the report afterwards.
+      const markClicks = evilHits.length;
+      for (const id of ["#fake-composer", "#fake-send", "#link-js", "#form-submit", "#pick-monday"]) {
         await t.locator(id).click({ timeout: 5000, force: true }).catch((e) => { out[`click ${id}`] = String(e.message).slice(0, 200); });
         await page.waitForTimeout(700);
       }
-      const noNavHits = hitsSince(mark);
-      await screenshot(page, `frame-${app}-published`);
-      check(`F5 (${app}): nothing the published hostile report loads by itself reaches another origin (styles, fonts, images, media, objects, nested frames, forms, javascript: links)`,
-        noNavHits.length === 0, JSON.stringify(noNavHits.map((h) => h.url)));
-      check(`F4b (${app}): the fake Send, the javascript: link and the form make the app send nothing`,
-        sends.length === 0, JSON.stringify(sends));
+      const clickHits = hitsSince(markClicks);
+      const stillReport = await t.locator("#attacks").count().catch(() => 0);
+      out.clicks = { clickHits, stillReport, sends };
+      check(`F4b (${app}): the fake Send, the javascript: link, the form, and a focus and a pick that a stylesheet watches reach nothing and make the app send nothing`,
+        sends.length === 0 && clickHits.length === 0 && stillReport === 1 && !out["click #fake-send"] && !out["click #form-submit"],
+        JSON.stringify(out.clicks));
+
+      // A data: link is a navigation too: the frame leaves the report for a page the host did not load.
+      const markData = evilHits.length;
+      const connectedBeforeData = await page.locator(T.viewer).getAttribute("data-connected");
+      await t.locator("#link-data").click({ force: true });
+      await page.waitForTimeout(8000); // longer than the poll interval, so a host push would have happened
+      const dataFrame = await reportFrame(page);
+      const dataPage = await dataFrame.evaluate(() => ({
+        url: location.href.slice(0, 40),
+        scriptRan: document.documentElement.getAttribute("data-data-url-script-ran"),
+      })).catch((e) => ({ error: String(e.message).slice(0, 200) }));
+      const connectedAfterData = await page.locator(T.viewer).getAttribute("data-connected");
+      out.dataLink = { connectedBeforeData, connectedAfterData, dataPage, hits: hitsSince(markData), sends };
+      await screenshot(page, `frame-${app}-data-link`);
+      check(`F7a (${app}): a data: link takes the frame away; the host drops the page (connected false), nothing reaches another origin, and the app sends nothing`,
+        connectedBeforeData === "true" && connectedAfterData === "false" && hitsSince(markData).length === 0 && sends.length === 0,
+        JSON.stringify(out.dataLink));
+      // Back to the report for the remaining attacks.
+      await ctx.close();
+    }
+    {
+      const { ctx, page, sends, popups } = await newAppContext(browser, vp);
+      await openReport(page, app, session.CC_SESSION_ID, published.id);
+      await page.waitForTimeout(2000);
+      const appUrl = page.url();
+      const t = tray(page);
 
       // The popup and the top window: blocked by the sandbox.
       await t.locator("#link-blank").click({ force: true }).catch(() => {});
@@ -534,10 +566,11 @@ async function stageFrame(browser) {
       await waitFor("the other-origin page to run", () => hitsSince(markNav).some((h) => h.url.startsWith("/beacon/evil-link-ran")), 15000);
       await page.waitForTimeout(8000); // longer than the poll interval, so a host push would have happened
       const navHits = hitsSince(markNav);
+      const connectedAfterNav = await page.locator(T.viewer).getAttribute("data-connected");
       await screenshot(page, `frame-${app}-navigated`);
-      out.navigated = { navHits, sends };
-      check(`F7 (${app}): after a link takes the frame to another origin, that page runs but gets nothing from the host and its forged ready and sends are refused`,
-        navHits.some((h) => h.url.startsWith("/beacon/evil-link-ran")) &&
+      out.navigated = { navHits, sends, connectedAfterNav };
+      check(`F7 (${app}): after a link takes the frame to another origin, that page runs but the host drops it, it gets nothing, and its forged ready and sends are refused`,
+        connectedAfterNav === "false" && navHits.some((h) => h.url.startsWith("/beacon/evil-link-ran")) &&
           navHits.filter((h) => /port-message|window-message/.test(h.url)).length === 0 &&
           navHits.filter((h) => /top-navigation-worked/.test(h.url)).length === 0 && sends.length === 0,
         JSON.stringify(navHits.map((h) => decodeURIComponent(h.url).slice(0, 200))));
@@ -552,10 +585,11 @@ async function stageFrame(browser) {
       await waitFor("the meta refresh to land on the other origin", () => hitsSince(mark).some((h) => h.url.startsWith("/beacon/evil-meta-refresh-ran")), 20000);
       await page.waitForTimeout(8000);
       const hits = hitsSince(mark);
+      const connectedAfterRefresh = await page.locator(T.viewer).getAttribute("data-connected");
       await screenshot(page, `frame-${app}-meta-refresh`);
-      out.metaRefresh = { hits, sends };
-      check(`F8 (${app}): after a meta refresh takes the frame away, that page gets nothing from the host and can send nothing`,
-        hits.filter((h) => /port-message|window-message/.test(h.url)).length === 0 && sends.length === 0,
+      out.metaRefresh = { hits, sends, connectedAfterRefresh };
+      check(`F8 (${app}): after a meta refresh takes the frame away, the host drops the page, it gets nothing and can send nothing`,
+        connectedAfterRefresh === "false" && hits.filter((h) => /port-message|window-message/.test(h.url)).length === 0 && sends.length === 0,
         JSON.stringify(hits.map((h) => decodeURIComponent(h.url).slice(0, 200))));
       await ctx.close();
     }
@@ -666,26 +700,44 @@ async function stageE2e(browser) {
     JSON.stringify({ deskShown }));
 
   // ---- end the session; Send shows the Gateway's refusal sentence
+  // The Cockpit is a second browser, so its notes are numbered from the start again. Two notes are queued: the
+  // first takes an id the phone already used (n1), the second an id the Gateway has never seen.
   const ended = await owner("DELETE", `/sessions/${session.CC_SESSION_ID}`);
   await waitFor("the Gateway to rule the session ended", async () => (await owner("GET", `/dev-reports/${reportId}`)).json.report.sessionEnded === true, 90000, 1000);
   const td = tray(d);
-  await td.locator("[data-drn=pick]").click();
-  await td.locator("#summary").click();
-  await td.locator("[data-drn=composer-text]").fill("Sent after the session ended.");
-  await td.locator("[data-drn=composer-queue]").click();
-  await waitFor("the item to be queued in the app", async () => (await d.locator(T.queuedItem).allInnerTexts()).some((x) => x.includes("Sent after the session ended.")), 15000);
+  for (const [target, words] of [["#summary", "First note from the Cockpit after the session ended."], ["#explain", "Second note from the Cockpit after the session ended."]]) {
+    await td.locator("[data-drn=pick]").click();
+    await td.locator(target).click();
+    await td.locator("[data-drn=composer-text]").fill(words);
+    await td.locator("[data-drn=composer-queue]").click();
+  }
+  await waitFor("both notes queued in the app", async () => (await d.locator(T.queuedItem).count()) === 2, 15000);
   await d.locator(T.send).click();
-  const refusedShown = await waitFor("the refusal to show in the queue", async () => {
-    const items = await d.locator(T.queuedItem).allInnerTexts();
-    const mine = items.find((x) => x.includes("Sent after the session ended."));
-    return mine && /ended/i.test(mine) ? mine : null;
-  }, 30000).catch(() => null);
+  await d.waitForTimeout(4000);
+  const queuedTexts = await d.locator(T.queuedItem).allInnerTexts();
+  const sentTexts = await d.locator(T.sentItem).allInnerTexts();
   const detailAfter = (await owner("GET", `/dev-reports/${reportId}`)).json;
+  const sentBody = desk.sends.length ? JSON.parse(desk.sends[desk.sends.length - 1].body) : null;
   await screenshot(d, "e2e-cockpit-2-ended-refused");
-  evidence.steps.E8 = { deleteSession: ended.status, refusedShown, gatewayItems: detailAfter.items, sendRequests: desk.sends };
-  check("E8: after the session ends, Send shows the Gateway's refusal sentence and the item stays queued",
-    ended.status < 300 && desk.sends.length >= 1 && !!refusedShown,
-    JSON.stringify({ deleteSession: ended.status, refusedShown }));
+  evidence.steps.E8 = { deleteSession: ended.status, sentBody, queuedTexts, sentTexts,
+    gatewayItems: detailAfter.items.map((i) => ({ id: i.id, kind: i.kind, text: i.text, status: i.status, statusLabel: i.statusLabel })) };
+  const secondQueued = queuedTexts.find((x) => x.includes("Second note from the Cockpit"));
+  check("E8: after the session ends, Send shows the Gateway's refusal sentence and the note stays queued",
+    ended.status < 300 && !!secondQueued && /ended/i.test(secondQueued),
+    JSON.stringify({ secondQueued }));
+  // A note the owner wrote either reaches the Gateway or stays in front of the owner, queued. It must never leave the
+  // queue while the Gateway does not hold it - and never be shown as delivered.
+  const first = "First note from the Cockpit after the session ended.";
+  const trayQueued = await td.locator("[data-drn=queued]").innerText();
+  const traySent = await td.locator("[data-drn=sent]").innerText();
+  const gatewayHasFirst = detailAfter.items.some((i) => i.text === first);
+  const stillQueuedInApp = queuedTexts.some((x) => x.includes(first));
+  const trayShowsFirstAsSent = traySent.includes(first);
+  evidence.steps.E9 = { idsPosted: sentBody && sentBody.items.map((i) => i.id), gatewayHoldsTheText: gatewayHasFirst,
+    stillQueuedInApp, trayShowsFirstAsSent, traySent, trayQueued, appQueued: queuedTexts, appSent: sentTexts };
+  check("E9: a note written on a second device reaches the Gateway or stays queued - it never disappears or reads as delivered",
+    gatewayHasFirst || (stillQueuedInApp && !trayShowsFirstAsSent),
+    JSON.stringify(evidence.steps.E9));
   await desk.ctx.close();
 }
 

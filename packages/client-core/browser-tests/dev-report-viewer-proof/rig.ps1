@@ -27,7 +27,8 @@
     session       open one Claude Code session on the rig Director and write its Gateway environment
                   (CC_GATEWAY_URL, CC_GATEWAY_SESSION_KEY, CC_SESSION_ID) to <root>\session.json, so the proof
                   can run cc-dev-reports AS that session
-    stage-shells  copy apps\cockpit\dist and apps\mobile\dist from this tree into the running Gateway's wwwroot
+    stage-shells  copy apps\cockpit\dist and apps\mobile\dist from this tree (or from the checkout named by
+                  -ShellsFrom) into the running Gateway's wwwroot
     status        what is running (by exact image path) and what the rig Gateway sees
     down          Director by its named signal, launcher by its named signal, Gateway by POST /shutdown, then
                   unregister the tasks. Never force-kills; says what is left.
@@ -48,6 +49,7 @@ param(
     [int]$GatewayPort = 7931,
     [string]$Builds = (Join-Path $env:TEMP "dev-report-proof-rig-builds"),
     [int]$Slot = 5,
+    [string]$ShellsFrom = '',
     [switch]$Force
 )
 
@@ -389,8 +391,10 @@ function Invoke-Session {
 
 # ---------------------------------------------------------------------------
 function Invoke-StageShells {
+    $from = if ($ShellsFrom) { [System.IO.Path]::GetFullPath($ShellsFrom) } else { $repo }
+    Say "staging the web shells built in $from"
     foreach ($pair in @(@('apps\cockpit\dist', 'c'), @('apps\mobile\dist', 'mobile'))) {
-        $src = Join-Path $repo $pair[0]
+        $src = Join-Path $from $pair[0]
         $dst = Join-Path $gatewayDir "wwwroot\$($pair[1])"
         if (-not (Test-Path (Join-Path $src "index.html"))) { Fail "no built app at $src - build it first (npm run build in that app)." }
         if (-not $dst.StartsWith($Root + $sep, [System.StringComparison]::OrdinalIgnoreCase)) { Fail "REFUSING: $dst is not inside $Root" }
