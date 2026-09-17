@@ -73,6 +73,7 @@ public sealed record DirectorRestoreResult(string WorkspaceId, IReadOnlyList<Sea
 ///  - no owner: the user owns it;
 ///  - the owner is not a seat here (it lives on another Director and survived): its current id, verbatim;
 ///  - the owner is a seat here and has come back (in this run or an earlier one): its restored id;
+///  - the owner is a seat here that BLOCKED the drain and was never closed: its current id - it is still running;
 ///  - the owner is a seat here and did NOT come back (it failed, was decided "close", or was not asked for in
 ///    this run and has never been restored): this seat FAILS with that reason. It is not started unowned and
 ///    not started under a dead id - either would be a guess about who collects its work.
@@ -360,6 +361,12 @@ public sealed class DirectorRestore
         var bossName = $"{DrainPaths.ShortId(reportsTo)} \"{boss.Name}\"";
         if (!string.IsNullOrWhiteSpace(boss.RestoredSessionId))
             return (boss.RestoredSessionId, null);
+
+        // A seat that BLOCKED the drain was never closed, and a blocked drain is never followed by a restart - so
+        // that owner is still running under the id it had. This is the restore-without-restart after a blocked
+        // drain, where the seats that did close come back and report to the one that would not stop.
+        if (string.Equals(boss.DrainState, WorkspaceDrainStates.Blocked, StringComparison.Ordinal) && boss.ClosedAtUtc is null)
+            return (reportsTo, null);
         if (failedHere.TryGetValue(reportsTo, out var why))
             return (null, $"its owner {bossName} was restarted in the same drain and could not be brought back ({why}), " +
                           "so there is no session to own it. Restore the owner, then this seat.");

@@ -140,3 +140,19 @@ FAILED tests/test_director_restore.py::test_one_failed_seat_is_reported_and_the_
 FAILED tests/test_director_restore.py::test_a_seat_with_no_answer_when_the_wait_runs_out_is_pending_and_the_exit_code_says_so
 2 failed, 7 passed in 0.19s
 
+## 16 an owner that blocked the drain is treated as not coming back
+file: src/CcDirector.ControlApi/Drain/DirectorRestore.cs
+replaced: '        if (string.Equals(boss.DrainState, WorkspaceDrainStates.Blocked, StringComparison.Ordinal) && boss.ClosedAtUtc is null)'
+with: '        if (string.Equals(boss.DrainState, "never", StringComparison.Ordinal) && boss.ClosedAtUtc is null)'
+filter: FullyQualifiedName~DirectorRestoreTests
+  Failed CcDirector.Gateway.UnitTests.Drain.DirectorRestoreTests.RunAsync_AnOwnerThatBlockedTheDrainAndWasNeverClosed_IsStillRunning_AndKeepsItsId [< 1 ms]
+Failed!  - Failed:     1, Passed:    18, Skipped:     0, Total:    19, Duration: 68 ms - CcDirector.Gateway.UnitTests.dll (net10.0)
+
+## 17 a blocked owner is taken for running even after it was closed
+file: src/CcDirector.ControlApi/Drain/DirectorRestore.cs
+replaced: ' && boss.ClosedAtUtc is null)\n            return (reportsTo, null);'
+with: ')\n            return (reportsTo, null);'
+filter: FullyQualifiedName~DirectorRestoreTests
+  Failed CcDirector.Gateway.UnitTests.Drain.DirectorRestoreTests.RunAsync_ABlockedOwnerThatWasClosedAfterAll_IsNotTakenForRunning [1 ms]
+Failed!  - Failed:     1, Passed:    18, Skipped:     0, Total:    19, Duration: 57 ms - CcDirector.Gateway.UnitTests.dll (net10.0)
+

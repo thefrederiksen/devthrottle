@@ -144,6 +144,34 @@ public class DirectorRestoreTests
     }
 
     [Fact]
+    public async Task RunAsync_AnOwnerThatBlockedTheDrainAndWasNeverClosed_IsStillRunning_AndKeepsItsId()
+    {
+        // The restore after a blocked drain: no restart happened, the owner would not stop, its worker did.
+        var owner = Seat("m", "Manager", decision: WorkspaceRestoreDecisions.Undecided);
+        owner.DrainState = WorkspaceDrainStates.Blocked;
+        owner.ClosedAtUtc = null;
+        var gw = new FakeGateway(Doc(owner, Seat("w", "Worker", reportsTo: "m")));
+
+        await NewRestore(gw).RunAsync(Order());
+
+        Assert.Equal("m", Assert.Single(gw.Spawns).ControllerSessionId);
+    }
+
+    [Fact]
+    public async Task RunAsync_ABlockedOwnerThatWasClosedAfterAll_IsNotTakenForRunning()
+    {
+        var owner = Seat("m", "Manager", decision: WorkspaceRestoreDecisions.Undecided);
+        owner.DrainState = WorkspaceDrainStates.Blocked;
+        owner.ClosedAtUtc = Now;
+        var gw = new FakeGateway(Doc(owner, Seat("w", "Worker", reportsTo: "m")));
+
+        var result = await NewRestore(gw).RunAsync(Order());
+
+        Assert.Empty(gw.Spawns);
+        Assert.NotNull(Assert.Single(result.Seats).Failure);
+    }
+
+    [Fact]
     public async Task RunAsync_ASeatWithNoOwner_IsTheUsers_AndTheRequestSaysWhoAsked()
     {
         var gw = new FakeGateway(Doc(Seat("solo", "Solo")));
