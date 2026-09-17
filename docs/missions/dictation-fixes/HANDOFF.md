@@ -214,3 +214,11 @@ stayed open: it runs once the owner's next Gateway deploy puts #2926 live and a 
 The .NET continuous integration job failed on unrelated tests in different places on each run
 (streaming, admin feedback, status palette); #2968 changed only web files and was merged on that
 basis.
+
+## After landing - 2026-09-17
+
+At the owner's request the Gateway was deployed: the fix for #2926 is live since about 02:00 UTC on
+2026-09-17 (deploy run 35171450459, commit cd299403; the Architect's own dispatch seconds later was
+refused because main's .NET checks on that commit had been cancelled by a newer commit, and changed
+nothing). internal#2037 is unblocked; it should count only rows created after that time, once a few
+days of them exist.
