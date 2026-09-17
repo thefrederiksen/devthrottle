@@ -492,6 +492,112 @@ public sealed class FleetMessageReplyStoreTests : IDisposable
         Assert.Single(All());
     }
 
+    // ---------- No overdue mark without its notice (inspection 6, ruling 1) ----------
+
+    private static FleetMessageDraft NoticeDraft(FleetMessageEntity question, string text) =>
+        new(question.SenderSessionId!, null, null, null, FleetMessageKinds.System, text,
+            CorrelationId: question.CorrelationId, InReplyToMessageId: question.MessageId);
+
+    [Fact]
+    public void A_notice_the_policy_refuses_leaves_the_question_open_and_the_next_sweep_retries()
+    {
+        var (store, service) = NewRig();
+        var question = Ask(service, within: TimeSpan.FromMinutes(1));
+        _now = T0.AddMinutes(2);
+        var tiny = FleetMessageLimits.Default with { MaxTextLength = 10 };
+
+        var marked = store.MarkReplyOverdueWithNotices(Tenant, _now,
+            m => NoticeDraft(m, "far longer than ten characters"), tiny);
+
+        Assert.Empty(marked);
+        Assert.Null(Peek(question.MessageId!).ReplyOverdueAtUtc);
+        Assert.DoesNotContain(All(), m => m.Kind == FleetMessageKinds.System);
+
+        // The next sweep, with a notice that fits, marks it and tells the asker once.
+        _now = T0.AddMinutes(3);
+        var retried = Assert.Single(service.MarkReplyOverdueAndNotify(Tenant));
+        Assert.Equal(question.MessageId, retried.MessageId);
+        Assert.Equal(T0.AddMinutes(3), Peek(question.MessageId!).ReplyOverdueAtUtc);
+        Assert.Single(All(), m => m.Kind == FleetMessageKinds.System);
+    }
+
+    [Fact]
+    public void An_identical_unread_notice_for_the_same_question_leaves_the_mark_written_and_adds_no_second()
+    {
+        var (store, service) = NewRig();
+        var question = Ask(service, within: TimeSpan.FromMinutes(1));
+        _now = T0.AddMinutes(2);
+        var questionRow = Peek(question.MessageId!);
+        var text = FleetMessageService.NoReplyNoticeText(questionRow, null);
+        // The asker already holds this very notice, unread (a shape a lost mark would leave behind).
+        store.TryEnqueue(Tenant, NoticeDraft(questionRow, text), T0.AddMinutes(1), TimeSpan.FromHours(1),
+            _ => new FleetMessageVerdict(FleetMessageOutcome.Queued, ""));
+
+        var marked = Assert.Single(store.MarkReplyOverdueWithNotices(Tenant, _now, m => NoticeDraft(m, text)));
+
+        Assert.Null(marked.Notice);
+        Assert.Equal(T0.AddMinutes(2), Peek(question.MessageId!).ReplyOverdueAtUtc);
+        Assert.Single(All(), m => m.Kind == FleetMessageKinds.System);
+        Assert.Empty(service.MarkReplyOverdueAndNotify(Tenant));
+    }
+
+    [Fact]
+    public void A_blank_notice_is_refused_and_leaves_the_question_open()
+    {
+        var (store, service) = NewRig();
+        var question = Ask(service, within: TimeSpan.FromMinutes(1));
+        _now = T0.AddMinutes(2);
+
+        Assert.Empty(store.MarkReplyOverdueWithNotices(Tenant, _now, m => NoticeDraft(m, "   ")));
+
+        Assert.Null(Peek(question.MessageId!).ReplyOverdueAtUtc);
+        Assert.Single(All());
+    }
+
+    [Fact]
+    public void The_no_reply_notice_fits_the_text_cap_whatever_the_recipients_name()
+    {
+        var (_, _) = NewRig();
+        var cap = 400;
+        var service = new FleetMessageService(new FleetMessageStore(_harness.Open()),
+            FleetMessageLimits.Default with { MaxTextLength = cap }, () => _now);
+        var question = Ask(service, within: TimeSpan.FromMinutes(1));
+        _now = T0.AddMinutes(2);
+        var longName = new string('n', 5000);
+
+        var marked = Assert.Single(service.MarkReplyOverdueAndNotify(Tenant, _ => longName));
+
+        Assert.NotNull(marked.ReplyOverdueAtUtc);
+        var notice = Assert.Single(All(), m => m.Kind == FleetMessageKinds.System);
+        Assert.True(notice.Text.Length <= cap, $"notice is {notice.Text.Length} characters");
+        Assert.Contains(question.MessageId!, notice.Text);
+        Assert.Contains("(bbbbbbbb)", notice.Text);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(3)]
+    [InlineData(40)]
+    public void The_no_reply_notice_text_is_cut_only_in_the_name(int nameLength)
+    {
+        var question = new FleetMessageEntity
+        {
+            TenantId = "acct-a", MessageId = new string('1', 32), CorrelationId = new string('2', 32),
+            RecipientSessionId = WorkerA, SenderSessionId = Manager, Kind = FleetMessageKinds.Message, Text = "q",
+            TextHash = "", CreatedAtUtc = T0,
+        };
+        var bare = FleetMessageService.NoReplyNoticeText(question, null);
+        var name = new string('n', 100);
+
+        var text = FleetMessageService.NoReplyNoticeText(question, name, bare.Length + " ()".Length + nameLength);
+
+        Assert.True(text.Length <= bare.Length + " ()".Length + nameLength);
+        Assert.Contains(question.MessageId, text);
+        Assert.Contains(question.CorrelationId, text);
+        Assert.EndsWith("If a reply comes later it still lands in your inbox.", text);
+        Assert.Equal(nameLength >= 4 ? bare.Length + 3 + nameLength : bare.Length, text.Length);
+    }
+
     [Fact]
     public void The_mark_and_the_notice_carry_the_same_moment()
     {

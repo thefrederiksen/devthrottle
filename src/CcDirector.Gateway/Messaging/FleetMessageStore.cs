@@ -369,11 +369,21 @@ public sealed class FleetMessageStore
     /// NO REPLY BY THE DEADLINE: THE MARK AND THE NOTICE ARE ONE WRITE (slice 3, ruling 10), exactly as stuck and
     /// its notice are (<see cref="MarkStuckWithNotices"/>). Every message that asked for a reply, has none, is past
     /// its deadline and is not yet marked, is marked overdue and - in the SAME save - the notice
-    /// <paramref name="noticeFor"/> drafts is written into its sender's inbox (null: no notice). Either every mark
-    /// and every notice is persisted, or none is, so a failure before the save leaves the messages unmarked and the
-    /// next heartbeat marks and notifies each of them exactly once. A marked message is never scanned again, so the
-    /// notice is sent ONCE. A notice passes the same policy as any system notice (the text rules and the
-    /// unread-duplicate rule).
+    /// <paramref name="noticeFor"/> drafts is written into its sender's inbox. Either every mark and every notice is
+    /// persisted, or none is, so a failure before the save leaves the messages unmarked and the next heartbeat marks
+    /// and notifies each of them exactly once. A marked message is never scanned again, so the notice is sent ONCE.
+    ///
+    /// NO MARK WITHOUT ITS NOTICE (inspection 6, ruling 1). The notice passes the same policy as any system notice
+    /// (the text rules and the unread-duplicate rule), and the mark follows the verdict:
+    ///  - queued: the mark and the notice are written together;
+    ///  - dropped as a duplicate: the sender already holds an identical unread notice about THIS question (the
+    ///    duplicate rule is per question - see <see cref="ReadHistory"/>), so the mark is written and no second
+    ///    notice is;
+    ///  - refused for any other reason: NOTHING is written for that question, the refusal is logged with its
+    ///    reason, and the next sweep tries again. A mark written here would stop every later scan, and the sender
+    ///    would never be told.
+    /// A null draft means there is nobody to tell (a question with no sending session): it is marked, so it is not
+    /// scanned for ever.
     /// </summary>
     public IReadOnlyList<(FleetMessageEntity Overdue, FleetMessageEntity? Notice)> MarkReplyOverdueWithNotices(
         TenantId tenant, DateTime nowUtc, Func<FleetMessageEntity, FleetMessageDraft?> noticeFor,
@@ -393,14 +403,55 @@ public sealed class FleetMessageStore
             var result = new List<(FleetMessageEntity, FleetMessageEntity?)>();
             foreach (var m in overdue)
             {
-                m.ReplyOverdueAtUtc = now;
-                result.Add((m, StageSystemNotice(ctx, noticeFor(m), now, policyLimits)));
+                var draft = noticeFor(m);
+                if (draft is null)
+                {
+                    m.ReplyOverdueAtUtc = now;
+                    result.Add((m, null));
+                    continue;
+                }
+                var (verdict, notice) = JudgeOverdueNotice(ctx, draft, now, policyLimits);
+                switch (verdict.Outcome)
+                {
+                    case FleetMessageOutcome.Queued:
+                        m.ReplyOverdueAtUtc = now;
+                        result.Add((m, notice));
+                        break;
+                    case FleetMessageOutcome.DuplicateDropped:
+                        FileLog.Write($"[FleetMessageStore] MarkReplyOverdue: id={m.MessageId} marked; its notice is already waiting unread, no second one written");
+                        m.ReplyOverdueAtUtc = now;
+                        result.Add((m, null));
+                        break;
+                    default:
+                        FileLog.Write($"[FleetMessageStore] MarkReplyOverdue NOTICE REFUSED ({verdict.Outcome}): id={m.MessageId} left open for the next sweep: {verdict.Reason}");
+                        break;
+                }
             }
             if (result.Count == 0) return result;
             BeforeOverdueSave?.Invoke();
             ctx.SaveChanges();
             return result;
         }
+    }
+
+    /// <summary>Judge one no-reply notice by the system-notice policy and, when it queues, add it to
+    /// <paramref name="ctx"/> without saving. Returns the verdict, so the caller can tell a duplicate (the notice is
+    /// already there) from a refusal (it is not).</summary>
+    private static (FleetMessageVerdict Verdict, FleetMessageEntity? Notice) JudgeOverdueNotice(
+        GatewayDbContext ctx, FleetMessageDraft draft, DateTime now, FleetMessageLimits limits)
+    {
+        var hash = HashText(draft.Text);
+        var history = ReadHistory(ctx, draft, hash, now, limits.SenderWindow);
+        var verdict = FleetMessagePolicy.Decide(new FleetMessageAttempt(
+            SenderSessionId: null, SenderControllerSessionId: null,
+            RecipientSessionId: draft.RecipientSessionId, RecipientControllerSessionId: null,
+            Text: draft.Text, NowUtc: now, SentBySenderInWindow: 0, LastSentToRecipientUtc: null,
+            RecipientHasUnreadDuplicate: history.RecipientHasUnreadDuplicate,
+            Exemption: FleetMessageExemption.System, Kind: draft.Kind), limits);
+        if (!verdict.Queued) return (verdict, null);
+        var notice = NewRow(ctx, draft, hash, now);
+        ctx.FleetMessages.Add(notice);
+        return (verdict, notice);
     }
 
     /// <summary>Test seam: runs after the overdue marks and their notices are staged and before the one save.
