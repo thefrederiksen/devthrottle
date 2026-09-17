@@ -2560,3 +2560,120 @@ Inspection 11 (restore, row line, words): FAIL. Findings accepted. Rulings:
 
 Then the touched suites, each guard watched failing, a 'Final fix round' section here, push, stop.
 Inspection 12, narrow, then the pull request.
+
+## Final fix round (17 September 2026, Manager seat for the final fix round)
+
+On `mission/message-load`. Commits `60673999` (item 1), `eb945bbb` (item 2), `7703087d` (item 3), `9f2f7b46`
+(item 4); this record in the commit after. No pull request opened, no fleet message sent, nothing published.
+
+### What changed, per item
+
+**1. A restore mark comes only from the Director that holds the lease.** The Gateway already bound a Director
+id to a credential: the Director hub's `Hello` runs on the connection its device key authenticated, and binds
+the id to that connection. That binding was never kept anywhere a route could read it. Now `DirectorHub.Hello`
+passes `AuthMiddleware.RegisteringCredential(ctx)` (`device:<device id>` for a device key, `machine-token` for a
+self-hosted shared token, null for a session key) to `DirectorRegistry.RegisterFromStream`, which keeps it per
+(tenant, Director id), re-binds it on a reconnect, drops it when a registration names none, and clears it with
+the entry. `DirectorRegistry.IsRegisteredByCredential(tenant, id, credential)` is the one question. No new
+identity was invented: it is the device id of the key the hub already authenticated.
+- `POST /gateway/workspaces/{id}/restore/marks` refuses 403 any mark whose `directorId` is not the Director
+  the caller's credential said Hello as, before the store is asked. The store's lease check (409) still follows.
+  So a second workstation key cannot write `started`, `restored`, `failed` or `finished`, and cannot release
+  the lease.
+- A `restored` mark must carry the token of the seat's start, and that start must be the same Director's:
+  no token 400, another token or another Director's start 409. `DirectorRestore` now sends the token on the
+  `restored` mark.
+- The same binding on the spawn door: a `restoreClaim` on `POST /directors/{id}/sessions` is refused 403 unless
+  the credential is Director `{id}`'s, and `WorkspaceStore.RecordRestoredByClaim` now takes the Director id and
+  records only when the seat's start was that Director's. (The ruling named the mark route; the claim is the
+  other writer of `restoredSessionId`, so it got the same rule.)
+- Guards: route `A_second_workstation_key_of_the_account_cannot_write_any_mark_under_the_lease_holders_name`
+  (a second workstation key enrolled in the same account; restored with the right token, failed, started,
+  finished all 403; nothing stored changed, the lease still held; then the holder's own restored and finished
+  accepted and the lease released), `A_restored_mark_without_the_token_its_Director_started_the_seat_with_is_refused`,
+  `A_restore_claim_from_a_second_workstation_key_is_refused_and_nothing_reaches_the_Director`. Unit
+  `DirectorRegistryCredentialBindingTests` (3), `WorkspaceRestoreMarksTests` +2.
+
+**2. The law page.** `docs/new_architecture/sessions.html` row 10 is in the past tense: the ask-and-wait verb
+"was", "REMOVED 16 September 2026" by this mission on the owner's ruling of that day, the Gateway refuses
+`waitForIdle` with 400, and what replaced it is `message send ... --reply-wanted`, `message reply`, and the
+inbox. The row keeps the history and its lesson.
+
+**3. Current-tense text.**
+- `FleetMessaging.BuildFramedMessage` had no caller (only its four tests). Deleted with its tests; the class
+  keeps `ShortId`, which the Gateway's messaging log lines use, and its summary says why the framing went.
+- `SessionTree.cs` and `tree.ts`: "the owner named at spawn may live on any Director" instead of
+  "--controlled-by takes any session id". `tools/cc-ship/src/fleet.py`: the newline sentence is gone.
+  `ARCHITECT-HANDOVER.md`: the one-line reply is kept for the file-pointing reason and dated as corrected.
+- `missions/stop-a-session/`: fifteen briefs rewritten (both phrases, including five sentences wrapped across
+  two lines that a line-by-line search does not see). Their `architect-state.md` still says ACTIVE though that
+  mission merged 9 September (#2799); left alone, it is that mission's record.
+- Found beyond the inspector's list: `.claude/skills/agent-expert/agents/` (README, claude-code, codex, grok, pi)
+  taught the ask as a live, Claude-only feature. The inspector's `rg` skips hidden directories, so it never saw
+  them. Rewritten. `FleetMessageService.cs` had "the message asks for a reply", a false hit, reworded.
+- `RetiredMessagingWordsTests`: the inventory gains `sessions.html`, every file fixed here, the stop-a-session
+  briefs and the agent-expert files; the phrases gain the two wrapped variants and "--controlled-by takes any";
+  matching now collapses whitespace so a wrapped sentence is found. New test
+  `Nothing_in_the_repository_outside_the_named_history_uses_the_retired_messaging_words` walks every text file
+  (about 5,700; it fails if it reads fewer than 1,000) with the inspector's expression, and `TreeExemptions` lists
+  each exempt path with its reason: dated history (`docs/missions/`, `docs/plans/`, `docs/reviews/`, the two dated
+  and two finished `docs/MISSION-*` files, `PHASE-2-REPORT.md`, the token study) and code or tests that name
+  the words to refuse or forbid them. `The_tree_scan_reads_the_files_this_round_fixed_and_every_exemption_exists`
+  fails on an exemption that names nothing.
+- Judgement call: in `sessions.html` the removed verb is named as "the `ask` subcommand of `cc-devthrottle
+  message`" rather than the two words together, so the page can be in the inventory without an exemption. It
+  still says exactly what was removed.
+
+**4. Census line.** `("fleet_manager_marks", "SessionId")` added to the hand-kept collation list in
+`PostgresProviderProofTests`, with a comment that it is main's column from pull request 2997. Not run: there
+is no PostgreSQL on the Mac (the test is skipped here).
+
+### Red, then green (every mutation restored; `git status` clean after each)
+
+| Mutation | Red |
+|---|---|
+| Mark route binding check disabled | route `A_second_workstation_key...`: expected Forbidden, actual OK (the forged `restored` mark naming X accepted) |
+| Store: `restored` token and Director checks disabled | unit `RecordRestoreMark_ARestoredMarkWithoutTheStartsToken_IsRefused`; route `A_restored_mark_without_the_token...`: expected BadRequest, actual OK |
+| Spawn door claim binding and the claim's Director check disabled | route `A_restore_claim_from_a_second_workstation_key...`: expected Forbidden, actual Created; unit `RecordRestoredByClaim_ForADirectorThatDidNotStartTheSeat_RecordsNothing` |
+| Hub records another credential for every Hello (control: the holder's own path depends on the binding) | 7 of 17 route tests red, the holder's marks Forbidden |
+| `DirectorRestore` omits the token on `restored` | 20 of 36 `DirectorRestore` unit tests red |
+| Old `sessions.html` | both word tests red at `sessions.html:1657: "message ask"` |
+| Old `FleetMessaging.cs` | both red at `FleetMessaging.cs:37: "message ask"` |
+| Old `tree.ts` and `fleet.py` | both red at `tree.ts:44` and `fleet.py:117` |
+| Old `brief-qa-report.md` (sentence wrapped over lines 84-85) | both red at `:84 "truncate at the first newline"` - the whitespace collapse is what finds it |
+| `docs/plans/` exemption removed | tree test red, `docs/plans/...html:148: "message ask"` and on |
+| An exemption renamed to a path that does not exist | the exemption test red: "names nothing in the repository"; the tree test red at `PHASE-2-REPORT.md:86` |
+
+### Totals (Mac, this tree, after the last change)
+
+- Gateway unit, whole project: 5591 total, 5576 passed, 8 skipped, **7 failed - the same 7 Mac-only failures**
+  (CronJobStore 1, SessionCommandExecutorLiveness 3, RuleCandidateFilter 1, WorkListStorePersistence 1,
+  RulePrimitives 1). No new one. Filter `DirectorRestore|DirectorDrain|SessionKeyGuard|Workspace|DirectorRegistryCredentialBinding`: 498 passed.
+- Gateway route: `WorkspaceRestoreRouteTests` 17 passed (was 14); filter
+  `WorkspaceRestoreRouteTests|FleetMessage|Workspace|SessionServingReadIsolation|DirectorHub` 82 passed;
+  `FleetMessagingFramingTests` 1 passed (was 5; four deleted with the helper).
+- Core unit `RetiredMessagingWords`: 5 passed (was 3).
+- cc-ship (scratch virtual environment with local `cc_storage` and `cc-ship`): 171 passed. cc-devthrottle not
+  touched, not run.
+- Web typecheck on every workspace: clean (only a comment in `tree.ts` changed).
+
+### What is NOT proven
+
+- No live Director. The binding is proven on a booted hosted Gateway with fake tunnel Directors on real device
+  keys; the self-hosted shared-token path (`machine-token`) is not exercised by any test.
+- Several Directors on one machine share that machine's device key, so one of them can still write marks naming
+  another. The lease and the start token are what separate those; the route comment says so.
+- A Director registered only from an instance file or the old HTTP registration carries no credential, so its
+  marks are refused. Nothing current restores that way; stated, not tested beyond the registry unit test.
+- The start token is readable by any caller of the account that can read the workspace, so the token check proves
+  "this Director's start", not a secret. The credential binding is what keeps other keys out.
+- The collation census line: not run (no PostgreSQL on the Mac).
+- The tree scan does not join a phrase wrapped across comment markers (`///` lines), reads only the listed text
+  extensions, and skips `bin`, `obj`, `node_modules`, `dist` and virtual environments.
+- `scripts/test-local.ps1` not run (no PowerShell on the Mac); the full Gateway route suite was not run, only the
+  filters above.
+
+## State after the final fix round (17 September 2026)
+
+- All four rulings on inspections 10 and 11 are built and pushed on `mission/message-load`. Next: inspection 12
+  (narrow), then the pull request - the Architect's.
