@@ -958,8 +958,11 @@ answer.
 2. The verification witness is the screen alone. Byte growth is no longer used for the doorbell.
 3. An erase is one Backspace per character, 5 milliseconds apart, re-read up to 10 times.
 4. An exit seen at the last look is reported as `exited`, not `working`.
-5. The dictation lock includes the PENDING record, which never expires by design; a dictation that never
-   completes holds the doorbell until it is delivered or abandoned (the messages wait; nothing goes stuck).
+5. The dictation lock includes the PENDING record. **Corrected by inspection 5, ruling 3:** the record does
+   expire. The Gateway's stale-upload sweep runs every six hours and abandons a PENDING record after 24 hours
+   without activity, so on a working host a stale lock holds the doorbell for up to about 30 hours, not
+   forever; only a failed or stopped sweep leaves it longer. The messages wait meanwhile and nothing goes
+   stuck. Since fix round 2, a hold longer than 30 minutes is logged once as a warning.
 6. A ring answered after the 5-second timeout is not counted; if the line was typed, the next ring may type
    a second one (ruling 8 calls that harmless).
 7. A detector flicker to a settled state in the middle of a doorbell turn clears the origin; the next
@@ -1057,3 +1060,98 @@ so the slice 2 pull request stays one slice; the branch is merged back into `mis
 
 Then the touched suites, each guard watched failing, a 'Slice 2 fix round 2' section in handoff.md
 (committed on the slice 2 branch), push, stop. Inspection 7 follows on that branch.
+
+## Slice 2 fix round 2 (17 September 2026, Manager seat 4)
+
+Three code commits on `mission/message-load-slice2` after `b7bdb3cf`, one per ruling that needed code. Items 4
+and 5 are record only. Every guard was watched failing: the fix reverted or one rule mutated, the named tests
+red with the symptom, the file restored. The breaks and their results are in
+`slice-2-evidence/fix-round-2/` with a README. No fleet message was sent. No live run was made in this round.
+
+### What changed, per item
+
+1. **Exactly means exactly** (`c9388ebf`). `DoorbellSafety.ComposerHoldsExactly` no longer squeezes out every
+   whitespace character. It reads the composer as rows: Claude Code's prompt row after the glyph and its one
+   separator, then each continuation row after exactly the two-column indent; Codex's cursor row alone (a
+   wrapped Codex composer is never "exactly"). The rows, joined, must equal the line character for
+   character; the one allowed difference is the single space of the line that a word wrap consumes at a row
+   break. No row may be empty or start with whitespace. The rows arrive trailing-trimmed (the grid snapshot
+   trims tabs and non-breaking spaces too), so the cursor is the witness for a trailing addition: it must be
+   visible, on the last row, straight after the line's last character. The same check is also the
+   rendered-composer witness for the echo before the Enter; the byte echo is the other witness and is
+   unchanged, so this does NOT stop an Enter on a line the owner extended while it echoed (the last look and
+   the one-Enter rule are what bound that).
+   Guards: the line extended by a space, a tab and a non-breaking space is never erased - with the row
+   trimmed and the cursor one further, with the character still on the row, and on a wrapped line; a space
+   inside the line; an empty continuation row after it (Shift+Enter); an empty prompt row before it; a
+   hidden cursor; part of the line; a widened indent at a wrap on the last and on a middle row; a wrap that
+   absorbs only one space; Codex exact and extended. Still erased: the unextended line, char-wrapped and
+   word-wrapped. Red: the squeezed comparison restored (15 tests, all the extended-line and inner-space
+   cases); cursor ignored (10); cursor column ignored (9); no space allowed at a wrap (1); any whitespace
+   absorbed at a wrap (1); leading-whitespace rows allowed (1); empty rows allowed (1); a prefix accepted
+   (1); indent not required (1). The last five were GREEN until their tests were added.
+   **Limit, written into the code:** a whitespace character the owner types exactly at a word-wrap break can
+   be absorbed by the wrap without moving the cursor. Only a screen narrower than the line (about a hundred
+   columns) wraps it.
+2. **No stuck mark without its notice** (`cf0ffe88`). The notice already named its message; that is now a
+   stated rule with a test (two messages never share a notice text). `FleetDoorbell.StuckNoticeText` takes
+   the cap the policy judges by (`_messages.Limits.MaxTextLength`) and fits it: a long recipient name is
+   shortened with "...", then left out; only a cap shorter than the name-less notice cuts the text.
+   `FleetMessageStore.MarkStuckWithNotices` sets `StuckAtUtc` only after the notice is decided: queued ->
+   mark and notice; `DuplicateDropped` -> mark, no second copy, logged (the identical unread notice is this
+   message's own); any other refusal -> no mark, logged with the outcome and reason, and the next sweep
+   retries. A message whose notice is null (a stuck system notice) is still marked. Guards: a preloaded
+   identical unread notice for the same message -> marked, one notice; a roster name longer than the cap ->
+   marked, notice written within the cap and naming the message; a blank or over-long notice at the store ->
+   row open, no notice, and the next sweep marks and notifies once; one refused notice does not hold back
+   another message's mark; the fitting rule at three caps. Red: a refusal still marking (3 tests); the
+   duplicate exception removed (1); the duplicate writing a second copy (1); the name not fitted (2); the
+   message id left out of the text (6); the policy's cap not passed (1).
+   **Not proven:** the product's only remaining refusal for a system notice is the duplicate, so the
+   "refused for another reason" path is reached only through the store with a hand-made draft.
+3. **Dictation lock observability** (`5a32701d`). `FleetDoorbell` tracks, per tenant and session, when a run
+   of `DeferredDictation` outcomes began; any other outcome for that session ends the run. A run longer than
+   `DictationWarnAfter` (30 minutes) writes one line tagged `WARNING:` with the session id, the tenant, the
+   start and the length. The file log has no levels, so the tag is the level. The hold counts only while a
+   ring is due: during the grace after a ring the outcome is `NotDue`, which ends the run. Judgement call 5
+   is corrected in place above. Guards (fake clock, 15-second sweeps): no warning at exactly 30 minutes, one
+   just after, none more over three hours; a new hold after a ring counts its own 30 minutes from when the
+   next ring fell due; the constant pinned. Red: never warned (2 tests); warned every sweep (2); the boundary
+   inclusive (2); the run never reset (1); the run not tracked (2); the threshold changed (3); the session id
+   missing from the line (1).
+   **Not proven:** the inspector's observation that the row shows nothing while a PENDING record past its
+   progress window holds the lock is not changed and has no test; the warning is in the log only.
+4. **Snooze.** No code. The owner decided on 17 September that the agent-origin exception stands; slice 5
+   (words) updates the law in `docs/new_architecture/sessions.html`. The attribution loss on a settled
+   flicker (judgement call 7) is accepted: it errs towards ending the snooze, which is the law's side.
+5. **Submit verification.** No code. Accepted as the stated limit of a screen witness: an older doorbell row
+   scrolled into view, or an unrelated turn starting, after a swallowed Enter whose line the interface
+   cleared, can read as a verified submit. Judgement call 2 is qualified accordingly.
+
+### What is NOT proven (in addition to the slice 2 fix round's list, which stands)
+
+- Item 1 on a live screen: no live run was made. The cursor-after-the-line rule rests on the fix round's live
+  whitespace run (three spaces put the cursor at column 5) and on the parser's trimming; a live parked
+  doorbell, a real narrow-screen wrap, and Codex are not captured.
+- Item 1's wrap-break limit above.
+- Item 2 on PostgreSQL; the store's refusal path only through a hand-made draft.
+- Item 3's warning reaching the hosted Gateway's log; the per-tenant hold with more than one tenant.
+
+### Test totals (Mac, this tree, 17 September 2026)
+
+- **Core unit tests**: `DoorbellSafetyTests|FleetDoorbellRingerTests` 84 passed, 0 failed (62 before this
+  round); the whole project 577 passed, 0 failed.
+- **Core tests**: 4445 total, 4375 passed, 8 skipped, **62 failed**: the known 61 Mac-only failures, same
+  names as `fix-round/full-suite-failures.txt`, plus ONE new name,
+  `TerminalThroughputTests.ParseThroughput_IsNotSuperlinear` ("10 MB took 16.35x longer than 1 MB"). It is
+  a timing test, it ran while the Gateway route selection was running on the same machine, it passed three
+  reruns on its own, and this round changed no terminal parser code. Named here as a load-sensitive timing
+  failure, not fixed. The list is in `fix-round-2/core-tests-failures.txt`.
+- **Gateway unit tests** `FleetDoorbell*|FleetMessage*|Snooze*`: 373 passed, 0 failed (363 before this round).
+  In eight reruns of this selection, one run hit the pre-existing disposed-SQLite race once (see the
+  evidence README).
+- **Gateway route tests** `FleetDoorbell*|FleetMessageRouteTests|SnoozeEndToEndTests`: 55 passed, 0 failed.
+- Not run this round: the full Gateway unit and route suites, the cc-devthrottle Python tests (no Python
+  changed), `scripts/test-local.ps1` (no PowerShell on the Mac), live proofs.
+
+Next, as the Architect ruled: inspection 7 on this branch, then the slice 2 pull request.

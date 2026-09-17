@@ -1,0 +1,62 @@
+  Failed CcDirector.Core.Tests.ClaudeProjectFolderEncodingTests.GetProjectFolder_MatchesClaudeEncoding(repoPath: "C:\\Users\\alice\\AppData\\Local\\cc-director\\bra"···, expected: "C--Users-alice-AppData-Local-cc-director-brain")
+  Failed CcDirector.Core.Tests.ClaudeProjectFolderEncodingTests.GetProjectFolder_MatchesClaudeEncoding(repoPath: "C:\\repos\\cc-director", expected: "C--repos-cc-director")
+  Failed CcDirector.Core.Tests.ClaudeProjectFolderEncodingTests.GetProjectFolder_MatchesClaudeEncoding(repoPath: "C:\\repos\\cc-director\\.temp\\brain-sandbox", expected: "C--repos-cc-director--temp-brain-sandbox")
+  Failed CcDirector.Core.Tests.ClaudeProjectFolderEncodingTests.GetProjectFolder_MatchesClaudeEncoding(repoPath: "D:\\My Repos\\app", expected: "D--My-Repos-app")
+  Failed CcDirector.Core.Tests.ClaudeProjectFolderEncodingTests.GetProjectFolder_MatchesClaudeEncoding(repoPath: "D:\\Repos\\my_project", expected: "D--Repos-my-project")
+  Failed CcDirector.Core.Tests.ClaudeSessionReaderTrailingSeparatorTests.GetJsonlPath_TrailingSeparator_ResolvesToTheSameFile
+  Failed CcDirector.Core.Tests.ClaudeSessionReaderTrailingSeparatorTests.GetProjectFolder_DriveRoot_KeepsItsSeparator
+  Failed CcDirector.Core.Tests.ClaudeSessionReaderTrailingSeparatorTests.GetProjectFolder_StillDashesEveryNonAlphanumeric
+  Failed CcDirector.Core.Tests.ClaudeSessionReaderTrailingSeparatorTests.GetProjectFolder_TrailingSeparator_MatchesTheSamePathWithout(clean: "C:\\Users\\soren\\.claude", withSeparator: "C:\\Users\\soren\\.claude\\")
+  Failed CcDirector.Core.Tests.ClaudeSessionReaderTrailingSeparatorTests.GetProjectFolder_TrailingSeparator_MatchesTheSamePathWithout(clean: "D:\\ReposFred\\cc-consult", withSeparator: "D:\\ReposFred\\cc-consult\\")
+  Failed CcDirector.Core.Tests.ClaudeSessionReaderTrailingSeparatorTests.GetProjectFolder_TrailingSeparator_ProducesNoTrailingDash
+  Failed CcDirector.Core.Tests.GitProcessCancellationTests.GitCommandRunner_Cancelled_KillsTheChildProcessTree
+  Failed CcDirector.Core.Tests.Home.HomeStatusSessionsRowTests.DifferentInstall_TheDetailNamesTheRealCauseNotAGenericFailure
+  Failed CcDirector.Core.Tests.LifecycleSignalNamesTests.TheSameRoot_AlwaysGetsTheSameName
+  Failed CcDirector.Core.Tests.LifecycleSignalTests.AHandlerThatThrows_DoesNotStopTheListener
+  Failed CcDirector.Core.Tests.LifecycleSignalTests.EachRaise_RunsTheHandlerExactlyOnce
+  Failed CcDirector.Core.Tests.LinkDetectorTests.ResolvePath_RelativePath_ResolvesAgainstRepo
+  Failed CcDirector.Core.Tests.ProcessRunnerTests.RunAsync_ChildFloodsStderr_DrainsBothPipes_DoesNotDeadlock
+  Failed CcDirector.Core.Tests.ProcessRunnerTests.RunAsync_OnCancellation_KillsTheChild_BeforeItCanFinish
+  Failed CcDirector.Core.Tests.RepositoryMonitorTests.RecomputeOne_LinkedWorktreePath_RecomputesThePrimaryEntry
+  Failed CcDirector.Core.Tests.SessionEdgeCaseTests.CreateSession_EmbeddedType_ThrowsInvalidOperation
+  Failed CcDirector.Core.Tests.SessionGitStatusMonitorTests.RefreshOnce_TreatsTheSameDirectorySpelledTwoWaysAsOneRepository
+  Failed CcDirector.Core.Tests.SessionNameTests.FolderName_TrimsTrailingSeparators
+  Failed CcDirector.Core.Tests.Setup.FleetToolPathRepairTests.MoveToFront_EntryBehindAStaleInstall_OvertakesIt
+  Failed CcDirector.Core.Tests.Setup.FleetToolPathRepairTests.MoveToFront_IgnoresTrailingSeparatorAndCaseWhenMatching
+  Failed CcDirector.Core.Tests.Setup.FleetToolPathRepairTests.MoveToFront_RunTwice_DoesNotAccumulateDuplicates
+  Failed CcDirector.Core.Tests.Setup.FleetToolPathRepairTests.PutFirstOnPath_DirectoryThatExistsButHoldsNoTool_RefusesAndSaysWhy
+  Failed CcDirector.Core.Tests.Setup.FleetToolPathRepairTests.Rewrite_AMissingDirectoryThatIsNothingToDoWithUs_IsKept
+  Failed CcDirector.Core.Tests.Setup.FleetToolPathRepairTests.Rewrite_AToolDirectoryUnderTheTempDirectory_IsRemoved
+  Failed CcDirector.Core.Tests.Setup.FleetToolPathRepairTests.Rewrite_AnInstallBinThatIsGoneFromDisk_IsRemoved
+  Failed CcDirector.Core.Tests.Setup.FleetToolPathRepairTests.Rewrite_AnotherLiveInstancesBin_IsKept
+  Failed CcDirector.Core.Tests.Setup.FleetToolPathRepairTests.Rewrite_RunTwice_IsStable
+  Failed CcDirector.Core.Tests.Setup.FleetToolPathRepairTests.Rewrite_TheSupersededFlatBinOfOurOwnInstall_IsRemoved
+  Failed CcDirector.Core.Tests.TerminalThroughputTests.ParseThroughput_IsNotSuperlinear
+  Failed CcDirector.Core.Tests.ToolInventoryTests.Build_PyenvConsoleScript_GetsPythonToolsBundleVersion
+  Failed CcDirector.Core.Tests.ToolTestRunnerTests.RunTest_OnPathBinaryExists_Passes
+  Failed CcDirector.Core.Tests.Utilities.CommandLineLauncherTests.Build_BatShim_AlsoWrapped
+  Failed CcDirector.Core.Tests.Utilities.CommandLineLauncherTests.Build_CmdShimWithArgs_QuotesProgramAndKeepsArgs
+  Failed CcDirector.Core.Tests.Utilities.CommandLineLauncherTests.Build_CmdShim_WrapsThroughComSpec
+  Failed CcDirector.Core.Tests.Utilities.ExecutableResolverTests.Resolve_BareNameOnPath_AppliesPathExt
+  Failed CcDirector.Core.Tests.Utilities.ExecutableResolverTests.Resolve_SkipsBlankPathEntries
+  Failed CcDirector.Core.Tests.Wingman.TurnDetectionShadowRetentionTests.An_append_past_the_contention_budget_loses_the_row_and_says_so
+  Failed CcDirector.Core.Tests.WorktreeInventoryIntegrationTests.SafeWorktree_WithLiveSession_IsClassifiedInUse_NotSafe
+  Failed CcDirector.Core.Tests.WorktreeReaperServiceTests.Reap_HoldsBackAWorktreeTouchedWithinTheCoolingOffWindow
+  Failed CcDirector.Core.Tests.WorktreeReaperServiceTests.Reap_LockedFolder_ReportsLeftover_DoesNotClaimSuccess
+  Failed CcDirector.Core.Tests.WorktreeReaperServiceTests.Reap_NeverDeletesAWorktree_WithAnOpenFileUnderIt_EvenWhenRosterAndCoolingOffMissIt
+  Failed CcDirector.Core.Tests.WorktreeReaperServiceTests.Reap_NeverForceDeletesALockedWorktree_EvenWhenCleanAndMerged
+  Failed CcDirector.Core.Tests.WorktreeReaperServiceTests.Reap_NeverRemovesAWorktreeInUseByALiveSession_EvenWhenSafe
+  Failed CcDirector.Core.Tests.WorktreeReaperServiceTests.Reap_NeverRemovesAWorktree_CoveredByALiveReservation_EvenWithAnEmptyRoster
+  Failed CcDirector.Core.Tests.WorktreeReaperServiceTests.Reap_OnlyRemovesTheOwnerApprovedWorktrees_NotOnesThatBecameSafeLater
+  Failed CcDirector.Core.Tests.WorktreeReaperServiceTests.Reap_ProtectedPathMatchIsCaseAndTrailingSlashInsensitive
+  Failed CcDirector.Core.Tests.WorktreeReaperServiceTests.Reap_ProtectsAWorktree_WhenASessionRunsInASubdirectoryOfIt
+  Failed CcDirector.Core.Tests.WorktreeReaperServiceTests.Reap_ReservationInASubdirectory_ProtectsTheWholeWorktree
+  Failed CcDirector.Core.Tests.WorktreeReaperServiceTests.Reap_RetriesAPersistedLeftover_AndClearsItOnceTheLockIsReleased
+  Failed CcDirector.TestInfrastructure.MutationProofPinGuardTests.APinWrittenByTheRealScriptIsFoundAndUnderstoodByTheGuard
+  Failed CcDirector.TestInfrastructure.MutationProofPinGuardTests.CONTROL_TheScriptAcceptsAnArmTransitionAtTheBaselineHead
+  Failed CcDirector.TestInfrastructure.MutationProofPinGuardTests.TheFileSystemLookupAgreesWithGitsOwnAnswer_InAPlainCheckoutAndInAWorktree
+  Failed CcDirector.TestInfrastructure.MutationProofPinGuardTests.TheGuardFindsAPinWrittenWhereTheScriptWritesIt_OnThisPlatform
+  Failed CcDirector.TestInfrastructure.MutationProofPinGuardTests.TheScriptRefusesAnArmTransitionAfterTheHeadMoves_AndLeavesThePinOnTheBaselineHead
+  Failed CcDirector.TestInfrastructure.MutationProofPinGuardTests.TheScriptRefusesAnArmWithNoBaselineBeforeIt
+  Failed CcDirector.TestInfrastructure.MutationProofPinGuardTests.TheScriptRefusesToPinABaselineOnADirtyTree
+  Failed CcDirector.TestInfrastructure.MutationProofPinGuardTests.TheScriptRefusesToPinABaselineOverAnActivePin
