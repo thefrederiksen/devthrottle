@@ -994,11 +994,30 @@ def test_run_ClaudeReviewerOnADifferentModel_AllowedAndSaidOnThePullRequest(worl
     assert "author's agent family (ClaudeCode) on a different model" in body
 
 
-def test_run_ClaudeReviewerOnTheAuthorsModel_Refused(world, capsys):
-    _set_main_config(world, dict(SHIP_YAML, reviewer_agent="ClaudeCode",
-                                 reviewer_model="claude-opus-5"))
+@pytest.mark.parametrize("model", ["claude-opus-5", "CLAUDE-OPUS-5[1m]"])
+def test_run_ClaudeReviewerOnTheAuthorsModel_Refused(world, capsys, model):
+    _set_main_config(world, dict(SHIP_YAML, reviewer_agent="ClaudeCode", reviewer_model=model))
     code, out = run_cli("start", "--intent", str(world.intent), capsys=capsys)
     assert out["failure"]["code"] == "same-model" and world.spawned == []
+
+
+def test_run_RedoReviewer_KeepsTheModel(world, capsys):
+    # Reviewer-model review finding 3: the redo path (invalid file, session already gone).
+    _set_main_config(world, dict(SHIP_YAML, reviewer_agent="ClaudeCode",
+                                 reviewer_model="claude-fable-5-1"))
+    real_wait = world.wait_for_output
+
+    def wait_then_reap(sid, output, *args, **kwargs):
+        result = real_wait(sid, output, *args, **kwargs)
+        world.reaped.add(sid)
+        return result
+
+    engine.fleet.wait_for_output = wait_then_reap
+    world.outputs["Reviewer"] += ["not json", review()]
+    world.outputs["Verifier"].append(GO)
+    code, out = ship_to_merge(world, capsys)
+    assert out["state"] == "merged", out
+    assert [s["model"] for s in world.spawned[:2]] == ["claude-fable-5-1", "claude-fable-5-1"]
 
 
 def test_run_ClaudeReviewerWithoutAModel_StillRefused(world, capsys):
@@ -1026,8 +1045,12 @@ def test_run_ReplacementReviewer_KeepsTheModel(world, capsys):
 
 
 @pytest.mark.parametrize("cfg, error", [
-    ({"reviewer_agent": "Codex", "reviewer_model": "gpt-5"}, "only when reviewer_agent is ClaudeCode"),
-    ({"reviewer_model": "has space"}, "model id"),
+    ({"reviewer_agent": "Codex", "reviewer_model": "claude-fable-5-1"}, "only when reviewer_agent is ClaudeCode"),
+    ({"reviewer_model": "has space"}, "full model id"),
+    ({"reviewer_agent": "ClaudeCode", "reviewer_model": "opus"}, "alias"),
+    ({"reviewer_agent": "ClaudeCode", "reviewer_model": "fable"}, "alias"),
+    ({"reviewer_agent": "ClaudeCode", "reviewer_model": "opus[1m]"}, "alias"),
+    ({"verifier_model": "claude-opus-5"}, "unknown keys"),
 ])
 def test_config_BadModelSettings_Rejected(cfg, error):
     import config

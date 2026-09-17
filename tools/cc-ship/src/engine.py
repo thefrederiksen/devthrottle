@@ -596,7 +596,7 @@ def _step_verify(run: dict) -> bool:
         docs_only=docs_only,
     ), encoding="utf-8")
     try:
-        _spawn(run, "Verifier", cfg.verifier_agent, brief, output, model=cfg.verifier_model)
+        _spawn(run, "Verifier", cfg.verifier_agent, brief, output)
     except Exception:
         if state_file:
             preview.remove_bypass_state(state_file)

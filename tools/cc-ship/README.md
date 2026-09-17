@@ -64,8 +64,9 @@ needs nothing beyond the Python standard library.
 }
 ```
 
-`reviewer_model` / `verifier_model` (optional, ClaudeCode only): the model the session runs,
-set on its command line (the owner's default model is never changed). A reviewer of the
+`reviewer_model` (optional, ClaudeCode only, a full model id such as `claude-fable-5-1` -
+not an alias like `opus`): the model the reviewer runs, set on its command line (the
+owner's default model is never changed). A reviewer of the
 author's own family is refused unless `reviewer_model` names a model different from the
 author's; the pull request then says the review came from the same family on a different
 model, which is a weaker check than another family (owner decision, 2026-09-16).
