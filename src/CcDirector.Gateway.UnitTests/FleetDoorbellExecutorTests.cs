@@ -116,6 +116,7 @@ public sealed class FleetDoorbellExecutorTests
         Assert.Equal("exited", FleetRingDeferReasons.Exited);
         Assert.Equal("screen-unreadable", FleetRingDeferReasons.ScreenUnreadable);
         Assert.Equal("not-submitted", FleetRingDeferReasons.NotSubmitted);
+        Assert.Equal("dictation", FleetRingDeferReasons.Dictation);
         Assert.Equal("ring", FleetDoorbellVerbs.Ring);
     }
 

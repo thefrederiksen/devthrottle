@@ -1,0 +1,3 @@
+[
+ {"name":"dictation literal renamed","old":"public const string Dictation = \"dictation\";","new":"public const string Dictation = \"dictating\";"}
+]

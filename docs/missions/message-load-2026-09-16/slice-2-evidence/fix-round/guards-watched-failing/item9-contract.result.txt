@@ -1,0 +1,5 @@
+== MUTATION dictation literal renamed: exit=1
+    Failed!  - Failed:     3, Passed:    64, Skipped:     0, Total:    67, Duration: 6 s - CcDirector.Gateway.UnitTests.dll (net10.0)
+    Failed CcDirector.Gateway.Tests.FleetDoorbellExecutorTests.The_Director_names_its_reasons_with_these_literals [1 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.Every_named_reason_on_the_wire_is_a_deferral_and_not_a_ring(reason: "dictation") [31 ms]
+    Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.The_contract_names_exactly_these_strings [1 ms]

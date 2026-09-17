@@ -211,9 +211,14 @@ public static class FleetRingDeferReasons
     /// had already left without a visible turn). Not a ring.</summary>
     public const string NotSubmitted = "not-submitted";
 
-    /// <summary>Every reason a Director may send. The Gateway refuses an answer whose reason is not here.</summary>
+    /// <summary>The owner's dictation for this session is in flight (the Gateway's dictation lock). Decided by the
+    /// Gateway itself, which holds the lock, before any Director is asked.</summary>
+    public const string Dictation = "dictation";
+
+    /// <summary>Every deferral reason, including the Gateway's own. The Gateway refuses a Director's answer whose
+    /// reason is not here.</summary>
     public static IReadOnlyList<string> All { get; } =
-        [Working, ComposerHoldsText, MenuOpen, Exited, ScreenUnreadable, NotSubmitted];
+        [Working, ComposerHoldsText, MenuOpen, Exited, ScreenUnreadable, NotSubmitted, Dictation];
 
     /// <summary>True when <paramref name="reason"/> is exactly one of <see cref="All"/>.</summary>
     public static bool IsKnown(string? reason) => reason is not null && All.Contains(reason, StringComparer.Ordinal);

@@ -151,4 +151,24 @@ public sealed class FleetDoorbellRouteTests : IAsyncLifetime
         Assert.Single(_rings);
         Assert.Equal(1, RingCountOf(id));
     }
+
+    [Fact]
+    public async Task The_owners_dictation_in_flight_holds_the_doorbell_until_it_ends()
+    {
+        // Inspection 4, ruling 9, through the real host's wiring: the phone's Speak mark is the lock.
+        await _director.PushDeltaAsync(Row(_worker, _manager, "WaitingForInput"));
+        await Task.Delay(300);
+        _rings.Clear();
+        var id = await SendToWorkerAsync("waiting behind a dictation");
+        _gateway.TranscribingSessionsForTests.Begin(TenantId.Local, _worker);
+
+        await _gateway.FleetDoorbell.SweepAsync();
+        Assert.Empty(_rings);
+        Assert.Equal(0, RingCountOf(id));
+
+        _gateway.TranscribingSessionsForTests.End(TenantId.Local, _worker);
+        await _gateway.FleetDoorbell.SweepAsync();
+        Assert.Single(_rings);
+        Assert.Equal(1, RingCountOf(id));
+    }
 }

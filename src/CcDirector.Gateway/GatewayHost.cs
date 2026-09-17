@@ -547,6 +547,9 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>The Gateway database, for the doorbell's end-to-end proof, which reads the ring and stuck columns.</summary>
     internal Data.GatewayDatabase GatewayDatabaseForTests => _gatewayDb;
 
+    /// <summary>The mobile Speak marks, for the doorbell's dictation-lock wiring test.</summary>
+    internal Transcription.TranscribingSessions TranscribingSessionsForTests => _transcribingSessions;
+
     /// <summary>The doorbell (the Message Load mission, slice 2). Exposed for the tests and the end-to-end proof.</summary>
     internal Messaging.FleetDoorbell FleetDoorbell => _fleetDoorbell;
 
@@ -1939,7 +1942,14 @@ public sealed class GatewayHost : IAsyncDisposable
             ring: RingDirectorAsync,
             forEachTenant: (pass, ct) => _tenantPass.ForEachTenantAsync(
                 () => _tenantPass.Current is { } t ? pass(t) : Task.CompletedTask, ct),
-            limits: FleetDoorbellLimitsOverride);
+            limits: FleetDoorbellLimitsOverride,
+            // The dictation lock (inspection 4, ruling 9): a transcription running for the session, the phone's
+            // Speak mark (upload and transcription, with its own idle backstop), or a PENDING dictation record -
+            // the same facts the session's dictation status reads. The PENDING record never expires by design,
+            // so a dictation that never completes holds the doorbell until it is delivered or abandoned.
+            dictationInFlight: (tenant, sid) => _transcribingSessions.IsActivelyTranscribing(tenant, sid)
+                                               || _transcribingSessions.IsTranscribing(tenant, sid)
+                                               || _dictationUploads.ForTenant(tenant).IsSessionLocked(sid));
         // Slice D: the one source every fold reads verdicts through - the roster, the single-session read and the
         // display push to the desktop - so all three stamp one answer. And the carrying-on clock, on the same
         // per-tenant seam as the retention above.

@@ -30,6 +30,7 @@ public sealed class FleetDoorbellTests : IDisposable
     private bool _locateThrows;
     private Func<string, CancellationToken, Task<FleetRingResponse?>>? _ringOverride;
     private TimeSpan? _ringTimeout;
+    private readonly HashSet<string> _dictating = new();
     private FleetRingResponse? _answer = new() { Outcome = FleetRingOutcomes.Rung };
     private readonly List<(string Sid, int Unread, DateTime At)> _rings = new();
 
@@ -58,7 +59,8 @@ public sealed class FleetDoorbellTests : IDisposable
             forEachTenant: (pass, _) => pass(Tenant),
             limits: limits,
             clock: () => _now,
-            ringTimeout: _ringTimeout);
+            ringTimeout: _ringTimeout,
+            dictationInFlight: (_, sid) => _dictating.Contains(sid));
         return new Rig { Store = store, Service = service, Doorbell = doorbell };
     }
 
@@ -498,6 +500,7 @@ public sealed class FleetDoorbellTests : IDisposable
     [InlineData("exited")]
     [InlineData("screen-unreadable")]
     [InlineData("not-submitted")]
+    [InlineData("dictation")]
     public async Task Every_named_reason_on_the_wire_is_a_deferral_and_not_a_ring(string reason)
     {
         var rig = NewRig();
@@ -546,8 +549,68 @@ public sealed class FleetDoorbellTests : IDisposable
         Assert.Equal("rung", FleetRingOutcomes.Rung);
         Assert.Equal("deferred", FleetRingOutcomes.Deferred);
         Assert.Equal(
-            new[] { "working", "composer-holds-text", "menu-open", "exited", "screen-unreadable", "not-submitted" },
+            new[] { "working", "composer-holds-text", "menu-open", "exited", "screen-unreadable", "not-submitted", "dictation" },
             FleetRingDeferReasons.All);
+    }
+
+    // ---------- Inspection 4, ruling 9: the owner's dictation goes first ----------
+
+    [Fact]
+    public async Task A_dictation_in_flight_defers_the_ring_without_asking_the_Director()
+    {
+        var rig = NewRig();
+        var id = Send(rig);
+        _dictating.Add(Worker);
+
+        var settled = await rig.Doorbell.RingSessionAsync(Tenant, Worker, "settled", CancellationToken.None);
+        await rig.Doorbell.SweepAsync();
+
+        Assert.Equal(FleetRingAttempt.DeferredDictation, settled);
+        Assert.Empty(WorkerRings);
+        Assert.Equal(0, Peek(id).RingCount);
+    }
+
+    [Fact]
+    public async Task The_ring_goes_once_the_dictation_has_ended()
+    {
+        var rig = NewRig();
+        var id = Send(rig);
+        _dictating.Add(Worker);
+        await rig.Doorbell.SweepAsync();
+
+        _dictating.Remove(Worker);
+        Advance(TimeSpan.FromSeconds(15));
+        await rig.Doorbell.SweepAsync();
+
+        Assert.Single(WorkerRings);
+        Assert.Equal(1, Peek(id).RingCount);
+    }
+
+    [Fact]
+    public async Task A_dictation_for_another_session_does_not_hold_this_one()
+    {
+        var rig = NewRig();
+        var id = Send(rig);
+        _dictating.Add(Manager);
+
+        Assert.Equal(FleetRingAttempt.Rung, await rig.Doorbell.RingSessionAsync(Tenant, Worker, "settled", CancellationToken.None));
+        Assert.Equal(1, Peek(id).RingCount);
+    }
+
+    [Fact]
+    public async Task A_dictation_in_flight_moves_nothing_towards_stuck()
+    {
+        var rig = NewRig();
+        var id = Send(rig);
+        _dictating.Add(Worker);
+        for (var t = TimeSpan.Zero; t <= TimeSpan.FromMinutes(30); t += TimeSpan.FromSeconds(15))
+        {
+            _now = T0 + t;
+            await rig.Doorbell.SweepAsync();
+        }
+
+        Assert.Empty(WorkerRings);
+        Assert.Null(Peek(id).StuckAtUtc);
     }
 
     // ---------- What is and is not counted as a ring ----------

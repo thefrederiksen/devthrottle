@@ -77,6 +77,9 @@ public enum FleetRingAttempt
     /// <summary>The Gateway's roster says the session has exited. A dead session is never rung.</summary>
     SkippedExited,
 
+    /// <summary>The owner's dictation for this session is in flight; nobody was asked (reason <c>dictation</c>).</summary>
+    DeferredDictation,
+
     /// <summary>The Director did not answer (no stream, timed out, or refused the verb).</summary>
     Unreachable,
 
@@ -138,6 +141,7 @@ public sealed class FleetDoorbell
     private readonly FleetMessageLimits _limits;
     private readonly Func<DateTime> _clock;
     private readonly TimeSpan _ringTimeout;
+    private readonly Func<TenantId, string, bool> _dictationInFlight;
     private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), byte> _inFlight = new();
 
     /// <param name="store">The inbox.</param>
@@ -148,6 +152,8 @@ public sealed class FleetDoorbell
     /// <param name="limits">The grace and the ring count; the product's when null. A proof run may shorten the grace.</param>
     /// <param name="clock">The clock; injected so the schedule is deterministic in tests.</param>
     /// <param name="ringTimeout">How long one ring may take; <see cref="RingTimeout"/> when null.</param>
+    /// <param name="dictationInFlight">True while the owner's dictation for the session is in flight - the
+    /// Gateway's dictation lock. Never, when null.</param>
     public FleetDoorbell(
         FleetMessageStore store,
         FleetMessageService messages,
@@ -156,7 +162,8 @@ public sealed class FleetDoorbell
         ForEachTenantAsync forEachTenant,
         FleetMessageLimits? limits = null,
         Func<DateTime>? clock = null,
-        TimeSpan? ringTimeout = null)
+        TimeSpan? ringTimeout = null,
+        Func<TenantId, string, bool>? dictationInFlight = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _messages = messages ?? throw new ArgumentNullException(nameof(messages));
@@ -166,6 +173,7 @@ public sealed class FleetDoorbell
         _limits = limits ?? FleetMessageLimits.Default;
         _clock = clock ?? (() => DateTime.UtcNow);
         _ringTimeout = ringTimeout ?? RingTimeout;
+        _dictationInFlight = dictationInFlight ?? ((_, _) => false);
     }
 
     /// <summary>The limits this doorbell schedules with.</summary>
@@ -333,6 +341,15 @@ public sealed class FleetDoorbell
         {
             // Not logged: a long turn would write this line every heartbeat. The settled edge asks again.
             return (FleetRingAttempt.SkippedWorking, due);
+        }
+
+        // THE OWNER'S DICTATION GOES FIRST (inspection 4, ruling 9). While his words for this session are being
+        // uploaded or transcribed, a doorbell typed now would land ahead of them and change the order of what
+        // the agent reads. Deferred here, by the Gateway, which holds the lock; the Director is not asked.
+        if (_dictationInFlight(tenant, sid))
+        {
+            FileLog.Write($"[FleetDoorbell] ring DEFERRED ({FleetRingDeferReasons.Dictation}): sid={Short(sid)} trigger={trigger} due={due.Count}");
+            return (FleetRingAttempt.DeferredDictation, due);
         }
 
         // The line says how many messages wait, stuck ones included - they are still in the inbox and a read
