@@ -156,11 +156,20 @@ public sealed class MobileViewportContractTests
             $"{ShellPath} does not CALL useVisibleViewportHeight(). Mounted once in the app shell, it fits EVERY screen; if it is not mounted, --app-vh is never set and every shell silently falls back to the dvh that does not work on the device.{Why}");
 
         // ...AND the app actually mounts that table. The shell layout living in its own file is only worth
-        // anything while the entry point renders it; without this, deleting the mount in main.tsx would leave
-        // a hook that is mounted in a file nothing runs, and the check above would still be green.
-        var entry = File.ReadAllText(Path.Combine(root, EntryPath));
-        Assert.True(entry.Contains("MOBILE_ROUTES", StringComparison.Ordinal)
-                    && entry.Contains("createBrowserRouter", StringComparison.Ordinal),
+        // anything while the entry point renders it; without this, changing the mount in main.tsx would leave
+        // a hook mounted in a file nothing runs, and the check above would still be green.
+        //
+        // A Contains("MOBILE_ROUTES") here would be a FAKE guard for the same reason the call check above
+        // spells out: the import line mentions the name, so swapping the mounted array for a different one
+        // left this passing. It must be a real, uncommented CALL that hands over THAT array.
+        var entryLines = File.ReadAllLines(Path.Combine(root, EntryPath));
+        var mounts = entryLines.Any(line =>
+        {
+            var code = line.Trim();
+            if (code.StartsWith("//", StringComparison.Ordinal) || code.StartsWith("*", StringComparison.Ordinal)) return false;
+            return Regex.IsMatch(code, @"createBrowserRouter\s*\(\s*MOBILE_ROUTES\b");
+        });
+        Assert.True(mounts,
             $"{EntryPath} no longer hands MOBILE_ROUTES to createBrowserRouter, so the app shell layout in {ShellPath} - and the hook mounted in it - is never rendered.{Why}");
     }
 
