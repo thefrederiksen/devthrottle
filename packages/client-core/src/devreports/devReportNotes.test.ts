@@ -30,6 +30,9 @@ type Api = {
   svgPartAnchor(el: Element): Anchor | null;
   parseInbound(data: unknown): { type: string; payload: unknown } | null;
   validState(state: unknown): boolean;
+  parseTheme(text: string): Record<string, string> | null;
+  theme(): Record<string, string>;
+  cssText(): string;
   createModel(): Model;
   started: symbol;
   start(options: { window: Window }): { model: Model; isHosted(): boolean; lastPayload(): unknown };
@@ -530,5 +533,72 @@ describe("the page", () => {
     document.body.innerHTML = report;
     api.start({ window });
     expect(() => api.start({ window })).toThrow(/already started/);
+  });
+});
+
+describe("the tray's theme", () => {
+  const theme = {
+    background: "#010203",
+    surface: "#111213",
+    surface2: "#212223",
+    border: "#313233",
+    text: "#414243",
+    textDim: "#515253",
+    accent: "#616263",
+    accentText: "#fff",
+    font: '"Odd Sans", Arial, sans-serif',
+    monoFont: '"Odd Mono", monospace',
+  };
+
+  // The script reads its attributes from document.currentScript, which only a host-injected element has.
+  function loadAsInjected(attributes: Record<string, string>): Api {
+    const script = document.createElement("script");
+    for (const [name, value] of Object.entries(attributes)) script.setAttribute(name, value);
+    document.head.appendChild(script);
+    Object.defineProperty(document, "currentScript", { value: script, configurable: true });
+    try {
+      const loaded = load();
+      expect(script.hasAttribute("data-dev-report-theme")).toBe(false);
+      return loaded;
+    } finally {
+      Object.defineProperty(document, "currentScript", { value: null, configurable: true });
+    }
+  }
+
+  it("uses the app's dark palette and type when no theme is given, with the font on the tray and not on :host", () => {
+    const css = api.cssText();
+    expect(css).toContain("#141a2e");
+    expect(css).toContain('"Segoe UI"');
+    expect(css).not.toContain(":host");
+    expect(css).toMatch(/\.drn-tray, \.drn-row \{ font-family: -apple-system/);
+  });
+
+  it("bakes a host theme into the shadow-root stylesheet and removes the attribute", () => {
+    const themed = loadAsInjected({ "data-dev-report-theme": JSON.stringify(theme) });
+    expect(themed.theme()).toEqual(theme);
+    const css = themed.cssText();
+    for (const value of Object.values(theme)) expect(css).toContain(value);
+    document.body.innerHTML = "<p>report</p>";
+    themed.start({ window });
+    const host = document.querySelector("[data-dev-report-ui]:not(style)") as HTMLElement;
+    expect(host.shadowRoot!.querySelector("style")!.textContent).toContain('"Odd Sans", Arial, sans-serif');
+  });
+
+  it("refuses a theme that is not exactly the documented shape, whole", () => {
+    expect(api.parseTheme(JSON.stringify(theme))).toEqual(theme);
+    expect(api.parseTheme(JSON.stringify({ ...theme, extra: "#000" }))).toBeNull();
+    const { accent: _dropped, ...missing } = theme;
+    expect(api.parseTheme(JSON.stringify(missing))).toBeNull();
+    expect(api.parseTheme(JSON.stringify({ ...theme, accent: "red" }))).toBeNull();
+    expect(api.parseTheme(JSON.stringify({ ...theme, accent: "#000; } body { display:none" }))).toBeNull();
+    expect(api.parseTheme(JSON.stringify({ ...theme, font: "Arial; } .drn-tray { display: none" }))).toBeNull();
+    expect(api.parseTheme(JSON.stringify({ ...theme, font: "x".repeat(201) }))).toBeNull();
+    expect(api.parseTheme("not json")).toBeNull();
+    expect(api.parseTheme("[]")).toBeNull();
+  });
+
+  it("keeps the default look when the host's theme is refused", () => {
+    const themed = loadAsInjected({ "data-dev-report-theme": JSON.stringify({ ...theme, accent: "url(x)" }) });
+    expect(themed.theme().surface).toBe("#141a2e");
   });
 });
