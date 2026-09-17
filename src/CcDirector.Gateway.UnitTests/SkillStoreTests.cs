@@ -108,6 +108,21 @@ public sealed class SkillStoreTests : IDisposable
     }
 
     [Fact]
+    public void Fleet_manager_skill_acknowledges_events_by_id_and_never_asks_for_reports()
+    {
+        // The owner ruled (2026-09-16) that the sessions a Fleet Manager starts never report to it: the Gateway's
+        // events carry each stop, and the Fleet Manager acknowledges them with the commands named here.
+        var body = BuiltInSkills.BodyFor("fleet-manager");
+
+        Assert.Contains("[Fleet Manager events]", body);
+        Assert.Contains("cc-devthrottle fleet ack <event id>", body);
+        Assert.Contains("cc-devthrottle fleet events", body);
+        Assert.DoesNotContain("devthrottle session report", body);
+        Assert.DoesNotContain("`session report`", body);
+        Assert.DoesNotContain("emporary", body);
+    }
+
+    [Fact]
     public void Changed_shipped_content_republishes_as_the_next_version_and_supersedes_the_old()
     {
         var db = _h.Open();

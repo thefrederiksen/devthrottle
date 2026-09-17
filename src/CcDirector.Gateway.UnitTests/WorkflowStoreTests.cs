@@ -98,6 +98,21 @@ public sealed class WorkflowStoreTests : IDisposable
     }
 
     [Fact]
+    public void Fleet_manager_conduct_learns_of_stops_from_events_and_never_asks_for_reports()
+    {
+        // The owner ruled (2026-09-16) that the sessions a Fleet Manager starts never report to it: the Gateway's
+        // events carry each stop, with the Wingman's reading, and the Fleet Manager acknowledges them by id.
+        var body = BuiltInWorkflows.InstructionsFor("fleet-manager");
+
+        Assert.Contains("[Fleet Manager events]", body);
+        Assert.Contains("acknowledge", body, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("event ids you have handled", body);
+        Assert.DoesNotContain("devthrottle session report", body);
+        Assert.DoesNotContain("`session report`", body);
+        Assert.DoesNotContain("emporary", body);
+    }
+
+    [Fact]
     public void Uncustomized_built_in_auto_publishes_newer_shipped_content()
     {
         var db = _h.Open();
