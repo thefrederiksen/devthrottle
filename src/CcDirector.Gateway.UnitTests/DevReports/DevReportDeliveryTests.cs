@@ -302,6 +302,7 @@ public sealed class DevReportDeliveryTests : IDisposable
 
         // A new process over the same database, and a Director that would accept anything sent now.
         _dieOnTheNextClockRead = false;
+        _answer = () => DirectorCommandResult.Success(JsonSerializer.Serialize(new PromptResponse { Accepted = true }));
         var after = Store();
         Assert.Equal(0, await Delivery(after).SettleAsync(Tenant, _sid, default));
         await Delivery(after).SettleAsync(Tenant, _sid, default);
