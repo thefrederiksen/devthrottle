@@ -118,6 +118,10 @@ internal static class DevReportLinkRoute
     {
         ctx.Response.StatusCode = status;
         ctx.Response.ContentType = "text/plain; charset=utf-8";
+        // The not-found sentence repeats the identifier the caller typed. It is plain text and never a page, and
+        // nosniff says so to the browser rather than trusting it not to guess - the same precaution the report's
+        // own /html route takes for the same reason.
+        ctx.Response.Headers["X-Content-Type-Options"] = "nosniff";
         await ctx.Response.WriteAsync(sentence);
     }
 }
