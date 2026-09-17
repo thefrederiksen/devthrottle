@@ -1,4 +1,5 @@
 using System.Text;
+using CcDirector.Core.Utilities;
 using CcDirector.Core.Wingman;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Speech;
@@ -26,8 +27,13 @@ namespace CcDirector.Gateway.Wingman;
 /// </summary>
 public static class NarrationCall
 {
-    /// <summary>The narration is cut at the same bound, with the same word-boundary rule, as the judge's spoken text.</summary>
-    public const int MaxChars = TurnVerdictContract.MaxSpokenChars;
+    /// <summary>
+    /// THE NARRATION'S BOUND: 1,200 characters, about a minute out loud, and it is cut at the last FULL SENTENCE inside
+    /// it, never at a word (Architect ruling on the slice J gate). At the judge's 900-at-a-word cap, 4 of 23 corpus
+    /// narrations ended mid-sentence ("The work is") and lost what came last - the verdict or the question to the
+    /// person. The judge's own spoken field keeps its 900-at-a-word cap; this bound is the narration call's only.
+    /// </summary>
+    public const int MaxChars = 1200;
 
     /// <summary>The word the judge uses for a stop only a button press can answer.</summary>
     internal const string KeysAnswerVia = "keys";
@@ -133,12 +139,37 @@ public static class NarrationCall
         => string.Equals(verdict.AnswerVia?.Trim(), KeysAnswerVia, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    /// The spoken text out of the model's raw answer: taken from between the markers, finished for the ear, and cut
-    /// at <see cref="MaxChars"/> on a word boundary. Empty when the answer held no words.
+    /// The spoken text out of the model's raw answer: taken from between the markers, finished for the ear, and, when
+    /// it runs past <see cref="MaxChars"/>, cut at <see cref="CapAtLastSentence"/>. Empty when the answer held no words,
+    /// or when nothing inside the bound ends a sentence.
     /// </summary>
     public static string SpokenFrom(string? raw)
     {
-        var spoken = SpeechContract.Finish(WingmanTranslator.ExtractSpoken(raw ?? ""));
-        return TurnVerdictContract.CapAtWordBoundary(spoken.Trim(), MaxChars);
+        var spoken = SpeechContract.Finish(WingmanTranslator.ExtractSpoken(raw ?? "")).Trim();
+        return CapAtLastSentence(spoken, MaxChars);
+    }
+
+    /// <summary>
+    /// Keep a text whole when it fits, else keep everything up to the last sentence that ENDS inside the bound: a full
+    /// stop, question mark or exclamation mark (with any closing quote or bracket after it) followed by white space or
+    /// the end of the text. A mark followed by anything else - "65.1", "scene.py" - does not end a sentence.
+    ///
+    /// No sentence ends inside the bound: empty. A narration is never spoken cut mid-sentence, so the caller treats it
+    /// as a call that gave no words and the judge's text stays.
+    /// </summary>
+    public static string CapAtLastSentence(string value, int max)
+    {
+        if (value.Length <= max) return value;
+        for (var end = max - 1; end >= 0; end--)
+        {
+            var after = end + 1;
+            if (after < value.Length && !char.IsWhiteSpace(value[after])) continue;
+            var mark = end;
+            while (mark >= 0 && value[mark] is '"' or '\'' or ')' or ']') mark--;
+            if (mark >= 0 && value[mark] is '.' or '?' or '!')
+                return value[..after].TrimEnd();
+        }
+        FileLog.Write($"[NarrationCall] CapAtLastSentence: no sentence ends inside {max} characters of a {value.Length} character narration - no words kept");
+        return "";
     }
 }

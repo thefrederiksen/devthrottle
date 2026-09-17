@@ -320,13 +320,100 @@ public sealed class NarrationCallTests : IDisposable
     }
 
     [Fact]
-    public void ANarrationLongerThanTheBound_IsCutAtAWord()
+    public void ANarrationOf1150CharactersOfFullSentences_ThatRunsMidSentencePast1200_IsCutAtItsLastFullSentence()
     {
-        var words = string.Join(" ", Enumerable.Repeat("narration", 200));
+        var fullSentences = FullSentencesOfLength(1150);
+        var answer = fullSentences + " And this last sentence runs on past the bound " + string.Join(" ", Enumerable.Repeat("without", 20)) + " ending";
+        Assert.Equal(1150, fullSentences.Length);                            // CONTROL: 1,150 characters of full sentences
+        Assert.True(answer.Length > NarrationCall.MaxChars);                  // CONTROL: and the answer crosses 1,200 mid-sentence
 
-        var spoken = NarrationCall.SpokenFrom(Answer(words));
+        var spoken = NarrationCall.SpokenFrom(Answer(answer));
 
-        Assert.True(spoken.Length <= NarrationCall.MaxChars);
-        Assert.EndsWith("narration", spoken);
+        Assert.Equal(fullSentences, spoken);
+    }
+
+    /// <summary>Whole sentences, joined by single spaces, exactly <paramref name="length"/> characters long.</summary>
+    private static string FullSentencesOfLength(int length)
+    {
+        const string sentence = "The branch is pushed and the review can start.";
+        var text = sentence;
+        while (text.Length + 1 + sentence.Length + 1 + 10 <= length) text += " " + sentence;
+        var last = "It " + new string('o', length - text.Length - 1 - 5) + "k.";   // one more full sentence to the exact length
+        return text + " " + last;
+    }
+
+    [Fact]
+    public void ANarrationUnderTheBound_IsNotCut_EvenWhenItDoesNotEndASentence()
+    {
+        var answer = string.Concat(Enumerable.Repeat("The branch is pushed and the review can start. ", 20)) + "and one more clause";
+        Assert.True(answer.Length < NarrationCall.MaxChars);
+
+        var spoken = NarrationCall.SpokenFrom(Answer(answer));
+
+        Assert.Equal(answer.Trim(), spoken);
+    }
+
+    [Fact]
+    public void TheNarrationBound_Is1200_AndTheJudgesSpokenFieldKeeps900()
+    {
+        Assert.Equal(1200, NarrationCall.MaxChars);
+        Assert.Equal(900, Core.Wingman.TurnVerdictContract.MaxSpokenChars);
+        Assert.Contains("1,200 characters", WingmanTranslator.FidelityPrompt);
+        Assert.DoesNotContain("900 characters", WingmanTranslator.FidelityPrompt);
+    }
+
+    [Fact]
+    public void ANumberOrAFileNameIsNotASentenceEnd_AndNoSentenceInsideTheBoundKeepsNoWords()
+    {
+        // "65.1" and "scene.py" have a full stop with no space after it: not an end.
+        Assert.Equal("Acceptance went to 65.1 per cent.", NarrationCall.CapAtLastSentence("Acceptance went to 65.1 per cent. And scene.py moved", 40));
+        Assert.Equal("", NarrationCall.CapAtLastSentence(string.Join(" ", Enumerable.Repeat("word", 400)), NarrationCall.MaxChars));
+    }
+
+    // ================================================================= a refused record with a menu
+
+    [Fact]
+    public async Task ARefusedRecordWithAMenu_IsNarratedInTheMenuShape_AndItsRowStillOffersNoButtons()
+    {
+        var rig = Build(menu: true);
+        // The receipt is not on the screen, so the contract refuses the answer; it is still readable JSON with a menu.
+        rig.Env.Judge = (_, _) => Task.FromResult(FakeTurnVerdictEnvironment.Menu(MenuQuestion, "a receipt the screen does not show", JudgeSpoken));
+        rig.Voice.Mark(Tenant, Sid);
+
+        await HostTurnEndAsync(rig, RouteServing("dir-1", rig.Env.Screen));
+
+        // The row: refused, and nothing on it that a phone could turn into a button.
+        var verdict = rig.Env.Latest(Tenant, Sid)!;
+        Assert.True(verdict.Failed);
+        Assert.Equal("", verdict.AnswerVia);
+        Assert.Null(verdict.Menu);
+        Assert.Empty(verdict.Options);
+        // The narration call: given the judge's menu as it wrote it, so it is asked for the menu shape.
+        var prompt = Assert.Single(rig.Env.NarratorPrompts);
+        Assert.Contains("How the person answers: KEYS", prompt);
+        Assert.Contains("The menu's question: " + MenuQuestion, prompt);
+        Assert.Contains("1. Proceed (recommended) - Carries on with the change.", prompt);
+        Assert.Equal(Narrated, rig.Voice.Get(Tenant, Sid)!.Spoken);
+    }
+
+    [Fact]
+    public async Task AnExplainThatReusesARefusedRecordWithAMenu_IsStillGivenTheMenu()
+    {
+        var rig = Build(menu: true);
+        rig.Env.Judge = (_, _) => Task.FromResult(FakeTurnVerdictEnvironment.Menu(MenuQuestion, "a receipt the screen does not show", JudgeSpoken));
+
+        // Nobody is listening at the turn end: the record is judged and refused, with no narration call.
+        await rig.Verdicts.StartTurnEnd(new TurnEndSignal(Sid, "dir-1", Tenant, ObservedAt, IsNewTurn: true));
+        Assert.Equal(0, rig.Env.NarratorCalls);
+        Assert.True(rig.Env.Latest(Tenant, Sid)!.Failed);
+
+        // A voice refresh reuses that refused record (it never asks the judge again) and the call it makes is given the menu.
+        rig.Voice.Mark(Tenant, Sid);
+        await rig.Voice.GenerateAsync(Tenant, Sid, RouteServing("dir-1", rig.Env.Screen), CancellationToken.None, showReadingWindow: false);
+
+        Assert.Equal(1, rig.Env.JudgeCalls);
+        var prompt = Assert.Single(rig.Env.NarratorPrompts);
+        Assert.Contains("How the person answers: KEYS", prompt);
+        Assert.Contains("The menu's question: " + MenuQuestion, prompt);
     }
 }

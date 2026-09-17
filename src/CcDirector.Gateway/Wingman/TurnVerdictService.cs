@@ -251,6 +251,14 @@ public sealed record TurnVerdictOutcome
     /// </summary>
     public Lazy<TurnVerdictPackage>? NarrationPackage { get; init; }
 
+    /// <summary>
+    /// For a REFUSED but readable judge answer only: the judge's decision as it wrote it - how the person answers, the
+    /// menu, the options - read by <see cref="TurnVerdictContract.SalvageNarrationDecision"/> for the narration call's
+    /// input (slice J, Architect ruling). Never stored, never on the row, never offered as a button: the record in
+    /// <see cref="Verdict"/> stays refused with none of them. Null on an accepted verdict, whose own fields are the decision.
+    /// </summary>
+    public TurnVerdictDto? NarrationDecision { get; init; }
+
     /// <summary>True when there is an accepted verdict to act on.</summary>
     public bool HasAcceptedVerdict => Verdict is { Failed: false }
         && Kind is TurnVerdictOutcomeKind.Judged or TurnVerdictOutcomeKind.Reused;
@@ -1279,6 +1287,12 @@ public sealed class TurnVerdictService : IDisposable
                 // The explain-already-asked marker: set only when this flight's loop made its re-attempt for a person.
                 if (flight.ReattemptedForPerson)
                     _askedOnDemandFailures[key] = record.VerdictId;
+                // The refused answer's own decision, for a narration call about this record - now or on a later reuse.
+                var narrationDecision = failure == TurnVerdictFailureKind.Refused
+                    ? TurnVerdictContract.SalvageNarrationDecision(rawReply)
+                    : null;
+                if (narrationDecision is not null)
+                    _refusedNarrationDecisions[key] = (record.VerdictId, narrationDecision);
                 _env.Record(new TurnVerdictRecord(tenant, directorId, sid, ActivityEventTypes.TurnVerdictFailed,
                     FailureCause(failure),
                     $"trigger={TriggerWord(trigger)} kind={record.PackageKind} id={record.VerdictId} model={record.Model}"));
@@ -1293,6 +1307,7 @@ public sealed class TurnVerdictService : IDisposable
                     SourceText = source?.Content,
                     ReplySeconds = replySeconds,
                     NarrationPackage = new Lazy<TurnVerdictPackage>(package),
+                    NarrationDecision = narrationDecision,
                 };
             }
 
@@ -1394,6 +1409,10 @@ public sealed class TurnVerdictService : IDisposable
                 ScreenHash = hash,
                 SourceText = source?.Content,
                 NarrationPackage = narrationPackage,
+                NarrationDecision = _refusedNarrationDecisions.TryGetValue(key, out var salvaged)
+                                    && string.Equals(salvaged.VerdictId, verdict.VerdictId, StringComparison.Ordinal)
+                    ? salvaged.Decision
+                    : null,
             }
             : new TurnVerdictOutcome
             {
@@ -1418,9 +1437,11 @@ public sealed class TurnVerdictService : IDisposable
         if (outcome.Verdict is not { } verdict || outcome.NarrationPackage is not { } lazyPackage)
             throw new ArgumentException("A narration call needs a verdict and the package it was formed from.", nameof(outcome));
 
-        var prompt = NarrationCall.BuildPrompt(_env.Language(tenant), _env.CustomSpokenRules(), lazyPackage.Value, verdict);
+        // A refused record carries no decision of its own; the call is given the one its readable answer held.
+        var decision = verdict.Failed && outcome.NarrationDecision is { } salvaged ? salvaged : verdict;
+        var prompt = NarrationCall.BuildPrompt(_env.Language(tenant), _env.CustomSpokenRules(), lazyPackage.Value, decision);
         var timeout = TimeSpan.FromSeconds(TurnVerdictSettings.NarrationCallTimeoutSeconds);
-        FileLog.Write($"[TurnVerdictService] narration call sid={sid} verdict={verdict.VerdictId} answerVia={verdict.AnswerVia} promptLen={prompt.Length}");
+        FileLog.Write($"[TurnVerdictService] narration call sid={sid} verdict={verdict.VerdictId} failed={verdict.Failed} answerVia={decision.AnswerVia} salvagedDecision={!ReferenceEquals(decision, verdict)} promptLen={prompt.Length}");
         try
         {
             var answer = await _env.AskNarratorAsync(tenant, prompt, timeout, ct).ConfigureAwait(false);
@@ -1461,6 +1482,10 @@ public sealed class TurnVerdictService : IDisposable
     // A RATE LIMIT'S OWN WAIT, per session: the failed record it produced and when the wait it named ends. An explain
     // on the unchanged screen does not ask again inside it.
     private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), (string VerdictId, DateTime Until, string? SourceText)> _rateLimitHolds = new();
+
+    // THE DECISION A REFUSED BUT READABLE ANSWER HELD, per session, keyed by the refused record's verdict id: the narration
+    // call's input only (slice J). One per session - a newer refused record replaces it - and never read for the row.
+    private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), (string VerdictId, TurnVerdictDto Decision)> _refusedNarrationDecisions = new();
 
     // THE FAILED RECORD A PERSON'S OWN ASK PRODUCED, per session. Explain may ask again about a failed record once;
     // a failure that explain itself asked for is reused by the next explain rather than asked again.

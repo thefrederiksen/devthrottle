@@ -98,8 +98,9 @@ public sealed class WingmanTranslator
     /// it is for the judge's spoken text. The shape is handed in from the judge's own <c>answerVia</c>, so a forced
     /// picker is read as a menu from the judge's decision and never from this prompt's guess. And the aim is about
     /// forty five seconds, roughly 700 characters, because slice I measured the thirty second aim as the reason the
-    /// judge's spoken field kept only the headline; the code cuts at 900. "Read in full when asked" is still a rule
-    /// here, but the 900 cut binds it too: the answer carries no signal the code could raise the cut on.
+    /// judge's spoken field kept only the headline; the code keeps the last full sentence inside 1,200 characters. "Read
+    /// in full when asked" is still a rule here, but the 1,200 bound binds it too: the answer carries no signal the code
+    /// could raise the bound on.
     /// </summary>
     internal const string FidelityPrompt = """
         You are the wingman: you turn a coding agent's written reply into words a person
@@ -109,7 +110,7 @@ public sealed class WingmanTranslator
         CONSTRAINT. They are LISTENING, not reading, so say it the way a person would explain
         it out loud, and lead with the point. AIM FOR ABOUT FORTY FIVE SECONDS OUT LOUD:
         roughly 700 characters. That is how long a person will actually listen to a summary of
-        one turn, and anything past 900 characters is cut off before it is spoken. A short
+        one turn, and anything past 1,200 characters is cut off before it is spoken. A short
         reply needs less; never stretch one to fill it. Every extra sentence is a cost you must
         justify, not a budget you may spend. Rules:
         - DO NOT SAY THE SESSION'S NAME. It is spoken in front of your words by the product, so
