@@ -155,8 +155,9 @@ public sealed class FleetManagerEventServiceTests : IDisposable
 
     /// <summary>The Fleet Manager's own turn end, fanned out as the host does it: this service, then the seat, whose
     /// reading of it (the judge's set answer, "finished" unless a test changes it) is what lets events be typed. A
-    /// held judge is not waited for.</summary>
-    private async Task FleetManagerTurnEndAsync(string sid = "fm")
+    /// held judge is not waited for: its reading is returned, and a test that releases the judge awaits it - that
+    /// reading is a delivery trigger of its own, so waiting only for another session's reading races it.</summary>
+    private async Task<Task<TurnVerdictOutcome>> FleetManagerTurnEndAsync(string sid = "fm")
     {
         SetState(sid, "WaitingForInput");
         var signal = Signal(sid);
@@ -164,6 +165,7 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         var reading = _seat.StartTurnEnd(signal);
         if (!_brain.IsHeld) await reading;
         await _service.WhenIdleAsync();
+        return reading;
     }
 
     private IReadOnlyList<FleetManagerEventDto> Open() => _events.Unacknowledged(Tenant);
@@ -707,11 +709,13 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         var signal = Signal("worker-1");
         _service.OnTurnEnd(signal, wingmanRunning: true);
         var reading = _seat.StartTurnEnd(signal);
-        await FleetManagerTurnEndAsync();
+        var fleetManagerReading = await FleetManagerTurnEndAsync();
         Assert.Empty(_env.Sends);
 
         _brain.Release();
-        await reading;
+        // Both readings were held, and each is a delivery trigger: the stop's own, and the Fleet Manager's, which is
+        // what says its turn asks the owner nothing. Waiting for only one of them left the other still running.
+        await Task.WhenAll(reading, fleetManagerReading);
         await _service.WhenIdleAsync();
 
         var sent = Assert.Single(_env.Sends);
@@ -721,6 +725,81 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         Assert.Contains("event 1 of 1: " + e.Id, sent.Text);
         Assert.Contains("verdict: finished", sent.Text);
         Assert.Equal(("fm", 1), (e.DeliveredTo, e.DeliveryCount));
+    }
+
+    /// <summary>A DELIVERY ASKED FOR WHILE ANOTHER IS IN FLIGHT IS NOT LOST. The pass in flight read what was owed, or
+    /// whether the Fleet Manager's turn was finished, before the request; if it types nothing, it runs again, rather
+    /// than leave the new event waiting for some unrelated later trigger. Deterministic: the send is held, and the
+    /// batching wait is held so no other trigger can deliver in its place.</summary>
+    [Fact]
+    public async Task ADeliveryAskedForWhileOneThatTypesNothingIsInFlight_RunsAgain_WithTheEventStoredMeanwhile()
+    {
+        await FleetManagerTurnEndAsync();
+        _env.HoldDelay();
+        await StopWithReadingAsync("worker-1");
+        _env.HoldSend();
+        _env.Result = FleetManagerPromptSend.Busy;
+
+        var first = _service.DeliverToAsync(Tenant, "fm");
+        Assert.Single(_env.Sends);
+
+        await StopWithReadingAsync("worker-2");
+        Assert.Equal(FleetManagerDeliveryResult.AlreadyDelivering, await _service.DeliverToAsync(Tenant, "fm"));
+
+        _env.Result = FleetManagerPromptSend.Accepted;
+        _env.ReleaseSend();
+        Assert.Equal(FleetManagerDeliveryResult.Delivered, await first);
+
+        Assert.Equal(2, _env.Sends.Count);
+        Assert.All(Open(), e => Assert.Contains("of 2: " + e.Id, _env.Sends[1].Text));
+        Assert.All(Open(), e => Assert.Equal(("fm", 1), (e.DeliveredTo, e.DeliveryCount)));
+
+        _env.ReleaseDelay();
+        await _service.WhenIdleAsync();
+        Assert.Equal(2, _env.Sends.Count);
+    }
+
+    /// <summary>A pass that DELIVERED does not run again for a request made while it sent: the Fleet Manager is busy with
+    /// that prompt, so the event stored meanwhile waits for its next idle moment - and is sent then.</summary>
+    [Fact]
+    public async Task ADeliveryAskedForWhileOneIsDelivering_WaitsForTheNextIdleMoment()
+    {
+        await FleetManagerTurnEndAsync();
+        _env.HoldDelay();
+        await StopWithReadingAsync("worker-1");
+        _env.HoldSend();
+
+        var first = _service.DeliverToAsync(Tenant, "fm");
+        Assert.Single(_env.Sends);
+
+        await StopWithReadingAsync("worker-2");
+        var second = Open().Single(e => e.SessionId == "worker-2");
+        Assert.Equal(FleetManagerDeliveryResult.AlreadyDelivering, await _service.DeliverToAsync(Tenant, "fm"));
+
+        _env.ReleaseSend();
+        Assert.Equal(FleetManagerDeliveryResult.Delivered, await first);
+        Assert.Single(_env.Sends);
+        Assert.Null(Open().Single(e => e.SessionId == "worker-2").DeliveredTo);
+
+        // The prompt starts the Fleet Manager's next turn; the batch booked for worker-2 finds it working.
+        SetState("fm", "Working");
+        _service.OnSessionWorking(Tenant, "fm", "dir-1");
+        _env.ReleaseDelay();
+        await _service.WhenIdleAsync();
+        Assert.Single(_env.Sends);
+
+        await FleetManagerTurnEndAsync();
+
+        Assert.Equal(2, _env.Sends.Count);
+        Assert.Contains("event 1 of 1: " + second.Id, _env.Sends[1].Text);
+    }
+
+    /// <summary>A stop of an owned session and its finished reading, without waiting for the delivery it books.</summary>
+    private async Task StopWithReadingAsync(string sid)
+    {
+        var signal = Signal(sid);
+        _service.OnTurnEnd(signal, wingmanRunning: true);
+        Assert.Equal(TurnVerdictOutcomeKind.Judged, (await _seat.StartTurnEnd(signal)).Kind);
     }
 
     /// <summary>A reading that ends as cannot-tell is a reading: the stop is delivered as that, never left waiting.</summary>
@@ -1268,6 +1347,7 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         private readonly Func<DateTime> _now;
         private IFleetManagerEventEnvironment? _sendThrough;
         private TaskCompletionSource? _delayGate;
+        private TaskCompletionSource? _sendGate;
         private int _delaysStarted;
 
         public RecordingEnvironment(IFleetManagerEventEnvironment inner, Func<DateTime> now)
@@ -1283,6 +1363,10 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         public void HoldDelay() => _delayGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         public void ReleaseDelay() => _delayGate?.TrySetResult();
 
+        /// <summary>Hold every send after it is recorded, so a delivery stays in flight until released.</summary>
+        public void HoldSend() => _sendGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        public void ReleaseSend() => _sendGate?.TrySetResult();
+
         /// <summary>Send through a production environment instead of answering <see cref="Result"/>.</summary>
         public void SendThrough(IFleetManagerEventEnvironment production) => _sendThrough = production;
 
@@ -1296,7 +1380,10 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         public async Task<FleetManagerPromptSend> SendPromptAsync(TenantId tenant, string directorId, string sessionId, string text, CancellationToken ct)
         {
             lock (Sends) Sends.Add(new Sent(directorId, sessionId, text));
-            return _sendThrough is null ? Result : await _sendThrough.SendPromptAsync(tenant, directorId, sessionId, text, ct);
+            // The answer is the one set when the send was made, however long it is held.
+            var result = Result;
+            if (_sendGate is { } gate) await gate.Task.WaitAsync(ct);
+            return _sendThrough is null ? result : await _sendThrough.SendPromptAsync(tenant, directorId, sessionId, text, ct);
         }
 
         public Task DelayAsync(TimeSpan delay, CancellationToken ct)

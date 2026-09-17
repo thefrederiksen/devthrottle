@@ -168,8 +168,12 @@ public sealed class FleetManagerEventService : IDisposable
     private readonly DateTime _startedAtUtc;
     private readonly CancellationTokenSource _shutdown = new();
 
-    // At most one delivery in flight per Fleet Manager session.
-    private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), byte> _delivering = new();
+    // At most one delivery in flight per Fleet Manager session, and the ones asked for again while it ran. A pass that
+    // typed nothing runs once more rather than drop the request; one that delivered does not, because the Fleet Manager
+    // is now busy with that prompt and what was stored meanwhile waits for its next idle moment. Both under the lock.
+    private readonly object _deliveryGate = new();
+    private readonly HashSet<(TenantId Tenant, string SessionId)> _delivering = new();
+    private readonly HashSet<(TenantId Tenant, string SessionId)> _deliverAgain = new();
 
     // A batch already waiting for this account. An event arriving meanwhile rides on it.
     private readonly ConcurrentDictionary<TenantId, byte> _batchPending = new();
@@ -726,7 +730,8 @@ public sealed class FleetManagerEventService : IDisposable
             return;
         }
         _deliveryNotes[tenant] = (sessionId, text);
-        FileLog.Write($"[FleetManagerEventService] delivery note: tenant={tenant.ToLogString()}, session={sessionId}: {text}");
+        FileLog.Write($"[FleetManagerEventService] delivery note set: tenant={tenant.ToLogString()}, session={sessionId}, " +
+                      $"result={result}, waiting={waiting}, noteLength={text.Length}");
     }
 
     private static string Capitalised(string text) => char.ToUpperInvariant(text[0]) + text[1..];
@@ -757,21 +762,57 @@ public sealed class FleetManagerEventService : IDisposable
     public async Task<FleetManagerDeliveryResult> DeliverToAsync(TenantId tenant, string fleetManagerSessionId)
     {
         var key = (tenant, fleetManagerSessionId.ToLowerInvariant());
-        if (!_delivering.TryAdd(key, 0))
+        lock (_deliveryGate)
         {
-            FileLog.Write($"[FleetManagerEventService] deliver to {fleetManagerSessionId}: a delivery is already in flight");
-            return FleetManagerDeliveryResult.AlreadyDelivering;
+            if (!_delivering.Add(key))
+            {
+                // A TRIGGER DURING A DELIVERY IS NOT DROPPED. The one in flight may have read what was owed before this
+                // trigger's event was stored, or found the turn not yet finished; unless it delivers, it runs again.
+                _deliverAgain.Add(key);
+                FileLog.Write($"[FleetManagerEventService] deliver to {fleetManagerSessionId}: a delivery is already in flight; " +
+                              "it runs again when it ends unless it delivers");
+                return FleetManagerDeliveryResult.AlreadyDelivering;
+            }
         }
 
+        var released = false;
         try
         {
-            var (result, waiting, heldBecause) = await DeliverOnceAsync(tenant, fleetManagerSessionId).ConfigureAwait(false);
-            NoteDelivery(tenant, fleetManagerSessionId, result, waiting, heldBecause);
-            return result;
+            while (true)
+            {
+                var (result, waiting, heldBecause) = await DeliverOnceAsync(tenant, fleetManagerSessionId).ConfigureAwait(false);
+                NoteDelivery(tenant, fleetManagerSessionId, result, waiting, heldBecause);
+                bool again;
+                lock (_deliveryGate)
+                {
+                    again = _deliverAgain.Remove(key);
+                    if (!again || result == FleetManagerDeliveryResult.Delivered)
+                    {
+                        _delivering.Remove(key);
+                        released = true;
+                    }
+                }
+                if (released)
+                {
+                    if (again)
+                        FileLog.Write($"[FleetManagerEventService] deliver to {fleetManagerSessionId}: asked for again while it " +
+                                      "delivered; what is still owed waits for its next idle moment");
+                    return result;
+                }
+                FileLog.Write($"[FleetManagerEventService] deliver to {fleetManagerSessionId}: asked for again while it ran " +
+                              $"(result={result}); running again");
+            }
         }
         finally
         {
-            _delivering.TryRemove(key, out _);
+            if (!released)
+            {
+                lock (_deliveryGate)
+                {
+                    _delivering.Remove(key);
+                    _deliverAgain.Remove(key);
+                }
+            }
         }
     }
 
@@ -805,7 +846,8 @@ public sealed class FleetManagerEventService : IDisposable
         }
         if (WhyTurnIsNotFinished(tenant, fm.Session) is { } held)
         {
-            FileLog.Write($"[FleetManagerEventService] deliver to {target}: {owed.Count} owed, HELD - {held}");
+            FileLog.Write($"[FleetManagerEventService] deliver to {target}: {owed.Count} owed, HELD: its turn is not finished " +
+                          $"(state={fm.Session.ActivityState}, reasonLength={held.Length})");
             return (FleetManagerDeliveryResult.TurnNotFinished, waiting, held);
         }
 
