@@ -35,13 +35,6 @@ public sealed class NeedsYouClock
 {
     private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), DateTime> _since = new();
 
-    /// <summary>
-    /// Apply the entry/hold/clear rule for one session and return the timestamp to stamp on
-    /// its <see cref="Contracts.SessionDto.NeedsYouSince"/> (UTC), or null when it is not red.
-    /// </summary>
-    /// <param name="tenant">The tenant that owns the session being stamped (MTR-10 Gap C).</param>
-    /// <param name="sessionId">The session's stable id.</param>
-    /// <param name="isRed">Whether the session's EffectiveColor is "red" this refresh.</param>
     /// <summary>What <see cref="Stamp"/> would answer right now, WITHOUT entering or leaving red. For a fold that must
     /// not move this clock (the Wingman inspector's trace colour).</summary>
     public DateTime? Peek(TenantId tenant, string sessionId, bool isRed)
@@ -51,6 +44,13 @@ public sealed class NeedsYouClock
         return _since.TryGetValue((tenant, sessionId), out var since) ? since : DateTime.UtcNow;
     }
 
+    /// <summary>
+    /// Apply the entry/hold/clear rule for one session and return the timestamp to stamp on
+    /// its <see cref="Contracts.SessionDto.NeedsYouSince"/> (UTC), or null when it is not red.
+    /// </summary>
+    /// <param name="tenant">The tenant that owns the session being stamped (MTR-10 Gap C).</param>
+    /// <param name="sessionId">The session's stable id.</param>
+    /// <param name="isRed">Whether the session's EffectiveColor is "red" this refresh.</param>
     public DateTime? Stamp(TenantId tenant, string sessionId, bool isRed)
     {
         ArgumentException.ThrowIfNullOrEmpty(sessionId);

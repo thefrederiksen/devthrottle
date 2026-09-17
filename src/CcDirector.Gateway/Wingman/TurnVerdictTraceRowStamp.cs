@@ -17,10 +17,11 @@ namespace CcDirector.Gateway.Wingman;
 /// passes the push's own - over the account's roster as it stands, with ONE difference: this session's verdict is
 /// the trace's verdict. Nothing here decides a colour.
 ///
-/// WHAT IT LEAVES OUT, stated. The fold's two clocks and the snooze-expiry memory are not passed, because each of them
-/// CHANGES state when it is folded (a needs-you clock starts, an expiry edge is spent) and a record must not move the
-/// product. So a row whose colour depended on a snooze expiry being re-judged at that moment records the row without
-/// that yellow.
+/// THE CLOCKS AND THE SNOOZE-EXPIRY MEMORY ARE READ, NOT MOVED. Production passes <see cref="Fleet.DisplayFold.Record"/>,
+/// which folds with the same needs-you clock, voice-waiting clock and snooze-expiry memory as the push, through their
+/// read-only <c>Peek</c> answers, because a record must not move the product. One gap remains, stated: the first push to
+/// see a snooze expiry may ask for a fresh read, marking the row as being read, and a trace never asks - so a trace with
+/// no verdict of its own, written between that expiry and the next push, does not show the row as being read.
 ///
 /// RUNS ON THE WRITER'S THREAD, never the verdict path: it snapshots the roster and reads the stored verdicts, which is
 /// the work <see cref="TurnVerdictTraceWriter"/> exists to keep off a judgement.

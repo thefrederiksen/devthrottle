@@ -5768,32 +5768,6 @@ internal static class GatewayEndpoints
     }
 
     /// <summary>
-    /// <c>POST /sessions/{sid}/turn-verdict/feedback</c>, the handler (the Wingman-on-every-turn mission, slice G).
-    /// Held here rather than inline so every exit can be driven by a test with no booted host.
-    ///
-    /// WHAT THIS HANDLER OWNS, and what it does not. It owns only what a REQUEST carries: the account it is bound
-    /// to, the session's existence inside that account, the shadow rule, and reading the body. Which verdict may
-    /// be corrected and with what word is <see cref="Wingman.TurnVerdictFeedbackService"/>'s, tested there.
-    ///
-    /// EXISTENCE IS DECIDED EXACTLY AS THE READ ROUTES DECIDE IT, freshness ignored: the verdict is held on this
-    /// Gateway, so a session whose Director has merely gone quiet is still this account's session and its stop is
-    /// still reportable. A session of another account answers precisely what an unknown session answers, so the
-    /// route never says which ids exist elsewhere.
-    ///
-    /// THE SHADOW RULE, the reads' rule applied to this write. While an account's colours are off its verdicts are
-    /// a shadow record that a session key may not read - so a session key may not report one wrong either. A
-    /// device key, the person, reaches the route in both states: the shadow is a rule about the product's own
-    /// automation acting on an unproven verdict, never about the owner examining one.
-    ///
-    /// AN ACCEPTED CORRECTION WRITES NO LEDGER LINE AND EVERY REFUSAL WRITES ONE. The accepted one needs none: it
-    /// writes a durable row carrying its own moment, word and note, and that row is the record. A refusal writes
-    /// nothing anywhere - so before this, the only trace that somebody tried to correct a verdict and was turned
-    /// away was a log file, which is not a record anybody queries. Every exit below that refuses writes one line
-    /// under <see cref="ActivityEventTypes.TurnVerdictFeedbackRefused"/>, with the same closed word the owner was
-    /// shown as its cause. The ONE exit that cannot is the unbound tenant: a ledger line is written into an
-    /// account, and that exit is the one where there is no account to write it into.
-    /// </summary>
-    /// <summary>
     /// <c>GET /sessions/{sid}/wingman-stops?count=</c>: the Wingman inspector's read. Every stop the Wingman judged for one
     /// session, newest first, folded by <see cref="Wingman.WingmanStopsFold"/> into finished strings the tab renders.
     ///
@@ -5861,6 +5835,32 @@ internal static class GatewayEndpoints
         return Results.Json(answer);
     }
 
+    /// <summary>
+    /// <c>POST /sessions/{sid}/turn-verdict/feedback</c>, the handler (the Wingman-on-every-turn mission, slice G).
+    /// Held here rather than inline so every exit can be driven by a test with no booted host.
+    ///
+    /// WHAT THIS HANDLER OWNS, and what it does not. It owns only what a REQUEST carries: the account it is bound
+    /// to, the session's existence inside that account, the shadow rule, and reading the body. Which verdict may
+    /// be corrected and with what word is <see cref="Wingman.TurnVerdictFeedbackService"/>'s, tested there.
+    ///
+    /// EXISTENCE IS DECIDED EXACTLY AS THE READ ROUTES DECIDE IT, freshness ignored: the verdict is held on this
+    /// Gateway, so a session whose Director has merely gone quiet is still this account's session and its stop is
+    /// still reportable. A session of another account answers precisely what an unknown session answers, so the
+    /// route never says which ids exist elsewhere.
+    ///
+    /// THE SHADOW RULE, the reads' rule applied to this write. While an account's colours are off its verdicts are
+    /// a shadow record that a session key may not read - so a session key may not report one wrong either. A
+    /// device key, the person, reaches the route in both states: the shadow is a rule about the product's own
+    /// automation acting on an unproven verdict, never about the owner examining one.
+    ///
+    /// AN ACCEPTED CORRECTION WRITES NO LEDGER LINE AND EVERY REFUSAL WRITES ONE. The accepted one needs none: it
+    /// writes a durable row carrying its own moment, word and note, and that row is the record. A refusal writes
+    /// nothing anywhere - so before this, the only trace that somebody tried to correct a verdict and was turned
+    /// away was a log file, which is not a record anybody queries. Every exit below that refuses writes one line
+    /// under <see cref="ActivityEventTypes.TurnVerdictFeedbackRefused"/>, with the same closed word the owner was
+    /// shown as its cause. The ONE exit that cannot is the unbound tenant: a ledger line is written into an
+    /// account, and that exit is the one where there is no account to write it into.
+    /// </summary>
     internal static async Task<IResult> ReportTurnVerdictWrongAsync(
         HttpContext ctx,
         string sid,
