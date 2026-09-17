@@ -33,10 +33,10 @@ from . import _console  # noqa: F401  (installs the ASCII-only output patches)
 from . import __version__, filelog, paths
 from .audit import AuditLog
 from .browser_login import OUTCOME_LOGGED_IN, OUTCOME_REFUSED, login as browser_login
-from .errors import CcSecretsError
+from .errors import CcSecretsError, InputError
 from .redact import SCRUBBER
-from .runner import DEFAULT_ENV_NAME, VIA_CHOICES, run_with_secret
-from .store import USES, EntryNotAvailableError, SecretStore, make_entry
+from .runner import DEFAULT_ENV_NAME, VIA_CHOICES, run_with_secrets
+from .store import ENV_NAME_PATTERN, MIN_SECRET_LENGTH, USES, EntryNotAvailableError, SecretStore, make_entry, validate_name
 from .storefile import UserOnlyFile
 
 # Make cc_shared importable when running from source, matching the other cc-* tools.
@@ -270,10 +270,10 @@ def list_entries(
             _say("No secrets are available to agents on this machine." if not all_entries else "The store is empty.")
             return
         table = Table(show_lines=False)
-        for column in ("Name", "Username", "Allowed addresses", "Uses") + (("Agents",) if all_entries else ()) + ("Notes",):
+        for column in ("Name", "Variable", "Username", "Allowed addresses", "Uses") + (("Agents",) if all_entries else ()) + ("Notes",):
             table.add_column(column)
         for v in views:
-            row = [v["name"], v["username"], ", ".join(v["allowedDomains"]), ", ".join(v["uses"])]
+            row = [v["name"], v["envName"], v["username"], ", ".join(v["allowedDomains"]), ", ".join(v["uses"])]
             if all_entries:
                 row.append("yes" if v["agentsMayUse"] else "no")
             row.append(v["notes"])
@@ -298,30 +298,54 @@ def _refused(name: str, label: str, exc: EntryNotAvailableError, json_output: bo
 def run(
     name: str = typer.Argument(..., help="Entry name."),
     command: Optional[List[str]] = typer.Argument(None, help="The command, after '--'."),
-    via: str = typer.Option("stdin", "--via", help=f"How the command receives the secret: {', '.join(VIA_CHOICES)}."),
-    env_name: str = typer.Option(DEFAULT_ENV_NAME, "--env-name", help="The variable name for --via env."),
-    timeout: float = typer.Option(600, "--timeout", help="Seconds before the command is stopped."),
+    also: Optional[List[str]] = typer.Option(None, "--with", help="Another entry to supply at the same time, in its own variable. Repeatable. Supplies every entry by env."),
+    via: Optional[str] = typer.Option(None, "--via", help=f"How the command receives the secret: {', '.join(VIA_CHOICES)}. Default: env when the entry has its own variable name or --with is used, otherwise stdin."),
+    env_name: Optional[str] = typer.Option(None, "--env-name", help="The variable name for --via env with one entry. Default: the entry's own variable name, otherwise CC_SECRET."),
+    timeout: float = typer.Option(600, "--timeout", help="Seconds before the command is stopped. 0 means no limit."),
     json_output: bool = typer.Option(False, "--json", help="Print JSON."),
 ):
     """Run a command with the secret supplied. Returns its exit code and output, with the secret removed.
 
-    Example: cc-secrets run devlinux -- sudo -S apt-get update
+    Examples: cc-secrets run devlinux -- sudo -S apt-get update
+              cc-secrets run godaddy-key --with godaddy-secret -- python dns.py
     """
+    names = [name] + list(also or [])
     label = "run " + " ".join(command or [])[:200]
+    entries = []
+    for entry_name in names:
+        try:
+            entries.append(_store().entry_for_agent(entry_name, "run"))
+        except EntryNotAvailableError as exc:
+            _refused(entry_name, label, exc, json_output)
+        except Exception as exc:
+            _fail("run", entry_name, label, exc)
     try:
-        entry = _store().entry_for_agent(name, "run")
-    except EntryNotAvailableError as exc:
-        _refused(name, label, exc, json_output)
-    except Exception as exc:
-        _fail("run", name, label, exc)
-    try:
-        result = run_with_secret(entry, command or [], via, env_name, timeout)
+        if len(entries) > 1:
+            if via not in (None, "env"):
+                raise InputError("Several entries can only be supplied with --via env.")
+            if env_name is not None:
+                raise InputError("--env-name names the variable of ONE entry. With --with, each entry uses its own variable name.")
+            chosen_via = "env"
+        else:
+            chosen_via = via or ("env" if entries[0].env_name else "stdin")
+        supplied = []
+        for entry in entries:
+            if len(entries) == 1:
+                variable = env_name or entry.env_name or DEFAULT_ENV_NAME
+            else:
+                variable = entry.env_name or entry.name.upper().replace("-", "_").replace(".", "_")
+            if not ENV_NAME_PATTERN.match(variable):
+                raise InputError(f"'{variable}' is not a valid environment variable name.")
+            supplied.append((entry, variable))
+        result = run_with_secrets(supplied, command or [], chosen_via, timeout)
     except Exception as exc:
         _fail("run", name, label, exc)
     outcome = "ok" if result.exit_code == 0 and not result.timed_out else "failed"
-    _audit().record(name, label, outcome, f"exit {result.exit_code}" + (", timed out" if result.timed_out else ""))
+    detail = f"exit {result.exit_code}" + (", timed out" if result.timed_out else "")
+    for entry in entries:
+        _audit().record(entry.name, label, outcome, detail)
     if json_output:
-        _say_json({"entry": name, "exitCode": result.exit_code, "timedOut": result.timed_out,
+        _say_json({"entry": name, "entries": names, "exitCode": result.exit_code, "timedOut": result.timed_out,
                    "stdout": result.stdout, "stderr": result.stderr})
     else:
         if result.stdout:
@@ -332,6 +356,171 @@ def run(
             sys.stderr.flush()
         _say(f"[cc-secrets] command exited {result.exit_code}" + (" (timed out)" if result.timed_out else ""), err=True)
     raise typer.Exit(result.exit_code if result.exit_code != 0 else (EXIT_FAILED if result.timed_out else 0))
+
+
+def register_env_file_values(text: str) -> None:
+    """Hand every value of a KEY=VALUE file to the scrubber BEFORE the file is checked. A malformed line is then
+    reported by its number alone, and any key that happens to be another line's value is hidden wherever it is
+    printed (review of pull request 2978). Keys themselves are not registered, so the report stays readable."""
+    for raw in text.splitlines():
+        if "=" in raw:
+            value = raw.split("=", 1)[1]
+            if value.strip():
+                SCRUBBER.add(value)
+
+
+def parse_env_file(text: str) -> List[tuple]:
+    """[(line number, KEY, VALUE)] from KEY=VALUE text. Blank lines and lines starting with # are skipped.
+
+    The value is everything after the first '=', exactly - never trimmed, because a credential can hold
+    spaces; a value that starts or ends with a space is refused instead of guessed at. A line that is not
+    KEY=VALUE, a key that is not a variable name, a key given twice, and two keys that would become the same
+    entry name are refused naming the LINES only - no text from the file is ever put in a message."""
+    pairs = []
+    seen_keys = {}
+    seen_names = {}
+    for number, raw in enumerate(text.splitlines(), start=1):
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if "=" not in raw:
+            raise InputError(f"Line {number} is not KEY=VALUE.")
+        key, value = raw.split("=", 1)
+        if key != key.strip() or not ENV_NAME_PATTERN.match(key):
+            raise InputError(f"Line {number}: the part before '=' is not a variable name (letters, digits and "
+                             "underscores, nothing around it).")
+        if value != value.strip():
+            raise InputError(f"Line {number}: the value starts or ends with a space. Remove the space, or if the "
+                             "credential really has one, add that entry by hand with cc-secrets add.")
+        if key in seen_keys:
+            raise InputError(f"Line {number}: the same key was already given on line {seen_keys[key]}.")
+        name = entry_name_for_key(key)
+        if name in seen_names:
+            raise InputError(f"Lines {seen_names[name]} and {number} would both become the same entry name. "
+                             "Rename one of the keys.")
+        seen_keys[key] = number
+        seen_names[name] = number
+        pairs.append((number, key, value))
+    return pairs
+
+
+def _folded(text: str) -> str:
+    return text.lower().replace("-", "_")
+
+
+def commented_values(text: str) -> List[str]:
+    """Values on commented-out KEY=VALUE lines - old credentials are often kept that way. Each comes both exactly
+    and trimmed: a comment is not parsed strictly, so '# OLD= value' means the value without the space (review of
+    pull request 2978)."""
+    found = []
+    for line in (raw.strip() for raw in text.splitlines()):
+        if line.startswith("#") and "=" in line:
+            value = line.split("=", 1)[1]
+            found.extend({value, value.strip()})
+    return found
+
+
+def check_keys_hold_no_secret(pairs: List[tuple], skipped: set, protected: List[str]) -> None:
+    """Refuse, by line number, any key to be imported that contains a secret.
+
+    A key becomes a public entry name and variable name - listed to sessions, printed, audited - so one that
+    holds a secret, in any letter case and with - or _, would carry it there (review of pull request 2978).
+    `protected` is every secret that must not appear: the store's, and this file's values that are not skipped
+    settings, commented-out lines included. Values shorter than the shortest secret cc-secrets stores are not
+    secrets it holds, and would match half of all keys, so they are not compared."""
+    guarded = [(_folded(value), value) for value in protected if len(value) >= MIN_SECRET_LENGTH]
+    for number, key, _ in pairs:
+        if key in skipped:
+            continue
+        if any(folded in _folded(key) for folded, _ in guarded):
+            raise InputError(f"Line {number}: the key contains a stored or imported secret. Rename the key.")
+
+
+def entry_name_for_key(key: str) -> str:
+    """The entry name an imported KEY gets: lower case, underscores as hyphens (POSTHOG_API_KEY -> posthog-api-key)."""
+    return key.lower().replace("_", "-")
+
+
+@app.command("import")
+def import_entries(
+    file: Path = typer.Argument(..., help="A KEY=VALUE file, for example credentials.env. Blank lines and # comments are skipped."),
+    agents: Optional[bool] = typer.Option(None, "--agents/--no-agents", help="Whether sessions on this machine may use the imported entries. Required."),
+    uses: str = typer.Option("run", "--uses", help="Comma-separated: login, run. Default run."),
+    skip: Optional[str] = typer.Option(None, "--skip", help="Comma-separated keys NOT to import - settings that are not secret."),
+    replace: bool = typer.Option(False, "--replace", help="Replace entries that already exist."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would happen, by name only, and change nothing."),
+):
+    """OWNER: import every KEY=VALUE line of a file as its own entry. Each entry is named after its key
+    (POSTHOG_API_KEY becomes posthog-api-key) and `run` supplies it in a variable of that same name. No value is
+    ever printed."""
+    _owner_only("import")
+    try:
+        if agents is None:
+            _say("Say whether sessions may use the imported entries: --agents or --no-agents.", err=True)
+            raise typer.Exit(EXIT_FAILED)
+        use_list = _split_list(uses)
+        skipped = set(_split_list(skip or ""))
+        text = file.read_text(encoding="utf-8-sig")
+        register_env_file_values(text)
+        for value in commented_values(text):
+            if value.strip():
+                SCRUBBER.add(value)
+        pairs = parse_env_file(text)
+        unknown_skips = sorted(skipped - {key for _, key, _ in pairs})
+        if unknown_skips:
+            _say(f"--skip names keys that are not in the file: {', '.join(unknown_skips)}. Nothing was imported.", err=True)
+            raise typer.Exit(EXIT_FAILED)
+        store = _store()
+        stored = store.entries()
+        protected = [e.secret.reveal() for e in stored] + commented_values(text) + \
+            [value for _, key, value in pairs if key not in skipped]
+        check_keys_hold_no_secret(pairs, skipped, protected)
+        notes = f"imported from {file.name}"
+        built, failed = [], {}
+        for _, key, value in pairs:
+            if key in skipped:
+                continue
+            try:
+                name = validate_name(entry_name_for_key(key))
+                built.append(make_entry(name, "", value, [], notes, agents, use_list, env_name=key))
+            except InputError as exc:
+                failed[key] = str(exc)
+        existing = {e.name for e in stored}
+        if dry_run:
+            table = Table(show_lines=False)
+            for column in ("Key", "Entry", "Would be"):
+                table.add_column(column)
+            for _, key, _ in pairs:
+                if key in skipped:
+                    row = (key, "", "skipped (setting)")
+                elif key in failed:
+                    row = (key, "", "NOT imported: " + failed[key])
+                else:
+                    entry_name = entry_name_for_key(key)
+                    state = ("replaced" if replace else "left as it is (exists)") if entry_name in existing else "added"
+                    row = (key, entry_name, state)
+                # Scrubbed like every other line: a key can be the same text as another line's value.
+                table.add_row(*[SCRUBBER.scrub(cell) for cell in row])
+            console.print(table)
+            _say(f"Dry run: nothing was changed. {len(built)} to import, {len(skipped)} skipped, {len(failed)} not importable.")
+            raise typer.Exit(EXIT_FAILED if failed else 0)
+        outcomes = store.put_many(built, replace) if built else {}
+        for entry in built:
+            _audit().record(entry.name, "import", "ok" if outcomes[entry.name] != "exists" else "unchanged",
+                            f"{outcomes[entry.name]} from {file.name} as {entry.env_name}")
+        counts = {k: sum(1 for o in outcomes.values() if o == k) for k in ("added", "replaced", "exists")}
+        _say(f"Imported into {store.location}: {counts['added']} added, {counts['replaced']} replaced, "
+             f"{counts['exists']} already there and left as they are, {len(skipped)} skipped as settings, "
+             f"{len(failed)} not importable. Agents may use them: {'yes' if agents else 'no'}. Uses: {', '.join(use_list)}.")
+        for key, reason in failed.items():
+            _say(f"  NOT imported: {key}: {reason}", err=True)
+        raise typer.Exit(EXIT_FAILED if failed else 0)
+    except typer.Exit:
+        raise
+    except Exception as exc:
+        _log_failure("import", exc)
+        _say(f"import failed: {_describe(exc)}", err=True)
+        raise typer.Exit(EXIT_FAILED)
 
 
 def _browser_port(target: str) -> int:

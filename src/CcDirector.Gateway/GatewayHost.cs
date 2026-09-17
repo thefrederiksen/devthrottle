@@ -286,6 +286,10 @@ public sealed class GatewayHost : IAsyncDisposable
     /// </summary>
     public Pairing.SessionKeyRegistry SessionKeys { get; }
 
+    /// <summary>Every session each account has ever marked as its Fleet Manager (the Fleet Manager mission,
+    /// step 3). Written when the mark is set; read by the Fleet Manager digest.</summary>
+    internal Fleet.FleetManagerMarkHistory FleetManagerMarks { get; }
+
     /// <summary>The Gateway's record of what each utterance upload transcribed (inspection finding I2-03), spent
     /// by the prompt route when a prompt claims to be that utterance. One per process, shared by the utterance
     /// completion route that writes it and the prompt route that spends it. In memory by design.</summary>
@@ -537,6 +541,9 @@ public sealed class GatewayHost : IAsyncDisposable
     /// and then assert what the route hands to each kind of caller.</summary>
     internal Wingman.TurnVerdictStore TurnVerdicts => _turnVerdicts;
 
+    /// <summary>The fleet message inbox (the Message Load mission). Exposed for the route tests.</summary>
+    internal Messaging.FleetMessageStore FleetMessages => _fleetMessages;
+
     /// <summary>
     /// The auth-boundary tenant binder. Exposed to the test assembly so an isolation test can enter the same
     /// tenant scope a real request or tunnel connection would, and drive the production loop code inside it.
@@ -688,6 +695,9 @@ public sealed class GatewayHost : IAsyncDisposable
     /// MEANS, per tenant and per session. Written by the turn-end seat and read by the roster fold and the
     /// two turn-verdict routes.</summary>
     private readonly Wingman.TurnVerdictStore _turnVerdicts;
+    private readonly Messaging.FleetMessageStore _fleetMessages;
+    private readonly Messaging.FleetMessageService _fleetMessageService;
+    private readonly Messaging.FleetMessageRetentionSweep _fleetMessageRetentionSweep;
     /// <summary>The Wingman inspector's record: every judgement kept whole - package, prompt, raw reply, verdict -
     /// appended by the turn-end seat and never cleared when a session works again. Seven days.</summary>
     private readonly Wingman.TurnVerdictTraceStore _turnVerdictTraces;
@@ -1398,6 +1408,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // session rather than with its Director's account-wide key. Same database and the same stored-hash
         // shape as the device registry above, because it is the same kind of credential one hop further in.
         SessionKeys = new Pairing.SessionKeyRegistry(_gatewayDb, GatewayHostedMode.IsHosted);
+        FleetManagerMarks = new Fleet.FleetManagerMarkHistory(_gatewayDb);
         // The account-to-tenant resolver (Hosted Multi-Tenancy increment 1): owns the tenants mapping table
         // and mints/looks up a tenant from a verified account subject. Built over the EF database; wired into
         // the hosted enrollment boundary (which validates the account token and stamps the resolved tenant on
@@ -1874,6 +1885,12 @@ public sealed class GatewayHost : IAsyncDisposable
         _turnVerdictTraceWriter = new Wingman.TurnVerdictTraceWriter(_turnVerdictTraces.Append);
         _turnVerdictRetentionSweep = new Wingman.TurnVerdictRetentionSweep(
             _tenantBoundary, TenantRegistry, _tenantContext, _turnVerdicts, _turnVerdictTraces);
+        // The Message Load mission: the fleet message inbox, the one service that decides and writes a send, and
+        // its thirty-day purge, run on the same timer tick as the judged-stop purge above.
+        _fleetMessages = new Messaging.FleetMessageStore(_gatewayDb);
+        _fleetMessageService = new Messaging.FleetMessageService(_fleetMessages);
+        _fleetMessageRetentionSweep = new Messaging.FleetMessageRetentionSweep(
+            _tenantBoundary, TenantRegistry, _tenantContext, _fleetMessages, Messaging.FleetMessageLimits.Default.Retention);
         // Slice D: the one source every fold reads verdicts through - the roster, the single-session read and the
         // display push to the desktop - so all three stamp one answer. And the carrying-on clock, on the same
         // per-tenant seam as the retention above.
@@ -3505,11 +3522,9 @@ public sealed class GatewayHost : IAsyncDisposable
             // same translator (and verdict cache) the narration path uses, so an unchanged screen is
             // answered from the cached per-turn verdict without a second model call.
             wingmanTranslator: _voiceService?.Translator,
-            // Remove-the-network-port mission, phase 2: the fleet-message steward for POST
-            // /sessions/{sid}/message. Its own instance, on its own options, because it keeps per-sender
-            // counters and windows: sharing one with a Director in the same process would let two paths spend
-            // each other's budget, and on hosted there is no Director in the process to share with anyway.
-            messageSteward: new Core.Fleet.MessageSteward(new Core.Configuration.MessageStewardOptions()),
+            // The Message Load mission: POST /sessions/{sid}/message, POST /fleet/broadcast and GET /fleet/inbox
+            // write and read the inbox through this one service. It replaced the per-process message steward.
+            fleetMessages: _fleetMessageService,
             requestShutdown: () =>
             {
                 var handler = OnShutdownRequested;
@@ -4059,6 +4074,24 @@ public sealed class GatewayHost : IAsyncDisposable
         // labelled corpus lives in another repository and is pulled by a job holding no account credential, so
         // this is the only path an owner label has out of the database.
         AdminTurnVerdictFeedbackEndpoint.Map(_app, _turnVerdicts, TenantRegistry);
+
+        // The Fleet Manager's stored news, its standing preferences, and its start-of-conversation digest (the
+        // Fleet Manager mission, step 3). Account-scoped client routes under /gateway, gated by the host-wide
+        // middleware; each shape a session key may reach is listed in SessionKeyGuard, and the routes themselves
+        // then allow only the account's marked Fleet Manager session or the owner's own device.
+        FleetManagerEndpoints.Map(_app,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            outcomes: new Fleet.FleetOutcomeStore(_gatewayDb),
+            preferences: new Fleet.FleetPreferenceStore(_gatewayDb),
+            digest: new FleetDigestSources(
+                FoldedRoster: tenant => GatewayEndpoints.FoldedAccountRoster(Registry, PushedSessions, tenant,
+                    _snoozeRegistry, _handRaises, _turnVerdictRows, _snoozeExpiry),
+                SessionInAccount: (tenant, sid) => PushedSessions.TryLocateIgnoringFreshness(tenant, sid) is not null,
+                LatestVerdict: (tenant, sid) => _turnVerdicts.Latest(tenant, sid),
+                FormerFleetManagers: tenant => FleetManagerMarks.List(tenant).Select(m => m.SessionId).ToList()),
+            access: new FleetManagerAccess(
+                MarkedSessionId: _tenantSettingsResolver.FleetManagerSessionId,
+                LastKnownSession: (tenant, sid) => GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, sid)));
 
         // "DevThrottle emails me" relay (issue #1318 consumer): POST /account/email. A session or scheduled
         // run passes a subject + body (+ optional attachments); the Gateway injects its own stored account
@@ -4944,6 +4977,15 @@ public sealed class GatewayHost : IAsyncDisposable
         catch (Exception ex)
         {
             FileLog.Write($"[GatewayHost] turn verdict retention sweep FAILED: {ex.Message}");
+        }
+        // The fleet message purge rides the same tick, on its own try, so one failing never skips the other.
+        try
+        {
+            await _fleetMessageRetentionSweep.SweepAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayHost] fleet message retention sweep FAILED: {ex.Message}");
         }
         finally
         {

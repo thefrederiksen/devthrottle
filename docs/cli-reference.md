@@ -659,7 +659,7 @@ help[4]:
 USAGE: cc-devthrottle [OPTIONS] COMMAND [ARGS]...
 
 COMMANDS:
-  actions          List agent-discoverable actions.
+  actions          List the actions an agent can discover, with their commands.
   session list     List every session in the fleet.
   session whoami   Show this session's own fleet identity.
   session rename   Rename a session, defaulting to the current session.
@@ -667,8 +667,12 @@ COMMANDS:
   session report   Tell the session that owns you what you did, at the end of your turn.
   director list    List every Director this account runs, with the id --director accepts.
   mission list     List the missions on the Gateway, active ones by default.
-  message send     Send a message to one session, or broadcast with all.
-  message ask      Ask one session a question and print its answer.
+  fleet digest     Everything the Fleet Manager reads at the start of a conversation.
+  fleet ready      File a Ready record (also: fleet finding, fleet decision).
+  fleet outcomes   List the account's outcome records (also: fleet show, fleet answer).
+  fleet prefer     Keep a standing preference (also: fleet preferences, fleet forget).
+  message send     Queue a message for your supervisor or a worker ('all' for every worker).
+  message inbox    Read your unread messages in full, which marks them read.
   fleet-manager    Show, set, or clear which session is this account's one Fleet Manager.
   skill list       List every skill in the fleet library.
   skill get        Print a skill in full, ready to follow.
@@ -689,6 +693,50 @@ OPTIONS:
   --version -v
 ```
 
+`cc-devthrottle actions` prints every action as a list, `actions[N]{id,command,changes-state}`,
+with the full command on each row; `--json` is unchanged.
+
+**After a change, and on an error.** In the schedule, workflow, skill, settings, setup, email,
+diag, autostart and browser groups, a command that changes something ends its plain output with
+`help[N]:` lines naming what to run next. A value appears in those lines only when the command's
+own result supplied it, and the same holds for a command quoted inside a sentence; otherwise it is
+a placeholder such as `<schedule-id>`. A failure is written to standard error as `Error: ...`,
+followed by `help[N]:` lines naming what to run next, and the command exits 1 - including when the
+setup engine behind setup and autostart fails, whose own exit code is kept in the error text. A flag
+or argument to fix is a usage error, written like every other usage error in the tool (the Usage
+line, the valid options, and `help[1]` naming the command's `--help`), and exits 2. `workflow
+delete` and `skill delete` without `--yes` refuse with a usage error when there is no terminal to
+ask on, instead of prompting. `workflow pull`, `skill pull`, `workflow materialize` and the file
+cache behind `skill get` change nothing on disk unless the Gateway's whole answer is complete and is
+for the version asked for - every authored field (name, summary, triggers or steps, and the rest),
+an explicit files list, a safe name, an encoding and decodable content for every file, the body,
+and the content hash. A supporting file may not use a path the skill's own files use (`SKILL.md`,
+`skill.json`, `.skill-hash`, at any letter case). The check turns the answer into the exact bytes of
+every file (body, `skill.json` or `workflow.json`, each supporting file, the hash) and refuses it when
+any text cannot be written as UTF-8, any name holds a character the Gateway itself never stores
+(anything but ASCII letters, digits, dot, dash and underscore - so every control character, including
+C1 ones such as U+0085, every space and every non-ASCII letter), or any name holds something an
+operating system refuses: `< > : " | ? *` or a backslash, a name over 255 bytes, or (on macOS and
+Linux) a whole path longer than the machine allows. Once the answer is checked, the new files are
+written over the old ones, then the files the new version no longer has are removed, and the content
+hash is written last; whatever still fails is reported as an `Error:` line with `help[N]:`, never a
+traceback. Not guaranteed: a write that fails part way because of the machine (a full disk, a file
+another program holds, a path over the Windows length limit) or a process killed part way can leave a
+mix of old and new files; the old hash stays, so the next `skill get` or
+`workflow materialize` rewrites its cache, and a push is compared against the old version. Windows
+name aliases such as `SKILL.md.` (a trailing dot or space) are not yet refused. A push whose answer has no new content
+hash says so and names `pull`. After `browser start`, the next step is `browser attach`, which
+works in any shell; the `eval` line in its output is the Bash or zsh form. `--json` output is unchanged, and the raw text of `skill get` and
+`workflow instructions` gets nothing added.
+
+```
+$ cc-devthrottle schedule disable cj_abc123
+Disabled nightly (cj_abc123).
+help[2]:
+  cc-devthrottle schedule enable cj_abc123
+  cc-devthrottle schedule delete cj_abc123
+```
+
 ```
 USAGE: cc-devthrottle session rename TARGET_OR_NAME [NEW_NAME]
 
@@ -699,6 +747,44 @@ ARGUMENTS:
 
 `cc-devthrottle session rename "New Name"` renames the current session using `CC_SESSION_ID`.
 `cc-devthrottle session rename 9b2f "New Name"` renames an explicit target.
+
+### After a change, and when something fails
+
+These rules hold for the `session`, `message`, `mission`, `repo`, `worktree`, `director` and `machine`
+groups, `selftest`, and `cc-devthrottle` itself (`docs/axi-standard.md`):
+
+- **A command that changes something ends with `help[N]:`** - the next commands worth running. A
+  runtime value is a placeholder such as `<session-id>` unless the command's own result supplied it,
+  in which case the real, full id is filled in:
+
+  ```
+  $ cc-devthrottle session rename 9b2f "Review - pull request 2960"
+  Renamed 9b2f41c0-7d1e-4a55-9c1a-2f6e0d3b8a71 to "Review - pull request 2960".
+  help[2]:
+    cc-devthrottle session list
+    cc-devthrottle message send 9b2f41c0-7d1e-4a55-9c1a-2f6e0d3b8a71 "<message>"
+  ```
+
+  `--json` never carries a `help[]` block: it prints the Gateway's answer, unchanged.
+- **An error goes to standard error**, never standard output, as one `Error: <what failed>` line.
+  A runtime failure then lists what to run next as `help[N]:` lines and exits **1**:
+
+  ```
+  $ cc-devthrottle session interrupt 9b2f
+  Error: could not interrupt session 9b2f41c0-7d1e-4a55-9c1a-2f6e0d3b8a71: <the Gateway's reason>
+  help[3]:
+    cc-devthrottle message send 9b2f41c0-7d1e-4a55-9c1a-2f6e0d3b8a71 "<message>"
+    cc-devthrottle session list
+    cc-devthrottle setup status
+  ```
+
+  A usage error - what was typed has to change: a blank value, flags that contradict each other, a
+  flag that would otherwise be ignored - says how to fix it on the `Error:` line, adds the command's
+  `Usage:` line and `Valid options:`, and exits **2**. Nothing is sent to the Gateway before a usage
+  error. Every command in the tool writes both kinds the same way (`src/axi_cli.py`,
+  `src/usage_errors.py`).
+- **An ambiguous target** is refused with every candidate's full id, so one can be pasted back.
+- **Every command has a one-line summary** in `--help`; the detail follows on later lines.
 
 ### Session List
 
@@ -723,8 +809,9 @@ count: 2 (needs-you 1, working 1)
 sessions[2]{id,name,state,repo}:
   9b2f41c0-7d1e-4a55-9c1a-2f6e0d3b8a71,"AXI Tools - Worker - step 3, session list",needs-you,devthrottle
   e0c3a8d2-5b64-4f1e-8a09-6d2c7f1b4e93,review: session list,working,cc-consult
-help[4]:
-  cc-devthrottle session list --state needs-you
+help[5]:
+  cc-devthrottle session list --state needs-you|working|ready|snoozed|crashed
+  cc-devthrottle message send <session-id> "<message>"
   cc-devthrottle session list --fields id,name,state,repo,machine,number,model,agent,mission,path
   cc-devthrottle session list --json
   cc-devthrottle session whoami
@@ -732,7 +819,10 @@ help[4]:
 
 - **Default fields** are `id`, `name`, `state` and `repo`. `--fields` picks others, in the order
   given; an unknown field name exits 2 and lists the valid ones. `--fields` cannot be combined with
-  `--json`, which always carries every field (exit 2).
+  `--json`, which always carries every field (exit 2); the refusal says to use `--fields` for a few
+  fields or `--json` for every field. The same holds for every list command.
+- **Help lines** always name all five states in one `--state` line, whatever the count line shows,
+  and how to message a listed session (`message send`).
 - **Ids and names are always shown in full**, never shortened. A value containing a comma, a quote,
   surrounding spaces or a character outside ASCII is written in double quotes with backslash
   escapes; an empty name is written `""`, and a missing value is written as nothing.
@@ -742,7 +832,9 @@ help[4]:
   rather than being guessed at.
 - **Filters** (`--state`, `--repo`, `--machine`) can be combined, and every one of them applies to
   `--json` as well: the output is the same bare array, narrowed. `--repo` matches the repository
-  folder name or the full path, ignoring case and slash direction; `--machine` ignores case. An
+  folder name, ignoring case but not spaces, or the full path - a Windows path ignoring case and
+  slash direction, any other path exactly (as `repo list` and `worktree list` do); `--machine`
+  ignores case. An
   unknown state exits 2 and lists the valid states.
 - **An empty answer says so**: `count: 0` for an empty fleet, and `count: 0 of N total` when a
   filter matched nothing. With `--json` it is `[]`.
@@ -880,33 +972,40 @@ no mark.
 USAGE: cc-devthrottle message send TARGET MESSAGE
 
 ARGUMENTS:
-  TARGET   Session id, id prefix, or name - or 'all' to broadcast [required]
+  TARGET   Session id, id prefix, or name - or 'all' for each of your workers [required]
   MESSAGE  The message text to send [required]
 ```
 
-The recipient sees a framed message that names the sender and how to reply:
-
-```
-[message from feature-work (machine-A), id 4c810000] run the integration tests on your branch  (to reply: cc-devthrottle message send 4c810000 "<your reply>")
-```
+A message is QUEUED, never typed. The Gateway writes it to the recipient's inbox and the command
+prints `Queued`; the recipient reads the full text with `message inbox` when it is free. You may
+message only the session that started you and the sessions you started, at most 6 messages an hour
+and 1 per recipient every 10 minutes. Anything else is refused, and the refusal says why - put what
+you would have said in your report instead.
 
 An ambiguous id prefix or name is refused with the list of candidates. No message is sent.
 
-### Message Ask
+`--everyone`, `--reason` and `--grant` apply only to a fleet-wide broadcast (`message send all
+--everyone`). Given anywhere else they exit 2 and nothing is sent, rather than being ignored. A
+message the Gateway does not queue exits 1 with `Not queued:` and the Gateway's reason, verbatim, on
+standard error. An identical message already waiting unread is not queued again, and that is a
+success. `message send all` prints how many copies were queued and names each worker, by full id,
+whose copy was not. It exits 0 when a copy was queued or an identical one is already waiting for at
+least one worker, and 1 when nothing was queued and nothing was waiting - including when you have no
+workers.
+
+### Message Inbox
 
 ```
-USAGE: cc-devthrottle message ask [OPTIONS] TARGET QUESTION
-
-ARGUMENTS:
-  TARGET    Session id, id prefix, or name - a single session, not 'all' [required]
-  QUESTION  The question to ask [required]
+USAGE: cc-devthrottle message inbox [OPTIONS]
 
 OPTIONS:
-  --timeout-ms INTEGER  How long to wait for the answer (default 120000)
+  --all        Also show the messages you read in the last 24 hours, newest first, at most 200
+  --json, -j   Output the Gateway's answer as JSON
 ```
 
-If the target does not answer within the timeout, the command prints a clear timeout message and
-exits non-zero. `message ask all` is not supported.
+Prints every unread message in full, and reading marks them read - that is the acknowledgement the
+sender is waiting for. Because a read marks messages read before their text reaches you, a read that
+failed part way is recovered with `--all`, and only for 24 hours after that read.
 
 ### Session Spawn
 
@@ -929,8 +1028,10 @@ OPTIONS:
   --standalone          The USER owns it: no controller (same as --controlled-by none)
 ```
 
-Prints the new session's short id and full GUID; the session then appears in
-`cc-devthrottle session list`. A non-existent repository path exits non-zero with a clear error.
+Prints the new session's short id and full GUID, then `help[]` lines that name the new session by
+its full id; the session then appears in `cc-devthrottle session list`. A non-existent repository
+path exits non-zero with a clear error. Warnings (no `--name`, a mission that could not be inherited)
+go to standard error.
 
 **A session-initiated spawn must say who OWNS the new session.** Every session has exactly one
 owner and it is either another session or the user; no owner means the user. From inside a session
@@ -992,6 +1093,76 @@ what the Gateway sent. Ids and names are never shortened; an unnamed Director sh
 Prefer the **id** when handing a target to another agent - it survives a rename and cannot collide
 with a second Director sharing a display name. A Director's own toolbar has a Copy button that puts
 its name, machine and id on the clipboard, for pasting to an agent.
+
+### Fleet Manager
+
+The Fleet Manager's stored news, the owner's standing preferences, and the one digest it reads at the
+start of every conversation. All of it is kept on the Gateway and belongs to the account, so a
+restarted or moved Fleet Manager reads back exactly what the old one filed. A record stays open until
+it is answered, and an answer is final.
+
+Output follows the AXI standard (`docs/axi-standard.md`): a count line, rows with full ids and names,
+`count: 0` when there is nothing, and `help[]` lines naming the next command. A value that is not
+plain text is written as a JSON string. `--json` prints the Gateway's answer, with every filter
+applied. A wrong closed value (`--risk`, `--checks`, `--status`, `--kind`) exits 2 and names the valid
+values. `--session` takes a session id, id prefix, number, or exact name. `ID` takes a full record id
+or the start of one.
+
+```
+USAGE: cc-devthrottle fleet digest [--session <id>] [--json]
+USAGE: cc-devthrottle fleet ready "<title>" --pr <link> --risk low|medium|high
+         --checks passed|failed|none --tested "<how>" --reviewed-by "<who>"
+         --change "<one sentence for a user>" [--session <id>] [--json]
+USAGE: cc-devthrottle fleet finding "<title>" --answer "<answer>" [--reason "<why>"]
+         [--link <url> ...] [--session <id>] [--json]
+USAGE: cc-devthrottle fleet decision "<title>" --question "<q>" --option "<a>" --option "<b>"
+         [--recommend "<a>"] [--why "<why>"] [--session <id>] [--json]
+USAGE: cc-devthrottle fleet outcomes [--status open|answered|all] [--kind ready|finding|decision]
+         [--count/-n 1-200] [--cursor <nextCursor>] [--all] [--json]
+USAGE: cc-devthrottle fleet show ID [--json]
+USAGE: cc-devthrottle fleet answer ID "<the owner's words, exactly>" [--json]
+USAGE: cc-devthrottle fleet prefer "<preference, verbatim>" [--json]
+USAGE: cc-devthrottle fleet preferences [--json]
+USAGE: cc-devthrottle fleet forget ID [--json]
+```
+
+WHO MAY RUN THEM. Only the account's marked Fleet Manager session (`cc-devthrottle fleet-manager
+set`) may use these commands with its session key. Any other session is refused with
+`not_fleet_manager` and a sentence saying why. The owner, on their own signed-in phone or browser,
+may list, read and answer records, manage preferences and read the digest, but does not file records.
+A Director's own key may do none of it.
+
+`fleet digest` defaults to this session (`CC_SESSION_ID`), and the Fleet Manager may read only its
+own. It prints whether the session is the Fleet Manager, the marked Fleet Manager and each session
+the account marked before it that still controls at least one live session, EVERY open record of the account (never a page - the command fails
+rather than print a list that disagrees with the Gateway's count), the sessions owned by the current
+Fleet Manager or by any earlier one (each with its state - `needs-you`, `working` or `stopped` - its
+owning session, and the Wingman's latest reading), and the standing preferences. A session an
+earlier Fleet Manager started is shown with that owner; handing it over to the new Fleet Manager is a
+later step. The Gateway remembers the 20 sessions the account marked most recently; an earlier one is
+forgotten, and its sessions are no longer listed.
+
+`fleet outcomes` lists the open records by default, newest first, one page at a time. When the
+filter matches more than the page, the count line says `count: <shown> of <total>`, the next line is
+`nextCursor: <cursor>`, and the help names the command for the next page (`--cursor <cursor>`, with
+the same `--status`, `--kind` and `--count`). `--all` follows every page and lists every record; with
+`--json` it answers one list with `hasMore: false`. Pages follow a cursor, not a position, so a record
+answered between pages is neither skipped nor repeated; a record filed after the first page appears
+when you list again from the start. A filter that matches nothing says how many records there are in
+all. An `ID` given as the start of an id is matched against every record, every page followed.
+
+`fleet answer` is final: when two callers answer the same record at once - the owner on the phone and
+the Fleet Manager, or two Gateway instances - exactly one answer is kept, and the other is refused
+(409, `already_answered`). The record keeps who answered (`answeredByRole`: `owner` or
+`fleet-manager`). A decision's answer need not be one of its options; the record says whether it was.
+
+Gateway routes: `/gateway/fleet-manager/outcomes` (GET, POST), `/outcomes/{id}` (GET),
+`/outcomes/{id}/answer` (POST, 409 when already answered), `/preferences` (GET, POST),
+`/preferences/{id}` (DELETE), `/digest?session=<id>` (GET). `GET /outcomes` takes `status`, `kind`,
+`count` and `cursor`, and answers `count` (this page), `total` (every match, counted by the Gateway),
+`hasMore`, `nextCursor` (null on the last page) and `outcomes`. A cursor the Gateway did not issue is
+refused with 400. A refused caller gets 403 with
+`code: not_fleet_manager`.
 
 ### Skill Commands
 
@@ -1066,8 +1237,11 @@ OPTIONS:
   --timeout-ms INTEGER  How long the ask step waits for the responder (default 25000)
 ```
 
-Spawns two throwaway sessions, lists them, sends to one, asks the other, tears them down, and prints
-PASS/FAIL.
+Spawns two throwaway sessions, lists them, sends to one, asks the other, flags both for deletion, and
+prints PASS/FAIL. The last check passes when the Director accepts both deletion flags. The sessions
+stay listed until the Director removes them: its reaper sweeps every 30 seconds and removes a flagged
+session only once its 30-second grace period has passed and the session is no longer working. A
+session that stays working is skipped on every sweep, so no removal time is promised.
 
 ### Settings
 
@@ -1196,6 +1370,7 @@ USAGE: cc-secrets [OPTIONS] COMMAND [ARGS]...
 
 COMMANDS:
   add      OWNER: add or replace an entry (hidden prompt, or secret piped on stdin)
+  import   OWNER: import every KEY=VALUE line of a file (credentials.env) as its own entry
   remove   OWNER: remove an entry
   list     Entries agents may use: names, usernames, allowed addresses. Never secrets (--all, --json)
   run      Run a command with the secret supplied; output comes back with the secret removed
@@ -1204,7 +1379,7 @@ COMMANDS:
   version  Print the version
 ```
 
-`add` and `remove` refuse to run inside a DevThrottle session. There is no option that takes the
+`add`, `import` and `remove` refuse to run inside a DevThrottle session. There is no option that takes the
 secret as an argument. In Git Bash (mintty) typing cannot be hidden, so `add` refuses there: run it from
 PowerShell or cmd, or pipe the secret in.
 
@@ -1228,19 +1403,53 @@ OPTIONS:
 
 With the secret piped on stdin, `--username`, `--domains` and `--agents`/`--no-agents` are required.
 
+### cc-secrets import
+
+```
+USAGE: cc-secrets import [OPTIONS] FILE
+
+OPTIONS:
+  --agents / --no-agents  Whether sessions on this machine may use the imported entries [required]
+  --uses TEXT             Comma-separated: login, run [default: run]
+  --skip TEXT             Comma-separated keys NOT to import - settings that are not secret
+  --replace               Replace entries that already exist
+  --dry-run               Show what would happen, by name only, and change nothing
+```
+
+Each `KEY=VALUE` line becomes its own entry, named after the key in lower case with hyphens
+(`POSTHOG_PERSONAL_API_KEY` becomes `posthog-personal-api-key`), whose variable name is the key itself -
+so `run` supplies it exactly where a program that read the file expects it. Blank lines and `#` comments
+are skipped. The whole store is saved once. No value is ever printed: a line that cannot be imported (too
+short, for example) is reported by its key, and the rest are imported.
+
+Skip settings that are not secret (hosts, project identifiers, email addresses): every stored value is
+hidden from every command's output, so a stored host name would vanish from everything that prints it.
+
+Example: `cc-secrets import $env:LOCALAPPDATA\cc-director\config\credentials.env --agents --skip POSTHOG_HOST,POSTHOG_API_HOST --dry-run`
+
 ### cc-secrets run
 
 ```
 USAGE: cc-secrets run [OPTIONS] NAME -- COMMAND...
 
 OPTIONS:
-  --via TEXT        stdin, env or askpass [default: stdin]
-  --env-name TEXT   Variable name for --via env [default: CC_SECRET]
-  --timeout FLOAT   Seconds before the command is stopped [default: 600]
+  --with TEXT       Another entry to supply at the same time, in its own variable (repeatable)
+  --via TEXT        stdin, env or askpass [default: env when the entry has its own variable name
+                    or --with is used, otherwise stdin]
+  --env-name TEXT   Variable name for --via env with one entry [default: the entry's own
+                    variable name, otherwise CC_SECRET]
+  --timeout FLOAT   Seconds before the command is stopped; 0 means no limit [default: 600]
   --json            Print JSON
 ```
 
-Example: `cc-secrets run devlinux -- sudo -S apt-get update`
+Examples:
+
+- `cc-secrets run devlinux -- sudo -S apt-get update`
+- `cc-secrets run posthog-personal-api-key -- python query.py` (the script reads `POSTHOG_PERSONAL_API_KEY`)
+- `cc-secrets run godaddy-key --with godaddy-secret -- python dns.py` (both variables are set)
+
+The command's output is captured and returned when it ends, with every stored secret removed; it is not
+streamed.
 
 ### cc-secrets login
 

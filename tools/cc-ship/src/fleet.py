@@ -44,6 +44,12 @@ STALL_SECONDS = 90
 # too. Prompt delivery takes seconds; five minutes is far beyond it.
 NEVER_WORKED_SECONDS = 300
 
+# The fleet list can briefly leave out a live session (a Director that is slow to
+# answer the Gateway). Missing once proves nothing: a session counts as gone only
+# after it has been missing on every poll for this long. Seen live, 2026-09-16: a
+# reviewer that was working and then finished was called gone twice.
+GONE_CONFIRM_SECONDS = 60
+
 
 class FleetError(RuntimeError):
     """A fleet command failed; the message carries the command's own output."""
@@ -96,14 +102,27 @@ def _run(args: list[str], timeout: int = 120) -> str:
     return proc.stdout
 
 
+# The command-line arguments a Claude Code session gets when cc-ship names its model.
+# The Director adds its own session id and hook settings after these.
+CLAUDE_ARGS_WITH_MODEL = "--dangerously-skip-permissions --model {model}"
+
+
 def spawn_session(
-    repo: Path, agent: str, controlled_by: str, name: str, brief: Path
+    repo: Path, agent: str, controlled_by: str, name: str, brief: Path,
+    model: str | None = None,
 ) -> str:
     """Open a tracked session whose whole task is the brief FILE. Returns its id.
 
     The prompt is one short line pointing at the brief: long spawn prompts can
-    fail to arrive, and fleet text truncates at the first newline.
+    fail to arrive, and fleet text truncates at the first newline. A model can be
+    named for Claude Code only; the session's model is set on its command line, so
+    the owner's default model is never changed.
     """
+    extra = []
+    if model is not None:
+        if agent != "ClaudeCode":
+            raise FleetError(f"cc-ship can name a model only for ClaudeCode, not {agent}")
+        extra = ["--args", CLAUDE_ARGS_WITH_MODEL.format(model=model)]
     prompt = f"Read the file {brief} and follow it exactly. It is your whole task."
     try:
         out = _run([
@@ -112,6 +131,7 @@ def spawn_session(
             "--controlled-by", controlled_by,
             "--name", name,
             "--prompt", prompt,
+            *extra,
         ])
     except FleetError as exc:
         # A Gateway timeout does not mean the spawn failed: the session may exist
@@ -231,12 +251,22 @@ def wait_for_output(
     watch.setdefault("seen_done", False)
     watch.setdefault("idle_since", None)
     watch.setdefault("started", time.time())
+    watch.setdefault("missing_since", None)
     while True:
         row = find_session(session_id)
         ready = output_ready()
         watch["seen_done"] = (watch["seen_done"] or fresh(done_marker(output))
                               or bool(row and row.get("pendingDeletion")))
         outcome, reason = classify(ready, row, watch["seen_done"])
+        if row is not None:
+            watch["missing_since"] = None
+        elif outcome == CRASHED:
+            watch["missing_since"] = watch["missing_since"] or time.time()
+            missing_for = time.time() - watch["missing_since"]
+            if missing_for < GONE_CONFIRM_SECONDS:
+                outcome = None
+                reason = (f"not in the fleet list for {int(missing_for)}s; confirming it is gone "
+                          f"(after {GONE_CONFIRM_SECONDS}s)")
         if outcome is None and row is not None:
             if row["activityState"] == "Working":
                 watch["seen_working"], watch["idle_since"] = True, None

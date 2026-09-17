@@ -1,6 +1,7 @@
 ﻿import type { SessionDto } from "@devthrottle/client-core/api/client";
 import { type DirectorReachability } from "@devthrottle/client-core/fleet/fleetClient";
 import { modelChipOf, type ModelChip } from "@devthrottle/client-core/sessions/model";
+import { buildSessionTree, isOnAnotherMachine, type SessionTree } from "@devthrottle/client-core/sessions/tree";
 
 /**
  * Pure helpers for the Fleet Map's card rendering, kept out of FleetMapView.tsx so they can be unit
@@ -8,108 +9,66 @@ import { modelChipOf, type ModelChip } from "@devthrottle/client-core/sessions/m
  * file is a helper that cannot be tested; anything with a rule worth stating belongs here.
  */
 
-/** One card in a lane, flattened out of the controller tree with the indent level it renders at. */
-export interface TreeNode {
-  session: SessionDto;
-  /** 0 for a root card; 1 for a child of a root, and so on. Not capped - nesting is real. */
-  depth: number;
+/**
+ * The pivots whose columns hold TOP-LEVEL sessions only, each with its whole crew under it, wherever in
+ * the fleet the crew runs. This is the Sessions list's rule (client-core/sessions/tree: "a view that
+ * groups by machine groups the ROOTS"), so the Fleet Map and the Sessions list cannot disagree about who
+ * is under whom: a Worker on SOREN_NORTH started by an Architect on the Mac Mini sits under that
+ * Architect, in the Mac Mini's column, saying where it runs.
+ *
+ * "By agent" and "By model" are NOT in the set, on purpose. Those pivots exist to show what runs a given
+ * agent or model; hiding a Codex Worker inside its Claude Architect's column would defeat the pivot. There
+ * a session nests only under a parent in the same column.
+ */
+export const FLEET_TREE_PIVOTS: ReadonlySet<string> = new Set(["machine", "director", "repo", "worktree"]);
+
+/**
+ * The tree one column (or one Director group inside a column) draws. `laneSessions` are the sessions
+ * that belong to the column, in the column's order; the roots come back in that same order.
+ *
+ * With `fleetTree` (built over the WHOLE roster by buildSessionTree), the column draws only its sessions
+ * that are top-level fleet-wide, and each one carries its crew from the fleet tree - including crew that
+ * lives in another column. Every session is therefore drawn exactly once on the map.
+ *
+ * With `fleetTree` null (the agent and model pivots, and any search), the tree is built over the column
+ * alone, so a session nests only under a parent the column also holds, and a search match is never
+ * hidden inside a collapsed crew.
+ */
+export function laneTree(laneSessions: SessionDto[], fleetTree: SessionTree | null): SessionTree {
+  if (fleetTree === null) return buildSessionTree(laneSessions);
+  const rootIds = new Set(fleetTree.roots.map((r) => String(r.sessionId ?? "").trim()));
+  return {
+    roots: laneSessions.filter((s) => rootIds.has(String(s.sessionId ?? "").trim())),
+    childrenOf: fleetTree.childrenOf,
+  };
 }
 
 /**
- * Issue #1626: order a lane's sessions as the spawn tree the Gateway already resolves, so a Manager's
- * Workers sit under it instead of scattered through the lane.
- *
- * The edge is `controllerSessionId` (issue #815), stamped at birth by whoever spawned the session -
- * `cc-devthrottle session spawn` sets it to the spawning session by default. The Gateway is the only
- * thing that can resolve the ROLE from it (see FleetRoleResolver: "is my controller alive?" is
- * unanswerable from one Director, because the controller may be on another machine), and we do not
- * re-derive that here - `sessionRole` is read, never recomputed. This function decides ORDER and INDENT
- * only.
- *
- * Four rules, each of which is a case that actually occurs:
- *
- *  - A controller that is not in this lane is not a parent here. The pivots slice the fleet, so a
- *    Worker's Manager can be filtered out (a different repository, a different machine). Such a child
- *    renders at the lane's top level rather than under a parent the lane cannot show.
- *  - An EXITED controller is not a parent. FleetRoleResolver already demotes a session whose controller
- *    has exited back to Standalone; indenting it under the corpse would say the opposite of what the
- *    roster says.
- *  - A cycle cannot hang the view. A session that cannot reach a root by walking controllers is treated
- *    as a root itself.
- *  - Every session renders exactly once. Cards are never dropped by this pass - a lost card is a worse
- *    bug than a badly indented one.
+ * What a column (or Director group) says when every session it holds is drawn under a parent in another
+ * column - so it neither looks empty nor claims to be a free slot. Empty string when there are none.
  */
-export function buildControllerTree(
-  sessions: SessionDto[],
-  sort: (a: SessionDto, b: SessionDto) => number,
-): TreeNode[] {
-  const byId = new Map<string, SessionDto>();
-  for (const s of sessions) {
-    const id = (s.sessionId ?? "").trim();
-    if (id.length > 0) byId.set(id, s);
-  }
+export function nestedElsewhereText(count: number): string {
+  if (count <= 0) return "";
+  return count === 1
+    ? "1 session here is shown under the session that started it, in another column"
+    : `${count} sessions here are shown under the sessions that started them, in other columns`;
+}
 
-  const isAlive = (s: SessionDto): boolean =>
-    (s.activityState ?? "").toLowerCase() !== "exited";
-
-  // The controller this session actually hangs under IN THIS LANE, or null when it is a root here.
-  const parentOf = (s: SessionDto): string | null => {
-    if (s.isControlled !== true) return null;
-    const cid = (s.controllerSessionId ?? "").trim();
-    if (cid.length === 0) return null;
-    if (cid === (s.sessionId ?? "").trim()) return null; // self-reference: its own root
-    const parent = byId.get(cid);
-    if (parent === undefined) return null; // controller not in this lane
-    if (!isAlive(parent)) return null; // never indent under a corpse
-    return cid;
-  };
-
-  // Walk up to a root to prove this session is reachable. A session in a cycle never reaches one, so
-  // it is promoted to a root rather than being lost or looping forever.
-  const reachesRoot = (s: SessionDto): boolean => {
-    const seen = new Set<string>();
-    let cur: SessionDto | undefined = s;
-    while (cur !== undefined) {
-      const id = (cur.sessionId ?? "").trim();
-      if (seen.has(id)) return false;
-      seen.add(id);
-      const pid = parentOf(cur);
-      if (pid === null) return true;
-      cur = byId.get(pid);
-    }
-    return true;
-  };
-
-  const roots: SessionDto[] = [];
-  const childrenOf = new Map<string, SessionDto[]>();
-  for (const s of sessions) {
-    const pid = parentOf(s);
-    if (pid === null || !reachesRoot(s)) {
-      roots.push(s);
-      continue;
-    }
-    const arr = childrenOf.get(pid);
-    if (arr === undefined) childrenOf.set(pid, [s]);
-    else arr.push(s);
-  }
-
-  roots.sort(sort);
-  const out: TreeNode[] = [];
-  const emitted = new Set<string>();
-  const walk = (s: SessionDto, depth: number): void => {
-    const id = (s.sessionId ?? "").trim();
-    if (id.length > 0) {
-      if (emitted.has(id)) return;
-      emitted.add(id);
-    }
-    out.push({ session: s, depth });
-    const kids = childrenOf.get(id);
-    if (kids === undefined) return;
-    for (const k of [...kids].sort(sort)) walk(k, depth + 1);
-  };
-  for (const r of roots) walk(r, 0);
-
-  return out;
+/**
+ * The "on ..." tag a child card carries when it runs somewhere other than the session it is drawn under
+ * (client-core isOnAnotherMachine). The machine name when the machines differ; the Director's label when
+ * it is another Director on the same machine. Null when the child runs where its parent does.
+ */
+export function elsewhereTag(
+  parent: SessionDto,
+  child: SessionDto,
+  childReach: DirectorReachability | undefined,
+): { k: string; v: string } | null {
+  if (!isOnAnotherMachine(parent, child)) return null;
+  const machine = (child.machineName ?? "").trim();
+  const sameMachine = machine.length > 0 && machine.toLowerCase() === (parent.machineName ?? "").trim().toLowerCase();
+  if (machine.length > 0 && !sameMachine) return { k: "on", v: machine };
+  return { k: "on", v: directorLabelOf((child.directorId ?? "").trim(), childReach) };
 }
 
 /**

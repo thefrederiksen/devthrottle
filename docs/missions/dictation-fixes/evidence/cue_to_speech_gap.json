@@ -1,0 +1,393 @@
+{
+ "summary": {
+  "clips": 44,
+  "cue_found": 30,
+  "vad": {
+   "count": 30,
+   "min_ms": 179.5,
+   "p5_ms": 219.0,
+   "median_ms": 736.8
+  },
+  "vad_no_speech_after_cue": 0,
+  "energy": {
+   "count": 30,
+   "min_ms": 58.4,
+   "p5_ms": 119.8,
+   "median_ms": 569.9
+  },
+  "energy_no_rise_after_cue": 0,
+  "rule": "keep the 50 ms margin only if the 5th percentile gap is >= 150 ms"
+ },
+ "clips": [
+  {
+   "clip": "dictation-20260525-070138-957.wav",
+   "cue_score": 0.38,
+   "cue_found": false
+  },
+  {
+   "clip": "dictation-20260525-070655-649.wav",
+   "cue_score": 0.25,
+   "cue_found": false
+  },
+  {
+   "clip": "dictation-20260525-080017-082.wav",
+   "cue_score": 0.19,
+   "cue_found": false
+  },
+  {
+   "clip": "dictation-20260715-103823-e0635643.wav",
+   "cue_score": 0.83,
+   "cue_found": true,
+   "cue_end_s": 0.354,
+   "vad_speech_start_s": 0.96,
+   "vad_gap_ms": 606.2,
+   "energy_speech_start_s": 0.92,
+   "energy_gap_ms": 566.2
+  },
+  {
+   "clip": "dictation-20260716-112723-a59d228f.wav",
+   "cue_score": 0.78,
+   "cue_found": true,
+   "cue_end_s": 0.331,
+   "vad_speech_start_s": 0.896,
+   "vad_gap_ms": 564.6,
+   "energy_speech_start_s": 0.87,
+   "energy_gap_ms": 538.6
+  },
+  {
+   "clip": "dictation-20260716-135606-ae1b1fbd.wav",
+   "cue_score": 0.83,
+   "cue_found": true,
+   "cue_end_s": 0.341,
+   "vad_speech_start_s": 1.44,
+   "vad_gap_ms": 1098.9,
+   "energy_speech_start_s": 1.4,
+   "energy_gap_ms": 1058.9
+  },
+  {
+   "clip": "dictation-20260718-063710-4e517feb.wav",
+   "cue_score": 0.92,
+   "cue_found": true,
+   "cue_end_s": 0.409,
+   "vad_speech_start_s": 1.12,
+   "vad_gap_ms": 711.1,
+   "energy_speech_start_s": 1.1,
+   "energy_gap_ms": 691.1
+  },
+  {
+   "clip": "dictation-20260719-044639-a106fc91.wav",
+   "cue_score": 0.66,
+   "cue_found": true,
+   "cue_end_s": 0.397,
+   "vad_speech_start_s": 1.44,
+   "vad_gap_ms": 1043.2,
+   "energy_speech_start_s": 1.42,
+   "energy_gap_ms": 1023.2
+  },
+  {
+   "clip": "dictation-20260720-142742-2418986b.wav",
+   "cue_score": 0.06,
+   "cue_found": false
+  },
+  {
+   "clip": "dictation-20260720-143124-b32f2e4c.wav",
+   "cue_score": 0.07,
+   "cue_found": false
+  },
+  {
+   "clip": "dictation-20260720-143144-c323cdd0.wav",
+   "cue_score": 0.06,
+   "cue_found": false
+  },
+  {
+   "clip": "dictation-20260720-145642-0c9c49dc.wav",
+   "cue_score": 0.08,
+   "cue_found": false
+  },
+  {
+   "clip": "dictation-20260720-145924-bafc339f.wav",
+   "cue_score": 0.05,
+   "cue_found": false
+  },
+  {
+   "clip": "dictation-20260720-150415-9e5cb182.wav",
+   "cue_score": 0.39,
+   "cue_found": false
+  },
+  {
+   "clip": "dictation-20260720-151231-e4acf48a.wav",
+   "cue_score": 0.06,
+   "cue_found": false
+  },
+  {
+   "clip": "dictation-20260722-101941-a7e88410.wav",
+   "cue_score": 0.06,
+   "cue_found": false
+  },
+  {
+   "clip": "dictation-20260722-102144-3f046883.wav",
+   "cue_score": 0.06,
+   "cue_found": false
+  },
+  {
+   "clip": "dictation-20260731-112842-d7964a52.wav",
+   "cue_score": 0.68,
+   "cue_found": true,
+   "cue_end_s": 0.345,
+   "vad_speech_start_s": 1.152,
+   "vad_gap_ms": 807.3,
+   "energy_speech_start_s": 0.79,
+   "energy_gap_ms": 445.3
+  },
+  {
+   "clip": "dictation-20260731-113217-af0a8c21.wav",
+   "cue_score": 0.69,
+   "cue_found": true,
+   "cue_end_s": 0.38,
+   "vad_speech_start_s": 0.928,
+   "vad_gap_ms": 548.4,
+   "energy_speech_start_s": 0.89,
+   "energy_gap_ms": 510.4
+  },
+  {
+   "clip": "dictation-20260731-113422-7de03388.wav",
+   "cue_score": 0.61,
+   "cue_found": true,
+   "cue_end_s": 0.361,
+   "vad_speech_start_s": 1.536,
+   "vad_gap_ms": 1174.8,
+   "energy_speech_start_s": 1.51,
+   "energy_gap_ms": 1148.8
+  },
+  {
+   "clip": "dictation-20260731-113931-6c81293e.wav",
+   "cue_score": 0.5,
+   "cue_found": true,
+   "cue_end_s": 0.461,
+   "vad_speech_start_s": 1.024,
+   "vad_gap_ms": 562.5,
+   "energy_speech_start_s": 1.01,
+   "energy_gap_ms": 548.5
+  },
+  {
+   "clip": "dictation-20260731-114156-c80d3cc1.wav",
+   "cue_score": 0.51,
+   "cue_found": true,
+   "cue_end_s": 0.356,
+   "vad_speech_start_s": 1.152,
+   "vad_gap_ms": 795.5,
+   "energy_speech_start_s": 1.15,
+   "energy_gap_ms": 793.5
+  },
+  {
+   "clip": "dictation-20260731-114816-d4ca30b5.wav",
+   "cue_score": 0.57,
+   "cue_found": true,
+   "cue_end_s": 0.422,
+   "vad_speech_start_s": 1.92,
+   "vad_gap_ms": 1498.4,
+   "energy_speech_start_s": 0.48,
+   "energy_gap_ms": 58.4
+  },
+  {
+   "clip": "dictation-20260731-114941-20e344c8.wav",
+   "cue_score": 0.73,
+   "cue_found": true,
+   "cue_end_s": 0.355,
+   "vad_speech_start_s": 1.504,
+   "vad_gap_ms": 1149.2,
+   "energy_speech_start_s": 1.48,
+   "energy_gap_ms": 1125.2
+  },
+  {
+   "clip": "dictation-20260731-115153-39340836.wav",
+   "cue_score": 0.75,
+   "cue_found": true,
+   "cue_end_s": 0.351,
+   "vad_speech_start_s": 1.696,
+   "vad_gap_ms": 1344.9,
+   "energy_speech_start_s": 1.69,
+   "energy_gap_ms": 1338.9
+  },
+  {
+   "clip": "dictation-20260731-115551-88964e38.wav",
+   "cue_score": 0.74,
+   "cue_found": true,
+   "cue_end_s": 0.346,
+   "vad_speech_start_s": 1.76,
+   "vad_gap_ms": 1414.0,
+   "energy_speech_start_s": 1.73,
+   "energy_gap_ms": 1384.0
+  },
+  {
+   "clip": "dictation-20260731-120655-a6531299.wav",
+   "cue_score": 0.58,
+   "cue_found": true,
+   "cue_end_s": 0.345,
+   "vad_speech_start_s": 1.12,
+   "vad_gap_ms": 775.3,
+   "energy_speech_start_s": 0.64,
+   "energy_gap_ms": 295.3
+  },
+  {
+   "clip": "dictation-20260823-135157-82298f95.wav",
+   "cue_score": 0.63,
+   "cue_found": true,
+   "cue_end_s": 0.566,
+   "vad_speech_start_s": 2.08,
+   "vad_gap_ms": 1513.6,
+   "energy_speech_start_s": 2.01,
+   "energy_gap_ms": 1443.6
+  },
+  {
+   "clip": "dictation-20260823-184151-533dd2ad.wav",
+   "cue_score": 0.8,
+   "cue_found": true,
+   "cue_end_s": 0.357,
+   "vad_speech_start_s": 1.12,
+   "vad_gap_ms": 762.5,
+   "energy_speech_start_s": 1.12,
+   "energy_gap_ms": 762.5
+  },
+  {
+   "clip": "dictation-20260823-191406-53b0638a.wav",
+   "cue_score": 0.65,
+   "cue_found": true,
+   "cue_end_s": 0.337,
+   "vad_speech_start_s": 0.928,
+   "vad_gap_ms": 591.4,
+   "energy_speech_start_s": 0.87,
+   "energy_gap_ms": 533.4
+  },
+  {
+   "clip": "dictation-20260823-191426-faf2dfe8.wav",
+   "cue_score": 0.61,
+   "cue_found": true,
+   "cue_end_s": 0.335,
+   "vad_speech_start_s": 0.8,
+   "vad_gap_ms": 464.7,
+   "energy_speech_start_s": 0.74,
+   "energy_gap_ms": 404.7
+  },
+  {
+   "clip": "dictation-20260823-215602-73de0c2b.wav",
+   "cue_score": 0.5,
+   "cue_found": true,
+   "cue_end_s": 0.36,
+   "vad_speech_start_s": 1.184,
+   "vad_gap_ms": 823.7,
+   "energy_speech_start_s": 1.13,
+   "energy_gap_ms": 769.7
+  },
+  {
+   "clip": "dictation-20260831-211401-7959c4a6.wav",
+   "cue_score": 0.6,
+   "cue_found": true,
+   "cue_end_s": 0.366,
+   "vad_speech_start_s": 0.832,
+   "vad_gap_ms": 466.1,
+   "energy_speech_start_s": 0.8,
+   "energy_gap_ms": 434.1
+  },
+  {
+   "clip": "dictation-20260831-220005-bd2ffb1b.wav",
+   "cue_score": 0.54,
+   "cue_found": true,
+   "cue_end_s": 0.364,
+   "vad_speech_start_s": 0.928,
+   "vad_gap_ms": 564.5,
+   "energy_speech_start_s": 0.92,
+   "energy_gap_ms": 556.5
+  },
+  {
+   "clip": "dictation-20260831-220711-1257d1d4.wav",
+   "cue_score": 0.6,
+   "cue_found": true,
+   "cue_end_s": 0.323,
+   "vad_speech_start_s": 0.928,
+   "vad_gap_ms": 605.2,
+   "energy_speech_start_s": 0.9,
+   "energy_gap_ms": 577.2
+  },
+  {
+   "clip": "dictation-20260831-220805-bfa33599.wav",
+   "cue_score": 0.6,
+   "cue_found": true,
+   "cue_end_s": 0.356,
+   "vad_speech_start_s": 0.928,
+   "vad_gap_ms": 571.6,
+   "energy_speech_start_s": 0.93,
+   "energy_gap_ms": 573.6
+  },
+  {
+   "clip": "dictation-20260831-221542-13bff2ff.wav",
+   "cue_score": 0.56,
+   "cue_found": true,
+   "cue_end_s": 0.328,
+   "vad_speech_start_s": 0.512,
+   "vad_gap_ms": 184.0,
+   "energy_speech_start_s": 0.48,
+   "energy_gap_ms": 152.0
+  },
+  {
+   "clip": "dictation-20260904-115206-fc1300b9.wav",
+   "cue_score": 0.6,
+   "cue_found": true,
+   "cue_end_s": 0.397,
+   "vad_speech_start_s": 0.576,
+   "vad_gap_ms": 179.5,
+   "energy_speech_start_s": 0.49,
+   "energy_gap_ms": 93.5
+  },
+  {
+   "clip": "dictation-20260907-105528-7acd6bad.wav",
+   "cue_score": 0.27,
+   "cue_found": false
+  },
+  {
+   "clip": "dictation-20260907-134605-d11774d4.wav",
+   "cue_score": 0.64,
+   "cue_found": true,
+   "cue_end_s": 0.328,
+   "vad_speech_start_s": 1.184,
+   "vad_gap_ms": 856.2,
+   "energy_speech_start_s": 1.16,
+   "energy_gap_ms": 832.2
+  },
+  {
+   "clip": "dictation-20260907-141537-e26b27da.wav",
+   "cue_score": 0.65,
+   "cue_found": true,
+   "cue_end_s": 0.323,
+   "vad_speech_start_s": 0.736,
+   "vad_gap_ms": 413.4,
+   "energy_speech_start_s": 0.69,
+   "energy_gap_ms": 367.4
+  },
+  {
+   "clip": "dictation-20260907-165043-ed14352d.wav",
+   "cue_score": 0.14,
+   "cue_found": false
+  },
+  {
+   "clip": "dictation-20260907-194626-ad856d86.wav",
+   "cue_score": 0.64,
+   "cue_found": true,
+   "cue_end_s": 0.346,
+   "vad_speech_start_s": 0.608,
+   "vad_gap_ms": 261.7,
+   "energy_speech_start_s": 0.58,
+   "energy_gap_ms": 233.7
+  },
+  {
+   "clip": "dictation-20260909-112615-27ee9cfc.wav",
+   "cue_score": 0.62,
+   "cue_found": true,
+   "cue_end_s": 0.95,
+   "vad_speech_start_s": 2.624,
+   "vad_gap_ms": 1674.0,
+   "energy_speech_start_s": 2.49,
+   "energy_gap_ms": 1540.0
+  }
+ ]
+}

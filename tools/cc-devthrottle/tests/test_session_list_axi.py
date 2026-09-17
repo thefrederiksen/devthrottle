@@ -209,7 +209,8 @@ def test_list_sessions_Unfiltered_CountsByStateAndHelp(serve, capsys):
     lines = capsys.readouterr().out.splitlines()
     assert lines[0] == "count: 7 (needs-you 1, working 2, ready 1, snoozed 2, crashed 1)"
     help_index = next(i for i, line in enumerate(lines) if line.startswith("help["))
-    assert "  cc-devthrottle session list --state needs-you" in lines[help_index:]
+    assert "  cc-devthrottle session list --state needs-you|working|ready|snoozed|crashed" in lines[help_index:]
+    assert '  cc-devthrottle message send <session-id> "<message>"' in lines[help_index:]
 
 
 def test_list_sessions_Filtered_CountSaysOfTotal(serve, capsys):

@@ -33,13 +33,6 @@ public class AgentOptions
     public int? FleetKillGraceMs { get; set; } = 1500;
 
     /// <summary>
-    /// Fleet-message steward policy (flag: <c>messaging.steward</c>): dedupe + per-source rate limit +
-    /// broadcast throttle on a session's OUTGOING fleet messages, applied at its own Director's
-    /// <c>/fleet/*</c> handlers. Default-ON with generous limits; see <see cref="MessageStewardOptions"/>.
-    /// </summary>
-    public MessageStewardOptions MessageSteward { get; set; } = new();
-
-    /// <summary>
     /// Path to the Pi agent CLI. pi ships two ways: an official per-platform archive that puts a
     /// native <c>pi</c> on PATH, and the npm package <c>@earendil-works/pi-coding-agent</c> that
     /// drops <c>pi.cmd</c> in the npm global directory (also on PATH). Both put <c>pi</c> on PATH,

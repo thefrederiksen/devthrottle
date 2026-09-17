@@ -50,7 +50,7 @@ public sealed class TranscriptionLanguageHintTests
         using var http = new HttpClient(handler);
         using var pipeline = new BatchTranscriptionPipeline(httpClient: http);
 
-        await pipeline.TranscribeRawAsync(new byte[] { 1, 2, 3, 4 }, "voice-test.wav", Routing(language), CancellationToken.None);
+        await pipeline.TranscribeUncorrectedAsync(new byte[] { 1, 2, 3, 4 }, "voice-test.wav", Routing(language), CancellationToken.None);
         return handler.LastBody;
     }
 

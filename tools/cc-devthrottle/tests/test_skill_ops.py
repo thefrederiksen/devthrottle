@@ -76,8 +76,17 @@ DETAIL_WITH_FILES = {
     "summary": "Carries a helper.",
     "triggers": ["run the helper"],
     "bodyMarkdown": "# With files\n\nRun helper.py.\n",
-    "files": [{"fileName": "helper.py", "contentHash": "abc", "content": "print('hello')\n"}],
+    "files": [{"fileName": "helper.py", "contentHash": "abc", "content": "print('hello')\n",
+               "encoding": "utf8", "executable": False}],
+    "license": None,
+    "compatibility": None,
+    "allowedTools": None,
+    "metadata": {},
     "contentHash": "bundle-hash-3",
+    "authoredBy": "session:test",
+    "changeNote": None,
+    "createdUtc": "2026-09-01T00:00:00Z",
+    "publishedUtc": "2026-09-01T00:00:00Z",
 }
 
 
@@ -124,7 +133,7 @@ class TestGet:
     def test_a_pinned_version_is_requested_as_asked(self):
         with patch.object(skill_ops.SkillClient, "_request") as request:
             request.side_effect = [
-                _fake_response(200, dict(DETAIL_WITH_FILES, files=[])),
+                _fake_response(200, dict(DETAIL_WITH_FILES, skillId="move-session", version=2, files=[])),
                 _fake_response(200, text=BODY),
             ]
             skill_ops.get_skill("move-session", 2)
@@ -158,7 +167,8 @@ class TestGet:
             DETAIL_WITH_FILES,
             version=4,
             contentHash="bundle-hash-4",
-            files=[{"fileName": "helper.py", "contentHash": "def", "content": "print('newer')\n"}],
+            files=[{"fileName": "helper.py", "contentHash": "def", "content": "print('newer')\n",
+                    "encoding": "utf8", "executable": False}],
         )
 
         skill_ops._materialize("with-files", 3, v3)
@@ -184,7 +194,8 @@ class TestGet:
         monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
         evil = dict(
             DETAIL_WITH_FILES,
-            files=[{"fileName": "../escape.py", "contentHash": "x", "content": "bad"}],
+            files=[{"fileName": "../escape.py", "contentHash": "x", "content": "bad",
+                    "encoding": "utf8", "executable": False}],
         )
 
         try:
@@ -482,7 +493,8 @@ class TestASkillIsADirectory:
         for bad in ("../escape.py", "references/../../escape.py", "/etc/passwd", "nul", "C:/x.dll"):
             evil = dict(
                 DETAIL_WITH_FILES,
-                files=[{"fileName": bad, "contentHash": "x", "content": "bad", "encoding": "utf8"}],
+                files=[{"fileName": bad, "contentHash": "x", "content": "bad", "encoding": "utf8",
+                        "executable": False}],
             )
             try:
                 skill_ops._materialize("with-files", 3, evil)
@@ -497,7 +509,8 @@ class TestASkillIsADirectory:
         monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
         detail = dict(
             DETAIL_WITH_FILES,
-            files=[{"fileName": "x.bin", "contentHash": "x", "content": "zzz", "encoding": "rot13"}],
+            files=[{"fileName": "x.bin", "contentHash": "x", "content": "zzz", "encoding": "rot13",
+                    "executable": False}],
         )
         try:
             skill_ops._materialize("with-files", 3, detail)

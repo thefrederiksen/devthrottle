@@ -149,7 +149,9 @@ def test_resolve_failure_prints_the_stale_caution(wire, capsys, plain):
     with pytest.raises(typer.Exit):
         session_ops._resolve_target("abc123", command_name="cc-devthrottle message send")
 
-    out = plain(capsys.readouterr().out)
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    out = plain(captured.err)
     assert "No session matches" in out
     assert "connected but has not reported recently" in out
     assert "MACHINE_B" in out

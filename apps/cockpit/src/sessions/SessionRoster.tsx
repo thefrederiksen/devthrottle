@@ -16,9 +16,6 @@ import {
   buildSessionTree,
   CALM_BAND_TITLE,
   childrenOf,
-  crewAge,
-  crewSummary,
-  crewSummaryLine,
   descendantsOf,
   isCrewExpanded,
   isOnAnotherMachine,
@@ -37,7 +34,8 @@ import { machinePortLabel } from "@devthrottle/client-core/fleet/directorEndpoin
 import { isDataStale } from "@devthrottle/client-core/fleet/directorPresentation";
 import { useNow, waitingLabel } from "@devthrottle/client-core/sessions/waiting";
 import { useNow as useSharedNow } from "@devthrottle/client-core/polling/useNow";
-import { ColourLegendButton } from "@devthrottle/client-core/sessions/ColourLegend";
+import { ColourLegendButton, useSessionColourLegend } from "@devthrottle/client-core/sessions/ColourLegend";
+import { dotTitle } from "@devthrottle/client-core/sessions/sessionColours";
 import {
   reachabilityFor,
   reachabilityLastSeen,
@@ -45,6 +43,7 @@ import {
   type DirectorReachability,
 } from "@devthrottle/client-core/fleet/fleetClient";
 import { SessionMenu } from "./SessionMenu";
+import { CrewLine } from "./CrewLine";
 import { RestartRequestsPanel } from "@devthrottle/client-core/restart/RestartRequestsPanel";
 
 // The fleet-wide session roster (issue #972) - the React port of the Blazor SessionRail. It lists
@@ -341,27 +340,6 @@ function TreeList({
   );
 }
 
-// The crew line on a collapsed parent: one dot per session under it, in their order and colours (so
-// collapsing hides no colour), the counts, and how long the crew has been going. Ticks on the shared
-// one-second clock for the age.
-function CrewLine({ root, tree }: { root: SessionDto; tree: SessionTree }) {
-  const now = useSharedNow();
-  const kids = descendantsOf(tree, root).map((d) => d.session);
-  const sum = crewSummary(root, kids);
-  const age = crewAge(sum, now);
-  return (
-    <span className="roster-crew" title={crewSummaryLine(sum)}>
-      <span className="roster-crew-strip" aria-hidden="true">
-        {kids.map((k) => (
-          <i key={k.sessionId} style={{ backgroundColor: dotHex(k) }} />
-        ))}
-      </span>
-      <span className={sum.needsYou > 0 ? "roster-crew-text alarm" : "roster-crew-text"}>{crewSummaryLine(sum)}</span>
-      {age.length > 0 && <span className="roster-crew-age">{age}</span>}
-    </span>
-  );
-}
-
 function RosterRow({
   session,
   tree,
@@ -382,6 +360,7 @@ function RosterRow({
 }) {
   const sid = session.sessionId ?? "";
   const selected = sid === selectedId;
+  const { legend } = useSessionColourLegend();
   // A parent row: collapsed by default, remembered per crew on this device. The chevron sits OUTSIDE
   // the Link so opening the crew never navigates into the parent's session. The count on the chevron
   // is everything under it, at every level - the same number the crew line carries.
@@ -460,7 +439,7 @@ function RosterRow({
         className={`roster-row${selected ? " roster-row-selected" : ""}${attention ? " roster-row-attention" : ""}${wobbly ? " roster-row-wobbly" : ""}${offline ? " roster-row-offline" : ""}`}
         style={{ borderLeftColor: dotHex(session) }}
         to={`/session/${encodeURIComponent(sid)}`}
-        title={session.lastStatusReason ?? undefined}
+        title={dotTitle(session, legend)}
       >
         <span className="roster-dot" style={{ backgroundColor: dotHex(session) }} aria-hidden="true" />
         <span className="roster-body">

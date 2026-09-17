@@ -33,6 +33,10 @@ public sealed class TurnVerdictServiceTests : IDisposable
     private static TurnEndSignal Signal(string sid = Sid, DateTime? at = null)
         => new(sid, "dir-1", Tenant, at ?? ObservedAt, IsNewTurn: true);
 
+    // A catch-up of the SAME stop, which is not a new turn: it joins the running judgement without clearing a rate limit
+    // wait, so the stop being judged keeps the wait it earns.
+    private static TurnEndSignal CatchUp(DateTime at) => new(Sid, "dir-1", Tenant, at, IsNewTurn: false);
+
     private static FakeTurnVerdictEnvironment Env() => new()
     {
         Screen = () => Screen(Sid, ReplyText, "> "),
@@ -547,7 +551,7 @@ public sealed class TurnVerdictServiceTests : IDisposable
         var sweep = service.VerdictForCurrentScreenAsync(Tenant, "dir-1", Sid, TurnVerdictTrigger.Sweep);
         Assert.True(await WaitUntil(() => env.JudgeCalls == 1));
         var observed = DateTime.UtcNow.AddMinutes(1);
-        var dropped = await service.StartTurnEnd(Signal(at: observed));
+        var dropped = await service.StartTurnEnd(CatchUp(observed));
         Assert.Equal(ActivityCauses.AlreadyJudging, dropped.SkipCause);   // control: one call for the stop
 
         release.SetResult();

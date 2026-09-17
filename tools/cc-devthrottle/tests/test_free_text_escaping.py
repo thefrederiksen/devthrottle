@@ -131,7 +131,7 @@ def test_session_list_GatewayError_IsOnePlainLine(monkeypatch):
     err = _error_text(result)
     _assert_clean(err)
     # Plain text: the bracketed token is printed as written, not read as Rich markup.
-    assert err.splitlines()[0] == f"Error: [/tmp/x] {CONTROL_ESCAPED}"
+    assert err.splitlines()[0] == f"Error: could not read the fleet list: [/tmp/x] {CONTROL_ESCAPED}"
 
 
 # ----- cc-devthrottle with no arguments -----------------------------------------------------------------
@@ -188,7 +188,10 @@ def test_session_stop_AmbiguousTarget_NamesStayOneLineEach(monkeypatch, plain):
     # removed before looking for any the name smuggled in.
     out = plain(result.output)
     _assert_clean(out)
-    assert _line_with(out, "9c41e7a2  first").strip() == f"9c41e7a2  {CONTROL_ESCAPED}  ([bold]A)"
+    # Both matches share one line, each with its FULL id, so the caller can paste one back.
+    line = _line_with(out, "is ambiguous")
+    assert f"9c41e7a2-0000-0000-0000-000000000001 {CONTROL_ESCAPED} ([bold]A)" in line
+    assert "9c41e7a2-0000-0000-0000-000000000002 other" in line
 
 
 # ----- mission list -------------------------------------------------------------------------------------
@@ -239,7 +242,7 @@ def test_mission_list_GatewayError_StaysOneLine(missions, args):
     assert result.exit_code == 1
     err = _error_text(result)
     _assert_clean(err)
-    assert err.splitlines()[0] == f"Error: {CONTROL_ESCAPED}"
+    assert err.splitlines()[0] == f"Error: could not read the missions: {CONTROL_ESCAPED}"
 
 
 @pytest.mark.parametrize(

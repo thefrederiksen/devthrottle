@@ -8,14 +8,18 @@ import {
 } from "@devthrottle/client-core/fleet/fleetClient";
 import {
   agentBadgeText,
-  buildControllerTree,
   directorLabelOf,
   directorsByMachine,
+  elsewhereTag,
+  FLEET_TREE_PIVOTS,
   groupByDirector,
   machineKeyOf,
   modelChip,
   modelKeyOf,
+  nestedElsewhereText,
+  laneTree,
 } from "./fleetMapFormat";
+import { buildSessionTree, childrenOf, type SessionTree } from "@devthrottle/client-core/sessions/tree";
 
 function session(overrides: Partial<SessionDto> = {}): SessionDto {
   return { sessionId: "s1", agent: "ClaudeCode", activityState: "Working", ...overrides } as SessionDto;
@@ -26,89 +30,117 @@ function child(sessionId: string, controllerSessionId: string, overrides: Partia
   return session({ sessionId, isControlled: true, controllerSessionId, ...overrides });
 }
 
-// Order roots/siblings by session id, so the assertions below are about the TREE and not about sorting.
+// Order roots/siblings by session id, so assertions are about grouping and not about sorting.
 const byId = (a: SessionDto, b: SessionDto): number => (a.sessionId ?? "").localeCompare(b.sessionId ?? "");
 
-// The flattened tree as "id@depth", which is exactly what the view renders.
-function shape(sessions: SessionDto[]): string[] {
-  return buildControllerTree(sessions, byId).map((n) => `${n.session.sessionId}@${n.depth}`);
+const ids = (list: SessionDto[]): string[] => list.map((s) => s.sessionId ?? "");
+
+// Every card a column draws, depth-first, as "id@depth" - what the view renders when every crew is open.
+function drawn(tree: SessionTree): string[] {
+  const out: string[] = [];
+  const walk = (s: SessionDto, depth: number): void => {
+    out.push(`${s.sessionId}@${depth}`);
+    for (const k of childrenOf(tree, s)) walk(k, depth + 1);
+  };
+  for (const r of tree.roots) walk(r, 0);
+  return out;
 }
 
-describe("buildControllerTree", () => {
-  it("nests a controlled session under its controller", () => {
-    expect(shape([child("b", "a"), session({ sessionId: "a" })])).toEqual(["a@0", "b@1"]);
+describe("laneTree - the Fleet Map draws the Sessions list's tree", () => {
+  // The owner's case, 16 September: Architect 102 on the Mac Mini started Worker 146 on the Mac Mini AND
+  // Worker 124 on SOREN_NORTH. The Sessions list showed both under 102; the map showed only 146, and 124
+  // sat loose at the top of SOREN_NORTH's column.
+  const mac = { machineName: "devthrottle-mac-mini", directorId: "mac-1" };
+  const north = { machineName: "SOREN_NORTH", directorId: "north-1" };
+  const a102 = session({ sessionId: "102", ...mac });
+  const w146 = child("146", "102", mac);
+  const w124 = child("124", "102", north);
+  const loose = session({ sessionId: "144", ...north });
+  const fleet = [a102, w146, w124, loose];
+
+  it("puts a crew member from another machine under its parent, in the parent's column", () => {
+    const tree = buildSessionTree(fleet);
+    const macColumn = laneTree([a102, w146], tree);
+    expect(drawn(macColumn)).toEqual(["102@0", "146@1", "124@1"]);
   });
 
-  it("nests deeper than two levels - nesting is real, the depth is not capped", () => {
-    const fleet = [
-      session({ sessionId: "a" }),
-      child("b", "a"),
-      child("c", "b"),
-      child("d", "c"),
-      child("e", "d"),
-    ];
-    expect(shape(fleet)).toEqual(["a@0", "b@1", "c@2", "d@3", "e@4"]);
+  it("does not draw that crew member again in its own machine's column", () => {
+    const tree = buildSessionTree(fleet);
+    const northColumn = laneTree([w124, loose], tree);
+    expect(drawn(northColumn)).toEqual(["144@0"]);
   });
 
-  it("keeps each parent's children together, depth-first", () => {
-    const fleet = [
-      session({ sessionId: "arch" }),
-      child("m1", "arch"),
-      child("m2", "arch"),
-      child("w1", "m1"),
-      child("w2", "m2"),
-    ];
-    expect(shape(fleet)).toEqual(["arch@0", "m1@1", "w1@2", "m2@1", "w2@2"]);
+  it("draws every session exactly once across all the columns", () => {
+    const tree = buildSessionTree(fleet);
+    const all = [...drawn(laneTree([a102, w146], tree)), ...drawn(laneTree([w124, loose], tree))];
+    expect(all.map((x) => x.split("@")[0]).sort()).toEqual(["102", "124", "144", "146"]);
   });
 
-  it("puts a child at the top level when its controller is not in this lane", () => {
-    // The pivots slice the fleet, so a Worker's Manager can be filtered out of the lane entirely.
-    expect(shape([child("b", "elsewhere")])).toEqual(["b@0"]);
+  it("agrees with the Sessions list about who is under whom", () => {
+    const tree = buildSessionTree(fleet);
+    const macColumn = laneTree([a102, w146], tree);
+    expect(ids(childrenOf(macColumn, a102)).sort()).toEqual(ids(childrenOf(tree, a102)).sort());
   });
 
-  it("does not indent under an exited controller", () => {
-    // FleetRoleResolver already demotes a session whose controller exited; indenting under the corpse
-    // would say the opposite of what the roster says.
-    const fleet = [session({ sessionId: "a", activityState: "Exited" }), child("b", "a")];
-    expect(shape(fleet)).toEqual(["a@0", "b@0"]);
+  it("keeps the column's own order for the top-level cards", () => {
+    const tree = buildSessionTree(fleet);
+    expect(ids(laneTree([loose, w124], tree).roots)).toEqual(["144"]);
+    const b = session({ sessionId: "b", ...north });
+    expect(ids(laneTree([b, loose], buildSessionTree([...fleet, b])).roots)).toEqual(["b", "144"]);
   });
 
-  it("treats a self-referencing session as its own root", () => {
-    expect(shape([child("a", "a")])).toEqual(["a@0"]);
+  it("without a fleet tree (by agent, by model, a search) nests only inside the column", () => {
+    // A Codex Worker under a Claude Architect: the agent pivot puts them in different columns, and each
+    // must show on its own there rather than hide inside the other column's crew.
+    expect(drawn(laneTree([a102, w146], null))).toEqual(["102@0", "146@1"]);
+    expect(drawn(laneTree([w124], null))).toEqual(["124@0"]);
   });
 
-  it("does not hang or lose cards on a cycle", () => {
-    // Neither member of a cycle can reach a root, so BOTH are promoted to roots and render flat. That
-    // is the point: a cycle should never be able to hang the view or swallow a card, and a flat pair is
-    // an honest rendering of a relationship that does not actually have a top.
-    const fleet = [child("a", "b"), child("b", "a"), session({ sessionId: "c" })];
-    const out = shape(fleet);
-    expect(out).toHaveLength(3);
-    expect([...out].sort()).toEqual(["a@0", "b@0", "c@0"]);
+  it("nests deeper than two levels", () => {
+    const f = [session({ sessionId: "a" }), child("b", "a"), child("c", "b"), child("d", "c")];
+    expect(drawn(laneTree(f, buildSessionTree(f)))).toEqual(["a@0", "b@1", "c@2", "d@3"]);
   });
 
-  it("renders every session exactly once - a lost card is worse than a misindented one", () => {
-    const fleet = [
-      session({ sessionId: "a" }),
-      child("b", "a"),
-      child("c", "b"),
-      child("d", "gone"),
-      session({ sessionId: "e", activityState: "Exited" }),
-      child("f", "e"),
-    ];
-    const out = buildControllerTree(fleet, byId);
-    expect(out).toHaveLength(6);
-    expect(new Set(out.map((n) => n.session.sessionId)).size).toBe(6);
+  it("never hangs or loses a card on an ownership loop", () => {
+    const f = [child("a", "b"), child("b", "a"), session({ sessionId: "c" })];
+    const out = drawn(laneTree(f, buildSessionTree(f)));
+    expect(out.map((x) => x.split("@")[0]).sort()).toEqual(["a", "b", "c"]);
   });
 
-  it("ignores a controller id when isControlled is not set", () => {
-    // isControlled is the fact; a stale controller id without it is not an edge.
-    const fleet = [session({ sessionId: "a" }), session({ sessionId: "b", controllerSessionId: "a" })];
-    expect(shape(fleet)).toEqual(["a@0", "b@0"]);
+  it("is used by the machine, director, repository and working tree pivots only", () => {
+    expect([...FLEET_TREE_PIVOTS].sort()).toEqual(["director", "machine", "repo", "worktree"]);
+  });
+});
+
+describe("nestedElsewhereText", () => {
+  it("says why a column with only crew from elsewhere has no cards", () => {
+    expect(nestedElsewhereText(1)).toBe("1 session here is shown under the session that started it, in another column");
+    expect(nestedElsewhereText(2)).toBe("2 sessions here are shown under the sessions that started them, in other columns");
   });
 
-  it("returns nothing for an empty lane", () => {
-    expect(buildControllerTree([], byId)).toEqual([]);
+  it("says nothing when there is nothing drawn elsewhere", () => {
+    expect(nestedElsewhereText(0)).toBe("");
+  });
+});
+
+describe("elsewhereTag", () => {
+  it("names the machine when the child runs on another machine", () => {
+    const p = session({ sessionId: "102", machineName: "devthrottle-mac-mini", directorId: "mac-1" });
+    const c = child("124", "102", { machineName: "SOREN_NORTH", directorId: "north-1" });
+    expect(elsewhereTag(p, c, undefined)).toEqual({ k: "on", v: "SOREN_NORTH" });
+  });
+
+  it("names the Director when the child runs on another Director of the same machine", () => {
+    const p = session({ sessionId: "p", machineName: "SOREN_NORTH", directorId: "SOREN_NORTH-1" });
+    const c = child("c", "p", { machineName: "SOREN_NORTH", directorId: "SOREN_NORTH-2" });
+    const reach = { directorId: "SOREN_NORTH-2", machineName: "SOREN_NORTH", state: REACHABILITY_ONLINE, displayName: "DevThrottle_2" } as DirectorReachability;
+    expect(elsewhereTag(p, c, reach)).toEqual({ k: "on", v: "DevThrottle_2" });
+  });
+
+  it("says nothing when the child runs where its parent does", () => {
+    const p = session({ sessionId: "p", machineName: "SOREN_NORTH", directorId: "north-1" });
+    const c = child("c", "p", { machineName: "SOREN_NORTH", directorId: "north-1" });
+    expect(elsewhereTag(p, c, undefined)).toBeNull();
   });
 });
 

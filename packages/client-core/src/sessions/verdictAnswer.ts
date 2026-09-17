@@ -39,6 +39,8 @@ export interface TurnVerdict {
   options: TurnVerdictOption[];
   risk: string;
   failed?: boolean;
+  /** Why the Gateway refused the judge's answer, on a failed record. Shown verbatim. */
+  failureReason?: string | null;
   /** When this verdict stopped describing the screen it was formed on, or null/absent while it still does. Only
    *  the history read ever carries it: the latest read and the roster fold never return a superseded record at
    *  all, so a verdict with this set came from the history. */

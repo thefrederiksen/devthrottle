@@ -32,6 +32,12 @@ const CHUNK_MS = 100;
 // logged so a real occurrence is visible.
 const FLUSH_BACKSTOP_MS = 500;
 
+// How long capture keeps running after stop() is asked for - Send, Insert or Pause - before the tail is
+// flushed and the recorder stopped (issue #2927). The end of a word said on the click has not been
+// captured yet when the click lands, so stopping at once clipped it. The same tail as the desktop
+// recorder's StopTailMs.
+export const STOP_TAIL_MS = 250;
+
 // The equalizer time window. getByteTimeDomainData fills this many samples of the live waveform; at a
 // typical 48 kHz that is ~11 ms, a long enough window for a steady loudness reading yet short enough to
 // track speech syllables so the bars actually bob rather than crawl.
@@ -366,6 +372,9 @@ export class MicRecorder {
    * Stop the current segment and return the captured audio as one Blob. The microphone is
    * released here, so the next segment calls start() again (a fresh Resume segment).
    *
+   * Capture continues for STOP_TAIL_MS after the call before anything is flushed (issue #2927): a word
+   * said on the Send or Pause click finishes after the click, and stopping at once cut it off.
+   *
    * The buffered tail is ASKED FOR, not assumed. MediaRecorder is specified to emit its remaining
    * audio as a final dataavailable before it fires stop, so resolving on onstop already collects the
    * last words - but that is a behaviour we would be trusting rather than an instruction we gave, and
@@ -378,7 +387,24 @@ export class MicRecorder {
   async stop(): Promise<Blob> {
     const rec = this.recorder;
     if (rec === null) throw new Error("Recorder was not started.");
+    // Keep capturing for the stop tail first (issue #2927), so the end of the last word is in the clip.
+    if (rec.state === "recording") {
+      await new Promise<void>((resolve) => setTimeout(resolve, STOP_TAIL_MS));
+      // Cancel can release the microphone while the tail runs; an already-stopped recorder never fires
+      // onstop again, so waiting on it here would hang the turn.
+      if (this.recorder !== rec) throw new Error("The recording was cancelled before it finished stopping.");
+    }
     const mime = this.mimeType || "audio/webm";
+    // The recorder can go inactive on its own while the tail runs - the input track ended, the device was
+    // unplugged - and the browser has then already fired stop. MediaRecorder.stop() on an inactive
+    // recorder throws InvalidStateError, and onstop would never fire again, so the clip would be lost.
+    // Every chunk it delivered is already in this.chunks: return those.
+    if (rec.state === "inactive") {
+      console.warn("[MicRecorder] stop: the recorder was already inactive; returning the chunks it delivered");
+      this.recordedMs = this.startedAt > 0 ? performance.now() - this.startedAt : 0;
+      this.releaseStream();
+      return new Blob(this.chunks, { type: mime });
+    }
     const captured = await new Promise<Blob>((resolve) => {
       rec.onstop = () => resolve(new Blob(this.chunks, { type: mime }));
       if (rec.state === "recording") {

@@ -144,10 +144,10 @@ public sealed class GatewayTranscriptionService
         _audioArchive.TrySave(turnId, audio, contentType);
 
         var swTranscribe = Stopwatch.StartNew();
-        string raw;
+        PartTranscript part;
         try
         {
-            raw = await TranscribeRawCoreAsync(routing, audio, fileName, contentType, ct, language);
+            part = await TranscribeCoreAsync(routing, audio, fileName, contentType, ct, language);
             swTranscribe.Stop();
         }
         catch (OperationCanceledException)
@@ -189,18 +189,24 @@ public sealed class GatewayTranscriptionService
             return GatewayTranscriptionResult.ProviderError(mode, routing.Endpoint.Model, ex.Message);
         }
 
+        // Issue #2926: the dictionary runs on what is DELIVERED (the gated text), the caller gets the
+        // delivered text, and the record stores the model's FULL output as the raw transcript. Storing
+        // the delivered text as raw - which this did until then - made every removal by the evidence
+        // gate invisible, so the verbatim rule's audit (diff raw against cleaned) could not see one.
         CleanupOutcome? cleanup = null;
         var swCleanup = Stopwatch.StartNew();
         if (applyCorrection)
-            cleanup = await CleanupCoreAsync(raw, tenant, ct);
+            cleanup = await CleanupCoreAsync(part.Delivered, tenant, ct);
         swCleanup.Stop();
-        var text = cleanup?.Text ?? raw;
+        var text = cleanup?.Text ?? part.Delivered;
 
         FileLog.Write($"[GatewayTranscriptionService] TranscribeAsync OK: mode={mode}, corrected={applyCorrection}, "
-                      + $"transcribeMs={swTranscribe.ElapsedMilliseconds}, cleanupMs={(applyCorrection ? swCleanup.ElapsedMilliseconds : 0)}, chars={text.Length}");
+                      + $"transcribeMs={swTranscribe.ElapsedMilliseconds}, cleanupMs={(applyCorrection ? swCleanup.ElapsedMilliseconds : 0)}, "
+                      + $"rawChars={part.Raw.Length}, chars={text.Length}, droppedSentences={part.Dropped.Count}");
         RecordHistory(turnId, "ok", swTranscribe.ElapsedMilliseconds,
-            applyCorrection ? swCleanup.ElapsedMilliseconds : 0, applyCorrection, raw, cleanup, tenant: tenant, source: source);
-        return GatewayTranscriptionResult.Ok(text, mode, routing.Endpoint.Model);
+            applyCorrection ? swCleanup.ElapsedMilliseconds : 0, applyCorrection, part.Raw, cleanup, tenant: tenant, source: source,
+            delivered: part.Delivered);
+        return GatewayTranscriptionResult.Ok(text, mode, routing.Endpoint.Model) with { DroppedSentences = part.Dropped };
     }
 
     /// <summary>Append one minimized turn to the caller tenant's Transcription Health history (issue #2059).
@@ -212,10 +218,11 @@ public sealed class GatewayTranscriptionService
     private void RecordHistory(
         string turnId, string outcome, long transcribeMs, long cleanupMs, bool corrected,
         string? raw, CleanupOutcome? cleanup, CcDirector.Core.Tenancy.TenantId? tenant = null,
-        string? source = null)
+        string? source = null, string? delivered = null)
     {
         var log = tenant is { } tv ? TranscriptionHistoryLog.ForTenant(tv) : _history;
-        var finalText = cleanup?.Text ?? raw;
+        // What the user received: the corrected text, else the gated text, else (error outcomes) the raw.
+        var finalText = cleanup?.Text ?? delivered ?? raw;
         log.Record(new TranscriptionHistoryRecord
         {
             TimestampUtc = DateTime.UtcNow,
@@ -246,7 +253,7 @@ public sealed class GatewayTranscriptionService
                     tenant: tenant ?? CcDirector.Core.Tenancy.TenantId.Local,
                     source: string.IsNullOrWhiteSpace(source) ? "gateway" : source,
                     rawText: raw,
-                    cleanedText: cleanup?.Text ?? raw,
+                    cleanedText: finalText,
                     cleanupApplied: cleanup?.Applied ?? false,
                     turnId: turnId,
                     nowUtc: DateTime.UtcNow);
@@ -264,14 +271,15 @@ public sealed class GatewayTranscriptionService
             : text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length;
 
     /// <summary>
-    /// Transcribe one complete audio segment to RAW text (no dictionary correction) using the
-    /// configured mode. This is the phone Notes per-segment path: it batch-transcribes each segment,
+    /// Transcribe one complete audio segment to its DELIVERED text - after the evidence gate, before any
+    /// dictionary correction - using the configured mode. (It was named TranscribeSegmentRawAsync, and
+    /// "raw" was untrue: it has always returned the gated text. Issue #2926.) This is the phone Notes per-segment path: it batch-transcribes each segment,
     /// then runs the dictionary corrector ONCE on the assembled concatenation (<see cref="CleanupAsync"/>),
     /// so the assembled transcript is provably the per-segment raw concatenation plus dictionary edits
     /// only. Throws when no key is set for the selected remote mode, which the ingest worker records as
     /// a retryable transcription failure - never a guessed URL.
     /// </summary>
-    public async Task<string> TranscribeSegmentRawAsync(
+    public async Task<string> TranscribeSegmentUncorrectedAsync(
         byte[] audio, string fileName, string contentType, CancellationToken ct = default)
     {
         if (audio is null) throw new ArgumentNullException(nameof(audio));
@@ -283,7 +291,7 @@ public sealed class GatewayTranscriptionService
                 "No transcription method is available: no key is set for the selected transcription mode. "
                 + "Set the key in the Cockpit Settings > Transcription tab.");
 
-        return await TranscribeRawCoreAsync(routing, audio, fileName, contentType, ct);
+        return (await TranscribeCoreAsync(routing, audio, fileName, contentType, ct)).Delivered;
     }
 
     /// <summary>
@@ -306,10 +314,11 @@ public sealed class GatewayTranscriptionService
 
     /// <summary>
     /// Run the transcription provider for the resolved routing: ONE batch POST to the resolved
-    /// provider-compatible endpoint for the mode. Throws on a provider error (a missing transcript is a
-    /// real failure the caller must surface).
+    /// provider-compatible endpoint for the mode, returning the model's full output, the gated text and the
+    /// dropped sentences together. Throws on a provider error (a missing transcript is a real failure the
+    /// caller must surface).
     /// </summary>
-    private async Task<string> TranscribeRawCoreAsync(
+    private async Task<PartTranscript> TranscribeCoreAsync(
         GatewayTranscriptionRouting routing, byte[] audio, string fileName, string contentType, CancellationToken ct,
         string? language = null)
     {
@@ -318,7 +327,7 @@ public sealed class GatewayTranscriptionService
             httpClient: _http, cleanupModel: _cleanupModel,
             judge: DictationJudgeFactory.FromVault(_vault), judgeMode: DictationJudgeMode.Current);
         FileLog.Write($"[GatewayTranscriptionService] transcribe remote: bytes={audio.Length}, mode={routing.Mode.ToConfigString()}, model={routing.Endpoint.Model}, language={language ?? "auto"}");
-        return await pipeline.TranscribeRawAsync(audio, name, routing.ToResolved(language), ct);
+        return await pipeline.TranscribeUncorrectedAsync(audio, name, routing.ToResolved(language), ct);
     }
 
     /// <summary>
@@ -460,6 +469,10 @@ public enum TranscriptionOutcome
 public sealed record GatewayTranscriptionResult(
     TranscriptionOutcome Outcome, string? Text, string Mode, string? Model, string? Error, string? Code = null)
 {
+    /// <summary>The sentences the evidence gate removed from the model's output before
+    /// <see cref="Text"/> was delivered (issue #2926). Empty when nothing was removed or the call failed.</summary>
+    public IReadOnlyList<TranscriptEvidenceGate.Dropped> DroppedSentences { get; init; } = Array.Empty<TranscriptEvidenceGate.Dropped>();
+
     public static GatewayTranscriptionResult Ok(string text, string mode, string? model)
         => new(TranscriptionOutcome.Ok, text, mode, model, null);
 

@@ -91,9 +91,12 @@ def test_the_error_branch_does_not_crash_on_the_servers_error_text(buffer_text, 
     with pytest.raises(typer.Exit):
         session_ops.read_session_buffer(None)
 
-    out = plain(capsys.readouterr().out)
+    captured = capsys.readouterr()
+    assert captured.out == ""                                  # the answer stream stays clean
+    out = plain(captured.err)
     assert "no session at [/tmp/x] on that Director" in out   # reported literally, not swallowed
     assert "Error:" in out                                     # and still human-readable
+    assert "cc-devthrottle session list" in out                # with what to do next
 
 
 def test_terminal_content_survives_uninterpreted(buffer_text, capsys):

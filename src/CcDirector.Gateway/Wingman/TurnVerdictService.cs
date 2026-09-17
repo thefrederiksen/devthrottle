@@ -49,7 +49,11 @@ public interface ITurnVerdictEnvironment
     /// <summary>Ask the judge ONE question and return its raw answer. Throws on no answer, a rate limit, or an
     /// unusable provider; the service turns each into a stored failed record, and so does any other exception
     /// a verdict request meets.</summary>
-    Task<TurnVerdictJudgeAnswer> AskJudgeAsync(TenantId tenant, string prompt, CancellationToken ct);
+    /// <param name="timeout">How long this one call may take. The service passes the account's
+    /// <see cref="TurnVerdictSettings.JudgeTimeoutSeconds"/> for a first attempt and
+    /// <see cref="TurnVerdictSettings.ListenedToReattemptTimeoutSeconds"/> for the one re-attempt a listened-to
+    /// session may get; nothing else decides it.</param>
+    Task<TurnVerdictJudgeAnswer> AskJudgeAsync(TenantId tenant, string prompt, TimeSpan timeout, CancellationToken ct);
 
     /// <summary>This session's latest stored verdict in this account, or null.</summary>
     TurnVerdictDto? Latest(TenantId tenant, string sessionId);
@@ -319,6 +323,58 @@ public sealed class TurnVerdictService : IDisposable
         public bool HandedOver;
         public TurnVerdictSettings? HandedOverSettings;
 
+        // The rate limit hold generation when this flight started. Its hold is written only if no clear came since.
+        public long HoldGeneration;
+
+        // A PERSON ASKED ABOUT THIS FLIGHT: it was started by an explain, or an explain joined it BEFORE its attempt loop
+        // decided. Read by the loop at that decision, so a turn end on a session nobody was listening to gets the
+        // listened-to re-attempt when somebody presses explain in time. Both fields change only under _decisionGate.
+        private readonly object _decisionGate = new();
+        private bool _askedOnDemand;
+        private bool _attemptsDecided;
+        private bool _reattemptedForPerson;
+
+        /// <summary>True only when the attempt loop actually made its re-attempt while a person had asked. A decision
+        /// against a re-attempt - a rate limit, a readable refusal, an answer - never sets it.</summary>
+        public bool ReattemptedForPerson { get { lock (_decisionGate) return _reattemptedForPerson; } }
+
+        /// <summary>Whether a person had asked about this flight when its attempt loop decided, or has asked so far.</summary>
+        public bool AskedOnDemand { get { lock (_decisionGate) return _askedOnDemand; } }
+
+        /// <summary>
+        /// An explain arriving at this flight. True when the loop has not decided yet: the flight now serves the explain,
+        /// re-attempt included. False once it has decided (round two of the slice I inspection): a flight held at its
+        /// trace write after a timed-out call has already refused its re-attempt, so the explain must wait for the
+        /// flight to end and then ask through its own request.
+        /// </summary>
+        public bool TryServeOnDemand()
+        {
+            lock (_decisionGate)
+            {
+                if (_attemptsDecided) return false;
+                _askedOnDemand = true;
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// The attempt loop's decision after one call, taken under the same gate a joining explain takes. Returns true
+        /// for one more attempt. The moment it returns false the attempts are decided, and no later explain is served.
+        /// </summary>
+        public bool DecideReattempt(bool mayReattempt, Func<bool> isVoiceSession)
+        {
+            lock (_decisionGate)
+            {
+                if (mayReattempt && (_askedOnDemand || isVoiceSession()))
+                {
+                    if (_askedOnDemand) _reattemptedForPerson = true;
+                    return true;
+                }
+                _attemptsDecided = true;
+                return false;
+            }
+        }
+
         // THE STOPS THAT JOINED THIS FLIGHT while it ran. They ask nothing of their own - one model call per stop - and
         // this flight records them as it ends, with the settings it already read. Held here rather than traced by the
         // caller so the work is inside the flight shutdown waits for, and in the order the stops were observed.
@@ -514,6 +570,10 @@ public sealed class TurnVerdictService : IDisposable
 
         var key = (signal.Tenant, signal.SessionId);
         _lastObserved[key] = signal.ObservedAtUtc;
+        // A NEW TURN ENDS THE PREVIOUS STOP'S RATE LIMIT WAIT, exactly as an observed Working event does: the wait was
+        // named for that stop, and a new stop on an unreadable screen with the same reply text is still a new stop
+        // (slice I inspection, round three).
+        if (signal.IsNewTurn) ClearRateLimitHold(key);
         return TakeGateOrJoin(key, signal);
     }
 
@@ -526,10 +586,11 @@ public sealed class TurnVerdictService : IDisposable
     /// or removes its entry in the same step it marks itself gone, so the next look finds the gate changed.
     /// </summary>
     private Admitted Admit((TenantId Tenant, string SessionId) key, Flight flight, TurnEndSignal? signal, out QueuedStop? queued,
-        out Task<TurnVerdictOutcome>? coverage)
+        out Task<TurnVerdictOutcome>? coverage, out Flight? joinedFlight)
     {
         queued = null;
         coverage = null;
+        joinedFlight = null;
         lock (_admission)
         {
             if (_disposed) return Admitted.Refused;
@@ -545,6 +606,7 @@ public sealed class TurnVerdictService : IDisposable
                 {
                     coverage = running.Coverage();
                     if (coverage is null) continue;
+                    joinedFlight = running;
                     return Admitted.Joined;
                 }
                 switch (running.JoinOrQueue(signal, out queued))
@@ -573,7 +635,7 @@ public sealed class TurnVerdictService : IDisposable
     private Task<TurnVerdictOutcome> TakeGateOrJoin((TenantId Tenant, string SessionId) key, TurnEndSignal signal)
     {
         var flight = new Flight();
-        switch (Admit(key, flight, signal, out var queued, out _))
+        switch (Admit(key, flight, signal, out var queued, out _, out _))
         {
             case Admitted.Refused:
                 // Observed, and refused because shutdown has begun: recorded through the one door like every other stop.
@@ -661,7 +723,7 @@ public sealed class TurnVerdictService : IDisposable
 
         var key = (tenant, sessionId);
         var flight = new Flight();
-        switch (Admit(key, flight, signal: null, out _, out _))
+        switch (Admit(key, flight, signal: null, out _, out _, out _))
         {
             case Admitted.Refused:
                 flight.Cts.Dispose();
@@ -746,7 +808,7 @@ public sealed class TurnVerdictService : IDisposable
         for (var attempt = 0; attempt < 3; attempt++)
         {
             var flight = new Flight();
-            switch (Admit(key, flight, signal: null, out _, out var coverage))
+            switch (Admit(key, flight, signal: null, out _, out var coverage, out var joinedFlight))
             {
                 case Admitted.Refused:
                     flight.Cts.Dispose();
@@ -754,11 +816,21 @@ public sealed class TurnVerdictService : IDisposable
                 case Admitted.Joined:
                 {
                     flight.Cts.Dispose();
+                    // Somebody is listening to the running flight now, whatever started it - provided it has not already
+                    // decided its attempts. An explain that arrives after that decision is not served by the flight: it
+                    // waits for the covering judgement to end and then runs its own request (slice I inspection, rounds
+                    // one and two).
+                    var lateExplain = trigger == TurnVerdictTrigger.OnDemand && !joinedFlight!.TryServeOnDemand();
                     // THE VERDICT OF THE JUDGEMENT THAT COVERS THE CURRENT SCREEN (issue #2905, round 3): the running
                     // judgement's own result while its list is open, or - once it is ending with a stop queued behind it -
                     // that newest queued stop's own completion, which its successor sets. Never the ending judgement's
                     // result for a stop it did not judge.
                     var joined = await coverage!.WaitAsync(ct).ConfigureAwait(false);
+                    if (lateExplain)
+                    {
+                        FileLog.Write($"[TurnVerdictService] sid={sessionId}: an explain arrived after the running flight decided its attempts - it runs its own request");
+                        continue;
+                    }
                     // A turn-end judgement that stood down for a reason that binds only the turn-end path - this
                     // account's ceiling, or its judge switch - is not an answer for somebody who is listening. Nor is a
                     // speech re-attempt that stood down because it may not ask the judge: that binds the re-attempt only.
@@ -808,6 +880,8 @@ public sealed class TurnVerdictService : IDisposable
         }
 
         _reading.TryRemove(key, out _);
+        ClearRateLimitHold(key);
+        _askedOnDemandFailures.TryRemove(key, out _);
         // The last observed stop is over too. A verdict request that starts before the detector observes the NEXT
         // stop carries the moment it started, and takes the observed moment when the detector catches up.
         _lastObserved.TryRemove(key, out _);
@@ -833,6 +907,7 @@ public sealed class TurnVerdictService : IDisposable
         // the stored verdict. Every store this flight makes, on any arm, lands only while it is still current.
         var epoch = _epochs.GetOrAdd(key, 0);
         flight.ObservedAt = observedAt;
+        flight.HoldGeneration = HoldGeneration(key);
         TurnVerdictOutcome? outcome = null;
         try
         {
@@ -962,6 +1037,7 @@ public sealed class TurnVerdictService : IDisposable
         var settings = _env.Settings(tenant);
         flight.Settings = settings;
         var automatic = trigger != TurnVerdictTrigger.OnDemand;
+        if (trigger == TurnVerdictTrigger.OnDemand) flight.TryServeOnDemand();
 
         // THE BOUNDARY, IN THE ORDER THE CODE RUNS IT. A read means the session's screen or its stored
         // conversation; the pushed roster and the verdict store are consulted as well and are not counted.
@@ -972,7 +1048,10 @@ public sealed class TurnVerdictService : IDisposable
         //    flight. A stop refused here costs NO reads.
         // 2. The screen read, and its one full-grid hash.
         // 3. The reuse check: a stored verdict formed on the same hash is reused and the judge is not
-        //    asked. A stop answered here costs ONE read.
+        //    asked. A stop answered here costs ONE read. The one exception is a rate limit's named wait:
+        //    while one is held for the session, this check reads the stored conversation as well, to tell
+        //    whether the reply is still the stop the wait was named for, and a stop answered by that wait
+        //    has read both.
         // 4. The speech re-attempt refusal: a caller that may not ask the judge stops here, before the
         //    conversation is read. A stop refused here costs ONE read.
         // 5. The conversation read.
@@ -1025,10 +1104,8 @@ public sealed class TurnVerdictService : IDisposable
         // different stops on a Director that cannot be reached would look like one screen, and the second would
         // be played the first one's words. The sweep is the exception because it comes past every pass, and
         // re-asking the judge about an unreachable session each time would be a paid call on a loop.
-        if (latest is not null
-            && string.Equals(latest.ScreenHash, hash, StringComparison.Ordinal)
-            && (hash.Length > 0 || trigger == TurnVerdictTrigger.Sweep)
-            && (!latest.Failed || trigger == TurnVerdictTrigger.Sweep))
+        if (latest is not null && IsReusable(key, latest, hash, trigger,
+                () => WingmanNarrationSource.Select(_env.ReadConversation(tenant, sid)?.Widgets, rows)?.Content))
             return Reuse(key, epoch, ct, directorId, trigger, observedAt, latest, hash, rows, settings);
 
         // A SPEECH RE-ATTEMPT NEVER ASKS THE JUDGE. No automatic path costs two model calls for one stop, so a caller
@@ -1086,44 +1163,69 @@ public sealed class TurnVerdictService : IDisposable
             string? detail = null;
             double replySeconds = 0;
             string? rawReply = null;
-            try
+            // ONE CALL PER STOP, WITH ONE EXCEPTION (owner ruling, 2026-09-16, slice I). A stop somebody is listening
+            // to - a voice session, or a person who pressed explain - gets exactly ONE re-attempt, with the wider
+            // deadline, when the first call got no usable words at all: the judge did not answer, or its answer was
+            // not a JSON object. Those are the two failures that leave voice with nothing to say. A refusal of
+            // READABLE JSON keeps its spoken text (TurnVerdictContract), a rate limit names its own wait, and every
+            // stop nobody is listening to keeps the one-call rule.
+            var timeout = TimeSpan.FromSeconds(settings.JudgeTimeoutSeconds);
+            for (var attempt = 1; ; attempt++)
             {
-                var answer = await _env.AskJudgeAsync(tenant, prompt, ct).ConfigureAwait(false);
-                replySeconds = answer.ReplySeconds;
-                rawReply = answer.Raw;
-                flight.RawReply = answer.Raw;
-                flight.ReplySeconds = answer.ReplySeconds;
-                record = TurnVerdictContract.ParseAndValidate(answer.Raw, package, answer.Model, observedAt);
-                // The carrying-on clock's first source travels on the stored record, so it survives a restart.
-                record.NextScheduledWakeUtc = package.NextScheduledWakeUtc;
-                if (record.Failed)
+                failure = TurnVerdictFailureKind.None;
+                retryAfter = null;
+                detail = null;
+                var answerWasReadable = false;
+                try
                 {
-                    failure = TurnVerdictFailureKind.Refused;
-                    detail = record.FailureReason;
+                    var answer = await _env.AskJudgeAsync(tenant, prompt, timeout, ct).ConfigureAwait(false);
+                    replySeconds = answer.ReplySeconds;
+                    rawReply = answer.Raw;
+                    flight.RawReply = answer.Raw;
+                    flight.ReplySeconds = answer.ReplySeconds;
+                    record = TurnVerdictContract.ParseAndValidate(answer.Raw, package, answer.Model, observedAt);
+                    // The carrying-on clock's first source travels on the stored record, so it survives a restart.
+                    record.NextScheduledWakeUtc = package.NextScheduledWakeUtc;
+                    answerWasReadable = TurnVerdictContract.IsReadableJsonObject(answer.Raw);
+                    if (record.Failed)
+                    {
+                        failure = TurnVerdictFailureKind.Refused;
+                        detail = record.FailureReason;
+                    }
                 }
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (WingmanModelRateLimitedException rl)
-            {
-                failure = TurnVerdictFailureKind.RateLimited;
-                retryAfter = rl.RetryAfter;
-                detail = rl.Message;
-                record = FailedRecord(package, tenant, observedAt, "the judge was rate limited: " + rl.Message);
-            }
-            catch (Exception ex) when (ex is TimeoutException or HttpRequestException or OperationCanceledException)
-            {
-                failure = TurnVerdictFailureKind.DidNotAnswer;
-                detail = ex.Message;
-                record = FailedRecord(package, tenant, observedAt, "the judge did not answer: " + ex.Message);
-            }
-            catch (InvalidOperationException ex)
-            {
-                failure = TurnVerdictFailureKind.Unavailable;
-                detail = ex.Message;
-                record = FailedRecord(package, tenant, observedAt, "the judge could not be asked: " + ex.Message);
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (WingmanModelRateLimitedException rl)
+                {
+                    failure = TurnVerdictFailureKind.RateLimited;
+                    retryAfter = rl.RetryAfter;
+                    detail = rl.Message;
+                    record = FailedRecord(package, tenant, observedAt, "the judge was rate limited: " + rl.Message);
+                }
+                catch (Exception ex) when (ex is TimeoutException or HttpRequestException or OperationCanceledException)
+                {
+                    failure = TurnVerdictFailureKind.DidNotAnswer;
+                    detail = ex.Message;
+                    record = FailedRecord(package, tenant, observedAt, "the judge did not answer: " + ex.Message);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    failure = TurnVerdictFailureKind.Unavailable;
+                    detail = ex.Message;
+                    record = FailedRecord(package, tenant, observedAt, "the judge could not be asked: " + ex.Message);
+                }
+
+                var gotNoWords = failure == TurnVerdictFailureKind.DidNotAnswer
+                                 || (failure == TurnVerdictFailureKind.Refused && !answerWasReadable);
+                if (!flight.DecideReattempt(attempt < MaxJudgeAttemptsWhenListenedTo && gotNoWords,
+                        () => _env.IsVoiceSession(tenant, sid)))
+                    break;
+
+                ct.ThrowIfCancellationRequested();
+                FileLog.Write($"[TurnVerdictService] sid={sid}: the judge gave no usable words ({failure}: {detail}) and somebody is listening - one re-attempt with a {TurnVerdictSettings.ListenedToReattemptTimeoutSeconds}s deadline");
+                timeout = TimeSpan.FromSeconds(TurnVerdictSettings.ListenedToReattemptTimeoutSeconds);
             }
 
             ct.ThrowIfCancellationRequested();
@@ -1156,6 +1258,11 @@ public sealed class TurnVerdictService : IDisposable
 
             if (record.Failed)
             {
+                if (failure == TurnVerdictFailureKind.RateLimited && retryAfter is { } namedWait)
+                    WriteRateLimitHoldIfCurrent(key, flight, (record.VerdictId, _env.NowUtc() + namedWait, source?.Content));
+                // The explain-already-asked marker: set only when this flight's loop made its re-attempt for a person.
+                if (flight.ReattemptedForPerson)
+                    _askedOnDemandFailures[key] = record.VerdictId;
                 _env.Record(new TurnVerdictRecord(tenant, directorId, sid, ActivityEventTypes.TurnVerdictFailed,
                     FailureCause(failure),
                     $"trigger={TriggerWord(trigger)} kind={record.PackageKind} id={record.VerdictId} model={record.Model}"));
@@ -1245,13 +1352,17 @@ public sealed class TurnVerdictService : IDisposable
             ActivityCauses.ScreenUnchanged,
             $"trigger={TriggerWord(trigger)} id={verdict.VerdictId} failed={verdict.Failed}"));
 
+        var holdLeft = RateLimitHoldLeft(key, verdict);
         return verdict.Failed
             ? new TurnVerdictOutcome
             {
                 Kind = TurnVerdictOutcomeKind.Failed,
                 Verdict = verdict,
-                Failure = TurnVerdictFailureKind.Refused,
-                FailureDetail = "the last answer about this unchanged screen was refused; the sweep does not ask again",
+                Failure = holdLeft is null ? TurnVerdictFailureKind.Refused : TurnVerdictFailureKind.RateLimited,
+                RetryAfter = holdLeft,
+                FailureDetail = holdLeft is null
+                    ? "the last answer about this unchanged screen failed, and it is not asked again"
+                    : "the judge was rate limited about this unchanged screen, and it is not asked again inside the wait it named",
                 ScreenHash = hash,
                 SourceText = source?.Content,
             }
@@ -1262,6 +1373,121 @@ public sealed class TurnVerdictService : IDisposable
                 ScreenHash = hash,
                 SourceText = source?.Content,
             };
+    }
+
+    /// <summary>How many times one stop may ask the judge when somebody is listening: the first call and ONE
+    /// re-attempt. Every other stop asks once.</summary>
+    internal const int MaxJudgeAttemptsWhenListenedTo = 2;
+
+    // Is somebody listening to this stop? Decided by Flight.DecideReattempt: a person's own request (explain, a spoken
+    // reply) that started the flight or joined it before the decision, or a voice session - read at the moment of the
+    // decision, so a session whose voice was switched off while the first call ran does not buy a second one.
+
+    /// <summary>Whether a person has asked about the flight running for this session - it was started by explain, or
+    /// explain joined it. False when no flight is running. For tests that must know a join has landed.</summary>
+    internal bool FlightAskedOnDemand(TenantId tenant, string sessionId)
+        => _inFlight.TryGetValue((tenant, sessionId), out var flight) && flight.AskedOnDemand;
+
+    // A RATE LIMIT'S OWN WAIT, per session: the failed record it produced and when the wait it named ends. An explain
+    // on the unchanged screen does not ask again inside it.
+    private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), (string VerdictId, DateTime Until, string? SourceText)> _rateLimitHolds = new();
+
+    // THE FAILED RECORD A PERSON'S OWN ASK PRODUCED, per session. Explain may ask again about a failed record once;
+    // a failure that explain itself asked for is reused by the next explain rather than asked again.
+    private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), string> _askedOnDemandFailures = new();
+
+    // THE HOLD GENERATION, per session: every clear (a new turn, a Working event) moves it on, under _holdGate, and a
+    // flight writes its hold only when the generation is still the one it captured at start. Without it a flight that
+    // was still ending when a new turn cleared the hold wrote the old stop's wait back over the new stop.
+    private readonly object _holdGate = new();
+    private readonly Dictionary<(TenantId Tenant, string SessionId), long> _holdGenerations = new();
+
+    private long HoldGeneration((TenantId Tenant, string SessionId) key)
+    {
+        lock (_holdGate) return _holdGenerations.TryGetValue(key, out var generation) ? generation : 0;
+    }
+
+    private void ClearRateLimitHold((TenantId Tenant, string SessionId) key)
+    {
+        lock (_holdGate)
+        {
+            _holdGenerations[key] = (_holdGenerations.TryGetValue(key, out var generation) ? generation : 0) + 1;
+            _rateLimitHolds.TryRemove(key, out _);
+        }
+    }
+
+    private void WriteRateLimitHoldIfCurrent((TenantId Tenant, string SessionId) key, Flight flight, (string VerdictId, DateTime Until, string? SourceText) hold)
+    {
+        lock (_holdGate)
+        {
+            var current = _holdGenerations.TryGetValue(key, out var generation) ? generation : 0;
+            if (current != flight.HoldGeneration)
+            {
+                FileLog.Write($"[TurnVerdictService] sid={key.SessionId}: rate limit wait NOT recorded - a new turn or a Working event cleared the hold after this flight started");
+                return;
+            }
+            _rateLimitHolds[key] = hold;
+        }
+    }
+
+    /// <summary>Whether a rate limit wait is recorded for this session. For tests.</summary>
+    internal bool HasRateLimitHold(TenantId tenant, string sessionId) => _rateLimitHolds.ContainsKey((tenant, sessionId));
+
+    /// <summary>How much of a rate limit's named wait is left for this failed record, or null when it is not one or the
+    /// wait is over.</summary>
+    private TimeSpan? RateLimitHoldLeft((TenantId Tenant, string SessionId) key, TurnVerdictDto record)
+    {
+        if (!record.Failed || !_rateLimitHolds.TryGetValue(key, out var hold)
+            || !string.Equals(hold.VerdictId, record.VerdictId, StringComparison.Ordinal))
+            return null;
+        var left = hold.Until - _env.NowUtc();
+        return left > TimeSpan.Zero ? left : null;
+    }
+
+    /// <summary>
+    /// May the stored verdict answer this request without asking the judge? It must be about this very screen, and
+    /// an unreadable screen - every one hashes to "" - is reused only by the sweep, which comes past every pass.
+    ///
+    /// A FAILED record is reused by the sweep, for the same reason, and by a voice session's narration - its first
+    /// attempt and its speech re-attempt alike - whether or not it carries spoken words. A refused answer's words
+    /// are narrated exactly as an accepted verdict's are (slice I), and a timeout or a rate limit was already that
+    /// stop's one call. Asking again would make the call count depend on whether the voice refresh arrived before or
+    /// after the turn end's judgement ended: the slice I inspection measured two calls after a rate limit.
+    ///
+    /// Inside the wait a rate limit named, every trigger reuses the failed record, checked before the screen. Otherwise an
+    /// explain may ask again about a failed record once, but not about a failure its own attempts produced. A turn end
+    /// and a snooze expiry never reuse a failed record outside a rate limit's wait.
+    /// </summary>
+    /// <param name="currentSource">The source this stop would be judged from now, read only when a rate limit's wait is
+    /// running for the stored record - so the wait binds the stop it was named for, and a new reply on the same
+    /// unreadable screen is still a new stop.</param>
+    private bool IsReusable((TenantId Tenant, string SessionId) key, TurnVerdictDto latest, string hash, TurnVerdictTrigger trigger,
+        Func<string?> currentSource)
+    {
+        // INSIDE A RATE LIMIT'S NAMED WAIT NOTHING ASKS AGAIN ABOUT THAT STOP, for every trigger and whatever the screen
+        // now reads - an unreadable screen included (slice I inspection, round two). Checked before the screen is compared
+        // at all. "That stop" is the source it was judged from: a new reply is a new stop and is never held back by the
+        // previous one's wait (WingmanVoiceServiceTests.TheProvidersHold_DoesNotDelayANewTurnsNarration).
+        if (RateLimitHoldLeft(key, latest) is not null
+            && _rateLimitHolds.TryGetValue(key, out var hold)
+            && string.Equals(hold.SourceText, currentSource(), StringComparison.Ordinal))
+            return true;
+        if (!string.Equals(latest.ScreenHash, hash, StringComparison.Ordinal)) return false;
+        if (hash.Length == 0 && trigger != TurnVerdictTrigger.Sweep) return false;
+        if (!latest.Failed) return true;
+        return trigger switch
+        {
+            // The sweep and a voice session's refresh reuse EVERY failed record, with or without words: a refused
+            // answer's words are narrated, and a timeout or a rate limit was already that stop's one call (and its
+            // listened-to re-attempt). Asking again from here would make the number of calls depend on whether the
+            // refresh arrived before or after the turn end's judgement ended (inspection of slice I, finding 1).
+            TurnVerdictTrigger.Sweep or TurnVerdictTrigger.Voice => true,
+            // A person pressing explain may ask again about a failed record ONCE - never about a failure whose flight already
+            // made its re-attempt for a person. (Inside a rate limit's wait the check above has already answered.)
+            TurnVerdictTrigger.OnDemand => _askedOnDemandFailures.TryGetValue(key, out var asked)
+                                           && string.Equals(asked, latest.VerdictId, StringComparison.Ordinal),
+            _ => false,
+        };
     }
 
     private bool StoreIfCurrent((TenantId Tenant, string SessionId) key, long epoch, TurnVerdictDto record)

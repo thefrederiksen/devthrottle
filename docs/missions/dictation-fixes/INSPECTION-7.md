@@ -1,0 +1,29 @@
+﻿# Dictation Fixes - inspection 7
+
+**Verdict: PASS. No findings meeting the production-failure or issue Done-when threshold.** I inspected `origin/main...ae45ec605` against devthrottle #2925-#2929 and the phase 7 rulings L1-L3, including commits `cb661757`, `fd7d6424`, and `997b1863`. I inspected `devthrottle_internal` branch `mission/dictation-fixes-docs` at `e5f7d65d` against internal #2038. I did not use `REPORT.md` as evidence.
+
+## Inspection-six findings rechecked
+
+1. **Partial or failed cue playback:** `DesktopAudioCue.cs:51-123` calls the completion callback only for `PlaybackStopped` without an exception. Synthesis, output initialization, playback exceptions, an error from `PlaybackStopped`, and the three-second no-report timeout call the failure callback. Its interlocked outcome state lets the timeout and playback thread race without reporting both outcomes. The recorder's `NoteReadyCuePlaying` at `BatchDictationRecorder.cs:270-277` arms a wait only; `NoteReadyCueFinished` at :287-295 sets the blanking gate, while `NoteReadyCueFailed` at :305-314 leaves it closed. The phase 7 tests put a 50 or 100 ms partial cue above the detector threshold with speech after it and assert that both transcription paths preserve every sample on an error. They also cover playback that never starts and a missing end report.
+
+2. **Dialog gate and pre-stop wait:** `SpeakDialog.axaml.cs:663-680` hands success and failure callbacks to the recorder that received the cue; the dialog test holds the same cue-shaped audio in all three cases and blanks it only after successful completion. `BatchDictationRecorder.cs:375-417` captures the 250 ms stop tail, waits for an outstanding cue report within its remaining allowance, then stops and drains the microphone before the snapshot. It searches only when the captured state says playback completed successfully (`:441-467`). A playback error or no completion report leaves the captured PCM untouched and logs why. The wait and gate are shared by `TranscribeAsync` and background Send's `StopAndGetWavAsync`.
+
+3. **Wake Word close:** `WakeWordTestDialog.axaml.cs:111-159` checks `_closed` after the background device query, so no recorder is built after the close event. A recorder built before close is held in a local variable through `StartAsync`; the second close check disposes it if close arrived while it started. The catch also disposes a failed start. The three new Avalonia tests cover close during the query, during microphone start, and after listening begins. Source inspection closes the continuation gap that inspection six found.
+
+4. **Internal research header:** `e5f7d65d` changes the header of `docs/research/transcription/2026-09-09-unspoken-words.md:8-13` to say fourteen of 22 doubt segments were the recorded cue and the other eight remain doubt. Section 7 and `docs/architecture/transcription.html` agree. The internal branch changes only those two documents; `tools/transcription-lab/corpus/labels-final.json` is unchanged, and the documents say relabelling needs a separate recorded decision.
+
+## Whole-diff review
+
+- **#2925:** The shared cue generator and bounded normalized-correlation search find the cue in captured PCM and zero only the matched span with its lead-in and ring-down. Both desktop transcription paths use the same snapshot; capture-health counts are read before blanking. The phase 7 completion gate closes inspection six's partial-playback and failed-output cases. The accepted dropped-buffer and driver-early-end limits remain.
+- **#2926:** `GatewayTranscriptionService.TranscribeAsync` stores `PartTranscript.Raw`, gives the caller `Delivered` (or its dictionary-corrected form), stores that delivered form as `CleanedText`, and carries `Dropped`. Its service-level test sends crafted audio through the service and checks the stored and returned values. The misleading raw-named segment methods were renamed.
+- **#2927:** Desktop Send, Insert, and Pause reach the shared 250 ms capture tail before stop drain and run-out padding. The web recorder waits 250 ms before flushing and stopping; its tests include audio delivered during the tail and an input that became inactive.
+- **#2928 and #2929:** The recorder logs first audio with device and click/start timings, and the ready timeout logs a no-audio start. The selector shows the median of up to 20 recorded starts for each used device and updates after a first measurement. Resolution and enumeration run off the interface thread; the microphone opens after resolution without waiting for the selector list. The Speak and Wake Word close continuations guard recorder ownership.
+- **Internal #2038:** The correction identifies the fourteen cue openings, explains the unchanged doubt labels and scoring table, and describes the loud artefact limitation in the research and architecture documents.
+
+## Runs and limits
+
+- `scripts/test-local.ps1`: full Avalonia **546 passed, 0 failed, 0 skipped**; full Core.UnitTests **479 passed, 0 failed, 0 skipped**. Both TRX files report `outcome=Completed` and executed counts equal their totals. The other six default projects also passed.
+- `npm test --workspace @devthrottle/client-core`: **1,174 passed, 0 failed**, across 104 test files, including the web recorder tests.
+- `scripts/test-local.ps1 -Gateway` with the transcription, dictation, voice, and recording filter terms: **246 passed, 0 failed, 0 skipped**. It waited for the machine-wide Gateway lock, then executed all 246; the TRX reports `outcome=Completed`.
+
+The tests use fake microphones, playback, browser recorders, and provider responses. This inspection did not run live speaker-to-microphone capture, so acoustic leakage on future devices and the post-release rate of invented opening words remain unmeasured. The stored-row check and post-release comparison in #2926 and #2925 wait for the owner's release under R2.

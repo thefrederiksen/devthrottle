@@ -32,8 +32,9 @@ if _tools_dir not in sys.path:
 from cc_shared import gateway  # noqa: E402
 from cc_shared.config import CCDirectorConfig  # noqa: E402
 
+from . import axi_cli  # noqa: E402
+
 console = Console()
-err_console = Console(stderr=True)
 
 LOOPBACK_DEFAULT = "http://127.0.0.1:7878"
 TIMEOUT_SECONDS = 25  # /diag/network shells the CLI and pings peers, so allow more than the usual 10s.
@@ -96,7 +97,8 @@ class DiagClient:
             resp = requests.get(url, headers=self._headers(), timeout=TIMEOUT_SECONDS)
         except requests.exceptions.ConnectionError as exc:
             raise GatewayError(
-                f"Gateway not reachable at {self.base_url}. Is the Gateway tray app running on this machine?"
+                f"Gateway not reachable at {self.base_url}. Is the Gateway running? A remote Gateway "
+                "is set with 'cc-devthrottle settings set gateway.url <url>'."
             ) from exc
         except requests.exceptions.Timeout as exc:
             raise GatewayError(
@@ -128,13 +130,17 @@ def _gateway_message(resp: requests.Response) -> str:
     return text if text else f"Gateway returned HTTP {resp.status_code}"
 
 
+def _fail(message: str) -> None:
+    """The diagnostic could not be read. Report it on standard error with where to look, and exit 1."""
+    axi_cli.fail(message, ["cc-devthrottle settings get gateway.url", "cc-devthrottle settings get gateway.token"])
+
+
 def show_network(json_output: bool) -> None:
     """Print the server-side Tailscale diagnostic: per-device direct-vs-relay + latency, plus UDP/NAT."""
     try:
         diag = DiagClient().network()
     except GatewayError as exc:
-        err_console.print(f"[red]{exc}[/red]")
-        raise SystemExit(1)
+        _fail(str(exc))
 
     if json_output:
         console.print_json(json.dumps(diag))
@@ -203,8 +209,7 @@ def show_results(json_output: bool) -> None:
     try:
         results = DiagClient().results()
     except GatewayError as exc:
-        err_console.print(f"[red]{exc}[/red]")
-        raise SystemExit(1)
+        _fail(str(exc))
 
     if json_output:
         console.print_json(json.dumps(results))

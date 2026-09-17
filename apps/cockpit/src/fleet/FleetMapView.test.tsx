@@ -34,7 +34,22 @@ vi.mock("@devthrottle/client-core/api/client", () => ({
   getAgents: () => Promise.resolve([]),
   createSession: () => Promise.resolve({ sessionId: "new" }),
   gatewayErrorMessage: (e: unknown) => String(e),
+  // The colour legend is read from the Gateway (GET /gateway/session-colours) through the shared transport.
+  authHeaders: () => ({}),
+  GatewayError: class GatewayError extends Error {},
+  gatewayFetch: () =>
+    Promise.resolve(new Response(JSON.stringify(LEGEND), { status: 200, headers: { "Content-Type": "application/json" } })),
 }));
+
+const LEGEND = {
+  entries: [
+    { colour: "red", hex: "#EF4444", title: "Needs you", means: "The session has stopped and is waiting for you.", asksForYou: "Yes" },
+    { colour: "blue", hex: "#3B82F6", title: "Working", means: "The agent is running a turn right now.", asksForYou: "No" },
+    { colour: "purple", hex: "#A855F7", title: "Carrying on", means: "The Wingman judged it will continue on its own.", asksForYou: "No" },
+  ],
+  broken: { hex: "#FF00FF", title: "Magenta", means: "Not a state." },
+  verdictNote: "Some colours need the verdicts switched on.",
+};
 
 import { FleetMapView } from "./FleetMapView";
 
@@ -346,5 +361,113 @@ describe("FleetMapView - the unreachable banner is the Gateway's sentence", () =
     expect(screen.queryByRole("button", { name: /Start a new session on Slot 5/ })).toBeNull();
     // And nothing on this screen calls it a failure.
     expect(screen.queryByText(/unreachable/i)).toBeNull();
+  });
+});
+
+describe("FleetMapView - the Sessions list's tree, across machines", () => {
+  // The owner's case, 16 September: Architect 102 on the Mac Mini started Worker 146 on the Mac Mini and
+  // Worker 124 on SOREN_NORTH. The Sessions list showed both under 102; the map showed 146 only, with 124
+  // loose at the top of SOREN_NORTH's column.
+  function fleet(): SessionDto[] {
+    const mac = { machineName: "devthrottle-mac-mini", directorId: "mac-1", triageBucket: "active" };
+    return [
+      session({ sessionId: "102", number: 102, name: "AXI Tools - Architect", ...mac, createdAt: "2026-09-16T10:26:00Z" }),
+      session({ sessionId: "146", number: 146, name: "AXI Tools - Worker - fix", ...mac, isControlled: true, controllerSessionId: "102" }),
+      session({ sessionId: "124", number: 124, name: "AXI Tools - Worker - benchmark", triageBucket: "active", isControlled: true, controllerSessionId: "102" }),
+      session({ sessionId: "144", number: 144, name: "cc-worktrees - Architect", triageBucket: "active" }),
+    ];
+  }
+
+  beforeEach(() => {
+    window.localStorage.setItem("cockpit.fleetMapPivot", "machine");
+    rosterValue.current = {
+      sessions: fleet(),
+      machineErrors: [],
+      directors: [
+        director({ directorId: "north-1", machineName: "SOREN_NORTH", state: "online" }),
+        director({ directorId: "mac-1", machineName: "devthrottle-mac-mini", state: "online" }),
+      ],
+      unreachableBanner: null,
+      error: null,
+      refreshNow: () => {},
+    };
+  });
+
+  it("collapses 102's crew by default and says what is inside it", () => {
+    render(<FleetMapView />);
+    const chevron = screen.getByRole("button", { name: /Expand the 2 sessions under AXI Tools - Architect/ });
+    expect(chevron.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.getByText(/2 under it:/)).toBeTruthy();
+    // Collapsed: neither Worker is drawn anywhere on the map - including SOREN_NORTH's column.
+    expect(screen.queryByText("AXI Tools - Worker - benchmark")).toBeNull();
+    expect(screen.queryByText("AXI Tools - Worker - fix")).toBeNull();
+    expect(screen.getByText("cc-worktrees - Architect")).toBeTruthy();
+  });
+
+  it("expands to BOTH Workers under 102, the one on SOREN_NORTH saying where it runs, each drawn once", () => {
+    render(<FleetMapView />);
+    fireEvent.click(screen.getByRole("button", { name: /Expand the 2 sessions under AXI Tools - Architect/ }));
+    const crew = screen.getByLabelText("Sessions under AXI Tools - Architect");
+    expect(crew.textContent).toContain("AXI Tools - Worker - fix");
+    expect(crew.textContent).toContain("AXI Tools - Worker - benchmark");
+    expect(screen.getAllByText("AXI Tools - Worker - benchmark")).toHaveLength(1);
+    const card124 = screen.getByText("AXI Tools - Worker - benchmark").closest("article");
+    expect(card124?.textContent).toContain("SOREN_NORTH");
+    const card146 = screen.getByText("AXI Tools - Worker - fix").closest("article");
+    expect(card146?.textContent).not.toContain("SOREN_NORTH");
+    // The open crew is the Sessions list's remembered setting, so the two screens agree.
+    expect(window.localStorage.getItem("dt.sessions.crewExpanded")).toContain("102");
+  });
+
+  it("By agent does not hide a session inside another column's crew", () => {
+    window.localStorage.setItem("cockpit.fleetMapPivot", "agent");
+    rosterValue.current = {
+      ...rosterValue.current,
+      sessions: fleet().map((s) => (s.sessionId === "124" ? { ...s, agent: "Codex" } : s)),
+    };
+    render(<FleetMapView />);
+    // 124 runs Codex, its parent ClaudeCode: in the Codex column it stands on its own.
+    expect(screen.getByText("AXI Tools - Worker - benchmark")).toBeTruthy();
+  });
+});
+
+describe("FleetMapView - what the colours mean", () => {
+  beforeEach(() => {
+    window.localStorage.setItem("cockpit.fleetMapPivot", "machine");
+    rosterValue.current = {
+      sessions: [
+        session({
+          sessionId: "144",
+          number: 144,
+          name: "cc-worktrees - Architect",
+          effectiveColor: "purple",
+          effectiveColorHex: "#A855F7",
+          stateLabel: "Monitor fix round 2 progress",
+          // What the Director wrote before the Wingman judged the turn - the hover used to show this.
+          lastStatusReason: "needs you",
+        }),
+      ],
+      machineErrors: [],
+      directors: [director({ directorId: "north-1", machineName: "SOREN_NORTH", state: "online" })],
+      unreachableBanner: null,
+      error: null,
+      refreshNow: () => {},
+    };
+  });
+
+  it("shows the Gateway's legend beside the map, every colour it sends", async () => {
+    render(<FleetMapView />);
+    const panel = screen.getByRole("complementary", { name: "What the colours mean" });
+    for (const entry of LEGEND.entries) {
+      expect(await screen.findByText(entry.means)).toBeTruthy();
+      expect(panel.querySelector(`[data-colour="${entry.colour}"]`)).not.toBeNull();
+    }
+  });
+
+  it("hovers a purple dot as Carrying on, not as the Director's 'needs you'", async () => {
+    const { container } = render(<FleetMapView />);
+    await screen.findByText(LEGEND.entries[2].means);
+    const dot = container.querySelector(".fmap-card .fmap-dot") as HTMLElement;
+    expect(dot.getAttribute("title")).toBe("Carrying on: Monitor fix round 2 progress");
   });
 });

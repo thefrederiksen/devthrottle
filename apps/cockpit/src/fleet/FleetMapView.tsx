@@ -1,8 +1,14 @@
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { type SessionDto } from "@devthrottle/client-core/api/client";
 import { listMissions, type MissionDto } from "@devthrottle/client-core/missions/missions";
 import { dotColor, dotHex, effectiveColor, stateLabel } from "@devthrottle/client-core/sessions/ordering";
+import { dotTitle } from "@devthrottle/client-core/sessions/sessionColours";
+import {
+  ColourLegendButton,
+  ColourLegendPanel,
+  useSessionColourLegend,
+} from "@devthrottle/client-core/sessions/ColourLegend";
 import {
   reachabilityFor,
   reachabilityLastSeen,
@@ -20,22 +26,39 @@ import { useSharedRoster } from "@devthrottle/client-core/fleet/rosterStore";
 import { repoBasename, repoIdentity, relativeTime } from "./format";
 import {
   agentBadgeText,
-  buildControllerTree,
   directorLabelOf,
+  elsewhereTag,
+  FLEET_TREE_PIVOTS,
+  laneTree,
   directorsByMachine,
   groupByDirector,
   machineKeyOf,
   modelChip,
   modelKeyOf,
+  nestedElsewhereText,
   shortDir,
   type DirectorGroup as FormatDirectorGroup,
 } from "./fleetMapFormat";
+import {
+  buildSessionTree,
+  childrenOf,
+  descendantsOf,
+  isCrewExpanded,
+  setCrewExpanded,
+  type SessionTree,
+} from "@devthrottle/client-core/sessions/tree";
 import { MissionsBoard, missionCounts } from "../missions/MissionsBoard";
+import { CrewLine } from "../sessions/CrewLine";
 import { NewSessionDialog } from "../sessions/NewSessionDialog";
 
 // Per-Director reachability for the Online / Wobbly / Offline node rendering (issue #1215), provided at
 // the Fleet Map root and read by each NodeCard so the cards dim in place without prop-drilling.
 const ReachabilityContext = createContext<DirectorReachability[]>([]);
+
+// The ownership tree over the WHOLE roster, for the pivots whose columns hold top-level sessions only
+// (FLEET_TREE_PIVOTS). Null on the agent and model pivots and during a search, where each column builds
+// its own tree (see laneTree). Provided at the root so every column reads the one tree.
+const FleetTreeContext = createContext<SessionTree | null>(null);
 
 // The Fleet Map (issue #1109): a live, spatial view of everything running across the tailnet. Where
 // the Fleet page (FleetView) is a list of cards grouped by machine, this is a node canvas - a root
@@ -207,6 +230,12 @@ export function FleetMapView() {
   }, [allLanes, query]);
   // The flat "Fleet list" pivot (issue #1212): every session once, filtered by the same title search,
   // in a stable session-number order (the identity the owner reads), so matches never move.
+  // One tree for the whole fleet, the same one the Sessions list builds, so a crew that spans machines
+  // reads the same on both screens. A search flattens it: a match must never hide in a collapsed crew.
+  const fleetTree = useMemo(
+    () => (FLEET_TREE_PIVOTS.has(pivot) && query.trim().length === 0 ? buildSessionTree(list) : null),
+    [list, pivot, query],
+  );
   const flatSessions = useMemo(() => {
     const q = query.trim().toLowerCase();
     const filtered = q.length === 0 ? list : list.filter((s) => (s.name ?? "").toLowerCase().includes(q));
@@ -289,6 +318,7 @@ export function FleetMapView() {
 
   return (
     <ReachabilityContext.Provider value={directors}>
+    <FleetTreeContext.Provider value={fleetTree}>
     <div className="fmap">
       <header className="fmap-head">
         <h1 className="fmap-title">Fleet Map</h1>
@@ -362,6 +392,8 @@ export function FleetMapView() {
           )}
         </span>
 
+        <ColourLegendButton className="fmap-legend-btn" />
+
         <div className="fmap-controls">
           {/* The title search filters the node canvas / flat list; the Missions board is not searchable,
               so the box is hidden while that pivot is active rather than left as a dead control. */}
@@ -423,6 +455,8 @@ export function FleetMapView() {
           </div>
         )}
 
+      <div className="fmap-body">
+      <div className="fmap-main">
       {pivot === "mission"
         ? // The board also mounts on a mission-load FAILURE with nothing else to show: otherwise the one
           // case where we know least - no sessions and no mission list - is the case that renders the most
@@ -457,15 +491,13 @@ export function FleetMapView() {
             />
           )}
 
-      <div className="fmap-legend" aria-hidden="true">
-        <LegendDot color="blue" label="Working" />
-        <LegendDot color="red" label="Needs you" />
-        <LegendDot color="green" label="Ready" />
-        <LegendDot color="cyan" label="Done" />
-        <LegendDot color="yellow" label="Wingman reading" />
-        <LegendDot color="orange" label="Transcribing" />
-        <LegendDot color="supporting" label="Sub-agent" />
-        <LegendDot color="grey" label="Snoozed" />
+
+      </div>
+
+      {/* What every dot colour means, in the Gateway's words - always on screen beside the map, so a colour never has
+          to be guessed. Replaces a hand-typed strip at the foot of the page that nobody scrolled to and that had
+          fallen behind the product (no "Carrying on", no "Crashed"). */}
+      <ColourLegendPanel className="fmap-legend-panel" />
       </div>
 
       {newSessionDirectorId !== null && (
@@ -476,16 +508,8 @@ export function FleetMapView() {
         />
       )}
     </div>
+    </FleetTreeContext.Provider>
     </ReachabilityContext.Provider>
-  );
-}
-
-function LegendDot({ color, label }: { color: string; label: string }) {
-  return (
-    <span className="fmap-legend-item">
-      <span className="fmap-legend-dot" style={{ backgroundColor: dotColor(color) }} />
-      {label}
-    </span>
   );
 }
 
@@ -735,23 +759,93 @@ function FleetList({ sessions, onOpen }: { sessions: SessionDto[]; onOpen: (sid:
   );
 }
 
-// Issue #1626: a lane's cards are ordered and indented as the spawn tree - a Manager's Workers sit
-// under it, not scattered through the lane. The tree itself is built in fleetMapFormat (pure, unit
-// tested); this only renders it.
+// A column's cards, drawn as the ownership tree (the owner ruling of 2026-09-14 that the Sessions list
+// follows): any session that started others is a parent, and the sessions it started sit UNDER it,
+// collapsed by default behind a chevron, with the crew line saying what is inside. Which sessions are
+// top-level here, and whether their crews reach into other columns, is laneTree's rule (fleetMapFormat,
+// unit tested); this only renders it.
 function LaneCards({ sessions, pivot, onOpen }: { sessions: SessionDto[]; pivot: Pivot; onOpen: (sid: string) => void }) {
-  const nodes = useMemo(() => buildControllerTree(sessions, sessionSort), [sessions]);
+  const fleetTree = useContext(FleetTreeContext);
+  const tree = useMemo(() => laneTree(sessions, fleetTree), [sessions, fleetTree]);
+  if (tree.roots.length === 0) {
+    return <div className="fmap-freeslot">{nestedElsewhereText(sessions.length)}</div>;
+  }
   return (
     <>
-      {nodes.map((n) => (
-        <NodeCard
-          key={n.session.sessionId ?? n.session.number}
-          session={n.session}
-          depth={n.depth}
-          pivot={pivot}
-          onOpen={onOpen}
-        />
+      {tree.roots.map((s) => (
+        <TreeCard key={s.sessionId ?? s.number} session={s} tree={tree} depth={0} pivot={pivot} onOpen={onOpen} />
       ))}
     </>
+  );
+}
+
+// One card and, when it supervises sessions, its chevron, its crew line while collapsed and its crew while
+// expanded. Expanded or collapsed is the SAME remembered setting the Sessions list uses (isCrewExpanded),
+// so opening a crew on one screen opens it on the other.
+function TreeCard({
+  session: s,
+  tree,
+  depth,
+  parent,
+  pivot,
+  onOpen,
+}: {
+  session: SessionDto;
+  tree: SessionTree;
+  depth: number;
+  parent?: SessionDto;
+  pivot: Pivot;
+  onOpen: (sid: string) => void;
+}) {
+  const sid = (s.sessionId ?? "").trim();
+  const kids = childrenOf(tree, s);
+  const isParent = kids.length > 0;
+  const [expanded, setExpanded] = useState<boolean>(() => isCrewExpanded(sid));
+  const toggle = () => {
+    const next = !expanded;
+    setExpanded(next);
+    setCrewExpanded(sid, next);
+  };
+  const name = (s.name ?? "").trim().length === 0 ? "(unnamed)" : (s.name ?? "");
+  const underCount = isParent ? descendantsOf(tree, s).length : 0;
+  return (
+    <div className={isParent ? "fmap-tree fmap-tree-parent" : "fmap-tree"}>
+      {isParent && (
+        <button
+          type="button"
+          className={`roster-chevron fmap-chevron${expanded ? " open" : ""}`}
+          aria-expanded={expanded}
+          aria-label={expanded ? `Collapse the ${underCount} sessions under ${name}` : `Expand the ${underCount} sessions under ${name}`}
+          title={expanded ? "Collapse" : "Expand"}
+          onClick={toggle}
+        />
+      )}
+      <NodeCard
+        session={s}
+        depth={depth}
+        parent={parent}
+        pivot={pivot}
+        onOpen={onOpen}
+        crew={isParent && !expanded ? <CrewLine root={s} tree={tree} /> : null}
+      />
+      {isParent && expanded && (
+        // The indent is capped, so a deep chain leans right a little and then stops rather than squeezing
+        // the cards into a sliver. The connector rail on each child card keeps a capped level readable.
+        <div className={depth < 3 ? "fmap-kids" : "fmap-kids fmap-kids-flat"} aria-label={`Sessions under ${name}`}>
+          {kids.map((k) => (
+            <TreeCard
+              key={k.sessionId ?? k.number}
+              session={k}
+              tree={tree}
+              depth={depth + 1}
+              parent={s}
+              pivot={pivot}
+              onOpen={onOpen}
+            />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -760,13 +854,20 @@ function NodeCard({
   pivot,
   onOpen,
   depth = 0,
+  parent,
+  crew = null,
 }: {
   session: SessionDto;
   pivot: Pivot;
   onOpen: (sid: string) => void;
   depth?: number;
+  /** The session this card is drawn under, when it is a child - so it can say where it runs if that differs. */
+  parent?: SessionDto;
+  /** The crew line, when this card is a collapsed parent. */
+  crew?: ReactNode;
 }) {
   const directors = useContext(ReachabilityContext);
+  const { legend } = useSessionColourLegend();
   const color = effectiveColor(s);
   const sid = s.sessionId ?? "";
   const unnamed = (s.name ?? "").trim().length === 0;
@@ -795,6 +896,10 @@ function NodeCard({
 
   // The card tags carry the two hierarchy coordinates NOT already implied by the lane the card sits in.
   const tags = cardTags(s, pivot);
+  // A child drawn under a parent that runs elsewhere says where it runs, as the Sessions list does - its
+  // column is its parent's, not its own.
+  const elsewhere = parent === undefined ? null : elsewhereTag(parent, s, reach);
+  if (elsewhere !== null) tags.unshift(elsewhere);
   // Issue #1625: the agent rides the meta row WITH the tags, never the title row. On the title row it was
   // rigid (flex: 0 0 auto) against a title that was the only flexible thing there, so the title was the
   // only thing that could shrink and it was ellipsized to a few characters on every card. Null on the
@@ -808,10 +913,6 @@ function NodeCard({
   return (
     <article
       className={cls}
-      // Indent by tree depth (issue #1626). The depth itself is uncapped - nesting is real - but the
-      // INDENT is capped, so a deep chain leans right a little and then stops rather than squeezing the
-      // cards into a sliver. The connector rail (::before) is what keeps a capped level readable.
-      style={depth > 0 ? { marginLeft: `${Math.min(depth, 4) * 14}px` } : undefined}
       tabIndex={0}
       role="button"
       title={sid.length > 0 ? "Open session" : undefined}
@@ -827,7 +928,7 @@ function NodeCard({
         <span
           className={color === "blue" ? "fmap-dot working" : "fmap-dot"}
           style={{ backgroundColor: dotHex(s) }}
-          title={s.lastStatusReason ?? undefined}
+          title={dotTitle(s, legend)}
         />
         {hasNum && <span className="num-badge">{num}</span>}
         <span className={unnamed ? "fmap-card-name unnamed" : "fmap-card-name"}>
@@ -864,6 +965,8 @@ function NodeCard({
       {lastSeen.length > 0 && (
         <div className="fmap-card-lastseen">{directorStateLabel(reach)} - {lastSeen}</div>
       )}
+
+      {crew !== null && <div className="fmap-card-crew">{crew}</div>}
     </article>
   );
 }
@@ -1028,7 +1131,7 @@ function flatSort(a: SessionDto, b: SessionDto): number {
 // `groupId` parameter, that parameter defaults to null, no call site passes it, and NewSessionRequest
 // has no group field at all - so no session created through the Gateway, the CLI, or the desktop can
 // ever carry one. The clustering therefore never rendered, for anyone. The controller spawn tree
-// (buildControllerTree) is the real relationship and replaces it, which also keeps ONE grouping
+// (client-core buildSessionTree) is the real relationship and replaces it, which also keeps ONE grouping
 // mechanism in this view instead of two competing ones.
 //
 // The DTO field and its C# plumbing are deliberately left alone here - removing them is a separate

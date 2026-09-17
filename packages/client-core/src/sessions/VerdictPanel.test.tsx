@@ -119,9 +119,43 @@ describe("the verdict panel", () => {
     await waitFor(() => expect(calls).toHaveLength(1));
     expect(container.innerHTML).toBe("");
 
-    // A failed or reading row is not an answer to show either, and the same history read decides it.
-    rerender(<VerdictPanel sessionId={SID} session={session(verdict(), "failed")} />);
+    // A reading row is not an answer to show either, and the same history read decides it.
+    rerender(<VerdictPanel sessionId={SID} session={session(null, "reading")} />);
     await waitFor(() => expect(container.innerHTML).toBe(""));
+  });
+
+  // ---- A current refusal (the slice I inspection, finding 3) ----
+  // The real shape: the row is stamped failed and carries the failed record, and the history endpoint answers with
+  // that SAME failed record as its newest row. The old test gave an empty history, which is not what the Gateway
+  // returns, and so could not see the panel rendering a current refusal as a superseded verdict.
+
+  it("shows a current failed record as refused, with the Gateway's reason, never as superseded", async () => {
+    const reason = "the receipt was not found verbatim in the reply or on the screen";
+    const refusedRecord = verdict({
+      verdictId: "tv-refused",
+      failed: true,
+      failureReason: reason,
+      label: "",
+      summary: "",
+      evidence: "",
+      menu: null,
+      options: [],
+      answerVia: "",
+    });
+    fakeGatewayByRoute([HISTORY(refusedRecord)]);
+
+    render(<VerdictPanel sessionId={SID} session={session(refusedRecord, "failed")} />);
+
+    expect(screen.getByLabelText("Wingman verdict, refused")).toBeTruthy();
+    expect(screen.getByText(`Refused: ${reason}`)).toBeTruthy();
+    expect(screen.queryByText(/gone back to work/)).toBeNull();
+    expect(screen.queryByLabelText("Wingman verdict, superseded")).toBeNull();
+    expect(screen.getByRole("button", { name: "This is wrong" })).toBeTruthy();
+    // The row already carries the newest record, so the history is not read for it - and a read that came back
+    // with the same record can therefore never turn it into a superseded one.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(calls).toHaveLength(0);
+    expect(screen.queryByText(/gone back to work/)).toBeNull();
   });
 
   // ---- The record a session left behind (slice G, round 2) ----
@@ -192,6 +226,13 @@ describe("the verdict panel", () => {
     // "The read was refused" and "this session was never judged" are different facts, and the panel must not
     // render them the same way.
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("shadow record"));
+  });
+
+  it("never gives an accepted verdict the refused styling", () => {
+    const { container } = render(<VerdictPanel sessionId={SID} session={session(verdict({ risk: "irreversible" }))} />);
+    expect(container.querySelector(".verdict-refused")).toBeNull();
+    expect(screen.queryByText(/^Refused:/)).toBeNull();
+    expect(screen.getByLabelText("Wingman verdict")).toBeTruthy();
   });
 
   it("shows the receipt expanded, the label and the summary, verbatim", () => {

@@ -66,6 +66,10 @@ def review_section(run: dict, owner_decisions: list[dict]) -> list[str]:
         label = {"keep": "OWNER KEPT", "drop": "OWNER DROPPED", "fix": "OWNER SAID FIX"}[d["decision"]]
         note = f' (owner: "{_cell(d["note"])}")' if d["note"] else ""
         lines.append(f"- {label}: {_cell(d['title'])}{note}")
+    if any(h.get("same_family") for h in history):
+        lines.append(f"Note: the reviewer is the author's agent family ({run['author_agent']}) on a "
+                     f"different model than the author ({run.get('author_model') or 'unknown'}), "
+                     "as .ship.yaml on main allows. This is a weaker check than another family.")
     lines.append("Pre-answered by mission brief: none")
     return lines
 

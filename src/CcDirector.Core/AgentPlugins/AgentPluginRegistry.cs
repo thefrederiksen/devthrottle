@@ -105,7 +105,6 @@ public static class AgentPluginRegistry
         DefaultBufferSizeBytes = source.DefaultBufferSizeBytes,
         GracefulShutdownTimeoutSeconds = source.GracefulShutdownTimeoutSeconds,
         FleetKillGraceMs = source.FleetKillGraceMs,
-        MessageSteward = source.MessageSteward,
         PiPath = source.PiPath,
         CodexPath = source.CodexPath,
         GeminiPath = source.GeminiPath,

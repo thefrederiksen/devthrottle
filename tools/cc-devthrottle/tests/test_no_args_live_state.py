@@ -295,7 +295,7 @@ def test_no_args_GatewayUnreachable_ExitsOneWithActionableMessage(monkeypatch):
     assert result.stdout == ""
     assert result.stderr.isascii()
     assert "Error: Cannot reach the Gateway at http://127.0.0.1:9" in result.stderr
-    assert "Run cc-devthrottle setup status to check this machine" in result.stderr
+    assert result.stderr.splitlines()[1:] == ["help[2]:", "  cc-devthrottle setup status", "  cc-devthrottle --help"]
 
 
 def test_no_args_NoGatewayConfigured_ExitsOne(monkeypatch):

@@ -26,6 +26,7 @@ from typer.testing import CliRunner
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from cc_shared.axi_output import parse_list  # noqa: E402
 from src import session_ops  # noqa: E402
 from src.cli import app  # noqa: E402
 
@@ -48,7 +49,8 @@ def _worker(has_live_supervisor=True, controller=PARENT):
     }
 
 
-PARENT_ROW = {"sessionId": PARENT, "name": "Mission - Manager"}
+# The Gateway always sends controllerSessionId; null is a session nobody drives.
+PARENT_ROW = {"sessionId": PARENT, "name": "Mission - Manager", "controllerSessionId": None}
 
 
 @pytest.fixture
@@ -59,9 +61,9 @@ def sent(monkeypatch):
     def fake_post_json(path, body):
         posted["path"] = path
         posted["body"] = body
-        # The Gateway's real acceptance shape. Using anything else here would make these tests pass
-        # over a report the product would have called undelivered.
-        return {"accepted": True}
+        # The Gateway's real acceptance shape (FleetMessageSendResponse). Using anything else here would
+        # make these tests pass over a report the product would have called not queued.
+        return {"status": "queued", "messageId": "m" * 32, "recipientSessionId": path.split("/")[1]}
 
     monkeypatch.setenv("CC_SESSION_ID", WORKER)
     monkeypatch.setattr(session_ops.gateway, "post_json", fake_post_json)
@@ -77,6 +79,9 @@ def test_the_report_reaches_the_parent_in_the_sessions_own_words(monkeypatch, se
     # Addressed to the PARENT, not to this session and not broadcast.
     assert sent["path"] == f"sessions/{PARENT}/message"
     assert sent["body"]["text"] == "Fixed the auth bug; tests green."
+    # A REPORT, so the Gateway does not hold it to the per-recipient spacing that every refusal points at.
+    assert sent["body"]["kind"] == "report"
+    assert "Queued" in result.output
 
 
 def test_with_no_parent_nothing_is_sent_and_it_still_succeeds(monkeypatch, sent):
@@ -156,24 +161,35 @@ def test_a_report_with_no_words_is_refused(monkeypatch, sent):
     assert "say what you did" in result.output
 
 
-def test_a_refused_delivery_is_a_failure_not_a_shrug(monkeypatch, sent):
-    """A report that did not arrive must not look like one that did.
+def test_a_refused_delivery_is_a_failure_not_a_shrug(monkeypatch, sent, either_console):
+    """A report that was not queued must not look like one that was.
 
     The whole point of this verb is that the parent LEARNS. Printing success over a refusal would
-    leave a session believing it had handed its work back when nothing had been delivered - the same
-    silence this replaced, with a green line on top of it. It goes through the shared delivery
-    reporter, so a refusal exits non-zero exactly as `message send` does.
+    leave a session believing it had handed its work back when nothing had been queued - the same
+    silence this replaced, with a green line on top of it. Both shapes a refusal can take are
+    checked: a refusal in a 200 body, and the HTTP error the Gateway actually answers with.
     """
     monkeypatch.setattr(session_ops, "_get_fleet", _fleet(_worker(), PARENT_ROW))
     monkeypatch.setattr(
         session_ops.gateway, "post_json",
-        lambda path, body: {"accepted": False, "error": "the parent is not accepting messages"},
+        lambda path, body: {"status": "refused", "error": "the parent is not accepting messages"},
     )
 
     result = runner.invoke(app, ["session", "report", "Done."])
 
     assert result.exit_code != 0
-    assert "Not delivered" in result.output
+    assert "Not queued" in result.output
+    assert "not accepting messages" in result.output
+
+    def refuse(path, body):
+        raise session_ops.gateway.GatewayError("You have sent 6 messages in the last hour; the limit is 6.", status=429)
+
+    monkeypatch.setattr(session_ops.gateway, "post_json", refuse)
+    result = runner.invoke(app, ["session", "report", "Done."])
+    assert result.exit_code != 0
+    assert "Not queued" in result.output
+    # Verbatim, on the raw output: the Gateway's sentence is quoted, so the console must not style it.
+    assert "You have sent 6 messages in the last hour; the limit is 6." in result.output
 
 
 def test_it_reports_for_a_named_session_when_asked(monkeypatch, sent):
@@ -206,20 +222,19 @@ def test_session_workers_shows_no_hand_for_a_worker_that_is_not_asking(monkeypat
     monkeypatch.setenv("CC_SESSION_ID", PARENT)
     worker = {
         "sessionId": WORKER,
-        "name": "wkr",   # short: Rich wraps a long name in a narrow column and the assertion
-                         # would then fail on the RENDERING rather than on the behaviour (#1082)
+        "name": "wkr",
         "controllerSessionId": PARENT,
+        "triageBucket": "onHold",
+        "activityState": "Idle",
         "stateLabel": "Snoozed",
         "needsManager": False,               # present and false, exactly as the Gateway sends it
         "needsManagerReason": "stale words",  # and a reason that outlived the lowered hand
     }
-    # list_my_workers reads GET /sessions directly rather than through _get_fleet.
-    monkeypatch.setattr(
-        session_ops.gateway, "get_json", lambda path: {"sessions": [worker, PARENT_ROW]}
-    )
+    monkeypatch.setattr(session_ops, "_get_fleet", lambda: ([worker, PARENT_ROW], True, None, None))
 
     session_ops.list_my_workers()
 
-    out = plain(capsys.readouterr().out)
-    assert "wkr" in out              # the control: the row IS listed, so an empty table cannot pass
-    assert "stale" not in out        # but its hand is down, so nothing is asked for
+    _, records = parse_list(plain(capsys.readouterr().out), "workers")
+    # The control: the row IS listed, so an empty list cannot pass - but its hand is down, so nothing
+    # is asked for, and the reason that outlived the lowered hand is not shown as a need.
+    assert records == [{"id": WORKER, "name": "wkr", "state": "snoozed", "hand": "down", "need": None}]

@@ -133,7 +133,34 @@ internal static class SpawnOrigin
             return false;
         }
 
-        FileLog.Write($"[SpawnOrigin] {route}: ownership declared - session {stated} owns the new session");
+        // A SESSION KEY MAY NOT NAME SOMEBODY ELSE AS THE SUPERVISOR (the Message Load mission, inspection 1,
+        // ruling 2). The supervisor is who the new session may message and whose worker it counts as for
+        // "message send all" (FleetMessagePolicy), so a caller that could name any live session here could give
+        // itself a messaging relationship nobody granted: spawn a child "controlled by" an unrelated session,
+        // and the child may write into that session's inbox. The caller may own the result itself, or give it
+        // to the user ("none", above). The owner's own spawns never reach this arm - a device key returned
+        // before it - and a Director relaying a spawn carries no session key, so neither is changed.
+        if (!Guid.TryParse(stated, out var statedId) || statedId != caller.SessionId)
+        {
+            FileLog.Write($"[SpawnOrigin] {route}: REFUSED - session {caller.SessionId} named another session ({stated}) as the owner");
+            error = Results.Json(new
+            {
+                error = $"a session may not name another session ({stated}) as the owner of what it starts",
+                detail = NamedAnotherOwner,
+            }, statusCode: StatusCodes.Status403Forbidden);
+            return false;
+        }
+
+        req.ControllerSessionId = caller.SessionId.ToString();
+        FileLog.Write($"[SpawnOrigin] {route}: ownership declared - the calling session {caller.SessionId} owns the new session");
         return true;
     }
+
+    /// <summary>Why a session key naming another session as the owner is refused, and what to do instead.
+    /// Held once so the test can pin the wording.</summary>
+    internal const string NamedAnotherOwner =
+        "The owner of a session is the session it may message and report to, so naming someone else would " +
+        "create a messaging relationship that session never agreed to. Own it yourself " +
+        "(--controlled-by self), or give it to the user (--standalone --why \"<reason>\"). If another " +
+        "session should run this work, send that session a queued message and let it start the work itself.";
 }
