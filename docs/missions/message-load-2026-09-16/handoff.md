@@ -1798,3 +1798,24 @@ The guard:
 - Open for the Architect: the seven sentences above that need code, above all move-session and the
   director-restart drain, which message sessions the gate now refuses.
 - Next: the merges of the slice 2 and slice 3 branches, the record, the release.
+
+## Landing plan (Architect, 17 September 2026, 09:10)
+
+Every slice is built. Branches and heads:
+- `mission/message-load-slice2` (doorbell, three fix rounds) - awaiting inspection 10, narrow.
+- `mission/message-load-slice3` (replies, one fix round) - awaiting inspection 9.
+- `mission/message-load-slice6` (restore, one fix round) - awaiting inspection 11.
+- `mission/message-load` (also `-slice4` at `c89a5d7d`, `-slice5` at `d1ded8f1`): row line and words -
+  awaiting inspection 12 (both, one review).
+Inspections wait on Codex (limit resets 12:51) unless the owner provides another reviewer.
+
+Two pull requests, not five. Reason: the later branches were cut from the slice 2 head BEFORE its fix
+rounds, so a squash-merge of slice 2 followed by a squash-merge of any later branch would revert the
+slice 2 fixes unless every later branch is rebased first; main moves several times an hour and each
+check run takes an hour and a half. The inspections were done per slice, which is what slicing is for.
+1. **Pull request A**: `mission/message-load-slice2` rebased onto main, after inspection 10 passes.
+2. **Pull request B**: the mission branch with the slice 3 and slice 6 fix branches merged in (an
+   integration Manager merges, resolves, runs every suite, rebases onto main after A lands), after
+   inspections 9, 11 and 12 pass.
+Then: publish the fleet-comms and mission drafts if any exist on the Gateway (slice 5 found the shipped
+files are the source), publish the director-restart skill draft v3, cut the release, write the report.
