@@ -800,6 +800,8 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         Assert.Equal(2, CountOf(sent.Text, FleetManagerEventPrompt.EvidenceOpen + Evidence + FleetManagerEventPrompt.EvidenceClose));
         Assert.Contains("session: worker-1 \"Repository - the session named worker-1\"", sent.Text);
         Assert.Contains("verdict: finished", sent.Text);
+        // The stop's identity, which a record filed about it names (fleet ... --verdict).
+        Assert.Equal(2, CountOf(sent.Text, "\nverdictId: "));
         Assert.Contains("how: exited", sent.Text);
         Assert.Contains("detail: it exited", sent.Text);
         Assert.Contains("cc-devthrottle fleet ack", sent.Text);
@@ -986,8 +988,8 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         await _service.WhenIdleAsync();
 
         Assert.All(Open(), e => Assert.False(e.ReadingPending));
-        var text = Assert.Single(_env.Sends).Text;
-        Assert.Contains("verdict: failed - the judge did not answer. Read the session yourself.", text);
+        var text = string.Concat(_env.Sends.Select(x => x.Text));
+        Assert.Contains("verdictId: failed-1\nverdict: failed - the judge did not answer. Read the session yourself.", text);
         Assert.Contains("verdict: none - the Wingman's reading failed and no record of it was stored. Read the session yourself.", text);
         Assert.All(Open(), e => Assert.Equal("fm", e.DeliveredTo));
     }

@@ -60,6 +60,15 @@ public sealed class DirectorStreamHello
     /// </summary>
     public bool ChangesOwner { get; set; }
 
+    /// <summary>
+    /// This Director makes a <c>set-controller</c> change only when the session's owner is still
+    /// <see cref="SetControllerRequest.ExpectedControllerSessionId"/>, and answers Conflict otherwise (the Fleet
+    /// Manager mission, step 8 fixes). A separate capability, because the first builds with the verb already said
+    /// <see cref="ChangesOwner"/> true and ignored the expected owner: they overwrite whatever owner another session set
+    /// after the Gateway checked. The Gateway sends a hand over ONLY to a Director that says this, whatever else it says.
+    /// </summary>
+    public bool ChangesOwnerIfExpected { get; set; }
+
     /// <summary>Gateway Cleanup mission (tunnel-only): when the Director process started (UTC).</summary>
     public DateTime StartedAt { get; set; }
 

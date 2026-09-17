@@ -16,8 +16,9 @@ public interface IFleetManagerHandOverEnvironment
     /// <summary>The new Fleet Manager waiting to take over from the marked one (a restart or a move under way), or null.</summary>
     string? WaitingFleetManager(TenantId tenant) => null;
 
-    /// <summary>Whether this account's Director said it carries out the <c>set-controller</c> verb.</summary>
-    bool ChangesOwner(TenantId tenant, string directorId);
+    /// <summary>Whether this account's Director said it makes a <c>set-controller</c> change only while the owner is still
+    /// the expected one (<see cref="DirectorStreamHello.ChangesOwnerIfExpected"/>). The older verb flag alone is not enough.</summary>
+    bool ChangesOwnerIfExpected(TenantId tenant, string directorId);
 
     /// <summary>Send <c>set-controller</c> to the Director: <paramref name="controllerSessionId"/> owns the session from
     /// now on, provided its owner is still <paramref name="expectedControllerSessionId"/> (null or empty for none). The
@@ -170,9 +171,10 @@ public sealed class FleetManagerHandOverService
             newOwner = null;
         }
 
-        if (!_env.ChangesOwner(tenant, directorId))
+        if (!_env.ChangesOwnerIfExpected(tenant, directorId))
             return FleetHandOverResult.Refused(409,
-                $"The Director running {name}{OnMachine(session)} is older than hand over and cannot change a session's owner. " +
+                $"The Director running {name}{OnMachine(session)} is too old to hand a session over safely: it cannot check that the session's owner is still the one checked here, " +
+                "so it could overwrite an owner another session set meanwhile. " +
                 "Update DevThrottle on that computer, then hand the session over again.");
 
         // Compare and set: the Director makes the change only if the owner is still the one checked above. A session

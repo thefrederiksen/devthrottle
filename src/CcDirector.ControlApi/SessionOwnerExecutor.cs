@@ -12,8 +12,11 @@ namespace CcDirector.ControlApi;
 /// The owner used to be set only at birth (<c>--controlled-by</c> on a spawn). It lives here, on the Director's
 /// <see cref="Core.Sessions.Session"/>, and the Gateway reads it off every pushed row, so a change is made here and
 /// pushed straight back up. The Gateway makes every decision first - the account, the caller, the Fleet Manager, the
-/// current owner - and this Director stores the answer. A Director says on connecting that it has this verb
-/// (<see cref="DirectorStreamHello.ChangesOwner"/>), and the Gateway refuses a hand over to one that did not.
+/// current owner - and this Director stores the answer, only while the owner is still the one the Gateway checked. A
+/// Director says on connecting that it makes that compare-and-set change
+/// (<see cref="DirectorStreamHello.ChangesOwnerIfExpected"/>), and the Gateway refuses a hand over to one that did not -
+/// including the first builds with this verb, which said only <see cref="DirectorStreamHello.ChangesOwner"/> and
+/// overwrote the owner unconditionally.
 /// </summary>
 internal sealed class SessionOwnerExecutor : ISessionCommandArea
 {

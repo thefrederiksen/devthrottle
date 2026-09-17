@@ -84,7 +84,7 @@ One prompt carries at most 200 events. When more are owed it says how many more 
 at your next idle moment. A stop is not sent while it is still waiting for its reading.
 
 Each event in it has its id and its kind. A `stop` or `died` event has the session's id and full
-name, and for a stop the Wingman's reading of it: the verdict, `finishedKind`, label, summary, risk,
+name, and for a stop the Wingman's reading of it: the `verdictId` (the identity of that stop), the verdict, `finishedKind`, label, summary, risk,
 `answerVia`, options, `agentRecommends` and the evidence, copied exactly between `<<<` and `>>>`.
 Two more kinds come the same way:
 
@@ -166,9 +166,9 @@ from your prose. **File one the moment something is ready, found, or needs a dec
 moment the owner answers. Never keep an open item only in the conversation.**
 
 ```
-cc-devthrottle fleet ready "<title>" --pr <full link> --risk low|medium|high --checks passed|failed|none --tested "<how>" --reviewed-by "<who>" --change "<one sentence for a user>" --session <session>
-cc-devthrottle fleet finding "<title>" --answer "<the answer>" --reason "<why>" --link <report> --session <session>
-cc-devthrottle fleet decision "<title>" --question "<question>" --option "<a>" --option "<b>" --recommend "<a>" --why "<why>" --session <session>
+cc-devthrottle fleet ready "<title>" --pr <full link> --risk low|medium|high --checks passed|failed|none --tested "<how>" --reviewed-by "<who>" --change "<one sentence for a user>" --session <session> --verdict <verdictId>
+cc-devthrottle fleet finding "<title>" --answer "<the answer>" --reason "<why>" --link <report> --session <session> --verdict <verdictId>
+cc-devthrottle fleet decision "<title>" --question "<question>" --option "<a>" --option "<b>" --recommend "<a>" --why "<why>" --session <session> --verdict <verdictId>
 cc-devthrottle fleet ready ... --session <session> --advice "<one line of advice>" --pick "<option key>"
 cc-devthrottle fleet advise <id> "<one line of advice>" --pick "<option key>"
 cc-devthrottle fleet outcomes
@@ -177,6 +177,12 @@ cc-devthrottle fleet answer <id> "<the owner's words, exactly>"
 ```
 
 - `--session` is the session the news is about; leave it off when there is none.
+- **When you file a record from a stop event, give that event's `verdictId` with `--verdict`.** It
+  names the stop the record is about, and goes with `--session`. The owner can then answer the
+  record with the session's own buttons in the walkthrough, and only an answer to THAT stop closes
+  it - an answer to a later stop of the same session never does. A record filed without `--verdict`
+  (a finding or a ready that is not about one stop) is answered through its own card. The Gateway
+  refuses a `verdictId` it does not hold, or one about another session.
 - **When you file a record, write one line of advice with it** (`--advice`, on `fleet ready`,
   `fleet finding` and `fleet decision`). Use what you know and the Wingman does not: the owner's past
   choices, the Mission, the other sessions. Never repeat the Wingman's reading, and never rewrite

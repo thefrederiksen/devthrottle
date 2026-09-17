@@ -131,7 +131,7 @@ internal sealed class GatewayFleetManagerHandOverEnvironment : IFleetManagerHand
         return roster;
     }
 
-    public bool ChangesOwner(TenantId tenant, string directorId) => Capabilities.ChangesOwner(tenant, directorId);
+    public bool ChangesOwnerIfExpected(TenantId tenant, string directorId) => Capabilities.ChangesOwnerIfExpected(tenant, directorId);
 
     public async Task<(SessionDto? Session, string? Error, bool OwnerMoved)> SetControllerAsync(TenantId tenant, string directorId,
         string sessionId, string? expectedControllerSessionId, string? controllerSessionId, CancellationToken ct)

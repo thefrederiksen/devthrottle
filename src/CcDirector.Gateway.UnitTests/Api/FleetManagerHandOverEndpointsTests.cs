@@ -45,7 +45,7 @@ public sealed class FleetManagerHandOverEndpointsTests
             return list.Select(s => ("dir-1", s)).ToList();
         }
 
-        public bool ChangesOwner(TenantId tenant, string directorId) => true;
+        public bool ChangesOwnerIfExpected(TenantId tenant, string directorId) => true;
 
         public Task<(SessionDto? Session, string? Error, bool OwnerMoved)> SetControllerAsync(TenantId tenant, string directorId,
             string sessionId, string? expectedControllerSessionId, string? controllerSessionId, CancellationToken ct)

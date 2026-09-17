@@ -89,6 +89,9 @@ internal static class FleetManagerEventPrompt
             }
 
             var v = e.Verdict;
+            // The stop's identity: a record filed about this stop names it (fleet ... --verdict), so an answer to a
+            // later stop of the session never closes that record.
+            sb.Append("verdictId: ").Append(v.VerdictId).Append('\n');
             if (v.Failed)
             {
                 sb.Append("verdict: failed - ").Append(v.FailureReason ?? "the reading failed")

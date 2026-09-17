@@ -210,40 +210,41 @@ _ACTIONS = [
         "command": (
             'cc-devthrottle fleet ready "<title>" --pr <link> --risk low|medium|high '
             '--checks passed|failed|none --tested "<how>" --reviewed-by "<who>" '
-            '--change "<one sentence for a user>" [--session <id>] [--advice "<one line>" [--pick "<option key>"]]'
+            '--change "<one sentence for a user>" [--session <id> [--verdict <verdictId>]] [--advice "<one line>" [--pick "<option key>"]]'
         ),
         "mutatesState": True,
         "args": [{"name": "title", "required": True}, {"name": "pr", "required": True},
                  {"name": "risk", "required": True}, {"name": "checks", "required": True},
                  {"name": "tested", "required": True}, {"name": "reviewed_by", "required": True},
                  {"name": "change", "required": True}, {"name": "session", "required": False},
-                 {"name": "advice", "required": False}, {"name": "pick", "required": False}],
+                 {"name": "verdict", "required": False}, {"name": "advice", "required": False}, {"name": "pick", "required": False}],
     },
     {
         "id": "fleet-finding",
         "description": "File a FINDING record: a finished report or investigation, answer first.",
         "command": (
             'cc-devthrottle fleet finding "<title>" --answer "<answer>" [--reason "<why>"] '
-            '[--link <url> ...] [--session <id>] [--advice "<one line>" [--pick "<option key>"]]'
+            '[--link <url> ...] [--session <id> [--verdict <verdictId>]] [--advice "<one line>" [--pick "<option key>"]]'
         ),
         "mutatesState": True,
         "args": [{"name": "title", "required": True}, {"name": "answer", "required": True},
                  {"name": "reason", "required": False}, {"name": "link", "required": False},
-                 {"name": "session", "required": False}, {"name": "advice", "required": False},
-                 {"name": "pick", "required": False}],
+                 {"name": "session", "required": False}, {"name": "verdict", "required": False},
+                 {"name": "advice", "required": False}, {"name": "pick", "required": False}],
     },
     {
         "id": "fleet-decision",
         "description": "File a DECISION record: a question only the owner can settle, with two or more options.",
         "command": (
             'cc-devthrottle fleet decision "<title>" --question "<q>" --option "<a>" --option "<b>" '
-            '[--recommend "<a>"] [--why "<why>"] [--session <id>] [--advice "<one line>" [--pick "<option key>"]]'
+            '[--recommend "<a>"] [--why "<why>"] [--session <id> [--verdict <verdictId>]] [--advice "<one line>" [--pick "<option key>"]]'
         ),
         "mutatesState": True,
         "args": [{"name": "title", "required": True}, {"name": "question", "required": True},
                  {"name": "option", "required": True}, {"name": "recommend", "required": False},
                  {"name": "why", "required": False}, {"name": "session", "required": False},
-                 {"name": "advice", "required": False}, {"name": "pick", "required": False}],
+                 {"name": "verdict", "required": False}, {"name": "advice", "required": False},
+                 {"name": "pick", "required": False}],
     },
     {
         "id": "fleet-outcomes",
@@ -2977,6 +2978,10 @@ _ADVICE = typer.Option(
     None, "--advice",
     help="One line of advice for the owner: what you know and the Wingman does not. At most 300 characters.",
 )
+_VERDICT = typer.Option(
+    None, "--verdict",
+    help="The verdictId of the stop event this record is about, exactly. Needs --session.",
+)
 _PICK = typer.Option(
     None, "--pick",
     help="The key of the Wingman option you would pick for the session, exactly. Needs --advice.",
@@ -2993,13 +2998,14 @@ def fleet_ready(
     reviewed_by: str = typer.Option(..., "--reviewed-by", help="Who reviewed it."),
     change: str = typer.Option(..., "--change", help="One sentence on what changed, for a user."),
     session: Optional[str] = _SESSION_ABOUT,
+    verdict: Optional[str] = _VERDICT,
     advice: Optional[str] = _ADVICE,
     pick: Optional[str] = _PICK,
     json_output: bool = _JSON_OPT,
 ) -> None:
     """File a READY record: work that is ready for the owner."""
     fleet_ops.file_ready(title, pr, risk, checks, tested, reviewed_by, change, session, json_output,
-                         advice=advice, pick=pick)
+                         advice=advice, pick=pick, verdict=verdict)
 
 
 @fleet_app.command("finding")
@@ -3009,12 +3015,14 @@ def fleet_finding(
     reason: Optional[str] = typer.Option(None, "--reason", help="The reason."),
     link: Optional[List[str]] = typer.Option(None, "--link", help="A full link to a report (repeatable)."),
     session: Optional[str] = _SESSION_ABOUT,
+    verdict: Optional[str] = _VERDICT,
     advice: Optional[str] = _ADVICE,
     pick: Optional[str] = _PICK,
     json_output: bool = _JSON_OPT,
 ) -> None:
     """File a FINDING record: a report or investigation that is finished."""
-    fleet_ops.file_finding(title, answer, reason, link, session, json_output, advice=advice, pick=pick)
+    fleet_ops.file_finding(title, answer, reason, link, session, json_output, advice=advice, pick=pick,
+                           verdict=verdict)
 
 
 @fleet_app.command("decision")
@@ -3025,13 +3033,14 @@ def fleet_decision(
     recommend: Optional[str] = typer.Option(None, "--recommend", help="The option you recommend, exactly as given."),
     why: Optional[str] = typer.Option(None, "--why", help="Why you recommend it."),
     session: Optional[str] = _SESSION_ABOUT,
+    verdict: Optional[str] = _VERDICT,
     advice: Optional[str] = _ADVICE,
     pick: Optional[str] = _PICK,
     json_output: bool = _JSON_OPT,
 ) -> None:
     """File a DECISION record: something only the owner can settle."""
     fleet_ops.file_decision(title, question, option, recommend, why, session, json_output,
-                            advice=advice, pick=pick)
+                            advice=advice, pick=pick, verdict=verdict)
 
 
 @fleet_app.command("outcomes")

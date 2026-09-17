@@ -68,6 +68,11 @@ public sealed class FleetOutcomeFileRequest
     /// <summary>The session the news is about, when there is one.</summary>
     public string? SessionId { get; set; }
 
+    /// <summary>The stop the news is about: the id of the Wingman verdict in the event the record is filed from.
+    /// Optional, and only with <see cref="SessionId"/>; it must be a verdict of that session. The Gateway stores it with
+    /// the verdict's turn end, and only a record that names its stop is closed by an answer sent to the session.</summary>
+    public string? VerdictId { get; set; }
+
     public FleetReadyDetails? Ready { get; set; }
     public FleetFindingDetails? Finding { get; set; }
     public FleetDecisionDetails? Decision { get; set; }
@@ -114,6 +119,12 @@ public sealed class FleetOutcomeDto
 
     /// <summary>The session the news is about, or null.</summary>
     public string? SessionId { get; set; }
+
+    /// <summary>The id of the Wingman verdict - the stop - the record was filed about, or null when it names no stop.</summary>
+    public string? VerdictId { get; set; }
+
+    /// <summary>That verdict's turn end, stored when the record was filed, or null.</summary>
+    public DateTime? VerdictTurnEndObservedAtUtc { get; set; }
 
     public DateTime CreatedAtUtc { get; set; }
 

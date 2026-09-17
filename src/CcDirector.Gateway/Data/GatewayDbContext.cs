@@ -884,6 +884,7 @@ public sealed class GatewayDbContext : DbContext
             b.Property(e => e.Status).HasMaxLength(16);
             b.Property(e => e.FiledBy).HasMaxLength(64);
             b.Property(e => e.AboutSessionId).HasMaxLength(64);
+            b.Property(e => e.AboutVerdictId).HasMaxLength(64);
             b.Property(e => e.AnsweredBy).HasMaxLength(64);
             b.Property(e => e.AnsweredByRole).HasMaxLength(16);
             b.Property(e => e.Advice).HasMaxLength(Fleet.FleetOutcomeStore.MaxAdviceLength);

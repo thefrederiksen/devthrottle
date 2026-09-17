@@ -64,9 +64,11 @@ public sealed class FleetManagerWalkthroughFoldTests
     };
 
     private static FleetOutcomeDto Record(string id, string kind, string title, DateTime created, string? session = null,
-        string status = "open", string? answer = null, string? advice = null, string? pick = null) => new()
+        string status = "open", string? answer = null, string? advice = null, string? pick = null,
+        TurnVerdictDto? about = null) => new()
     {
         Id = id, Kind = kind, Title = title, Status = status, FiledBy = Marked, SessionId = session, CreatedAtUtc = created,
+        VerdictId = about?.VerdictId, VerdictTurnEndObservedAtUtc = about?.TurnEndObservedAtUtc,
         Answer = answer, AnsweredAtUtc = answer is null ? null : Now.AddMinutes(-3),
         AnsweredBy = answer is null ? null : "owner", AnsweredByRole = answer is null ? null : "owner",
         Advice = advice, FleetManagerPick = pick,
@@ -293,7 +295,8 @@ public sealed class FleetManagerWalkthroughFoldTests
         w.Live.Add(Session(Layouts, "Layouts session"));
         w.Verdicts[Layouts] = Menu();
         w.Records.Add(Record(Id(1), "decision", "Pick a layout", Now.AddMinutes(-42), Layouts,
-            advice: "You picked the long column for the last two client pages. I'd pick B.", pick: "B - single column"));
+            advice: "You picked the long column for the last two client pages. I'd pick B.", pick: "B - single column",
+            about: Menu()));
 
         var item = Assert.Single(w.Fold().Items);
 
@@ -348,7 +351,7 @@ public sealed class FleetManagerWalkthroughFoldTests
         w.Live.Add(Session(Layouts, "Layouts session"));
         w.Verdicts[Layouts] = Menu();
         w.Records.Add(Record(Id(1), "decision", "Pick a layout", Now.AddMinutes(-42), Layouts, advice: "Agree with it.",
-            pick: "  A - card grid "));
+            pick: "  A - card grid ", about: Menu()));
 
         var options = Assert.Single(w.Fold().Items).Answer!.Options;
 
@@ -362,7 +365,8 @@ public sealed class FleetManagerWalkthroughFoldTests
         var w = new World();
         w.Live.Add(Session(Layouts, "Layouts session"));
         w.Verdicts[Layouts] = Menu();
-        w.Records.Add(Record(Id(1), "decision", "Pick a layout", Now.AddMinutes(-42), Layouts, advice: "Pick C.", pick: "C - carousel"));
+        w.Records.Add(Record(Id(1), "decision", "Pick a layout", Now.AddMinutes(-42), Layouts, advice: "Pick C.", pick: "C - carousel",
+            about: Menu()));
 
         var answer = Assert.Single(w.Fold().Items).Answer!;
 
@@ -394,8 +398,8 @@ public sealed class FleetManagerWalkthroughFoldTests
         var parked = Menu("verdict-parked");
         parked.Options.Clear();
         w.Verdicts[Release] = parked;
-        w.Records.Add(Record(Id(1), "decision", "Pick layouts", Now.AddMinutes(-9), Layouts));
-        w.Records.Add(Record(Id(2), "decision", "Confirm the reply", Now.AddMinutes(-8), Release));
+        w.Records.Add(Record(Id(1), "decision", "Pick layouts", Now.AddMinutes(-9), Layouts, about: multiple));
+        w.Records.Add(Record(Id(2), "decision", "Confirm the reply", Now.AddMinutes(-8), Release, about: parked));
 
         var items = w.Fold().Items;
 
@@ -405,6 +409,36 @@ public sealed class FleetManagerWalkthroughFoldTests
         Assert.True(items[1].Answer!.ParkedReply);
         Assert.Empty(items[1].Answer!.Options);
         Assert.Equal("Send the typed reply", items[1].Answer!.ParkedReplyLabel);
+    }
+
+    /// <summary>
+    /// A record is answered through the session only for the stop it was filed about. One about an earlier stop of the
+    /// session - the same verdict id re-stored for another turn included - and one about no one stop are answered through
+    /// their cards, though the session's current reading is shown.
+    /// </summary>
+    [Fact]
+    public void Fold_ARecordNotAboutTheCurrentStop_IsAnsweredThroughItsCard()
+    {
+        var w = new World();
+        w.Live.Add(Session(Layouts, "Layouts session"));
+        w.Live.Add(Session(Release, "Release session"));
+        w.Live.Add(Session(Busy, "Busy session"));
+        w.Verdicts[Layouts] = Menu("verdict-now");
+        w.Verdicts[Release] = Menu("verdict-release");
+        w.Verdicts[Busy] = Menu("verdict-busy");
+        var earlierTurn = Menu("verdict-release");
+        earlierTurn.TurnEndObservedAtUtc = Now.AddHours(-3);
+        w.Records.Add(Record(Id(1), "decision", "About an earlier stop", Now.AddMinutes(-9), Layouts, about: Menu("verdict-before")));
+        w.Records.Add(Record(Id(2), "decision", "About another turn of the same id", Now.AddMinutes(-8), Release, about: earlierTurn));
+        w.Records.Add(Record(Id(3), "decision", "About no one stop", Now.AddMinutes(-7), Busy));
+
+        var items = w.Fold().Items;
+
+        Assert.Equal(3, items.Count);
+        Assert.All(items, i => Assert.Equal("fleet-manager", i.AnswerMode));
+        Assert.All(items, i => Assert.Null(i.Answer));
+        Assert.All(items, i => Assert.NotNull(i.Card));
+        Assert.All(items, i => Assert.True(i.Reading.Available));
     }
 
     [Fact]
@@ -458,7 +492,7 @@ public sealed class FleetManagerWalkthroughFoldTests
         var w = new World();
         w.Live.Add(Session(Layouts, "Layouts session"));
         w.Verdicts[Layouts] = new TurnVerdictDto { VerdictId = "v-failed", Failed = true, FailureReason = "the judge timed out" };
-        w.Records.Add(Record(Id(1), "decision", "Question", Now.AddMinutes(-3), Layouts));
+        w.Records.Add(Record(Id(1), "decision", "Question", Now.AddMinutes(-3), Layouts, about: w.Verdicts[Layouts]));
 
         var item = Assert.Single(w.Fold().Items);
 
@@ -474,7 +508,8 @@ public sealed class FleetManagerWalkthroughFoldTests
         // Known, but its computer has not pushed recently: not in the live roster.
         w.Known[Quiet] = Session(Quiet, "Quiet session");
         w.Verdicts[Quiet] = Menu("verdict-quiet");
-        w.Records.Add(Record(Id(1), "decision", "Quiet question", Now.AddMinutes(-50), Quiet, advice: "Wait for it.", pick: "A - card grid"));
+        w.Records.Add(Record(Id(1), "decision", "Quiet question", Now.AddMinutes(-50), Quiet, advice: "Wait for it.", pick: "A - card grid",
+            about: w.Verdicts[Quiet]));
 
         var item = Assert.Single(w.Fold().Items);
 
@@ -499,7 +534,7 @@ public sealed class FleetManagerWalkthroughFoldTests
         var w = new World();
         w.Live.Add(Session(Ended, "Ended session", state: "Exited"));
         w.Verdicts[Ended] = Menu("verdict-ended");
-        w.Records.Add(Record(Id(1), "decision", "Ended question", Now.AddMinutes(-3), Ended));
+        w.Records.Add(Record(Id(1), "decision", "Ended question", Now.AddMinutes(-3), Ended, about: w.Verdicts[Ended]));
 
         var item = Assert.Single(w.Fold().Items);
 

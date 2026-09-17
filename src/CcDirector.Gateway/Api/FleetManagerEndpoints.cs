@@ -5,6 +5,7 @@ using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Fleet;
 using CcDirector.Gateway.Util;
+using CcDirector.Gateway.Wingman;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -18,6 +19,8 @@ namespace CcDirector.Gateway.Api;
 /// <param name="FoldedRoster">This account's whole roster, stamped by the same fold the roster route runs.</param>
 /// <param name="SessionInAccount">Whether this account has ever been pushed this session id, however stale.</param>
 /// <param name="LatestVerdict">The Wingman's latest stored reading of one session in this account.</param>
+/// <param name="FindVerdict">One stored Wingman verdict of this account by its id, with the session it is about, or
+/// null - read when a record is filed about one stop.</param>
 /// <param name="FormerFleetManagers">Every session this account has ever marked as its Fleet Manager
 /// (<see cref="FleetManagerMarkHistory"/>).</param>
 /// <param name="EventsDeliveryNote">The Gateway's sentence saying why the account's events are not being delivered to
@@ -26,6 +29,7 @@ internal sealed record FleetDigestSources(
     Func<TenantId, IReadOnlyList<SessionDto>> FoldedRoster,
     Func<TenantId, string, bool> SessionInAccount,
     Func<TenantId, string, TurnVerdictDto?> LatestVerdict,
+    Func<TenantId, string, TurnVerdictLocated?> FindVerdict,
     Func<TenantId, IReadOnlyList<string>> FormerFleetManagers,
     Func<TenantId, string?> EventsDeliveryNote);
 
@@ -188,8 +192,31 @@ internal static class FleetManagerEndpoints
                     about is null ? null : sources.LatestVerdict(tenant, about));
             }
 
-            var outcome = store.File(tenant, body, caller!.Id, DateTime.UtcNow);
-            FileLog.Write($"[FleetManagerEndpoints] FileOutcome: id={outcome.Id}, kind={outcome.Kind}");
+            // The stop the record is about (steps 7 to 9, round 2 fixes): the verdict the event carried, stored with its
+            // turn end as the Gateway holds it, so the walkthrough closes this record only with an answer to that stop.
+            FleetOutcomeStop? stop = null;
+            if (!string.IsNullOrWhiteSpace(body.VerdictId) && !string.IsNullOrWhiteSpace(body.SessionId)
+                && Guid.TryParse(body.SessionId.Trim(), out var aboutSession))
+            {
+                var verdictId = body.VerdictId.Trim();
+                var located = sources.FindVerdict(tenant, verdictId);
+                if (located is null)
+                    return Results.Json(new
+                    {
+                        code = "verdict_not_found",
+                        error = $"no verdict {verdictId} in this account, so nothing was filed; give the verdictId of the event the record is about",
+                    }, statusCode: StatusCodes.Status404NotFound);
+                if (!Guid.TryParse(located.SessionId, out var verdictSession) || verdictSession != aboutSession)
+                    return Results.Json(new
+                    {
+                        code = "verdict_other_session",
+                        error = $"verdict {verdictId} is about session {located.SessionId}, not {aboutSession}, so nothing was filed",
+                    }, statusCode: StatusCodes.Status409Conflict);
+                stop = new FleetOutcomeStop(located.Verdict.VerdictId, located.Verdict.TurnEndObservedAtUtc);
+            }
+
+            var outcome = store.File(tenant, body, caller!.Id, DateTime.UtcNow, stop);
+            FileLog.Write($"[FleetManagerEndpoints] FileOutcome: id={outcome.Id}, kind={outcome.Kind}, verdict={outcome.VerdictId ?? "none"}");
             return Results.Json(outcome, statusCode: StatusCodes.Status201Created);
         }
         catch (ArgumentException ex)

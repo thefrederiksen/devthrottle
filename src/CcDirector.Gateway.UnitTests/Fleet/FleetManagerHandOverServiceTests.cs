@@ -54,7 +54,7 @@ public sealed class FleetManagerHandOverServiceTests
             return copies;
         }
 
-        public bool ChangesOwner(TenantId tenant, string directorId) => !OldDirectors.Contains(directorId);
+        public bool ChangesOwnerIfExpected(TenantId tenant, string directorId) => !OldDirectors.Contains(directorId);
 
         public readonly List<string?> Expected = new();
         public string? OwnerMovedError;
@@ -304,7 +304,8 @@ public sealed class FleetManagerHandOverServiceTests
     {
         _world.OldDirectors.Add("dir-1");
         AssertRefused(await HandAsync(Plain, "fleet-manager"), 409,
-            "The Director running Session \"Plain work\" on WORKSTATION-A is older than hand over and cannot change a session's owner. " +
+            "The Director running Session \"Plain work\" on WORKSTATION-A is too old to hand a session over safely: it cannot check that the session's owner is still the one checked here, " +
+            "so it could overwrite an owner another session set meanwhile. " +
             "Update DevThrottle on that computer, then hand the session over again.");
     }
 

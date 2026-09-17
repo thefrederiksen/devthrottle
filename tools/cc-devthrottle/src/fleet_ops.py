@@ -182,6 +182,20 @@ def _with_advice(body: Dict[str, Any], advice: Optional[str], pick: Optional[str
     return body
 
 
+def _with_stop(body: Dict[str, Any], verdict: Optional[str]) -> Dict[str, Any]:
+    """Add the stop the record is about - the verdictId of the event it is filed from - only when given, so a filing
+    without it sends exactly the body it always sent. A stop belongs to a session, so --session is required with it;
+    the Gateway checks the verdict is that session's and stores its turn end."""
+    if verdict is None:
+        return body
+    if not verdict.strip():
+        _fail("--verdict is empty; give the verdictId of the event the record is about", code=2)
+    if not body.get("sessionId"):
+        _fail("--verdict goes with --session: a stop belongs to one session; give the session the event names", code=2)
+    body["verdictId"] = verdict.strip()
+    return body
+
+
 def _file(body: Dict[str, Any], json_output: bool) -> None:
     filed = _call(gateway.post_json, f"{PREFIX}/outcomes", body)
     if json_output:
@@ -192,6 +206,8 @@ def _file(body: Dict[str, Any], json_output: bool) -> None:
     _out(f"kind: {filed.get('kind')}")
     _out(f"status: {filed.get('status')}")
     _out(f"title: {cell(filed.get('title'))}")
+    if filed.get("verdictId") is not None:
+        _out(f"verdict: {cell(filed.get('verdictId'))}")
     if filed.get("advice") is not None:
         _out(f"advice: {cell(filed.get('advice'))}")
         _out(f"pick: {cell(filed.get('fleetManagerPick'))}")
@@ -203,7 +219,7 @@ def _file(body: Dict[str, Any], json_output: bool) -> None:
 
 def file_ready(title: str, pr: str, risk: str, checks: str, tested: str, reviewed_by: str,
                change: str, session: Optional[str], json_output: bool,
-               advice: Optional[str] = None, pick: Optional[str] = None) -> None:
+               advice: Optional[str] = None, pick: Optional[str] = None, verdict: Optional[str] = None) -> None:
     """File a READY record: work that is ready for the owner."""
     body = {
         "kind": "ready",
@@ -218,12 +234,12 @@ def file_ready(title: str, pr: str, risk: str, checks: str, tested: str, reviewe
             "change": change,
         },
     }
-    _file(_with_advice(body, advice, pick), json_output)
+    _file(_with_advice(_with_stop(body, verdict), advice, pick), json_output)
 
 
 def file_finding(title: str, answer: str, reason: Optional[str], links: Optional[List[str]],
                  session: Optional[str], json_output: bool,
-                 advice: Optional[str] = None, pick: Optional[str] = None) -> None:
+                 advice: Optional[str] = None, pick: Optional[str] = None, verdict: Optional[str] = None) -> None:
     """File a FINDING record: a report or investigation that is finished."""
     body = {
         "kind": "finding",
@@ -231,12 +247,12 @@ def file_finding(title: str, answer: str, reason: Optional[str], links: Optional
         "sessionId": _about_session(session),
         "finding": {"answer": answer, "reason": reason, "links": list(links or [])},
     }
-    _file(_with_advice(body, advice, pick), json_output)
+    _file(_with_advice(_with_stop(body, verdict), advice, pick), json_output)
 
 
 def file_decision(title: str, question: str, options: Optional[List[str]], recommend: Optional[str],
                   why: Optional[str], session: Optional[str], json_output: bool,
-                  advice: Optional[str] = None, pick: Optional[str] = None) -> None:
+                  advice: Optional[str] = None, pick: Optional[str] = None, verdict: Optional[str] = None) -> None:
     """File a DECISION record: something only the owner can settle."""
     opts = list(options or [])
     if len(opts) < 2:
@@ -250,7 +266,7 @@ def file_decision(title: str, question: str, options: Optional[List[str]], recom
         "sessionId": _about_session(session),
         "decision": {"question": question, "options": opts, "recommended": recommend, "why": why},
     }
-    _file(_with_advice(body, advice, pick), json_output)
+    _file(_with_advice(_with_stop(body, verdict), advice, pick), json_output)
 
 
 # ---- reading ----------------------------------------------------------------------------------------
@@ -320,6 +336,7 @@ def _print_outcome(o: Dict[str, Any]) -> None:
     _out(f"title: {cell(o.get('title'))}")
     _out(f"filedBy: {o.get('filedBy')}")
     _out(f"session: {cell(o.get('sessionId'))}")
+    _out(f"verdict: {cell(o.get('verdictId'))}")
     _out(f"createdAt: {o.get('createdAtUtc')}")
     ready, finding, decision = o.get("ready"), o.get("finding"), o.get("decision")
     if ready:
@@ -475,9 +492,10 @@ def _event_verdict(e: Dict[str, Any]) -> List[Any]:
 
 
 def _events_table(rows: List[Dict[str, Any]]) -> None:
-    _table("events", ["id", "kind", "sessionId", "name", "verdict", "label", "deliveredTo", "acknowledged"],
+    _table("events", ["id", "kind", "sessionId", "name", "verdictId", "verdict", "label", "deliveredTo", "acknowledged"],
            # An answered event is about a record: its title stands in the name column.
-           [[e.get("id"), e.get("kind"), e.get("sessionId"), e.get("outcomeTitle") if e.get("kind") == "answered" else e.get("sessionName"), *_event_verdict(e),
+           [[e.get("id"), e.get("kind"), e.get("sessionId"), e.get("outcomeTitle") if e.get("kind") == "answered" else e.get("sessionName"),
+             (e.get("verdict") or {}).get("verdictId"), *_event_verdict(e),
              e.get("deliveredTo"), "yes" if e.get("acknowledgedAtUtc") else "no"] for e in rows])
 
 

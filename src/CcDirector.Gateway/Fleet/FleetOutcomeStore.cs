@@ -129,6 +129,15 @@ public sealed class FleetOutcomeStore
     /// <exception cref="ArgumentException">A field is missing or wrong; the message says which and what is
     /// accepted.</exception>
     public FleetOutcomeDto File(TenantId tenant, FleetOutcomeFileRequest request, string filedBy, DateTime nowUtc)
+        => File(tenant, request, filedBy, nowUtc, stop: null);
+
+    /// <summary>
+    /// File a record about one stop: <paramref name="stop"/> is the verdict the request names, as the Gateway stored it
+    /// (its id and turn end), looked up by the caller. A request that names a verdict must come with that stop, and the
+    /// stop must be the one it names - the store never takes a verdict id without its turn end.
+    /// </summary>
+    public FleetOutcomeDto File(TenantId tenant, FleetOutcomeFileRequest request, string filedBy, DateTime nowUtc,
+        FleetOutcomeStop? stop)
     {
         FileLog.Write($"[FleetOutcomeStore] File: tenant={tenant}, kind={request?.Kind}, filedBy={filedBy}");
         try
@@ -140,6 +149,15 @@ public sealed class FleetOutcomeStore
             var kind = RequireOneOf(request.Kind, Kinds, "kind");
             var title = RequireLine(request.Title, "title", MaxTitleLength);
             var about = OptionalSessionId(request.SessionId);
+            var verdictId = string.IsNullOrWhiteSpace(request.VerdictId) ? null : request.VerdictId.Trim();
+            if (request.VerdictId is not null && verdictId is null)
+                throw new ArgumentException("verdictId is empty; give the verdict id from the event, or leave it out");
+            if (verdictId is not null && about is null)
+                throw new ArgumentException("verdictId names a stop of a session; give sessionId too");
+            if (verdictId is null && stop is not null)
+                throw new InvalidOperationException("a stop was given for a record that names no verdictId");
+            if (verdictId is not null && (stop is null || !string.Equals(stop.VerdictId, verdictId, StringComparison.Ordinal)))
+                throw new InvalidOperationException($"verdict {verdictId} was not looked up before the record was filed");
             var details = ValidateDetails(kind, request);
             string? advice = null;
             string? pick = null;
@@ -157,6 +175,8 @@ public sealed class FleetOutcomeStore
                 Kind = kind,
                 FiledBy = filedBy,
                 AboutSessionId = about,
+                AboutVerdictId = verdictId,
+                AboutTurnEndObservedAtUtc = stop is null ? null : Utc(stop.TurnEndObservedAtUtc),
                 CreatedAtUtc = Utc(nowUtc),
                 Title = title,
                 DetailsJson = JsonSerializer.Serialize(details, DetailsJsonOptions),
@@ -724,6 +744,8 @@ public sealed class FleetOutcomeStore
             Status = row.Status,
             FiledBy = row.FiledBy,
             SessionId = row.AboutSessionId,
+            VerdictId = row.AboutVerdictId,
+            VerdictTurnEndObservedAtUtc = row.AboutTurnEndObservedAtUtc,
             CreatedAtUtc = row.CreatedAtUtc,
             Ready = details.Ready,
             Finding = details.Finding,
@@ -749,3 +771,6 @@ public sealed class FleetOutcomeStore
             _ => DateTime.SpecifyKind(value, DateTimeKind.Utc),
         };
 }
+
+/// <summary>The identity of one stop a record is filed about: the Wingman verdict's id and its turn end, as stored.</summary>
+public sealed record FleetOutcomeStop(string VerdictId, DateTime TurnEndObservedAtUtc);

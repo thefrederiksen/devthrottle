@@ -96,6 +96,8 @@ class FakeGateway:
             "adviceSetAtUtc": None,
             "ownerNote": None,
             "ownerNoteAtUtc": None,
+            "verdictId": None,
+            "verdictTurnEndObservedAtUtc": None,
         }
         record.update(extra)
         # Newest first, as the route answers.
@@ -158,7 +160,8 @@ class FakeGateway:
         self.calls.append(("POST", path, body))
         if path == "gateway/fleet-manager/outcomes":
             extra = {body["kind"]: body[body["kind"]], "sessionId": body.get("sessionId"),
-                     "advice": body.get("advice"), "fleetManagerPick": body.get("fleetManagerPick")}
+                     "advice": body.get("advice"), "fleetManagerPick": body.get("fleetManagerPick"),
+                     "verdictId": body.get("verdictId")}
             return self.add(body["kind"], body["title"], **extra)
         if path.endswith("/answer"):
             oid = path.split("/")[-2]
@@ -1060,6 +1063,69 @@ def test_filing_with_advice_and_a_pick_sends_both_and_prints_them(gw):
     assert body["fleetManagerPick"] == "B - single column"
     assert "advice: You picked the long column twice. I'd pick B." in result.output
     assert "pick: B - single column" in result.output
+
+
+# ---- the stop a record is about (steps 7 to 9, round 2 fixes) -----------------------------------------
+
+
+@pytest.mark.parametrize("command", [
+    ["fleet", "decision", "Publish?", "--question", "Publish now?", "--option", "Yes", "--option", "No"],
+    ["fleet", "finding", "Done", "--answer", "It is done."],
+    ["fleet", "ready", "Ready", "--pr", "https://example.test/pull/1", "--risk", "low", "--checks", "passed",
+     "--tested", "unit tests", "--reviewed-by", "a reviewer", "--change", "It works."],
+])
+def test_filing_with_a_verdict_sends_it_with_the_session_and_prints_it(gw, command):
+    result = runner.invoke(app, command + ["--session", WORKER[:8], "--verdict", " tv-stop-1 "])
+
+    assert result.exit_code == 0, result.output
+    method, path, body = gw.calls[-1]
+    assert (method, path) == ("POST", "gateway/fleet-manager/outcomes")
+    assert body["sessionId"] == WORKER
+    assert body["verdictId"] == "tv-stop-1"
+    assert "verdict: tv-stop-1" in result.output.splitlines()
+
+
+def test_filing_without_a_verdict_sends_no_verdict_field(gw):
+    result = runner.invoke(app, ["fleet", "finding", "A finding", "--answer", "Yes.", "--session", WORKER[:8]])
+
+    assert result.exit_code == 0, result.output
+    assert "verdictId" not in gw.calls[-1][2]
+    assert "verdict:" not in result.output
+
+
+@pytest.mark.parametrize("extra, message", [
+    (["--verdict", "tv-stop-1"], "--verdict goes with --session"),
+    (["--session", WORKER[:8], "--verdict", "  "], "--verdict is empty"),
+])
+def test_a_verdict_that_cannot_be_sent_is_a_usage_error_and_sends_nothing(gw, extra, message):
+    result = runner.invoke(app, ["fleet", "finding", "A finding", "--answer", "Yes."] + extra)
+
+    assert result.exit_code == 2
+    assert message in result.output
+    assert not [c for c in gw.calls if c[0] == "POST"]
+
+
+def test_show_prints_the_stop_the_record_is_about(gw):
+    record = gw.add("finding", "About a stop", sessionId=WORKER, verdictId="tv-stop-9",
+                    finding={"answer": "Done.", "reason": None, "links": []})
+
+    result = runner.invoke(app, ["fleet", "show", record["id"]])
+
+    assert result.exit_code == 0, result.output
+    assert "verdict: tv-stop-9" in result.output.splitlines()
+
+
+def test_events_list_each_stops_verdict_id(gw):
+    stop = gw.add_event("stop", WORKER, "a stop", verdict=dict(READING))
+    died = gw.add_event("died", WORKER, "gone", crashed=False)
+
+    result = runner.invoke(app, ["fleet", "events"])
+
+    assert result.exit_code == 0, result.output
+    _, rows = read_table(result.output, "events")
+    by_id = {r["id"]: r for r in rows}
+    assert by_id[stop["id"]]["verdictId"] == "v-1"
+    assert by_id[died["id"]]["verdictId"] in (None, "-")
 
 
 def test_filing_without_advice_sends_no_advice_fields(gw):

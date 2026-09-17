@@ -9,18 +9,18 @@ using Xunit;
 namespace CcDirector.Gateway.Tests.Data;
 
 /// <summary>
-/// The PostgreSQL half of the step 7 fixes' storage: a real PostgreSQL database at the schema before the change,
-/// holding a verdict answered as the answer route marked it then, carried through <c>AddTurnVerdictAnswerChoice</c>. The
-/// verdict survives and the new column exists, empty on it.
+/// The PostgreSQL half of the round 2 fixes' storage: a real PostgreSQL database at the schema before the change,
+/// holding an open record filed then, carried through <c>AddFleetOutcomeStopIdentity</c>. The record survives, naming no
+/// stop, and the two new columns exist.
 ///
-/// GATING. Like <see cref="FleetManagerEventOutcomeAnswerPostgresTests"/>, the class is gated on
+/// GATING. Like <see cref="TurnVerdictAnswerChoicePostgresTests"/>, the class is gated on
 /// <c>CC_GATEWAY_TEST_PG_CONNECTION</c> and reports SKIPPED when it is unset. Skipped is not passed.
 /// </summary>
-public sealed class TurnVerdictAnswerChoicePostgresTests
+public sealed class FleetOutcomeStopIdentityPostgresTests
 {
     private const string ConnectionEnvVar = "CC_GATEWAY_TEST_PG_CONNECTION";
-    private const string MigrationBefore = "20260917090609_AddFleetManagerEventOutcomeAnswer";
-    private const string MigrationUnderTest = "20260917090709_AddTurnVerdictAnswerChoice";
+    private const string MigrationBefore = "20260917090709_AddTurnVerdictAnswerChoice";
+    private const string MigrationUnderTest = "20260917090809_AddFleetOutcomeStopIdentity";
 
     private sealed class RequiresPostgresFactAttribute : FactAttribute
     {
@@ -28,7 +28,7 @@ public sealed class TurnVerdictAnswerChoicePostgresTests
         {
             if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(ConnectionEnvVar)))
                 Skip = $"Set {ConnectionEnvVar} to a Postgres connection string to run the real-Postgres " +
-                       "verdict answer column proof.";
+                       "record stop identity proof.";
         }
     }
 
@@ -55,7 +55,7 @@ public sealed class TurnVerdictAnswerChoicePostgresTests
     }
 
     [RequiresPostgresFact]
-    public void AddTurnVerdictAnswerChoice_FromEmpty_AddsTheColumnAndKeepsAVerdictStoredBefore()
+    public void AddFleetOutcomeStopIdentity_FromEmpty_AddsTheColumnsAndKeepsARecordFiledBefore()
     {
         PostgresProofDatabase.GuardThrowawayDatabase();
         using (var ctx = NewContext())
@@ -67,30 +67,32 @@ public sealed class TurnVerdictAnswerChoicePostgresTests
             var index = all.IndexOf(MigrationUnderTest);
             Assert.True(index > 0, $"'{MigrationUnderTest}' is not in the Postgres migration set.");
             Assert.Equal(MigrationBefore, all[index - 1]);
-            Assert.Equal("20260917090809_AddFleetOutcomeStopIdentity", all[index + 1]);
-            Assert.Equal(index + 2, all.Count);
+            Assert.Equal(MigrationUnderTest, all[^1]);
             ctx.GetService<IMigrator>().Migrate(MigrationBefore);
         }
 
         Scalar("""
-            INSERT INTO gateway.turn_verdicts (tenant_id, "SessionId", "JudgedAtUtc", "VerdictId", "TurnEndObservedAtUtc",
-                "ScreenHash", "Failed", "VerdictJson", "AnsweredAtUtc")
-            VALUES ('tenant-one', 'worker-1', TIMESTAMPTZ '2026-09-17 06:00:00Z', 'tv-before',
-                TIMESTAMPTZ '2026-09-17 05:59:48Z', 'hash-1', false, '{}', TIMESTAMPTZ '2026-09-17 06:01:00Z');
+            INSERT INTO gateway.fleet_outcomes ("Id", tenant_id, "Kind", "FiledBy", "AboutSessionId", "CreatedAtUtc",
+                "Title", "DetailsJson", "Status")
+            VALUES ('6a000000-0000-4000-8000-000000000001', 'tenant-one', 'decision', 'fm-1', 'worker-1',
+                TIMESTAMPTZ '2026-09-17 06:00:00Z', 'Publish?', '{}', 'open');
             """);
 
         using (var ctx = NewContext())
         {
-            ctx.GetService<IMigrator>().Migrate(MigrationUnderTest);
+            ctx.GetService<IMigrator>().Migrate();
             Assert.Equal(MigrationUnderTest, ctx.Database.GetAppliedMigrations().Last());
+            Assert.False(ctx.Database.HasPendingModelChanges());
         }
 
-        Assert.Equal("1", Scalar("""
+        Assert.Equal("2", Scalar("""
             SELECT count(*) FROM information_schema.columns
-            WHERE table_schema = 'gateway' AND table_name = 'turn_verdicts' AND column_name = 'AnswerJson'
+            WHERE table_schema = 'gateway' AND table_name = 'fleet_outcomes'
+              AND column_name IN ('AboutVerdictId', 'AboutTurnEndObservedAtUtc')
             """));
-        Assert.Equal("tv-before|null", Scalar("""
-            SELECT "VerdictId" || '|' || COALESCE("AnswerJson", 'null') FROM gateway.turn_verdicts
+        Assert.Equal("Publish?|open|null|null", Scalar("""
+            SELECT "Title" || '|' || "Status" || '|' || COALESCE("AboutVerdictId", 'null') || '|'
+                || COALESCE("AboutTurnEndObservedAtUtc"::text, 'null') FROM gateway.fleet_outcomes
             """));
     }
 }

@@ -23,6 +23,16 @@ public sealed class FleetOutcomeEntity : GatewayMintedKeyEntity
     /// <summary>The session the news is about, when there is one.</summary>
     public string? AboutSessionId { get; set; }
 
+    /// <summary>The stop the news is about: the id of the Wingman verdict the Fleet Manager filed it from (the event
+    /// carries it), set when the record is filed and never after. Null when the record is about no one stop - such a
+    /// record is never closed by an answer sent to a session, only by the ordinary record answer (steps 7 to 9, round 2
+    /// fixes).</summary>
+    public string? AboutVerdictId { get; set; }
+
+    /// <summary>The turn end of that verdict, as the Gateway stored it when the record was filed - with
+    /// <see cref="AboutVerdictId"/>, the identity of the stop. Null exactly when <see cref="AboutVerdictId"/> is.</summary>
+    public DateTime? AboutTurnEndObservedAtUtc { get; set; }
+
     /// <summary>When it was filed (UTC).</summary>
     public DateTime CreatedAtUtc { get; set; }
 

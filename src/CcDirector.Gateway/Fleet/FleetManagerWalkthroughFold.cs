@@ -66,6 +66,11 @@ internal sealed record FleetWalkthroughSessionFacts(
 /// or its computer has gone quiet - the reading says so in a sentence, and the item is answered through its record's
 /// own card instead of through the session.
 ///
+/// A RECORD IS ANSWERED THROUGH THE SESSION ONLY FOR ITS OWN STOP. A record names the stop it was filed about (the
+/// verdict id and turn end, <see cref="IsAboutStop"/>); only when that is the session's current verdict are the
+/// Wingman's options offered for it. A record about an earlier stop, or about no one stop, is answered through its
+/// own card - the answered route would refuse to close it with an answer to another stop.
+///
 /// BOTH PICKS ARE MARKED HERE. The session's pick is the option the verdict marks recommended; the Fleet Manager's is
 /// the option whose key equals the pick stored on the record. The client never compares strings.
 ///
@@ -73,6 +78,19 @@ internal sealed record FleetWalkthroughSessionFacts(
 /// </summary>
 internal static class FleetManagerWalkthroughFold
 {
+    /// <summary>
+    /// Whether the record was filed about exactly this stop: the verdict id it stored is this verdict's, and so is the
+    /// turn end. A record that names no stop is about none. Turn ends are compared to the microsecond, the precision
+    /// every store keeps.
+    /// </summary>
+    public static bool IsAboutStop(FleetOutcomeDto record, TurnVerdictDto verdict)
+        => !string.IsNullOrEmpty(record.VerdictId)
+           && string.Equals(record.VerdictId, verdict.VerdictId, StringComparison.Ordinal)
+           && record.VerdictTurnEndObservedAtUtc is { } turnEnd
+           && Microseconds(turnEnd) == Microseconds(verdict.TurnEndObservedAtUtc);
+
+    private static long Microseconds(DateTime value) => value.Ticks / 10;
+
     /// <summary>The most records one round holds.</summary>
     public const int MaxRoundItems = 50;
 
@@ -235,7 +253,8 @@ internal static class FleetManagerWalkthroughFold
         var card = FleetManagerPageFold.Card(o, tz, now);
         var verdict = facts?.Verdict;
         var answerable = !done && facts is { Live: true } && verdict is { Failed: false }
-                         && (verdict.Options.Count > 0 || IsParkedReply(verdict));
+                         && (verdict.Options.Count > 0 || IsParkedReply(verdict))
+                         && IsAboutStop(o, verdict);
         if (done)
         {
             item.AnswerMode = "none";

@@ -58,6 +58,9 @@ public sealed class GatewayHostBootSmokeTests
     // Step 7 fixes: a verdict's answer is stored with what was sent.
     private const string TurnVerdictAnswerChoicePostgresMigration = "20260917090709_AddTurnVerdictAnswerChoice";
     private const string TurnVerdictAnswerChoiceSqliteMigration = "20260917090700_AddTurnVerdictAnswerChoice";
+    // Steps 7 to 9, round 2 fixes: an outcome record stores the stop it is about.
+    private const string FleetOutcomeStopIdentityPostgresMigration = "20260917090809_AddFleetOutcomeStopIdentity";
+    private const string FleetOutcomeStopIdentitySqliteMigration = "20260917090800_AddFleetOutcomeStopIdentity";
 
     /// <summary>A Fact that skips itself unless the runtime Postgres selector CC_GATEWAY_DB_CONNECTION is set
     /// to a non-blank value, so CI never reaches out to the hosted database and never needs the secret.</summary>
@@ -102,7 +105,8 @@ public sealed class GatewayHostBootSmokeTests
         Assert.Contains(RemoveAssistantSettingsPostgresMigration, migrations);
         Assert.Contains(FleetManagerEventOutcomeAnswerPostgresMigration, migrations);
         Assert.Contains(TurnVerdictAnswerChoicePostgresMigration, migrations);
-        Assert.Equal(TurnVerdictAnswerChoicePostgresMigration, migrations[^1]);
+        Assert.Contains(FleetOutcomeStopIdentityPostgresMigration, migrations);
+        Assert.Equal(FleetOutcomeStopIdentityPostgresMigration, migrations[^1]);
     }
 
     /// <summary>
@@ -145,7 +149,8 @@ public sealed class GatewayHostBootSmokeTests
         Assert.Contains(RemoveAssistantSettingsSqliteMigration, sqliteAll);
         Assert.Contains(FleetManagerEventOutcomeAnswerSqliteMigration, sqliteAll);
         Assert.Contains(TurnVerdictAnswerChoiceSqliteMigration, sqliteAll);
-        Assert.Equal(TurnVerdictAnswerChoiceSqliteMigration, sqliteAll[^1]);
+        Assert.Contains(FleetOutcomeStopIdentitySqliteMigration, sqliteAll);
+        Assert.Equal(FleetOutcomeStopIdentitySqliteMigration, sqliteAll[^1]);
         Assert.Contains("AddFleetManagerMarkHistory", sqliteSince);
 
         Assert.Equal(sqliteSince.OrderBy(n => n, StringComparer.Ordinal), postgresSince.OrderBy(n => n, StringComparer.Ordinal));
@@ -232,8 +237,9 @@ public sealed class GatewayHostBootSmokeTests
             FleetOutcomeAdviceSqliteMigration,
             RemoveAssistantSettingsSqliteMigration,
             FleetManagerEventOutcomeAnswerSqliteMigration,
-            TurnVerdictAnswerChoiceSqliteMigration);
-        Assert.Equal(TurnVerdictAnswerChoiceSqliteMigration, applied[^1]);
+            TurnVerdictAnswerChoiceSqliteMigration,
+            FleetOutcomeStopIdentitySqliteMigration);
+        Assert.Equal(FleetOutcomeStopIdentitySqliteMigration, applied[^1]);
         Assert.Empty(ctx.Database.GetPendingMigrations());
         Assert.False(ctx.Database.HasPendingModelChanges(),
             "The SQLite model snapshot does not match the model - a migration is missing or the snapshot was merged wrong.");
@@ -241,7 +247,7 @@ public sealed class GatewayHostBootSmokeTests
 
     /// <summary>
     /// THE POSTGRESQL SNAPSHOT MATCHES THE MODEL, THE STEP 3 PAIR SORTS AFTER THE FLEET MESSAGE INBOX, AND STEP 4'S
-    /// PAIR SORTS AFTER STEP 3'S, AND STEPS 5 TO 9'S SORT AFTER STEP 4'S, WITH THE STEP 7 FIXES' ANSWER COLUMN LAST. Asking
+    /// PAIR SORTS AFTER STEP 3'S, AND STEPS 5 TO 9'S SORT AFTER STEP 4'S, WITH THE ROUND 2 FIXES' STOP IDENTITY LAST. Asking
     /// whether the model has pending changes compares the compiled snapshot with the model and opens no
     /// connection, so this runs without a database. Applying the set to a real server is the Postgres-backed
     /// suite's job.
@@ -273,8 +279,9 @@ public sealed class GatewayHostBootSmokeTests
             FleetOutcomeAdvicePostgresMigration,
             RemoveAssistantSettingsPostgresMigration,
             FleetManagerEventOutcomeAnswerPostgresMigration,
-            TurnVerdictAnswerChoicePostgresMigration);
-        Assert.Equal(TurnVerdictAnswerChoicePostgresMigration, migrations[^1]);
+            TurnVerdictAnswerChoicePostgresMigration,
+            FleetOutcomeStopIdentityPostgresMigration);
+        Assert.Equal(FleetOutcomeStopIdentityPostgresMigration, migrations[^1]);
         Assert.False(ctx.Database.HasPendingModelChanges(),
             "The PostgreSQL model snapshot does not match the model - a migration is missing or the snapshot was merged wrong.");
     }

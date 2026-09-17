@@ -1032,6 +1032,13 @@ namespace CcDirector.Gateway.Data.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
 
+                    b.Property<DateTime?>("AboutTurnEndObservedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AboutVerdictId")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Advice")
                         .HasMaxLength(300)
                         .HasColumnType("TEXT");

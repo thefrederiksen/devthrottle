@@ -66,6 +66,47 @@ public sealed class FleetOutcomeStoreTests : IDisposable
         },
     };
 
+    private const string AboutSession = "5b1e0000-0000-4000-8000-000000000001";
+
+    [Fact]
+    public void File_AboutAStop_KeepsTheVerdictIdAndTurnEndAcrossARestart()
+    {
+        var request = Decision();
+        request.SessionId = AboutSession;
+        request.VerdictId = "verdict-stop";
+        var turnEnd = Now.AddMinutes(-5).AddTicks(1230);
+
+        var filed = NewStore().File(TenantA, request, FleetManagerId, Now, new FleetOutcomeStop("verdict-stop", turnEnd));
+        var reread = NewStore().Get(TenantA, Guid.Parse(filed.Id))!;
+
+        Assert.Equal("verdict-stop", reread.VerdictId);
+        Assert.Equal(turnEnd, reread.VerdictTurnEndObservedAtUtc);
+    }
+
+    [Fact]
+    public void File_AVerdictIdWithoutItsLookedUpStop_Throws_AndStoresNothing()
+    {
+        var store = NewStore();
+        var request = Decision();
+        request.SessionId = AboutSession;
+        request.VerdictId = "verdict-stop";
+
+        Assert.Throws<InvalidOperationException>(() => store.File(TenantA, request, FleetManagerId, Now));
+        Assert.Throws<InvalidOperationException>(() => store.File(TenantA, request, FleetManagerId, Now,
+            new FleetOutcomeStop("another-verdict", Now)));
+        Assert.Empty(store.List(TenantA, "all", null, 50));
+    }
+
+    [Fact]
+    public void File_AStopForARecordNamingNoVerdict_Throws()
+    {
+        var request = Decision();
+        request.SessionId = AboutSession;
+
+        Assert.Throws<InvalidOperationException>(() => NewStore().File(TenantA, request, FleetManagerId, Now,
+            new FleetOutcomeStop("verdict-stop", Now)));
+    }
+
     [Fact]
     public void File_Ready_ReturnsTheRecordTypedAndOpen()
     {

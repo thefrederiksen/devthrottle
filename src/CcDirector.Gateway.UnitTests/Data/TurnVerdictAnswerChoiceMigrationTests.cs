@@ -13,9 +13,8 @@ namespace CcDirector.Gateway.Tests.Data;
 /// <summary>
 /// The step 7 fixes: a verdict's answer is stored with what was sent, so <c>turn_verdicts</c> gains
 /// <c>AnswerJson</c> (<c>AddTurnVerdictAnswerChoice</c>). The SQLite migration applies from an empty database and keeps
-/// an answered verdict stored before it, with no answer choice; both providers' Designer files are found, are the
-/// newest, and carry the current model, and neither snapshot is behind the model. The PostgreSQL apply is
-/// <c>TurnVerdictAnswerChoicePostgresTests</c>.
+/// an answered verdict stored before it, with no answer choice; both providers' Designer files are found and carry the
+/// new column. The PostgreSQL apply is <c>TurnVerdictAnswerChoicePostgresTests</c>.
 /// </summary>
 public sealed class TurnVerdictAnswerChoiceMigrationTests
 {
@@ -38,7 +37,8 @@ public sealed class TurnVerdictAnswerChoiceMigrationTests
             var index = all.IndexOf(SqliteUnderTest);
             Assert.True(index > 0, $"'{SqliteUnderTest}' is not in the SQLite migration set.");
             Assert.Equal(SqliteBefore, all[index - 1]);
-            Assert.Equal(SqliteUnderTest, all[^1]); // sorted after every migration on this branch
+            Assert.Equal("20260917090800_AddFleetOutcomeStopIdentity", all[index + 1]); // the only migration after it
+            Assert.Equal(index + 2, all.Count);
 
             // From an EMPTY database to the schema just before, with a verdict answered as the answer route marked it then.
             Assert.Empty(context.Database.GetAppliedMigrations());
@@ -51,11 +51,9 @@ public sealed class TurnVerdictAnswerChoiceMigrationTests
                 """);
             Assert.DoesNotContain("AnswerJson", ColumnNames(connection));
 
-            migrator.Migrate();
+            migrator.Migrate(SqliteUnderTest);
 
             Assert.Equal(SqliteUnderTest, context.Database.GetAppliedMigrations().Last());
-            Assert.Empty(context.Database.GetPendingMigrations());
-            Assert.False(context.Database.HasPendingModelChanges());
             Assert.Contains("AnswerJson", ColumnNames(connection));
             Assert.Equal("tv-before|2026-09-17 06:01:00|null", Single(connection,
                 """SELECT "VerdictId" || '|' || "AnsweredAtUtc" || '|' || IFNULL("AnswerJson", 'null') FROM "turn_verdicts" """));
@@ -69,27 +67,25 @@ public sealed class TurnVerdictAnswerChoiceMigrationTests
     }
 
     /// <summary>
-    /// Each provider's Designer is found through its attributes, is the newest migration, carries the current model,
-    /// and the provider's snapshot equals the model. Read with no database.
+    /// Each provider's Designer is found through its attributes and carries the answer column. It is no longer the
+    /// newest: the round 2 fixes added <c>AddFleetOutcomeStopIdentity</c> after it, which
+    /// <c>FleetOutcomeStopIdentityMigrationTests</c> holds to the current model and snapshot, and
+    /// <c>FleetManagerLaterStepsMigrationChainTests</c> holds the difference between the two Designers to its two
+    /// columns. Read with no database.
     /// </summary>
     [Theory]
     [InlineData("sqlite", "20260917090700_AddTurnVerdictAnswerChoice")]
     [InlineData("postgres", "20260917090709_AddTurnVerdictAnswerChoice")]
-    public void AddTurnVerdictAnswerChoice_Designer_IsDiscoveredNewestAndCarriesTheCurrentModel(string provider, string id)
+    public void AddTurnVerdictAnswerChoice_Designer_IsDiscoveredAndCarriesTheAnswerColumn(string provider, string id)
     {
         using var context = FleetManagerEventOutcomeAnswerMigrationTests.Context(provider);
         var assembly = context.GetService<IMigrationsAssembly>();
         Assert.True(assembly.Migrations.TryGetValue(id, out var type), $"'{id}' is not discovered for {provider}.");
         Assert.Equal("AddTurnVerdictAnswerChoice", type!.Name);
-        Assert.Equal(id, assembly.Migrations.Keys.Max(StringComparer.Ordinal));
         Assert.Equal(typeof(GatewayDbContext), type.GetCustomAttribute<DbContextAttribute>()!.ContextType);
 
         var designed = FleetManagerEventOutcomeAnswerMigrationTests.DesignedModel(context, assembly, type);
-        var current = context.GetService<IDesignTimeModel>().Model;
-        Assert.False(context.GetService<IMigrationsModelDiffer>().HasDifferences(designed.GetRelationalModel(), current.GetRelationalModel()),
-            $"The {provider} Designer of '{id}' does not carry the current model.");
-        Assert.False(context.Database.HasPendingModelChanges(), $"The {provider} model snapshot is behind the model.");
-        var verdicts = assembly.ModelSnapshot!.Model.GetEntityTypes().Single(e => e.GetTableName() == "turn_verdicts");
+        var verdicts = designed.GetEntityTypes().Single(e => e.GetTableName() == "turn_verdicts");
         Assert.NotNull(verdicts.FindProperty("AnswerJson"));
     }
 

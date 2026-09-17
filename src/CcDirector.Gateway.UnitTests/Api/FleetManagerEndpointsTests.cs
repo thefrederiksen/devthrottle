@@ -141,6 +141,7 @@ public sealed class FleetManagerEndpointsTests : IDisposable
         FoldedRoster: tenant => GatewayEndpoints.FoldedAccountRoster(_registry, _pushed, tenant, null, null, null, null),
         SessionInAccount: (tenant, sid) => _pushed.TryLocateIgnoringFreshness(tenant, sid) is not null,
         LatestVerdict: (tenant, sid) => _verdicts.Latest(tenant, sid),
+        FindVerdict: (tenant, verdictId) => _verdicts.FindById(tenant, verdictId),
         FormerFleetManagers: tenant => _marks.List(tenant).Select(m => m.SessionId).ToList(),
         EventsDeliveryNote: tenant => _deliveryNotes.TryGetValue(tenant, out var note) ? note : null);
 
@@ -1343,6 +1344,83 @@ public sealed class FleetManagerEndpointsTests : IDisposable
         Assert.Equal(StatusCodes.Status400BadRequest, Status(refused));
         Assert.StartsWith("pick 'B' is not one of the Wingman's options", (string)Field(refused, "error")!);
         Assert.Single(_outcomes.List(TenantA, "all", null, 50));
+    }
+
+    // ---- the stop a record is about (steps 7 to 9, round 2 fixes) ------------------------------------------
+
+    [Fact]
+    public async Task FileOutcome_NamingAVerdict_StoresItsIdAndTheStoredTurnEnd()
+    {
+        var verdict = Verdict("verdict-stop-1");
+        _verdicts.Store(TenantA, OwnedStopped, verdict);
+
+        var filed = await FileAsync(TenantA, new FleetOutcomeFileRequest
+        {
+            Kind = "decision", Title = "Publish?", SessionId = OwnedStopped, VerdictId = " verdict-stop-1 ",
+            Decision = new FleetDecisionDetails { Question = "Publish now?", Options = { "Yes.", "No." } },
+        });
+
+        var stored = _outcomes.Get(TenantA, Guid.Parse(filed.Id))!;
+        Assert.Equal("verdict-stop-1", stored.VerdictId);
+        Assert.Equal(verdict.TurnEndObservedAtUtc, stored.VerdictTurnEndObservedAtUtc);
+        Assert.Equal("verdict-stop-1", filed.VerdictId);
+    }
+
+    [Fact]
+    public async Task FileOutcome_WithoutAVerdict_NamesNoStop()
+    {
+        var filed = await FileAsync(TenantA, FleetOutcomeStoreTests.Finding("No stop"));
+
+        Assert.Null(filed.VerdictId);
+        Assert.Null(filed.VerdictTurnEndObservedAtUtc);
+    }
+
+    [Fact]
+    public async Task FileOutcome_AVerdictThisAccountDoesNotHold_Is404AndFilesNothing()
+    {
+        _verdicts.Store(TenantB, OwnedStopped, Verdict("verdict-of-b"));
+
+        var result = await FleetManagerEndpoints.FileOutcomeAsync(Request(TenantA, FleetManager, new FleetOutcomeFileRequest
+        {
+            Kind = "finding", Title = "Done", SessionId = OwnedStopped, VerdictId = "verdict-of-b",
+            Finding = new FleetFindingDetails { Answer = "Done." },
+        }), ResolveTenant, Access(), _outcomes, Sources());
+
+        Assert.Equal(StatusCodes.Status404NotFound, Status(result));
+        Assert.Equal("verdict_not_found", Field(result, "code"));
+        Assert.Empty(_outcomes.List(TenantA, "all", null, 50));
+    }
+
+    [Fact]
+    public async Task FileOutcome_AVerdictOfAnotherSession_Is409AndFilesNothing()
+    {
+        _verdicts.Store(TenantA, OwnedWorking, Verdict("verdict-of-working"));
+
+        var result = await FleetManagerEndpoints.FileOutcomeAsync(Request(TenantA, FleetManager, new FleetOutcomeFileRequest
+        {
+            Kind = "finding", Title = "Done", SessionId = OwnedStopped, VerdictId = "verdict-of-working",
+            Finding = new FleetFindingDetails { Answer = "Done." },
+        }), ResolveTenant, Access(), _outcomes, Sources());
+
+        Assert.Equal(StatusCodes.Status409Conflict, Status(result));
+        Assert.Equal("verdict_other_session", Field(result, "code"));
+        Assert.Empty(_outcomes.List(TenantA, "all", null, 50));
+    }
+
+    [Fact]
+    public async Task FileOutcome_AVerdictWithoutASession_Is400AndFilesNothing()
+    {
+        _verdicts.Store(TenantA, OwnedStopped, Verdict("verdict-no-session"));
+
+        var result = await FleetManagerEndpoints.FileOutcomeAsync(Request(TenantA, FleetManager, new FleetOutcomeFileRequest
+        {
+            Kind = "finding", Title = "Done", VerdictId = "verdict-no-session",
+            Finding = new FleetFindingDetails { Answer = "Done." },
+        }), ResolveTenant, Access(), _outcomes, Sources());
+
+        Assert.Equal(StatusCodes.Status400BadRequest, Status(result));
+        Assert.Equal("verdictId names a stop of a session; give sessionId too", Field(result, "error"));
+        Assert.Empty(_outcomes.List(TenantA, "all", null, 50));
     }
 
     [Fact]

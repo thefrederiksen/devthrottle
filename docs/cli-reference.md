@@ -1235,12 +1235,13 @@ or the start of one.
 USAGE: cc-devthrottle fleet digest [--session <id>] [--json]
 USAGE: cc-devthrottle fleet ready "<title>" --pr <link> --risk low|medium|high
          --checks passed|failed|none --tested "<how>" --reviewed-by "<who>"
-         --change "<one sentence for a user>" [--session <id>]
+         --change "<one sentence for a user>" [--session <id> [--verdict <verdictId>]]
          [--advice "<one line>" [--pick "<option key>"]] [--json]
 USAGE: cc-devthrottle fleet finding "<title>" --answer "<answer>" [--reason "<why>"]
-         [--link <url> ...] [--session <id>] [--advice "<one line>" [--pick "<option key>"]] [--json]
+         [--link <url> ...] [--session <id> [--verdict <verdictId>]]
+         [--advice "<one line>" [--pick "<option key>"]] [--json]
 USAGE: cc-devthrottle fleet decision "<title>" --question "<q>" --option "<a>" --option "<b>"
-         [--recommend "<a>"] [--why "<why>"] [--session <id>]
+         [--recommend "<a>"] [--why "<why>"] [--session <id> [--verdict <verdictId>]]
          [--advice "<one line>" [--pick "<option key>"]] [--json]
 USAGE: cc-devthrottle fleet outcomes [--status open|answered|all] [--kind ready|finding|decision]
          [--count/-n 1-200] [--cursor <nextCursor>] [--all] [--json]
@@ -1296,6 +1297,16 @@ without `--advice` sends exactly the body it always sent. `fleet show` prints `a
 set, `ownerNote`. The records' `--json` shape keeps every field it had and adds `advice`,
 `fleetManagerPick`, `adviceSetAtUtc`, `ownerNote` and `ownerNoteAtUtc`.
 
+`--verdict` (on `fleet ready`, `fleet finding` and `fleet decision`) names the stop the record is about:
+the `verdictId` of the stop event it is filed from, which `fleet events` lists and the events prompt
+prints. It goes with `--session` (exit 2 otherwise). The Gateway stores it with that verdict's turn end;
+it refuses a verdict this account does not hold (404, `verdict_not_found`) and one about another session
+(409, `verdict_other_session`). The walkthrough offers a session's own answer buttons for a record only
+when the record names the session's current stop, and closes the record with an answer sent to the
+session only for that stop: an answer to a later stop of the same session never closes it. A record
+filed without `--verdict` is answered through its own card, with the ordinary record answer. `fleet
+show` prints `verdict`; the records' `--json` adds `verdictId` and `verdictTurnEndObservedAtUtc`.
+
 `fleet digest` also prints `answered: <n> in the last 24 hours` and an `answered` table (id, kind, who
 answered, the words, title) - how the Fleet Manager learns what the owner decided in the walkthrough,
 where nothing is typed to it (JSON: `recentlyAnswered`, `answeredWithinHours`). Its open-records table
@@ -1310,7 +1321,8 @@ count line always counts `stop` and `died`, and adds `answered` and `marked` whe
 unacknowledged ones, oldest first; `--all` includes acknowledged ones, newest first. One page at a
 time, exactly as `fleet outcomes` pages: past the page the count line says `count: <shown> of
 <total>`, the next line is `nextCursor: <cursor>`, and the help names `--cursor <cursor>` for the next
-page; `--every-page` follows every page. A cursor is issued for one of the two lists and is refused
+page; `--every-page` follows every page. Each row carries the stop's `verdictId` (empty when the event has
+no verdict), which `--verdict` takes when a record is filed about that stop. A cursor is issued for one of the two lists and is refused
 (400) for the other. A stop still waiting for the Wingman's reading is listed with verdict `waiting`
 and the Gateway's sentence saying so; it is not delivered and cannot be acknowledged until its reading
 is stored - or, after 5 minutes without one, until it is given the reason there is none and delivered

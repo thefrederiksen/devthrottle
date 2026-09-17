@@ -28,12 +28,14 @@ public sealed class FleetManagerHandOverAuthorityHostTests : IAsyncLifetime
     private const string SharedToken = "fleet-manager-hand-over-authority-token";
     private const string DirectorIdA = "director-hand-over-a";
     private const string DirectorIdB = "director-hand-over-b";
+    private const string FirstVerbDirectorId = "director-hand-over-first-verb";
 
     private readonly ITestOutputHelper _out;
     private readonly string _runId = Guid.NewGuid().ToString("N")[..12];
     private readonly string _instancesDir =
         Path.Combine(Path.GetTempPath(), "cc-hand-over-authority-" + Guid.NewGuid().ToString("N"));
     private string? _priorHosted;
+    private string _subjectA = "";
 
     private GatewayHost _gateway = null!;
     private FakeTunnelDirector _directorA = null!;
@@ -68,7 +70,7 @@ public sealed class FleetManagerHandOverAuthorityHostTests : IAsyncLifetime
             streamMode: true);
         await _gateway.StartAsync();
 
-        var subjectA = $"sub-ho-a-{_runId}";
+        var subjectA = _subjectA = $"sub-ho-a-{_runId}";
         var subjectB = $"sub-ho-b-{_runId}";
         var a = HostedTestEnrollment.Enroll(_gateway, subjectA, $"ho-a-{_runId}@example.com", $"dev-ho-dir-a-{_runId}", "MHOA");
         var b = HostedTestEnrollment.Enroll(_gateway, subjectB, $"ho-b-{_runId}@example.com", $"dev-ho-dir-b-{_runId}", "MHOB");
@@ -96,14 +98,14 @@ public sealed class FleetManagerHandOverAuthorityHostTests : IAsyncLifetime
             _rowsA[row.SessionId] = row;
 
         _directorA = await FakeTunnelDirector.StartAsync(_gateway, a.DeviceKey, DirectorIdA, "MHOA",
-            dispatch: SetControllerOnA, changesOwner: true);
+            dispatch: SetControllerOnA, changesOwner: true, changesOwnerIfExpected: true);
         _directorB = await FakeTunnelDirector.StartAsync(_gateway, b.DeviceKey, DirectorIdB, "MHOB",
             dispatch: cmd =>
             {
                 if (cmd.Verb == "set-controller") lock (_ownerChangesB) _ownerChangesB.Add(cmd);
                 return FakeTunnelDirector.Ok(new { ok = true });
             },
-            changesOwner: true);
+            changesOwner: true, changesOwnerIfExpected: true);
         await PushAAsync();
         await _directorB.PushSnapshotAsync(
             Row(_fleetManagerBId, "Another account's Fleet Manager", null, now.AddHours(-1)),
@@ -255,6 +257,35 @@ public sealed class FleetManagerHandOverAuthorityHostTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.NotFound, status);
         Assert.Empty(_ownerChangesA);
         Assert.Null(_rowsA[_plainId].ControllerSessionId);
+    }
+
+    // ---- a Director that changes the owner without checking it -----------------------------------------------
+
+    [Fact]
+    public async Task A_Director_that_says_only_the_first_verb_flag_is_refused_before_anything_is_sent()
+    {
+        // The first builds with set-controller said ChangesOwner and ignored the expected owner, so they would
+        // overwrite an owner another session set after the Gateway checked. Their hello carries every flag they had,
+        // and not ChangesOwnerIfExpected.
+        var device = HostedTestEnrollment.Enroll(_gateway, _subjectA, $"ho-a-{_runId}@example.com", $"dev-ho-dir-c-{_runId}", "MHOC");
+        var sent = new List<DirectorCommand>();
+        await using var firstVerb = await FakeTunnelDirector.StartAsync(_gateway, device.DeviceKey, FirstVerbDirectorId, "MHOC",
+            dispatch: cmd =>
+            {
+                if (cmd.Verb == "set-controller") lock (sent) sent.Add(cmd);
+                return FakeTunnelDirector.Ok(new { ok = true });
+            },
+            changesOwner: true);
+        var onFirstVerb = Guid.NewGuid().ToString();
+        var row = Row(onFirstVerb, "On a first-verb Director", null, DateTime.UtcNow.AddMinutes(-5));
+        row.MachineName = "MHOC";
+        await firstVerb.PushSnapshotAsync(row);
+
+        var (status, body) = await HandOverAsync(_ownerA, onFirstVerb, "fleet-manager");
+
+        Assert.Equal(HttpStatusCode.Conflict, status);
+        Assert.Contains("is too old to hand a session over safely", body.GetProperty("error").GetString());
+        Assert.Empty(sent);
     }
 
     // ---- every other session key ---------------------------------------------------------------------------

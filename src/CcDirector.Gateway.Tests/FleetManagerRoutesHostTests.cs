@@ -479,7 +479,7 @@ public sealed class FleetManagerRoutesHostTests : IAsyncLifetime
             new { session = _otherSessionId, to = "fleet-manager" });
 
         Assert.Equal(HttpStatusCode.Conflict, status);
-        Assert.Contains("is older than hand over and cannot change a session's owner",
+        Assert.Contains("is too old to hand a session over safely",
             Root(body).GetProperty("error").GetString());
     }
 

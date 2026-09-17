@@ -267,7 +267,7 @@ public sealed class SessionOwnerExecutorTests
             return rows.Select(r => ("director-under-test", r)).ToList();
         }
 
-        public bool ChangesOwner(TenantId tenant, string directorId) => true;
+        public bool ChangesOwnerIfExpected(TenantId tenant, string directorId) => true;
 
         public async Task<(SessionDto? Session, string? Error, bool OwnerMoved)> SetControllerAsync(TenantId tenant, string directorId,
             string sessionId, string? expectedControllerSessionId, string? controllerSessionId, CancellationToken ct)

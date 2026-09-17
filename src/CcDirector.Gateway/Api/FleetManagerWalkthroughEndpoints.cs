@@ -149,8 +149,11 @@ internal static class FleetManagerWalkthroughEndpoints
     /// client may still name the positions it sent, and a request whose positions differ from the stored ones is
     /// refused - a delayed or mistaken request can never record an option the session was not sent.
     ///
-    /// THE ANSWER MUST BE TO THE RECORD'S STOP. The walkthrough offers a record the session's current stop, so the
-    /// verdict answered must be the session's last judged stop - once the session has stopped again, an answer to the
+    /// THE ANSWER MUST BE TO THE RECORD'S STOP. A record stores the stop it was filed about (the verdict id and turn
+    /// end), and the verdict answered must be exactly that stop - an answer to a later stop of the same session never
+    /// closes a record about an earlier one. A record that names no stop is not closed here at all; it is answered with
+    /// the ordinary record answer. The walkthrough offers a record the session's current stop, so the verdict answered
+    /// must also be the session's last judged stop - once the session has stopped again, an answer to the
     /// earlier stop no longer answers anything open - and it must have been answered after the record was filed, so an
     /// answer to an earlier stop never closes a later record. The verdict must be about the record's own session.
     /// </summary>
@@ -179,6 +182,16 @@ internal static class FleetManagerWalkthroughEndpoints
             if (!string.Equals(located.SessionId, record.SessionId, StringComparison.OrdinalIgnoreCase))
                 return Conflict("verdict_other_session",
                     $"verdict {verdictId} is about another session than this record, so nothing was recorded");
+            if (string.IsNullOrEmpty(record.VerdictId))
+                return Conflict("record_names_no_stop",
+                    "this record was filed about no one stop of the session, so an answer sent to the session does not "
+                    + "close it and nothing was recorded; answer the record itself");
+            if (!FleetManagerWalkthroughFold.IsAboutStop(record, located.Verdict))
+                return Conflict("record_other_stop",
+                    $"this record is about the session's stop {record.VerdictId}"
+                    + (record.VerdictTurnEndObservedAtUtc is { } turnEnd ? $" (turn end {turnEnd:O})" : "")
+                    + $", not verdict {verdictId} (turn end {located.Verdict.TurnEndObservedAtUtc:O}), so that answer "
+                    + "does not close it and nothing was recorded; answer the record itself");
             if (located.AnsweredAtUtc is not { } answeredAt || located.Answer is not { } taken)
                 return Conflict("not_answered",
                     "the session has not taken an answer to that verdict, so nothing was recorded; answer it first");
