@@ -1321,7 +1321,7 @@ def director_restore(
     wait_seconds: int = typer.Option(600, "--wait-seconds", help="How long to wait for every seat's answer. 0 asks and does not wait."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
 ) -> None:
-    """Bring a drained fleet back: the Director starts every seat, under the owner it had.
+    """Bring a drained fleet back: the Director starts each seat under its old owner.
 
     Owners come from what the Gateway captured, never from you: an owner restarted in the same drain
     comes back first and is named by its new id. Each seat that fails is reported and the rest carry on.
