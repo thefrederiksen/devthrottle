@@ -59,6 +59,7 @@ def test_apps_lists_what_the_machine_reported(stub_get):
         "apps": [{"name": "Google Chrome", "path": r"C:\Start\Chrome.lnk", "source": "start-menu-user"}],
         "totalMatches": 1,
         "truncated": False,
+        "skipped": [],
     }
 
     result = runner.invoke(app, ["machine", "apps", "SOREN_NORTH", "chrome"])
@@ -73,6 +74,7 @@ def test_apps_reports_an_incomplete_catalogue_rather_than_a_short_one(stub_get):
     stub_get["payload"] = {
         "apps": [{"name": "Chrome", "path": "p", "source": "s"}],
         "totalMatches": 1,
+        "truncated": False,
         "skipped": ["C:/Users/other: access denied"],
     }
 
@@ -89,6 +91,8 @@ def test_files_shows_the_hits_and_where_it_searched(stub_get, plain):
         "directoriesVisited": 900,
         "elapsedMilliseconds": 1500,
         "truncated": False,
+        "truncationReason": None,
+        "unreadableDirectories": 0,
     }
 
     result = runner.invoke(app, ["machine", "files", "SOREN_NORTH", "*.pptx"])
@@ -98,6 +102,7 @@ def test_files_shows_the_hits_and_where_it_searched(stub_get, plain):
     output = plain(result.output)
     assert "deck.pptx" in output
     assert "900 directories" in output
+    assert "  deck.pptx,2048,2026-07-01T10:00:00Z,D:\\Work\\deck.pptx" in output.splitlines()
 
 
 def test_files_stopped_at_the_result_limit_says_so_and_says_what_to_change(stub_get):
@@ -107,6 +112,7 @@ def test_files_stopped_at_the_result_limit_says_so_and_says_what_to_change(stub_
         "truncationReason": "limit",
         "directoriesVisited": 10,
         "elapsedMilliseconds": 20,
+        "unreadableDirectories": 0,
     }
 
     result = runner.invoke(app, ["machine", "files", "SOREN_NORTH", "*.txt"])
@@ -123,6 +129,7 @@ def test_files_stopped_at_the_time_limit_advises_more_time_not_a_narrower_search
         "truncationReason": "timeout",
         "directoriesVisited": 90000,
         "elapsedMilliseconds": 20000,
+        "unreadableDirectories": 0,
     }
 
     result = runner.invoke(app, ["machine", "files", "SOREN_NORTH", "*.txt"])
@@ -133,7 +140,7 @@ def test_files_stopped_at_the_time_limit_advises_more_time_not_a_narrower_search
 
 def test_files_reports_directories_it_could_not_read(stub_get, plain):
     stub_get["payload"] = {
-        "files": [], "truncated": False, "directoriesVisited": 5,
+        "files": [], "truncated": False, "truncationReason": None, "directoriesVisited": 5,
         "elapsedMilliseconds": 10, "unreadableDirectories": 42,
     }
 
@@ -143,7 +150,8 @@ def test_files_reports_directories_it_could_not_read(stub_get, plain):
 
 
 def test_files_passes_the_time_limit_through_as_milliseconds(stub_get):
-    stub_get["payload"] = {"files": [], "directoriesVisited": 0, "elapsedMilliseconds": 0}
+    stub_get["payload"] = {"files": [], "directoriesVisited": 0, "elapsedMilliseconds": 0, "truncated": False,
+                           "truncationReason": None, "unreadableDirectories": 0}
 
     runner.invoke(app, ["machine", "files", "SOREN_NORTH", "*.txt", "--seconds", "45"])
 

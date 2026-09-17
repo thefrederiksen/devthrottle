@@ -1167,11 +1167,14 @@ def machine_apps(
     query: str = typer.Argument(None, help="Filter by name. Omit to list everything installed."),
     count: int = typer.Option(100, "--count", "-n", help="Largest number of results to return."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
+    fields: str = typer.Option(
+        None, "--fields", help="Fields to show, comma separated. Default and valid: name, source, path."
+    ),
 ) -> None:
     """List the applications installed on another computer."""
     from .machine_ops import list_apps
 
-    list_apps(machine, query, count, json_output)
+    list_apps(machine, query, count, json_output, fields)
 
 
 @machine_app.command("files")
@@ -1181,6 +1184,9 @@ def machine_files(
     count: int = typer.Option(200, "--count", "-n", help="Largest number of results to return."),
     seconds: int = typer.Option(20, "--seconds", "-s", help="How long the search may run before it reports what it found."),
     json_output: bool = typer.Option(False, "--json", "-j", help="Output raw JSON."),
+    fields: str = typer.Option(
+        None, "--fields", help="Fields to show, comma separated. Default and valid: name, size, modified, path."
+    ),
 ) -> None:
     """Find files by name across every drive on another computer.
 
@@ -1189,7 +1195,7 @@ def machine_files(
     """
     from .machine_ops import search_files
 
-    search_files(machine, query, count, seconds, json_output)
+    search_files(machine, query, count, seconds, json_output, fields)
 
 
 @machine_app.command("restart-capability")
@@ -1357,6 +1363,15 @@ def workers(
     target: Optional[str] = typer.Option(
         None, "--target", help="Whose workers to list. Defaults to THIS session (CC_SESSION_ID)."
     ),
+    json_output: bool = typer.Option(
+        False, "--json", "-j", help="Output raw JSON: the Gateway's rows for these sessions, a bare array."
+    ),
+    fields: str = typer.Option(
+        None,
+        "--fields",
+        help="Fields to show, comma separated. Default: id,name,state,hand,need. "
+        "Valid: id, name, state, repo, machine, number, model, agent, mission, path, hand, need.",
+    ),
 ) -> None:
     """List the sessions you are driving, and which of them have their hand up.
 
@@ -1364,7 +1379,7 @@ def workers(
     This is that read in one line - who you are driving, what state each is in, and what any of them
     is blocked on.
     """
-    list_my_workers(target)
+    list_my_workers(target, json_output=json_output, fields=fields)
 
 
 @session_app.command()

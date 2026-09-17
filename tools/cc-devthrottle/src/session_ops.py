@@ -11,9 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import typer
-from rich import box
 from rich.console import Console
-from rich.table import Table
 
 
 # --- ASCII-only output (project house rule): Rich truncates an overflowing table cell with the
@@ -908,70 +906,158 @@ def report_to_parent(summary: Optional[str], target: Optional[str] = None) -> No
         if gateway.field(s, "sessionId", "SessionId") == parent_id:
             parent_name = gateway.field(s, "name", "Name")
             break
-    label = parent_name or gateway.short_id(parent_id)
-    _report_delivery(resp, f"{label} ({parent_id})")
+    # The full id always: a shortened one can match a second session and cannot be pasted back.
+    _report_delivery(resp, f"{parent_name} ({parent_id})" if parent_name else parent_id)
     axi_cli.print_next([
         f"cc-devthrottle session buffer {axi_cli.bare(parent_id, '<session-id>')}",
         "cc-devthrottle session done",
     ])
 
 
-def list_my_workers(target: Optional[str] = None) -> None:
+# --- session workers (AXI standard, docs/axi-standard.md; issue #2922) ---
+
+# Every field `session workers --fields` accepts: the session list fields, plus whether the worker's hand
+# is up and what it needs. The default adds the hand to id, name and state, because the hand is the
+# question this command exists to answer.
+WORKERS_FIELDS = SESSION_LIST_FIELDS + ("hand", "need")
+WORKERS_DEFAULT_FIELDS = ("id", "name", "state", "hand", "need")
+
+# Printed after the list. A session that has STOPPED has its hand lowered by the fold, so a list with no
+# hand up does not mean "nothing needs you" - it means nothing needs you MID-TURN.
+WORKERS_HAND_NOTE = (
+    "A hand lowers itself when its session stops working. "
+    "A stopped worker has finished or is stuck - read it to find out which."
+)
+
+
+def _worker_fields_or_exit(rows: List[Dict[str, Any]]) -> None:
+    """Every Gateway field `session workers` reads is present and of the kind the Gateway sends.
+
+    needsManager must be present and a boolean: an absent flag is not a lowered hand, and reading it as
+    one would hide a worker that is asking for help. The name and the reason are text or null."""
+    for s in rows:
+        sid = gateway.field(s, "sessionId", "SessionId")
+        for camel, pascal, ok, kind in (
+            ("needsManager", "NeedsManager", lambda v: isinstance(v, bool), "true or false"),
+            ("needsManagerReason", "NeedsManagerReason", lambda v: v is None or isinstance(v, str), "text or null"),
+            ("name", "Name", lambda v: v is None or isinstance(v, str), "text or null"),
+        ):
+            present = camel in s or pascal in s
+            value = s.get(camel, s.get(pascal))
+            if not present or not ok(value):
+                shown = "missing" if not present else f"{type(value).__name__} {value!r}"
+                axi_cli.fail(
+                    f"the Gateway returned session {sid} with {camel} {axi_output.escape_ascii(shown)}, "
+                    f"not {kind}, so its hand cannot be shown. --json shows the raw rows.",
+                    ["cc-devthrottle session workers --json", axi_cli.CHECK_GATEWAY],
+                )
+
+
+def _worker_record(s: Dict[str, Any], state: str) -> Dict[str, object]:
+    """Every field `session workers` can show, for one row. Ids, names and the need are never shortened."""
+    record = _session_record(s, state)
+    # STRAIGHT OFF THE DICT, and checked to be a boolean first (_worker_fields_or_exit). gateway.field
+    # returns a STRING always, and str(False) is "False", which is truthy - so `bool(gateway.field(...))`
+    # once read EVERY worker as having its hand up.
+    raised = s.get("needsManager", s.get("NeedsManager")) is True
+    reason = s.get("needsManagerReason", s.get("NeedsManagerReason"))
+    record["hand"] = "up" if raised else "down"
+    # A reason that outlived a lowered hand is not a need: only a raised hand shows one.
+    record["need"] = reason if raised else None
+    return record
+
+
+def list_my_workers(
+    target: Optional[str] = None,
+    *,
+    json_output: bool = False,
+    fields: Optional[str] = None,
+) -> None:
     """Show the sessions THIS session is driving, and which of them have their hand up.
 
     The manager's half of the supervised rule. Workers never reach the owner, so a manager is the
     only one who can see a blocked one - and the design says a manager learns by READING its workers,
-    not by being messaged 'notice me'. This is that read, in one line instead of one session at a time.
+    not by being messaged 'notice me'. This is that read, in one list instead of one session at a time.
+
+    Rendered exactly as `session list` is: a count line with the state breakdown, the list with full ids
+    and full names, and help[] lines. `--json` prints the Gateway's rows for these sessions, unchanged,
+    as a bare array.
     """
+    # Usage errors come before the fetch: a bad flag is the caller's to fix, whatever the fleet holds.
+    if json_output and fields is not None:
+        _usage_error(axi_cli.FIELDS_WITH_JSON)
+    chosen_fields = usage_errors.parse_fields(fields, WORKERS_FIELDS, WORKERS_DEFAULT_FIELDS)
     me = resolve_target_or_current(target, "cc-devthrottle session workers")
-    try:
-        rows = gateway.get_json("sessions")
-    except gateway.GatewayError as err:
-        axi_cli.fail(f"could not read the fleet list: {err}", [axi_cli.CHECK_GATEWAY])
 
-    sessions = rows.get("sessions") if isinstance(rows, dict) else rows
-    if not isinstance(sessions, list):
-        axi_cli.fail(
-            "the Gateway did not return a session list, so the sessions you drive cannot be shown.",
-            ["cc-devthrottle session list", axi_cli.CHECK_GATEWAY],
-        )
-
+    sessions, complete, reason, stale_caution = _get_fleet()
+    caveat = _roster_caveat(complete, reason)
+    for s in sessions:
+        controller = s.get("controllerSessionId", s.get("ControllerSessionId"))
+        if controller is not None and not isinstance(controller, str):
+            sid = gateway.field(s, "sessionId", "SessionId")
+            axi_cli.fail(
+                f"the Gateway returned session {sid} with controllerSessionId "
+                f"{axi_output.escape_ascii(repr(controller))}, not text or null, so whether it is yours "
+                "cannot be told. --json shows the raw rows.",
+                ["cc-devthrottle session list --json", axi_cli.CHECK_GATEWAY],
+            )
     mine = [
-        x for x in sessions
-        if str(gateway.field(x, "controllerSessionId", "ControllerSessionId") or "").lower() == me.lower()
+        s for s in sessions
+        if (s.get("controllerSessionId", s.get("ControllerSessionId")) or "").lower() == me.lower()
     ]
-    if not mine:
-        console.print("You are not driving any sessions.")
+
+    if json_output:
+        # Plain print, not console.print: Rich wraps long values and would break the JSON.
+        print(json.dumps(mine, indent=2))
+        if caveat:
+            print(f"WARNING: the fleet list may be incomplete. {axi_output.escape_ascii(caveat)}", file=sys.stderr)
+        if not mine and stale_caution:
+            print(f"WARNING: {axi_output.escape_ascii(stale_caution)}", file=sys.stderr)
         return
 
-    table = Table(title=f"Sessions driven by {gateway.short_id(me)}", box=box.ASCII)
-    table.add_column("ID")
-    table.add_column("NAME")
-    table.add_column("STATE")
-    table.add_column("HAND UP - WHAT THEY NEED")
-    for x in mine:
-        sid = str(gateway.field(x, "sessionId", "SessionId") or "")
-        # STRAIGHT OFF THE DICT. gateway.field returns a STRING always, and str(False) is "False",
-        # which is truthy - so `bool(gateway.field(...))` read EVERY worker as having its hand up.
-        # Measured on the live wire: needsManager arrives present and false, so this fired on every
-        # row. It has been invisible only because the reason is null when the hand is down, leaving
-        # an empty cell; a reason that ever outlived a lowered hand would have shown a worker asking
-        # for a supervisor it was not asking for. The helper's own docstring warns against this.
-        raised = x.get("needsManager", x.get("NeedsManager", False)) is True
-        reason = str(gateway.field(x, "needsManagerReason", "NeedsManagerReason") or "")
-        table.add_row(
-            gateway.short_id(sid),
-            str(gateway.field(x, "name", "Name") or ""),
-            str(gateway.field(x, "stateLabel", "StateLabel") or ""),
-            f"[yellow]{reason}[/yellow]" if raised else "",
-        )
-    console.print(table)
-    # A session that has STOPPED has its hand lowered by the fold, so an empty column does not mean
-    # "nothing needs you" - it means nothing needs you MID-TURN. Say so rather than let the table imply it.
-    console.print(
-        "[dim]A hand lowers itself when its session stops working. A stopped worker has finished or is "
-        "stuck - read it to find out which.[/dim]"
-    )
+    _require_session_ids(mine)
+    _worker_fields_or_exit(mine)
+    states = _fold_or_exit(mine)
+    records = [_worker_record(s, st) for s, st in zip(mine, states)]
+    breakdown = [(name, n) for name in SESSION_STATES if (n := states.count(name))] or None
+    raised = sum(1 for r in records if r["hand"] == "up")
+
+    blocks = [
+        axi_output.escape_ascii(f"Sessions driven by {me}."),
+        axi_output.format_count(len(records), breakdown=breakdown),
+        f"hands-up: {raised}",
+        axi_output.render_list("workers", chosen_fields, records),
+    ]
+    if not records:
+        if caveat or stale_caution:
+            blocks.append("You are not driving any session on the fleet list returned, but it is not the whole fleet.")
+        else:
+            blocks.append("You are not driving any sessions.")
+    else:
+        blocks.append(WORKERS_HAND_NOTE)
+    if caveat:
+        blocks.append(f"This is not the whole fleet. {axi_output.escape_ascii(caveat)}")
+    if not records and stale_caution:
+        blocks.append(axi_output.escape_ascii(stale_caution))
+    blocks.append(axi_output.format_help(_workers_help(bool(records), chosen_fields)))
+    axi_output.write_blocks(sys.stdout, *blocks)
+
+
+def _workers_help(any_rows: bool, chosen_fields: List[str]) -> List[str]:
+    """Concrete next commands. Runtime values are placeholders, never guessed."""
+    if not any_rows:
+        return [
+            'cc-devthrottle session spawn <repo> --controlled-by self --prompt "<task>"',
+            "cc-devthrottle session list",
+        ]
+    commands = [
+        "cc-devthrottle session buffer <session-id>",
+        SESSION_LIST_MESSAGE_HELP,
+    ]
+    if list(chosen_fields) == list(WORKERS_DEFAULT_FIELDS):
+        commands.append("cc-devthrottle session workers --fields " + ",".join(WORKERS_FIELDS))
+    commands.append("cc-devthrottle session workers --json")
+    return commands
 
 
 def compact_session(target: Optional[str], continue_prompt: Optional[str]) -> Dict[str, Any]:
@@ -1490,8 +1576,8 @@ def send_message(
     except gateway.GatewayError as err:
         axi_cli.fail(f"could not send the message to session {target_sid}: {err}", _CHECK_SESSION)
 
-    name = gateway.field(chosen, "name", "Name") or gateway.short_id(target_sid)
-    _report_delivery(resp, f'{name} ({target_sid})')
+    name = gateway.field(chosen, "name", "Name")
+    _report_delivery(resp, f"{name} ({target_sid})" if name else target_sid)
     axi_cli.print_next([
         f"cc-devthrottle session buffer {axi_cli.bare(target_sid, '<session-id>')}",
         f'cc-devthrottle message ask {axi_cli.bare(target_sid, "<session-id>")} "<question>"',
@@ -1541,8 +1627,9 @@ def ask_session(target: str, question: str, timeout_ms: int) -> None:
     _accepted_or_fail(resp, f"the question to session {target_sid}", ask_next)
     axi_cli.confirmed(resp, ("waitStatus", "WaitStatus"), f"the question to session {target_sid}", ask_next)
     answer = gateway.field(resp, "output", "Output").strip()
-    name = gateway.field(chosen, "name", "Name") or gateway.short_id(target_sid)
-    console.print(f"[dim]-- answer from {axi_cli.shown(name)} ({target_sid}) --[/dim]")
+    name = gateway.field(chosen, "name", "Name")
+    source = f"{axi_cli.shown(name)} ({target_sid})" if name else target_sid
+    console.print(f"[dim]-- answer from {source} --[/dim]")
     # The answer is another session's own words: printed as text, never read as markup.
     print(axi_cli.ascii_text(answer) if answer else "(the target produced no output)")
     axi_cli.print_next([
@@ -1812,12 +1899,13 @@ def spawn_session(
             ["cc-devthrottle session list"],
         )
 
-    short = gateway.short_id(sid)
     # The Director names the session at birth (issue #800), so the response carries the final name.
     # Only the answer names the session: the Director composes the name from the folder, --name and
     # --purpose, so the name asked for is not what it is called and is never printed in its place.
-    label = gateway.field(resp, "name", "Name") or short
-    console.print(f"[green]Opened[/green] session {short} ({axi_cli.shown(label)}).")
+    # The id is printed in full: a shortened one can match a second session and cannot be pasted back.
+    label = gateway.field(resp, "name", "Name")
+    opened = f"{sid} ({axi_cli.shown(label)})" if label else sid
+    console.print(f"[green]Opened[/green] session {opened}.")
     if opt_out and cc_session:
         console.print(
             f"[yellow]The USER owns it[/yellow] - it will go red and ask him. Reason given: {axi_cli.shown(why.strip())}"
@@ -1828,11 +1916,11 @@ def spawn_session(
         # it happened, so name the mission AND the session it came from, and say how to undo it.
         mission_label = (
             gateway.field(inherited_from, "missionName", "MissionName")
-            or gateway.short_id(gateway.field(inherited_from, "missionId", "MissionId"))
+            or gateway.field(inherited_from, "missionId", "MissionId")
         )
         controller_label = (
             gateway.field(inherited_from, "name", "Name")
-            or gateway.short_id(gateway.field(inherited_from, "sessionId", "SessionId"))
+            or gateway.field(inherited_from, "sessionId", "SessionId")
         )
         console.print(
             f"Attached to mission [bold]{axi_cli.shown(mission_label)}[/bold], inherited from its controlling "
@@ -1982,7 +2070,7 @@ def selftest(timeout_ms: int) -> None:
         record(
             "spawn two sessions",
             True,
-            f"responder={gateway.short_id(responder)} recipient={gateway.short_id(recipient)}",
+            f"responder={responder} recipient={recipient}",
         )
         time.sleep(2)
 

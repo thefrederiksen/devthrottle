@@ -62,6 +62,15 @@ RESTART_ANSWER = {
 }
 
 
+FILE_HIT = {"name": "deck.pptx", "path": "/Users/me/deck.pptx", "sizeBytes": 2048,
+            "modifiedUtc": "2026-07-01T10:00:00Z"}
+FILES_ANSWER = {
+    "machine": "MAC", "query": "a", "files": [FILE_HIT], "roots": ["/"], "directoriesVisited": 9,
+    "elapsedMilliseconds": 12, "truncated": False, "truncationReason": None, "unreadableDirectories": 0,
+    "abandonedRoots": 0,
+}
+
+
 def _default_answers():
     # The shapes the Gateway on origin/main answers with (GatewayEndpoints.cs, MachineEndpoints.cs,
     # SessionWriteExecutor.cs): each change is confirmed from these fields, never from what was asked.
@@ -300,14 +309,15 @@ def test_sessionWhoami_NotOnTheRoster_SaysSoWithTheFullId(gw, monkeypatch, plain
     assert f"You are session {NEW}." in plain(result.stdout)
 
 
-def test_sessionWorkers_TableIsAscii(gw, monkeypatch):
-    gw.answers[("GET", "sessions")] = {"sessions": [dict(ROSTER[0], needsManager=True, needsManagerReason="which branch?")]}
+def test_sessionWorkers_ListIsAsciiWithTheNeed(gw, monkeypatch):
+    gw.roster = ([dict(ROSTER[0], needsManager=True, needsManagerReason="which branch?"),
+                  dict(ROSTER[1], needsManager=False, needsManagerReason=None)], True, None, None)
 
     result = _run(["session", "workers", "--target", PARENT], None, monkeypatch)
 
     assert result.exit_code == 0, result.output
     assert result.stdout.isascii(), result.stdout
-    assert "which branch?" in result.stdout
+    assert f"  {SID},worker one,ready,up,which branch?" in result.stdout.splitlines()
 
 
 def test_textLines_AreNeverWrappedAtTheConsoleWidth(gw, monkeypatch, plain):
@@ -401,7 +411,7 @@ def test_sessionSpawn_AnswerWithoutName_NamesTheSessionByIdNotByTheRequest(gw, m
 
     assert result.exit_code == 0, result.output
     assert "asked-for" not in result.stdout
-    assert f"({NEW[:8]})" in plain(result.stdout)
+    assert f"Opened session {NEW}." in plain(result.stdout)
 
 
 def test_missionDetach_NotAttached_SaysNothingChangedAndOffersAttach(gw, monkeypatch):
@@ -518,8 +528,49 @@ ERRORS = [
      ["not in the fleet roster", "cc-devthrottle session whoami"]),
     ("report delivery", ["session", "report", "x"], AS_SID,
      _set(**{f"POST sessions/{PARENT}/message": _raise("nope")}), FAILURE, ["nope", PARENT, "cc-devthrottle session list"]),
-    ("workers not a list", ["session", "workers", "--target", SID], None, _set(**{"GET sessions": {"x": 1}}),
-     FAILURE, ["did not return a session list", "cc-devthrottle session list"]),
+    ("workers fleet unreadable", ["session", "workers", "--target", SID], None, _roster(_raise("no list of sessions")),
+     FAILURE, ["no list of sessions", "cc-devthrottle setup status"]),
+    ("workers hand missing", ["session", "workers"], {"CC_SESSION_ID": PARENT},
+     _roster(([ROSTER[0]], True, None, None)), FAILURE,
+     ["needsManager missing", "not true or false", "cc-devthrottle session workers --json"]),
+    ("workers hand not a boolean", ["session", "workers"], {"CC_SESSION_ID": PARENT},
+     _roster(([dict(ROSTER[0], needsManager="False", needsManagerReason=None)], True, None, None)), FAILURE,
+     ["needsManager str 'False'", "cc-devthrottle session workers --json"]),
+    ("workers reason not text", ["session", "workers"], {"CC_SESSION_ID": PARENT},
+     _roster(([dict(ROSTER[0], needsManager=True, needsManagerReason=7)], True, None, None)), FAILURE,
+     ["needsManagerReason int 7", "cc-devthrottle setup status"]),
+    ("workers controller not text", ["session", "workers"], {"CC_SESSION_ID": PARENT},
+     _roster(([dict(ROSTER[0], controllerSessionId=5)], True, None, None)), FAILURE,
+     ["controllerSessionId 5", "cc-devthrottle session list --json"]),
+    ("workers fields and json", ["session", "workers", "--json", "--fields", "id"], AS_SID, None, USAGE,
+     ["--fields does not apply to --json"]),
+    ("workers unknown field", ["session", "workers", "--fields", "bogus"], AS_SID, None, USAGE,
+     ["Valid fields: id, name, state", "hand, need"]),
+    ("apps name missing", ["machine", "apps", "MAC"], None,
+     _set(**{"GET machines/MAC/apps?q=&limit=100": {"apps": [{"path": "/A.app", "source": "applications"}],
+                                                     "totalMatches": 1, "truncated": False, "skipped": []}}),
+     FAILURE, ["name is missing", "row 1", "cc-devthrottle machine apps MAC --json"]),
+    ("apps total missing", ["machine", "apps", "MAC"], None,
+     _set(**{"GET machines/MAC/apps?q=&limit=100": {"apps": [], "truncated": False, "skipped": []}}),
+     FAILURE, ["totalMatches missing", "--json"]),
+    ("apps truncated not a boolean", ["machine", "apps", "MAC"], None,
+     _set(**{"GET machines/MAC/apps?q=&limit=100": {"apps": [], "totalMatches": 0, "truncated": "no", "skipped": []}}),
+     FAILURE, ["truncated str 'no'", "not true or false"]),
+    ("apps fewer matched than returned", ["machine", "apps", "MAC"], None,
+     _set(**{"GET machines/MAC/apps?q=&limit=100": {"apps": [{"name": "A", "path": "/A.app", "source": "s"}],
+                                                     "totalMatches": 0, "truncated": False, "skipped": []}}),
+     FAILURE, ["says 0 matched but returned 1"]),
+    ("files size not a number", ["machine", "files", "MAC", "a"], None,
+     _set(**{"GET machines/MAC/files?q=a&limit=200&timeoutMilliseconds=20000": dict(
+         FILES_ANSWER, files=[dict(FILE_HIT, sizeBytes="2K")])}),
+     FAILURE, ["sizeBytes is str '2K'", 'cc-devthrottle machine files MAC "<name>" --json']),
+    ("files visited missing", ["machine", "files", "MAC", "a"], None,
+     _set(**{"GET machines/MAC/files?q=a&limit=200&timeoutMilliseconds=20000": {
+         k: v for k, v in FILES_ANSWER.items() if k != "directoriesVisited"}}),
+     FAILURE, ["directoriesVisited missing"]),
+    ("files abandoned not a number", ["machine", "files", "MAC", "a"], None,
+     _set(**{"GET machines/MAC/files?q=a&limit=200&timeoutMilliseconds=20000": dict(FILES_ANSWER, abandonedRoots=None)}),
+     FAILURE, ["abandonedRoots NoneType None"]),
     ("compact-continue blank", ["session", "compact-continue", SID, " "], None, None, USAGE, ["blank"]),
     ("compact gateway", ["session", "compact", SID], None,
      _set(**{f"POST sessions/{SID}/compact-context": _raise("nope")}), FAILURE,
@@ -781,7 +832,7 @@ def test_spawn_RosterUnreadableForInheritance_WarnsOnStandardErrorAndStillOpens(
 
 def test_machineFiles_QueryAndMachineAreEncoded(gw, monkeypatch):
     path = "machines/MY%20PC/files?q=a%20b%26c%23d&limit=200&timeoutMilliseconds=20000"
-    gw.answers[("GET", path)] = {"files": []}
+    gw.answers[("GET", path)] = dict(FILES_ANSWER, files=[])
 
     result = _run(["machine", "files", "MY PC", "a b&c#d"], None, monkeypatch)
 
@@ -806,9 +857,9 @@ def test_restartCapability_FalseAndListsAreReadAsWhatTheyAre(gw, monkeypatch, pl
     assert result.exit_code == 0, result.output
     out = plain(result.stdout)
     assert "YES - this is the fault" not in out
-    row = next(line for line in out.splitlines() if "serving an instance home" in line)
-    assert row.split("|")[2].strip() == "no"
-    assert "director/start, director/restart" in out
+    assert "  serving an instance home: no" in out.splitlines()
+    assert "  declares: director/start, director/restart" in out.splitlines()
+    assert "  serving root key: b027" in out.splitlines()
 
 
 def test_restartCapability_TrueIsTheFault(gw, monkeypatch, plain):

@@ -359,6 +359,20 @@ def _options_named(flag):
 
 
 FIELDS_COMMANDS = _options_named("--fields")
+
+
+def _required_arguments(command):
+    """A value for every required positional argument, so the body runs and reaches its own checks.
+    `machine apps` and `machine files` take a machine (and a query) before any option is read."""
+    return ["x" for param in command.params if param.param_type_name == "argument" and param.required]
+
+
+def _usage_line_ok(line, path, command):
+    """The Usage line names this command. A command with positional arguments lists them after
+    [OPTIONS], in whatever notation its Click version uses, so only their presence is checked."""
+    prefix = "Usage: " + " ".join([PROG, *path, "[OPTIONS]"])
+    has_arguments = any(param.param_type_name == "argument" for param in command.params)
+    return line.startswith(prefix + " ") if has_arguments else line == prefix
 STATE_COMMANDS = _options_named("--state")
 
 
@@ -390,19 +404,19 @@ def test_body_usage_error_walk_FindsTheListCommands():
 @pytest.mark.parametrize("path,command", FIELDS_COMMANDS, ids=[_label(p) for p, _ in FIELDS_COMMANDS])
 @pytest.mark.parametrize("value", ["bogus", "id,,name", "café\nx"])
 def test_every_fields_option_BadValue_IsAFullUsageError(no_gateway, path, command, value):
-    result = _invoke([*path, "--fields", value])
+    result = _invoke([*path, *_required_arguments(command), "--fields", value])
 
     text = _assert_plain_usage_error(result, path)
     first = text.splitlines()[0]
     assert "Valid fields: " in first, text
     assert "\\u00e9" in first or "caf" not in value, text
-    assert text.splitlines()[1] == "Usage: " + " ".join([PROG, *path]) + " [OPTIONS]", text
+    assert _usage_line_ok(text.splitlines()[1], path, command), text
     assert _listed(text, "Valid options") == _options(command)
 
 
 @pytest.mark.parametrize("path,command", FIELDS_COMMANDS, ids=[_label(p) for p, _ in FIELDS_COMMANDS])
 def test_every_fields_option_WithJson_IsAFullUsageError(no_gateway, path, command):
-    result = _invoke([*path, "--json", "--fields", "id"])
+    result = _invoke([*path, *_required_arguments(command), "--json", "--fields", "id"])
 
     text = _assert_plain_usage_error(result, path)
     assert "--fields does not apply to --json" in text.splitlines()[0], text
