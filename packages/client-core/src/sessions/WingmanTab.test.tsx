@@ -6,7 +6,7 @@
 // its own words, or dropped one, fails here.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { formatLocalInstant, WINGMAN_TAB_EMPTY, WingmanTab } from "./WingmanTab";
+import { formatLocalInstant, WINGMAN_TAB_EMPTY, WingmanStopsView } from "./WingmanTab";
 import type { WingmanStop, WingmanStopsResponse } from "./wingmanStops";
 
 const SID = "5b0c2e7a-0000-4000-8000-000000000020";
@@ -193,12 +193,12 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("the Wingman tab", () => {
+describe("the Wingman tab - the version 1 stops list, now its History view", () => {
   it("shows a loading line while the read is in flight, never a blank tab", async () => {
     let release: (r: Response) => void = () => {};
     vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((resolve) => (release = resolve))));
 
-    render(<WingmanTab sessionId={SID} />);
+    render(<WingmanStopsView sessionId={SID} />);
 
     expect(screen.getByRole("status").textContent).toBe("Loading the Wingman's stops...");
     release(new Response(JSON.stringify(answer([])), { status: 200 }));
@@ -207,7 +207,7 @@ describe("the Wingman tab", () => {
 
   it("shows the empty sentence when the Wingman has judged nothing", async () => {
     fakeGateway(200, answer([]));
-    render(<WingmanTab sessionId={SID} />);
+    render(<WingmanStopsView sessionId={SID} />);
     await waitFor(() => expect(screen.getByRole("status").textContent).toBe(WINGMAN_TAB_EMPTY));
     expect(urls).toEqual([`/sessions/${SID}/wingman-stops`]);
   });
@@ -215,14 +215,14 @@ describe("the Wingman tab", () => {
   it("shows the Gateway's refusal sentence verbatim, not an empty tab", async () => {
     const sentence = "the Wingman's stops are not available on this gateway";
     fakeGateway(404, { error: sentence });
-    render(<WingmanTab sessionId={SID} />);
+    render(<WingmanStopsView sessionId={SID} />);
     await waitFor(() => expect(screen.getByRole("alert").textContent).toBe(sentence));
     expect(screen.queryByText(WINGMAN_TAB_EMPTY)).toBeNull();
   });
 
   it("lists every stop with the chips' labels and counts from the Gateway, and opens the newest", async () => {
     fakeGateway(200, answer([CARRYING_ON, stop(), REFUSED, SKIPPED]));
-    render(<WingmanTab sessionId={SID} />);
+    render(<WingmanStopsView sessionId={SID} />);
 
     const list = await screen.findByRole("list", { name: "Stops" });
     expect(within(list).getAllByRole("button")).toHaveLength(4);
@@ -237,7 +237,7 @@ describe("the Wingman tab", () => {
 
   it("filters by the group the Gateway stamped on each stop", async () => {
     fakeGateway(200, answer([CARRYING_ON, stop(), REFUSED, SKIPPED]));
-    render(<WingmanTab sessionId={SID} />);
+    render(<WingmanStopsView sessionId={SID} />);
     await screen.findByRole("list", { name: "Stops" });
 
     const failedChip = within(screen.getByRole("toolbar"))
@@ -256,7 +256,7 @@ describe("the Wingman tab", () => {
   it("shows a judged stop's strip and four blocks verbatim, with times in local time", async () => {
     const judged = stop();
     fakeGateway(200, answer([judged]));
-    render(<WingmanTab sessionId={SID} />);
+    render(<WingmanStopsView sessionId={SID} />);
     const detail = await screen.findByRole("region", { name: "The selected stop" });
 
     expect(within(detail).getByText(judged.strip.label, { selector: ".wingman-strip-label" })).toBeTruthy();
@@ -284,7 +284,7 @@ describe("the Wingman tab", () => {
 
   it("shows a refused stop's reason beside the raw reply that failed it, and says the reply was cut", async () => {
     fakeGateway(200, answer([REFUSED]));
-    render(<WingmanTab sessionId={SID} />);
+    render(<WingmanStopsView sessionId={SID} />);
     const detail = await screen.findByRole("region", { name: "The selected stop" });
 
     const answered = within(detail).getByRole("article", { name: "What it answered" });
@@ -298,7 +298,7 @@ describe("the Wingman tab", () => {
 
   it("shows why nothing was kept, asked or answered for a stop that asked nothing, and follows what it replaced", async () => {
     fakeGateway(200, answer([SKIPPED, CARRYING_ON]));
-    render(<WingmanTab sessionId={SID} />);
+    render(<WingmanStopsView sessionId={SID} />);
     const detail = await screen.findByRole("region", { name: "The selected stop" });
 
     expect(within(detail).getByText("Not kept - over the size ceiling")).toBeTruthy();

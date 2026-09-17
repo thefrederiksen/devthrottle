@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useOutletContext, useParams } from "react-router-dom";
-import { getQueue, type QueueItem, type SessionDto } from "@devthrottle/client-core/api/client";
+import { getQueue, sendPrompt, type QueueItem, type SessionDto } from "@devthrottle/client-core/api/client";
 import { modelChipOf } from "@devthrottle/client-core/sessions/model";
 import { TerminalPane } from "../panes/TerminalPane";
 import type { SessionsOutletContext } from "./SessionsView";
@@ -17,6 +17,8 @@ import { appendToCompose } from "./composerInsert";
 import { promptDeliveryHistory, promptDeliveryNotice } from "@devthrottle/client-core/sessions/delivery";
 import { VerdictPanel } from "@devthrottle/client-core/sessions/VerdictPanel";
 import { WingmanTab } from "@devthrottle/client-core/sessions/WingmanTab";
+import { answerTurnVerdict } from "@devthrottle/client-core/sessions/verdictAnswer";
+import type { WingmanNowActions } from "@devthrottle/client-core/sessions/WingmanNow";
 
 // The selected session's detail region (issue #972): the live terminal (issue #971's TerminalPane,
 // reused verbatim) stacked over the driver action bar and the composer, with a tabbed dock for the
@@ -45,6 +47,21 @@ export function SessionDetail() {
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [tab, setTab] = useState<DockTab>("queue");
   const [mainTab, setMainTab] = useState<MainTab>("terminal");
+
+  // Everything the Wingman tab's Now view can do, wired to the calls that already exist. The reply goes to the
+  // session as an ordinary prompt, the option answer goes to the answer route with the Gateway's own verdict id
+  // and option index, and "Go there" is an ordinary route change.
+  const wingmanActions: WingmanNowActions = {
+    onSendReply: (text) => {
+      if (sessionId) void sendPrompt(sessionId, text, true);
+    },
+    onAnswerOption: (option, verdictId) => {
+      if (sessionId && verdictId) void answerTurnVerdict(sessionId, verdictId, [option.index]);
+    },
+    onOpenTerminal: () => setMainTab("terminal"),
+    onGoToSession: (id) => navigate(`/session/${id}`),
+    onOpenSettings: () => navigate("/settings"),
+  };
   // Set by the composer to a function that focuses its textarea, so the Source Control tab can focus the
   // composer after inserting a clicked file's path (issue #1266).
   const composerFocusRef = useRef<(() => void) | null>(null);
@@ -178,7 +195,11 @@ export function SessionDetail() {
                   THIS SHELL DECIDES NOTHING ABOUT WHAT IT SHOWS: it hands over the selected row and this route's
                   session id, and the panel owns whether there is anything to show and what is live on it. */}
               {selected && <VerdictPanel sessionId={sessionId} session={selected} />}
-              <WingmanTab sessionId={sessionId} />
+              {/* What Now can DO is wired here, because the shell owns the tabs and the router; the tab owns what
+                  is worth showing. An action that is not passed is not drawn, so Now never offers a control that
+                  would do nothing - which is why voice, snooze and the colour explanation are absent: the voice
+                  screen, the snooze call and the Debug view are not wired to Now yet. */}
+              <WingmanTab sessionId={sessionId} actions={wingmanActions} />
             </div>
           )}
           {mainTab === "reports" && (
