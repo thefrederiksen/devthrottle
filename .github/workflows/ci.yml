@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, ci-proof/base]
 
 # A pull request keeps ONE run per branch and supersedes the older one. A push to main gets a group
 # of its OWN, one per commit, so it never shares a queue with any other commit.
