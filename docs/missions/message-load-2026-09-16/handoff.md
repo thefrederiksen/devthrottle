@@ -372,3 +372,91 @@ origin/main (local RawCli create on this Mac) and are not this slice's.
 Slice 1 is landed by the Architect as one squash-merged pull request. After the merge the mission
 branch is reset to origin/main and slice 2 (the doorbell) starts from there. The mission record in
 this folder lands with it.
+
+## Disposed SQLite investigation (17 September 2026)
+
+Question: pull request 2970's .NET check (run 35176906244, job 105060497759) failed one test of about 5000,
+`MorningReportMicrophonesTests.AHealthyMicrophoneIsReportedWithNoAdvice`, with "Cannot access a disposed
+object. Object name: 'SQLitePCL.sqlite3'" while opening a fresh test database. Can slice 1 cause it?
+
+### Verdict: not slice 1. A race that already exists on main, in how every Gateway database is disposed.
+
+`GatewayDatabase.Dispose` calls `SqliteConnection.ClearAllPools()` (`src/CcDirector.Gateway/Data/GatewayDatabase.cs`,
+line 543). That call clears the connection pool of EVERY SQLite file in the process, not just its own. It
+has been there since `a2361e5e` (pull request 1770, 17 July 2026), unchanged on origin/main and on this
+branch. Every test that uses `GatewayDbTestHarness` disposes a database at teardown, so during a parallel
+run, tests keep clearing each other's pools.
+
+Inside Microsoft.Data.Sqlite 9.0.2 (the version the Gateway pins; source read at tag v9.0.2), a pool clear
+ends with `ReclaimLeakedConnections`, which treats a connection as leaked when it is marked active but has
+no owning `SqliteConnection` yet. `SqliteConnectionInternal.Activate` sets those two fields one after the
+other (`_active = true`, then `SetTarget(owner)`), and the pool lookup happens outside the factory's lock.
+A clear that runs in that gap reclaims the connection and, because the clear has shut the pool down,
+disposes its native handle. The owning test has already opened it, so its next statement fails
+exactly as in the continuous integration log: `SafeHandle.DangerousAddRef` inside
+`SqliteCommand.PrepareAndEnumerateStatements`. In the failing test, that statement was the
+`PRAGMA journal_mode=WAL` right after `Migrate()` in `GatewayDatabase.Open` (line 418).
+
+### Evidence
+
+1. **Reproduced with no Gateway code at all.** `sqlite-pool-race-repro.cs.txt` beside this file: eight
+   threads each open a fresh file, run a statement, close it, open it again and run
+   `PRAGMA journal_mode=WAL` (the shape of `GatewayDatabase.Open`), then clear the pool the way a test
+   teardown does. Microsoft.Data.Sqlite 9.0.2, this Mac, 90 seconds per run:
+
+   | Clear at teardown | Runs | Opens | Disposed-handle failures |
+   |---|---|---|---|
+   | `ClearAllPools()` (what `GatewayDatabase.Dispose` does) | 2 | 190,571 | **38** (29 at `PrepareAndEnumerateStatements`, the continuous integration site) |
+   | `ClearPool(own connection)` | 2 | 591,949 | **0** |
+
+   An earlier variant, with a separate thread clearing all pools non-stop, also failed (3 in 30 seconds,
+   3 in 120 seconds).
+2. **(a) The purge timer cannot reach this test.** The fleet message purge rides the judged-stop
+   retention timer, which is created only by `GatewayHost` (six-hour period, start delayed). No test in
+   `CcDirector.Gateway.UnitTests`, where the failing test lives, constructs a `GatewayHost`. The purge
+   never calls a pool clear, and it reads only its own database. A purge running against a disposed
+   database would fail inside its own `using` on a disposed service provider, not inside another
+   test's `Open` of a different file.
+3. **(b) The `AddFleetMessages` migration holds nothing open.** It is plain table and index creation.
+   The failing test does not even run migrations: the harness copies a migrated template, so `Migrate()`
+   finds nothing pending. The handle died on the statement after it.
+4. **(c) No shared path, static or connection with `FleetMessageRouteTests`.** Those tests are in
+   `CcDirector.Gateway.Tests`, a separate test assembly and a separate test process. The failing test's
+   database path is its own GUID folder. The only shared state is the process-wide pool, which
+   `FleetMessageStoreTests` (in the same assembly) touches the same way as the other 111 files in that
+   assembly that use the harness. Slice 1 adds that one file and a non-parallel collection
+   (`AdminServiceTokenCollection`), so the order the tests run in differs slightly from main. That
+   changes when the race fires, not whether it can.
+5. **The fixture already records this signature.** `GatewayDbTestHarness` explains that a
+   `ClearAllPools()` in the template builder made "every full run fail exactly one database test, a
+   different one each time". That caller was removed. The one in `GatewayDatabase.Dispose` was not.
+   About 50 more `ClearAllPools()` calls remain in this assembly's tests, most of them statistics database tests.
+6. **Local runs of the real suite did not reproduce it** (the window is nanoseconds wide): five
+   filtered runs (Morning report, fleet message, data and statistics classes; 230 tests) all passed.
+   Three full `CcDirector.Gateway.UnitTests` runs (5041 tests) each failed only the seven known
+   Mac-only tests listed in earlier rounds, with no disposed-handle failure.
+7. The branch's earlier red run (35164108818) failed on two unrelated Wingman charter audit tests, not
+   this one.
+
+### Fix
+
+None on this branch. Slice 1 does not cause it, and the test is not weakened or skipped. Recommended
+separately, against main: `GatewayDatabase.Dispose` should clear only its own pool
+(`SqliteConnection.ClearPool` on a connection built from its own connection string), and the statistics
+tests should do the same. The reproduction above is the guard to watch: 0 failures with a per-file
+clear against dozens with the process-wide one.
+
+### What this does NOT prove
+
+- The race was not caught inside the real Gateway test suite. The link from the continuous integration
+  failure to this mechanism is the matching stack, the fresh file, and the fact that only a pool clear
+  can dispose a handle another thread has open.
+- The reproduction ran on macOS, not on the Windows runner.
+- Checked only on Microsoft.Data.Sqlite 9.0.2, the pinned version.
+
+### Rerun result
+
+The rerun of the .NET job (run 35176906244, attempt 2, job 105073863475) passed: every test run in it
+succeeded, including the Gateway unit tests (5041 tests), and `AHealthyMicrophoneIsReportedWithNoAdvice`
+passed in 222 milliseconds. Every other job in the run passed too. The same commit, `dfdaf8b5`, failed once and
+passed once, which is what a timing race looks like.

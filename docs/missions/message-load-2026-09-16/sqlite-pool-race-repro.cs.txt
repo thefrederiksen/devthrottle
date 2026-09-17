@@ -1,0 +1,39 @@
+// Reproduction for the "Disposed SQLite investigation" in handoff.md. Saved as .txt so no build picks it up.
+// To run: put this file as Program.cs next to a console project file targeting net10.0 that references
+// Microsoft.Data.Sqlite 9.0.2 (the version the Gateway pins), then:  dotnet run -c Release -- 90 all   and   -- 90 own
+
+using Microsoft.Data.Sqlite;
+// Mirrors GatewayDatabase.Open (open, statement, close, open, statement on a fresh file) on several
+// threads, while other threads do what GatewayDatabase.Dispose does: SqliteConnection.ClearAllPools().
+// No Gateway code at all.
+var seconds = args.Length > 0 ? int.Parse(args[0]) : 60;
+var clearers = 0; var mode = args.Length > 1 ? args[1] : "all"; // all = every worker ClearAllPools() when done (today); own = ClearPool(its own)
+var root = Path.Combine(Path.GetTempPath(), "poolrace-" + Guid.NewGuid().ToString("N"));
+Directory.CreateDirectory(root);
+var stop = DateTime.UtcNow.AddSeconds(seconds);
+long opens = 0, disposed = 0, other = 0, clears = 0;
+string? firstTrace = null; var sites = new System.Collections.Concurrent.ConcurrentDictionary<string,int>();
+var workers = Enumerable.Range(0, 8).Select(w => new Thread(() =>
+{
+    while (DateTime.UtcNow < stop)
+    {
+        var cs = new SqliteConnectionStringBuilder { DataSource = Path.Combine(root, Guid.NewGuid().ToString("N") + ".db"), ForeignKeys = true }.ToString();
+        try
+        {
+            using (var c = new SqliteConnection(cs)) { c.Open(); using var cmd = c.CreateCommand(); cmd.CommandText = "CREATE TABLE IF NOT EXISTS t(x)"; cmd.ExecuteNonQuery(); }
+            using (var c = new SqliteConnection(cs)) { c.Open(); using (var cmd = c.CreateCommand()) { cmd.CommandText = "PRAGMA journal_mode=WAL;"; cmd.ExecuteNonQuery(); } c.Close(); if (mode == "own") SqliteConnection.ClearPool(c); else SqliteConnection.ClearAllPools(); Interlocked.Increment(ref clears); }
+            Interlocked.Increment(ref opens);
+        }
+        catch (ObjectDisposedException ex) { Interlocked.Increment(ref disposed); Interlocked.CompareExchange(ref firstTrace, ex.ToString(), null); sites.AddOrUpdate(string.Join(" <- ", ex.StackTrace!.Split('\n').Select(l=>l.Trim()).Where(l=>l.Contains("Sqlite")).Take(2)), 1, (_,n)=>n+1); }
+        catch (Exception ex) { if (Interlocked.Increment(ref other) <= 3) Console.WriteLine("other: " + ex.GetType().Name + ": " + ex.Message); }
+    }
+})).ToList();
+var clearThreads = Enumerable.Range(0, clearers).Select(_ => new Thread(() =>
+{
+    while (DateTime.UtcNow < stop) { SqliteConnection.ClearAllPools(); Interlocked.Increment(ref clears); }
+})).ToList();
+workers.ForEach(t => t.Start()); clearThreads.ForEach(t => t.Start());
+workers.ForEach(t => t.Join()); clearThreads.ForEach(t => t.Join());
+Console.WriteLine($"opens={opens} clears={clears} objectDisposed={disposed} other={other}");
+foreach (var kv in sites) Console.WriteLine($"  {kv.Value}x {kv.Key}");
+try { SqliteConnection.ClearAllPools(); Directory.Delete(root, true); } catch { }
