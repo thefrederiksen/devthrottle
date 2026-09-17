@@ -151,6 +151,8 @@ class Entry:
     notes: str = ""
     agents_may_use: bool = False
     uses: List[str] = field(default_factory=lambda: list(USES))
+    # The environment variable `run` puts the secret in when the caller does not choose one. Empty: CC_SECRET.
+    env_name: str = ""
     created_utc: str = field(default_factory=_utc_now)
     updated_utc: str = field(default_factory=_utc_now)
 
@@ -163,6 +165,7 @@ class Entry:
             "uses": list(self.uses),
             "agentsMayUse": self.agents_may_use,
             "notes": self.notes,
+            "envName": self.env_name,
             "updatedUtc": self.updated_utc,
         }
 
@@ -182,15 +185,27 @@ class Entry:
             notes=str(record.get("notes", "")),
             agents_may_use=bool(record.get("agentsMayUse", False)),
             uses=[str(u) for u in record.get("uses", list(USES))],
+            env_name=str(record.get("envName", "")),
             created_utc=str(record.get("createdUtc", "")),
             updated_utc=str(record.get("updatedUtc", "")),
         )
 
 
+ENV_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
+
+
+def validate_env_name(env_name: str) -> str:
+    if env_name and not ENV_NAME_PATTERN.match(env_name):
+        raise InputError(f"'{env_name}' is not a valid environment variable name: letters, digits and underscores, "
+                         "not starting with a digit.")
+    return env_name
+
+
 def make_entry(name: str, username: str, secret: str, allowed_domains: List[str], notes: str,
-               agents_may_use: bool, uses: List[str]) -> Entry:
+               agents_may_use: bool, uses: List[str], env_name: str = "") -> Entry:
     """Validate the owner's input and build an entry."""
     validate_name(name)
+    validate_env_name(env_name)
     if len(secret) < MIN_SECRET_LENGTH:
         raise InputError(f"The secret must be at least {MIN_SECRET_LENGTH} characters.")
     conflict = redaction_conflict(secret, username)
@@ -207,6 +222,7 @@ def make_entry(name: str, username: str, secret: str, allowed_domains: List[str]
         notes=notes,
         agents_may_use=agents_may_use,
         uses=[u for u in USES if u in uses],
+        env_name=env_name,
     )
 
 
@@ -256,6 +272,28 @@ class SecretStore:
         entries.append(entry)
         self._save(entries)
         return existing is not None
+
+    def put_many(self, new_entries: List[Entry], replace: bool) -> Dict[str, str]:
+        """Add many entries in ONE save. Returns {name: "added" | "replaced" | "exists"}; an existing entry is
+        only replaced when `replace` is true. Reading and saving the store once keeps an import of dozens of
+        entries from re-reading every secret for each one."""
+        filelog.write(f"[SecretStore] put_many: count={len(new_entries)}, replace={replace}")
+        entries = self.entries()
+        by_name = {e.name: e for e in entries}
+        outcomes: Dict[str, str] = {}
+        for entry in new_entries:
+            existing = by_name.get(entry.name)
+            if existing is not None and not replace:
+                outcomes[entry.name] = "exists"
+                continue
+            if existing is not None:
+                entry.created_utc = existing.created_utc
+            entry.updated_utc = _utc_now()
+            by_name[entry.name] = entry
+            outcomes[entry.name] = "replaced" if existing is not None else "added"
+        if any(o != "exists" for o in outcomes.values()):
+            self._save(list(by_name.values()))
+        return outcomes
 
     def remove(self, name: str) -> bool:
         filelog.write(f"[SecretStore] remove: name={name}")

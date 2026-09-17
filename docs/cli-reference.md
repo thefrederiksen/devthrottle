@@ -1229,6 +1229,7 @@ USAGE: cc-secrets [OPTIONS] COMMAND [ARGS]...
 
 COMMANDS:
   add      OWNER: add or replace an entry (hidden prompt, or secret piped on stdin)
+  import   OWNER: import every KEY=VALUE line of a file (credentials.env) as its own entry
   remove   OWNER: remove an entry
   list     Entries agents may use: names, usernames, allowed addresses. Never secrets (--all, --json)
   run      Run a command with the secret supplied; output comes back with the secret removed
@@ -1237,7 +1238,7 @@ COMMANDS:
   version  Print the version
 ```
 
-`add` and `remove` refuse to run inside a DevThrottle session. There is no option that takes the
+`add`, `import` and `remove` refuse to run inside a DevThrottle session. There is no option that takes the
 secret as an argument. In Git Bash (mintty) typing cannot be hidden, so `add` refuses there: run it from
 PowerShell or cmd, or pipe the secret in.
 
@@ -1261,19 +1262,53 @@ OPTIONS:
 
 With the secret piped on stdin, `--username`, `--domains` and `--agents`/`--no-agents` are required.
 
+### cc-secrets import
+
+```
+USAGE: cc-secrets import [OPTIONS] FILE
+
+OPTIONS:
+  --agents / --no-agents  Whether sessions on this machine may use the imported entries [required]
+  --uses TEXT             Comma-separated: login, run [default: run]
+  --skip TEXT             Comma-separated keys NOT to import - settings that are not secret
+  --replace               Replace entries that already exist
+  --dry-run               Show what would happen, by name only, and change nothing
+```
+
+Each `KEY=VALUE` line becomes its own entry, named after the key in lower case with hyphens
+(`POSTHOG_PERSONAL_API_KEY` becomes `posthog-personal-api-key`), whose variable name is the key itself -
+so `run` supplies it exactly where a program that read the file expects it. Blank lines and `#` comments
+are skipped. The whole store is saved once. No value is ever printed: a line that cannot be imported (too
+short, for example) is reported by its key, and the rest are imported.
+
+Skip settings that are not secret (hosts, project identifiers, email addresses): every stored value is
+hidden from every command's output, so a stored host name would vanish from everything that prints it.
+
+Example: `cc-secrets import $env:LOCALAPPDATA\cc-director\config\credentials.env --agents --skip POSTHOG_HOST,POSTHOG_API_HOST --dry-run`
+
 ### cc-secrets run
 
 ```
 USAGE: cc-secrets run [OPTIONS] NAME -- COMMAND...
 
 OPTIONS:
-  --via TEXT        stdin, env or askpass [default: stdin]
-  --env-name TEXT   Variable name for --via env [default: CC_SECRET]
-  --timeout FLOAT   Seconds before the command is stopped [default: 600]
+  --with TEXT       Another entry to supply at the same time, in its own variable (repeatable)
+  --via TEXT        stdin, env or askpass [default: env when the entry has its own variable name
+                    or --with is used, otherwise stdin]
+  --env-name TEXT   Variable name for --via env with one entry [default: the entry's own
+                    variable name, otherwise CC_SECRET]
+  --timeout FLOAT   Seconds before the command is stopped; 0 means no limit [default: 600]
   --json            Print JSON
 ```
 
-Example: `cc-secrets run devlinux -- sudo -S apt-get update`
+Examples:
+
+- `cc-secrets run devlinux -- sudo -S apt-get update`
+- `cc-secrets run posthog-personal-api-key -- python query.py` (the script reads `POSTHOG_PERSONAL_API_KEY`)
+- `cc-secrets run godaddy-key --with godaddy-secret -- python dns.py` (both variables are set)
+
+The command's output is captured and returned when it ends, with every stored secret removed; it is not
+streamed.
 
 ### cc-secrets login
 
