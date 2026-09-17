@@ -138,6 +138,8 @@ public static class WorkspaceValidation
             if (seats.Any(x => x?.CoveredBy is not null)) claimed.Add("a seat coveredBy");
             if (seats.Any(x => x?.Restore is { Decision: not WorkspaceRestoreDecisions.Undecided }))
                 claimed.Add("a seat restore decision");
+            if (seats.Any(x => x?.Restore is { } r && (r.Failure is not null || r.AttemptedAtUtc is not null)))
+                claimed.Add("a seat restore attempt");
 
             if (claimed.Count > 0)
                 throw new WorkspaceValidationException(
@@ -507,6 +509,7 @@ public static class WorkspaceValidation
 
             CapLength($"{where}.restore.why", restore.Why, MaxTextFieldChars);
             CapLength($"{where}.restore.command", restore.Command, MaxTextFieldChars);
+            CapLength($"{where}.restore.failure", restore.Failure, MaxTextFieldChars);
 
             if (restore.Decision == WorkspaceRestoreDecisions.Restore
                 && string.IsNullOrWhiteSpace(restore.Command))

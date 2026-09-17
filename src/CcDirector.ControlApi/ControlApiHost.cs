@@ -1001,6 +1001,10 @@ public sealed class ControlApiHost : IAsyncDisposable
             return Task.FromResult(AnswerRestartEligibility(cmd));
         if (string.Equals(cmd.Verb, Gateway.Contracts.DirectorRestartVerbs.Cycle, StringComparison.Ordinal))
             return Task.FromResult(StartRestartCycle(cmd));
+        // The Message Load mission, slice 6: the restore after a drain is a Director act. Host-level because it
+        // spawns through this process's own Gateway credential.
+        if (string.Equals(cmd.Verb, Gateway.Contracts.WorkspaceRestoreVerbs.Restore, StringComparison.Ordinal))
+            return StartWorkspaceRestoreAsync(cmd);
 
         if (string.Equals(cmd.Verb, "shutdown", StringComparison.Ordinal))
         {
@@ -1116,6 +1120,74 @@ public sealed class ControlApiHost : IAsyncDisposable
         });
 
         var ok = DirectorCommandResult.Success(System.Text.Json.JsonSerializer.Serialize(new { taken = true, requestId = order.RequestId }));
+        ok.CommandId = cmd.CommandId;
+        return ok;
+    }
+
+    /// <summary>
+    /// Restore a captured workspace onto THIS Director (the Message Load mission, slice 6). Answered as soon as the
+    /// restore is TAKEN, like the restart cycle, and for a sharper reason: every seat is started through the
+    /// Gateway, which sends the create back down this same stream - so a command that waited for its own spawns
+    /// would be waiting on itself. Each seat's result is written onto the workspace as it happens; that record is
+    /// the report.
+    ///
+    /// REFUSED, NEVER DEGRADED: without a Gateway client there is nothing to read and nowhere to spawn through;
+    /// with a restore already running a second could start the same seat twice.
+    /// </summary>
+    private async Task<DirectorCommandResult> StartWorkspaceRestoreAsync(DirectorCommand cmd)
+    {
+        DirectorCommandResult Refuse(DirectorCommandStatus status, string why)
+        {
+            FileLog.Write($"[ControlApiHost] tunnel '{cmd.Verb}' REFUSED: {why}");
+            var fail = DirectorCommandResult.Fail(status, why);
+            fail.CommandId = cmd.CommandId;
+            return fail;
+        }
+
+        var client = _gatewayClient;
+        if (client is null)
+            return Refuse(DirectorCommandStatus.Conflict,
+                "this Director is not connected to a Gateway, so it cannot read the workspace or start anything; nothing was restored.");
+
+        Gateway.Contracts.WorkspaceRestoreOrder? order = null;
+        try
+        {
+            order = System.Text.Json.JsonSerializer.Deserialize<Gateway.Contracts.WorkspaceRestoreOrder>(cmd.PayloadJson ?? "",
+                new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+        }
+        catch (System.Text.Json.JsonException) { /* refused below as an unreadable order */ }
+        if (order is null || string.IsNullOrWhiteSpace(order.WorkspaceId))
+            return Refuse(DirectorCommandStatus.BadRequest, "the restore order could not be read, or names no workspace; nothing was restored.");
+
+        var restore = new Drain.DirectorRestore(new Drain.GatewayClientRestoreGateway(client), DirectorId);
+        if (!restore.TryClaim())
+            return Refuse(DirectorCommandStatus.Conflict,
+                $"a restore is already running on this Director (workspace '{Drain.DirectorRestore.Running?.Order?.WorkspaceId}'); a second is refused before it starts anything.");
+
+        // CHECKED BEFORE "TAKEN" IS ANSWERED. Reading the workspace is a plain call to the Gateway - it does not come
+        // back down this stream - so it can be awaited here, and a restore that cannot start is refused to the
+        // caller with its reason instead of failing later in this Director's log.
+        IReadOnlyList<string> seats;
+        try
+        {
+            seats = await restore.PrepareAsync(order);
+        }
+        catch (InvalidOperationException ex)
+        {
+            restore.Release();
+            return Refuse(DirectorCommandStatus.Conflict, ex.Message);
+        }
+
+        FileLog.Write($"[ControlApiHost] tunnel '{cmd.Verb}': taking the restore of workspace {order.WorkspaceId}, {seats.Count} seat(s) (asked by {order.RequestedBySessionId ?? "the owner"})");
+        _ = Task.Run(async () =>
+        {
+            try { await restore.RunAsync(order); }
+            catch (Exception ex) { FileLog.Write($"[ControlApiHost] restore of workspace {order.WorkspaceId} FAILED: {ex}"); }
+        });
+
+        var ok = DirectorCommandResult.Success(System.Text.Json.JsonSerializer.Serialize(
+            new Gateway.Contracts.WorkspaceRestoreAccepted { Taken = true, WorkspaceId = order.WorkspaceId, DirectorId = DirectorId, Seats = seats.ToList() },
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)));
         ok.CommandId = cmd.CommandId;
         return ok;
     }

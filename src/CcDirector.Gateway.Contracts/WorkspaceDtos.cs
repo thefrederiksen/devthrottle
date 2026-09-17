@@ -380,6 +380,18 @@ public sealed class WorkspaceSeatRestore
 
     /// <summary>The command that brings it back. Required when the decision is "restore".</summary>
     public string? Command { get; set; }
+
+    /// <summary>
+    /// Why the Director's last attempt to bring this seat back FAILED, in plain words, or null when it has
+    /// not failed. Written by the Director restore (the Message Load mission, slice 6), one seat at a time,
+    /// so one seat that could not come back is reported against that seat and does not stop the rest.
+    /// Cleared when a later attempt succeeds.
+    /// </summary>
+    public string? Failure { get; set; }
+
+    /// <summary>When the Director last attempted to bring this seat back, successful or not. Null when no
+    /// Director restore has touched it.</summary>
+    public DateTime? AttemptedAtUtc { get; set; }
     /// <summary>Anything in this object this build does not know a field for, kept verbatim.
     /// See <see cref="WorkspaceDocument.Unknown"/> for why every extensible object carries one.
     /// </summary>

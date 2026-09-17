@@ -103,6 +103,9 @@ public sealed class SessionKeyGuardTests
     [InlineData("POST", "/gateway/workspaces")]
     [InlineData("PUT", "/gateway/workspaces/director-restart-2026-09-06")]
     [InlineData("DELETE", "/gateway/workspaces/director-restart-2026-09-06")]
+    // Ask a Director to restore a drained fleet (the Message Load mission, slice 6). A session drives the
+    // restore as it drives the drain; the Director names the owners, from the capture.
+    [InlineData("POST", "/gateway/workspaces/director-restart-2026-09-06/restore")]
     public void The_action_side_of_the_agent_route_set_is_allowed(string method, string path)
         => Assert.True(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} should be allowed");
 
@@ -208,6 +211,9 @@ public sealed class SessionKeyGuardTests
     [InlineData("POST", "/gateway/workspaces/director-restart-2026-09-06")]
     [InlineData("POST", "/gateway/workspaces/director-restart-2026-09-06/restart")]
     [InlineData("GET", "/gateway/workspaces/director-restart-2026-09-06/seats")]
+    [InlineData("GET", "/gateway/workspaces/director-restart-2026-09-06/restore")]
+    [InlineData("PUT", "/gateway/workspaces/director-restart-2026-09-06/restore")]
+    [InlineData("POST", "/gateway/workspaces/director-restart-2026-09-06/restore/now")]
     public void Workspace_shapes_the_Gateway_does_not_route_stay_refused(string method, string path)
         => Assert.False(SessionKeyGuard.Check(method, path).Allowed,
             $"{method} {path} is not a routed workspace shape and must not be authorized");

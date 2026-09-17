@@ -240,4 +240,52 @@ public sealed class WorkspaceOwedSeatsAndOriginRulesTests : IDisposable
         NewStore().Save(doc, Now);
         Assert.Null(NewStore().Get("morning-fleet")!.Seats[0].SessionId);
     }
+
+    // ---- A Director restore attempt (the Message Load mission, slice 6) ------------------------------
+
+    [Fact]
+    public void A_restore_failure_is_stored_on_its_seat_and_read_back()
+    {
+        var doc = Captured(owed: 1);
+        doc.Seats[0].Restore!.Failure = "the Gateway did not start it: repository not found";
+        doc.Seats[0].Restore!.AttemptedAtUtc = Now;
+
+        NewStore().Create(doc, Now);
+
+        var stored = NewStore().Get("director-restart")!.Seats[0].Restore!;
+        Assert.Equal("the Gateway did not start it: repository not found", stored.Failure);
+        Assert.Equal(Now, stored.AttemptedAtUtc);
+    }
+
+    [Fact]
+    public void A_restore_failure_is_capped_like_every_other_judgment()
+    {
+        var doc = Captured(owed: 1);
+        doc.Seats[0].Restore!.Failure = new string('x', WorkspaceValidation.MaxTextFieldChars + 1);
+
+        var ex = Assert.Throws<WorkspaceValidationException>(() => NewStore().Create(doc, Now));
+        Assert.Contains("restore.failure", ex.Message);
+    }
+
+    [Fact]
+    public void An_authored_workspace_cannot_claim_a_restore_attempt()
+    {
+        var doc = new WorkspaceDocument
+        {
+            Id = "morning-fleet",
+            Name = "Morning fleet",
+            Origin = WorkspaceOrigins.Authored,
+            Seats =
+            {
+                new WorkspaceSeat
+                {
+                    Name = "a seat", Agent = "ClaudeCode", RepoPath = @"D:\repo",
+                    Restore = new WorkspaceSeatRestore { Failure = "never ran" },
+                },
+            },
+        };
+
+        var ex = Assert.Throws<WorkspaceValidationException>(() => NewStore().Save(doc, Now));
+        Assert.Contains("a seat restore attempt", ex.Message);
+    }
 }

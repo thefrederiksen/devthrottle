@@ -4002,7 +4002,9 @@ public sealed class GatewayHost : IAsyncDisposable
             directorId => _tenantPass.Current is { } tenant
                 ? PushedSessions.ConnectedFleet(tenant, directorId)
                 : (Streaming.FleetObservation.Unknown, Array.Empty<Contracts.SessionDto>()),
-            directorId => _tenantPass.Current is { } tenant ? Registry.Get(tenant, directorId) : null);
+            directorId => _tenantPass.Current is { } tenant ? Registry.Get(tenant, directorId) : null,
+            (directorId, order, ct) => Api.DirectorCommandRouter.TrySendAsync(
+                SendCommandAsync, directorId, Contracts.WorkspaceRestoreVerbs.Restore, "", order, ct));
         Api.SkillEndpoints.Map(_app, _skills);
 
         // The standing instructions an account gives about its sessions, and the record of every firing

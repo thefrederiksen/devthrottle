@@ -526,6 +526,12 @@ public static class SessionKeyGuard
         // /gateway/workspaces/{id} - read, store, delete.
         if (s.Length == 3) return verb is "GET" or "HEAD" or "PUT" or "DELETE";
 
+        // /gateway/workspaces/{id}/restore - ask a Director to bring a drained fleet back (the Message Load
+        // mission, slice 6). A session drives a restore exactly as it drives a drain, and this grants it no
+        // owner-naming power: the Director names each seat's owner from the facts this Gateway captured, and
+        // the session that asked is recorded as the parent, never as anybody's owner.
+        if (s.Length == 4 && s[3] == "restore") return verb is "POST";
+
         return false;
     }
 

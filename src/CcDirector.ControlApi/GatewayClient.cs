@@ -377,6 +377,34 @@ public sealed class GatewayClient : IGatewayHold, IDisposable
         return doc;
     }
 
+    /// <summary>
+    /// Start a session on THIS Director through the Gateway's <c>POST /directors/{id}/sessions</c>, on this
+    /// Director's own credential - the restore's spawn (the Message Load mission, slice 6). It is the same door
+    /// every client uses, so the Gateway still resolves the mission and the workflow seat; what differs is only
+    /// who is asking, and a Director is trusted to name the owner a restored seat had. Throws with the
+    /// Gateway's reason when the session is not started.
+    /// </summary>
+    /// <param name="request">The create.</param>
+    /// <param name="ct">Cancellation.</param>
+    public async Task<SessionDto> SpawnOnThisDirectorAsync(NewSessionRequest request, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (!_config.IsEnabled)
+            throw new InvalidOperationException("Gateway is not configured; cannot start a session through it.");
+
+        var route = $"POST /directors/{_directorId}/sessions";
+        FileLog.Write($"[GatewayClient] SpawnOnThisDirectorAsync: {route}, name={request.Name}, owner={request.ControllerSessionId ?? "user"}");
+        using var resp = await _http.PostAsJsonAsync($"directors/{Uri.EscapeDataString(_directorId)}/sessions", request, ct);
+        if (!resp.IsSuccessStatusCode)
+            throw await RelayFailureAsync(resp, route, ct);
+
+        var created = await resp.Content.ReadFromJsonAsync<SessionDto>(ct);
+        if (created is null)
+            throw new InvalidOperationException($"Gateway {route} returned an unparsable body.");
+        FileLog.Write($"[GatewayClient] SpawnOnThisDirectorAsync: started {created.SessionId}");
+        return created;
+    }
+
     /// <summary>Create or replace a workspace. Returns the stored document with the Gateway's timestamps.</summary>
     /// <param name="doc">The workspace to store. Its Id is the route.</param>
     /// <param name="ct">Cancellation.</param>
