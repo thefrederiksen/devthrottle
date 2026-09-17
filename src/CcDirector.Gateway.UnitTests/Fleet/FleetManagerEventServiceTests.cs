@@ -89,6 +89,10 @@ public sealed class FleetManagerEventServiceTests : IDisposable
             customSpokenRules: () => null,
             isVoiceSession: (_, _) => false,
             fleetManagerSessionId: _ => _marked,
+            // A join break, not this test's subject: #3001 added this test and #3018 added the required
+            // narration plan, and neither pull request saw the other. Allowed is the value every other
+            // wingman test uses; nothing here reads it.
+            narrationPlan: _ => NarrationPlan.Allowed,
             nowUtc: () => _now);
         _seat = new TurnVerdictService(verdictEnv);
 
