@@ -318,6 +318,8 @@ public sealed class DevReportRoutesHostedTests : IAsyncLifetime
             (HttpMethod.Get, $"dev-reports/{reportId}", null),
             (HttpMethod.Get, $"dev-reports/{reportId}/html", null),
             (HttpMethod.Post, $"dev-reports/{reportId}/send", new { items = new[] { AnswerTonight("forged") } }),
+            // An agent may not even ask where the owner READS his reports (issue #3019).
+            (HttpMethod.Get, $"dev-reports/pane-url?sessionId={_sessionA}", null),
         };
         foreach (var (method, path, body) in attempts)
         {
@@ -329,6 +331,72 @@ public sealed class DevReportRoutesHostedTests : IAsyncLifetime
         using var owner = Client(_deviceKeyA);
         var (_, detail) = await Send(owner, HttpMethod.Get, $"dev-reports/{reportId}");
         Assert.Equal(0, detail.GetProperty("items").GetArrayLength());
+    }
+
+    /// <summary>
+    /// The address the Gateway hands a host application for one session's reports page (issue #3019), on a
+    /// REAL router. Three things only a booted host proves:
+    ///
+    ///  - ROUTE PRECEDENCE. <c>/dev-reports/pane-url</c> and <c>/dev-reports/{reportId}</c> share a shape.
+    ///    The literal must win, or "pane-url" reads as a report identifier and answers 404 instead.
+    ///  - THE CALLER'S OWN BASE. The address comes back on the host and port THIS client dialled, which is
+    ///    what makes the key the host then hands the page a key for the Gateway serving it.
+    ///  - THE PAGE LOADS WITHOUT A CREDENTIAL. An anonymous browser navigation to that address is NOT
+    ///    redirected to the sign-in screen - the embedded web view has no credential and never gets one.
+    /// </summary>
+    [Fact]
+    public async Task ThePaneUrlRoute_AnswersThePageAddressOnTheCallersOwnBase()
+    {
+        using var owner = Client(_deviceKeyA);
+
+        var (status, body) = await Send(owner, HttpMethod.Get, $"dev-reports/pane-url?sessionId={_sessionA}");
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal($"http://127.0.0.1:{_gateway.Port}/embed/reports/{_sessionA}", body.GetProperty("url").GetString());
+    }
+
+    [Fact]
+    public async Task ThePaneUrlRoute_WithNoSessionOrAMalformedOne_Is400WithAPlainSentence()
+    {
+        using var owner = Client(_deviceKeyA);
+
+        var (missing, missingBody) = await Send(owner, HttpMethod.Get, "dev-reports/pane-url");
+        Assert.Equal(HttpStatusCode.BadRequest, missing);
+        Assert.Equal("session_required", missingBody.GetProperty("code").GetString());
+
+        var (malformed, malformedBody) = await Send(owner, HttpMethod.Get, "dev-reports/pane-url?sessionId=not-a-session");
+        Assert.Equal(HttpStatusCode.BadRequest, malformed);
+        Assert.Equal("bad_session_id", malformedBody.GetProperty("code").GetString());
+        Assert.Contains("not-a-session", malformedBody.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public async Task ThePaneAddress_IsServedToABrowserWithNoCredential_NotRedirectedToSignIn()
+    {
+        using var owner = Client(_deviceKeyA);
+        var (_, body) = await Send(owner, HttpMethod.Get, $"dev-reports/pane-url?sessionId={_sessionA}");
+        var pageUrl = body.GetProperty("url").GetString()!;
+
+        // No Authorization header, no cookie, and the Accept header of a real browser navigation - the exact
+        // request shape the gate otherwise drives to /signin.
+        using var anonymous = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false })
+        {
+            Timeout = TimeSpan.FromSeconds(30),
+        };
+        using var request = new HttpRequestMessage(HttpMethod.Get, pageUrl);
+        request.Headers.Add("Accept", "text/html,application/xhtml+xml");
+        using var resp = await anonymous.SendAsync(request);
+        _out.WriteLine($"anonymous GET {pageUrl} -> {(int)resp.StatusCode} location={resp.Headers.Location}");
+
+        Assert.NotEqual(HttpStatusCode.Found, resp.StatusCode);
+        Assert.NotEqual(HttpStatusCode.Unauthorized, resp.StatusCode);
+        Assert.Null(resp.Headers.Location);
+
+        // What it IS on this host: the single-page-app fallback, which answers 404 because the React
+        // Cockpit is only built into a release build. The claim proven here is that the request reached the
+        // application at all; what the application then serves is the Cockpit's own business.
+        var deeper = await anonymous.GetAsync(pageUrl + "/html");
+        Assert.Equal(HttpStatusCode.Unauthorized, deeper.StatusCode);
     }
 
     [Fact]
