@@ -1536,10 +1536,9 @@ public sealed class FleetManagerEventServiceTests : IDisposable
     [Fact]
     public async Task OwnersAnswer_NotAcknowledged_IsSentAgainToARestartedFleetManager()
     {
-        SetState("fm", "WaitingForInput");
         OwnerAnswers("Replace it.");
         _service.OnEventQueued(Tenant);
-        await _service.WhenIdleAsync();
+        await FleetManagerTurnEndAsync(); // a finished turn that asks the owner nothing lets it be typed
         Assert.Single(_env.Sends);
 
         SetState("fm", "Exited");
@@ -1555,10 +1554,9 @@ public sealed class FleetManagerEventServiceTests : IDisposable
     [Fact]
     public async Task OwnersAnswer_Acknowledged_IsNotSentAgain()
     {
-        SetState("fm", "WaitingForInput");
         OwnerAnswers("Replace it.");
         _service.OnEventQueued(Tenant);
-        await _service.WhenIdleAsync();
+        await FleetManagerTurnEndAsync(); // a finished turn that asks the owner nothing lets it be typed
         var e = Assert.Single(Open());
 
         _events.Acknowledge(Tenant, new[] { Guid.Parse(e.Id) }, all: false, deliveredTo: null, _now);
