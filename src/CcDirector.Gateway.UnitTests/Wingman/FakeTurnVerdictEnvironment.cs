@@ -33,6 +33,9 @@ internal sealed class FakeTurnVerdictEnvironment : ITurnVerdictEnvironment
     public Func<string, StoredConversation?> Conversation = _ => null;
     public Func<string, CancellationToken, Task<string>> Judge = (_, _) => Task.FromResult(CannotTell("The session stopped."));
     public Func<string, bool> VoiceSession = _ => false;
+    /// <summary>The account's plan answer for the narration. Allowed by default, as on a self-host Gateway.</summary>
+    public Func<NarrationPlan> Plan = () => NarrationPlan.Allowed;
+    public NarrationPlan PlanForNarration(TenantId tenant) => Plan();
     public SpokenLanguage LanguageValue = SpokenLanguages.English;
     public string? Custom { get; set; }
 

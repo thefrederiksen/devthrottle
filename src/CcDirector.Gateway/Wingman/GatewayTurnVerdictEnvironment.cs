@@ -124,6 +124,7 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
     private readonly Func<string?> _customSpokenRules;
     private readonly Func<TenantId, string, bool> _isVoiceSession;
     private readonly Func<TenantId, string?> _fleetManagerSessionId;
+    private readonly Func<TenantId, NarrationPlan> _narrationPlan;
     private readonly ActivityEventStore? _ledger;
     private readonly Func<TenantId, IDisposable>? _enterTenantScope;
     private readonly Func<DateTime> _nowUtc;
@@ -148,6 +149,7 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
         Func<string?> customSpokenRules,
         Func<TenantId, string, bool> isVoiceSession,
         Func<TenantId, string?> fleetManagerSessionId,
+        Func<TenantId, NarrationPlan> narrationPlan,
         ActivityEventStore? ledger = null,
         Func<TenantId, IDisposable>? enterTenantScope = null,
         Func<DateTime>? nowUtc = null)
@@ -165,6 +167,7 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
         _customSpokenRules = customSpokenRules ?? throw new ArgumentNullException(nameof(customSpokenRules));
         _isVoiceSession = isVoiceSession ?? throw new ArgumentNullException(nameof(isVoiceSession));
         _fleetManagerSessionId = fleetManagerSessionId ?? throw new ArgumentNullException(nameof(fleetManagerSessionId));
+        _narrationPlan = narrationPlan ?? throw new ArgumentNullException(nameof(narrationPlan));
         _ledger = ledger;
         _enterTenantScope = enterTenantScope;
         _nowUtc = nowUtc ?? (() => DateTime.UtcNow);
@@ -237,6 +240,8 @@ internal sealed class GatewayTurnVerdictEnvironment : ITurnVerdictEnvironment
     public int Invalidate(TenantId tenant, string sessionId) => _store.Invalidate(tenant, sessionId);
 
     public bool IsVoiceSession(TenantId tenant, string sessionId) => _isVoiceSession(tenant, sessionId);
+
+    public NarrationPlan PlanForNarration(TenantId tenant) => _narrationPlan(tenant);
 
     public Task DelayAsync(TimeSpan delay, CancellationToken ct) => Task.Delay(delay, ct);
 
