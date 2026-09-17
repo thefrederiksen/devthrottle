@@ -510,6 +510,14 @@ public static class SessionKeyGuard
                 if (s.Length == 3) return read;
                 // /gateway/fleet-manager/events/ack - acknowledge them.
                 return s.Length == 4 && s[3] == "ack" && verb == "POST";
+            // THE OWNER'S, NOT A SESSION'S (step 5). Where the Fleet Manager runs, and starting, restarting and
+            // moving it, change what runs on a computer - and a Fleet Manager that could restart or move itself
+            // would answer to nobody. Named here so the refusal is a decision rather than an omission.
+            case "placement":
+            case "start":
+            case "restart":
+            case "move":
+                return false;
             default:
                 return false;
         }

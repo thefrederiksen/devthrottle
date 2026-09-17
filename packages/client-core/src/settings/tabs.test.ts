@@ -7,7 +7,7 @@ describe("visibleTabs", () => {
       "notifications",
       "language",
       "transcription",
-      "assistant",
+      "fleetmanager",
     ]);
   });
 
@@ -16,7 +16,7 @@ describe("visibleTabs", () => {
       "notifications",
       "language",
       "transcription",
-      "assistant",
+      "fleetmanager",
       "injectedtext",
     ]);
   });
@@ -54,6 +54,25 @@ describe("visibleTabs", () => {
   it("labels a tab identically on both surfaces", () => {
     const cockpit = new Map(visibleTabs("cockpit").map((t) => [t.id, t.label]));
     for (const t of visibleTabs("mobile")) expect(cockpit.get(t.id)).toBe(t.label);
+  });
+
+  // The Fleet Manager mission, step 5: the Fleet Manager tab takes the Assistant's place on both surfaces, and the
+  // Assistant is hidden - not deleted - until step 9 removes the Assistant from the product.
+  it("offers Fleet Manager where Assistant was, on both surfaces, and hides Assistant", () => {
+    for (const surface of ["cockpit", "mobile"] as const) {
+      const tabs = visibleTabs(surface);
+      const ids = tabs.map((t) => t.id);
+      expect(ids.indexOf("fleetmanager")).toBe(3);
+      expect(tabs[3].label).toBe("Fleet Manager");
+      expect(ids).not.toContain("assistant");
+    }
+  });
+
+  it("sends an old link to the Assistant tab to the default, and a Fleet Manager link to its tab", () => {
+    for (const surface of ["cockpit", "mobile"] as const) {
+      expect(tabFromParam("assistant", surface)).toBe("notifications");
+      expect(tabFromParam("fleetmanager", surface)).toBe("fleetmanager");
+    }
   });
 
   it("keeps Injected text off the phone - it is Cockpit only (issue #550)", () => {

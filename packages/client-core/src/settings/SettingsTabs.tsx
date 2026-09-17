@@ -1,5 +1,6 @@
 import { AiTab } from "./AiTab";
 import { AssistantTab } from "./AssistantTab";
+import { FleetManagerTab } from "./FleetManagerTab";
 import { LanguageTab } from "./LanguageTab";
 import { NotificationsTab } from "./NotificationsTab";
 import { TranscriptionTab } from "./TranscriptionTab";
@@ -45,9 +46,11 @@ export interface SettingsTabPanelProps {
    *  the line that would link to it is not rendered - never a link to a route that does not exist. */
   accountHref?: string;
   transcriptionHealthHref?: string;
+  /** The surface's route to one session, for the Fleet Manager tab's "Open it". */
+  sessionHref?: (sessionId: string) => string;
 }
 
-export function SettingsTabPanel({ tab, accountHref, transcriptionHealthHref }: SettingsTabPanelProps) {
+export function SettingsTabPanel({ tab, accountHref, transcriptionHealthHref, sessionHref }: SettingsTabPanelProps) {
   switch (tab) {
     case "notifications":
       return <NotificationsTab />;
@@ -59,6 +62,8 @@ export function SettingsTabPanel({ tab, accountHref, transcriptionHealthHref }: 
       return <TranscriptionTab healthHref={transcriptionHealthHref} />;
     case "assistant":
       return <AssistantTab />;
+    case "fleetmanager":
+      return <FleetManagerTab sessionHref={sessionHref} />;
     // Cockpit-only tabs are rendered by the Cockpit shell, not from here: their content is desktop-only
     // code and has no business in the library both shells load. The shell checks for them BEFORE calling
     // this panel (see the Cockpit's SettingsView), so reaching this line means a tab was selected on a

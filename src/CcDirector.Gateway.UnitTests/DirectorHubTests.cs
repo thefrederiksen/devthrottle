@@ -180,6 +180,24 @@ public sealed class DirectorHubTests : IDisposable
     }
 
     [Fact]
+    public void Hello_RecordsWhetherThisDirectorUnderstandsTheFleetManagerFolder()
+    {
+        // The Fleet Manager mission, step 5: the Gateway refuses a Fleet Manager start on a Director that did not
+        // say this, because an older one ignores the flag and fails the create for a blank repository path.
+        var caps = new CcDirector.Gateway.Streaming.FleetManagerHomeCapabilityRegistry();
+        var newBuild = new DirectorHub(_store, _registry, InputStatsHandle.Available(_inputStats), new GatewayStreamRegistry(), SelfHostBoundary(), fleetManagerHomeCapabilities: caps) { Context = new FakeHubCallerContext("conn-1") };
+        var oldBuild = new DirectorHub(_store, _registry, InputStatsHandle.Available(_inputStats), new GatewayStreamRegistry(), SelfHostBoundary(), fleetManagerHomeCapabilities: caps) { Context = new FakeHubCallerContext("conn-2") };
+
+        newBuild.Hello(new DirectorStreamHello { DirectorId = "dir-new", Version = "test", CreatesFleetManagerHome = true });
+        oldBuild.Hello(new DirectorStreamHello { DirectorId = "dir-old", Version = "test" });
+
+        Assert.True(caps.CreatesFleetManagerHome(TenantId.Local, "dir-new"));
+        Assert.False(caps.CreatesFleetManagerHome(TenantId.Local, "dir-old"));
+        Assert.False(caps.CreatesFleetManagerHome(TenantId.Local, "dir-never-seen"));
+        Assert.False(caps.CreatesFleetManagerHome(new TenantId("11111111-1111-1111-1111-111111111111"), "dir-new"));
+    }
+
+    [Fact]
     public void Hello_WithNothingStoredForThisDirector_SaysSo_RatherThanStayingSilent()
     {
         // An empty list that the Gateway VOUCHES for is a fact the Director acts on: it pushes every

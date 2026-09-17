@@ -126,7 +126,7 @@ describe("the Settings tab strip", () => {
       "Notifications",
       "Language",
       "Transcription",
-      "Assistant",
+      "Fleet Manager",
     ]);
   });
 
@@ -138,7 +138,7 @@ describe("the Settings tab strip", () => {
       "Notifications",
       "Language",
       "Transcription",
-      "Assistant",
+      "Fleet Manager",
       "Injected text",
     ]);
   });

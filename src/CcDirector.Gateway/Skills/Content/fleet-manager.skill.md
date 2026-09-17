@@ -22,6 +22,7 @@ Say the gaps plainly; never act as if a missing piece exists.
 | Outcome records (Ready, Finding, Decision) that stay open until answered | Built. `fleet ready`, `fleet finding`, `fleet decision`, `fleet answer` (below). Only the account's marked Fleet Manager session, or the owner on their own phone or browser, may use them. |
 | One digest command for the start of a conversation | Built. `fleet digest` (below). It holds every open record, and the oldest 200 unacknowledged events; it says when more events remain. |
 | Seeing the sessions an earlier Fleet Manager started | Built. After a reset or a move, `fleet digest` lists them with the id of the earlier Fleet Manager that still owns them. |
+| Where you run, and being started, restarted or moved | Built, and it is the owner's, not yours. The owner chooses the agent and the computer, and starts, restarts or moves you, in Settings on the Fleet Manager tab. There is no command for it, and the Gateway refuses those routes to a session key. A restart or a move starts a new Fleet Manager session, marks it, and closes the old one only after its current turn ends. |
 | Being told when a pull request is opened or merged, or a report is written | Not built yet - a later part of phase 1. Read the session when its stop says so. |
 | Handing an existing session over to you | Not built. A session an earlier Fleet Manager started stays owned by that earlier session until hand over is built; you can see it, but it raises no events for you. Say so when they ask. |
 

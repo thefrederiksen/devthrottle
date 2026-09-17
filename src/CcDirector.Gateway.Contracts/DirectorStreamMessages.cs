@@ -44,6 +44,14 @@ public sealed class DirectorStreamHello
     /// </summary>
     public bool ChecksIdleBeforeTyping { get; set; }
 
+    /// <summary>
+    /// This Director understands <see cref="NewSessionRequest.FleetManagerHome"/> (the Fleet Manager mission,
+    /// step 5). False from an older build, which would ignore the flag and refuse the create for a blank
+    /// repository path - so the Gateway refuses the start itself, with a sentence that says the Director on that
+    /// computer must be updated, instead of sending a request the Director cannot honour.
+    /// </summary>
+    public bool CreatesFleetManagerHome { get; set; }
+
     /// <summary>Gateway Cleanup mission (tunnel-only): when the Director process started (UTC).</summary>
     public DateTime StartedAt { get; set; }
 

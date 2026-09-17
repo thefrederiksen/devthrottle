@@ -11,7 +11,14 @@
 /** Which shell is asking. Every caller states it - see visibleTabs. */
 export type Surface = "cockpit" | "mobile";
 
-export type TabId = "notifications" | "ai" | "language" | "transcription" | "assistant" | "injectedtext";
+export type TabId =
+  | "notifications"
+  | "ai"
+  | "language"
+  | "transcription"
+  | "assistant"
+  | "fleetmanager"
+  | "injectedtext";
 
 interface TabDef {
   id: TabId;
@@ -56,6 +63,10 @@ interface TabDef {
 // Language takes the place AI held in the strip (issue #1010). The AI row is still here and still hidden -
 // see the `hidden` note below; the two are separate decisions that happen to concern the same slot.
 //
+// The Fleet Manager takes the Assistant's place (the Fleet Manager mission, step 5): where the Fleet Manager runs,
+// and the Wingman's turn verdict switches it is built on. The Assistant row is hidden, not deleted - the same
+// one-word reversibility the AI row has - until step 9 removes the Assistant from the product.
+//
 // Assistant is the tab that used to be Car Mode. Car Mode was removed from the product (#1028), and the one
 // setting it held that was never Car Mode's alone - the model the fleet brain thinks with - belongs to the
 // Assistant, the surface that still drives that brain.
@@ -64,7 +75,8 @@ const ALL_TABS: TabDef[] = [
   { id: "ai", label: "AI", surface: "all", hidden: true },
   { id: "language", label: "Language", surface: "all" },
   { id: "transcription", label: "Transcription", surface: "all" },
-  { id: "assistant", label: "Assistant", surface: "all" },
+  { id: "assistant", label: "Assistant", surface: "all", hidden: true },
+  { id: "fleetmanager", label: "Fleet Manager", surface: "all" },
   { id: "injectedtext", label: "Injected text", surface: "cockpit" },
 ];
 

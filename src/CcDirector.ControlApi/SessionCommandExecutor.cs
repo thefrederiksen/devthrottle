@@ -7,6 +7,7 @@ using CcDirector.Core.Backends;
 using CcDirector.Core.Configuration;
 using CcDirector.Core.Git;
 using CcDirector.Core.Sessions;
+using CcDirector.Core.Storage;
 using CcDirector.Core.Utilities;
 using CcDirector.Core.Wingman;
 using CcDirector.Gateway.Contracts;
@@ -805,6 +806,21 @@ internal static class SessionCommandExecutor
     internal static DirectorCommandResult Create(SessionManager sessionManager, string directorId, DirectorCommand command, SessionCommandServices? services = null)
     {
         var req = Deserialize<NewSessionRequest>(command.PayloadJson);
+
+        // THE FLEET MANAGER'S OWN FOLDER (the Fleet Manager mission, step 5), decided BEFORE the repository path is
+        // required: a Fleet Manager start carries no repository, and the folder is this computer's to name. Any
+        // RepoPath sent with it is ignored, and the folder is created when it is missing.
+        if (req?.FleetManagerHome == true)
+        {
+            var home = CcStorage.FleetManagerHome();
+            if (!Directory.Exists(home))
+            {
+                Directory.CreateDirectory(home);
+                FileLog.Write($"[SessionCommandExecutor] create: created the Fleet Manager folder {home}");
+            }
+            FileLog.Write($"[SessionCommandExecutor] create: Fleet Manager start - using {home} (ignored repoPath=\"{req.RepoPath}\")");
+            req.RepoPath = home;
+        }
 
         if (req is null || string.IsNullOrWhiteSpace(req.RepoPath))
             return DirectorCommandResult.Fail(DirectorCommandStatus.BadRequest, "repoPath is required");

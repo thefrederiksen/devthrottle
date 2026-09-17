@@ -17,6 +17,9 @@ import { tabFromParam, type TabId } from "@devthrottle/client-core/settings/tabs
 //
 // The tab rides in ?tab= exactly as it does on the desktop, so the same deep link opens the same tab on
 // either surface, and the retired /mic-test and /transcription-test screens can redirect into it.
+// The phone's route to one session (main.tsx: "/session/:sessionId"), for the Fleet Manager tab's "Open it".
+const mobileSessionHref = (sessionId: string) => `/session/${encodeURIComponent(sessionId)}`;
+
 export function Settings() {
   const [params, setParams] = useSearchParams();
   const [tab, setTab] = useState<TabId>(() => tabFromParam(params.get("tab"), "mobile"));
@@ -40,13 +43,16 @@ export function Settings() {
 
       <SettingsTabStrip active={tab} onSelect={choose} surface="mobile" />
 
-      {/* No accountHref or transcriptionHealthHref: the phone has neither an account page nor the
+      {/* sessionHref is the phone's own session screen (main.tsx: "/session/:sessionId"), for the Fleet Manager
+          tab's "Open it".
+
+          No accountHref or transcriptionHealthHref: the phone has neither an account page nor the
           Transcription Health report, and a settings screen must never offer a link to a route that
           does not exist here.
 
           surface="mobile" above is what keeps a Cockpit-only tab (Injected text) off this screen, both
           in the strip and in what ?tab= can resolve to - see client-core/settings/tabs.ts. */}
-      <SettingsTabPanel tab={tab} />
+      <SettingsTabPanel tab={tab} sessionHref={mobileSessionHref} />
     </div>
   );
 }

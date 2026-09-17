@@ -401,6 +401,15 @@ public sealed class TenantSettingsResolver
     public string? FleetManagerSessionId(TenantId tenant)
         => _store.Get(tenant, TenantSettingKeys.FleetManagerSessionId);
 
+    /// <summary>The agent this account saved for its Fleet Manager, or null when it saved none (the default
+    /// applies, and is worked out by the placement fold, not here).</summary>
+    public string? FleetManagerAgent(TenantId tenant)
+        => _store.Get(tenant, TenantSettingKeys.FleetManagerAgent);
+
+    /// <summary>The computer this account saved for its Fleet Manager, or null when it saved none.</summary>
+    public string? FleetManagerMachine(TenantId tenant)
+        => _store.Get(tenant, TenantSettingKeys.FleetManagerMachine);
+
     // ---- writes: validate like the global setters, then persist a per-tenant override -------------------
 
     /// <summary>Set the tenant's wingman model for a role.</summary>
@@ -627,6 +636,22 @@ public sealed class TenantSettingsResolver
         if (!Guid.TryParse(sessionId, out var parsed))
             throw new ArgumentException($"'{sessionId}' is not a session id.", nameof(sessionId));
         _store.Set(tenant, TenantSettingKeys.FleetManagerSessionId, parsed.ToString("D"), nowUtc);
+    }
+
+    /// <summary>
+    /// Save where this account's Fleet Manager runs: both values together, so a half-saved placement cannot
+    /// exist. Only the shape is checked here - a known agent kind and a non-blank machine name. Whether the
+    /// machine is on the account and reachable is the caller's question, because only the caller holds that.
+    /// </summary>
+    /// <exception cref="ArgumentException">The agent is not an agent kind, or the machine is blank.</exception>
+    public void SetFleetManagerPlacement(TenantId tenant, string agent, string machine, DateTime nowUtc)
+    {
+        var kind = Fleet.FleetManagerAgents.Canonical(agent)
+            ?? throw new ArgumentException($"'{agent}' is not an agent the Fleet Manager can run on.", nameof(agent));
+        if (string.IsNullOrWhiteSpace(machine))
+            throw new ArgumentException("A computer is required.", nameof(machine));
+        _store.Set(tenant, TenantSettingKeys.FleetManagerAgent, kind, nowUtc);
+        _store.Set(tenant, TenantSettingKeys.FleetManagerMachine, machine.Trim(), nowUtc);
     }
 
     /// <summary>Remove this account's Fleet Manager mark. Returns true when there was one to remove.</summary>

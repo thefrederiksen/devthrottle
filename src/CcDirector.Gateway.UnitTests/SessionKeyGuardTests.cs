@@ -260,6 +260,21 @@ public sealed class SessionKeyGuardTests
     public void Fleet_manager_shapes_the_gateway_does_not_route_stay_refused(string method, string path)
         => Assert.False(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} should be refused");
 
+    // The Fleet Manager mission, step 5: where the Fleet Manager runs, and starting, restarting and moving it, are
+    // the OWNER's. A Fleet Manager that could move or restart itself would answer to nobody. Every verb is listed,
+    // including the ones the Gateway does not route, so no future verb on these words slips through.
+    [Theory]
+    [InlineData("GET", "/gateway/fleet-manager/placement")]
+    [InlineData("PUT", "/gateway/fleet-manager/placement")]
+    [InlineData("POST", "/gateway/fleet-manager/placement")]
+    [InlineData("POST", "/gateway/fleet-manager/start")]
+    [InlineData("POST", "/gateway/fleet-manager/restart")]
+    [InlineData("POST", "/gateway/fleet-manager/move")]
+    [InlineData("POST", "/Gateway/Fleet-Manager/Move")]
+    [InlineData("GET", "/gateway/fleet-manager/start")]
+    public void The_fleet_manager_placement_routes_are_the_owners(string method, string path)
+        => Assert.False(SessionKeyGuard.Check(method, path).Allowed, $"{method} {path} must be refused to a session key");
+
     [Fact]
     public void Restarting_a_Director_is_still_refused_even_though_capturing_its_fleet_is_not()
     {

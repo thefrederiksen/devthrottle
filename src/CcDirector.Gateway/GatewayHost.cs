@@ -780,6 +780,7 @@ public sealed class GatewayHost : IAsyncDisposable
     private static readonly TimeSpan TurnVerdictTraceDrainTimeout = TimeSpan.FromSeconds(5);
     /// <summary>Which Directors told this Gateway they send conversations (turn-push mission, phase 2).</summary>
     private readonly Streaming.TurnPushCapabilityRegistry _turnPushCapabilities = new();
+    private readonly Streaming.FleetManagerHomeCapabilityRegistry _fleetManagerHomeCapabilities = new();
     private readonly History.SessionHistoryRecorder _sessionHistoryRecorder;
     private History.SessionHistorySweep? _sessionHistorySweep;
     private System.Threading.Timer? _sessionHistoryTimer;
@@ -975,6 +976,7 @@ public sealed class GatewayHost : IAsyncDisposable
     private Fleet.FleetManagerEventService? _fleetManagerEvents;
     private Fleet.FleetManagerEventSweep? _fleetManagerEventSweep;
     private Timer? _fleetManagerEventTimer;
+    private Fleet.FleetManagerPlacementService? _fleetManagerPlacement;
     // Voice mode is a standing intent, not a one-time action: a tenant that is in voice mode wants EVERY one
     // of its sessions narrating, including the ones that do not exist yet. This timer is how that intent
     // reaches them - it walks each tenant that has voice mode on and switches on any session that is not a
@@ -3371,6 +3373,7 @@ public sealed class GatewayHost : IAsyncDisposable
         builder.Services.AddSingleton(_sessionTurns);
         // Which Directors say they send conversations - recorded at Hello, read when Chat finds nothing stored.
         builder.Services.AddSingleton(_turnPushCapabilities);
+        builder.Services.AddSingleton(_fleetManagerHomeCapabilities);
         // Gateway Cleanup mission (Wave 4b): the Gateway-native mission store, so the mission endpoints and
         // spawn validation share the one instance.
         builder.Services.AddSingleton(Missions);
@@ -4292,6 +4295,28 @@ public sealed class GatewayHost : IAsyncDisposable
             access: new FleetManagerAccess(
                 MarkedSessionId: _tenantSettingsResolver.FleetManagerSessionId,
                 LastKnownSession: (tenant, sid) => GatewayEndpoints.LastKnownSession(Registry, PushedSessions, tenant, sid)));
+
+        // Where the account's Fleet Manager runs, and starting, restarting and moving it (the Fleet Manager mission,
+        // step 5). The owner's routes: SessionKeyGuard refuses a session key on every one of them.
+        _fleetManagerPlacement = new Fleet.FleetManagerPlacementService(_tenantSettingsResolver,
+            new GatewayFleetManagerPlacementEnvironment
+            {
+                Launchers = Launchers,
+                LauncherConnections = LauncherConnections,
+                Directors = Registry,
+                History = _sessionHistory,
+                Pushed = PushedSessions,
+                StaleAfter = _streamStaleAfter,
+                Capabilities = _fleetManagerHomeCapabilities,
+                Spawner = _machineSessionSpawner,
+                SendCommand = SendCommandAsync,
+                Settings = _tenantSettingsResolver,
+                EnterTenantScope = tenant => _tenantBoundary.EnterScope(tenant),
+                Marks = FleetManagerMarks,
+            });
+        FleetManagerPlacementEndpoints.Map(_app,
+            resolveTenant: ctx => GatewayEndpoints.ResolveReadTenant(ctx, _tenantBoundary),
+            service: _fleetManagerPlacement);
 
         // "DevThrottle emails me" relay (issue #1318 consumer): POST /account/email. A session or scheduled
         // run passes a subject + body (+ optional attachments); the Gateway injects its own stored account
@@ -5667,6 +5692,7 @@ public sealed class GatewayHost : IAsyncDisposable
         try { _turnVerdictService?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] turn verdict dispose error: {ex.Message}"); }
         try { _fleetManagerEventTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] fleet manager events timer dispose error: {ex.Message}"); }
         try { _fleetManagerEvents?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] fleet manager events dispose error: {ex.Message}"); }
+        try { _fleetManagerPlacement?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] fleet manager placement dispose error: {ex.Message}"); }
         // THE INSPECTOR'S TRACES, in the order that keeps them: first the verdict flights the service just cancelled are
         // let finish, so each hands in its cancelled trace while the writer still takes them; then the writer is drained
         // before the database below is disposed. Both waits are bounded, so a stuck judge or a database that will not

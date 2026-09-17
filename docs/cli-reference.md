@@ -1291,6 +1291,12 @@ Gateway routes: `/gateway/fleet-manager/outcomes` (GET, POST), `/outcomes/{id}` 
 refused with 400. A refused caller gets 403 with
 `code: not_fleet_manager`.
 
+Where the Fleet Manager runs is set in Settings, on the Fleet Manager tab, not from the command line.
+Those routes are the owner's and refuse a session key: `/gateway/fleet-manager/placement` (GET, and PUT
+`{ agent, machine }`), `/start`, `/restart` and `/move` (POST; move takes `{ agent, machine }`). A
+start runs on the saved computer only, and the launcher starts a Director there when none is running.
+A restart or move closes the old Fleet Manager only after its current turn ends.
+
 ### Skill Commands
 
 Read and author the fleet's skills. A skill is a directory in the Agent Skills standard - `SKILL.md`

@@ -187,6 +187,19 @@ public static class TenantSettingKeys
     /// </summary>
     public const string FleetManagerSessionId = "fleet_manager_session_id";
 
+    /// <summary>
+    /// WHICH AGENT THE ACCOUNT'S FLEET MANAGER RUNS ON, as <c>NewSessionRequest.Agent</c> takes it (for example
+    /// "ClaudeCode") - Fleet Manager mission, step 5. Saved together with <see cref="FleetManagerMachine"/>; no
+    /// row means the default, which the Gateway works out and shows as the default without storing it.
+    /// </summary>
+    public const string FleetManagerAgent = "fleet_manager_agent";
+
+    /// <summary>
+    /// WHICH COMPUTER THE ACCOUNT'S FLEET MANAGER RUNS ON, by machine name - Fleet Manager mission, step 5. Saved
+    /// together with <see cref="FleetManagerAgent"/>; no row means the default.
+    /// </summary>
+    public const string FleetManagerMachine = "fleet_manager_machine";
+
     /// <summary>Every key this resolver serves, for validation and enumeration.</summary>
     public static readonly IReadOnlySet<string> All = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -198,5 +211,6 @@ public static class TenantSettingKeys
         SessionSupervisorMaxLongRetries, SessionSupervisorModelFallbackEnabled,
         TurnVerdictJudgeEnabled, TurnVerdictColourEnabled,
         FleetManagerSessionId,
+        FleetManagerAgent, FleetManagerMachine,
     };
 }
