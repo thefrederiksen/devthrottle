@@ -1431,3 +1431,38 @@ each run is `slice-6-evidence/red-runs.md`.
   7 September changes that were already in that draft. The Architect publishes it with the words slice.
 - Unchanged: slice 2 awaiting inspection 5, slice 3 awaiting inspection 6. Next: slice 4 (the row line), then
   slice 5 (the words), the record, the release.
+
+## Architect rulings on inspection 7 (17 September 2026) - slice 6 fix round, on branch mission/message-load-slice6
+
+Verdict FAIL for merge. Every finding accepted. Fixes on the pinned slice 6 branch in the worktree
+`~/ReposFred/devthrottle-inspect-slice6`; merged back into `mission/message-load` after.
+
+1. **Restored ids are provenance, never judgment** (critical). `restoredSessionId`, `restore.failure`,
+   `attemptedAtUtc` and any new restore mark are written only by the Director's restore path, through
+   the Gateway's provenance stamp on that route; the store restores them from its stored copy on every
+   caller write, exactly as it does `ReportsTo`. A session key or device key may set only the decision
+   and the handover path. Guard: a PUT that changes `restoredSessionId` is ignored (route test), and the
+   inspector's owner-of-X sequence ends with the worker owned by B's restored id, never X.
+2. **Only a drained seat is restored** (high). A seat is a restore target only when its captured
+   session is closed (drain state closed, or its captured session id absent from the live roster). A
+   seat whose captured session is still running is refused with "still running", never started again.
+   Guard: capture a live seat, set its decision, restore: refused; the same after the seat closes: starts.
+3. **A seat starts at most once** (high). Before the create, the Director writes a started mark and a
+   restore token on the seat and saves; the create carries the token where the Gateway stores it on the
+   new session. On a retry, a seat with a started mark and no restored id is resolved by looking the
+   token up on the roster: found means restored (mark it), not found and the starting Director alive
+   means "in progress, ask later", otherwise "may have been started; check the roster before asking
+   again" and NO second create without an explicit `--force-seat <id>`. Guard: the timeout test now
+   retries and asserts one create; the die-after-create case resolves by token.
+4. **One restore per workspace across Directors** (high). The Gateway grants a per-workspace restore
+   lease to one Director for the run (expiring after 15 minutes without a save) before relaying; a
+   second Director is refused 409 with the holder named. Guard: two Directors, one lease.
+5. **Owners must be running** (medium). An outside or blocked owner is checked on the live roster; not
+   running means the seat fails with "owner not running", never a start under a dead id. Guard for both.
+6. **Ask-only is not success** (low). `--wait-seconds 0` prints "accepted, not waited" and exits 3; the
+   help says exit 0 means every seat came back. Guard on the exit code and the sentence.
+7. **The skill draft** is published in slice 5 only after this round passes inspection; the record
+   notes that v3 also carries the 7 September step 0 from the restart mission.
+
+Then the touched suites, each guard watched failing, a 'Slice 6 fix round' section in this file on this
+branch, push, stop. Inspection 9 follows on this branch.
