@@ -174,6 +174,18 @@ def _read_secret_from_owner() -> str:
     return first
 
 
+def _refuse_swallowed_options(**values: Optional[str]) -> None:
+    """Refuse an option value that is itself an option. Windows PowerShell 5.1 drops an empty "" argument when it
+    starts a program, so `--username "" --no-agents` arrives as `--username --no-agents`: the user name becomes
+    "--no-agents" and the access change is silently lost (review of pull request 3005). No user name, note,
+    address, use or variable starts with "--"."""
+    for option, value in values.items():
+        if value is not None and value.startswith("--"):
+            raise InputError(f"The value given to --{option.replace('_', '-')} starts with '--', so another option was "
+                             f"probably taken as its value (PowerShell drops an empty \"\"). To clear it, write "
+                             f"--{option.replace('_', '-')}= with nothing after the equals sign.")
+
+
 def _split_list(value: str) -> List[str]:
     return [part.strip() for part in value.split(",") if part.strip()]
 
@@ -192,6 +204,11 @@ def add(
 ):
     """OWNER: add or replace an entry. The secret comes from a hidden prompt, or piped on stdin."""
     _owner_only("add")
+    try:
+        _refuse_swallowed_options(username=username, domains=domains, uses=uses, notes=notes, env_name=env_name)
+    except InputError as exc:
+        _say(f"add failed: {exc}", err=True)
+        raise typer.Exit(EXIT_FAILED)
     interactive = _stdin_is_tty()
     if not interactive and _stdin_is_mintty():
         _say(MINTTY_MESSAGE, err=True)
@@ -237,7 +254,7 @@ def add(
 def edit(
     name: str = typer.Argument(..., help="Entry name."),
     username: Optional[str] = typer.Option(None, "--username", help="The user name that goes with it."),
-    domains: Optional[str] = typer.Option(None, "--domains", help="Comma-separated site addresses login may fill; an empty value clears them."),
+    domains: Optional[str] = typer.Option(None, "--domains", help="Comma-separated site addresses login may fill; --domains= (nothing after the equals sign) clears them."),
     uses: Optional[str] = typer.Option(None, "--uses", help="Comma-separated: login, run."),
     agents: Optional[bool] = typer.Option(None, "--agents/--no-agents", help="Whether sessions on this machine may use it."),
     notes: Optional[str] = typer.Option(None, "--notes", help="A note for yourself. Agents see it in list."),
@@ -248,6 +265,7 @@ def edit(
     cc-secrets edit mindzie-qa-password-local --username qa@mindzie.com --domains https://localhost:7330 --uses login,run"""
     _owner_only("edit")
     try:
+        _refuse_swallowed_options(username=username, domains=domains, uses=uses, notes=notes, env_name=env_name)
         changed = [label for label, value in (("username", username), ("domains", domains), ("uses", uses),
                                               ("agents", agents), ("notes", notes), ("variable", env_name))
                    if value is not None]

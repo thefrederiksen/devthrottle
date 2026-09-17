@@ -43,7 +43,7 @@ def test_Edit_LeavesEveryDetailNotGiven_AsItWas(store):
 def test_Edit_AnEmptyDomainsValue_ClearsThem(store):
     add_entry(store, name="web", domains=("https://example.com",))
 
-    runner.invoke(cli.app, ["edit", "web", "--domains", ""])
+    runner.invoke(cli.app, ["edit", "web", "--domains="])
 
     assert store.get("web").allowed_domains == []
 
@@ -85,3 +85,39 @@ def test_Edit_IsAudited_ByFieldName_WithoutTheSecret(store):
     line = [l for l in AuditLog(paths.audit_path()).read(20) if l["command"] == "edit"][-1]
     assert line["entry"] == "web" and "username" in line["detail"] and "uses" in line["detail"]
     assert secret not in str(line)
+
+
+def test_Edit_AnOptionSwallowedAsAValue_IsRefused_AndChangesNothing(store, paths_snapshot=None):
+    # The review's case: PowerShell 5.1 dropped "" from `--username "" --no-agents`.
+    import json as _json
+    from src import paths as _paths
+
+    add_entry(store, name="web", username="me")
+    before = _paths.store_path().read_bytes()
+
+    for args in (["--username", "--no-agents"], ["--notes", "--agents"], ["--domains", "--uses"]):
+        result = runner.invoke(cli.app, ["edit", "web", *args])
+        assert result.exit_code != 0, args
+        assert _paths.store_path().read_bytes() == before, args
+    assert "--username=" in _text(runner.invoke(cli.app, ["edit", "web", "--username", "--no-agents"]))
+
+
+def test_Add_AnOptionSwallowedAsAValue_IsRefused_AndNothingIsSaved(store):
+    result = runner.invoke(cli.app, ["add", "web", "--username", "--domains", "https://example.com", "--agents"],
+                           input=new_secret() + "\n")
+
+    assert result.exit_code != 0
+    assert store.get("web") is None
+
+
+def test_Edit_AppliesTheSameValidationAsAdd_AndAFailureChangesNothing(store):
+    # The review's mutation: edit building the entry without make_entry went unnoticed.
+    from src import paths as _paths
+
+    add_entry(store, name="web")
+    before = _paths.store_path().read_bytes()
+
+    for args in (["--domains", "ftp://x"], ["--env-name", "1BAD"], ["--uses", "fill"]):
+        result = runner.invoke(cli.app, ["edit", "web", *args])
+        assert result.exit_code != 0, args
+        assert _paths.store_path().read_bytes() == before, args

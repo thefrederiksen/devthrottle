@@ -1409,14 +1409,17 @@ USAGE: cc-secrets edit [OPTIONS] NAME
 
 OPTIONS:
   --username TEXT         The user name that goes with it
-  --domains TEXT          Comma-separated site addresses login may fill; an empty value clears them
+  --domains TEXT          Comma-separated site addresses login may fill; --domains= clears them
   --uses TEXT             Comma-separated: login, run
   --agents / --no-agents  Whether sessions on this machine may use it
   --notes TEXT            A note for yourself; agents see it in list
   --env-name TEXT         The variable run supplies it in
 ```
 
-Changes only the details given; the secret (or a setting's value) is never touched, so no prompt. For example,
+Changes only the details given; the secret (or a setting's value) is never touched, so no prompt. To clear a field
+write it with an equals sign and nothing after it (`--username=`, `--notes=`, `--domains=`): Windows PowerShell 5.1
+drops an empty `""` argument, so `--username "" --no-agents` would take `--no-agents` as the user name. A value
+that starts with `--` is refused for that reason, by `edit` and by `add`. For example,
 make an imported password usable by `login`:
 `cc-secrets edit mindzie-qa-password-local --username qa@mindzie.com --domains https://localhost:7330 --uses login,run`
 
