@@ -58,15 +58,31 @@ public enum FleetManagerEventAckStatus
 
     /// <summary>At least one named id is not an event of this account. Nothing was changed.</summary>
     NotFound,
+
+    /// <summary>At least one named id is a stop still waiting for its Wingman reading. Nothing was changed: that stop
+    /// has not been delivered, and it is delivered - and can be acknowledged - once its reading, or the reason there is
+    /// none, is stored.</summary>
+    ReadingPending,
 }
 
 /// <summary>The result of <see cref="FleetManagerEventStore.Acknowledge"/>.</summary>
 /// <param name="Missing">The ids that are not events of this account, when <paramref name="Status"/> is NotFound.</param>
+/// <param name="Pending">The ids that are stops still waiting for their reading, when <paramref name="Status"/> is
+/// ReadingPending.</param>
 public sealed record FleetManagerEventAckResult(
     FleetManagerEventAckStatus Status,
     IReadOnlyList<Guid> Acknowledged,
     int AlreadyAcknowledged,
-    IReadOnlyList<Guid> Missing);
+    IReadOnlyList<Guid> Missing,
+    IReadOnlyList<Guid> Pending);
+
+/// <summary>One page of <see cref="FleetManagerEventStore.ListPage"/>: the events, and the opaque cursor that continues
+/// after them - null when this page is the last.</summary>
+public sealed record FleetManagerEventPage(IReadOnlyList<FleetManagerEventDto> Events, string? NextCursor);
+
+/// <summary>What <see cref="FleetManagerEventStore.Owed"/> found: the oldest events owed, and how many more are owed
+/// after them.</summary>
+public sealed record FleetManagerOwedEvents(IReadOnlyList<FleetManagerEventDto> Events, int MoreOwed);
 
 /// <summary>
 /// The events about sessions a Fleet Manager owns, over the <c>fleet_manager_events</c> table (the Fleet Manager
@@ -87,7 +103,13 @@ public sealed record FleetManagerEventAckResult(
 /// (<see cref="NoteOwnedAlive"/>), so a reconcile after a restart can raise the death of every one that is gone.
 ///
 /// AN ACKNOWLEDGEMENT IS ALL OR NOTHING. If one named id is not an event of this account, nothing is changed and
-/// the result names it - another account's id answers exactly as an unknown one does.
+/// the result names it - another account's id answers exactly as an unknown one does. A STOP STILL WAITING FOR ITS
+/// READING CANNOT BE ACKNOWLEDGED: nothing is changed and the result names it, because acknowledging it would close a
+/// stop before anyone has seen what the Wingman made of it.
+///
+/// EVERY EVENT IS REACHABLE. A list is served a page at a time with an opaque cursor, exactly as the outcome records
+/// are (<see cref="FleetOutcomeStore.ListPage"/>), and delivery takes the oldest owed events whatever lies before
+/// them (<see cref="Owed"/>), so no number of events hides one.
 ///
 /// Tenant-partitioned by construction, like <see cref="FleetOutcomeStore"/>.
 /// </summary>
@@ -108,6 +130,23 @@ public sealed class FleetManagerEventStore
 
     /// <summary>The most ids one acknowledgement may name.</summary>
     public const int MaxAckIds = 200;
+
+    /// <summary>The most events one delivery carries; the rest follow at the Fleet Manager's next idle moment.</summary>
+    public const int MaxDeliveryBatch = MaxCount;
+
+    /// <summary>THE TIME LIMIT: how long a stop may wait for its reading. After it the stop is given the reason there is
+    /// no reading and delivered as that (<see cref="ExpirePendingStops"/>, run by the event service's reconcile), so no
+    /// stop waits for ever.</summary>
+    public static readonly TimeSpan PendingLimit = TimeSpan.FromMinutes(5);
+
+    /// <summary>What a stop still waiting for its reading says about itself, wherever it is shown.</summary>
+    public static readonly string PendingNote =
+        "waiting for the Wingman's reading - not delivered yet, and it cannot be acknowledged yet. It is delivered when " +
+        $"the reading is stored, or with the reason there is none after {PendingLimit.TotalMinutes:F0} minutes. Do not act on it until then.";
+
+    /// <summary>The reason a stop is given when <see cref="PendingLimit"/> passes with no reading.</summary>
+    public static readonly string PendingLimitReason =
+        $"no reading of this stop was stored within {PendingLimit.TotalMinutes:F0} minutes";
 
     private static readonly JsonSerializerOptions VerdictJsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -429,32 +468,145 @@ public sealed class FleetManagerEventStore
         => new(o.SessionId, o.FleetManagerSessionId, o.SessionName, o.DirectorId,
             DateTime.SpecifyKind(o.LastSeenAliveUtc, DateTimeKind.Utc));
 
-    /// <summary>This account's events, OLDEST FIRST.</summary>
-    /// <param name="status"><c>unacknowledged</c> or <c>all</c>.</param>
+    /// <summary>The first page of this account's events - <see cref="ListPage"/> with no cursor.</summary>
     /// <exception cref="ArgumentException">A filter is not one of its accepted values.</exception>
     public IReadOnlyList<FleetManagerEventDto> List(TenantId tenant, string status, int count)
+        => ListPage(tenant, status, count, cursor: null).Events;
+
+    /// <summary>
+    /// One page of this account's events, and the cursor that continues after it.
+    ///
+    /// UNACKNOWLEDGED EVENTS ARE OLDEST FIRST - those are the ones owed, in the order they happened. ALL EVENTS ARE
+    /// NEWEST FIRST - a history, read back from now. The order is <c>(CreatedAtUtc, Id)</c>, unique because the id is,
+    /// and a cursor names the last event a page returned, so the next page starts strictly after it. There is no
+    /// offset: an event acknowledged between pages (which leaves the unacknowledged list) moves no other event, so
+    /// nothing after the cursor is skipped. An event stored after the first page of the unacknowledged list is newer
+    /// than every cursor and so is on a later page; an event stored after the first page of the history is not, and
+    /// listing again from the start shows it. A cursor is issued for one status and is refused for the other.
+    /// </summary>
+    /// <param name="status"><c>unacknowledged</c> or <c>all</c>.</param>
+    /// <param name="count">How many at most, 1 to <see cref="MaxCount"/>.</param>
+    /// <param name="cursor">The <see cref="FleetManagerEventPage.NextCursor"/> of the page before, or null for the first.</param>
+    /// <exception cref="ArgumentException">A filter is not one of its accepted values, or the cursor is not one this
+    /// Gateway issued for this status.</exception>
+    public FleetManagerEventPage ListPage(TenantId tenant, string status, int count, string? cursor)
     {
-        FileLog.Write($"[FleetManagerEventStore] List: tenant={tenant}, status={status}, count={count}");
+        FileLog.Write($"[FleetManagerEventStore] ListPage: tenant={tenant}, status={status}, count={count}, " +
+                      $"cursor={(cursor is null ? "none" : "given")}");
         if (!Statuses.Contains(status))
             throw new ArgumentException($"status '{status}' is not valid; use one of: {string.Join(", ", Statuses)}");
         if (count < 1 || count > MaxCount)
             throw new ArgumentException($"count must be between 1 and {MaxCount}, got {count}");
+        var after = cursor is null ? ((DateTime CreatedAtUtc, Guid Id)?)null : DecodeCursor(cursor, status);
 
         using var ctx = _db.CreateContext(tenant);
         var query = ctx.FleetManagerEvents.AsNoTracking();
-        if (status == StatusUnacknowledged) query = query.Where(e => e.AcknowledgedAtUtc == null);
-        // All events: the newest page, shown oldest first. Unacknowledged: the oldest page - those are the ones owed.
-        var rows = status == StatusAll
-            ? query.OrderByDescending(e => e.CreatedAtUtc).ThenByDescending(e => e.Id).Take(count).ToList()
-                .OrderBy(e => e.CreatedAtUtc).ThenBy(e => e.Id).ToList()
-            : query.OrderBy(e => e.CreatedAtUtc).ThenBy(e => e.Id).Take(count).ToList();
-        FileLog.Write($"[FleetManagerEventStore] List: returned={rows.Count}");
-        return rows.Select(ToDto).ToList();
+        var oldestFirst = status == StatusUnacknowledged;
+        if (oldestFirst) query = query.Where(e => e.AcknowledgedAtUtc == null);
+        if (after is { } a)
+        {
+            var at = a.CreatedAtUtc;
+            var id = a.Id;
+            query = oldestFirst
+                ? query.Where(e => e.CreatedAtUtc > at || (e.CreatedAtUtc == at && e.Id.CompareTo(id) > 0))
+                : query.Where(e => e.CreatedAtUtc < at || (e.CreatedAtUtc == at && e.Id.CompareTo(id) < 0));
+        }
+        var ordered = oldestFirst
+            ? query.OrderBy(e => e.CreatedAtUtc).ThenBy(e => e.Id)
+            : query.OrderByDescending(e => e.CreatedAtUtc).ThenByDescending(e => e.Id);
+        // One more than asked, so the page knows whether any event remains after it.
+        var rows = ordered.Take(count + 1).ToList();
+        var more = rows.Count > count;
+        if (more) rows.RemoveAt(rows.Count - 1);
+        var next = more ? EncodeCursor(status, rows[^1]) : null;
+        FileLog.Write($"[FleetManagerEventStore] ListPage: returned={rows.Count}, hasMore={more}");
+        return new FleetManagerEventPage(rows.Select(ToDto).ToList(), next);
     }
 
-    /// <summary>Every unacknowledged event of this account, oldest first, up to <see cref="MaxCount"/> - including
-    /// stops still waiting for their reading, which say so.</summary>
+    /// <summary>How many events of this account have this status, counted by the database - never from a capped
+    /// page, so a reader of one page can say how many there are in all.</summary>
+    /// <exception cref="ArgumentException">The status is not one of its accepted values.</exception>
+    public int Count(TenantId tenant, string status)
+    {
+        if (!Statuses.Contains(status))
+            throw new ArgumentException($"status '{status}' is not valid; use one of: {string.Join(", ", Statuses)}");
+        using var ctx = _db.CreateContext(tenant);
+        var query = ctx.FleetManagerEvents.AsNoTracking();
+        if (status == StatusUnacknowledged) query = query.Where(e => e.AcknowledgedAtUtc == null);
+        var total = query.Count();
+        FileLog.Write($"[FleetManagerEventStore] Count: tenant={tenant}, status={status}, total={total}");
+        return total;
+    }
+
+    /// <summary>How many unacknowledged stops of this account are still waiting for their reading.</summary>
+    public int CountPending(TenantId tenant)
+    {
+        using var ctx = _db.CreateContext(tenant);
+        return ctx.FleetManagerEvents.AsNoTracking().Count(e => e.AcknowledgedAtUtc == null && e.ReadingPending);
+    }
+
+    /// <summary>The first page of this account's unacknowledged events, oldest first, up to <see cref="MaxCount"/> -
+    /// including stops still waiting for their reading, which say so. The rest are reached with
+    /// <see cref="ListPage"/>.</summary>
     public IReadOnlyList<FleetManagerEventDto> Unacknowledged(TenantId tenant) => List(tenant, StatusUnacknowledged, MaxCount);
+
+    /// <summary>
+    /// What is owed to <paramref name="fleetManagerSessionId"/>, OLDEST FIRST: the unacknowledged events whose reading
+    /// is settled and that were not already delivered to that session, at most <paramref name="max"/>, and how many
+    /// more are owed after them. Asked of the database, never picked from a capped page, so however many events wait
+    /// before them - delivered to this session but not yet acknowledged, or still waiting for a reading - the oldest
+    /// owed are found.
+    /// </summary>
+    public FleetManagerOwedEvents Owed(TenantId tenant, string fleetManagerSessionId, int max)
+    {
+        if (string.IsNullOrWhiteSpace(fleetManagerSessionId))
+            throw new ArgumentException("the Fleet Manager session is required", nameof(fleetManagerSessionId));
+        if (max < 1 || max > MaxDeliveryBatch)
+            throw new ArgumentException($"max must be between 1 and {MaxDeliveryBatch}, got {max}", nameof(max));
+
+        using var ctx = _db.CreateContext(tenant);
+        var target = fleetManagerSessionId.ToLowerInvariant();
+        var query = ctx.FleetManagerEvents.AsNoTracking()
+            .Where(e => e.AcknowledgedAtUtc == null && !e.ReadingPending
+                        && (e.DeliveredTo == null || e.DeliveredTo.ToLower() != target));
+        var rows = query.OrderBy(e => e.CreatedAtUtc).ThenBy(e => e.Id).Take(max).ToList();
+        var more = rows.Count < max ? 0 : query.Count() - rows.Count;
+        FileLog.Write($"[FleetManagerEventStore] Owed: tenant={tenant}, to={fleetManagerSessionId}, batch={rows.Count}, more={more}");
+        return new FleetManagerOwedEvents(rows.Select(ToDto).ToList(), more);
+    }
+
+    private const string CursorVersion = "e1";
+
+    private static string EncodeCursor(string status, FleetManagerEventEntity last)
+    {
+        var text = $"{CursorVersion}:{status}:{DateTime.SpecifyKind(last.CreatedAtUtc, DateTimeKind.Utc).Ticks}:{last.Id:N}";
+        return Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(text))
+            .TrimEnd('=').Replace('+', '-').Replace('/', '_');
+    }
+
+    private static (DateTime CreatedAtUtc, Guid Id) DecodeCursor(string cursor, string status)
+    {
+        var refusal = $"cursor '{cursor}' is not one this Gateway issued for status {status}; " +
+                      "list again without a cursor to start from the first page";
+        var b64 = cursor.Trim().Replace('-', '+').Replace('_', '/');
+        b64 = b64.PadRight(b64.Length + (4 - b64.Length % 4) % 4, '=');
+        string text;
+        try
+        {
+            text = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(b64));
+        }
+        catch (FormatException)
+        {
+            throw new ArgumentException(refusal);
+        }
+        var parts = text.Split(':');
+        if (parts.Length != 4 || parts[0] != CursorVersion || parts[1] != status
+            || !long.TryParse(parts[2], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var ticks)
+            || ticks > DateTime.MaxValue.Ticks
+            || !Guid.TryParseExact(parts[3], "N", out var id))
+            throw new ArgumentException(refusal);
+        return (new DateTime(ticks, DateTimeKind.Utc), id);
+    }
 
     /// <summary>Record that these events were delivered to <paramref name="fleetManagerSessionId"/>.</summary>
     public void MarkDelivered(TenantId tenant, IReadOnlyCollection<Guid> ids, string fleetManagerSessionId, DateTime nowUtc)
@@ -511,7 +663,8 @@ public sealed class FleetManagerEventStore
                 {
                     // Only what this session was sent: an event it has not seen is not its to close.
                     rows = ctx.FleetManagerEvents
-                        .Where(e => e.AcknowledgedAtUtc == null && e.DeliveredTo == deliveredTo).ToList();
+                        .Where(e => e.AcknowledgedAtUtc == null && !e.ReadingPending && e.DeliveredTo == deliveredTo)
+                        .ToList();
                 }
                 else
                 {
@@ -521,7 +674,15 @@ public sealed class FleetManagerEventStore
                     {
                         FileLog.Write($"[FleetManagerEventStore] Acknowledge: refused, {missing.Count} id(s) not in this account; nothing changed");
                         return new FleetManagerEventAckResult(FleetManagerEventAckStatus.NotFound,
-                            Array.Empty<Guid>(), 0, missing);
+                            Array.Empty<Guid>(), 0, missing, Array.Empty<Guid>());
+                    }
+                    // Not yet delivered, and nobody has seen what the Wingman made of it: it is not anyone's to close.
+                    var pending = rows.Where(r => r.ReadingPending && r.AcknowledgedAtUtc is null).Select(r => r.Id).ToList();
+                    if (pending.Count > 0)
+                    {
+                        FileLog.Write($"[FleetManagerEventStore] Acknowledge: refused, {pending.Count} stop(s) still waiting for their reading; nothing changed");
+                        return new FleetManagerEventAckResult(FleetManagerEventAckStatus.ReadingPending,
+                            Array.Empty<Guid>(), 0, Array.Empty<Guid>(), pending);
                     }
                 }
 
@@ -535,7 +696,7 @@ public sealed class FleetManagerEventStore
                 ctx.SaveChanges();
                 FileLog.Write($"[FleetManagerEventStore] Acknowledge: acknowledged={acknowledged.Count}, already={already}");
                 return new FleetManagerEventAckResult(FleetManagerEventAckStatus.Applied, acknowledged, already,
-                    Array.Empty<Guid>());
+                    Array.Empty<Guid>(), Array.Empty<Guid>());
             }
         }
         catch (Exception ex)
@@ -565,6 +726,7 @@ public sealed class FleetManagerEventStore
         DeliveryCount = e.DeliveryCount,
         AcknowledgedAtUtc = Utc(e.AcknowledgedAtUtc),
         ReadingPending = e.ReadingPending,
+        ReadingNote = e.ReadingPending ? PendingNote : null,
         StopObservedAtUtc = Utc(e.StopObservedAtUtc),
         DirectorId = e.DirectorId,
         Detail = e.Detail,

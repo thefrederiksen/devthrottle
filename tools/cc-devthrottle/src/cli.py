@@ -177,10 +177,11 @@ _ACTIONS = [
         "id": "fleet-events",
         "description": (
             "The events about sessions the Fleet Manager owns - each stop (with the Wingman's reading) or death - "
-            "kept until acknowledged. The Gateway also delivers them, at least once, as one prompt while the Fleet "
-            "Manager is waiting for a prompt."
+            "kept until acknowledged, one page at a time with a cursor. A stop still waiting for its reading says so "
+            "and cannot be acknowledged yet. The Gateway also delivers them, at least once, as one prompt while the "
+            "Fleet Manager is waiting for a prompt."
         ),
-        "command": "cc-devthrottle fleet events [--all] [--count N] [--json]",
+        "command": "cc-devthrottle fleet events [--all] [--count N] [--cursor <nextCursor>] [--every-page] [--json]",
         "mutatesState": False,
         "args": [],
     },
@@ -188,7 +189,8 @@ _ACTIONS = [
         "id": "fleet-ack",
         "description": (
             "Acknowledge Fleet Manager events by id once acted on (only the marked Fleet Manager may); --all closes "
-            "only the events delivered to this session; all or nothing when an id is unknown."
+            "only the events delivered to this session; all or nothing when an id is unknown or is a stop still "
+            "waiting for its reading."
         ),
         "command": "cc-devthrottle fleet ack <id> [<id> ...] | cc-devthrottle fleet ack --all",
         "mutatesState": True,
@@ -2718,12 +2720,17 @@ def fleet_digest(
 
 @fleet_app.command("events")
 def fleet_events(
-    show_all: bool = typer.Option(False, "--all", help="Include acknowledged events."),
-    count: int = typer.Option(50, "--count", "-n", help="Largest number of events to return (1-200)."),
+    show_all: bool = typer.Option(False, "--all", help="Include acknowledged events (newest first)."),
+    count: int = typer.Option(50, "--count", "-n", help="Largest number of events on one page (1-200)."),
+    cursor: Optional[str] = typer.Option(None, "--cursor", help="Continue after an earlier page: its nextCursor."),
+    every_page: bool = typer.Option(False, "--every-page", help="Follow every page to the end and list every event."),
     json_output: bool = _JSON_OPT,
 ) -> None:
-    """List the stops and deaths of sessions a Fleet Manager owns, oldest first."""
-    fleet_ops.list_events(show_all, count, json_output)
+    """List the stops and deaths of sessions a Fleet Manager owns.
+
+    Unacknowledged ones oldest first, one page at a time.
+    """
+    fleet_ops.list_events(show_all, count, json_output, cursor=cursor, every_page=every_page)
 
 
 @fleet_app.command("ack")

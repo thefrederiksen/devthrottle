@@ -1126,7 +1126,7 @@ USAGE: cc-devthrottle fleet answer ID "<the owner's words, exactly>" [--json]
 USAGE: cc-devthrottle fleet prefer "<preference, verbatim>" [--json]
 USAGE: cc-devthrottle fleet preferences [--json]
 USAGE: cc-devthrottle fleet forget ID [--json]
-USAGE: cc-devthrottle fleet events [--all] [--count/-n 1-200] [--json]
+USAGE: cc-devthrottle fleet events [--all] [--count/-n 1-200] [--cursor <nextCursor>] [--every-page] [--json]
 USAGE: cc-devthrottle fleet ack ID [ID ...] [--json]
 USAGE: cc-devthrottle fleet ack --all [--json]
 ```
@@ -1162,23 +1162,36 @@ the Fleet Manager, or two Gateway instances - exactly one answer is kept, and th
 `fleet-manager`). A decision's answer need not be one of its options; the record says whether it was.
 
 `fleet events` lists the events about sessions a Fleet Manager owns - a `stop` (with the Wingman's
-reading of it, or why there is none) or a `died` (exited or crashed) - oldest first. By default only
-the unacknowledged ones; `--all` includes acknowledged ones. The Gateway also delivers them to the
+reading of it, or why there is none) or a `died` (exited or crashed). By default only the
+unacknowledged ones, oldest first; `--all` includes acknowledged ones, newest first. One page at a
+time, exactly as `fleet outcomes` pages: past the page the count line says `count: <shown> of
+<total>`, the next line is `nextCursor: <cursor>`, and the help names `--cursor <cursor>` for the next
+page; `--every-page` follows every page. A cursor is issued for one of the two lists and is refused
+(400) for the other. A stop still waiting for the Wingman's reading is listed with verdict `waiting`
+and the Gateway's sentence saying so; it is not delivered and cannot be acknowledged until its reading
+is stored - or, after 5 minutes without one, until it is given the reason there is none and delivered
+as that. A reading that ends as `cannot-tell` or fails is delivered as that. The Gateway also delivers them to the
 Fleet Manager itself: one prompt, starting `[Fleet Manager events]`, at its own turn end or a few
 seconds after an event arrives while it is idle - and typed only if the Director finds the Fleet
 Manager waiting for a prompt at that moment, with no other input reaching the session before the Enter;
 otherwise the events wait for its next idle moment. A Director too old to make that check is sent
 nothing, and an answer that does not say the check was made does not count as a delivery.
-Delivery is at least once: every event carries its id, the same event can be sent again (a Gateway
+One prompt carries at most 200 events, the oldest owed; it says how many more wait, and those are sent
+at the next idle moment. Delivery is at least once: every event carries its id, the same event can be sent again (a Gateway
 that stops between typing and saving the delivery), and the Fleet Manager ignores an id it has
 already handled. A stop is stored the moment it is seen and delivered once the Wingman's reading (or
 the reason there is none) is attached; a death is stored when an owned session exits, crashes or is
 removed, when a connected Director that has reported its sessions leaves it out, or when its Director
 shut down - never while its Director is only disconnected or silent, however long, and never while
 another Director reports it running. `fleet ack` takes full ids
-or the start of each, or `--all`, which closes only the events delivered to the calling session; if
-one id is not an event of this account nothing is acknowledged. Only the account's marked Fleet
-Manager session may acknowledge. `fleet digest` lists the unacknowledged events too. Pull request and
+or the start of each (matched against every event, every page followed), or `--all`, which closes
+only the events delivered to the calling session; if one id is not an event of this account, or is a
+stop still waiting for its reading (409, `reading_pending`), nothing is acknowledged. Only the
+account's marked Fleet Manager session may acknowledge. `fleet digest` lists the oldest 200
+unacknowledged events too, says `events: <shown> of <total> unacknowledged` and how many wait for
+their reading, and when more remain prints `eventsMoreRemain:` with the `fleet events --cursor`
+command that reaches them (JSON: `eventsTotal`, `eventsWaitingForReading`, `eventsHasMore`,
+`eventsNextCursor`). Pull request and
 report events are not built yet (a later part of phase 1).
 
 `session report` from a session a Fleet Manager owns sends nothing and says so: the Gateway tells the
@@ -1188,8 +1201,9 @@ the Gateway works out.
 Gateway routes: `/gateway/fleet-manager/outcomes` (GET, POST), `/outcomes/{id}` (GET),
 `/outcomes/{id}/answer` (POST, 409 when already answered), `/preferences` (GET, POST),
 `/preferences/{id}` (DELETE), `/digest?session=<id>` (GET),
-`/events?status=unacknowledged|all&count=` (GET), `/events/ack` (POST `{ ids: [...] }` or
-`{ all: true }`, 404 naming any unknown id; only the Fleet Manager's own session key may acknowledge, and
+`/events?status=unacknowledged|all&count=&cursor=` (GET, answering `count`, `total`, `hasMore`,
+`nextCursor` and `events`), `/events/ack` (POST `{ ids: [...] }` or
+`{ all: true }`, 404 naming any unknown id, 409 `reading_pending` naming a stop still waiting for its reading; only the Fleet Manager's own session key may acknowledge, and
 `all` closes only the events delivered to that session). `GET /outcomes` takes `status`, `kind`,
 `count` and `cursor`, and answers `count` (this page), `total` (every match, counted by the Gateway),
 `hasMore`, `nextCursor` (null on the last page) and `outcomes`. A cursor the Gateway did not issue is

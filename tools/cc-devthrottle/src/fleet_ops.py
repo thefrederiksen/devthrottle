@@ -407,9 +407,12 @@ def forget_preference(given: str, json_output: bool) -> None:
 
 
 def _event_verdict(e: Dict[str, Any]) -> List[Any]:
-    """The verdict word and its label for one event row: the reading, or why there is none."""
+    """The verdict word and its label for one event row: the reading, why there is none, or - for a stop
+    still waiting for its reading - the Gateway's own words for that."""
     if e.get("kind") == "died":
         return ["crashed" if e.get("crashed") else "exited", None]
+    if e.get("readingPending"):
+        return ["waiting", e.get("readingNote")]
     if e.get("verdictWithheld"):
         return ["withheld", "this account's readings are still a shadow record"]
     v = e.get("verdict")
@@ -430,12 +433,42 @@ def _counts_by_event_kind(rows: List[Dict[str, Any]]) -> str:
     return ", ".join(f"{k} {sum(1 for e in rows if e.get('kind') == k)}" for k in EVENT_KINDS)
 
 
-def list_events(show_all: bool, count: int, json_output: bool) -> None:
-    """The events about sessions a Fleet Manager owns, oldest first. Default: the unacknowledged ones."""
+def _event_pages(status: str, count: int, cursor: Optional[str] = None):
+    """Every page of the event list, following the Gateway's nextCursor until it says none remain."""
+    seen = set()
+    while True:
+        query = {"status": status, "count": str(count)}
+        if cursor:
+            query["cursor"] = cursor
+        page = _call(gateway.get_json, f"{PREFIX}/events?{urllib.parse.urlencode(query)}")
+        yield page
+        cursor = page.get("nextCursor")
+        if not page.get("hasMore") or not cursor:
+            return
+        if cursor in seen:
+            _fail(f"the Gateway handed back cursor '{cursor}' twice; the list cannot be followed to its end")
+        seen.add(cursor)
+
+
+def list_events(show_all: bool, count: int, json_output: bool,
+                cursor: Optional[str] = None, every_page: bool = False) -> None:
+    """The events about sessions a Fleet Manager owns. Default: the unacknowledged ones, oldest first, one page.
+    With --all, every event, newest first. `cursor` continues after an earlier page; `every_page` follows the
+    cursor to the end."""
     if count < 1 or count > 200:
         _fail(f"--count must be between 1 and 200, got {count}", code=2)
+    if cursor is not None and not cursor.strip():
+        _fail("--cursor is empty; give the nextCursor an earlier page printed", code=2)
     status = "all" if show_all else "unacknowledged"
-    answer = _call(gateway.get_json, f"{PREFIX}/events?{urllib.parse.urlencode({'status': status, 'count': str(count)})}")
+    if every_page:
+        rows: List[Dict[str, Any]] = []
+        total = 0
+        for page in _event_pages(status, count, cursor):
+            rows.extend(page.get("events", []))
+            total = page.get("total", total)
+        answer = {"count": len(rows), "total": total, "hasMore": False, "nextCursor": None, "events": rows}
+    else:
+        answer = next(_event_pages(status, count, cursor))
     if json_output:
         _print_json(answer)
         return
@@ -446,22 +479,36 @@ def list_events(show_all: bool, count: int, json_output: bool) -> None:
             _out("count: 0")
             _help([])
         else:
-            total = _call(gateway.get_json, f"{PREFIX}/events?status=all&count=200").get("count", 0)
+            total = _call(gateway.get_json, f"{PREFIX}/events?status=all&count=1").get("total", 0)
             _out(f"count: 0 of {total} total (status unacknowledged)")
             _help(["cc-devthrottle fleet events --all"] if total else [])
         return
 
-    _out(f"count: {len(rows)} ({_counts_by_event_kind(rows)}) status: {status}")
+    total = answer.get("total", len(rows))
+    shown = f"{len(rows)} of {total}" if total > len(rows) else f"{len(rows)}"
+    waiting = sum(1 for e in rows if e.get("readingPending"))
+    _out(f"count: {shown} ({_counts_by_event_kind(rows)}) status: {status}"
+         + (f" waitingForReading: {waiting}" if waiting else ""))
+    next_cursor = answer.get("nextCursor") if answer.get("hasMore") else None
+    if next_cursor:
+        _out(f"nextCursor: {next_cursor}")
     _events_table(rows)
-    first = next((e for e in rows if not e.get("acknowledgedAtUtc")), rows[0])
-    _help([
-        f"cc-devthrottle session buffer {first.get('sessionId')}",
-        f"cc-devthrottle fleet ack {first.get('id')}",
-    ])
+    hints = []
+    if next_cursor:
+        base = "cc-devthrottle fleet events" + (" --all" if show_all else "")
+        hints.append(f"{base} --count {count} --cursor {next_cursor}   (the next page)")
+        hints.append(f"{base} --every-page   (every page)")
+    # A stop still waiting for its reading is not acted on or acknowledged yet, so it is never the example.
+    ready = [e for e in rows if not e.get("acknowledgedAtUtc") and not e.get("readingPending")]
+    if ready:
+        hints.append(f"cc-devthrottle session buffer {ready[0].get('sessionId')}")
+        hints.append(f"cc-devthrottle fleet ack {ready[0].get('id')}")
+    _help(hints)
 
 
 def acknowledge_events(given: Optional[List[str]], ack_all: bool, json_output: bool) -> None:
-    """Acknowledge events by id (or the start of one), or every unacknowledged one with --all."""
+    """Acknowledge events by id (or the start of one), or every unacknowledged one delivered to this session with
+    --all. The Gateway refuses a stop still waiting for its reading, and then acknowledges nothing."""
     named = [g for g in (given or []) if g is not None]
     if ack_all and named:
         _fail("give event ids or --all, not both", code=2)
@@ -478,7 +525,8 @@ def acknowledge_events(given: Optional[List[str]], ack_all: bool, json_output: b
                 ids.append(g.strip().lower())
                 continue
             if listed is None:
-                listed = _call(gateway.get_json, f"{PREFIX}/events?status=all&count=200").get("events", [])
+                # Every event, every page followed, so the start of an id is matched against all of them.
+                listed = [e for page in _event_pages("all", 200) for e in page.get("events", [])]
             ids.append(_resolve_id(g, listed, "event", "cc-devthrottle fleet events --all"))
         body = {"ids": ids}
 
@@ -541,13 +589,23 @@ def digest(session: Optional[str], json_output: bool) -> None:
         _print_preferences(prefs)
 
     events = d.get("events", [])
-    _out(f"events: {len(events)} unacknowledged")
+    events_total = d.get("eventsTotal", len(events))
+    shown = f"{len(events)} of {events_total}" if events_total > len(events) else f"{len(events)}"
+    waiting = d.get("eventsWaitingForReading", 0)
+    _out(f"events: {shown} unacknowledged" + (f" ({waiting} waiting for their reading)" if waiting else ""))
+    more_cursor = d.get("eventsNextCursor") if d.get("eventsHasMore") else None
+    if more_cursor:
+        _out(f"eventsMoreRemain: {events_total - len(events)} (oldest first; the rest: "
+             f"cc-devthrottle fleet events --cursor {more_cursor})")
     if events:
         _events_table(events)
 
     hints = []
-    if events:
-        hints.append(f"cc-devthrottle fleet ack {events[0].get('id')}")
+    if more_cursor:
+        hints.append(f"cc-devthrottle fleet events --count 200 --cursor {more_cursor}   (the events after these)")
+    ready = [e for e in events if not e.get("readingPending")]
+    if ready:
+        hints.append(f"cc-devthrottle fleet ack {ready[0].get('id')}")
     if outcomes:
         hints.append(f"cc-devthrottle fleet show {outcomes[0].get('id')}")
     if owned:

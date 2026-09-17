@@ -70,7 +70,7 @@ internal enum FleetManagerAction
 ///   POST   /gateway/fleet-manager/preferences              -> 201
 ///   DELETE /gateway/fleet-manager/preferences/{id}
 ///   GET    /gateway/fleet-manager/digest?session=&lt;id&gt;
-///   GET    /gateway/fleet-manager/events                   ?status=unacknowledged|all &amp;count=   (step 4)
+///   GET    /gateway/fleet-manager/events                   ?status=unacknowledged|all &amp;count= &amp;cursor=   (step 4)
 ///   POST   /gateway/fleet-manager/events/ack               { ids: [...] } or { all: true }
 ///
 /// AUTH. These sit under the non-public <c>/gateway/...</c> prefix, so the host-wide middleware demands a
@@ -376,9 +376,22 @@ internal static class FleetManagerEndpoints
             if (q.TryGetValue("count", out var c) && !int.TryParse(c.ToString(), out count))
                 return BadRequest($"count '{c}' is not a whole number between 1 and {FleetManagerEventStore.MaxCount}");
 
-            var rows = store.List(tenant, status, count).ToList();
-            FileLog.Write($"[FleetManagerEndpoints] ListEvents: returned={rows.Count}");
-            return Results.Json(new FleetManagerEventListDto { Count = rows.Count, Events = rows });
+            var cursor = q.TryGetValue("cursor", out var cur) ? cur.ToString() : null;
+            if (cursor is not null && cursor.Trim().Length == 0)
+                return BadRequest("cursor is empty; give the nextCursor of the page before, or leave cursor out to start from the first page");
+
+            var page = store.ListPage(tenant, status, count, cursor);
+            var total = store.Count(tenant, status);
+            FileLog.Write($"[FleetManagerEndpoints] ListEvents: returned={page.Events.Count}, total={total}, "
+                          + $"hasMore={page.NextCursor is not null}");
+            return Results.Json(new FleetManagerEventListDto
+            {
+                Count = page.Events.Count,
+                Total = total,
+                HasMore = page.NextCursor is not null,
+                NextCursor = page.NextCursor,
+                Events = page.Events.ToList(),
+            });
         }
         catch (ArgumentException ex)
         {
@@ -394,7 +407,9 @@ internal static class FleetManagerEndpoints
 
     /// <summary>
     /// Acknowledge events by id, or every unacknowledged event that was delivered to the calling session. All or
-    /// nothing: an id that is not this account's event is refused by name (404) and nothing is changed.
+    /// nothing: an id that is not this account's event is refused by name (404) and nothing is changed, and a stop
+    /// still waiting for its Wingman reading is refused by name (409, <c>reading_pending</c>) and nothing is changed -
+    /// it has not been delivered, and it is acknowledged once it has.
     ///
     /// ONLY THE FLEET MANAGER ACKNOWLEDGES. An acknowledgement says "I have acted on this", and the events are the
     /// Fleet Manager's work: only the account's marked Fleet Manager session key may close them. Every other
@@ -430,6 +445,18 @@ internal static class FleetManagerEndpoints
                           + $"List them with GET {Prefix}/events?status=all",
                     missing = result.Missing.Select(m => m.ToString()).ToList(),
                 }, statusCode: StatusCodes.Status404NotFound);
+            }
+            if (result.Status == FleetManagerEventAckStatus.ReadingPending)
+            {
+                var pending = string.Join(", ", result.Pending);
+                return Results.Json(new
+                {
+                    error = $"event {pending} is a stop still waiting for the Wingman's reading; nothing was acknowledged. "
+                          + "It is delivered to you when its reading is stored, or with the reason there is none after "
+                          + $"{FleetManagerEventStore.PendingLimit.TotalMinutes:F0} minutes - act on it and acknowledge it then",
+                    code = "reading_pending",
+                    pending = result.Pending.Select(p => p.ToString()).ToList(),
+                }, statusCode: StatusCodes.Status409Conflict);
             }
 
             FileLog.Write($"[FleetManagerEndpoints] AcknowledgeEvents: by={caller.Id}, all={body.All}, "
@@ -557,13 +584,20 @@ internal static class FleetManagerEndpoints
                     Stopped = owned.Count(o => o.State == SessionTree.CrewStateStopped),
                     Total = owned.Count,
                 },
-                Events = events.Unacknowledged(tenant).ToList(),
             };
+            // The oldest page of what is owed; the rest are reached by the cursor, and the digest says so.
+            var eventPage = events.ListPage(tenant, FleetManagerEventStore.StatusUnacknowledged,
+                FleetManagerEventStore.MaxCount, cursor: null);
+            answer.Events = eventPage.Events.ToList();
+            answer.EventsTotal = events.Count(tenant, FleetManagerEventStore.StatusUnacknowledged);
+            answer.EventsWaitingForReading = events.CountPending(tenant);
+            answer.EventsHasMore = eventPage.NextCursor is not null;
+            answer.EventsNextCursor = eventPage.NextCursor;
 
             FileLog.Write($"[FleetManagerEndpoints] Digest: session={sid}, caller={caller.Role}, "
                           + $"isFleetManager={answer.IsFleetManager}, open={open.Count}, openCounted={counts.Total}, "
                           + $"managers={managers.Count}, owned={owned.Count}, preferences={answer.Preferences.Count}, "
-                          + $"events={answer.Events.Count}");
+                          + $"events={answer.Events.Count}, eventsTotal={answer.EventsTotal}, eventsHasMore={answer.EventsHasMore}");
             return Results.Json(answer);
         }
         catch (ArgumentException ex)

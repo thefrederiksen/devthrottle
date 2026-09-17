@@ -124,9 +124,22 @@ class FakeGateway:
             return {"count": len(self.preferences), "preferences": self.preferences}
         if route == "gateway/fleet-manager/events":
             status = query.get("status", "unacknowledged")
-            rows = [e for e in self.events if status == "all" or not e["acknowledgedAtUtc"]]
-            rows = rows[: int(query.get("count", "50"))]
-            return {"count": len(rows), "events": rows}
+            # Unacknowledged oldest first; all newest first, as the route answers.
+            rows = [e for e in self.events if not e["acknowledgedAtUtc"]] if status == "unacknowledged" \
+                else list(reversed(self.events))
+            total = len(rows)
+            if "cursor" in query:
+                prefix = f"ecursor-{status}-"
+                if not query["cursor"].startswith(prefix):
+                    raise shared_gateway.GatewayError(
+                        f"cursor '{query['cursor']}' is not one this Gateway issued for status {status}", status=400)
+                after = next(i for i, e in enumerate(rows) if prefix + e["id"] == query["cursor"])
+                rows = rows[after + 1:]
+            count = int(query.get("count", "50"))
+            more = len(rows) > count
+            rows = rows[:count]
+            return {"count": len(rows), "total": total, "hasMore": more,
+                    "nextCursor": f"ecursor-{status}-" + rows[-1]["id"] if more else None, "events": rows}
         if route == "gateway/fleet-manager/digest":
             assert self.digest is not None, "the test did not set a digest"
             return dict(self.digest, sessionId=query["session"])
@@ -164,6 +177,12 @@ class FakeGateway:
                     raise shared_gateway.GatewayError(
                         f"no event {', '.join(missing)} in this account; nothing was acknowledged", status=404)
                 named = [e for e in self.events if e["id"] in body["ids"]]
+                pending = [e["id"] for e in named if e.get("readingPending") and not e["acknowledgedAtUtc"]]
+                if pending:
+                    raise shared_gateway.GatewayError(
+                        f"event {', '.join(pending)} is a stop still waiting for the Wingman's reading; nothing was "
+                        "acknowledged. It is delivered to you when its reading is stored, or with the reason there is "
+                        "none after 5 minutes - act on it and acknowledge it then", status=409)
                 chosen = [e for e in named if not e["acknowledgedAtUtc"]]
                 already = len(named) - len(chosen)
             for e in chosen:
@@ -679,7 +698,7 @@ def test_events_json_is_the_gateways_answer_with_the_filter_applied(gw):
 
     assert [e["sessionName"] for e in default["events"]] == ["open one"]
     assert default["count"] == 1
-    assert [e["sessionName"] for e in everything["events"]] == ["open one", "done one"]
+    assert [e["sessionName"] for e in everything["events"]] == ["done one", "open one"]
     assert gw.calls[-1][1] == "gateway/fleet-manager/events?status=all&count=50"
 
 
@@ -757,6 +776,119 @@ def test_digest_lists_the_unacknowledged_events(gw):
     _, rows = read_table(result.output, "events")
     assert rows[0]["id"] == event["id"]
     assert f"cc-devthrottle fleet ack {event['id']}" in result.output
+
+
+PENDING_NOTE = ("waiting for the Wingman's reading - not delivered yet, and it cannot be acknowledged yet. It is "
+                "delivered when the reading is stored, or with the reason there is none after 5 minutes. "
+                "Do not act on it until then.")
+
+
+def test_a_stop_waiting_for_its_reading_shows_the_gateways_words_and_is_never_the_ack_example(gw):
+    waiting = gw.add_event("stop", WORKER, "still being read", readingPending=True, readingNote=PENDING_NOTE)
+    settled = gw.add_event("stop", WORKER, "read", verdict=dict(READING))
+
+    result = runner.invoke(app, ["fleet", "events"])
+
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines()[0] == "count: 2 (stop 2, died 0) status: unacknowledged waitingForReading: 1"
+    _, rows = read_table(result.output, "events")
+    assert (rows[0]["id"], rows[0]["verdict"], rows[0]["label"]) == (waiting["id"], "waiting", PENDING_NOTE)
+    assert f"cc-devthrottle fleet ack {settled['id']}" in result.output
+    assert f"fleet ack {waiting['id']}" not in result.output
+
+
+def test_ack_of_a_stop_waiting_for_its_reading_fails_with_the_gateways_reason_and_changes_nothing(gw):
+    waiting = gw.add_event("stop", WORKER, "still being read", readingPending=True, readingNote=PENDING_NOTE)
+    settled = gw.add_event("stop", WORKER, "read", verdict=dict(READING))
+
+    result = runner.invoke(app, ["fleet", "ack", settled["id"], waiting["id"]])
+
+    assert result.exit_code == 1
+    assert f"event {waiting['id']} is a stop still waiting for the Wingman's reading; nothing was acknowledged" \
+        in result.output
+    assert settled["acknowledgedAtUtc"] is None
+
+
+def test_events_past_one_page_say_so_and_the_cursor_reaches_the_rest(gw):
+    made = [gw.add_event("died", WORKER, f"gone {i}") for i in range(205)]
+
+    first = runner.invoke(app, ["fleet", "events", "--count", "200"])
+    lines = first.output.splitlines()
+    assert lines[0] == "count: 200 of 205 (stop 0, died 200) status: unacknowledged"
+    cursor = f"ecursor-unacknowledged-{made[199]['id']}"
+    assert lines[1] == f"nextCursor: {cursor}"
+    assert f"cc-devthrottle fleet events --count 200 --cursor {cursor}   (the next page)" in first.output
+
+    rest = runner.invoke(app, ["fleet", "events", "--count", "200", "--cursor", cursor])
+    _, rows = read_table(rest.output, "events")
+    assert [r["id"] for r in rows] == [e["id"] for e in made[200:]]
+    assert "nextCursor" not in rest.output
+
+    every = runner.invoke(app, ["fleet", "events", "--count", "100", "--every-page"])
+    n, rows = read_table(every.output, "events")
+    assert (n, [r["id"] for r in rows]) == (205, [e["id"] for e in made])
+    as_json = json.loads(runner.invoke(app, ["fleet", "events", "--count", "100", "--every-page", "--json"]).output)
+    assert (as_json["count"], as_json["total"], as_json["hasMore"], as_json["nextCursor"]) == (205, 205, False, None)
+
+
+def test_events_all_pages_newest_first_and_json_keeps_the_filter_and_cursor(gw):
+    made = [gw.add_event("died", WORKER, f"gone {i}", acknowledged=i % 2 == 0) for i in range(5)]
+
+    page = json.loads(runner.invoke(app, ["fleet", "events", "--all", "--count", "2", "--json"]).output)
+
+    assert [e["id"] for e in page["events"]] == [made[4]["id"], made[3]["id"]]
+    assert (page["total"], page["hasMore"]) == (5, True)
+    nxt = json.loads(runner.invoke(
+        app, ["fleet", "events", "--all", "--count", "2", "--cursor", page["nextCursor"], "--json"]).output)
+    assert [e["id"] for e in nxt["events"]] == [made[2]["id"], made[1]["id"]]
+    assert gw.calls[-1][1] == ("gateway/fleet-manager/events?status=all&count=2&cursor=" +
+                               urllib.parse.quote(page["nextCursor"]))
+
+
+def test_an_empty_event_cursor_is_a_usage_error_and_sends_nothing(gw):
+    result = runner.invoke(app, ["fleet", "events", "--cursor", " "])
+
+    assert result.exit_code == 2
+    assert "--cursor is empty" in result.output
+    assert gw.calls == []
+
+
+def test_the_start_of_an_event_id_beyond_the_first_page_is_found_on_a_later_page(gw):
+    old = gw.add_event("died", WORKER, "the oldest", id="ffff0000-0000-4000-8000-000000000001")
+    for i in range(200):
+        gw.add_event("died", WORKER, f"gone {i}", id=f"0000{i:04d}-0000-4000-8000-000000000000")
+
+    result = runner.invoke(app, ["fleet", "ack", old["id"][:6]])
+
+    assert result.exit_code == 0, result.output
+    assert gw.calls[-1] == ("POST", "gateway/fleet-manager/events/ack", {"ids": [old["id"]]})
+
+
+def test_digest_says_when_more_events_remain_and_how_to_reach_them(gw):
+    events = [gw.add_event("died", WORKER, f"gone {i}") for i in range(3)]
+    pending = gw.add_event("stop", WORKER, "being read", readingPending=True, readingNote=PENDING_NOTE)
+    gw.digest = _digest(events=[pending] + events, eventsTotal=250, eventsWaitingForReading=1,
+                        eventsHasMore=True, eventsNextCursor="ecursor-unacknowledged-x")
+
+    result = runner.invoke(app, ["fleet", "digest"])
+
+    assert result.exit_code == 0, result.output
+    assert "events: 4 of 250 unacknowledged (1 waiting for their reading)" in result.output
+    assert ("eventsMoreRemain: 246 (oldest first; the rest: "
+            "cc-devthrottle fleet events --cursor ecursor-unacknowledged-x)") in result.output
+    assert "cc-devthrottle fleet events --count 200 --cursor ecursor-unacknowledged-x" in result.output
+    assert f"cc-devthrottle fleet ack {events[0]['id']}" in result.output
+    assert f"fleet ack {pending['id']}" not in result.output
+
+
+def test_digest_with_every_event_says_no_more_remain(gw):
+    event = gw.add_event("died", WORKER, "gone")
+    gw.digest = _digest(events=[event], eventsTotal=1, eventsHasMore=False, eventsNextCursor=None)
+
+    result = runner.invoke(app, ["fleet", "digest"])
+
+    assert "events: 1 unacknowledged\n" in result.output
+    assert "eventsMoreRemain" not in result.output
 
 
 # ---- the whole surface ------------------------------------------------------------------------------

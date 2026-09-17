@@ -36,6 +36,10 @@ public sealed class FleetManagerEventDto
     /// delivered until its reading, or the reason there is none, is attached.</summary>
     public bool ReadingPending { get; set; }
 
+    /// <summary>On a stop still waiting for its reading: what that means, in plain words, from the Gateway - it is not
+    /// delivered, cannot be acknowledged, and when it will be delivered. Null otherwise. Show it as it is.</summary>
+    public string? ReadingNote { get; set; }
+
     /// <summary>On a <c>stop</c>: when the Gateway observed the turn end, or null when that is not known.</summary>
     public DateTime? StopObservedAtUtc { get; set; }
 
@@ -64,9 +68,19 @@ public sealed class FleetManagerEventDto
 /// <summary>The answer of <c>GET /gateway/fleet-manager/events</c>.</summary>
 public sealed class FleetManagerEventListDto
 {
+    /// <summary>How many events are on this page.</summary>
     public int Count { get; set; }
 
-    /// <summary>Oldest first.</summary>
+    /// <summary>How many events match the status in all, counted by the Gateway.</summary>
+    public int Total { get; set; }
+
+    /// <summary>True when more events follow this page.</summary>
+    public bool HasMore { get; set; }
+
+    /// <summary>The cursor that continues after this page, or null on the last page. Opaque: pass it back as it is.</summary>
+    public string? NextCursor { get; set; }
+
+    /// <summary>Unacknowledged events oldest first; all events newest first.</summary>
     public List<FleetManagerEventDto> Events { get; set; } = new();
 }
 

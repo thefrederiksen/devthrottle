@@ -26,8 +26,10 @@ internal static class FleetManagerEventPrompt
 
     /// <param name="events">The events, oldest first. At least one. The Wingman's readings are served to the Fleet
     /// Manager whatever the account's colour switch says, as the digest serves them.</param>
-    public static string Build(IReadOnlyList<FleetManagerEventDto> events)
+    /// <param name="moreOwed">How many more events are owed after these; they are sent at the next idle moment.</param>
+    public static string Build(IReadOnlyList<FleetManagerEventDto> events, int moreOwed = 0)
     {
+        if (moreOwed < 0) throw new ArgumentOutOfRangeException(nameof(moreOwed), "cannot be negative");
         ArgumentNullException.ThrowIfNull(events);
         if (events.Count == 0) throw new ArgumentException("a delivery carries at least one event", nameof(events));
 
@@ -39,6 +41,9 @@ internal static class FleetManagerEventPrompt
           .Append(died).Append(" died since your last turn.\n");
         sb.Append("Sessions you own. Act on each, then acknowledge it by its id. Readings are the Wingman's, not the session's.\n");
         sb.Append("An event can be sent more than once: if you have already handled an event id, do not act on it again - acknowledge it.\n");
+        if (moreOwed > 0)
+            sb.Append(Count(moreOwed, "more event waits", "more events wait"))
+              .Append(" after these; they are sent when you are next waiting for a prompt. See them all: cc-devthrottle fleet events.\n");
 
         for (var i = 0; i < events.Count; i++)
         {

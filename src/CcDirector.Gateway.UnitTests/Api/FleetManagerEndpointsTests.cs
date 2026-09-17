@@ -864,4 +864,186 @@ public sealed class FleetManagerEndpointsTests : IDisposable
 
         Assert.Equal("verdict-event", asSession.Verdict!.VerdictId);
     }
+    // ---- a stop waiting for its reading, and paging (step 4 fixes, round 3) -----------------------------
+
+    private FleetManagerEventDto PendingStop(TenantId tenant, string sid)
+    {
+        var e = _events.RecordStop(tenant,
+            new FleetManagerStopSighting(sid, "a session " + sid, FleetManager, "director-a", DateTime.UtcNow, IsCatchUp: false),
+            DateTime.UtcNow);
+        Assert.NotNull(e);
+        Assert.True(e!.ReadingPending);
+        return e;
+    }
+
+    /// <summary>Deaths of distinct sessions, stored at moments where every third shares the moment before it, so the id
+    /// has to break the tie. Returned in the order they were stored; within one moment the Gateway's order is its own.</summary>
+    private List<FleetManagerEventDto> Deaths(TenantId tenant, int n)
+    {
+        var t0 = new DateTime(2026, 9, 16, 8, 0, 0, DateTimeKind.Utc);
+        var stored = new List<FleetManagerEventDto>();
+        for (var i = 0; i < n; i++)
+        {
+            var at = t0.AddSeconds(i - i / 3);
+            var e = _events.RecordDeath(tenant, new FleetManagerDeath(Guid.NewGuid().ToString(), "dead " + i, FleetManager,
+                "director-a", Crashed: false, "it exited"), at);
+            stored.Add(Assert.IsType<FleetManagerEventDto>(e));
+        }
+        return stored;
+    }
+
+    /// <summary>A STOP WAITING FOR ITS READING IS SHOWN AS WAITING, AND CANNOT BE ACKNOWLEDGED. The digest and the event
+    /// list both carry it with the Gateway's words for that, and an acknowledgement that names it is refused by name
+    /// with the reason - and closes nothing else it named either.</summary>
+    [Fact]
+    public async Task Ack_AStopWaitingForItsReading_IsRefusedWithTheReason_AndNothingIsAcknowledged()
+    {
+        var settled = Stop(TenantA, OwnedStopped, Verdict("verdict-settled"));
+        var waiting = PendingStop(TenantA, OwnedWorking);
+
+        var digest = Body<FleetDigestDto>(Digest(TenantA, FleetManager, FleetManager));
+        var shown = digest.Events.Single(e => e.Id == waiting.Id);
+        Assert.True(shown.ReadingPending);
+        Assert.Equal(FleetManagerEventStore.PendingNote, shown.ReadingNote);
+        Assert.Contains("cannot be acknowledged", shown.ReadingNote);
+        Assert.Null(digest.Events.Single(e => e.Id == settled.Id).ReadingNote);
+        Assert.Equal(1, digest.EventsWaitingForReading);
+        Assert.Equal(FleetManagerEventStore.PendingNote,
+            Events(TenantA, caller: FleetManager).Events.Single(e => e.Id == waiting.Id).ReadingNote);
+
+        var result = await AckAsync(TenantA, new { ids = new[] { settled.Id, waiting.Id } });
+
+        Assert.Equal(StatusCodes.Status409Conflict, Status(result));
+        Assert.Equal("reading_pending", Field(result, "code"));
+        var error = (string)Field(result, "error")!;
+        Assert.Contains(waiting.Id, error);
+        Assert.Contains("still waiting for the Wingman's reading", error);
+        Assert.Contains("after 5 minutes", error);
+        Assert.Equal(new[] { settled.Id, waiting.Id }, Events(TenantA).Events.Select(e => e.Id));
+
+        // Once its reading is stored, the same acknowledgement is accepted.
+        _events.AttachReading(TenantA, OwnedWorking, Verdict("verdict-late"), null, owner: null, DateTime.UtcNow);
+        var again = Body<FleetManagerEventAckDto>(await AckAsync(TenantA, new { ids = new[] { settled.Id, waiting.Id } }));
+        Assert.Equal(2, again.Acknowledged);
+    }
+
+    /// <summary>EVERY UNACKNOWLEDGED EVENT IS REACHABLE PAST 200: the list pages oldest first with an opaque cursor,
+    /// counts every event, and an acknowledgement between pages skips nothing and repeats nothing.</summary>
+    [Fact]
+    public void ListEvents_MoreThan200Unacknowledged_EveryOneIsReachedOnce_ByTheCursor()
+    {
+        var stored = Deaths(TenantA, 205);
+
+        var first = Events(TenantA, "count=200", FleetManager);
+        Assert.Equal((200, 205, true), (first.Count, first.Total, first.HasMore));
+        Assert.NotNull(first.NextCursor);
+        // The 200th and 201st were stored at different moments, so the first page is exactly the oldest 200.
+        Assert.NotEqual(stored[199].CreatedAtUtc, stored[200].CreatedAtUtc);
+        Assert.Equal(stored.Take(200).Select(e => e.Id).OrderBy(x => x), first.Events.Select(e => e.Id).OrderBy(x => x));
+        AssertOldestFirst(first.Events);
+
+        // Acknowledged between pages: the next page is not shifted by it.
+        _events.MarkDelivered(TenantA, new[] { Guid.Parse(first.Events[0].Id) }, FleetManager, DateTime.UtcNow);
+        _events.Acknowledge(TenantA, new[] { Guid.Parse(first.Events[0].Id) }, false, null, DateTime.UtcNow);
+
+        var second = Events(TenantA, "count=200&cursor=" + first.NextCursor, FleetManager);
+        Assert.Equal((5, 204, false), (second.Count, second.Total, second.HasMore));
+        Assert.Null(second.NextCursor);
+        Assert.Equal(stored.Skip(200).Select(e => e.Id).OrderBy(x => x), second.Events.Select(e => e.Id).OrderBy(x => x));
+        AssertOldestFirst(second.Events);
+    }
+
+    private static void AssertOldestFirst(IReadOnlyList<FleetManagerEventDto> events)
+    {
+        for (var i = 1; i < events.Count; i++)
+            Assert.True(events[i - 1].CreatedAtUtc <= events[i].CreatedAtUtc, $"event {i} is older than the one before it");
+    }
+
+    /// <summary>Small pages, each boundary inside a run of events stored at the same moment: the id breaks the tie,
+    /// and every event is still reached exactly once.</summary>
+    [Fact]
+    public void ListEvents_PagesThatSplitEventsStoredAtOneMoment_ReachEveryEventOnce()
+    {
+        var stored = Deaths(TenantA, 20);
+
+        var seen = new List<FleetManagerEventDto>();
+        string? cursor = null;
+        do
+        {
+            var page = Events(TenantA, "count=2" + (cursor is null ? "" : "&cursor=" + cursor), FleetManager);
+            seen.AddRange(page.Events);
+            cursor = page.NextCursor;
+        } while (cursor is not null);
+
+        Assert.Equal(stored.Select(e => e.Id).OrderBy(x => x), seen.Select(e => e.Id).OrderBy(x => x));
+        Assert.Equal(20, seen.Select(e => e.Id).Distinct().Count());
+        AssertOldestFirst(seen);
+    }
+
+    /// <summary>The history pages newest first, and reaches every event.</summary>
+    [Fact]
+    public void ListEvents_All_PagesNewestFirst_AndReachesEveryEvent()
+    {
+        var stored = Deaths(TenantA, 7);
+
+        var seen = new List<FleetManagerEventDto>();
+        string? cursor = null;
+        do
+        {
+            var page = Events(TenantA, "status=all&count=3" + (cursor is null ? "" : "&cursor=" + cursor));
+            Assert.Equal(7, page.Total);
+            seen.AddRange(page.Events);
+            cursor = page.NextCursor;
+            Assert.Equal(cursor is not null, page.HasMore);
+        } while (cursor is not null);
+
+        Assert.Equal(stored.Select(e => e.Id).OrderBy(x => x), seen.Select(e => e.Id).OrderBy(x => x));
+        Assert.Equal(7, seen.Select(e => e.Id).Distinct().Count());
+        for (var i = 1; i < seen.Count; i++)
+            Assert.True(seen[i - 1].CreatedAtUtc >= seen[i].CreatedAtUtc, $"event {i} is newer than the one before it");
+    }
+
+    [Fact]
+    public void ListEvents_ACursorNotIssuedForThatStatus_OrEmpty_Is400()
+    {
+        Deaths(TenantA, 3);
+        var cursor = Events(TenantA, "count=1").NextCursor!;
+
+        var otherStatus = ListEvents(TenantA, Owner, "status=all&cursor=" + cursor);
+        var forged = ListEvents(TenantA, Owner, "cursor=not-a-cursor");
+        var empty = ListEvents(TenantA, Owner, "cursor=");
+
+        Assert.Equal(StatusCodes.Status400BadRequest, Status(otherStatus));
+        Assert.Contains("is not one this Gateway issued for status all", (string)Field(otherStatus, "error")!);
+        Assert.Equal(StatusCodes.Status400BadRequest, Status(forged));
+        Assert.Equal(StatusCodes.Status400BadRequest, Status(empty));
+        Assert.StartsWith("cursor is empty", (string)Field(empty, "error")!);
+    }
+
+    /// <summary>THE DIGEST SAYS WHEN MORE EVENTS REMAIN: it carries the oldest 200, the database's count of all of them,
+    /// and the cursor that reaches the rest.</summary>
+    [Fact]
+    public void Digest_MoreThan200Events_CarriesTheOldestPage_AndSaysMoreRemain_WithTheCursor()
+    {
+        var stored = Deaths(TenantA, 203);
+
+        var digest = Body<FleetDigestDto>(Digest(TenantA, FleetManager, FleetManager));
+
+        Assert.Equal(stored.Take(200).Select(e => e.Id).OrderBy(x => x), digest.Events.Select(e => e.Id).OrderBy(x => x));
+        Assert.Equal((203, true), (digest.EventsTotal, digest.EventsHasMore));
+        var rest = Events(TenantA, "cursor=" + digest.EventsNextCursor, FleetManager);
+        Assert.Equal(stored.Skip(200).Select(e => e.Id).OrderBy(x => x), rest.Events.Select(e => e.Id).OrderBy(x => x));
+        Assert.False(rest.HasMore);
+    }
+
+    [Fact]
+    public void Digest_200OrFewerEvents_SaysNoneRemain()
+    {
+        Deaths(TenantA, 200);
+
+        var digest = Body<FleetDigestDto>(Digest(TenantA, FleetManager, FleetManager));
+
+        Assert.Equal((200, 200, false), (digest.Events.Count, digest.EventsTotal, digest.EventsHasMore));
+        Assert.Null(digest.EventsNextCursor);
+    }
 }

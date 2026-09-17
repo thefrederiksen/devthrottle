@@ -123,8 +123,9 @@ public sealed class FleetManagerEventService : IDisposable
     /// <summary>How long an event waits for more before it is delivered to an idle Fleet Manager.</summary>
     public static readonly TimeSpan BatchWindow = TimeSpan.FromSeconds(3);
 
-    /// <summary>How long a stop may wait for its reading before it is delivered with the reason there is none.</summary>
-    public static readonly TimeSpan PendingLimit = TimeSpan.FromMinutes(5);
+    /// <summary>How long a stop may wait for its reading before it is delivered with the reason there is none
+    /// (<see cref="FleetManagerEventStore.PendingLimit"/>).</summary>
+    public static readonly TimeSpan PendingLimit = FleetManagerEventStore.PendingLimit;
 
     private readonly FleetManagerEventStore _store;
     private readonly IFleetManagerEventEnvironment _env;
@@ -337,8 +338,7 @@ public sealed class FleetManagerEventService : IDisposable
         if (_restartExpired.TryAdd(tenant, 0))
             changed |= _store.ExpirePendingStops(tenant, _startedAtUtc,
                 "the Gateway restarted before the Wingman's reading of this stop was stored").Count > 0;
-        changed |= _store.ExpirePendingStops(tenant, now - PendingLimit,
-            $"no reading of this stop was stored within {PendingLimit.TotalMinutes:F0} minutes").Count > 0;
+        changed |= _store.ExpirePendingStops(tenant, now - PendingLimit, FleetManagerEventStore.PendingLimitReason).Count > 0;
 
         var marked = _env.MarkedFleetManager(tenant);
         if (!string.IsNullOrEmpty(marked))
@@ -564,10 +564,10 @@ public sealed class FleetManagerEventService : IDisposable
             }
             var target = fm.Session.SessionId;
 
-            var owed = _store.Unacknowledged(tenant)
-                .Where(e => !e.ReadingPending)
-                .Where(e => !SameId(e.DeliveredTo, target))
-                .ToList();
+            // Asked of the database, so however many events wait before them, the oldest owed are found. A batch
+            // larger than one prompt carries leaves the rest for the next idle moment, and the prompt says so.
+            var found = _store.Owed(tenant, target, FleetManagerEventStore.MaxDeliveryBatch);
+            var owed = found.Events;
             if (owed.Count == 0) return FleetManagerDeliveryResult.NothingOwed;
 
             // A first filter on the pushed state; the Director makes the check that counts, at the moment it types.
@@ -578,14 +578,14 @@ public sealed class FleetManagerEventService : IDisposable
                 return FleetManagerDeliveryResult.Busy;
             }
 
-            var text = FleetManagerEventPrompt.Build(owed);
+            var text = FleetManagerEventPrompt.Build(owed, found.MoreOwed);
             var sent = await _env.SendPromptAsync(tenant, fm.DirectorId, target, text, _shutdown.Token).ConfigureAwait(false);
             switch (sent)
             {
                 case FleetManagerPromptSend.Accepted:
                     _store.MarkDelivered(tenant, owed.Select(e => Guid.Parse(e.Id)).ToList(), target, _env.NowUtc());
-                    FileLog.Write($"[FleetManagerEventService] delivered {owed.Count} event(s) to {target}: " +
-                                  string.Join(", ", owed.Select(e => e.Id)));
+                    FileLog.Write($"[FleetManagerEventService] delivered {owed.Count} event(s) to {target}, " +
+                                  $"{found.MoreOwed} more owed: " + string.Join(", ", owed.Select(e => e.Id)));
                     return FleetManagerDeliveryResult.Delivered;
                 case FleetManagerPromptSend.Busy:
                     FileLog.Write($"[FleetManagerEventService] deliver to {target}: the Director found it busy and typed nothing; " +

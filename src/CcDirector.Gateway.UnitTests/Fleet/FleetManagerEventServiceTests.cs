@@ -690,6 +690,154 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         Assert.Empty(_env.Sends);
     }
 
+    // ================================================================= waiting for a reading (step 4 fixes, round 3)
+
+    /// <summary>A STOP WAITING FOR ITS READING IS DELIVERED WHEN THE READING COMPLETES: not at the Fleet Manager's turn
+    /// end while it waits, and then - with nothing else happening - as soon as the reading is stored.</summary>
+    [Fact]
+    public async Task AStopWaitingForItsReading_IsDeliveredWhenItsReadingCompletes_WithThatReading()
+    {
+        _brain.Hold();
+        var signal = Signal("worker-1");
+        _service.OnTurnEnd(signal, wingmanRunning: true);
+        var reading = _seat.StartTurnEnd(signal);
+        await FleetManagerTurnEndAsync();
+        Assert.Empty(_env.Sends);
+
+        _brain.Release();
+        await reading;
+        await _service.WhenIdleAsync();
+
+        var sent = Assert.Single(_env.Sends);
+        var e = Assert.Single(Open());
+        Assert.False(e.ReadingPending);
+        Assert.Null(e.ReadingNote);
+        Assert.Contains("event 1 of 1: " + e.Id, sent.Text);
+        Assert.Contains("verdict: finished", sent.Text);
+        Assert.Equal(("fm", 1), (e.DeliveredTo, e.DeliveryCount));
+    }
+
+    /// <summary>A reading that ends as cannot-tell is a reading: the stop is delivered as that, never left waiting.</summary>
+    [Fact]
+    public async Task AStopReadAsCannotTell_IsDeliveredAsCannotTell()
+    {
+        _brain.Answer = FakeTurnVerdictEnvironment.CannotTell("The session stopped.");
+        SetState("fm", "WaitingForInput");
+
+        await TurnEndAsync("worker-1");
+
+        var e = Assert.Single(Open());
+        Assert.False(e.ReadingPending);
+        Assert.Equal("cannot-tell", e.Verdict!.Verdict);
+        var sent = Assert.Single(_env.Sends);
+        Assert.Contains("verdict: cannot-tell", sent.Text);
+        Assert.Contains(e.Id, sent.Text);
+    }
+
+    /// <summary>A reading that fails is delivered as a failure, with or without a stored record, never left waiting.</summary>
+    [Fact]
+    public async Task AStopWhoseReadingFails_IsDeliveredAsFailed()
+    {
+        SetState("fm", "WaitingForInput");
+        var failed = new TurnVerdictDto { VerdictId = "failed-1", Failed = true, FailureReason = "the judge did not answer" };
+        _service.OnTurnEnd(Signal("worker-1"), wingmanRunning: true);
+        _service.OnTurnEnd(Signal("worker-2"), wingmanRunning: true);
+        _service.OnReadingCompleted(new TurnVerdictReadingCompleted(Tenant, "worker-1", "dir-1", TurnVerdictTrigger.TurnEnd,
+            _now, new TurnVerdictOutcome { Kind = TurnVerdictOutcomeKind.Failed, Verdict = failed }));
+        _service.OnReadingCompleted(new TurnVerdictReadingCompleted(Tenant, "worker-2", "dir-1", TurnVerdictTrigger.TurnEnd,
+            _now, new TurnVerdictOutcome { Kind = TurnVerdictOutcomeKind.Failed }));
+        await _service.WhenIdleAsync();
+
+        Assert.All(Open(), e => Assert.False(e.ReadingPending));
+        var text = string.Concat(_env.Sends.Select(x => x.Text));
+        Assert.Contains("verdict: failed - the judge did not answer. Read the session yourself.", text);
+        Assert.Contains("verdict: none - the Wingman's reading failed and no record of it was stored. Read the session yourself.", text);
+        Assert.All(Open(), e => Assert.Equal("fm", e.DeliveredTo));
+    }
+
+    /// <summary>THE TIME LIMIT IS FIVE MINUTES. A stop whose reading never reports back waits until the limit - not
+    /// delivered, and still waiting - and just after it is given the reason and delivered as that.</summary>
+    [Fact]
+    public async Task AStopWithNoReading_WaitsUntilTheTimeLimit_ThenIsDeliveredWithTheReason()
+    {
+        Assert.Equal(TimeSpan.FromMinutes(5), FleetManagerEventService.PendingLimit);
+        _service.OnTurnEnd(Signal("worker-1"), wingmanRunning: true);
+        SetState("fm", "WaitingForInput");
+
+        _now = Start + FleetManagerEventService.PendingLimit - TimeSpan.FromSeconds(1);
+        SetState("fm", "WaitingForInput");   // the Director keeps reporting it
+        await _service.ReconcileAsync(Tenant);
+        await _service.WhenIdleAsync();
+        Assert.True(Assert.Single(Open()).ReadingPending);
+        Assert.Empty(_env.Sends);
+
+        _now = Start + FleetManagerEventService.PendingLimit + TimeSpan.FromSeconds(1);
+        SetState("fm", "WaitingForInput");
+        await _service.ReconcileAsync(Tenant);
+        await _service.WhenIdleAsync();
+
+        var e = Assert.Single(Open());
+        Assert.False(e.ReadingPending);
+        Assert.Equal("no reading of this stop was stored within 5 minutes", e.NoVerdictReason);
+        var sent = Assert.Single(_env.Sends);
+        Assert.Contains("verdict: none - no reading of this stop was stored within 5 minutes. Read the session yourself.", sent.Text);
+    }
+
+    // ================================================================= more than one prompt's worth
+
+    private List<FleetManagerEventDto> Deaths(int n)
+    {
+        var stored = new List<FleetManagerEventDto>();
+        for (var i = 0; i < n; i++)
+            stored.Add(_events.RecordDeath(Tenant, new FleetManagerDeath("gone-" + i, "gone " + i, "fm", "dir-1", false,
+                "it exited"), Start.AddSeconds(i))!);
+        return stored;
+    }
+
+    /// <summary>More events than one prompt carries: the oldest 200 go first and the prompt says how many more wait;
+    /// the rest go at the Fleet Manager's next idle moment.</summary>
+    [Fact]
+    public async Task MoreEventsThanOnePromptCarries_TheOldestGoFirst_ThePromptSaysMoreWait_AndTheRestFollow()
+    {
+        var stored = Deaths(205);
+
+        await FleetManagerTurnEndAsync();
+
+        var first = Assert.Single(_env.Sends);
+        Assert.StartsWith("[Fleet Manager events] 0 stops and 200 died since your last turn.\n", first.Text);
+        Assert.Contains("5 more events wait after these; they are sent when you are next waiting for a prompt.", first.Text);
+        Assert.Contains(stored[199].Id, first.Text);
+        Assert.DoesNotContain(stored[200].Id, first.Text);
+
+        await FleetManagerTurnEndAsync();
+
+        Assert.Equal(2, _env.Sends.Count);
+        var second = _env.Sends[1].Text;
+        Assert.StartsWith("[Fleet Manager events] 0 stops and 5 died", second);
+        Assert.DoesNotContain("more event", second);
+        Assert.All(stored.Skip(200), e => Assert.Contains(e.Id, second));
+        Assert.DoesNotContain(stored[0].Id, second);
+    }
+
+    /// <summary>200 events delivered and not yet acknowledged do not hide the next one: what is owed is asked of the
+    /// store, not picked from its first page.</summary>
+    [Fact]
+    public async Task TwoHundredDeliveredButUnacknowledged_DoNotHideANewEvent()
+    {
+        var delivered = Deaths(200);
+        _events.MarkDelivered(Tenant, delivered.Select(e => Guid.Parse(e.Id)).ToList(), "fm", Start);
+        _now = Start.AddHours(1);
+        SetState("worker-1", "Exited");
+        _service.OnSessionExited(Tenant, "worker-1", "dir-1");
+        await _service.WhenIdleAsync();
+
+        await FleetManagerTurnEndAsync();
+
+        var sent = Assert.Single(_env.Sends);
+        Assert.StartsWith("[Fleet Manager events] 0 stops and 1 died", sent.Text);
+        Assert.Contains("session: worker-1", sent.Text);
+    }
+
     [Fact]
     public async Task ADeliveredUnacknowledgedEvent_IsNotResentToTheSameSession_ButIsSentToANewlyMarkedFleetManager()
     {
@@ -936,14 +1084,16 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         public DateTime NowUtc() => _now();
     }
 
-    /// <summary>A judge that answers one fixed text, and can be held until released.</summary>
+    /// <summary>A judge that answers a set text, and can be held until released.</summary>
     private sealed class GateableBrain : IAgentBrain
     {
-        private readonly string _answer;
         private TaskCompletionSource _gate = CompletedGate();
         private int _asks;
 
-        public GateableBrain(string answer) => _answer = answer;
+        public GateableBrain(string answer) => Answer = answer;
+
+        /// <summary>What the judge answers from now on.</summary>
+        public string Answer { get; set; }
         public int Asks => _asks;
         public string? SessionId => "gateable-brain";
 
@@ -961,7 +1111,7 @@ public sealed class FleetManagerEventServiceTests : IDisposable
         {
             Interlocked.Increment(ref _asks);
             await _gate.Task.WaitAsync(ct);
-            return new AskResult { Text = _answer, ReplySeconds = 0.1 };
+            return new AskResult { Text = Answer, ReplySeconds = 0.1 };
         }
 
         public Task CancelAsync(CancellationToken ct = default) => Task.CompletedTask;
