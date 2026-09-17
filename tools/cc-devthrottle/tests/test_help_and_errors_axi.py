@@ -46,7 +46,7 @@ ROSTER = [
     {
         "sessionId": PARENT, "name": "manager", "machineName": "MAC", "number": 102,
         "repoPath": "/repos/devthrottle", "triageBucket": "active", "activityState": "Working",
-        "hasLiveSupervisor": False,
+        "controllerSessionId": None, "hasLiveSupervisor": False,
     },
 ]
 

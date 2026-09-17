@@ -649,7 +649,21 @@ def list_apps(machine: str, query: Optional[str], limit: int, json_output: bool,
         axi_output.render_list("apps", chosen_fields, records),
     ]
     if not records:
-        blocks.append(_note(f"Nothing on {machine} matches {query or '(everything)'}."))
+        # "Nothing matches" is a claim about the whole machine. A search that skipped a directory or was
+        # cut short did not look everywhere, so it says it was incomplete instead, and why.
+        wanted = query or "(everything)"
+        gaps = []
+        if skipped:
+            gaps.append(f"{len(skipped)} directories could not be read")
+        if truncated:
+            gaps.append("the launcher returned fewer results than it found")
+        if gaps:
+            blocks.append(_note(
+                f"No application was returned for {wanted} on {machine}, but the search was incomplete "
+                f"({'; '.join(gaps)}), so this does not show that nothing matches."
+            ))
+        else:
+            blocks.append(_note(f"Nothing on {machine} matches {wanted}."))
     if truncated:
         blocks.append("More matched than were returned; narrow the search or raise --count.")
     # An unreadable directory means the catalogue is short by an unknown amount. Say so: a quietly
@@ -725,12 +739,30 @@ def search_files(machine: str, query: str, limit: int, timeout_seconds: int, jso
         _note(f"Searched {visited} directories on {machine} in {elapsed} ms."),
         axi_output.render_list("files", chosen_fields, records),
     ]
+    truncated = _value(payload, "truncated", "Truncated")
+    unreadable = _value(payload, "unreadableDirectories", "UnreadableDirectories")
+    abandoned = _value(payload, "abandonedRoots", "AbandonedRoots") if abandoned_present else 0
     if not records:
-        blocks.append(_note(f"No file on {machine} matches {query}."))
+        # "No file matches" is a claim about the whole machine. A search that skipped, lost or stopped
+        # short of part of it did not establish that, so it says it was incomplete instead, and why.
+        gaps = []
+        if truncated:
+            gaps.append(f"it stopped early ({_value(payload, 'truncationReason', 'TruncationReason') or 'unknown'})")
+        if unreadable:
+            gaps.append(f"{unreadable} directories could not be read")
+        if abandoned:
+            gaps.append(f"{abandoned} search roots never answered")
+        if gaps:
+            blocks.append(_note(
+                f"No file was found for {query} on {machine}, but the search was incomplete "
+                f"({'; '.join(gaps)}), so this does not show that no file matches."
+            ))
+        else:
+            blocks.append(_note(f"No file on {machine} matches {query}."))
 
     # The whole point of the truncation fields: a partial answer must never read as a complete one, and the
     # advice differs by reason - a ceiling wants a narrower search, a deadline wants more time.
-    if _value(payload, "truncated", "Truncated"):
+    if truncated:
         reason = _value(payload, "truncationReason", "TruncationReason") or "unknown"
         if reason == "limit":
             blocks.append("Stopped at the result limit - this is NOT the whole answer. Narrow the search or raise --count.")
@@ -739,10 +771,8 @@ def search_files(machine: str, query: str, limit: int, timeout_seconds: int, jso
         else:
             blocks.append(_note(f"Stopped early ({reason}) - this is NOT the whole answer."))
 
-    unreadable = _value(payload, "unreadableDirectories", "UnreadableDirectories")
     if unreadable:
         blocks.append(f"{unreadable} directories could not be read and were not searched.")
-    abandoned = _value(payload, "abandonedRoots", "AbandonedRoots") if abandoned_present else 0
     if abandoned:
         # A root that never answered is silent, not forbidden (on macOS, a privacy-protected folder), so
         # this count is the only sign its contents are missing.

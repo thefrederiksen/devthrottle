@@ -333,3 +333,43 @@ def test_sessionWorkers_Cli_WorkerWithNoSessionId_ExitsOneAndPrintsNoList(serve,
     assert result.exit_code == 1
     assert "no session id" in result.stderr
     assert result.stdout == ""
+
+
+# The field is required on every row. null means nobody drives the session; ABSENT is a missing answer,
+# and reading it as null would print "count: 0" and "You are not driving any sessions." for a manager
+# whose workers the Gateway simply did not describe (re-check 4, finding 1).
+_NO_CONTROLLER = {k: v for k, v in WORKERS[0].items() if k != "controllerSessionId"}
+
+
+@pytest.mark.parametrize("args", [["session", "workers"], ["session", "workers", "--json"]])
+def test_sessionWorkers_Cli_RowWithNoControllerField_ExitsOneAndPrintsNoList(serve, args):
+    serve([_NO_CONTROLLER])
+
+    result = runner.invoke(app, args)
+
+    assert result.exit_code == 1, result.output
+    assert result.stdout == ""
+    assert "11111111-2222-3333-4444-555555555555" in result.stderr
+    assert "controllerSessionId missing" in result.stderr
+    assert "help[" in result.stderr
+
+
+def test_sessionWorkers_Cli_OneRowWithNoControllerFieldAmongWorkers_ExitsOne(serve):
+    serve(FLEET + [dict(_NO_CONTROLLER, sessionId="44444444-2222-3333-4444-555555555555")])
+
+    result = runner.invoke(app, ["session", "workers"])
+
+    assert result.exit_code == 1, result.output
+    assert "44444444-2222-3333-4444-555555555555" in result.stderr
+    assert result.stdout == ""
+
+
+def test_sessionWorkers_Cli_NullControllerAndPascalCaseField_AreAnswers(serve):
+    pascal = {k: v for k, v in WORKERS[1].items() if k != "controllerSessionId"}
+    pascal["ControllerSessionId"] = MANAGER
+    serve([NOT_MINE[1], pascal])
+
+    result = runner.invoke(app, ["session", "workers", "--json"])
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout) == [pascal]

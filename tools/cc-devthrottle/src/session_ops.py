@@ -991,13 +991,17 @@ def list_my_workers(
 
     sessions, complete, reason, stale_caution = _get_fleet()
     caveat = _roster_caveat(complete, reason)
+    # ABSENT IS NOT "NO CONTROLLER". The Gateway always sends the field, null for a session nobody
+    # drives; a row without it is a missing answer, and reading it as null would report "no workers".
     for s in sessions:
+        present = "controllerSessionId" in s or "ControllerSessionId" in s
         controller = s.get("controllerSessionId", s.get("ControllerSessionId"))
-        if controller is not None and not isinstance(controller, str):
+        if not present or (controller is not None and not isinstance(controller, str)):
             sid = gateway.field(s, "sessionId", "SessionId")
+            shown = "missing" if not present else repr(controller)
             axi_cli.fail(
                 f"the Gateway returned session {sid} with controllerSessionId "
-                f"{axi_output.escape_ascii(repr(controller))}, not text or null, so whether it is yours "
+                f"{axi_output.escape_ascii(shown)}, not text or null, so whether it is yours "
                 "cannot be told. --json shows the raw rows.",
                 ["cc-devthrottle session list --json", axi_cli.CHECK_GATEWAY],
             )

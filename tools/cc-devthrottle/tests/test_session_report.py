@@ -49,7 +49,8 @@ def _worker(has_live_supervisor=True, controller=PARENT):
     }
 
 
-PARENT_ROW = {"sessionId": PARENT, "name": "Mission - Manager"}
+# The Gateway always sends controllerSessionId; null is a session nobody drives.
+PARENT_ROW = {"sessionId": PARENT, "name": "Mission - Manager", "controllerSessionId": None}
 
 
 @pytest.fixture

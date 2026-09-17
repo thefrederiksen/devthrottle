@@ -253,3 +253,62 @@ def test_machineFiles_Json_TheGatewayAnswerUnchanged(answer):
 
     assert result.exit_code == 0, result.output
     assert result.stdout == json.dumps(FILES, indent=2) + "\n"
+
+
+# --- an empty answer from an incomplete search (re-check 4, finding 2) -----------------------------
+#
+# "Nothing matches" is a claim about the whole machine. When any part of the search was skipped, cut
+# short or abandoned, the machine did not establish it, so the empty note says the search was incomplete
+# and why - and the plain no-match sentence is never printed.
+
+
+@pytest.mark.parametrize("extra, why", [
+    ({"skipped": ["C:/Unreadable"]}, "(1 directories could not be read)"),
+    ({"totalMatches": 4, "truncated": True}, "(the launcher returned fewer results than it found)"),
+    ({"skipped": ["C:/A", "C:/B"], "totalMatches": 4, "truncated": True},
+     "(2 directories could not be read; the launcher returned fewer results than it found)"),
+])
+def test_machineApps_NothingFromAnIncompleteSearch_SaysIncompleteNotNoMatch(answer, extra, why):
+    answer["payload"] = {**APPS, "apps": [], "totalMatches": 0, **extra}
+
+    result = runner.invoke(app, ["machine", "apps", "BOX"])
+
+    assert result.exit_code == 0, result.output
+    assert "matches (everything)." not in result.stdout
+    assert "Nothing on BOX" not in result.stdout
+    assert (
+        f"No application was returned for (everything) on BOX, but the search was incomplete {why}, "
+        "so this does not show that nothing matches."
+    ) in result.stdout.splitlines()
+
+
+@pytest.mark.parametrize("extra, why", [
+    ({"truncated": True, "truncationReason": "timeout", "abandonedRoots": 1},
+     "(it stopped early (timeout); 1 search roots never answered)"),
+    ({"truncated": True, "truncationReason": "limit"}, "(it stopped early (limit))"),
+    ({"unreadableDirectories": 3}, "(3 directories could not be read)"),
+    ({"abandonedRoots": 2}, "(2 search roots never answered)"),
+])
+def test_machineFiles_NothingFromAnIncompleteSearch_SaysIncompleteNotNoMatch(answer, extra, why):
+    # FILES is a complete search; only `extra` makes this one incomplete.
+    answer["payload"] = {**FILES, "files": [], **extra}
+
+    result = runner.invoke(app, ["machine", "files", "BOX", "*.pptx"])
+
+    assert result.exit_code == 0, result.output
+    assert "No file on BOX matches" not in result.stdout
+    assert (
+        f"No file was found for *.pptx on BOX, but the search was incomplete {why}, "
+        "so this does not show that no file matches."
+    ) in result.stdout.splitlines()
+
+
+def test_machineFiles_NothingFromACompleteSearchWithZeroAbandoned_SaysNoMatch(answer):
+    answer["payload"] = dict(FILES, files=[])
+    assert (FILES["truncated"], FILES["unreadableDirectories"], FILES["abandonedRoots"]) == (False, 0, 0)
+
+    result = runner.invoke(app, ["machine", "files", "BOX", "*.pptx"])
+
+    assert result.exit_code == 0, result.output
+    assert "No file on BOX matches *.pptx." in result.stdout.splitlines()
+    assert "incomplete" not in result.stdout
