@@ -14,6 +14,7 @@ from . import browser_ops
 from . import diag_ops
 from . import email_ops
 from . import fleet_manager_ops
+from . import fleet_ops
 from . import mission_ops
 from . import schedule_ops
 from . import settings_ops
@@ -131,6 +132,16 @@ browser_app = typer.Typer(
     add_completion=False,
     no_args_is_help=True,
 )
+fleet_app = typer.Typer(
+    cls=AxiGroup,
+    help=(
+        "Fleet Manager records, standing preferences, and the digest.\n\n"
+        "The Fleet Manager's stored news (ready, finding, decision), the owner's standing "
+        "preferences, and the start-of-conversation digest."
+    ),
+    add_completion=False,
+    no_args_is_help=True,
+)
 app.add_typer(session_app, name="session")
 app.add_typer(repo_app, name="repo")
 app.add_typer(worktree_app, name="worktree")
@@ -148,9 +159,100 @@ app.add_typer(email_app, name="email")
 app.add_typer(diag_app, name="diag")
 app.add_typer(autostart_app, name="autostart")
 app.add_typer(browser_app, name="browser")
+app.add_typer(fleet_app, name="fleet")
 console = Console()
 
 _ACTIONS = [
+    {
+        "id": "fleet-digest",
+        "description": (
+            "Everything the Fleet Manager reads at the start of a conversation: open outcome records, the "
+            "sessions it owns with the Wingman's latest reading of each, and the standing preferences."
+        ),
+        "command": "cc-devthrottle fleet digest [--session <id>] [--json]",
+        "mutatesState": False,
+        "args": [{"name": "session", "required": False}],
+    },
+    {
+        "id": "fleet-ready",
+        "description": "File a READY record: work ready for the owner, kept open until they answer it.",
+        "command": (
+            'cc-devthrottle fleet ready "<title>" --pr <link> --risk low|medium|high '
+            '--checks passed|failed|none --tested "<how>" --reviewed-by "<who>" '
+            '--change "<one sentence for a user>" [--session <id>]'
+        ),
+        "mutatesState": True,
+        "args": [{"name": "title", "required": True}, {"name": "pr", "required": True},
+                 {"name": "risk", "required": True}, {"name": "checks", "required": True},
+                 {"name": "tested", "required": True}, {"name": "reviewed_by", "required": True},
+                 {"name": "change", "required": True}, {"name": "session", "required": False}],
+    },
+    {
+        "id": "fleet-finding",
+        "description": "File a FINDING record: a finished report or investigation, answer first.",
+        "command": (
+            'cc-devthrottle fleet finding "<title>" --answer "<answer>" [--reason "<why>"] '
+            "[--link <url> ...] [--session <id>]"
+        ),
+        "mutatesState": True,
+        "args": [{"name": "title", "required": True}, {"name": "answer", "required": True},
+                 {"name": "reason", "required": False}, {"name": "link", "required": False},
+                 {"name": "session", "required": False}],
+    },
+    {
+        "id": "fleet-decision",
+        "description": "File a DECISION record: a question only the owner can settle, with two or more options.",
+        "command": (
+            'cc-devthrottle fleet decision "<title>" --question "<q>" --option "<a>" --option "<b>" '
+            '[--recommend "<a>"] [--why "<why>"] [--session <id>]'
+        ),
+        "mutatesState": True,
+        "args": [{"name": "title", "required": True}, {"name": "question", "required": True},
+                 {"name": "option", "required": True}, {"name": "recommend", "required": False},
+                 {"name": "why", "required": False}, {"name": "session", "required": False}],
+    },
+    {
+        "id": "fleet-outcomes",
+        "description": "List the account's outcome records, newest first (default: open).",
+        "command": "cc-devthrottle fleet outcomes [--status open|answered|all] [--kind ready|finding|decision] [--json]",
+        "mutatesState": False,
+        "args": [{"name": "status", "required": False}, {"name": "kind", "required": False}],
+    },
+    {
+        "id": "fleet-show",
+        "description": "Show one outcome record in full.",
+        "command": "cc-devthrottle fleet show <id> [--json]",
+        "mutatesState": False,
+        "args": [{"name": "id", "required": True}],
+    },
+    {
+        "id": "fleet-answer",
+        "description": "Close an outcome record with the owner's words, exactly. An answer is final.",
+        "command": 'cc-devthrottle fleet answer <id> "<the owner\'s words, exactly>"',
+        "mutatesState": True,
+        "args": [{"name": "id", "required": True}, {"name": "answer", "required": True}],
+    },
+    {
+        "id": "fleet-prefer",
+        "description": "Keep one of the owner's standing preferences, in their own words.",
+        "command": 'cc-devthrottle fleet prefer "<preference, verbatim>"',
+        "mutatesState": True,
+        "args": [{"name": "text", "required": True}],
+    },
+    {
+        "id": "fleet-preferences",
+        "description": "List the owner's standing preferences, oldest first.",
+        "command": "cc-devthrottle fleet preferences [--json]",
+        "mutatesState": False,
+        "args": [],
+    },
+    {
+        "id": "fleet-forget",
+        "description": "Remove one standing preference.",
+        "command": "cc-devthrottle fleet forget <preference id>",
+        "mutatesState": True,
+        "args": [{"name": "id", "required": True}],
+    },
     {
         "id": "session-list",
         "description": "List every session in the fleet.",
@@ -2489,6 +2591,129 @@ def email_owner(
     unattended or scheduled run, or to send yourself a report to read offline.
     """
     email_ops.send_owner(subject, body, html, attach, json_output)
+
+
+# ---- fleet: the Fleet Manager's records, preferences and digest ---------------------------------------
+
+_JSON_OPT = typer.Option(False, "--json", "-j", help="Output the Gateway's answer as JSON.")
+_SESSION_ABOUT = typer.Option(
+    None, "--session", "-s",
+    help="The session this is about: id, id prefix, number, or exact name.",
+)
+
+
+@fleet_app.command("ready")
+def fleet_ready(
+    title: str = typer.Argument(..., help="One line naming what is ready."),
+    pr: str = typer.Option(..., "--pr", help="The full pull request link."),
+    risk: str = typer.Option(..., "--risk", help="low, medium or high."),
+    checks: str = typer.Option(..., "--checks", help="passed, failed or none."),
+    tested: str = typer.Option(..., "--tested", help="How it was tested."),
+    reviewed_by: str = typer.Option(..., "--reviewed-by", help="Who reviewed it."),
+    change: str = typer.Option(..., "--change", help="One sentence on what changed, for a user."),
+    session: Optional[str] = _SESSION_ABOUT,
+    json_output: bool = _JSON_OPT,
+) -> None:
+    """File a READY record: work that is ready for the owner."""
+    fleet_ops.file_ready(title, pr, risk, checks, tested, reviewed_by, change, session, json_output)
+
+
+@fleet_app.command("finding")
+def fleet_finding(
+    title: str = typer.Argument(..., help="One line naming what was found."),
+    answer: str = typer.Option(..., "--answer", help="The answer, first."),
+    reason: Optional[str] = typer.Option(None, "--reason", help="The reason."),
+    link: Optional[List[str]] = typer.Option(None, "--link", help="A full link to a report (repeatable)."),
+    session: Optional[str] = _SESSION_ABOUT,
+    json_output: bool = _JSON_OPT,
+) -> None:
+    """File a FINDING record: a report or investigation that is finished."""
+    fleet_ops.file_finding(title, answer, reason, link, session, json_output)
+
+
+@fleet_app.command("decision")
+def fleet_decision(
+    title: str = typer.Argument(..., help="One line naming the decision."),
+    question: str = typer.Option(..., "--question", help="The question."),
+    option: Optional[List[str]] = typer.Option(None, "--option", help="One option (give two or more)."),
+    recommend: Optional[str] = typer.Option(None, "--recommend", help="The option you recommend, exactly as given."),
+    why: Optional[str] = typer.Option(None, "--why", help="Why you recommend it."),
+    session: Optional[str] = _SESSION_ABOUT,
+    json_output: bool = _JSON_OPT,
+) -> None:
+    """File a DECISION record: something only the owner can settle."""
+    fleet_ops.file_decision(title, question, option, recommend, why, session, json_output)
+
+
+@fleet_app.command("outcomes")
+def fleet_outcomes(
+    status: str = typer.Option("open", "--status", help="open, answered or all."),
+    kind: Optional[str] = typer.Option(None, "--kind", help="ready, finding or decision."),
+    count: int = typer.Option(50, "--count", "-n", help="Largest number of records on one page (1-200)."),
+    cursor: Optional[str] = typer.Option(None, "--cursor", help="Continue after an earlier page: its nextCursor."),
+    every_page: bool = typer.Option(False, "--all", help="Follow every page to the end and list every record."),
+    json_output: bool = _JSON_OPT,
+) -> None:
+    """List the account's outcome records, newest first.
+
+    One page at a time, or every page with --all.
+    """
+    fleet_ops.list_outcomes(status, kind, count, json_output, cursor=cursor, every_page=every_page)
+
+
+@fleet_app.command("show")
+def fleet_show(
+    outcome_id: str = typer.Argument(..., metavar="ID", help="The record's id, or the start of it."),
+    json_output: bool = _JSON_OPT,
+) -> None:
+    """Show one outcome record in full."""
+    fleet_ops.show_outcome(outcome_id, json_output)
+
+
+@fleet_app.command("answer")
+def fleet_answer(
+    outcome_id: str = typer.Argument(..., metavar="ID", help="The record's id, or the start of it."),
+    words: str = typer.Argument(..., metavar="ANSWER", help="The owner's words, exactly as they said them."),
+    json_output: bool = _JSON_OPT,
+) -> None:
+    """Close a record with the owner's answer. An answered record is never re-answered."""
+    fleet_ops.answer_outcome(outcome_id, words, json_output)
+
+
+@fleet_app.command("digest")
+def fleet_digest(
+    session: Optional[str] = typer.Option(
+        None, "--session", "-s",
+        help="The Fleet Manager session (default: this session). Id, id prefix, number, or exact name.",
+    ),
+    json_output: bool = _JSON_OPT,
+) -> None:
+    """Everything the Fleet Manager reads at the start of a conversation."""
+    fleet_ops.digest(session, json_output)
+
+
+@fleet_app.command("prefer")
+def fleet_prefer(
+    text: str = typer.Argument(..., help="The owner's preference, in their own words."),
+    json_output: bool = _JSON_OPT,
+) -> None:
+    """Keep one of the owner's standing preferences, exactly as given."""
+    fleet_ops.add_preference(text, json_output)
+
+
+@fleet_app.command("preferences")
+def fleet_preferences(json_output: bool = _JSON_OPT) -> None:
+    """List the owner's standing preferences, oldest first."""
+    fleet_ops.list_preferences(json_output)
+
+
+@fleet_app.command("forget")
+def fleet_forget(
+    preference_id: str = typer.Argument(..., metavar="ID", help="The preference's id, or the start of it."),
+    json_output: bool = _JSON_OPT,
+) -> None:
+    """Remove one standing preference."""
+    fleet_ops.forget_preference(preference_id, json_output)
 
 
 if __name__ == "__main__":

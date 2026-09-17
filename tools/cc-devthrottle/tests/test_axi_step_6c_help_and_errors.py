@@ -330,6 +330,13 @@ def test_actions_lists_every_id_and_command_in_full():
 # registry fails here instead of changing both sides of the comparison.
 _ACTIONS_JSON_BEFORE = Path(__file__).parent / "fixtures" / "actions_json_before_step_6c.json"
 
+# Actions added to the registry after the pin was taken, named one by one so an addition nobody
+# listed here still fails. Every action in the pin must still print exactly as it did.
+_ACTIONS_ADDED_SINCE_PIN = {
+    "fleet-digest", "fleet-ready", "fleet-finding", "fleet-decision", "fleet-outcomes",
+    "fleet-show", "fleet-answer", "fleet-prefer", "fleet-preferences", "fleet-forget",
+}
+
 
 def test_actions_json_is_unchanged():
     pinned = _ACTIONS_JSON_BEFORE.read_text(encoding="utf-8")
@@ -340,7 +347,10 @@ def test_actions_json_is_unchanged():
 
     result = runner.invoke(app, ["actions", "--json"])
     assert result.exit_code == 0
-    assert result.stdout == pinned
+    printed = json.loads(result.stdout)["actions"]
+    assert {a["id"] for a in printed} - {a["id"] for a in actions} == _ACTIONS_ADDED_SINCE_PIN
+    kept = [a for a in printed if a["id"] not in _ACTIONS_ADDED_SINCE_PIN]
+    assert json.dumps({"actions": kept}, indent=2) + "\n" == pinned
 
 
 # ---------------------------------------------------------------------------------------------------

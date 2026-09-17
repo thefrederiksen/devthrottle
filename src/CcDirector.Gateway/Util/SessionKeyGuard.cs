@@ -252,6 +252,9 @@ public static class SessionKeyGuard
             // surface is split between configuration and admission.
             if (IsBrowserRoute(verb, s)) return true;
 
+            // The Fleet Manager's stored news, preferences and digest. See IsFleetManagerRoute.
+            if (IsFleetManagerRoute(verb, s)) return true;
+
             // Configuration, read side. A Director's settings, the application's own settings, and the
             // handovers on a Director - all three by the owner's ruling that an agent configures the product.
             if (IsDirectorSettings(s)) return true;
@@ -353,6 +356,9 @@ public static class SessionKeyGuard
             // Capture a Director's live fleet into a workspace - the first act of a drain.
             if (IsWorkspaceRoute(verb, s)) return true;
 
+            // File a Fleet Manager record, answer one, keep a standing preference.
+            if (IsFleetManagerRoute(verb, s)) return true;
+
             // Create a scheduled job, or run one now.
             if (IsScheduleRoute(verb, s)) return true;
 
@@ -437,10 +443,51 @@ public static class SessionKeyGuard
             // Delete a workspace, on the same terms as the skills and workflows beside it.
             if (IsWorkspaceRoute(verb, s)) return true;
 
+            // Forget a Fleet Manager standing preference.
+            if (IsFleetManagerRoute(verb, s)) return true;
+
             return false;
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// The Fleet Manager shapes under <c>/gateway/fleet-manager</c> (the Fleet Manager mission, step 3): the
+    /// stored news (Ready, Finding, Decision), the owner's standing preferences, and the digest.
+    ///
+    /// A session key reaches these because the Fleet Manager IS a session: it files a record the moment
+    /// something is ready, answers it with the owner's words, and reads the digest at the start of every
+    /// conversation, all with its own key. Each route resolves the caller's account itself, so a record of
+    /// another account is not found. Nothing here admits anyone or changes an account's identity.
+    ///
+    /// Every shape is matched as a LITERAL at its exact length, verb by verb - including the answer verb, a
+    /// literal fifth segment - so a new word hung off this prefix is refused until somebody classifies it here.
+    /// </summary>
+    private static bool IsFleetManagerRoute(string verb, string[] s)
+    {
+        if (s.Length < 3 || s[0] != "gateway" || s[1] != "fleet-manager") return false;
+        var read = verb is "GET" or "HEAD";
+
+        switch (s[2])
+        {
+            case "outcomes":
+                // /gateway/fleet-manager/outcomes - list, or file one.
+                if (s.Length == 3) return read || verb == "POST";
+                // /gateway/fleet-manager/outcomes/{id} - read one.
+                if (s.Length == 4) return read;
+                // /gateway/fleet-manager/outcomes/{id}/answer - close one with the owner's words.
+                return s.Length == 5 && s[4] == "answer" && verb == "POST";
+            case "preferences":
+                // /gateway/fleet-manager/preferences - list, or keep one.
+                if (s.Length == 3) return read || verb == "POST";
+                // /gateway/fleet-manager/preferences/{id} - forget one.
+                return s.Length == 4 && verb == "DELETE";
+            case "digest":
+                return s.Length == 3 && read;
+            default:
+                return false;
+        }
     }
 
     /// <summary>
