@@ -201,7 +201,7 @@ the new code, comments, fixtures, README or the 60 branch commit messages (the "
 that exist are product references - the rig genuinely starts a Claude Code session - and `CLAUDE.md`
 rule references; the commit that matched my grep matched the ordinary word "regenerated"). Tokens and
 session keys: redacted on every printed line and evidence file, and I found none raw. Private paths: Low
-4. Machine names: none beyond the path in Low 4 (`SOREN_NORTH` etc. appear nowhere).
+4 (since scrubbed by the Architect). Machine names: none beyond the path in Low 4 (no machine name appears).
 
 ---
 
