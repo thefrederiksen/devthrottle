@@ -34,7 +34,8 @@ public sealed record FleetMessageDraft(
 /// <param name="SentBySenderInWindow">Rate-counted messages the sender wrote inside the window.</param>
 /// <param name="LastSentToRecipientUtc">When the sender last wrote to this recipient, or null.</param>
 /// <param name="RecipientHasUnreadDuplicate">The recipient holds an unread message from this sender with
-/// exactly this text.</param>
+/// exactly this text, of the same kind, about the same question, and asking for a reply exactly when this one
+/// does (inspection 6, ruling 2).</param>
 /// <param name="DuplicateMessageId">The id of that waiting message, when there is one.</param>
 /// <param name="DuplicateCorrelationId">That waiting message's correlation id, when it asked for a reply.</param>
 public readonly record struct FleetMessageHistory(
@@ -249,13 +250,23 @@ public sealed class FleetMessageStore
     {
         var sender = Id(draft.SenderSessionId);
         var recipient = Id(draft.RecipientSessionId)!;
+        // A DUPLICATE IS JUDGED PER QUESTION AND PER KIND (inspection 6, ruling 2). An unread row is the same message
+        // only when it has the same recipient, sender, kind, question it is about, reply request and text. So a
+        // reply to one question is never dropped because a reply to another - or a plain message - says the same
+        // words, and a send that asks for a reply is never reduced to a waiting message that did not.
+        var inReplyTo = Id(draft.InReplyToMessageId);
+        var wantsReply = draft.ReplyByUtc is not null && inReplyTo is null;
+        var unreadSame = ctx.FleetMessages.AsNoTracking().Where(m => m.RecipientSessionId == recipient
+            && m.SenderSessionId == sender && m.ReadAtUtc == null && m.TextHash == hash
+            && m.Kind == draft.Kind && m.InReplyToMessageId == inReplyTo);
+        unreadSame = wantsReply
+            ? unreadSame.Where(m => m.ReplyByUtc != null)
+            : unreadSame.Where(m => m.ReplyByUtc == null);
         if (sender is null)
         {
             // A system notice has no sender, so it has no rate history. It can still repeat itself: a notice
             // identical to one the recipient has not read yet adds nothing.
-            var dupSystem = ctx.FleetMessages.Any(m => m.RecipientSessionId == recipient
-                && m.SenderSessionId == null && m.ReadAtUtc == null && m.TextHash == hash);
-            return new FleetMessageHistory(0, null, dupSystem);
+            return new FleetMessageHistory(0, null, unreadSame.Any());
         }
 
         var since = now - senderWindow;
@@ -270,9 +281,7 @@ public sealed class FleetMessageStore
             .OrderByDescending(m => m.CreatedAtUtc)
             .Select(m => (DateTime?)m.CreatedAtUtc)
             .FirstOrDefault();
-        var dup = ctx.FleetMessages.AsNoTracking()
-            .Where(m => m.RecipientSessionId == recipient
-                && m.SenderSessionId == sender && m.ReadAtUtc == null && m.TextHash == hash)
+        var dup = unreadSame
             .OrderBy(m => m.CreatedAtUtc)
             .Select(m => new { m.MessageId, m.CorrelationId })
             .FirstOrDefault();
