@@ -1669,6 +1669,20 @@ def send_message(
 ASK_ANSWERED = "idle"
 
 
+_MISSING = object()
+
+
+def _answer_output(resp: Dict[str, Any]) -> Any:
+    """The answer's output field as the Gateway gave it (None when null), or _MISSING when it has none."""
+    value: Any = _MISSING
+    for key in ("output", "Output"):
+        if key in resp:
+            value = resp[key]
+            if value is not None:
+                break
+    return value
+
+
 def ask_session(target: str, question: str, timeout_ms: int) -> None:
     """Ask one session a question and print its answer."""
     if target.strip().lower() == "all":
@@ -1713,7 +1727,21 @@ def ask_session(target: str, question: str, timeout_ms: int) -> None:
     wait_status = axi_cli.confirmed(
         resp, ("waitStatus", "WaitStatus"), f"the question to session {target_sid}", ask_next
     )
-    answer = gateway.field(resp, "output", "Output").strip()
+    # AN ABSENT ANSWER IS NOT AN EMPTY ONE. "(the target produced no output)" and "partial output" are
+    # claims about what the target printed, so they are made only from an output field the answer
+    # carries as text. An empty string is a real empty answer; a missing, null or non-text output says
+    # nothing about what was printed, whatever the wait verdict is.
+    raw_output = _answer_output(resp)
+    if not isinstance(raw_output, str):
+        given = ("gave no output field" if raw_output is _MISSING
+                 else f"gave output as {'null' if raw_output is None else type(raw_output).__name__}, not text")
+        axi_cli.fail(
+            f"the Gateway's answer to the question to session {target_sid} {given} "
+            f"(waitStatus: {wait_status}), so what the target printed is unknown. "
+            "Read its screen to see what it answered.",
+            ask_next,
+        )
+    answer = raw_output.strip()
     name = gateway.field(chosen, "name", "Name")
     source = f"{axi_cli.shown(name)} ({target_sid})" if name else target_sid
 
