@@ -6,41 +6,29 @@ on:
   pull_request:
     branches: [main]
 
-# A pull request keeps ONE run per branch and supersedes the older one. A push to main gets a group
-# of its OWN, one per commit, so it never shares a queue with any other commit.
+# ONE run per branch, everywhere, and the newest commit always wins (owner's ruling, 16 September 2026).
 #
-# Why the asymmetry, because getting it the other way round is the expensive mistake. On a pull request
-# the head commit is the only one anyone acts on, so an older run for a commit that has already been
-# pushed past is spending a runner on an answer nobody will read - cancelling it is right. On a push to
-# main, EVERY commit must keep its own verification: a green that belongs to a specific commit is the
-# whole point of having continuous integration rather than a memory of a run.
+# A push to a pull request branch OR to main cancels the run already in flight for that branch and takes
+# its place. Only the newest code ever gets tested. The owner asked for exactly this after watching nine
+# main runs sit in the queue on one evening, each one a full .NET build and test of about an hour and
+# twenty minutes, for commits that had already been pushed past: "there should only be the latest build,
+# on the latest code on origin/main. No reason to do five things, unless we are trying to find out when
+# something went wrong."
 #
-# The pull-request half was added after a draft pull request queued six simultaneous runs on one branch,
-# none of which superseded any other, so the answer everybody was waiting for kept being pushed further
-# out by the very commits that were waiting on it. When a resource serialises, parallelism converts into
-# latency rather than throughput, and the cost lands on whoever is waiting rather than on whoever is
-# holding.
+# What this gives up, stated so nobody rediscovers it as a surprise: an intermediate commit on main gets
+# no verdict of its own. When the newest run is red, finding WHICH commit in a burst broke it is a bisect
+# by hand (or a rerun of an older commit from the Actions page). The previous rule was the opposite - one
+# group per main commit, never cancelled - written on 3 August after a burst evicted 16 of 24 main runs,
+# including the run for the commit that fixed two red guards (#2424). That rule bought a per-commit
+# verdict at the price of a queue that could not drain, and the owner has chosen the drain.
 #
-# THE PER-COMMIT GROUP ON MAIN IS THE SECOND HALF, AND IT IS NOT THE SAME KNOB. Turning cancellation off
-# for main was believed to be enough, and it is not: cancel-in-progress protects only the run that is
-# already EXECUTING, while a concurrency group holds at most ONE run in the pending slot. A third push
-# arriving discards whichever run was waiting there. On 3 August, main took 24 runs and 16 of them ended
-# cancelled having never started a single job - each one killed to the second by the arrival of the next
-# merge, because the .NET job takes about fifty minutes and merges land every two to five. Those runs
-# were not superseded mid-flight; they were evicted from the queue before they ever ran.
-#
-# That was not a cosmetic loss. Two architecture guards were red on main that morning, and the commit
-# that fixed them (#2424) had its own run evicted, so nothing on GitHub ever reported either the break
-# or the repair. Continuous integration is also the backstop for the three suites parked out of the local
-# gate, and a backstop that is evicted before it starts is not a backstop.
-#
-# Keying the group on the commit removes main from the shared queue entirely: every merge gets a run
-# that no later merge can take the slot from. The cost is real and was accepted deliberately - one full
-# run per merge instead of one per burst. Runs may still WAIT on the account-wide runner limit, but
-# waiting yields a verdict late whereas eviction yields none at all.
+# Why the group is keyed on github.ref and not github.sha: the sha key is what gave every main commit its
+# own group and so its own place in the queue. The ref key puts every push to main in ONE group, and with
+# cancel-in-progress on, the newest push cancels the older one whether it was executing or waiting. The
+# pending slot holds one run; a newer arrival replaces it; the newest commit always ends up with a run.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-and-test:
