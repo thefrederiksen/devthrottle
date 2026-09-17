@@ -56,7 +56,7 @@ describe("the Cockpit session view", () => {
     );
 
     const tabs = screen.getAllByRole("tab").map((t) => t.textContent);
-    expect(tabs).toEqual(["Terminal", "Chat", "Voice", "Source Control", "Wingman"]);
+    expect(tabs).toEqual(["Terminal", "Chat", "Voice", "Source Control", "Wingman", "Reports"]);
     expect(screen.queryByTestId("wingman-tab")).toBeNull();
 
     fireEvent.click(screen.getByRole("tab", { name: "Wingman" }));
