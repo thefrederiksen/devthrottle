@@ -171,7 +171,7 @@ most 128 characters: the Gateway refuses the whole send (400) when any item's id
 | type | payload | when |
 |---|---|---|
 | `ready` | `{ "questionIds": ["deploy-window"] }` | once, when the script has started |
-| `send` | `{ "items": [ item, ... ] }` | the owner pressed Send; every item still in the queue, in order |
+| `send` | `{ "items": [ item, ... ] }` | the owner pressed the UNHOSTED page's own Send; every item still in the queue, in order. A hosted page draws no Send and never posts this: the app sends the queue it already holds from `state-changed`, and tells the page what happened with `status`. |
 | `state-changed` | `{ "state": state }` | anything in the state changed - including a status or reply the host pushed |
 
 ### Host to page
@@ -183,6 +183,10 @@ most 128 characters: the Gateway refuses the whole send (400) when any item's id
 | `reply` | `{ "reply": { "id": "r1", "text": "Fixed - see section 2", "at": "2026-09-16T10:00:00Z" } }` | adds the agent's reply to the page (same id replaces) |
 
 ### Send, and when an item counts as sent
+
+There is one Send on screen. Hosted it is the app's, and the app sends the queue it holds; unhosted it is
+the page's own, and it posts a `send`. Either way the rules below are the same, because both end in the
+host answering with a `status` for every id, and nothing counts as sent until it does.
 
 Posting a message is not the host accepting it. So Send does not empty the queue:
 

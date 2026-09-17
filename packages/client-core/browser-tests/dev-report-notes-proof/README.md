@@ -27,10 +27,12 @@ REAL: the shipping script, a real browser, a real sandboxed frame, real mouse cl
 sample report (`sample-report.html`), which the Gateway's shape check also reads and passes
 (`DevReportShapeCheckTests.Check_TheSampleReportUsedByTheBrowserProof_Passes`).
 
-TEST HOST: `index.html` stands in for the Cockpit, the phone and the Director, which gain a report view in
-phases 3 and 4. It injects the script, answers `ready` with `restore`, keeps the last `state-changed`
-state, and records every message. The status words and the reply it pushes are made up by the proof -
-the real ones will come from the Gateway in phase 2.
+TEST HOST: `index.html` stands in for the Cockpit, the phone and the Director. It injects the script,
+answers `ready` with `restore`, keeps the last `state-changed` state, and records every message. It also
+DRAWS that state in a panel beside the frame - the ONE conversation and the ONE Send on the screen, the
+way an app does - and its Send carries the queue it already holds, as the Cockpit's controller does
+(`sendQueued`). The status words and the reply it pushes are made up by the proof - the real ones come
+from the Gateway.
 
 NOT PROVEN HERE: any real app hosting the page, the Gateway record, delivery into a session, the phone's
 touch interactions (text selection on a phone in particular), and WebView2 in the Director.
@@ -43,10 +45,15 @@ touch interactions (text selection on a phone in particular), and WebView2 in th
 - **D** - a note on a table cell carries its selector (which resolves back to the cell), its text, its row
   label and its column label.
 - **E** - an answer carries the question, the chosen option and the comment.
-- **F** - queued items show as queued, apart from sent.
-- **G** - Send posts one `send` message with the whole queue.
+- **F** - queued items show as queued, apart from sent, in the app's panel.
+- **G** - the app's Send carries the whole queue, and nothing leaves the queue until the host confirms it.
 - **H** - the host's status words and the agent's reply are shown verbatim.
 - **I** - malformed, foreign-channel, wrong-version and unknown messages are ignored.
 - **J** - after a reload, the host's `restore` brings back sent items, the reply, the half-typed note and
   the scroll position.
 - **K** - opened as a plain page with no host, Send shows the exact `send` message and keeps the queue.
+- **O** - HOSTED, the page draws only the note-taking parts: no queued, sent or replies list, no headings,
+  no Send and no payload box inside the frame. The screen carries ONE conversation and ONE Send.
+- **P** - the note box is drawn beside what the note is about and covers neither it nor the question that
+  contains it (measured rectangles, for a table cell and for a question's heading), and the hosted tray is
+  not a scrolling panel.
