@@ -31,6 +31,10 @@ Pooled git worktrees. A worktree is only reset when its work has provably landed
   {PROG} destroy <path-or-slot> [--yes] [--allow-held] [--allow-in-use] [--repo <path>]
       Checks the work landed now, whatever the state says; unproven means held (exit 3), no flag skips it.
       Dry run unless --yes. Refuses a held or in-use slot without its flag. One slot at a time.
+  {PROG} release <path-or-slot> --confirm-abandon [--repo <path>]
+      Put a HELD slot back in the pool. Pins every commit it cannot prove landed under
+      refs/cc-worktrees/<slot>/, where git gc can never take it, then removes the directory and the
+      ignored files in it. Refuses while anything in the slot cannot be pinned.
 
 A slot is reset only when: nothing uncommitted or untracked, the remote was fetched just now, the
 default branch was read from the remote, and every commit is on a remote branch or already in the
@@ -91,6 +95,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("target", help="the worktree path or slot name (wt01)")
     p.add_argument("--holder", required=True, help="who holds it")
     p.add_argument("--reclaim-held", action="store_true", help="take a held slot as it is, without a reset")
+    p.add_argument("--repo", help="the repository, when target is a slot name")
+
+    p = add("release", "put a held slot back in the pool, pinning the work it cannot prove landed")
+    p.add_argument("target", help="the worktree path or slot name (wt01)")
+    p.add_argument("--confirm-abandon", action="store_true",
+                   help="required: the slot goes back in the pool and its directory is removed")
     p.add_argument("--repo", help="the repository, when target is a slot name")
 
     p = add("destroy", "remove one slot (dry run unless --yes)")
@@ -183,6 +193,29 @@ def cmd_destroy(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def cmd_release(args: argparse.Namespace) -> int:
+    if not args.confirm_abandon:
+        raise _UsageError(
+            "release needs --confirm-abandon: it puts a held slot back in the pool and removes its "
+            "directory, the ignored files in it and all. Every commit it cannot prove landed is pinned "
+            "first, and it refuses while anything in the slot cannot be pinned")
+    result = pool.release_slot(args.target, args.repo)
+    keys = ["slot", "path", "removed", "pinned", "proven", "note"]
+    if args.json:
+        sys.stdout.write(json.dumps(result) + "\n")
+        return EXIT_OK
+    if result["pins"]:
+        ref = result["pins"][0]["ref"]
+        help_lines = [f"git -C {_q(result['repo'])} log {ref}",
+                      f"git -C {_q(result['repo'])} branch <name> {ref}"]
+    else:
+        help_lines = [f"{PROG} get --repo {_q(result['repo'])} --holder <holder>"]
+    axi_output.write_blocks(sys.stdout, _pairs(result, keys),
+                            axi_output.render_list("pins", ["ref", "commit"], result["pins"]),
+                            axi_output.format_help(help_lines))
+    return EXIT_OK
+
+
 def cmd_list(args: argparse.Namespace) -> int:
     default = LIST_DEFAULT_ONE_REPO if args.repo else LIST_DEFAULT_ALL
     try:
@@ -203,7 +236,8 @@ def cmd_list(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
-COMMANDS = {"get": cmd_get, "return": cmd_return, "list": cmd_list, "lease": cmd_lease, "destroy": cmd_destroy}
+COMMANDS = {"get": cmd_get, "return": cmd_return, "list": cmd_list, "lease": cmd_lease,
+            "destroy": cmd_destroy, "release": cmd_release}
 
 
 def main(argv: list[str] | None = None) -> int:

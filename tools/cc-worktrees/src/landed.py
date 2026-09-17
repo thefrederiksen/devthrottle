@@ -298,6 +298,89 @@ def require_no_nested_repositories(worktree: Path) -> None:
                         f"its commits cannot be proven landed: {_names(found)}")
 
 
+# ---------------------------------------------------------------------------------------------------
+# The repository's stash
+# ---------------------------------------------------------------------------------------------------
+
+STASH_REF = "refs/stash"
+
+
+@dataclass(frozen=True)
+class StashEntry:
+    commit: str
+    selector: str   # stash@{0}
+    subject: str    # "On main: <the message>"
+
+    def line(self) -> str:
+        """The entry as `git stash list` prints it."""
+        return f"{self.selector}: {self.subject}"
+
+
+def stash_value(repo: Path) -> str | None:
+    """`refs/stash` in the MAIN repository as it stands now, or None when there is no stash at all.
+
+    `refs/stash` is a common ref: one stash stack is shared by the developer's own checkout and every
+    worktree of the repository, so its mere existence says nothing about any slot. What says something
+    is that it MOVED while a slot was held - `git stash` leaves the tree clean, HEAD where it was and
+    the reflog untouched, so nothing else the check reads can see the work.
+    """
+    answer = gitrun.run(repo, "rev-parse", "--verify", "--quiet", f"{STASH_REF}^{{commit}}", check=False)
+    text = answer.stdout.strip()
+    if answer.returncode == 0 and _OBJECT_ID.fullmatch(text):
+        return text
+    if answer.returncode == 1 and not text:
+        return None
+    detail = (answer.stderr or answer.stdout).strip()[:200] or f"exit code {answer.returncode}"
+    raise cannot_verify(f"cannot read {STASH_REF}: {detail}")
+
+
+def stash_entries(repo: Path) -> list[StashEntry]:
+    """Every entry of the repository's stash, newest first, as `git stash list` shows them."""
+    try:
+        text = gitrun.run(repo, "stash", "list", "-z", "--format=%H%x00%gd%x00%gs").stdout
+    except GitError as ex:
+        raise cannot_verify(f"cannot read the stash: {ex.short()}") from ex
+    if not text:
+        return []
+    fields = text.removesuffix("\0").split("\0")
+    if len(fields) % 3:
+        raise cannot_verify("the stash could not be read entry by entry")
+    return [StashEntry(*fields[i:i + 3]) for i in range(0, len(fields), 3)]
+
+
+def stash_added(recorded: str | None, entries: list[StashEntry]) -> list[StashEntry]:
+    """The entries pushed since `recorded` was the value of `refs/stash`: the ones above it in the
+    stash. With nothing recorded, every entry is new. When the recorded entry is not in the stack at
+    all it was dropped, and which entries are new cannot be said, so every one is named."""
+    if recorded is None:
+        return list(entries)
+    for index, entry in enumerate(entries):
+        if entry.commit == recorded:
+            return entries[:index]
+    return list(entries)
+
+
+def _short_ref(commit: str | None) -> str:
+    return commit[:12] if commit else "none"
+
+
+def require_stash_unmoved(repo: Path, recorded: str | None) -> None:
+    """Hold the slot when the repository's stash moved while it was held. Stashed work has landed
+    nowhere, and the next holder would be handed a stash stack it did not make."""
+    current = stash_value(repo)
+    if current == recorded:
+        return
+    added = stash_added(recorded, stash_entries(repo))
+    if added:
+        count = len(added)
+        raise NotLanded(f"{count} stash entr{'y was' if count == 1 else 'ies were'} added while the slot "
+                        f"was held, and stashed work has landed nowhere: "
+                        f"{_names([entry.line() for entry in added])}")
+    raise NotLanded(f"the repository's stash moved while the slot was held "
+                    f"({_short_ref(recorded)} to {_short_ref(current)}) and the entry cc-worktrees "
+                    f"recorded is no longer in it")
+
+
 def _short_list(commits: list[str], limit: int = 5) -> str:
     shown = ", ".join(c[:12] for c in commits[:limit])
     return shown + (f" and {len(commits) - limit} more" if len(commits) > limit else "")
@@ -624,10 +707,11 @@ class Checked:
     gitdir: Path                      # the slot's own git metadata directory, proven bound to it
     reflog: tuple[ReflogEntry, ...]   # the whole HEAD reflog the proof examined, newest first
     pins: tuple[tuple[str, str], ...] = ()  # the slot's pins, all proven landed; dropped after the act
+    stash: str | None = None          # refs/stash as recorded when the slot was handed out, proven unmoved
 
 
 def check(worktree: Path, repo: Path, tip: RemoteTip, recorded_gitdir: str | None,
-          mark: ReflogMark | None, slot: str) -> Checked:
+          mark: ReflogMark | None, slot: str, stash: str | None) -> Checked:
     """Prove the worktree's work landed, at this moment. Raises NotLanded with the plain reason.
 
     Checked: HEAD's commits, every commit the HEAD reflog gained since `mark` (None: all of them), and every
@@ -646,6 +730,7 @@ def check(worktree: Path, repo: Path, tip: RemoteTip, recorded_gitdir: str | Non
         require_clean(worktree)
         require_no_hidden_flags(worktree)
         require_no_nested_repositories(worktree)
+        require_stash_unmoved(repo, stash)
     except NotLanded as ex:
         held = ex
     head = head_commit(worktree)
@@ -672,7 +757,7 @@ def check(worktree: Path, repo: Path, tip: RemoteTip, recorded_gitdir: str | Non
         raise NotLanded(f"{held}; {reason}" if held is not None else reason) from ex
     if held is not None:
         raise held
-    return Checked(tip, head, gitdir, tuple(entries), pins)
+    return Checked(tip, head, gitdir, tuple(entries), pins, stash)
 
 
 def _z_list(worktree: Path, *args: str) -> list[str]:
@@ -733,6 +818,7 @@ def _recheck_under_lock(worktree: Path, repo: Path, checked: Checked) -> None:
         raise NotLanded("the HEAD reflog changed after the check")
     require_clean(worktree)
     require_no_hidden_flags(worktree)
+    require_stash_unmoved(repo, checked.stash)
 
 
 def _append_tool_line(worktree: Path, gitdir: Path, examined: tuple[ReflogEntry, ...], old: str,
@@ -850,6 +936,190 @@ def reset(worktree: Path, repo: Path, checked: Checked) -> ReflogMark:
         if not committed:
             _drop_lock(lock_path)
     return mark
+
+
+# ---------------------------------------------------------------------------------------------------
+# Releasing a held slot: the way out, without losing anything
+# ---------------------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Released:
+    pins: tuple[tuple[str, str], ...]   # every pin the slot has now, ref and commit
+    pinned: tuple[str, ...]             # the commits this release pinned
+    proven: tuple[str, ...]             # the commits it proved landed, so did not pin
+    gone: tuple[str, ...]               # commits the pool state recorded that the repository no longer has
+    removed: bool                       # whether a worktree directory or record was removed
+
+
+def slots_with_pins(repo: Path) -> set[str]:
+    """The slot names that still have pins under `refs/cc-worktrees/`.
+
+    A name whose pins stand is never handed out again: the pins are commits every check must prove, so
+    a new slot of that name would inherit the abandoned work of the old one and be held from its first
+    return. The pins are the record of what was released, and nothing ever deletes them for the user.
+    """
+    try:
+        listing = gitrun.out(repo, "for-each-ref", "--format=%(refname)", f"{PIN_NAMESPACE}/")
+    except GitError as ex:
+        raise cannot_verify(f"cannot read the commits pinned in this repository: {ex.short()}") from ex
+    names = set()
+    for ref in listing.splitlines():
+        if not ref.startswith(f"{PIN_NAMESPACE}/") or "/" not in ref[len(PIN_NAMESPACE) + 1:]:
+            raise cannot_verify(f"a pinned ref could not be read: {ref[:200]!r}")
+        names.add(ref[len(PIN_NAMESPACE) + 1:].split("/", 1)[0])
+    return names
+
+
+def unpinnable(worktree: Path) -> list[str]:
+    """Everything in the slot that no ref can keep, each named. A ref holds commits; it cannot hold a
+    file nothing has committed, an edit git status cannot see, or the history of a repository whose
+    commits are on no ref of this repository."""
+    reasons = []
+    try:
+        entries = dirty_entries(worktree)
+        if entries:
+            paths = [entry[3:] for entry in entries]
+            reasons.append(f"{len(paths)} uncommitted or untracked file{'s' if len(paths) != 1 else ''} "
+                           f"cannot be kept by any ref: {_names(paths)}")
+    except NotLanded as ex:
+        reasons.append(str(ex))
+    for require in (require_no_hidden_flags, require_no_nested_repositories):
+        try:
+            require(worktree)
+        except NotLanded as ex:
+            reasons.append(str(ex))
+    return reasons
+
+
+def release_candidates(worktree: Path) -> list[str]:
+    """Every commit the slot itself could be holding: HEAD, every commit its HEAD reflog names, and the
+    tip of the branch HEAD is on.
+
+    The WHOLE reflog, never the part after the tool's mark: a mark that cannot be vouched for proves
+    nothing about which entries are new, and a release must not depend on it.
+    """
+    commits = [head_commit(worktree)]
+    for entry in reflog_entries(worktree):
+        if entry.commit not in commits:
+            commits.append(entry.commit)
+    branch = gitrun.run(worktree, "symbolic-ref", "--quiet", "HEAD", check=False)
+    name = branch.stdout.strip()
+    if branch.returncode not in (0, 1):
+        raise cannot_verify(f"cannot read which branch HEAD is on: {branch.stderr.strip()[:200]}")
+    if branch.returncode == 0 and name:
+        answer = gitrun.run(worktree, "rev-parse", "--verify", "--quiet", f"{name}^{{commit}}", check=False)
+        tip = answer.stdout.strip()
+        if answer.returncode == 0 and _OBJECT_ID.fullmatch(tip):
+            if tip not in commits:
+                commits.append(tip)
+        elif not (answer.returncode == 1 and not tip):
+            raise cannot_verify(f"cannot read {name}: {(answer.stderr or answer.stdout).strip()[:200]}")
+    return commits
+
+
+def _pin_for_release(cwd: Path, repo: Path, tip: RemoteTip | None, slot: str, candidates: list[str],
+                     always: list[str], existing: tuple[tuple[str, str], ...]) -> tuple[list[str], list[str]]:
+    """Pin every candidate the normal rule cannot prove landed, and every commit in `always`. Returns
+    (pinned now, proven landed). Raises NotLanded when a pin cannot be written or is not there
+    afterwards - the whole point of the release is that these refs exist."""
+    already = {commit for _, commit in existing}
+    pinned = [commit for commit in always if commit not in already]
+    to_prove = [commit for commit in candidates if commit not in already and commit not in pinned]
+    proven: list[str] = []
+    if to_prove:
+        found = None
+        if tip is not None:
+            try:
+                found = unproven_commits(cwd, tip, to_prove)
+            except (NotLanded, GitError):
+                found = None
+        if found is None:
+            # No default branch to measure against, or git could not answer: nothing is proven landed,
+            # so every candidate is kept.
+            pinned.extend(commit for commit in to_prove if commit not in pinned)
+        else:
+            unproven = set(found.commits)
+            pinned.extend(commit for commit in found.commits if commit not in already and commit not in pinned)
+            proven.extend(commit for commit in to_prove if commit not in unproven)
+    if pinned:
+        failed = write_pins(repo, slot, pinned)
+        if failed:
+            raise NotLanded(f"the work in this slot could not be pinned, so it was not released: {failed}")
+    held = {commit for _, commit in read_pins(repo, slot)}
+    absent = [commit for commit in pinned if commit not in held]
+    if absent:
+        raise NotLanded(f"{len(absent)} commit{'s are' if len(absent) != 1 else ' is'} not pinned after "
+                        f"writing the pins, so it was not released: {_short_list(absent)}")
+    for commit in pinned:
+        if gitrun.run(repo, "cat-file", "-e", f"{commit}^{{commit}}", check=False).returncode != 0:
+            raise NotLanded(f"{commit[:12]} was pinned but the repository cannot read it, so the slot "
+                            f"was not released")
+    return pinned, proven
+
+
+def release(worktree: Path, repo: Path, tip: RemoteTip | None, recorded_gitdir: str | None,
+            mark: ReflogMark | None, slot: str, recorded_stash: str | None) -> Released:
+    """Put a held slot back in the pool without losing anything.
+
+    Everything in the slot that a ref can keep is pinned under `refs/cc-worktrees/<slot>/` first - HEAD,
+    every commit its HEAD reflog names, the branch HEAD is on, and the stash entries the slot added -
+    and only what the normal rule proves landed is left unpinned. Anything that cannot be pinned, or
+    cannot be read, refuses the whole release. Then the directory is removed, ignored files with it.
+
+    HEAD.lock is held from before the commits are read until the removal, so a commit made in the slot
+    at that moment cannot slip past the pins.
+    """
+    existing = read_pins(repo, slot)
+    if not worktree.is_dir():
+        # Nothing to read and nothing to reset: pin what the repository still knows about this slot -
+        # the pins already there, and the commit the pool state recorded when it last reset the slot.
+        recorded = [mark.commit] if mark is not None else []
+        known, gone = [], []
+        for commit in recorded:
+            found = gitrun.run(repo, "cat-file", "-e", f"{commit}^{{commit}}", check=False).returncode == 0
+            (known if found else gone).append(commit)
+        pinned, proven = _pin_for_release(repo, repo, tip, slot, known, [], existing)
+        removed = False
+        try:
+            git_metadata_dir(repo, worktree)
+        except NotLanded:
+            record = None   # no record names this directory, so git has nothing to remove
+        else:
+            record = worktree
+        if record is not None:
+            try:
+                gitrun.run(repo, "worktree", "remove", str(worktree))
+            except GitError as ex:
+                raise NotLanded(f"the worktree record could not be removed: {ex.short()}") from ex
+            removed = True
+        return Released(read_pins(repo, slot), tuple(pinned), tuple(proven), tuple(gone), removed)
+
+    gitdir = require_bound(worktree, repo, recorded_gitdir)
+    fd, lock_path = _take_head_lock(gitdir, "release")
+    removed = False
+    try:
+        reasons = unpinnable(worktree)
+        if reasons:
+            raise NotLanded("; ".join(reasons))
+        candidates = release_candidates(worktree)
+        stashed = [entry.commit for entry in stash_added(recorded_stash, stash_entries(repo))]
+        pinned, proven = _pin_for_release(worktree, repo, tip, slot, candidates, stashed, existing)
+        # The lock file stays on disk and is removed with the worktree's record; it only has to be
+        # closed so that removal can delete it.
+        os.close(fd)
+        fd = -1
+        try:
+            gitrun.run(repo, "worktree", "remove", str(worktree))
+        except GitError as ex:
+            raise NotLanded(f"the worktree directory could not be removed: {ex.short()}") from ex
+        removed = True
+    finally:
+        if fd != -1:
+            os.close(fd)
+        if not removed:
+            _drop_lock(lock_path)
+    return Released(read_pins(repo, slot), tuple(pinned), tuple(proven), (), True)
 
 
 def remove(worktree: Path, repo: Path, checked: Checked) -> None:

@@ -58,7 +58,7 @@ def test_unknown_field_exits_2_and_lists_valid_fields(local_world):
 
 
 def test_every_command_has_help(local_world):
-    for command in ["get", "return", "list", "lease", "destroy"]:
+    for command in ["get", "return", "list", "lease", "destroy", "release"]:
         res = local_world.run(command, "--help")
         assert res.code == 0, command
         assert res.out.isascii()

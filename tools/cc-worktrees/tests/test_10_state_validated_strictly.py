@@ -72,6 +72,15 @@ def _a_version_3_file(data, w):
         data["slots"]["wt01"].pop(key)
 
 
+def _a_version_4_file(data, w):
+    data["version"] = 4
+    data["slots"]["wt01"].pop("stash")
+
+
+def _the_recorded_stash_is_not_a_commit(data, w):
+    data["slots"]["wt01"]["stash"] = "stash@{0}"
+
+
 def _the_inspector_case(data, w):
     _wrong_version(data, w)
     _wrong_repo(data, w)
@@ -82,7 +91,7 @@ CORRUPTIONS = [_wrong_version, _wrong_repo, _free_but_still_held_by_someone, _un
                _in_use_without_lease, _held_without_reason, _unknown_slot_name, _reflog_position_is_a_boolean,
                _reflog_nonce_is_not_a_nonce, _reflog_commit_without_a_position, _the_old_count_and_newest_fields,
                _reflog_file_size_is_negative, _reflog_file_hash_is_not_a_hash, _a_version_3_file,
-               _the_inspector_case]
+               _a_version_4_file, _the_recorded_stash_is_not_a_commit, _the_inspector_case]
 
 
 @pytest.mark.parametrize("corrupt", CORRUPTIONS, ids=[c.__name__.strip("_") for c in CORRUPTIONS])
