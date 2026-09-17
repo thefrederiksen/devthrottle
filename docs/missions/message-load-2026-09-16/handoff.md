@@ -2605,7 +2605,7 @@ inbox. The row keeps the history and its lesson.
 - `SessionTree.cs` and `tree.ts`: "the owner named at spawn may live on any Director" instead of
   "--controlled-by takes any session id". `tools/cc-ship/src/fleet.py`: the newline sentence is gone.
   `ARCHITECT-HANDOVER.md`: the one-line reply is kept for the file-pointing reason and dated as corrected.
-- `missions/stop-a-session/`: fifteen briefs rewritten (both phrases, including five sentences wrapped across
+- `missions/stop-a-session/`: fourteen briefs rewritten (both phrases, including five sentences wrapped across
   two lines that a line-by-line search does not see). Their `architect-state.md` still says ACTIVE though that
   mission merged 9 September (#2799); left alone, it is that mission's record.
 - Found beyond the inspector's list: `.claude/skills/agent-expert/agents/` (README, claude-code, codex, grok, pi)
