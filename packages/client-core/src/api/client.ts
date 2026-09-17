@@ -11,6 +11,7 @@ import type { SpokenSpan } from "../dictation/composerProvenance";
 import type { SessionHistoryDto } from "../history/types";
 import { planUploadChunks } from "./chunking";
 import { getDeviceKey } from "../auth/deviceKey";
+import { hostSuppliedKey } from "../auth/hostKey";
 import { listAccounts, removeAccount } from "../auth/accountStore";
 import { publishDictationStatus } from "../dictation/status";
 import { reportGatewayReachable, reportGatewayUnreachable } from "../connection/health";
@@ -140,8 +141,15 @@ export interface AgentChoice {
 // The app's credential is the per-device key it obtained at enrollment (issue #908/#1088), read from
 // the device-key store - NOT a token injected into the page (the shell carries no secret). Empty until
 // this device has enrolled, in which case the caller (the auth gate) routes to the Sign in screen.
+//
+// THE ONE EXCEPTION, and the one place it enters: a page a HOST APPLICATION embeds. The Director shows
+// the Cockpit's /embed/reports/{sessionId} route in WebView2, in a browser profile that has never
+// enrolled, and hands that page its own Gateway key over the WebView2 message bridge (auth/hostKey.ts).
+// When a host has supplied a key, that key is the Bearer for every call this client makes; otherwise it
+// is the device key, exactly as before. It is read here so no call site changes and no call site can
+// forget: a second place that built a Bearer of its own would be a second place to get this wrong.
 function gatewayToken(): string {
-  return getDeviceKey();
+  return hostSuppliedKey() ?? getDeviceKey();
 }
 
 // Exported so the dictation transcription calls (which post raw audio bytes and read a transcript)
@@ -167,8 +175,14 @@ export function authHeaders(): HeadersInit {
 // gets a 401 - the Local Files viewer's "Could not load image" failure. Because the credential already
 // lives on disk in localStorage, persisting it in the cookie exposes nothing further; it just keeps the
 // cookie-authenticated resource loads working after the app is closed and reopened.
+//
+// THIS READS THE DEVICE KEY, NOT gatewayToken(). A host-supplied key (auth/hostKey.ts) belongs to the
+// application that embeds the page and is held in memory precisely so that it dies with the document.
+// A cookie does not: writing it here would leave the HOST's credential on the machine, for this origin,
+// for a year - the exact outcome that module exists to prevent. The embedded reports route opens no
+// stream and loads no bare image or frame from a gated route, so it needs no cookie at all.
 export function ensureGatewayCookie(): void {
-  const token = gatewayToken();
+  const token = getDeviceKey();
   if (!token) return;
   const oneYearSeconds = 60 * 60 * 24 * 365;
   document.cookie = `cc-gateway-token=${encodeURIComponent(token)}; path=/; SameSite=Lax; Max-Age=${oneYearSeconds}`;
@@ -198,7 +212,9 @@ export function ensureGatewayCookie(): void {
  * re-runs it.
  */
 export async function adoptGatewayCookie(signal?: AbortSignal): Promise<void> {
-  const token = gatewayToken();
+  // The device key, not gatewayToken(): the cookie is this BROWSER's credential store, and a
+  // host-supplied key must never be mirrored into it (see ensureGatewayCookie above).
+  const token = getDeviceKey();
   if (!token) return;
   try {
     await fetch("/account/device-cookie", { method: "POST", headers: { Authorization: `Bearer ${token}` }, signal });
@@ -214,7 +230,8 @@ export async function adoptGatewayCookie(signal?: AbortSignal): Promise<void> {
  * sign-out half-done.
  */
 export async function clearGatewayCookie(signal?: AbortSignal): Promise<boolean> {
-  const token = gatewayToken();
+  // The device key, not gatewayToken(): this clears the cookie holding THIS BROWSER's credential.
+  const token = getDeviceKey();
   if (!token) return true;
   try {
     const res = await fetch("/account/device-cookie", {
