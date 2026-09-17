@@ -379,7 +379,9 @@ public sealed class FleetMessageStore
     /// <paramref name="noticeFor"/> drafts for it (null: no notice). Either every mark and every notice is
     /// persisted, or none is - so a process that stops, or a notice that cannot be built, leaves the messages
     /// open, and the next heartbeat marks and notifies them exactly once. A notice passes the same policy as a
-    /// system notice sent any other way (the text rules and the unread-duplicate rule).
+    /// system notice sent any other way (the text rules and the unread-duplicate rule). A notice the policy
+    /// refuses leaves its message unmarked and open (inspection 5, ruling 2), with one exception: an identical
+    /// unread notice already waiting - the notice names its message, so that is this message's own notice.
     /// </summary>
     /// <param name="minRings">Only rows rung at least this many times are read. The heartbeat passes the ring
     /// cap, so the scan never loads a message that cannot be stuck yet (ruling 6).</param>
@@ -404,7 +406,6 @@ public sealed class FleetMessageStore
             var result = new List<(FleetMessageEntity, FleetMessageEntity?)>();
             foreach (var m in candidates.Where(isStuck))
             {
-                m.StuckAtUtc = now;
                 FleetMessageEntity? notice = null;
                 if (noticeFor(m) is { } draft)
                 {
@@ -421,7 +422,24 @@ public sealed class FleetMessageStore
                         notice = NewRow(ctx, draft, hash, now);
                         ctx.FleetMessages.Add(notice);
                     }
+                    else if (verdict.Outcome == FleetMessageOutcome.DuplicateDropped)
+                    {
+                        // NO STUCK MARK WITHOUT ITS NOTICE (inspection 5, ruling 2). The notice names the message, so
+                        // an identical unread one is this message's own notice: the sender already holds it, and
+                        // the mark may be written without a second copy.
+                        FileLog.Write($"[FleetMessageStore] MarkStuckWithNotices: id={m.MessageId} - the sender already " +
+                                      "holds this notice unread; marked stuck without a second copy");
+                    }
+                    else
+                    {
+                        // Any other refusal: the mark is NOT written, so the message stays open and the next sweep
+                        // tries again. A stuck mark whose sender was never told is the defect this prevents.
+                        FileLog.Write($"[FleetMessageStore] MarkStuckWithNotices NOTICE REFUSED ({verdict.Outcome}): " +
+                                      $"id={m.MessageId} - not marked stuck; retried on the next sweep. {verdict.Reason}");
+                        continue;
+                    }
                 }
+                m.StuckAtUtc = now;
                 result.Add((m, notice));
             }
             if (result.Count == 0) return result;

@@ -1,0 +1,7 @@
+  Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.Three_rings_five_minutes_apart_then_stuck_and_the_sender_is_told_once [361 ms]
+  Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.The_stuck_notice_says_what_happened_and_what_to_do [< 1 ms]
+  Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.The_stuck_notice_fits_the_cap_whatever_the_name [< 1 ms]
+  Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.Two_messages_never_share_a_stuck_notice [< 1 ms]
+  Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.A_recipient_name_past_the_text_cap_still_gets_the_sender_its_notice [69 ms]
+  Failed CcDirector.Gateway.Tests.Messaging.FleetDoorbellTests.The_mark_and_the_notice_carry_the_same_moment [45 ms]
+Failed!  - Failed:     6, Passed:   364, Skipped:     0, Total:   370, Duration: 15 s - CcDirector.Gateway.UnitTests.dll (net10.0)
