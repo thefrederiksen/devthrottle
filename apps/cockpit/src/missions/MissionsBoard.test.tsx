@@ -104,6 +104,38 @@ describe("MissionsBoard", () => {
     expect(screen.getByText("2 sessions")).toBeTruthy();
   });
 
+  // The owner's screenshot, 16 September: session 144 read "Proof Worker running safety checks" in purple on
+  // the right and "needs you" under its name. The line under the name was the Director's pre-Wingman reason.
+  it("never shows the Director's 'needs you' under a row the Gateway says is carrying on or snoozed", async () => {
+    renderBoard({
+      sessions: [
+        session({
+          name: "cc-worktrees - Architect",
+          number: 144,
+          sessionId: "s-144",
+          missionId: "45e28f0c",
+          effectiveColor: "purple",
+          stateLabel: "Proof Worker running safety checks",
+          lastStatusReason: "needs you",
+        }),
+        session({
+          name: "cc-worktrees - Manager",
+          number: 133,
+          sessionId: "s-133",
+          missionId: "45e28f0c",
+          effectiveColor: "grey",
+          stateLabel: "Snoozed",
+          lastStatusReason: "needs you",
+        }),
+      ],
+      missions: [M_RELEASE],
+    });
+
+    expect(screen.getByText("Proof Worker running safety checks")).toBeTruthy();
+    expect(screen.getByText("Snoozed")).toBeTruthy();
+    expect(screen.queryByText(/needs you/i)).toBeNull();
+  });
+
   it("renders a mission nobody is on yet", async () => {
     renderBoard({ sessions: [], missions: [M_RELEASE] });
 
