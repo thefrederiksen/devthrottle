@@ -3449,6 +3449,12 @@ public sealed class GatewayHost : IAsyncDisposable
         // (Accept: text/html, phone User-Agent) not already under the mobile app gets a 302 to the mobile
         // app at /mobile/; a desktop UA falls through unchanged to the Cockpit. After auth, before the
         // Cockpit's browser-page routes - so a phone never reaches the Cockpit sitemap.
+        // Dev reports phase 3b (issue #3025): ONE printed address per report, /r/{reportId}, routed by device
+        // straight into that report. Registered HERE, immediately BEFORE the mobile front door, because that
+        // front door sends every phone HTML navigation to /mobile/ - a mapped endpoint would run at the end of
+        // the pipeline and every phone link would land on the mobile home screen instead of the report.
+        Api.DevReportLinkRoute.UseDevReportLink(_app, _devReports, _tenantBoundary);
+
         Mobile.MobileRedirect.UseMobileRedirect(_app);
 
         // Browser-aware front door (the Cockpit sitemap): a PERSON navigating to /sessions,
@@ -4311,7 +4317,7 @@ public sealed class GatewayHost : IAsyncDisposable
         // Dev reports (issue #2958): four session routes (publish, list, read, reply - a session key, its own
         // session only) and four owner routes (list, read, the HTML, send). The session routes are on the
         // SessionKeyGuard allow list; the owner routes deliberately are not.
-        Api.DevReportEndpoints.Map(_app, _devReports, _devReportDelivery, _tenantBoundary);
+        Api.DevReportEndpoints.Map(_app, _devReports, _devReportDelivery, _tenantBoundary, DevReportSessionNaming);
 
         Api.DirectorRestartRequestEndpoints.Map(_app, restartRequests, _tenantBoundary,
             listForAccount: tenant => DirectorRestartRequests.List(tenant),
@@ -5363,6 +5369,26 @@ public sealed class GatewayHost : IAsyncDisposable
         if (!string.IsNullOrEmpty(history?.EndingKind))
             return new(DevReports.DevReportSessionReach.Ended, null, $"not on the roster, and its history says {history.EndingKind}");
         return new(DevReports.DevReportSessionReach.Busy, null, "not on the roster, and nothing says it ended - its machine is not connected");
+    }
+
+    /// <summary>
+    /// What a report calls the session it came from (phase 3b, issue #3025): its three-digit session number and
+    /// its name, from the Gateway's own records - the live roster first, then the durable session history row -
+    /// exactly the way <see cref="DevReportSessionLiveness"/> answers reach. The words themselves are folded by
+    /// <see cref="DevReports.DevReportSessionLabel"/>, which is pure and testable with no host; this only
+    /// supplies the two facts, and it deliberately hands back no session id, so nothing downstream can put one
+    /// on a screen.
+    /// </summary>
+    private DevReports.DevReportSessionNaming DevReportSessionNaming(TenantId tenant, string sessionId)
+    {
+        var located = PushedSessions.TryLocate(tenant, sessionId, _streamStaleAfter);
+        if (located is { } loc)
+            return new(loc.Session.Number, loc.Session.Name);
+
+        Contracts.WorkHistorySessionDto? history;
+        using (_tenantBoundary.EnterScope(tenant))
+            history = _sessionHistory.Get(sessionId);
+        return new(history?.SessionNumber, history?.SessionName);
     }
 
     public async Task<DirectorCommandResult?> SendCommandAsync(string directorId, DirectorCommand command, CancellationToken ct = default)
