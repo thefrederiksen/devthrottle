@@ -528,6 +528,16 @@ internal static class Commands
             if (!json)
                 Console.WriteLine(pathChanged ? "PATH: added ~/.local/bin (open a new terminal to use the tools)" : "PATH: already set");
         }
+        else if (perUserTouched && OperatingSystem.IsLinux())
+        {
+            // Wizard parity: put DevThrottle in the app menu. Without this a Linux install placed the
+            // Director and stopped, and there was nothing to click.
+            var entry = LinuxDesktopEntry.Install(layout);
+            if (!json)
+                Console.WriteLine(entry
+                    ? $"App menu entry: created ({LinuxDesktopEntry.EntryPath(LinuxDesktopEntry.DefaultDataHome())})"
+                    : "App menu entry: skipped (Director not installed)");
+        }
 
         // The Launcher tray app ships to BOTH roles. The generic runner PLACES its exe but never
         // starts it (so a fresh install leaves it dormant and its autostart Run key unwritten). Start
@@ -550,7 +560,24 @@ internal static class Commands
             else if (OperatingSystem.IsMacOS())
                 launcherStart = await new LauncherMacInstaller(layout).InstallAsync();
             else
-                throw new PlatformNotSupportedException("The launcher install step supports Windows and macOS only.");
+            {
+                // Linux has no launcher install step yet: nothing registers it to start at sign-in or
+                // starts it. That used to throw here, AFTER the Director and the tools were placed, so a
+                // Linux install that had worked ended in a crash and a failed exit code.
+                // Say plainly what is and is not running instead, and do not count it as a failure - the
+                // Director runs without a launcher and installs a downloaded update when it next starts.
+                const string linuxLauncher = "The launcher is not started on Linux yet. The Director does not need it: "
+                                             + "a downloaded update installs the next time the Director starts.";
+                if (json)
+                    Program.WriteJson(new { launcherTray = new { success = true, started = false, message = linuxLauncher } });
+                else
+                {
+                    Console.WriteLine();
+                    Console.WriteLine("Launcher:");
+                    Console.WriteLine($"  {linuxLauncher}");
+                }
+                return result.Failed > 0 ? Error : Ok;
+            }
 
             if (json)
                 Program.WriteJson(new { launcherTray = new { success = launcherStart.Success, message = launcherStart.Message, steps = launcherStart.Steps } });

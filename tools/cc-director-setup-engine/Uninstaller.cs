@@ -92,8 +92,16 @@ public sealed class Uninstaller
             targets.Add(new UninstallTarget(UninstallKind.Directory, desc, path, Directory.Exists(path)));
 
         targets.Add(new UninstallTarget(UninstallKind.PathEntry, "PATH entry", _layout.BinDir, IsBinOnUserPath()));
-        var lnk = ShortcutPath();
-        targets.Add(new UninstallTarget(UninstallKind.Shortcut, "Start Menu shortcut", lnk, File.Exists(lnk)));
+        if (OperatingSystem.IsLinux())
+        {
+            var entry = LinuxDesktopEntry.EntryPath(LinuxDesktopEntry.DefaultDataHome());
+            targets.Add(new UninstallTarget(UninstallKind.Shortcut, "App menu entry", entry, File.Exists(entry)));
+        }
+        else
+        {
+            var lnk = ShortcutPath();
+            targets.Add(new UninstallTarget(UninstallKind.Shortcut, "Start Menu shortcut", lnk, File.Exists(lnk)));
+        }
 
         // Add/Remove Programs registration (issue #257), Windows only. Cheap registry read.
         if (OperatingSystem.IsWindows())
@@ -201,8 +209,16 @@ public sealed class Uninstaller
             RemoveMacArtifacts(steps, errors);
         }
 
-        progress?.Report("Removing the Start Menu shortcut");
-        RemoveShortcut(steps, errors);
+        if (OperatingSystem.IsLinux())
+        {
+            progress?.Report("Removing the app menu entry");
+            RemoveLinuxDesktopEntry(steps, errors);
+        }
+        else
+        {
+            progress?.Report("Removing the Start Menu shortcut");
+            RemoveShortcut(steps, errors);
+        }
 
         // Integration points common to both roles (issue #257). Scheduled tasks are per-user and
         // role-independent; the Add/Remove Programs entry is Windows-only.
@@ -562,6 +578,13 @@ public sealed class Uninstaller
         {
             errors.Add($"PATH entry: {ex.Message}");
         }
+    }
+
+    private static void RemoveLinuxDesktopEntry(List<string> steps, List<string> errors)
+    {
+        var dataHome = LinuxDesktopEntry.DefaultDataHome();
+        try { steps.AddRange(LinuxDesktopEntry.Remove(dataHome)); }
+        catch (Exception ex) { errors.Add($"app menu entry ({LinuxDesktopEntry.EntryPath(dataHome)}): {ex.Message}"); }
     }
 
     private void RemoveShortcut(List<string> steps, List<string> errors)
