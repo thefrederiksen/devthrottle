@@ -103,10 +103,12 @@ def test_Edit_AnOptionSwallowedAsAValue_IsRefused_AndChangesNothing(store, paths
 
 
 def test_Add_AnOptionSwallowedAsAValue_IsRefused_AndNothingIsSaved(store):
-    result = runner.invoke(cli.app, ["add", "web", "--username", "--domains", "https://example.com", "--agents"],
-                           input=new_secret() + "\n")
+    # "--username --no-agents": a well-formed command line that only the guard refuses, not a usage error.
+    result = runner.invoke(cli.app, ["add", "web", "--username", "--no-agents", "--domains", "https://example.com",
+                                     "--agents"], input=new_secret() + "\n")
 
     assert result.exit_code != 0
+    assert "--username=" in _text(result)
     assert store.get("web") is None
 
 
