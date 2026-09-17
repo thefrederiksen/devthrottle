@@ -74,14 +74,12 @@ def world(tmp_path, monkeypatch):
     (mentor / "config.json").write_text(json.dumps({
         "accounts": [{"label": "soren", "tenant_id": "tenant-one", "time_zone": "America/Toronto"}],
         "data_root": str(tmp_path / "data"),
-        "credentials_env": str(tmp_path / "credentials.env"),
-        "db_connection_key": "DEVTHROTTLE_GATEWAY_DB_CONNECTION",
     }), encoding="utf-8")
     db = tmp_path / "data" / "accounts" / "soren" / "raw" / "db"
     db.mkdir(parents=True)
     (db / "activity_events.jsonl").write_text("", encoding="utf-8")
     (db / "session_history.jsonl").write_text("", encoding="utf-8")
-    (tmp_path / "credentials.env").write_text("DEVTHROTTLE_GATEWAY_DB_CONNECTION=Host=invented.invalid\n", encoding="utf-8")
+    monkeypatch.setenv("DEVTHROTTLE_GATEWAY_DB_CONNECTION", "Host=invented.invalid")
 
     tool_dir = tmp_path / "tool"
     tool_dir.mkdir()
@@ -169,3 +167,13 @@ def test_a_failed_build_stops_the_check_and_never_runs_an_old_dll(world, capsys)
     assert code == 2
     assert "building the library tool failed" in out.err and "build failed on purpose" in out.err
     assert [c[:2] for c in recorder.calls] == [["dotnet", "build"]]
+
+
+def test_without_the_connection_variable_the_check_stops_and_says_to_run_it_through_cc_secrets(world, capsys, monkeypatch):
+    conformance, mentor, dll, recorder = world
+    monkeypatch.delenv("DEVTHROTTLE_GATEWAY_DB_CONNECTION", raising=False)
+    code, out = run_main(conformance, ["--account", "soren", "--week", "2026-W35", "--mentor-dir", str(mentor)], capsys)
+    assert code == 2
+    assert "DEVTHROTTLE_GATEWAY_DB_CONNECTION is not set" in out.err
+    assert "cc-secrets run devthrottle-gateway-db-connection" in out.err
+    assert not any(c[:2] == ["dotnet", str(dll)] for c in recorder.calls)
