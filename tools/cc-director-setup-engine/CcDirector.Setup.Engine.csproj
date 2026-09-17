@@ -23,6 +23,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The application icon a Linux install puts in the app menu (LinuxDesktopEntry). Embedded from the
+         one branding source rather than copied, so the menu icon cannot drift from the Windows icon. -->
+    <EmbeddedResource Include="..\..\scripts\branding\director-icon.svg" LogicalName="devthrottle.svg" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- The Workstation gateway-join gate (issues #646, #1198) reuses the account sign-in + device
          enrollment already built in Core (LoopbackLoginListener, DeviceRegistryClient) and the
          /m/enroll contract (Gateway.Contracts), persisting the issued local device key via
