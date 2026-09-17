@@ -118,8 +118,9 @@ comment instead of typing into a PTY. New-session dialog gains a backend selecti
 ## Auth (cc-director side)
 
 GitHub token (PAT or App installation token) with repo + actions + issues scopes,
-stored in `%LOCALAPPDATA%\cc-director\config\credentials.env` as `GITHUB_TOKEN`,
-read at point of use by IGitHubClient, not at session start.
+stored in the cc-secrets store as the entry `github-token` (add it with
+`cc-secrets add github-token`), read at point of use by IGitHubClient, not at session start.
+The store is the only source; a missing store or entry fails with a message saying how to add it.
 
 ## Failure handling (explicit, no fallbacks)
 
@@ -140,7 +141,7 @@ read at point of use by IGitHubClient, not at session start.
 
 Phase 1/2 are implemented and the cc-director->GitHub plumbing is verified live
 (`GitHubRestClientLiveTests`, gated by `GITHUB_LIVE_TESTS=1`, passes against the real
-API using the token in credentials.env). The only thing that needs YOUR one-time setup
+API using the github-token entry in cc-secrets). The only thing that needs YOUR one-time setup
 is the runner side:
 
 1. Install the Claude GitHub App on the target repo: https://github.com/apps/claude

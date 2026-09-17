@@ -83,7 +83,7 @@ separate values checked by separate code paths.
 Set it on the **stopped staging slot before** the deploy so the warmed swap carries it into production
 with no extra restart, and re-set it on staging **after** the swap - app settings swap WITH the slot, so
 a post-swap staging left without it loses the token on any swap-back. The values live in
-`credentials.env` and in the website's Vercel project. **Never in this repository** - it is public.
+cc-secrets (entries `admin-service-token` and `gateway-admin-url`) and in the website's Vercel project. **Never in this repository** - it is public.
 
 The website side needs the matching pair in Vercel: `ADMIN_SERVICE_TOKEN` (the same value) and
 `GATEWAY_ADMIN_URL` (this Gateway's base URL).

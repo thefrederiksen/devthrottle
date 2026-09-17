@@ -31,9 +31,9 @@ A third, plain reading of the extract's JSON lines covers what the mentor's read
 per-agent split and the per-repository join through `session_history` - so those are compared as well.
 
 ```
-python tools/throttle-conformance/conformance.py --account soren --week 2026-W35
-python tools/throttle-conformance/conformance.py --account mario --week 2026-W34 --report out.md
-python tools/throttle-conformance/conformance.py --account soren --week 2026-W35 --break-predicate   # must exit 1
+cc-secrets run devthrottle-gateway-db-connection --timeout 0 -- python tools/throttle-conformance/conformance.py --account soren --week 2026-W35
+cc-secrets run devthrottle-gateway-db-connection --timeout 0 -- python tools/throttle-conformance/conformance.py --account mario --week 2026-W34 --report out.md
+cc-secrets run devthrottle-gateway-db-connection --timeout 0 -- python tools/throttle-conformance/conformance.py --account soren --week 2026-W35 --break-predicate   # must exit 1
 ```
 
 Exit 0 when every number agrees, 1 on any difference, 2 on a setup error. `--break-predicate` misapplies
@@ -43,7 +43,8 @@ the check can be shown to go red; it is never green with that flag.
 It needs: the mentor harness checkout with its `config.json` (`--mentor-dir`, default
 `D:/ReposFred/devthrottle_internal/tools/mentor`), the harness's extract under the configured data root,
 and the hosted database connection string (`--connection-file`, or the `DEVTHROTTLE_GATEWAY_DB_CONNECTION`
-key in the credentials file the mentor config names). The connection string is never printed.
+environment variable, which `cc-secrets run devthrottle-gateway-db-connection` supplies). Without either it
+stops and prints the command to run. The connection string is never printed.
 
 The tool never opens the database through `GatewayDatabase`, whose `Open()` checks for and applies pending
 migrations: a conformance check must never be the thing that migrates the production schema.

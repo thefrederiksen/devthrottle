@@ -97,15 +97,17 @@ Suppressed speech, recogniser notices and the microphone level are all on screen
 ## Running it
 
 The real thing is Wilson's own service, which serves the page, runs the functions, and keeps the
-memory. It wants a Groq key, from `GROQ_API_KEY` or a `.env`-style file named by
-`WILSON_CREDENTIALS_FILE`:
+memory. It wants a Groq key in `GROQ_API_KEY`, which cc-secrets supplies from the entry
+`groq-api-key` (the key never reaches a file or a terminal):
 
 ```
 npm install
 npm run build
-set WILSON_CREDENTIALS_FILE=C:\path\to\credentials.env
-npm run serve
+cc-secrets run groq-api-key --timeout 0 -- npm run serve
 ```
+
+cc-secrets hands back a command's output only when it ends, so Wilson writes its running log to
+`service.log` in its data directory as well as to the console.
 
 Then <http://localhost:5183/cc-assistant/>. Everything Wilson keeps lands in `%LOCALAPPDATA%\wilson`
 (`WILSON_DATA_DIR` to move it): `household.json`, `soul.md`, `turns.jsonl`, all readable, all

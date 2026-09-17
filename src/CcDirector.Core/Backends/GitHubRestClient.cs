@@ -221,7 +221,7 @@ public sealed class GitHubRestClient : IGitHubClient, IDisposable
         var hint = resp.StatusCode switch
         {
             HttpStatusCode.Unauthorized =>
-                " GitHub rejected the token (401). Check GITHUB_TOKEN in credentials.env - it may be expired or invalid.",
+                " GitHub rejected the token (401). Check the github-token entry in cc-secrets - it may be expired or invalid (replace it with: cc-secrets add github-token --replace).",
             HttpStatusCode.Forbidden =>
                 " GitHub returned 403. Either the token lacks repo/actions/issues scope, or you hit the rate limit (retry shortly).",
             HttpStatusCode.NotFound =>

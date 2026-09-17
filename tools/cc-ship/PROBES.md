@@ -135,5 +135,5 @@ Each fix, in every round, was reverted to confirm its test fails, then restored.
 - Codex installed and signed in (`codex login`).
 - The pilot repositories trusted by Codex (`~/.codex/config.toml`) and by Claude Code
   (open it once in the repository and accept).
-- `VERCEL_AUTOMATION_BYPASS_SECRET` in `credentials.env`.
+- The cc-secrets entry `vercel-automation-bypass-secret`, and curl 8.3 or newer.
 - `playwright-cli` on the path.

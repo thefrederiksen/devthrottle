@@ -4,7 +4,7 @@ using Xunit;
 namespace CcDirector.Core.Tests;
 
 /// <summary>
-/// Live tests that hit the REAL GitHub REST API using the token in credentials.env.
+/// Live tests that hit the REAL GitHub REST API using the github-token entry in the cc-secrets store.
 /// Gated behind GITHUB_LIVE_TESTS=1 so the normal suite stays offline/hermetic.
 /// These prove GitHubRestClient authenticates and parses real GitHub JSON - the
 /// thing the StubGitHubClient unit tests cannot cover.
