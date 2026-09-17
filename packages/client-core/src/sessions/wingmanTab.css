@@ -179,7 +179,7 @@
 
 .wingman-kv {
   display: grid;
-  grid-template-columns: 140px minmax(0, 1fr);
+  grid-template-columns: minmax(80px, max-content) minmax(0, 1fr);
   gap: 4px 10px;
   margin: 0;
   font-size: 12.5px;
@@ -194,9 +194,11 @@
   overflow-wrap: anywhere;
 }
 
+/* Two blocks a row when the pane is wide enough to read them side by side, one when it is not - never a squeezed
+   column of single words. */
 .wingman-blocks {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr));
   gap: 12px;
 }
 
