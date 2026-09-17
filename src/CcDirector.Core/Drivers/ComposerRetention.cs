@@ -59,6 +59,14 @@ internal static class ComposerRetention
     }
 
     /// <summary>
+    /// Whether a previous submit left a mark on this terminal, WITHOUT taking it. The doorbell (the Message Load
+    /// mission, slice 2) asks this before it types: a send made while a mark stands begins by pressing Escape,
+    /// and a doorbell must never be the send that does that.
+    /// </summary>
+    public static bool MayHoldText(ISessionBackend backend) =>
+        Marks.TryGetValue(backend, out var mark) && mark.RetainedText is not null;
+
+    /// <summary>
     /// Whether to press Escape over a composer that may be holding an earlier, unsent prompt, given what
     /// the screen can be seen to show.
     ///

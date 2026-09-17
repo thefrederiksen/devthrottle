@@ -474,7 +474,9 @@ slice small, rebase right before opening the pull request, and merge the moment 
 
 ## State
 
-- Phase: slice 2, the doorbell. Next: seat the Manager.
+- Phase: slice 2 (the doorbell) is BUILT and pushed on `mission/message-load`, rebased on origin/main
+  `dc6d6547` (17 September 2026). See "Slice 2" below. No pull request opened (the Architect's). Next: the
+  Architect's inspection of slice 2, and the decisions in "Findings the Architect should decide on".
 - Open decision, the owner's: the Director-restart restore step versus the spawn owner pin (see
   "OPEN - needs the Architect" above and the Architect's recommendation: make restore a Director act).
   Not blocking slice 2.
@@ -671,6 +673,36 @@ counted rings. Green after: exactly three.
 - **An interactive menu, live.** The menu case is proven on captured screens (the model picker, and both
   trust dialogs) and not in a live run.
 - **`scripts/test-local.ps1`** was not run (no PowerShell on the Mac); the suites were run directly.
+
+### Test totals (Mac, 17 September 2026)
+
+- **Gateway unit tests**, full run before the rebase: 5072 total, 5057 passed, 8 skipped.
+  - **7 failed, the same 7 Mac-only failures named in slice 1**: RuleCandidateFilter 1, RulePrimitives 1,
+    WorkListStorePersistence 1, SessionCommandExecutorLiveness 3, CronJobStore 1.
+  - No new failure.
+- **Gateway route tests**, full run before the rebase: 2537 total, 2470 passed, 51 skipped.
+  - **16 failed, exactly the 16 named in slice 1**: ContextLessRouteCensus 1, FleetSpawnMissionAttach 2,
+    FleetSpawnOrigin 4, TunnelRosterPushReadProof 3, WorkflowSeat 2, GatewayTestSuiteLock 2,
+    HostedProcessControlDeny 2.
+  - The 51 skipped include the three live proofs, which are skipped unless their variables are set.
+- **Core tests**, full run: 4421 total, 4351 passed, 8 skipped, 62 failed.
+  - 61 of the 62 are the known Mac-only set.
+  - The 62nd was `CircularTerminalBufferTests.ConcurrentReads_DuringDispose_NeverThrow`. It passed when
+    rerun alone; it is a timing test, and nothing in this slice touches the terminal buffer.
+  - Three of the known set (`SessionEdgeCaseTests.CreateSession_EmbeddedType_ThrowsInvalidOperation`,
+    `HomeStatusSessionsRowTests.DifferentInstall...`, `TurnDetectionShadowRetentionTests.An_append_past_the_contention_budget...`)
+    were rerun on a clean origin/main worktree and fail there identically.
+- **Core unit tests**: 524 passed on the first full run (before the new tests), and the doorbell safety
+  tests are now 31, all passing.
+- **cc-devthrottle tests** (scratch environment): 3101 passed. No Python changed in this slice.
+- **After the rebase onto `dc6d6547`**, the touched classes:
+  - Core unit `DoorbellSafetyTests`: 31 passed.
+  - Gateway unit `FleetDoorbell*` and `FleetMessage*`: 93 passed.
+  - Gateway route `FleetDoorbell*`, `FleetMessageRouteTests` and `DoorbellEndToEndProof`: 33 passed, 3
+    skipped (the live proofs).
+  - The full suites were not rerun after the rebase. Main's one new commit (#2997, Fleet Manager records)
+    touches no doorbell file.
+- **The live proofs** ran before the rebase, all three passing (evidence folder).
 
 ## Slice 1 merge with main (17 September 2026)
 

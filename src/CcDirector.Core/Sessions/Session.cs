@@ -2154,6 +2154,14 @@ public sealed class Session : IDisposable
     }
 
     /// <summary>
+    /// True when an earlier send by the product gave up without proving this composer clear, so the next send
+    /// would press Escape before typing (issue #2818). Read, never taken - see <see cref="Drivers.ComposerRetention.MayHoldText"/>.
+    /// Always false for a session without a terminal backend that submits through the shared path.
+    /// </summary>
+    public bool ProductMayHaveLeftComposerText =>
+        BackendType is SessionBackendType.ConPty && Drivers.ComposerRetention.MayHoldText(_backend);
+
+    /// <summary>
     /// Snapshot the CURRENT visible terminal grid (not scrollback) as plain-text rows,
     /// trailing-trimmed, top to bottom. Unlike the raw byte buffer this is the RESOLVED
     /// on-screen state, so a spinner cell or a churning status line shows only its

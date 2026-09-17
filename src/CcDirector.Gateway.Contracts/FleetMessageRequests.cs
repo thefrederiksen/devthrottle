@@ -157,3 +157,66 @@ public sealed class FleetTeamBroadcastRequest
     /// <summary>The human-issued broadcast grant authorizing <see cref="Everyone"/>.</summary>
     public string? GrantId { get; set; }
 }
+
+/// <summary>
+/// The doorbell verb (the Message Load mission, slice 2), spelled once for the Gateway that sends it and the
+/// Director that answers it. The Gateway asks; the Director - the only party that can see the terminal -
+/// decides whether it is safe to type the one doorbell line, and answers <see cref="FleetRingOutcomes.Rung"/>
+/// or <see cref="FleetRingOutcomes.Deferred"/> with a reason.
+/// </summary>
+public static class FleetDoorbellVerbs
+{
+    /// <summary>Ask the owning Director to ring one session's doorbell. Payload: <see cref="FleetRingRequest"/>.</summary>
+    public const string Ring = "ring";
+}
+
+/// <summary>Payload of the <c>ring</c> verb.</summary>
+public sealed class FleetRingRequest
+{
+    /// <summary>How many messages wait unread in the session's inbox. The doorbell line says this number and
+    /// nothing else about the messages - their text is never typed.</summary>
+    public int UnreadCount { get; set; }
+}
+
+/// <summary>The two answers to <c>ring</c>.</summary>
+public static class FleetRingOutcomes
+{
+    /// <summary>The doorbell line was typed and submitted.</summary>
+    public const string Rung = "rung";
+
+    /// <summary>Nothing was typed; <see cref="FleetRingResponse.Reason"/> says why. The Gateway asks again later.</summary>
+    public const string Deferred = "deferred";
+}
+
+/// <summary>Why a Director deferred a ring. One code per reason so the Gateway log can be counted.</summary>
+public static class FleetRingDeferReasons
+{
+    /// <summary>The agent is in the middle of a turn.</summary>
+    public const string Working = "working";
+
+    /// <summary>The composer holds text - most likely the owner's unsent words.</summary>
+    public const string ComposerHoldsText = "composer-holds-text";
+
+    /// <summary>An interactive menu or dialog owns the terminal (issue 2842); a typed line would pick an option.</summary>
+    public const string MenuOpen = "menu-open";
+
+    /// <summary>The session has exited or failed. Nothing is ever typed into it.</summary>
+    public const string Exited = "exited";
+
+    /// <summary>The screen could not be read, or its layout is not one the check recognises. Unknown is never
+    /// treated as empty.</summary>
+    public const string ScreenUnreadable = "screen-unreadable";
+}
+
+/// <summary>The Director's answer to <c>ring</c>.</summary>
+public sealed class FleetRingResponse
+{
+    /// <summary>One of <see cref="FleetRingOutcomes"/>.</summary>
+    public string Outcome { get; set; } = "";
+
+    /// <summary>One of <see cref="FleetRingDeferReasons"/> when deferred; empty when rung.</summary>
+    public string Reason { get; set; } = "";
+
+    /// <summary>The same reason as a sentence, for the log.</summary>
+    public string Detail { get; set; } = "";
+}

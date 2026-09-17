@@ -1,0 +1,43 @@
+# 00-worker-ready - session 5cf8d982-e574-4336-a6fa-20a358064a21 (Proof - Worker) at 2026-09-17T06:21:07.9455670Z
+# director activity state: WaitingForInput
+# visible screen rows:
+|
+| ▐▛███▛█   Claude Code v2.1.274
+|▝▜██████▀  Opus 5 (1M context) · Claude Max
+|  ▝▝ ▝▝    /private/var/folders/b8/h15spgks77ng9vv47szk7m9h0000gn/T/ccd-doorbell-proof-b7bfca3b/repo-run1
+|
+|
+|
+|
+|
+|
+|
+|
+|
+|
+|
+|
+|
+|
+|
+|
+|
+|
+|
+|
+|
+|
+|────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+|❯
+|────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+|  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents
+|
+|
+|
+|
+|
+|
+|
+|
+|
+|

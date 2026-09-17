@@ -212,7 +212,14 @@ public sealed class FleetMessageStore
                 .Where(m => m.RecipientSessionId == recipient && m.ReadAtUtc == null)
                 .OrderBy(m => m.CreatedAtUtc)
                 .ToList();
-            foreach (var m in unread) m.ReadAtUtc = now;
+            foreach (var m in unread)
+            {
+                m.ReadAtUtc = now;
+                // A READ UNDOES STUCK (slice 2, ruling 11). Stuck means "rung three times and never read"; a
+                // message that has now been read is not that any more. The sender's stuck notice stays in its
+                // inbox - it was true when it was written - and no second notice is sent.
+                m.StuckAtUtc = null;
+            }
             if (unread.Count > 0) ctx.SaveChanges();
             return new FleetInboxRead(unread, recent, Math.Max(recentTotal, recent.Count));
         }
@@ -224,6 +231,85 @@ public sealed class FleetMessageStore
         var recipient = Id(recipientSessionId) ?? "";
         using var ctx = _db.CreateContext(tenant);
         return ctx.FleetMessages.Count(m => m.RecipientSessionId == recipient && m.ReadAtUtc == null);
+    }
+
+    /// <summary>
+    /// The sessions in this tenant holding at least one OPEN message - unread and not stuck. These are the
+    /// only sessions the doorbell (slice 2) has anything to ring for. Reads, changes nothing.
+    /// </summary>
+    public IReadOnlyList<string> RecipientsWithOpenMessages(TenantId tenant)
+    {
+        using var ctx = _db.CreateContext(tenant);
+        return ctx.FleetMessages.AsNoTracking()
+            .Where(m => m.ReadAtUtc == null && m.StuckAtUtc == null)
+            .Select(m => m.RecipientSessionId)
+            .Distinct()
+            .ToList();
+    }
+
+    /// <summary>
+    /// One session's OPEN messages (unread, not stuck), oldest first, untracked. The doorbell reads their ring
+    /// counts to decide which are due; it never reads their text.
+    /// </summary>
+    public IReadOnlyList<FleetMessageEntity> OpenMessagesFor(TenantId tenant, string recipientSessionId)
+    {
+        var recipient = Id(recipientSessionId) ?? "";
+        using var ctx = _db.CreateContext(tenant);
+        return ctx.FleetMessages.AsNoTracking()
+            .Where(m => m.RecipientSessionId == recipient && m.ReadAtUtc == null && m.StuckAtUtc == null)
+            .OrderBy(m => m.CreatedAtUtc)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Record that the doorbell was rung for these messages: each one's ring count goes up by one and its last
+    /// ring time becomes <paramref name="nowUtc"/>. A message that was read or marked stuck in the moment since
+    /// the ring was decided is left alone. Returns how many rows were changed.
+    /// </summary>
+    public int MarkRung(TenantId tenant, IReadOnlyCollection<string> messageIds, DateTime nowUtc)
+    {
+        ArgumentNullException.ThrowIfNull(messageIds);
+        if (messageIds.Count == 0) return 0;
+        var now = Utc(nowUtc);
+        var ids = messageIds.ToList();
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            var rows = ctx.FleetMessages
+                .Where(m => ids.Contains(m.MessageId) && m.ReadAtUtc == null && m.StuckAtUtc == null)
+                .ToList();
+            foreach (var m in rows)
+            {
+                m.RingCount++;
+                m.LastRungAtUtc = now;
+            }
+            if (rows.Count > 0) ctx.SaveChanges();
+            return rows.Count;
+        }
+    }
+
+    /// <summary>
+    /// Mark stuck every open message in this tenant that <paramref name="isStuck"/> rules stuck, and return the
+    /// rows that were marked. Decided and written under the store lock, so a read that lands first wins: a
+    /// message read before this runs is not open any more and is never marked.
+    /// </summary>
+    public IReadOnlyList<FleetMessageEntity> MarkStuck(TenantId tenant, DateTime nowUtc, Func<FleetMessageEntity, bool> isStuck)
+    {
+        ArgumentNullException.ThrowIfNull(isStuck);
+        var now = Utc(nowUtc);
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            // Only rung, open messages can be stuck; which of them ARE is decided by the caller's ruling alone, so
+            // the one definition of "stuck" lives in FleetRingSchedule and is not restated in this query.
+            var candidates = ctx.FleetMessages
+                .Where(m => m.ReadAtUtc == null && m.StuckAtUtc == null && m.RingCount > 0)
+                .ToList();
+            var stuck = candidates.Where(isStuck).ToList();
+            foreach (var m in stuck) m.StuckAtUtc = now;
+            if (stuck.Count > 0) ctx.SaveChanges();
+            return stuck;
+        }
     }
 
     /// <summary>

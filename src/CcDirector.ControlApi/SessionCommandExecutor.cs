@@ -97,6 +97,9 @@ internal static class SessionCommandExecutor
         // a loopback debug port and a profile directory on this disk - so the Gateway never drives one; it
         // carries the command to the Director that does.
         new BrowserExecutor(),
+        // The Message Load mission, slice 2: the doorbell. The Gateway asks; this Director checks the live screen
+        // and types the one line only when that is safe.
+        new FleetDoorbellExecutor(),
     };
 
     /// <summary>

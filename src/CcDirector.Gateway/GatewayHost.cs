@@ -544,6 +544,55 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>The fleet message inbox (the Message Load mission). Exposed for the route tests.</summary>
     internal Messaging.FleetMessageStore FleetMessages => _fleetMessages;
 
+    /// <summary>The Gateway database, for the doorbell's end-to-end proof, which reads the ring and stuck columns.</summary>
+    internal Data.GatewayDatabase GatewayDatabaseForTests => _gatewayDb;
+
+    /// <summary>The doorbell (the Message Load mission, slice 2). Exposed for the tests and the end-to-end proof.</summary>
+    internal Messaging.FleetDoorbell FleetDoorbell => _fleetDoorbell;
+
+    /// <summary>Send <c>ring</c> to one Director and read its answer. Null when it could not be reached or refused.</summary>
+    private async Task<FleetRingResponse?> RingDirectorAsync(
+        TenantId tenant, string directorId, string sessionId, int unreadCount, CancellationToken ct)
+    {
+        using (_tenantBoundary.EnterScope(tenant))
+        {
+            var result = await Api.DirectorCommandRouter.TrySendAsync(
+                SendCommandAsync, directorId, FleetDoorbellVerbs.Ring, sessionId,
+                new FleetRingRequest { UnreadCount = unreadCount }, ct).ConfigureAwait(false);
+            if (result is null) return null;
+            if (result.Status != DirectorCommandStatus.Ok)
+            {
+                FileLog.Write($"[GatewayHost] ring FAILED: sid={sessionId} director={directorId}: {Api.DirectorCommandRouter.DescribeFailure(result)}");
+                return null;
+            }
+            return Api.DirectorCommandRouter.ReadBody<FleetRingResponse>(result);
+        }
+    }
+
+    /// <summary>The doorbell heartbeat's timer callback: one tick at a time, never throws.</summary>
+    private void SweepFleetDoorbell()
+    {
+        if (Interlocked.CompareExchange(ref _fleetDoorbellInFlight, 1, 0) != 0)
+            return;
+        _ = RunFleetDoorbellSweepAsync();
+    }
+
+    private async Task RunFleetDoorbellSweepAsync()
+    {
+        try
+        {
+            await _fleetDoorbell.SweepAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[GatewayHost] fleet doorbell heartbeat FAILED: {ex.Message}");
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _fleetDoorbellInFlight, 0);
+        }
+    }
+
     /// <summary>
     /// The auth-boundary tenant binder. Exposed to the test assembly so an isolation test can enter the same
     /// tenant scope a real request or tunnel connection would, and drive the production loop code inside it.
@@ -698,6 +747,25 @@ public sealed class GatewayHost : IAsyncDisposable
     private readonly Messaging.FleetMessageStore _fleetMessages;
     private readonly Messaging.FleetMessageService _fleetMessageService;
     private readonly Messaging.FleetMessageRetentionSweep _fleetMessageRetentionSweep;
+    // The Message Load mission, slice 2: the doorbell - rung on each session's settled edge and on this heartbeat.
+    private readonly Messaging.FleetDoorbell _fleetDoorbell;
+    private System.Threading.Timer? _fleetDoorbellTimer;
+    private int _fleetDoorbellInFlight;
+
+    /// <summary>
+    /// Test seam: when false, <see cref="StartAsync"/> does not start the doorbell heartbeat, so a test-spun host
+    /// never sends <c>ring</c> to a fake Director on its own. The settled-edge ring and a test's direct
+    /// <see cref="FleetDoorbell"/> calls are unaffected. Production never touches it. Mirrors
+    /// <see cref="TurnEndWatcher.SweepEnabled"/>.
+    /// </summary>
+    internal static bool FleetDoorbellHeartbeatEnabled = true;
+
+    /// <summary>
+    /// Test and proof seam: the limits the doorbell schedules with. Null (always, in production) means
+    /// <see cref="Messaging.FleetMessageLimits.Default"/>. The end-to-end proof shortens the ring grace here so
+    /// three rings do not take fifteen minutes, and says so in its evidence.
+    /// </summary>
+    internal static Messaging.FleetMessageLimits? FleetDoorbellLimitsOverride;
     /// <summary>The Wingman inspector's record: every judgement kept whole - package, prompt, raw reply, verdict -
     /// appended by the turn-end seat and never cleared when a session works again. Seven days.</summary>
     private readonly Wingman.TurnVerdictTraceStore _turnVerdictTraces;
@@ -1859,6 +1927,19 @@ public sealed class GatewayHost : IAsyncDisposable
         _fleetMessageService = new Messaging.FleetMessageService(_fleetMessages);
         _fleetMessageRetentionSweep = new Messaging.FleetMessageRetentionSweep(
             _tenantBoundary, TenantRegistry, _tenantContext, _fleetMessages, Messaging.FleetMessageLimits.Default.Retention);
+        // The doorbell asks the owning Director to ring. It resolves the session from the pushed roster and sends
+        // the ring down the tunnel; the heartbeat pass runs once per tenant inside that tenant's scope, so the
+        // tunnel send resolves the Director in the right partition.
+        _fleetDoorbell = new Messaging.FleetDoorbell(
+            _fleetMessages,
+            _fleetMessageService,
+            locate: (tenant, sid) => PushedSessions.TryLocate(tenant, sid, _streamStaleAfter) is { } loc
+                ? new Messaging.FleetRingTarget(loc.DirectorId, loc.Session.ActivityState ?? "", loc.Session.Name)
+                : null,
+            ring: RingDirectorAsync,
+            forEachTenant: (pass, ct) => _tenantPass.ForEachTenantAsync(
+                () => _tenantPass.Current is { } t ? pass(t) : Task.CompletedTask, ct),
+            limits: FleetDoorbellLimitsOverride);
         // Slice D: the one source every fold reads verdicts through - the roster, the single-session read and the
         // display push to the desktop - so all three stamp one answer. And the carrying-on clock, on the same
         // per-tenant seam as the retention above.
@@ -3005,6 +3086,20 @@ public sealed class GatewayHost : IAsyncDisposable
                 catch (Exception ex)
                 {
                     FileLog.Write($"[GatewayHost] turn-end spend emit FAILED: sid={signal.SessionId}: {ex.Message}");
+                }
+
+                // The doorbell (the Message Load mission, slice 2): the turn just ended, so if this session has a
+                // message due, ask its Director to ring now rather than at the next heartbeat. Returns at once;
+                // the ring runs in the background inside this tenant's scope. The Director still decides whether it
+                // is safe - this edge is known to be a repaint one time in six (issue 2853).
+                try
+                {
+                    using (_tenantBoundary.EnterScope(tenant))
+                        _fleetDoorbell.OnSettled(tenant, signal.SessionId);
+                }
+                catch (Exception ex)
+                {
+                    FileLog.Write($"[GatewayHost] turn-end doorbell FAILED: sid={signal.SessionId}: {ex.Message}");
                 }
 
                 // Session supervision (issue #915): evaluate this idle transition for a terminating transport
@@ -4409,6 +4504,16 @@ public sealed class GatewayHost : IAsyncDisposable
         _turnVerdictWatchdogTimer = new System.Threading.Timer(_ => SweepTurnVerdictWatchdog(), null,
             TurnVerdictWatchdogInterval, TurnVerdictWatchdogInterval);
         FileLog.Write($"[GatewayHost] carrying-on clock started: every {TurnVerdictWatchdogInterval.TotalSeconds:0}s");
+        if (FleetDoorbellHeartbeatEnabled)
+        {
+            _fleetDoorbellTimer = new System.Threading.Timer(_ => SweepFleetDoorbell(), null,
+                Messaging.FleetDoorbell.HeartbeatInterval, Messaging.FleetDoorbell.HeartbeatInterval);
+            FileLog.Write($"[GatewayHost] fleet doorbell heartbeat started: every {Messaging.FleetDoorbell.HeartbeatInterval.TotalSeconds:0}s, grace {_fleetDoorbell.Limits.RingGrace}, stuck after {_fleetDoorbell.Limits.StuckAfterRings} rings");
+        }
+        else
+        {
+            FileLog.Write("[GatewayHost] fleet doorbell heartbeat NOT started (test seam)");
+        }
 
         // The prompt log's retention purge (CR-3b): same footing as the other bounded stores. The window
         // resolves from the deployment mode - hosted is always the product default; self-host may override
@@ -5263,6 +5368,8 @@ public sealed class GatewayHost : IAsyncDisposable
         try { _activityRetentionTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] activity retention timer dispose error: {ex.Message}"); }
         try { _turnVerdictRetentionTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] turn verdict retention timer dispose error: {ex.Message}"); }
         try { _turnVerdictWatchdogTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] carrying-on clock timer dispose error: {ex.Message}"); }
+        try { _fleetDoorbellTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] fleet doorbell timer dispose error: {ex.Message}"); }
+        _fleetDoorbellTimer = null;
         try { _promptRetentionTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] prompt-log retention timer dispose error: {ex.Message}"); }
         _promptRetentionTimer = null;
         try { _suggestionSweepTimer?.Dispose(); } catch (Exception ex) { FileLog.Write($"[GatewayHost] dictionary-suggestion timer dispose error: {ex.Message}"); }

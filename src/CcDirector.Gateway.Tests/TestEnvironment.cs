@@ -34,6 +34,8 @@ internal static class TestEnvironment
     internal static void Init()
     {
         CcDirector.Gateway.Briefing.TurnEndWatcher.SweepEnabled = false;
+        // The Message Load mission, slice 2: a test-spun host must not ring a fake Director on its own heartbeat.
+        CcDirector.Gateway.GatewayHost.FleetDoorbellHeartbeatEnabled = false;
         Environment.SetEnvironmentVariable("CC_GATEWAY_NO_TAILSCALE", "1");
 
         // Issue #322: pin the Director instance-discovery directory to a throwaway per-process temp

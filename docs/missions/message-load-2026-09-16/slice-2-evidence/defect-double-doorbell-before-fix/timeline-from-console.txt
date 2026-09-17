@@ -1,0 +1,31 @@
+06:08:25.837 gateway listening at http://127.0.0.1:55667; ring grace 00:01:00, stuck after 3 rings
+06:08:26.170 director tunnel connected
+06:08:26.238 /private/tmp/claude-501/-Users-soren-ReposFred-devthrottle-message-load/5eb3b76d-a51a-4637-8501-dd9d326c2603/scratchpad/e2e/run1: manager f2433a3f-236d-4d12-9bdb-d54cf0540a76, worker 13f4cac7-969f-434d-b05c-3d89e4c1ed31 (controller f2433a3f-236d-4d12-9bdb-d54cf0540a76)
+06:09:27.220 captured run1/00-worker-ready
+06:09:30.941 worker turn started; screen shows 'esc to interrupt'
+06:09:30.941 captured run1/01-worker-mid-turn-before-send
+06:09:30.978 POST /sessions/13f4cac7-969f-434d-b05c-3d89e4c1ed31/message as f2433a3f-236d-4d12-9bdb-d54cf0540a76 -> 200 queued 58f88ce57f26404993cd0ec6c1c4e610 
+06:09:30.979 message sent mid-turn: 58f88ce57f26404993cd0ec6c1c4e610
+06:09:30.979 captured run1/02-worker-mid-turn-just-after-send
+06:09:41.305 worker turn ended (marker gone)
+06:09:41.305 captured run1/03-worker-turn-ended
+06:09:51.384 doorbell line appeared on the worker's screen
+06:09:51.637 captured run1/04-worker-doorbell
+06:09:54.665 record read at 2026-09-17T06:09:54.5942140Z; rings 1
+06:10:00.432 captured run1/05-worker-after-reading-inbox
+06:10:01.992 gateway listening at http://127.0.0.1:55916; ring grace 00:01:00, stuck after 3 rings
+06:10:02.291 director tunnel connected
+06:10:02.333 /private/tmp/claude-501/-Users-soren-ReposFred-devthrottle-message-load/5eb3b76d-a51a-4637-8501-dd9d326c2603/scratchpad/e2e/run3: manager ad4dbcf3-abb2-474c-804c-c3e6a9068f4a, worker 1cf708f7-2fbf-46f2-bccd-28316494f7a7 (controller ad4dbcf3-abb2-474c-804c-c3e6a9068f4a)
+06:11:05.853 captured run3/00-worker-ready
+06:11:05.862 POST /sessions/1cf708f7-2fbf-46f2-bccd-28316494f7a7/message as ad4dbcf3-abb2-474c-804c-c3e6a9068f4a -> 200 queued 1559c337186246b38d9ac25dd9646b2c 
+06:11:05.862 message sent to a worker told never to read: 1559c337186246b38d9ac25dd9646b2c
+06:15:02.209 stuck at 2026-09-17T06:15:01.9724600Z after 3 rings; last ring 2026-09-17T06:14:01.9717300Z; read never
+06:15:02.209 captured run3/01-worker-after-three-rings
+06:15:03.764 gateway listening at http://127.0.0.1:56480; ring grace 00:01:00, stuck after 3 rings
+06:15:04.065 director tunnel connected
+06:15:04.107 /private/tmp/claude-501/-Users-soren-ReposFred-devthrottle-message-load/5eb3b76d-a51a-4637-8501-dd9d326c2603/scratchpad/e2e/run2: manager 70e79d94-4c02-4080-ab00-8f6ed56fced6, worker a914ed21-dd8a-45ee-9b0f-0a0bbea2302e (controller 70e79d94-4c02-4080-ab00-8f6ed56fced6)
+06:16:05.039 captured run2/00-worker-ready
+06:16:05.293 captured run2/01-owner-draft
+06:16:05.306 POST /sessions/a914ed21-dd8a-45ee-9b0f-0a0bbea2302e/message as 70e79d94-4c02-4080-ab00-8f6ed56fced6 -> 200 queued 74d07f17e659414abeaafb46a5b765ca 
+06:16:05.306 message sent while the owner's draft is in the composer: 74d07f17e659414abeaafb46a5b765ca
+06:16:55.306 captured run2/02-owner-draft-after-50-seconds

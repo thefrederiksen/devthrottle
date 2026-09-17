@@ -22,10 +22,10 @@ public sealed record FleetMessageLimits
     /// <summary>The shortest gap between two messages from one sender to one recipient.</summary>
     public TimeSpan PerRecipientSpacing { get; init; } = TimeSpan.FromMinutes(10);
 
-    /// <summary>How long an unread message waits before the doorbell is rung again. Read by slice 2.</summary>
+    /// <summary>How long an unread message waits before the doorbell is rung again (<see cref="FleetRingSchedule"/>).</summary>
     public TimeSpan RingGrace { get; init; } = TimeSpan.FromMinutes(5);
 
-    /// <summary>How many unanswered rings mark a message stuck. Read by slice 2.</summary>
+    /// <summary>How many unanswered rings mark a message stuck (<see cref="FleetRingSchedule"/>).</summary>
     public int StuckAfterRings { get; init; } = 3;
 
     /// <summary>How long a message is kept after it was written. Thirty days, matching the activity ledger.</summary>

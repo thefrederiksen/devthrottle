@@ -16,11 +16,11 @@ namespace CcDirector.Gateway.Data.Entities;
 /// <see cref="StuckAtUtc"/> is set and it is still unread; open otherwise. Two stored words that could
 /// disagree with the two timestamps would be one more thing to keep equal.
 ///
-/// COLUMNS THAT LATER SLICES WRITE. The ring columns (<see cref="RingCount"/>, <see cref="LastRungAtUtc"/>,
-/// <see cref="StuckAtUtc"/>) are written by slice 2 (the doorbell) and the reply columns
-/// (<see cref="CorrelationId"/>, <see cref="InReplyToMessageId"/>, <see cref="ReplyByUtc"/>) by slice 3
-/// (replies). Slice 1 creates them so the table needs one migration rather than three, and NOTHING in slice 1
-/// writes them: they stay zero and null until those slices land.
+/// COLUMNS THE LATER SLICES WRITE. The ring columns (<see cref="RingCount"/>, <see cref="LastRungAtUtc"/>,
+/// <see cref="StuckAtUtc"/>) are written by the doorbell (slice 2, <see cref="Messaging.FleetDoorbell"/>); a
+/// read clears <see cref="StuckAtUtc"/>. The reply columns (<see cref="CorrelationId"/>,
+/// <see cref="InReplyToMessageId"/>, <see cref="ReplyByUtc"/>) are for slice 3 (replies) and nothing writes
+/// them yet. Slice 1 created all six so the table needed one migration rather than three.
 /// </summary>
 public sealed class FleetMessageEntity : TenantScopedEntity
 {
@@ -56,13 +56,13 @@ public sealed class FleetMessageEntity : TenantScopedEntity
     /// <summary>When the recipient read it (UTC), or null while it is unread.</summary>
     public DateTime? ReadAtUtc { get; set; }
 
-    /// <summary>How many times the doorbell has been rung for this message. Written by slice 2.</summary>
+    /// <summary>How many times the doorbell has been rung for this message (a deferred ring is not counted).</summary>
     public int RingCount { get; set; }
 
-    /// <summary>When the doorbell was last rung (UTC). Written by slice 2.</summary>
+    /// <summary>When the doorbell was last rung (UTC).</summary>
     public DateTime? LastRungAtUtc { get; set; }
 
-    /// <summary>When the message was marked stuck after unanswered rings (UTC). Written by slice 2.</summary>
+    /// <summary>When the message was marked stuck after unanswered rings (UTC); cleared again if the message is read.</summary>
     public DateTime? StuckAtUtc { get; set; }
 
     /// <summary>The correlation id of a message that wants a reply. Written by slice 3.</summary>

@@ -1,0 +1,11 @@
+06:25:21.963 gateway listening at http://127.0.0.1:57782; ring grace 00:01:00, stuck after 3 rings
+06:25:22.287 director tunnel connected
+06:25:22.355 /private/tmp/claude-501/-Users-soren-ReposFred-devthrottle-message-load/5eb3b76d-a51a-4637-8501-dd9d326c2603/scratchpad/e2e/run3: manager 4f0a9705-8479-4c93-9c77-b7a7dccfa676, worker 51c00b73-0ccf-46b4-82e4-a57dceacf317 (controller 4f0a9705-8479-4c93-9c77-b7a7dccfa676)
+06:26:30.064 captured run3/00-worker-ready
+06:26:30.101 POST /sessions/51c00b73-0ccf-46b4-82e4-a57dceacf317/message as 4f0a9705-8479-4c93-9c77-b7a7dccfa676 -> 200 queued 1a30a1162cfe4123ba1368e5d8f35082 
+06:26:30.102 message sent to a worker told never to read: 1a30a1162cfe4123ba1368e5d8f35082
+06:30:22.148 stuck at 2026-09-17T06:30:21.9361020Z after 3 rings; last ring 2026-09-17T06:29:06.9371540Z; read never
+06:30:22.149 captured run3/01-worker-after-three-rings
+06:30:22.153 system notice f6d44ba91e0d4914bc3c580b9bef0dd4 queued to the sender: Your message 1a30a1162cfe4123ba1368e5d8f35082 to Proof - Worker (51c00b73) is stuck: its doorbell rang 3 times, 1 minute apart, and the session has not read its inbox. The message stays in that inbox and is delivered if the session reads it. Do not send it again. If you needed an answer, carry on without it and say so in your report.
+06:30:34.986 captured run3/02-sender-reads-the-stuck-notice
+06:30:34.990 saved 2 conversation record lines containing 'is stuck' to agent-record-Proof---Manager.jsonl
