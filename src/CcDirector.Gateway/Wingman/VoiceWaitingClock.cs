@@ -92,4 +92,14 @@ public sealed class VoiceWaitingClock
             FileLog.Write($"[VoiceWaitingClock] tenant={tenant.ToLogString()} sid={sessionId}: started waiting for voice, VoiceWaitingSince={since:o}");
         return since;
     }
+
+    /// <summary>
+    /// Test-only: a wait that began at <paramref name="since"/>, so a test on a booted host can reach a wait that has
+    /// given up (three minutes) without sleeping. Production never calls it.
+    /// </summary>
+    internal void StartWaitForTest(TenantId tenant, string sessionId, DateTime since)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(sessionId);
+        _since[(tenant, sessionId)] = since;
+    }
 }

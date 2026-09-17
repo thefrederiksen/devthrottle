@@ -899,6 +899,13 @@ public sealed class GatewayHost : IAsyncDisposable
     /// <summary>The trace writer, so a hosted test that waits for a trace can say what became of it when it never arrives.</summary>
     internal Wingman.TurnVerdictTraceWriter TurnVerdictTraceWriterForTest => _turnVerdictTraceWriter;
 
+    /// <summary>The trace colour stamp exactly as the host wired it, so a hosted test can prove the trace and the display
+    /// push take their fold inputs from one place through the production wiring, not through a stamp it built itself.</summary>
+    internal Wingman.TurnVerdictTraceRowStamp TurnVerdictTraceRowStampForTest => _turnVerdictTraceRowStamp;
+
+    /// <summary>The display push's voice-waiting clock, so that hosted test can start a wait that has already given up.</summary>
+    internal Wingman.VoiceWaitingClock VoiceWaitingClockForTest => _voiceWaitingClock;
+
     /// <summary>Test-only: the turn-end watcher, so an isolation test can drive a real session-state
     /// transition (Working -&gt; Waiting) into the REAL onTurnEnd / onSessionWorking callbacks rather than a
     /// re-implementation. Null until StartAsync builds it.</summary>
