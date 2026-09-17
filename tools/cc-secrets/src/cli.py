@@ -50,7 +50,7 @@ PROTECTION = ("It protects against accidental exposure (transcripts, logs, outpu
 
 app = typer.Typer(
     name="cc-secrets",
-    help="Use a stored password without the model ever seeing it. Agents: list, run, login. Owner: add, remove. "
+    help="Use a stored password without the model ever seeing it. Agents: list, run, login, get. Owner: add, import, edit, remove. "
          "Anyone: log. " + PROTECTION,
     add_completion=False,
     no_args_is_help=True,
@@ -174,6 +174,18 @@ def _read_secret_from_owner() -> str:
     return first
 
 
+def _refuse_swallowed_options(**values: Optional[str]) -> None:
+    """Refuse an option value that is itself an option. Windows PowerShell 5.1 drops an empty "" argument when it
+    starts a program, so `--username "" --no-agents` arrives as `--username --no-agents`: the user name becomes
+    "--no-agents" and the access change is silently lost (review of pull request 3005). No user name, note,
+    address, use or variable starts with "--"."""
+    for option, value in values.items():
+        if value is not None and value.startswith("--"):
+            raise InputError(f"The value given to --{option.replace('_', '-')} starts with '--', so another option was "
+                             f"probably taken as its value (PowerShell drops an empty \"\"). To clear it, write "
+                             f"--{option.replace('_', '-')}= with nothing after the equals sign.")
+
+
 def _split_list(value: str) -> List[str]:
     return [part.strip() for part in value.split(",") if part.strip()]
 
@@ -192,6 +204,11 @@ def add(
 ):
     """OWNER: add or replace an entry. The secret comes from a hidden prompt, or piped on stdin."""
     _owner_only("add")
+    try:
+        _refuse_swallowed_options(username=username, domains=domains, uses=uses, notes=notes, env_name=env_name)
+    except InputError as exc:
+        _say(f"add failed: {exc}", err=True)
+        raise typer.Exit(EXIT_FAILED)
     interactive = _stdin_is_tty()
     if not interactive and _stdin_is_mintty():
         _say(MINTTY_MESSAGE, err=True)
@@ -230,6 +247,58 @@ def add(
     except Exception as exc:
         _log_failure("add", exc)
         _say(f"add failed: {_describe(exc)}", err=True)
+        raise typer.Exit(EXIT_FAILED)
+
+
+@app.command()
+def edit(
+    name: str = typer.Argument(..., help="Entry name."),
+    username: Optional[str] = typer.Option(None, "--username", help="The user name that goes with it."),
+    domains: Optional[str] = typer.Option(None, "--domains", help="Comma-separated site addresses login may fill; --domains= (nothing after the equals sign) clears them."),
+    uses: Optional[str] = typer.Option(None, "--uses", help="Comma-separated: login, run."),
+    agents: Optional[bool] = typer.Option(None, "--agents/--no-agents", help="Whether sessions on this machine may use it."),
+    notes: Optional[str] = typer.Option(None, "--notes", help="A note for yourself. Agents see it in list."),
+    env_name: Optional[str] = typer.Option(None, "--env-name", help="The variable run supplies it in."),
+):
+    """OWNER: change an entry's details - username, allowed addresses, uses, agents, notes, variable - WITHOUT
+    touching its secret or setting value. For example, make an imported password usable by login:
+    cc-secrets edit mindzie-qa-password-local --username qa@mindzie.com --domains https://localhost:7330 --uses login,run"""
+    _owner_only("edit")
+    try:
+        _refuse_swallowed_options(username=username, domains=domains, uses=uses, notes=notes, env_name=env_name)
+        changed = [label for label, value in (("username", username), ("domains", domains), ("uses", uses),
+                                              ("agents", agents), ("notes", notes), ("variable", env_name))
+                   if value is not None]
+        if not changed:
+            _say("Nothing to change: give at least one of --username, --domains, --uses, --agents/--no-agents, "
+                 "--notes, --env-name.", err=True)
+            raise typer.Exit(EXIT_FAILED)
+        store = _store()
+        current = store.get(name)
+        if current is None:
+            _say(f"There is no entry named '{name}'.", err=True)
+            raise typer.Exit(EXIT_FAILED)
+        updated = make_entry(
+            name,
+            current.username if username is None else username,
+            current.secret.reveal(),
+            current.allowed_domains if domains is None else _split_list(domains),
+            current.notes if notes is None else notes,
+            current.agents_may_use if agents is None else agents,
+            current.uses if uses is None else _split_list(uses),
+            env_name=current.env_name if env_name is None else env_name,
+            kind=current.kind,
+        )
+        store.put(updated)
+        _audit().record(name, "edit", "ok", "changed " + ", ".join(changed))
+        _say(f"Changed {', '.join(changed)} of '{name}'. Its {'value' if updated.is_setting else 'secret'} is unchanged. "
+             f"Agents may use it: {'yes' if updated.agents_may_use else 'no'}. Uses: {', '.join(updated.uses)}. "
+             f"Allowed addresses: {', '.join(updated.allowed_domains) or 'none'}.")
+    except typer.Exit:
+        raise
+    except Exception as exc:
+        _log_failure("edit", exc)
+        _say(f"edit failed: {_describe(exc)}", err=True)
         raise typer.Exit(EXIT_FAILED)
 
 

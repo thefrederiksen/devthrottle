@@ -1360,6 +1360,7 @@ USAGE: cc-secrets [OPTIONS] COMMAND [ARGS]...
 COMMANDS:
   add      OWNER: add or replace an entry (hidden prompt, or secret piped on stdin)
   import   OWNER: import every KEY=VALUE line of a file (credentials.env) as its own entry
+  edit     OWNER: change an entry's username, addresses, uses, agents, notes or variable - not its secret
   remove   OWNER: remove an entry
   list     Entries agents may use: names, usernames, allowed addresses. Never secrets (--all, --json)
   run      Run a command with the secret supplied; output comes back with the secret removed
@@ -1375,7 +1376,7 @@ the secrets so every credential has one home; a setting can be read with `get` a
 output, because hiding a host name would blank it out of everything that prints it. The kind is stored in
 `secrets.json` beside the value: editing a secret's kind to `setting` by hand makes `get` print it.
 
-`add`, `import` and `remove` refuse to run inside a DevThrottle session. There is no option that takes the
+`add`, `import`, `edit` and `remove` refuse to run inside a DevThrottle session. There is no option that takes the
 secret as an argument. In Git Bash (mintty) typing cannot be hidden, so `add` refuses there: run it from
 PowerShell or cmd, or pipe the secret in.
 
@@ -1400,6 +1401,27 @@ OPTIONS:
 ```
 
 With the secret piped on stdin, `--username`, `--domains` and `--agents`/`--no-agents` are required.
+
+### cc-secrets edit
+
+```
+USAGE: cc-secrets edit [OPTIONS] NAME
+
+OPTIONS:
+  --username TEXT         The user name that goes with it
+  --domains TEXT          Comma-separated site addresses login may fill; --domains= clears them
+  --uses TEXT             Comma-separated: login, run
+  --agents / --no-agents  Whether sessions on this machine may use it
+  --notes TEXT            A note for yourself; agents see it in list
+  --env-name TEXT         The variable run supplies it in
+```
+
+Changes only the details given; the secret (or a setting's value) is never touched, so no prompt. To clear a field
+write it with an equals sign and nothing after it (`--username=`, `--notes=`, `--domains=`): Windows PowerShell 5.1
+drops an empty `""` argument, so `--username "" --no-agents` would take `--no-agents` as the user name. A value
+that starts with `--` is refused for that reason, by `edit` and by `add`. For example,
+make an imported password usable by `login`:
+`cc-secrets edit mindzie-qa-password-local --username qa@mindzie.com --domains https://localhost:7330 --uses login,run`
 
 ### cc-secrets import
 
