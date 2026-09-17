@@ -21,12 +21,11 @@ import sys
 from pathlib import Path
 
 import pytest
-import typer
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src import mission_ops  # noqa: E402
+from src import mission_ops, usage_errors  # noqa: E402
 
 # Rich emits colour when its console decides the destination can take it, and that decision differs
 # between a developer's machine and continuous integration. The escapes land INSIDE the sentences
@@ -98,7 +97,7 @@ def test_rename_sends_the_new_name_and_reports_the_old_one(wired, capsys):
 
 
 def test_rename_refuses_a_blank_name_without_calling_the_gateway(wired):
-    with pytest.raises(typer.Exit):
+    with pytest.raises(usage_errors.CommandUsageError):
         mission_ops.rename_mission(ACTIVE_ID, "   ")
 
     assert wired["patches"] == []

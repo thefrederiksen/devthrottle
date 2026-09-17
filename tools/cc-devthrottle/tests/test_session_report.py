@@ -26,6 +26,7 @@ from typer.testing import CliRunner
 sys.path.insert(0, str(Path(__file__).parent.parent))
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
+from cc_shared.axi_output import parse_list  # noqa: E402
 from src import session_ops  # noqa: E402
 from src.cli import app  # noqa: E402
 
@@ -48,7 +49,8 @@ def _worker(has_live_supervisor=True, controller=PARENT):
     }
 
 
-PARENT_ROW = {"sessionId": PARENT, "name": "Mission - Manager"}
+# The Gateway always sends controllerSessionId; null is a session nobody drives.
+PARENT_ROW = {"sessionId": PARENT, "name": "Mission - Manager", "controllerSessionId": None}
 
 
 @pytest.fixture
@@ -206,20 +208,19 @@ def test_session_workers_shows_no_hand_for_a_worker_that_is_not_asking(monkeypat
     monkeypatch.setenv("CC_SESSION_ID", PARENT)
     worker = {
         "sessionId": WORKER,
-        "name": "wkr",   # short: Rich wraps a long name in a narrow column and the assertion
-                         # would then fail on the RENDERING rather than on the behaviour (#1082)
+        "name": "wkr",
         "controllerSessionId": PARENT,
+        "triageBucket": "onHold",
+        "activityState": "Idle",
         "stateLabel": "Snoozed",
         "needsManager": False,               # present and false, exactly as the Gateway sends it
         "needsManagerReason": "stale words",  # and a reason that outlived the lowered hand
     }
-    # list_my_workers reads GET /sessions directly rather than through _get_fleet.
-    monkeypatch.setattr(
-        session_ops.gateway, "get_json", lambda path: {"sessions": [worker, PARENT_ROW]}
-    )
+    monkeypatch.setattr(session_ops, "_get_fleet", lambda: ([worker, PARENT_ROW], True, None, None))
 
     session_ops.list_my_workers()
 
-    out = plain(capsys.readouterr().out)
-    assert "wkr" in out              # the control: the row IS listed, so an empty table cannot pass
-    assert "stale" not in out        # but its hand is down, so nothing is asked for
+    _, records = parse_list(plain(capsys.readouterr().out), "workers")
+    # The control: the row IS listed, so an empty list cannot pass - but its hand is down, so nothing
+    # is asked for, and the reason that outlived the lowered hand is not shown as a need.
+    assert records == [{"id": WORKER, "name": "wkr", "state": "snoozed", "hand": "down", "need": None}]
