@@ -1,4 +1,4 @@
-﻿using System.Collections.ObjectModel;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Net.Http;
 using System.Net.Http.Json;
@@ -2362,6 +2362,7 @@ public partial class MainWindow : Window
             PromptBarBorder.IsVisible = false;
             TabBarRefreshButton.IsVisible = false;
             TabBarCaptureButton.IsVisible = false;
+            TabBarReportsButton.IsVisible = false;
             SourceControlView.Detach();
             return;
         }
@@ -2417,6 +2418,10 @@ public partial class MainWindow : Window
         if (string.IsNullOrEmpty(tabName)) tabName = "Terminal";
         if (tabName != _activeLeftTab)
             SwitchLeftTab(tabName);
+
+        // The reports button belongs to the session, not to a tab, so it appears the moment one is
+        // selected - SwitchLeftTab above returns early when the tab did not change.
+        TabBarReportsButton.IsVisible = true;
 
         // Switch document tabs to new session
         SwitchDocumentTabsToSession(vm.Session.Id);
@@ -3752,6 +3757,23 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Open this session's dev reports (issue #3019). The pane appears at once showing "Loading..."; every
+    /// Gateway call happens inside it, off the user interface thread.
+    /// </summary>
+    private void TabBarReportsButton_Click(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            FileLog.Write("[MainWindow] TabBarReportsButton_Click");
+            OpenDevReportsTab();
+        }
+        catch (Exception ex)
+        {
+            FileLog.Write($"[MainWindow] TabBarReportsButton_Click FAILED: {ex.Message}");
+        }
+    }
+
     private void RefreshTerminal()
     {
         if (_activeSession == null) return;
@@ -5025,6 +5047,9 @@ public partial class MainWindow : Window
         // Show refresh button only when Terminal tab is active and a session exists
         TabBarRefreshButton.IsVisible = tab == "Terminal" && _activeSession != null;
         TabBarCaptureButton.IsVisible = tab == "Terminal" && _activeSession != null;
+        // The reports of the session on screen, readable from whichever tab is showing - they are about
+        // the session, not about the terminal (issue #3019).
+        TabBarReportsButton.IsVisible = _activeSession != null;
 
         // Swap document panel content
         if (isDocTab)
@@ -6774,12 +6799,45 @@ public partial class MainWindow : Window
 
         if (_activeSession == null) return;
 
+        // Create the appropriate viewer
+        var category = FileExtensions.GetViewerCategory(filePath);
+        var (viewer, control) = CreateViewer(category);
+
+        OpenDocumentTab(filePath, Path.GetFileName(filePath), viewer, control);
+    }
+
+    /// <summary>
+    /// Open this session's dev reports in a document tab, or switch to the one already open (issue #3019).
+    /// The pane shows "Loading..." from the moment it exists; the Gateway call that finds the page runs off
+    /// the user interface thread inside the pane.
+    /// </summary>
+    public void OpenDevReportsTab()
+    {
+        if (_activeSession == null) return;
+
+        var sessionId = _activeSession.Session.Id;
+        var sessionName = _activeSession.DisplayName;
+        FileLog.Write($"[MainWindow] OpenDevReportsTab: session={sessionId:D}");
+
+        var pane = new FileViewerControls.DevReportsPaneControl(sessionId, sessionName);
+        OpenDocumentTab(FileViewerControls.DevReportsPaneControl.TabKeyFor(sessionId), pane.GetDisplayName(), pane, pane);
+    }
+
+    /// <summary>
+    /// The one place a document tab is created, for a file viewer and for the reports pane alike. The key is
+    /// what tells two tabs apart and finds one already open - a file path for a viewer, a synthetic key for
+    /// the pane, which is not a file.
+    /// </summary>
+    private void OpenDocumentTab(string key, string title, FileViewerControls.IFileViewer viewer, UserControl control)
+    {
+        if (_activeSession == null) return;
+
         var sessionId = _activeSession.Session.Id;
 
         // Check if already open for this session
         var existing = _documentTabs.FirstOrDefault(d =>
             d.SessionId == sessionId &&
-            string.Equals(d.FilePath, filePath, StringComparison.OrdinalIgnoreCase));
+            string.Equals(d.FilePath, key, StringComparison.OrdinalIgnoreCase));
 
         if (existing != null)
         {
@@ -6787,17 +6845,14 @@ public partial class MainWindow : Window
             return;
         }
 
-        // Create the appropriate viewer
-        var category = FileExtensions.GetViewerCategory(filePath);
-        var (viewer, control) = CreateViewer(category);
-
+        var filePath = key;
         var tabId = $"Doc:{Guid.NewGuid():N}";
 
         // Create tab button with close button
         var tabPanel = new StackPanel { Orientation = global::Avalonia.Layout.Orientation.Horizontal, Spacing = 4 };
         var nameText = new TextBlock
         {
-            Text = Path.GetFileName(filePath),
+            Text = title,
             FontSize = 12,
             VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center,
         };

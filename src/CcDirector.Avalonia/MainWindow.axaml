@@ -1046,6 +1046,19 @@
                         <!-- Right-aligned capture + refresh buttons -->
                         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal"
                                     VerticalAlignment="Center" Spacing="2">
+                            <!-- This session's dev reports (issue #3019): opens them in a document tab,
+                                 beside the session, the way a file viewer opens. -->
+                            <Button x:Name="TabBarReportsButton"
+                                    Content="Reports"
+                                    Click="TabBarReportsButton_Click"
+                                    Background="Transparent"
+                                    Foreground="#888888"
+                                    BorderThickness="0"
+                                    Cursor="Hand"
+                                    Padding="8,4"
+                                    FontSize="11"
+                                    ToolTip.Tip="Read this session's reports, leave notes and answer its questions"
+                                    IsVisible="False" />
                             <Button x:Name="TabBarCaptureButton"
                                     Content="Capture"
                                     Click="TabBarCaptureButton_Click"

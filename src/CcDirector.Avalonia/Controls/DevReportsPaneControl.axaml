@@ -1,0 +1,43 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:c="clr-namespace:CcDirector.Avalonia.Controls"
+             x:Class="CcDirector.Avalonia.Controls.DevReportsPaneControl"
+             Background="#1E1E1E">
+
+    <Grid RowDefinitions="Auto,*">
+
+        <!-- Toolbar: which session's reports these are, and a way to load them again. -->
+        <Border Grid.Row="0" Background="#252526" Padding="8,4"
+                BorderBrush="#3C3C3C" BorderThickness="0,0,0,1">
+            <Grid ColumnDefinitions="*,Auto">
+
+                <TextBlock x:Name="SessionText" Grid.Column="0"
+                           Foreground="#888888" FontSize="11"
+                           VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis" />
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4">
+                    <Button x:Name="ReloadButton" Content="Reload"
+                            FontSize="11" Padding="8,2"
+                            Background="#3C3C3C" Foreground="#CCCCCC"
+                            BorderThickness="0" Cursor="Hand"
+                            Click="ReloadButton_Click"
+                            ToolTip.Tip="Ask the Gateway for the reports page again and load it" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="1">
+            <!-- Shown from the moment the pane exists, before any Gateway call is made. -->
+            <TextBlock x:Name="StatusText" Text="Loading..."
+                       Foreground="#888888" FontSize="13"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"
+                       MaxWidth="560"
+                       TextWrapping="Wrap"
+                       TextAlignment="Center" />
+
+            <c:WebView2Host x:Name="WebViewHost" />
+        </Grid>
+    </Grid>
+</UserControl>
