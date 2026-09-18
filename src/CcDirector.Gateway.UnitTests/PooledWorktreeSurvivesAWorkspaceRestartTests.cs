@@ -147,16 +147,28 @@ public sealed class PooledWorktreeSurvivesAWorkspaceRestartTests : IDisposable
 
     // ---- and the Director takes NO NEW SLOT ------------------------------------------------------
 
-    /// <summary>A pool that fails the test if it is asked for anything at all.</summary>
-    private sealed class PoolThatMustNotBeAsked : IWorktreePool
+    /// <summary>
+    /// A pool that records every call and, if it IS asked for a slot, hands out a DIFFERENT one.
+    ///
+    /// Deliberately not a pool that throws. Throwing would make the create fail, and a failed create
+    /// is a different symptom from the one this is about: what goes wrong without the re-attach is
+    /// that the restore quietly succeeds in the WRONG slot, leaving the first one in use for a
+    /// session that no longer exists. Handing out wt02 makes the test fail the way the defect reads.
+    /// </summary>
+    private sealed class PoolThatHandsOutANewSlot : IWorktreePool
     {
+        private readonly string _root;
+
+        public PoolThatHandsOutANewSlot(string root) => _root = root;
+
         public List<string> Calls { get; } = new();
 
         public PooledWorktree Get(string repoPath, string holder, int poolSize)
         {
             Calls.Add($"get {repoPath}");
-            throw new InvalidOperationException(
-                "a restore must never ask for a slot: the seat already holds one");
+            var second = Path.Combine(_root, "primary.worktrees", "wt02");
+            Directory.CreateDirectory(second);
+            return new PooledWorktree(Path.Combine(_root, "primary"), "wt02", second, "lease-second");
         }
 
         public PooledWorktreeReturn Return(PooledWorktree worktree)
@@ -193,7 +205,7 @@ public sealed class PooledWorktreeSurvivesAWorkspaceRestartTests : IDisposable
         var scratch = Path.Combine(Path.GetTempPath(), "ccd-restore-slot-" + Guid.NewGuid().ToString("N"));
         var slot = Path.Combine(scratch, "primary.worktrees", "wt01");
         Directory.CreateDirectory(slot);
-        var pool = new PoolThatMustNotBeAsked();
+        var pool = new PoolThatHandsOutANewSlot(scratch);
         var manager = PooledManager(pool, scratch);
         try
         {
@@ -244,7 +256,7 @@ public sealed class PooledWorktreeSurvivesAWorkspaceRestartTests : IDisposable
         var scratch = Path.Combine(Path.GetTempPath(), "ccd-restore-half-" + Guid.NewGuid().ToString("N"));
         var slot = Path.Combine(scratch, "primary.worktrees", "wt01");
         Directory.CreateDirectory(slot);
-        var pool = new PoolThatMustNotBeAsked();
+        var pool = new PoolThatHandsOutANewSlot(scratch);
         var manager = new SessionManager(
             new Core.Configuration.AgentOptions(),
             log: null,
