@@ -11,6 +11,15 @@
   color: var(--text);
 }
 
+/* WHICH SESSION THIS IS - the first line of the view, above the pill, in every state. Quiet and small: it is the
+   label on the page, not the news on it, and the pill below is still the first thing the eye lands on. */
+.wnow-session {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
 .wnow-head {
   display: flex;
   align-items: center;
@@ -381,6 +390,14 @@
   opacity: 0.6;
 }
 
+/* THE ONE BUTTON ON NOW THAT DESTROYS SOMETHING, set apart from the harmless ones beside it. It is last in the row
+   and it carries a gap and a rule, so the hand does not arrive on it by accident on the way to the terminal. */
+.wnow-btn-apart {
+  margin-left: 28px;
+  border-color: var(--attention);
+  color: var(--attention);
+}
+
 .wnow-btn-primary:enabled {
   background: var(--accent);
   border-color: var(--accent);
@@ -393,6 +410,31 @@
   align-items: center;
   gap: 8px;
   margin-top: 16px;
+}
+
+/* WHAT SENDING DOES, under the one box, in the Gateway's words: quieter than the box and quieter than the buttons. */
+.wnow-reply-hint {
+  margin: 6px 0 0;
+  color: var(--text-dim);
+  font-size: 12.5px;
+}
+
+/* A LONG ASK IS FOLDED, NOT SHORTENED (the review's item N4). Three lines of the real words, with the rest one
+   click away, so the reply box does not slide off the bottom of the page behind an eight-line scheduled prompt. */
+.wnow-asked-text {
+  white-space: pre-wrap;
+}
+
+.wnow-asked-clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.wnow-asked-more {
+  margin-bottom: 8px;
 }
 
 .wnow-next {

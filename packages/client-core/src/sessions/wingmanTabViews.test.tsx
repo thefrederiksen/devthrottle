@@ -35,6 +35,7 @@ const replyBox = (placeholder: string) => <StandInBox placeholder={placeholder} 
 
 const NOW: WingmanNow = {
   sessionId: SID,
+  sessionLine: "112 - Cube Data and Projects - Architect",
   state: "needs-you",
   pillText: "Needs you",
   pillColour: "red",

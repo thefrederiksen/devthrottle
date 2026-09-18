@@ -42,6 +42,7 @@ const replyBox = (placeholder: string) => (
 function base(overrides: Partial<WingmanNowDto> = {}): WingmanNowDto {
   return {
     sessionId: "11111111-1111-1111-1111-111111111111",
+    sessionLine: "112 - Cube Data and Projects - Architect",
     state: "other",
     pillText: "Working",
     pillColour: "blue",
@@ -59,6 +60,8 @@ function base(overrides: Partial<WingmanNowDto> = {}): WingmanNowDto {
     canAnswerByOption: false,
     verdictId: null,
     replyPlaceholder: null,
+    replyHint: null,
+    snoozedUntil: null,
     calmCard: null,
     carryingOnDeadline: null,
     lastWords: null,
@@ -168,7 +171,9 @@ describe("Now - the live stop", () => {
 
     const box = screen.getByLabelText("Your reply to this session") as HTMLTextAreaElement;
     expect(box.placeholder).toBe(NEEDS_YOU.replyPlaceholder);
-    expect(seen).toHaveBeenCalledWith(NEEDS_YOU.replyPlaceholder);
+    // The Gateway's placeholder AND the Gateway's state word: the shell offers one sending button per state, so it
+    // is handed the state it is drawing a box for rather than working it out from the placeholder's wording.
+    expect(seen).toHaveBeenCalledWith(NEEDS_YOU.replyPlaceholder, "needs-you");
     // Inside the card, beside the question - not a second box further down the page.
     expect(box.closest(".wnow-card-needs")).toBeTruthy();
   });
@@ -374,6 +379,30 @@ describe("Now - the live stop", () => {
     expect(screen.getByText(/You can close this session when you are ready\./)).toBeTruthy();
     // Done sent no placeholder, so there is no reply box even though the shell offered to send one.
     expect(screen.queryByLabelText("Your reply to this session")).toBeNull();
+  });
+
+  it("gives done a box the moment the Gateway sends a placeholder for it", () => {
+    // THE STATE HE IS MOST LIKELY TO ANSWER FROM, and the one with nowhere to type (the review's item N2).
+    // Removing the page's bottom box was right; done never had a box of its own, so it was left with none at all.
+    // The view needs no rule for this - it draws a box wherever a placeholder arrived - and this is the guard that
+    // says so, against the words the Gateway is adding.
+    const now = base({
+      state: "done",
+      pillText: "Done",
+      calmCard: { heading: "The work is complete", body: "Nothing is needed from you.", tone: "cyan" },
+      replyPlaceholder: "Give it something else to do.",
+      replyHint: "Sent to the session as your message.",
+    });
+    const { container } = render(<WingmanNow now={now} at={AT} replyBox={replyBox} />);
+
+    const box = screen.getByLabelText("Your reply to this session") as HTMLTextAreaElement;
+    expect(box.placeholder).toBe("Give it something else to do.");
+    // Under the card, which is where the sentence above it invites him to type.
+    const card = container.querySelector(".wnow-card-calm")!;
+    const reply = container.querySelector(".wnow-reply")!;
+    expect(card.compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // And what sending it does, in the Gateway's words rather than in silence.
+    expect(screen.getByText("Sent to the session as your message.")).toBeTruthy();
   });
 
   it("draws report: only telling you, the work is not finished, and the reply box stays open", () => {
@@ -803,7 +832,8 @@ describe("Now - the quick actions fit the state", () => {
     render(<WingmanNow now={NEEDS_YOU} at={AT} actions={{ onUnsnooze }} />);
 
     expect(screen.queryByText("Snooze this session")).toBeNull();
-    fireEvent.click(screen.getByText("Unsnooze this session"));
+    // WAKE, not "unsnooze". On a snoozed session this is the first button and the one thing he came here to do.
+    fireEvent.click(screen.getByText("Wake this session"));
     await waitFor(() => expect(onUnsnooze).toHaveBeenCalled());
     expect(screen.getByText("Unsnoozed.")).toBeTruthy();
   });
@@ -874,5 +904,169 @@ describe("Now - finishing the Gateway's timed sentences", () => {
     expect(formatWhen(when, AT)).not.toContain(formatClockTime(STOPPED));
     expect(formatElapsed(STOPPED, AT)).toBe("8 minutes");
     expect(formatElapsed("2026-09-17T11:19:00Z", AT)).toBe("1 minute");
+  });
+});
+
+
+describe("Now - which session this is", () => {
+  // ROUND ONE'S TOP ITEM. The Gateway has sent this line since the route merged and the view dropped it, so the
+  // pane never said whose stop was on it - while the owner moves between a dozen sessions on this one screen and
+  // the box on it sends his answer to whichever one it is.
+  it("puts the session's number and name on the first line, above the pill, in every state", () => {
+    const states: Array<Partial<WingmanNowDto>> = [
+      { state: "needs-you", pillText: "Needs you" },
+      { state: "working", pillText: "Working" },
+      { state: "snoozed", pillText: "Snoozed" },
+      { state: "done", pillText: "Done" },
+      { state: "report", pillText: "Telling you" },
+      { state: "failed", pillText: "Stopped", failedHeadline: "The Wingman could not explain this stop" },
+      { state: "switched-off", pillText: "Stopped" },
+      { state: "other", pillText: "Exited" },
+    ];
+    for (const over of states) {
+      const { container, unmount } = render(<WingmanNow now={base(over)} at={AT} />);
+      const line = container.querySelector(".wnow-session")!;
+      expect(line.textContent).toBe("112 - Cube Data and Projects - Architect");
+      // FIRST. Before the pill, which is the next thing on the page.
+      const pill = container.querySelector(".wnow-pill")!;
+      expect(line.compareDocumentPosition(pill) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      unmount();
+    }
+  });
+
+  it("draws nothing at all rather than an empty line, if a Gateway ever sends none", () => {
+    const { container } = render(<WingmanNow now={base({ sessionLine: "" })} at={AT} />);
+    expect(container.querySelector(".wnow-session")).toBeNull();
+  });
+});
+
+describe("Now - the snoozed session", () => {
+  const SNOOZED = base({
+    state: "snoozed",
+    pillText: "Snoozed",
+    pillColour: "grey",
+    pillColourHex: "#6b7280",
+    when: { lead: "Stopped at", atUtc: STOPPED, showAgo: true, elapsedOnly: false },
+    snoozedUntil: { lead: "Snoozed until", atUtc: "2026-09-17T15:12:00Z", showAgo: false, elapsedOnly: false },
+    story: "The release notes are pushed and the merge command was refused by a permission check.",
+    lastStop: {
+      lead: "The stop you snoozed over",
+      atUtc: STOPPED,
+      text: "Needs you - Merge pull request #3002, or allow me to merge it",
+    },
+    replyPlaceholder: "Answer the session directly.",
+  });
+
+  it("says when it comes back, and what he snoozed over", () => {
+    // THE WEAKEST PAGE ON THE SCREEN, and it was weak because the view read neither of these fields: the page said
+    // the word "Snoozed" twice and nothing else, so "Answer the session directly" had nothing to refer to.
+    render(<WingmanNow now={SNOOZED} at={AT} replyBox={replyBox} />);
+
+    expect(screen.getByText(`Snoozed until ${formatClockTime("2026-09-17T15:12:00Z")}`)).toBeTruthy();
+    expect(screen.getByText(`The stop you snoozed over, ${formatClockTime(STOPPED)}:`)).toBeTruthy();
+    expect(screen.getByText(/Merge pull request #3002/)).toBeTruthy();
+  });
+
+  it("says what ends the snooze from the headline when the Gateway named no moment", () => {
+    // A hold that has not landed yet, or one that waits for him. The Gateway sends one or the other, never both.
+    const noDeadline = base({ ...SNOOZED, snoozedUntil: null, headline: "Snoozed until you wake it" });
+    render(<WingmanNow now={noDeadline} at={AT} />);
+
+    expect(screen.getByText("Snoozed until you wake it")).toBeTruthy();
+    expect(screen.queryByText(/Snoozed until \d/)).toBeNull();
+  });
+
+  it("offers Wake first, and never a second snooze on a session that is already snoozed", async () => {
+    const onUnsnooze = accepts("Unsnoozed.");
+    const { container } = render(
+      <WingmanNow now={SNOOZED} at={AT} actions={{ onUnsnooze, onOpenTerminal: () => {} }} />,
+    );
+
+    const buttons = [...container.querySelectorAll(".wnow-quick button")].map((b) => b.textContent);
+    expect(buttons).toEqual(["Wake this session", "Open the terminal"]);
+    fireEvent.click(screen.getByText("Wake this session"));
+    await waitFor(() => expect(onUnsnooze).toHaveBeenCalled());
+  });
+});
+
+describe("Now - the one button that destroys something", () => {
+  it("puts Close last in the row, set apart from the harmless buttons", () => {
+    // It sat between two buttons that do nothing irreversible, drawn exactly like both of them.
+    const { container } = render(
+      <WingmanNow
+        now={base({ state: "done", pillText: "Done" })}
+        at={AT}
+        actions={{ onSnooze: accepts(), onClose: () => {}, onOpenTerminal: () => {} }}
+      />,
+    );
+
+    const row = [...container.querySelectorAll(".wnow-quick button")].map((b) => b.textContent);
+    expect(row).toEqual(["Snooze this session", "Open the terminal", "Close this session"]);
+    expect(container.querySelector(".wnow-btn-apart")!.textContent).toBe("Close this session");
+  });
+});
+
+describe("Now - a long ask is folded, never shortened", () => {
+  // Eight lines of a scheduled prompt were the whole page, and the reply box slid off the bottom of it with every
+  // long ask. The WORDS are not touched: they are what was really sent.
+  const LONG = [
+    "skill /youtube-channel-manager - the daily morning report. Unattended - nobody is watching when you start.",
+    "Read .claude/skills/youtube-channel-manager/SKILL.md in full and follow Steps 1-6 exactly;",
+    "memory/feedback.md outranks it. Read the channel in YouTube Studio through the browser profile,",
+    "scan the niche with outliers.py, read comments, then email Soren ONCE as HTML so it lands by 07:00.",
+    "Change nothing on the channel. ASCII only. Do not commit.",
+  ].join("\n");
+
+  const asked = (text: string) =>
+    base({
+      state: "working",
+      pillText: "Working",
+      lastAsked: { heading: "What it was last asked", text, atUtc: STOPPED, by: null, whenLead: "at" },
+    });
+
+  it("holds a long ask to three lines, with all of it one click away", () => {
+    const { container } = render(<WingmanNow now={asked(LONG)} at={AT} />);
+
+    const text = container.querySelector(".wnow-asked-text")!;
+    expect(text.className).toContain("wnow-asked-clamped");
+    // Every word is still there - folded, not summarised.
+    expect(text.textContent).toBe(LONG);
+
+    fireEvent.click(screen.getByText("Show all of it"));
+    expect(container.querySelector(".wnow-asked-text")!.className).not.toContain("wnow-asked-clamped");
+    expect(container.querySelector(".wnow-asked-text")!.textContent).toBe(LONG);
+
+    fireEvent.click(screen.getByText("Show less of it"));
+    expect(container.querySelector(".wnow-asked-text")!.className).toContain("wnow-asked-clamped");
+  });
+
+  it("offers no control on an ask that already fits", () => {
+    const { container } = render(<WingmanNow now={asked("Carry on with the next slice.")} at={AT} />);
+
+    expect(container.querySelector(".wnow-asked-clamped")).toBeNull();
+    expect(screen.queryByText("Show all of it")).toBeNull();
+  });
+});
+
+describe("Now - what sending the box does", () => {
+  it("says it in the Gateway's words, under the box, wherever a box is offered", () => {
+    const now = base({
+      state: "needs-you",
+      pillText: "Needs you",
+      replyPlaceholder: "Or answer in your own words.",
+      replyHint: "Sent to the session as your message. You can answer more than one question in one reply.",
+    });
+    render(<WingmanNow now={now} at={AT} replyBox={replyBox} />);
+
+    expect(
+      screen.getByText("Sent to the session as your message. You can answer more than one question in one reply."),
+    ).toBeTruthy();
+  });
+
+  it("says nothing about a box that is not there", () => {
+    const now = base({ state: "done", pillText: "Done", replyPlaceholder: null, replyHint: null });
+    const { container } = render(<WingmanNow now={now} at={AT} replyBox={replyBox} />);
+
+    expect(container.querySelector(".wnow-reply-hint")).toBeNull();
   });
 });

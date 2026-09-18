@@ -1,5 +1,5 @@
 // Now - the live stop of one session, and only the live stop (the Wingman tab, version 3, item 3). This is the view
-// the owner sits on instead of the terminal, so it is never blank: all ten states are drawn.
+// the owner sits on instead of the terminal, so it is never blank: all eleven states are drawn.
 //
 // THIS VIEW DECIDES NOTHING. It renders the strings and flags of one WingmanNow object, in the order below, showing
 // each piece exactly when the Gateway sent it. There is no branch on what a state MEANS anywhere in this file - no
@@ -156,7 +156,7 @@ function Outcome({ outcome }: { outcome: WingmanNowOutcome | null }) {
  * `replyPlaceholder` arrived, and the placeholder is handed straight to the shell. A state the Gateway gave no
  * placeholder has no reply box, the same as before.
  */
-export type WingmanNowReplyBox = (placeholder: string) => ReactNode;
+export type WingmanNowReplyBox = (placeholder: string, state: string) => ReactNode;
 
 export function WingmanNow({
   now,
@@ -175,10 +175,24 @@ export function WingmanNow({
   const quick = useOutcome();
   const reply =
     now.replyPlaceholder != null && replyBox ? (
-      <div className="wnow-reply">{replyBox(now.replyPlaceholder)}</div>
+      <div className="wnow-reply">
+        {/* The Gateway's placeholder AND the Gateway's state word, both handed over as they arrived. The shell
+            offers one sending button per state and needs to know which state it is drawing a box for; nothing is
+            decided here, and the shell reads the same word it already reads for the close. */}
+        {replyBox(now.replyPlaceholder, now.state)}
+        {/* WHAT SENDING DOES, beside the one box - the Gateway's sentence, drawn verbatim. It has been folded per
+            state since the route merged and nothing rendered it, so the screen offered a box and said nothing about
+            where its words would go. */}
+        {now.replyHint != null && <p className="wnow-reply-hint">{now.replyHint}</p>}
+      </div>
     ) : null;
   return (
     <div className="wnow">
+      {/* WHICH SESSION THIS IS, FIRST, IN EVERY STATE. The Gateway has sent this line since the route merged and
+          the view dropped it, so the pane never said whose stop was on it while the owner moved between a dozen
+          sessions - and the answer he types here goes to that session. It is the Gateway's own words; the view
+          only puts them first. */}
+      {now.sessionLine ? <p className="wnow-session">{now.sessionLine}</p> : null}
       <Header now={now} at={at} actions={actions} />
       <div className="wnow-body">
         {now.switchedOff && (
@@ -198,6 +212,9 @@ export function WingmanNow({
         {now.failedHeadline != null && <h2 className="wnow-headline wnow-headline-failed">{now.failedHeadline}</h2>}
         {now.failedStory != null && <p className="wnow-story">{now.failedStory}</p>}
 
+        {/* WHEN IT COMES BACK, on the state that was two words and nothing else. The Gateway sends either this or a
+            headline saying what ends the snooze, never both, so they share the line rather than competing for it. */}
+        {now.snoozedUntil && <h2 className="wnow-headline">{formatWhen(now.snoozedUntil, at)}</h2>}
         {now.headline != null && <h2 className="wnow-headline">{now.headline}</h2>}
         {now.story != null && <p className="wnow-story">{now.story}</p>}
 
@@ -276,9 +293,10 @@ export function WingmanNow({
           <section className="wnow-card wnow-card-asked" aria-label={now.lastAsked.heading}>
             {/* THE GATEWAY'S WORDS, not this file's. The heading and the words before the time both arrive
                 finished - "at", or "You, at" - so the view joins the lead and the local clock and chooses neither
-                the wording nor the punctuation. */}
+                the wording nor the punctuation. The words are not touched here either: a long ask is FOLDED, never
+                shortened, because what was really sent is the point of the card. */}
             <h3>{now.lastAsked.heading}</h3>
-            <p className="wnow-asked-text">{now.lastAsked.text}</p>
+            <Asked text={now.lastAsked.text} />
             <p className="wnow-when">
               {now.lastAsked.whenLead} {formatClockTime(now.lastAsked.atUtc)}
             </p>
@@ -336,22 +354,27 @@ export function WingmanNow({
                 run={actions.onSnooze}
               />
             )}
+            {/* WAKE, not "unsnooze". The pair reads as one plain verb each way round, and it is the first button on
+                a snoozed session - the one thing he came to that page to do. */}
             {actions.onUnsnooze && (
               <QuickAction
-                label="Unsnooze this session"
-                busyLabel="Unsnoozing..."
+                label="Wake this session"
+                busyLabel="Waking..."
                 outcome={quick}
                 run={actions.onUnsnooze}
               />
             )}
-            {actions.onClose && (
-              <button type="button" className="wnow-btn" onClick={actions.onClose}>
-                Close this session
-              </button>
-            )}
             {actions.onOpenTerminal && (
               <button type="button" className="wnow-btn" onClick={actions.onOpenTerminal}>
                 Open the terminal
+              </button>
+            )}
+            {/* THE ONLY BUTTON ON THIS SCREEN THAT DESTROYS ANYTHING, so it is last and it is set apart. It sat in
+                the middle of the row drawn exactly like the two harmless buttons either side of it. It still asks
+                before it closes - the shell's own stop question, which is the one owner of the confirmation. */}
+            {actions.onClose && (
+              <button type="button" className="wnow-btn wnow-btn-apart" onClick={actions.onClose}>
+                Close this session
               </button>
             )}
             <Outcome outcome={quick.outcome} />
@@ -556,6 +579,42 @@ function Options({
           );
         })}
       </ul>
+    </>
+  );
+}
+
+/**
+ * ABOUT HOW MANY LINES OF A LONG ASK ARE WORTH FOLDING AWAY.
+ *
+ * It is a LAYOUT measure, not a meaning: the words themselves are never touched, because what was really sent is
+ * the whole point of the card. Either of the two is enough on its own - a prompt with four newlines in it, or one
+ * unbroken paragraph long enough to run past three lines of the 820-pixel reading column. The clamp itself is the
+ * stylesheet's; these only decide whether a fold is worth offering at all, so a one-line ask carries no control.
+ */
+const ASKED_LINES_SHOWN = 3;
+const ASKED_CHARACTERS_SHOWN = 240;
+
+/** True when this ask is long enough that folding it is worth a control. */
+export function askIsLong(text: string): boolean {
+  return text.split("\n").length > ASKED_LINES_SHOWN || text.length > ASKED_CHARACTERS_SHOWN;
+}
+
+/**
+ * What the session was last asked, held to about three lines with the rest one click away (the review's item N4).
+ *
+ * A scheduled prompt is eight lines of file paths and command lines, and it was the whole page: the reply box slid
+ * off the bottom of the screen with every long ask. The words are NOT shortened - a summary of what was really sent
+ * would be this view writing the Gateway's sentence for it - they are folded, and the fold opens.
+ */
+function Asked({ text }: { text: string }) {
+  const [showAll, setShowAll] = useState(false);
+  if (!askIsLong(text)) return <p className="wnow-asked-text">{text}</p>;
+  return (
+    <>
+      <p className={`wnow-asked-text${showAll ? "" : " wnow-asked-clamped"}`}>{text}</p>
+      <button type="button" className="wnow-link wnow-asked-more" onClick={() => setShowAll(!showAll)}>
+        {showAll ? "Show less of it" : "Show all of it"}
+      </button>
     </>
   );
 }
