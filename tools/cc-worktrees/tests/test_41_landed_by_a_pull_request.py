@@ -276,3 +276,40 @@ def test_azure_with_az_off_the_path_the_work_is_held_and_checked_by_git_only(azu
 
     _assert_held_with(w, got, path, res, "checked by git only", "az is not on PATH")
     assert git(path, "rev-parse", "HEAD") == commits[0]
+
+
+def test_github_with_gh_not_signed_in_the_work_is_held_and_checked_by_git_only(github_world, tmp_path):
+    """A tool that is there but cannot answer is the same answer as no tool: checked by git only, held.
+    `gh` is pointed at an empty configuration directory with no token, so it is not signed in; the testbed
+    is private, so an unauthenticated `gh` cannot read it."""
+    w = github_world
+    got = w.get()
+    path = Path(got["path"])
+    branch = w.unique_branch()
+    commits = _branch_with_a_merge_commit(w, path, branch)
+    _github_merge(w, _github_pull_request(w, branch), "--squash")
+    empty = tmp_path / "no-gh-config"
+    empty.mkdir()
+
+    res = w.run("return", got["path"], "--lease", got["lease"], "--json",
+                env_extra={"GH_CONFIG_DIR": str(empty), "GH_TOKEN": "", "GITHUB_TOKEN": ""})
+
+    _assert_held_with(w, got, path, res, "checked by git only", "gh pr list failed")
+    assert git(path, "rev-parse", "HEAD") == commits[0]
+
+
+def test_azure_with_az_not_signed_in_the_work_is_held_and_checked_by_git_only(azure_world, tmp_path):
+    w = azure_world
+    got = w.get()
+    path = Path(got["path"])
+    branch = w.unique_branch()
+    commits = _branch_with_a_merge_commit(w, path, branch, back=1)
+    _azure_complete_semi_linear(w, _azure_pull_request(w, branch), commits[0])
+    empty = tmp_path / "no-az-config"
+    empty.mkdir()
+
+    res = w.run("return", got["path"], "--lease", got["lease"], "--json",
+                env_extra={"AZURE_CONFIG_DIR": str(empty), "AZURE_DEVOPS_EXT_PAT": ""})
+
+    _assert_held_with(w, got, path, res, "checked by git only", "az repos pr list failed")
+    assert git(path, "rev-parse", "HEAD") == commits[0]
