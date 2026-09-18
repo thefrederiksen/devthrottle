@@ -21,6 +21,15 @@ namespace CcDirector.Setup.Engine.Tests;
 /// unreachable gateway, and a 2xx with no local key all BLOCK (return failure with a clear reason and NO
 /// persist) - so the install can never finish on a join that did not actually issue a local device key.
 /// </summary>
+/// <remarks>
+/// In the hosted-gateway-url collection because <c>SignInAndEnrollHostedAsync</c> resolves the hosted
+/// address from a PROCESS-WIDE environment variable. It was outside that collection, so it ran in
+/// parallel with the classes that point the override at a stub host, and it then read whatever they
+/// had set: the cancellation test saw "DEVTHROTTLE_HOSTED_GATEWAY_URL is set to ..." where it expected
+/// "Sign-in was cancelled". Nothing about the code under test was wrong either time, which is exactly
+/// what makes this shape expensive - the failure moves with the scheduler and reads as a real defect.
+/// </remarks>
+[Collection(HostedGatewayUrlCollection.Name)]
 public class GatewayAccountEnrollRunnerTests
 {
     private const string GatewayUrl = "http://gateway.test:7878";

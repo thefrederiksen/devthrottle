@@ -25,17 +25,46 @@ namespace CcDirector.Setup.Engine.Tests;
 /// claim of correctness being worse than no claim, because it spends the next reader's scepticism
 /// somewhere else.
 /// </summary>
+[Collection(MachineRootCollection.Name)] // it points the process-wide CC_DIRECTOR_ROOT setting somewhere
 public sealed class InstallRootResolutionTests
 {
     /// <summary>
-    /// One per-user root, one implementation of it. The installer asks <see cref="CcStorage"/>
-    /// rather than deriving its own answer - two implementations of one path cannot stay equal, and
-    /// the proof of that is that these two DID diverge, for exactly as long as it took Phase 1 to
-    /// fix one of them.
+    /// One root, one implementation of it. The installer asks <see cref="CcStorage"/> rather than
+    /// deriving its own answer - two implementations of one path cannot stay equal, and the proof of
+    /// that is that these two DID diverge, for exactly as long as it took Phase 1 of the Linux mission
+    /// to fix one of them.
+    ///
+    /// It asks for the MACHINE root, and that is the whole of the difference from what this test used
+    /// to assert. It compared the installer's root with <c>CcStorage.Root()</c>, which is where THIS
+    /// PROCESS keeps its data - and a Director points that at its own folder and hands it to every
+    /// session it starts. So the comparison held on a developer's shell and quietly licensed an
+    /// install started from inside a Director, or from a checkout inside one of its sessions, to put a
+    /// complete second copy of the product into that Director's data folder. One computer finished
+    /// with seven copies of the tools.
     /// </summary>
     [Fact]
-    public void Default_UsesTheSameRootAsTheDirectorItself()
-        => Assert.Equal(CcStorage.Root(), InstallLayout.Default().LocalRoot);
+    public void Default_UsesTheSameRootResolverTheDirectorUses()
+        => Assert.Equal(CcStorage.MachineRoot(), InstallLayout.Default().LocalRoot);
+
+    /// <summary>
+    /// And on an ordinary machine root - no Director folder anywhere in it - the two answers are the
+    /// same, so nothing about where a normal install lands has moved.
+    /// </summary>
+    [Fact]
+    public void On_a_root_that_is_not_a_Directors_folder_both_answers_agree()
+    {
+        var ordinary = Path.Combine(Path.GetTempPath(), "cc-install-root-" + Guid.NewGuid().ToString("N"));
+        var previous = Environment.GetEnvironmentVariable("CC_DIRECTOR_ROOT");
+        Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", ordinary);
+        try
+        {
+            Assert.Equal(CcStorage.Root(), InstallLayout.Default().LocalRoot);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("CC_DIRECTOR_ROOT", previous);
+        }
+    }
 
     /// <summary>
     /// The root the old code produced on a fresh Linux account, rejected by name. This is the
