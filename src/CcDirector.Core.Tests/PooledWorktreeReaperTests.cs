@@ -26,7 +26,7 @@ public sealed class PooledWorktreeReaperTests : IDisposable
 
     public PooledWorktreeReaperTests()
     {
-        _root = Path.Combine(Path.GetTempPath(), "ccd-pool-reaper-" + Guid.NewGuid().ToString("N"));
+        _root = TestTempRoot.For("ccd-pool-reaper-");
         Directory.CreateDirectory(_root);
         _home = Path.Combine(_root, "cc-worktrees-home");
         _leftovers = new WorktreeLeftoverStore(Path.Combine(_root, "leftovers"));

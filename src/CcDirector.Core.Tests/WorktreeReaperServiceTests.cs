@@ -20,7 +20,7 @@ public sealed class WorktreeReaperServiceTests : IDisposable
 
     public WorktreeReaperServiceTests()
     {
-        _root = Path.Combine(Path.GetTempPath(), "ccd-reaper-" + Guid.NewGuid().ToString("N"));
+        _root = TestTempRoot.For("ccd-reaper-");
         Directory.CreateDirectory(_root);
         _leftovers = new WorktreeLeftoverStore(Path.Combine(_root, "leftovers"));
         _origin = Path.Combine(_root, "origin.git");
@@ -85,6 +85,50 @@ public sealed class WorktreeReaperServiceTests : IDisposable
         RunGit(wt, "commit", "-m", branch + " unmerged");
         RunGit(wt, "push", "-u", "origin", branch);
         return wt;
+    }
+
+    /// <summary>
+    /// Makes one file's directory refuse deletion for as long as this is held, so a reap has something
+    /// it genuinely CANNOT delete and must report as a leftover.
+    ///
+    /// The two platforms need opposite mechanisms, and that is the whole reason this exists. On Windows
+    /// an open handle without delete sharing blocks the delete, which is what these tests used. On macOS
+    /// and Linux an open file does NOT block anything - the entry is unlinked and the data lives on
+    /// until the last handle closes - so holding the file open left the directory perfectly deletable,
+    /// the reap succeeded, and the tests failed on a condition that was never created. Removing write
+    /// permission from the CONTAINING directory is the Unix way to make unlinking its entries fail, and
+    /// it is reversible, which the retry test needs.
+    /// </summary>
+    private sealed class UndeletableFile : IDisposable
+    {
+        private readonly FileStream? _handle;
+        private readonly string? _directory;
+        private readonly UnixFileMode _originalMode;
+
+        public UndeletableFile(string filePath)
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                _handle = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                return;
+            }
+
+            _directory = Path.GetDirectoryName(filePath)!;
+            _originalMode = File.GetUnixFileMode(_directory);
+            File.SetUnixFileMode(_directory, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+        }
+
+        public void Dispose()
+        {
+            _handle?.Dispose();
+            // The platform guard is explicit rather than implied by _directory being set: the
+            // compatibility analyzer reads the guard, not the invariant.
+            if (!OperatingSystem.IsWindows() && _directory is not null)
+            {
+                // Restore, or the fixture's own cleanup cannot remove the tree either.
+                try { File.SetUnixFileMode(_directory, _originalMode); } catch { }
+            }
+        }
     }
 
     [Fact]
@@ -158,7 +202,7 @@ public sealed class WorktreeReaperServiceTests : IDisposable
         var lockedFile = Path.Combine(lockedDir, "held.bin");
         File.WriteAllText(lockedFile, "output\n");
 
-        using (var _ = new FileStream(lockedFile, FileMode.Open, FileAccess.Read, FileShare.Read))
+        using (var _ = new UndeletableFile(lockedFile))
         {
             var result = await new WorktreeReaperService(leftovers: _leftovers, utcNow: Later).ReapAsync(_primary, NoSessions);
 
@@ -332,7 +376,9 @@ public sealed class WorktreeReaperServiceTests : IDisposable
     // removal FAILS and the worktree is left in place, never deleted. This is the guarantee the
     // heuristics only approximate.
     // ---------------------------------------------------------------------------------------
-    [Fact]
+    [WindowsOnlyFact("the protection under test IS the operating system's file lock - the test's own comment says so. " +
+        "On macOS and Linux an open file does not block deletion, so this last-resort safety net does not exist there " +
+        "and no test-side change can make it appear. The resulting gap is issue #3097.")]
     public async Task Reap_NeverDeletesAWorktree_WithAnOpenFileUnderIt_EvenWhenRosterAndCoolingOffMissIt()
     {
         var safe = AddSafeWorktree("held-open");
@@ -514,7 +560,7 @@ public sealed class WorktreeReaperServiceTests : IDisposable
 
         // First reap while the file is locked: git deregisters the worktree but the folder cannot be
         // fully deleted, so it is recorded as a persisted leftover.
-        using (var _ = new FileStream(lockedFile, FileMode.Open, FileAccess.Read, FileShare.Read))
+        using (var _ = new UndeletableFile(lockedFile))
         {
             var first = await new WorktreeReaperService(leftovers: _leftovers, utcNow: Later).ReapAsync(_primary, NoSessions);
             Assert.Contains(safe, first.Leftovers);

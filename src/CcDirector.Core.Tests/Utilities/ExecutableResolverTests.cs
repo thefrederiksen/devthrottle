@@ -54,7 +54,7 @@ public class ExecutableResolverTests
         Assert.Null(result);
     }
 
-    [Fact]
+    [WindowsOnlyFact("the executable-extension list is a Windows mechanism; elsewhere a bare name resolves by the executable bit")]
     public void Resolve_BareNameOnPath_AppliesPathExt()
     {
         // Mirrors the real scenario: a CLI installed as 'opencode.cmd' must resolve from
@@ -97,7 +97,7 @@ public class ExecutableResolverTests
         }
     }
 
-    [Fact]
+    [WindowsOnlyFact("the executable-extension list is a Windows mechanism; elsewhere a bare name resolves by the executable bit")]
     public void Resolve_SkipsBlankPathEntries()
     {
         var dir = Path.Combine(Path.GetTempPath(), "cc-exe-resolve-" + Guid.NewGuid().ToString("N"));

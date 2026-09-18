@@ -193,10 +193,20 @@ public sealed class SessionGitStatusMonitorTests
         // The exact defect from item 3 of the issue: RepoPath is stored however it arrived, so one tree
         // shows up under several spellings. Grouping on the raw string would silently keep the duplication -
         // this is the test that fails if the grouping key stops being canonical.
-        using var forward = NewSession("C:/test/alpha");
-        using var backward = NewSession(@"C:\test\alpha");
-        using var trailing = NewSession(@"C:\test\alpha\");
-        using var cased = NewSession(@"C:\Test\Alpha");
+        // FOUR SPELLINGS OF ONE DIRECTORY, chosen so they are genuinely one directory on the platform
+        // under test. The Windows set leans on the separator and on case; neither is available off
+        // Windows - a backslash is an ordinary character in a Unix file name, and a case variant is a
+        // DIFFERENT directory on a case-sensitive filesystem, so asserting that it groups would be
+        // asserting something untrue on Linux. Redundant and trailing separators are unambiguous on
+        // both.
+        var (a, b, c, d) = OperatingSystem.IsWindows()
+            ? ("C:/test/alpha", @"C:\test\alpha", @"C:\test\alpha\", @"C:\Test\Alpha")
+            : ("/test/alpha", "/test/alpha/", "/test/./alpha", "/test//alpha");
+
+        using var forward = NewSession(a);
+        using var backward = NewSession(b);
+        using var trailing = NewSession(c);
+        using var cased = NewSession(d);
         manager.AdoptSession(forward);
         manager.AdoptSession(backward);
         manager.AdoptSession(trailing);

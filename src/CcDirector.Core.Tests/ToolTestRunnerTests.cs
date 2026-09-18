@@ -35,8 +35,14 @@ public class ToolTestRunnerTests : IDisposable
     [Fact]
     public async Task RunTest_OnPathBinaryExists_Passes()
     {
+        // The OnPath check is the one test kind that asks whether the FILE EXISTS, so the path has to be
+        // a real executable on this platform. Cmd falls back to the Windows command interpreter's
+        // location, which is simply absent on macOS and Linux - the check was correctly answering "no"
+        // about a file that was not there. The other tests in this class LAUNCH Cmd rather than probe
+        // for it, so this is deliberately narrow.
+        var existing = OperatingSystem.IsWindows() ? Cmd : "/bin/sh";
         var onPath = new ToolTest(ToolTestKind.OnPath, Array.Empty<string>(), null);
-        var tool = new ToolDescriptor("stub", "Test", "x", null, Cmd, isBuilt: true, isOnPath: false, isExpected: true, new[] { onPath });
+        var tool = new ToolDescriptor("stub", "Test", "x", null, existing, isBuilt: true, isOnPath: false, isExpected: true, new[] { onPath });
 
         var result = await new ToolTestRunner().RunTestAsync(tool, onPath);
 

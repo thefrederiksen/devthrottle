@@ -6,10 +6,37 @@ namespace CcDirector.Core.Tests;
 /// <summary>
 /// Proves the two process hazards from issue 516 are closed: a child that fills its stderr pipe
 /// does not deadlock the capture, and a cancelled run kills the child rather than orphaning it.
-/// Uses powershell as a controllable child (Windows-only, as the rest of the suite already is).
+///
+/// THE CHILD IS CHOSEN PER PLATFORM, and that is the whole point. These tests used powershell, which
+/// is not installed on a stock Mac, so both of them failed here on a missing executable rather than on
+/// the hazard they exist to catch - the run never started, so there was no pipe to flood and no child
+/// to kill. Both hazards are operating-system behaviour and are MORE likely to differ between
+/// platforms than to be identical, so the child is now a shell that exists everywhere and these run
+/// everywhere.
 /// </summary>
 public sealed class ProcessRunnerTests
 {
+    /// <summary>
+    /// A child that writes <paramref name="bytes"/> bytes to standard error and then the word "done"
+    /// to standard output, on whichever platform this is running.
+    /// </summary>
+    private static (string File, string[] Args) FloodChild(int bytes) =>
+        OperatingSystem.IsWindows()
+            ? ("powershell", new[] { "-NoProfile", "-Command",
+                $"$e = 'x' * {bytes}; [Console]::Error.Write($e); [Console]::Out.Write('done')" })
+            : ("/bin/sh", new[] { "-c",
+                $"head -c {bytes} /dev/zero | tr '\\0' 'x' >&2; printf done" });
+
+    /// <summary>
+    /// A child that sleeps long enough to be cancelled mid-flight and only then writes
+    /// <paramref name="marker"/>, so the marker's absence proves it was killed.
+    /// </summary>
+    private static (string File, string[] Args) SleepThenWriteChild(string marker) =>
+        OperatingSystem.IsWindows()
+            ? ("powershell", new[] { "-NoProfile", "-Command",
+                $"Start-Sleep -Seconds 4; Set-Content -LiteralPath '{marker}' -Value 'ran'" })
+            : ("/bin/sh", new[] { "-c", $"sleep 4; printf ran > '{marker}'" });
+
     // ---------------------------------------------------------------------------------------
     // REGRESSION (issue 516): draining stdout to end before stderr lets a child that writes more
     // than the stderr pipe buffer (about 64 KB) block forever - it is stuck writing stderr while
@@ -21,10 +48,9 @@ public sealed class ProcessRunnerTests
     public async Task RunAsync_ChildFloodsStderr_DrainsBothPipes_DoesNotDeadlock()
     {
         const int floodSize = 500_000; // comfortably larger than any pipe buffer
-        var script = $"$e = 'x' * {floodSize}; [Console]::Error.Write($e); [Console]::Out.Write('done')";
+        var (file, args) = FloodChild(floodSize);
 
-        var run = ProcessRunner.RunAsync(
-            "powershell", new[] { "-NoProfile", "-Command", script }, workingDirectory: null);
+        var run = ProcessRunner.RunAsync(file, args, workingDirectory: null);
 
         // If the drain regressed to sequential, run never completes and the delay wins.
         //
@@ -56,13 +82,12 @@ public sealed class ProcessRunnerTests
     public async Task RunAsync_OnCancellation_KillsTheChild_BeforeItCanFinish()
     {
         var marker = Path.Combine(Path.GetTempPath(), "ccd-procrunner-" + Guid.NewGuid().ToString("N") + ".txt");
-        var script = $"Start-Sleep -Seconds 4; Set-Content -LiteralPath '{marker}' -Value 'ran'";
+        var (file, args) = SleepThenWriteChild(marker);
 
         try
         {
             using var cts = new CancellationTokenSource();
-            var run = ProcessRunner.RunAsync(
-                "powershell", new[] { "-NoProfile", "-Command", script }, workingDirectory: null, cts.Token);
+            var run = ProcessRunner.RunAsync(file, args, workingDirectory: null, cts.Token);
 
             await Task.Delay(1500); // let powershell start and enter the sleep
             cts.Cancel();

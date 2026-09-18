@@ -25,7 +25,7 @@ public sealed class PooledWorktreeSessionTests : IDisposable
 
     public PooledWorktreeSessionTests()
     {
-        _root = Path.Combine(Path.GetTempPath(), "ccd-pooled-session-" + Guid.NewGuid().ToString("N"));
+        _root = TestTempRoot.For("ccd-pooled-session-");
         _repo = Path.Combine(_root, "primary");
         _slot = Path.Combine(_root, "primary.worktrees", "wt01");
         Directory.CreateDirectory(_repo);

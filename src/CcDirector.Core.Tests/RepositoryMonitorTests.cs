@@ -115,7 +115,7 @@ public class RepositoryMonitorTests
     [Fact]
     public async Task Cache_WarmStart_ShowsLastRunInstantly_ThenReconciles()
     {
-        var cachePath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ccd-monitor-cache-" + Guid.NewGuid().ToString("N") + ".json");
+        var cachePath = TestTempRoot.For("ccd-monitor-cache-") + ".json";
         try
         {
             // First monitor: scan finds a, b, c and persists the cache.
@@ -188,7 +188,7 @@ public class RepositoryMonitorTests
     [Fact]
     public async Task LoadCache_MarksEntriesProvisional_AndScanClearsIt()
     {
-        var cachePath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ccd-prov-" + Guid.NewGuid().ToString("N") + ".json");
+        var cachePath = TestTempRoot.For("ccd-prov-") + ".json";
         try
         {
             var m1 = new RepositoryMonitor(_ => new[] { "/r/a" }, (p, _, _) => Task.FromResult(Status(p)), cachePath) { LiveSessionsProvider = NoSessions };
@@ -210,7 +210,7 @@ public class RepositoryMonitorTests
     [Fact]
     public async Task RecomputeOne_NonRepoFolder_RemovesTheEntry()
     {
-        var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ccd-notrepo-" + Guid.NewGuid().ToString("N"));
+        var dir = TestTempRoot.For("ccd-notrepo-");
         Directory.CreateDirectory(dir); // exists, but has no .git
         try
         {
@@ -241,7 +241,7 @@ public class RepositoryMonitorTests
     [Fact]
     public async Task RecomputeOne_LinkedWorktreePath_RecomputesThePrimaryEntry()
     {
-        var root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ccd-canon-" + Guid.NewGuid().ToString("N"));
+        var root = TestTempRoot.For("ccd-canon-");
         var primary = System.IO.Path.Combine(root, "primary");
         var wt = System.IO.Path.Combine(root, "wt-linked");
         Directory.CreateDirectory(primary);

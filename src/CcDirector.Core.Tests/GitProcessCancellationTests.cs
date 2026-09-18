@@ -50,6 +50,16 @@ public sealed class GitProcessCancellationTests : IDisposable
         // so this is a reliable long-running child of the git process. git commit runs it and waits.
         var hook = Path.Combine(_repo, ".git", "hooks", "pre-commit");
         File.WriteAllText(hook, "#!/bin/sh\nsleep 5\ntouch \"" + marker + "\"\n".Replace("\r\n", "\n"));
+        // MAKE THE HOOK EXECUTABLE, OR THIS TEST PROVES NOTHING OUTSIDE WINDOWS. git on macOS and Linux
+        // SKIPS a hook without the executable bit - it says so on stderr - so the commit finished
+        // instantly, the cancellation had nothing to cancel, and the test failed on the missing exception
+        // rather than on the behaviour it was written to pin. git for Windows runs the hook regardless of
+        // the bit, which is why this went unnoticed there.
+        if (!OperatingSystem.IsWindows())
+            File.SetUnixFileMode(hook,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
+                UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+                UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
 
         using var cts = new CancellationTokenSource();
         var run = new GitCommandRunner().RunAsync(_repo, new[] { "commit", "--allow-empty", "-m", "x" }, cts.Token);

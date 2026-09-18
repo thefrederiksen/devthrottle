@@ -77,7 +77,10 @@ public sealed class ToolInventoryTests : IDisposable
         Assert.Null(item.Version); // honestly unknown, never invented
     }
 
-    [Fact]
+    [WindowsOnlyFact("this arranges the WINDOWS installed layout literally - bin\\<name>.cmd shims forwarding to " +
+        "pyenv\\Scripts\\<name>.exe, with a stub carrying an executable file header - and asserts the inventory " +
+        "reads the bundle version through it. The macOS layout has no .cmd shim and no .exe, so the arrangement " +
+        "cannot be built here; equivalent coverage for the macOS layout is separate work.")]
     public void Build_PyenvConsoleScript_GetsPythonToolsBundleVersion()
     {
         // The real installed layout: bin\<name>.cmd shims forward to pyenv\Scripts\<name>.exe

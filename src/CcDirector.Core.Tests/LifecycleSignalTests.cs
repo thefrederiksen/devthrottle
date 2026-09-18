@@ -23,6 +23,26 @@ public sealed class LifecycleSignalTests
     /// <summary>A name no other test or process could be using.</summary>
     private static string UniqueName() => "cc-director-test-" + Guid.NewGuid().ToString("N");
 
+    /// <summary>
+    /// Raise a signal and give the platform's own delivery mechanism time to take it before the next
+    /// raise.
+    ///
+    /// The two arms are not equally fast and cannot be driven the same way. Windows sets a named event
+    /// object, which the listener sees immediately. The Unix arm writes a REQUEST FILE that the listener
+    /// POLLS for, so two raises inside one poll interval are the same single file and produce ONE
+    /// delivery - which is why these tests, written against the instantaneous arm, failed on macOS with
+    /// the handler having run once instead of twice. Spacing the raises past the poll interval is what
+    /// makes "each raise reaches the handler" a question the file arm can answer at all.
+    /// </summary>
+    private static void RaiseAndLetItLand(string name)
+    {
+        Assert.True(LifecycleSignal.Raise(name) || !OperatingSystem.IsWindows(),
+            "the raise reported that nothing was listening");
+
+        if (!OperatingSystem.IsWindows())
+            Thread.Sleep(LifecycleSignal.UnixPollInterval * 2);
+    }
+
     [Fact]
     public void ARaisedSignal_ReachesItsListener()
     {
@@ -130,8 +150,8 @@ public sealed class LifecycleSignalTests
             if (Interlocked.Increment(ref count) == 2) second.Set();
         });
 
-        LifecycleSignal.Raise(name);
-        LifecycleSignal.Raise(name);
+        RaiseAndLetItLand(name);
+        RaiseAndLetItLand(name);
 
         Assert.True(second.Wait(TimeSpan.FromSeconds(10)));
         Thread.Sleep(200);
@@ -154,9 +174,8 @@ public sealed class LifecycleSignalTests
             secondArrived.Set();
         });
 
-        LifecycleSignal.Raise(name);
-        Thread.Sleep(200);
-        LifecycleSignal.Raise(name);
+        RaiseAndLetItLand(name);
+        RaiseAndLetItLand(name);
 
         Assert.True(secondArrived.Wait(TimeSpan.FromSeconds(10)),
             "the listener stopped answering after its handler threw");
@@ -214,9 +233,16 @@ public sealed class LifecycleSignalNamesTests
     [Fact]
     public void TheSameRoot_AlwaysGetsTheSameName()
     {
+        // The root has to be spelled for this platform: a trailing BACKSLASH is not a separator off
+        // Windows - it is an ordinary character in a file name - so the two spellings were genuinely two
+        // different roots there and were correctly given different names.
+        var (root, rootWithSeparator) = OperatingSystem.IsWindows()
+            ? (@"D:\rig\cc-director", @"D:\rig\cc-director\")
+            : ("/rig/cc-director", "/rig/cc-director/");
+
         Assert.Equal(
-            LifecycleSignalNames.LauncherShutdown(@"D:\rig\cc-director"),
-            LifecycleSignalNames.LauncherShutdown(@"D:\rig\cc-director\"));
+            LifecycleSignalNames.LauncherShutdown(root),
+            LifecycleSignalNames.LauncherShutdown(rootWithSeparator));
     }
 
     [Fact]

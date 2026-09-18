@@ -23,7 +23,7 @@ public sealed class WorktreeInventoryIntegrationTests : IDisposable
 
     public WorktreeInventoryIntegrationTests()
     {
-        _root = Path.Combine(Path.GetTempPath(), "ccd-worktree-" + Guid.NewGuid().ToString("N"));
+        _root = TestTempRoot.For("ccd-worktree-");
         Directory.CreateDirectory(_root);
         _origin = Path.Combine(_root, "origin.git");
         _primary = Path.Combine(_root, "primary");
