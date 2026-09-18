@@ -17,10 +17,10 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-import briefs  # noqa: E402
-import contracts  # noqa: E402
-import fleet  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from src import briefs  # noqa: E402
+from src import contracts  # noqa: E402
+from src import fleet  # noqa: E402
 
 AUTHOR = os.environ["CC_SESSION_ID"]
 MAX_CORRECTIONS = 2

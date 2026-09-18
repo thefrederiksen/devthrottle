@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from contracts import ACTIONS, REVIEW_EXAMPLE
+from .contracts import ACTIONS, REVIEW_EXAMPLE
 
 DONE_COMMAND = 'cc-devthrottle session done --reason "cc-ship {role} finished"'
 

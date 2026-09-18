@@ -290,7 +290,7 @@
       "type": "python",
       "description": "Take a finished change from a session to merged on main: independent review, live verification, risk, pull request and merge",
       "built": true,
-      "ship": false,
+      "ship": true,
       "requirements": ["git", "gh", "curl", "cc-devthrottle", "playwright-cli"]
     },
     {
@@ -299,7 +299,7 @@
       "type": "python",
       "description": "Publish a dev report to the owner through the Gateway, and reply to the owner in it",
       "built": true,
-      "ship": false,
+      "ship": true,
       "requirements": []
     },
     {

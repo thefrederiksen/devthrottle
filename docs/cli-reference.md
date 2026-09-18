@@ -1607,7 +1607,7 @@ run `cc-devthrottle setup update`, and exit 1. They never answer locally instead
 
 ## cc-ship
 
-Take a finished change from the author session to merged on origin/main: independent review by another agent family, live verification, risk, pull request and merge. Not in the installer yet; see `tools/cc-ship/README.md` for setup.
+Take a finished change from the author session to merged on origin/main: independent review by another agent family, live verification, risk, pull request and merge. The installer puts it on your PATH; `tools/cc-ship/README.md` has the rules it works to.
 
 | Command | What it does |
 |---|---|
@@ -1617,12 +1617,13 @@ Take a finished change from the author session to merged on origin/main: indepen
 | `cc-ship respond <id> --fix\|--keep\|--drop [--note <text>]` | Record the owner's call on one finding, or on `fix-limit` |
 | `cc-ship status [--json]` | The run's one state and the next step |
 | `cc-ship abort` | End the run and stop its sessions; the branch is left alone |
+| `cc-ship --version` | Print the version and exit |
 
 Every command takes `--json`. Errors exit non-zero with `error`, `code` and `help`.
 
 ## cc-dev-reports
 
-Publish a dev report (one HTML file) to the owner through the Gateway, and reply to the owner in it. Not in the installer yet; see `tools/cc-dev-reports/README.md` for setup.
+Publish a dev report (one HTML file) to the owner through the Gateway, and reply to the owner in it. The installer puts it on your PATH; `tools/cc-dev-reports/README.md` has the report shape it expects.
 
 | Command | What it does |
 |---|---|

@@ -88,16 +88,13 @@ a sign-in bypass), `none` (no deployed surface; the verifier runs what it can), 
   Automation), and curl 8.3 or newer. cc-ship runs its one curl call through
   `cc-secrets run`, so neither cc-ship nor the verifier ever sees the secret, and it is
   only ever sent over https to a `*.vercel.app` preview.
-- Install the launcher from a checkout that follows origin/main (see `install.py`):
+- The DevThrottle installer puts `cc-ship` on your PATH, in the one tools folder on the
+  machine, with every other shipped tool. Nothing here needs installing by hand.
 
-```
-git worktree add --detach ../devthrottle-cc-ship-tool origin/main
-python3 ../devthrottle-cc-ship-tool/tools/cc-ship/install.py     # macOS
-python  ../devthrottle-cc-ship-tool/tools/cc-ship/install.py     # Windows (python3 does not exist there)
-```
-
-On Windows the installer writes `cc-ship.cmd` (PowerShell, cmd) and an extensionless
-`cc-ship` (Git Bash, which sessions use).
+  To run a CHECKOUT instead of the installed copy - developing the tool itself - use
+  `python tools/cc-ship/main.py ...`, or put a launcher for one checkout on your own PATH
+  with `install.py`. A hand-made launcher and the installed tool are two sources for one
+  name, so keep the launcher out of the folder the installer owns.
 
 ## Run folder
 
@@ -111,6 +108,5 @@ On Windows the installer writes `cc-ship.cmd` (PowerShell, cmd) and an extension
   "Pre-answered by mission brief: none".
 - The daily audit of merges without an attestation, and retiring `/commit` and
   `/review-code` (phase 2).
-- Packaging: the launcher runs a checkout; cc-ship is not in the installer.
 
 Why the design is the way it is, and what the probes proved: `PROBES.md`.

@@ -1,6 +1,6 @@
 # Tools Overview
 
-The DevThrottle installer puts ten command-line tools on your PATH. They are the shipped set: every tool with `"ship": true` in `tools/registry.json`, and the same ten listed in `src/CcDirector.Core/Tools/tools-manifest.json`. The Director checks their health on the Home screen and in the Tools tab of Settings, and repairs a broken install.
+The DevThrottle installer puts twelve command-line tools on your PATH. They are the shipped set: every tool with `"ship": true` in `tools/registry.json`, and the same twelve listed in `src/CcDirector.Core/Tools/tools-manifest.json`. The Director checks their health on the Home screen and in the Tools tab of Settings, and repairs a broken install.
 
 The repository holds more `cc-*` tools than these. They build from source for development but are not installed, so they are not documented here.
 
@@ -18,6 +18,8 @@ Every tool answers `--help` with its full command list. A longer reference with 
 | cc-secrets | Use a stored password without the model ever seeing it | Entries you add by hand |
 | cc-worktrees | Pooled git worktrees, only reset once their work has provably landed | git |
 | cc-devthrottle | The fleet: sessions, messages, missions, workflows, skills, schedules, setup | A DevThrottle session for the fleet commands |
+| cc-ship | Take a finished change all the way to merged: review, verification, pull request, merge | git, the GitHub command line, and a DevThrottle session |
+| cc-dev-reports | Publish a report for the owner to read, and reply to him inside it | A DevThrottle session for the Gateway |
 
 ---
 
@@ -151,3 +153,34 @@ Groups: `session`, `message`, `mission`, `director`, `machine`, `repo`, `worktre
 The fleet commands call the Gateway with the session's own key (`CC_GATEWAY_URL` and `CC_GATEWAY_SESSION_KEY`), which a Director attached to a Gateway puts into every session it launches. Local commands such as `setup status` and `actions` work in any terminal. When you spawn from inside a session, say who owns the new one: `--controlled-by self` or `--standalone` with `--why`.
 
 Messages are rare and they queue. A session may message only the session that started it and the sessions it started, at most six an hour; anything else is refused with "put it in your report". Nothing is typed into a working session: when the recipient is free, one doorbell line tells it to run `cc-devthrottle message inbox`. Nobody waits for an answer - ask with `--reply-wanted`, and the reply arrives in your inbox. See `docs/FleetMessaging.md`.
+
+---
+
+## Shipping a change: cc-ship
+
+```bash
+cc-ship start --intent intent.md --title "what it does"
+cc-ship wait
+cc-ship continue
+cc-ship respond r1-F2 --fix --note "the owner's words"
+cc-ship status --json
+cc-ship abort
+```
+
+- `intent.md` holds the owner's words: the goal, the constraints, what was ruled out, the decisions already made.
+- One run per branch. `start` takes it as far as it can go on its own: a review by a session running a different agent, a check that the change works in the running product, a risk reading, then the pull request and the merge.
+- The state is one of working, waiting-on-author, waiting-on-owner, failed, merged, aborted, and every answer carries the next step. When the state is waiting-on-owner, the session tells the owner word for word and stops.
+- It needs git, the GitHub command line (`gh`), and a DevThrottle session, because the review and the verification each run as their own session.
+
+---
+
+## Reporting to the owner: cc-dev-reports
+
+```bash
+cc-dev-reports open report.html
+cc-dev-reports reply "It merged; the gate was green." --report <id>
+```
+
+- `open` publishes one HTML file as this session's report. Publishing again makes a new version rather than a second report. The Gateway checks the file's shape and prints every error it found.
+- `reply` answers the owner inside a report; without `--report` it answers in this session's newest one.
+- Both commands reach the Gateway with the session's own key, so they work in a DevThrottle session and nowhere else.

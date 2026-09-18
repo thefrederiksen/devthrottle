@@ -12,7 +12,7 @@ import json
 import tomllib
 from pathlib import Path
 
-from errors import ShipError
+from .errors import ShipError
 
 
 def _norm(path: str | Path) -> str:

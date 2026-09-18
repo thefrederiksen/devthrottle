@@ -33,6 +33,8 @@ Node.js and .NET tools include both `.cmd` (Windows) and extensionless (Git Bash
 | Tool | Description | Requirements |
 |------|-------------|--------------|
 | cc-devthrottle | Unified DevThrottle command surface for fleet, sessions, messages, settings, Gateway schedules, and setup | Running Director session or Gateway, depending on subcommand |
+| cc-ship | Take a finished change from a session to merged on main: independent review, live verification, risk, pull request and merge | git, gh, and a DevThrottle session |
+| cc-dev-reports | Publish a dev report to the owner through the Gateway, and reply to the owner in it | A DevThrottle session |
 
 ### Web and Social
 

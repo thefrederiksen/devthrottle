@@ -94,6 +94,27 @@ public sealed class PythonToolsInstallerTests : IDisposable
             Assert.Equal(0, te);
         }
 
+        // The two fleet tools the product started installing in 2.7.1 (owner's ruling: "CC Ship and CC
+        // Dev Reports should be installed by a new version of DevThrottle ... but not CC Playwright").
+        // They are asserted through --version, not --help, because --version is one of the two health
+        // checks the Director's Tools page runs against every shipped tool: a tool that installs but
+        // cannot answer it shows as broken there. Each must also PRINT its own name, so a shim that
+        // resolves to some other tool cannot pass.
+        foreach (var tool in new[] { "cc-ship", "cc-dev-reports" })
+        {
+            Assert.True(File.Exists(Path.Combine(layout.PyenvScriptsDir, $"{tool}.exe")), $"{tool} console script missing");
+            var toolShim = Path.Combine(layout.BinDir, $"{tool}.cmd");
+            Assert.True(File.Exists(toolShim), $"{tool} shim missing");
+            var (te, output) = ProcessRunnerTestProbe.Run(toolShim, "--version");
+            Assert.Equal(0, te);
+            Assert.Contains(tool, output);
+        }
+
+        // cc-playwright does NOT ship, by the same ruling. Asserted beside the two that do, because the
+        // one registry edit that turns them on is the edit that could turn this one on by accident.
+        Assert.False(File.Exists(Path.Combine(layout.PyenvScriptsDir, "cc-playwright.exe")),
+            "cc-playwright leaked into the shipped bundle");
+
         // --- REGRESSION (#453): a half-installed venv must REBUILD on re-install, not early-out. ---
         // Simulate the field failure: the version stamp + python.exe survive, but a tool console script
         // is gone (stripped/empty site-packages). The old early-out trusted (version match + python.exe)

@@ -6,7 +6,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from errors import ShipError
+from .errors import ShipError
 
 
 def _gh(args: list[str], check: bool = True) -> subprocess.CompletedProcess:

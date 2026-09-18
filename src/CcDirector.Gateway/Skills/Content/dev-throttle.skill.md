@@ -60,6 +60,15 @@ cc-devthrottle schedule list
 cc-devthrottle setup status
 ```
 
+`cc-ship` takes a finished change from THIS session all the way to merged on origin/main: a review by
+a session running a different agent, a check that the change works in the running product, a risk
+reading, then the pull request and the merge. Every answer carries the run's one state and the next
+step. `cc-ship --help` is the whole command list.
+
+`cc-dev-reports` publishes one HTML file as this session's report for the owner - it lands on his
+phone or in the Cockpit, inside the report rather than on a list - and `cc-dev-reports reply` answers
+him in it.
+
 A handful of tools are registered but not yet built (`cc-twitter`, `cc-facebook`, `cc-youtube`, `cc-posthog`). If a tool isn't on PATH, it likely isn't built yet.
 
 ## How an agent talks to the fleet: use `cc-devthrottle`, not raw HTTP

@@ -3,7 +3,20 @@ name = "cc-ship"
 version = "0.1.0"
 description = "Take a finished change from a session to merged on main"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "cc-storage",
+]
+
+[project.scripts]
+cc-ship = "cc_ship.cli:main"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["cc_ship"]
+package-dir = {"cc_ship" = "src"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

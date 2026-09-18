@@ -12,7 +12,7 @@ import re
 import time
 from pathlib import Path
 
-import runstore
+from . import runstore
 
 DECISIONS = ("fix", "keep", "drop")
 

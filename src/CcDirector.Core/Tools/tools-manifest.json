@@ -68,6 +68,23 @@
       "note": null
     },
     {
+      "name": "cc-ship",
+      "category": "Fleet",
+      "description": "Take a change a session has finished all the way to merged: a review by a different agent, a check that it works in the running product, then the pull request and the merge.",
+      "smoke": {
+        "args": ["--help"],
+        "expectContains": "merged on origin/main"
+      },
+      "note": null
+    },
+    {
+      "name": "cc-dev-reports",
+      "category": "Fleet",
+      "description": "Publish a report from a session for you to read on your phone or in the Cockpit, and let that session answer you inside it.",
+      "smoke": null,
+      "note": "Every command talks to the Gateway with a session key. No zero-auth read-only command. Presence + version only."
+    },
+    {
       "name": "cc-devthrottle",
       "category": "Fleet",
       "description": "Run DevThrottle itself from the command line: your sessions, messages between them, schedules, and settings.",

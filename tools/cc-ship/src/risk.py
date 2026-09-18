@@ -6,7 +6,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-import config
+from . import config
 
 ORDER = {"low": 0, "medium": 1, "high": 2}
 

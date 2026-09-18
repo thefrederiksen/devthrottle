@@ -17,8 +17,8 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-import fleet  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from src import fleet  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[3]
 AUTHOR = os.environ["CC_SESSION_ID"]
