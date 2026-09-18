@@ -8,10 +8,13 @@
 // The wording below is the approved mockup's (devthrottle_internal
 // docs/design/wingman-inspector/wingman-tab-v3.html), so these tests also say what the owner asked to see.
 //
+// They also prove what the view does with a write that FAILED: the Gateway's own sentence is shown, unedited, beside
+// the control that caused it, and the owner's typed words survive anything short of an accepted send.
+//
 // NOT PROVEN HERE: that any Gateway ever sends these objects. The route does not exist yet. These prove the view
 // renders the settled shape, not that the shape is produced.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { formatAgo, formatClockTime, formatWhen, WingmanNow } from "./WingmanNow";
 import type { WingmanNow as WingmanNowDto } from "./wingmanNowRead";
 
@@ -20,6 +23,11 @@ afterEach(() => cleanup());
 // A fixed reading moment, so "8 minutes ago" is the same sentence on every machine.
 const AT = new Date("2026-09-17T11:20:00Z");
 const STOPPED = "2026-09-17T11:12:00Z";
+
+// The two shapes a shell handler can answer in. The Cockpit's handlers never reject - they read the Gateway's answer
+// and hand back one of these - so the stand-ins here answer the same way.
+const accepts = (message = "") => vi.fn(async () => ({ accepted: true, message }));
+const refuses = (message: string) => vi.fn(async () => ({ accepted: false, message }));
 
 function base(overrides: Partial<WingmanNowDto> = {}): WingmanNowDto {
   return {
@@ -90,7 +98,7 @@ const NEEDS_YOU = base({
 
 describe("Now - the live stop", () => {
   it("draws the everyday needs-you stop: the pill, when it stopped, the story, the agent's sentence and every option", () => {
-    render(<WingmanNow now={NEEDS_YOU} at={AT} actions={{ onAnswerOption: vi.fn() }} />);
+    render(<WingmanNow now={NEEDS_YOU} at={AT} actions={{ onAnswerOption: accepts() }} />);
 
     expect(screen.getByText("Needs you")).toBeTruthy();
     expect(screen.getByText(`Stopped at ${formatClockTime(STOPPED)}, 8 minutes ago`)).toBeTruthy();
@@ -109,19 +117,39 @@ describe("Now - the live stop", () => {
     expect(screen.queryByText("The Wingman is not sure")).toBeNull();
   });
 
-  it("answers by option with the index the Gateway gave, and refuses when the Gateway says the stop cannot be answered that way", () => {
-    const onAnswerOption = vi.fn();
+  it("answers by option with the index the Gateway gave, and refuses when the Gateway says the stop cannot be answered that way", async () => {
+    const onAnswerOption = accepts();
     const { rerender } = render(<WingmanNow now={NEEDS_YOU} at={AT} actions={{ onAnswerOption }} />);
     fireEvent.click(screen.getByText("Allow the merge"));
     expect(onAnswerOption).toHaveBeenCalledWith(NEEDS_YOU.needs!.options[0], "v-3002");
+    await waitFor(() => expect((screen.getByText("Allow the merge").closest("button"))!.disabled).toBe(false));
 
     rerender(<WingmanNow now={base({ ...NEEDS_YOU, canAnswerByOption: false })} at={AT} actions={{ onAnswerOption }} />);
     fireEvent.click(screen.getByText("Allow the merge"));
     expect(onAnswerOption).toHaveBeenCalledTimes(1);
   });
 
-  it("sends the owner's own words to the session and clears the box", () => {
-    const onSendReply = vi.fn();
+  it("shows the answer route's refusal sentence unedited, so an answer that did nothing never looks like one that landed", async () => {
+    const onAnswerOption = refuses("The screen has moved on since that question was asked.");
+    render(<WingmanNow now={NEEDS_YOU} at={AT} actions={{ onAnswerOption }} />);
+
+    fireEvent.click(screen.getByText("Allow the merge"));
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toBe("The screen has moved on since that question was asked."),
+    );
+  });
+
+  it("shows what the answer route said when it accepted the answer, as a quiet line rather than an alert", async () => {
+    const onAnswerOption = accepts("Sent option 1 to the session.");
+    render(<WingmanNow now={NEEDS_YOU} at={AT} actions={{ onAnswerOption }} />);
+
+    fireEvent.click(screen.getByText("Allow the merge"));
+    await waitFor(() => expect(screen.getByText("Sent option 1 to the session.")).toBeTruthy());
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("sends the owner's own words to the session and clears the box once the send is accepted", async () => {
+    const onSendReply = accepts("Sent to the session.");
     render(<WingmanNow now={NEEDS_YOU} at={AT} actions={{ onSendReply }} />);
     const box = screen.getByLabelText("Your reply to this session") as HTMLTextAreaElement;
     expect(box.placeholder).toBe(NEEDS_YOU.replyPlaceholder);
@@ -131,7 +159,22 @@ describe("Now - the live stop", () => {
     fireEvent.change(box, { target: { value: "allow the merge" } });
     fireEvent.click(send);
     expect(onSendReply).toHaveBeenCalledWith("allow the merge");
-    expect(box.value).toBe("");
+    await waitFor(() => expect(box.value).toBe(""));
+    expect(screen.getByText("Sent to the session.")).toBeTruthy();
+  });
+
+  it("keeps every word the owner typed when the send fails, and shows the Gateway's sentence beside it", async () => {
+    const onSendReply = refuses("The machine running this session could not be reached.");
+    render(<WingmanNow now={NEEDS_YOU} at={AT} actions={{ onSendReply }} />);
+    const box = screen.getByLabelText("Your reply to this session") as HTMLTextAreaElement;
+
+    fireEvent.change(box, { target: { value: "allow the merge, tag straight after it" } });
+    fireEvent.click(screen.getByText("Send"));
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toBe("The machine running this session could not be reached."),
+    );
+    // The words are still there: the next attempt is one click, not typing it all again.
+    expect(box.value).toBe("allow the merge, tag straight after it");
   });
 
   it("draws needs-you, not sure: the same screen with the Wingman's own warning tag and line", () => {
@@ -160,7 +203,7 @@ describe("Now - the live stop", () => {
       lastWords: { who: "Its last words", text: "I need help with three things: The merge ..." },
       replyPlaceholder: "You can answer now without waiting.",
     });
-    render(<WingmanNow now={now} at={AT} actions={{ onSendReply: vi.fn(), onPlayVoice: vi.fn() }} />);
+    render(<WingmanNow now={now} at={AT} actions={{ onSendReply: accepts(), onPlayVoice: accepts() }} />);
 
     expect(screen.getByText("Stopped - the Wingman is reading it")).toBeTruthy();
     expect(screen.getByText(`Stopped at ${formatClockTime("2026-09-17T11:19:56Z")}, 4 seconds ago`)).toBeTruthy();
@@ -188,7 +231,7 @@ describe("Now - the live stop", () => {
         text: "Needs you - merge pull request #3002, or allow me to merge it.",
       },
     });
-    render(<WingmanNow now={now} at={AT} actions={{ onSendReply: vi.fn() }} />);
+    render(<WingmanNow now={now} at={AT} actions={{ onSendReply: accepts() }} />);
 
     expect(screen.getByText("What it was last asked")).toBeTruthy();
     expect(screen.getByText(/Allow the merge, tag straight after it/)).toBeTruthy();
@@ -299,7 +342,7 @@ describe("Now - the live stop", () => {
         body: "Nothing is needed from you. You can close this session when you are ready.",
       },
     });
-    render(<WingmanNow now={now} at={AT} actions={{ onSendReply: vi.fn() }} />);
+    render(<WingmanNow now={now} at={AT} actions={{ onSendReply: accepts() }} />);
 
     expect(screen.getByText("Done")).toBeTruthy();
     expect(screen.getByText(`Stopped at ${formatClockTime("2026-09-17T12:40:00Z")}`)).toBeTruthy();
@@ -322,7 +365,7 @@ describe("Now - the live stop", () => {
       },
       replyPlaceholder: "Reply if you want it to do something about this.",
     });
-    render(<WingmanNow now={now} at={AT} actions={{ onSendReply: vi.fn() }} />);
+    render(<WingmanNow now={now} at={AT} actions={{ onSendReply: accepts() }} />);
 
     expect(screen.getByText("Only telling you")).toBeTruthy();
     expect(screen.getByText(/the release is not finished yet\./)).toBeTruthy();
@@ -347,7 +390,7 @@ describe("Now - the live stop", () => {
         text: "Carrying on - fixes and inspections in progress.",
       },
     });
-    render(<WingmanNow now={now} at={AT} actions={{ onSendReply: vi.fn() }} />);
+    render(<WingmanNow now={now} at={AT} actions={{ onSendReply: accepts() }} />);
 
     expect(screen.getByText("The Wingman could not explain this stop")).toBeTruthy();
     expect(screen.getByText(/The row stays red because the session stopped\./)).toBeTruthy();
@@ -373,7 +416,7 @@ describe("Now - the live stop", () => {
       replyPlaceholder: "Answer the session directly.",
     });
     render(
-      <WingmanNow now={now} at={AT} actions={{ onOpenSettings, onSendReply: vi.fn(), onWhyColour: vi.fn() }} />,
+      <WingmanNow now={now} at={AT} actions={{ onOpenSettings, onSendReply: accepts(), onWhyColour: vi.fn() }} />,
     );
 
     expect(screen.getByText("The Wingman is switched off for your account")).toBeTruthy();
@@ -402,7 +445,7 @@ describe("Now - the live stop", () => {
 
 describe("Now - the voice control", () => {
   it("offers Play with the Gateway's label when the narration is ready", () => {
-    const onPlayVoice = vi.fn();
+    const onPlayVoice = accepts();
     render(
       <WingmanNow now={base({ voice: { kind: "play", label: "Play", afterTurnOnText: null } })} at={AT} actions={{ onPlayVoice }} />,
     );
@@ -415,15 +458,15 @@ describe("Now - the voice control", () => {
       <WingmanNow
         now={base({ voice: { kind: "preparing", label: "Preparing audio...", afterTurnOnText: null } })}
         at={AT}
-        actions={{ onPlayVoice: vi.fn() }}
+        actions={{ onPlayVoice: accepts() }}
       />,
     );
     expect(screen.getByText("Preparing audio...")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Preparing audio..." })).toBeNull();
   });
 
-  it("offers to turn voice on, and then says what that did - including whether this stop will be read", () => {
-    const onTurnOnVoice = vi.fn();
+  it("offers to turn voice on, and then says what that did - including whether this stop will be read", async () => {
+    const onTurnOnVoice = accepts();
     const now = base({
       voice: {
         kind: "turn-on",
@@ -436,7 +479,62 @@ describe("Now - the voice control", () => {
     expect(screen.queryByText(/This stop will be read aloud/)).toBeNull();
     fireEvent.click(screen.getByText("Read this session aloud from now on"));
     expect(onTurnOnVoice).toHaveBeenCalled();
-    expect(screen.getByText("Voice is on for this session. This stop will be read aloud in a few seconds.")).toBeTruthy();
+    await waitFor(() =>
+      expect(
+        screen.getByText("Voice is on for this session. This stop will be read aloud in a few seconds."),
+      ).toBeTruthy(),
+    );
+  });
+
+  it("keeps the sentence about turning voice on when the next refresh flips the voice control to Play", async () => {
+    const actions = { onTurnOnVoice: accepts(), onPlayVoice: accepts() };
+    const off = base({
+      voice: {
+        kind: "turn-on" as const,
+        label: "Read this session aloud from now on",
+        afterTurnOnText: "Voice is on for this session. This stop will be read aloud in a few seconds.",
+      },
+    });
+    const { rerender } = render(<WingmanNow now={off} at={AT} actions={actions} />);
+    fireEvent.click(screen.getByText("Read this session aloud from now on"));
+    await waitFor(() => expect(screen.getByText(/Voice is on for this session/)).toBeTruthy());
+
+    // The next read of the same session: voice mode is on now, so the Gateway sends Play and writes no
+    // after-turn-on sentence any more. What the owner was told must not vanish from under him.
+    rerender(
+      <WingmanNow
+        now={base({ voice: { kind: "play", label: "Play", afterTurnOnText: null } })}
+        at={AT}
+        actions={actions}
+      />,
+    );
+    expect(screen.getByText(/Voice is on for this session/)).toBeTruthy();
+    expect(screen.getByText("Play")).toBeTruthy();
+  });
+
+  it("says what turning voice on did when the Gateway had something to add", async () => {
+    const onTurnOnVoice = accepts("There is nothing to read out yet - the next turn will be narrated.");
+    const now = base({
+      voice: { kind: "turn-on", label: "Read this session aloud from now on", afterTurnOnText: null },
+    });
+    render(<WingmanNow now={now} at={AT} actions={{ onTurnOnVoice }} />);
+
+    fireEvent.click(screen.getByText("Read this session aloud from now on"));
+    await waitFor(() =>
+      expect(screen.getByText("There is nothing to read out yet - the next turn will be narrated.")).toBeTruthy(),
+    );
+  });
+
+  it("says so when the narration could not be played, rather than leaving a silent button", async () => {
+    const onPlayVoice = refuses("The narration could not be played on this computer.");
+    render(
+      <WingmanNow now={base({ voice: { kind: "play", label: "Play", afterTurnOnText: null } })} at={AT} actions={{ onPlayVoice }} />,
+    );
+
+    fireEvent.click(screen.getByText("Play"));
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toBe("The narration could not be played on this computer."),
+    );
   });
 
   it("draws no voice control at all when there is nothing to read", () => {
@@ -444,11 +542,61 @@ describe("Now - the voice control", () => {
       <WingmanNow
         now={base({ voice: { kind: "none", label: null, afterTurnOnText: null } })}
         at={AT}
-        actions={{ onPlayVoice: vi.fn(), onTurnOnVoice: vi.fn() }}
+        actions={{ onPlayVoice: accepts(), onTurnOnVoice: accepts() }}
       />,
     );
     expect(screen.queryByText("Play")).toBeNull();
     expect(screen.queryByText("Read this session aloud from now on")).toBeNull();
+  });
+});
+
+describe("Now - the quick actions", () => {
+  it("says what snoozing this session did, in the words the rest of the product uses", async () => {
+    const onSnooze = accepts("Snoozing when it finishes");
+    render(<WingmanNow now={NEEDS_YOU} at={AT} actions={{ onSnooze }} />);
+
+    fireEvent.click(screen.getByText("Snooze this session"));
+    await waitFor(() => expect(screen.getByText("Snoozing when it finishes")).toBeTruthy());
+  });
+
+  it("shows the Gateway's sentence when the snooze was refused", async () => {
+    const onSnooze = refuses("This session is on another account.");
+    render(<WingmanNow now={NEEDS_YOU} at={AT} actions={{ onSnooze }} />);
+
+    fireEvent.click(screen.getByText("Snooze this session"));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("This session is on another account."));
+  });
+
+  it("draws no snooze at all when the shell did not wire one", () => {
+    render(<WingmanNow now={NEEDS_YOU} at={AT} actions={{ onSendReply: accepts() }} />);
+    expect(screen.queryByText("Snooze this session")).toBeNull();
+  });
+});
+
+describe("Now - the calm card's colour", () => {
+  it("takes the tone the Gateway named, and stays neutral when it named none", () => {
+    const { container, rerender } = render(
+      <WingmanNow
+        now={base({ state: "done", calmCard: { heading: "The work is complete", body: null, tone: "cyan" } })}
+        at={AT}
+      />,
+    );
+    expect(container.querySelector(".wnow-card-calm-cyan")).toBeTruthy();
+
+    rerender(
+      <WingmanNow
+        now={base({ state: "carrying-on", calmCard: { heading: "Nothing needed from you", body: null, tone: "purple" } })}
+        at={AT}
+      />,
+    );
+    expect(container.querySelector(".wnow-card-calm-purple")).toBeTruthy();
+    expect(container.querySelector(".wnow-card-calm-cyan")).toBeNull();
+
+    // No tone from the Gateway is not a licence to pick one here.
+    rerender(<WingmanNow now={base({ calmCard: { heading: "Only telling you", body: null } })} at={AT} />);
+    expect(container.querySelector(".wnow-card-calm-cyan")).toBeNull();
+    expect(container.querySelector(".wnow-card-calm-purple")).toBeNull();
+    expect(container.querySelector(".wnow-card-calm")).toBeTruthy();
   });
 });
 

@@ -308,3 +308,11 @@
   background: var(--surface-2);
   border-color: var(--accent);
 }
+
+/* The quiet line beside a screen that is still good: the last background refresh failed, and the screen below it is
+   the last one the Gateway served. It is deliberately not an alert - nothing was lost and nothing is being asked. */
+.wingman-stale {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--text-dim);
+}

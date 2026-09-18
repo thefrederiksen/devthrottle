@@ -40,25 +40,80 @@ export function formatWhen(when: WingmanNowWhen, now: Date): string {
   return when.showAgo ? `${head}, ${formatAgo(when.atUtc, now)}` : head;
 }
 
+/**
+ * What a write action did, as the shell that made the call read it off the Gateway.
+ *
+ * `message` is the GATEWAY'S OWN SENTENCE about what happened - the answer route's refusal, the prompt route's
+ * failure - and it is shown verbatim, never edited and never replaced by a sentence written here. An empty message
+ * means the Gateway said nothing worth showing, so nothing is drawn.
+ *
+ * `accepted` is what the owner's typed words depend on: the reply box keeps them until a send is accepted, so a
+ * refusal never destroys what he wrote.
+ *
+ * EVERY ACTION BELOW RESOLVES, AND NONE OF THEM REJECTS. The shell catches the failure, because the shell is where
+ * the Gateway's sentence can be read; a rejected promise here would be the swallowed failure this channel exists to
+ * end.
+ */
+export interface WingmanNowOutcome {
+  accepted: boolean;
+  message: string;
+}
+
 /** Everything the Now view can do. Each is wired by the shell that mounts it; an action with no handler is not drawn. */
 export interface WingmanNowActions {
   /** Open Debug on the colour rules for this row. */
   onWhyColour?: () => void;
   /** Play the narration the Gateway has already made. */
-  onPlayVoice?: () => void;
+  onPlayVoice?: () => Promise<WingmanNowOutcome>;
   /** Turn voice mode on for this session from here. */
-  onTurnOnVoice?: () => void;
+  onTurnOnVoice?: () => Promise<WingmanNowOutcome>;
   /** Answer the stop by picking one of the Gateway's options. `verdictId` is the verdict those options belong to;
    *  it rides with the index on the answer route, and the view passes it along rather than looking it up. */
-  onAnswerOption?: (option: WingmanNowOption, verdictId: string | null) => void;
+  onAnswerOption?: (option: WingmanNowOption, verdictId: string | null) => Promise<WingmanNowOutcome>;
   /** Send the owner's own words to the session. */
-  onSendReply?: (text: string) => void;
-  onSnooze?: () => void;
+  onSendReply?: (text: string) => Promise<WingmanNowOutcome>;
+  onSnooze?: () => Promise<WingmanNowOutcome>;
   onOpenTerminal?: () => void;
   /** Open the account settings where the Wingman is switched on. */
   onOpenSettings?: () => void;
   /** Go to another session in the account. */
   onGoToSession?: (sessionId: string) => void;
+}
+
+/**
+ * Run one write action and keep what it answered, so the control that started it can say what happened.
+ *
+ * `busy` is true while the call is in flight - every control that starts one disables itself, so the owner cannot
+ * fire the same answer twice while waiting.
+ */
+function useOutcome() {
+  const [outcome, setOutcome] = useState<WingmanNowOutcome | null>(null);
+  const [busy, setBusy] = useState(false);
+  const run = async (action: () => Promise<WingmanNowOutcome>): Promise<WingmanNowOutcome> => {
+    setBusy(true);
+    setOutcome(null);
+    try {
+      const result = await action();
+      setOutcome(result);
+      return result;
+    } finally {
+      setBusy(false);
+    }
+  };
+  return { outcome, busy, run };
+}
+
+/** What the Gateway said about the last write, verbatim: an alert when it was refused, a quiet line when it landed. */
+function Outcome({ outcome }: { outcome: WingmanNowOutcome | null }) {
+  if (outcome === null || outcome.message === "") return null;
+  return (
+    <p
+      className={`wnow-outcome ${outcome.accepted ? "wnow-outcome-done" : "wnow-outcome-refused"}`}
+      role={outcome.accepted ? "status" : "alert"}
+    >
+      {outcome.message}
+    </p>
+  );
 }
 
 export function WingmanNow({
@@ -71,6 +126,8 @@ export function WingmanNow({
   at?: Date;
   actions?: WingmanNowActions;
 }) {
+  const answer = useOutcome();
+  const snooze = useOutcome();
   return (
     <div className="wnow">
       <Header now={now} at={at} actions={actions} />
@@ -128,8 +185,12 @@ export function WingmanNow({
                     <button
                       type="button"
                       className="wnow-option"
-                      disabled={!now.canAnswerByOption || !actions.onAnswerOption}
-                      onClick={() => actions.onAnswerOption?.(option, now.needs?.verdictId ?? null)}
+                      disabled={!now.canAnswerByOption || !actions.onAnswerOption || answer.busy}
+                      onClick={() => {
+                        const send = actions.onAnswerOption;
+                        if (!send) return;
+                        void answer.run(() => send(option, now.needs?.verdictId ?? null));
+                      }}
                     >
                       <span className="wnow-option-index">{option.index}</span>
                       <span className="wnow-option-body">
@@ -144,6 +205,9 @@ export function WingmanNow({
                 ))}
               </ul>
             )}
+            {/* What the answer route said about the last tap - its refusal sentence unedited, so an answer that
+                did nothing never looks like an answer that landed. */}
+            <Outcome outcome={answer.outcome} />
             <ReplyBox placeholder={now.replyPlaceholder} onSend={actions.onSendReply} />
           </section>
         ) : (
@@ -151,7 +215,12 @@ export function WingmanNow({
         )}
 
         {now.calmCard && (
-          <section className="wnow-card wnow-card-calm" aria-label={now.calmCard.heading}>
+          <section
+            /* The card's colour is the Gateway's own choice of tone, named not decided here: the approved mockup
+               tints done and report cyan and carrying on purple. A card with no tone keeps the neutral one. */
+            className={`wnow-card wnow-card-calm${now.calmCard.tone ? ` wnow-card-calm-${now.calmCard.tone}` : ""}`}
+            aria-label={now.calmCard.heading}
+          >
             <h3>{now.calmCard.heading}</h3>
             {now.calmCard.body != null && <p>{now.calmCard.body}</p>}
             {now.carryingOnDeadline && (
@@ -211,8 +280,17 @@ export function WingmanNow({
         {(actions.onSnooze || actions.onOpenTerminal) && (
           <div className="wnow-quick">
             {actions.onSnooze && (
-              <button type="button" className="wnow-btn" onClick={actions.onSnooze}>
-                Snooze this session
+              <button
+                type="button"
+                className="wnow-btn"
+                disabled={snooze.busy}
+                onClick={() => {
+                  const hold = actions.onSnooze;
+                  if (!hold) return;
+                  void snooze.run(() => hold());
+                }}
+              >
+                {snooze.busy ? "Snoozing..." : "Snooze this session"}
               </button>
             )}
             {actions.onOpenTerminal && (
@@ -220,6 +298,7 @@ export function WingmanNow({
                 Open the terminal
               </button>
             )}
+            <Outcome outcome={snooze.outcome} />
           </div>
         )}
 
@@ -231,8 +310,12 @@ export function WingmanNow({
 }
 
 function Header({ now, at, actions }: { now: WingmanNowDto; at: Date; actions: WingmanNowActions }) {
-  const [turnedOn, setTurnedOn] = useState(false);
-  const voice = now.voice;
+  // THE SENTENCE ITSELF, not a flag that it was said. The Gateway writes afterTurnOnText only while the stop still
+  // offers "turn voice on", so the moment the next refresh flips the voice kind, a flag would have nothing left to
+  // render and the line would vanish from under the owner. Keeping the words keeps them on screen.
+  const [saidOnTurnOn, setSaidOnTurnOn] = useState<string | null>(null);
+  const voice = useOutcome();
+  const voiceControl = now.voice;
   return (
     <div className="wnow-head">
       <span
@@ -251,34 +334,63 @@ function Header({ now, at, actions }: { now: WingmanNowDto; at: Date; actions: W
       )}
       {now.when && <span className="wnow-when">{formatWhen(now.when, at)}</span>}
       <span className="wnow-spacer" />
-      {turnedOn && voice.afterTurnOnText != null && <span className="wnow-voice-said">{voice.afterTurnOnText}</span>}
-      {voice.kind === "play" && actions.onPlayVoice && (
-        <button type="button" className="wnow-voice wnow-voice-play" onClick={actions.onPlayVoice}>
-          {voice.label ?? "Play"}
+      {saidOnTurnOn != null && <span className="wnow-voice-said">{saidOnTurnOn}</span>}
+      <Outcome outcome={voice.outcome} />
+      {voiceControl.kind === "play" && actions.onPlayVoice && (
+        <button
+          type="button"
+          className="wnow-voice wnow-voice-play"
+          disabled={voice.busy}
+          onClick={() => {
+            const play = actions.onPlayVoice;
+            if (!play) return;
+            void voice.run(() => play());
+          }}
+        >
+          {voiceControl.label ?? "Play"}
         </button>
       )}
-      {voice.kind === "preparing" && (
-        <span className="wnow-voice wnow-voice-preparing">{voice.label}</span>
+      {voiceControl.kind === "preparing" && (
+        <span className="wnow-voice wnow-voice-preparing">{voiceControl.label}</span>
       )}
-      {voice.kind === "turn-on" && actions.onTurnOnVoice && (
+      {voiceControl.kind === "turn-on" && actions.onTurnOnVoice && (
         <button
           type="button"
           className="wnow-voice wnow-voice-turn-on"
+          disabled={voice.busy}
           onClick={() => {
-            setTurnedOn(true);
-            actions.onTurnOnVoice?.();
+            const turnOn = actions.onTurnOnVoice;
+            if (!turnOn) return;
+            void voice.run(() => turnOn()).then((result) => {
+              // The Gateway's own sentence about what turning voice on did to THIS stop, kept for as long as the
+              // screen lives. Only a switch that was accepted says it happened.
+              if (result.accepted) setSaidOnTurnOn(voiceControl.afterTurnOnText ?? null);
+            });
           }}
         >
-          {voice.label}
+          {voiceControl.label}
         </button>
       )}
     </div>
   );
 }
 
-/** The reply box. Always open wherever the Gateway sent a placeholder for it, so several asks are answered at once. */
-function ReplyBox({ placeholder, onSend }: { placeholder?: string | null; onSend?: (text: string) => void }) {
+/**
+ * The reply box. Always open wherever the Gateway sent a placeholder for it, so several asks are answered at once.
+ *
+ * THE OWNER'S WORDS SURVIVE A FAILURE. The box is emptied only when the send was ACCEPTED; a refusal, a server
+ * error or a network drop leaves exactly what he typed in the box, with the Gateway's sentence underneath it, so the
+ * next attempt is one click rather than typing it all again.
+ */
+function ReplyBox({
+  placeholder,
+  onSend,
+}: {
+  placeholder?: string | null;
+  onSend?: (text: string) => Promise<WingmanNowOutcome>;
+}) {
   const [text, setText] = useState("");
+  const send = useOutcome();
   if (placeholder == null || !onSend) return null;
   return (
     <div className="wnow-reply">
@@ -292,16 +404,18 @@ function ReplyBox({ placeholder, onSend }: { placeholder?: string | null; onSend
         <button
           type="button"
           className="wnow-btn wnow-btn-primary"
-          disabled={text.trim().length === 0}
+          disabled={text.trim().length === 0 || send.busy}
           onClick={() => {
-            onSend(text);
-            setText("");
+            void send.run(() => onSend(text)).then((result) => {
+              if (result.accepted) setText("");
+            });
           }}
         >
-          Send
+          {send.busy ? "Sending..." : "Send"}
         </button>
         <span className="wnow-when">Goes to the session as your message. Answers several asks at once.</span>
       </div>
+      <Outcome outcome={send.outcome} />
     </div>
   );
 }

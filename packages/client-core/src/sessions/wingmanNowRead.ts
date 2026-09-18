@@ -67,6 +67,12 @@ export interface WingmanNowNeeds {
 export interface WingmanNowCalmCard {
   heading: string;
   body?: string | null;
+  /**
+   * The card's colour, NAMED by the Gateway. The approved mockup tints done and report cyan and carrying on purple,
+   * and that is the owner's done-versus-report distinction made visible - so the choice belongs to the same fold
+   * that chose the words, never to a branch on the state name here. A card with no tone keeps the neutral card.
+   */
+  tone?: "cyan" | "purple" | null;
 }
 
 /**

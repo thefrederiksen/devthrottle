@@ -196,6 +196,31 @@
   border-left-color: #a855f7;
 }
 
+/* The calm card's colour, as the Gateway named it: cyan for done and for report, purple for carrying on - the
+   approved mockup's own palette. A card the Gateway gave no tone keeps the line above. */
+.wnow-card-calm-cyan {
+  border-left-color: #06b6d4;
+}
+
+.wnow-card-calm-purple {
+  border-left-color: #a855f7;
+}
+
+/* What a write action answered, shown beside the control that started it. A refusal is the Gateway's sentence in
+   the attention colour; an accepted action is a quiet line. */
+.wnow-outcome {
+  margin: 8px 0 0;
+  font-size: 13px;
+}
+
+.wnow-outcome-refused {
+  color: var(--attention);
+}
+
+.wnow-outcome-done {
+  color: var(--text-dim);
+}
+
 .wnow-card-asked,
 .wnow-card-answered {
   border-left-color: var(--accent);
