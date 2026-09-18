@@ -201,7 +201,7 @@ report to the Manager on this point.
   That is half two, and the brief puts it there.
 - **No real phone.** The phone app ran in a desktop Chromium at 390 by 844 with mobile emulation on. The same limit
   phase 3 recorded.
-- **One browser, one machine.** Chrome, through the Director's `agent-browser` profile, on SOREN_NORTH. No other
+- **One browser, one machine.** Chrome, through the Director's `agent-browser` profile, on <this machine>. No other
   browser and no other machine was tried.
 - **The signed-out case was not exercised.** The browser was signed in with the rig's machine token before the first
   picture. The signed-out landing is half two's work.
