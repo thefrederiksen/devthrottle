@@ -282,7 +282,13 @@ internal static class GatewayEndpoints
         // The Wingman tab, version 3, item 2: the account's own Wingman switches, which decide whether Now says the
         // Wingman is switched off. NULL means this Gateway was not given them, and then Now makes no claim about
         // them either way - see ReadWingmanNow.
-        Func<Core.Tenancy.TenantId, Wingman.TurnVerdictSettings>? turnVerdictSettings = null)
+        Func<Core.Tenancy.TenantId, Wingman.TurnVerdictSettings>? turnVerdictSettings = null,
+        // The Wingman tab's Now view, round 2: was this session started by one of the account's schedules? The
+        // working state says WHO asked it, and "A schedule, at 6:00 AM" tells the owner nobody is waiting on it.
+        // The host binds this to the recorded cron fires (CronRunHistoryStore.StartedSession), which is the only
+        // place the fact is written. Null looks nowhere, and the card then names no asker at all - the same
+        // silence it keeps for every asker that cannot be verified.
+        Func<Core.Tenancy.TenantId, string, bool>? startedByScheduleFor = null)
     {
         // The old issue #1188 "session lock" (423 Locked on human input while a PENDING dictation record
         // existed) was removed deliberately (issue #1308). This is a single-operator tool: a collision
@@ -3102,7 +3108,8 @@ internal static class GatewayEndpoints
                     DirectorCannotSendConversation: directorCannotSendConversationFor is null ? null : s => directorCannotSendConversationFor(tenant, s),
                     NarrationAbandoned: narrationAbandonedFor is null ? null : s => narrationAbandonedFor(tenant, s),
                     ServedViaFallback: servedViaFallbackFor is null ? null : s => servedViaFallbackFor(tenant, s),
-                    WaitingStamp: voiceWaitingStampFor is null ? null : (s, waiting) => voiceWaitingStampFor(tenant, s, waiting))));
+                    WaitingStamp: voiceWaitingStampFor is null ? null : (s, waiting) => voiceWaitingStampFor(tenant, s, waiting)),
+                startedByScheduleFor));
 
         // ANSWER A JUDGED STOP (the Wingman-on-every-turn mission, slice E; ruling 12). The ONE server-owned write
         // path for a verdict's options: the owner's tap, never the Wingman. TurnVerdictAnswerService holds the rules
@@ -6048,7 +6055,8 @@ internal static class GatewayEndpoints
         Wingman.SnoozeExpiryReJudge? snoozeExpiry,
         Func<Core.Tenancy.TenantId, Wingman.TurnVerdictSettings>? turnVerdictSettings = null,
         TimeSpan? streamStaleAfter = null,
-        Func<Core.Tenancy.TenantId, VoiceRowStamp.VoiceFacts>? voiceFactsFor = null)
+        Func<Core.Tenancy.TenantId, VoiceRowStamp.VoiceFacts>? voiceFactsFor = null,
+        Func<Core.Tenancy.TenantId, string, bool>? startedByScheduleFor = null)
     {
         FileLog.Write($"[GatewayEndpoints] GET wingman-now: sid={sid}");
         var tenant = ResolveReadTenant(ctx, tenantBoundary);
@@ -6143,9 +6151,15 @@ internal static class GatewayEndpoints
         if (pushedSessions is not null && streamStaleAfter is { } stale)
             ownedSessions = Wingman.TurnVerdictOwnedSessions.For(pushedSessions.SnapshotFresh(tenant.Value, stale), sid);
 
+        // WHO ASKED A WORKING SESSION, when the answer is "a schedule". It is read from the recorded cron fires -
+        // a fire writes the session it started - so the card names a schedule from a record and never from a
+        // reading of the row. A Gateway handed no delegate looks nowhere and the card then says nothing about
+        // who, which is the same silence it keeps for every asker it cannot verify.
+        var startedBySchedule = startedByScheduleFor is not null && startedByScheduleFor(tenant.Value, sid);
+
         var answer = Wingman.WingmanNowFold.Fold(
             new Wingman.WingmanNowInputs(sid, row, verdicts, conversation, wingmanSwitchedOff, ownedSessions,
-                roster, DateTime.UtcNow));
+                roster, DateTime.UtcNow, startedBySchedule));
         FileLog.Write($"[GatewayEndpoints] GET wingman-now: sid={sid} state={answer.State}");
         return Results.Json(answer);
     }

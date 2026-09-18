@@ -131,17 +131,87 @@ public sealed class WingmanNowFoldTests
 
     /// <summary>A verdict stored before the turn-end moment was recorded still has a moment to show: the row's own
     /// waiting stamp. The alternative is a view with no time on it at all.</summary>
+    /// <summary>
+    /// "STOPPED AT" IS WHEN THE SESSION STOPPED, NOT WHEN THE WINGMAN LAST LOOKED AT IT.
+    ///
+    /// The two are different facts and the view was showing the wrong one. TurnVerdictDto.TurnEndObservedAtUtc is
+    /// a JOIN KEY into the turn log - its own documentation says it is "when the DETECTOR observed the turn end" -
+    /// and it is deliberately moved forward: a stop sighted again on an unchanged screen has its key refreshed to
+    /// the later sighting, so the turn-log record of that sighting still pairs with a verdict row.
+    ///
+    /// The detector sights a stop again whenever its transition memory is empty, and TurnEndWatcher holds that in
+    /// the Gateway's own process: every start sweeps every Director, sees each already-waiting session with no
+    /// previous state, and raises a turn end stamped at that moment. One restart re-stamps every stopped session
+    /// in the fleet with the same minute - which is what the owner was shown: three sessions on two machines all
+    /// "Stopped at 6:02 AM", one beside a row saying it had been idle for seventeen hours.
+    ///
+    /// The row's own waiting stamp is the Director's raw fact, set once on the machine the session runs on. The
+    /// numbers below are set a long way apart so that reading the wrong one cannot pass.
+    /// </summary>
     [Fact]
-    public void A_verdict_with_no_observed_moment_falls_back_to_the_rows_waiting_stamp()
+    public void The_stopping_time_is_the_rows_waiting_stamp_and_not_the_moment_the_wingman_observed_it()
+    {
+        var verdict = Verdict(TurnVerdictVocabulary.NeededYou);
+        // The stop was sighted again seventeen hours after the session actually stopped - a Gateway restart.
+        verdict.TurnEndObservedAtUtc = Stopped.AddHours(17);
+        var row = Row(verdict);
+        row.WaitingSince = Stopped;
+
+        var now = Fold(row, verdict);
+
+        Assert.Equal("Stopped at", now.When!.Lead);
+        Assert.Equal(Stopped, now.When.AtUtc);
+        Assert.NotEqual(verdict.TurnEndObservedAtUtc, now.When.AtUtc);
+    }
+
+    /// <summary>
+    /// THE SAME STOP, SIGHTED TWICE, KEEPS ONE STOPPING TIME. This is the fault as the owner met it: one session
+    /// showing two different stopping times for one stop across two rounds of pictures. The verdict's observed
+    /// moment moves; the sentence must not move with it.
+    /// </summary>
+    [Fact]
+    public void Sighting_the_same_stop_again_does_not_move_when_it_stopped()
+    {
+        var row = Row(null);
+        row.WaitingSince = Stopped;
+
+        var first = Verdict(TurnVerdictVocabulary.NeededYou);
+        first.TurnEndObservedAtUtc = Stopped.AddMinutes(2);
+        row.TurnVerdict = first;
+        row.VerdictState = VerdictStates.Judged;
+        var before = Fold(row, first).When!.AtUtc;
+
+        // The join key refreshed to a later sighting, exactly as TurnVerdictService.Reuse refreshes it.
+        var refreshed = Verdict(TurnVerdictVocabulary.NeededYou);
+        refreshed.TurnEndObservedAtUtc = Stopped.AddHours(2).AddMinutes(6);
+        row.TurnVerdict = refreshed;
+        var after = Fold(row, refreshed).When!.AtUtc;
+
+        Assert.Equal(Stopped, before);
+        Assert.Equal(before, after);
+    }
+
+    /// <summary>The verdict's observed moment is still the answer for a row this Gateway has nothing pushed for -
+    /// a session whose machine has gone away. It is the last truthful thing left, not the preferred one.</summary>
+    [Fact]
+    public void A_row_with_no_waiting_stamp_falls_back_to_the_verdicts_observed_moment()
+    {
+        var verdict = Verdict(TurnVerdictVocabulary.NeededYou);
+        var row = Row(verdict);
+        row.WaitingSince = null;
+
+        Assert.Equal(Stopped, Fold(row, verdict).When!.AtUtc);
+    }
+
+    [Fact]
+    public void A_stop_with_neither_moment_recorded_says_nothing_about_when()
     {
         var verdict = Verdict(TurnVerdictVocabulary.NeededYou);
         verdict.TurnEndObservedAtUtc = default;
         var row = Row(verdict);
-        row.WaitingSince = Stopped.AddMinutes(-3);
+        row.WaitingSince = null;
 
-        var now = Fold(row, verdict);
-
-        Assert.Equal(Stopped.AddMinutes(-3), now.When!.AtUtc);
+        Assert.Null(Fold(row, verdict).When);
     }
 
     [Fact]
@@ -236,8 +306,14 @@ public sealed class WingmanNowFoldTests
 
     // ---------------------------------------------------------------- done and report
 
+    /// <summary>
+    /// A FINISHED SESSION HAS SOMEWHERE TO TYPE, and its own words for it. Done was the one state on this view
+    /// with no box at all: the page's old bottom box was removed as duplication, and done had never had one of
+    /// its own for it to be duplicating - so the state where he is most likely to say "good, now do the next
+    /// thing" was the state that made him leave the tab to say it.
+    /// </summary>
     [Fact]
-    public void Finished_work_is_done_and_offers_no_reply_box()
+    public void Finished_work_is_done_and_offers_a_box_for_the_next_thing()
     {
         var verdict = Verdict(TurnVerdictVocabulary.Finished, finishedKind: "done",
             label: "Release v2.5.0 is tagged and published");
@@ -248,9 +324,59 @@ public sealed class WingmanNowFoldTests
         Assert.Equal("cyan", now.PillColour);
         Assert.Equal("The work is complete", now.CalmCard!.Heading);
         Assert.Equal("Nothing is needed from you. You can close this session when you are ready.", now.CalmCard.Body);
-        Assert.Null(now.ReplyPlaceholder);
+        Assert.Equal("Give it something else to do.", now.ReplyPlaceholder);
+        Assert.Equal(WingmanNowFold.ReplyPlaceholderDone, now.ReplyPlaceholder);
+        // The words are not the report's: a report invites a reply about what he has just been told, and a
+        // finished session has nothing left to reply to - what he sends it is new work.
+        Assert.NotEqual(WingmanNowFold.ReplyPlaceholderReport, now.ReplyPlaceholder);
+        Assert.Equal(WingmanNowFold.ReplyHintPlain, now.ReplyHint);
         Assert.Null(now.Needs);
         Assert.False(now.CanAnswerByOption);
+    }
+
+    /// <summary>
+    /// NEITHER STATE THAT NEEDS NOTHING CARRIES THE WINGMAN'S LINE AS A HEADLINE.
+    ///
+    /// TurnVerdictDto.Label is "the one line a ROW shows", and the Sessions list leads it with the state -
+    /// "Telling you - Review the QA report". This view was showing it bare, in title type, over a card reading
+    /// "Nothing is needed from you": the page gave him an order and then told him to ignore it. It was word for
+    /// word the same on his screen two review rounds apart.
+    ///
+    /// The Gateway cannot mend the line - turning an order into a statement is writing English nobody said - so
+    /// it stops presenting it as an instruction. The story below still says what the stop was about, in the
+    /// Wingman's own sentences, and the card states the verdict in words this Gateway owns.
+    /// </summary>
+    [Fact]
+    public void A_state_that_needs_nothing_carries_no_headline_and_keeps_the_story()
+    {
+        var report = Verdict(TurnVerdictVocabulary.Finished, finishedKind: "report",
+            label: "Review the QA report",
+            summary: "The QA report for the release is written and is waiting in the mission folder.");
+        var reportView = Fold(Row(report, colour: "cyan", label: "Telling you"), report);
+
+        Assert.Equal(WingmanNowStates.Report, reportView.State);
+        Assert.Null(reportView.Headline);
+        Assert.Equal("The QA report for the release is written and is waiting in the mission folder.",
+            reportView.Story);
+        Assert.Equal("Nothing is needed from you, and the work is not finished yet.", reportView.CalmCard!.Body);
+
+        var done = Verdict(TurnVerdictVocabulary.Finished, finishedKind: "done",
+            label: "Close this session when you have read the notes");
+        var doneView = Fold(Row(done, colour: "cyan", label: "Done"), done);
+
+        Assert.Equal(WingmanNowStates.Done, doneView.State);
+        Assert.Null(doneView.Headline);
+
+        // THE CONTROL: a state that DOES need him keeps the Wingman's line, because there it is the question he
+        // is being asked and the card under it agrees with it.
+        var needsYou = Verdict(TurnVerdictVocabulary.NeededYou, options: 2);
+        Assert.Equal("Merge pull request 3002, or allow me to merge it", Fold(Row(needsYou), needsYou).Headline);
+
+        // And so does carrying on, whose card says nothing is needed but whose line says what it is waiting for.
+        var carryingOn = Verdict(TurnVerdictVocabulary.ContinuesAlone,
+            label: "Waiting for its Worker to finish the test run");
+        Assert.Equal("Waiting for its Worker to finish the test run",
+            Fold(Row(carryingOn, colour: "purple", label: "Carrying on"), carryingOn).Headline);
     }
 
     /// <summary>
@@ -1076,10 +1202,70 @@ public sealed class WingmanNowFoldTests
         Assert.NotEqual(Stopped, now.When.AtUtc);
     }
 
-    /// <summary>A session that has not stopped since this Gateway learned of it has no superseded record, so
-    /// nothing knows when the stretch began. The pill still says Working; no number is invented.</summary>
+    /// <summary>
+    /// A SESSION THAT HAS NEVER STOPPED HAS BEEN WORKING SINCE IT WAS CREATED, and says so.
+    ///
+    /// How long it has been working is the first thing he wants from a working session, and it was disappearing
+    /// from exactly the ones he opens this view on. A fresh scheduled run has no superseded record to measure
+    /// from, so there was nothing to measure and the line went off the page entirely.
+    /// </summary>
     [Fact]
-    public void A_session_that_has_never_stopped_says_it_is_working_and_invents_no_duration()
+    public void A_session_that_has_never_stopped_has_been_working_since_it_was_created()
+    {
+        var row = WorkingRow();
+        row.CreatedAt = Stopped.AddMinutes(-3);
+
+        var now = FoldWith(row, NoHistory);
+
+        Assert.Equal(WingmanNowStates.Working, now.State);
+        Assert.Equal("Working for", now.When!.Lead);
+        Assert.Equal(Stopped.AddMinutes(-3), now.When.AtUtc);
+        Assert.True(now.When.ElapsedOnly);
+    }
+
+    /// <summary>
+    /// THE SESSION'S AGE IS NOT THE LENGTH OF THIS STRETCH, and the emptiness check is what keeps them apart. A
+    /// session that HAS stopped carries a superseded record to measure from; reaching past it to the session's
+    /// creation would put "Working for 3 days" on a session that stopped four minutes ago.
+    /// </summary>
+    [Fact]
+    public void A_session_that_has_stopped_before_measures_from_the_stop_and_not_from_its_creation()
+    {
+        var row = WorkingRow();
+        row.CreatedAt = Stopped.AddDays(-3);
+
+        var now = FoldWith(row, new[] { Superseded(Stopped.AddMinutes(1)) });
+
+        Assert.Equal(Stopped.AddMinutes(1), now.When!.AtUtc);
+        Assert.NotEqual(row.CreatedAt, now.When.AtUtc);
+    }
+
+    /// <summary>
+    /// A STORED STOP THAT CARRIES NO SUPERSEDING MOMENT STILL MEANS THIS SESSION HAS STOPPED BEFORE - so its
+    /// creation is not the start of this stretch either, and nothing is claimed.
+    ///
+    /// This is the case the emptiness check inside FirstStretchSince exists for, and it is the only one that
+    /// reaches it: where a superseding moment IS recorded, it answers first and the check is never asked. Without
+    /// the check this row reports the session's whole age - three days - as the length of a stretch that began
+    /// somewhere nothing here can see.
+    /// </summary>
+    [Fact]
+    public void A_working_row_with_a_stop_behind_it_but_no_superseding_moment_invents_no_duration()
+    {
+        var row = WorkingRow();
+        row.CreatedAt = Stopped.AddDays(-3);
+        var stopped = Verdict(TurnVerdictVocabulary.NeededYou);   // stored, and carrying no SupersededAtUtc
+
+        var now = FoldWith(row, new[] { new AnsweredTurnVerdict(stopped, null) });
+
+        Assert.Equal(WingmanNowStates.Working, now.State);
+        Assert.Null(now.When);
+    }
+
+    /// <summary>A row with no creation moment and no stop behind it knows nothing about when the stretch began.
+    /// The pill still says Working; no number is invented.</summary>
+    [Fact]
+    public void A_working_row_with_nothing_to_measure_from_invents_no_duration()
     {
         var now = FoldWith(WorkingRow(), NoHistory);
 
@@ -1158,6 +1344,104 @@ public sealed class WingmanNowFoldTests
         Assert.Null(now.LastAsked!.By);
         Assert.Equal("at", now.LastAsked.WhenLead);
     }
+
+    /// <summary>
+    /// A SCHEDULE IS NAMED, AND THAT ONE WORD CHANGES HOW HE READS THE REST. "at 6:00 AM" says when and leaves
+    /// who open, so a working session reads as something he may have set going himself and forgotten. "A
+    /// schedule, at 6:00 AM" says nobody is waiting on this one.
+    ///
+    /// It is a stored fact, not a reading of the row: a cron fire records the session it started, and the route
+    /// asks that record. SessionDto.AutoDismiss looks like the same fact and is not - it is a per-job option
+    /// about closing, which a hand-started session can carry and a schedule can have switched off.
+    /// </summary>
+    [Fact]
+    public void A_session_a_schedule_started_says_a_schedule_asked_it()
+    {
+        var now = WingmanNowFold.Fold(new WingmanNowInputs(
+            Sid, WorkingRow(), NoHistory, Asked("Run the daily hygiene audit and report only on drift."),
+            StartedBySchedule: true));
+
+        Assert.Equal("A schedule", now.LastAsked!.By);
+        Assert.Equal("A schedule, at", now.LastAsked.WhenLead);
+        Assert.Equal(WingmanNowFold.AskedByASchedule, now.LastAsked.By);
+    }
+
+    /// <summary>
+    /// THE SCHEDULE IS CREDITED ONLY WITH THE ASK IT SENT. What a schedule sent is the session's FIRST ask;
+    /// everything after it came from somewhere this fold cannot name - the owner in the terminal, another
+    /// session's message - and naming the schedule for one of those would credit it with words it never wrote.
+    /// </summary>
+    [Fact]
+    public void A_schedule_is_not_credited_with_a_later_ask_it_did_not_send()
+    {
+        var conversation = new WingmanNowConversation(true, new List<HistoryMessageDto>
+        {
+            Ask("Run the daily hygiene audit.", Stopped.AddMinutes(-20)),
+            new() { Role = "Assistant", Parts = { new HistoryPartDto { Kind = "Text", Text = "Working on it." } } },
+            Ask("Actually, skip the worktree sweep this time.", Stopped.AddMinutes(2)),
+        });
+
+        var now = WingmanNowFold.Fold(new WingmanNowInputs(
+            Sid, WorkingRow(), NoHistory, conversation, StartedBySchedule: true));
+
+        Assert.Equal("Actually, skip the worktree sweep this time.", now.LastAsked!.Text);
+        Assert.Null(now.LastAsked.By);
+        Assert.Equal("at", now.LastAsked.WhenLead);
+    }
+
+    /// <summary>
+    /// A TOOL RESULT IS NOT AN EARLIER ASK. In a Claude Code transcript a tool result is a message of role "user"
+    /// with no words in it, and a working session is mid-tool-loop almost by definition - so counting one as an
+    /// earlier ask would silence the schedule on every scheduled run that has run a single tool.
+    /// </summary>
+    [Fact]
+    public void A_tool_result_before_the_schedules_ask_does_not_silence_it()
+    {
+        var conversation = new WingmanNowConversation(true, new List<HistoryMessageDto>
+        {
+            // A user-role message carrying no Text part at all - what a tool result looks like here.
+            new() { Role = "User", Parts = { new HistoryPartDto { Kind = "ToolResult", Text = "exit code 0" } } },
+            Ask("Run the daily hygiene audit.", Stopped.AddMinutes(2)),
+        });
+
+        var now = WingmanNowFold.Fold(new WingmanNowInputs(
+            Sid, WorkingRow(), NoHistory, conversation, StartedBySchedule: true));
+
+        Assert.Equal("A schedule", now.LastAsked!.By);
+    }
+
+    /// <summary>The owner outranks the schedule when his own recorded turn sits beside the message: he really did
+    /// type it, whatever started the session.</summary>
+    [Fact]
+    public void The_owner_is_named_over_the_schedule_when_his_own_turn_sits_beside_the_message()
+    {
+        var askedAt = Stopped.AddMinutes(2);
+
+        var now = WingmanNowFold.Fold(new WingmanNowInputs(
+            Sid, WorkingRow(ownerTurn: askedAt.AddSeconds(3)), NoHistory,
+            Asked("Allow the merge.", askedAt), StartedBySchedule: true));
+
+        Assert.Equal("You", now.LastAsked!.By);
+    }
+
+    /// <summary>A Gateway that looked nowhere claims nothing. This is the same silence the card keeps for every
+    /// asker it cannot verify, and it is the default.</summary>
+    [Fact]
+    public void A_session_no_schedule_record_names_says_nothing_about_who_asked()
+    {
+        var now = FoldWith(WorkingRow(), NoHistory, Asked("Run the daily hygiene audit."));
+
+        Assert.Null(now.LastAsked!.By);
+        Assert.Equal("at", now.LastAsked.WhenLead);
+    }
+
+    /// <summary>One user message with words in it, at a known moment.</summary>
+    private static HistoryMessageDto Ask(string text, DateTime at) => new()
+    {
+        Role = "User",
+        Parts = { new HistoryPartDto { Kind = "Text", Text = text } },
+        Timestamp = new DateTimeOffset(at, TimeSpan.Zero),
+    };
 
     /// <summary>Nobody is named when the Director recorded no owner turn at all for this session.</summary>
     [Fact]
@@ -1933,11 +2217,19 @@ public sealed class WingmanNowFoldTests
         Assert.Equal(WingmanNowFold.ReplyHintPlain, Fold(WorkingRow(), null).ReplyHint);
         Assert.Equal(WingmanNowFold.ReplyHintPlain, FoldWith(SnoozedRow(), NoHistory).ReplyHint);
 
-        // Done offers no reply box, so there is nothing to say about sending.
+        // Done takes a box too, and nothing was asked on it either - so it gets the plain half and not the
+        // promise about answering several questions.
         var done = Verdict(TurnVerdictVocabulary.Finished, finishedKind: "done");
         var doneView = Fold(Row(done, colour: "cyan", label: "Done"), done);
-        Assert.Null(doneView.ReplyPlaceholder);
-        Assert.Null(doneView.ReplyHint);
+        Assert.Equal(WingmanNowFold.ReplyPlaceholderDone, doneView.ReplyPlaceholder);
+        Assert.Equal(WingmanNowFold.ReplyHintPlain, doneView.ReplyHint);
+
+        // Carrying on is now the one state with no box: it is about to work again on its own, so a box there
+        // invites him to interrupt it over a question nobody asked.
+        var carryingOn = Verdict(TurnVerdictVocabulary.ContinuesAlone);
+        var carryingOnView = Fold(Row(carryingOn, colour: "purple", label: "Carrying on"), carryingOn);
+        Assert.Null(carryingOnView.ReplyPlaceholder);
+        Assert.Null(carryingOnView.ReplyHint);
     }
 
     /// <summary>
