@@ -65,7 +65,7 @@
       "category": "Data",
       "description": "Worktrees your agent sessions share: one is handed out, given back, and only wiped once its work is proven to be on the remote.",
       "smoke": { "args": ["--help"], "expectContains": "provably landed" },
-      "note": "Has no --version flag, so the universal version check reports a usage error until it gains one."
+      "note": null
     },
     {
       "name": "cc-devthrottle",
