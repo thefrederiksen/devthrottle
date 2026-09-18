@@ -50,8 +50,20 @@ public static class TurnVerdictContract
     /// answer that was readable JSON keeps its spoken text on the failed record, so a field check no longer
     /// silences voice; the refusal still stands for the row. (A rewrite of the spoken section was graded in the
     /// same slice and withdrawn on the Architect's ruling: on the fast judge it did not reach the old
-    /// translator's fidelity and raised refusals.) The JSON shape is unchanged, so the file keeps its v2 name.</summary>
-    public const string Version = "v2.2";
+    /// translator's fidelity and raised refusals.) The JSON shape is unchanged, so the file keeps its v2 name.
+    ///
+    /// v2.3 (2026-09-18): WORDING only - three rules the owner's own review of the Now screen asked for, each
+    /// about a sentence he read on it. A label on a stop that needs NOTHING is a statement, never a command
+    /// ("Review the QA report" stood over "Nothing is needed from you"). An option's note carries ONE
+    /// consequence and no "and" that can be read two ways ("Cancels the commit and deploys, leaving the
+    /// fixes unapplied", on an option called "Do not commit"). And a session is not "the agent", which is
+    /// the product's own word list. No shape change and no validation change, so the file keeps its v2 name.
+    ///
+    /// WHAT THE GUARD OVER THOSE THREE PROVES, AND WHAT IT DOES NOT. PromptTeaches_TheThreeWordingRules
+    /// reads the prompt and fails when a rule is missing from it. That is ALL it can do: it proves the
+    /// instruction is PRESENT, never that the judge obeyed it. Only a graded corpus can say that, and none
+    /// was run for this revision.</summary>
+    public const string Version = "v2.3";
 
     /// <summary>The embedded name of the prompt template. The grading tool reads the same file off
     /// disk at src/CcDirector.Core/Wingman/Prompts/turn-verdict-v2.txt; a test pins the two to be

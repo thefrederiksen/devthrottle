@@ -1700,6 +1700,48 @@ public sealed class TurnVerdictContractTests
         Assert.DoesNotContain((byte)'\r', onDisk);
     }
 
+    /// <summary>
+    /// THE PROMPT STILL TEACHES THE THREE WORDING RULES THE OWNER'S REVIEW OF THE NOW SCREEN ASKED FOR
+    /// (v2.3, 2026-09-18). Each one is a sentence he actually read on that screen:
+    ///
+    /// 1. A label on a stop that needs NOTHING is a statement, never a command - "Review the QA report"
+    ///    stood over a card that said "Nothing is needed from you".
+    /// 2. An option's note carries ONE consequence and no "and" that can be read two ways - "Cancels the
+    ///    commit and deploys, leaving the fixes unapplied" was the note on an option called "Do not commit".
+    /// 3. A session is not "the agent" - the story opened "The agent has made the fixes", and the product's
+    ///    own word list says a session is not an agent.
+    ///
+    /// WHAT THIS PROVES, AND WHAT IT DOES NOT - say it before anyone rests on it. It proves the instruction
+    /// is PRESENT in the prompt that ships. It says NOTHING about whether the judge obeys it: only a graded
+    /// corpus can measure that, and none was run for this revision. It is here so that a later edit cannot
+    /// quietly drop a rule the owner asked for, which is the one failure a cheap test can actually catch.
+    ///
+    /// IT MATCHES ON THE RULE'S OWN DISTINCTIVE WORDS, not on a whole paragraph, so the rule may be
+    /// reworded without this going red - and not on a single common word, which would stay green if the
+    /// rule were deleted and the word happened to survive somewhere else in the file.
+    /// </summary>
+    [Fact]
+    public void PromptTeaches_TheThreeWordingRules()
+    {
+        var prompt = TurnVerdictContract.PromptTemplate;
+
+        foreach (var (rule, phrase) in new[]
+        {
+            ("a label on a stop that needs nothing is a statement",
+                "A LABEL FOR A STOP THAT NEEDS NOTHING IS A STATEMENT, NEVER A COMMAND"),
+            ("an option's note carries one consequence and no ambiguous \"and\"",
+                "ONE CONSEQUENCE PER NOTE, AND NO \"AND\" THAT CAN BE READ TWO WAYS"),
+            ("a session is not \"the agent\"",
+                "A SESSION IS NOT \"THE AGENT\""),
+        })
+        {
+            Assert.True(
+                prompt.Contains(phrase, StringComparison.Ordinal),
+                $"The prompt no longer teaches that {rule}. The owner asked for it in his review of the Now "
+                + $"screen on 2026-09-18 and it shipped as contract v2.3. Expected to find: \"{phrase}\".");
+        }
+    }
+
     [Fact]
     public void ContractVersion_NamesThePromptFileByItsSHAPE_AndStillMovesForWording()
     {
@@ -1722,7 +1764,9 @@ public sealed class TurnVerdictContractTests
         // revised prompt still in place; the test stayed green, so the wording revision it exists to force
         // would have shipped unstamped. Pinning the literal is what makes the next revision deliberate.
         // v2.2 (slice I) changed validation only: a readable refusal keeps its spoken text. The prompt is v2.1's.
-        Assert.Equal("v2.2", TurnVerdictContract.Version);
+        // v2.3 (2026-09-18) changed WORDING only - three rules from the owner's review of the Now screen, each
+        // guarded by PromptTeaches_TheThreeWordingRules above. No shape change, so the file keeps its v2 name.
+        Assert.Equal("v2.3", TurnVerdictContract.Version);
 
         var major = TurnVerdictContract.Version.Split('.')[0];
         Assert.Equal("v2", major);
