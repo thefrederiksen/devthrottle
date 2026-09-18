@@ -6,6 +6,11 @@ branch. Nothing was merged anywhere.
 
 Built to `RULING-phase-3b-the-one-address.md`.
 
+**I could not tell the Manager.** Every `cc-devthrottle` command refuses in this session with
+"CC_DIRECTOR_API is not set" - the installed `cc_shared` still demands an environment variable the
+remove-the-network-port work retired, while `tools/cc_shared` on main has no reference to it. Filed as
+issue #3045. So this file is the only report, which the brief said it would be anyway.
+
 ## What was broken, confirmed in the code before anything changed
 
 All three of the brief's findings were read in the branch as it stood, not taken on trust:
