@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Net;
 using System.Text.Json;
 using CcDirector.Core;
@@ -3690,6 +3690,10 @@ public sealed class GatewayHost : IAsyncDisposable
             // resolver the row source reads them through - so what Now says about the switches and what the roster
             // does about them cannot come from two answers.
             turnVerdictSettings: _tenantSettingsResolver.TurnVerdict,
+            // The Wingman tab's Now view, round 2: was this session started by a schedule? Read from the recorded
+            // cron fires, which is where a fire writes the session it started - so the working state can say "A
+            // schedule, at 6:00 AM" from a record rather than from a reading of the row.
+            startedByScheduleFor: (tenant, sid) => _cronRuns.StartedSession(tenant, sid),
             // Slice E: the one write path for a verdict's options, recording into the same ledger the seat does.
             turnVerdictAnswers: new Wingman.TurnVerdictAnswerService(new Wingman.TurnVerdictAnswerRecords(
                 _turnVerdicts, record => EnsureTurnVerdictEnvironment().Record(record))),

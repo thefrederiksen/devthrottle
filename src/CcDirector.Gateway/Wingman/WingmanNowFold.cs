@@ -1,4 +1,4 @@
-using CcDirector.Core.Drivers;
+﻿using CcDirector.Core.Drivers;
 using CcDirector.Core.Wingman;
 using CcDirector.Gateway.Contracts;
 
@@ -31,6 +31,11 @@ namespace CcDirector.Gateway.Wingman;
 /// rule: his answer stays on the screen for five minutes and then the session is simply working again. Null means
 /// that rule cannot be evaluated, and then it is not evaluated: the session reads as plain working rather than as
 /// an answer that might be an hour old.</param>
+/// <param name="StartedBySchedule">True when a recorded fire of one of this account's cron jobs names this session
+/// as the one it started. It is a stored fact, not a reading of the row: <c>SessionDto.AutoDismiss</c> looks like
+/// the same thing and is not - it is a per-job OPTION about closing, which a hand-started session can carry and a
+/// schedule can have switched off. False means no such record was found OR the caller did not look, and then
+/// nothing is claimed about who asked.</param>
 public sealed record WingmanNowInputs(
     string SessionId,
     SessionDto? Row,
@@ -39,7 +44,8 @@ public sealed record WingmanNowInputs(
     bool? WingmanSwitchedOff = null,
     OwnedSessionsFacts? OwnedSessions = null,
     IReadOnlyList<SessionDto>? AccountRoster = null,
-    DateTime? NowUtc = null);
+    DateTime? NowUtc = null,
+    bool StartedBySchedule = false);
 
 /// <summary>One session's stored conversation as the Now fold reads it.</summary>
 /// <param name="Supported">False when the session's agent tool does not produce a conversation this Gateway can
@@ -172,6 +178,19 @@ public static class WingmanNowFold
     public const string ReplyPlaceholderReport = "Reply if you want it to do something about this.";
     public const string ReplyPlaceholderOther = "Answer the session directly.";
 
+    /// <summary>
+    /// THE BOX ON A FINISHED SESSION, and its own words.
+    ///
+    /// Done was the one state with nowhere to type. The page used to carry a message box along its bottom on
+    /// every state, and that box was removed as duplication - rightly, it was a second box beside the card's
+    /// own - but done never had a box of its own for it to be duplicating. So the state where he is most
+    /// likely to say "good, now do the next thing" became the state where he has to leave the tab to say it.
+    ///
+    /// The words are not the report's. A report invites a reply ABOUT what he has just been told; a finished
+    /// session has nothing left to reply to, and what he sends it is new work.
+    /// </summary>
+    public const string ReplyPlaceholderDone = "Give it something else to do.";
+
     // WHAT SENDING DOES, beside the box's own Send. The first sentence is true wherever the box is offered. The
     // second is true only where something was ASKED - and it was being shown on done, on a report, on a working
     // session and on a snoozed one, none of which asked him anything.
@@ -271,6 +290,17 @@ public static class WingmanNowFold
 
     /// <summary>Who asked, when it was the owner himself.</summary>
     public const string AskedByYou = "You";
+
+    /// <summary>
+    /// WHO ASKED, WHEN IT WAS A SCHEDULE - and that one word changes how he reads the whole card.
+    ///
+    /// "at 6:00 AM" says when and leaves who open, so a working session reads as something he may have set
+    /// going and forgotten. "A schedule, at 6:00 AM" says nobody is waiting on this one.
+    ///
+    /// It is never a guess. It is said only when a recorded fire of a cron job names this session as the one it
+    /// started, and only on that session's FIRST ask - see LastAsked.
+    /// </summary>
+    public const string AskedByASchedule = "A schedule";
 
     /// <summary>The words before the time when nobody is named.</summary>
     public const string AskedWhenLeadUnnamed = "at";
@@ -383,7 +413,7 @@ public static class WingmanNowFold
         // last asked, and the stop it has just come from.
         if (state is WingmanNowStates.Working or WingmanNowStates.JustAnswered)
         {
-            answer.LastAsked = LastAsked(inputs.Conversation, row, verdicts);
+            answer.LastAsked = LastAsked(inputs.Conversation, row, verdicts, inputs.StartedBySchedule);
             answer.LastStop = LastStop(verdicts, answered is null ? LastStopLead : AnsweredStopLead);
 
             // AND WHERE TO GO NEXT, only on the state that follows his answer. It is the one moment the question
@@ -469,7 +499,22 @@ public static class WingmanNowFold
             return answer;
         }
 
-        answer.Headline = NullIfBlank(live.Label);
+        // THE HEADLINE IS THE WINGMAN'S ONE LINE ABOUT THE STOP - EXCEPT ON THE TWO STATES THAT NEED NOTHING.
+        //
+        // TurnVerdictDto.Label is documented as "the one line a ROW shows", and the Sessions list leads it with
+        // the state: "Telling you - Review the QA report". This view was showing it BARE, in title type, at the
+        // top of the page - and then a card underneath saying "Nothing is needed from you". "Review the QA
+        // report" above "Nothing is needed from you" is the page giving him an order and then telling him to
+        // ignore it, and it was word for word the same on the screen two review rounds apart.
+        //
+        // The Gateway cannot mend the line itself. Turning an order into a statement is writing English nobody
+        // said, and these are the judge's words about the session's words. What it can do is stop presenting
+        // them as an instruction to him - which is what the design already says: its Done state is "the work is
+        // complete; nothing needed" and its Report state is "only telling him something; the work is not
+        // finished; reply box". Neither has a headline. The story below still says what the stop was about, in
+        // the Wingman's own sentences, and the card states the verdict in words this Gateway owns.
+        var needsNothing = state is WingmanNowStates.Done or WingmanNowStates.Report;
+        answer.Headline = needsNothing ? null : NullIfBlank(live.Label);
         answer.Story = NullIfBlank(live.Summary);
         answer.AgentSaid = AgentSaid(live, row);
         answer.WholeReply = WholeReply(inputs.Conversation);
@@ -638,9 +683,14 @@ public static class WingmanNowFold
 
         if (string.Equals(state, WingmanNowStates.Working, StringComparison.Ordinal))
         {
-            var since = WorkingSince(verdicts);
-            // No superseded record means nothing here knows when this stretch began - a session that has not
-            // stopped since the Gateway learned of it. The pill still says Working; no number is invented.
+            // HOW LONG IT HAS BEEN WORKING IS THE FIRST THING HE WANTS FROM A WORKING SESSION, and it was
+            // disappearing from exactly the sessions he opens this view on: a scheduled run minutes old has
+            // never stopped, so it has no superseded record to measure from, and the line vanished. A session
+            // with no stored stop at all has been working since it was created - see FirstStretchSince.
+            var since = WorkingSince(verdicts) ?? FirstStretchSince(row, verdicts);
+            // Nothing here knows when this stretch began: a row this Gateway has nothing pushed for, or one
+            // whose creation moment an older Director does not report. The pill still says Working; no number
+            // is invented.
             return since is null ? null : new WingmanNowWhenDto
             {
                 Lead = WorkingForLead,
@@ -649,9 +699,29 @@ public static class WingmanNowFold
             };
         }
 
-        var at = live is not null && live.TurnEndObservedAtUtc != default
-            ? live.TurnEndObservedAtUtc
-            : row?.WaitingSince;
+        // WHEN IT STOPPED IS THE ROW'S OWN WAITING STAMP, and the verdict's moment is only the fallback. The two
+        // are different facts and the screen was showing the wrong one.
+        //
+        // TurnVerdictDto.TurnEndObservedAtUtc is a JOIN KEY into the turn log - its own documentation says it is
+        // "when the DETECTOR observed the turn end" - and it is deliberately MOVED FORWARD. A stop sighted again
+        // on an unchanged screen has its key refreshed to the later sighting (TurnVerdictService.Reuse), so that
+        // the turn-log record of that sighting still pairs with a verdict row. That is right for a join key and
+        // wrong for a stopping time.
+        //
+        // The detector sights a stop again whenever its transition memory is empty, and TurnEndWatcher holds that
+        // memory in the Gateway's own process: every Gateway start runs a catch-up sweep of every Director, sees
+        // each already-waiting session with no previous state, and raises a turn end stamped at that moment. One
+        // restart therefore re-stamps every stopped session in the fleet with the same minute. That is exactly
+        // what the owner was shown - three sessions on two machines all "Stopped at 6:02 AM", one of them beside
+        // a row saying it had been idle for seventeen hours, and the same stop reading 3:56 AM a round earlier.
+        //
+        // SessionDto.WaitingSince is the Director's raw fact about the terminal: the moment the session entered a
+        // waiting state, stamped once on the machine the session runs on, and never moved by anything here. The
+        // idle clock on the Sessions list row is derived from that same fact, which is why the row and this
+        // sentence disagreed about one session. The verdict's moment is kept for the one case the row cannot
+        // answer: a session whose machine has gone away and left nothing pushed.
+        var at = row?.WaitingSince
+                 ?? (live is not null && live.TurnEndObservedAtUtc != default ? live.TurnEndObservedAtUtc : null);
         if (at is null) return null;
         return new WingmanNowWhenDto
         {
@@ -671,12 +741,15 @@ public static class WingmanNowFold
         WingmanNowStates.Report => ReplyPlaceholderReport,
         WingmanNowStates.Reading => ReplyPlaceholderReading,
         WingmanNowStates.Working or WingmanNowStates.JustAnswered => ReplyPlaceholderWorking,
+        // DONE TAKES A BOX, and it is the one place on this view where an empty state was a dead end rather
+        // than a quiet one - see ReplyPlaceholderDone.
+        WingmanNowStates.Done => ReplyPlaceholderDone,
         // Failed and switched off both fall to the "other" words below on purpose - with no judgement to answer,
         // the box goes to the SESSION, which is exactly what those words say.
         WingmanNowStates.Failed or WingmanNowStates.SwitchedOff => ReplyPlaceholderOther,
-        // Done and carrying on offer no reply box: the session is finished, or it is about to work again on its own,
-        // and a box that invites an answer to neither is an invitation to interrupt for no reason.
-        WingmanNowStates.Done or WingmanNowStates.CarryingOn => null,
+        // Carrying on offers no reply box: the session is about to work again on its own, and a box that invites
+        // an answer to a question nobody asked is an invitation to interrupt it for no reason.
+        WingmanNowStates.CarryingOn => null,
         _ => ReplyPlaceholderOther,
     };
 
@@ -980,6 +1053,26 @@ public static class WingmanNowFold
     }
 
     /// <summary>
+    /// WHEN A SESSION THAT HAS NEVER STOPPED BEGAN WORKING: the moment it was created.
+    ///
+    /// A session with NO stored verdict at all has not stopped since this Gateway learned of it, so the stretch it
+    /// is in now is its first one and it began when the session did. That is the honest reading of the row, and
+    /// it is the case the screen was losing the number on - a fresh scheduled run, which is most of what the
+    /// working state is ever opened on.
+    ///
+    /// IT IS NOT A GENERAL FALLBACK, and the emptiness check is what keeps it honest. A session that HAS stopped
+    /// carries a superseded record to measure from; reaching past that to the session's creation would report
+    /// the age of the SESSION as the length of this stretch - "Working for 3 days" on one that stopped four
+    /// minutes ago. So this answers only where there is nothing else that could be true.
+    /// </summary>
+    private static DateTime? FirstStretchSince(SessionDto? row, IReadOnlyList<AnsweredTurnVerdict> verdicts)
+    {
+        if (verdicts.Count > 0) return null;
+        if (row is null || row.CreatedAt == default) return null;
+        return row.CreatedAt.Kind == DateTimeKind.Utc ? row.CreatedAt : row.CreatedAt.ToUniversalTime();
+    }
+
+    /// <summary>
     /// The stop the row has just come from, as one line - the newest ACCEPTED record, superseded or not.
     ///
     /// Superseded is the normal case here rather than an edge: a working session's last stop is superseded by
@@ -1216,7 +1309,7 @@ public static class WingmanNowFold
     /// and a message this Gateway cannot place in time is not a better answer than silence.
     /// </summary>
     private static WingmanNowAskedDto? LastAsked(WingmanNowConversation? conversation, SessionDto? row,
-        IReadOnlyList<AnsweredTurnVerdict> verdicts)
+        IReadOnlyList<AnsweredTurnVerdict> verdicts, bool startedBySchedule)
     {
         if (conversation is null || !conversation.Supported) return null;
 
@@ -1231,7 +1324,14 @@ public static class WingmanNowFold
             if (message.Timestamp is not { } stamp) return null;
 
             var at = stamp.UtcDateTime;
-            string? by = OwnerAskedIt(row, verdicts, at) ? AskedByYou : null;
+            string? by = OwnerAskedIt(row, verdicts, at) ? AskedByYou
+                // A SCHEDULE, AND ONLY ON THE ASK IT ACTUALLY SENT. A cron fire records the session it started,
+                // so "this session was started by a schedule" is a fact and not a reading of the row. What the
+                // schedule sent is that session's FIRST ask - everything after it came from somewhere this fold
+                // cannot name, and naming the schedule for one of those would credit it with words it never
+                // wrote. So the claim is made only while no earlier ask exists.
+                : startedBySchedule && !AnyEarlierAsk(messages, i) ? AskedByASchedule
+                : null;
 
             return new WingmanNowAskedDto
             {
@@ -1244,6 +1344,19 @@ public static class WingmanNowFold
         }
 
         return null;
+    }
+
+    /// <summary>Is there an ask before <paramref name="index"/> - a user message that carries words of its own? A
+    /// tool result is a user message with no words in it and is not an ask (see the note on LastAsked).</summary>
+    private static bool AnyEarlierAsk(IReadOnlyList<HistoryMessageDto> messages, int index)
+    {
+        for (var i = 0; i < index; i++)
+        {
+            if (!string.Equals(messages[i].Role, "User", StringComparison.OrdinalIgnoreCase)) continue;
+            if (MessageText(messages[i]) is not null) return true;
+        }
+
+        return false;
     }
 
     /// <summary>

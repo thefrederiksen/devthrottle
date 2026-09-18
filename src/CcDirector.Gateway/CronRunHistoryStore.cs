@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using CcDirector.Core.Utilities;
 using CcDirector.Gateway.Contracts;
 using CcDirector.Gateway.Data;
@@ -109,6 +109,36 @@ public sealed class CronRunHistoryStore
                 .ToList()
                 .Select(ToRecord)
                 .ToList();
+        }
+    }
+
+    /// <summary>
+    /// WAS THIS SESSION STARTED BY ONE OF THIS ACCOUNT'S SCHEDULES? True when any recorded fire names it.
+    ///
+    /// The Wingman tab's Now view asks this so that a working session can say WHO asked it - "A schedule, at
+    /// 6:00 AM" rather than a bare "at 6:00 AM" - and that one word tells the owner nobody is waiting on this
+    /// session. It is answered from the stored run, which is the only place the fact is recorded: a fire writes
+    /// the session it started (<see cref="Contracts.CronRunRecord.SessionId"/>), so the answer is a record and
+    /// never a reading of the row.
+    ///
+    /// <c>SessionDto.AutoDismiss</c> is NOT this fact and must not be used for it. It is a per-job OPTION about
+    /// whether a run closes itself, which a hand-started session can carry and a schedule can have switched off,
+    /// so it would both name schedules that are not one and miss ones that are.
+    ///
+    /// THE TENANT IS EXPLICIT, never ambient: the caller has already resolved which account this read is for,
+    /// and a query that fell back to whatever tenant happened to be in scope is how one account answers about
+    /// another's runs.
+    /// </summary>
+    /// <param name="tenant">The account whose runs are searched.</param>
+    /// <param name="sessionId">The session to look for.</param>
+    public bool StartedSession(Core.Tenancy.TenantId tenant, string sessionId)
+    {
+        if (!tenant.IsValid || string.IsNullOrWhiteSpace(sessionId)) return false;
+
+        lock (_gate)
+        {
+            using var ctx = _db.CreateContext(tenant);
+            return ctx.CronRuns.AsNoTracking().Any(e => e.SessionId == sessionId);
         }
     }
 

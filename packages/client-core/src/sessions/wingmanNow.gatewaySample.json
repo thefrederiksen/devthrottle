@@ -256,7 +256,7 @@
     "unsure": false,
     "unsureTag": null,
     "unsureLine": null,
-    "headline": "Release v2.5.0 is tagged and published",
+    "headline": null,
     "story": "The release notes are pushed and the merge command was refused by a permission check.",
     "agentSaid": {
       "who": "Claude Code said",
@@ -266,8 +266,8 @@
     "needs": null,
     "canAnswerByOption": false,
     "verdictId": "verdict-1",
-    "replyPlaceholder": null,
-    "replyHint": null,
+    "replyPlaceholder": "Give it something else to do.",
+    "replyHint": "Sent to the session as your message.",
     "snoozedUntil": null,
     "calmCard": {
       "heading": "The work is complete",
