@@ -918,10 +918,10 @@ public static class SessionOrdering
         // THE ARGUMENT ABOVE RESTS ON A PRODUCT FACT, NOT ON GOOD INTENTIONS, because "the controller means
         // nothing to an Architect" is exactly the kind of claim that is true when written and quietly false
         // a year later. The fact: an Architect is the TOP of a mission. It settles the design, writes the
-        // brief and hires the Manager (.claude/skills/mission/SKILL.md), and the resolver enforces the
-        // direction - Manager-derivation EXCLUDES Architect, so the session on the other end of that
-        // controller id is a session that OPENED this one, never a seat this one answers to. That is what
-        // makes losing it provenance rather than supervision.
+        // brief and hires the Manager, and the resolver enforces the direction - Manager-derivation
+        // EXCLUDES Architect, so the session on the other end of that controller id is a session that
+        // OPENED this one, never a seat this one answers to. That is what makes losing it provenance
+        // rather than supervision.
         //
         // If that ever stops being true - if an Architect comes to take direction from the session that
         // spawned it - this arm is wrong and the answer is a notice written for the seat, not this generic

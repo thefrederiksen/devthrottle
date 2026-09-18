@@ -89,8 +89,8 @@
          lives in the Cockpit; only the token login page remains here. -->
     <EmbeddedResource Include="Web\login.html" />
     <!-- The instruction bodies the built-in workflows ship with (Workflows mission). Kept as .md
-         files, not C# string literals, so the mission conduct stays diffable against its source
-         (.claude/skills/mission/SKILL.md) and cannot drift through escaping. -->
+         files, not C# string literals, so they stay readable in a diff and cannot drift through
+         escaping. -->
     <EmbeddedResource Include="Workflows\Content\*.instructions.md" />
     <!-- The bodies the built-in skills ship with (the central skill library). Kept as .md files, not
          C# string literals, so they stay diffable against the skill files they came from and cannot

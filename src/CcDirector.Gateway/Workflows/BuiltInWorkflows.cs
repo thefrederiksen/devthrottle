@@ -44,54 +44,54 @@ public static class BuiltInWorkflows
         new WorkflowDefinition(
             Id: "mission",
             Name: "Mission",
-            Summary: "An Architect settles the design, a Manager drives the phases, and Workers build. "
-                   + "The owner is bothered once, at the report.",
+            Summary: "An Architect settles the design, a Delivery Lead drives it to done, and Developers "
+                   + "build. The owner is bothered once, at the report.",
             WhenToUse: "Work big enough to need a design settled before anyone builds, or work that runs "
                      + "across more than one phase.",
-            HumanCheckpoint: "Once, at the quality report, from the Architect. The Architect directs the "
-                           + "Manager; only owner-level calls reach the human.",
+            HumanCheckpoint: "Once, at the report, from the Delivery Lead. There is no per-phase approval "
+                           + "and no per-pull-request approval; only a genuinely undecidable call reaches "
+                           + "the human before then.",
             Steps: new[]
             {
                 new WorkflowStep(
                     Name: "Settle the design",
-                    Description: "The Architect decides what is being built and why, and writes the phases down. "
-                               + "Nothing is built until the design is settled.",
+                    Description: "The Architect decides what is being built and why, and writes the mission "
+                               + "document. Nothing is built until the design is settled.",
                     Doer: "Architect",
                     Reviewer: null,
-                    Done: "The phases are written down and the why is stated."),
+                    Done: "The mission document exists with its required sections, the why and the goal are "
+                        + "stated, and the owner has said go."),
                 new WorkflowStep(
-                    Name: "Drive the phase",
-                    Description: "The Manager takes one phase and drives it to merged. A fresh Manager is seated "
-                               + "per phase so context does not silt up across phases.",
-                    Doer: "Manager",
-                    Reviewer: "Architect",
-                    Done: "The phase is merged to the main branch."),
+                    Name: "Drive",
+                    Description: "The Delivery Lead drives the mission to done - phase by phase, seating the "
+                               + "seats each phase needs. It never builds and it never reads diffs.",
+                    Doer: "Delivery Lead",
+                    Reviewer: null,
+                    Done: "Every phase is merged and the mission's own check passes."),
                 new WorkflowStep(
                     Name: "Build",
-                    Description: "Workers do the building under the Manager, each in its own worktree so two "
-                               + "workstreams never share a tree. The Manager runs the mission's check itself "
-                               + "before accepting the work, and sends it to a Reviewer from a different agent "
-                               + "family before its pull request.",
-                    Doer: "Worker",
-                    Reviewer: "Manager",
-                    Done: "A merged pull request. Committed and pushed is still in progress."),
+                    Description: "A Developer does one task, in its own worktree so two workstreams never "
+                               + "share a tree, and proves it. The seat that accepts the work runs the "
+                               + "mission's check itself rather than trusting the report.",
+                    Doer: "Developer",
+                    Reviewer: "Tech Lead, or the Delivery Lead when there is no Tech Lead",
+                    Done: "A merged pull request with its proof. Committed and pushed is still in progress."),
                 new WorkflowStep(
                     Name: "Land the record",
-                    Description: "The Architect lands the mission's own paper trail - brief, rulings, state note, "
-                               + "reviews, fix reports, evidence - as the last slice, from inside the mission "
-                               + "worktree. A record left uncommitted is one disk away from gone, and it is what "
-                               + "the next agent rebuilds the mission from.",
-                    Doer: "Architect",
+                    Description: "The Delivery Lead lands the mission's own paper trail - the mission document, "
+                               + "rulings, handover notes, reviews, evidence - from inside the mission worktree. "
+                               + "A record left uncommitted is one disk away from gone, and it is what the next "
+                               + "seat rebuilds the mission from.",
+                    Doer: "Delivery Lead",
                     Reviewer: null,
                     Done: "The mission's record is merged to the main branch."),
                 new WorkflowStep(
                     Name: "Report",
-                    Description: "The quality report goes to the owner, from the Architect - the one seat the "
-                               + "owner talks to inside a mission. This is the one interruption the mission "
-                               + "is allowed to spend.",
-                    Doer: "Architect",
+                    Description: "The report goes to the owner, from the Delivery Lead. This is the one "
+                               + "interruption the mission is allowed to spend.",
+                    Doer: "Delivery Lead",
                     Reviewer: null,
-                    Done: "The owner has the report."),
+                    Done: "The owner has one page to read."),
             }),
 
         new WorkflowDefinition(
@@ -181,10 +181,9 @@ public static class BuiltInWorkflows
 
     /// <summary>
     /// The shipped instruction body (the authoritative conduct markdown) for a built-in workflow, read
-    /// from the embedded <c>Workflows/Content/&lt;id&gt;.instructions.md</c> resource. The mission body
-    /// is the faithful extraction of <c>.claude/skills/mission/SKILL.md</c> (guarded by a fidelity
-    /// test); kept as .md resources, not string literals, so the text stays diffable. Fail-loud on a
-    /// missing resource - a built-in without its conduct is a build defect, not a runtime condition.
+    /// from the embedded <c>Workflows/Content/&lt;id&gt;.instructions.md</c> resource. Kept as .md
+    /// resources, not string literals, so the text stays diffable. Fail-loud on a missing resource - a
+    /// built-in without its conduct is a build defect, not a runtime condition.
     /// </summary>
     public static string InstructionsFor(string id)
     {
