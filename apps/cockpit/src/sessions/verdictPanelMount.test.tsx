@@ -4,9 +4,16 @@ import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
 import type { SessionDto } from "@devthrottle/client-core/api/client";
 
-// THE COCKPIT MOUNTS THE VERDICT PANEL (the Wingman-on-every-turn mission, slice E). The panel lives once in
-// client-core and each shell only mounts it, so the one thing this shell can get wrong is not mounting it. This
-// drives the REAL SessionDetail with a judged row in its outlet context, so deleting the mount goes red.
+// ONE STOP, DRAWN ONCE. This drives the REAL SessionDetail with a judged row in its outlet context and proves the
+// shell mounts NO verdict panel, on any tab.
+//
+// Two rulings, one after the other, brought it here. The owner ruled (2026-09-17) that the panel must not sit above
+// Terminal, Chat, Voice and Source Control, where it crowded views it has nothing to do with - that half is the four
+// cases below. Then Now landed on the Wingman tab and drew the same live stop with more room, so the panel above it
+// meant the SAME stop twice on one screen, each copy with its own answer buttons; the approved mockup draws no panel
+// there, and the Architect ruled it out. The shared component is untouched and still mounts wherever else it is used.
+//
+// A shell that brings the panel back anywhere goes red here.
 
 vi.mock("@devthrottle/client-core/api/client", () => ({
   gatewayErrorMessage: (err: unknown) => String(err),
@@ -28,6 +35,7 @@ vi.mock("./SourceControlTab", () => ({ SourceControlTab: () => <div /> }));
 vi.mock("./QueuePanel", () => ({ QueuePanel: () => <div /> }));
 vi.mock("./ScreenshotsPanel", () => ({ ScreenshotsPanel: () => <div /> }));
 vi.mock("@devthrottle/client-core/sessions/WingmanTab", () => ({ WingmanTab: () => <div /> }));
+vi.mock("./wingmanNowActions", () => ({ wingmanNowActions: () => ({}) }));
 
 import { SessionDetail } from "./SessionDetail";
 
@@ -96,14 +104,13 @@ describe("the Cockpit session view", () => {
     },
   );
 
-  it("shows the shared verdict panel for a judged row on the Wingman tab", () => {
+  it("shows no verdict panel on the Wingman tab either, because Now draws that stop", () => {
     renderDetail();
-    expect(screen.queryByRole("region", { name: "Wingman verdict" })).toBeNull();
-
     fireEvent.click(screen.getByRole("tab", { name: "Wingman" }));
 
-    expect(screen.getByRole("region", { name: "Wingman verdict" })).toBeTruthy();
-    expect(screen.getByText("Claude Code said")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Apply it" })).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Wingman verdict" })).toBeNull();
+    expect(screen.queryByText("Claude Code said")).toBeNull();
+    // Two answer buttons for one stop on one screen is the defect this closes.
+    expect(screen.queryByRole("button", { name: "Apply it" })).toBeNull();
   });
 });

@@ -321,6 +321,33 @@ public sealed class WingmanNowFoldTests
         Assert.Null(now.CalmCard!.Body);
     }
 
+    /// <summary>
+    /// THE CALM CARD'S COLOUR IS THE GATEWAY'S, not a branch on the state name in the client. The approved mockup
+    /// tints the finished work and the report cyan and carrying on purple; a client that worked that out for itself
+    /// from <c>state</c> would be deciding what a state means, which is the one thing the Now view may not do.
+    /// </summary>
+    [Fact]
+    public void The_calm_card_carries_the_colour_the_mockup_gives_each_state()
+    {
+        var done = Verdict(TurnVerdictVocabulary.Finished, finishedKind: "done");
+        var report = Verdict(TurnVerdictVocabulary.Finished, finishedKind: "report");
+        var carryingOn = Verdict(TurnVerdictVocabulary.ContinuesAlone);
+
+        Assert.Equal(WingmanNowCardTones.Cyan, Fold(Row(done, colour: "cyan", label: "Done"), done).CalmCard!.Tone);
+        Assert.Equal(WingmanNowCardTones.Cyan,
+            Fold(Row(report, colour: "cyan", label: "Report"), report).CalmCard!.Tone);
+        Assert.Equal(WingmanNowCardTones.Purple,
+            Fold(Row(carryingOn, colour: "purple", label: "Carrying on"), carryingOn).CalmCard!.Tone);
+    }
+
+    /// <summary>A stop that needs him has no calm card at all, so there is no colour to name either.</summary>
+    [Fact]
+    public void A_stop_that_needs_him_has_no_calm_card_to_colour()
+    {
+        var verdict = Verdict(TurnVerdictVocabulary.NeededYou);
+        Assert.Null(Fold(Row(verdict), verdict).CalmCard);
+    }
+
     // ---------------------------------------------------------------- the whole reply
 
     [Fact]

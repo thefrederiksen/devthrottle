@@ -557,15 +557,29 @@ public static class WingmanNowFold
         _ => ReplyPlaceholderOther,
     };
 
+    /// <summary>
+    /// The calm card, INCLUDING ITS COLOUR. The approved mockup tints the finished work and the report cyan and
+    /// carrying on purple, and the colour is named here for the same reason the words are: reading it off the state
+    /// name in the client would be the client deciding what a state means.
+    /// </summary>
     private static WingmanNowCardDto? CalmCard(string state) => state switch
     {
-        WingmanNowStates.Done => new WingmanNowCardDto { Heading = DoneHeading, Body = DoneBody },
-        WingmanNowStates.Report => new WingmanNowCardDto { Heading = ReportHeading, Body = ReportBody },
+        WingmanNowStates.Done => new WingmanNowCardDto
+        {
+            Heading = DoneHeading, Body = DoneBody, Tone = WingmanNowCardTones.Cyan,
+        },
+        WingmanNowStates.Report => new WingmanNowCardDto
+        {
+            Heading = ReportHeading, Body = ReportBody, Tone = WingmanNowCardTones.Cyan,
+        },
         // THE HEADING ALONE, and its body is filled in by the caller. The sentence under this one is about the
         // clock, and it takes two forms - a deadline with an instant in the middle of it, or no clock at all
         // because a session it owns is still running - so the caller, which has the verdict and the owned
         // sessions, decides which. Both forms are this fold's words; neither is the client's.
-        WingmanNowStates.CarryingOn => new WingmanNowCardDto { Heading = CarryingOnHeading },
+        WingmanNowStates.CarryingOn => new WingmanNowCardDto
+        {
+            Heading = CarryingOnHeading, Tone = WingmanNowCardTones.Purple,
+        },
         _ => null,
     };
 

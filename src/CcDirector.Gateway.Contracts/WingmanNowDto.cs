@@ -396,6 +396,26 @@ public sealed class WingmanNowCardDto
 
     /// <summary>The body sentence. Null when this card has a heading only.</summary>
     public string? Body { get; set; }
+
+    /// <summary>
+    /// THE CARD'S COLOUR, NAMED HERE - one of <see cref="WingmanNowCardTones"/>, or null for the neutral card.
+    ///
+    /// The approved mockup tints the finished work and the report cyan, and carrying on purple, which is the
+    /// owner's done-versus-report distinction made visible. A client that read the tone off the state name would
+    /// be deciding what a state MEANS, which is the one thing the Now view may never do - so the same fold that
+    /// chose the words chooses the colour, and the client renders it.
+    /// </summary>
+    public string? Tone { get; set; }
+}
+
+/// <summary>The calm card's two colours, named in one place so the fold and a rule cannot spell one two ways.</summary>
+public static class WingmanNowCardTones
+{
+    /// <summary>The work is complete, or the session is only telling him something.</summary>
+    public const string Cyan = "cyan";
+
+    /// <summary>The session said it would carry on by itself.</summary>
+    public const string Purple = "purple";
 }
 
 /// <summary>
