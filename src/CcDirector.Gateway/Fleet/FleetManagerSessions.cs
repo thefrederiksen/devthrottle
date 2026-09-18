@@ -66,6 +66,45 @@ internal static class FleetManagerSessions
         return !session.HasLiveSupervisor;
     }
 
+    /// <summary>
+    /// WOULD PUTTING <paramref name="targetSessionId"/> UNDER <paramref name="newOwnerSessionId"/> CLOSE A LOOP? -
+    /// true when the target already owns the session it would be handed to, directly or anywhere further up that
+    /// session's chain of owners.
+    ///
+    /// WHY THIS IS A REFUSAL AND NOT A CURIOSITY. A session is quietened because something alive is holding it, and
+    /// that is the whole of the rule (<see cref="SessionOrdering.IsSupervised"/> reads
+    /// <see cref="SessionDto.HasLiveSupervisor"/>, which is no more than "my owner is running"). Nothing in it asks
+    /// where the chain ENDS. So a ring of live sessions holding each other holds every one of its members: each has a
+    /// live owner, so none of them ever goes red, and the owner simply stops hearing from all of them. Two sessions
+    /// are enough - session A owns W, the owner tells W to take A - and the owner loses both.
+    ///
+    /// A DEAD LINK BREAKS THE CHAIN, so the walk stops at one. A session whose owner has ended already asks the owner
+    /// directly, which is exactly where the red escapes, so a chain that passes through an ended session cannot
+    /// silence anybody and must not be refused.
+    ///
+    /// The walk carries a seen-set, because the roster it reads may already contain a ring this rule was written to
+    /// prevent, and a ring must not become a hang.
+    /// </summary>
+    public static bool WouldCloseALoop(IEnumerable<SessionDto> roster, string? targetSessionId, string? newOwnerSessionId)
+    {
+        ArgumentNullException.ThrowIfNull(roster);
+        if (string.IsNullOrEmpty(targetSessionId) || string.IsNullOrEmpty(newOwnerSessionId)) return false;
+
+        var byId = new Dictionary<string, SessionDto>(StringComparer.OrdinalIgnoreCase);
+        foreach (var s in roster)
+            if (!string.IsNullOrEmpty(s.SessionId)) byId[s.SessionId] = s;
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var walk = newOwnerSessionId;
+        while (!string.IsNullOrEmpty(walk) && seen.Add(walk))
+        {
+            if (SameId(walk, targetSessionId)) return true;
+            if (!byId.TryGetValue(walk, out var row) || IsGone(row) || !row.IsControlled) return false;
+            walk = row.ControllerSessionId;
+        }
+        return false;
+    }
+
     /// <summary>A session that has ended: exited, or crashed.</summary>
     public static bool IsGone(SessionDto session)
         => session.Crashed || string.Equals(session.ActivityState, "Exited", StringComparison.OrdinalIgnoreCase);

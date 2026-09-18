@@ -235,6 +235,19 @@ public sealed class FleetManagerHandOverService
             newOwner = null;
         }
 
+        // NO RING. Putting a session under one it already owns - directly, or anywhere up that session's chain -
+        // leaves the members answering to each other, and each of them then has a live owner, so NOT ONE of them ever
+        // goes red again: the owner stops hearing from the whole ring until he notices and breaks it himself. Two
+        // sessions are enough for that. Checked ONCE here, for every direction that puts a session under a session,
+        // rather than in each branch, so a direction added later cannot miss it.
+        if (newOwner is not null
+            && FleetManagerSessions.WouldCloseALoop(roster.Select(r => r.Session), sid, newOwner))
+            return FleetHandOverResult.Refused(409,
+                $"{name} already owns the session it would be handed to, directly or further up that session's " +
+                "chain, so it was not handed over: the two would answer to each other and neither would reach the " +
+                "owner again. Hand the session it would go to back to the owner first, from the Cockpit or the " +
+                "phone, and then this one can be taken.");
+
         if (!_env.ChangesOwnerIfExpected(tenant, directorId))
             return FleetHandOverResult.Refused(409,
                 $"The Director running {name}{OnMachine(session)} is too old to hand a session over safely: it cannot check that the session's owner is still the one checked here, " +

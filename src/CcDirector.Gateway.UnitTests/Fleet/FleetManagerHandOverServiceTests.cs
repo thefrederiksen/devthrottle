@@ -650,6 +650,71 @@ public sealed class FleetManagerHandOverServiceTests
         Assert.Contains("No session is ever put under a third session.", result.Error);
     }
 
+    /// <summary>
+    /// THE HARM THE REFUSAL BELOW PREVENTS, measured rather than asserted. A session is quietened only because
+    /// something alive is holding it, so a RING of live sessions holding each other holds every one of its members and
+    /// nothing in it ever reaches the person again. This builds the two-session ring in the roster by hand - no hand
+    /// over involved - and reads both through the real <see cref="TurnVerdictHeldCheck"/>. If this ever stops being
+    /// true, the refusal is guarding nothing and should be reconsidered rather than kept out of habit.
+    /// </summary>
+    [Fact]
+    public void ARingOfTwoLiveSessionsHoldingEachOther_SilencesBothForTheOwner()
+    {
+        Assert.False(TurnVerdictHeldCheck.Resolve(_world.Roster(Tenant), Architect, Fm).Held,
+            "the Architect answers to the owner before the ring");
+
+        var architect = _world.Rosters[Tenant].First(r => r.Session.SessionId == Architect).Session;
+        architect.ControllerSessionId = ArchitectWorker;
+        architect.IsControlled = true;
+
+        Assert.True(TurnVerdictHeldCheck.Resolve(_world.Roster(Tenant), Architect, Fm).Held);
+        Assert.True(TurnVerdictHeldCheck.Resolve(_world.Roster(Tenant), ArchitectWorker, Fm).Held);
+    }
+
+    [Fact]
+    public async Task SessionKey_MayNotTakeTheSessionThatOwnsIt()
+    {
+        var result = await HandAsSessionAsync(ArchitectWorker, Architect, "me");
+
+        AssertRefused(result, 409, "already owns the session it would be handed to, directly or further up that " +
+                                   "session's chain, so it was not handed over: the two would answer to each other " +
+                                   "and neither would reach the owner again.");
+        Assert.Empty(_world.Sent);
+        Assert.Empty(_world.Audited);
+    }
+
+    /// <summary>Not just the session directly above: anywhere up the chain closes the same ring.</summary>
+    [Fact]
+    public async Task SessionKey_MayNotTakeASessionFurtherUpItsOwnChain()
+    {
+        var architect = _world.Rosters[Tenant].First(r => r.Session.SessionId == Architect).Session;
+        architect.ControllerSessionId = Plain;
+        architect.IsControlled = true;
+
+        var result = await HandAsSessionAsync(ArchitectWorker, Plain, "me");
+
+        AssertRefused(result, 409, "already owns the session it would be handed to");
+        Assert.Empty(_world.Sent);
+    }
+
+    /// <summary>
+    /// A CHAIN THROUGH AN ENDED SESSION IS ALREADY BROKEN, so it cannot silence anybody and must not be refused. The
+    /// session asking has an ended owner, so it asks the owner directly; what sits above that ended session is out of
+    /// reach of any ring, and taking it is allowed.
+    /// </summary>
+    [Fact]
+    public async Task SessionKey_MayTakeASessionAboveAnEndedLinkInItsOwnChain()
+    {
+        _world.Rosters[Tenant].Add(("dir-2", Row(Gone, "Its owner, finished", controller: Plain, state: "Exited")));
+        var worker = _world.Rosters[Tenant].First(r => r.Session.SessionId == ArchitectWorker).Session;
+        worker.ControllerSessionId = Gone;
+
+        var result = await HandAsSessionAsync(ArchitectWorker, Plain, "me");
+
+        Assert.Equal(200, result.Status);
+        Assert.Equal(ArchitectWorker, Assert.Single(_world.Sent).Controller);
+    }
+
     [Fact]
     public async Task MarkedSessionKey_ThatIsItselfOwned_IsRefusedWithTheReason()
     {
