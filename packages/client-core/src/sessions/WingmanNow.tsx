@@ -192,7 +192,7 @@ export function WingmanNow({
           the view dropped it, so the pane never said whose stop was on it while the owner moved between a dozen
           sessions - and the answer he types here goes to that session. It is the Gateway's own words; the view
           only puts them first. */}
-      {now.sessionLine !== "" && <p className="wnow-session">{now.sessionLine}</p>}
+      {now.sessionLine ? <p className="wnow-session">{now.sessionLine}</p> : null}
       <Header now={now} at={at} actions={actions} />
       <div className="wnow-body">
         {now.switchedOff && (
