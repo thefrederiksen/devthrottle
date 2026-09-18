@@ -615,14 +615,64 @@ def test_the_action_catalogue_lists_reply_and_the_send_flags():
     assert {"reply-wanted", "reply-by"} <= {a["name"] for a in send["args"]}
 
 
-def test_reply_help_says_who_may_answer_and_that_nothing_waits(plain):
-    result = runner.invoke(app, ["message", "reply", "--help"])
-    out = " ".join(plain(result.output).split())
-    assert result.exit_code == 0
-    assert "Answer a message that asked for a reply" in out
-    assert "Only the session the question was sent to may answer it, once." in out
+def _registered(*path: str):
+    """The Click command Typer built for `cc-devthrottle <path>`, so a test can read the words it registered.
 
-    send = " ".join(plain(runner.invoke(app, ["message", "send", "--help"]).output).split())
-    assert "--reply-wanted" in send
-    assert "1 to 1440, 60 when omitted" in send
-    assert "Nothing waits for it" in send
+    Asserting a sentence against the RENDERED help asks the wrong question. The help is drawn in a
+    bordered table, so a sentence that wraps inside an option's column comes back with the next row's
+    border characters in the middle of it, and at a narrow width the renderer shortens a long option
+    label to "--reply..." outright. Neither is a change to what the command says; both break a naive
+    substring match, and which one bites depends on the console width the runner happens to have.
+    That is how this file went red on Windows at the declared dependency floor and nowhere else:
+    at a width of 100, "1 to 1440, 60 when omitted" reads back as "1 to | | 1440, 60 when omitted".
+
+    The registered metadata is the words themselves, before any of that, and it is what a reader is
+    shown whenever the console is wide enough to show it. The rendering is still invoked below, but
+    only for what no metadata can show: that the page comes up at all. Nothing is asserted about what
+    it says - see the comment on that assertion for why, and for the gap it leaves.
+    """
+    import typer.main
+
+    command = typer.main.get_command(app)
+    for name in path:
+        command = command.commands[name]
+    return command
+
+
+def _option_help(command, option: str) -> str:
+    """The registered help of one option of `command`, whitespace folded. Raises if it is not offered."""
+    for param in command.params:
+        if option in param.opts:
+            return " ".join((param.help or "").split())
+    raise AssertionError(f"{option} is not an option of {command.name}")
+
+
+def test_reply_help_says_who_may_answer_and_that_nothing_waits():
+    reply = _registered("message", "reply")
+    assert "Answer a message that asked for a reply" in " ".join((reply.help or "").split())
+    assert "Only the session the question was sent to may answer it, once." in " ".join(
+        (reply.help or "").split()
+    )
+
+    send = _registered("message", "send")
+    # Each sentence is asserted against the option that has to carry it, so a sentence that moved to a
+    # different option - or to the paragraph above the table - does not pass as if nothing had changed.
+    assert "Nothing waits for it" in _option_help(send, "--reply-wanted")
+    assert "1 to 1440, 60 when omitted" in _option_help(send, "--reply-by")
+
+    # And both pages still render, which is the one thing only a real invocation shows: a help template
+    # that throws is a broken command, and the metadata above would not notice.
+    #
+    # Nothing is asserted about what the PAGE says, deliberately. The renderer shortens to fit: at a
+    # width of 40 it labels the option "--reply..." and abbreviates words inside the help, and by 30 it
+    # shortens "--reply-by" too. A substring check against the page is therefore a test of the console
+    # width, which is what sent this file red in the first place - so asserting flag names here would
+    # reintroduce the same fault one width further down. What the OPTIONS are and what they SAY is
+    # settled above, against the metadata, where the width cannot reach it.
+    #
+    # The gap that leaves, stated rather than papered over: none of this proves a reader at a narrow
+    # width can SEE the full sentence in the option table. They cannot - Rich abbreviates it - and no
+    # assertion here changes that. It is a property of the renderer at that width, not a regression.
+    for argv in (["message", "reply", "--help"], ["message", "send", "--help"]):
+        result = runner.invoke(app, argv)
+        assert result.exit_code == 0, argv
