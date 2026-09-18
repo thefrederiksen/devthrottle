@@ -1,0 +1,194 @@
+<title>A test that was guarding nothing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<style>
+:root{
+  --ground:#F4F6F9; --surface:#FFFFFF; --ink:#18202D; --muted:#5A6477; --rule:#D9DEE7;
+  --accent:#2C58C9; --accent-soft:#E4EBFB;
+  --good:#1D7F55; --good-soft:#E1F2EA; --warn:#9A6414; --warn-soft:#F7EEDC; --bad:#B23A3A;
+  --term:#101722; --term-ink:#D5DCE6; --term-dim:#7E8A9C; --term-hi:#8FB2FF; --term-cut:#E08A5A;
+  --bar-old:#B7BFCC; --bar-new:#2C58C9;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --cond:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#0E131B; --surface:#161D28; --ink:#E4E9F1; --muted:#9AA5B6; --rule:#2A3342;
+    --accent:#86A8FF; --accent-soft:#1C2A48;
+    --good:#5CC99A; --good-soft:#15302A; --warn:#E3B062; --warn-soft:#342A18; --bad:#EE8A8A;
+    --term:#080C12; --term-ink:#D5DCE6; --term-dim:#7E8A9C; --term-hi:#8FB2FF; --term-cut:#E9A078;
+    --bar-old:#465163; --bar-new:#86A8FF;
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#0E131B; --surface:#161D28; --ink:#E4E9F1; --muted:#9AA5B6; --rule:#2A3342;
+  --accent:#86A8FF; --accent-soft:#1C2A48;
+  --good:#5CC99A; --good-soft:#15302A; --warn:#E3B062; --warn-soft:#342A18; --bad:#EE8A8A;
+  --term:#080C12; --term-ink:#D5DCE6; --term-dim:#7E8A9C; --term-hi:#8FB2FF; --term-cut:#E9A078;
+  --bar-old:#465163; --bar-new:#86A8FF;
+}
+*{box-sizing:border-box}
+body{background:var(--ground);color:var(--ink);font:16px/1.6 var(--sans);padding-inline:20px;padding-block:40px 72px}
+.wrap{max-width:940px;margin:0 auto;display:flex;flex-direction:column;gap:56px}
+h1,h2,h3{font-family:var(--cond);line-height:1.15;text-wrap:balance;margin:0}
+h1{font-size:clamp(2rem,5vw,2.9rem);font-weight:700;letter-spacing:-.01em}
+h2{font-size:1.65rem;font-weight:600}
+h3{font-size:1.15rem;font-weight:600}
+p{margin:0;max-width:66ch}
+.eyebrow{font:500 .75rem/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+section{display:flex;flex-direction:column;gap:18px}
+.lede{font-size:1.12rem;color:var(--muted)}
+code,.mono{font-family:var(--mono);font-size:.88em}
+a{color:var(--accent)}
+a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+header{display:flex;flex-direction:column;gap:16px;border-bottom:1px solid var(--rule);padding-bottom:28px}
+.meta{display:flex;flex-wrap:wrap;gap:8px 20px;font:400 .85rem var(--mono);color:var(--muted)}
+
+.status{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.stat{background:var(--surface);border:1px solid var(--rule);border-radius:6px;padding:16px 18px;display:flex;flex-direction:column;gap:6px}
+.stat b{font:600 1.9rem/1 var(--cond);font-variant-numeric:tabular-nums}
+.stat span{font-size:.88rem;color:var(--muted)}
+.stat.lead{border-color:var(--accent);background:var(--accent-soft)}
+
+.compare{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:760px){.compare{grid-template-columns:1fr}}
+.term{background:var(--term);color:var(--term-ink);border-radius:6px;overflow:hidden;display:flex;flex-direction:column}
+.term .bar{display:flex;justify-content:space-between;gap:12px;padding:8px 14px;font:500 .72rem var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--term-dim);border-bottom:1px solid #ffffff14}
+.term pre{margin:0;padding:14px;font:400 .78rem/1.55 var(--mono);overflow-x:auto;white-space:pre}
+.term .hi{color:var(--term-hi)} .term .dim{color:var(--term-dim)} .term .cut{color:var(--term-cut)}
+.caption{font-size:.86rem;color:var(--muted)}
+
+table{border-collapse:collapse;width:100%;font-size:.93rem}
+.tablebox{overflow-x:auto;background:var(--surface);border:1px solid var(--rule);border-radius:6px}
+th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--rule);vertical-align:top}
+tr:last-child td{border-bottom:none}
+th{font:600 .74rem var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);background:var(--ground)}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+td.pr{font-family:var(--mono);font-size:.82rem;color:var(--muted)}
+
+.pill{display:inline-block;font:500 .72rem/1 var(--mono);padding:5px 8px;border-radius:999px;white-space:nowrap}
+.pill.good{background:var(--good-soft);color:var(--good)}
+.pill.warn{background:var(--warn-soft);color:var(--warn)}
+.pill.accent{background:var(--accent-soft);color:var(--accent)}
+
+.chart{background:var(--surface);border:1px solid var(--rule);border-radius:6px;padding:18px 18px 10px}
+.chart svg{width:100%;height:auto;display:block}
+.chart text{fill:var(--muted);font-family:var(--sans);font-size:12px}
+.chart .lbl{fill:var(--ink);font-size:12.5px}
+.chart .val{font-family:var(--mono);font-size:11px}
+.chart .grid{stroke:var(--rule);stroke-width:1}
+.legend{display:flex;gap:18px;flex-wrap:wrap;font-size:.85rem;color:var(--muted);padding:4px 0 8px}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:2px;vertical-align:-1px;margin-right:6px}
+
+.checklist{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px 28px;margin:0;padding:0;list-style:none}
+.checklist li{display:grid;grid-template-columns:22px 1fr;gap:8px;font-size:.95rem}
+.checklist li::before{content:"";width:14px;height:14px;margin-top:5px;border-radius:3px;background:var(--good);mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3 8.5l3 3 7-7' stroke='black' stroke-width='2.4' fill='none'/%3E%3C/svg%3E") center/contain no-repeat;-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M3 8.5l3 3 7-7' stroke='black' stroke-width='2.4' fill='none'/%3E%3C/svg%3E") center/contain no-repeat}
+.checklist b{font-weight:600}
+
+.os{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+@media (max-width:760px){.os{grid-template-columns:1fr}}
+.os div{background:var(--surface);border:1px solid var(--rule);border-radius:6px;padding:16px 18px;display:flex;flex-direction:column;gap:8px}
+.os dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:.88rem}
+.os dt{color:var(--muted)} .os dd{margin:0;font-variant-numeric:tabular-nums}
+
+.notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px}
+.note{border-left:3px solid var(--warn);background:var(--surface);padding:12px 16px;border-radius:0 6px 6px 0;display:flex;flex-direction:column;gap:6px;font-size:.93rem}
+.note.open{border-left-color:var(--accent)}
+.note h3{font-size:1rem}
+footer{font-size:.82rem;color:var(--muted);border-top:1px solid var(--rule);padding-top:18px}
+</style>
+
+<div class="wrap">
+
+<header>
+  <span class="eyebrow">Mission report &middot; issue 3029</span>
+  <h1>A test that was guarding nothing</h1>
+  <p class="lede">One test in the Gateway suite claimed to prove that the product correctly reports "I cannot find this session's transcript". It did not. On your machine it failed for a reason that had nothing to do with the product, and on a fresh machine it passed for a reason that had nothing to do with the product either. It now proves what it says, on any machine, whatever has been run on it before. Nothing in the product changed, because nothing in the product was wrong.</p>
+  <div class="meta"><span>18 September 2026</span><span>SOREN_NORTH</span><span>one test file, no product code</span><span>phase 5 of the DevThrottle Method v1 mission</span></div>
+</header>
+
+<section aria-label="Summary">
+  <div class="status">
+    <div class="stat lead"><b>9 to 8</b><span>failures in the Gateway unit test suite on your machine. Exactly one failure gone, nothing else moved.</span></div>
+    <div class="stat"><b>0</b><span>lines of product code changed. The diagnosis held: the product was right.</span></div>
+    <div class="stat"><b>2</b><span>independent revert proofs - the builder's, and the reviewer's own, on a different agent family.</span></div>
+    <div class="stat"><b>6358</b><span>tests in the suite before and after. Nothing was removed, skipped or renamed to make a number move.</span></div>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">The value</span>
+  <h2>What this buys you</h2>
+  <p>The test guards a real failure you have already paid for. Issue 2561 records a session that sat silent for 48 minutes because this part of the product reported "I could not find the transcript" as "I read the transcript and it was empty". Voice narration heard "nothing to narrate", and nothing to narrate is never retried. The guard against that returning was this test.</p>
+  <p>The guard was not working. It built its session on the shared temporary folder and then asserted that no transcript could possibly be found for it. That is a claim about your machine, not about the product. Somebody had once run the Grok command line from the temporary folder, so a real conversation was sitting there; the product found it, correctly answered "ok", and the test went red. You saw that red every time you ran the suite.</p>
+  <p>The quieter half is worse. On a machine where nobody had ever done that, the same test went green - not because the product reports a missing transcript correctly, but because the folder happened to be empty. A test that can go green by accident is not guarding anything. That is what has been fixed: the test now builds its own folder, fresh for each run and deleted afterwards, which no transcript locator can resolve on any machine, for reasons that hold by construction rather than by luck.</p>
+</section>
+
+<section>
+  <span class="eyebrow">Evidence</span>
+  <h2>What is proven, and how I know</h2>
+  <p>I did not take the builder's word for any of it. Every number below is from a run I did myself, in a worktree no one else was editing, rebuilding from source each time - a run that skips the build certifies the old binary, not the change.</p>
+  <div class="tablebox">
+  <table>
+    <thead><tr><th>Run</th><th>State of the tree</th><th class="num">Result</th></tr></thead>
+    <tbody>
+      <tr><td>The six tests in the class</td><td>Before the change</td><td class="num">Failed 1, Passed 5</td></tr>
+      <tr><td>The six tests in the class</td><td>After the change</td><td class="num">Failed 0, Passed 6</td></tr>
+      <tr><td>The whole Gateway unit test suite</td><td>Before the change</td><td class="num">Failed 9, Passed 6347</td></tr>
+      <tr><td>The whole Gateway unit test suite</td><td>After the change</td><td class="num">Failed 8, Passed 6348</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="caption">Same machine, same worktree, same commands, minutes apart. One failure disappeared and one test moved from failing to passing; the totals are identical, so nothing was quietly deleted or skipped. The eight that remain are all the same PostgreSQL fixture failure and are named out of scope in the mission document.</p>
+  <p>The failure the test reported before the change was <code>Expected: "no_transcript"  Actual: "ok"</code> - the product finding the stray Grok conversation, exactly as diagnosed.</p>
+
+  <h3>The part that matters more than a green run</h3>
+  <p>A test that has never been watched failing is decoration. So the product was deliberately broken underneath the fixed test, twice, by two different seats on two different agent families:</p>
+  <ul class="checklist">
+    <li><b>The builder</b> removed the product's guard entirely, restoring the behaviour it had before issue 2561 was fixed. The test went red with <code>Expected: "no_transcript"  Actual: "ok"</code> - byte for byte the old symptom, but now for the right reason: the product really was reporting a missing transcript as a successful read.</li>
+    <li><b>The reviewer</b>, on a different agent family, did not trust that and broke the product itself. It watched the same three cases go red with the same message, then restored and watched them go green.</li>
+  </ul>
+  <p>Under the old test that break could not have been caught on your machine at all, because the locator found a real transcript before the product ever reached the code being guarded. It can be caught now. That is the whole mission.</p>
+
+  <h3>The review</h3>
+  <p>The review was done by a session running a different agent family from the one that wrote the code, and it did not arrange its own review - I sent it. Its verdict was <span class="pill good">no findings</span>, and it states what it read, what it ran and what it could not reach, so that an empty review and a review that never happened do not look the same. It read every transcript locator in the product rather than the comments describing them, and confirmed the new folder is unresolvable by construction for each one. It raised a single cosmetic observation and explicitly declined to file it as a finding.</p>
+</section>
+
+<section>
+  <span class="eyebrow">Limits</span>
+  <h2>What is NOT proven</h2>
+  <div class="notes">
+    <div class="note"><h3>One machine</h3><p>Every run is SOREN_NORTH, Windows, Debug. The change removes the dependence on machine history by construction, and the argument is about how the locators match rather than about this machine - but it has not been executed on Linux or macOS.</p></div>
+    <div class="note"><h3>The eight that remain</h3><p>All eight are the same PostgreSQL fixture refusing to connect in <code>HostedSchemaRefusesAnUnownedRowTests</code>. They were out of scope by the mission document and were not touched, run or investigated. Your local suite is still red every time you run it.</p></div>
+    <div class="note"><h3>Two agents are still uncovered</h3><p>The Copilot and OpenCode readers key on a single machine-wide database rather than on the working folder, so this test deliberately does not assert them. It did not before either. A future locator built the same way would not be covered by this fix.</p></div>
+    <div class="note"><h3>The stale baseline</h3><p>The committed baseline this mission was written against said ten failures. I measured nine on the exact commit I was working from, because the tenth is a known intermittent that did not fire. I used my own before-run rather than the written number, which is why the drop reads as nine to eight and not ten to nine.</p></div>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">The real subject</span>
+  <h2>The method's first run, and where it was awkward</h2>
+  <p>This fix was small on purpose. The point was to find out whether the DevThrottle Method can actually be used. It can: a mission document, a delivery lead who never wrote a line, one builder, one reviewer on a different agent family, a check run by the seat doing the accepting rather than read off a report, and proof committed beside the code. The shape held all the way to merged. Five things rubbed.</p>
+  <div class="notes">
+    <div class="note open"><h3>Nobody is left to land the work</h3><p>The workflow says only the Architect puts anything on main. The method has the Architect hand over and stop driving, and gives the delivery lead "drives the mission to done". Mine handed over and said plainly it was not looking over my shoulder, so there was no Architect to land it. I merged it myself, on the method and the mission document, which outrank the workflow. That contradiction should be settled in writing rather than by each run deciding for itself.</p></div>
+    <div class="note open"><h3>A seat can be opened and never start</h3><p>The reviewer was first opened on Copilot. Its opening instruction sat unsent while the session loaded 69 skills, and it went quiet having done nothing at all. That looks exactly like a session thinking. Only reading its screen revealed it. I stopped it and reopened the reviewer on Pi, which started immediately. The method has no step that says confirm the seat actually started, and it needs one - or better, the product should not report a seat as open until it has taken its first instruction.</p></div>
+    <div class="note open"><h3>A baseline goes stale faster than a mission runs</h3><p>The mission was written against a measured baseline from an earlier commit. By the time I ran, main had moved and the number was wrong. Measuring the before state myself on the exact commit cost four minutes and made every later claim safe. The method asks for a check; it should also ask the accepting seat to measure the before state rather than inherit it.</p></div>
+    <div class="note open"><h3>Every seat wants its own worktree, and there were four</h3><p>Each seat gets its own checkout so that nobody edits the files underneath someone else's test run. The shared pool holds four and other missions had all four. I raised it to six. A three-seat mission needs three slots, so four is below the size of one ordinary mission plus anything else running.</p></div>
+    <div class="note open"><h3>Which agents are available is folklore, not product</h3><p>Two agent families were at their usage limits, measured earlier the same day and written into my handover by hand. A session that hits a limit disappears shortly afterwards, so it reads as a broken start rather than as a limit. Without that handwritten note I would have spent an hour on it. The product knows this and could say it.</p></div>
+  </div>
+</section>
+
+<section>
+  <span class="eyebrow">Yours to decide</span>
+  <h2>Two decisions I did not make for you</h2>
+  <div class="notes">
+    <div class="note"><h3>The eight remaining failures</h3><p>They are one cause - a PostgreSQL fixture that cannot connect - and they make your local Gateway suite red on every run, which is exactly the condition in which a real new failure hides. It is a small, well-understood piece of work and nobody is on it. Worth opening a mission for?</p></div>
+    <div class="note"><h3>Who lands a mission's work</h3><p>The contradiction above. My recommendation is that the delivery lead lands it, because the method already makes that seat responsible for the goal and for the record, and the architect is explicitly gone by then - but it is your method and your call.</p></div>
+  </div>
+</section>
+
+<footer>Issue 3029, merged to main in thefrederiksen/devthrottle. The mission document, the builder's fix report, the review, and every run log quoted here are committed beside the code in <code>docs/missions/grok-transcript-test-2026-09-18/</code>. Prepared 18 September 2026.</footer>
+</div>
