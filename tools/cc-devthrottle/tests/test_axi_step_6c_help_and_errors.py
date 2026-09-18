@@ -335,6 +335,9 @@ _ACTIONS_JSON_BEFORE = Path(__file__).parent / "fixtures" / "actions_json_before
 _ACTIONS_ADDED_SINCE_PIN = {
     "fleet-digest", "fleet-events", "fleet-ack", "fleet-ready", "fleet-finding", "fleet-decision", "fleet-outcomes",
     "fleet-show", "fleet-answer", "fleet-prefer", "fleet-preferences", "fleet-forget",
+    # The pooled-worktree commands, which run cc-worktrees rather than answering for it.
+    "worktree-get", "worktree-return", "worktree-lease", "worktree-destroy", "worktree-list-pool",
+    "worktree-list",
 }
 
 
