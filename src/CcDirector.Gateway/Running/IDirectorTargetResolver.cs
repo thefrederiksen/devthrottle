@@ -144,12 +144,6 @@ public sealed class RegistryDirectorTargetResolver : IDirectorTargetResolver
                 "tenant boundary.");
 
     /// <summary>
-    /// First registered Director on the machine. Gateway Cleanup mission (tunnel-only): a registered Director
-    /// IS reachable - it is reached over its tunnel by id, not by dialing a control endpoint - so this no
-    /// longer requires a non-empty ControlEndpoint or an advertised-endpoint reachability state (both are
-    /// artifacts of the deleted HTTP-dial path).
-    /// </summary>
-    /// <summary>
     /// Resolve ONE named Director - by id or by display name, case-insensitively - within the caller's
     /// tenant, optionally narrowed to a machine. A named Director identifies its own machine, so
     /// <paramref name="machine"/> is only a further filter and may be blank.
@@ -199,11 +193,33 @@ public sealed class RegistryDirectorTargetResolver : IDirectorTargetResolver
         return new DirectorTargetResult(chosen.DirectorId, null);
     }
 
+    /// <summary>
+    /// The RUNNING Director on the machine, freshest heartbeat first, or null when none is running.
+    /// Tunnel-only: a running Director is reached over its tunnel by id, so this requires neither a
+    /// non-empty ControlEndpoint nor an advertised-endpoint reachability state (both artifacts of the
+    /// deleted HTTP-dial path). What it does require is that the Director has not said goodbye - see
+    /// the note in the body, and issue #2785.
+    /// </summary>
     private DirectorDto? PickReachable(TenantId tenant, string machine)
     {
         // Confine the machine-name match to the caller's OWN tenant partition (audit H1, gap audit-e): a
         // fleet-global scan could return another tenant's Director that happens to run on the same machine.
-        return _listDirectors(tenant).FirstOrDefault(x =>
-            string.Equals(x.MachineName, machine, StringComparison.OrdinalIgnoreCase));
+        //
+        // REGISTERED IS NOT RUNNING (issue #2785). A Director that said goodbye keeps its registration
+        // until the 24h eviction horizon - MarkStopped stamps StoppedAtUtc and deliberately never removes
+        // the entry - so for a full day after any restart a machine carries both a corpse and the live
+        // Director. An unordered FirstOrDefault over the registry dictionary picked between them by
+        // hash-bucket order, which is stable for the life of the Gateway process: lose that draw and EVERY
+        // schedule on that machine dispatches into a closed tunnel and records infraStatus=not-started
+        // against the dead Director's id, silently, until the corpse is evicted.
+        //
+        // So skip the stopped ones and prefer the freshest heartbeat. When every registration on the
+        // machine is stopped this returns null, which is the right answer and not a failure: the caller
+        // then asks the launcher to start one, which is what should have happened all along.
+        return _listDirectors(tenant)
+            .Where(x => string.Equals(x.MachineName, machine, StringComparison.OrdinalIgnoreCase))
+            .Where(x => x.StoppedAtUtc is null)
+            .OrderByDescending(x => x.LastSeen ?? DateTime.MinValue)
+            .FirstOrDefault();
     }
 }

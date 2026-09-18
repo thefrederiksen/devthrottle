@@ -324,4 +324,85 @@ public sealed class RegistryDirectorTargetResolverTests
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => resolver.ResolveAsync("M", director: null, CancellationToken.None));
     }
+
+    /// <summary>A Director that said goodbye: MarkStopped stamps StoppedAtUtc and keeps the entry for the
+    /// 24h eviction horizon, so a stopped registration is a normal thing to find in the list.</summary>
+    private static DirectorDto Stopped(string id, string machine, DateTime lastSeen) => new()
+    {
+        DirectorId = id, MachineName = machine, ControlEndpoint = "", Version = "0.9.10",
+        LastSeen = lastSeen, StoppedAtUtc = lastSeen,
+    };
+
+    private static DirectorDto Running(string id, string machine, DateTime lastSeen) => new()
+    {
+        DirectorId = id, MachineName = machine, ControlEndpoint = "", Version = "0.9.10",
+        LastSeen = lastSeen, StoppedAtUtc = null,
+    };
+
+    [Fact]
+    public async Task Resolve_SkipsTheStoppedRegistration_AndPicksTheLiveDirectorOnTheSameMachine()
+    {
+        // Issue #2785. A restart leaves the previous registration in the list, stopped, for up to 24h.
+        // The stopped one is deliberately placed FIRST: the old rule was an unordered FirstOrDefault, so
+        // this ordering is what made it dispatch into a closed tunnel and record infraStatus=not-started.
+        var directors = new List<DirectorDto>
+        {
+            Stopped("d-corpse", "SOREN_NORTH", new DateTime(2026, 9, 8, 19, 41, 35, DateTimeKind.Utc)),
+            Running("d-live", "SOREN_NORTH", new DateTime(2026, 9, 9, 15, 4, 18, DateTimeKind.Utc)),
+        };
+        var launcher = new FakeLauncher(_ => throw new InvalidOperationException("must not launch when one is running"));
+        var resolver = new RegistryDirectorTargetResolver(
+            _ => directors, () => TenantId.Local, launcher, FastTimeout, FastPoll);
+
+        var result = await resolver.ResolveAsync("SOREN_NORTH", director: null, CancellationToken.None);
+
+        Assert.Null(result.Error);
+        Assert.Equal("d-live", result.DirectorId);
+        Assert.Equal(0, launcher.StartCount);
+    }
+
+    [Fact]
+    public async Task Resolve_PrefersTheFreshestHeartbeat_WhenSeveralAreRunning()
+    {
+        // Two live Directors on one machine is ambiguous by construction (issue #2786); the freshest
+        // heartbeat is at least a stated rule rather than dictionary order.
+        var directors = new List<DirectorDto>
+        {
+            Running("d-stale", "SOREN_NORTH", new DateTime(2026, 9, 9, 10, 0, 0, DateTimeKind.Utc)),
+            Running("d-fresh", "SOREN_NORTH", new DateTime(2026, 9, 9, 15, 0, 0, DateTimeKind.Utc)),
+        };
+        var launcher = new FakeLauncher(_ => throw new InvalidOperationException("must not launch"));
+        var resolver = new RegistryDirectorTargetResolver(
+            _ => directors, () => TenantId.Local, launcher, FastTimeout, FastPoll);
+
+        var result = await resolver.ResolveAsync("SOREN_NORTH", director: null, CancellationToken.None);
+
+        Assert.Equal("d-fresh", result.DirectorId);
+    }
+
+    [Fact]
+    public async Task Resolve_EveryRegistrationStopped_AsksTheLauncher_RatherThanResolvingToACorpse()
+    {
+        // The whole point of excluding the stopped ones: "none running" must reach the launcher branch.
+        // Resolving to a corpse instead is what made a missed schedule look like a started one.
+        var directors = new List<DirectorDto>
+        {
+            Stopped("d-corpse-1", "SOREN_NORTH", new DateTime(2026, 9, 8, 19, 41, 35, DateTimeKind.Utc)),
+            Stopped("d-corpse-2", "SOREN_NORTH", new DateTime(2026, 9, 8, 20, 0, 0, DateTimeKind.Utc)),
+        };
+        var launcher = new FakeLauncher(machine =>
+        {
+            directors.Add(Running("d-launched", machine, new DateTime(2026, 9, 9, 16, 0, 0, DateTimeKind.Utc)));
+            return true;
+        });
+        var resolver = new RegistryDirectorTargetResolver(
+            _ => directors, () => TenantId.Local, launcher, FastTimeout, FastPoll);
+
+        var result = await resolver.ResolveAsync("SOREN_NORTH", director: null, CancellationToken.None);
+
+        Assert.Null(result.Error);
+        Assert.Equal("d-launched", result.DirectorId);
+        Assert.Equal(1, launcher.StartCount);
+        Assert.Equal("SOREN_NORTH", launcher.LastMachine);
+    }
 }
