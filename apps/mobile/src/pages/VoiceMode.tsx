@@ -125,10 +125,16 @@ export function VoiceMode() {
   // precedence so a listener is never interrupted. When the verdict is "ready" but the phone is not yet
   // speaking, the bytes are still downloading locally - a phone-local affordance, not a Gateway state.
   const vd = voiceDisplay;
-  const showDownloading = voiceOn && !speaking && vd?.kind === "ready";
-  const showBusy = voiceOn && !speaking && (vd?.kind === "preparing" || vd?.kind === "working");
+  // A live session owns this one, so it is not the user's to be read aloud (the Gateway's verdict - see
+  // VoiceDisplayFold.HeldDisplay). It is checked before every other branch and it suppresses the OFF card
+  // below, because the off card's whole content is a "Switch to voice mode" button that cannot work here:
+  // the enrolment sweep refuses a held session, so pressing it either fails or is undone. The banner says
+  // voice mode narrates the sessions you own; this card says why this one is not one of them.
+  const showHeld = vd?.kind === "held";
+  const showDownloading = !showHeld && voiceOn && !speaking && vd?.kind === "ready";
+  const showBusy = !showHeld && voiceOn && !speaking && (vd?.kind === "preparing" || vd?.kind === "working");
   const showStatus =
-    voiceOn && !speaking && vd != null &&
+    !showHeld && voiceOn && !speaking && vd != null &&
     vd.kind !== "ready" && vd.kind !== "preparing" && vd.kind !== "working" && vd.kind !== "off";
 
   // Snooze and Remove share this one live held-state, so the action buttons and the overflow menu
@@ -261,7 +267,7 @@ export function VoiceMode() {
             answer, exactly when it was offered before) and Snooze, which also returns to the list -
             the arrow says so. */}
         <div className="voice-actions">
-          {speaking && (
+          {!showHeld && speaking && (
             <button type="button" className="voice-action-respond" onClick={() => setResponding(true)}>
               Respond
             </button>
@@ -331,9 +337,22 @@ export function VoiceMode() {
           <div className="banner voice-fallback-note" role="status">{vd.voiceFallbackNotice}</div>
         )}
 
+        {/* A0. HELD - a live session owns this one, so it is read by that owner and never narrated to you.
+            The Gateway's own verdict, rendered verbatim, and it offers NOTHING: no play, no Generate, and
+            above all no "Switch to voice mode". That button was the whole complaint - twelve sessions on a
+            twenty-session fleet drew it under a banner promising every session narrates, and pressing it
+            either 503'd with the failure wiped off the screen by the next poll, or briefly succeeded and was
+            undone by the enrolment sweep. An action that cannot succeed is worse than no action. */}
+        {showHeld && vd && (
+          <div className="voice-off">
+            <p className="voice-off-title">{vd.label}</p>
+            <p className="voice-hint">{vd.message}</p>
+          </div>
+        )}
+
         {/* A. OFF - one clear "Switch to voice mode" button. Only ever shown once a poll has confirmed
             the session is NOT in voice mode, so the screen never flashes OFF then flips (issue #1015). */}
-        {!voiceOn && pollDone && (
+        {!showHeld && !voiceOn && pollDone && (
           <div className="voice-off">
             <p className="voice-off-title">Voice mode is off for this session.</p>
             <p className="voice-hint">Turn it on and the Wingman will start narrating every turn.</p>
@@ -417,7 +436,7 @@ export function VoiceMode() {
             In voice mode the text is a nice-to-have, so a long response must never push the controls
             off-screen and must never scroll up behind them - the body is a fixed-header + scrolling
             narrative column, not one big scroll (issue #1003, voice-mode screen layout). */}
-        {speaking && (
+        {!showHeld && speaking && (
           <>
             <div className="voice-top">
               <div className="voice-statusbar">

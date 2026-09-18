@@ -1567,32 +1567,110 @@ public sealed class TurnVerdictService : IDisposable
                 // A detached task has no caller to throw to; an unexpected fault is logged loudly, never swallowed silently.
                 FileLog.Write($"[TurnVerdictService] narration for the user FAILED: sid={sid} verdict={verdict.VerdictId}: {ex.GetType().Name}: {ex.Message}");
             }
+            finally
+            {
+                // The call is over, however it ended. The claim stays - no automatic re-attempt - but it stops being a
+                // RUNNING call, so a person asking for this stop can release it and ask again.
+                NarrationCallFinished(tenant, sid, verdict.VerdictId);
+            }
         });
         _userNarrationCalls[call] = 1;
         _ = call.ContinueWith(done => _userNarrationCalls.TryRemove(done, out _), TaskScheduler.Default);
     }
 
     /// <summary>
-    /// Claim one verdict id's narration call for a session. True for the first claim of that id, false for every later
-    /// one, whichever path asks - the turn end for the user, the voice path, or a person's explain.
+    /// Claim one verdict id's narration call for a session. True for the first claim of that id, false while a call for
+    /// that same id is IN FLIGHT, whichever path asks - the turn end for the user, the voice path, or a person's explain.
+    ///
+    /// THE CLAIM COVERS A CALL, NOT A VERDICT, and that distinction is the whole of issue "Turn not narrated". The claim
+    /// was taken before the model call and never given back, so "one call per verdict id" silently became "one ATTEMPT
+    /// per verdict id, for the life of the process". A first attempt that timed out, was rate limited, or answered with
+    /// no words left the verdict permanently unnarratable: the sweep could not retry it, and - the part the owner saw -
+    /// the phone's "Generate narration now" button asked for the claim, was refused, made no call at all, and changed
+    /// nothing on screen. The screen said "ask for the narration again" next to a button that could not ask.
+    ///
+    /// So every caller that takes a claim MUST give it back when the call produced no words - see
+    /// <see cref="ReleaseNarrationClaim"/>. A claim that is held is a call that is running; a claim that is released is
+    /// an attempt that failed and may be made again. The claim is still never released on SUCCESS, because the saved
+    /// narration is then what stops the second call (both paths check <c>Narration</c> before they ask).
     /// </summary>
     internal bool TryClaimNarration(TenantId tenant, string sid, string verdictId)
     {
         if (string.IsNullOrWhiteSpace(verdictId)) return false;
         var key = (tenant, sid);
+        var mine = new NarrationClaim(verdictId, Running: true);
         while (true)
         {
             if (_narrationClaims.TryGetValue(key, out var claimed))
             {
-                if (string.Equals(claimed, verdictId, StringComparison.Ordinal)) return false;
-                if (_narrationClaims.TryUpdate(key, verdictId, claimed)) return true;
+                if (string.Equals(claimed.VerdictId, verdictId, StringComparison.Ordinal)) return false;
+                if (_narrationClaims.TryUpdate(key, mine, claimed)) return true;
             }
-            else if (_narrationClaims.TryAdd(key, verdictId))
+            else if (_narrationClaims.TryAdd(key, mine))
             {
                 return true;
             }
         }
     }
+
+    /// <summary>
+    /// One narration call has finished, however it ended. The claim STAYS - an automatic path never re-attempts a
+    /// stop, which is what keeps a stop that fails from spending a paid model call on every sweep pass - but it stops
+    /// being a RUNNING call, which is what lets a PERSON ask again. See <see cref="ReleaseNarrationClaimForRequest"/>.
+    /// </summary>
+    internal void NarrationCallFinished(TenantId tenant, string sid, string verdictId)
+    {
+        if (string.IsNullOrWhiteSpace(verdictId)) return;
+        var key = (tenant, sid);
+        if (_narrationClaims.TryGetValue(key, out var claimed)
+            && string.Equals(claimed.VerdictId, verdictId, StringComparison.Ordinal)
+            && claimed.Running)
+            _narrationClaims.TryUpdate(key, claimed with { Running = false }, claimed);
+    }
+
+    /// <summary>
+    /// A PERSON asked for this stop's narration - "Generate narration now", or entering voice mode - so give back a
+    /// SPENT claim and let the call be made. True when the caller may now claim; false only when a call for this same
+    /// verdict is running right now, so the request joins it instead of duplicating a paid call.
+    ///
+    /// WHY. The claim was taken before the model call and never given back, so "one call per verdict id" silently
+    /// became "one ATTEMPT per verdict id, for the life of the process". A first attempt that timed out, was rate
+    /// limited, or answered with no words left that stop unable to be narrated again by anyone, including a person
+    /// asking for it.
+    ///
+    /// WHAT THAT DOES AND DOES NOT EXPLAIN, measured on the live fleet on 2026-09-17 rather than assumed. It bites
+    /// only when the stop is UNCHANGED, because then the stored verdict is reused and its id is the same, so the ask
+    /// is refused and no narration call is made - the person gets the judge's short text and never the fuller
+    /// narration, however many times they press. When the screen or the reply HAS moved on, the re-judge mints a new
+    /// verdict id, the claim on the old one is irrelevant, and the button works; that was observed recovering a
+    /// "Turn not narrated" card in about twenty seconds. So this is NOT the cause of that card - that verdict comes
+    /// from the SPEECH leg's own spent ladder (see WingmanVoiceService.NoteNarrationAttemptFailed) - and the two
+    /// should not be conflated. It is the reason the card's own instruction, "ask for the narration again", can be
+    /// followed and still produce nothing new.
+    ///
+    /// ONLY A PERSON RELEASES IT, deliberately. The automatic paths - the turn end and the idle sweep - keep the older
+    /// restraint that <c>AFailedNarrationCall_LeavesTheJudgesWordsPlayable_AndIsNotReattempted</c> pins: a stop whose
+    /// narration failed is not retried by itself, because the sweep comes past every forty-five seconds and a stop
+    /// that keeps failing would keep costing a call. A person asking is bounded by the person, and is the one action
+    /// left on that screen that can still produce this turn's audio.
+    /// </summary>
+    internal bool ReleaseNarrationClaimForRequest(TenantId tenant, string sid, string verdictId)
+    {
+        if (string.IsNullOrWhiteSpace(verdictId)) return false;
+        var key = (tenant, sid);
+        if (!_narrationClaims.TryGetValue(key, out var claimed)) return true;   // nothing held: the caller may claim
+        if (!string.Equals(claimed.VerdictId, verdictId, StringComparison.Ordinal)) return true;   // a newer stop owns it
+        if (claimed.Running) return false;   // a call for this same stop is in flight - never make a second one
+        // ICollection's Remove is the only compare-and-remove ConcurrentDictionary exposes.
+        var removed = ((ICollection<KeyValuePair<(TenantId Tenant, string SessionId), NarrationClaim>>)_narrationClaims)
+            .Remove(new KeyValuePair<(TenantId Tenant, string SessionId), NarrationClaim>(key, claimed));
+        if (removed)
+            FileLog.Write($"[TurnVerdictService] narration claim released on request: sid={sid} verdict={verdictId} - a person asked, and the previous attempt made no words");
+        return true;
+    }
+
+    /// <summary>One session's narration claim: which stop it is for, and whether that call is running right now.</summary>
+    private sealed record NarrationClaim(string VerdictId, bool Running);
 
     /// <summary>
     /// Save a narration onto the verdict it describes, when that verdict is still this session's latest. A newer verdict
@@ -1627,7 +1705,7 @@ public sealed class TurnVerdictService : IDisposable
     }
 
     // The verdict id each session's narration call was last claimed for (see TryClaimNarration).
-    private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), string> _narrationClaims = new();
+    private readonly ConcurrentDictionary<(TenantId Tenant, string SessionId), NarrationClaim> _narrationClaims = new();
 
     // The narration calls for the user running detached from the turn end that started them.
     private readonly ConcurrentDictionary<Task, byte> _userNarrationCalls = new();

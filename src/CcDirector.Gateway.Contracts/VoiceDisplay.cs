@@ -24,6 +24,7 @@ public sealed class VoiceDisplay
     /// <summary>Machine-readable state key, for the client's tone/style lookup only (never re-ruling):
     /// <c>off</c>, <c>ready</c>, <c>preparing</c>, <c>retrying</c>, <c>serviceDown</c>, <c>blocked</c>
     /// (credits / cap / no key), <c>nothingToNarrate</c> (waiting on a prompt, no text reply to read),
+    /// <c>held</c> (a live session owns this one, so it is not the user's to be read aloud),
     /// or <c>notReady</c> (no audio yet, generation may still produce some).</summary>
     public string Kind { get; set; } = "";
 
@@ -98,4 +99,8 @@ public static class VoiceDisplayKinds
 
     /// <summary>The narration was abandoned: the model leg did not answer and nothing further is scheduled.</summary>
     public const string NotNarrated = "notNarrated";
+
+    /// <summary>A live session owns this one, so it is read by that owner and never narrated to the user. The
+    /// client renders the card and offers NOTHING - no play, no generate, and no "switch to voice mode".</summary>
+    public const string Held = "held";
 }

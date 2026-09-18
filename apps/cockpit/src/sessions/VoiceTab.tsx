@@ -57,9 +57,20 @@ export function VoiceTab({ sessionId }: { sessionId: string | undefined }) {
           <div className="voice-fallback-note" role="status">{v.voiceDisplay.voiceFallbackNotice}</div>
         )}
 
+        {/* A0. HELD - a live session owns this one, so it is read by that owner and never narrated to you.
+            The Gateway's verdict, rendered verbatim, offering NOTHING - see VoiceDisplayFold.HeldDisplay for
+            why the "Switch to voice mode" button below must not appear here: the enrolment sweep refuses a
+            held session, so pressing it either fails or is undone. */}
+        {v.voiceDisplay?.kind === "held" && (
+          <div className="voice-off">
+            <p className="voice-off-title">{v.voiceDisplay.label}</p>
+            <p className="voice-hint">{v.voiceDisplay.message}</p>
+          </div>
+        )}
+
         {/* A. OFF - one clear "Switch to voice mode" button; only ever shown once a poll has confirmed
             the session is NOT in voice mode. */}
-        {!v.voiceOn && v.pollDone && (
+        {v.voiceDisplay?.kind !== "held" && !v.voiceOn && v.pollDone && (
           <div className="voice-off">
             <p className="voice-off-title">Voice mode is off for this session.</p>
             <p className="voice-hint">Turn it on and the Wingman will start narrating every turn.</p>
@@ -77,10 +88,13 @@ export function VoiceTab({ sessionId }: { sessionId: string | undefined }) {
             and a Generate button ONLY when the Gateway says one can help. */}
         {(() => {
           const vd = v.voiceDisplay;
-          const busy = v.voiceOn && !v.speaking && (vd?.kind === "preparing" || vd?.kind === "working");
-          const downloading = v.voiceOn && !v.speaking && vd?.kind === "ready";
+          // Held wins over every card below: the session is not the user's to be read aloud, so none of
+          // "preparing", "downloading" or a Generate button describes anything he is waiting for.
+          const held = vd?.kind === "held";
+          const busy = !held && v.voiceOn && !v.speaking && (vd?.kind === "preparing" || vd?.kind === "working");
+          const downloading = !held && v.voiceOn && !v.speaking && vd?.kind === "ready";
           const status =
-            v.voiceOn && !v.speaking && vd != null &&
+            !held && v.voiceOn && !v.speaking && vd != null &&
             vd.kind !== "ready" && vd.kind !== "preparing" && vd.kind !== "working" && vd.kind !== "off";
           if (busy && vd) {
             return (
@@ -137,7 +151,7 @@ export function VoiceTab({ sessionId }: { sessionId: string | undefined }) {
 
         {/* C. SPEAKING - the audio bar and Respond are pinned at the top; the response text scrolls
             below. */}
-        {v.speaking && (
+        {v.voiceDisplay?.kind !== "held" && v.speaking && (
           <>
             <div className="voice-top">
               <div className="voice-statusbar">

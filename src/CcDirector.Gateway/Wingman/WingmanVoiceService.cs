@@ -1658,7 +1658,26 @@ public sealed class WingmanVoiceService
     private void StartNarrationCall(TenantId tenant, string sid, TurnVerdictOutcome outcome)
     {
         var epoch = CurrentStopEpoch(StateFor(tenant), sid);
-        var call = Task.Run(() => RunNarrationCallAsync(tenant, sid, outcome, epoch, CancellationToken.None));
+        var call = Task.Run(async () =>
+        {
+            try
+            {
+                await RunNarrationCallAsync(tenant, sid, outcome, epoch, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                // A detached call has no caller to throw to; log it rather than losing it.
+                FileLog.Write($"[WingmanVoiceService] sid={sid} verdict={outcome.Verdict?.VerdictId ?? "(none)"}: narration call FAILED ({ex.GetType().Name}): {ex.Message}");
+            }
+            finally
+            {
+                // THE CALL IS OVER, however it ended. The claim stays, so no automatic path re-attempts this stop; it
+                // only stops being a RUNNING call, which is what lets a PERSON pressing "Generate narration now" ask
+                // for it again. Without this the claim looked live for ever and that button made no call at all.
+                if (outcome.Verdict?.VerdictId is { } finishedId)
+                    RequireVerdicts().NarrationCallFinished(tenant, sid, finishedId);
+            }
+        });
         _narrationCalls[call] = 1;
         _ = call.ContinueWith(done => _narrationCalls.TryRemove(done, out _), TaskScheduler.Default);
     }
@@ -1801,7 +1820,15 @@ public sealed class WingmanVoiceService
             // THE NARRATION CALL (slice J): a person asked, so the stop gets one unless one was already made for this
             // verdict id. The call runs Gateway-owned past this request and replaces the clip when it answers, so the
             // phone is never left waiting on a second model call.
-            if (!HasSavedNarration(verdict) && verdicts.TryClaimNarration(tenant, sid, verdict.VerdictId))
+            // A PERSON ASKED, so a claim spent by an earlier failed attempt is given back first. Without it, a person
+            // asking about an UNCHANGED stop - the reused verdict, so the same verdict id - was refused the claim and
+            // made no narration call at all, however many times they pressed; they got the judge's short text and
+            // never the fuller narration. (A stop that HAS moved on mints a new verdict id and was never affected.)
+            // ReleaseNarrationClaimForRequest answers false only while a call for this same stop is genuinely in
+            // flight, and then this joins it rather than paying for a second one.
+            if (!HasSavedNarration(verdict)
+                && verdicts.ReleaseNarrationClaimForRequest(tenant, sid, verdict.VerdictId)
+                && verdicts.TryClaimNarration(tenant, sid, verdict.VerdictId))
                 StartNarrationCall(tenant, sid, outcome);
             FileLog.Write($"[WingmanVoiceService] narrate-on-request sid={sid}: {outcome.Kind} verdict={verdict.VerdictId} kind={verdict.PackageKind} spokenLen={spokenNow.Length} voiceSession={IsVoiceSession(tenant, sid)}");
             return new StopNarration(outcome.SourceText ?? "", spokenNow, outcome.ReplySeconds,
