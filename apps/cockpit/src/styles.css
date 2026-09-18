@@ -79,11 +79,97 @@ body {
   padding: 16px 12px;
 }
 
+/* The rail's top row: the name, and the control that collapses the rail. */
+.rail-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 0 16px;
+}
+
 .brand {
   font-weight: 700;
   font-size: 16px;
   letter-spacing: 0.2px;
-  padding: 4px 8px 16px;
+  padding: 4px 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.rail-toggle:hover {
+  color: var(--text);
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+
+/* ===== THE COLLAPSED RAIL (issue #3074) =====
+   The same list, with the words hidden - not a different navigation. The rail keeps every destination, in
+   the same order, found by the icon shapes that were drawn for exactly this (see NavIcon). It gives back
+   164 pixels to whatever the reader is actually looking at. */
+.shell-rail-collapsed {
+  --rail-left-width: 56px;
+}
+
+.shell-rail-collapsed .rail-left {
+  padding: 16px 8px;
+  align-items: stretch;
+}
+
+.shell-rail-collapsed .rail-head {
+  justify-content: center;
+  padding-bottom: 12px;
+}
+
+.shell-rail-collapsed .nav-link {
+  justify-content: center;
+  gap: 0;
+  padding: 10px 0;
+  position: relative;
+}
+
+/* The label is HIDDEN FROM THE EYE, NOT FROM THE PAGE: it is still the row's accessible name, so the rail
+   reads the same to a screen reader collapsed as expanded. display:none would take the name away and leave
+   a link announced as nothing. */
+.shell-rail-collapsed .nav-link-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
+/* The attention count survives the collapse as a dot on the icon. Losing it would make collapsing the rail
+   a way to stop being told something needs you. */
+.shell-rail-collapsed .nav-badge {
+  position: absolute;
+  top: 2px;
+  right: 4px;
+  min-width: auto;
+  margin-left: 0;
+  padding: 0 4px;
+  font-size: 10px;
+  line-height: 15px;
 }
 
 /* The rail body. It grows to fill the rail so the footer sits at the bottom.
@@ -1339,6 +1425,48 @@ body {
   min-height: 0;
   flex: 1;
   padding: 10px;
+}
+
+/* ===== THE COLLAPSED DOCK (issue #3074) =====
+   Thirty pixels instead of three hundred, and the 270 go to the page. The strip keeps the chevron that
+   brings it back and, when anything is queued, the count - so the dock can be out of the way without being
+   out of mind. */
+.session-detail-dock-collapsed {
+  grid-template-columns: 1fr 30px;
+}
+
+.session-dock-collapsed .dock-tabs {
+  border-bottom: none;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 8px;
+  gap: 6px;
+}
+
+.dock-collapse {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 2px;
+  color: var(--text-dim);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.dock-collapse:hover {
+  color: var(--text);
+}
+
+.dock-collapsed-count {
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 8px;
+  padding: 0 4px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* queue panel */
@@ -2931,8 +3059,49 @@ body {
 }
 
 .reports-tab-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 8px 12px;
   border-bottom: 1px solid var(--border);
+}
+
+/* The way to the report's own address, dressed as the button beside it. */
+.reports-fullscreen {
+  margin-left: auto;
+  padding: 4px 12px;
+  font-size: 13px;
+  color: var(--text);
+  text-decoration: none;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.reports-fullscreen:hover {
+  border-color: var(--accent);
+}
+
+/* ===== THE REPORT AT ITS OWN ADDRESS (issue #3074) =====
+   /report/{id} is mounted outside the AppShell, so this page owns the whole viewport: the report, the
+   conversation beside it, and nothing else. Same measurements as the Reports tab, because it IS the Reports
+   tab with the chrome taken away. */
+.report-page {
+  display: flex;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.report-page .dev-report-viewer {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.report-page-missing {
+  padding: 24px 28px;
 }
 
 .reports-back {

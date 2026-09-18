@@ -46,3 +46,6 @@ export type { Flash, FlashController } from "./useFlash";
 
 export { NavIcon } from "./NavIcon";
 export type { NavIconName, NavIconProps } from "./NavIcon";
+
+export { Chevron } from "./Chevron";
+export type { ChevronProps } from "./Chevron";

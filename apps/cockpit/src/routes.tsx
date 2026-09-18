@@ -7,7 +7,7 @@ import { NotFound } from "./panes/NotFound";
 import { SessionsEmpty, SessionsView } from "./sessions/SessionsView";
 import { SessionDetail } from "./sessions/SessionDetail";
 import { SessionRedirect } from "./sessions/SessionRedirect";
-import { ReportLanding } from "./sessions/ReportLanding";
+import { ReportPage } from "./sessions/ReportPage";
 import { FleetManagerView } from "./fleetmanager/FleetManagerView";
 import { WalkthroughView } from "./fleetmanager/WalkthroughView";
 import { FleetMapView } from "./fleet/FleetMapView";
@@ -63,6 +63,15 @@ export const COCKPIT_ROUTES: RouteObject[] = [
   {
     element: <RequireDeviceKey />,
     children: [
+      // THE REPORT, FULL SCREEN, AT ITS OWN ADDRESS (issue #3074): the one route that needs nothing but a
+      // report id, and where the printed address <gateway>/r/<report id> sends anything that is not a phone.
+      // It is a sibling of the AppShell, NOT a child: a report shown inside the shell is a report with a
+      // navigation rail beside it, and the whole point of this address is the report with nothing else on
+      // the screen - it is read by people who were sent the link and have no session here at all.
+      // It stays INSIDE the gate: signed out, the gate sends the browser to /signin?next=/report/{id}, and
+      // that next is a route this router can resolve at the end of the round trip - which a Gateway path
+      // such as /r/{id} never was (dev reports mission, phase 3b).
+      { path: "/report/:reportId", element: <ReportPage /> },
       {
         element: <AppShell />,
         children: [
@@ -86,13 +95,6 @@ export const COCKPIT_ROUTES: RouteObject[] = [
               { path: "session/:sessionId", element: <SessionDetail /> },
             ],
           },
-          // THE REPORT LANDING (dev reports mission, phase 3b): the one route that needs nothing but a
-          // report id, and where the printed address <gateway>/r/<report id> sends anything that is not a
-          // phone. It reads the report, learns its session, and replaces itself with that session's
-          // Reports tab. It is INSIDE the gate on purpose: signed out, the gate sends the browser to
-          // /signin?next=/report/{id}, and that next is a route this router can resolve at the end of the
-          // round trip - which a Gateway path such as /r/{id} never was.
-          { path: "/report/:reportId", element: <ReportLanding /> },
           // Roster/detail entry-page alignment (issue #978): the Blazor Cockpit reached the one session
           // experience through several paths - /cockpit (the list/home) and /cockpit/{sid} and
           // /sessions/{sid} (drive / read-mostly detail). The React shell has ONE rail-plus-terminal

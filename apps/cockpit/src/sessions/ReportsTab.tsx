@@ -38,6 +38,19 @@ export function ReportsTab({ sessionId, openReportId, onOpenReport, onCloseRepor
         <button type="button" className="reports-back" data-testid="reports-back" onClick={onCloseReport}>
           All reports
         </button>
+        {/* THE SAME REPORT WITH NOTHING AROUND IT (issue #3074). A real link to a real address, not a button
+            that opens a panel: the reader can copy it, and it is the same address the printed link resolves
+            to - so what he opens here is exactly what the person he sends it to will see. A new tab, because
+            leaving the session behind is not what he asked for. */}
+        <a
+          className="reports-fullscreen"
+          data-testid="reports-fullscreen"
+          href={`/report/${encodeURIComponent(openReportId)}`}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Full screen
+        </a>
       </div>
       <div className="reports-tab-body">
         <DevReportViewer
