@@ -5510,6 +5510,30 @@ internal static class GatewayEndpoints
         // account, so every surface pins the same row and offers the same change.
         Fleet.FleetManagerRosterFold.Stamp(roleUniverse, all, marked);
 
+        // VOICE: A SESSION A LIVE SESSION OWNS IS NOT THE USER'S TO BE READ ALOUD, and now the screen says so.
+        //
+        // IT IS APPLIED HERE, NOT WHERE THE REST OF THE VOICE VERDICT IS FOLDED, because of an ordering fact: the
+        // two callers that fold VoiceDisplay (the roster aggregation and the display push) both do it in a loop
+        // that runs BEFORE this method resolves HasLiveSupervisor - the push store nulls the resolved facts at
+        // ingest on purpose, so only this Gateway decides them, and only this line has decided them yet. Folding
+        // "held" up there would read a default false and answer "not held" for every session on the fleet: a check
+        // that passes because it is blind. This is the first moment the answer exists.
+        //
+        // WHAT IT FIXES. Voice mode's enrolment sweep has never switched a held session on (VoiceModeAllSweep:
+        // "a supervised session is never switched on"), so on a fleet of twenty sessions twelve were not voice
+        // sessions - correctly. Nothing SAID that. The banner on every screen read "Every session on the Gateway
+        // narrates its turns" and each of those twelve drew the phone's own off card: "Voice mode is off for this
+        // session" over a "Switch to voice mode" button. One screen, two contradictory sentences, and a button
+        // that cannot succeed - it 503s on a computer that is unreachable, and on one that is not the sweep is
+        // meant to undo it. That is the shape VoiceDisplay.CanGenerate exists to forbid, reappearing as a
+        // different button because this state had no verdict of its own.
+        //
+        // Nothing here changes WHICH sessions are narrated. It changes only what the screen says about the ones
+        // that are not, and it takes away an action that never worked.
+        foreach (var s in all)
+            if (s is { HasLiveSupervisor: true })
+                s.VoiceDisplay = Wingman.VoiceDisplayFold.HeldDisplay();
+
         // THE WINGMAN'S VERDICT, stamped before the loop because the loop's colour, label and bucket read it. ONE
         // snapshot of the account's verdicts for the whole fold, and no read at all while the account's colour
         // switch is off - see TurnVerdictRowStamp.

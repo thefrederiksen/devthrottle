@@ -63,7 +63,12 @@ export function VoiceModeBanner() {
       <span className="voicemode-dot" aria-hidden="true" />
       <span className="voicemode-text">
         Voice mode is on
-        <span className="voicemode-sub">Every session on the Gateway narrates its turns</span>
+        {/* "Every session you own", not "every session on the Gateway". The stronger sentence was never true:
+            the enrolment sweep has always refused a session a live session owns (VoiceModeAllSweep - those are
+            read by their owner, not by you), so on a twenty-session fleet twelve of them were not voice
+            sessions and each one's card said "Voice mode is off for this session" under this banner. Two
+            contradictory sentences on one screen is how a working feature reads as broken. */}
+        <span className="voicemode-sub">Every session you own narrates its turns</span>
         {voice.error !== null && <span className="voicemode-error">{voice.error}</span>}
       </span>
       <button

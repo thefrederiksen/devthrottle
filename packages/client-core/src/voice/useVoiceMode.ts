@@ -174,6 +174,26 @@ export function useVoiceMode(
   // Seed the narration state + text from the on-device cache so it shows instantly (issue #1015).
   const [voice, setVoice] = useState<WingmanVoice | null>(() => getVoiceMeta(sid));
   const [error, setError] = useState<string | null>(null);
+  // WHOSE ERROR IS ON SCREEN. An error a USER ACTION produced - a failed "Switch to voice mode", a failed
+  // "Generate narration now" - must survive the poll, and before this it did not: the poll runs every three
+  // seconds and cleared the error unconditionally on both of its good paths, so a switch that failed put a
+  // message up and the next tick took it away. What the owner saw was a button that did nothing at all, with
+  // no explanation - the 503 on POST /sessions/{sid}/voice-mode was invisible on screen.
+  //
+  // A POLL may only clear what a POLL set. An action's error is cleared when that action is tried again (or
+  // when it succeeds), which is the only moment the person has actually asked for it to go away.
+  const actionErrorRef = useRef(false);
+  const setActionError = useCallback((message: string) => {
+    actionErrorRef.current = true;
+    setError(message);
+  }, []);
+  const beginAction = useCallback(() => {
+    actionErrorRef.current = false;
+    setError(null);
+  }, []);
+  const clearPollError = useCallback(() => {
+    if (!actionErrorRef.current) setError(null);
+  }, []);
   const [autoPlayBlocked, setAutoPlayBlocked] = useState(false);
   // Whether a real poll has resolved the true state yet. Until it has, we never paint the OFF card -
   // the screen starts blank (or ON when the roster seeded it) and only shows OFF once confirmed.
@@ -269,7 +289,7 @@ export function useVoiceMode(
         const on = localEnabledRef.current || Boolean(match.voiceMode);
         if (!on) {
           setVoice(null);
-          setError(null);
+          clearPollError();
           return;
         }
 
@@ -278,7 +298,7 @@ export function useVoiceMode(
         saveVoiceMeta(sid, v); // keep the cached state + text fresh for the next instant entry (#1015)
         // Kick the phone-side download the moment a (new) clip is ready on the Gateway.
         if (v.ready && v.generatedAt) void ensureClip(sid, v.generatedAt);
-        setError(null);
+        clearPollError();
       } catch (err) {
         if (signal.aborted) return;
         // Background poll: keep the last-known view on screen and surface a soft note; the next tick
@@ -286,7 +306,7 @@ export function useVoiceMode(
         setError(err instanceof Error ? err.message : "Voice update failed");
       }
     },
-    [sid],
+    [sid, clearPollError],
   );
 
   useEffect(() => {
@@ -439,7 +459,7 @@ export function useVoiceMode(
   const onSwitchOn = useCallback(async () => {
     if (sid.length === 0 || enabling) return;
     setEnabling(true);
-    setError(null);
+    beginAction();
     setLocalEnabled(true); // show the working screen immediately (responsive UI)
     // Voice was just switched on, so nothing has asked about THIS session's narration yet. Without
     // this the old answer ("off", hence no voice) survived the switch and the screen flashed the red
@@ -457,11 +477,14 @@ export function useVoiceMode(
       setEnableNote(explained.nothingYet ? explained.spoken : "");
     } catch (err) {
       setLocalEnabled(false); // the enable did not take - fall back to the off screen, no half state
-      setError(err instanceof Error ? err.message : "Could not switch to voice mode");
+      // STICKY. The poll runs every three seconds and used to clear this, so a switch that failed - a 503 from
+      // an unreachable computer, say - showed nothing at all and the button looked inert. It stays until the
+      // person tries again.
+      setActionError(err instanceof Error ? err.message : "Could not switch to voice mode");
     } finally {
       setEnabling(false);
     }
-  }, [sid, enabling]);
+  }, [sid, enabling, beginAction, setActionError]);
 
   const onSwitchOff = useCallback(async () => {
     if (sid.length === 0) return;
@@ -487,9 +510,9 @@ export function useVoiceMode(
       await setVoiceMode(sid, false);
       await stopWingmanVoice(sid);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not turn voice off");
+      setActionError(err instanceof Error ? err.message : "Could not turn voice off");
     }
-  }, [sid]);
+  }, [sid, setActionError]);
 
   // Manual recovery when the screen is stuck on "Voice unavailable": generate the narration on
   // demand. This is the SAME proven server path entering voice mode uses (POST /wingman/explain) -
@@ -502,7 +525,7 @@ export function useVoiceMode(
   const onGenerateNow = useCallback(async () => {
     if (sid.length === 0 || regenerating) return;
     setRegenerating(true);
-    setError(null);
+    beginAction();
     try {
       const explained = await markVoiceAndExplain(sid);
       // Nothing to narrate yet (a fresh/text-only session): show the truthful note, which moves the
@@ -519,14 +542,14 @@ export function useVoiceMode(
       // 404 - all three the same story, "that computer is not reachable" - but only the 404s got the
       // plain-English line and the 502 leaked a raw message. Same cause, same sentence.
       if (err instanceof GatewayError && (err.status === 404 || err.status === 502)) {
-        setError("This session's computer looks offline. Voice can't be generated until it reconnects.");
+        setActionError("This session's computer looks offline. Voice can't be generated until it reconnects.");
       } else {
-        setError(err instanceof Error ? err.message : "Could not generate narration");
+        setActionError(err instanceof Error ? err.message : "Could not generate narration");
       }
     } finally {
       setRegenerating(false);
     }
-  }, [sid, regenerating]);
+  }, [sid, regenerating, beginAction, setActionError]);
 
   // The whole second we last persisted, so onTimeUpdate saves the position roughly once a second
   // rather than on every ~4Hz tick (issue #1003 per-session resume).
